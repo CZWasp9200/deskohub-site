@@ -64,7 +64,6 @@ mock.module("@/features/account/components/account-screen-copy", () => ({
         verified: "This email has been successfully verified.",
       },
       languageLabel: "Preferred communication language",
-      languageUnavailableValue: "Not set",
       memberFallback: "Workspace member",
       title: "Profile & identity",
       verifiedEmail: "Verified login email",
@@ -250,6 +249,7 @@ describe("ProfileForm", () => {
     const en = render(
       <ProfileForm
         mode="edit"
+        preferredLanguage="read-failed"
         locale="en-US"
         email="ada@example.test"
         profile={editProfile}
@@ -264,6 +264,7 @@ describe("ProfileForm", () => {
     const cs = render(
       <ProfileForm
         mode="edit"
+        preferredLanguage="read-failed"
         locale="cs-CZ"
         email="ada@example.test"
         profile={editProfile}
@@ -281,6 +282,7 @@ describe("ProfileForm", () => {
     const view = render(
       <ProfileForm
         mode="edit"
+        preferredLanguage="read-failed"
         locale="en-US"
         email="ada@example.test"
         profile={editProfile}
@@ -336,6 +338,7 @@ describe("ProfileForm", () => {
             email="ada@example.test"
             locale="en-US"
             mode="edit"
+            preferredLanguage="read-failed"
             profile={businessProfile}
             section={section}
           />
@@ -447,6 +450,7 @@ describe("ProfileForm", () => {
             email="ada@example.test"
             locale="en-US"
             mode="edit"
+            preferredLanguage="read-failed"
             onSectionChange={setSection}
             profile={businessProfile}
             section={section}
@@ -498,6 +502,7 @@ describe("ProfileForm", () => {
             email="ada@example.test"
             locale="en-US"
             mode="edit"
+            preferredLanguage="read-failed"
             onSectionChange={setSection}
             profile={businessProfile}
             section={section}
@@ -694,6 +699,7 @@ describe("ProfileForm", () => {
     const view = render(
       <ProfileForm
         mode="edit"
+        preferredLanguage="read-failed"
         locale="en-US"
         email="ada@example.test"
         profile={editProfile}
@@ -720,6 +726,7 @@ describe("ProfileForm", () => {
     const view = render(
       <ProfileForm
         mode="edit"
+        preferredLanguage="read-failed"
         locale="en-US"
         email="ada@example.test"
         profile={editProfile}
@@ -752,6 +759,7 @@ describe("ProfileForm", () => {
     const view = render(
       <ProfileForm
         mode="edit"
+        preferredLanguage="read-failed"
         locale="en-US"
         email="ada@example.test"
         profile={editProfile}
@@ -778,6 +786,7 @@ describe("ProfileForm", () => {
     const view = render(
       <ProfileForm
         mode="edit"
+        preferredLanguage="read-failed"
         locale="en-US"
         email="ada@example.test"
         profile={{ ...editProfile, phone: "555-ALPHA" }}
@@ -804,6 +813,7 @@ describe("ProfileForm", () => {
     const view = render(
       <ProfileForm
         mode="edit"
+        preferredLanguage="read-failed"
         locale="en-US"
         email="ada@example.test"
         profile={{ ...editProfile, phone: "555-ALPHA" }}
@@ -836,6 +846,7 @@ describe("ProfileForm", () => {
     const view = render(
       <ProfileForm
         mode="edit"
+        preferredLanguage="read-failed"
         locale="en-US"
         email="ada@example.test"
         profile={editProfile}
@@ -872,6 +883,7 @@ describe("ProfileForm", () => {
         <UnsavedChangesProvider>
           <ProfileForm
             mode="edit"
+            preferredLanguage="read-failed"
             locale="en-US"
             email="ada@example.test"
             profile={editProfile}
@@ -934,6 +946,7 @@ describe("ProfileForm", () => {
         <UnsavedChangesProvider>
           <ProfileForm
             mode="edit"
+            preferredLanguage="read-failed"
             locale="en-US"
             email="ada@example.test"
             profile={editProfile}
@@ -998,6 +1011,7 @@ describe("ProfileForm", () => {
         <UnsavedChangesProvider>
           <ProfileForm
             mode="edit"
+            preferredLanguage="read-failed"
             locale="en-US"
             email="ada@example.test"
             profile={editProfile}
@@ -1052,6 +1066,7 @@ describe("ProfileForm", () => {
         <UnsavedChangesProvider>
           <ProfileForm
             mode="edit"
+            preferredLanguage="read-failed"
             locale="en-US"
             email="ada@example.test"
             profile={editProfile}
@@ -1100,6 +1115,7 @@ describe("ProfileForm", () => {
         <UnsavedChangesProvider>
           <ProfileForm
             mode="edit"
+            preferredLanguage="read-failed"
             locale="en-US"
             email="ada@example.test"
             profile={editProfile}
@@ -1158,6 +1174,7 @@ describe("ProfileForm", () => {
             <Activity mode={mode}>
               <ProfileForm
                 mode="edit"
+                preferredLanguage="read-failed"
                 locale="en-US"
                 email="ada@example.test"
                 profile={editProfile}
@@ -1213,6 +1230,7 @@ describe("ProfileForm", () => {
     const view = render(
       <ProfileForm
         mode="edit"
+        preferredLanguage="read-failed"
         locale="en-US"
         email="ada@example.test"
         profile={businessProfile}
@@ -1266,6 +1284,7 @@ describe("ProfileForm", () => {
         <UnsavedChangesProvider>
           <ProfileForm
             mode="edit"
+            preferredLanguage="read-failed"
             locale="en-US"
             email="ada@example.test"
             profile={personalProfile}
@@ -1324,6 +1343,7 @@ describe("ProfileForm", () => {
         <UnsavedChangesProvider>
           <ProfileForm
             mode="edit"
+            preferredLanguage="read-failed"
             locale="en-US"
             email="ada@example.test"
             profile={businessProfile}
@@ -1389,6 +1409,7 @@ describe("ProfileForm", () => {
     const view = render(
       <ProfileForm
         mode="edit"
+        preferredLanguage="read-failed"
         locale="en-US"
         email="ada@example.test"
         profile={editProfile}
@@ -1443,6 +1464,7 @@ describe("ProfileForm", () => {
     const view = render(
       <ProfileForm
         mode="edit"
+        preferredLanguage="read-failed"
         locale="en-US"
         email="ada@example.test"
         profile={businessProfile}
@@ -1571,6 +1593,7 @@ describe("ProfileForm", () => {
         <UnsavedChangesProvider>
           <ProfileForm
             mode="edit"
+            preferredLanguage="read-failed"
             locale="en-US"
             email="ada@example.test"
             profile={editProfile}

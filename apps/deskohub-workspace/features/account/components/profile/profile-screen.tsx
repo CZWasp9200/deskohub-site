@@ -48,7 +48,6 @@ export interface ProfileScreenCopy {
   readonly avatarUnavailableLabel: string;
   readonly avatarUnavailableDescription: string;
   readonly languageLabel: string;
-  readonly languageUnavailableValue: string;
   readonly languageSave: string;
   readonly languageSaving: string;
   readonly languageSaved: string;
@@ -64,7 +63,7 @@ export interface ProfileScreenProps {
   readonly email: string;
   readonly locale: Locale;
   readonly copy: ProfileScreenCopy;
-  readonly preferredLanguage?: PreferredLanguageState;
+  readonly preferredLanguage: PreferredLanguageState;
   readonly children: ReactNode;
   readonly footer?: ReactNode;
 }
@@ -136,13 +135,15 @@ export function ProfileScreen({
     .filter((initial): initial is string => initial !== undefined)
     .join("");
 
-  const hasSavedLanguage = preferredLanguage !== "read-failed";
-  const savedLanguage = hasSavedLanguage ? preferredLanguage : null;
+  /**
+   * The read-failed placeholder is the only missing-selection state: it is
+   * an explicit read failure, never an unset success, and the preference
+   * being required means no other fallback may render.
+   */
+  const languagePlaceholder = copy.languageReadUnavailable;
+  const savedLanguage =
+    preferredLanguage === "read-failed" ? null : preferredLanguage;
   const languageValue = selectedLanguage ?? savedLanguage;
-  const languagePlaceholder =
-    preferredLanguage === "read-failed"
-      ? copy.languageReadUnavailable
-      : copy.languageUnavailableValue;
   const saveFailed = transportFailed || result.serverError != null;
   const languageStatus = languageStatusCopy({
     copy,

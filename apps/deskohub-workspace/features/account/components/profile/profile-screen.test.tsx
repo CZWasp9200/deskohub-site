@@ -115,7 +115,6 @@ const englishCopy: ProfileScreenCopy = {
     verified: "This email has been successfully verified.",
   },
   languageLabel: "Preferred communication language",
-  languageUnavailableValue: "Not set",
   languageSave: "Save",
   languageSaving: "Saving…",
   languageSaved: "Communication language saved.",
@@ -137,7 +136,6 @@ const czechCopy: ProfileScreenCopy = {
     verified: "Tento e-mail byl úspěšně ověřen.",
   },
   languageLabel: "Preferovaný komunikační jazyk",
-  languageUnavailableValue: "Nenastaveno",
   languageSave: "Uložit",
   languageSaving: "Ukládání…",
   languageSaved: "Komunikační jazyk byl uložen.",
@@ -462,7 +460,6 @@ describe("ProfileScreen", () => {
 
       expect((trigger as HTMLButtonElement).disabled).toBe(false);
       expect(trigger.textContent).toContain(copy.languageReadUnavailable);
-      expect(trigger.textContent).not.toContain(copy.languageUnavailableValue);
       cleanup();
     }
   });
@@ -555,7 +552,6 @@ describe("ProfileScreen", () => {
       });
 
       expect(trigger.textContent).toContain(copy.languageReadUnavailable);
-      expect(trigger.textContent).not.toContain(copy.languageUnavailableValue);
       expect(trigger.textContent).not.toContain("Čeština");
       expect(trigger.textContent).not.toContain("English (US)");
       cleanup();
@@ -570,6 +566,7 @@ describe("ProfileScreen", () => {
         firstName="Ada"
         lastName="Lovelace"
         locale="en-US"
+        preferredLanguage="en-US"
       >
         {profileFields}
       </ProfileScreen>
@@ -687,6 +684,7 @@ describe("ProfileScreen", () => {
         firstName="Ada"
         lastName="Lovelace"
         locale="en-US"
+        preferredLanguage="en-US"
       >
         {profileFields}
       </ProfileScreen>
@@ -741,6 +739,7 @@ describe("ProfileScreen", () => {
         firstName="Ada"
         lastName="Lovelace"
         locale="cs-CZ"
+        preferredLanguage="en-US"
       >
         {profileFields}
       </ProfileScreen>
@@ -787,6 +786,7 @@ describe("ProfileScreen", () => {
         firstName="Ada"
         lastName="Lovelace"
         locale="en-US"
+        preferredLanguage="en-US"
       >
         {profileFields}
       </ProfileScreen>
@@ -841,6 +841,7 @@ describe("ProfileScreen", () => {
           firstName="Ada"
           lastName="Lovelace"
           locale="en-US"
+          preferredLanguage="en-US"
         >
           {profileFields}
         </ProfileScreen>
@@ -928,8 +929,6 @@ describe("ProfileScreen", () => {
       languageSaved: _languageSaved,
       languageSaveFailed: _languageSaveFailed,
       languageReadUnavailable: _languageReadUnavailable,
-      // The unset placeholder never renders: the preference is required.
-      languageUnavailableValue: _languageUnavailableValue,
       // Option labels render only inside the open listbox.
       languageOptionCs: _languageOptionCs,
       languageOptionEn: _languageOptionEn,

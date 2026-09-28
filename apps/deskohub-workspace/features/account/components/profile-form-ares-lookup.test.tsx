@@ -66,7 +66,6 @@ mock.module("@/features/account/components/account-screen-copy", () => ({
         verified: "This email has been successfully verified.",
       },
       languageLabel: "Preferred communication language",
-      languageUnavailableValue: "Not set",
       memberFallback: "Workspace member",
       title: locale === "cs-CZ" ? "Profil a nastavení" : "Profile & identity",
       verifiedEmail: "Verified login email",
@@ -224,6 +223,7 @@ const renderForm = (
       email="ada@example.test"
       locale="en-US"
       mode="edit"
+      preferredLanguage="read-failed"
       profile={businessProfile}
       section="billing"
       {...props}

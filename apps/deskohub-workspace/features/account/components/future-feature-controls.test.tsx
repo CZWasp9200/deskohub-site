@@ -173,7 +173,6 @@ const profileCopy = {
       verified: "This email has been successfully verified.",
     },
     languageLabel: "Preferred communication language",
-    languageUnavailableValue: "Not set",
     languageSave: "Save",
     languageSaving: "Saving…",
     languageSaved: "Communication language saved.",
@@ -194,7 +193,6 @@ const profileCopy = {
       verified: "Tento e-mail byl úspěšně ověřen.",
     },
     languageLabel: "Preferovaný komunikační jazyk",
-    languageUnavailableValue: "Nenastaveno",
     languageSave: "Uložit",
     languageSaving: "Ukládání…",
     languageSaved: "Komunikační jazyk byl uložen.",
@@ -547,6 +545,7 @@ describe("account future-feature controls", () => {
         email="ada@example.test"
         locale="en-US"
         mode="edit"
+        preferredLanguage="read-failed"
         profile={{
           billing: null,
           firstName: "Ada",

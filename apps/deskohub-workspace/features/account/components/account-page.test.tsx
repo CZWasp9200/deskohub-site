@@ -126,7 +126,6 @@ const accountScreenCopy = (locale: "en-US" | "cs-CZ") => ({
       verified: "This email has been successfully verified.",
     },
     languageLabel: "Preferred communication language",
-    languageUnavailableValue: "Not set",
     memberFallback: "Workspace member",
     title: "Profile & identity",
     verifiedEmail: "Verified login email",

@@ -33,10 +33,6 @@ export function getAccountScreenCopy(locale: Locale) {
       avatarUnavailableDescription:
         m.accountProfileScreenAvatarUnavailableDescription({}, { locale }),
       languageLabel: m.accountProfileScreenLanguageLabel({}, { locale }),
-      languageUnavailableValue: m.accountProfileScreenLanguageUnavailableValue(
-        {},
-        { locale }
-      ),
       languageSave: m.accountProfileScreenLanguageSave({}, { locale }),
       languageSaving: m.accountProfileScreenLanguageSaving({}, { locale }),
       languageSaved: m.accountProfileScreenLanguageSaved({}, { locale }),

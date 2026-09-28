@@ -111,6 +111,7 @@ function ProfileFixture({
           email="ada@example.test"
           locale="en-US"
           mode="edit"
+          preferredLanguage="read-failed"
           onSectionChange={setSection}
           profile={businessProfile}
           section={section}

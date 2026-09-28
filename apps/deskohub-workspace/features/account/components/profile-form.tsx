@@ -33,17 +33,10 @@ import { useWorkspaceAction } from "@/shared/utils/use-workspace-action";
 
 export type CustomerProfileFormMode = "complete" | "edit";
 
-type ProfileFormProps = {
+type ProfileFormBaseProps = {
   readonly email: string;
   readonly locale: Locale;
-  readonly mode: CustomerProfileFormMode;
   readonly onSectionChange?: (section: "profile" | "billing") => void;
-  /**
-   * The server-read preferred communication language. Completion mode never
-   * renders the language control, so the prop is optional and defaults to
-   * "no preference".
-   */
-  readonly preferredLanguage?: PreferredLanguageState;
   readonly profile?: {
     readonly firstName: string;
     readonly lastName: string | null;
@@ -52,6 +45,25 @@ type ProfileFormProps = {
   };
   readonly section?: "profile" | "billing";
 };
+
+/**
+ * The preferred communication language is discriminated by mode: edit mode
+ * renders the profile screen and must carry the server-read state, while
+ * completion mode never renders the language control and must not accept a
+ * preference at all — there is no unset-success representation.
+ */
+export type ProfileFormProps = ProfileFormBaseProps &
+  (
+    | {
+        readonly mode: "complete";
+        /** Completion never renders the language control; passing one is a compile error. */
+        readonly preferredLanguage?: never;
+      }
+    | {
+        readonly mode: "edit";
+        readonly preferredLanguage: PreferredLanguageState;
+      }
+  );
 
 type BillingKind = "hidden" | "personal" | "business";
 
@@ -553,7 +565,7 @@ export function ProfileForm({
         className={isComplete ? "space-y-6" : undefined}
         disabled={isRefreshPending}
       >
-        {isComplete ? (
+        {mode === "complete" ? (
           <>
             <div className="grid gap-5 sm:grid-cols-2">
               {identityFields}

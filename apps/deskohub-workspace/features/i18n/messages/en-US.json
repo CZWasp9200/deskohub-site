@@ -15,7 +15,6 @@
   "accountProfileScreenAvatarUnavailableLabel": "Profile photo unavailable",
   "accountProfileScreenAvatarUnavailableDescription": "Profile photos are not available here.",
   "accountProfileScreenLanguageLabel": "Preferred communication language",
-  "accountProfileScreenLanguageUnavailableValue": "Not set",
   "accountProfileScreenLanguageSave": "Save",
   "accountProfileScreenLanguageSaving": "Saving…",
   "accountProfileScreenLanguageSaved": "Communication language saved.",
