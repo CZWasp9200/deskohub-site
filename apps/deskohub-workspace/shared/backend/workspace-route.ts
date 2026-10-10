@@ -6,7 +6,7 @@ import {
 } from "./workspace-effect";
 import { withWorkspaceRequestContext } from "./workspace-request-context";
 
-export type WorkspaceRouteCancellation =
+type WorkspaceRouteCancellation =
   | "interrupt-on-disconnect"
   | "continue-after-disconnect";
 

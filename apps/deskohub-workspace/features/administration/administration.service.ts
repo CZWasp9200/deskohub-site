@@ -157,10 +157,9 @@ export type AdministrationReservationSort =
   | "reservation"
   | "status";
 
-export type AdministrationSortDirection = "asc" | "desc";
+type AdministrationSortDirection = "asc" | "desc";
 
-export type AdministrationReservationSortDirection =
-  AdministrationSortDirection;
+type AdministrationReservationSortDirection = AdministrationSortDirection;
 
 type ReservationListInput = AdministrationReservationListInput & {
   readonly pageSize?: number;
@@ -183,7 +182,7 @@ export type AdministrationBookingListInput = {
 
 export type AdministrationBookingSort = "booking" | "status";
 
-export type AdministrationCustomer = {
+type AdministrationCustomer = {
   readonly id: DotyposCustomerId;
   readonly displayName: string;
   readonly email: string | null;
@@ -329,7 +328,7 @@ const customerReservationActivityCategoryPriority = {
   office: 4,
 } satisfies Record<AdministrationCustomerReservationActivityCategory, number>;
 
-export type AdministrationDiscountApplication = {
+type AdministrationDiscountApplication = {
   readonly id: DiscountApplicationId;
   readonly label: string;
   readonly amount: {
@@ -411,7 +410,7 @@ export type AdministrationOverviewMetric = {
   readonly value: number;
 };
 
-export type AdministrationCustomerOverviewMetric = {
+type AdministrationCustomerOverviewMetric = {
   readonly customers: readonly Pick<
     AdministrationCustomerSummary,
     "customer" | "customerId"
@@ -420,7 +419,7 @@ export type AdministrationCustomerOverviewMetric = {
   readonly value: number;
 };
 
-export type AdministrationReservationOverview = {
+type AdministrationReservationOverview = {
   readonly ranges: ReturnType<typeof getAdministrationOverviewDateRanges>;
   readonly today: AdministrationOverviewMetric;
   readonly upcoming: AdministrationOverviewMetric;

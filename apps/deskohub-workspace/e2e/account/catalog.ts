@@ -12,8 +12,3 @@ export const workspaceE2EAccountCaseIds = [
 
 export type WorkspaceE2EAccountCaseId =
   (typeof workspaceE2EAccountCaseIds)[number];
-
-export const isWorkspaceE2EAccountCaseId = (
-  value: string
-): value is WorkspaceE2EAccountCaseId =>
-  (workspaceE2EAccountCaseIds as readonly string[]).includes(value);

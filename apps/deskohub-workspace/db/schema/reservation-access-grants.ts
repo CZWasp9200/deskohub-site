@@ -88,6 +88,3 @@ export const reservationAccessGrants = pgTable(
     ),
   ]
 );
-
-export type ReservationAccessGrantRow =
-  typeof reservationAccessGrants.$inferSelect;

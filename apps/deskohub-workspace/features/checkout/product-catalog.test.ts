@@ -16,7 +16,6 @@ import {
   workspaceCoworkCurrentCatalog,
   workspaceCoworkCurrentTiers,
   workspaceCoworkHistoricalTiers,
-  workspaceCoworkProductCatalog,
   workspaceCoworkTiers,
   workspaceMeetingRoomCatalog,
   workspaceMeetingRoomProductsByDurationKey,
@@ -180,7 +179,7 @@ describe("workspace product catalog", () => {
     );
 
     const prices = [
-      ...workspaceCoworkProductCatalog.map(({ price }) => price),
+      ...workspaceCoworkCatalog.map(({ price }) => price),
       ...workspaceMeetingRoomCatalog.map(({ price }) => price),
       workspaceProductCoffeePrice,
     ];

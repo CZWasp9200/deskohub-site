@@ -27,7 +27,7 @@ type RoomImageCarouselProps = {
   imageSizes?: string;
 };
 
-export type RoomImageCarouselFallbackImage = {
+type RoomImageCarouselFallbackImage = {
   alt: string;
   caption?: string;
   src: StaticImageData;

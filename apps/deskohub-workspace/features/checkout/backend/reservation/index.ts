@@ -13,12 +13,7 @@ export {
   getWorkspaceTableSeatCapacity,
   hasAvailableWorkspaceTableCandidate,
   hasAvailableWorkspaceTableCandidateByPredicate,
-  isWorkspaceCoworkHistoricalTableCandidate,
   isWorkspaceCoworkTableCandidate,
-  selectWorkspaceTableByPredicate,
-  selectWorkspaceTableFromCandidates,
-  workspaceCoworkOpenSpaceTableTag,
-  workspaceCoworkReservedDeskTableTag,
   workspaceMeetingRoomReservationTableTag,
   workspaceOfficeReservationTableTag,
 } from "./workspace-table-selection";

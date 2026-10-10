@@ -28,12 +28,8 @@ import {
 } from "./manual-invoice";
 
 export {
-  type BusinessInvoiceBuyer,
-  businessInvoiceBuyerSchema,
   type InvoiceBuyer,
   invoiceBuyerSchema,
-  type PersonalInvoiceBuyer,
-  personalInvoiceBuyerSchema,
 } from "./billing-identity";
 
 export const invoiceNumberSchema = Schema.String.pipe(
@@ -142,7 +138,7 @@ const manualInvoiceDocumentIdentitySchema = Schema.Struct({
   }),
 });
 
-export const manualInvoiceDocumentSchema = Schema.Union([
+const manualInvoiceDocumentSchema = Schema.Union([
   Schema.Struct({
     ...manualInvoiceDocumentIdentitySchema.fields,
     payment: Schema.Struct({

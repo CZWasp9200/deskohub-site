@@ -63,7 +63,7 @@ export type StandaloneAccessCodeAttemptTerminalResolution =
       readonly failureCode: StandaloneAccessCodeFailureCode;
     };
 
-export type StandaloneAccessCodeAttemptClaim =
+type StandaloneAccessCodeAttemptClaim =
   | StandaloneAccessCodeAttemptTerminalResolution
   | {
       readonly kind: "claimed";
@@ -78,7 +78,7 @@ export type StandaloneAccessCodeAttemptClaim =
   | { readonly kind: "mismatch" }
   | { readonly kind: "exhausted" };
 
-export type StandaloneAccessCodeAppendTerminalResult =
+type StandaloneAccessCodeAppendTerminalResult =
   | { readonly kind: "appended" }
   | {
       readonly kind: "already-terminal";

@@ -33,12 +33,12 @@ export type { CustomerAvatarRejectionReason } from "./customer-avatar-normalizat
  * The avatar asset as the account page and actions see it: a versioned
  * delivery URL derived from the asset itself, never persisted anywhere.
  */
-export type CustomerAvatar = {
+type CustomerAvatar = {
   readonly url: string;
   readonly version?: number;
 };
 
-export type CustomerAvatarUploadInput = {
+type CustomerAvatarUploadInput = {
   readonly bytes: Uint8Array;
   readonly declaredSize: number;
   readonly declaredMediaType: string;
@@ -58,7 +58,7 @@ export class CustomerAvatarUnavailableError extends Data.TaggedError(
   "CustomerAvatarUnavailableError"
 )<Record<string, never>> {}
 
-export type CustomerAvatarError =
+type CustomerAvatarError =
   | CustomerAvatarRejectedError
   | CustomerAvatarUnavailableError
   | CustomerAvatarProviderError;

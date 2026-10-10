@@ -225,9 +225,5 @@ export type CliStoredMutationResult =
   | AdministrationStandaloneAccessCodeResultType;
 
 export type CliSessionRow = typeof cliSessions.$inferSelect;
-export type NewCliSessionRow = typeof cliSessions.$inferInsert;
 export type CliAuthenticationRequestRow =
   typeof cliAuthenticationRequests.$inferSelect;
-export type NewCliAuthenticationRequestRow =
-  typeof cliAuthenticationRequests.$inferInsert;
-export type CliMutationRequestRow = typeof cliMutationRequests.$inferSelect;

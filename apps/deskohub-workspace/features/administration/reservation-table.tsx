@@ -25,7 +25,7 @@ import {
   getAdministrationTableSortHref,
 } from "./table-sort";
 
-export function ReservationStatusBadge({
+function ReservationStatusBadge({
   status,
 }: {
   readonly status: AdministrationReservationStatus;

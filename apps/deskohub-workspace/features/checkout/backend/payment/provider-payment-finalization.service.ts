@@ -39,7 +39,7 @@ import {
 } from "../repositories/payment-lifecycle.repository";
 import { getNexiCurrencyOverride } from "./nexi-currency";
 
-export type ProviderPaymentFinalizationResult =
+type ProviderPaymentFinalizationResult =
   | "abandoned"
   | "deferred"
   | "not_found"

@@ -61,7 +61,7 @@ export class NexiWebhookProcessingError extends Data.TaggedError(
   readonly cause?: unknown;
 }> {}
 
-export interface NexiWebhookResult {
+interface NexiWebhookResult {
   readonly status: "accepted" | "duplicate";
   readonly orderId?: NexiOrderId;
   readonly eventId?: NexiWebhookEventId;

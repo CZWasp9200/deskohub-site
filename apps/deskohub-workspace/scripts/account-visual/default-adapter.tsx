@@ -25,12 +25,12 @@ const linkedFixture = {
 export const accountVisualFixture = linkedFixture;
 export const accountVisualAdapterMetadata = defaultAccountVisualAdapterMetadata;
 
-export function DefaultAccountAdapter({ locale }: AccountVisualAdapterProps) {
+export default function DefaultAccountAdapter({
+  locale,
+}: AccountVisualAdapterProps) {
   return (
     <AccountLayoutShell accountsEnabled locale={locale} signedIn>
       <AccountVisualRoute locale={locale} state={linkedFixture} />
     </AccountLayoutShell>
   );
 }
-
-export default DefaultAccountAdapter;

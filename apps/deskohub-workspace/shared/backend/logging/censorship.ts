@@ -576,7 +576,7 @@ const censorLogValueInternal = <T>(
   return result;
 };
 
-export const censorTelemetryValue = <T>(value: T): unknown =>
+const censorTelemetryValue = <T>(value: T): unknown =>
   censorLogValueInternal(value, new WeakMap());
 
 export const censorLogValue = censorTelemetryValue;
@@ -655,7 +655,7 @@ const CensoringFormatter = Logger.make((options) =>
   Logger.formatLogFmt.log(censorLoggerOptions(options))
 );
 
-export const CensoringLogger = Logger.withLeveledConsole(CensoringFormatter);
+const CensoringLogger = Logger.withLeveledConsole(CensoringFormatter);
 
 const logLevelToOtelSeverity = (logLevel: LogLevel.LogLevel) => {
   switch (logLevel) {

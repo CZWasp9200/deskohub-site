@@ -95,7 +95,7 @@ export class PaymentLifecycleStateError extends Data.TaggedError(
   readonly message: string;
 }> {}
 
-export interface PaymentLifecycleTransition {
+interface PaymentLifecycleTransition {
   readonly attempt: PaymentAttempt;
   readonly changed: boolean;
   readonly timestamp: Temporal.Instant;

@@ -51,7 +51,6 @@ function useFormField() {
     name: fieldContext.name,
     formItemId: `${itemContext.id}-form-item`,
     formLabelId: `${itemContext.id}-form-item-label`,
-    formDescriptionId: `${itemContext.id}-form-item-description`,
     formMessageId: `${itemContext.id}-form-item-message`,
     ...fieldState,
   };
@@ -123,25 +122,6 @@ function FormControl({
   );
 }
 
-function FormDescription({
-  className,
-  ref,
-  ...props
-}: React.HTMLAttributes<HTMLParagraphElement> & {
-  ref?: React.Ref<HTMLParagraphElement>;
-}) {
-  const { formDescriptionId } = useFormField();
-
-  return (
-    <p
-      ref={ref}
-      id={formDescriptionId}
-      className={cn("text-sm text-navy-blue/62", className)}
-      {...props}
-    />
-  );
-}
-
 function FormMessage({
   className,
   children,
@@ -173,7 +153,6 @@ function FormMessage({
 export {
   Form,
   FormControl,
-  FormDescription,
   FormField,
   FormItem,
   FormLabel,

@@ -16,7 +16,7 @@ export const accountVisualAdapterMetadata = {
   fixture: "linked synthetic customer account with avatar hidden",
 } as const;
 
-export function HiddenAvatarAccountAdapter({
+export default function HiddenAvatarAccountAdapter({
   locale,
 }: AccountVisualAdapterProps) {
   return (
@@ -25,5 +25,3 @@ export function HiddenAvatarAccountAdapter({
     </AccountLayoutShell>
   );
 }
-
-export default HiddenAvatarAccountAdapter;

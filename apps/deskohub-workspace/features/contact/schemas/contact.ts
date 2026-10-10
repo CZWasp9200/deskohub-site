@@ -85,7 +85,6 @@ type ContactSchema = ReturnType<typeof createContactSchema>;
 export const getContactSchema = createContactSchema;
 
 export type ContactFormValues = ContactSchema["Encoded"];
-export type ContactData = ContactSchema["Type"];
 
 export const contactDefaultValues: ContactFormValues = {
   name: "",

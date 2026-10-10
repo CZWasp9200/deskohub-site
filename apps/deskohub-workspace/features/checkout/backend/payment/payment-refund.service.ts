@@ -13,11 +13,11 @@ import {
  * `no_refund` means Nexi reports no successful refund for the attempt's order
  * yet; the other results come from recording the refund.
  */
-export type PaymentRefundReconciliationResult =
+type PaymentRefundReconciliationResult =
   | PaymentRefundRecordResult
   | "no_refund";
 
-export interface PaymentRefundReconciliationSummary {
+interface PaymentRefundReconciliationSummary {
   readonly checked: number;
   readonly recorded: number;
   readonly failed: number;

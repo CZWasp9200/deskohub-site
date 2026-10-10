@@ -5,7 +5,6 @@ import {
   AdministrationDiscountCodeCreateInput,
   AdministrationDiscountCodeUpdateInput,
   AdministrationDiscountDefinitionInput,
-  AdministrationDiscountLabels,
   AdministrationDiscountMutation,
   AdministrationDiscountUpdateInput,
   AdministrationExistingDiscountCodeCreateInput,
@@ -13,22 +12,21 @@ import {
   AdministrationVoucherUpdateInput,
 } from "@deskohub/workspace-admin-api";
 import { Schema } from "effect";
-export const discountAdminLabelsSchema = AdministrationDiscountLabels;
 export const createDiscountAdminInputSchema =
   AdministrationDiscountDefinitionInput;
-export const updateDiscountAdminInputSchema = AdministrationDiscountUpdateInput;
+const updateDiscountAdminInputSchema = AdministrationDiscountUpdateInput;
 export const createDiscountCodeAdminInputSchema =
   AdministrationExistingDiscountCodeCreateInput;
-export const createManagedDiscountCodeAdminInputSchema =
+const createManagedDiscountCodeAdminInputSchema =
   AdministrationDiscountCodeCreateInput;
-export const updateDiscountCodeAdminInputSchema =
+const updateDiscountCodeAdminInputSchema =
   AdministrationDiscountCodeUpdateInput;
-export const createCustomerDiscountCodeAdminInputSchema =
+const createCustomerDiscountCodeAdminInputSchema =
   AdministrationCustomerDiscountCodeCreateInput;
-export const createVoucherAdminInputSchema = AdministrationVoucherCreateInput;
-export const createCustomerVoucherAdminInputSchema =
+const createVoucherAdminInputSchema = AdministrationVoucherCreateInput;
+const createCustomerVoucherAdminInputSchema =
   AdministrationCustomerVoucherCreateInput;
-export const updateVoucherAdminInputSchema = AdministrationVoucherUpdateInput;
+const updateVoucherAdminInputSchema = AdministrationVoucherUpdateInput;
 export const discountAdminMutationSchema = AdministrationDiscountMutation;
 
 export const discountAdminMutationStandardSchema = Schema.toStandardSchemaV1(
