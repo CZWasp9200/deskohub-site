@@ -13,9 +13,11 @@ import { cn } from "@/shared/utils";
 
 type TooltipTouchTap = {
   readonly open: boolean;
-  /** Open state the trigger's current touch tap settles on, if one is underway. */
-  readonly tapOpen: RefObject<boolean | undefined>;
   readonly setOpen: (open: boolean) => void;
+  /** Open state the trigger's latest touch press settles on when it taps. */
+  readonly tapOpen: RefObject<boolean | undefined>;
+  /** Whether Radix's close on the tap's click is being ignored. */
+  readonly isApplyingTap: RefObject<boolean>;
 };
 
 const TooltipTouchTapContext = createContext<TooltipTouchTap | null>(null);
@@ -36,17 +38,18 @@ function Tooltip({
   const [uncontrolledOpen, setUncontrolledOpen] = useState(defaultOpen);
   const open = openProp ?? uncontrolledOpen;
   const tapOpen = useRef<boolean | undefined>(undefined);
+  const isApplyingTap = useRef(false);
   const setOpen = (nextOpen: boolean) => {
     setUncontrolledOpen(nextOpen);
     onOpenChange?.(nextOpen);
   };
 
   return (
-    <TooltipTouchTapContext value={{ open, setOpen, tapOpen }}>
+    <TooltipTouchTapContext value={{ isApplyingTap, open, setOpen, tapOpen }}>
       <TooltipPrimitive.Root
         {...props}
         onOpenChange={(nextOpen) => {
-          if (tapOpen.current === undefined) setOpen(nextOpen);
+          if (!isApplyingTap.current) setOpen(nextOpen);
         }}
         open={open}
       />
@@ -69,11 +72,14 @@ function TooltipTrigger({
       onClick={(event) => {
         onClick?.(event);
         const tapOpen = touchTap.tapOpen.current;
-        if (tapOpen === undefined) return;
+        touchTap.tapOpen.current = undefined;
+        // Keyboard activation clicks report no detail and keep Radix's behavior.
+        if (tapOpen === undefined || event.detail === 0) return;
         touchTap.setOpen(tapOpen);
-        // Radix's own click handler runs after this one and must stay ignored.
+        // Radix's own click handler runs after this one in the same dispatch.
+        touchTap.isApplyingTap.current = true;
         queueMicrotask(() => {
-          touchTap.tapOpen.current = undefined;
+          touchTap.isApplyingTap.current = false;
         });
       }}
       onPointerCancel={(event) => {
@@ -82,9 +88,8 @@ function TooltipTrigger({
       }}
       onPointerDown={(event) => {
         onPointerDown?.(event);
-        if (event.pointerType === "touch") {
-          touchTap.tapOpen.current = !touchTap.open;
-        }
+        touchTap.tapOpen.current =
+          event.pointerType === "touch" ? !touchTap.open : undefined;
       }}
     />
   );

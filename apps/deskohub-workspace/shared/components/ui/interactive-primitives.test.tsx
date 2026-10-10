@@ -81,6 +81,51 @@ describe("interactive primitives", () => {
     await waitFor(() => expect(view.queryByRole("tooltip")).toBeNull());
   });
 
+  test("still dismisses tooltips after a touch gesture without a click", async () => {
+    const view = render(
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger>Details</TooltipTrigger>
+          <TooltipContent>Sale details</TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    );
+    const trigger = view.getByRole("button", { name: "Details" });
+    const touch = { isPrimary: true, pointerId: 1, pointerType: "touch" };
+
+    await act(async () => {
+      fireEvent.pointerDown(trigger, touch);
+      fireEvent.pointerUp(trigger, touch);
+      trigger.focus();
+      fireEvent.click(trigger, { detail: 1 });
+    });
+    await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+    expect(await view.findByRole("tooltip")).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.pointerDown(trigger, touch);
+      fireEvent.pointerUp(trigger, touch);
+      trigger.blur();
+    });
+    await waitFor(() => expect(view.queryByRole("tooltip")).toBeNull());
+
+    await act(async () => {
+      trigger.focus();
+    });
+    const tooltip = await view.findByRole("tooltip");
+    await act(async () => {
+      fireEvent.keyDown(tooltip, { key: "Escape" });
+    });
+    await waitFor(() => expect(view.queryByRole("tooltip")).toBeNull());
+
+    await act(async () => {
+      trigger.focus();
+      fireEvent.keyDown(trigger, { key: "Enter" });
+      fireEvent.click(trigger, { detail: 0 });
+    });
+    expect(view.queryByRole("tooltip")).toBeNull();
+  });
+
   test("keeps tooltips closed after a mouse click", async () => {
     const view = render(
       <TooltipProvider>
