@@ -8,11 +8,9 @@ import {
   locales,
 } from "./paraglide/runtime.js";
 
-export { locales };
+export { cookieName as localeCookieName, locales };
 
 export const defaultLocale: Locale = baseLocale;
-
-export const localeCookieName = cookieName;
 
 export const localeConfig = {
   locales,

@@ -8,13 +8,11 @@ import {
   type ControllerProps,
   type FieldPath,
   type FieldValues,
-  FormProvider,
+  FormProvider as Form,
   useFormContext,
 } from "react-hook-form";
 import { Label } from "@/shared/components/ui/label";
 import { cn } from "@/shared/utils";
-
-const Form = FormProvider;
 
 const FormFieldContext = React.createContext<{ name: string } | null>(null);
 

@@ -9,7 +9,7 @@ const hiddenAvatarFixture = {
   avatar: { kind: "hidden" },
 } as const satisfies CustomerAccountPageState;
 
-export const accountVisualFixture = hiddenAvatarFixture;
+export { hiddenAvatarFixture as accountVisualFixture };
 
 export const accountVisualAdapterMetadata = {
   owner: "account-visual avatar-off adapter",

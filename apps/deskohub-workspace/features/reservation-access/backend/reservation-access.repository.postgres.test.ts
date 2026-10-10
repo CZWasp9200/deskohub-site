@@ -33,16 +33,15 @@ const target = {
 describe.skipIf(!testDatabase)(
   "ReservationAccessRepository on disposable Postgres",
   () => {
-    const postgres = testDatabase;
-    if (!postgres) return;
+    if (!testDatabase) return;
     const reservationIds: WorkspaceReservationId[] = [];
 
     afterAll(async () => {
-      await postgres.pool.query(
+      await testDatabase.pool.query(
         "delete from reservation_access_grants where workspace_reservation_id = any($1)",
         [reservationIds]
       );
-      await postgres.pool.query(
+      await testDatabase.pool.query(
         "delete from workspace_reservations where id = any($1)",
         [reservationIds]
       );
@@ -55,7 +54,7 @@ describe.skipIf(!testDatabase)(
       );
       reservationIds.push(reservationId);
       await Effect.runPromise(
-        postgres.db.insert(workspaceReservations).values({
+        testDatabase.db.insert(workspaceReservations).values({
           id: reservationId,
           checkoutAttemptKey: checkoutAttemptKeySchema.make(`attempt-${id}`),
           dotyposCustomerId: DotyposCustomerIdSchema.make(`customer-${id}`),
@@ -86,7 +85,7 @@ describe.skipIf(!testDatabase)(
           return yield* operation(yield* ReservationAccessRepository);
         }).pipe(
           Effect.provide(ReservationAccessRepository.Default),
-          Effect.provide(postgres.layer)
+          Effect.provide(testDatabase.layer)
         )
       );
 

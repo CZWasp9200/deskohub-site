@@ -1,10 +1,7 @@
 import { AccountLayoutShell } from "@/features/account/components/account-layout-shell";
 import type { CustomerAccountPageState } from "@/features/account/page-data.server";
 import { AccountVisualRoute } from "./account-route";
-import {
-  type AccountVisualAdapterProps,
-  defaultAccountVisualAdapterMetadata,
-} from "./types";
+import type { AccountVisualAdapterProps } from "./types";
 
 const linkedFixture = {
   kind: "linked",
@@ -22,8 +19,8 @@ const linkedFixture = {
   },
 } as const satisfies CustomerAccountPageState;
 
-export const accountVisualFixture = linkedFixture;
-export const accountVisualAdapterMetadata = defaultAccountVisualAdapterMetadata;
+export { defaultAccountVisualAdapterMetadata as accountVisualAdapterMetadata } from "./types";
+export { linkedFixture as accountVisualFixture };
 
 export default function DefaultAccountAdapter({
   locale,

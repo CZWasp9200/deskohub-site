@@ -346,6 +346,101 @@ void (0 as unknown as IndexedValues);
   expect(output).toContain("[anti-slop/no-unsafe-dictionary-type]");
 });
 
+test("useless alias rule reports const aliases of bindings that cannot be reassigned", async () => {
+  const result = await lint(`
+import { workspaceCoworkTiers } from "./tiers";
+import formatPrice from "./format";
+import * as Schema from "./schema";
+const defaultCapacity = 4;
+const { region } = { region: "eu" };
+function loadTier() {
+  return workspaceCoworkTiers;
+}
+class TierRepository {}
+declare const items: readonly string[];
+export const workspaceCoworkProductTiers = workspaceCoworkTiers;
+const priceFormatter = formatPrice;
+const Contract = Schema;
+const capacity = defaultCapacity;
+const deploymentRegion = region;
+const loadProductTier = loadTier;
+const Repository = TierRepository;
+for (const item of items) {
+  const entry = item;
+  void entry;
+}
+void priceFormatter;
+void Contract;
+void capacity;
+void deploymentRegion;
+void loadProductTier;
+void Repository;
+`);
+  const output = `${result.stdout}${result.stderr}`;
+
+  expect(output.split("[anti-slop/no-useless-alias]").length - 1).toBe(8);
+});
+
+test("useless alias rule allows snapshots, parameters, destructuring, and annotated aliases", async () => {
+  const result = await lint(`
+import { workspaceCoworkTiers } from "./tiers";
+let attempt = 0;
+const previousAttempt = attempt;
+attempt += 1;
+var legacyCounter = 0;
+const legacySnapshot = legacyCounter;
+const normalize = (value: string, ...rest: string[]) => {
+  const original = value;
+  const remaining = rest;
+  return [original, ...remaining];
+};
+const identity = (input: string) => {
+  const kept = input;
+  return kept;
+};
+const bareArrow = (raw) => {
+  const kept = raw;
+  return kept;
+};
+const unwrap = ({ nested }: { nested: string }) => {
+  const kept = nested;
+  return kept;
+};
+class Service {
+  constructor(private readonly client: string) {
+    const kept = client;
+    void kept;
+  }
+}
+try {
+  void 0;
+} catch (cause) {
+  const failure = cause;
+  void failure;
+}
+const { tiers } = { tiers: workspaceCoworkTiers };
+const annotatedTiers: readonly string[] = workspaceCoworkTiers;
+const firstTier = workspaceCoworkTiers[0];
+const undefinedValue = undefined;
+const global = globalThis;
+void previousAttempt;
+void legacySnapshot;
+void normalize;
+void identity;
+void bareArrow;
+void unwrap;
+void Service;
+void tiers;
+void annotatedTiers;
+void firstTier;
+void undefinedValue;
+void global;
+`);
+  const output = `${result.stdout}${result.stderr}`;
+
+  expect(output).not.toContain("[anti-slop/no-useless-alias]");
+});
+
 test("every workspace shared package dependency defines a lint task", () => {
   const workspaceManifest = JSON.parse(
     readFileSync(

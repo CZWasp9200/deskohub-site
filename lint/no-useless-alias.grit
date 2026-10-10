@@ -1,0 +1,42 @@
+engine biome(1.0)
+language js(typescript, jsx)
+
+// ponytail: direct syntax only; use Biome JS plugins when they expose scope/type APIs.
+// GritQL cannot resolve which binding an identifier refers to, so this approximates
+// "the source cannot be reassigned" per file: some binding with the source name must
+// exist, and no binding with that name may be a parameter, catch binding, or let/var.
+// A same-named let/var/parameter anywhere in the file suppresses the report, and a
+// global that a const elsewhere in the file shadows can still be reported.
+file($name, $body) where {
+  $name <: r".*apps/deskohub-workspace/(?:(?:app|db|emails|features|scripts|shared)/.*|[^/]+)\.(?:ts|tsx)$",
+  $body <: contains bubble {
+    `const $alias = $source` as $alias_declaration where {
+      $alias <: JsIdentifierBinding(),
+      $source <: JsIdentifierExpression(),
+      $program <: contains JsIdentifierBinding() as $source_binding where {
+        $source_binding <: $source
+      },
+      not $program <: contains JsIdentifierBinding() as $reassignable_binding where {
+        $reassignable_binding <: $source,
+        $reassignable_binding <: within or {
+          JsFormalParameter(),
+          JsRestParameter(),
+          TsPropertyParameter(),
+          JsCatchDeclaration(),
+          JsArrowFunctionExpression(parameters = $source),
+          JsVariableDeclaration() as $reassignable_declaration where {
+            $reassignable_declaration <: r"(?s)^(?:let|var)\s.*"
+          },
+          JsForVariableDeclaration() as $reassignable_loop_declaration where {
+            $reassignable_loop_declaration <: r"(?s)^(?:let|var)\s.*"
+          }
+        }
+      },
+      register_diagnostic(
+        span = $alias_declaration,
+        message = "[anti-slop/no-useless-alias] Use the original name instead of a const alias; rename at the boundary with `import { source as alias }` or `export { source as alias }` when the new name aids readability.",
+        severity = "error"
+      )
+    }
+  }
+}

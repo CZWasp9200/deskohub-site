@@ -425,10 +425,9 @@ describe("OfficeReservationForm", () => {
 
   test("marks every card with its seat surcharge", () => {
     const startsOn = decodePlainDate("2026-08-10");
-    const endsOn = startsOn;
     const initialAdvertisedPrices = [1, 2, 3].map((seats) => {
       const request = getOfficeAdvertisedPriceRequest({
-        endsOn,
+        endsOn: startsOn,
         locale: "en-US",
         seats,
         startsOn,
@@ -481,10 +480,9 @@ describe("OfficeReservationForm", () => {
 
   test("presents a quoted office sale around the form, not the seat cards", () => {
     const startsOn = decodePlainDate("2026-08-10");
-    const endsOn = startsOn;
     const initialAdvertisedPrices = [1, 2, 3].map((seats) => {
       const request = getOfficeAdvertisedPriceRequest({
-        endsOn,
+        endsOn: startsOn,
         locale: "en-US",
         seats,
         startsOn,
