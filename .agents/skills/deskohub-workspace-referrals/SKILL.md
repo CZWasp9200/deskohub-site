@@ -5,7 +5,7 @@ description: Workspace referral attribution, referral-code lookup, invitation an
 
 # Deskohub Workspace referrals
 
-Read the business-facing [referral specification](../../../apps/deskohub-workspace/docs/referrals.md) and [Deskohub glossary](../../../CONTEXT.md#workspace-referrals) before changing referral eligibility, attribution, discount, or payment behavior. Treat them as the policy source; keep implementation guidance here.
+Read the business-facing [referral specification](../../../apps/deskohub-workspace/docs/referrals.md) before changing referral eligibility, attribution, discount, or payment behavior. Treat it as the policy source; keep implementation guidance here.
 
 ## Public boundaries
 

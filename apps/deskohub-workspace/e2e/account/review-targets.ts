@@ -1,4 +1,5 @@
 import type { AccountSection } from "@/features/account/components/shell/account-shell";
+import type { ReservationCustomerMode } from "@/features/reservation/reservation-existing-customer";
 import type { WorkspaceE2EAccountCaseId } from "./catalog";
 import type { AccountReviewTarget } from "./review-screenshots";
 
@@ -38,3 +39,14 @@ export const accountReviewTargetByCaseId: Partial<
   "account-linking-variants": "support-desktop",
   "account-referrals": "referral-overview-positive-desktop",
 };
+
+/**
+ * The cowork reservation customer section in each mode: the signed-in
+ * account card and the "book for someone else" contact inputs.
+ */
+export const reservationCustomerReviewTargetByMode = {
+  account: "reservation-customer-account-desktop",
+  contact: "reservation-customer-contact-desktop",
+} as const satisfies Readonly<
+  Record<ReservationCustomerMode, AccountReviewTarget>
+>;

@@ -16,7 +16,11 @@ import {
   Schema,
 } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
-import { OptionalAccountActivityGuard } from "@/features/account";
+import {
+  CustomerAccountAccessError,
+  CustomerAccountContactService,
+  OptionalAccountActivityGuard,
+} from "@/features/account";
 import {
   captureAvailabilityResult,
   capturePrePaymentOutcome,
@@ -30,9 +34,10 @@ import {
   sealPayStateForUrl,
 } from "@/features/checkout/backend/checkout";
 import {
-  deriveCheckoutAttemptKey,
-  deriveCheckoutSessionKey,
-} from "@/features/checkout/backend/checkout/checkout-session-key.server";
+  deriveCheckoutAttemptKeys,
+  deriveCheckoutSessionKeys,
+  deriveCheckoutSessionLockKey,
+} from "@/features/checkout/backend/checkout/checkout-lookup-keys.server";
 import { ReservationHoldCleanupScheduleService } from "@/features/checkout/backend/holds";
 import {
   createWorkspaceDotyposReservation,
@@ -465,15 +470,18 @@ const prepareReservationDraft = Effect.fn(
   let checkoutSessionId = input.checkoutSessionId;
 
   while (true) {
-    const checkoutSessionKey = deriveCheckoutSessionKey(checkoutSessionId);
-    const checkoutAttemptKey = deriveCheckoutAttemptKey({
+    const checkoutSessionKeys =
+      yield* deriveCheckoutSessionKeys(checkoutSessionId);
+    const checkoutAttemptKeys = yield* deriveCheckoutAttemptKeys({
       checkoutSessionId,
       checkoutAttemptId: input.checkoutAttemptId,
       reservation: input.reservation,
     });
+    const checkoutAttemptKey = checkoutAttemptKeys.current;
 
-    let existingAttempt =
-      yield* reservations.findByAttemptKey(checkoutAttemptKey);
+    let existingAttempt = yield* reservations.findByAttemptKeys(
+      checkoutAttemptKeys.accepted
+    );
     if (
       existingAttempt?.reservationState === "creating_hold" ||
       existingAttempt?.reservationState === "cancelling"
@@ -525,6 +533,12 @@ const prepareReservationDraft = Effect.fn(
       });
     }
 
+    // Rows of one session keep the key stored by its first row, so a
+    // session that spans a Pay-state key rotation still groups as one.
+    const checkoutSessionKey =
+      (yield* reservations.findStoredCheckoutSessionKey(
+        checkoutSessionKeys.accepted
+      )) ?? checkoutSessionKeys.current;
     const currentReservation =
       yield* reservations.findCurrentByCheckoutSessionKey(checkoutSessionKey);
     if (
@@ -686,8 +700,18 @@ const prepareReservationDraft = Effect.fn(
       ...input.draft,
       checkoutSessionKey,
       checkoutAttemptKey,
+      checkoutSessionLockKey: deriveCheckoutSessionLockKey(checkoutSessionId),
+      acceptedCheckoutSessionKeys: checkoutSessionKeys.accepted,
+      acceptedCheckoutAttemptKeys: checkoutAttemptKeys.accepted,
     });
-    if (reservationDraft.checkoutAttemptKey !== checkoutAttemptKey) {
+    // Another worker may have created this attempt under a different
+    // active key or lookup-key format; any other row is the session's
+    // current reservation.
+    if (
+      !checkoutAttemptKeys.accepted.includes(
+        reservationDraft.checkoutAttemptKey
+      )
+    ) {
       continue;
     }
 
@@ -696,6 +720,37 @@ const prepareReservationDraft = Effect.fn(
       reservationDraft,
     };
   }
+});
+
+/**
+ * The account a reservation booked "as the account" belongs to: the linked
+ * Dotypos customer and the contact the reservation must carry. The account
+ * advisory lock is already held, so this only reads the existing link.
+ */
+const resolveAccountCustomer = Effect.fn(
+  "preparePayState.resolveAccountCustomer"
+)(function* (input: PreparePayStateInput) {
+  if (input.customer !== "account") return undefined;
+
+  const contacts = yield* CustomerAccountContactService;
+  const contact = yield* contacts.current.pipe(
+    Effect.catchIf(
+      (error) => error.reason === "not-configured",
+      () => Effect.succeed(null)
+    )
+  );
+  if (!contact) {
+    return yield* new CustomerAccountAccessError({ reason: "unauthenticated" });
+  }
+
+  return {
+    dotyposCustomerId: contact.dotyposCustomerId,
+    contact: {
+      name: contact.name,
+      email: contact.email,
+      phone: contact.phone ?? input.reservation.phone,
+    },
+  };
 });
 
 export const prepareWorkspacePayState = Effect.fn("prepareWorkspacePayState")(
@@ -720,19 +775,24 @@ export const prepareWorkspacePayState = Effect.fn("prepareWorkspacePayState")(
           })
         );
 
+        const accountCustomer = yield* resolveAccountCustomer(input);
+
         // Submission locks the price: calendar sales are evaluated at this
         // booking moment here and at every later checkout re-check.
         const bookedAt = yield* currentInstant;
         const advertisement = yield* prepareAdvertisement({
           ...input,
+          ...(accountCustomer && {
+            reservation: { ...input.reservation, ...accountCustomer.contact },
+          }),
           bookedAt,
         });
         const reservation = advertisement.reservation;
 
-        const checkoutSessionKey = deriveCheckoutSessionKey(
+        const checkoutSessionKeys = yield* deriveCheckoutSessionKeys(
           input.checkoutSessionId
         );
-        const checkoutAttemptKey = deriveCheckoutAttemptKey({
+        const checkoutAttemptKeys = yield* deriveCheckoutAttemptKeys({
           checkoutSessionId: input.checkoutSessionId,
           checkoutAttemptId: input.checkoutAttemptId,
           reservation,
@@ -740,8 +800,8 @@ export const prepareWorkspacePayState = Effect.fn("prepareWorkspacePayState")(
         yield* Effect.annotateLogsScoped({
           locale: input.locale,
           reservationKind: reservation.kind,
-          checkoutSessionKey,
-          checkoutAttemptKey,
+          checkoutSessionKey: checkoutSessionKeys.current,
+          checkoutAttemptKey: checkoutAttemptKeys.current,
         });
         yield* Effect.logInfo("Workspace reservation submit started");
 
@@ -758,16 +818,20 @@ export const prepareWorkspacePayState = Effect.fn("prepareWorkspacePayState")(
             Effect.ignore
           );
 
-        const customerName = splitCustomerName(reservation.name);
-        const customer = yield* dotypos.findOrCreateCustomer(
-          {
-            ...customerName,
-            email: reservation.email,
-            phone: reservation.phone,
-          },
-          { lookupFields: ["email"] }
-        );
-        const dotyposCustomerId = yield* getDotyposCustomerId(customer.id);
+        const dotyposCustomerId =
+          accountCustomer?.dotyposCustomerId ??
+          (yield* dotypos
+            .findOrCreateCustomer(
+              {
+                ...splitCustomerName(reservation.name),
+                email: reservation.email,
+                phone: reservation.phone,
+              },
+              { lookupFields: ["email"] }
+            )
+            .pipe(
+              Effect.flatMap((customer) => getDotyposCustomerId(customer.id))
+            ));
         yield* Effect.annotateLogsScoped({ dotyposCustomerId });
         yield* Effect.logDebug(
           "Workspace reservation Dotypos customer resolved"
@@ -1151,6 +1215,7 @@ const PreparePayStateLive = Layer.mergeAll(
     CustomerMarketingConsentRepository.Default
   ).pipe(Layer.provide(WorkspaceDatabase.Default)),
   WorkspaceAvailabilityService.Live,
+  CustomerAccountContactService.Live,
   WorkspaceTableAssignmentService.Default.pipe(
     Layer.provide(WorkspaceReservationRepository.Live),
     Layer.provide(WorkspaceDotyposLayer)

@@ -25,7 +25,7 @@ import {
 } from "../integrations/database";
 import { discountCodeFixtures } from "../integrations/discount-fixtures";
 import { pollUntil } from "../polling";
-import { assert, type Runner } from "../runtime";
+import { addRedaction, assert, parseUrl, type Runner } from "../runtime";
 import { workspaceE2EPollIntervalMs } from "../timeouts";
 import type {
   CheckoutData,
@@ -400,13 +400,9 @@ const startPayPage = ({
       yield* openBrowserPage(config, run, session, data.checkoutUrl, {
         timeoutMs: config.timeouts.browserNavigation,
       });
-      let payUrl: string | undefined;
       const orderId = yield* submitReservationForPayPage({
         onOrderId: (value) => {
           state.orderId = value;
-        },
-        onPayPageUrl: (value) => {
-          payUrl = value;
         },
         run,
         session,
@@ -414,15 +410,16 @@ const startPayPage = ({
         timeouts: config.timeouts,
       });
       state.orderId = orderId;
-      if (!payUrl) {
-        payUrl = yield* readBrowserUrl(run, session);
-      }
+      const payUrl = yield* readBrowserUrl(run, session);
       if (!payUrl) {
         return yield* workspaceE2EError(
           "checkout did not reach its signed pay page",
           { operation: "read account referral checkout pay page" }
         );
       }
+      yield* Effect.sync(() =>
+        addRedaction(parseUrl(payUrl)?.searchParams.get("payState") ?? undefined)
+      );
       const row = yield* waitForCheckoutRow(datasourceConfig, orderId);
       if (row.dotypos_customer_id !== contact.customerId) {
         return yield* workspaceE2EError(

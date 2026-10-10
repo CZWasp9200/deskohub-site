@@ -5,25 +5,15 @@ import {
 } from "@/features/reservation/persistence-contracts";
 import {
   activateHydratedBrowserElement,
-  clickBrowserElement,
-  findEnabledSnapshotRef,
-  findFirstEnabledTextFieldRef,
-  findFirstTextFieldRef,
-  findSnapshotRef,
   focusBrowserElement,
-  getSnapshotRef,
-  isFrameSnapshotRef,
   openBrowserPage,
   pressBrowserKey,
   readActiveBrowserTabId,
-  readBrowserTabs,
   readBrowserUrl,
-  readInteractiveSnapshot,
   requireEnabledSnapshotRef,
   requireSnapshotRef,
-  summarizeHostedPaymentSnapshot,
+  runBrowserCommand,
   switchToBrowserTab,
-  switchToMainFrame,
   waitForBrowserReactHydration,
   waitForBrowserUrl,
 } from "../browser";
@@ -33,14 +23,10 @@ import {
 } from "../browser-scripts";
 import type { WorkspaceE2EConfig } from "../config";
 import {
-  isWorkspaceE2EDiagnosticCode,
+  failWorkspaceE2E,
   toWorkspaceE2EError,
-  tryWorkspaceE2EPromise,
   tryWorkspaceE2ESync,
   type WorkspaceE2EError,
-  type WorkspaceE2EHostedPaymentDiagnosticCode,
-  withWorkspaceE2EDiagnosticCode,
-  workspaceE2EError,
 } from "../errors";
 import { pollUntil } from "../polling";
 import type { Runner } from "../runtime";
@@ -50,11 +36,12 @@ import {
   workspaceE2EPollIntervalMs,
 } from "../timeouts";
 import type { CheckoutData } from "../types";
-import { isExpectedCheckoutStatusUrl } from "../urls";
+import { isCheckoutStatusUrl, isExpectedCheckoutStatusUrl } from "../urls";
+import {
+  completeNexiHostedPayment,
+  type HostedPaymentPage,
+} from "./nexi-hosted-payment";
 
-const NEXI_TEST_CARD_NUMBER = "4509034543615006";
-const NEXI_TEST_CVV = "298";
-const NEXI_TEST_EXPIRY = "1028";
 const reservationStartRetryableErrorMessages = [
   "Checkout could not be started.",
   "Platbu se nepodařilo spustit.",
@@ -62,24 +49,9 @@ const reservationStartRetryableErrorMessages = [
 const reservationSubmitAttemptCount = 2;
 const reservationSubmitSelector = "#reservation-submit";
 const reservationPreparationStateKey = "__deskohubWorkspaceE2EPreparation";
-const hostedPaymentFieldFillAttemptCount = 3;
 const decodeWorkspaceReservationId = Schema.decodeUnknownSync(
   workspaceReservationIdSchema
 );
-
-const runBrowserCommand = (
-  operation: string,
-  run: Runner,
-  session: string,
-  args: string[],
-  options?: Parameters<Runner>[2]
-) =>
-  tryWorkspaceE2EPromise(operation, (signal) =>
-    run("playwright", ["--session", session, ...args], {
-      ...options,
-      signal,
-    })
-  );
 
 export const completeCheckout = ({
   config,
@@ -204,14 +176,12 @@ export const prepareCheckoutPaymentAttempt = ({
 
 export const submitReservationForPayPage = ({
   onOrderId,
-  onPayPageUrl,
   run,
   session,
   submitReservationScript,
   timeouts,
 }: {
   onOrderId?: (orderId: WorkspaceReservationId) => void;
-  onPayPageUrl?: (url: string) => void;
   run: Runner;
   session: string;
   submitReservationScript: string;
@@ -225,7 +195,6 @@ export const submitReservationForPayPage = ({
       submitReservationScript,
       timeouts,
     });
-    yield* Effect.sync(() => onPayPageUrl?.(payPageUrl));
     const searchOrderId = yield* tryWorkspaceE2ESync(
       "decode checkout pay page order id",
       () => {
@@ -583,15 +552,6 @@ const formatReservationStartDiagnostics = (
   );
 };
 
-const isCheckoutStatusUrl = (url: string | undefined) =>
-  parseUrl(url ?? "")?.pathname.includes("/reservation/status/") ?? false;
-
-export type HostedPaymentPage = {
-  readonly checkoutTabId: string;
-  readonly hostedPaymentTabId: string;
-  readonly url: string;
-};
-
 export const submitPaymentAndWaitForHostedPage = ({
   run,
   session,
@@ -602,6 +562,16 @@ export const submitPaymentAndWaitForHostedPage = ({
   timeouts: WorkspaceE2ETimeouts;
 }) =>
   Effect.gen(function* () {
+    const checkoutPageUrl = yield* readBrowserUrl(run, session);
+    if (!checkoutPageUrl) {
+      return yield* failWorkspaceE2E("checkout pay page URL is unavailable", {
+        operation: "read checkout pay page URL",
+      });
+    }
+    // A sandbox restart reopens this URL; keep its sealed pay state out of logs.
+    addRedaction(
+      parseUrl(checkoutPageUrl)?.searchParams.get("payState") ?? undefined
+    );
     const checkoutTabId = yield* submitCheckoutPayment(run, session);
 
     const hostedPaymentUrl = yield* waitForBrowserUrl({
@@ -625,6 +595,7 @@ export const submitPaymentAndWaitForHostedPage = ({
       yield* switchToBrowserTab(run, session, hostedPaymentTabId);
     }
     return {
+      checkoutPageUrl,
       checkoutTabId,
       hostedPaymentTabId,
       url: hostedPaymentUrl,
@@ -668,745 +639,6 @@ const activateCheckoutPayButton = (run: Runner, session: string) =>
     yield* focusBrowserElement(run, session, ref, { timeoutMs: 30_000 });
     yield* pressBrowserKey(run, session, "Enter", { timeoutMs: 30_000 });
   });
-
-export const completeNexiHostedPayment = ({
-  data,
-  hostedPaymentPage,
-  run,
-  session,
-  timeouts,
-}: {
-  data: CheckoutData;
-  hostedPaymentPage?: HostedPaymentPage;
-  run: Runner;
-  session: string;
-  timeouts: WorkspaceE2ETimeouts;
-}): Effect.Effect<void, WorkspaceE2EError> =>
-  Effect.gen(function* () {
-    addRedaction(NEXI_TEST_CARD_NUMBER);
-    addRedaction(NEXI_TEST_CVV, true);
-    addRedaction(NEXI_TEST_EXPIRY, true);
-
-    yield* fillHostedPaymentField(
-      run,
-      session,
-      ["Card number", "Numero carta", "Numero della carta"],
-      ["CARD_NUMBER"],
-      NEXI_TEST_CARD_NUMBER,
-      timeouts
-    );
-    yield* fillHostedPaymentField(
-      run,
-      session,
-      ["Expiration date", "Scadenza", "Data scadenza"],
-      ["EXPIRATION_DATE"],
-      NEXI_TEST_EXPIRY,
-      timeouts
-    );
-    yield* fillHostedPaymentField(
-      run,
-      session,
-      ["CVV", "CVC", "Codice sicurezza"],
-      ["SECURITY_CODE"],
-      NEXI_TEST_CVV,
-      timeouts
-    );
-    yield* tryFillHostedPaymentField(
-      run,
-      session,
-      ["First Name", "Nome", "Titolare"],
-      ["CARDHOLDER_NAME"],
-      data.name
-    );
-    yield* tryFillHostedPaymentField(
-      run,
-      session,
-      ["Email", "E-mail"],
-      ["CARDHOLDER_EMAIL"],
-      data.email
-    );
-
-    yield* clickHostedPaymentTarget(
-      run,
-      session,
-      "continue",
-      [{ value: "CONTINUE" }, { value: "Continue" }, { value: "CONTINUA" }],
-      timeouts,
-      { optional: true, timeoutMs: 15_000 }
-    );
-    yield* clickHostedPaymentTarget(
-      run,
-      session,
-      "pay",
-      [{ value: "PAY" }, { value: "Pay" }, { value: "PAGA" }],
-      timeouts
-    ).pipe(
-      Effect.catch((error) =>
-        classifyRejectedHostedCardSubmission(run, session, error)
-      )
-    );
-    yield* clickHostedPaymentTarget(
-      run,
-      session,
-      "3DS success",
-      [
-        { value: "AUTENTICAZIONE RIUSCITA" },
-        { value: "Authentication successful" },
-      ],
-      timeouts,
-      { activation: "pointer" }
-    );
-    if (isCheckoutStatusUrl(yield* readBrowserUrl(run, session))) {
-      log(
-        "Nexi back-to-shop action skipped; checkout status page already loaded"
-      );
-    } else {
-      const backToShopExit = yield* Effect.exit(
-        clickHostedPaymentTarget(
-          run,
-          session,
-          "back to shop",
-          [
-            { value: "BACK TO THE SHOP" },
-            { value: "Back to the shop" },
-            { value: "TORNA AL NEGOZIO" },
-          ],
-          timeouts
-        )
-      );
-
-      if (
-        Exit.isFailure(backToShopExit) &&
-        !isCheckoutStatusUrl(yield* readBrowserUrl(run, session))
-      ) {
-        return yield* toWorkspaceE2EError(
-          "click Nexi back to shop",
-          Cause.squash(backToShopExit.cause)
-        );
-      }
-    }
-
-    if (hostedPaymentPage) {
-      yield* waitForReturnedPaymentTabToClose({
-        hostedPaymentPage,
-        run,
-        session,
-        timeoutMs: timeouts.providerTransition,
-      });
-    }
-  });
-
-const classifyRejectedHostedCardSubmission = (
-  run: Runner,
-  session: string,
-  error: WorkspaceE2EError
-): Effect.Effect<never, WorkspaceE2EError> =>
-  runBrowserCommand(
-    "read hosted payment requests",
-    run,
-    session,
-    ["network", "requests"],
-    { allowFailure: true, logCommand: false, logOutput: false }
-  ).pipe(
-    Effect.map((result) =>
-      result.exitCode === 0
-        ? findRejectedNexiCardSubmissionStatus(result.stdout)
-        : undefined
-    ),
-    Effect.orElseSucceed(() => undefined),
-    Effect.flatMap((rejectedStatus) =>
-      Effect.fail(
-        rejectedStatus === undefined
-          ? error
-          : workspaceE2EError(
-              `Nexi rejected the hosted card submission with HTTP ${rejectedStatus} before offering PAY`,
-              {
-                cause: error,
-                diagnosticCode: "nexi_hosted_card_submission_rejected",
-                operation: "submit Nexi hosted card details",
-              }
-            )
-      )
-    )
-  );
-
-const nexiCardSubmissionPath = "/fe/build/text/";
-
-export const findRejectedNexiCardSubmissionStatus = (
-  networkRequests: string
-): number | undefined => {
-  for (const line of networkRequests.split("\n")) {
-    const match = /^(\d{3}) POST (\S+)$/.exec(line.trim());
-    if (!match?.[1] || !match[2]) continue;
-    const url = parseUrl(match[2]);
-    const status = Number(match[1]);
-    if (
-      url?.hostname.endsWith(".nexigroup.com") &&
-      url.pathname === nexiCardSubmissionPath &&
-      status >= 400
-    ) {
-      return status;
-    }
-  }
-  return undefined;
-};
-
-const waitForReturnedPaymentTabToClose = ({
-  hostedPaymentPage,
-  run,
-  session,
-  timeoutMs,
-}: {
-  readonly hostedPaymentPage: HostedPaymentPage;
-  readonly run: Runner;
-  readonly session: string;
-  readonly timeoutMs: number;
-}) =>
-  hostedPaymentPage.hostedPaymentTabId === hostedPaymentPage.checkoutTabId
-    ? Effect.void
-    : Effect.gen(function* () {
-        yield* pollUntil(
-          readBrowserTabs(run, session).pipe(
-            Effect.map((tabs) =>
-              tabs.length === 1 &&
-              tabs[0]?.tabId === hostedPaymentPage.checkoutTabId
-                ? tabs[0]
-                : undefined
-            )
-          ),
-          {
-            intervalMs: workspaceE2EPollIntervalMs.browser,
-            label: "returned payment tab to close",
-            timeoutMs,
-          }
-        );
-        yield* switchToBrowserTab(
-          run,
-          session,
-          hostedPaymentPage.checkoutTabId
-        );
-      });
-
-const fillHostedPaymentField = (
-  run: Runner,
-  session: string,
-  labels: readonly string[],
-  frameLabels: readonly string[],
-  value: string,
-  timeouts: WorkspaceE2ETimeouts
-) =>
-  Effect.gen(function* () {
-    const target = yield* requireHostedPaymentRef(
-      run,
-      session,
-      labels,
-      frameLabels,
-      timeouts.providerTransition
-    );
-    yield* Effect.gen(function* () {
-      for (
-        let attempt = 1;
-        attempt <= hostedPaymentFieldFillAttemptCount;
-        attempt += 1
-      ) {
-        const fillResult = yield* runBrowserCommand(
-          "fill hosted payment field",
-          run,
-          session,
-          ["fill", target.ref, value],
-          {
-            allowFailure: true,
-            logCommand: false,
-            logOutput: false,
-            timeoutMs: 60_000,
-          }
-        );
-        if (fillResult.exitCode !== 0) continue;
-
-        const valueResult = yield* runBrowserCommand(
-          "verify hosted payment field",
-          run,
-          session,
-          ["get", "value", target.ref],
-          {
-            allowFailure: true,
-            logCommand: false,
-            logOutput: false,
-            timeoutMs: 30_000,
-          }
-        );
-        if (valueResult.exitCode === 0 && valueResult.stdout.trim()) return;
-
-        const typeResult = yield* runBrowserCommand(
-          "type hosted payment field",
-          run,
-          session,
-          ["type", target.ref, value],
-          {
-            allowFailure: true,
-            logCommand: false,
-            logOutput: false,
-            timeoutMs: 60_000,
-          }
-        );
-        if (typeResult.exitCode !== 0) continue;
-
-        const typedValueResult = yield* runBrowserCommand(
-          "verify typed hosted payment field",
-          run,
-          session,
-          ["get", "value", target.ref],
-          {
-            allowFailure: true,
-            logCommand: false,
-            logOutput: false,
-            timeoutMs: 30_000,
-          }
-        );
-        if (typedValueResult.exitCode === 0 && typedValueResult.stdout.trim())
-          return;
-      }
-
-      return yield* toWorkspaceE2EError(
-        `fill Nexi field ${labels.join(" / ")}`,
-        new Error(
-          `field value remained empty after ${hostedPaymentFieldFillAttemptCount} attempts`
-        )
-      );
-    }).pipe(
-      Effect.ensuring(
-        target.framed
-          ? switchToMainFrame(run, session).pipe(Effect.ignore)
-          : Effect.void
-      )
-    );
-  });
-
-const requireHostedPaymentRef = (
-  run: Runner,
-  session: string,
-  labels: readonly string[],
-  frameLabels: readonly string[],
-  timeoutMs: number
-): Effect.Effect<HostedPaymentRef, WorkspaceE2EError> =>
-  pollUntil(
-    findHostedPaymentRef(run, session, labels, frameLabels, {
-      enabledOnly: true,
-    }),
-    {
-      intervalMs: workspaceE2EPollIntervalMs.browser,
-      label: `Nexi target ${labels.join(" / ")}`,
-      timeoutMs,
-    }
-  ).pipe(
-    Effect.catch((error) =>
-      readInteractiveSnapshot(run, session).pipe(
-        Effect.flatMap((snapshot) =>
-          Effect.fail(
-            toWorkspaceE2EError(
-              `find Nexi target ${labels.join(" / ")}`,
-              new Error(
-                `${error.message}\n${summarizeHostedPaymentSnapshot(snapshot)}`
-              )
-            )
-          )
-        )
-      )
-    )
-  );
-
-const tryFillHostedPaymentField = (
-  run: Runner,
-  session: string,
-  labels: readonly string[],
-  frameLabels: readonly string[],
-  value: string
-) =>
-  Effect.gen(function* () {
-    const target = yield* findHostedPaymentRef(
-      run,
-      session,
-      labels,
-      frameLabels,
-      {
-        enabledOnly: true,
-      }
-    );
-    if (!target) return;
-
-    yield* runBrowserCommand(
-      "try fill hosted payment field",
-      run,
-      session,
-      ["fill", target.ref, value],
-      {
-        allowFailure: true,
-        logCommand: false,
-        timeoutMs: 30_000,
-      }
-    ).pipe(
-      Effect.ensuring(
-        target.framed
-          ? switchToMainFrame(run, session).pipe(Effect.ignore)
-          : Effect.void
-      )
-    );
-  });
-
-type HostedPaymentRef = {
-  readonly framed: boolean;
-  readonly ref: string;
-};
-
-const findHostedPaymentRef = (
-  run: Runner,
-  session: string,
-  labels: readonly string[],
-  frameLabels: readonly string[],
-  options: {
-    readonly enabledOnly?: boolean;
-    readonly role?: string;
-  } = {}
-): Effect.Effect<HostedPaymentRef | undefined, WorkspaceE2EError> =>
-  Effect.gen(function* () {
-    const snapshot = yield* readInteractiveSnapshot(run, session);
-    const directRef = options.enabledOnly
-      ? findEnabledSnapshotRef(snapshot, labels, options.role)
-      : findSnapshotRef(snapshot, labels, options.role);
-    if (directRef && !isFrameSnapshotRef(directRef)) {
-      return { framed: false, ref: directRef };
-    }
-
-    for (const frame of findHostedPaymentFrames(snapshot, frameLabels)) {
-      const switched = yield* runBrowserCommand(
-        "switch hosted payment frame",
-        run,
-        session,
-        ["frame", frame.ref],
-        { allowFailure: true, logOutput: false, timeoutMs: 30_000 }
-      );
-      if (switched.exitCode !== 0) continue;
-
-      let shouldRestoreMainFrame = true;
-      const frameResult = yield* Effect.gen(function* () {
-        const frameSnapshot = yield* readInteractiveSnapshot(run, session);
-        const frameFieldRef = options.enabledOnly
-          ? (findEnabledSnapshotRef(frameSnapshot, labels, options.role) ??
-            (frame.exact
-              ? findFirstEnabledTextFieldRef(frameSnapshot)
-              : undefined))
-          : (findSnapshotRef(frameSnapshot, labels, options.role) ??
-            (frame.exact ? findFirstTextFieldRef(frameSnapshot) : undefined));
-        if (!frameFieldRef) return undefined;
-
-        shouldRestoreMainFrame = false;
-        return { framed: true, ref: "input" };
-      }).pipe(
-        Effect.ensuring(
-          Effect.suspend(() =>
-            shouldRestoreMainFrame
-              ? switchToMainFrame(run, session).pipe(Effect.ignore)
-              : Effect.void
-          )
-        )
-      );
-
-      if (frameResult) return frameResult;
-    }
-  });
-
-type HostedPaymentFrame = {
-  readonly exact: boolean;
-  readonly ref: string;
-};
-
-const findHostedPaymentFrames = (
-  snapshot: string,
-  frameLabels: readonly string[]
-) => {
-  const frames = new Map<string, HostedPaymentFrame>();
-  for (const line of snapshot.split("\n")) {
-    const ref = getSnapshotRef(line);
-    if (!ref || !/\b(?:frame|iframe)\b/i.test(line)) continue;
-
-    const exact = frameLabels.some((label) =>
-      line.toLowerCase().includes(label.toLowerCase())
-    );
-    frames.set(ref, { exact, ref });
-  }
-
-  return [...frames.values()].sort((left, right) => {
-    if (left.exact === right.exact) return 0;
-    return left.exact ? -1 : 1;
-  });
-};
-
-type HostedPaymentClickTarget = {
-  readonly value: string;
-};
-
-type HostedPaymentDiagnosticTarget =
-  | "continue"
-  | "pay"
-  | "challenge"
-  | "return";
-type HostedPaymentClickLabel =
-  | "continue"
-  | "pay"
-  | "3DS success"
-  | "back to shop";
-
-type HostedPaymentDiagnosticState =
-  | "card_entry_incomplete"
-  | "card_entry_ready"
-  | "continue_enabled"
-  | "continue_disabled"
-  | "pay_enabled"
-  | "pay_disabled"
-  | "challenge_enabled"
-  | "challenge_disabled"
-  | "return_enabled"
-  | "return_disabled"
-  | "unknown"
-  | "snapshot_unavailable";
-
-const hostedPaymentDiagnosticTargets: Readonly<
-  Record<HostedPaymentClickLabel, HostedPaymentDiagnosticTarget>
-> = {
-  continue: "continue",
-  pay: "pay",
-  "3DS success": "challenge",
-  "back to shop": "return",
-};
-
-const hostedPaymentDiagnosticButtons = [
-  {
-    labels: ["BACK TO THE SHOP", "Back to the shop", "TORNA AL NEGOZIO"],
-    state: "return",
-  },
-  {
-    labels: ["AUTENTICAZIONE RIUSCITA", "Authentication successful"],
-    state: "challenge",
-  },
-  { labels: ["PAY", "Pay", "PAGA"], state: "pay" },
-] as const;
-
-const hostedPaymentCardFields = [
-  ["Card number", "Numero carta", "Numero della carta"],
-  ["Expiration date", "Scadenza", "Data scadenza"],
-  ["CVV", "CVC", "Codice sicurezza"],
-] as const;
-
-const findExactHostedPaymentControl = (
-  snapshot: string,
-  labels: readonly string[],
-  roles: readonly string[]
-): { readonly enabled: boolean } | undefined => {
-  for (const role of roles) {
-    const ref = findSnapshotRef(snapshot, labels, role);
-    if (!ref) continue;
-
-    const exactLine = snapshot.split("\n").find((line) => {
-      if (getSnapshotRef(line) !== ref) return false;
-      const lineRole = line.match(/^\s*-\s+(\S+)/)?.[1]?.toLowerCase();
-      const accessibleName = line
-        .match(/^\s*-\s+\S+\s+"([^"]+)"/)?.[1]
-        ?.trim()
-        .toLowerCase();
-      return (
-        lineRole === role.toLowerCase() &&
-        accessibleName !== undefined &&
-        labels.some((label) => label.toLowerCase() === accessibleName)
-      );
-    });
-    if (!exactLine) continue;
-
-    return {
-      enabled: findEnabledSnapshotRef(snapshot, labels, role) === ref,
-    };
-  }
-};
-
-const classifyHostedPaymentSnapshot = (
-  snapshot: string
-): HostedPaymentDiagnosticState => {
-  if (!snapshot.trim()) return "snapshot_unavailable";
-
-  for (const button of hostedPaymentDiagnosticButtons) {
-    const control = findExactHostedPaymentControl(snapshot, button.labels, [
-      "button",
-    ]);
-    if (control)
-      return `${button.state}_${control.enabled ? "enabled" : "disabled"}` as HostedPaymentDiagnosticState;
-  }
-
-  const cardControls = hostedPaymentCardFields.map((labels) =>
-    findExactHostedPaymentControl(snapshot, labels, ["textbox", "input"])
-  );
-  if (cardControls.some((control) => control !== undefined))
-    return cardControls.every((control) => control?.enabled === true)
-      ? "card_entry_ready"
-      : "card_entry_incomplete";
-
-  const continueButton = findExactHostedPaymentControl(
-    snapshot,
-    ["CONTINUE", "Continue", "CONTINUA"],
-    ["button"]
-  );
-  if (continueButton)
-    return continueButton.enabled ? "continue_enabled" : "continue_disabled";
-
-  return "unknown";
-};
-
-const failWithHostedPaymentDiagnostic = (
-  label: HostedPaymentClickLabel,
-  state: HostedPaymentDiagnosticState,
-  error: WorkspaceE2EError
-): Effect.Effect<never, WorkspaceE2EError> => {
-  const target = hostedPaymentDiagnosticTargets[label];
-  const diagnosticCode = `nexi_hosted_${target}_${state}`;
-  if (!isWorkspaceE2EDiagnosticCode(diagnosticCode)) return Effect.fail(error);
-  return withWorkspaceE2EDiagnosticCode(
-    diagnosticCode as WorkspaceE2EHostedPaymentDiagnosticCode
-  )(Effect.fail(error));
-};
-
-const clickHostedPaymentTarget = (
-  run: Runner,
-  session: string,
-  label: HostedPaymentClickLabel,
-  targets: readonly HostedPaymentClickTarget[],
-  timeouts: WorkspaceE2ETimeouts,
-  options: {
-    readonly activation?: "keyboard" | "pointer";
-    readonly optional?: boolean;
-    readonly timeoutMs?: number;
-  } = {}
-): Effect.Effect<void, WorkspaceE2EError> =>
-  Effect.gen(function* () {
-    const labels = targets.map((target) => target.value);
-    const timeoutMs = options.timeoutMs ?? timeouts.providerTransition;
-    const target = yield* options.optional
-      ? waitForHostedPaymentClickTarget(run, session, labels, timeoutMs).pipe(
-          Effect.orElseSucceed(() => undefined)
-        )
-      : waitForHostedPaymentClickTarget(run, session, labels, timeoutMs);
-
-    if (!target) return;
-
-    yield* (
-      options.activation === "pointer"
-        ? clickBrowserElement(run, session, target.ref, { timeoutMs: 30_000 })
-        : Effect.gen(function* () {
-            yield* focusBrowserElement(run, session, target.ref, {
-              timeoutMs: 30_000,
-            });
-            yield* pressBrowserKey(run, session, "Enter", {
-              timeoutMs: 30_000,
-            });
-          })
-    ).pipe(
-      Effect.ensuring(
-        target.framed
-          ? switchToMainFrame(run, session).pipe(Effect.ignore)
-          : Effect.void
-      )
-    );
-
-    yield* waitForHostedPaymentTargetToChange(
-      run,
-      session,
-      label,
-      labels,
-      timeoutMs
-    );
-  }).pipe(
-    Effect.catch((error) => {
-      if (options.optional) return Effect.void;
-
-      return readInteractiveSnapshot(run, session, true).pipe(
-        Effect.exit,
-        Effect.flatMap((snapshotExit) => {
-          if (Exit.isFailure(snapshotExit))
-            return failWithHostedPaymentDiagnostic(
-              label,
-              "snapshot_unavailable",
-              error
-            );
-
-          const diagnosticError = toWorkspaceE2EError(
-            `click Nexi ${label}`,
-            new Error(
-              `${error.message}\n${summarizeHostedPaymentSnapshot(snapshotExit.value)}`
-            )
-          );
-          return failWithHostedPaymentDiagnostic(
-            label,
-            classifyHostedPaymentSnapshot(snapshotExit.value),
-            diagnosticError
-          );
-        })
-      );
-    })
-  );
-
-const waitForHostedPaymentClickTarget = (
-  run: Runner,
-  session: string,
-  labels: readonly string[],
-  timeoutMs: number
-) =>
-  pollUntil(
-    findHostedPaymentRef(run, session, labels, [], { role: "button" }).pipe(
-      Effect.catch((error) =>
-        isHostedPaymentNavigationSnapshotGap(error)
-          ? Effect.succeed(undefined)
-          : Effect.fail(error)
-      )
-    ),
-    {
-      intervalMs: workspaceE2EPollIntervalMs.browser,
-      label: `Nexi target ${labels.join(" / ")}`,
-      timeoutMs,
-    }
-  );
-
-const waitForHostedPaymentTargetToChange = (
-  run: Runner,
-  session: string,
-  label: string,
-  labels: readonly string[],
-  timeoutMs: number
-) =>
-  pollUntil(
-    Effect.gen(function* () {
-      const stillPresent = yield* findHostedPaymentRef(
-        run,
-        session,
-        labels,
-        [],
-        { role: "button" }
-      ).pipe(
-        Effect.catch((error) =>
-          isHostedPaymentNavigationSnapshotGap(error)
-            ? Effect.succeed(undefined)
-            : Effect.fail(error)
-        )
-      );
-      if (stillPresent?.framed) yield* switchToMainFrame(run, session);
-      return stillPresent ? undefined : true;
-    }),
-    {
-      intervalMs: workspaceE2EPollIntervalMs.browser,
-      label: `Nexi ${label} completion`,
-      timeoutMs,
-    }
-  );
-
-const isHostedPaymentNavigationSnapshotGap = (error: WorkspaceE2EError) =>
-  error.message.includes("Execution context was destroyed") ||
-  error.message.includes('Selector "body" does not match any element');
 
 const extractOrderId = (stdout: string) => {
   const match = stdout.match(/\/checkout\/status\/([^\s/?#]+)/);

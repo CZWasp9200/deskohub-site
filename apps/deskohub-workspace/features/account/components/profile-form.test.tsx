@@ -270,8 +270,8 @@ describe("ProfileForm", () => {
     workspaceRouterRefresh.mockClear();
   });
 
-  afterAll(() => {
-    unregisterWorkspaceComponentTestEnv();
+  afterAll(async () => {
+    await unregisterWorkspaceComponentTestEnv();
   });
 
   test("labels the profile fields without required or optional suffixes", async () => {

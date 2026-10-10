@@ -280,7 +280,7 @@ describe("AccountPage states", () => {
     cleanup();
     await flushWorkspaceComponentWork();
     globalThis.ResizeObserver = originalResizeObserver;
-    unregisterWorkspaceComponentTestEnv();
+    await unregisterWorkspaceComponentTestEnv();
   });
 
   const renderState = async (

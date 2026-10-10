@@ -8,6 +8,7 @@ import {
   workspaceE2EPlaywrightCheckoutTimeout,
   workspaceE2ETimeouts,
 } from "../e2e/timeouts";
+import { runCommand } from "./shared/command";
 import {
   callsNamed,
   containsNode,
@@ -22,7 +23,6 @@ import {
   stringArguments,
   stringLiterals,
 } from "./shared/source-ast";
-import { runBoundedProcess } from "./shared/testing/bounded-process";
 
 const casesModule = parseTrackedSource(
   new URL("../e2e/account/cases.ts", import.meta.url).pathname
@@ -45,27 +45,23 @@ let cachedConfigStructure: Promise<PlaywrightCheckoutConfig> | undefined;
 // structure is asserted on. It runs in a child process because the config
 // resolves its browser executable with a top-level await, which bun's test
 // runner does not settle reliably across multiple entry files.
-const playwrightConfigStructure = (): Promise<PlaywrightCheckoutConfig> =>
-  (cachedConfigStructure ??= (async () => {
-    const result = await runBoundedProcess({
-      cmd: [
+const loadPlaywrightConfigStructure =
+  async (): Promise<PlaywrightCheckoutConfig> => {
+    const result = await runCommand(
+      [
         process.execPath,
         "-e",
         'const config = (await import("./playwright.e2e.config")).default; console.log(JSON.stringify(config));',
       ],
-      cwd: new URL("..", import.meta.url).pathname,
-      maxOutputBytes: 64 * 1024,
-      timeoutMs: 15_000,
-    });
-    if (result.outcome === "timed-out") {
+      { cwd: new URL("..", import.meta.url).pathname, timeoutMs: 15_000 }
+    );
+    if (result.timedOut) {
       throw new Error("actual Playwright config loader timed out");
     }
-    if (result.outcome === "output-limit") {
-      throw new Error(
-        "actual Playwright config loader exceeded its output limit"
-      );
+    if (result.signalCode !== null) {
+      throw new Error("actual Playwright config loader was interrupted");
     }
-    if (result.outcome === "failed") {
+    if (result.exitCode !== 0) {
       throw new Error(
         `actual Playwright config loader exited with status ${result.exitCode}`
       );
@@ -75,7 +71,12 @@ const playwrightConfigStructure = (): Promise<PlaywrightCheckoutConfig> =>
     } catch {
       throw new Error("actual Playwright config loader emitted invalid JSON");
     }
-  })());
+  };
+
+const playwrightConfigStructure = (): Promise<PlaywrightCheckoutConfig> => {
+  cachedConfigStructure ??= loadPlaywrightConfigStructure();
+  return cachedConfigStructure;
+};
 
 const projectByName = (config: PlaywrightCheckoutConfig, name: string) =>
   config.projects.find((project) => project.name === name);

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { workspaceE2EPlaywrightCheckoutTimeout } from "../e2e/timeouts";
+import { runCommand } from "./shared/command";
 import {
   callsNamed,
   identifierNames,
@@ -12,7 +13,6 @@ import {
   positionDelta,
   stringLiterals,
 } from "./shared/source-ast";
-import { runBoundedProcess } from "./shared/testing/bounded-process";
 import {
   findStepByName,
   parseWorkflow,
@@ -28,27 +28,23 @@ let cachedConfigStructure: Promise<PlaywrightCheckoutConfig> | undefined;
 // structure is asserted on. It runs in a child process because the config
 // resolves its browser executable with a top-level await, which bun's test
 // runner does not settle reliably across multiple entry files.
-const playwrightConfigStructure = (): Promise<PlaywrightCheckoutConfig> =>
-  (cachedConfigStructure ??= (async () => {
-    const result = await runBoundedProcess({
-      cmd: [
+const loadPlaywrightConfigStructure =
+  async (): Promise<PlaywrightCheckoutConfig> => {
+    const result = await runCommand(
+      [
         process.execPath,
         "-e",
         'const config = (await import("./playwright.e2e.config")).default; console.log(JSON.stringify(config));',
       ],
-      cwd: resolve(import.meta.dir, ".."),
-      maxOutputBytes: 64 * 1024,
-      timeoutMs: 15_000,
-    });
-    if (result.outcome === "timed-out") {
+      { cwd: resolve(import.meta.dir, ".."), timeoutMs: 15_000 }
+    );
+    if (result.timedOut) {
       throw new Error("actual Playwright config loader timed out");
     }
-    if (result.outcome === "output-limit") {
-      throw new Error(
-        "actual Playwright config loader exceeded its output limit"
-      );
+    if (result.signalCode !== null) {
+      throw new Error("actual Playwright config loader was interrupted");
     }
-    if (result.outcome === "failed") {
+    if (result.exitCode !== 0) {
       throw new Error(
         `actual Playwright config loader exited with status ${result.exitCode}`
       );
@@ -58,7 +54,12 @@ const playwrightConfigStructure = (): Promise<PlaywrightCheckoutConfig> =>
     } catch {
       throw new Error("actual Playwright config loader emitted invalid JSON");
     }
-  })());
+  };
+
+const playwrightConfigStructure = (): Promise<PlaywrightCheckoutConfig> => {
+  cachedConfigStructure ??= loadPlaywrightConfigStructure();
+  return cachedConfigStructure;
+};
 
 const workflowPath = resolve(
   import.meta.dir,
@@ -146,6 +147,9 @@ describe("workspace E2E workflow", () => {
       )
     ).toBe(true);
     expect(doc.permissions?.contents).not.toBe("write");
+    // Only the jobs that publish commit statuses opt into write access; the
+    // workflow default stays read-only for the target-resolution job.
+    expect(doc.permissions?.statuses).toBe("read");
     expect(
       JSON.stringify(allocationAction?.with ?? {}).includes(
         "secrets.WORKSPACE_E2E_COORDINATOR_DATABASE_URL"
@@ -346,8 +350,8 @@ describe("workspace E2E workflow", () => {
       "bun scripts/workspace-e2e-account-state.ts"
     );
 
-    const uploadIndex = allSteps.findIndex(
-      (step) => step.uses === "actions/upload-artifact@v4"
+    const uploadIndex = allSteps.findIndex((step) =>
+      (step.uses ?? "").startsWith("actions/upload-artifact@")
     );
     const diagnosticIndex = allSteps.findIndex(
       (step) => step.name === "Classify synthetic main account state"
@@ -435,9 +439,9 @@ describe("workspace E2E workflow", () => {
     expect(environment).not.toContain("WORKSPACE_E2E_RESEND_API_KEY");
   });
 
-  test("generates the Igloohome client before Workspace E2E startup", () => {
-    const result = Bun.spawnSync({
-      cmd: [
+  test("generates the Igloohome client before Workspace E2E startup", async () => {
+    const result = await runCommand(
+      [
         process.execPath,
         "turbo",
         "run",
@@ -445,14 +449,14 @@ describe("workspace E2E workflow", () => {
         "--filter=deskohub-workspace",
         "--dry=json",
       ],
-      cwd: resolve(import.meta.dir, "../../../"),
-      env: { ...process.env, TURBO_UI: "false" },
-      stderr: "pipe",
-      stdout: "pipe",
-    });
+      {
+        cwd: resolve(import.meta.dir, "../../../"),
+        env: { ...process.env, TURBO_UI: "false" },
+      }
+    );
 
     expect(result.exitCode).toBe(0);
-    const output = new TextDecoder().decode(result.stdout);
+    const output = result.stdout;
     const jsonStart = output.indexOf("{");
     expect(jsonStart).toBeGreaterThanOrEqual(0);
     const graph = JSON.parse(output.slice(jsonStart)) as {

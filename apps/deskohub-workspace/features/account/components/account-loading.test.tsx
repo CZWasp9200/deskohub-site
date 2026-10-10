@@ -163,9 +163,9 @@ describe("AccountLoading", () => {
 
   afterEach(cleanup);
 
-  afterAll(() => {
+  afterAll(async () => {
     globalThis.ResizeObserver = originalResizeObserver;
-    unregisterWorkspaceComponentTestEnv();
+    await unregisterWorkspaceComponentTestEnv();
   });
 
   test.each(localizedLoadingCopy)(

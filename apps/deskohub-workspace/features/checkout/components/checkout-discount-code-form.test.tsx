@@ -69,8 +69,8 @@ describe("CheckoutDiscountCodeForm", () => {
     cleanup();
   });
 
-  afterAll(() => {
-    unregisterWorkspaceComponentTestEnv();
+  afterAll(async () => {
+    await unregisterWorkspaceComponentTestEnv();
   });
 
   test("prefills the requested code without disabling Apply", async () => {

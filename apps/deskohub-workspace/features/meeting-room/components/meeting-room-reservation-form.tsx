@@ -50,11 +50,14 @@ import {
 } from "@/features/reservation/meeting-room-reservation-duration";
 import {
   getEarliestMeetingRoomStartDateTime,
-  getMeetingRoomLastServiceDate,
-  getMeetingRoomReservationDate,
   getMeetingRoomReservationInterval,
 } from "@/features/reservation/meeting-room-reservation-time";
-import type { MeetingRoomWorkspaceAvailabilityQuery } from "@/features/reservation/workspace-availability";
+import type { ReservationExistingCustomerForm } from "@/features/reservation/reservation-existing-customer";
+import {
+  getMeetingRoomAvailabilityQuery,
+  isMeetingRoomAvailable,
+  type MeetingRoomWorkspaceAvailabilityQuery,
+} from "@/features/reservation/workspace-availability";
 import {
   FormControl,
   FormField,
@@ -64,6 +67,7 @@ import {
 
 type MeetingRoomReservationFormProps = {
   readonly checkoutSessionId?: CheckoutSessionId;
+  readonly existingCustomer?: ReservationExistingCustomerForm;
   readonly initialAdvertisedPrices?: ReadonlyArray<PreloadedAdvertisedPrice>;
   readonly initialReservation?: NormalizedMeetingRoomReservationOrder;
   readonly initialValues?: MeetingRoomReservationInput;
@@ -78,6 +82,7 @@ type MeetingRoomReservationFormFallbackProps = {
 
 export function MeetingRoomReservationForm({
   checkoutSessionId,
+  existingCustomer,
   initialAdvertisedPrices = [],
   initialReservation,
   initialValues,
@@ -85,19 +90,11 @@ export function MeetingRoomReservationForm({
   replacementToken,
   submittedCode,
 }: MeetingRoomReservationFormProps) {
-  const restoredInitialValues = useMemo(
-    () =>
-      initialReservation
-        ? getMeetingRoomReservationDefaultValues(initialReservation)
-        : undefined,
-    [initialReservation]
-  );
-  const defaultValues = useMemo(
-    () =>
-      initialValues ??
-      restoredInitialValues ?? { ...meetingRoomReservationDefaultValues },
-    [initialValues, restoredInitialValues]
-  );
+  const defaultValues =
+    initialValues ??
+    (initialReservation
+      ? getMeetingRoomReservationDefaultValues(initialReservation)
+      : { ...meetingRoomReservationDefaultValues });
   const form = useForm<
     MeetingRoomReservationInput,
     unknown,
@@ -127,13 +124,7 @@ export function MeetingRoomReservationForm({
   const availabilityQuery = useMemo(
     (): MeetingRoomWorkspaceAvailabilityQuery | undefined =>
       selectedInterval
-        ? {
-            kind: "meeting-room",
-            from: getMeetingRoomReservationDate(selectedInterval),
-            to: getMeetingRoomLastServiceDate(selectedInterval),
-            startsAt: selectedInterval.startsAt,
-            endsAt: selectedInterval.endsAt,
-          }
+        ? getMeetingRoomAvailabilityQuery(selectedInterval)
         : undefined,
     [selectedInterval]
   );
@@ -143,10 +134,17 @@ export function MeetingRoomReservationForm({
   );
   const { availability } = availabilityQueryResult;
   const isSelectedReservationUnavailable = Boolean(
-    selectedInterval &&
-      ((availability?.unavailableDates.length ?? 0) > 0 ||
-        availability?.meetingRoomUnavailable)
+    selectedInterval && availability && !isMeetingRoomAvailable(availability)
   );
+  const availabilityMessage = isSelectedReservationUnavailable
+    ? m.reservationMeetingRoomUnavailable({}, { locale })
+    : undefined;
+  const availabilityErrorMessage =
+    availabilityQuery &&
+    availabilityQueryResult.isError &&
+    !availabilityQueryResult.isFetching
+      ? m.reservationAvailabilityError({}, { locale })
+      : undefined;
   const advertisedPriceRequests = useMemo(
     () =>
       getMeetingRoomDurationAdvertisedPriceRequests({
@@ -194,6 +192,7 @@ export function MeetingRoomReservationForm({
 
   return (
     <ReservationCheckoutForm
+      existingCustomer={existingCustomer}
       advertisedPrice={{
         token: advertisedPrice?.advertisedPriceToken,
         isFetching: advertisedPriceQueryResult?.isFetching ?? false,
@@ -211,9 +210,7 @@ export function MeetingRoomReservationForm({
       }}
       availability={{
         isFetching: availabilityQueryResult.isFetching,
-        unavailableMessage: isSelectedReservationUnavailable
-          ? m.reservationMeetingRoomUnavailable({}, { locale })
-          : undefined,
+        unavailableMessage: availabilityMessage ?? availabilityErrorMessage,
       }}
       checkoutSessionId={checkoutSessionId}
       form={form}

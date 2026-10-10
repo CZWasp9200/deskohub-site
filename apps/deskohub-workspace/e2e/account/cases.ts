@@ -62,6 +62,7 @@ import {
   expireSyntheticCustomerProfile,
   readSyntheticCustomerProfile,
 } from "./fixtures";
+import { workspaceE2EAccountProfileFixture } from "./profile-fixture";
 import type { MagicLinkRateBudget } from "./rate-budget";
 import { seedWorkspaceE2EReferralFixture } from "./referral-fixture";
 import type {
@@ -111,8 +112,6 @@ const deleteReauthSendSelector = "#delete-account-reauth-send";
 const deleteConfirmCheckboxSelector = "#confirm-account-deletion";
 const deleteConfirmSelector = "#delete-account-confirm";
 
-/** Submitted as-is; the provider PATCH normalizes it to E.164. */
-const profilePhoneFixture = "+420 555 000 111";
 const billingCompanyFixture = "E2E Draft Company";
 
 const browserTimeout = workspaceE2ETimeouts.browserAction;
@@ -616,7 +615,7 @@ export const makeWorkspaceE2EAccountCases = ({
                 run,
                 session,
                 profileFirstNameSelector,
-                "E2E",
+                workspaceE2EAccountProfileFixture.firstName,
                 { timeoutMs: browserTimeout }
               );
               yield* clickBrowserElement(run, session, profileSubmitSelector, {
@@ -702,14 +701,14 @@ export const makeWorkspaceE2EAccountCases = ({
                 run,
                 session,
                 profileLastNameSelector,
-                "Lane",
+                workspaceE2EAccountProfileFixture.lastName,
                 { timeoutMs: browserTimeout }
               );
               yield* fillBrowserField(
                 run,
                 session,
                 profilePhoneSelector,
-                profilePhoneFixture,
+                workspaceE2EAccountProfileFixture.phone,
                 { timeoutMs: browserTimeout }
               );
               yield* selectAccountSectionInRunner(run, session, "billing");
@@ -751,9 +750,9 @@ export const makeWorkspaceE2EAccountCases = ({
                         firstName instanceof HTMLInputElement &&
                         lastName instanceof HTMLInputElement &&
                         phone instanceof HTMLInputElement &&
-                        firstName.value === "E2E" &&
-                        lastName.value === "Lane" &&
-                        phone.value === ${JSON.stringify(profilePhoneFixture)},
+                        firstName.value === ${JSON.stringify(workspaceE2EAccountProfileFixture.firstName)} &&
+                        lastName.value === ${JSON.stringify(workspaceE2EAccountProfileFixture.lastName)} &&
+                        phone.value === ${JSON.stringify(workspaceE2EAccountProfileFixture.phone)},
                       billingPreserved:
                         companyName instanceof HTMLInputElement &&
                         companyName.value === ${JSON.stringify(billingCompanyFixture)},
@@ -779,12 +778,13 @@ export const makeWorkspaceE2EAccountCases = ({
               yield* waitText("profile update saved", profileSaved);
               const customer = yield* readProviderProfile(customerId);
               assert(
-                customer.lastName === "Lane",
+                customer.lastName ===
+                  workspaceE2EAccountProfileFixture.lastName,
                 "the optional last name did not reach the provider profile"
               );
               assert(
                 normalizePhoneNumber(customer.phone) ===
-                  normalizePhoneNumber(profilePhoneFixture),
+                  normalizePhoneNumber(workspaceE2EAccountProfileFixture.phone),
                 "the optional phone did not reach the provider profile"
               );
               assert(
@@ -1050,7 +1050,7 @@ export const makeWorkspaceE2EAccountCases = ({
           customerId: linked.customerId,
           email: recipient,
           name: "E2E Lane",
-          phone: profilePhoneFixture,
+          phone: workspaceE2EAccountProfileFixture.phone,
         };
         lifecycleHandoff.referralUnavailableCode = `RFLMISSING${crypto
           .randomUUID()

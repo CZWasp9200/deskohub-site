@@ -22,6 +22,8 @@ When a planned PR stopping point is ready for user review, publish the PR as rea
 
 For PR feedback work, local verification is an intermediate checkpoint. Continue through review, commit, push, deployed screenshot evidence, thread resolution, and required checks until the PR is mergeable. Stop earlier only for an explicit user pause or a concrete blocker that requires their input.
 
+Honor an explicit user horizon to watch a PR through merge: green checks and mergeability are checkpoints, not completion. Keep the T3 watch active, re-arm it after each pushed update, and stop only after the PR is merged or the user changes the horizon.
+
 For every PR that introduces or changes UI, attach screenshots of every newly introduced visible UI state to the PR. Capture the exact committed and pushed code, preferably from its immutable preview. Cover states that differ materially in copy, layout, interaction result, or responsive presentation; document non-visible boundary states with tests rather than empty screenshots. Upload ephemeral review screenshots through GitHub rather than committing them to the repository unless they are durable documentation or test fixtures. Use the `gh image` extension for native `user-attachments` when a GitHub browser session is available. In a headless environment, upload synthetic-only screenshots as GitHub Release Assets in the dedicated `totalolage/gitshot-images` repository and embed those URLs with `gh pr comment`. Never use Cloudinary for PR screenshots.
 
 After an addressed fix is pushed and validated, reply to each addressed review thread with a concise summary and mark the thread resolved.

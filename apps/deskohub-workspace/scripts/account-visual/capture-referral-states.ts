@@ -1,4 +1,3 @@
-import { execSync } from "node:child_process";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import {
@@ -9,6 +8,7 @@ import {
   type Page,
 } from "@playwright/test";
 import { m } from "../../features/i18n";
+import { commandOutput } from "../shared/command";
 import {
   assertCapturedSourcesMatchHead,
   gitStatusPorcelainLines,
@@ -90,8 +90,8 @@ export const parseReferralCaptureArgs = (
   return { label, outputRoot, port };
 };
 
-const gitHeadSha = (): string =>
-  execSync("git rev-parse HEAD", { cwd: repoRoot }).toString().trim();
+const gitHeadSha = async (): Promise<string> =>
+  (await commandOutput(["git", "rev-parse", "HEAD"], { cwd: repoRoot })).trim();
 
 const setReferralOutcome = async (
   page: Page,
@@ -450,14 +450,14 @@ const renderBundleCaptures = async ({
 
 const main = async () => {
   const options = parseReferralCaptureArgs(Bun.argv.slice(2));
-  assertCapturedSourcesMatchHead(gitStatusPorcelainLines());
+  assertCapturedSourcesMatchHead(await gitStatusPorcelainLines());
   const outputDirectory = await makeUniqueRunDirectory(
     options.outputRoot,
     options.label
   );
   const captureOutputDirectory = join(outputDirectory, "synthetic-rendered");
   await mkdir(captureOutputDirectory, { recursive: true });
-  const sha = gitHeadSha();
+  const sha = await gitHeadSha();
   const problems: BrowserProblem[] = [];
   const browser = await chromium.launch({ headless: true });
   const browserVersion = browser.version();
@@ -547,10 +547,10 @@ const main = async () => {
     await browser.close();
   }
 
-  if (gitHeadSha() !== sha) {
+  if ((await gitHeadSha()) !== sha) {
     throw new Error(`HEAD moved during capture from ${sha}`);
   }
-  assertCapturedSourcesMatchHead(gitStatusPorcelainLines());
+  assertCapturedSourcesMatchHead(await gitStatusPorcelainLines());
   if (results.length !== referralVisualCaptureChecklist.totalCaptureCount) {
     throw new Error(
       `Expected ${referralVisualCaptureChecklist.totalCaptureCount} fixed captures, received ${results.length}`

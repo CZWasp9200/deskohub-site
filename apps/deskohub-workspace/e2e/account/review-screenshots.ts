@@ -33,6 +33,8 @@ export type AccountReviewTarget =
   | "linked-billing-desktop"
   | "linked-billing-mobile"
   | "linked-legal-desktop"
+  | "reservation-customer-account-desktop"
+  | "reservation-customer-contact-desktop"
   | "account-marketing-withdrawn-desktop"
   | "account-marketing-active-mobile"
   | "marketing-link-pending-desktop"
@@ -176,6 +178,16 @@ const accountReviewTargetMetadata = {
   "linked-legal-desktop": {
     filename: "linked-legal-desktop.png",
     path: "/en-US/account/legal",
+    viewport: { height: 1000, width: 1440 },
+  },
+  "reservation-customer-account-desktop": {
+    filename: "reservation-customer-account-desktop.png",
+    path: "/en-US/reservation/cowork",
+    viewport: { height: 1000, width: 1440 },
+  },
+  "reservation-customer-contact-desktop": {
+    filename: "reservation-customer-contact-desktop.png",
+    path: "/en-US/reservation/cowork",
     viewport: { height: 1000, width: 1440 },
   },
   "account-marketing-withdrawn-desktop": {

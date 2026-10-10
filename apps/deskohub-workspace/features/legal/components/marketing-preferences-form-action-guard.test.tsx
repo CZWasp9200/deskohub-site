@@ -109,7 +109,7 @@ afterEach(() => {
 afterAll(async () => {
   cleanup();
   await flushWorkspaceComponentWork();
-  unregisterWorkspaceComponentTestEnv();
+  await unregisterWorkspaceComponentTestEnv();
 });
 
 test("retries a fast rejected save after the rendered busy state stays false", async () => {
@@ -159,7 +159,7 @@ test("retries a fast rejected save after the rendered busy state stays false", a
   act(() => delayedTransportErrors[0]?.());
   expect(marketingSwitch.getAttribute("aria-checked")).toBe("true");
   expect(transportErrorCalls).toBe(1);
-  expect(view.queryByRole("alert")).toBeNull();
+  expect(view.getByRole("alert").textContent).toBe("");
   expect(
     view.getByText(m.marketingPreferencesFormSaved({}, { locale: "en-US" }))
   ).toBeTruthy();

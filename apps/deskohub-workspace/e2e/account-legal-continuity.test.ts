@@ -33,7 +33,6 @@ import {
   waitForOwnedLoopbackServer,
   waitForOwnedLoopbackServerToStop,
 } from "@/shared/testing/loopback-server";
-import { waitForAccountSectionButtonHandler } from "./account/account-sections";
 import {
   type CookieCategory,
   expectNoAuthSessionCookie,
@@ -42,6 +41,7 @@ import {
   waitForCookieSwitchHandler,
 } from "./instant-navigation/public-account-legal-assertions";
 import { dismissLegalCookieConsent } from "./legal-cookie-consent";
+import { waitForReactClickHandler } from "./react-handlers";
 
 const fixtureParent = "/tmp/opencode";
 const accountFixtureReadyPath = "/en-US/account-legal-fixture-ready";
@@ -491,8 +491,6 @@ const writeFixture = async (
   const fixtureFiles: Readonly<Record<string, string>> = {
     "app/[locale]/(full-header)/account/@modal/default.tsx": nullModalPage,
     "app/[locale]/(full-header)/account/@modal/page.tsx": nullModalPage,
-    "app/[locale]/(full-header)/account/@modal/[...not-found]/page.tsx":
-      nullModalPage,
     "app/[locale]/(full-header)/account/page.tsx": privatePage,
     "app/[locale]/account-legal-fixture-ready/route.ts":
       fixtureReadinessRoute(readinessMarker),
@@ -774,6 +772,28 @@ const isTargetRscRequest = (
     : url.searchParams.get("section") === expectedSection;
 };
 
+const heldRscFetchAttempts = 3;
+
+// The harness forwards the held navigation through Playwright's own HTTP
+// client. A transport failure there (for example a reset keep-alive socket
+// to the dev server) aborts the browser request, and Next falls back to a
+// document navigation that discards the captured shell references. Retry
+// this idempotent RSC GET, and surface the transport error if it persists.
+const fetchHeldRscResponse = async (route: Route) => {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= heldRscFetchAttempts; attempt += 1) {
+    try {
+      return await route.fetch();
+    } catch (error) {
+      lastError = error;
+      await Bun.sleep(100 * attempt);
+    }
+  }
+  throw new Error("held RSC navigation could not be forwarded", {
+    cause: lastError,
+  });
+};
+
 const holdRscNavigation = async (
   page: Page,
   expectedPathname: string,
@@ -792,8 +812,8 @@ const holdRscNavigation = async (
 
     const responseWork = (async () => {
       try {
+        const response = await fetchHeldRscResponse(route);
         intercepted.resolve();
-        const response = await route.fetch();
         await release.promise;
         await route.fulfill({ response });
       } catch (error) {
@@ -1191,7 +1211,7 @@ const runPrivateContinuity = async (
     const targetSection = accountToLegal ? "legal" : "profile";
     const sourceButton = accountSectionButton(page, locale, sourceSection);
     await sourceButton.waitFor({ state: "visible" });
-    await waitForAccountSectionButtonHandler(page, sourceButton);
+    await waitForReactClickHandler(page, sourceButton);
     expect(await sourceButton.count()).toBe(1);
     expect(await sourceButton.getAttribute("aria-current")).toBe("page");
 
@@ -1207,7 +1227,7 @@ const runPrivateContinuity = async (
     try {
       const targetButton = accountSectionButton(page, locale, targetSection);
       await targetButton.waitFor({ state: "visible" });
-      await waitForAccountSectionButtonHandler(page, targetButton);
+      await waitForReactClickHandler(page, targetButton);
       expect(await targetButton.count()).toBe(1);
       await targetButton.click();
       await forward.waitForIntercept();

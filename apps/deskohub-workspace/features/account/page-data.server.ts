@@ -89,6 +89,9 @@ export const loadCustomerAccountPage = cache(
         (service) => service.load(account.success)
       ).pipe(
         Effect.provide(CustomerReservationHistoryService.Live),
+        Effect.tapError(() =>
+          logDegradedAccountSection("account.reservation-history.unavailable")
+        ),
         Effect.orElseSucceed(
           () =>
             ({ kind: "unavailable", reason: "provider-unavailable" }) as const
@@ -107,6 +110,9 @@ export const loadCustomerAccountPage = cache(
           (service) => service.lookup(account.success.accountId)
         ).pipe(
           Effect.provide(CustomerAvatarService.Live),
+          Effect.tapError(() =>
+            logDegradedAccountSection("account.avatar.unavailable")
+          ),
           Effect.orElseSucceed(() => null),
           runWorkspaceEffect("account.avatar", { boundary: "page" })
         );
@@ -153,3 +159,12 @@ export const loadCustomerAccountPage = cache(
     return { kind: "authenticated-unavailable", email: user.email };
   }
 );
+
+/**
+ * Records a degraded, non-blocking account section with a fixed, non-PII
+ * code; the provider or database cause is never attached.
+ */
+const logDegradedAccountSection = (code: string) =>
+  Effect.logWarning("Account page section unavailable").pipe(
+    Effect.annotateLogs({ code })
+  );

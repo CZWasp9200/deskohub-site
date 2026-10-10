@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
-import { execSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { commandOutput } from "../shared/command";
 import {
   assertCapturedSourcesMatchHead,
   avatarVisualCaptureChecklist,
@@ -76,22 +76,22 @@ test("capture excludes the preserved workspace example env file only", () => {
   ).toThrow(/apps\/deskohub-workspace\/scripts\/new-build-input.ts/);
 });
 
-test("status collection detects untracked inputs despite status.showUntrackedFiles=no", () => {
+test("status collection detects untracked inputs despite status.showUntrackedFiles=no", async () => {
   const repository = mkdtempSync(join(tmpdir(), "avatar-status-check-"));
+  const git = (...args: string[]) =>
+    commandOutput(["git", ...args], { cwd: repository });
   try {
-    execSync("git init -q", { cwd: repository });
-    execSync("git config status.showUntrackedFiles no", { cwd: repository });
+    await git("init", "-q");
+    await git("config", "status.showUntrackedFiles", "no");
     const untrackedInput = join(repository, "untracked-build-input.ts");
     writeFileSync(untrackedInput, "export const probe = 1;\n");
 
     // Prove the config is actually honored by plain porcelain output,
     // so the regression below cannot pass vacuously.
-    const hiddenOutput = execSync("git status --porcelain", {
-      cwd: repository,
-    }).toString();
+    const hiddenOutput = await git("status", "--porcelain");
     expect(hiddenOutput.trim()).toBe("");
 
-    const lines = gitStatusPorcelainLines(repository);
+    const lines = await gitStatusPorcelainLines(repository);
     expect(lines).toEqual(["?? untracked-build-input.ts"]);
     expect(() => assertCapturedSourcesMatchHead(lines)).toThrow(
       /refusing to attribute a dirty tree to a clean commit/
@@ -101,17 +101,19 @@ test("status collection detects untracked inputs despite status.showUntrackedFil
   }
 });
 
-test("status collection omits ignored task artifacts", () => {
+test("status collection omits ignored task artifacts", async () => {
   const repository = mkdtempSync(join(tmpdir(), "avatar-status-check-"));
+  const git = (...args: string[]) =>
+    commandOutput(["git", ...args], { cwd: repository });
   try {
-    execSync("git init -q", { cwd: repository });
+    await git("init", "-q");
     writeFileSync(
       join(repository, ".git/info/exclude"),
       "task-output-artifact\n"
     );
     writeFileSync(join(repository, "task-output-artifact"), "synthetic\n");
 
-    expect(gitStatusPorcelainLines(repository)).toEqual([]);
+    expect(await gitStatusPorcelainLines(repository)).toEqual([]);
   } finally {
     rmSync(repository, { recursive: true, force: true });
   }

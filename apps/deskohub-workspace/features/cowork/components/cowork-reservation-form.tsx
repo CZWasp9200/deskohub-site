@@ -25,15 +25,17 @@ import {
 } from "@/features/checkout/product-catalog";
 import {
   getWorkspaceProductMessage,
+  getWorkspaceProductMonitorTitle,
   getWorkspaceProductTierTitle,
   type WorkspaceProductTierCardMessages,
-  workspaceProductMonitorMessages,
+  workspaceProductMonitorDescriptionMessages,
   workspaceProductTierCardMessages,
   workspaceProductTierMessages,
 } from "@/features/checkout/product-catalog.i18n";
 import { formatWorkspaceMoney } from "@/features/checkout/workspace-money";
 import openSpaceArtwork from "@/features/cowork/assets/open-space.png";
 import reservedDeskArtwork from "@/features/cowork/assets/reserved-desk.png";
+import reservedDeskWorkstationArtwork from "@/features/cowork/assets/reserved-desk-workstation.png";
 import type { CanonicalPromotionCode } from "@/features/discounts";
 import { type Locale, m } from "@/features/i18n";
 import { ReservationAdvertisedPrice } from "@/features/reservation/components/reservation-advertised-price";
@@ -71,7 +73,11 @@ import {
   getReservationDefaultValuesFromSearchParams,
   getWorkspaceAvailabilityQueryFromReservationSearchParams,
 } from "@/features/reservation/reservation-checkout-query";
-import { formatReservationInputDate } from "@/features/reservation/reservation-date";
+import {
+  formatReservationInputDate,
+  getCurrentWorkspaceDate,
+} from "@/features/reservation/reservation-date";
+import type { ReservationExistingCustomerForm } from "@/features/reservation/reservation-existing-customer";
 import type { CoworkWorkspaceAvailabilityQuery } from "@/features/reservation/workspace-availability";
 import {
   FormControl,
@@ -89,6 +95,7 @@ type CoworkReservationFormProps = {
   initialValues?: CoworkReservationInput;
   locale: Locale;
   checkoutSessionId?: CheckoutSessionId;
+  existingCustomer?: ReservationExistingCustomerForm;
   replacementToken?: string;
   submittedCode?: CanonicalPromotionCode;
 };
@@ -111,11 +118,10 @@ const tierOptions: ReadonlyArray<{
 
 const monitorOptions: ReadonlyArray<{
   value: WorkspaceProductMonitorOption;
-  title: Parameters<typeof getWorkspaceProductMessage>[0];
   description: Parameters<typeof getWorkspaceProductMessage>[0];
 }> = workspaceProductMonitorOptions.map((option) => ({
   value: option,
-  ...workspaceProductMonitorMessages[option],
+  description: workspaceProductMonitorDescriptionMessages[option],
 }));
 
 const fallbackTierCards = ["offer-1", "offer-2"] as const;
@@ -156,23 +162,18 @@ export function CoworkReservationForm({
   initialValues,
   locale,
   checkoutSessionId,
+  existingCustomer,
   replacementToken,
   submittedCode,
 }: CoworkReservationFormProps) {
   const searchParams = useSearchParams();
-  const defaultValues = useMemo(
-    () =>
-      initialValues ??
-      (initialReservation
-        ? getReservationDefaultValuesFromPayState(initialReservation)
-        : getReservationDefaultValuesFromSearchParams(searchParams)),
-    [initialReservation, initialValues, searchParams]
-  );
-  const initialAvailabilityQuery = useMemo(
-    () =>
-      getWorkspaceAvailabilityQueryFromReservationSearchParams(searchParams),
-    [searchParams]
-  );
+  const defaultValues =
+    initialValues ??
+    (initialReservation
+      ? getReservationDefaultValuesFromPayState(initialReservation)
+      : getReservationDefaultValuesFromSearchParams(searchParams));
+  const initialAvailabilityQuery =
+    getWorkspaceAvailabilityQueryFromReservationSearchParams(searchParams);
   const form = useForm<CoworkReservationInput, unknown, CoworkReservationData>({
     resolver: effectSchemaResolver(coworkReservationSchema),
     defaultValues,
@@ -206,7 +207,9 @@ export function CoworkReservationForm({
         ? getWorkspaceAvailabilityQuery({
             date: selectedDate,
             from: initialAvailabilityQuery.from,
-            monitorOption: selectedMonitorOption,
+            monitorOption: showWorkstationAddon
+              ? selectedMonitorOption
+              : undefined,
             tier: selectedTier,
             to: initialAvailabilityQuery.to,
           })
@@ -217,6 +220,7 @@ export function CoworkReservationForm({
       selectedDate,
       selectedMonitorOption,
       selectedTier,
+      showWorkstationAddon,
     ]
   );
   const workstationRequirementQuery = useMemo(
@@ -444,25 +448,21 @@ export function CoworkReservationForm({
   const isAvailabilityQueryFetching =
     availabilityQueryResult.isFetching ||
     workstationRequirementQueryResult.isFetching;
-  const unavailableCalendarDates = useMemo(
-    () =>
-      new Set(
-        (currentRangeAvailability?.unavailableDates ?? []).filter(
-          (date) =>
-            selectedTier !== "reserved-desk" ||
-            !currentRangeAvailability?.reservedDeskWorkstationRequiredDates.includes(
-              date
-            )
+  const unavailableCalendarDates = new Set(
+    (currentRangeAvailability?.unavailableDates ?? []).filter(
+      (date) =>
+        selectedTier !== "reserved-desk" ||
+        !currentRangeAvailability?.reservedDeskWorkstationRequiredDates.includes(
+          date
         )
-      ),
-    [currentRangeAvailability, selectedTier]
+    )
   );
   const currentTierAvailability =
     currentAvailability ?? currentRangeAvailability;
-  const unavailableCoworkTiers = useMemo(
-    () => new Set(currentTierAvailability?.unavailableCoworkTiers ?? []),
-    [currentTierAvailability]
+  const unavailableCoworkTiers = new Set(
+    currentTierAvailability?.unavailableCoworkTiers ?? []
   );
+  // Memoized because the workstation normalization effect depends on it.
   const unavailableMonitorOptions = useMemo(
     () =>
       new Set(
@@ -471,23 +471,11 @@ export function CoworkReservationForm({
       ),
     [currentWorkstationRequirementAvailability]
   );
-  const selectedDateNotices = useMemo(
-    () =>
-      (currentAvailability?.notices ?? []).filter(
-        (notice) => notice.date === selectedDate
-      ),
-    [currentAvailability, selectedDate]
-  );
-  const unavailableRequirementMonitorOptions = useMemo(
-    () =>
-      new Set(
-        currentWorkstationRequirementAvailability?.unavailableMonitorOptions ??
-          []
-      ),
-    [currentWorkstationRequirementAvailability]
+  const selectedDateNotices = (currentAvailability?.notices ?? []).filter(
+    (notice) => notice.date === selectedDate
   );
   const firstAvailableMonitorOption = allowedMonitorOptions.find(
-    (option) => !unavailableRequirementMonitorOptions.has(option)
+    (option) => !unavailableMonitorOptions.has(option)
   );
   const isWorkstationRequiredForDate = Boolean(
     isWorkstationRequirementSettledForSelectedDate &&
@@ -501,7 +489,7 @@ export function CoworkReservationForm({
   const isWorkstationNormalizationPending = Boolean(
     isWorkstationRequiredForDate &&
       (!selectedMonitorOption ||
-        unavailableRequirementMonitorOptions.has(selectedMonitorOption))
+        unavailableMonitorOptions.has(selectedMonitorOption))
   );
   const isSelectedTierUnavailable = Boolean(
     currentAvailability?.unavailableCoworkTiers.includes(selectedTier)
@@ -538,7 +526,7 @@ export function CoworkReservationForm({
   const availabilityConfirmationErrorMessage =
     (isSelectedAvailabilityUnsettled || isWorkstationRequirementUnsettled) &&
     !isAvailabilityQueryFetching
-      ? m.coworkReservationAvailabilityError({}, { locale })
+      ? m.reservationAvailabilityError({}, { locale })
       : undefined;
 
   const autoAddedWorkstation = useRef(false);
@@ -567,7 +555,7 @@ export function CoworkReservationForm({
           return;
         }
 
-        if (unavailableRequirementMonitorOptions.has(selectedMonitorOption)) {
+        if (unavailableMonitorOptions.has(selectedMonitorOption)) {
           form.setValue("monitorOption", firstAvailableMonitorOption, {
             shouldValidate: true,
           });
@@ -598,11 +586,12 @@ export function CoworkReservationForm({
     selectedTier,
     showCoffeeAddon,
     showWorkstationAddon,
-    unavailableRequirementMonitorOptions,
+    unavailableMonitorOptions,
   ]);
 
   return (
     <ReservationCheckoutForm
+      existingCustomer={existingCustomer}
       advertisedPrice={{
         token: advertisedPrice?.advertisedPriceToken,
         isFetching: Boolean(advertisedPriceQueryResult?.isFetching),
@@ -644,14 +633,26 @@ export function CoworkReservationForm({
                 inputRef={field.ref}
                 name={field.name}
                 onBlur={field.onBlur}
-                onChange={field.onChange}
+                onChange={(tier) => {
+                  field.onChange(tier);
+                  if (getCoworkTierWorkstationAddon(tier) !== "optional") {
+                    autoAddedWorkstation.current = false;
+                    form.setValue("monitorOption", undefined);
+                  }
+                  if (getCoworkTierCoffeeAddon(tier) !== "optional") {
+                    form.setValue("coffee", true);
+                  }
+                }}
                 presentation="illustrated"
                 value={field.value}
               >
                 {tierOptions.map((option) => {
                   const artworkSource = {
                     "open-space": openSpaceArtwork,
-                    "reserved-desk": reservedDeskArtwork,
+                    "reserved-desk":
+                      selectedMonitorOption === undefined
+                        ? reservedDeskArtwork
+                        : reservedDeskWorkstationArtwork,
                   }[option.value];
                   const optionTitle = getWorkspaceProductMessage(
                     option.title,
@@ -736,7 +737,7 @@ export function CoworkReservationForm({
         )}
       />
 
-      <div data-cowork-date-addon-row className="grid gap-5 lg:grid-cols-2">
+      <div data-cowork-date-addon-row className="grid gap-5 md:grid-cols-2">
         <div data-cowork-date-column className="space-y-5">
           <CoworkReservationDateField
             control={form.control}
@@ -933,6 +934,24 @@ function CoworkWorkstationAddonField({
 }) {
   const monitorSetupId = useId();
   const monitorSetupLabelId = `${monitorSetupId}-label`;
+  const visibleMonitorOptions = monitorOptions.filter((option) =>
+    allowedMonitorOptions.includes(option.value)
+  );
+  const isMonitorOptionDisabled = (option: WorkspaceProductMonitorOption) =>
+    unavailableMonitorOptions.has(option) || !monitorOptionsAvailabilitySettled;
+  const selectableMonitorOptions = visibleMonitorOptions.filter(
+    (option) => !isMonitorOptionDisabled(option.value)
+  );
+  // RHF keeps one focus target per field, so validation focus lands on the
+  // selected radio, or the first one the visitor can choose.
+  const getMonitorFocusOption = (selectedOption: string | undefined) =>
+    (
+      selectableMonitorOptions.find(
+        (option) => option.value === selectedOption
+      ) ??
+      selectableMonitorOptions[0] ??
+      visibleMonitorOptions[0]
+    )?.value;
 
   return (
     <FormField
@@ -974,7 +993,7 @@ function CoworkWorkstationAddonField({
           {field.value !== undefined && (
             <div
               data-cowork-monitor-options
-              className="rounded-3xl border border-aquamarine-green/25 bg-aquamarine-green/8 p-4 lg:col-span-2"
+              className="rounded-3xl border border-aquamarine-green/25 bg-aquamarine-green/8 p-4 md:col-span-2"
             >
               <Label
                 id={monitorSetupLabelId}
@@ -989,63 +1008,62 @@ function CoworkWorkstationAddonField({
                   aria-labelledby={monitorSetupLabelId}
                   className="grid gap-3 sm:grid-cols-3"
                 >
-                  {monitorOptions
-                    .filter((option) =>
-                      allowedMonitorOptions.includes(option.value)
-                    )
-                    .map((option) => {
-                      const isSelected = field.value === option.value;
-                      const isUnavailable = unavailableMonitorOptions.has(
-                        option.value
-                      );
-                      const isDisabled =
-                        isUnavailable || !monitorOptionsAvailabilitySettled;
+                  {visibleMonitorOptions.map((option) => {
+                    const isSelected = field.value === option.value;
+                    const isDisabled = isMonitorOptionDisabled(option.value);
 
-                      return (
-                        <label
-                          key={option.value}
-                          className={cn(
-                            "cursor-pointer rounded-[1.1rem] border p-3 transition hover:-translate-y-0.5 focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-navy-blue",
-                            isDisabled &&
-                              "cursor-not-allowed opacity-45 hover:translate-y-0",
-                            isSelected
-                              ? "border-aquamarine-green bg-white ring-4 ring-aquamarine-green/15"
-                              : "border-navy-blue/10 bg-white/75 hover:border-aquamarine-green/55"
+                    return (
+                      <label
+                        key={option.value}
+                        className={cn(
+                          "cursor-pointer rounded-[1.1rem] border p-3 transition hover:-translate-y-0.5 focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-navy-blue",
+                          isDisabled &&
+                            "cursor-not-allowed opacity-45 hover:translate-y-0",
+                          isSelected
+                            ? "border-aquamarine-green bg-white ring-4 ring-aquamarine-green/15"
+                            : "border-navy-blue/10 bg-white/75 hover:border-aquamarine-green/55"
+                        )}
+                      >
+                        <input
+                          type="radio"
+                          className="sr-only"
+                          checked={isSelected}
+                          value={option.value}
+                          disabled={isDisabled}
+                          name={field.name}
+                          onBlur={field.onBlur}
+                          onChange={() => {
+                            if (!isDisabled) {
+                              onManualSelection();
+                              field.onChange(option.value);
+                            }
+                          }}
+                          ref={
+                            option.value === getMonitorFocusOption(field.value)
+                              ? field.ref
+                              : undefined
+                          }
+                        />
+                        <span className="block font-semibold text-navy-blue">
+                          {getWorkspaceProductMonitorTitle(
+                            option.value,
+                            locale
                           )}
-                        >
-                          <input
-                            type="radio"
-                            className="sr-only"
-                            checked={isSelected}
-                            value={option.value}
-                            disabled={isDisabled}
-                            name={field.name}
-                            onBlur={field.onBlur}
-                            onChange={() => {
-                              if (!isDisabled) {
-                                onManualSelection();
-                                field.onChange(option.value);
-                              }
-                            }}
-                            ref={field.ref}
-                          />
-                          <span className="block font-semibold text-navy-blue">
-                            {getWorkspaceProductMessage(option.title, locale)}
-                          </span>
-                          <span className="mt-1 block text-sm leading-5 text-navy-blue/60">
-                            {getWorkspaceProductMessage(
-                              option.description,
-                              locale
-                            )}
-                          </span>
-                        </label>
-                      );
-                    })}
+                        </span>
+                        <span className="mt-1 block text-sm leading-5 text-navy-blue/60">
+                          {getWorkspaceProductMessage(
+                            option.description,
+                            locale
+                          )}
+                        </span>
+                      </label>
+                    );
+                  })}
                 </div>
               </FormControl>
             </div>
           )}
-          <FormMessage className="lg:col-span-2" />
+          <FormMessage className="md:col-span-2" />
         </FormItem>
       )}
     />
@@ -1079,8 +1097,9 @@ function CoworkReservationDateField({
             displayValue={formatDisplayDate(field.value, locale)}
             isDateDisabled={(date) => unavailableDates.has(date.toString())}
             locale={locale}
-            minimum={() => Temporal.Now.plainDateISO().toString()}
+            minimum={() => getCurrentWorkspaceDate().toString()}
             name={field.name}
+            onBlur={field.onBlur}
             onChange={field.onChange}
             placeholder={m.reservationDatePlaceholder({}, { locale })}
             value={field.value}
@@ -1131,7 +1150,7 @@ export function CoworkReservationFormFallback({
         </div>
       </div>
 
-      <div className="grid gap-5 lg:grid-cols-2">
+      <div className="grid gap-5 md:grid-cols-2">
         <ReservationSkeletonField />
         <ReservationSkeletonField />
       </div>
