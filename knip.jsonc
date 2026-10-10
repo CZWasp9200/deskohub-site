@@ -14,7 +14,10 @@
         "**/*.browser-harness.tsx",
         "**/drizzle.config.ts",
         "playwright.*.config.ts",
-        // drizzle.config.ts files load their schema by path, not by import.
+        // drizzle.config.ts files load their schema by path, not by import,
+        // and drizzle-kit reads every export of these modules.
+        "db/schema/index.ts",
+        "db/schema/auth.ts",
         "e2e/coordination/schema.ts",
         "e2e/account/marketing-document-hash.config.ts",
         "env.ts",
