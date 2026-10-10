@@ -21,7 +21,7 @@ type TooltipTouchTap = {
 const TooltipTouchTapContext = createContext<TooltipTouchTap | null>(null);
 
 function TooltipProvider({
-  delayDuration = 0,
+  delayDuration = 200,
   ...props
 }: ComponentProps<typeof TooltipPrimitive.Provider>) {
   return <TooltipPrimitive.Provider delayDuration={delayDuration} {...props} />;
