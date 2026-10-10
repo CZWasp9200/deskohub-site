@@ -6,7 +6,7 @@ import {
 } from "@deskohub/dotypos";
 import type { Reservation, Table } from "@deskohub/dotypos/generated";
 import { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Logger, References } from "effect";
 import "@/shared/polyfills/temporal";
 import {
   GoogleCalendarWorkspaceLimitationsService,
@@ -173,6 +173,23 @@ const runWithInventory = async <A>(
   );
 };
 
+type CapturedLog = {
+  readonly message: string;
+  readonly expiredHoldCount: unknown;
+};
+
+const captureLogs = (logs: CapturedLog[]) =>
+  Logger.make((options) => {
+    const [message] = Array.isArray(options.message)
+      ? options.message
+      : [options.message];
+    logs.push({
+      message: String(message),
+      expiredHoldCount: options.fiber.getRef(References.CurrentLogAnnotations)
+        .expiredHoldCount,
+    });
+  });
+
 const getAvailability = (input: {
   readonly date?: string;
   readonly from?: string;
@@ -191,6 +208,7 @@ const getAvailability = (input: {
   readonly onReservationInterval?: (
     interval: DotyposReservationInterval
   ) => void;
+  readonly logs?: CapturedLog[];
 }) =>
   runWithInventory(
     Effect.gen(function* () {
@@ -235,7 +253,7 @@ const getAvailability = (input: {
           monitorOption: input.monitorOption,
         },
       });
-    }),
+    }).pipe(Effect.provide(Logger.layer([captureLogs(input.logs ?? [])]))),
     input
   );
 
@@ -438,6 +456,50 @@ describe("WorkspaceAvailabilityService", () => {
 
     expect(availability.unavailableDates).toContain(testDate);
     expect(availability.unavailableMonitorOptions).toContain("2x27-qhd");
+  });
+
+  test("logs the expired local hold filter summary", async () => {
+    const logs: CapturedLog[] = [];
+    await getAvailability({
+      date: testDate,
+      expiredHoldDotyposReservationIds: [
+        "expired-dotypos-reservation-1",
+        "expired-dotypos-reservation-2",
+      ],
+      logs,
+    });
+
+    expect(
+      logs.filter(({ message }) => message.includes("expired hold filter"))
+    ).toEqual([
+      {
+        message: "Workspace availability expired hold filter started",
+        expiredHoldCount: undefined,
+      },
+      {
+        message: "Workspace availability expired hold filter completed",
+        expiredHoldCount: 2,
+      },
+    ]);
+    expect(JSON.stringify(logs)).not.toContain("expired-dotypos-reservation");
+  });
+
+  test("logs a failed expired local hold filter without a completion", async () => {
+    const logs: CapturedLog[] = [];
+    await getAvailability({
+      date: testDate,
+      expiredHoldDotyposReservationIdsError: true,
+      logs,
+    });
+
+    expect(
+      logs
+        .filter(({ message }) => message.includes("expired hold filter"))
+        .map(({ message }) => message)
+    ).toEqual([
+      "Workspace availability expired hold filter started",
+      "Workspace availability expired hold filter failed",
+    ]);
   });
 
   test("marks a tier unavailable only when all matching tables are occupied", async () => {
