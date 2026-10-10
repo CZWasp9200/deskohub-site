@@ -1,7 +1,7 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
-  // Report dependency-level issues only (dependencies, unlisted, binaries).
-  "include": ["dependencies", "unlisted", "binaries"],
+  // Keep the configuration itself free of redundant or stale patterns.
+  "treatConfigHintsAsErrors": true,
   "workspaces": {
     "apps/deskohub-workspace": {
       "entry": [
@@ -13,11 +13,14 @@
         "**/*-rsc-fixture.ts",
         "**/*.browser-harness.tsx",
         "**/drizzle.config.ts",
+        "playwright.*.config.ts",
         // drizzle.config.ts files load their schema by path, not by import.
         "e2e/coordination/schema.ts",
         "e2e/account/marketing-document-hash.config.ts",
         "env.ts",
         "scripts/**/*.{ts,tsx}",
+        // The account visual renderer serves its stylesheet by path.
+        "scripts/account-visual/renderer.css",
         // Bundled by path for browser-rendered test fixtures.
         "shared/testing/posthog-identity-browser-fixture.tsx",
         "types/*.d.ts"

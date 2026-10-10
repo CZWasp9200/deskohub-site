@@ -59,6 +59,8 @@ bun turbo test --filter=<package-name>
 bun turbo build --filter=<package-name>
 ```
 
+Workspace `lint` includes `lint:knip`, the full Knip analysis of `apps/deskohub-workspace` (unused files, exports, types, duplicate exports, unresolved imports, and dependencies) configured in the root `knip.jsonc`. It depends on `i18n:compile` because Paraglide output is generated, and configuration hints fail the check. Remove a flagged export, or drop its `export` keyword when the file still uses it, rather than ignoring the finding. Register a module that is loaded by path rather than imported as a commented Workspace `entry`.
+
 Workspace has additional database and E2E tasks. Read the Workspace operations or E2E skill before running them against any shared or hosted environment.
 
 ## Environment files

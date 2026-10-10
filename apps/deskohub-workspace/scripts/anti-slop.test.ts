@@ -399,7 +399,7 @@ test("Workspace lint is a Turbo dependency graph", () => {
   for (const [script, tool] of Object.entries({
     "lint:biome": "biome",
     "lint:eslint": "eslint",
-    "lint:dependencies": "knip",
+    "lint:knip": "knip",
   })) {
     expect(workspaceManifest.scripts?.[script]).toContain(tool);
   }
@@ -408,7 +408,7 @@ test("Workspace lint is a Turbo dependency graph", () => {
       "$TURBO_EXTENDS$",
       "lint:biome",
       "lint:eslint",
-      "lint:dependencies",
+      "lint:knip",
     ])
   );
   expect(rootTurbo.tasks?.lint?.dependsOn).toContain("^lint");
