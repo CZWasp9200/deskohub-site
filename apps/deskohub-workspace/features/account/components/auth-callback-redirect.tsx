@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { getAccountPath } from "@/features/account/routes";
 import type { Locale } from "@/features/i18n";
 import { handOffReturn } from "@/shared/browser/return-window";
 import { AuthCallbackLoading } from "./auth-callback-loading";
@@ -8,7 +9,7 @@ import { AuthCallbackLoading } from "./auth-callback-loading";
 export function AuthCallbackRedirect({ locale }: { readonly locale: Locale }) {
   useEffect(() => {
     let active = true;
-    const accountPath = `/${locale}/account`;
+    const accountPath = getAccountPath(locale);
     const navigateToAccount = () => {
       if (!active) return;
       try {

@@ -19,6 +19,7 @@ import {
   updateCustomerProfileStandardSchema,
 } from "@/features/account/contracts";
 import { CustomerAccountAccessError } from "@/features/account/customer-account";
+import { getAccountPath } from "@/features/account/routes";
 import type { Locale } from "@/features/i18n";
 import { m } from "@/features/i18n";
 import { defineWorkspaceAction } from "@/shared/backend/workspace-action";
@@ -113,7 +114,7 @@ export type CustomerAccountDeletionResult =
 
 const revalidateDeletionAuthority = (locale: Locale) =>
   Effect.sync(() => {
-    revalidatePath(`/${locale}/account`);
+    revalidatePath(getAccountPath(locale));
     revalidatePath(`/${locale}/account/deleted`);
   });
 

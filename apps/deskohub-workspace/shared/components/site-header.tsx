@@ -2,7 +2,7 @@
 
 import { Menu, UserRound, X } from "lucide-react";
 import { usePathname } from "next/navigation";
-import { Suspense, useState } from "react";
+import { Suspense, use, useState } from "react";
 import type { Locale } from "@/features/i18n";
 import { GuardedLink as Link } from "@/shared/components/guarded-link";
 import {
@@ -10,13 +10,15 @@ import {
   LocaleSwitcherLinks,
 } from "@/shared/components/locale-switcher-links";
 import { HorizontalLogo, Logo } from "@/shared/components/logo";
-import type { SiteHeaderMenuItem } from "@/shared/components/site-header-config";
+import type {
+  SiteHeaderAccountEntry,
+  SiteHeaderMenuItem,
+} from "@/shared/components/site-header-config";
 import { Button } from "@/shared/components/ui/button";
 import { cn } from "@/shared/utils";
 
 type SiteHeaderProps = {
-  accountHref?: string;
-  accountLabel?: string;
+  account?: SiteHeaderAccountEntry;
   currentLocale: Locale;
   languageLabels: Record<Locale, string>;
   links: SiteHeaderMenuItem[];
@@ -67,9 +69,40 @@ function AccountLink({
   );
 }
 
-function ActiveAccountLink(props: Omit<AccountLinkProps, "active">) {
+type AccountEntryLinkProps = Omit<
+  AccountLinkProps,
+  "active" | "href" | "label"
+> & {
+  readonly entry: SiteHeaderAccountEntry;
+};
+
+function ResolvedAccountLink({ entry, ...props }: AccountEntryLinkProps) {
+  const href = use(entry.href);
   const pathname = usePathname();
-  return <AccountLink {...props} active={pathname === props.href} />;
+  return (
+    <AccountLink
+      {...props}
+      href={href}
+      label={entry.label}
+      active={pathname === href}
+    />
+  );
+}
+
+function AccountEntryLink(props: AccountEntryLinkProps) {
+  return (
+    <Suspense
+      fallback={
+        <AccountLink
+          {...props}
+          href={props.entry.signInHref}
+          label={props.entry.label}
+        />
+      }
+    >
+      <ResolvedAccountLink {...props} />
+    </Suspense>
+  );
 }
 
 type NavigationLinkProps = {
@@ -113,8 +146,7 @@ function CurrentPageNavigationLink(props: Omit<NavigationLinkProps, "active">) {
 }
 
 export function SiteHeader({
-  accountHref,
-  accountLabel,
+  account,
   currentLocale,
   languageLabels,
   links,
@@ -169,22 +201,8 @@ export function SiteHeader({
         </nav>
 
         <div className="flex shrink-0 items-center gap-2 sm:gap-3 xl:gap-3">
-          {accountHref !== undefined && accountLabel !== undefined && (
-            <Suspense
-              fallback={
-                <AccountLink
-                  href={accountHref}
-                  label={accountLabel}
-                  onClick={closeMenu}
-                />
-              }
-            >
-              <ActiveAccountLink
-                href={accountHref}
-                label={accountLabel}
-                onClick={closeMenu}
-              />
-            </Suspense>
+          {account !== undefined && (
+            <AccountEntryLink entry={account} onClick={closeMenu} />
           )}
 
           <Link
@@ -249,24 +267,8 @@ export function SiteHeader({
       >
         <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-5 sm:px-6 lg:px-8">
           <nav aria-label={mobilePrimaryNavigationLabel} className="grid gap-2">
-            {accountHref !== undefined && accountLabel !== undefined && (
-              <Suspense
-                fallback={
-                  <AccountLink
-                    href={accountHref}
-                    label={accountLabel}
-                    mobile
-                    onClick={closeMenu}
-                  />
-                }
-              >
-                <ActiveAccountLink
-                  href={accountHref}
-                  label={accountLabel}
-                  mobile
-                  onClick={closeMenu}
-                />
-              </Suspense>
+            {account !== undefined && (
+              <AccountEntryLink entry={account} mobile onClick={closeMenu} />
             )}
             {links.map((link) => (
               <CurrentPageNavigationLink

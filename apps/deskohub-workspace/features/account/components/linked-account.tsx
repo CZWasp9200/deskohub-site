@@ -13,6 +13,7 @@ import type {
   CustomerAvatarPresentation,
   CustomerReservationHistory,
 } from "@/features/account/contracts";
+import { getAccountPath } from "@/features/account/routes";
 import type { Locale } from "@/features/i18n";
 
 type LinkedAccountProps = {
@@ -35,7 +36,8 @@ export function LinkedAccount({
     useAccountLayout();
   const normalizedPathname =
     pathname === null ? null : pathname.replace(/\/+$/, "") || "/";
-  const isPrivateAccountPathname = normalizedPathname === `/${locale}/account`;
+  const isPrivateAccountPathname =
+    normalizedPathname === getAccountPath(locale);
   const profileSection = activeSection === "billing" ? "billing" : "profile";
   const copy = getAccountScreenCopy(locale);
   const reservationCount =

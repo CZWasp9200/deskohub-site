@@ -7,8 +7,15 @@ import {
   mock,
   test,
 } from "bun:test";
-import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  type RenderResult,
+  render,
+} from "@testing-library/react";
 import type { ComponentProps, ReactNode } from "react";
+import type { SiteHeaderAccountEntry } from "@/shared/components/site-header-config";
 import {
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
@@ -101,9 +108,21 @@ mock.module("@/shared/components/logo", () => ({
   },
 }));
 
+// Marked as already fulfilled so `use()` reads it without suspending.
+const resolvedHref = (href: string) =>
+  Object.assign(Promise.resolve(href), { status: "fulfilled", value: href });
+
+const accountEntry = (
+  href: string,
+  signInHref = "/en-US/auth/sign-in"
+): SiteHeaderAccountEntry => ({
+  href: resolvedHref(href),
+  label: "Account",
+  signInHref,
+});
+
 const completeSiteHeaderProps = {
-  accountHref: "/en-US/account",
-  accountLabel: "Account",
+  account: accountEntry("/en-US/account"),
   closeNavigationMenuLabel: "Close navigation menu",
   contactHref: "/en-US/reservation/cowork",
   contactLabel: "Book",
@@ -170,8 +189,7 @@ test("uses document navigation for every alternate-locale full-header link", asy
     capturedLinks.length = 0;
     const view = render(
       <SiteHeader
-        accountHref={`/${currentLocale}/account`}
-        accountLabel="Account"
+        account={accountEntry(`/${currentLocale}/account`)}
         contactHref={contactHref}
         contactLabel="Contact"
         currentLocale={currentLocale}
@@ -198,8 +216,7 @@ test("renders only the configured full-header items without reserved slots", asy
   const galleryHref = "/en-US/gallery";
   const view = render(
     <SiteHeader
-      accountHref="/en-US/account"
-      accountLabel="Account"
+      account={accountEntry("/en-US/account")}
       closeNavigationMenuLabel="Close navigation menu"
       contactHref="/en-US/reservation/cowork"
       contactLabel="Book"
@@ -290,8 +307,7 @@ test("keeps the full-header home link compact and controls usable on mobile", as
   const { SiteHeader } = await import("./site-header");
   const view = render(
     <SiteHeader
-      accountHref="/en-US/account"
-      accountLabel="Account"
+      account={accountEntry("/en-US/account")}
       closeNavigationMenuLabel="Close navigation menu"
       contactHref="/en-US/reservation/cowork"
       contactLabel="Get access"
@@ -394,7 +410,7 @@ test.each([
     const view = render(
       <SiteHeader
         {...completeSiteHeaderProps}
-        accountHref={accountHref}
+        account={accountEntry(accountHref)}
         contactHref={`/${currentLocale}/contact`}
         currentLocale={currentLocale}
       />
@@ -478,6 +494,61 @@ test("closes the mobile menu when its account link is clicked", async () => {
   });
 
   expect(menuButton.getAttribute("aria-expanded")).toBe("false");
+});
+
+test("links the account entry to sign-in while the session check is pending", async () => {
+  const { SiteHeader } = await import("./site-header");
+  let resolveHref!: (href: string) => void;
+  const href = new Promise<string>((resolve) => {
+    resolveHref = resolve;
+  });
+  let view!: RenderResult;
+  await act(async () => {
+    view = render(
+      <SiteHeader
+        {...completeSiteHeaderProps}
+        account={{
+          href,
+          label: "Account",
+          signInHref: "/en-US/auth/sign-in",
+        }}
+      />
+    );
+  });
+
+  expect(
+    view.container.querySelectorAll('a[href="/en-US/auth/sign-in"]')
+  ).toHaveLength(2);
+  expect(view.getAllByRole("link", { name: "Account" })).toHaveLength(2);
+
+  await act(async () => {
+    resolveHref("/en-US/account");
+    await href;
+  });
+
+  expect(
+    view.container.querySelectorAll('a[href="/en-US/account"]')
+  ).toHaveLength(2);
+  expect(
+    view.container.querySelectorAll('a[href="/en-US/auth/sign-in"]')
+  ).toHaveLength(0);
+});
+
+test("keeps an anonymous customer's account entry on the sign-in page", async () => {
+  const { SiteHeader } = await import("./site-header");
+  const view = render(
+    <SiteHeader
+      {...completeSiteHeaderProps}
+      account={accountEntry("/en-US/auth/sign-in")}
+    />
+  );
+
+  expect(
+    view.container.querySelectorAll('a[href="/en-US/account"]')
+  ).toHaveLength(0);
+  expect(
+    view.container.querySelectorAll('a[href="/en-US/auth/sign-in"]')
+  ).toHaveLength(2);
 });
 
 test("uses document navigation for the alternate-locale minimal-header link", async () => {

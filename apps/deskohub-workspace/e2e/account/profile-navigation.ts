@@ -126,6 +126,9 @@ export async function verifyProfileNavigation(
     await expect(accountLink).toBeVisible({
       timeout: workspaceE2ETimeouts.browserAction,
     });
+    await expect(accountLink).toHaveAttribute("href", accountPath, {
+      timeout: workspaceE2ETimeouts.browserAction,
+    });
     await Promise.all([
       page.waitForURL(accountUrl, {
         timeout: workspaceE2ETimeouts.browserNavigation,

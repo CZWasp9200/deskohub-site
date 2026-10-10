@@ -82,6 +82,15 @@ description: Workspace customer account, Better Auth, magic link, auth persisten
   back to `/account`, and deletion leaves through a document navigation. If a
   modal ever links to another account route, add an explicit null slot page
   for that route.
+- Build account and sign-in URLs with `features/account/routes.ts`. The
+  header account button links straight to sign-in for anonymous visitors and
+  to `/account` for signed-in customers. Its href is an uncached
+  `isCustomerSignedIn` promise that the header resolves with `use()` inside
+  `Suspense`, and the sign-in href is the fallback. The static shell never
+  depends on the session, and a failed session check reads as signed out.
+  Sign-in and sign-out stay document navigations so the header re-reads the
+  session. The `/account` client redirect remains only for direct or stale
+  navigations.
 - Use a single magic-link form for sign-in and implicit sign-up. Configure
   hashed token storage and keep the bearer URL out of logs, traces, and
   provider metadata.

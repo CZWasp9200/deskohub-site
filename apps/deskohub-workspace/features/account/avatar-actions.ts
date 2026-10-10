@@ -17,6 +17,7 @@ import {
   CustomerAvatarService,
 } from "@/features/account/backend/customer-avatar.service";
 import { CustomerAccountAccessError } from "@/features/account/customer-account";
+import { getAccountPath } from "@/features/account/routes";
 import type { Locale } from "@/features/i18n";
 import { m } from "@/features/i18n";
 import { defineWorkspaceAction } from "@/shared/backend/workspace-action";
@@ -73,7 +74,7 @@ const avatarRemoveInputSchema: StandardSchemaV1<unknown, undefined> = {
 };
 
 const revalidateAccount = (locale: Locale) =>
-  Effect.sync(() => revalidatePath(`/${locale}/account`));
+  Effect.sync(() => revalidatePath(getAccountPath(locale)));
 
 const unavailableError = (locale: Locale) =>
   new PublicSafeActionError({
