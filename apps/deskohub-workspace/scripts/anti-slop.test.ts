@@ -571,6 +571,25 @@ void EscapedLanes;
   expect(output).not.toContain("[anti-slop/no-useless-alias]");
 });
 
+test("useless alias rule treats let and var declarations without whitespace as reassignable", async () => {
+  const result = await lint(`
+let{ pierCount } = { pierCount: 1 };
+const savedPierCount = pierCount;
+pierCount = 2;
+let/* snapshot */ dockCount = 1;
+const savedDockCount = dockCount;
+dockCount = 2;
+for (var/* loop */ quayCount = 0; quayCount < 1; quayCount++) {
+  void quayCount;
+}
+const savedQuayCount = quayCount;
+void [savedPierCount, savedDockCount, savedQuayCount];
+`);
+  const output = `${result.stdout}${result.stderr}`;
+
+  expect(output).not.toContain("[anti-slop/no-useless-alias]");
+});
+
 test("every workspace shared package dependency defines a lint task", () => {
   const workspaceManifest = JSON.parse(
     readFileSync(

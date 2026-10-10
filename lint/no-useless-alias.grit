@@ -76,10 +76,10 @@ file($name, $body) where {
           JsCatchDeclaration(),
           JsArrowFunctionExpression(parameters = $source),
           JsVariableDeclaration() as $reassignable_declaration where {
-            $reassignable_declaration <: r"(?s)^(?:let|var)\s.*"
+            not $reassignable_declaration <: r"(?s)^(?:\s|/\*.*?\*/|//[^\n]*\n)*(?:const|using|await)\b.*"
           },
           JsForVariableDeclaration() as $reassignable_loop_declaration where {
-            $reassignable_loop_declaration <: r"(?s)^(?:let|var)\s.*"
+            not $reassignable_loop_declaration <: r"(?s)^(?:\s|/\*.*?\*/|//[^\n]*\n)*(?:const|using|await)\b.*"
           }
         }
       },
