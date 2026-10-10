@@ -70,7 +70,7 @@ function Harness({
         isFetching: false,
         retry: () => undefined,
       }}
-      availability={{ isFetching: false }}
+      availability={{ isPending: false }}
       existingCustomer={existingCustomer}
       form={form}
       getReservation={({ email, name, phone }) =>
