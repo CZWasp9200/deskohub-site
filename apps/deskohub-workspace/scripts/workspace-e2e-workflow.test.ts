@@ -16,6 +16,7 @@ import {
 import {
   findStepByName,
   parseWorkflow,
+  type WorkflowJob,
   type WorkflowStep,
   workflowStepNames,
 } from "./shared/workflow-contract";
