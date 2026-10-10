@@ -45,41 +45,60 @@ describe("interactive primitives", () => {
     );
   });
 
-  test("toggles tooltips with touch taps instead of flashing them", async () => {
-    const view = render(
-      <TooltipProvider>
-        <Tooltip>
-          <TooltipTrigger>Details</TooltipTrigger>
-          <TooltipContent>Sale details</TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
-    );
-    const trigger = view.getByRole("button", { name: "Details" });
-    const touch = { isPrimary: true, pointerId: 1, pointerType: "touch" };
-    const tap = async (target: HTMLElement) => {
-      await act(async () => {
-        fireEvent.pointerDown(target, touch);
-        fireEvent.pointerUp(target, touch);
-        fireEvent.pointerLeave(target, touch);
-        target.focus();
-        fireEvent.click(target, { detail: 1 });
-      });
-      // Let the opened tooltip register its outside-dismissal listeners.
-      await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
-    };
+  test.each([
+    ["focuses the trigger", true],
+    ["leaves focus alone", false],
+  ] as const)(
+    "toggles tooltips with touch taps that %s",
+    async (_, focuses) => {
+      const view = render(
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger>Details</TooltipTrigger>
+            <TooltipContent>Sale details</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      );
+      const trigger = view.getByRole("button", { name: "Details" });
+      const touch = { isPrimary: true, pointerId: 1, pointerType: "touch" };
+      const tap = async (target: HTMLElement) => {
+        await act(async () => {
+          fireEvent.pointerDown(target, touch);
+        });
+        await act(async () => {
+          fireEvent.pointerUp(target, touch);
+        });
+        await act(async () => {
+          fireEvent.pointerLeave(target, touch);
+        });
+        // Android emulates focus before the click; iOS does not focus buttons.
+        if (focuses) {
+          await act(async () => {
+            target.focus();
+          });
+        }
+        await act(async () => {
+          fireEvent.click(target, { detail: 1 });
+        });
+        // Let the opened tooltip register its outside-dismissal listeners.
+        await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+      };
 
-    await tap(trigger);
-    expect((await view.findByRole("tooltip")).textContent).toBe("Sale details");
+      await tap(trigger);
+      expect((await view.findByRole("tooltip")).textContent).toBe(
+        "Sale details"
+      );
 
-    await tap(trigger);
-    await waitFor(() => expect(view.queryByRole("tooltip")).toBeNull());
+      await tap(trigger);
+      await waitFor(() => expect(view.queryByRole("tooltip")).toBeNull());
 
-    await tap(trigger);
-    expect(await view.findByRole("tooltip")).toBeTruthy();
+      await tap(trigger);
+      expect(await view.findByRole("tooltip")).toBeTruthy();
 
-    await tap(document.body);
-    await waitFor(() => expect(view.queryByRole("tooltip")).toBeNull());
-  });
+      await tap(document.body);
+      await waitFor(() => expect(view.queryByRole("tooltip")).toBeNull());
+    }
+  );
 
   test("still dismisses tooltips after a touch gesture without a click", async () => {
     const view = render(
