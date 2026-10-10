@@ -7,6 +7,7 @@ import { Suspense } from "react";
 import { CustomerAuthentication } from "@/features/account/backend/customer-authentication.service";
 import { AuthCallbackLoading } from "@/features/account/components/auth-callback-loading";
 import { AuthCallbackRedirect } from "@/features/account/components/auth-callback-redirect";
+import { getAccountSignInPath } from "@/features/account/routes";
 import { areAccountsEnabled } from "@/features/account/server/account-feature-flag.server";
 import { type Locale, m } from "@/features/i18n";
 import { runWithRequestLocale } from "@/features/i18n/server/request-locale";
@@ -63,7 +64,7 @@ const CustomerAuthCallbackSession = async ({
               {m.accountCallbackFailedBody({}, { locale })}
             </p>
             <Button asChild className="mt-8">
-              <Link href={`/${locale}/auth/sign-in`} prefetch={false}>
+              <Link href={getAccountSignInPath(locale)} prefetch={false}>
                 {m.accountCallbackFailedAction({}, { locale })}
               </Link>
             </Button>

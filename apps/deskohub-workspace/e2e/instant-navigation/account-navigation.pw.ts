@@ -5,7 +5,7 @@ import { workspaceE2ETimeouts } from "../timeouts";
 import {
   enablePreviewAccess,
   expectPublicSiteShell,
-  hasLoadedResource,
+  prefetchRoute,
   requireBaseUrl,
 } from "./navigation-test-helpers";
 
@@ -31,6 +31,32 @@ test.beforeEach(async ({ baseURL, context }) => {
 });
 
 test.describe("client navigation", () => {
+  test("links the anonymous header account button straight to sign-in", async ({
+    page,
+  }) => {
+    await page.goto(homePath);
+    await expectPublicSiteShell(page);
+
+    const visitedPathnames: string[] = [];
+    page.on("framenavigated", (frame) => {
+      if (frame === page.mainFrame()) {
+        visitedPathnames.push(new URL(frame.url()).pathname);
+      }
+    });
+
+    const accountLink = page
+      .getByRole("banner")
+      .getByRole("link", { name: "Account" });
+    await expect(accountLink).toHaveAttribute("href", signInPath);
+    await accountLink.click();
+
+    await expectAnonymousSignIn(page);
+    await expect(
+      page.getByRole("status", { name: accountStatusName })
+    ).toHaveCount(0);
+    expect(visitedPathnames).not.toContain(accountPath);
+  });
+
   test("streams the account loading shell before redirecting an anonymous client", async ({
     baseURL,
     page,
@@ -41,7 +67,10 @@ test.describe("client navigation", () => {
     await navigateToAccount(page, baseURL, { verifySignInHandoff: true });
     await expectAnonymousSignIn(page);
 
-    await page.getByRole("link", { name: "Deskohub Workspace" }).click();
+    await page
+      .getByRole("banner")
+      .getByRole("link", { name: "Deskohub Workspace" })
+      .click();
     await expect(page).toHaveURL(new RegExp(`${homePath}$`));
     await expectPublicSiteShell(page);
 
@@ -50,18 +79,14 @@ test.describe("client navigation", () => {
   });
 });
 
+// The anonymous header links to sign-in, so this drives the App Router directly
+// to cover a client navigation that still lands on the account route.
 async function navigateToAccount(
   page: Page,
   baseURL: string | undefined,
   options: AccountNavigationOptions = {}
 ) {
-  const accountLink = page
-    .getByRole("banner")
-    .getByRole("link", { name: "Account" });
-
-  await expect(accountLink).toBeVisible();
-  await accountLink.hover();
-  await expect.poll(() => hasLoadedResource(page, accountPath)).toBe(true);
+  await prefetchRoute(page, accountPath);
   await page.evaluate((path) => {
     document.documentElement.dataset.navigationSource = path;
   }, homePath);
@@ -70,7 +95,10 @@ async function navigateToAccount(
     await instant(
       page,
       async () => {
-        await accountLink.click();
+        await page.evaluate(
+          (path) => window.next?.router?.push(path),
+          accountPath
+        );
 
         await expect(page).toHaveURL(new RegExp(`${accountPath}$`));
         await expect

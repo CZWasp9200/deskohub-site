@@ -1,6 +1,7 @@
 "use client";
 
 import { Option, Predicate, Schema } from "effect";
+import { getAccountPath } from "@/features/account/routes";
 import type { Locale } from "@/features/i18n";
 import { listenForReturn } from "@/shared/browser/return-window";
 import { authClient } from "./auth.client";
@@ -119,7 +120,7 @@ const navigateToAccount = (locale: Locale) => {
   try {
     const replace = globalThis.window?.location?.replace;
     if (!Predicate.isFunction(replace)) return false;
-    replace.call(globalThis.window.location, `/${locale}/account`);
+    replace.call(globalThis.window.location, getAccountPath(locale));
   } catch {
     return false;
   }

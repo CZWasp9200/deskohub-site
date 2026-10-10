@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
+import { getAccountSignInPath } from "@/features/account/routes";
 import type { Locale } from "@/features/i18n";
 import { m } from "@/features/i18n";
 import {
@@ -431,7 +432,7 @@ function UnavailableState({
           </p>
           <a
             className="inline-flex max-w-full wrap-break-word pt-1 text-sm font-semibold text-burned-orange underline decoration-burned-orange/40 underline-offset-4 hover:text-burned-orange-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-burned-orange focus-visible:ring-offset-2"
-            href={`/${locale}/auth/sign-in`}
+            href={getAccountSignInPath(locale)}
           >
             {m.marketingPreferencesFormSignInAction({}, { locale })}
           </a>

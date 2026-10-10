@@ -219,7 +219,14 @@ export default function ConsentWaypointPage() {
 `;
 
 const fixtureSiteHeaderConfig = (contactHrefExpression: string) => `
+import { isCustomerSignedIn } from "@/features/account/server/customer-session.server";
 import type { Locale } from "@/features/i18n";
+
+export type SiteHeaderAccountEntry = {
+  readonly label: string;
+  readonly href: Promise<string>;
+  readonly signInHref: string;
+};
 
 export type SiteHeaderMenuItemId =
   | "locationMap"
@@ -257,8 +264,15 @@ export async function getSiteHeaderConfig(locale: Locale) {
   ];
 
   return {
-    accountHref: localePath + "/account",
-    accountLabel: "Account",
+    account: {
+      label: "Account",
+      href: isCustomerSignedIn("site-header.account-link")
+        .catch(() => false)
+        .then((signedIn) =>
+          signedIn ? localePath + "/account" : localePath + "/auth/sign-in"
+        ),
+      signInHref: localePath + "/auth/sign-in",
+    } satisfies SiteHeaderAccountEntry,
     closeNavigationMenuLabel: "Close navigation menu",
     contactHref: ${contactHrefExpression},
     contactLabel: "Contact",

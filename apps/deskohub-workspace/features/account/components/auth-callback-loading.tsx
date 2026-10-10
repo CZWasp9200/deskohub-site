@@ -1,3 +1,4 @@
+import { getAccountPath } from "@/features/account/routes";
 import type { Locale } from "@/features/i18n";
 import { m } from "@/features/i18n";
 import { Card, CardContent } from "@/shared/components/ui/card";
@@ -30,7 +31,7 @@ export function AuthCallbackLoading({ locale }: { readonly locale: Locale }) {
               <Skeleton className="h-10 w-48 rounded-full bg-burned-orange/18" />
             </div>
             <noscript>
-              <a href={`/${locale}/account`}>
+              <a href={getAccountPath(locale)}>
                 {m.accountTitle({}, { locale })}
               </a>
             </noscript>
