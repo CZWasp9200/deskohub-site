@@ -456,6 +456,23 @@ enum CommentedRoofs {
     = 5,
   saved = savedRoofCount,
 }
+const hallCount = 3;
+const savedHallCount = hallCount;
+enum BracketedHalls {
+  [ /* shadows */ "hallCount" ] = 6,
+  saved = savedHallCount,
+}
+const stairCount = 2;
+const savedStairCount = stairCount;
+enum TemplateStairs {
+  [\`stairCount\`] = 4,
+  saved = savedStairCount,
+}
+const crestKey = Symbol /* c */ ();
+const savedCrestKey = crestKey;
+import { ticketKey } from "./keys";
+const savedTicketKey = ticketKey;
+type TicketKey = typeof /* c */ savedTicketKey;
 const badgeKey = Symbol("badge");
 const savedBadgeKey = badgeKey;
 import { sessionKey } from "./keys";
@@ -512,6 +529,11 @@ void QuotedWings;
 void DollarGates;
 void CommentedDoors;
 void CommentedRoofs;
+void BracketedHalls;
+void TemplateStairs;
+void savedCrestKey;
+const ticketKeyProbe: TicketKey = ticketKey;
+void ticketKeyProbe;
 void savedBadgeKey;
 const sessionKeyProbe: SessionKey = sessionKey;
 void sessionKeyProbe;

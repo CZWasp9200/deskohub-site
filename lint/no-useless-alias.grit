@@ -10,8 +10,8 @@ language js(typescript, jsx)
 // replacing the alias there could read the shadowing binding. Enum member names match
 // plain, quoted, `$`-prefixed, and bracketed spellings; any escaped member name
 // suppresses the file's reports because its decoded name is unknown. A `const` alias
-// widens a `unique symbol` to `symbol`, so sources declared from `Symbol()` or as
-// `unique symbol`, and aliases read through `typeof`, are skipped. A same-named
+// widens a `unique symbol` to `symbol`, so sources whose declaration mentions `Symbol`
+// or `unique`, and aliases read through `typeof`, are skipped. A same-named
 // let/var/parameter anywhere in the file suppresses the report, and a global that a
 // const elsewhere in the file shadows can still be reported. Imported names count as constant: TypeScript
 // rejects assignments to imports, functions, and classes, and the workspace exports no
@@ -42,20 +42,30 @@ file($name, $body) where {
         },
         not $alias_declaration <: within $shadowing_scope
       },
-      not $program <: contains TsEnumMember(name = $shadowing_member_name) where or {
-        and {
-          $shadowing_member_name <: r"(?s)^\[?['\"`]?([\w$]+)['\"`]?\]?$"($shadowing_member_text),
-          $shadowing_member_text <: $source
+      not $program <: contains TsEnumMember(name = $shadowing_member_name) where {
+        or {
+          $shadowing_member_name <: JsComputedMemberName(expression = $shadowing_member_key),
+          and {
+            not $shadowing_member_name <: JsComputedMemberName(),
+            $shadowing_member_key = $shadowing_member_name
+          }
         },
-        $shadowing_member_name <: r"(?s).*\\.*"
+        or {
+          and {
+            $shadowing_member_key <: r"(?s)^['\"`]?([\w$]+)['\"`]?$"($shadowing_member_text),
+            $shadowing_member_text <: $source
+          },
+          $shadowing_member_key <: r"(?s).*\\.*"
+        }
       },
       not $program <: contains JsVariableDeclarator(id = $symbol_binding) as $symbol_declarator where {
         $symbol_binding <: $source,
-        $symbol_declarator <: r"(?s).*\b(?:unique\s+symbol\b|Symbol\s*(?:\.\s*for\s*)?\().*"
+        $symbol_declarator <: r"(?s).*\b(?:unique|Symbol)\b.*"
       },
-      not $program <: contains TsTypeofType() as $alias_type_query where {
-        $alias_type_query <: r"(?s)^\s*typeof\s+([\w$]+).*"($alias_type_query_root),
-        $alias_type_query_root <: $alias
+      not $program <: contains TsTypeofType(expression_name = $alias_type_query) where {
+        $alias_type_query <: contains JsReferenceIdentifier() as $alias_type_query_root where {
+          $alias_type_query_root <: $alias
+        }
       },
       not $program <: contains JsIdentifierBinding() as $reassignable_binding where {
         $reassignable_binding <: $source,
