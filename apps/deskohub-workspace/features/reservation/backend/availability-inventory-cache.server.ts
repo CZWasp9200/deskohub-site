@@ -25,11 +25,14 @@ import {
  * Serves advisory availability from cross-request snapshots. Each snapshot is
  * fresh for its profile's `revalidate` window, then served stale while it
  * refreshes until `expire`. Failed loads are never cached.
+ *
+ * The loaders are only referenced inside callbacks: the `"use cache"` compiler
+ * turns them into bindings assigned after this layer is evaluated.
  */
 export const SharedAvailabilityInventoryLive = Layer.succeed(
   AdvisoryAvailabilityInventory,
   {
-    tables: fromSharedSnapshot("getTables", loadSharedTables),
+    tables: fromSharedSnapshot("getTables", () => loadSharedTables()),
     listActiveReservationsOverlapping: ({ startDate, endDate }) =>
       fromSharedSnapshot("listActiveReservationsOverlapping", () =>
         loadSharedActiveReservations({
