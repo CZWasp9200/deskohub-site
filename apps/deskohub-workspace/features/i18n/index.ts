@@ -10,6 +10,7 @@ export {
 export {
   defaultLocale,
   getLocaleFromPathname,
+  getLocalizedPagePath,
   getPreferredLocaleFromAcceptLanguage,
   localeConfig,
   localeCookieName,

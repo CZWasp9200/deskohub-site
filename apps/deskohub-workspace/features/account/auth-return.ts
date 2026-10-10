@@ -1,6 +1,7 @@
 "use client";
 
 import { Option, Predicate, Schema } from "effect";
+import { getAccountPath } from "@/features/account/routes";
 import type { Locale } from "@/features/i18n";
 import type { ReferralCode } from "@/features/referrals/client";
 import { listenForReturn } from "@/shared/browser/return-window";
@@ -118,9 +119,10 @@ const focusWindow = () => {
 };
 
 const accountPath = (locale: Locale, referralCode?: ReferralCode) => {
-  if (referralCode === undefined) return `/${locale}/account`;
+  const path = getAccountPath(locale);
+  if (referralCode === undefined) return path;
   const searchParams = new URLSearchParams({ ref: referralCode });
-  return `/${locale}/account?${searchParams.toString()}`;
+  return `${path}?${searchParams.toString()}`;
 };
 
 const navigateToAccount = (locale: Locale, referralCode?: ReferralCode) => {

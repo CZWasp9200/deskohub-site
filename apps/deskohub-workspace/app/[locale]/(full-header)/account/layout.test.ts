@@ -135,7 +135,7 @@ describe("account route layout", () => {
       >;
       const output = await Content(content.props);
 
-      expect(connection).toHaveBeenCalledTimes(1);
+      expect(connection).toHaveBeenCalled();
       expect(areAccountsEnabled).toHaveBeenCalledTimes(1);
       expect(output.type).toBe(AccountLayoutShell);
       expect(output.props).toMatchObject({

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import type { Effect } from "effect";
 import { Suspense } from "react";
+import { getLocalizedPagePath } from "@/features/i18n/routing";
 
 const events: string[] = [];
 const notFound = mock(() => {
@@ -26,7 +27,7 @@ mock.module("@/features/account/components/auth-callback-loading", () => ({
 mock.module("@/features/account/components/auth-callback-redirect", () => ({
   AuthCallbackRedirect: () => null,
 }));
-mock.module("@/features/i18n", () => ({ m: {} }));
+mock.module("@/features/i18n", () => ({ getLocalizedPagePath, m: {} }));
 mock.module("@/features/i18n/server/request-locale", () => ({
   runWithRequestLocale: (callback: (locale: "en-US") => unknown) =>
     callback("en-US"),

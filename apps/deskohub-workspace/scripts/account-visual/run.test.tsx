@@ -3208,11 +3208,49 @@ test.serial.skipIf(!chromiumAvailable)(
         "--output",
         join(directory, "output"),
       ]);
+      const execution = await Bun.file(
+        join(report.outputDirectory, "execution.json")
+      ).json();
+      const findingCodes = execution.findings.map((finding: string) => {
+        const location = finding.match(
+          /^(profile|billing|legal|danger|reservations) (desktop|mobile [0-9]+)(?: ([a-z-]+))?:/
+        );
+        const message = finding.slice(location?.[0].length ?? 0);
+        let category = "other";
+        if (message.startsWith("Production desktop selection did not expose")) {
+          category = "selection-target-missing";
+        } else if (
+          message.startsWith("No visible production desktop section button")
+        ) {
+          category = "selection-button-missing";
+        } else if (
+          message.startsWith(
+            "No visible production desktop selected section button"
+          )
+        ) {
+          category = "selected-button-missing";
+        } else if (message.includes("document scrollWidth")) {
+          category = "document-overflow";
+        } else if (message.includes("body scrollWidth")) {
+          category = "body-overflow";
+        } else if (message.includes("horizontal overflow offender")) {
+          category = "overflow-offender";
+        } else if (message.startsWith("native validation:")) {
+          category = "native-validation";
+        } else if (location?.[3]) {
+          category = "browser-problem";
+        }
+
+        return {
+          screen: location?.[1] ?? "unknown",
+          viewport: location?.[2] ?? "unknown",
+          kind: location?.[3] ?? "functional",
+          category,
+        };
+      });
+      expect(findingCodes).toEqual([]);
       expect(report.execution.status).toBe("passed");
-      expect(
-        (await Bun.file(join(report.outputDirectory, "execution.json")).json())
-          .findings
-      ).toEqual([]);
+      expect(execution.findings).toEqual([]);
       expect(report.screens.map(({ screen }) => screen)).toEqual(["billing"]);
       expect(report.screens[0]?.coverage).toMatchObject({
         source: "production-account-shell",

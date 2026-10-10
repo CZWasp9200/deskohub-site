@@ -1,4 +1,9 @@
+import {
+  getAccountPath,
+  getAccountSignInPath,
+} from "@/features/account/routes";
 import { areAccountsEnabled } from "@/features/account/server/account-feature-flag.server";
+import { isCustomerSignedIn } from "@/features/account/server/customer-session.server";
 import { type Locale, m } from "@/features/i18n";
 import { isMeetingRoomPageEnabled } from "@/features/meeting-room/backend/meeting-room-page-feature-flag";
 import { isOfficePageEnabled } from "@/features/office/backend/office-reservation-feature-flag.server";
@@ -27,6 +32,14 @@ export type SiteHeaderMenuItem = {
   readonly id: SiteHeaderMenuItemId;
   readonly label: string;
   readonly href: string;
+};
+
+export type SiteHeaderAccountEntry = {
+  readonly label: string;
+  /** Account page for a signed-in customer, otherwise the sign-in page. */
+  readonly href: Promise<string>;
+  /** Shown while the session check is still pending. */
+  readonly signInHref: string;
 };
 
 type DisabledSiteHeaderMenuItems = Partial<
@@ -117,15 +130,26 @@ const createSiteHeaderConfig = (
 
   return {
     ...getSiteHeaderAccessibilityLabels(locale),
-    ...(accountsEnabled && {
-      accountHref: `${localePath}/account`,
-      accountLabel: m.accountNavLabel({}, { locale }),
-    }),
+    ...(accountsEnabled && { account: createSiteHeaderAccountEntry(locale) }),
     languageLabels: getSiteHeaderLanguageLabels(locale),
     links: links.filter(({ id }) => disabledMenuItems[id] !== true),
     contactLabel: m.reservationNavCta({}, { locale }),
     contactHref: getCoworkReservationPath(locale),
   };
 };
+
+// Not awaited: the header streams the resolved link while the sign-in link
+// stays in the static shell.
+const createSiteHeaderAccountEntry = (
+  locale: Locale
+): SiteHeaderAccountEntry => ({
+  label: m.accountNavLabel({}, { locale }),
+  href: isCustomerSignedIn("site-header.account-link").then(
+    (signedIn) =>
+      signedIn ? getAccountPath(locale) : getAccountSignInPath(locale),
+    () => getAccountSignInPath(locale)
+  ),
+  signInHref: getAccountSignInPath(locale),
+});
 
 export { siteHeaderSectionIds };

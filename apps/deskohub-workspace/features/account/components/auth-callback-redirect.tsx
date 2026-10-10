@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { getAccountPath } from "@/features/account/routes";
 import type { Locale } from "@/features/i18n";
 import type { ReferralCode } from "@/features/referrals/client";
 import { handOffReturn } from "@/shared/browser/return-window";
@@ -15,10 +16,12 @@ export function AuthCallbackRedirect({
 }) {
   useEffect(() => {
     let active = true;
+    const accountBasePath = getAccountPath(locale);
+    const searchParams = new URLSearchParams();
+    if (referralCode !== undefined) searchParams.set("ref", referralCode);
+    const search = searchParams.toString();
     const accountPath =
-      referralCode === undefined
-        ? `/${locale}/account`
-        : `/${locale}/account?${new URLSearchParams({ ref: referralCode })}`;
+      search.length === 0 ? accountBasePath : `${accountBasePath}?${search}`;
     const navigateToAccount = () => {
       if (!active) return;
       try {
