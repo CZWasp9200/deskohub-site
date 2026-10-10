@@ -34,6 +34,9 @@ mock.module("@/features/i18n/server/request-locale", () => ({
 mock.module("@/features/account/server/account-feature-flag.server", () => ({
   areAccountsEnabled: async () => false,
 }));
+mock.module("@/features/account/server/customer-session.server", () => ({
+  isCustomerSignedIn: async () => false,
+}));
 mock.module(
   "@/features/meeting-room/backend/meeting-room-page-feature-flag",
   () => ({
