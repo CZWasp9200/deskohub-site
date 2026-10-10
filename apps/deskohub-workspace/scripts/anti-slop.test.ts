@@ -401,7 +401,7 @@ export function readClosingHour() {
   expect(output).toContain("probe.ts:8:5");
 });
 
-test("useless alias rule allows snapshots, parameters, destructuring, shadowed sources, and annotated aliases", async () => {
+test("useless alias rule allows snapshots, parameters, destructuring, shadowed sources, symbol aliases, and annotated aliases", async () => {
   const result = await lint(`
 import { workspaceCoworkTiers } from "./tiers";
 const openingHour = 8;
@@ -442,12 +442,25 @@ enum DollarGates {
   $gateCount = 3,
   saved = savedGateCount,
 }
-const laneCount = 6;
-const savedLaneCount = laneCount;
-enum EscapedLanes {
-  "\\u006caneCount" = 7,
-  saved = savedLaneCount,
+const doorCount = 2;
+const savedDoorCount = doorCount;
+enum CommentedDoors {
+  doorCount /* shadows */ = 4,
+  saved = savedDoorCount,
 }
+const roofCount = 1;
+const savedRoofCount = roofCount;
+enum CommentedRoofs {
+  // shadows
+  roofCount // too
+    = 5,
+  saved = savedRoofCount,
+}
+const badgeKey = Symbol("badge");
+const savedBadgeKey = badgeKey;
+import { sessionKey } from "./keys";
+const savedSessionKey = sessionKey;
+type SessionKey = typeof savedSessionKey;
 namespace Floors {
   const floorCount = 5;
   export const counts = [savedFloorCount, floorCount];
@@ -497,7 +510,11 @@ void countRooms;
 void SeatCounts;
 void QuotedWings;
 void DollarGates;
-void EscapedLanes;
+void CommentedDoors;
+void CommentedRoofs;
+void savedBadgeKey;
+const sessionKeyProbe: SessionKey = sessionKey;
+void sessionKeyProbe;
 void Floors;
 void previousAttempt;
 void legacySnapshot;
@@ -511,6 +528,21 @@ void annotatedTiers;
 void firstTier;
 void undefinedValue;
 void global;
+`);
+  const output = `${result.stdout}${result.stderr}`;
+
+  expect(output).not.toContain("[anti-slop/no-useless-alias]");
+});
+
+test("useless alias rule skips files whose enum member names use escapes", async () => {
+  const result = await lint(`
+const laneCount = 6;
+const savedLaneCount = laneCount;
+enum EscapedLanes {
+  "\\u006caneCount" = 7,
+  saved = savedLaneCount,
+}
+void EscapedLanes;
 `);
   const output = `${result.stdout}${result.stderr}`;
 
