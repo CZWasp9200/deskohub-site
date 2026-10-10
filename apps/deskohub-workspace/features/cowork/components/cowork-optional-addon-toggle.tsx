@@ -1,7 +1,6 @@
 "use client";
 
 import { Info, type LucideIcon } from "lucide-react";
-import { useRef, useState } from "react";
 import { ReservationSkeletonBlock } from "@/features/reservation/components/reservation-form-fallback";
 import { ReservationFormLabel } from "@/features/reservation/components/reservation-form-label";
 import { Button } from "@/shared/components/ui/button";
@@ -47,8 +46,6 @@ export function CoworkOptionalAddonToggle({
   priceLabel,
 }: CoworkOptionalAddonToggleProps) {
   const { formItemId } = useFormField();
-  const [isTooltipOpen, setIsTooltipOpen] = useState(false);
-  const isTouchTooltipOpen = useRef(false);
 
   return (
     <>
@@ -87,13 +84,7 @@ export function CoworkOptionalAddonToggle({
         </Label>
         {info && (
           <TooltipProvider delayDuration={0}>
-            <Tooltip
-              open={isTooltipOpen}
-              onOpenChange={(open) => {
-                if (isTouchTooltipOpen.current && !open) return;
-                setIsTooltipOpen(open);
-              }}
-            >
+            <Tooltip>
               <TooltipTrigger asChild>
                 <Button
                   type="button"
@@ -101,12 +92,6 @@ export function CoworkOptionalAddonToggle({
                   size="icon"
                   aria-label={info.triggerLabel}
                   className="h-11 w-11 shrink-0 rounded-full p-0 text-navy-blue/60"
-                  onPointerDown={(event) => {
-                    if (event.pointerType !== "touch") return;
-                    const open = !isTouchTooltipOpen.current;
-                    isTouchTooltipOpen.current = open;
-                    setIsTooltipOpen(open);
-                  }}
                 >
                   <Info aria-hidden="true" className="size-4" />
                 </Button>
@@ -115,10 +100,6 @@ export function CoworkOptionalAddonToggle({
                 align="end"
                 collisionPadding={16}
                 className="w-[min(22rem,calc(100vw-2rem))] p-4"
-                onEscapeKeyDown={() => {
-                  isTouchTooltipOpen.current = false;
-                  setIsTooltipOpen(false);
-                }}
                 side="top"
               >
                 <p>{info.content}</p>

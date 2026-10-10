@@ -1,5 +1,11 @@
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
-import { cleanup, render } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  waitFor,
+} from "@testing-library/react";
 import {
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
@@ -37,6 +43,64 @@ describe("interactive primitives", () => {
     expect((await view.findByRole("tooltip")).textContent).toContain(
       "Sale details"
     );
+  });
+
+  test("toggles tooltips with touch taps instead of flashing them", async () => {
+    const view = render(
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger>Details</TooltipTrigger>
+          <TooltipContent>Sale details</TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    );
+    const trigger = view.getByRole("button", { name: "Details" });
+    const touch = { isPrimary: true, pointerId: 1, pointerType: "touch" };
+    const tap = async (target: HTMLElement) => {
+      await act(async () => {
+        fireEvent.pointerDown(target, touch);
+        fireEvent.pointerUp(target, touch);
+        fireEvent.pointerLeave(target, touch);
+        target.focus();
+        fireEvent.click(target, { detail: 1 });
+      });
+      // Let the opened tooltip register its outside-dismissal listeners.
+      await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+    };
+
+    await tap(trigger);
+    expect((await view.findByRole("tooltip")).textContent).toBe("Sale details");
+
+    await tap(trigger);
+    await waitFor(() => expect(view.queryByRole("tooltip")).toBeNull());
+
+    await tap(trigger);
+    expect(await view.findByRole("tooltip")).toBeTruthy();
+
+    await tap(document.body);
+    await waitFor(() => expect(view.queryByRole("tooltip")).toBeNull());
+  });
+
+  test("keeps tooltips closed after a mouse click", async () => {
+    const view = render(
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger>Details</TooltipTrigger>
+          <TooltipContent>Sale details</TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    );
+    const trigger = view.getByRole("button", { name: "Details" });
+    const mouse = { isPrimary: true, pointerId: 1, pointerType: "mouse" };
+
+    await act(async () => {
+      fireEvent.pointerDown(trigger, mouse);
+      trigger.focus();
+      fireEvent.pointerUp(trigger, mouse);
+      fireEvent.click(trigger, { detail: 1 });
+    });
+
+    expect(view.queryByRole("tooltip")).toBeNull();
   });
 
   test("shows the pointer cursor for enabled checkboxes", () => {
