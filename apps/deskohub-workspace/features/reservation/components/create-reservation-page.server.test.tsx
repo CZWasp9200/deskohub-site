@@ -8,6 +8,11 @@ mock.module("server-only", () => ({}));
 mock.module("next/root-params", () => ({
   locale: () => Promise.resolve("en-US"),
 }));
+const nextServer = await import("next/server");
+mock.module("next/server", () => ({
+  ...nextServer,
+  connection: () => Promise.resolve(),
+}));
 
 const payStateBookedAt = instantStringSchema.make("2026-06-01T09:58:00.000Z");
 
@@ -50,7 +55,7 @@ test("renders the reservation shell before request-bound content resolves", asyn
   expect(isValidElement(pageProps.children)).toBe(true);
 });
 
-test("rejects a disabled gated page before rendering its shell", async () => {
+test("gates a disabled page inside its content, keeping the shell static", async () => {
   const render = mock((): ReactNode => "loaded reservation form");
   const fallback = mock((): ReactNode => "loading reservation form");
   const isEnabled = mock(() => Promise.resolve(false));
@@ -63,14 +68,28 @@ test("rejects a disabled gated page before rendering its shell", async () => {
     render,
   });
 
-  await expect(
-    pageDefinition.Page({ searchParams: Promise.resolve({}) })
-  ).rejects.toThrow("NEXT_HTTP_ERROR_FALLBACK;404");
+  const page = await pageDefinition.Page({
+    searchParams: Promise.resolve({}),
+  });
+
+  expect(isEnabled).not.toHaveBeenCalled();
+  expect(fallback).toHaveBeenCalledWith("en-US");
+
+  type ContentProps = { readonly searchParams: Promise<object> };
+  const content = (
+    page as ReactElement<{ readonly children: ReactElement<ContentProps> }>
+  ).props.children;
+  const renderContent = content.type as (
+    props: ContentProps
+  ) => Promise<ReactNode>;
+
+  await expect(renderContent(content.props)).rejects.toThrow(
+    "NEXT_HTTP_ERROR_FALLBACK;404"
+  );
   await expect(pageDefinition.generateMetadata()).rejects.toThrow(
     "NEXT_HTTP_ERROR_FALLBACK;404"
   );
   expect(isEnabled).toHaveBeenCalledTimes(2);
-  expect(fallback).not.toHaveBeenCalled();
   expect(render).not.toHaveBeenCalled();
 });
 

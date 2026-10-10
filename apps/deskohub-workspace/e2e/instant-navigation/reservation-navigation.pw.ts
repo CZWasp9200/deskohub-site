@@ -1,5 +1,5 @@
 import { instant } from "@next/playwright";
-import { expect, type Page, test } from "@playwright/test";
+import { type BrowserContext, expect, type Page, test } from "@playwright/test";
 import {
   enablePreviewAccess,
   hasLoadedResource,
@@ -23,13 +23,31 @@ const directNavigationCases = [
     path: "/en-US/reservation/meeting-room",
     shellName: "Reserve the meeting room.",
   },
+  {
+    contentName: "Office reservation start date",
+    path: "/en-US/reservation/office",
+    releaseMarker: "data-office-base-price",
+    shellName: "Reserve a private office.",
+  },
 ] as const;
 
-for (const { contentName, path, shellName } of directNavigationCases) {
+for (const navigation of directNavigationCases) {
+  const { contentName, path, shellName } = navigation;
   test(`serves the ${path} shell on direct navigation`, async ({
     baseURL,
+    context,
     page,
   }) => {
+    test.skip(
+      "releaseMarker" in navigation &&
+        !(await isReservationPageReleased(
+          context,
+          new URL(path, requireBaseUrl(baseURL)).toString(),
+          navigation.releaseMarker
+        )),
+      `${path} is not released on this deployment`
+    );
+
     await instant(
       page,
       async () => {
@@ -184,6 +202,25 @@ test.describe("client navigation", () => {
     });
   }
 });
+
+/**
+ * Whether a release-gated page renders its form for this visitor. A disabled
+ * gate streams the not-found boundary with a 200, so the probe looks for a
+ * marker from the rendered form instead of trusting the status.
+ */
+async function isReservationPageReleased(
+  context: BrowserContext,
+  url: string,
+  releaseMarker: string
+) {
+  const response = await context.request.get(url);
+
+  try {
+    return response.ok() && (await response.text()).includes(releaseMarker);
+  } finally {
+    await response.dispose();
+  }
+}
 
 async function expectReservationSteps(page: Page) {
   await expect(
