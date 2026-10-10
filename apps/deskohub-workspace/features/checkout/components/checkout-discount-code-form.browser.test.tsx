@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { chromium, type Page } from "@playwright/test";
+import { chromium, type Page, type Request } from "@playwright/test";
 import {
   allocateLoopbackPort,
   waitForOwnedLoopbackServer,
@@ -283,9 +283,97 @@ test("clears the ordinary code after a fresh referral state in the compiled brow
     page.setDefaultTimeout(fixtureBrowserTimeoutMs);
     page.setDefaultNavigationTimeout(fixtureBrowserTimeoutMs);
 
-    await page.goto(`${fixtureUrl}/pay?payState=before-referral`, {
-      waitUntil: "load",
+    const resourceCounts = {
+      response: {
+        document: 0,
+        script: 0,
+        stylesheet: 0,
+        image: 0,
+        font: 0,
+        fetch: 0,
+        other: 0,
+      },
+      finished: {
+        document: 0,
+        script: 0,
+        stylesheet: 0,
+        image: 0,
+        font: 0,
+        fetch: 0,
+        other: 0,
+      },
+      failed: {
+        document: 0,
+        script: 0,
+        stylesheet: 0,
+        image: 0,
+        font: 0,
+        fetch: 0,
+        other: 0,
+      },
+    };
+    let mainDocumentStatus = 0;
+    let pageErrorCount = 0;
+    const resourceClass = (request: Request) => {
+      switch (request.resourceType()) {
+        case "document":
+          return "document";
+        case "script":
+          return "script";
+        case "stylesheet":
+          return "stylesheet";
+        case "image":
+          return "image";
+        case "font":
+          return "font";
+        case "fetch":
+        case "xhr":
+          return "fetch";
+        default:
+          return "other";
+      }
+    };
+    page.on("response", (response) => {
+      const request = response.request();
+      resourceCounts.response[resourceClass(request)] += 1;
+      if (request.isNavigationRequest()) {
+        try {
+          if (request.frame() === page.mainFrame()) {
+            mainDocumentStatus = response.status();
+          }
+        } catch {
+          // A diagnostic observer must not change the browser interaction.
+        }
+      }
     });
+    page.on("requestfinished", (request) => {
+      resourceCounts.finished[resourceClass(request)] += 1;
+    });
+    page.on("requestfailed", (request) => {
+      resourceCounts.failed[resourceClass(request)] += 1;
+    });
+    page.on("pageerror", () => {
+      pageErrorCount += 1;
+    });
+
+    try {
+      await page.goto(`${fixtureUrl}/pay?payState=before-referral`, {
+        waitUntil: "load",
+      });
+    } catch (error) {
+      process.stderr.write(
+        `e2e.checkout.initial_navigation ${JSON.stringify({
+          code: "navigation_failed",
+          mainDocumentStatus,
+          responseCounts: resourceCounts.response,
+          finishedCounts: resourceCounts.finished,
+          failedCounts: resourceCounts.failed,
+          pageErrorCount,
+          ownedServerExitCode: serverExitCode ?? -1,
+        })}\n`
+      );
+      throw error;
+    }
     await page
       .locator('[data-checkout-pay-shell][data-hydrated="true"]')
       .waitFor();
