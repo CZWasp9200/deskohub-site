@@ -83,7 +83,7 @@ export function CoworkOptionalAddonToggle({
           </span>
         </Label>
         {info && (
-          <TooltipProvider delayDuration={0}>
+          <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button

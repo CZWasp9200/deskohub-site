@@ -20,7 +20,12 @@ type TooltipTouchTap = {
 
 const TooltipTouchTapContext = createContext<TooltipTouchTap | null>(null);
 
-const TooltipProvider = TooltipPrimitive.Provider;
+function TooltipProvider({
+  delayDuration = 0,
+  ...props
+}: ComponentProps<typeof TooltipPrimitive.Provider>) {
+  return <TooltipPrimitive.Provider delayDuration={delayDuration} {...props} />;
+}
 
 /**
  * Radix opens a tooltip on the focus a touch tap emulates and closes it on the
