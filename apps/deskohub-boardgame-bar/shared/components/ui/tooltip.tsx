@@ -4,7 +4,6 @@ import * as TooltipPrimitive from "@radix-ui/react-tooltip";
 import {
   type ComponentProps,
   createContext,
-  type RefObject,
   use,
   useRef,
   useState,
@@ -12,12 +11,11 @@ import {
 import { cn } from "@/shared/utils/index";
 
 type TooltipTouchTap = {
-  readonly open: boolean;
-  readonly setOpen: (open: boolean) => void;
-  /** Open state the trigger's latest touch press settles on when it taps. */
-  readonly tapOpen: RefObject<boolean | undefined>;
-  /** Whether Radix's close on the tap's click is being ignored. */
-  readonly isApplyingTap: RefObject<boolean>;
+  /** Starts a trigger press; only touch presses toggle the tooltip on tap. */
+  readonly press: (pointerType: string) => void;
+  readonly cancelPress: () => void;
+  /** Settles the latest touch press when its click arrives. */
+  readonly tap: (clickDetail: number) => void;
 };
 
 const TooltipTouchTapContext = createContext<TooltipTouchTap | null>(null);
@@ -37,15 +35,37 @@ function Tooltip({
 }: ComponentProps<typeof TooltipPrimitive.Root>) {
   const [uncontrolledOpen, setUncontrolledOpen] = useState(defaultOpen);
   const open = openProp ?? uncontrolledOpen;
+  /** Open state the trigger's latest touch press settles on when it taps. */
   const tapOpen = useRef<boolean | undefined>(undefined);
+  /** Whether Radix's close on the tap's click is being ignored. */
   const isApplyingTap = useRef(false);
   const setOpen = (nextOpen: boolean) => {
     setUncontrolledOpen(nextOpen);
     onOpenChange?.(nextOpen);
   };
+  const touchTap: TooltipTouchTap = {
+    cancelPress: () => {
+      tapOpen.current = undefined;
+    },
+    press: (pointerType) => {
+      tapOpen.current = pointerType === "touch" ? !open : undefined;
+    },
+    tap: (clickDetail) => {
+      const nextOpen = tapOpen.current;
+      tapOpen.current = undefined;
+      // Keyboard activation clicks report no detail and keep Radix's behavior.
+      if (nextOpen === undefined || clickDetail === 0) return;
+      setOpen(nextOpen);
+      // Radix's own click handler runs after the trigger's in the same dispatch.
+      isApplyingTap.current = true;
+      queueMicrotask(() => {
+        isApplyingTap.current = false;
+      });
+    },
+  };
 
   return (
-    <TooltipTouchTapContext value={{ isApplyingTap, open, setOpen, tapOpen }}>
+    <TooltipTouchTapContext value={touchTap}>
       <TooltipPrimitive.Root
         {...props}
         onOpenChange={(nextOpen) => {
@@ -71,25 +91,15 @@ function TooltipTrigger({
       {...props}
       onClick={(event) => {
         onClick?.(event);
-        const tapOpen = touchTap.tapOpen.current;
-        touchTap.tapOpen.current = undefined;
-        // Keyboard activation clicks report no detail and keep Radix's behavior.
-        if (tapOpen === undefined || event.detail === 0) return;
-        touchTap.setOpen(tapOpen);
-        // Radix's own click handler runs after this one in the same dispatch.
-        touchTap.isApplyingTap.current = true;
-        queueMicrotask(() => {
-          touchTap.isApplyingTap.current = false;
-        });
+        touchTap.tap(event.detail);
       }}
       onPointerCancel={(event) => {
         onPointerCancel?.(event);
-        touchTap.tapOpen.current = undefined;
+        touchTap.cancelPress();
       }}
       onPointerDown={(event) => {
         onPointerDown?.(event);
-        touchTap.tapOpen.current =
-          event.pointerType === "touch" ? !touchTap.open : undefined;
+        touchTap.press(event.pointerType);
       }}
     />
   );
