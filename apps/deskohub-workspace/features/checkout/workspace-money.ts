@@ -1,3 +1,4 @@
+import { formatCurrencyAmount } from "@deskohub/i18n/currency";
 import { Data, Effect, Schema } from "effect";
 import type { Locale } from "@/features/i18n";
 import { czkCurrency } from "@/shared/money/currencies";
@@ -60,12 +61,12 @@ export const toWorkspaceMoneyMajorAmount = (money: WorkspaceMoney) =>
   money.value / 10 ** money.exponent;
 
 export function formatWorkspaceMoney(money: WorkspaceMoney, locale: Locale) {
-  return new Intl.NumberFormat(locale, {
-    style: "currency",
+  return formatCurrencyAmount({
+    amount: toWorkspaceMoneyMajorAmount(money),
     currency: money.currency,
-    minimumFractionDigits: 0,
-    maximumFractionDigits: money.exponent,
-  }).format(toWorkspaceMoneyMajorAmount(money));
+    locale,
+    fractionDigits: money.exponent,
+  });
 }
 
 export const withWorkspaceMoneyCurrency = (
