@@ -2144,6 +2144,12 @@ describe("CoworkReservationForm advertised pricing", () => {
       expect(
         view.container.querySelectorAll("[data-cowork-optional-addon-toggle]")
       ).toHaveLength(1);
+      // The add-on label must share the date label's stack layout, or the
+      // two labels sit at different distances from their controls.
+      const dateLabel = dateColumn?.querySelector("label");
+      const addonLabel = addonControl?.querySelector("label");
+      expect(addonLabel?.parentElement).toBe(addonControl);
+      expect(addonControl?.className).toBe(dateLabel?.parentElement?.className);
 
       await act(async () => {
         view.unmount();
