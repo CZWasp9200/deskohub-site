@@ -891,18 +891,17 @@ function CoworkCoffeeAddonField({
       name="coffee"
       render={({ field }) => (
         <FormItem className="contents" data-cowork-addon-column>
-          <div data-cowork-addon-control className="space-y-2">
-            <CoworkOptionalAddonToggle
-              addon="coffee"
-              checked={field.value}
-              icon={Coffee}
-              label={m.reservationCoffeeLabel({}, { locale })}
-              onBlur={field.onBlur}
-              onCheckedChange={(checked) => field.onChange(Boolean(checked))}
-              priceLabel={priceLabel}
-            />
+          <CoworkOptionalAddonToggle
+            addon="coffee"
+            checked={field.value}
+            icon={Coffee}
+            label={m.reservationCoffeeLabel({}, { locale })}
+            onBlur={field.onBlur}
+            onCheckedChange={(checked) => field.onChange(Boolean(checked))}
+            priceLabel={priceLabel}
+          >
             <FormMessage />
-          </div>
+          </CoworkOptionalAddonToggle>
         </FormItem>
       )}
     />
@@ -959,37 +958,35 @@ function CoworkWorkstationAddonField({
       name="monitorOption"
       render={({ field }) => (
         <FormItem className="contents" data-cowork-addon-column>
-          <div data-cowork-addon-control className="space-y-2">
-            <CoworkOptionalAddonToggle
-              addon="workstation"
-              checked={field.value !== undefined || isWorkstationRequired}
-              disabled={isWorkstationRequired}
-              icon={Monitor}
-              info={
-                isWorkstationRequired
-                  ? {
-                      triggerLabel:
-                        m.reservationWorkstationRequiredTooltipTrigger(
-                          {},
-                          { locale }
-                        ),
-                      content: m.reservationWorkstationRequiredTooltipContent(
+          <CoworkOptionalAddonToggle
+            addon="workstation"
+            checked={field.value !== undefined || isWorkstationRequired}
+            disabled={isWorkstationRequired}
+            icon={Monitor}
+            info={
+              isWorkstationRequired
+                ? {
+                    triggerLabel:
+                      m.reservationWorkstationRequiredTooltipTrigger(
                         {},
                         { locale }
                       ),
-                    }
-                  : undefined
-              }
-              label={m.reservationWorkstationLabel({}, { locale })}
-              onBlur={field.onBlur}
-              onCheckedChange={(checked) => {
-                if (isWorkstationRequired) return;
-                onManualSelection();
-                field.onChange(checked ? allowedMonitorOptions[0] : undefined);
-              }}
-              priceLabel={priceLabel}
-            />
-          </div>
+                    content: m.reservationWorkstationRequiredTooltipContent(
+                      {},
+                      { locale }
+                    ),
+                  }
+                : undefined
+            }
+            label={m.reservationWorkstationLabel({}, { locale })}
+            onBlur={field.onBlur}
+            onCheckedChange={(checked) => {
+              if (isWorkstationRequired) return;
+              onManualSelection();
+              field.onChange(checked ? allowedMonitorOptions[0] : undefined);
+            }}
+            priceLabel={priceLabel}
+          />
           {field.value !== undefined && (
             <div
               data-cowork-monitor-options
