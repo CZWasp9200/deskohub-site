@@ -1,6 +1,7 @@
-import type { Locale } from "@/features/i18n";
+import { getLocalizedPagePath, type Locale } from "@/features/i18n";
 
-export const getAccountPath = (locale: Locale) => `/${locale}/account`;
+export const getAccountPath = (locale: Locale) =>
+  getLocalizedPagePath(locale, "/[locale]/account");
 
 export const getAccountSignInPath = (locale: Locale) =>
-  `/${locale}/auth/sign-in`;
+  getLocalizedPagePath(locale, "/[locale]/auth/sign-in");

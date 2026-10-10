@@ -82,8 +82,10 @@ description: Workspace customer account, Better Auth, magic link, auth persisten
   back to `/account`, and deletion leaves through a document navigation. If a
   modal ever links to another account route, add an explicit null slot page
   for that route.
-- Build account and sign-in URLs with `features/account/routes.ts`. The
-  header account button links straight to sign-in for anonymous visitors and
+- Build account and sign-in URLs with `features/account/routes.ts`. Its
+  helpers pass Next's generated `/[locale]/...` route patterns to
+  `getLocalizedPagePath` so typecheck proves the pages exist; the app does not
+  enable `typedRoutes`. The header account button links straight to sign-in for anonymous visitors and
   to `/account` for signed-in customers. Its href is an uncached
   `isCustomerSignedIn` promise that the header resolves with `use()` inside
   `Suspense`, and the sign-in href is the fallback. The static shell never
