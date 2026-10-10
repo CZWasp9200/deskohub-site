@@ -1,4 +1,9 @@
-import { type BrowserContext, expect, type Page } from "@playwright/test";
+import {
+  type BrowserContext,
+  expect,
+  type Page,
+  type Request,
+} from "@playwright/test";
 
 export async function enablePreviewAccess(
   context: BrowserContext,
@@ -40,6 +45,49 @@ export async function hasLoadedResource(page: Page, pathname: string) {
       }
     });
   }, pathname);
+}
+
+/**
+ * Prefetches a route through the App Router and waits for the whole prefetch.
+ * The router fetches the route tree before the segments it needs, so a loaded
+ * tree alone does not mean an instant navigation can render the cached shell.
+ * A route whose segments were already prefetched may issue no new requests.
+ */
+export async function prefetchRoute(page: Page, pathname: string) {
+  const alreadyLoaded = await hasLoadedResource(page, pathname);
+  const pending = new Set<Request>();
+  let segmentLoaded = false;
+  const onRequest = (request: Request) => {
+    if (
+      new URL(request.url()).pathname === pathname &&
+      request.headers()["next-router-prefetch"] !== undefined
+    ) {
+      pending.add(request);
+    }
+  };
+  const onSettled = (request: Request) => {
+    if (!pending.delete(request)) return;
+    const segment = request.headers()["next-router-segment-prefetch"];
+    if (segment !== undefined && segment !== "/_tree") segmentLoaded = true;
+  };
+
+  page.on("request", onRequest);
+  page.on("requestfinished", onSettled);
+  page.on("requestfailed", onSettled);
+  try {
+    await page.waitForFunction(() => window.next?.router !== undefined);
+    await page.evaluate(
+      (target) => window.next?.router?.prefetch(target),
+      pathname
+    );
+    await expect
+      .poll(() => pending.size === 0 && (alreadyLoaded || segmentLoaded))
+      .toBe(true);
+  } finally {
+    page.off("request", onRequest);
+    page.off("requestfinished", onSettled);
+    page.off("requestfailed", onSettled);
+  }
 }
 
 export function requireBaseUrl(baseURL: string | undefined) {

@@ -5,7 +5,7 @@ import { workspaceE2ETimeouts } from "../timeouts";
 import {
   enablePreviewAccess,
   expectPublicSiteShell,
-  hasLoadedResource,
+  prefetchRoute,
   requireBaseUrl,
 } from "./navigation-test-helpers";
 
@@ -86,12 +86,7 @@ async function navigateToAccount(
   baseURL: string | undefined,
   options: AccountNavigationOptions = {}
 ) {
-  await page.waitForFunction(() => window.next?.router !== undefined);
-  await page.evaluate(
-    (path) => window.next?.router?.prefetch(path),
-    accountPath
-  );
-  await expect.poll(() => hasLoadedResource(page, accountPath)).toBe(true);
+  await prefetchRoute(page, accountPath);
   await page.evaluate((path) => {
     document.documentElement.dataset.navigationSource = path;
   }, homePath);
