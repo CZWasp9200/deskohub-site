@@ -381,6 +381,26 @@ void Repository;
   expect(output.split("[anti-slop/no-useless-alias]").length - 1).toBe(8);
 });
 
+test("useless alias rule tells identical alias declarations in nested scopes apart", async () => {
+  const result = await lint(`
+const closingHour = 18;
+const savedClosingHour = closingHour;
+export function readClosingHour() {
+  const closingHour = 20;
+  const before = () => savedClosingHour;
+  {
+    const savedClosingHour = closingHour;
+    void savedClosingHour;
+  }
+  return [before(), closingHour];
+}
+`);
+  const output = `${result.stdout}${result.stderr}`;
+
+  expect(output.split("[anti-slop/no-useless-alias]").length - 1).toBe(1);
+  expect(output).toContain("probe.ts:8:5");
+});
+
 test("useless alias rule allows snapshots, parameters, destructuring, shadowed sources, and annotated aliases", async () => {
   const result = await lint(`
 import { workspaceCoworkTiers } from "./tiers";
@@ -391,6 +411,28 @@ function readOpeningHour() {
   const previous = [savedOpeningHour];
   const openingHour = 9;
   return [...previous, openingHour];
+}
+const deskCount = 4;
+const savedDeskCount = deskCount;
+const DeskCounter = class deskCount {
+  value = savedDeskCount;
+};
+const roomCount = 2;
+const savedRoomCount = roomCount;
+const countRooms = function roomCount() {
+  return savedRoomCount;
+};
+const seatCount = 6;
+const savedSeatCount = seatCount;
+enum SeatCounts {
+  seatCount = 8,
+  saved = savedSeatCount,
+}
+const floorCount = 3;
+const savedFloorCount = floorCount;
+namespace Floors {
+  const floorCount = 5;
+  export const counts = [savedFloorCount, floorCount];
 }
 let attempt = 0;
 const previousAttempt = attempt;
@@ -432,6 +474,10 @@ const firstTier = workspaceCoworkTiers[0];
 const undefinedValue = undefined;
 const global = globalThis;
 void readOpeningHour;
+void DeskCounter;
+void countRooms;
+void SeatCounts;
+void Floors;
 void previousAttempt;
 void legacySnapshot;
 void normalize;
