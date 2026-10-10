@@ -4,9 +4,13 @@ language js(typescript, jsx)
 // ponytail: direct syntax only; use Biome JS plugins when they expose scope/type APIs.
 // GritQL cannot resolve which binding an identifier refers to, so this approximates
 // "the source cannot be reassigned" per file: some binding with the source name must
-// exist, and no binding with that name may be a parameter, catch binding, or let/var.
-// A same-named let/var/parameter anywhere in the file suppresses the report, and a
-// global that a const elsewhere in the file shadows can still be reported.
+// exist, no binding with that name may be a parameter, catch binding, or let/var, and
+// no block or function body that lacks the alias may rebind the name, since replacing
+// the alias there could read the shadowing binding. A same-named let/var/parameter
+// anywhere in the file suppresses the report, and a global that a const elsewhere in
+// the file shadows can still be reported. Imported names count as constant: TypeScript
+// rejects assignments to imports, functions, and classes, and the workspace exports no
+// mutable `let` bindings whose live updates an alias snapshot would hide.
 file($name, $body) where {
   $name <: r".*apps/deskohub-workspace/(?:(?:app|db|emails|features|scripts|shared)/.*|[^/]+)\.(?:ts|tsx)$",
   $body <: contains bubble {
@@ -15,6 +19,20 @@ file($name, $body) where {
       $source <: JsIdentifierExpression(),
       $program <: contains JsIdentifierBinding() as $source_binding where {
         $source_binding <: $source
+      },
+      not $program <: contains or {
+        JsFunctionBody(),
+        JsBlockStatement(),
+        JsForStatement(),
+        JsForInStatement(),
+        JsForOfStatement(),
+        JsSwitchStatement(),
+        JsStaticInitializationBlockClassMember()
+      } as $shadowing_scope where {
+        $shadowing_scope <: contains JsIdentifierBinding() as $shadowing_binding where {
+          $shadowing_binding <: $source
+        },
+        not $shadowing_scope <: contains $alias_declaration
       },
       not $program <: contains JsIdentifierBinding() as $reassignable_binding where {
         $reassignable_binding <: $source,

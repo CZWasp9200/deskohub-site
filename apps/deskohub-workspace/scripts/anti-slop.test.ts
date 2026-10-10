@@ -381,9 +381,17 @@ void Repository;
   expect(output.split("[anti-slop/no-useless-alias]").length - 1).toBe(8);
 });
 
-test("useless alias rule allows snapshots, parameters, destructuring, and annotated aliases", async () => {
+test("useless alias rule allows snapshots, parameters, destructuring, shadowed sources, and annotated aliases", async () => {
   const result = await lint(`
 import { workspaceCoworkTiers } from "./tiers";
+const openingHour = 8;
+const savedOpeningHour = openingHour;
+function readOpeningHour() {
+  // Substituting openingHour here would read the inner binding in its TDZ.
+  const previous = [savedOpeningHour];
+  const openingHour = 9;
+  return [...previous, openingHour];
+}
 let attempt = 0;
 const previousAttempt = attempt;
 attempt += 1;
@@ -423,6 +431,7 @@ const annotatedTiers: readonly string[] = workspaceCoworkTiers;
 const firstTier = workspaceCoworkTiers[0];
 const undefinedValue = undefined;
 const global = globalThis;
+void readOpeningHour;
 void previousAttempt;
 void legacySnapshot;
 void normalize;
