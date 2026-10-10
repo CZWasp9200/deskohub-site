@@ -7,7 +7,9 @@ language js(typescript, jsx)
 // exist, no binding with that name may be a parameter, catch binding, or let/var, no
 // scope that does not enclose the alias (block, function, named class or function
 // expression, namespace) may rebind the name, and no enum member may reuse it, since
-// replacing the alias there could read the shadowing binding. A same-named let/var/parameter
+// replacing the alias there could read the shadowing binding. Enum member names match
+// plain, quoted, `$`-prefixed, and bracketed spellings; any escaped member name
+// suppresses the file's reports because its decoded name is unknown. A same-named let/var/parameter
 // anywhere in the file suppresses the report, and a global that a const elsewhere in
 // the file shadows can still be reported. Imported names count as constant: TypeScript
 // rejects assignments to imports, functions, and classes, and the workspace exports no
@@ -38,9 +40,12 @@ file($name, $body) where {
         },
         not $alias_declaration <: within $shadowing_scope
       },
-      not $program <: contains TsEnumMember() as $shadowing_member where {
-        $shadowing_member <: r"(?s)^\s*(\w+)\b.*"($shadowing_member_name),
-        $shadowing_member_name <: $source
+      not $program <: contains TsEnumMember() as $shadowing_member where or {
+        and {
+          $shadowing_member <: r"(?s)^\s*\[?\s*['\"`]?([\w$]+)['\"`]?\s*\]?\s*(?:=.*)?$"($shadowing_member_name),
+          $shadowing_member_name <: $source
+        },
+        $shadowing_member <: r"(?s)^[^=]*\\.*"
       },
       not $program <: contains JsIdentifierBinding() as $reassignable_binding where {
         $reassignable_binding <: $source,

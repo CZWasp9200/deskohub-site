@@ -430,6 +430,24 @@ enum SeatCounts {
 }
 const floorCount = 3;
 const savedFloorCount = floorCount;
+const wingCount = 2;
+const savedWingCount = wingCount;
+enum QuotedWings {
+  "wingCount" = 4,
+  saved = savedWingCount,
+}
+const $gateCount = 1;
+const savedGateCount = $gateCount;
+enum DollarGates {
+  $gateCount = 3,
+  saved = savedGateCount,
+}
+const laneCount = 6;
+const savedLaneCount = laneCount;
+enum EscapedLanes {
+  "\\u006caneCount" = 7,
+  saved = savedLaneCount,
+}
 namespace Floors {
   const floorCount = 5;
   export const counts = [savedFloorCount, floorCount];
@@ -477,6 +495,9 @@ void readOpeningHour;
 void DeskCounter;
 void countRooms;
 void SeatCounts;
+void QuotedWings;
+void DollarGates;
+void EscapedLanes;
 void Floors;
 void previousAttempt;
 void legacySnapshot;
