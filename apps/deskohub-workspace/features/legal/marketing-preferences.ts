@@ -27,6 +27,17 @@ export type MarketingPreferencesState =
     };
 
 /**
+ * A customer's stored marketing consent: none recorded, currently granted, or
+ * withdrawn after a grant.
+ */
+export const getMarketingPreferenceStatus = (
+  consent: { readonly withdrawnAt: Temporal.Instant | null } | null
+): MarketingPreferencesManagedState["status"] => {
+  if (consent === null) return "absent";
+  return consent.withdrawnAt === null ? "active" : "withdrawn";
+};
+
+/**
  * Managed states render the marketing preference as a controllable row with a
  * live switch; fallback states render separately spaced guidance instead.
  */

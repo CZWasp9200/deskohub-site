@@ -41,6 +41,8 @@ export type ReservationExistingCustomer<
   Kind extends WorkspaceReservationKind = WorkspaceReservationKind,
 > = {
   readonly contact: ReservationAccountContact;
+  /** Whether the customer currently consents to marketing communications. */
+  readonly hasMarketingConsent: boolean;
   readonly lastReservation?: CustomerLastReservationForKind<Kind>;
 };
 
@@ -60,6 +62,11 @@ export type ReservationContactValues = {
 /** What the reservation form needs to offer the account card. */
 export type ReservationExistingCustomerForm = {
   readonly contact: ReservationAccountContact;
+  /**
+   * Whether the account already consents to marketing communications, so the
+   * account card does not ask again.
+   */
+  readonly hasMarketingConsent: boolean;
   readonly initialMode: ReservationCustomerMode;
   /** The contact inputs "book for someone else" opens with. */
   readonly otherContact: ReservationContactValues;
@@ -101,11 +108,13 @@ export const getReservationExistingCustomerForm = <
   Values extends ReservationContactValues,
 >({
   contact,
+  hasMarketingConsent,
   queryMode,
   restored,
   values,
 }: {
   readonly contact: ReservationAccountContact;
+  readonly hasMarketingConsent: boolean;
   readonly queryMode: ReservationCustomerMode | undefined;
   readonly restored: boolean;
   readonly values: Values;
@@ -122,6 +131,7 @@ export const getReservationExistingCustomerForm = <
   return {
     existingCustomer: {
       contact,
+      hasMarketingConsent,
       initialMode,
       otherContact: restoredAccount
         ? emptyReservationContact

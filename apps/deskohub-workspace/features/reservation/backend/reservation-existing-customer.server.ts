@@ -4,6 +4,8 @@ import { Effect, Layer, Result } from "effect";
 import { cache } from "react";
 import { CustomerAccountContactService } from "@/features/account/backend/customer-account-contact.service";
 import { areAccountsEnabled } from "@/features/account/server/account-feature-flag.server";
+import { CustomerMarketingConsentRepository } from "@/features/legal/backend/customer-marketing-consent.repository";
+import { getMarketingPreferenceStatus } from "@/features/legal/marketing-preferences";
 import type { CoworkReservationInput } from "@/features/reservation/cowork-reservation";
 import type { MeetingRoomReservationInput } from "@/features/reservation/meeting-room-reservation";
 import { getMeetingRoomReservationDuration } from "@/features/reservation/meeting-room-reservation-duration";
@@ -35,7 +37,8 @@ export const loadReservationExistingCustomer = cache(
       Effect.provide(
         Layer.mergeAll(
           CustomerAccountContactService.Live,
-          CustomerLastReservationService.Live
+          CustomerLastReservationService.Live,
+          CustomerMarketingConsentRepository.Live
         )
       ),
       Effect.tapError((error) =>
@@ -57,16 +60,16 @@ export const loadReservationExistingCustomer = cache(
 );
 
 /**
- * The profile read and the last-reservation read each issue a database query
- * (plus a Dotypos call), so a signed-in page load holds at most two pool
- * connections for this step.
+ * The profile, last-reservation, and marketing-consent reads each issue a
+ * database query (the first two plus a Dotypos call), so a signed-in page load
+ * holds at most three pool connections for this step.
  */
-const linkedCustomerReadConcurrency = 2;
+const linkedCustomerReadConcurrency = 3;
 
 /**
- * Both the contact and the last reservation need only the account's link,
- * so they load concurrently once it resolves. The contact decides the
- * outcome: when it fails or cannot book, the last reservation is discarded.
+ * The contact, the last reservation, and the marketing consent need only the
+ * account's link, so they load concurrently once it resolves. The contact
+ * decides the outcome: when it fails or cannot book, the others are discarded.
  */
 export const loadLinkedExistingCustomer = Effect.fn(
   "reservation.loadLinkedExistingCustomer"
@@ -76,7 +79,8 @@ export const loadLinkedExistingCustomer = Effect.fn(
   if (!account) return undefined;
 
   const lastReservations = yield* CustomerLastReservationService;
-  const [contact, lastReservation] = yield* Effect.all(
+  const marketingConsents = yield* CustomerMarketingConsentRepository;
+  const [contact, lastReservation, hasMarketingConsent] = yield* Effect.all(
     [
       contacts.linkedContact(account),
       // The remembered options only refine the defaults, so a failure keeps
@@ -89,6 +93,19 @@ export const loadLinkedExistingCustomer = Effect.fn(
         ),
         Effect.orElseSucceed(() => null)
       ),
+      // An unreadable consent keeps offering the optional checkbox, which
+      // never overrides a stored consent or withdrawal.
+      marketingConsents.get(account.dotyposCustomerId).pipe(
+        Effect.map(
+          (consent) => getMarketingPreferenceStatus(consent) === "active"
+        ),
+        Effect.tapError((error) =>
+          Effect.logWarning("Customer marketing consent load failed", {
+            error,
+          })
+        ),
+        Effect.orElseSucceed(() => false)
+      ),
     ],
     { concurrency: linkedCustomerReadConcurrency }
   );
@@ -100,6 +117,7 @@ export const loadLinkedExistingCustomer = Effect.fn(
       email: contact.email,
       phone: contact.phone,
     },
+    hasMarketingConsent,
     ...(lastReservation && { lastReservation }),
   } satisfies ReservationExistingCustomer<Kind>;
 });
