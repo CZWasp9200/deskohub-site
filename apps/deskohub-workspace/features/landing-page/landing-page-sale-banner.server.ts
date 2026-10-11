@@ -2,6 +2,7 @@ import "server-only";
 import { Effect } from "effect";
 import type { ActiveSale } from "@/features/discounts";
 import { getActivePublicSales } from "@/features/discounts/active-public-sales.server";
+import type { WorkspaceProductTarget } from "@/features/discounts/product-target";
 import type { Locale } from "@/features/i18n";
 import { OfficeReservationFeatureFlagService } from "@/features/office/backend/office-reservation-feature-flag.service";
 import type { ReservationOrderData } from "@/features/reservation/reservation-order";
@@ -40,12 +41,25 @@ const getEligibleLandingPageSaleBanner = Effect.fn(
 
   const sale = input.activeSales[0];
   if (!sale) return undefined;
-  if (sale.products.some(({ kind }) => kind === "office")) {
-    const officeFeatureFlag = yield* OfficeReservationFeatureFlagService;
-    if (!(yield* officeFeatureFlag.isEnabled)) return undefined;
-  }
+  const products = yield* getBookableSaleProducts(sale.products);
+  if (products.length === 0) return undefined;
 
-  return toLandingPageSaleBannerContent({ locale: input.locale, sale });
+  return toLandingPageSaleBannerContent({
+    locale: input.locale,
+    sale: { ...sale, products },
+  });
+});
+
+/** Drops office products while visitors cannot reserve an office. */
+const getBookableSaleProducts = Effect.fn(
+  "LandingPage.getBookableSaleProducts"
+)(function* (products: readonly WorkspaceProductTarget[]) {
+  if (!products.some(({ kind }) => kind === "office")) return products;
+
+  const officeFeatureFlag = yield* OfficeReservationFeatureFlagService;
+  if (yield* officeFeatureFlag.isEnabled) return products;
+
+  return products.filter(({ kind }) => kind !== "office");
 });
 
 const logAmbiguousActiveSales = (input: {

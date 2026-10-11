@@ -59,15 +59,20 @@ const sale = (
   products,
 });
 
+let officePageEnabled = true;
+const isOfficePageEnabled = mock(() => officePageEnabled);
+
 const getBannerEffect = (
   activeSales: readonly ActiveSale[],
   locale: "en-US" | "cs-CZ" = "en-US",
-  officePageEnabled = true,
+  officePageEnabledValue = true,
   failure?: Error
 ) => {
   activePublicSales = activeSales;
   activePublicSalesFailure = failure;
+  officePageEnabled = officePageEnabledValue;
   getActivePublicSales.mockClear();
+  isOfficePageEnabled.mockClear();
 
   return Effect.gen(function* () {
     const banner = yield* getActiveLandingPageSaleBanner({ locale });
@@ -75,7 +80,7 @@ const getBannerEffect = (
   }).pipe(
     Effect.provide(
       Layer.succeed(OfficeReservationFeatureFlagService, {
-        isEnabled: Effect.succeed(officePageEnabled),
+        isEnabled: Effect.sync(isOfficePageEnabled),
       })
     )
   );
@@ -140,14 +145,57 @@ describe("getActiveLandingPageSaleBanner", () => {
     expect(banner).toBeUndefined();
   });
 
-  test("renders no mixed office banner while office reservations are disabled", async () => {
+  test("advertises only bookable products while office reservations are disabled", async () => {
+    const { banner } = await getBanner(
+      [sale([coworkProduct, meetingRoomProduct, officeProduct])],
+      "en-US",
+      false
+    );
+
+    expect(banner).toMatchObject({
+      href: "/en-US/reservation/cowork?utm_source=deskohub&utm_medium=sale_banner&utm_content=home_hero",
+      label: "Summer focus: 20% off chosen products!",
+    });
+  });
+
+  test("links a mixed office sale to its bookable family while office reservations are disabled", async () => {
     const { banner } = await getBanner(
       [sale([meetingRoomProduct, officeProduct])],
       "en-US",
       false
     );
 
-    expect(banner).toBeUndefined();
+    expect(banner).toMatchObject({
+      href: "/en-US/reservation/meeting-room?utm_source=deskohub&utm_medium=sale_banner&utm_content=home_hero",
+      label: "Summer focus: 20% off meeting room reservations!",
+    });
+  });
+
+  test("advertises every product while office reservations are enabled", async () => {
+    const { banner } = await getBanner(
+      [sale([coworkProduct, meetingRoomProduct, officeProduct])],
+      "en-US",
+      true
+    );
+
+    expect(banner).toMatchObject({
+      href: "/en-US/reservation/cowork?utm_source=deskohub&utm_medium=sale_banner&utm_content=home_hero",
+      label: "Summer focus: 20% off!",
+    });
+    expect(isOfficePageEnabled).toHaveBeenCalledTimes(1);
+  });
+
+  test("does not evaluate the office gate for a sale without office products", async () => {
+    const { banner } = await getBanner(
+      [sale([coworkProduct, meetingRoomProduct])],
+      "en-US",
+      false
+    );
+
+    expect(banner).toMatchObject({
+      label: "Summer focus: 20% off chosen products!",
+    });
+    expect(isOfficePageEnabled).not.toHaveBeenCalled();
   });
 
   test("fails closed and logs when overlapping sales are ambiguous", async () => {

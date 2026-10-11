@@ -250,8 +250,8 @@ test("renders only the configured full-header items without reserved slots", asy
   expect(capturedGuardedLinkHrefs).toEqual([
     "/en-US",
     galleryHref,
-    "/en-US/account",
     "/en-US/reservation/cowork",
+    "/en-US/account",
     "/en-US/account",
     galleryHref,
   ]);
