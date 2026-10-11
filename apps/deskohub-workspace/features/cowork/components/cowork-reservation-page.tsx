@@ -144,6 +144,7 @@ export async function renderCoworkReservationContent({
     existingCustomer
       ? getReservationExistingCustomerForm({
           contact: existingCustomer.contact,
+          hasMarketingConsent: existingCustomer.hasMarketingConsent,
           queryMode: getReservationCustomerQueryMode(searchParams),
           restored: Boolean(initialReservation),
           values: restoredOrQueryValues,
