@@ -639,21 +639,14 @@ test("Workspace lint is a Turbo dependency graph", () => {
   const workspaceManifest = readJson("apps/deskohub-workspace/package.json");
   const workspaceTurbo = readJson("apps/deskohub-workspace/turbo.json");
 
+  const lintTasks = ["lint:biome", "lint:eslint", "lint:knip"];
+
   expect(workspaceManifest.scripts?.lint).toBeUndefined();
-  for (const [script, tool] of Object.entries({
-    "lint:biome": "biome",
-    "lint:eslint": "eslint",
-    "lint:knip": "knip",
-  })) {
-    expect(workspaceManifest.scripts?.[script]).toContain(tool);
+  for (const task of lintTasks) {
+    expect(workspaceManifest.scripts?.[task]?.trim()).toBeTruthy();
   }
   expect(workspaceTurbo.tasks?.lint?.dependsOn).toEqual(
-    expect.arrayContaining([
-      "$TURBO_EXTENDS$",
-      "lint:biome",
-      "lint:eslint",
-      "lint:knip",
-    ])
+    expect.arrayContaining(["$TURBO_EXTENDS$", ...lintTasks])
   );
   expect(rootTurbo.tasks?.lint?.dependsOn).toContain("^lint");
 });

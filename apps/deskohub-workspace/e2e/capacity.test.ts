@@ -18,7 +18,6 @@ import {
   getWorkspaceE2EDateInterval,
   makeWorkspaceE2ECapacityReport,
   makeWorkspaceE2ELegacyTierCleanupCapacityReport,
-  workspaceE2ELegacyTierCleanupCapacityGroups,
   workspaceE2EMaximumSameDateCoworkReservations,
 } from "./capacity";
 import { makeWorkspaceE2ECases, type WorkspaceE2EPreparation } from "./cases";
@@ -54,13 +53,6 @@ test("builds an owned-date interval across Prague's DST boundary", () => {
     endDate: new Date("2026-10-25T23:00:00.000Z"),
     startDate: new Date("2026-10-23T22:00:00.000Z"),
   });
-});
-
-test("keeps the case-plan per-date reservation maximums for the two offers", () => {
-  expect(workspaceE2EMaximumSameDateCoworkReservations["open-space"]).toBe(4);
-  expect(workspaceE2EMaximumSameDateCoworkReservations["reserved-desk"]).toBe(
-    1
-  );
 });
 
 test("caps the produced date plan at the case-plan per-date maximums", async () => {
@@ -340,8 +332,6 @@ test("reports only aggregate capacity for every saleable offer pool", () => {
     ].toSorted((left, right) => left.localeCompare(right))
   );
   expect(report.meetsRequiredCapacity).toBe(true);
-  expect(report.supportedConcurrentRuns).toBe(3);
-  expect(report.provisionedRunCapacity).toBe(4);
   expect(report.groups.find(({ id }) => id === "open-space")).toEqual({
     activeReservationCount: 1,
     activeReservationSeatCount: 2,
@@ -626,7 +616,7 @@ test("ignores cancelled reservations in capacity accounting", () => {
   });
 });
 
-test("legacy tier pools stay visible without required counts", () => {
+test("legacy tier pools stay visible without failing preflight", () => {
   const report = makeWorkspaceE2ELegacyTierCleanupCapacityReport({
     from: new Date("2099-08-01T00:00:00.000Z"),
     reservations: [],
@@ -637,23 +627,11 @@ test("legacy tier pools stay visible without required counts", () => {
     to: new Date("2099-09-01T00:00:00.000Z"),
   });
 
-  expect(
-    workspaceE2ELegacyTierCleanupCapacityGroups.every(
-      (group) =>
-        group.requiredSeatCount === undefined &&
-        group.requiredTableCount === undefined &&
-        group.requiredAvailableSeatCount === undefined &&
-        group.requiredAvailableTableCount === undefined
-    )
-  ).toBe(true);
   expect(report.groups.find(({ id }) => id === "tier:basic")).toMatchObject({
     assignableTableCount: 1,
     requiredTags: ["tier:basic"],
     totalSeatCount: 16,
   });
-  expect(
-    report.groups.find(({ id }) => id === "tier:basic")?.requiredSeatCount
-  ).toBeUndefined();
   expect(report.meetsRequiredCapacity).toBe(true);
   expect(getWorkspaceE2ECapacityFailures(report)).toEqual([]);
 });

@@ -100,6 +100,8 @@ export type CreateStandaloneAccessCodeResult = Result.Result<
 /**
  * Plain-data shape of the action result that survives Server Action
  * transport; the domain Result is rebuilt client-side by its decode helper.
+ * A raw Result does not survive: JSON keeps `_tag` but moves the payload to
+ * `value`, and structured clone keeps `.success` but drops `_tag`.
  */
 export type CreateStandaloneAccessCodeTransport =
   | {

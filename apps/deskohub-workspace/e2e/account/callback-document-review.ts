@@ -143,7 +143,8 @@ export const collectCallbackDocumentSnapshot = (config: {
   readonly mainRole: string;
   readonly bannerRole: string;
   readonly footerRole: string;
-  readonly viewport: { readonly width: number; readonly height: number };
+  /** The capture viewport, or null when the review captures no pixels. */
+  readonly viewport: { readonly width: number; readonly height: number } | null;
 }): string => {
   // Strict callback grammar mirror of e2e/account/callback-url.ts: exact
   // origin and path, no fragment, at most one canonical UUIDv4 attempt param.
@@ -285,9 +286,12 @@ export const collectCallbackDocumentSnapshot = (config: {
   checkLandmark(config.bannerSelector, "banner", config.bannerRole);
   checkLandmark(config.footerSelector, "footer", config.footerRole);
 
-  if (document.fonts && document.fonts.status !== "loaded") fail("fonts");
-  if (window.innerWidth !== config.viewport.width) fail("viewportW");
-  if (window.innerHeight !== config.viewport.height) fail("viewportH");
+  // Loaded fonts and the capture viewport only matter to captured pixels.
+  if (config.viewport) {
+    if (document.fonts && document.fonts.status !== "loaded") fail("fonts");
+    if (window.innerWidth !== config.viewport.width) fail("viewportW");
+    if (window.innerHeight !== config.viewport.height) fail("viewportH");
+  }
 
   return JSON.stringify(valid ? { v: true } : { v: false, m: metrics });
 };
@@ -307,10 +311,15 @@ const isPayloadValidTrue = (payload: string): boolean => {
   }
 };
 
+/**
+ * A null capture viewport prepares the handoff validation alone: the page
+ * viewport is left untouched, the receipt skips the pixel-only font and
+ * viewport checks, and `capture` fails closed.
+ */
 export const prepareCallbackDocumentReview = async (
   page: Playwright.Page,
   baseOrigin: string,
-  viewport: Playwright.ViewportSize,
+  viewport: Playwright.ViewportSize | null,
   options: BoundedOptions
 ): Promise<CallbackDocumentReview> => {
   let baseOriginValid: string;
@@ -323,8 +332,7 @@ export const prepareCallbackDocumentReview = async (
   if (
     !Number.isFinite(options.deadline) ||
     options.deadline <= Date.now() ||
-    viewport.width <= 0 ||
-    viewport.height <= 0
+    (viewport !== null && (viewport.width <= 0 || viewport.height <= 0))
   ) {
     throw callbackDocumentReviewFailure();
   }
@@ -443,19 +451,22 @@ export const prepareCallbackDocumentReview = async (
   };
 
   try {
-    viewportOwed = true;
-    await acquire(
-      () => page.setViewportSize(viewport),
-      () => {
-        viewportOwed = true;
-      },
-      async () => {
-        // The original viewport write settled after the bounded window
-        // failed; a completed restoration must not permanently skip it, so
-        // another restoration is owed unconditionally.
-        viewportRestored = false;
-      }
-    );
+    if (viewport !== null) {
+      const captureViewport = viewport;
+      viewportOwed = true;
+      await acquire(
+        () => page.setViewportSize(captureViewport),
+        () => {
+          viewportOwed = true;
+        },
+        async () => {
+          // The original viewport write settled after the bounded window
+          // failed; a completed restoration must not permanently skip it, so
+          // another restoration is owed unconditionally.
+          viewportRestored = false;
+        }
+      );
+    }
 
     cdpSession = await acquire(
       () => page.context().newCDPSession(page),
@@ -638,7 +649,8 @@ export const prepareCallbackDocumentReview = async (
     return {
       capture: async (captureOptions: BoundedOptions): Promise<Buffer> => {
         throwIfAborted(captureOptions.signal);
-        if (captureConsumed) throw callbackDocumentReviewFailure();
+        if (viewport === null || captureConsumed)
+          throw callbackDocumentReviewFailure();
         requireCurrentValidReceipt();
         const contextAtStart = currentMainContextId;
         const generationAtStart = documentGeneration;

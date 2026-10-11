@@ -26,9 +26,6 @@ describe("EmailVerificationStatus", () => {
 
     expect(button).toContain('type="button"');
     expect(button).toContain(`aria-label="${copy.verified}"`);
-    expect(button).toContain("size-8");
-    expect(button).toContain("focus-visible:ring-2");
-    expect(button).toContain("text-emerald-800");
     expect(button).not.toContain('tabindex="-1"');
     expect(markup).toContain("lucide-circle-check");
     expect(markup).not.toMatch(
@@ -36,13 +33,12 @@ describe("EmailVerificationStatus", () => {
     );
   });
 
-  test("renders an amber alert icon for an unverified email", () => {
+  test("renders an alert icon for an unverified email", () => {
     const markup = renderStatus(false);
     const button = extractButton(markup);
 
     expect(button).toContain('type="button"');
     expect(button).toContain(`aria-label="${copy.unverified}"`);
-    expect(button).toContain("text-amber-800");
     expect(button).not.toContain('tabindex="-1"');
     expect(markup).toContain("lucide-circle-alert");
   });

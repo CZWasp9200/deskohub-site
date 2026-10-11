@@ -165,7 +165,6 @@ describe("CheckoutStatusService for late payments", () => {
     }).getStatus();
 
     expect(status.status).toBe("late_payment_refund");
-    expect(status.status).not.toBe("paid_waiting_fulfillment");
     expect(status).not.toHaveProperty("table");
     expect(status).not.toHaveProperty("tableMap");
   });

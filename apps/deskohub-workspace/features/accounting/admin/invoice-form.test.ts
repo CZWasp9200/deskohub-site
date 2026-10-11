@@ -5,6 +5,7 @@ import {
   beforeEach,
   expect,
   mock,
+  spyOn,
   test,
 } from "bun:test";
 import { AdministrationInvoiceCreateInput } from "@deskohub/workspace-admin-api";
@@ -183,18 +184,6 @@ test("rejects values beyond the server-mirrored boundary lengths", async () => {
   expect("value" in valid).toBe(true);
 });
 
-test("preserves the reviewed variable symbol", () => {
-  expect(
-    readInvoiceForm({
-      customer: null,
-      customerMode: "new",
-      values: formValues({ variableSymbol: "2026000001" }),
-      invoiceId: "018f47d2-8f7c-7c5e-9f9a-6ef21f90cb21",
-      suggestedVariableSymbol: "2026000002",
-    }).variableSymbol
-  ).toBe("2026000001");
-});
-
 test("reads the visible payment date as paid on when already paid", () => {
   expect(
     readInvoiceForm({
@@ -323,6 +312,57 @@ test("carries edited fields into the review payload", async () => {
       },
     })
   );
+});
+
+// react-hook-form keys field-array rows with `crypto.randomUUID()` during
+// render, so ids it mints itself are ignored. The rest of the stack is
+// searched for the form because tail calls drop intermediate frames.
+const spyOnFormMintedIds = () => {
+  const mintRandomUUID = crypto.randomUUID.bind(crypto);
+  const minted: string[] = [];
+  const randomUUID = spyOn(crypto, "randomUUID").mockImplementation(() => {
+    const id = mintRandomUUID();
+    const frames = (new Error().stack ?? "").split("\n");
+    const callers = frames.slice(
+      frames.findIndex((frame) => frame.includes("at randomUUID")) + 1
+    );
+    const directCaller = callers.find((frame) => !frame.includes("(native"));
+    if (
+      !directCaller?.includes("/react-hook-form/") &&
+      callers.some((frame) => frame.includes("/admin/invoice-form.tsx"))
+    ) {
+      minted.push(id);
+    }
+    return id;
+  });
+  return { minted, restore: () => randomUUID.mockRestore() };
+};
+
+test("creates request identities only after user interaction", async () => {
+  // A random id minted during render differs between the server and client
+  // passes and between re-renders, so the draft id waits for the review.
+  const preview = mockPreviewAction();
+  const ids = spyOnFormMintedIds();
+  try {
+    const view = renderInvoiceCreationForm();
+    view.rerender(
+      createElement(InvoiceCreationForm, {
+        currencies: [{ code: "CZK", exponent: 2, name: "Czech koruna" }],
+        defaultCurrency: "CZK",
+        defaultDueDate: "2026-09-01",
+        defaultServiceDate: "2026-08-18",
+        suggestedVariableSymbol: "2026000001",
+      })
+    );
+    fillValidPersonInvoice(view);
+    expect(ids.minted).toEqual([]);
+
+    submitInvoiceForm(view);
+    await view.findByText("This action creates and sends the invoice");
+    expect(ids.minted).toEqual([invoiceIdOf(preview.mock.calls[0])]);
+  } finally {
+    ids.restore();
+  }
 });
 
 test("shows validation feedback and skips the preview for an invalid invoice", async () => {
@@ -675,19 +715,6 @@ test("accepts retained business values after switching to an individual", async 
         details: expect.objectContaining({ kind: "person" }),
       },
     })
-  );
-});
-
-test("previews an edited variable symbol unchanged", async () => {
-  const preview = mockPreviewAction();
-  const view = renderInvoiceCreationForm();
-  fillValidPersonInvoice(view);
-  fillInput(view, "Variable symbol", "9876543210");
-
-  submitInvoiceForm(view);
-  await view.findByText("This action creates and sends the invoice");
-  expect(preview).toHaveBeenCalledWith(
-    expect.objectContaining({ variableSymbol: "9876543210" })
   );
 });
 

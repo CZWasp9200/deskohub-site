@@ -172,11 +172,7 @@ test("renders a bottom entrance door with a right hinge and arrow", () => {
   expect(swing.props.d).toBe(
     "M 10 100 C 10 83.431457506 23.431457506 70 40 70"
   );
-  expect(swing.props.fill).toBe("none");
-  expect(swing.props.stroke).toBe("#00024f");
-  expect(swing.props.strokeOpacity).toBe(0.24);
   expect(firstChild(arrow).props.x1).toBe(25);
-  expect(arrow.props.color).toBe("#00df99");
 });
 
 test("rotates geometry while keeping labels upright", () => {

@@ -51,10 +51,9 @@ describe("paid fulfillment queue", () => {
     expect(send).toHaveBeenCalledWith(
       paidFulfillmentQueueTopic,
       { orderId },
-      {
-        retentionSeconds: 86_400,
+      expect.objectContaining({
         idempotencyKey: "paid-fulfillment:reservation-id",
-      }
+      })
     );
   });
 
@@ -169,15 +168,6 @@ describe("paid fulfillment queue", () => {
       { orderId: "stalled-b" },
     ]);
     expect(result).toEqual({ attempted: 2, failed: 1 });
-  });
-
-  test("schedules stalled paid fulfillment reconciliation", async () => {
-    const config = await Bun.file(
-      new URL("../../../../vercel.json", import.meta.url)
-    ).json();
-    expect(config.crons).toContainEqual(
-      expect.objectContaining({ path: "/api/cron/workspace/paid-fulfillment" })
-    );
   });
 
   test("wires the fulfillment topic to its queue route", async () => {

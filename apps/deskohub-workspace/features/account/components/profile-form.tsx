@@ -455,9 +455,8 @@ export function ProfileForm({
     options: {
       readonly autoComplete?: string;
       // Legacy public DOM contract: some billing inputs keep their
-      // pre-RHF `name` attributes (consumed by the account-visual
-      // harness and native validation messages) even though the RHF
-      // field path differs.
+      // pre-RHF `name` attributes (used by native validation messages)
+      // even though the RHF field path differs.
       readonly domName?: string;
       readonly id: string;
       readonly inputMode?: "numeric";

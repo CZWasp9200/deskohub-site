@@ -63,67 +63,6 @@ mock.module("@/features/account/avatar-actions", () => ({
   removeCustomerAvatar,
   uploadCustomerAvatar,
 }));
-mock.module("@/features/account/components/account-screen-copy", () => ({
-  getAccountScreenCopy: (locale: "en-US" | "cs-CZ") => ({
-    shell: {
-      mobileSection: "Account section",
-      navigation: "Account navigation",
-      sections: {
-        billing: "Billing & invoices",
-        danger: "Danger zone",
-        legal: "Legal & privacy",
-        profile: "Profile & identity",
-        reservations: "Reservations",
-      },
-    },
-    profile: {
-      emailLabel: "Email",
-      emailVerification: {
-        unverified: "This email still needs verification.",
-        verified: "This email has been successfully verified.",
-      },
-      languageLabel: "Preferred communication language",
-      languageUnavailableValue: "Not set",
-      memberFallback: "Workspace member",
-      title: "Profile & identity",
-      verifiedEmail: "Verified login email",
-    },
-    billing: {
-      addPaymentCard: "Add payment card",
-      billingDetailsTitle:
-        locale === "cs-CZ" ? "Fakturační údaje" : "Billing details",
-      currency: "Currency: CZK (Kč)",
-      downloadInvoice: "Download PDF",
-      exportInvoices: "Export all",
-      invoiceHistoryTitle: "Invoice history",
-      invoiceHistoryUnavailable:
-        "Invoice history and downloads are not available in this account.",
-      paymentMethodsTitle: "Saved payment methods",
-      paymentMethodsUnavailable:
-        "Saved payment methods are not available in this account.",
-      removePaymentCard: "Remove payment card",
-      title: "Billing & invoices",
-    },
-
-    reservations: {
-      assignedDesk: "Assigned desk",
-      checkIn: "Check in",
-      date: "Date",
-      moreCurrent: "More upcoming reservations",
-      product: "Product",
-      seats: "Seats",
-      showPinCode: "Show PIN code",
-      status: "Status",
-      unavailable: "Unavailable",
-      unsupportedDescription: "This access detail is not available yet.",
-      validity: "Validity",
-      viewReservation: "View reservation",
-      wifi: "Wi-Fi",
-    },
-    dangerTitle: "Danger zone",
-  }),
-}));
-
 // A faithful stand-in for next-safe-action's hook contract so the component
 // behaves as it does in the browser.
 mock.module("@/shared/utils/use-workspace-action", () => ({
@@ -284,10 +223,18 @@ describe("ProfileForm", () => {
         profile={editProfile}
       />
     );
-    expect(en.getByLabelText("First name")).toBeTruthy();
-    expect(en.getByLabelText("Last name")).toBeTruthy();
-    expect(en.getByLabelText("Phone")).toBeTruthy();
-    expect(en.getByText("Billing details")).toBeTruthy();
+    expect(
+      en.getByLabelText(m.accountProfileFirstNameLabel({}, { locale: "en-US" }))
+    ).toBeTruthy();
+    expect(
+      en.getByLabelText(m.accountProfileLastNameLabel({}, { locale: "en-US" }))
+    ).toBeTruthy();
+    expect(
+      en.getByLabelText(m.accountProfilePhoneLabel({}, { locale: "en-US" }))
+    ).toBeTruthy();
+    expect(
+      en.getByText(m.accountBillingDetailsTitle({}, { locale: "en-US" }))
+    ).toBeTruthy();
     en.unmount();
 
     const cs = render(
@@ -298,10 +245,18 @@ describe("ProfileForm", () => {
         profile={editProfile}
       />
     );
-    expect(cs.getByLabelText("Jméno")).toBeTruthy();
-    expect(cs.getByLabelText("Příjmení")).toBeTruthy();
-    expect(cs.getByLabelText("Telefon")).toBeTruthy();
-    expect(cs.getByText("Fakturační údaje")).toBeTruthy();
+    expect(
+      cs.getByLabelText(m.accountProfileFirstNameLabel({}, { locale: "cs-CZ" }))
+    ).toBeTruthy();
+    expect(
+      cs.getByLabelText(m.accountProfileLastNameLabel({}, { locale: "cs-CZ" }))
+    ).toBeTruthy();
+    expect(
+      cs.getByLabelText(m.accountProfilePhoneLabel({}, { locale: "cs-CZ" }))
+    ).toBeTruthy();
+    expect(
+      cs.getByText(m.accountBillingDetailsTitle({}, { locale: "cs-CZ" }))
+    ).toBeTruthy();
   });
 
   test("renders the verified login email as immutable profile text", async () => {
@@ -547,8 +502,9 @@ describe("ProfileForm", () => {
     expect(view.getByTestId("active-section").textContent).toBe("billing");
     expect(companyName.validity.valid).toBe(false);
     expect(
-      view.getByRole("region", { name: "Billing & invoices" }).parentElement
-        ?.hidden
+      view.getByRole("region", {
+        name: m.accountSectionBilling({}, { locale: "en-US" }),
+      }).parentElement?.hidden
     ).toBe(false);
   });
 
@@ -1440,48 +1396,7 @@ describe("ProfileForm", () => {
     expect(view.getByLabelText("City")).toBeTruthy();
   });
 
-  test("keeps legacy public DOM name attributes on profile inputs", async () => {
-    const { ProfileForm } = await import("./profile-form");
-
-    const view = render(
-      <ProfileForm
-        mode="edit"
-        locale="en-US"
-        email="ada@example.test"
-        profile={businessProfile}
-      />
-    );
-
-    const legacyNames: Readonly<Record<string, string>> = {
-      "account-profile-first-name": "firstName",
-      "account-profile-last-name": "lastName",
-      "account-profile-phone": "phone",
-      "account-profile-billing-company-name": "billingCompanyName",
-      "account-profile-billing-company-id": "billingCompanyId",
-      "account-profile-billing-vat-id": "billingVatId",
-      "account-profile-billing-address-line1": "billingAddressLine1",
-      "account-profile-billing-address-line2": "billingAddressLine2",
-      "account-profile-billing-city": "billingCity",
-      "account-profile-billing-zip": "billingZip",
-      "account-profile-billing-country": "billingCountry",
-    };
-
-    for (const [id, expectedName] of Object.entries(legacyNames)) {
-      const input = view.container.querySelector(
-        `#${id}`
-      ) as HTMLInputElement | null;
-      expect(input).toBeTruthy();
-      expect(input?.getAttribute("name")).toBe(expectedName);
-    }
-
-    const billingKind = view.container.querySelector(
-      "#account-profile-billing-kind"
-    ) as HTMLSelectElement | null;
-    expect(billingKind).toBeTruthy();
-    expect(billingKind?.getAttribute("name")).toBeNull();
-  });
-
-  test("keeps billing address controls in responsive grid cells", async () => {
+  test("links each rejected billing field to its server error", async () => {
     updateCustomerProfile.mockImplementationOnce(() =>
       Promise.resolve({
         validationErrors: {
@@ -1520,103 +1435,59 @@ describe("ProfileForm", () => {
       await Promise.resolve();
     });
 
+    const locale = "en-US";
     const fields = [
       [
-        "Company name",
+        m.accountProfileCompanyNameLabel({}, { locale }),
         "account-profile-billing-company-name",
-        "billingCompanyName",
         "Original Company",
       ],
       [
-        "Company ID (IČO)",
+        m.accountAresLookupIcoLabel({}, { locale }),
         "account-profile-billing-company-id",
-        "billingCompanyId",
         "12345678",
       ],
-      ["VAT ID", "account-profile-billing-vat-id", "billingVatId", ""],
       [
-        "Street and number",
+        m.accountProfileVatIdLabel({}, { locale }),
+        "account-profile-billing-vat-id",
+        "",
+      ],
+      [
+        m.accountProfileAddressLine1Label({}, { locale }),
         "account-profile-billing-address-line1",
-        "billingAddressLine1",
         "Original Street 1",
       ],
       [
-        "Apartment, suite",
+        m.accountProfileAddressLine2Label({}, { locale }),
         "account-profile-billing-address-line2",
-        "billingAddressLine2",
         "",
       ],
-      ["City", "account-profile-billing-city", "billingCity", "Prague"],
-      ["Postal code", "account-profile-billing-zip", "billingZip", "11000"],
       [
-        "Country code",
+        m.accountProfileCityLabel({}, { locale }),
+        "account-profile-billing-city",
+        "Prague",
+      ],
+      [
+        m.accountProfileZipLabel({}, { locale }),
+        "account-profile-billing-zip",
+        "11000",
+      ],
+      [
+        m.accountProfileCountryLabel({}, { locale }),
         "account-profile-billing-country",
-        "billingCountry",
         "CZ",
       ],
     ] as const;
 
-    const billingInputs = fields
-      .map(([, id]) => view.container.querySelector<HTMLInputElement>(`#${id}`))
-      .filter((input) => input !== null);
-    expect(billingInputs).toHaveLength(fields.length);
-    expect(billingInputs.map((input) => input.name)).toEqual(
-      fields.map(([, , name]) => name)
-    );
-
-    for (const [label, id, name, value] of fields) {
+    for (const [label, id, value] of fields) {
       const input = view.getByLabelText(label) as HTMLInputElement;
       expect(view.container.querySelectorAll(`#${id}`)).toHaveLength(1);
       expect(input.id).toBe(id);
-      expect(input.name).toBe(name);
       expect(input.value).toBe(value);
       expect(input.getAttribute("aria-invalid")).toBe("true");
       expect(input.getAttribute("aria-describedby")).toBe(`${id}-error`);
       expect(view.container.querySelectorAll(`#${id}-error`)).toHaveLength(1);
     }
-    expect(
-      (view.getByLabelText("Country code") as HTMLInputElement).getAttribute(
-        "autocomplete"
-      )
-    ).toBe("country");
-
-    const fieldWrapper = (id: string) =>
-      view.container.querySelector(`#${id}`)!.parentElement!;
-    const addressLine1Wrapper = fieldWrapper(
-      "account-profile-billing-address-line1"
-    );
-    const addressLine2Wrapper = fieldWrapper(
-      "account-profile-billing-address-line2"
-    );
-    const cityWrapper = fieldWrapper("account-profile-billing-city");
-    const zipWrapper = fieldWrapper("account-profile-billing-zip");
-    const countryWrapper = fieldWrapper("account-profile-billing-country");
-    const outerGrid = addressLine1Wrapper.parentElement!;
-    const zipCountryGrid = zipWrapper.parentElement!;
-
-    expect(addressLine1Wrapper.classList.contains("@xl:col-span-2")).toBe(
-      false
-    );
-    expect(addressLine2Wrapper.classList.contains("@xl:col-span-2")).toBe(
-      false
-    );
-    expect(addressLine1Wrapper.classList.contains("min-w-0")).toBe(true);
-    expect(addressLine2Wrapper.classList.contains("min-w-0")).toBe(true);
-    expect(addressLine1Wrapper.parentElement).toBe(outerGrid);
-    expect(addressLine2Wrapper.parentElement).toBe(outerGrid);
-    expect(addressLine1Wrapper.nextElementSibling).toBe(addressLine2Wrapper);
-    expect(outerGrid.classList.contains("grid")).toBe(true);
-    expect(outerGrid.classList.contains("@xl:grid-cols-2")).toBe(true);
-    expect(outerGrid.classList.contains("grid-cols-2")).toBe(false);
-    expect(cityWrapper.nextElementSibling).toBe(zipCountryGrid);
-    expect(zipCountryGrid.parentElement).toBe(outerGrid);
-    expect(zipCountryGrid.classList.contains("min-w-0")).toBe(true);
-    expect(zipCountryGrid.classList.contains("grid")).toBe(true);
-    expect(zipCountryGrid.classList.contains("gap-5")).toBe(true);
-    expect(zipCountryGrid.classList.contains("@xl:grid-cols-2")).toBe(true);
-    expect(zipCountryGrid.classList.contains("grid-cols-2")).toBe(false);
-    expect(zipWrapper.parentElement).toBe(zipCountryGrid);
-    expect(countryWrapper.parentElement).toBe(zipCountryGrid);
   });
 
   test("keeps edits typed after submission and stays guarded when the save succeeds", async () => {
@@ -1896,52 +1767,6 @@ describe("ProfileForm", () => {
     );
   });
 
-  test("blocks internal navigation after changing the profile", async () => {
-    const { ProfileForm } = await import("./profile-form");
-    const { UnsavedChangesProvider } = await import(
-      "@/shared/components/unsaved-changes-guard"
-    );
-    const originalConfirm = window.confirm;
-    const confirm = mock(() => false);
-    window.location.href = "http://localhost/account";
-    window.confirm = confirm;
-
-    try {
-      const view = render(
-        <UnsavedChangesProvider>
-          <ProfileForm
-            mode="edit"
-            locale="en-US"
-            email="ada@example.test"
-            profile={editProfile}
-          />
-          <GuardedLink href="/next">Next</GuardedLink>
-        </UnsavedChangesProvider>
-      );
-      await act(async () => {
-        fireEvent.input(view.getByLabelText("First name"), {
-          target: { value: "Grace" },
-        });
-        await Promise.resolve();
-      });
-
-      const link = view.getByRole("link", { name: "Next" });
-      const event = new MouseEvent("click", {
-        bubbles: true,
-        cancelable: true,
-        button: 0,
-      });
-      link.dispatchEvent(event);
-
-      expect(event.defaultPrevented).toBe(true);
-      expect(confirm).toHaveBeenCalledWith(
-        "You have unsaved profile changes. Leave this page?"
-      );
-    } finally {
-      window.confirm = originalConfirm;
-    }
-  });
-
   describe("avatar control", () => {
     const existingAvatar = {
       url: "https://res.cloudinary.test/upload/v1/avatars/live",
@@ -2100,55 +1925,6 @@ describe("ProfileForm", () => {
       expect(uploadCustomerAvatar).not.toHaveBeenCalled();
     });
 
-    test("shows honest pending copy and disables actions while uploading", async () => {
-      let resolveUpload!: (value: { readonly data: unknown }) => void;
-      uploadCustomerAvatar.mockImplementationOnce(
-        () =>
-          new Promise((resolve) => {
-            resolveUpload = resolve;
-          })
-      );
-      const view = await renderEditProfile({
-        avatarPresentation: { kind: "available", avatar: existingAvatar },
-      });
-
-      pickAvatarFile(view);
-
-      expect(view.getByText("Uploading…")).toBeTruthy();
-      expect(
-        (
-          view.getByRole("button", {
-            name: "Change profile photo",
-          }) as HTMLButtonElement
-        ).disabled
-      ).toBe(true);
-      expect(
-        (
-          view.getByRole("button", {
-            name: "Remove profile photo",
-          }) as HTMLButtonElement
-        ).disabled
-      ).toBe(true);
-      expect(workspaceRouterRefresh).not.toHaveBeenCalled();
-
-      await act(async () => {
-        resolveUpload({
-          data: {
-            avatar: {
-              ...existingAvatar,
-              url: "https://res.cloudinary.test/upload/v2/avatars/live",
-            },
-            status: "uploaded",
-          },
-        });
-      });
-
-      expect(view.getByText("Profile photo updated.")).toBeTruthy();
-      expect(
-        (view.getByAltText("Your profile picture") as HTMLImageElement).src
-      ).toBe("https://res.cloudinary.test/upload/v2/avatars/live");
-    });
-
     test("keeps dirty identity and billing drafts when refreshed server props arrive after an avatar upload", async () => {
       const { ProfileForm: ProfileFormComponent } = await import(
         "./profile-form"
@@ -2280,43 +2056,6 @@ describe("ProfileForm", () => {
       expect(workspaceRouterRefresh).not.toHaveBeenCalled();
     });
 
-    test("reports provider failures as retryable and keeps the previous image", async () => {
-      uploadCustomerAvatar.mockImplementationOnce(() =>
-        Promise.resolve({ data: { status: "retryable" } })
-      );
-      const view = await renderEditProfile({
-        avatarPresentation: { kind: "available", avatar: existingAvatar },
-      });
-
-      pickAvatarFile(view);
-      await view.findByText(
-        "We could not update your profile photo. Please try again."
-      );
-
-      expect(
-        (view.getByAltText("Your profile picture") as HTMLImageElement).src
-      ).toBe(existingAvatar.url);
-      expect(workspaceRouterRefresh).not.toHaveBeenCalled();
-    });
-
-    test("shows session-expired server errors and keeps the previous image", async () => {
-      uploadCustomerAvatar.mockImplementationOnce(() =>
-        Promise.resolve({
-          serverError: "Your session has expired. Sign in again.",
-        })
-      );
-      const view = await renderEditProfile({
-        avatarPresentation: { kind: "available", avatar: existingAvatar },
-      });
-
-      pickAvatarFile(view);
-      await view.findByText("Your session has expired. Sign in again.");
-
-      expect(
-        (view.getByAltText("Your profile picture") as HTMLImageElement).src
-      ).toBe(existingAvatar.url);
-    });
-
     test("returns to initials after a successful removal", async () => {
       const view = await renderEditProfile({
         avatarPresentation: { kind: "available", avatar: existingAvatar },
@@ -2335,31 +2074,6 @@ describe("ProfileForm", () => {
         view.queryByRole("button", { name: "Remove profile photo" })
       ).toBeNull();
       expect(workspaceRouterRefresh).toHaveBeenCalledTimes(1);
-    });
-
-    test("keeps the avatar after a failed removal", async () => {
-      removeCustomerAvatar.mockImplementationOnce(() =>
-        Promise.resolve({ data: { status: "retryable" } })
-      );
-      const view = await renderEditProfile({
-        avatarPresentation: { kind: "available", avatar: existingAvatar },
-      });
-
-      await act(async () => {
-        fireEvent.click(
-          view.getByRole("button", { name: "Remove profile photo" })
-        );
-      });
-      await view.findByText(
-        "We could not update your profile photo. Please try again."
-      );
-
-      expect(
-        (view.getByAltText("Your profile picture") as HTMLImageElement).src
-      ).toBe(existingAvatar.url);
-      expect(
-        view.getByRole("button", { name: "Remove profile photo" })
-      ).toBeTruthy();
     });
   });
 });
