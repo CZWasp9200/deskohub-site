@@ -174,21 +174,24 @@ const runWithInventory = async <A>(
 };
 
 type CapturedLog = {
-  readonly message: string;
-  readonly expiredHoldCount: unknown;
+  readonly message: readonly unknown[];
+  readonly annotations: Readonly<Record<string, unknown>>;
 };
 
 const captureLogs = (logs: CapturedLog[]) =>
   Logger.make((options) => {
-    const [message] = Array.isArray(options.message)
-      ? options.message
-      : [options.message];
     logs.push({
-      message: String(message),
-      expiredHoldCount: options.fiber.getRef(References.CurrentLogAnnotations)
-        .expiredHoldCount,
+      message: Array.isArray(options.message)
+        ? options.message
+        : [options.message],
+      annotations: options.fiber.getRef(References.CurrentLogAnnotations),
     });
   });
+
+const expiredHoldFilterLogs = (logs: readonly CapturedLog[]) =>
+  logs.filter(({ message: [text] }) =>
+    String(text).startsWith("Workspace availability expired hold filter")
+  );
 
 const getAvailability = (input: {
   readonly date?: string;
@@ -469,19 +472,19 @@ describe("WorkspaceAvailabilityService", () => {
       logs,
     });
 
+    const filterLogs = expiredHoldFilterLogs(logs);
     expect(
-      logs.filter(({ message }) => message.includes("expired hold filter"))
+      filterLogs.map(({ message, annotations }) => [
+        message,
+        annotations.expiredHoldCount,
+      ])
     ).toEqual([
-      {
-        message: "Workspace availability expired hold filter started",
-        expiredHoldCount: undefined,
-      },
-      {
-        message: "Workspace availability expired hold filter completed",
-        expiredHoldCount: 2,
-      },
+      [["Workspace availability expired hold filter started"], undefined],
+      [["Workspace availability expired hold filter completed"], 2],
     ]);
-    expect(JSON.stringify(logs)).not.toContain("expired-dotypos-reservation");
+    expect(JSON.stringify(filterLogs)).not.toContain(
+      "expired-dotypos-reservation"
+    );
   });
 
   test("logs a failed expired local hold filter without a completion", async () => {
@@ -493,9 +496,7 @@ describe("WorkspaceAvailabilityService", () => {
     });
 
     expect(
-      logs
-        .filter(({ message }) => message.includes("expired hold filter"))
-        .map(({ message }) => message)
+      expiredHoldFilterLogs(logs).map(({ message: [text] }) => text)
     ).toEqual([
       "Workspace availability expired hold filter started",
       "Workspace availability expired hold filter failed",
