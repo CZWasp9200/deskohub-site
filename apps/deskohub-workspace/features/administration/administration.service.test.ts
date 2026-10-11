@@ -6,7 +6,6 @@ import { Cause, Deferred, Effect, Fiber, Layer } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { workspaceSiteConstants } from "@/shared/utils";
 import {
-  type AdministrationCustomerListInput,
   AdministrationService,
   getAdministrationReservationOverview,
 } from "./administration.service";
