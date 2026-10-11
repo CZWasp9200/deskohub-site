@@ -13,10 +13,10 @@ import type {
   NormalizedCoworkReservationOrder,
 } from "@/features/reservation/cowork-reservation";
 import {
-  getReservationCustomerQueryMode,
   getReservationDefaultValuesFromPayState,
   getReservationDefaultValuesFromSearchParams,
-} from "@/features/reservation/reservation-checkout-query";
+} from "@/features/reservation/cowork-reservation-checkout-query";
+import { getReservationCustomerQueryMode } from "@/features/reservation/reservation-checkout-query";
 import { getCurrentWorkspaceDate } from "@/features/reservation/reservation-date";
 import {
   type CustomerLastReservationForKind,

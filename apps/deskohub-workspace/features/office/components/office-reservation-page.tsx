@@ -13,10 +13,8 @@ import {
   getOfficeReservationEndsOn,
   type NormalizedOfficeReservationOrder,
 } from "@/features/reservation/office-reservation";
-import {
-  getOfficeReservationDefaultValuesFromSearchParams,
-  getReservationCustomerQueryMode,
-} from "@/features/reservation/reservation-checkout-query";
+import { getOfficeReservationDefaultValuesFromSearchParams } from "@/features/reservation/office-reservation-checkout-query";
+import { getReservationCustomerQueryMode } from "@/features/reservation/reservation-checkout-query";
 import { getCurrentWorkspaceDate } from "@/features/reservation/reservation-date";
 import {
   getReservationExistingCustomerForm,

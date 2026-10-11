@@ -37,8 +37,8 @@ import { discountIdSchema } from "@/features/discounts/contracts";
 import { m } from "@/features/i18n";
 import { getCoworkTierAdvertisedPriceRequests } from "@/features/reservation/cowork-advertised-price";
 import { coworkReservationDefaultValues } from "@/features/reservation/cowork-reservation";
+import { getWorkspaceAvailabilityQueryFromReservationSearchParams } from "@/features/reservation/cowork-reservation-checkout-query";
 import { getReservationAvailabilityUnavailableMessage } from "@/features/reservation/reservation.i18n";
-import { getWorkspaceAvailabilityQueryFromReservationSearchParams } from "@/features/reservation/reservation-checkout-query";
 import { workspaceAvailabilityKeys } from "@/features/reservation/workspace-availability";
 import {
   workspaceRouterPush as push,

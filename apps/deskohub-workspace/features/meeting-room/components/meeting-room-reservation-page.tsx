@@ -11,11 +11,9 @@ import {
   getMeetingRoomReservationDefaultValues,
   type NormalizedMeetingRoomReservationOrder,
 } from "@/features/reservation/meeting-room-reservation";
+import { getMeetingRoomReservationDefaultValuesFromSearchParams } from "@/features/reservation/meeting-room-reservation-checkout-query";
 import { getMeetingRoomReservationDurationKey } from "@/features/reservation/meeting-room-reservation-duration";
-import {
-  getMeetingRoomReservationDefaultValuesFromSearchParams,
-  getReservationCustomerQueryMode,
-} from "@/features/reservation/reservation-checkout-query";
+import { getReservationCustomerQueryMode } from "@/features/reservation/reservation-checkout-query";
 import {
   type CustomerLastReservationForKind,
   getReservationExistingCustomerForm,
