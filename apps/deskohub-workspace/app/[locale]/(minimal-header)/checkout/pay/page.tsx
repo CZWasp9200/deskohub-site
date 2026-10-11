@@ -15,10 +15,8 @@ import {
 } from "@/features/checkout/backend/checkout";
 import { CheckoutDiscountCodeForm } from "@/features/checkout/components/checkout-discount-code-form";
 import { CheckoutFlowLayout } from "@/features/checkout/components/checkout-flow-layout";
-import {
-  CheckoutPayPage,
-  CheckoutPayPageSkeleton,
-} from "@/features/checkout/components/checkout-pay-page";
+import { CheckoutPayPage } from "@/features/checkout/components/checkout-pay-page";
+import { CheckoutPayPageSkeleton } from "@/features/checkout/components/checkout-pay-page-skeleton";
 import { getDiscountCodeEntryEnabled } from "@/features/discounts/discount-code-entry.server";
 import { type Locale, locales, m } from "@/features/i18n";
 import { runWithRequestLocale } from "@/features/i18n/server/request-locale";
