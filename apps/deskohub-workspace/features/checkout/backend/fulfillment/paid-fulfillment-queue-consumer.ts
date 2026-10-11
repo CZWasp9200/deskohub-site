@@ -13,7 +13,7 @@ const payloadSchema = Schema.Struct({
 const decodePayload = Schema.decodeUnknownOption(payloadSchema);
 
 /** Fails the message so the queue redelivers it after its retry delay. */
-export class PaidFulfillmentPendingError extends Data.TaggedError(
+class PaidFulfillmentPendingError extends Data.TaggedError(
   "PaidFulfillmentPendingError"
 )<{
   readonly orderId: WorkspaceReservationId;
