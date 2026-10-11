@@ -296,6 +296,9 @@ export const makeDiscountE2ECases = ({
           runStep,
           session,
           state: calendarCheckoutState,
+          // The least loaded payment lane carries the product-independent
+          // post-fulfillment paths for every paid case.
+          verifyPostFulfillmentPaths: true,
         }).pipe(
           Effect.provideService(HttpClient.HttpClient, httpClient),
           Effect.mapError((cause) =>
@@ -1247,6 +1250,7 @@ const executeDiscountCheckout = ({
   runStep,
   session,
   state,
+  verifyPostFulfillmentPaths,
 }: {
   readonly appliedMessage?: string;
   readonly config: WorkspaceE2EConfig;
@@ -1260,6 +1264,7 @@ const executeDiscountCheckout = ({
   readonly runStep: WorkspaceE2EStepRunner;
   readonly session: string;
   readonly state: CheckoutFlowState;
+  readonly verifyPostFulfillmentPaths?: boolean;
 }): Effect.Effect<
   void,
   WorkspaceE2EError,
@@ -1325,6 +1330,7 @@ const executeDiscountCheckout = ({
     runStep,
     session,
     state,
+    verifyPostFulfillmentPaths,
   });
 
 const executeUnavailableDiscountCode = ({
