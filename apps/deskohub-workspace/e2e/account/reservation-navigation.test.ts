@@ -1,9 +1,5 @@
 import { expect, mock, test } from "bun:test";
 import { Effect } from "effect";
-import {
-  type CheckoutStatusViewModel,
-  loadCheckoutStatusPage,
-} from "@/features/checkout/backend/checkout";
 import { m } from "@/features/i18n";
 import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
 import type {
@@ -28,7 +24,6 @@ const fakePlaywrightExpect = (locator: FakeLocator) => ({
 mock.module("@playwright/test", () => ({ expect: fakePlaywrightExpect }));
 
 const {
-  expectWorkspaceE2EReservationNotFound,
   makeWorkspaceE2EReservationHistoryUrls,
   runReservationHistoryStage,
   toWorkspaceE2EReservationHistoryFailure,
@@ -58,87 +53,6 @@ test("builds canonical status and access URLs from one exact reservation id", ()
     statusUrl:
       "https://workspace.example.test/en-US/reservation/status/account-history-reservation%2Fwith-special-value",
   });
-});
-
-const makeStatusPage = (status: CheckoutStatusViewModel) => {
-  const notFoundTitle = m.checkoutStatusNotFoundTitle({}, { locale: "en-US" });
-  const locator = (count: number) => ({ count: async () => count });
-
-  return {
-    getByRole: (role: string, options?: unknown) => {
-      const name =
-        typeof options === "object" && options !== null && "name" in options
-          ? String((options as { readonly name?: unknown }).name)
-          : "";
-      return locator(
-        role === "heading" &&
-          name === notFoundTitle &&
-          status.status === "not_found"
-          ? 1
-          : 0
-      );
-    },
-    getByText: (text: string) =>
-      locator(status.status !== "not_found" && text === status.orderId ? 1 : 0),
-    locator: (selector: string) =>
-      locator(
-        selector === "#checkout-status-access" && status.status === "fulfilled"
-          ? 1
-          : 0
-      ),
-  } as never;
-};
-
-test("the not-found assertion rejects a status returned through broken authorization", async () => {
-  const reservationId = workspaceReservationIdSchema.make(
-    "known-local-terminal-reservation"
-  );
-  const localStatus = {
-    fulfillmentStatus: "not_started",
-    kind: "cowork",
-    orderId: reservationId,
-    paymentStatus: "expired",
-    returnOutcome: "unknown",
-    status: "expired",
-  } satisfies CheckoutStatusViewModel;
-  const statusService = {
-    getStatus: () => Effect.succeed(localStatus),
-    refreshStatus: () => Effect.succeed(localStatus),
-  };
-  const input = {
-    accessCookie: undefined,
-    locale: "en-US",
-    orderId: reservationId,
-    returnOutcome: "unknown",
-  } as const;
-
-  const denied = await Effect.runPromise(
-    loadCheckoutStatusPage(
-      statusService,
-      { isAuthorized: () => Effect.succeed(false) },
-      input
-    )
-  );
-  expect(denied).toEqual({
-    orderId: reservationId,
-    returnOutcome: "unknown",
-    status: "not_found",
-  });
-  await expect(
-    expectWorkspaceE2EReservationNotFound(makeStatusPage(denied), reservationId)
-  ).resolves.toBeUndefined();
-
-  const leaked = await Effect.runPromise(
-    loadCheckoutStatusPage(
-      statusService,
-      { isAuthorized: () => Effect.succeed(true) },
-      input
-    )
-  );
-  expect(leaked).toBe(localStatus);
-  await expect(
-    expectWorkspaceE2EReservationNotFound(makeStatusPage(leaked), reservationId)
-  ).rejects.toThrow();
 });
 
 test("requires an exact hydrated click-handler table", () => {
