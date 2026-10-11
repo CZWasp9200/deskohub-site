@@ -70,6 +70,19 @@ describe("Workspace E2E environment", () => {
     }
   });
 
+  test("passes the review screenshot opt-in through to Playwright", () => {
+    expect(
+      makeTestE2EEnvironment({ WORKSPACE_E2E_REVIEW_SCREENSHOTS: "true" })
+        .WORKSPACE_E2E_REVIEW_SCREENSHOTS
+    ).toBe("true");
+    expect(
+      makeTestE2EEnvironment({}).WORKSPACE_E2E_REVIEW_SCREENSHOTS
+    ).toBeUndefined();
+    expect(() =>
+      makeTestE2EEnvironment({ WORKSPACE_E2E_REVIEW_SCREENSHOTS: "yes" })
+    ).toThrow();
+  });
+
   test("treats empty optional values as absent", () => {
     expect(
       makeTestE2EEnvironment({

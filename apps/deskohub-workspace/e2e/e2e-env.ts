@@ -104,6 +104,9 @@ const e2eEnvironmentSchema = Schema.Struct({
   WORKSPACE_E2E_POSTHOG_HOST: optionalUrl,
   WORKSPACE_E2E_POSTHOG_PROJECT_TOKEN: optionalNonEmptyString,
   WORKSPACE_E2E_PR_NUMBER: optionalPositiveInteger,
+  WORKSPACE_E2E_REVIEW_SCREENSHOTS: toEnvironmentSchema(
+    Schema.optional(Schema.Literals(["true"]))
+  ),
   WORKSPACE_E2E_RUN_CONTEXT: optionalNonEmptyString,
   WORKSPACE_E2E_TRACE_PARENT: optionalNonEmptyString,
 });
@@ -163,6 +166,8 @@ export const makeE2EEnvironment = (
       WORKSPACE_E2E_POSTHOG_PROJECT_TOKEN:
         runtimeEnvironment.WORKSPACE_E2E_POSTHOG_PROJECT_TOKEN,
       WORKSPACE_E2E_PR_NUMBER: runtimeEnvironment.WORKSPACE_E2E_PR_NUMBER,
+      WORKSPACE_E2E_REVIEW_SCREENSHOTS:
+        runtimeEnvironment.WORKSPACE_E2E_REVIEW_SCREENSHOTS,
       WORKSPACE_E2E_RUN_CONTEXT: runtimeEnvironment.WORKSPACE_E2E_RUN_CONTEXT,
       WORKSPACE_E2E_TRACE_PARENT: runtimeEnvironment.WORKSPACE_E2E_TRACE_PARENT,
     },
