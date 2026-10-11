@@ -1,6 +1,6 @@
 import "@/shared/testing/workspace-test-env";
 import { describe, expect, mock, test } from "bun:test";
-import { Deferred, Effect, Fiber, Option, Queue } from "effect";
+import { Deferred, Effect, Fiber, Layer, Option, Queue } from "effect";
 import {
   type AdvertisedPriceRequest,
   advertisedPriceRequestBatchSize,
@@ -11,11 +11,27 @@ mock.module("server-only", () => ({}));
 let inFlightBuilds = 0;
 let peakInFlightBuilds = 0;
 let releaseGates: Queue.Queue<Deferred.Deferred<void>>;
+let buildPrice:
+  | ((request: AdvertisedPriceRequest) => Effect.Effect<unknown>)
+  | undefined;
+let pricingLive: Layer.Layer<never, Error> | undefined;
+
+mock.module(
+  "@/features/checkout/backend/checkout/checkout-pricing.service",
+  () => ({
+    CheckoutPricingService: {
+      get Live() {
+        return pricingLive ?? Layer.empty;
+      },
+    },
+  })
+);
 
 mock.module(
   "@/features/checkout/backend/checkout/advertised-price.server",
   () => ({
     buildAdvertisedPrice: (request: AdvertisedPriceRequest) =>
+      buildPrice?.(request) ??
       Effect.gen(function* () {
         const releaseGate = yield* Deferred.make<void>();
         inFlightBuilds += 1;
@@ -28,7 +44,9 @@ mock.module(
   })
 );
 
-const { loadAdvertisedPrices } = await import("./advertised-prices.server");
+const { loadAdvertisedPrices, preloadPageAdvertisedPrices } = await import(
+  "./advertised-prices.server"
+);
 
 const requests: ReadonlyArray<AdvertisedPriceRequest> = Array.from(
   { length: advertisedPriceRequestBatchSize },
@@ -82,5 +100,52 @@ describe("loadAdvertisedPrices", () => {
         advertisedPrice: { advertisedPriceToken: JSON.stringify(request) },
       }))
     );
+  });
+});
+
+describe("preloadPageAdvertisedPrices", () => {
+  const [ready, dying] = requests;
+
+  test("seeds the prices that load when another price dies", async () => {
+    buildPrice = (request) =>
+      request === dying
+        ? Effect.die(new Error("defect"))
+        : Effect.succeed({ advertisedPriceToken: "ready" });
+
+    const preloaded = await Effect.runPromise(
+      preloadPageAdvertisedPrices([ready!, dying!])
+    ).finally(() => {
+      buildPrice = undefined;
+    });
+
+    expect(preloaded).toEqual([
+      { request: ready, advertisedPrice: { advertisedPriceToken: "ready" } },
+    ]);
+  });
+
+  test("leaves every price to the client when pricing cannot start", async () => {
+    pricingLive = Layer.effectDiscard(
+      Effect.fail(new Error("pricing configuration unavailable"))
+    );
+
+    const preloaded = await Effect.runPromise(
+      preloadPageAdvertisedPrices([ready!])
+    ).finally(() => {
+      pricingLive = undefined;
+    });
+
+    expect(preloaded).toEqual([]);
+  });
+
+  test("leaves every price to the client when pricing dies while starting", async () => {
+    pricingLive = Layer.effectDiscard(Effect.die(new Error("pricing defect")));
+
+    const preloaded = await Effect.runPromise(
+      preloadPageAdvertisedPrices([ready!])
+    ).finally(() => {
+      pricingLive = undefined;
+    });
+
+    expect(preloaded).toEqual([]);
   });
 });

@@ -1,11 +1,10 @@
-import { Effect, Schema } from "effect";
-import { CheckoutPricingService } from "@/features/checkout/backend/checkout/checkout-pricing.service";
+import { Schema } from "effect";
 import type { CheckoutSessionId } from "@/features/checkout/checkout-identifiers";
 import type { CanonicalPromotionCode } from "@/features/discounts";
 import { type Locale, m } from "@/features/i18n";
 import { loadOfficeReservationSeatCapacity } from "@/features/office/backend/office-reservation-capacity.server";
 import { isOfficePageEnabled } from "@/features/office/backend/office-reservation-feature-flag.server";
-import { loadAdvertisedPrices } from "@/features/reservation/backend/advertised-prices.server";
+import { preloadPageAdvertisedPrices } from "@/features/reservation/backend/advertised-prices.server";
 import { preloadPageAvailability } from "@/features/reservation/backend/workspace-availability-loader";
 import { createReservationPage } from "@/features/reservation/components/create-reservation-page.server";
 import { getOfficeSeatAdvertisedPriceRequests } from "@/features/reservation/office-advertised-price";
@@ -97,7 +96,7 @@ export async function renderOfficeReservationContent({
     getOfficeReservationEndsOn(initialValues)
   );
   const [initialAdvertisedPrices, initialAvailability] = await Promise.all([
-    loadAdvertisedPrices(
+    preloadPageAdvertisedPrices(
       getOfficeSeatAdvertisedPriceRequests({
         locale,
         seatCapacity,
@@ -105,11 +104,7 @@ export async function renderOfficeReservationContent({
         endsOn: initialEndsOn,
         submittedCode,
       })
-    ).pipe(
-      Effect.provide(CheckoutPricingService.Live),
-      Effect.scoped,
-      runWorkspaceEffect("reservation.office.load-advertised-price")
-    ),
+    ).pipe(runWorkspaceEffect("reservation.office.load-advertised-price")),
     preloadPageAvailability({
       queries: [getOfficeAvailabilityQuery(today)],
       replacementToken,

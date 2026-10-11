@@ -48,7 +48,11 @@ mock.module("@/features/reservation/actions/get-advertised-price", () => ({
   getAdvertisedPrices: () => Promise.resolve({ data: [] }),
 }));
 
-const { OfficeReservationForm } = await import("./office-reservation-form");
+const {
+  OfficeReservationForm,
+  OfficeReservationFormFallback,
+  officeSeatOptionsFallbackCount,
+} = await import("./office-reservation-form");
 
 const officeAvailabilityResponse = ({
   from,
@@ -445,6 +449,39 @@ describe("OfficeReservationForm", () => {
     expect(
       options.some((option) => option.className.includes("basis-[calc("))
     ).toBeFalse();
+  });
+
+  test("mirrors the wrapping seat cards in the loading fallback", () => {
+    const queryClient = new QueryClient();
+    const form = render(
+      <QueryClientProvider client={queryClient}>
+        <OfficeReservationForm
+          seatCapacity={officeSeatOptionsFallbackCount}
+          initialValues={officeReservationDefaultValues}
+          locale="en-US"
+          today={decodePlainDate("2026-08-10")}
+        />
+      </QueryClientProvider>
+    );
+    const formOptions = Array.from(
+      form.container.querySelectorAll("[data-reservation-type-option]")
+    );
+    const fallback = render(<OfficeReservationFormFallback locale="en-US" />);
+    const fallbackOptions = Array.from(
+      fallback.container.querySelectorAll("[data-office-seat-option-fallback]")
+    );
+    const layoutClasses = (element: Element | null | undefined) =>
+      Array.from(element?.classList ?? []).filter((name) =>
+        /^(lg:)?(flex|grid|gap|space|px|pb|rounded|row|basis)/.test(name)
+      );
+
+    expect(fallbackOptions).toHaveLength(officeSeatOptionsFallbackCount);
+    expect(layoutClasses(fallbackOptions[0]?.parentElement)).toEqual(
+      layoutClasses(formOptions[0]?.parentElement)
+    );
+    for (const option of fallbackOptions) {
+      expect(layoutClasses(option)).toEqual(layoutClasses(formOptions[0]));
+    }
   });
 
   test("lets the day-count input fill its date-range column", () => {

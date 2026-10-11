@@ -1,5 +1,5 @@
 import { beforeEach, expect, mock, test } from "bun:test";
-import { Effect, Layer } from "effect";
+import { Effect } from "effect";
 import type { ReactElement } from "react";
 import { getOfficeSeatAdvertisedPriceRequests } from "@/features/reservation/office-advertised-price";
 import {
@@ -17,14 +17,9 @@ const loadAdvertisedPrices = mock((requests: ReadonlyArray<unknown>) =>
 );
 const loadOfficeReservationSeatCapacity = mock(() => Promise.resolve(5));
 
-mock.module(
-  "@/features/checkout/backend/checkout/checkout-pricing.service",
-  () => ({
-    CheckoutPricingService: { Live: Layer.empty },
-  })
-);
 mock.module("@/features/reservation/backend/advertised-prices.server", () => ({
   loadAdvertisedPrices,
+  preloadPageAdvertisedPrices: loadAdvertisedPrices,
 }));
 mock.module(
   "@/features/office/backend/office-reservation-capacity.server",

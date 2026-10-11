@@ -152,6 +152,18 @@ describe("loadAvailability", () => {
     ]);
   });
 
+  test("loads ordinary availability while the replacement lookup is unavailable", async () => {
+    findCurrent.mockImplementationOnce(() =>
+      Effect.fail(new NetworkError({ message: "Dotypos is unavailable" }))
+    );
+
+    await run(loadAvailability({ query: coworkQuery, replacementToken }));
+
+    expect(getAvailability.mock.calls).toEqual([
+      [{ query: coworkQuery, occupancyExclusion: undefined }],
+    ]);
+  });
+
   test("ignores an unverifiable replacement token", async () => {
     await run(
       loadAvailability({ query: coworkQuery, replacementToken: "forged" })
@@ -197,6 +209,20 @@ describe("preloadAvailability", () => {
       preloadAvailability({ queries: [coworkQuery], replacementToken })
     );
 
+    expect(preloaded).toEqual([]);
+    expect(getAvailability).not.toHaveBeenCalled();
+  });
+
+  test("leaves every query to the client while the replacement lookup is unavailable", async () => {
+    findCurrent.mockImplementationOnce(() =>
+      Effect.fail(new NetworkError({ message: "Dotypos is unavailable" }))
+    );
+
+    const preloaded = await run(
+      preloadAvailability({ queries: [coworkQuery], replacementToken })
+    );
+
+    expect(findCurrent).toHaveBeenCalledTimes(1);
     expect(preloaded).toEqual([]);
     expect(getAvailability).not.toHaveBeenCalled();
   });

@@ -35,7 +35,7 @@ import {
 import { discountIdSchema } from "@/features/discounts/contracts";
 import {
   getCoworkDateAdvertisedPriceRequests,
-  getCoworkTierAdvertisedPriceRequests,
+  getCoworkFormAdvertisedPriceRequests,
 } from "@/features/reservation/cowork-advertised-price";
 import { coworkReservationDefaultValues } from "@/features/reservation/cowork-reservation";
 import { getCurrentWorkspaceDate } from "@/features/reservation/reservation-date";
@@ -403,18 +403,10 @@ describe("CoworkReservationForm advertised pricing", () => {
   test("renders server-loaded discounts on the first paint without refetching", () => {
     workspaceUseSearchParams.mockReturnValue(new URLSearchParams());
     getAdvertisedPrices.mockImplementation(() => new Promise(() => undefined));
-    const requests = getCoworkTierAdvertisedPriceRequests({
+    const requests = getCoworkFormAdvertisedPriceRequests({
       date: "2099-07-30",
       locale: "en-US",
-      offers: [
-        { entryTier: "open-space", coffee: true },
-        { entryTier: "reserved-desk", coffee: true },
-        {
-          entryTier: "reserved-desk",
-          coffee: true,
-          monitorOption: "2x27-qhd",
-        },
-      ],
+      coffee: true,
     });
 
     expect(requests.every((request) => !("submittedCode" in request))).toBe(

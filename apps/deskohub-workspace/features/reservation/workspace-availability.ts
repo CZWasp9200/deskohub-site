@@ -151,7 +151,7 @@ export const getWorkspaceAvailabilityRange = (today: string) => ({
   to: Temporal.PlainDate.from(today).add({ months: 6 }).toString(),
 });
 
-export type CoworkAvailabilityQueries = {
+type CoworkAvailabilityQueries = {
   /** The selected tier's calendar range. */
   readonly range?: CoworkWorkspaceAvailabilityQuery;
   /** The selected offer on the selected day alone. */

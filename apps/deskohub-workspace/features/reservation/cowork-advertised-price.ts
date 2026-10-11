@@ -11,13 +11,13 @@ import type { CanonicalPromotionCode } from "@/features/discounts";
 import type { Locale } from "@/features/i18n";
 import { getCoworkAdvertisedPriceReservation } from "@/features/reservation/cowork-reservation";
 
-export type CoworkAdvertisedPriceOfferSelection = {
+type CoworkAdvertisedPriceOfferSelection = {
   readonly entryTier: WorkspaceCoworkCurrentTier;
   readonly coffee: boolean;
   readonly monitorOption?: WorkspaceProductMonitorOption;
 };
 
-export const getCoworkTierAdvertisedPriceRequests = ({
+const getCoworkTierAdvertisedPriceRequests = ({
   date,
   locale,
   offers,

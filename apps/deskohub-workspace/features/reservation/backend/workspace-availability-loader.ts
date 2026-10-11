@@ -6,6 +6,7 @@ import type {
   PreloadedWorkspaceAvailability,
   WorkspaceAvailabilityQuery,
 } from "@/features/reservation/workspace-availability";
+import { pagePreload } from "./page-preload";
 import { WorkspaceAvailabilityService } from "./workspace-availability.service";
 import { recoverReplacementOccupancyExclusion } from "./workspace-availability-replacement";
 
@@ -18,10 +19,11 @@ export const WorkspaceAvailabilityLoaderLive = Layer.merge(
 /**
  * The occupancy a replacement may ignore: only the verified current hold of
  * the signed Pay state being replaced, and only for the same reservation kind.
- * Unverifiable replacements load ordinary availability.
+ * An invalid or foreign replacement excludes nothing; the effect fails only
+ * when the current hold cannot be looked up.
  */
-const resolveReplacementOccupancyExclusion = Effect.fn(
-  "workspaceAvailability.resolveReplacementOccupancyExclusion"
+const verifyReplacementOccupancyExclusion = Effect.fn(
+  "workspaceAvailability.verifyReplacementOccupancyExclusion"
 )(function* ({
   kind,
   replacementToken,
@@ -46,12 +48,15 @@ const resolveReplacementOccupancyExclusion = Effect.fn(
         reservation
           ? { dotyposReservationId: reservation.dotyposReservationId }
           : undefined
-      ),
-      recoverReplacementOccupancyExclusion
+      )
     );
 });
 
-/** Advisory availability for one query, excluding a verified replacement. */
+/**
+ * Advisory availability for one query, excluding a verified replacement.
+ * While the replacement's hold cannot be looked up it loads ordinary
+ * availability.
+ */
 export const loadAvailability = Effect.fn("workspaceAvailability.load")(
   function* ({
     query,
@@ -60,10 +65,10 @@ export const loadAvailability = Effect.fn("workspaceAvailability.load")(
     readonly query: WorkspaceAvailabilityQuery;
     readonly replacementToken?: string;
   }) {
-    const occupancyExclusion = yield* resolveReplacementOccupancyExclusion({
+    const occupancyExclusion = yield* verifyReplacementOccupancyExclusion({
       kind: query.kind,
       replacementToken,
-    });
+    }).pipe(recoverReplacementOccupancyExclusion);
     const service = yield* WorkspaceAvailabilityService;
     return yield* service.getAvailability({ query, occupancyExclusion });
   }
@@ -84,10 +89,10 @@ export const preloadAvailability = Effect.fn("workspaceAvailability.preload")(
     const [firstQuery] = queries;
     if (!firstQuery) return [];
 
-    // A replacement that fails to verify fails the availability route, so the
-    // page leaves every query to the client rather than show occupancy the
-    // route would not.
-    const exclusionExit = yield* resolveReplacementOccupancyExclusion({
+    // Without the replacement's hold the page would show the customer's own
+    // hold as occupied, so it leaves every query to the client, which retries
+    // the lookup.
+    const exclusionExit = yield* verifyReplacementOccupancyExclusion({
       kind: firstQuery.kind,
       replacementToken,
     }).pipe(Effect.exit);
@@ -132,18 +137,13 @@ export const preloadAvailability = Effect.fn("workspaceAvailability.preload")(
 );
 
 /**
- * The page's availability preload with its live services. Nothing it fails
- * on, including building those services, fails the page: the client loads
- * whatever is missing.
+ * The page's availability preload with its live services, bounded by the page
+ * preload deadline. Nothing it fails or runs late on, including building those
+ * services, fails the page: the client loads whatever is missing.
  */
 export const preloadPageAvailability = (input: AvailabilityPreload) =>
   preloadAvailability(input).pipe(
     Effect.provide(WorkspaceAvailabilityLoaderLive),
     Effect.scoped,
-    Effect.catchCause((cause) =>
-      Effect.logWarning(
-        "Preloaded workspace availability failed; the client loads it",
-        { cause }
-      ).pipe(Effect.as<ReadonlyArray<PreloadedWorkspaceAvailability>>([]))
-    )
+    pagePreload("workspace availability")
   );

@@ -1,13 +1,15 @@
 import "server-only";
 
-import { Effect, Option } from "effect";
+import { Effect, Exit } from "effect";
 import {
   type AdvertisedPriceRequest,
   advertisedPriceRequestEquals,
   type PreloadedAdvertisedPrice,
 } from "@/features/checkout/advertised-price";
 import { buildAdvertisedPrice } from "@/features/checkout/backend/checkout/advertised-price.server";
+import { CheckoutPricingService } from "@/features/checkout/backend/checkout/checkout-pricing.service";
 import { OfficeReservationFeatureFlagRenderLayer } from "@/features/office/backend/office-reservation-feature-flag.server";
+import { pagePreload } from "./page-preload";
 
 export const loadAdvertisedPrices = Effect.fn(
   "reservation.loadAdvertisedPrices"
@@ -22,24 +24,39 @@ export const loadAdvertisedPrices = Effect.fn(
     uniqueRequests.map((request) =>
       buildAdvertisedPrice(request).pipe(
         Effect.provide(OfficeReservationFeatureFlagRenderLayer),
-        Effect.tapError(() =>
-          Effect.logError("Advertised price load failed", {
-            reservationKind: request.reservation.kind,
+        Effect.exit,
+        Effect.flatMap(
+          Exit.match({
+            onFailure: (cause) =>
+              Effect.logError("Advertised price load failed", {
+                cause,
+                reservationKind: request.reservation.kind,
+              }).pipe(Effect.as([])),
+            onSuccess: (advertisedPrice) =>
+              Effect.succeed<Array<PreloadedAdvertisedPrice>>([
+                { request, advertisedPrice },
+              ]),
           })
-        ),
-        Effect.option,
-        Effect.map(
-          Option.map(
-            (advertisedPrice): PreloadedAdvertisedPrice => ({
-              request,
-              advertisedPrice,
-            })
-          )
         )
       )
     ),
     { concurrency: 6 }
   );
 
-  return results.filter(Option.isSome).map(({ value }) => value);
+  return results.flat();
 });
+
+/**
+ * The prices a reservation page renders with, loaded with live pricing and
+ * bounded by the page preload deadline. Nothing it fails or runs late on,
+ * including starting pricing, fails the page: the client loads what is
+ * missing.
+ */
+export const preloadPageAdvertisedPrices = (
+  requests: ReadonlyArray<AdvertisedPriceRequest>
+) =>
+  loadAdvertisedPrices(requests).pipe(
+    Effect.provide(CheckoutPricingService.Live),
+    Effect.scoped,
+    pagePreload("advertised prices")
+  );

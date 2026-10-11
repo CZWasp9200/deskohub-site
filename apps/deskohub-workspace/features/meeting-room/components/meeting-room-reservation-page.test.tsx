@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
-import { Effect, Layer } from "effect";
+import { Effect } from "effect";
 import type { ReactElement } from "react";
 import { getMeetingRoomDurationAdvertisedPriceRequests } from "@/features/reservation/meeting-room-advertised-price";
 import { normalizedMeetingRoomReservationOrderSchema } from "@/features/reservation/meeting-room-reservation";
@@ -15,14 +15,9 @@ const loadAdvertisedPrices = mock((requests: ReadonlyArray<unknown>) =>
   Effect.succeed(requests)
 );
 
-mock.module(
-  "@/features/checkout/backend/checkout/checkout-pricing.service",
-  () => ({
-    CheckoutPricingService: { Live: Layer.empty },
-  })
-);
 mock.module("@/features/reservation/backend/advertised-prices.server", () => ({
   loadAdvertisedPrices,
+  preloadPageAdvertisedPrices: loadAdvertisedPrices,
 }));
 let isRememberedDurationAvailable = true;
 const isRememberedMeetingRoomReservationAvailable = mock(() =>

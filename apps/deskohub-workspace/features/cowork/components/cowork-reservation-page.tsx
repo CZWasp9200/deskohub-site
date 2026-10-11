@@ -1,10 +1,8 @@
-import { Effect } from "effect";
-import { CheckoutPricingService } from "@/features/checkout/backend/checkout/checkout-pricing.service";
 import type { CheckoutSessionId } from "@/features/checkout/checkout-identifiers";
 import { isWorkspaceCoworkCurrentProductTier } from "@/features/checkout/product-catalog";
 import type { CanonicalPromotionCode } from "@/features/discounts";
 import { type Locale, m } from "@/features/i18n";
-import { loadAdvertisedPrices } from "@/features/reservation/backend/advertised-prices.server";
+import { preloadPageAdvertisedPrices } from "@/features/reservation/backend/advertised-prices.server";
 import { isRememberedCoworkOfferAvailable } from "@/features/reservation/backend/reservation-existing-customer.server";
 import { preloadPageAvailability } from "@/features/reservation/backend/workspace-availability-loader";
 import { createReservationPage } from "@/features/reservation/components/create-reservation-page.server";
@@ -159,17 +157,13 @@ export async function renderCoworkReservationContent({
   // Every price and the initial availability render with the content, so no
   // option streams in later and resizes the form.
   const [initialAdvertisedPrices, initialAvailability] = await Promise.all([
-    loadAdvertisedPrices(
+    preloadPageAdvertisedPrices(
       getCoworkDateAdvertisedPriceRequests({
         date: initialValues.date,
         locale,
         submittedCode,
       })
-    ).pipe(
-      Effect.provide(CheckoutPricingService.Live),
-      Effect.scoped,
-      runWorkspaceEffect("reservation.cowork.load-advertised-price")
-    ),
+    ).pipe(runWorkspaceEffect("reservation.cowork.load-advertised-price")),
     preloadPageAvailability({
       queries: Object.values(
         getCoworkAvailabilityQueries({ ...initialValues, today })

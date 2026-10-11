@@ -1,5 +1,5 @@
 import { beforeEach, expect, mock, test } from "bun:test";
-import { Effect, Layer, Schema } from "effect";
+import { Effect, Schema } from "effect";
 import Link from "next/link";
 import { isValidElement, type ReactElement, type ReactNode } from "react";
 import { renderToString } from "react-dom/server";
@@ -25,14 +25,9 @@ const loadAdvertisedPrices = mock((requests: ReadonlyArray<unknown>) =>
   Effect.succeed(requests)
 );
 
-mock.module(
-  "@/features/checkout/backend/checkout/checkout-pricing.service",
-  () => ({
-    CheckoutPricingService: { Live: Layer.empty },
-  })
-);
 mock.module("@/features/reservation/backend/advertised-prices.server", () => ({
   loadAdvertisedPrices,
+  preloadPageAdvertisedPrices: loadAdvertisedPrices,
 }));
 
 const preloadAvailability = mock(

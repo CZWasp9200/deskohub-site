@@ -1,9 +1,7 @@
-import { Effect } from "effect";
-import { CheckoutPricingService } from "@/features/checkout/backend/checkout/checkout-pricing.service";
 import type { CheckoutSessionId } from "@/features/checkout/checkout-identifiers";
 import type { CanonicalPromotionCode } from "@/features/discounts";
 import { type Locale, m } from "@/features/i18n";
-import { loadAdvertisedPrices } from "@/features/reservation/backend/advertised-prices.server";
+import { preloadPageAdvertisedPrices } from "@/features/reservation/backend/advertised-prices.server";
 import { isRememberedMeetingRoomReservationAvailable } from "@/features/reservation/backend/reservation-existing-customer.server";
 import { preloadPageAvailability } from "@/features/reservation/backend/workspace-availability-loader";
 import { createReservationPage } from "@/features/reservation/components/create-reservation-page.server";
@@ -109,15 +107,13 @@ export async function renderMeetingRoomReservationContent({
   const initialAvailabilityQuery =
     getMeetingRoomSelectionAvailabilityQuery(initialValues);
   const [initialAdvertisedPrices, initialAvailability] = await Promise.all([
-    loadAdvertisedPrices(
+    preloadPageAdvertisedPrices(
       getMeetingRoomDurationAdvertisedPriceRequests({
         locale,
         startDateTime: initialValues.startDateTime,
         submittedCode,
       })
     ).pipe(
-      Effect.provide(CheckoutPricingService.Live),
-      Effect.scoped,
       runWorkspaceEffect("reservation.meeting-room.load-advertised-prices")
     ),
     preloadPageAvailability({

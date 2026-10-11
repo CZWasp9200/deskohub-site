@@ -31,6 +31,8 @@ import { ReservationFormLabel } from "@/features/reservation/components/reservat
 import {
   ReservationTypeInput,
   ReservationTypeOption,
+  reservationTypeInputLayout,
+  reservationTypeOptionLayout,
 } from "@/features/reservation/components/reservation-type-input";
 import { useAdvertisedPrices } from "@/features/reservation/components/use-advertised-price";
 import { useReservationAvailability } from "@/features/reservation/components/use-reservation-availability";
@@ -61,6 +63,7 @@ import {
   FormMessage,
 } from "@/shared/components/ui/form";
 import { Input } from "@/shared/components/ui/input";
+import { cn } from "@/shared/utils";
 
 type OfficeReservationFormProps = {
   readonly checkoutSessionId?: CheckoutSessionId;
@@ -335,7 +338,7 @@ export function OfficeReservationForm({
             <FormControl>
               <ReservationTypeInput
                 aria-required="true"
-                className="flex flex-wrap gap-3 space-y-0"
+                className={officeSeatOptionsLayout}
                 idPrefix="office-seats"
                 inputRef={field.ref}
                 name={field.name}
@@ -362,7 +365,7 @@ export function OfficeReservationForm({
                   return (
                     <ReservationTypeOption
                       key={seatCount}
-                      className="flex-[1_1_13rem] pb-4 lg:row-start-auto lg:row-span-1 lg:grid-rows-none"
+                      className={officeSeatOptionLayout}
                       price={
                         seatPrice ? (
                           <span className="before:content-['+']">
@@ -430,6 +433,18 @@ function OfficeDayCountInput({
   );
 }
 
+/** Seat cards wrap and share each row, balancing any office capacity. */
+const officeSeatOptionsLayout = "flex flex-wrap gap-3 space-y-0";
+const officeSeatOptionLayout =
+  "flex-[1_1_13rem] pb-4 lg:row-start-auto lg:row-span-1 lg:grid-rows-none";
+
+/**
+ * How many seat cards the loading fallback shows. The office capacity comes
+ * from Dotypos inside the streamed content, so the fallback can only estimate
+ * it.
+ */
+export const officeSeatOptionsFallbackCount = 4;
+
 export function OfficeReservationFormFallback({ locale }: { locale: Locale }) {
   return (
     <ReservationFormFallback
@@ -445,7 +460,31 @@ export function OfficeReservationFormFallback({ locale }: { locale: Locale }) {
       <ReservationSkeletonBlock className="h-18 w-full rounded-[1.4rem]" />
       <div className="space-y-2">
         <ReservationSkeletonBlock className="h-4 w-64" />
-        <ReservationSkeletonBlock className="h-26 w-full rounded-[1.4rem]" />
+        <div
+          className={cn(reservationTypeInputLayout, officeSeatOptionsLayout)}
+        >
+          {getOfficeSeatOptions(officeSeatOptionsFallbackCount).map(
+            (seatCount) => (
+              <div
+                key={seatCount}
+                className={cn(
+                  reservationTypeOptionLayout,
+                  officeSeatOptionLayout,
+                  "bg-white outline outline-1 -outline-offset-1 outline-navy-blue/10"
+                )}
+                data-office-seat-option-fallback=""
+              >
+                <div className="mt-4 mb-3 flex items-start justify-between gap-2">
+                  <ReservationSkeletonBlock className="h-6 w-20" />
+                  <ReservationSkeletonBlock className="mt-1 h-4 w-4 shrink-0" />
+                </div>
+                <div className="mb-3 flex">
+                  <ReservationSkeletonBlock className="h-5 w-24 bg-aquamarine-green/15" />
+                </div>
+              </div>
+            )
+          )}
+        </div>
       </div>
       <ReservationCustomerFieldsFallback />
       <ReservationSubmitFallback />

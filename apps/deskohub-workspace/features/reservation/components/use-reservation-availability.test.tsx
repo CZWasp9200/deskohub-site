@@ -117,6 +117,18 @@ test("renders preloaded availability for a matching query without fetching", () 
   expect(loadWorkspaceAvailability).not.toHaveBeenCalled();
 });
 
+test("keeps a fresh page-loaded seed through the initial mount", async () => {
+  const view = renderHarness({
+    initialAvailability: [{ query, availability, loadedAt: Date.now() }],
+    query,
+  });
+
+  // Mount effects and any scheduled fetch run before this settles.
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(view.getByTestId("availability").dataset.pending).toBe("false");
+  expect(loadWorkspaceAvailability).not.toHaveBeenCalled();
+});
+
 test("fetches a query the page did not preload", async () => {
   const view = renderHarness({
     initialAvailability: [
