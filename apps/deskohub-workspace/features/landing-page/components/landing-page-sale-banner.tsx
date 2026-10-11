@@ -1,3 +1,4 @@
+import Interpolate from "@doist/react-interpolate";
 import { ArrowRight, DollarSign, Percent } from "lucide-react";
 import Link from "next/link";
 import type { DiscountAdjustment } from "@/features/discounts/contracts";
@@ -55,7 +56,19 @@ export function LandingPageSaleBanner({
           }
           <div>
             <p className="text-sm font-semibold leading-6 sm:text-base">
-              {content.label}
+              <Interpolate
+                string={content.label}
+                mapping={{
+                  discount: (value) => (
+                    <span
+                      className="whitespace-nowrap font-bold text-sunset-yellow-ink"
+                      data-landing-sale-discount-value
+                    >
+                      {value}
+                    </span>
+                  ),
+                }}
+              />
             </p>
             <p className="text-[0.68rem] font-semibold uppercase tracking-[0.16em] text-burned-orange">
               {content.statusLabel}

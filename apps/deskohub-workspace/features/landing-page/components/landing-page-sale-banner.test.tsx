@@ -17,7 +17,7 @@ import {
 } from "./landing-page-sale-banner";
 
 const content = {
-  label: "Summer focus: 20% off cowork access!",
+  label: "Summer focus: <discount>20%</discount> off cowork access!",
   statusLabel: "Sale active",
   ctaLabel: "Book with discount",
   href: "/en-US/reserve/cowork",
@@ -58,6 +58,21 @@ describe("LandingPageSaleBanner", () => {
     expect(container.querySelector("a")?.getAttribute("aria-label")).toBe(
       content.ctaLabel
     );
+  });
+
+  test("highlights the discount value within the sale label", () => {
+    const { container } = render(
+      <LandingPageSaleBanner
+        content={{ ...content, adjustmentKind: "percentage" }}
+      />
+    );
+    const value = container.querySelector("[data-landing-sale-discount-value]");
+
+    expect(value?.closest("p")?.textContent).toBe(
+      "Summer focus: 20% off cowork access!"
+    );
+    expect(value?.textContent).toBe("20%");
+    expect(value?.classList).toContain("text-sunset-yellow-ink");
   });
 
   test.each([

@@ -41,30 +41,30 @@ describe("formatLandingPageSaleBannerLabel", () => {
   test("describes a sale on every product without clarification", () => {
     expect(
       formatLabel([coworkProduct, meetingRoomProduct, officeProduct])
-    ).toBe("Summer focus: 20% off!");
+    ).toBe("Summer focus: <discount>20%</discount> off!");
   });
 
   test("describes a sale on every cowork product", () => {
     expect(formatLabel([coworkProduct])).toBe(
-      "Summer focus: 20% off cowork access!"
+      "Summer focus: <discount>20%</discount> off cowork access!"
     );
   });
 
   test("describes a sale on every meeting-room product", () => {
     expect(formatLabel([meetingRoomProduct])).toBe(
-      "Summer focus: 20% off meeting room reservations!"
+      "Summer focus: <discount>20%</discount> off meeting room reservations!"
     );
   });
 
   test("uses the selected-products fallback for a family mix", () => {
     expect(formatLabel([coworkProduct, meetingRoomProduct])).toBe(
-      "Summer focus: 20% off chosen products!"
+      "Summer focus: <discount>20%</discount> off chosen products!"
     );
   });
 
   test("does not omit office from a mixed sale label", () => {
     expect(formatLabel([coworkProduct, officeProduct])).toBe(
-      "Summer focus: 20% off chosen products!"
+      "Summer focus: <discount>20%</discount> off chosen products!"
     );
   });
 
@@ -74,7 +74,7 @@ describe("formatLandingPageSaleBannerLabel", () => {
         kind: "fixed",
         amount: { value: 20_000, exponent: 2, currency: "CZK" },
       })
-    ).toBe("Summer focus: CZK 200 off cowork access!");
+    ).toBe("Summer focus: <discount>CZK 200</discount> off cowork access!");
   });
 
   test("omits the redundant Czech quantifier", () => {
@@ -87,7 +87,9 @@ describe("formatLandingPageSaleBannerLabel", () => {
         },
         "cs-CZ"
       )
-    ).toBe("Letní soustředění: sleva 20 % na coworkingové vstupy!");
+    ).toBe(
+      "Letní soustředění: sleva <discount>20 %</discount> na coworkingové vstupy!"
+    );
   });
 });
 
