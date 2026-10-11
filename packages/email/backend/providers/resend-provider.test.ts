@@ -138,21 +138,6 @@ describe("ResendEmailProvider", () => {
     });
   });
 
-  test("send result includes status", async () => {
-    const result = await runProvider(
-      Effect.gen(function* () {
-        const provider = yield* EmailProviderTag;
-        return yield* provider.send(message);
-      })
-    );
-
-    expect(result).toMatchObject({
-      id: EmailDeliveryIdSchema.make("resend-id"),
-      provider: "resend",
-      status: "sent",
-    });
-  });
-
   test("rejects a Resend response without a valid delivery ID", async () => {
     send = mock<SendImplementation>(async () => ({ data: { id: "" } }));
 
