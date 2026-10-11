@@ -47,6 +47,15 @@ Distinguish automated-runner behavior from manual procedures before treating a d
   `e2e/timeouts.ts` configuration; do not add environment-variable overrides.
   Do not project application-only variables or use app-client PostHog variables
   as E2E telemetry fallbacks.
+- The launcher runs the checkout and instant-navigation Playwright processes
+  concurrently. Build every child environment with
+  `workspacePlaywrightProcessEnvironment` so each config gets its own
+  transform cache: Playwright writes cache entries in place, and a shared
+  cache once handed the checkout config a half-written module (a missing
+  named export at config load).
+- Checkout setup records `run-context.json` before it leases or seeds
+  anything, and the launcher skips the cleanup-only recovery when a failed
+  suite never recorded it. Keep every side effect after that write.
 - In TypeScript configuration files outside that dedicated runner boundary, use
   the application's typed `env` instead of reading `process.env` directly, and
   declare any configuration-owned inputs in the root environment schema.
