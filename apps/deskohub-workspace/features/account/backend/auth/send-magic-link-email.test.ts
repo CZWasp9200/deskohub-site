@@ -1,8 +1,8 @@
 import "@/shared/testing/workspace-test-environment";
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { ConfigProvider, Effect, Fiber, Predicate } from "effect";
-import { TestClock } from "effect/testing";
+import { ConfigProvider, Effect, Predicate } from "effect";
+import { withInstantSleeps } from "@/shared/testing/workspace-test-clock.test-utils";
 
 mock.module("server-only", () => ({}));
 
@@ -309,24 +309,11 @@ describe("Errors and log safety", () => {
     try {
       code = await runDeliver(
         resendEmailConfig,
-        Effect.gen(function* () {
-          const delivery = yield* makeMagicLinkEmailDelivery(
-            renderOk,
-            productionRouting
+        withInstantSleeps(
+          makeMagicLinkEmailDelivery(renderOk, productionRouting).deliver(
+            request
           )
-            .deliver(request)
-            .pipe(Effect.forkChild);
-          // Each send settles as a promise before the next backoff sleep is
-          // scheduled, so step the clock through the whole retry budget.
-          for (
-            let second = 0;
-            second < 30 && delivery.pollUnsafe() === undefined;
-            second += 1
-          ) {
-            yield* TestClock.adjust("1 second");
-          }
-          return yield* Fiber.join(delivery);
-        }).pipe(Effect.provide(TestClock.layer()))
+        )
       );
     } finally {
       consoleLines.restore();
