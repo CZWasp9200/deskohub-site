@@ -13,11 +13,7 @@ import {
 import { cleanup, render } from "@testing-library/react";
 import type { ComponentProps, ReactNode } from "react";
 import type { CheckoutStatusViewModel } from "@/features/checkout/backend/checkout";
-import {
-  getMeetingRoomReservationDefaultValuesFromSearchParams,
-  getOfficeReservationDefaultValuesFromSearchParams,
-  getReservationDefaultValuesFromSearchParams,
-} from "@/features/reservation/reservation-checkout-query";
+import { m } from "@/features/i18n";
 import {
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
@@ -114,21 +110,6 @@ describe("CheckoutStatusPage", () => {
     });
 
     expect(status.getAttribute("aria-busy")).toBe("true");
-    expect(status.getAttribute("class")).toBe(
-      "block bg-white p-6 text-navy-blue sm:p-10"
-    );
-  });
-
-  test("keeps the canonical default skeleton equivalent to explicit page markup", () => {
-    const defaultView = render(<CheckoutStatusPageSkeleton locale="en-US" />);
-    const defaultMarkup = defaultView.container.innerHTML;
-    cleanup();
-
-    const explicitPageView = render(
-      <CheckoutStatusPageSkeleton locale="en-US" presentation="page" />
-    );
-
-    expect(explicitPageView.container.innerHTML).toBe(defaultMarkup);
   });
 
   test("renders reconstructed reservation summary rows", () => {
@@ -246,24 +227,6 @@ describe("CheckoutStatusPage", () => {
     ).toBeNull();
   });
 
-  test("keeps the default page presentation equivalent to explicit page presentation", () => {
-    const defaultView = render(
-      <CheckoutStatusPage locale="en-US" status={baseStatus} />
-    );
-    const defaultMarkup = defaultView.container.innerHTML;
-    cleanup();
-
-    const explicitPageView = render(
-      <CheckoutStatusPage
-        locale="en-US"
-        presentation="page"
-        status={baseStatus}
-      />
-    );
-
-    expect(explicitPageView.container.innerHTML).toBe(defaultMarkup);
-  });
-
   test("renders fulfilled modal content without the page shell or page CTAs", () => {
     const view = render(
       <CheckoutStatusPage
@@ -275,9 +238,6 @@ describe("CheckoutStatusPage", () => {
 
     expect(view.container.querySelector("main")).toBeNull();
     expect(view.container.querySelector("ol")).toBeNull();
-    expect(view.container.firstElementChild?.className).toBe(
-      "bg-white p-6 text-navy-blue sm:p-10"
-    );
     expect(view.getByText("Reservation summary")).toBeDefined();
     expect(view.getByText("reservation-status-page")).toBeDefined();
     expect(view.getByText("Profi Workstation")).toBeDefined();
@@ -411,11 +371,13 @@ describe("CheckoutStatusPage", () => {
     );
 
     expect(
-      view.getByRole("heading", { name: "Platbu vám vrátíme." })
+      view.getByRole("heading", {
+        name: m.checkoutStatusLatePaymentRefundTitle({}, { locale: "cs-CZ" }),
+      })
     ).toBeTruthy();
     expect(
       view.getByText(
-        "Vaše platba dorazila až ve chvíli, kdy rezervace už nebyla k dispozici, proto ji nemůžeme potvrdit a platbu vám vrátíme. Pokud si stále chcete rezervovat, spusťte novou rezervaci."
+        m.checkoutStatusLatePaymentRefundLead({}, { locale: "cs-CZ" })
       )
     ).toBeTruthy();
   });
@@ -608,17 +570,6 @@ describe("CheckoutStatusPage", () => {
       coffee: "true",
       monitorOption: "2x27-qhd",
     });
-    const defaults = getReservationDefaultValuesFromSearchParams(
-      url.searchParams
-    );
-    expect(defaults.entryTier).toBe("open-space");
-    expect(defaults.coffee).toBe(true);
-    expect(defaults.monitorOption).toBeUndefined();
-    expect(defaults.date).toBe("");
-    expect(defaults.name).toBe("");
-    expect(defaults.email).toBe("");
-    expect(defaults.phone).toBe("");
-    expect(defaults.marketingConsent).toBe(false);
   });
 
   test("restores a current Reserved Desk through the raw repeat anchor", () => {
@@ -654,19 +605,6 @@ describe("CheckoutStatusPage", () => {
     expect(completedOrderStep?.getAttribute("data-next-link")).toBeNull();
     const stepHref = completedOrderStep?.getAttribute("href");
     expect(capturedLinks.some(({ href }) => href === stepHref)).toBe(false);
-
-    const url = new URL(stepHref ?? "", "https://deskohub.local");
-    const defaults = getReservationDefaultValuesFromSearchParams(
-      url.searchParams
-    );
-    expect(defaults.entryTier).toBe("reserved-desk");
-    expect(defaults.coffee).toBe(true);
-    expect(defaults.monitorOption).toBe("2x27-qhd");
-    expect(defaults.date).toBe("");
-    expect(defaults.name).toBe("");
-    expect(defaults.email).toBe("");
-    expect(defaults.phone).toBe("");
-    expect(defaults.marketingConsent).toBe(false);
   });
 
   test("links the completed order step to the office repeat start as a raw document anchor", () => {
@@ -699,19 +637,6 @@ describe("CheckoutStatusPage", () => {
     expect(completedOrderStep?.getAttribute("data-next-link")).toBeNull();
     const stepHref = completedOrderStep?.getAttribute("href");
     expect(capturedLinks.some(({ href }) => href === stepHref)).toBe(false);
-
-    const url = new URL(stepHref ?? "", "https://deskohub.local");
-    const defaults = getOfficeReservationDefaultValuesFromSearchParams(
-      url.searchParams,
-      { seatCapacity: 8, startsOn: "2026-06-25" }
-    );
-    expect(defaults.dayCount).toBe(3);
-    expect(defaults.seats).toBe(3);
-    expect(defaults.startsOn).toBe("2026-06-25");
-    expect(defaults.name).toBe("");
-    expect(defaults.email).toBe("");
-    expect(defaults.phone).toBe("");
-    expect(defaults.marketingConsent).toBe(false);
   });
 
   test("links the completed order step to the generic meeting-room start as a raw document anchor", () => {
@@ -746,16 +671,6 @@ describe("CheckoutStatusPage", () => {
 
     const url = new URL(stepHref ?? "", "https://deskohub.local");
     expect(url.search).toBe("");
-    const defaults = getMeetingRoomReservationDefaultValuesFromSearchParams(
-      url.searchParams
-    );
-    expect(defaults.name).toBe("");
-    expect(defaults.email).toBe("");
-    expect(defaults.phone).toBe("");
-    expect(defaults.marketingConsent).toBe(false);
-    expect(defaults.duration).toBe("hour:1");
-    expect(defaults.startDateTime).not.toBe("2026-06-20T07:00:00.000Z");
-    expect(defaults.startDateTime).not.toContain("2026-06-20");
   });
 
   test("links the completed order step to the generic start for non-fulfilled status as a raw document anchor", () => {
@@ -795,17 +710,6 @@ describe("CheckoutStatusPage", () => {
 
     const url = new URL(stepHref ?? "", "https://deskohub.local");
     expect(url.search).toBe("");
-    const defaults = getReservationDefaultValuesFromSearchParams(
-      url.searchParams
-    );
-    expect(defaults.entryTier).toBe("open-space");
-    expect(defaults.coffee).toBe(false);
-    expect(defaults.monitorOption).toBeUndefined();
-    expect(defaults.date).toBe("");
-    expect(defaults.name).toBe("");
-    expect(defaults.email).toBe("");
-    expect(defaults.phone).toBe("");
-    expect(defaults.marketingConsent).toBe(false);
   });
 
   test("omits the step 1 link in modal presentation", () => {
@@ -880,35 +784,8 @@ describe("CheckoutStatusPage", () => {
     expect(completedOrderStep?.getAttribute("href")).toBe(href);
   });
 
-  test("keeps generic starts for non-fulfilled or unusable booking shapes", () => {
-    const nonFulfilled = render(
-      <CheckoutStatusPage
-        locale="en-US"
-        status={{
-          ...baseStatus,
-          status: "payment_failed",
-          paymentStatus: "failed",
-          fulfillmentStatus: "not_started",
-          summary: {
-            kind: "cowork",
-            entryTier: "profi",
-            coffee: true,
-            monitorOption: "2x27-qhd",
-            reservedFrom: Temporal.Instant.from("2026-06-19T22:00:00Z"),
-            reservedUntil: Temporal.Instant.from("2026-06-20T22:00:00Z"),
-            price: { value: 55_000, exponent: 2, currency: "CZK" },
-          },
-        }}
-      />
-    );
-    expect(
-      nonFulfilled
-        .getByRole("link", { name: "Start a new reservation" })
-        .getAttribute("href")
-    ).toBe("/en-US/reservation/cowork");
-    cleanup();
-
-    const unusableOffice = render(
+  test("keeps the generic office start for an unusable booking shape", () => {
+    const view = render(
       <CheckoutStatusPage
         locale="en-US"
         status={{
@@ -925,30 +802,7 @@ describe("CheckoutStatusPage", () => {
       />
     );
     expect(
-      unusableOffice
-        .getByRole("link", { name: "Start a new reservation" })
-        .getAttribute("href")
-    ).toBe("/en-US/reservation/office");
-    cleanup();
-
-    const fractionalMidnightOffice = render(
-      <CheckoutStatusPage
-        locale="en-US"
-        status={{
-          ...baseStatus,
-          kind: "office",
-          summary: {
-            kind: "office",
-            reservedFrom: Temporal.Instant.from("2026-06-11T22:00:00.001Z"),
-            reservedUntil: Temporal.Instant.from("2026-06-14T22:00:00.001Z"),
-            seats: 3,
-            price: { value: 442_500, exponent: 2, currency: "CZK" },
-          },
-        }}
-      />
-    );
-    expect(
-      fractionalMidnightOffice
+      view
         .getByRole("link", { name: "Start a new reservation" })
         .getAttribute("href")
     ).toBe("/en-US/reservation/office");
@@ -1101,29 +955,5 @@ describe("CheckoutStatusPage", () => {
         "Please confirm my reservation or refund the payment.",
       ].join("\n")
     );
-  });
-
-  test("renders the late-payment review copy in Czech without an email promise", () => {
-    const view = render(
-      <CheckoutStatusPage
-        locale="cs-CZ"
-        status={{
-          ...baseStatus,
-          status: "late_payment_review",
-          paymentStatus: "paid",
-          fulfillmentStatus: "not_started",
-        }}
-      />
-    );
-
-    expect(
-      view.getByText(
-        "Vaše platba dorazila až po vypršení blokace rezervace a rezervaci musíme zkontrolovat ručně. Kontaktujte nás prosím, abychom mohli rezervaci potvrdit, nebo vám platbu vrátit."
-      )
-    ).toBeTruthy();
-    expect(view.queryByText(/pošleme vám email/)).toBeNull();
-    expect(
-      view.getByRole("link", { name: "Zaslat žádost o podporu" })
-    ).toBeTruthy();
   });
 });

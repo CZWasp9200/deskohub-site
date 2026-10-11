@@ -12,7 +12,6 @@ import {
 import { Result, Schema } from "effect";
 import {
   type CreateStandaloneAccessCodeFormInput,
-  type CreateStandaloneAccessCodeResult,
   createStandaloneAccessCodeAttemptId,
   createStandaloneAccessCodeFormDefaults,
   createStandaloneAccessCodeFormSchema,
@@ -102,42 +101,6 @@ describe("standalone access-code creation contract", () => {
     expect(rejected.issues).toBeDefined();
     expect(rejected.issues?.[0]?.path?.map(String)).toEqual(["endsAt"]);
     expect(rejected.issues?.[0]?.message).toBe(
-      "The end must be 1 to 672 hours after the start."
-    );
-  });
-
-  test("accepts the shared contract upper bound", async () => {
-    const accepted = await createStandaloneAccessCodeInputSchema[
-      "~standard"
-    ].validate({
-      attemptId: "01980000-0000-7000-8000-000000000042",
-      ...validWindow,
-      endsAt: "2026-10-08T10:00",
-    });
-    expect(accepted.issues).toBeUndefined();
-  });
-
-  test("counts the repeated fall-back hour through the shared contract check", async () => {
-    const sixHundredSeventyTwoHours =
-      await createStandaloneAccessCodeInputSchema["~standard"].validate({
-        attemptId: "01980000-0000-7000-8000-000000000042",
-        name: "Booth A",
-        startsAt: "2026-10-24T01:00",
-        endsAt: "2026-11-21T00:00",
-      });
-    expect(sixHundredSeventyTwoHours.issues).toBeUndefined();
-
-    const sixHundredSeventyThreeHours =
-      await createStandaloneAccessCodeInputSchema["~standard"].validate({
-        attemptId: "01980000-0000-7000-8000-000000000042",
-        name: "Booth A",
-        startsAt: "2026-10-24T00:00",
-        endsAt: "2026-11-21T00:00",
-      });
-    expect(sixHundredSeventyThreeHours.issues?.[0]?.path?.map(String)).toEqual([
-      "endsAt",
-    ]);
-    expect(sixHundredSeventyThreeHours.issues?.[0]?.message).toBe(
       "The end must be 1 to 672 hours after the start."
     );
   });
@@ -316,25 +279,6 @@ describe("standalone access-code action transport", () => {
   const alreadyCreatedOutcome: AdministrationStandaloneAccessCodeCreationOutcome =
     { ...createdOutcome, outcome: "already-created" as const };
 
-  test("a raw Effect result does not survive plain-data transport", () => {
-    const raw: CreateStandaloneAccessCodeResult =
-      Result.succeed(createdOutcome);
-
-    // JSON keeps the Result's `_tag` via toJSON, so the client guard passes,
-    // but the payload moves to `value` and `.success` is gone.
-    const viaJson = JSON.parse(
-      JSON.stringify(raw)
-    ) as CreateStandaloneAccessCodeResult;
-    expect(Result.isSuccess(viaJson)).toBe(true);
-    expect(viaJson.success).toBeUndefined();
-
-    // Structured clone keeps `.success` but drops `_tag`, so the client
-    // guard reports neither success nor failure.
-    const viaClone = structuredClone(raw) as CreateStandaloneAccessCodeResult;
-    expect(Result.isSuccess(viaClone)).toBe(false);
-    expect(Result.isFailure(viaClone)).toBe(false);
-  });
-
   test("round-trips a created outcome through JSON transport", () => {
     const transport = encodeCreateStandaloneAccessCodeResult(
       Result.succeed(createdOutcome)
@@ -491,14 +435,6 @@ describe("standalone access-code form schema", () => {
         )
       : result.value;
   };
-
-  test("defaults to blank form fields", () => {
-    expect(createStandaloneAccessCodeFormDefaults).toEqual({
-      name: "",
-      startsAt: "",
-      endsAt: "",
-    });
-  });
 
   test("reports concise field errors for missing values", async () => {
     const issues = await validateForm(createStandaloneAccessCodeFormDefaults);

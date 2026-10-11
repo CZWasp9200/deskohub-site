@@ -6,7 +6,6 @@ import { DotyposService } from "@deskohub/dotypos";
 import { Effect, Layer } from "effect";
 import { SeatingMapFeatureFlagServiceMock } from "@/features/feature-flags/backend/seating-map-feature-flag.service.mock";
 import { AdvisoryAvailabilityInventory } from "@/features/reservation/backend/availability-inventory";
-import type { ReservationHoldCleanupService as ReservationHoldCleanupServiceType } from "../holds/reservation-hold-cleanup.service";
 import { LatePaymentVerificationService } from "../payment/late-payment-verification.service";
 import type { ProviderPaymentFinalizationService as ProviderPaymentFinalizationServiceType } from "../payment/provider-payment-finalization.service";
 import { LatePaymentRecoveryRepository } from "../repositories/late-payment-recovery.repository";
@@ -121,9 +120,6 @@ describe("CheckoutStatusService", () => {
     const { PaymentAttemptRepository } = await import(
       "../repositories/payment-attempt.repository"
     );
-    const { ReservationHoldCleanupService } = await import(
-      "../holds/reservation-hold-cleanup.service"
-    );
     const { WorkspaceReservationRepository } = await import(
       "@/features/reservation/backend/workspace-reservation.repository"
     );
@@ -145,12 +141,6 @@ describe("CheckoutStatusService", () => {
     const finalization: ProviderPaymentFinalizationServiceType = {
       finalizePendingProviderPayment,
     };
-    const holdCleanup: ReservationHoldCleanupServiceType = {
-      cancelOrderHold: mock(() => Effect.succeed("cancelled" as const)),
-      sweepExpiredHolds: mock(() =>
-        Effect.succeed({ cancelled: 0, skipped: 0, failed: 0 })
-      ),
-    };
     const paymentAttempts = {
       findDisplayableForReservation: mock(() => Effect.succeed(null)),
     };
@@ -170,7 +160,6 @@ describe("CheckoutStatusService", () => {
               Layer.mock(WorkspaceReservationRepository, reservations),
               Layer.mock(PaymentAttemptRepository, paymentAttempts),
               dotyposLayer(makeDotypos()),
-              Layer.mock(ReservationHoldCleanupService, holdCleanup),
               noLatePaymentLayer(),
               SeatingMapFeatureFlagServiceMock({
                 isEnabled: Effect.succeed(true),
@@ -184,10 +173,9 @@ describe("CheckoutStatusService", () => {
 
     expect(finalizePendingProviderPayment).toHaveBeenCalledWith({ orderId });
     expect(status.status).toBe("fulfilled");
-    expect(holdCleanup.cancelOrderHold).not.toHaveBeenCalled();
   });
 
-  test("does not clean up the hold after refresh finds terminal payment", async () => {
+  test("renders the stored status without late-payment recovery after refresh finds terminal payment", async () => {
     const { CheckoutStatusService } = await import("./checkout-status.service");
     const { ProviderPaymentFinalizationService } = await import(
       "../payment/provider-payment-finalization.service"
@@ -195,15 +183,14 @@ describe("CheckoutStatusService", () => {
     const { PaymentAttemptRepository } = await import(
       "../repositories/payment-attempt.repository"
     );
-    const { ReservationHoldCleanupService } = await import(
-      "../holds/reservation-hold-cleanup.service"
-    );
     const { WorkspaceReservationRepository } = await import(
       "@/features/reservation/backend/workspace-reservation.repository"
     );
 
     const orderId = "reservation-provider-return";
-    const cancelOrderHold = mock(() => Effect.succeed("cancelled" as const));
+    const startRecoveryIfSettled = mock(() =>
+      Effect.succeed("not_applicable" as const)
+    );
     const finalization: ProviderPaymentFinalizationServiceType = {
       finalizePendingProviderPayment: mock(() =>
         Effect.succeed("terminal" as const)
@@ -212,17 +199,11 @@ describe("CheckoutStatusService", () => {
     const reservations = {
       findById: mock(() => Effect.succeed(makeReservation())),
     };
-    const holdCleanup: ReservationHoldCleanupServiceType = {
-      cancelOrderHold,
-      sweepExpiredHolds: mock(() =>
-        Effect.succeed({ cancelled: 0, skipped: 0, failed: 0 })
-      ),
-    };
     const paymentAttempts = {
       findDisplayableForReservation: mock(() => Effect.succeed(null)),
     };
 
-    await Effect.gen(function* () {
+    const status = await Effect.gen(function* () {
       const service = yield* CheckoutStatusService;
       return yield* service.refreshStatus({
         orderId,
@@ -237,8 +218,14 @@ describe("CheckoutStatusService", () => {
               Layer.mock(WorkspaceReservationRepository, reservations),
               Layer.mock(PaymentAttemptRepository, paymentAttempts),
               dotyposLayer(makeDotypos()),
-              Layer.mock(ReservationHoldCleanupService, holdCleanup),
-              noLatePaymentLayer(),
+              Layer.mock(LatePaymentRecoveryRepository, {
+                findLatestByWorkspaceReservationId: mock(() =>
+                  Effect.succeed(null)
+                ),
+              }),
+              Layer.mock(LatePaymentVerificationService, {
+                startRecoveryIfSettled,
+              }),
               SeatingMapFeatureFlagServiceMock({
                 isEnabled: Effect.succeed(true),
               })
@@ -249,16 +236,15 @@ describe("CheckoutStatusService", () => {
       Effect.runPromise
     );
 
-    expect(cancelOrderHold).not.toHaveBeenCalled();
+    expect(reservations.findById).toHaveBeenCalledTimes(1);
+    expect(startRecoveryIfSettled).not.toHaveBeenCalled();
+    expect(status.status).toBe("pending");
   });
 
   test("reconstructs an internal zero-total fulfilled reservation without PII", async () => {
     const { CheckoutStatusService } = await import("./checkout-status.service");
     const { ProviderPaymentFinalizationService } = await import(
       "../payment/provider-payment-finalization.service"
-    );
-    const { ReservationHoldCleanupService } = await import(
-      "../holds/reservation-hold-cleanup.service"
     );
     const { WorkspaceReservationRepository } = await import(
       "@/features/reservation/backend/workspace-reservation.repository"
@@ -294,10 +280,6 @@ describe("CheckoutStatusService", () => {
     };
     const finalization: ProviderPaymentFinalizationServiceType = {
       finalizePendingProviderPayment: mock(() => Effect.die("not used")),
-    };
-    const holdCleanup: ReservationHoldCleanupServiceType = {
-      cancelOrderHold: mock(() => Effect.die("not used")),
-      sweepExpiredHolds: mock(() => Effect.die("not used")),
     };
     let failTableLookup = false;
     const getTables = mock(() =>
@@ -364,7 +346,6 @@ describe("CheckoutStatusService", () => {
                 Layer.mock(WorkspaceReservationRepository, reservations),
                 Layer.mock(PaymentAttemptRepository, paymentAttempts),
                 dotyposLayer(dotypos),
-                Layer.mock(ReservationHoldCleanupService, holdCleanup),
                 noLatePaymentLayer(),
                 SeatingMapFeatureFlagServiceMock({
                   isEnabled: Effect.succeed(seatingMapEnabled),
@@ -440,9 +421,6 @@ describe("CheckoutStatusService", () => {
     const { ProviderPaymentFinalizationService } = await import(
       "../payment/provider-payment-finalization.service"
     );
-    const { ReservationHoldCleanupService } = await import(
-      "../holds/reservation-hold-cleanup.service"
-    );
     const { WorkspaceReservationRepository } = await import(
       "@/features/reservation/backend/workspace-reservation.repository"
     );
@@ -475,10 +453,6 @@ describe("CheckoutStatusService", () => {
     };
     const finalization: ProviderPaymentFinalizationServiceType = {
       finalizePendingProviderPayment: mock(() => Effect.die("not used")),
-    };
-    const holdCleanup: ReservationHoldCleanupServiceType = {
-      cancelOrderHold: mock(() => Effect.die("not used")),
-      sweepExpiredHolds: mock(() => Effect.die("not used")),
     };
     const dotypos = makeDotypos({
       getReservationWithoutCustomer: mock(() =>
@@ -585,7 +559,6 @@ describe("CheckoutStatusService", () => {
               Layer.mock(WorkspaceReservationRepository, reservations),
               Layer.mock(PaymentAttemptRepository, paymentAttempts),
               dotyposLayer(dotypos),
-              Layer.mock(ReservationHoldCleanupService, holdCleanup),
               noLatePaymentLayer(),
               SeatingMapFeatureFlagServiceMock({
                 isEnabled: Effect.succeed(false),
@@ -616,9 +589,6 @@ describe("CheckoutStatusService", () => {
     const { ProviderPaymentFinalizationService } = await import(
       "../payment/provider-payment-finalization.service"
     );
-    const { ReservationHoldCleanupService } = await import(
-      "../holds/reservation-hold-cleanup.service"
-    );
     const { WorkspaceReservationRepository } = await import(
       "@/features/reservation/backend/workspace-reservation.repository"
     );
@@ -647,10 +617,6 @@ describe("CheckoutStatusService", () => {
     };
     const finalization: ProviderPaymentFinalizationServiceType = {
       finalizePendingProviderPayment: mock(() => Effect.die("not used")),
-    };
-    const holdCleanup: ReservationHoldCleanupServiceType = {
-      cancelOrderHold: mock(() => Effect.die("not used")),
-      sweepExpiredHolds: mock(() => Effect.die("not used")),
     };
     const dotypos = makeDotypos({
       getReservationWithoutCustomer: mock(() =>
@@ -694,7 +660,6 @@ describe("CheckoutStatusService", () => {
               Layer.mock(WorkspaceReservationRepository, reservations),
               Layer.mock(PaymentAttemptRepository, paymentAttempts),
               dotyposLayer(dotypos),
-              Layer.mock(ReservationHoldCleanupService, holdCleanup),
               noLatePaymentLayer(),
               SeatingMapFeatureFlagServiceMock({
                 isEnabled: Effect.succeed(true),
@@ -732,9 +697,6 @@ describe("CheckoutStatusService", () => {
     const { ProviderPaymentFinalizationService } = await import(
       "../payment/provider-payment-finalization.service"
     );
-    const { ReservationHoldCleanupService } = await import(
-      "../holds/reservation-hold-cleanup.service"
-    );
     const { WorkspaceReservationRepository } = await import(
       "@/features/reservation/backend/workspace-reservation.repository"
     );
@@ -763,10 +725,6 @@ describe("CheckoutStatusService", () => {
     };
     const finalization: ProviderPaymentFinalizationServiceType = {
       finalizePendingProviderPayment: mock(() => Effect.die("not used")),
-    };
-    const holdCleanup: ReservationHoldCleanupServiceType = {
-      cancelOrderHold: mock(() => Effect.die("not used")),
-      sweepExpiredHolds: mock(() => Effect.die("not used")),
     };
     const dotypos = makeDotypos({
       getReservationWithoutCustomer: mock(() =>
@@ -797,7 +755,6 @@ describe("CheckoutStatusService", () => {
               Layer.mock(WorkspaceReservationRepository, reservations),
               Layer.mock(PaymentAttemptRepository, paymentAttempts),
               dotyposLayer(dotypos),
-              Layer.mock(ReservationHoldCleanupService, holdCleanup),
               noLatePaymentLayer(),
               SeatingMapFeatureFlagServiceMock({
                 isEnabled: Effect.succeed(false),
@@ -831,9 +788,6 @@ describe("CheckoutStatusService", () => {
     const { ProviderPaymentFinalizationService } = await import(
       "../payment/provider-payment-finalization.service"
     );
-    const { ReservationHoldCleanupService } = await import(
-      "../holds/reservation-hold-cleanup.service"
-    );
     const { WorkspaceReservationRepository } = await import(
       "@/features/reservation/backend/workspace-reservation.repository"
     );
@@ -860,10 +814,6 @@ describe("CheckoutStatusService", () => {
     };
     const finalization: ProviderPaymentFinalizationServiceType = {
       finalizePendingProviderPayment: mock(() => Effect.die("not used")),
-    };
-    const holdCleanup: ReservationHoldCleanupServiceType = {
-      cancelOrderHold: mock(() => Effect.die("not used")),
-      sweepExpiredHolds: mock(() => Effect.die("not used")),
     };
 
     const status = await Effect.gen(function* () {
@@ -903,7 +853,6 @@ describe("CheckoutStatusService", () => {
                   ),
                 })
               ),
-              Layer.mock(ReservationHoldCleanupService, holdCleanup),
               noLatePaymentLayer(),
               SeatingMapFeatureFlagServiceMock({
                 isEnabled: Effect.succeed(true),
@@ -929,9 +878,6 @@ describe("CheckoutStatusService", () => {
     const { CheckoutStatusService } = await import("./checkout-status.service");
     const { ProviderPaymentFinalizationService } = await import(
       "../payment/provider-payment-finalization.service"
-    );
-    const { ReservationHoldCleanupService } = await import(
-      "../holds/reservation-hold-cleanup.service"
     );
     const { WorkspaceReservationRepository } = await import(
       "@/features/reservation/backend/workspace-reservation.repository"
@@ -966,10 +912,6 @@ describe("CheckoutStatusService", () => {
     const finalization: ProviderPaymentFinalizationServiceType = {
       finalizePendingProviderPayment: mock(() => Effect.die("not used")),
     };
-    const holdCleanup: ReservationHoldCleanupServiceType = {
-      cancelOrderHold: mock(() => Effect.die("not used")),
-      sweepExpiredHolds: mock(() => Effect.die("not used")),
-    };
     const getReservationWithoutCustomer = mock(() => Effect.die("not used"));
 
     const status = await Effect.gen(function* () {
@@ -987,7 +929,6 @@ describe("CheckoutStatusService", () => {
               Layer.mock(WorkspaceReservationRepository, reservations),
               Layer.mock(PaymentAttemptRepository, paymentAttempts),
               dotyposLayer(makeDotypos({ getReservationWithoutCustomer })),
-              Layer.mock(ReservationHoldCleanupService, holdCleanup),
               noLatePaymentLayer(),
               SeatingMapFeatureFlagServiceMock({
                 isEnabled: Effect.succeed(true),
@@ -1008,9 +949,6 @@ describe("CheckoutStatusService", () => {
     const { CheckoutStatusService } = await import("./checkout-status.service");
     const { ProviderPaymentFinalizationService } = await import(
       "../payment/provider-payment-finalization.service"
-    );
-    const { ReservationHoldCleanupService } = await import(
-      "../holds/reservation-hold-cleanup.service"
     );
     const { WorkspaceReservationRepository } = await import(
       "@/features/reservation/backend/workspace-reservation.repository"
@@ -1037,10 +975,6 @@ describe("CheckoutStatusService", () => {
     const finalization: ProviderPaymentFinalizationServiceType = {
       finalizePendingProviderPayment: mock(() => Effect.die("not used")),
     };
-    const holdCleanup: ReservationHoldCleanupServiceType = {
-      cancelOrderHold: mock(() => Effect.die("not used")),
-      sweepExpiredHolds: mock(() => Effect.die("not used")),
-    };
 
     const status = await Effect.gen(function* () {
       const service = yield* CheckoutStatusService;
@@ -1063,7 +997,6 @@ describe("CheckoutStatusService", () => {
                   ),
                 })
               ),
-              Layer.mock(ReservationHoldCleanupService, holdCleanup),
               noLatePaymentLayer(),
               SeatingMapFeatureFlagServiceMock({
                 isEnabled: Effect.succeed(true),

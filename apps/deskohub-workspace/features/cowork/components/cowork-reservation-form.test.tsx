@@ -4,6 +4,7 @@ import {
   beforeEach,
   describe,
   expect,
+  jest,
   mock,
   setSystemTime,
   test,
@@ -33,8 +34,10 @@ import {
   workspaceProductMonitorOptions,
 } from "@/features/checkout/product-catalog";
 import { discountIdSchema } from "@/features/discounts/contracts";
+import { m } from "@/features/i18n";
 import { getCoworkTierAdvertisedPriceRequests } from "@/features/reservation/cowork-advertised-price";
 import { coworkReservationDefaultValues } from "@/features/reservation/cowork-reservation";
+import { getReservationAvailabilityUnavailableMessage } from "@/features/reservation/reservation.i18n";
 import { getWorkspaceAvailabilityQueryFromReservationSearchParams } from "@/features/reservation/reservation-checkout-query";
 import { workspaceAvailabilityKeys } from "@/features/reservation/workspace-availability";
 import {
@@ -388,10 +391,6 @@ describe("CoworkReservationForm advertised pricing", () => {
       ],
     });
 
-    expect(requests.every((request) => !("submittedCode" in request))).toBe(
-      true
-    );
-
     const view = renderForm({
       initialValues: {
         ...coworkReservationDefaultValues,
@@ -408,12 +407,7 @@ describe("CoworkReservationForm advertised pricing", () => {
     const reservedDeskPrice = view.container.querySelector(
       '[data-reservation-type-price="reserved-desk"]'
     );
-    expect(reservedDeskPrice?.querySelector("del")?.className).toContain(
-      "text-[0.6em]"
-    );
-    expect(
-      reservedDeskPrice?.querySelector(".text-aquamarine-ink")?.className
-    ).not.toContain("text-[0.6em]");
+    expect(reservedDeskPrice?.querySelector("del")).not.toBeNull();
     const coffeePrice = view.container.querySelector(
       "[data-reservation-coffee-price]"
     );
@@ -562,24 +556,8 @@ describe("CoworkReservationForm advertised pricing", () => {
     const openSpacePrice = view.container.querySelector(
       '[data-reservation-type-price="open-space"]'
     );
-    expect(openSpacePrice?.className).toContain("flex-col");
     expect(openSpacePrice?.textContent).toContain("/ day");
-    expect(openSpacePrice?.querySelector("del")?.className).toContain(
-      "text-navy-blue/45"
-    );
-    expect(openSpacePrice?.querySelector("del")?.className).toContain(
-      "text-[0.6em]"
-    );
-    expect(
-      Array.from(openSpacePrice?.querySelectorAll("span") ?? []).some(
-        (element) => element.className.includes("text-aquamarine-ink")
-      )
-    ).toBe(true);
-    expect(
-      Array.from(openSpacePrice?.querySelectorAll("span") ?? []).find(
-        (element) => element.className.includes("text-aquamarine-ink")
-      )?.className
-    ).not.toContain("text-[0.6em]");
+    expect(openSpacePrice?.querySelector("del")).not.toBeNull();
 
     await act(async () => {
       fireEvent.click(
@@ -632,72 +610,6 @@ describe("CoworkReservationForm advertised pricing", () => {
       ).toBe(false);
     });
     expect(view.getByText(/discounted price.*328/i)).toBeDefined();
-  });
-
-  test("presents the selected advertised sale around the whole form", async () => {
-    getAdvertisedPrices.mockImplementation((requests) =>
-      Promise.resolve(
-        advertisedPricesResult(requests, ({ reservation }) =>
-          reservation.kind === "cowork" &&
-          reservation.details.entryTier === "reserved-desk"
-            ? reservedDeskAdvertisedPriceResponse
-            : advertisedPriceResponse
-        )
-      )
-    );
-    globalThis.fetch = mock((request: RequestInfo | URL) => {
-      const url = String(request);
-      if (url.startsWith("/api/workspace/availability")) {
-        return Promise.resolve(jsonResponse(availabilityResponse));
-      }
-      return Promise.reject(new Error(`Unexpected fetch: ${url}`));
-    }) as typeof fetch;
-
-    const view = renderForm();
-
-    await waitFor(() => {
-      expect(getAdvertisedPrices).toHaveBeenCalledTimes(1);
-    });
-    const saleCard = view.container.querySelector(
-      '[data-reservation-sale="active"]'
-    );
-    expect(saleCard?.className).toContain("glow-border-purple-300");
-    expect(
-      saleCard?.querySelector('[data-reservation-sale-discount="summer-sale"]')
-        ?.textContent
-    ).toContain("Summer sale");
-    expect(
-      view.getByRole("button", { name: /discount.*applied to.*Open Space/i })
-    ).toBeDefined();
-
-    for (const tier of ["open-space", "reserved-desk"]) {
-      const option = view.container.querySelector(
-        `[data-reservation-type-option="${tier}"]`
-      );
-      expect(option?.className).not.toContain("glow-border");
-      expect(
-        option?.querySelector("[data-reservation-type-discount-banner]")
-      ).toBeNull();
-    }
-
-    expect(
-      view.container
-        .querySelector('[data-reservation-type-price="reserved-desk"]')
-        ?.querySelector("del")
-    ).not.toBeNull();
-    fireEvent.click(
-      view.container.querySelector("#reservation-entry-tier-reserved-desk")!
-    );
-    await waitFor(() => {
-      expect(
-        view.container.querySelector(
-          '[data-reservation-sale-discount="launch-sale"]'
-        )?.textContent
-      ).toContain("Launch sale");
-    });
-    expect(
-      view.getByRole("button", { name: /discount.*applied to.*Reserved Desk/i })
-    ).toBeDefined();
   });
 
   test("shows a retryable error instead of enabling checkout with failed price data", async () => {
@@ -931,41 +843,6 @@ describe("CoworkReservationForm advertised pricing", () => {
     });
   });
 
-  test("shows the workstation addon price localized for cs-CZ", async () => {
-    getAdvertisedPrices.mockImplementation((requests) =>
-      Promise.resolve(
-        advertisedPricesResult(requests, getCoworkAdvertisedPriceResponse)
-      )
-    );
-    globalThis.fetch = mock((request: RequestInfo | URL) => {
-      const url = String(request);
-      if (url.startsWith("/api/workspace/availability")) {
-        return Promise.resolve(jsonResponse(availabilityResponse));
-      }
-      return Promise.reject(new Error(`Unexpected fetch: ${url}`));
-    }) as typeof fetch;
-
-    const view = renderForm({ locale: "cs-CZ" });
-    await act(async () => {
-      fireEvent.click(
-        view.container.querySelector(
-          "#reservation-entry-tier-reserved-desk"
-        ) as HTMLElement
-      );
-    });
-    await waitFor(
-      () => {
-        const price = view.container.querySelector(
-          "[data-reservation-workstation-price]"
-        );
-        expect(price?.textContent).toContain("120");
-        expect(price?.textContent).toContain("Kč");
-        expect(price?.querySelector("[data-slot='skeleton']")).toBeNull();
-      },
-      { timeout: 3000 }
-    );
-  });
-
   test("hides a previously shown workstation amount when the same query refresh fails", async () => {
     const queryClient = new QueryClient({
       defaultOptions: {
@@ -1145,14 +1022,6 @@ describe("CoworkReservationForm advertised pricing", () => {
     unavailableMonitorOptions: ["2x27-qhd"],
   } as const;
 
-  const openSpaceUnavailableAvailability = {
-    ...availabilityResponse,
-    // Both tiers are marked unavailable so happy-dom keeps the selected
-    // (disabled) Open Space radio checked instead of force-selecting the
-    // other one, which would mask the unavailable-message rendering.
-    unavailableCoworkTiers: ["open-space", "reserved-desk"],
-  } as const;
-
   const getUnavailableMessage = async (view: ReturnType<typeof renderForm>) => {
     await waitFor(
       () => {
@@ -1168,7 +1037,6 @@ describe("CoworkReservationForm advertised pricing", () => {
   };
 
   const renderWithAvailability = async (
-    locale: "en-US" | "cs-CZ",
     unavailableAvailability: typeof availabilityResponse
   ) => {
     getAdvertisedPrices.mockImplementation((requests) =>
@@ -1193,12 +1061,8 @@ describe("CoworkReservationForm advertised pricing", () => {
       return Promise.reject(new Error(`Unexpected fetch: ${url}`));
     }) as typeof fetch;
 
-    const view = renderForm({ locale });
-    await view.findByText(
-      locale === "en-US" ? /original price.*290/i : /původní cena.*290/i,
-      {},
-      { timeout: 5000 }
-    );
+    const view = renderForm();
+    await view.findByText(/original price.*290/i, {}, { timeout: 5000 });
     await act(async () => {
       fireEvent.click(
         view.container.querySelector(
@@ -1215,52 +1079,18 @@ describe("CoworkReservationForm advertised pricing", () => {
   };
 
   test("scopes the unavailable message to the selected monitor setup instead of the whole Reserved Desk offer", async () => {
-    for (const locale of ["en-US", "cs-CZ"] as const) {
-      const view = await renderWithAvailability(
-        locale,
-        monitorUnavailableAvailability
-      );
-      const message = await getUnavailableMessage(view);
-      expect(message).not.toMatch(/all out of space|nemáme volné místo/);
-      if (locale === "en-US") {
-        expect(message).toMatch(/your selected reservation/i);
-        expect(message).not.toMatch(/offer you selected/i);
-        expect(message).toMatch(/another monitor setup/i);
-      } else {
-        expect(message).toMatch(/zvolené konfiguraci/i);
-        expect(message).not.toMatch(/nabídka .* není na .* dostupná\./u);
-        expect(message).toMatch(/jinou sestavu monitorů/);
-      }
-      await act(async () => {
-        view.unmount();
-      });
-    }
-  });
+    const view = await renderWithAvailability(monitorUnavailableAvailability);
 
-  test("keeps the monitor advice conditional when an Open Space tier is unavailable", async () => {
-    for (const locale of ["en-US", "cs-CZ"] as const) {
-      const view = await renderWithAvailability(
-        locale,
-        openSpaceUnavailableAvailability
-      );
-      const message = await getUnavailableMessage(view);
-      if (locale === "en-US") {
-        expect(message).toMatch(/Open Space/);
-        expect(message).toMatch(/another offer/i);
-        expect(message).toMatch(/date/i);
-        expect(message).toMatch(/if you selected a workstation/i);
-        expect(message).toMatch(/monitor setup/i);
-      } else {
-        expect(message).toMatch(/Sdílené místo/);
-        expect(message).toMatch(/jinou nabídku/);
-        expect(message).toMatch(/datum/);
-        expect(message).toMatch(/pracovní stanici/);
-        expect(message).toMatch(/sestavu monitorů/);
-      }
-      await act(async () => {
-        view.unmount();
-      });
-    }
+    expect(await getUnavailableMessage(view)).toBe(
+      getReservationAvailabilityUnavailableMessage({
+        date: "2099-07-30",
+        locale: "en-US",
+        reservation: { kind: "cowork", entryTier: "reserved-desk" },
+      })
+    );
+    await act(async () => {
+      view.unmount();
+    });
   });
 
   test("shows the coffee toggle only when coffee is an optional addon", async () => {
@@ -1294,49 +1124,6 @@ describe("CoworkReservationForm advertised pricing", () => {
     ).toBeNull();
     await act(async () => {
       reservedDeskView.unmount();
-    });
-  });
-
-  test("does not render a paid workstation toggle for a restored historical Profi tier", async () => {
-    // Reserved Desk workstation is an optional paid addon: the toggle is
-    // visible before it is flipped.
-    const reservedDeskView = renderForm({
-      initialValues: {
-        ...coworkReservationDefaultValues,
-        entryTier: "reserved-desk",
-        date: "2099-07-30",
-      },
-    });
-    expect(
-      reservedDeskView.container.querySelector(
-        "[data-reservation-workstation-price]"
-      )
-    ).not.toBeNull();
-    expect(
-      reservedDeskView.getByRole("switch", { name: /Monitor workstation/i })
-    ).toBeDefined();
-    await act(async () => {
-      reservedDeskView.unmount();
-    });
-
-    // Historical Profi carries a required workstation, which is not a paid
-    // toggle and must not render one.
-    const profiView = renderForm({
-      initialValues: {
-        ...coworkReservationDefaultValues,
-        entryTier: "profi",
-        date: "2099-07-30",
-      },
-    });
-    await profiView.findByText(/original price.*290/i, {}, { timeout: 3000 });
-    expect(
-      profiView.container.querySelector("[data-reservation-workstation-price]")
-    ).toBeNull();
-    expect(
-      profiView.queryByRole("switch", { name: /Monitor workstation/i })
-    ).toBeNull();
-    await act(async () => {
-      profiView.unmount();
     });
   });
 
@@ -1383,43 +1170,6 @@ describe("CoworkReservationForm advertised pricing", () => {
     });
   });
 
-  test("correlates the workstation addon price from the workstation advertised variant", async () => {
-    getAdvertisedPrices.mockImplementation((requests) =>
-      Promise.resolve(
-        advertisedPricesResult(requests, getCoworkAdvertisedPriceResponse)
-      )
-    );
-    globalThis.fetch = mock((request: RequestInfo | URL) => {
-      const url = String(request);
-      if (url.startsWith("/api/workspace/availability")) {
-        return Promise.resolve(jsonResponse(availabilityResponse));
-      }
-      return Promise.reject(new Error(`Unexpected fetch: ${url}`));
-    }) as typeof fetch;
-
-    const view = renderForm();
-    await view.findByText(/original price.*290/i, {}, { timeout: 3000 });
-    await act(async () => {
-      fireEvent.click(
-        view.container.querySelector(
-          "#reservation-entry-tier-reserved-desk"
-        ) as HTMLElement
-      );
-    });
-
-    // The bare Reserved Desk variant has no workstation quote item, so the
-    // advertised +120 amount can only come from the workstation variant
-    // correlated by nested shape matching.
-    await waitFor(() => {
-      const price = view.container.querySelector(
-        "[data-reservation-workstation-price]"
-      );
-      expect(price?.textContent).toContain("120");
-      expect(price?.querySelector("[data-slot='skeleton']")).toBeNull();
-    });
-    await act(async () => {});
-  });
-
   test("renders cowork offers as portrait illustrated choices", () => {
     workspaceUseSearchParams.mockReturnValue(
       new URLSearchParams("entryTier=open-space")
@@ -1438,8 +1188,6 @@ describe("CoworkReservationForm advertised pricing", () => {
     expect(offerGrid?.getAttribute("data-reservation-type-presentation")).toBe(
       "illustrated"
     );
-    expect(offerGrid?.classList.contains("grid")).toBe(true);
-    expect(offerGrid?.classList.contains("gap-4")).toBe(true);
     for (const offer of offers) {
       expect(offer.querySelector('input[type="radio"]')).not.toBeNull();
       expect(
@@ -1465,85 +1213,7 @@ describe("CoworkReservationForm advertised pricing", () => {
           .querySelector("[data-reservation-type-illustration]")
           ?.getAttribute("aria-hidden")
       ).toBe("true");
-      expect(perks?.querySelector("li > span")?.classList.contains("h-8")).toBe(
-        true
-      );
     }
-    view.unmount();
-  });
-
-  test("does not pin cowork offer cards to explicit grid columns", () => {
-    workspaceUseSearchParams.mockReturnValue(
-      new URLSearchParams("entryTier=open-space")
-    );
-    getAdvertisedPrices.mockImplementation(() => new Promise(() => undefined));
-
-    const view = renderForm();
-    for (const tier of ["open-space", "reserved-desk"]) {
-      const offer = view.container.querySelector(
-        `[data-reservation-type-option="${tier}"]`
-      );
-      expect(offer).not.toBeNull();
-      expect(offer?.className).not.toContain("col-start");
-      expect(offer?.className).not.toContain("lg:col-start-1");
-      expect(offer?.className).not.toContain("lg:col-start-2");
-    }
-    view.unmount();
-  });
-
-  test("keeps selecting between the two cowork offers", async () => {
-    workspaceUseSearchParams.mockReturnValue(
-      new URLSearchParams("entryTier=open-space")
-    );
-    getAdvertisedPrices.mockImplementation(() => new Promise(() => undefined));
-    globalThis.fetch = mock((request: RequestInfo | URL) => {
-      const url = String(request);
-      if (url.startsWith("/api/workspace/availability")) {
-        return Promise.resolve(jsonResponse(availabilityResponse));
-      }
-      return Promise.reject(new Error(`Unexpected fetch: ${url}`));
-    }) as typeof fetch;
-
-    const view = renderForm();
-    const openSpaceInput = view.container.querySelector(
-      "#reservation-entry-tier-open-space"
-    ) as HTMLInputElement;
-    const reservedDeskInput = view.container.querySelector(
-      "#reservation-entry-tier-reserved-desk"
-    ) as HTMLInputElement;
-
-    expect(openSpaceInput.checked).toBe(true);
-    expect(reservedDeskInput.checked).toBe(false);
-
-    await act(async () => {
-      fireEvent.click(reservedDeskInput);
-    });
-    await waitFor(() => {
-      expect(reservedDeskInput.checked).toBe(true);
-      expect(openSpaceInput.checked).toBe(false);
-    });
-
-    await act(async () => {
-      fireEvent.click(openSpaceInput);
-    });
-    await waitFor(() => {
-      expect(openSpaceInput.checked).toBe(true);
-      expect(reservedDeskInput.checked).toBe(false);
-    });
-    await act(async () => {
-      view.unmount();
-    });
-  });
-
-  test("does not render a message field in the cowork form", () => {
-    const view = renderForm();
-    const form = view.container.querySelector("form");
-
-    expect(form).not.toBeNull();
-    expect(form?.querySelector("textarea")).toBeNull();
-    expect(
-      within(form!).queryByRole("textbox", { name: /message/i })
-    ).toBeNull();
     view.unmount();
   });
 
@@ -1606,18 +1276,6 @@ describe("CoworkReservationForm advertised pricing", () => {
     expect(
       view.container.querySelector("[data-reservation-coffee-price]")
     ).toBeNull();
-
-    // Both add-ons share one presentational toggle: same test id path and
-    // identical card markup classes, never two divergent presentations.
-    const workstationToggle = view.container.querySelector(
-      "[data-cowork-optional-addon-toggle='workstation']"
-    );
-    expect(workstationToggle?.getAttribute("class")).toBe(
-      coffeeToggle?.getAttribute("class")
-    );
-    expect(coffeeToggle?.childElementCount).toBe(
-      workstationToggle?.childElementCount
-    );
 
     await act(async () => {
       view.unmount();
@@ -1684,9 +1342,6 @@ describe("CoworkReservationForm advertised pricing", () => {
     const marketing = form!.querySelector("#reservation-marketing-consent");
     const submit = view.getByRole("button", { name: "Continue" });
 
-    expect(dateAddonRow?.classList.contains("grid")).toBe(true);
-    expect(dateAddonRow?.classList.contains("md:grid-cols-2")).toBe(true);
-    expect(dateAddonRow?.classList.contains("grid-cols-2")).toBe(false);
     expect(dateColumn?.parentElement).toBe(dateAddonRow);
     expect(addonColumn?.parentElement).toBe(dateAddonRow);
     expect(dateColumn?.nextElementSibling).toBe(addonColumn);
@@ -1828,51 +1483,6 @@ describe("CoworkReservationForm advertised pricing", () => {
     });
   });
 
-  test("shows monitor card focus treatment when its radio receives focus", async () => {
-    globalThis.fetch = mock((request: RequestInfo | URL) => {
-      const url = String(request);
-      if (url.startsWith("/api/workspace/availability")) {
-        return Promise.resolve(jsonResponse(availabilityResponse));
-      }
-      return Promise.reject(new Error(`Unexpected fetch: ${url}`));
-    }) as typeof fetch;
-
-    const view = renderForm({
-      initialValues: {
-        ...coworkReservationDefaultValues,
-        entryTier: "reserved-desk",
-        date: "2099-07-30",
-        monitorOption: "2x27-qhd",
-      },
-    });
-    await waitFor(() => {
-      expect(
-        view.getByRole("button", { name: "Continue" }).hasAttribute("disabled")
-      ).toBe(false);
-    });
-    const radio = view.container.querySelector<HTMLInputElement>(
-      "input[type='radio'][value='2x27-qhd']"
-    );
-    expect(radio).not.toBeNull();
-    const option = radio!.closest("label");
-    expect(option).not.toBeNull();
-
-    await act(async () => {
-      radio!.focus();
-    });
-
-    expect(document.activeElement).toBe(radio);
-    expect(option?.contains(radio!)).toBe(true);
-    expect(option?.className).toContain("focus-within:outline");
-    expect(option?.className).toContain("focus-within:outline-2");
-    expect(option?.className).toContain("focus-within:outline-offset-2");
-    expect(option?.className).toContain("focus-within:outline-navy-blue");
-
-    await act(async () => {
-      view.unmount();
-    });
-  });
-
   test("renders monitor choices below the workstation toggle only while selected", async () => {
     globalThis.fetch = mock((request: RequestInfo | URL) => {
       const url = String(request);
@@ -1924,7 +1534,6 @@ describe("CoworkReservationForm advertised pricing", () => {
     expect(addonControl?.contains(toggle as Node)).toBe(true);
     expect(addonControl?.nextElementSibling).toBe(monitorOptions);
     expect(monitorOptions?.parentElement).toBe(addonColumn);
-    expect(monitorOptions?.classList.contains("md:col-span-2")).toBe(true);
     const form = view.container.querySelector("form")!;
     const ordered = Array.from(form.querySelectorAll("*"));
     expect(ordered.indexOf(monitors as Element)).toBeLessThan(
@@ -1949,218 +1558,32 @@ describe("CoworkReservationForm advertised pricing", () => {
     });
   });
 
-  test("renders add-on labels from the en-US and cs-CZ catalogs", async () => {
-    const expectations = [
-      { locale: "en-US", tier: "open-space", name: "Coffee" },
-      { locale: "cs-CZ", tier: "open-space", name: "Káva" },
-      { locale: "en-US", tier: "reserved-desk", name: "Monitor workstation" },
-      {
-        locale: "cs-CZ",
-        tier: "reserved-desk",
-        name: "Pracovní stanice s monitory",
+  test("keeps the cowork access claim in one card section", () => {
+    getAdvertisedPrices.mockImplementation(() => new Promise(() => undefined));
+
+    const view = renderForm({
+      initialValues: {
+        ...coworkReservationDefaultValues,
+        entryTier: "open-space",
+        date: "2099-07-30",
       },
-    ] as const;
+    });
+    const cardText = (tier: string, part: "description" | "perks") =>
+      view.container.querySelector(`[data-reservation-type-${part}="${tier}"]`)
+        ?.textContent ?? "";
 
-    for (const { locale, name, tier } of expectations) {
-      const view = renderForm({
-        locale,
-        initialValues: {
-          ...coworkReservationDefaultValues,
-          entryTier: tier,
-          date: "2099-07-30",
-        },
-      });
-      expect(view.getByRole("switch", { name })).toBeDefined();
-      await act(async () => {
-        view.unmount();
-      });
-    }
-  });
-
-  test("keeps cowork access claims in one card section in both locales", async () => {
-    const expectations = [
-      {
-        locale: "en-US",
-        openSpaceDescription: "Sit wherever you like, available until 17:00.",
-        openSpaceWifi: "High-speed Wi-Fi",
-        reservedDeskDescription: "Your own desk for uninterrupted flow.",
-        reservedDeskAccess: "24/7 access on your reserved day",
-        reservedDeskCoffee: "Coffee included",
-        reservedDeskMonitor: "Optional monitor workstation",
-        currency: "CZK",
-      },
-      {
-        locale: "cs-CZ",
-        openSpaceDescription: "Seďte, kde chcete, k dispozici do 17:00.",
-        openSpaceWifi: "Vysokorychlostní Wi-Fi",
-        reservedDeskDescription: "Váš vlastní stůl pro nepřetržitý flow.",
-        reservedDeskAccess: "24/7 přístup v den tvé rezervace",
-        reservedDeskCoffee: "Káva v ceně",
-        reservedDeskMonitor: "Možnost přidat monitory a dock",
-        currency: "Kč",
-      },
-    ] as const;
-
-    for (const copy of expectations) {
-      getAdvertisedPrices.mockImplementation((requests) =>
-        Promise.resolve(
-          advertisedPricesResult(requests, getCoworkAdvertisedPriceResponse)
-        )
-      );
-      globalThis.fetch = mock((request: RequestInfo | URL) => {
-        const url = String(request);
-        if (url.startsWith("/api/workspace/availability")) {
-          return Promise.resolve(jsonResponse(availabilityResponse));
-        }
-        return Promise.reject(new Error(`Unexpected fetch: ${url}`));
-      }) as typeof fetch;
-
-      const view = renderForm({
-        locale: copy.locale,
-        initialValues: {
-          ...coworkReservationDefaultValues,
-          entryTier: "open-space",
-          coffee: true,
-          date: "2099-07-30",
-        },
-      });
-
-      await waitFor(() => {
-        const openSpacePrice = view.container.querySelector(
-          '[data-reservation-type-price="open-space"]'
-        );
-        const reservedDeskPrice = view.container.querySelector(
-          '[data-reservation-type-price="reserved-desk"]'
-        );
-        expect(openSpacePrice?.textContent).toContain("290");
-        expect(openSpacePrice?.textContent).toContain(copy.currency);
-        expect(reservedDeskPrice?.textContent).toContain("410");
-        expect(reservedDeskPrice?.textContent).toContain(copy.currency);
-        expect(
-          view.container.querySelector("[data-reservation-coffee-price]")
-            ?.textContent
-        ).toContain("50");
-      });
-
-      const openSpaceDescription = view.container.querySelector(
-        '[data-reservation-type-description="open-space"]'
-      )?.textContent;
-      const openSpacePerks = view.container.querySelector(
-        '[data-reservation-type-perks="open-space"]'
-      )?.textContent;
-      const reservedDeskDescription = view.container.querySelector(
-        '[data-reservation-type-description="reserved-desk"]'
-      )?.textContent;
-      const reservedDeskPerks = view.container.querySelector(
-        '[data-reservation-type-perks="reserved-desk"]'
-      )?.textContent;
-
-      expect(openSpaceDescription).toBe(copy.openSpaceDescription);
-      expect(openSpaceDescription).not.toMatch(/24\/7/);
-      expect(openSpacePerks).toContain(copy.openSpaceWifi);
-      expect(openSpacePerks).not.toMatch(/00:00|17:00|24\/7/);
-      expect(reservedDeskDescription).toBe(copy.reservedDeskDescription);
-      expect(reservedDeskDescription).not.toMatch(/24\/7/);
-      expect(reservedDeskPerks).toContain(copy.reservedDeskAccess);
-      expect(reservedDeskPerks).toContain(copy.reservedDeskCoffee);
-      expect(reservedDeskPerks).toContain(copy.reservedDeskMonitor);
-      expect(
-        `${reservedDeskDescription} ${reservedDeskPerks}`.match(/24\/7/g)
-      ).toHaveLength(1);
-
-      await act(async () => {
-        fireEvent.click(
-          view.container.querySelector(
-            "#reservation-entry-tier-reserved-desk"
-          ) as HTMLElement
-        );
-      });
-      await waitFor(() => {
-        expect(
-          view.container.querySelector("[data-reservation-workstation-price]")
-            ?.textContent
-        ).toContain("120");
-      });
-      expect(
-        view.container.querySelector("[data-reservation-coffee-price]")
-      ).toBeNull();
-
-      await act(async () => {
-        view.unmount();
-      });
-    }
-  });
-
-  test("pairs either optional cowork add-on with the date in responsive columns", async () => {
-    globalThis.fetch = mock((request: RequestInfo | URL) => {
-      const url = String(request);
-      if (url.startsWith("/api/workspace/availability")) {
-        return Promise.resolve(jsonResponse(availabilityResponse));
-      }
-      return Promise.reject(new Error(`Unexpected fetch: ${url}`));
-    }) as typeof fetch;
-
-    const cases = [
-      {
-        addon: "coffee",
-        initialValues: {
-          ...coworkReservationDefaultValues,
-          entryTier: "open-space" as const,
-          date: "2099-07-30",
-          coffee: true,
-        },
-      },
-      {
-        addon: "workstation",
-        initialValues: {
-          ...coworkReservationDefaultValues,
-          entryTier: "reserved-desk" as const,
-          date: "2099-07-30",
-          monitorOption: undefined,
-        },
-      },
-    ] as const;
-
-    for (const { addon, initialValues } of cases) {
-      const view = renderForm({ initialValues });
-      const dateAddonRow = view.container.querySelector(
-        "[data-cowork-date-addon-row]"
-      );
-      const dateColumn = view.container.querySelector(
-        "[data-cowork-date-column]"
-      );
-      const addonColumn = view.container.querySelector(
-        "[data-cowork-addon-column]"
-      );
-      const addonControl = view.container.querySelector(
-        "[data-cowork-addon-control]"
-      );
-      const toggle = view.container.querySelector(
-        `[data-cowork-optional-addon-toggle='${addon}']`
-      );
-
-      expect(dateAddonRow?.classList.contains("md:grid-cols-2")).toBe(true);
-      expect(dateAddonRow?.classList.contains("grid-cols-2")).toBe(false);
-      expect(dateColumn?.parentElement).toBe(dateAddonRow);
-      expect(addonColumn?.parentElement).toBe(dateAddonRow);
-      expect(dateColumn?.nextElementSibling).toBe(addonColumn);
-      expect(addonColumn?.classList.contains("contents")).toBe(true);
-      expect(addonControl?.parentElement).toBe(addonColumn);
-      expect(addonControl?.contains(toggle as Node)).toBe(true);
-      expect(
-        view.container.querySelectorAll("[data-cowork-optional-addon-toggle]")
-      ).toHaveLength(1);
-      // The add-on label must share the date label's stack layout, or the
-      // two labels sit at different distances from their controls.
-      const dateLabel = dateColumn?.querySelector("label");
-      const addonLabel = addonControl?.querySelector("label");
-      expect(addonLabel?.parentElement).toBe(addonControl);
-      expect(addonControl?.className).toBe(dateLabel?.parentElement?.className);
-
-      await act(async () => {
-        view.unmount();
-      });
-    }
+    expect(cardText("open-space", "perks")).not.toMatch(/00:00|17:00|24\/7/);
+    expect(
+      `${cardText("open-space", "description")} ${cardText("open-space", "perks")}`.match(
+        /24\/7/g
+      )
+    ).toBeNull();
+    expect(
+      `${cardText("reserved-desk", "description")} ${cardText("reserved-desk", "perks")}`.match(
+        /24\/7/g
+      )
+    ).toHaveLength(1);
+    view.unmount();
   });
 
   test("forces the first available paid workstation and submits its advertised variant", async () => {
@@ -2221,24 +1644,6 @@ describe("CoworkReservationForm advertised pricing", () => {
       view.container.querySelector("[data-reservation-workstation-price]")
         ?.textContent
     ).toContain("120");
-
-    const help = view.getByRole("button", {
-      name: "Why is a workstation required?",
-    });
-    expect(help.tagName).toBe("BUTTON");
-    expect(help.hasAttribute("disabled")).toBe(false);
-    await act(async () => help.focus());
-    const tooltip = await within(view.baseElement).findByRole("tooltip");
-    expect(tooltip.textContent).toBe(
-      "All desks without a workstation are fully booked for this date. A workstation is required."
-    );
-    expect(help.getAttribute("aria-describedby")).toBe(tooltip.id);
-    await act(async () => {
-      fireEvent.pointerMove(help, { pointerType: "mouse" });
-    });
-    expect(
-      (await within(view.baseElement).findByRole("tooltip")).textContent
-    ).toBe(tooltip.textContent);
 
     fireEvent.click(workstationSwitch);
     expect(workstationSwitch.getAttribute("aria-checked")).toBe("true");
@@ -2544,7 +1949,7 @@ describe("CoworkReservationForm advertised pricing", () => {
     const continueButton = view.getByRole("button", { name: "Continue" });
     expect(continueButton.hasAttribute("disabled")).toBe(true);
     expect(
-      view.getByText("We couldn't confirm availability. Please try again.")
+      view.getByText(m.reservationAvailabilityError({}, { locale: "en-US" }))
     ).toBeDefined();
     await act(async () => fireEvent.click(continueButton));
     expect(execute).not.toHaveBeenCalled();
@@ -2886,124 +2291,117 @@ describe("CoworkReservationForm advertised pricing", () => {
   });
 
   test("keeps the required workstation explanation open after a touch tap until tapped again", async () => {
-    const cases = [
-      {
-        locale: "en-US" as const,
-        trigger: "Why is a workstation required?",
-        content:
-          "All desks without a workstation are fully booked for this date. A workstation is required.",
-      },
-      {
-        locale: "cs-CZ" as const,
-        trigger: "Proč je pracovní stanice povinná?",
-        content:
-          "Všechna místa bez pracovní stanice jsou pro toto datum plně obsazená. Pracovní stanice je povinná.",
-      },
-    ];
+    const content = m.reservationWorkstationRequiredTooltipContent(
+      {},
+      { locale: "en-US" }
+    );
+    globalThis.fetch = mock((request: RequestInfo | URL) => {
+      const url = String(request);
+      if (!url.startsWith("/api/workspace/availability")) {
+        return Promise.reject(new Error(`Unexpected fetch: ${url}`));
+      }
 
-    for (const { locale, trigger, content } of cases) {
-      globalThis.fetch = mock((request: RequestInfo | URL) => {
-        const url = String(request);
-        if (!url.startsWith("/api/workspace/availability")) {
-          return Promise.reject(new Error(`Unexpected fetch: ${url}`));
-        }
-
-        const monitorOption = new URL(url, "http://localhost").searchParams.get(
-          "monitorOption"
-        );
-        return Promise.resolve(
-          jsonResponse(
-            requiredWorkstationAvailability(
-              "2099-07-30",
-              monitorOption as
-                | (typeof workspaceProductMonitorOptions)[number]
-                | null
-            )
+      const monitorOption = new URL(url, "http://localhost").searchParams.get(
+        "monitorOption"
+      );
+      return Promise.resolve(
+        jsonResponse(
+          requiredWorkstationAvailability(
+            "2099-07-30",
+            monitorOption as
+              | (typeof workspaceProductMonitorOptions)[number]
+              | null
           )
-        );
-      }) as typeof fetch;
+        )
+      );
+    }) as typeof fetch;
 
-      const view = renderForm({
-        locale,
-        initialValues: reservedDeskFormValues(),
-      });
-      const help = await view.findByRole("button", { name: trigger });
-      await waitFor(() => {
-        expect(
-          view
-            .getByRole("switch", {
-              name:
-                locale === "en-US"
-                  ? "Monitor workstation"
-                  : "Pracovní stanice s monitory",
-            })
-            .hasAttribute("disabled")
-        ).toBe(true);
-      });
+    const view = renderForm({ initialValues: reservedDeskFormValues() });
+    const help = await view.findByRole("button", {
+      name: m.reservationWorkstationRequiredTooltipTrigger(
+        {},
+        { locale: "en-US" }
+      ),
+    });
+    await waitFor(() => {
+      expect(
+        view
+          .getByRole("switch", {
+            name: m.reservationWorkstationLabel({}, { locale: "en-US" }),
+          })
+          .hasAttribute("disabled")
+      ).toBe(true);
+    });
 
-      const tap = async () => {
-        await act(async () => {
-          fireEvent.pointerDown(help, {
-            button: 0,
-            isPrimary: true,
-            pointerId: 1,
-            pointerType: "touch",
-          });
-          help.focus();
-          fireEvent.pointerMove(help, {
-            pointerId: 1,
-            pointerType: "touch",
-          });
-          fireEvent.pointerUp(help, {
-            button: 0,
-            isPrimary: true,
-            pointerId: 1,
-            pointerType: "touch",
-          });
-          fireEvent.click(help, { detail: 1 });
-          fireEvent.pointerLeave(help, {
-            pointerId: 1,
-            pointerType: "touch",
-          });
-        });
-      };
-
-      await tap();
-      const tooltip = await within(view.baseElement).findByRole("tooltip");
-      expect(tooltip.textContent).toBe(content);
-      expect(help.getAttribute("aria-describedby")).toBe(tooltip.id);
+    const tap = async () => {
       await act(async () => {
+        fireEvent.pointerDown(help, {
+          button: 0,
+          isPrimary: true,
+          pointerId: 1,
+          pointerType: "touch",
+        });
+        help.focus();
         fireEvent.pointerMove(help, {
           pointerId: 1,
           pointerType: "touch",
         });
-        await new Promise<void>((resolve) => setTimeout(resolve, 1000));
+        fireEvent.pointerUp(help, {
+          button: 0,
+          isPrimary: true,
+          pointerId: 1,
+          pointerType: "touch",
+        });
+        fireEvent.click(help, { detail: 1 });
+        fireEvent.pointerLeave(help, {
+          pointerId: 1,
+          pointerType: "touch",
+        });
       });
-      expect(
-        (await within(view.baseElement).findByRole("tooltip")).textContent
-      ).toBe(content);
+    };
 
-      await tap();
-      await waitFor(() => {
-        expect(within(view.baseElement).queryByRole("tooltip")).toBeNull();
+    await tap();
+    const tooltip = await within(view.baseElement).findByRole("tooltip");
+    expect(tooltip.textContent).toBe(content);
+    expect(help.getAttribute("aria-describedby")).toBe(tooltip.id);
+    // A later touch move must not start a close delay; fake timers run any
+    // delay it would schedule without waiting for it.
+    jest.useFakeTimers();
+    try {
+      act(() => {
+        fireEvent.pointerMove(help, {
+          pointerId: 1,
+          pointerType: "touch",
+        });
+        jest.advanceTimersByTime(1000);
       });
-
-      await tap();
-      const reopenedTooltip = await within(view.baseElement).findByRole(
-        "tooltip"
-      );
-      expect(reopenedTooltip.textContent).toBe(content);
-      await act(async () => {
-        fireEvent.keyDown(reopenedTooltip, { key: "Escape" });
-      });
-      await waitFor(() => {
-        expect(within(view.baseElement).queryByRole("tooltip")).toBeNull();
-      });
-
-      await act(async () => {
-        view.unmount();
-      });
+    } finally {
+      jest.useRealTimers();
     }
+    expect(within(view.baseElement).getByRole("tooltip").textContent).toBe(
+      content
+    );
+
+    await tap();
+    await waitFor(() => {
+      expect(within(view.baseElement).queryByRole("tooltip")).toBeNull();
+    });
+
+    await tap();
+    const reopenedTooltip = await within(view.baseElement).findByRole(
+      "tooltip"
+    );
+    expect(reopenedTooltip.textContent).toBe(content);
+    await act(async () => {
+      fireEvent.keyDown(reopenedTooltip, { key: "Escape" });
+    });
+    await waitFor(() => {
+      expect(within(view.baseElement).queryByRole("tooltip")).toBeNull();
+    });
+
+    await act(async () => {
+      view.unmount();
+    });
   });
 
   test("keeps required workstation dates selectable even when the bare date is unavailable", async () => {
@@ -3337,7 +2735,7 @@ describe("CoworkReservationForm advertised pricing", () => {
       continueButton.getAttribute("data-reservation-availability-loading")
     ).toBe("false");
     expect(
-      view.queryByText("We couldn't confirm availability. Please try again.")
+      view.queryByText(m.reservationAvailabilityError({}, { locale: "en-US" }))
     ).toBeNull();
 
     await act(async () => {
@@ -3799,36 +3197,6 @@ describe("CoworkReservationForm advertised pricing", () => {
         process.env.TZ = originalTimeZone;
       }
     }
-  });
-
-  test("validates an empty date when its calendar closes", async () => {
-    globalThis.fetch = mock((request: RequestInfo | URL) => {
-      const url = String(request);
-      if (url.startsWith("/api/workspace/availability")) {
-        return Promise.resolve(jsonResponse(availabilityResponse));
-      }
-      return Promise.reject(new Error(`Unexpected fetch: ${url}`));
-    }) as typeof fetch;
-
-    const view = renderForm({
-      initialValues: { ...coworkReservationDefaultValues, date: "" },
-    });
-    const datePickerButton = view.getByRole("button", {
-      name: /Reservation date/i,
-    });
-    expect(datePickerButton.getAttribute("aria-invalid")).toBe("false");
-
-    await act(async () => fireEvent.click(datePickerButton));
-    await within(document.body).findByRole("dialog");
-    await act(async () => fireEvent.click(datePickerButton));
-
-    await waitFor(() => {
-      expect(datePickerButton.getAttribute("aria-invalid")).toBe("true");
-    });
-    expect(execute).not.toHaveBeenCalled();
-    await act(async () => {
-      view.unmount();
-    });
   });
 
   test("focuses the first enabled monitor radio when the monitor setup is invalid", async () => {

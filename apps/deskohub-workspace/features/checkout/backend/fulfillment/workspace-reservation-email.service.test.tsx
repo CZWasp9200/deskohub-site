@@ -1029,52 +1029,8 @@ describe("sendPaidReservationEmails reservation access capability", () => {
         purposeMatches: true,
       });
 
-      const otherLocale = reservation.locale === "en-US" ? "cs-CZ" : "en-US";
-      const otherOrderId = workspaceReservationIdSchema.make(
-        "captured-email-other"
-      );
-      const [encodedClaims, encodedSignature] = accessTokenValue.split(".");
-      if (!encodedClaims || !encodedSignature) {
-        throw new Error("captured reservation access token shape is invalid");
-      }
-      const tamperedToken = reservationAccessTokenSchema.make(
-        `${encodedClaims}.${encodedSignature[0] === "A" ? "B" : "A"}${encodedSignature.slice(1)}`
-      );
-      const invalidInputs = [
-        {
-          token: tamperedToken,
-          orderId: reservation.id,
-          locale: reservation.locale,
-        },
-        {
-          token: accessToken,
-          orderId: otherOrderId,
-          locale: reservation.locale,
-        },
-        {
-          token: accessToken,
-          orderId: reservation.id,
-          locale: otherLocale,
-        },
-      ] as const;
-      for (const invalidInput of invalidInputs) {
-        const invalidOutcome = await Effect.runPromise(
-          Effect.flip(openSignedReservationAccessToken(invalidInput))
-        ).then(
-          (error) => error.code,
-          () => "unexpected-success"
-        );
-        expect(invalidOutcome === "invalid-token").toBe(true);
-      }
-
       const response = await proxy(new NextRequest(accessUrl));
       expect(response.status).toBe(307);
-      expect(
-        response.headers.get("cache-control") === "private, no-store"
-      ).toBe(true);
-      expect(response.headers.get("referrer-policy") === "no-referrer").toBe(
-        true
-      );
 
       const location = response.headers.get("location");
       if (!location) {

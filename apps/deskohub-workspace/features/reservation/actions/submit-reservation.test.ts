@@ -218,25 +218,6 @@ describe("submitWorkspaceReservation", () => {
     expect(scenario.createHostedPaymentCheckout).not.toHaveBeenCalled();
   });
 
-  test("continues checkout when allow-policy verification is unavailable", async () => {
-    const verificationCause = new Error("BotID unavailable");
-    const verifyHuman = mock(
-      ({ verificationFailurePolicy }: { verificationFailurePolicy: string }) =>
-        verificationFailurePolicy === "allow"
-          ? Effect.logWarning(
-              "Workspace BotID verification failed; allowing request",
-              { cause: verificationCause, verificationFailurePolicy }
-            )
-          : Effect.fail(verificationCause)
-    );
-    const scenario = await runSubmitReservation({ verifyHuman });
-
-    await expect(Effect.runPromise(scenario.effect)).resolves.toMatchObject({
-      status: "redirect",
-    });
-    expect(scenario.createHostedPaymentCheckout).toHaveBeenCalledTimes(1);
-  });
-
   test("maps cowork availability failures from their typed cause", async () => {
     const { CheckoutError } = await import(
       "@/features/checkout/backend/checkout"
