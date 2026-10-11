@@ -38,7 +38,7 @@ export const resolvePlaywrightChromiumExecutable = async (
  */
 export const playwrightChromiumAvailable = async (
   executablePath: string = chromium.executablePath(),
-  ci: string | undefined = process.env.CI
+  ci: boolean = Boolean(process.env.CI)
 ): Promise<boolean> => {
   try {
     await access(executablePath, constants.X_OK);

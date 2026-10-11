@@ -36,20 +36,17 @@ test("reports an installed Playwright Chromium as available", async () => {
   await writeFile(executable, "#!/bin/sh\n");
   await chmod(executable, 0o700);
 
-  expect(await playwrightChromiumAvailable(executable, "true")).toBe(true);
+  expect(await playwrightChromiumAvailable(executable, true)).toBe(true);
 });
 
 test("lets local browser tests skip without Playwright Chromium", async () => {
-  expect(await playwrightChromiumAvailable("/missing/chrome", undefined)).toBe(
+  expect(await playwrightChromiumAvailable("/missing/chrome", false)).toBe(
     false
   );
 });
 
 test("fails CI browser tests without Playwright Chromium", async () => {
-  const error = await playwrightChromiumAvailable(
-    "/missing/chrome",
-    "true"
-  ).then(
+  const error = await playwrightChromiumAvailable("/missing/chrome", true).then(
     () => null,
     (cause: unknown) => cause
   );
