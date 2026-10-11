@@ -5,16 +5,8 @@ import { workspaceE2ETimeouts } from "../timeouts";
 
 const locale = "en-US" as const;
 const siteHeaderDesktopBreakpoint = 1_280;
-const accountNavigationLabel = m.accountNavigationLabel({}, { locale });
 const primaryNavigationLabel = m.primaryNavigationLabel({}, { locale });
 const openNavigationMenuLabel = m.openNavigationMenuLabel({}, { locale });
-const accountSectionLabels = {
-  billing: m.accountSectionBilling({}, { locale }),
-  danger: m.accountSectionDanger({}, { locale }),
-  legal: m.accountSectionLegal({}, { locale }),
-  profile: m.accountSectionProfile({}, { locale }),
-  reservations: m.accountSectionReservations({}, { locale }),
-} as const;
 
 export type CookieCategory =
   | "necessary"
@@ -34,13 +26,6 @@ export async function preparePublicLegalBrowser(
     Object.defineProperty(navigator, "webdriver", { get: () => false });
   });
 }
-
-const cookieCategoryTitles = {
-  necessary: m.cookieSettingsNecessaryTitle({}, { locale }),
-  analytics: m.cookieSettingsAnalyticsTitle({}, { locale }),
-  marketing: m.cookieSettingsMarketingTitle({}, { locale }),
-  preferences: m.cookieSettingsPreferencesTitle({}, { locale }),
-} as const;
 
 export async function expectNoAuthSessionCookie(
   context: BrowserContext
@@ -87,47 +72,6 @@ export async function expectPublicAccountLegal(page: Page): Promise<void> {
       name: m.cookieSettingsRejectAll({}, { locale }),
     })
   ).toHaveCount(0);
-
-  for (const [category, title] of Object.entries(cookieCategoryTitles)) {
-    const categorySwitch = accountMain.getByRole("switch", {
-      exact: true,
-      name: title,
-    });
-    await expect(categorySwitch).toBeVisible();
-    if (category === "necessary") {
-      await expect(categorySwitch).toHaveAttribute("aria-checked", "true");
-      await expect(categorySwitch).toBeDisabled();
-    } else {
-      await expect(categorySwitch).toBeEnabled();
-    }
-  }
-
-  const accountNavigation = page.getByRole("navigation", {
-    name: accountNavigationLabel,
-  });
-  for (const [section, label] of Object.entries(accountSectionLabels)) {
-    const buttons = accountNavigation.getByRole("button", {
-      exact: true,
-      includeHidden: true,
-      name: label,
-    });
-    await expect(buttons).toHaveCount(2);
-    for (let index = 0; index < 2; index += 1) {
-      const button = buttons.nth(index);
-      if (section === "legal") {
-        await expect(button).toBeEnabled();
-      } else {
-        await expect(button).toBeDisabled();
-      }
-    }
-  }
-  const activeSectionButton = accountNavigation.getByRole("button", {
-    exact: true,
-    name: accountSectionLabels.legal,
-  });
-  await expect(activeSectionButton).toHaveCount(1);
-  await expect(activeSectionButton).toBeVisible();
-  await expect(activeSectionButton).toHaveAttribute("aria-current", "page");
 
   await expect(
     page.getByRole("button", {

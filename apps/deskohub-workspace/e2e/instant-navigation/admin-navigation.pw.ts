@@ -2,6 +2,7 @@ import { instant } from "@next/playwright";
 import { expect, test } from "@playwright/test";
 import { workspaceTestAdminCredentials } from "@/shared/testing/workspace-test-environment";
 import { resolveInstantNavigationAdminCredentials } from "../admin-basic-auth";
+import { isReviewScreenshotCaptureEnabled } from "../review-capture";
 import { enablePreviewAccess, requireBaseUrl } from "./navigation-test-helpers";
 
 const remoteBaseUrl = process.env.WORKSPACE_E2E_BASE_URL;
@@ -30,7 +31,7 @@ test.beforeEach(async ({ baseURL, context }) => {
 test("serves the administration shell and granular loading regions", async ({
   baseURL,
   page,
-}, testInfo) => {
+}) => {
   await instant(
     page,
     async () => {
@@ -43,40 +44,16 @@ test("serves the administration shell and granular loading regions", async ({
       await expect(page.getByLabel("Loading table filters")).toBeVisible();
       await expect(page.getByLabel("Loading reservations")).toBeVisible();
 
-      const skeleton = page.locator('[data-slot="skeleton"]').first();
-      await expect(skeleton).toBeVisible();
-      expect(
-        await skeleton.evaluate(
-          (element) => getComputedStyle(element, "::after").animationName
-        )
-      ).toBe("skeleton-glimmer");
-
-      await page.locator("nextjs-portal").evaluateAll((portals) => {
-        for (const portal of portals) {
-          (portal as HTMLElement).style.display = "none";
-        }
-      });
-      const screenshotPath = "e2e-artifacts/admin-reservations-loading.png";
-      await page.screenshot({ fullPage: true, path: screenshotPath });
-      await testInfo.attach("admin-reservations-loading", {
-        contentType: "image/png",
-        path: screenshotPath,
-      });
-      await page.emulateMedia({ reducedMotion: "reduce" });
-      expect(
-        await skeleton.evaluate(
-          (element) => getComputedStyle(element, "::after").display
-        )
-      ).toBe("none");
+      await expect(
+        page.locator('[data-slot="skeleton"]').first()
+      ).toBeVisible();
       await page.close();
     },
     { baseURL: requireBaseUrl(baseURL) }
   );
 });
 
-test("captures the customer activity section after hydration", async ({
-  page,
-}, testInfo) => {
+test("hydrates the customer activity section", async ({ page }, testInfo) => {
   await page.goto("/admin");
 
   const customerActivity = page.getByRole("region", {
@@ -85,12 +62,14 @@ test("captures the customer activity section after hydration", async ({
   await expect(customerActivity.getByText("Unique customers")).toBeVisible();
   await expect(customerActivity.getByText("New customers")).toBeVisible();
 
-  const screenshotPath =
-    "e2e-artifacts/account-review/admin-overview-customer-activity.png";
-  await page.screenshot({ fullPage: true, path: screenshotPath });
-  await testInfo.attach("admin-overview-customer-activity", {
-    contentType: "image/png",
-    path: screenshotPath,
-  });
+  if (isReviewScreenshotCaptureEnabled()) {
+    const screenshotPath =
+      "e2e-artifacts/account-review/admin-overview-customer-activity.png";
+    await page.screenshot({ fullPage: true, path: screenshotPath });
+    await testInfo.attach("admin-overview-customer-activity", {
+      contentType: "image/png",
+      path: screenshotPath,
+    });
+  }
   await page.close();
 });

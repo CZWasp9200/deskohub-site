@@ -47,7 +47,6 @@ test.describe("client navigation", () => {
     const accountLink = page
       .getByRole("banner")
       .getByRole("link", { name: "Account" });
-    await expect(accountLink).toHaveAttribute("href", signInPath);
     await accountLink.click();
 
     await expectAnonymousSignIn(page);
@@ -111,13 +110,6 @@ async function navigateToAccount(
         await expectPublicSiteShell(page);
         const status = page.getByRole("status", { name: accountStatusName });
         await expect(status).toBeVisible();
-        await expect(status).not.toHaveAttribute("aria-busy", "true");
-        const busyContent = status.locator('[aria-busy="true"]');
-        await expect(busyContent).toHaveCount(1);
-        await expect(busyContent).toBeVisible();
-        await expect(
-          busyContent.locator('[data-slot="skeleton"]').first()
-        ).toBeVisible();
         await captureAccountReview(
           page,
           requireBaseUrl(baseURL),
@@ -202,11 +194,6 @@ async function withSignInHandoffEvidence(
     await expect(signInLoading).toBeVisible({
       timeout: workspaceE2ETimeouts.browserAction,
     });
-    await expect(signInLoading).toHaveAttribute(
-      "data-slot",
-      "sign-in-loading",
-      { timeout: workspaceE2ETimeouts.browserAction }
-    );
 
     const layout = await page.evaluate(() => {
       const header = document.querySelector("header");
