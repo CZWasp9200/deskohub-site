@@ -126,7 +126,7 @@ export const getMeetingRoomReservationDetails = (
     endsAt: reservation.endsAt,
   });
 
-export const meetingRoomReservationPricingInputSchema = Schema.Struct({
+const meetingRoomReservationPricingInputSchema = Schema.Struct({
   kind: Schema.Literal(meetingRoomReservationKind),
   duration: meetingRoomReservationDurationSchema,
   reservationDate: plainDateStringSchema,

@@ -76,4 +76,3 @@ export const latePaymentRecoveries = pgTable(
 );
 
 export type LatePaymentRecovery = typeof latePaymentRecoveries.$inferSelect;
-export type NewLatePaymentRecovery = typeof latePaymentRecoveries.$inferInsert;

@@ -983,50 +983,6 @@ export const submitPreparedMeetingRoomReservationScript =
 export const submitPreparedOfficeReservationScript =
   getSubmitPreparedReservationScript();
 
-export const getSubmitContactFormScript = (data: {
-  readonly email: string;
-  readonly message: string;
-  readonly name: string;
-  readonly phone: string;
-}) => `
-(async () => {
-  const data = ${JSON.stringify(data)};
-  const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-  const waitUntil = async (predicate, label) => {
-    const deadline = Date.now() + 60000;
-    while (Date.now() < deadline) {
-      if (predicate()) return;
-      await wait(250);
-    }
-    throw new Error(label);
-  };
-  const setField = (selector, value) => {
-    const field = document.querySelector(selector);
-    if (!(field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement)) {
-      throw new Error(selector + ' not found');
-    }
-    field.focus();
-    field.value = value;
-    field.dispatchEvent(new Event('input', { bubbles: true }));
-    field.dispatchEvent(new Event('change', { bubbles: true }));
-  };
-
-  await waitUntil(() => document.querySelector('#contact-form form'), 'contact form not found');
-  setField('#contact-name', data.name);
-  setField('#contact-phone', data.phone);
-  setField('#contact-email', data.email);
-  setField('#contact-message', data.message);
-
-  const form = document.querySelector('#contact-form form');
-  if (!(form instanceof HTMLFormElement)) throw new Error('contact form element missing');
-  const button = form.querySelector('button[type="submit"]');
-  if (!(button instanceof HTMLButtonElement)) throw new Error('contact submit button missing');
-  await waitUntil(() => !button.disabled, 'contact submit button stayed disabled');
-  button.click();
-  return location.href;
-})()
-`;
-
 export const getAssertFulfillmentFailedSupportScript = (
   data: CheckoutData,
   orderId: CheckoutRow["reservation_id"]

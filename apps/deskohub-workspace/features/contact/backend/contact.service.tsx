@@ -13,7 +13,7 @@ import { renderWorkspaceEmail } from "@/shared/backend/email/render-react-email"
 import { StorageError } from "@/shared/backend/errors";
 import { workspaceSiteConstants } from "@/shared/utils";
 
-export interface ContactSubmission {
+interface ContactSubmission {
   name: string;
   email: string;
   phone?: string;

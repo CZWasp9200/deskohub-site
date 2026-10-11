@@ -40,13 +40,13 @@ export const manualInvoiceProvenanceSchema = Schema.Struct({
 });
 export type ManualInvoiceProvenance = typeof manualInvoiceProvenanceSchema.Type;
 
-export const manualInvoiceLineInputSchema = Schema.Struct({
+const manualInvoiceLineInputSchema = Schema.Struct({
   description: Schema.Trim.check(Schema.isNonEmpty(), Schema.isMaxLength(1000)),
   price: Schema.Trim.check(Schema.isPattern(/^[+-]?\d+(?:\.\d+)?$/)),
 });
 export type ManualInvoiceLineInput = typeof manualInvoiceLineInputSchema.Type;
 
-export const manualInvoicePaymentSchema = Schema.Union([
+const manualInvoicePaymentSchema = Schema.Union([
   Schema.Struct({
     status: Schema.Literal("due"),
     date: plainDateStringSchema,
@@ -79,7 +79,7 @@ export const manualInvoiceLineSchema = Schema.Struct({
   description: Schema.NonEmptyString,
   price: Schema.String,
 });
-export type ManualInvoiceLine = typeof manualInvoiceLineSchema.Type;
+type ManualInvoiceLine = typeof manualInvoiceLineSchema.Type;
 
 export class ManualInvoiceValidationError extends Data.TaggedError(
   "ManualInvoiceValidationError"

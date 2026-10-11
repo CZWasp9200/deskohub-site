@@ -42,7 +42,7 @@ const workspaceAvailabilityQueryBaseFields = {
   to: Schema.String,
 };
 
-export const coworkWorkspaceAvailabilityQuerySchema = Schema.Struct({
+const coworkWorkspaceAvailabilityQuerySchema = Schema.Struct({
   kind: Schema.Literal(coworkReservationKind),
   ...workspaceAvailabilityQueryBaseFields,
   date: Schema.optional(Schema.String),
@@ -52,26 +52,20 @@ export const coworkWorkspaceAvailabilityQuerySchema = Schema.Struct({
   ),
 });
 
-export const meetingRoomWorkspaceAvailabilityQuerySchema = Schema.Struct({
+const meetingRoomWorkspaceAvailabilityQuerySchema = Schema.Struct({
   kind: Schema.Literal(meetingRoomReservationKind),
   ...workspaceAvailabilityQueryBaseFields,
   startsAt: Schema.optional(reservationTimestampInputSchema),
   endsAt: Schema.optional(reservationTimestampInputSchema),
 });
 
-export const officeWorkspaceAvailabilityQuerySchema = Schema.Struct({
+const officeWorkspaceAvailabilityQuerySchema = Schema.Struct({
   kind: Schema.Literal(officeReservationKind),
   ...workspaceAvailabilityQueryBaseFields,
   startsAt: Schema.optional(reservationTimestampInputSchema),
   endsAt: Schema.optional(reservationTimestampInputSchema),
   seats: Schema.optional(officeSeatsSchema),
 });
-
-export const workspaceAvailabilityQuerySchema = Schema.Union([
-  coworkWorkspaceAvailabilityQuerySchema,
-  meetingRoomWorkspaceAvailabilityQuerySchema,
-  officeWorkspaceAvailabilityQuerySchema,
-]);
 
 export type CoworkWorkspaceAvailabilityQuery =
   typeof coworkWorkspaceAvailabilityQuerySchema.Type;

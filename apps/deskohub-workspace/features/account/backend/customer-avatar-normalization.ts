@@ -6,22 +6,19 @@ import sharp from "sharp";
  * is at most 2 MiB, and the normalized output is WebP bounded to 512x512.
  */
 export const customerAvatarMaxUploadBytes = 2 * 1024 * 1024;
-export const customerAvatarOutputMaxDimension = 512;
+const customerAvatarOutputMaxDimension = 512;
 
 /**
  * Pixel-bomb cap: an input whose decoded dimensions exceed this bound is
  * rejected before any pixel data is decoded into memory.
  */
-export const customerAvatarMaxInputDimension = 10_000;
+const customerAvatarMaxInputDimension = 10_000;
 
 export const customerAvatarAllowedMediaTypes = [
   "image/jpeg",
   "image/png",
   "image/webp",
 ] as const;
-
-export type CustomerAvatarMediaType =
-  (typeof customerAvatarAllowedMediaTypes)[number];
 
 const allowedSharpFormats = new Set(["jpeg", "png", "webp"]);
 

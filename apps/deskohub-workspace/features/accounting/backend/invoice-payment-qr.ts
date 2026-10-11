@@ -25,9 +25,9 @@ export interface InvoicePaymentRequest {
   readonly qrCode: Buffer | null;
 }
 
-export class InvoicePaymentQrError extends Data.TaggedError(
-  "InvoicePaymentQrError"
-)<{ readonly message: string }> {}
+class InvoicePaymentQrError extends Data.TaggedError("InvoicePaymentQrError")<{
+  readonly message: string;
+}> {}
 
 export const getInvoicePaymentRequest = Effect.fn("getInvoicePaymentRequest")(
   function* (document: ManualInvoiceDocument) {

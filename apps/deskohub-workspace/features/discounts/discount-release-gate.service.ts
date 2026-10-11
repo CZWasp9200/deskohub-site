@@ -2,7 +2,7 @@ import { Context, Effect, Layer } from "effect";
 import { WorkspaceFeatureFlagService } from "@/features/feature-flags/backend/workspace-feature-flag.service";
 import type { PostHogFeatureFlagKey } from "@/features/feature-flags/generated/contract";
 
-export type DiscountReleaseGateOperation =
+type DiscountReleaseGateOperation =
   | "quote"
   | "discover_active_sales"
   | "discover_advertised_discounts"

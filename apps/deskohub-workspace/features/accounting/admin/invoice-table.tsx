@@ -176,7 +176,7 @@ export function InvoiceAdministrationTable({
   );
 }
 
-export function InvoiceRowActions({
+function InvoiceRowActions({
   invoice,
 }: {
   readonly invoice: InvoiceAdministrationListItem;

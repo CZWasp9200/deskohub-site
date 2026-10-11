@@ -19,7 +19,7 @@ export const checkoutStateClaimsSchema = Schema.Struct({
   exp: Schema.Int.check(Schema.isGreaterThan(0)),
 });
 
-export const checkoutStateProtectedHeaderSchema = Schema.Struct({
+const checkoutStateProtectedHeaderSchema = Schema.Struct({
   kid: checkoutStateClaimsSchema.fields.kid,
 });
 
@@ -142,31 +142,31 @@ const loadConfiguredCheckoutStateKeys = Effect.fn(
   )
 );
 
-export const getCheckoutStateKeys = Effect.fn("checkoutStateToken.getKeys")(
-  function* (options: CheckoutStateCryptoOptions = {}) {
-    const keys = options.keys
-      ? [...options.keys]
-      : [...(yield* loadConfiguredCheckoutStateKeys())];
+const getCheckoutStateKeys = Effect.fn("checkoutStateToken.getKeys")(function* (
+  options: CheckoutStateCryptoOptions = {}
+) {
+  const keys = options.keys
+    ? [...options.keys]
+    : [...(yield* loadConfiguredCheckoutStateKeys())];
 
-    const [first, ...rest] = keys;
-    if (!first) {
-      return yield* new CheckoutStateTokenError({
-        code: "missing-secret",
-        message: "At least one checkout state encryption key is required.",
-      });
-    }
-
-    for (const key of keys) {
-      if (key.key.byteLength !== keyByteLength) {
-        return yield* invalidSecret(
-          "Checkout state encryption keys must be 32 bytes."
-        );
-      }
-    }
-
-    return [first, ...rest] as CheckoutStateKeys;
+  const [first, ...rest] = keys;
+  if (!first) {
+    return yield* new CheckoutStateTokenError({
+      code: "missing-secret",
+      message: "At least one checkout state encryption key is required.",
+    });
   }
-);
+
+  for (const key of keys) {
+    if (key.key.byteLength !== keyByteLength) {
+      return yield* invalidSecret(
+        "Checkout state encryption keys must be 32 bytes."
+      );
+    }
+  }
+
+  return [first, ...rest] as CheckoutStateKeys;
+});
 
 const getCheckoutStateNowMilliseconds = Effect.fn(
   "checkoutStateToken.getNowMilliseconds"

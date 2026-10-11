@@ -1,4 +1,4 @@
-export const providerOrderAbandonmentTimeoutMinutes = 30;
+const providerOrderAbandonmentTimeoutMinutes = 30;
 
 type ProviderOrderState = {
   readonly operationCount: number;

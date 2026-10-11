@@ -71,12 +71,12 @@ type ExactEmailCustomerRowMatch =
  * The provider's create response, closed as the created link id plus the
  * app-level profile mapped from that same decoded response.
  */
-export type CreatedCustomerProfile = {
+type CreatedCustomerProfile = {
   readonly customerId: DotyposCustomerId;
   readonly profile: CustomerProfile;
 };
 
-export const isCustomerProfileExpired = (
+const isCustomerProfileExpired = (
   customer: DotyposCustomer,
   now: Date = new Date()
 ): boolean =>
@@ -110,9 +110,7 @@ const hasInputBillingData = (
   nonEmpty(billing.zip) != null ||
   nonEmpty(billing.country) != null;
 
-export const toCustomerProfile = (
-  customer: DotyposCustomer
-): CustomerProfile => {
+const toCustomerProfile = (customer: DotyposCustomer): CustomerProfile => {
   const companyName = nonEmpty(customer.companyName);
   const companyId = nonEmpty(customer.companyId);
   const vatId = nonEmpty(customer.vatId);

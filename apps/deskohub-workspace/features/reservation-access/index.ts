@@ -1,12 +1,8 @@
 export {
-  getReservationAccessInterval,
   ReservationAccessIssuanceError,
   ReservationAccessService,
 } from "./backend/reservation-access.service";
-export type {
-  IssuedReservationAccess,
-  ReservationAccessGrant,
-} from "./reservation-access";
+export type { ReservationAccessGrant } from "./reservation-access";
 export {
   isReservationAccessProvisioningStale,
   reservationAccessProvisioningStaleAfterMilliseconds,

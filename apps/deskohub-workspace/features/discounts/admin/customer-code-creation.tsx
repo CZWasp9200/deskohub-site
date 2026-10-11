@@ -19,7 +19,7 @@ import {
   FormMessage,
 } from "@/shared/components/ui/form";
 import { Label } from "@/shared/components/ui/label";
-import { defaultWorkspaceCurrency } from "@/shared/money/currencies";
+import { defaultWorkspaceCurrencyCode } from "@/shared/money/currencies";
 import { useWorkspaceAction } from "@/shared/utils/use-workspace-action";
 import { mutateDiscountAdmin } from "./actions";
 import {
@@ -50,7 +50,7 @@ const discountCodeCreationFormDefaults = (
   adjustmentKind: "percentage",
   percentage: "10",
   fixedAmountValue: "10000",
-  fixedAmountCurrency: defaultWorkspaceCurrency.code,
+  fixedAmountCurrency: defaultWorkspaceCurrencyCode,
   products: [],
   code: "",
   enabled: true,

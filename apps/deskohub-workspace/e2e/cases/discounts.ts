@@ -1219,7 +1219,7 @@ const executeFullyConsumedVoucherCheckout = ({
     });
   });
 
-export const executeDiscountCheckout = ({
+const executeDiscountCheckout = ({
   appliedMessage = "Promotion applied: 10% off 🎉",
   config,
   data,
@@ -1312,7 +1312,7 @@ export const executeDiscountCheckout = ({
     state,
   });
 
-export const executeUnavailableDiscountCode = ({
+const executeUnavailableDiscountCode = ({
   code,
   config,
   data,
@@ -1392,7 +1392,7 @@ export const executeUnavailableDiscountCode = ({
     log(`unavailable discount code e2e passed for order ${orderId}`);
   });
 
-export const executeDiscountCodeExpiresBeforePayment = ({
+const executeDiscountCodeExpiresBeforePayment = ({
   code,
   codeId,
   config,
@@ -1471,7 +1471,7 @@ export const calendarDiscountExpectation = {
   label: calendarSaleLabel,
 } as const satisfies ExpectedDiscountApplication;
 
-export const codeDiscountExpectation = {
+const codeDiscountExpectation = {
   adjustment: { kind: "percentage", basisPoints: 1000 },
   label: codeDiscountLabel,
   redemptionState: "redeemed",

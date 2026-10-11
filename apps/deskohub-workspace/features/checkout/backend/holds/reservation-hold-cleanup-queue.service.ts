@@ -20,14 +20,13 @@ export const reservationHoldCleanupQueueTopic =
 export const reservationHoldCleanupScheduleMaxDelaySeconds = 7 * 24 * 60 * 60;
 const reservationHoldCleanupRetryWindowSeconds = 60 * 60;
 
-export const reservationHoldCleanupIdempotencyKeySchema =
-  Schema.NonEmptyString.pipe(
-    Schema.brand("ReservationHoldCleanupIdempotencyKey")
-  ).annotate({
-    identifier: "ReservationHoldCleanupIdempotencyKey",
-    description: "Idempotency key for scheduling one reservation-hold cleanup.",
-  });
-export type ReservationHoldCleanupIdempotencyKey =
+const reservationHoldCleanupIdempotencyKeySchema = Schema.NonEmptyString.pipe(
+  Schema.brand("ReservationHoldCleanupIdempotencyKey")
+).annotate({
+  identifier: "ReservationHoldCleanupIdempotencyKey",
+  description: "Idempotency key for scheduling one reservation-hold cleanup.",
+});
+type ReservationHoldCleanupIdempotencyKey =
   typeof reservationHoldCleanupIdempotencyKeySchema.Type;
 
 const makeReservationHoldCleanupIdempotencyKey = Schema.decodeUnknownSync(
@@ -40,7 +39,7 @@ const ReservationHoldCleanupSchedulePayloadSchema = Schema.Struct({
   reservationHoldExpiresAtIso: instantStringSchema,
 });
 
-export type ReservationHoldCleanupSchedulePayload =
+type ReservationHoldCleanupSchedulePayload =
   typeof ReservationHoldCleanupSchedulePayloadSchema.Encoded;
 
 type ReservationHoldCleanupScheduleMessage = {
@@ -55,7 +54,7 @@ type ReservationHoldCleanupScheduleMessage = {
 
 type ReservationHoldCleanupEnqueueResult = "duplicate" | "enqueued";
 
-export class ReservationHoldCleanupScheduleError extends Data.TaggedError(
+class ReservationHoldCleanupScheduleError extends Data.TaggedError(
   "ReservationHoldCleanupScheduleError"
 )<{
   readonly message: string;

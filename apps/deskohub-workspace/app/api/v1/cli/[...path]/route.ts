@@ -17,6 +17,8 @@ const workspaceAdminApiMutationRoute = defineWorkspaceHttpApiRoute(
   (request) => handleWorkspaceAdminApiRequest(request)
 );
 
-export const DELETE = workspaceAdminApiMutationRoute;
-export const PATCH = workspaceAdminApiMutationRoute;
-export const POST = workspaceAdminApiMutationRoute;
+export {
+  workspaceAdminApiMutationRoute as DELETE,
+  workspaceAdminApiMutationRoute as PATCH,
+  workspaceAdminApiMutationRoute as POST,
+};

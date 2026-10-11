@@ -1,7 +1,7 @@
 import { Data, Effect } from "effect";
 import { redact } from "./runtime";
 
-export const nexiWebhookDiagnosticCodes = [
+const nexiWebhookDiagnosticCodes = [
   "nexi_webhook_parse_failed",
   "nexi_webhook_unknown_order",
   "nexi_webhook_missing_security_token",
@@ -23,7 +23,7 @@ export const isNexiWebhookDiagnosticCode = (
   typeof value === "string" &&
   nexiWebhookDiagnosticCodes.some((code) => code === value);
 
-export const workspaceE2ERunnerDiagnosticCodes = [
+const workspaceE2ERunnerDiagnosticCodes = [
   "provider_session_row_read_failed_after_redirect",
   "provider_session_reservation_missing_after_redirect",
   "provider_session_active_attempt_missing_after_redirect",
@@ -36,7 +36,7 @@ export const workspaceE2ERunnerDiagnosticCodes = [
   "checkout_fulfillment_failed_before_marker",
 ] as const;
 
-export const workspaceE2EProfileNavigationDiagnosticCodes = [
+const workspaceE2EProfileNavigationDiagnosticCodes = [
   "account_profile_baseline_failed",
   "account_profile_clean_navigation_failed",
   "account_profile_draft_retention_failed",
@@ -64,7 +64,7 @@ export const workspaceE2EProfileNavigationDiagnosticCodes = [
 export type WorkspaceE2EProfileNavigationDiagnosticCode =
   (typeof workspaceE2EProfileNavigationDiagnosticCodes)[number];
 
-export const workspaceE2EReservationExistingCustomerDiagnosticCodes = [
+const workspaceE2EReservationExistingCustomerDiagnosticCodes = [
   "account_reservation_existing_customer_page_failed",
   "account_reservation_existing_customer_card_failed",
   "account_reservation_existing_customer_card_review_failed",
@@ -78,7 +78,7 @@ export const workspaceE2EReservationExistingCustomerDiagnosticCodes = [
 export type WorkspaceE2EReservationExistingCustomerDiagnosticCode =
   (typeof workspaceE2EReservationExistingCustomerDiagnosticCodes)[number];
 
-export const workspaceE2EAccountDiagnosticCodes = [
+const workspaceE2EAccountDiagnosticCodes = [
   "auth_delivery_request_rejected",
   "auth_delivery_message_not_observed",
   "auth_delivery_message_ambiguous",
@@ -129,7 +129,7 @@ export type NexiHostedPaymentPageStateCode =
 export type NexiHostedPaymentDiagnosticCode =
   `nexi_hosted_${NexiHostedPaymentStep}_${NexiHostedPaymentPageStateCode}`;
 
-export const nexiHostedPaymentDiagnosticCodes = nexiHostedPaymentSteps.flatMap(
+const nexiHostedPaymentDiagnosticCodes = nexiHostedPaymentSteps.flatMap(
   (step) =>
     nexiHostedPaymentPageStates.map(
       (state): NexiHostedPaymentDiagnosticCode => `nexi_hosted_${step}_${state}`
@@ -160,7 +160,7 @@ export const parseNexiHostedPaymentDiagnosticCode = (
   return undefined;
 };
 
-export const workspaceE2EDiagnosticCodes = [
+const workspaceE2EDiagnosticCodes = [
   ...nexiWebhookDiagnosticCodes,
   ...workspaceE2ERunnerDiagnosticCodes,
   ...workspaceE2EAccountDiagnosticCodes,

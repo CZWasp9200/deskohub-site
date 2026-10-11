@@ -33,20 +33,19 @@ const testDatabase = await connectWorkspacePostgresTestDatabase();
 describe.skipIf(!testDatabase)(
   "LatePaymentRecoveryRepository on disposable Postgres",
   () => {
-    const postgres = testDatabase;
-    if (!postgres) return;
+    if (!testDatabase) return;
     const reservationIds: WorkspaceReservationId[] = [];
 
     afterAll(async () => {
-      await postgres.pool.query(
+      await testDatabase.pool.query(
         "delete from late_payment_recoveries where workspace_reservation_id = any($1)",
         [reservationIds]
       );
-      await postgres.pool.query(
+      await testDatabase.pool.query(
         "delete from payment_attempts where workspace_reservation_id = any($1)",
         [reservationIds]
       );
-      await postgres.pool.query(
+      await testDatabase.pool.query(
         "delete from workspace_reservations where id = any($1)",
         [reservationIds]
       );
@@ -62,7 +61,7 @@ describe.skipIf(!testDatabase)(
           return yield* operation(yield* LatePaymentRecoveryRepository);
         }).pipe(
           Effect.provide(LatePaymentRecoveryRepository.Default),
-          Effect.provide(postgres.layer)
+          Effect.provide(testDatabase.layer)
         )
       );
 
@@ -76,7 +75,7 @@ describe.skipIf(!testDatabase)(
           return yield* operation(yield* LatePaymentRecoveryRepository);
         }).pipe(
           Effect.provide(LatePaymentRecoveryRepository.Default),
-          Effect.provide(postgres.layer),
+          Effect.provide(testDatabase.layer),
           Effect.result
         )
       );
@@ -96,7 +95,7 @@ describe.skipIf(!testDatabase)(
       );
       reservationIds.push(reservationId);
       await Effect.runPromise(
-        postgres.db.insert(workspaceReservations).values({
+        testDatabase.db.insert(workspaceReservations).values({
           id: reservationId,
           checkoutSessionKey: `late-session-${id}`,
           checkoutAttemptKey: checkoutAttemptKeySchema.make(`attempt-${id}`),
@@ -117,7 +116,7 @@ describe.skipIf(!testDatabase)(
         })
       );
       await Effect.runPromise(
-        postgres.db.insert(paymentAttempts).values({
+        testDatabase.db.insert(paymentAttempts).values({
           id: paymentAttemptId,
           workspaceReservationId: reservationId,
           provider: "nexi",
@@ -135,7 +134,7 @@ describe.skipIf(!testDatabase)(
         })
       );
       await Effect.runPromise(
-        postgres.db
+        testDatabase.db
           .update(workspaceReservations)
           .set({ activePaymentAttemptId: paymentAttemptId })
           .where(eq(workspaceReservations.id, reservationId))
@@ -175,19 +174,19 @@ describe.skipIf(!testDatabase)(
       readonly paymentAttemptId: PaymentAttemptId;
     }) => {
       const [reservation] = await Effect.runPromise(
-        postgres.db
+        testDatabase.db
           .select()
           .from(workspaceReservations)
           .where(eq(workspaceReservations.id, input.reservationId))
       );
       const [attempt] = await Effect.runPromise(
-        postgres.db
+        testDatabase.db
           .select()
           .from(paymentAttempts)
           .where(eq(paymentAttempts.id, input.paymentAttemptId))
       );
       const recoveries = await Effect.runPromise(
-        postgres.db
+        testDatabase.db
           .select()
           .from(latePaymentRecoveries)
           .where(
@@ -205,7 +204,7 @@ describe.skipIf(!testDatabase)(
 
       // Hold the attempt row so both starts read "no recovery yet" before
       // either can insert, which is exactly the webhook/verification race.
-      const blocker = await postgres.pool.connect();
+      const blocker = await testDatabase.pool.connect();
       await blocker.query("begin");
       await blocker.query(
         "select id from payment_attempts where id = $1 for update",
