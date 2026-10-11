@@ -54,8 +54,28 @@ function useFormField() {
   };
 }
 
-function FormItem({
+/**
+ * The label, control, and message stack every `FormItem` renders. Use it
+ * directly when the item itself stays out of layout (`className="contents"`)
+ * so its label still sits at the same distance from its control.
+ */
+function FormItemLayout({
   className,
+  ref,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement> & {
+  ref?: React.Ref<HTMLDivElement>;
+}) {
+  return (
+    <div
+      ref={ref}
+      className={cn("flex flex-col gap-y-2", className)}
+      {...props}
+    />
+  );
+}
+
+function FormItem({
   ref,
   ...props
 }: React.HTMLAttributes<HTMLDivElement> & {
@@ -65,11 +85,7 @@ function FormItem({
 
   return (
     <FormItemContext.Provider value={{ id }}>
-      <div
-        ref={ref}
-        className={cn("flex flex-col gap-y-2", className)}
-        {...props}
-      />
+      <FormItemLayout ref={ref} {...props} />
     </FormItemContext.Provider>
   );
 }
@@ -153,6 +169,7 @@ export {
   FormControl,
   FormField,
   FormItem,
+  FormItemLayout,
   FormLabel,
   FormMessage,
   useFormField,

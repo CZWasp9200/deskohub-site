@@ -1,11 +1,15 @@
 "use client";
 
 import { Info, type LucideIcon } from "lucide-react";
-import { useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { ReservationSkeletonBlock } from "@/features/reservation/components/reservation-form-fallback";
 import { ReservationFormLabel } from "@/features/reservation/components/reservation-form-label";
 import { Button } from "@/shared/components/ui/button";
-import { FormControl, useFormField } from "@/shared/components/ui/form";
+import {
+  FormControl,
+  FormItemLayout,
+  useFormField,
+} from "@/shared/components/ui/form";
 import { Label } from "@/shared/components/ui/label";
 import { Switch } from "@/shared/components/ui/switch";
 import {
@@ -18,6 +22,7 @@ import {
 type CoworkOptionalAddonToggleProps = {
   readonly addon: "coffee" | "workstation";
   readonly checked: boolean;
+  readonly children?: ReactNode;
   readonly disabled?: boolean;
   readonly icon: LucideIcon;
   readonly info?: {
@@ -33,11 +38,14 @@ type CoworkOptionalAddonToggleProps = {
 /**
  * Shared visual presentation for the one optional paid cowork add-on
  * (coffee or workstation). Domain controllers bind it to their field and
- * keep the price test hooks on the same markup path.
+ * keep the price test hooks on the same markup path. It owns the field's
+ * label/control stack, so the label spacing matches every other field;
+ * `children` render below the control inside that stack.
  */
 export function CoworkOptionalAddonToggle({
   addon,
   checked,
+  children,
   disabled,
   icon: Icon,
   info,
@@ -47,11 +55,9 @@ export function CoworkOptionalAddonToggle({
   priceLabel,
 }: CoworkOptionalAddonToggleProps) {
   const { formItemId } = useFormField();
-  const [isTooltipOpen, setIsTooltipOpen] = useState(false);
-  const isTouchTooltipOpen = useRef(false);
 
   return (
-    <>
+    <FormItemLayout data-cowork-addon-control>
       <ReservationFormLabel>{label}</ReservationFormLabel>
       <div className="flex items-center gap-2">
         <Label
@@ -86,14 +92,8 @@ export function CoworkOptionalAddonToggle({
           </span>
         </Label>
         {info && (
-          <TooltipProvider delayDuration={0}>
-            <Tooltip
-              open={isTooltipOpen}
-              onOpenChange={(open) => {
-                if (isTouchTooltipOpen.current && !open) return;
-                setIsTooltipOpen(open);
-              }}
-            >
+          <TooltipProvider>
+            <Tooltip>
               <TooltipTrigger asChild>
                 <Button
                   type="button"
@@ -101,12 +101,6 @@ export function CoworkOptionalAddonToggle({
                   size="icon"
                   aria-label={info.triggerLabel}
                   className="h-11 w-11 shrink-0 rounded-full p-0 text-navy-blue/60"
-                  onPointerDown={(event) => {
-                    if (event.pointerType !== "touch") return;
-                    const open = !isTouchTooltipOpen.current;
-                    isTouchTooltipOpen.current = open;
-                    setIsTooltipOpen(open);
-                  }}
                 >
                   <Info aria-hidden="true" className="size-4" />
                 </Button>
@@ -115,10 +109,6 @@ export function CoworkOptionalAddonToggle({
                 align="end"
                 collisionPadding={16}
                 className="w-[min(22rem,calc(100vw-2rem))] p-4"
-                onEscapeKeyDown={() => {
-                  isTouchTooltipOpen.current = false;
-                  setIsTooltipOpen(false);
-                }}
                 side="top"
               >
                 <p>{info.content}</p>
@@ -127,6 +117,7 @@ export function CoworkOptionalAddonToggle({
           </TooltipProvider>
         )}
       </div>
-    </>
+      {children}
+    </FormItemLayout>
   );
 }
