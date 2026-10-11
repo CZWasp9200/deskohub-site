@@ -35,6 +35,7 @@ const existingCustomer = {
     email: "ada@example.test",
     phone: "+420 777 777 777",
   },
+  hasMarketingConsent: false,
 };
 
 type ReservationContentProps = {
