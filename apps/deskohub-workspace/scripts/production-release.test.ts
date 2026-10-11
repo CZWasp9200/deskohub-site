@@ -17,6 +17,7 @@ import {
   assertStagedDeploymentCrons,
   emitRollbackTarget,
   promoteStagedDeployment,
+  requiredProductionAliases,
   resolveCanonicalAlias,
   resolveProductionRollbackTarget,
   verifyCanonicalAliasServes,
@@ -618,6 +619,9 @@ describe("workspace production release checks", () => {
     const scriptPath = fileURLToPath(
       new URL("./production-release.ts", import.meta.url)
     );
+    const vercelApiFixturePath = fileURLToPath(
+      new URL("./production-release.vercel-api-fixture.ts", import.meta.url)
+    );
     const workspaceRoot = resolve(import.meta.dir, "../..");
     const fakeBin = mkdtempSync(join(tmpdir(), "release-cli-"));
     const recordFile = join(fakeBin, "invocations.log");
@@ -627,11 +631,11 @@ describe("workspace production release checks", () => {
       { mode: 0o755 }
     );
 
-    await runCommand(
+    const result = await runCommand(
       [
-        "timeout",
-        "30",
         process.execPath,
+        "--preload",
+        vercelApiFixturePath,
         scriptPath,
         "rollback",
         "--url",
@@ -645,20 +649,26 @@ describe("workspace production release checks", () => {
           RECORD_FILE: recordFile,
           VERCEL_TOKEN: "synthetic-token",
           VERCEL_PROJECT_ID: "synthetic-project",
-          HTTPS_PROXY: "http://127.0.0.1:9",
+          PRODUCTION_ALIASES: requiredProductionAliases.join(","),
         },
+        timeoutMs: 20_000,
       }
     );
 
     // The rollback command shells out through bunx; the invocation record is
     // the observable command construction.
     const recorded = readFileSync(recordFile, "utf8");
+    rmSync(fakeBin, { recursive: true, force: true });
+    expect(result).toMatchObject({
+      exitCode: 0,
+      signalCode: null,
+      timedOut: false,
+    });
     expect(recorded).toContain("vercel@54.9.1");
     expect(recorded).toContain("rollback");
     expect(recorded).toContain("https://staged.vercel.app");
     expect(recorded).not.toContain("promote");
-    rmSync(fakeBin, { recursive: true, force: true });
-  }, 60000);
+  });
 
   type DeploymentState = "baseline" | "staged";
 

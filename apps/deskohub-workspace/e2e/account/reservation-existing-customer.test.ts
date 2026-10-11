@@ -1,9 +1,8 @@
 import { expect, test } from "bun:test";
-import { constants } from "node:fs";
-import { access } from "node:fs/promises";
 import { createServer } from "node:http";
 import { chromium, type Page } from "@playwright/test";
 import type { ReservationCustomerMode } from "@/features/reservation/reservation-existing-customer";
+import { playwrightChromiumAvailable } from "../../shared/testing/playwright-browser";
 import {
   isWorkspaceE2EDiagnosticCode,
   WorkspaceE2EError,
@@ -360,12 +359,7 @@ test("does not capture the contact review when the card check fails", async () =
   ).toHaveLength(0);
 });
 
-const chromiumAvailable = await access(
-  chromium.executablePath(),
-  constants.X_OK
-)
-  .then(() => true)
-  .catch(() => false);
+const chromiumAvailable = await playwrightChromiumAvailable();
 
 /**
  * A static stand-in for the cowork customer section: the account card and
