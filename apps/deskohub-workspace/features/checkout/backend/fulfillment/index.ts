@@ -1,4 +1,7 @@
 export { WorkspacePaidFulfillmentService } from "./paid-fulfillment.service";
+export { PaidFulfillmentQueueService } from "./paid-fulfillment-queue.service";
+export { processPaidFulfillmentMessage } from "./paid-fulfillment-queue-consumer";
+export { reconcileStalledPaidFulfillments } from "./paid-fulfillment-reconciliation";
 export {
   ResendWebhookProcessingError,
   ResendWebhookService,

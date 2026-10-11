@@ -5,6 +5,7 @@ import { describe, expect, mock, test } from "bun:test";
 import { DotyposService } from "@deskohub/dotypos";
 import { Effect, Layer } from "effect";
 import { SeatingMapFeatureFlagServiceMock } from "@/features/feature-flags/backend/seating-map-feature-flag.service.mock";
+import { AdvisoryAvailabilityInventory } from "@/features/reservation/backend/availability-inventory";
 import type { ReservationHoldCleanupService as ReservationHoldCleanupServiceType } from "../holds/reservation-hold-cleanup.service";
 import { LatePaymentVerificationService } from "../payment/late-payment-verification.service";
 import type { ProviderPaymentFinalizationService as ProviderPaymentFinalizationServiceType } from "../payment/provider-payment-finalization.service";
@@ -87,22 +88,29 @@ const makePaymentAttempt = <Overrides extends object>(
 });
 
 const makeDotypos = <Overrides extends object>(overrides?: Overrides) => ({
-  getReservation: mock(() =>
+  getReservationWithoutCustomer: mock(() =>
     Effect.succeed({
-      reservation: {
-        id: "dotypos-reservation-id",
-        _customerId: "customer-id",
-        startDate: "2026-06-20T00:00:00.000+02:00",
-        endDate: "2026-06-21T00:00:00.000+02:00",
-        seats: "1",
-        status: "CONFIRMED",
-      },
-      customer: { id: "customer-id" },
+      id: "dotypos-reservation-id",
+      _customerId: "customer-id",
+      startDate: "2026-06-20T00:00:00.000+02:00",
+      endDate: "2026-06-21T00:00:00.000+02:00",
+      seats: "1",
+      status: "CONFIRMED",
     })
   ),
+  getCustomer: mock(() => Effect.succeed({ id: "customer-id" })),
   getTables: mock(() => Effect.succeed([])),
   ...overrides,
 });
+
+/** Serves the status page's table inventory from the mocked Dotypos tables. */
+const dotyposLayer = (dotypos: ReturnType<typeof makeDotypos>) =>
+  Layer.mergeAll(
+    Layer.mock(DotyposService, dotypos),
+    Layer.mock(AdvisoryAvailabilityInventory, {
+      tables: Effect.suspend(() => dotypos.getTables()),
+    })
+  );
 
 describe("CheckoutStatusService", () => {
   test("refreshes successful payment status before reading status", async () => {
@@ -161,7 +169,7 @@ describe("CheckoutStatusService", () => {
               Layer.mock(ProviderPaymentFinalizationService, finalization),
               Layer.mock(WorkspaceReservationRepository, reservations),
               Layer.mock(PaymentAttemptRepository, paymentAttempts),
-              Layer.mock(DotyposService, makeDotypos()),
+              dotyposLayer(makeDotypos()),
               Layer.mock(ReservationHoldCleanupService, holdCleanup),
               noLatePaymentLayer(),
               SeatingMapFeatureFlagServiceMock({
@@ -174,10 +182,7 @@ describe("CheckoutStatusService", () => {
       Effect.runPromise
     );
 
-    expect(finalizePendingProviderPayment).toHaveBeenCalledWith({
-      orderId,
-      paymentAttemptId: "attempt-provider-return",
-    });
+    expect(finalizePendingProviderPayment).toHaveBeenCalledWith({ orderId });
     expect(status.status).toBe("fulfilled");
     expect(holdCleanup.cancelOrderHold).not.toHaveBeenCalled();
   });
@@ -231,7 +236,7 @@ describe("CheckoutStatusService", () => {
               Layer.mock(ProviderPaymentFinalizationService, finalization),
               Layer.mock(WorkspaceReservationRepository, reservations),
               Layer.mock(PaymentAttemptRepository, paymentAttempts),
-              Layer.mock(DotyposService, makeDotypos()),
+              dotyposLayer(makeDotypos()),
               Layer.mock(ReservationHoldCleanupService, holdCleanup),
               noLatePaymentLayer(),
               SeatingMapFeatureFlagServiceMock({
@@ -329,18 +334,15 @@ describe("CheckoutStatusService", () => {
           ])
     );
     const dotypos = makeDotypos({
-      getReservation: mock(() =>
+      getReservationWithoutCustomer: mock(() =>
         Effect.succeed({
-          reservation: {
-            id: "dotypos-reservation-id",
-            _customerId: "customer-id",
-            _tableId: "assigned-table",
-            startDate: "2026-06-19T22:00:00.000Z",
-            endDate: "2026-06-20T22:00:00.000Z",
-            seats: "1",
-            status: "CONFIRMED",
-          },
-          customer: { id: "customer-id" },
+          id: "dotypos-reservation-id",
+          _customerId: "customer-id",
+          _tableId: "assigned-table",
+          startDate: "2026-06-19T22:00:00.000Z",
+          endDate: "2026-06-20T22:00:00.000Z",
+          seats: "1",
+          status: "CONFIRMED",
         })
       ),
       getTables,
@@ -361,7 +363,7 @@ describe("CheckoutStatusService", () => {
                 Layer.mock(ProviderPaymentFinalizationService, finalization),
                 Layer.mock(WorkspaceReservationRepository, reservations),
                 Layer.mock(PaymentAttemptRepository, paymentAttempts),
-                Layer.mock(DotyposService, dotypos),
+                dotyposLayer(dotypos),
                 Layer.mock(ReservationHoldCleanupService, holdCleanup),
                 noLatePaymentLayer(),
                 SeatingMapFeatureFlagServiceMock({
@@ -479,18 +481,15 @@ describe("CheckoutStatusService", () => {
       sweepExpiredHolds: mock(() => Effect.die("not used")),
     };
     const dotypos = makeDotypos({
-      getReservation: mock(() =>
+      getReservationWithoutCustomer: mock(() =>
         Effect.succeed({
-          reservation: {
-            id: "dotypos-reservation-id",
-            _customerId: "customer-id",
-            _tableId: "assigned-only-table-id",
-            startDate: "2026-06-19T22:00:00.000Z",
-            endDate: "2026-06-20T22:00:00.000Z",
-            seats: "1",
-            status: "CONFIRMED",
-          },
-          customer: { id: "customer-id" },
+          id: "dotypos-reservation-id",
+          _customerId: "customer-id",
+          _tableId: "assigned-only-table-id",
+          startDate: "2026-06-19T22:00:00.000Z",
+          endDate: "2026-06-20T22:00:00.000Z",
+          seats: "1",
+          status: "CONFIRMED",
         })
       ),
       getTables: mock(() =>
@@ -585,7 +584,7 @@ describe("CheckoutStatusService", () => {
               Layer.mock(ProviderPaymentFinalizationService, finalization),
               Layer.mock(WorkspaceReservationRepository, reservations),
               Layer.mock(PaymentAttemptRepository, paymentAttempts),
-              Layer.mock(DotyposService, dotypos),
+              dotyposLayer(dotypos),
               Layer.mock(ReservationHoldCleanupService, holdCleanup),
               noLatePaymentLayer(),
               SeatingMapFeatureFlagServiceMock({
@@ -654,18 +653,15 @@ describe("CheckoutStatusService", () => {
       sweepExpiredHolds: mock(() => Effect.die("not used")),
     };
     const dotypos = makeDotypos({
-      getReservation: mock(() =>
+      getReservationWithoutCustomer: mock(() =>
         Effect.succeed({
-          reservation: {
-            id: "dotypos-reservation-id",
-            _customerId: "customer-id",
-            _tableId: "meeting-room-table",
-            startDate: "2026-06-20T07:00:00.000Z",
-            endDate: "2026-06-20T11:00:00.000Z",
-            seats: "12",
-            status: "CONFIRMED",
-          },
-          customer: { id: "customer-id" },
+          id: "dotypos-reservation-id",
+          _customerId: "customer-id",
+          _tableId: "meeting-room-table",
+          startDate: "2026-06-20T07:00:00.000Z",
+          endDate: "2026-06-20T11:00:00.000Z",
+          seats: "12",
+          status: "CONFIRMED",
         })
       ),
       getTables: mock(() =>
@@ -697,7 +693,7 @@ describe("CheckoutStatusService", () => {
               Layer.mock(ProviderPaymentFinalizationService, finalization),
               Layer.mock(WorkspaceReservationRepository, reservations),
               Layer.mock(PaymentAttemptRepository, paymentAttempts),
-              Layer.mock(DotyposService, dotypos),
+              dotyposLayer(dotypos),
               Layer.mock(ReservationHoldCleanupService, holdCleanup),
               noLatePaymentLayer(),
               SeatingMapFeatureFlagServiceMock({
@@ -773,18 +769,15 @@ describe("CheckoutStatusService", () => {
       sweepExpiredHolds: mock(() => Effect.die("not used")),
     };
     const dotypos = makeDotypos({
-      getReservation: mock(() =>
+      getReservationWithoutCustomer: mock(() =>
         Effect.succeed({
-          reservation: {
-            id: "dotypos-reservation-id",
-            _customerId: "customer-id",
-            _tableId: "office-table",
-            startDate: "2026-06-11T22:00:00.000Z",
-            endDate: "2026-06-14T22:00:00.000Z",
-            seats: "3",
-            status: "CONFIRMED",
-          },
-          customer: { id: "customer-id" },
+          id: "dotypos-reservation-id",
+          _customerId: "customer-id",
+          _tableId: "office-table",
+          startDate: "2026-06-11T22:00:00.000Z",
+          endDate: "2026-06-14T22:00:00.000Z",
+          seats: "3",
+          status: "CONFIRMED",
         })
       ),
     });
@@ -803,7 +796,7 @@ describe("CheckoutStatusService", () => {
               Layer.mock(ProviderPaymentFinalizationService, finalization),
               Layer.mock(WorkspaceReservationRepository, reservations),
               Layer.mock(PaymentAttemptRepository, paymentAttempts),
-              Layer.mock(DotyposService, dotypos),
+              dotyposLayer(dotypos),
               Layer.mock(ReservationHoldCleanupService, holdCleanup),
               noLatePaymentLayer(),
               SeatingMapFeatureFlagServiceMock({
@@ -887,26 +880,25 @@ describe("CheckoutStatusService", () => {
               Layer.mock(ProviderPaymentFinalizationService, finalization),
               Layer.mock(WorkspaceReservationRepository, reservations),
               Layer.mock(PaymentAttemptRepository, paymentAttempts),
-              Layer.mock(
-                DotyposService,
+              dotyposLayer(
                 makeDotypos({
-                  getReservation: mock(() =>
+                  getReservationWithoutCustomer: mock(() =>
                     Effect.succeed({
-                      reservation: {
-                        id: "dotypos-reservation-id",
-                        _customerId: "customer-id",
-                        startDate: "2026-06-19T22:00:00.000Z",
-                        endDate: "2026-06-20T22:00:00.000Z",
-                        seats: "1",
-                        status: "CONFIRMED",
-                      },
-                      customer: {
-                        id: "customer-id",
-                        firstName: "Ada",
-                        lastName: "Lovelace",
-                        email: "ada@example.com",
-                        phone: "+420777777777",
-                      },
+                      id: "dotypos-reservation-id",
+                      _customerId: "customer-id",
+                      startDate: "2026-06-19T22:00:00.000Z",
+                      endDate: "2026-06-20T22:00:00.000Z",
+                      seats: "1",
+                      status: "CONFIRMED",
+                    })
+                  ),
+                  getCustomer: mock(() =>
+                    Effect.succeed({
+                      id: "customer-id",
+                      firstName: "Ada",
+                      lastName: "Lovelace",
+                      email: "ada@example.com",
+                      phone: "+420777777777",
                     })
                   ),
                 })
@@ -978,7 +970,7 @@ describe("CheckoutStatusService", () => {
       cancelOrderHold: mock(() => Effect.die("not used")),
       sweepExpiredHolds: mock(() => Effect.die("not used")),
     };
-    const getReservation = mock(() => Effect.die("not used"));
+    const getReservationWithoutCustomer = mock(() => Effect.die("not used"));
 
     const status = await Effect.gen(function* () {
       const service = yield* CheckoutStatusService;
@@ -994,7 +986,7 @@ describe("CheckoutStatusService", () => {
               Layer.mock(ProviderPaymentFinalizationService, finalization),
               Layer.mock(WorkspaceReservationRepository, reservations),
               Layer.mock(PaymentAttemptRepository, paymentAttempts),
-              Layer.mock(DotyposService, makeDotypos({ getReservation })),
+              dotyposLayer(makeDotypos({ getReservationWithoutCustomer })),
               Layer.mock(ReservationHoldCleanupService, holdCleanup),
               noLatePaymentLayer(),
               SeatingMapFeatureFlagServiceMock({
@@ -1009,7 +1001,7 @@ describe("CheckoutStatusService", () => {
 
     expect(status.status).toBe("payment_failed");
     expect(status.summary).toBeUndefined();
-    expect(getReservation).not.toHaveBeenCalled();
+    expect(getReservationWithoutCustomer).not.toHaveBeenCalled();
   });
 
   test("keeps status renderable when Dotypos summary lookup fails", async () => {
@@ -1064,10 +1056,11 @@ describe("CheckoutStatusService", () => {
               Layer.mock(ProviderPaymentFinalizationService, finalization),
               Layer.mock(WorkspaceReservationRepository, reservations),
               Layer.mock(PaymentAttemptRepository, paymentAttempts),
-              Layer.mock(
-                DotyposService,
+              dotyposLayer(
                 makeDotypos({
-                  getReservation: mock(() => Effect.fail("down")),
+                  getReservationWithoutCustomer: mock(() =>
+                    Effect.fail("down")
+                  ),
                 })
               ),
               Layer.mock(ReservationHoldCleanupService, holdCleanup),

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { Context, Effect, Layer } from "effect";
-import { redirect } from "next/navigation";
+import { Context, Deferred, Effect, Layer } from "effect";
+import { notFound, redirect } from "next/navigation";
 import { NextEffect } from ".";
 
 class TestService extends Context.Service<
@@ -32,6 +32,111 @@ describe("NextEffect", () => {
     });
 
     await expect(next.run(TestService)).rejects.toBe(mapped);
+  });
+
+  test("run builds the layer once and shares it across runs", async () => {
+    let builds = 0;
+    const next = NextEffect.make({
+      layer: Layer.sync(TestService, () => {
+        builds += 1;
+        return { value: `build-${builds}` };
+      }),
+    });
+
+    const readValue = Effect.map(TestService, ({ value }) => value);
+    const concurrent = await Promise.all([
+      next.run(readValue),
+      next.run(readValue),
+    ]);
+    const later = await next.run(readValue);
+
+    expect(builds).toBe(1);
+    expect([...concurrent, later]).toEqual(["build-1", "build-1", "build-1"]);
+  });
+
+  test("runtimes sharing a memo map reuse each other's built layers", async () => {
+    let builds = 0;
+    const layer = Layer.sync(TestService, () => {
+      builds += 1;
+      return { value: "shared" };
+    });
+    const memoMap = Layer.makeMemoMapUnsafe();
+    const first = NextEffect.make({ layer, memoMap });
+    const second = NextEffect.make({ layer, memoMap });
+
+    await first.run(TestService);
+    await second.run(TestService);
+
+    expect(builds).toBe(1);
+  });
+
+  test("concurrent runs do not share layers their effects provide", async () => {
+    class RequestService extends Context.Service<
+      RequestService,
+      { readonly build: number }
+    >()("@deskohub/next-effect/test/RequestService") {}
+    let builds = 0;
+    const requestLayer = Layer.sync(RequestService, () => {
+      builds += 1;
+      return { build: builds };
+    });
+    const next = NextEffect.make({
+      layer: Layer.succeed(TestService, { value: "service" }),
+    });
+    const release = Deferred.makeUnsafe<void>();
+    const handler = Effect.gen(function* () {
+      const request = yield* RequestService;
+      yield* Deferred.await(release);
+      return request.build;
+    }).pipe(Effect.provide(requestLayer));
+
+    const first = next.run(handler);
+    const second = next.run(handler);
+    await Bun.sleep(0);
+    Effect.runSync(Deferred.succeed(release, undefined));
+
+    expect((await Promise.all([first, second])).sort()).toEqual([1, 2]);
+  });
+
+  test("run interrupts a layer-backed effect with its signal", async () => {
+    const next = NextEffect.make({
+      layer: Layer.succeed(TestService, { value: "service" }),
+    });
+    await next.run(TestService);
+    const controller = new AbortController();
+    let interrupted = false;
+    const result = next.run(
+      Effect.never.pipe(
+        Effect.onInterrupt(() =>
+          Effect.sync(() => {
+            interrupted = true;
+          })
+        )
+      ),
+      { signal: controller.signal }
+    );
+
+    controller.abort();
+
+    await expect(result).rejects.toBeDefined();
+    expect(interrupted).toBe(true);
+  });
+
+  test("run preserves Next control-flow throws with a layer", async () => {
+    const next = NextEffect.make({
+      layer: Layer.succeed(TestService, { value: "service" }),
+    });
+
+    await expect(
+      next.run(Effect.sync(() => redirect("/target")))
+    ).rejects.toMatchObject({
+      digest: expect.stringContaining("NEXT_REDIRECT"),
+    });
+    await expect(next.run(Effect.sync(() => notFound()))).rejects.toMatchObject(
+      {
+        digest: "NEXT_HTTP_ERROR_FALLBACK;404",
+      }
+    );
   });
 
   test("page passes props into an Effect component", async () => {

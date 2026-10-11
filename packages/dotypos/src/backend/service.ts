@@ -495,7 +495,9 @@ const makeDotyposService = Effect.gen(function* () {
     );
   };
 
-  const getReservation = Effect.fn("getReservation")(
+  const getReservationWithoutCustomer = Effect.fn(
+    "getReservationWithoutCustomer"
+  )(
     function* (id: DotyposReservationId) {
       const reservationId = yield* normalizeIdentifier(
         DotyposReservationIdSchema,
@@ -510,15 +512,27 @@ const makeDotyposService = Effect.gen(function* () {
         catchUnexpectedDotyposError("getReservation")
       );
 
-      const reservation = yield* decodeProviderEntity(
+      return yield* decodeProviderEntity(
         DotyposReservationSchema,
         { ...reservationResult, id: reservationId },
         "getReservation"
       );
+    },
+    (effect, reservationId) =>
+      effect.pipe(
+        Effect.annotateLogs({
+          reservationId,
+        })
+      )
+  );
+
+  const getReservation = Effect.fn("getReservation")(
+    function* (id: DotyposReservationId) {
+      const reservation = yield* getReservationWithoutCustomer(id);
 
       if (!reservation._customerId) {
         return yield* new ValidationError({
-          message: `Reservation ${reservationId} has no customer ID`,
+          message: `Reservation ${reservation.id} has no customer ID`,
         });
       }
 
@@ -1720,6 +1734,7 @@ const makeDotyposService = Effect.gen(function* () {
     cancelReservation,
     confirmReservation,
     getReservation,
+    getReservationWithoutCustomer,
     getReservationStatus,
     getCustomer,
     getCustomers,

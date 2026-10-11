@@ -17,6 +17,8 @@ import {
   SeatingMapFeatureFlagService,
   WorkspaceFeatureFlagService,
 } from "@/features/feature-flags/backend";
+import { AdvisoryAvailabilityInventory } from "@/features/reservation/backend/availability-inventory";
+import { SharedAvailabilityInventoryLive } from "@/features/reservation/backend/availability-inventory-cache.server";
 import {
   type CustomerReservationTable,
   getCustomerReservationTable,
@@ -152,7 +154,6 @@ type CheckoutStatusReconstruction = {
   readonly reservation: CheckoutStatusReservationReconstruction;
   readonly table?: CustomerReservationTable;
   readonly tableMap?: CheckoutStatusTableMap;
-  readonly supportContactPrefill?: CheckoutStatusContactPrefill;
 };
 
 type CheckoutStatusError =
@@ -248,6 +249,15 @@ const canUseAttemptForSummary = (
   return reservation.paymentState === "paid" && attempt.state === "paid";
 };
 
+/**
+ * Payment states whose displayable attempt is normally usable, so the Dotypos
+ * reservation can load alongside the attempt instead of after it.
+ */
+const isSummaryLikelyDisplayable = (reservation: WorkspaceReservation) =>
+  reservation.paymentState === "not_started" ||
+  reservation.paymentState === "pending" ||
+  reservation.paymentState === "paid";
+
 const toOptionalString = (value: string | null | undefined) => {
   const trimmed = value?.trim();
   return trimmed || undefined;
@@ -282,12 +292,15 @@ const getEmptyCheckoutStatusReservation = (
     })
   );
 
+const summaryTimeout = "8 seconds";
+
 const implementation = Effect.gen(function* () {
   const reservations = yield* WorkspaceReservationRepository;
   const latePaymentRecoveries = yield* LatePaymentRecoveryRepository;
   const latePaymentVerification = yield* LatePaymentVerificationService;
   const paymentAttempts = yield* PaymentAttemptRepository;
   const dotypos = yield* DotyposService;
+  const inventory = yield* AdvisoryAvailabilityInventory;
   const finalization = yield* ProviderPaymentFinalizationService;
   const seatingMapFeatureFlag = yield* SeatingMapFeatureFlagService;
 
@@ -309,11 +322,42 @@ const implementation = Effect.gen(function* () {
         return emptyReconstruction;
       }
 
-      const attempt = yield* paymentAttempts.findDisplayableForReservation({
-        workspaceReservationId: reservation.id,
-        activePaymentAttemptId: reservation.activePaymentAttemptId ?? undefined,
-        paymentState: reservation.paymentState,
-      });
+      const dotyposReservationId = reservation.dotyposReservationId;
+      const loadDotyposReservation = Effect.suspend(() =>
+        dotypos.getReservationWithoutCustomer(dotyposReservationId)
+      ).pipe(
+        Effect.tapError((cause) =>
+          Effect.logWarning("Checkout status summary reservation load failed", {
+            cause,
+          })
+        ),
+        Effect.orElseSucceed(() => undefined)
+      );
+      const prefetchDotyposReservation =
+        isSummaryLikelyDisplayable(reservation);
+
+      const [attempt, prefetchedDotyposReservation, tables, seatingMapEnabled] =
+        yield* Effect.all(
+          [
+            paymentAttempts.findDisplayableForReservation({
+              workspaceReservationId: reservation.id,
+              activePaymentAttemptId:
+                reservation.activePaymentAttemptId ?? undefined,
+              paymentState: reservation.paymentState,
+            }),
+            prefetchDotyposReservation ? loadDotyposReservation : Effect.void,
+            inventory.tables.pipe(
+              Effect.tapError((cause) =>
+                Effect.logWarning("Checkout status tables load failed", {
+                  cause,
+                })
+              ),
+              Effect.orElseSucceed(() => [])
+            ),
+            seatingMapFeatureFlag.isEnabled,
+          ],
+          { concurrency: "inherit" }
+        );
       yield* Effect.logDebug(
         "Checkout status summary attempt lookup completed"
       );
@@ -336,17 +380,9 @@ const implementation = Effect.gen(function* () {
         return emptyReconstruction;
       }
 
-      const dotyposReservation = yield* dotypos
-        .getReservation(reservation.dotyposReservationId)
-        .pipe(
-          Effect.tapError((cause) =>
-            Effect.logWarning(
-              "Checkout status summary reservation load failed",
-              { cause }
-            )
-          ),
-          Effect.orElseSucceed(() => undefined)
-        );
+      const dotyposReservation = prefetchDotyposReservation
+        ? prefetchedDotyposReservation
+        : yield* loadDotyposReservation;
 
       if (!dotyposReservation) {
         yield* Effect.logWarning(
@@ -358,12 +394,6 @@ const implementation = Effect.gen(function* () {
         "Checkout status summary Dotypos reservation loaded"
       );
 
-      const tables = yield* Effect.suspend(() => dotypos.getTables()).pipe(
-        Effect.tapError((cause) =>
-          Effect.logWarning("Checkout status tables load failed", { cause })
-        ),
-        Effect.orElseSucceed(() => [])
-      );
       const openSpaceTableNames =
         reservation.reservationDetails.kind === "cowork" &&
         reservation.reservationDetails.entryTier === "open-space"
@@ -371,20 +401,16 @@ const implementation = Effect.gen(function* () {
           : undefined;
       const table = getCustomerReservationTable({
         reservationDetails: reservation.reservationDetails,
-        tableName: getReservationTableName(
-          dotyposReservation.reservation,
-          tables
-        ),
+        tableName: getReservationTableName(dotyposReservation, tables),
         openSpaceTableNames,
       });
-      const seatingMapEnabled = yield* seatingMapFeatureFlag.isEnabled;
       const tableMap = seatingMapEnabled
-        ? getWorkspaceTableMap(dotyposReservation.reservation, tables)
+        ? getWorkspaceTableMap(dotyposReservation, tables)
         : undefined;
 
       const timing = yield* getDotyposReservationTiming({
         reservationId: reservation.id,
-        reservation: dotyposReservation.reservation,
+        reservation: dotyposReservation,
       }).pipe(
         Effect.tapError((cause) =>
           Effect.logWarning(
@@ -400,9 +426,6 @@ const implementation = Effect.gen(function* () {
           reservation: emptyReconstruction.reservation,
           table,
           tableMap,
-          supportContactPrefill: getSupportContactPrefill(
-            dotyposReservation.customer
-          ),
         };
 
         return reconstruction;
@@ -431,7 +454,7 @@ const implementation = Effect.gen(function* () {
           office: (details) => {
             const seats = Option.getOrUndefined(
               Schema.decodeUnknownOption(dotyposReservationSeatsSchema)(
-                dotyposReservation.reservation.seats
+                dotyposReservation.seats
               )
             );
             if (!seats) return { kind: "office" as const };
@@ -455,9 +478,6 @@ const implementation = Effect.gen(function* () {
         reservation: statusReservation,
         table,
         tableMap,
-        supportContactPrefill: getSupportContactPrefill(
-          dotyposReservation.customer
-        ),
       };
 
       return reconstruction;
@@ -472,6 +492,48 @@ const implementation = Effect.gen(function* () {
         })
       )
   );
+
+  /**
+   * Derives the customer status, loading the Dotypos customer only for the
+   * statuses that offer a prefilled support contact.
+   */
+  const resolveStatusKind = Effect.fn(
+    "CheckoutStatusService.resolveStatusKind"
+  )(function* (reservation: WorkspaceReservation) {
+    const latePaymentRecovery =
+      yield* latePaymentRecoveries.findLatestByWorkspaceReservationId(
+        reservation.id
+      );
+    const latePaymentStatusKind = getLatePaymentStatusKind(
+      reservation,
+      latePaymentRecovery
+    );
+    const statusKind =
+      latePaymentStatusKind ??
+      toCheckoutStatusKind(
+        reservation.paymentState,
+        reservation.fulfillmentState
+      );
+    const supportContactPrefill =
+      statusKind === "fulfillment_failed" ||
+      statusKind === "late_payment_review"
+        ? yield* dotypos.getCustomer(reservation.dotyposCustomerId).pipe(
+            Effect.map(getSupportContactPrefill),
+            Effect.timeoutOrElse({
+              duration: summaryTimeout,
+              orElse: () => Effect.undefined,
+            }),
+            Effect.tapError((cause) =>
+              Effect.logWarning("Checkout status support contact load failed", {
+                cause,
+              })
+            ),
+            Effect.orElseSucceed(() => undefined)
+          )
+        : undefined;
+
+    return { latePaymentStatusKind, statusKind, supportContactPrefill };
+  });
 
   const getStatus = Effect.fn("CheckoutStatusService.getStatus")(
     function* (input: {
@@ -496,39 +558,30 @@ const implementation = Effect.gen(function* () {
         return result;
       }
 
-      const latePaymentRecovery =
-        yield* latePaymentRecoveries.findLatestByWorkspaceReservationId(
-          reservation.id
-        );
-      const latePaymentStatusKind = getLatePaymentStatusKind(
-        reservation,
-        latePaymentRecovery
-      );
-      const statusKind =
-        latePaymentStatusKind ??
-        toCheckoutStatusKind(
-          reservation.paymentState,
-          reservation.fulfillmentState
-        );
       const timeoutReconstruction: CheckoutStatusReconstruction = {
         reservation: getEmptyCheckoutStatusReservation(
           reservation.reservationDetails
         ),
       };
-      const reconstruction: CheckoutStatusReconstruction =
-        yield* reconstructSummary(reservation).pipe(
-          Effect.timeoutOrElse({
-            duration: "8 seconds",
-            orElse: () =>
-              Effect.logWarning(
-                "Checkout status summary reconstruction timed out",
-                {
-                  reservationId: reservation.id,
-                  status: statusKind,
-                }
-              ).pipe(Effect.as(timeoutReconstruction)),
-          })
-        );
+      const [
+        { latePaymentStatusKind, statusKind, supportContactPrefill },
+        reconstruction,
+      ] = yield* Effect.all(
+        [
+          resolveStatusKind(reservation),
+          reconstructSummary(reservation).pipe(
+            Effect.timeoutOrElse({
+              duration: summaryTimeout,
+              orElse: () =>
+                Effect.logWarning(
+                  "Checkout status summary reconstruction timed out",
+                  { reservationId: reservation.id }
+                ).pipe(Effect.as(timeoutReconstruction)),
+            })
+          ),
+        ],
+        { concurrency: "inherit" }
+      );
 
       const resultBase: CheckoutReservationStatusViewModelBase = {
         orderId: reservation.id,
@@ -542,11 +595,7 @@ const implementation = Effect.gen(function* () {
           table: reconstruction.table,
           tableMap: reconstruction.tableMap,
         }),
-        supportContactPrefill:
-          statusKind === "fulfillment_failed" ||
-          statusKind === "late_payment_review"
-            ? reconstruction.supportContactPrefill
-            : undefined,
+        supportContactPrefill,
       };
       const result: CheckoutReservationStatusViewModel = {
         ...resultBase,
@@ -577,21 +626,10 @@ const implementation = Effect.gen(function* () {
       function* (input) {
         yield* Effect.logInfo("Checkout status refresh started");
 
-        const reservation = yield* reservations.findById(input.orderId);
-        yield* Effect.logDebug(
-          "Checkout status refresh reservation lookup completed"
-        );
-
-        if (!reservation?.activePaymentAttemptId) {
-          yield* Effect.logInfo(
-            "Checkout status refresh skipped: no active payment attempt"
-          );
-          return yield* getStatus(input);
-        }
-
+        // Finalization loads the reservation and resolves its active attempt;
+        // an order without one returns not_found and renders as stored.
         const result = yield* finalization.finalizePendingProviderPayment({
-          orderId: reservation.id,
-          paymentAttemptId: reservation.activePaymentAttemptId,
+          orderId: input.orderId,
         });
         yield* Effect.annotateLogsScoped({ result });
         yield* Effect.logInfo("Checkout status refresh finalization completed");
@@ -599,7 +637,7 @@ const implementation = Effect.gen(function* () {
         if (result === "not_pending") {
           const latePayment =
             yield* latePaymentVerification.startRecoveryIfSettled({
-              orderId: reservation.id,
+              orderId: input.orderId,
             });
           yield* Effect.annotateLogsScoped({ latePayment });
         }
@@ -655,6 +693,7 @@ export class CheckoutStatusService extends Context.Service<
     Layer.provide(WorkspaceReservationRepository.Default),
     Layer.provide(WorkspaceDatabase.Default),
     Layer.provide(WorkspaceDotyposLayer),
+    Layer.provide(SharedAvailabilityInventoryLive),
     Layer.provide(
       SeatingMapFeatureFlagService.Default.pipe(
         Layer.provide(WorkspaceFeatureFlagService.Default)

@@ -28,6 +28,7 @@ import {
   capturePaymentFailed,
 } from "../analytics/posthog-lifecycle-events";
 import { WorkspacePaidFulfillmentService } from "../fulfillment/paid-fulfillment.service";
+import { PaidFulfillmentQueueService } from "../fulfillment/paid-fulfillment-queue.service";
 import {
   isNexiPaymentAttempt,
   type NexiPaymentAttempt,
@@ -76,6 +77,7 @@ export class ProviderPaymentFinalizationService extends Context.Service<
     Layer.provide(WorkspaceReservationRepository.Default),
     Layer.provide(WorkspaceDatabase.Default),
     Layer.provide(WorkspacePaidFulfillmentService.Live),
+    Layer.provide(PaidFulfillmentQueueService.Default),
     Layer.provide(WorkspaceNexiLayer)
   );
 }
@@ -90,6 +92,7 @@ function makeProviderPaymentFinalizationServiceLayer(
       const paymentAttempts = yield* PaymentAttemptRepository;
       const paymentLifecycle = yield* PaymentLifecycleRepository;
       const nexi = yield* NexiService;
+      const paidFulfillmentQueue = yield* PaidFulfillmentQueueService;
       const fulfillment = yield* WorkspacePaidFulfillmentService;
       const posthogEvents = yield* PostHogEventService;
 
@@ -203,6 +206,38 @@ function makeProviderPaymentFinalizationServiceLayer(
         return "terminal";
       });
 
+      const enqueueFulfillment = Effect.fn(
+        "providerPaymentFinalization.enqueueFulfillment"
+      )(function* (input: {
+        readonly orderId: WorkspaceReservationId;
+        readonly paymentAttemptId?: PaymentAttemptId;
+      }) {
+        // Payment is already recorded, so a queue outage falls back to
+        // fulfilling inline rather than leaving the order unscheduled.
+        yield* paidFulfillmentQueue.enqueue({ orderId: input.orderId }).pipe(
+          Effect.tap(() =>
+            Effect.logInfo("Payment finalization fulfillment enqueued")
+          ),
+          Effect.catch((cause) =>
+            Effect.logError(
+              "Paid order fulfillment could not be enqueued; fulfilling inline",
+              { ...input, cause }
+            ).pipe(
+              Effect.andThen(
+                fulfillment.fulfillPaidOrder({ orderId: input.orderId })
+              ),
+              Effect.tapError((cause) =>
+                Effect.logFatal(
+                  "Paid order fulfillment failed during finalization",
+                  { ...input, cause }
+                )
+              ),
+              Effect.ignore
+            )
+          )
+        );
+      });
+
       return ProviderPaymentFinalizationService.of({
         finalizePendingProviderPayment: Effect.fn(
           "providerPaymentFinalization.finalizePendingProviderPayment"
@@ -240,29 +275,24 @@ function makeProviderPaymentFinalizationServiceLayer(
               if (
                 reservation.paymentState === "paid" &&
                 (reservation.fulfillmentState === "not_started" ||
-                  reservation.fulfillmentState === "processing" ||
-                  reservation.fulfillmentState === "awaiting_delivery" ||
+                  reservation.fulfillmentState === "processing")
+              ) {
+                // Safety net for a paid order whose webhook fulfillment
+                // stalled. The queue dedupes per order, so repeated status
+                // refreshes enqueue at most one message.
+                yield* Effect.logWarning(
+                  "Payment finalization enqueueing fulfillment for already-paid reservation"
+                );
+                yield* enqueueFulfillment({ orderId: reservation.id });
+                return "paid";
+              }
+              if (
+                reservation.paymentState === "paid" &&
+                (reservation.fulfillmentState === "awaiting_delivery" ||
                   reservation.fulfillmentState === "fulfilled")
               ) {
-                yield* Effect.logWarning(
-                  "Payment finalization invoking fulfillment for already-paid reservation"
-                );
-                yield* fulfillment
-                  .fulfillPaidOrder({ orderId: reservation.id })
-                  .pipe(
-                    Effect.tapError((cause) =>
-                      Effect.logFatal(
-                        "Paid order fulfillment failed during finalization",
-                        {
-                          orderId: reservation.id,
-                          cause,
-                        }
-                      )
-                    ),
-                    Effect.ignore
-                  );
                 yield* Effect.logInfo(
-                  "Payment finalization fulfillment completed for already-paid reservation"
+                  "Payment finalization returned paid for fulfilled reservation"
                 );
                 return "paid";
               }
@@ -426,25 +456,10 @@ function makeProviderPaymentFinalizationServiceLayer(
                 "Payment finalization mark paid completed"
               );
 
-              yield* Effect.logInfo("Payment finalization fulfillment invoked");
-              yield* fulfillment
-                .fulfillPaidOrder({ orderId: reservation.id })
-                .pipe(
-                  Effect.tapError((cause) =>
-                    Effect.logFatal(
-                      "Paid order fulfillment failed during finalization",
-                      {
-                        orderId: reservation.id,
-                        paymentAttemptId: attempt.id,
-                        cause,
-                      }
-                    )
-                  ),
-                  Effect.ignore
-                );
-              yield* Effect.logInfo(
-                "Payment finalization fulfillment completed"
-              );
+              yield* enqueueFulfillment({
+                orderId: reservation.id,
+                paymentAttemptId: attempt.id,
+              });
               return "paid";
             }
 

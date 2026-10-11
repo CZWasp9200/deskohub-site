@@ -1,5 +1,6 @@
 import { Effect, type Layer } from "effect";
 import { execute } from "./internal/executor";
+import { makeSharedLayerProvider } from "./internal/shared-layer";
 
 interface NextEffectBaseOptions {
   readonly mapError?: (error: unknown) => unknown;
@@ -10,7 +11,10 @@ interface NextEffectRunnableOptions extends NextEffectBaseOptions {
 }
 
 interface NextEffectLayerOptions<R, LE> extends NextEffectBaseOptions {
+  /** Built once, on first run, and shared by every later run. */
   readonly layer: Layer.Layer<R, LE, never>;
+  /** Lets other runtimes reuse layers this runtime has already built. */
+  readonly memoMap?: Layer.MemoMap;
 }
 
 export type NextEffectOptions<R = never, LE = never> =
@@ -48,8 +52,12 @@ function make<R, LE>(
   options: NextEffectOptions<R, LE> = {}
 ): NextEffectRuntime<R> | NextEffectRuntime<never> {
   if (options.layer) {
+    const provideLayer = makeSharedLayerProvider(
+      options.layer,
+      options.memoMap
+    );
     return makeRuntime<R>((effect, runOptions) =>
-      execute(Effect.provide(effect, options.layer), {
+      execute(provideLayer(effect), {
         mapError: options.mapError,
         signal: runOptions?.signal,
       })

@@ -266,7 +266,7 @@ export async function getSiteHeaderConfig(locale: Locale) {
   return {
     account: {
       label: "Account",
-      href: isCustomerSignedIn("site-header.account-link")
+      href: isCustomerSignedIn()
         .catch(() => false)
         .then((signedIn) =>
           signedIn ? localePath + "/account" : localePath + "/auth/sign-in"

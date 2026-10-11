@@ -30,8 +30,10 @@ async function AccountLayoutContent({
 }: AccountLayoutProps & { readonly locale: Locale }) {
   await connection();
 
-  const accountsEnabled = await areAccountsEnabled();
-  const signedIn = await isCustomerSignedIn("account.layout");
+  const [accountsEnabled, signedIn] = await Promise.all([
+    areAccountsEnabled(),
+    isCustomerSignedIn(),
+  ]);
 
   return (
     <AccountLayoutShell
