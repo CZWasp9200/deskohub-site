@@ -54,7 +54,7 @@ export function LegalScreen({
       />
 
       <div className="mt-8 border-t border-[#e5e9ef] pt-6">
-        <div className="flex min-w-0 flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex min-w-0 flex-col gap-4 @3xl:flex-row @3xl:items-center @3xl:justify-between">
           <div className="min-w-0">
             <h3 className="break-words text-[18px] font-semibold leading-6 text-[#1f2d43]">
               {m.legalScreenArchiveTitle({}, { locale })}
@@ -65,7 +65,7 @@ export function LegalScreen({
           </div>
           <FutureFeatureTooltip locale={locale}>
             <Button
-              className="h-auto min-w-0 max-w-full whitespace-normal px-4 py-2 text-left leading-5 lg:text-center"
+              className="h-auto min-w-0 max-w-full whitespace-normal px-4 py-2 text-left leading-5 @3xl:text-center"
               disabled
               type="button"
               variant="secondary"
