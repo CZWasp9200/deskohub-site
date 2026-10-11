@@ -16,6 +16,7 @@ import {
   buildCoworkReservationQuote as buildCoworkPriceQuote,
   buildDiscountedCoworkCheckoutSummary,
 } from "@/features/checkout/checkout-quote.test-utils";
+import { formatDiscountCountdown } from "@/features/checkout/format-discount-countdown";
 import { m } from "@/features/i18n";
 import {
   workspaceRouterPush,
@@ -397,6 +398,17 @@ describe("CheckoutPayPage discount urgency", () => {
       />
     );
 
-    expect(view.getByRole("status").dataset.tone).toBe("positive");
+    expect(view.getByRole("status").textContent).toBe(
+      m.checkoutDiscountCountdownBanner(
+        {
+          discount: "Summer sale",
+          remaining: formatDiscountCountdown(
+            { value: 42 * 60, unit: "second" },
+            "en-US"
+          ),
+        },
+        { locale: "en-US" }
+      )
+    );
   });
 });

@@ -60,22 +60,51 @@ test("keeps the suite failure when the cleanup process cannot start", async () =
   });
 });
 
+// One macrotask turn runs every queued microtask, so a runner that does not
+// wait for its pending runs has settled by the time this resolves.
+const drainMicrotasks = () =>
+  new Promise<void>((resolve) => setImmediate(resolve));
+
+const trackSettlement = (promise: Promise<unknown>) => {
+  const state = { settled: false };
+  void promise.finally(() => {
+    state.settled = true;
+  });
+  return state;
+};
+
 test("waits for the failed checkout and its cleanup when instant navigation cannot launch", async () => {
   const events: string[] = [];
   const launchFailure = new Error("private process error");
-  const result = await runWorkspacePlaywrightSuites({
+  const exits = {
+    suite: Promise.withResolvers<number>(),
+    "failure-cleanup": Promise.withResolvers<number>(),
+  };
+  const running = runWorkspacePlaywrightSuites({
     checkout: async (invocation) => {
       events.push(`${invocation}:start`);
-      await Bun.sleep(5);
+      const exitCode = await exits[invocation].promise;
       events.push(`${invocation}:end`);
-      return invocation === "suite" ? 1 : 0;
+      return exitCode;
     },
     instantNavigation: () => {
       events.push("instant-navigation:launch");
       throw launchFailure;
     },
   });
-  events.push("settled");
+  const runner = trackSettlement(running);
+
+  await drainMicrotasks();
+  expect(events).toEqual(["suite:start", "instant-navigation:launch"]);
+  expect(runner.settled).toBe(false);
+
+  exits.suite.resolve(1);
+  await drainMicrotasks();
+  expect(events.at(-1)).toBe("failure-cleanup:start");
+  expect(runner.settled).toBe(false);
+
+  exits["failure-cleanup"].resolve(0);
+  const result = await running;
 
   expect(events).toEqual([
     "suite:start",
@@ -83,7 +112,6 @@ test("waits for the failed checkout and its cleanup when instant navigation cann
     "suite:end",
     "failure-cleanup:start",
     "failure-cleanup:end",
-    "settled",
   ]);
   expect(result).toEqual({
     checkout: {
@@ -95,29 +123,22 @@ test("waits for the failed checkout and its cleanup when instant navigation cann
 });
 
 test("waits for instant navigation when the checkout run cannot launch", async () => {
-  const events: string[] = [];
   const launchFailure = new Error("private process error");
-  const result = await runWorkspacePlaywrightSuites({
+  const instantNavigationExit = Promise.withResolvers<number>();
+  const running = runWorkspacePlaywrightSuites({
     checkout: () => {
-      events.push("suite:launch");
       throw launchFailure;
     },
-    instantNavigation: async () => {
-      events.push("instant-navigation:start");
-      await Bun.sleep(5);
-      events.push("instant-navigation:end");
-      return 0;
-    },
+    instantNavigation: () => instantNavigationExit.promise,
   });
-  events.push("settled");
+  const runner = trackSettlement(running);
 
-  expect(events).toEqual([
-    "suite:launch",
-    "instant-navigation:start",
-    "instant-navigation:end",
-    "settled",
-  ]);
-  expect(result).toEqual({
+  await drainMicrotasks();
+  expect(runner.settled).toBe(false);
+
+  instantNavigationExit.resolve(0);
+
+  expect(await running).toEqual({
     checkout: { status: "rejected", reason: launchFailure },
     instantNavigation: { status: "fulfilled", value: 0 },
   });

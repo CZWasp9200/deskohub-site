@@ -2,7 +2,7 @@ import type { NexiCorrelationId } from "@deskohub/nexi";
 import { and, asc, eq, inArray, lt, ne, or, sql } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Effect, Layer } from "effect";
-import type { SqlError } from "effect/unstable/sql/SqlError";
+import type { SqlError } from "effect/unstable/sql";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { paymentAttempts, workspaceReservations } from "@/db/schema";
 import type { PaymentAttemptId } from "@/features/checkout/checkout-identifiers";
@@ -40,7 +40,7 @@ export interface IPaymentRefundRepository {
     readonly checkedAt: Temporal.Instant;
   }) => Effect.Effect<
     readonly RefundablePaymentAttempt[],
-    EffectDrizzleQueryError | SqlError
+    EffectDrizzleQueryError | SqlError.SqlError
   >;
   /**
    * Records Nexi's successful refund total for a paid Nexi attempt. The total

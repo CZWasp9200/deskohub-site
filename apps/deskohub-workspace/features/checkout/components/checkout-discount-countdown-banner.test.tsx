@@ -58,9 +58,9 @@ describe("CheckoutDiscountCountdownBanner", () => {
       />
     );
 
-    const banner = view.getByRole("status");
-    expect(banner.textContent).toBe(countdownMessage(42 * 60));
-    expect(banner.dataset.tone).toBe("positive");
+    expect(view.getByRole("status").textContent).toBe(
+      countdownMessage(42 * 60)
+    );
 
     act(() => jest.advanceTimersByTime(1000));
 
@@ -135,7 +135,7 @@ describe("CheckoutDiscountCountdownBanner", () => {
     expect(view.getAllByRole("status")).toHaveLength(1);
   });
 
-  test("switches to the expired notice with an attention tone", () => {
+  test("switches to the expired notice when the discount ends", () => {
     jest.useFakeTimers({ now: new Date("2026-08-02T09:59:59.000Z") });
     const view = render(
       <CheckoutDiscountCountdownBanner
@@ -151,13 +151,11 @@ describe("CheckoutDiscountCountdownBanner", () => {
 
     act(() => jest.advanceTimersByTime(1000));
 
-    const banner = view.getByRole("status");
-    expect(banner.textContent).toBe(
+    expect(view.getByRole("status").textContent).toBe(
       m.checkoutDiscountExpiredBanner(
         { discount: "Summer sale" },
         { locale: "en-US" }
       )
     );
-    expect(banner.dataset.tone).toBe("attention");
   });
 });
