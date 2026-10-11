@@ -1,5 +1,6 @@
 import { instant } from "@next/playwright";
 import { type BrowserContext, expect, type Page, test } from "@playwright/test";
+import { isNotFoundPage } from "../not-found-page";
 import {
   enablePreviewAccess,
   hasLoadedResource,
@@ -205,8 +206,8 @@ test.describe("client navigation", () => {
 
 /**
  * Whether a release-gated page renders its form for this visitor. A disabled
- * gate streams the not-found boundary with a 200, so the probe looks for a
- * marker from the rendered form instead of trusting the status.
+ * gate answers 404 or streams the not-found boundary with a 200; any other
+ * response fails the test rather than skipping its coverage.
  */
 async function isReservationPageReleased(
   context: BrowserContext,
@@ -216,7 +217,17 @@ async function isReservationPageReleased(
   const response = await context.request.get(url);
 
   try {
-    return response.ok() && (await response.text()).includes(releaseMarker);
+    if (response.status() === 404) return false;
+    expect(response.ok(), `${url} responded with ${response.status()}`).toBe(
+      true
+    );
+
+    const body = await response.text();
+    if (body.includes(releaseMarker)) return true;
+    if (isNotFoundPage(body)) return false;
+    throw new Error(
+      `${url} rendered neither its release marker nor a not-found page`
+    );
   } finally {
     await response.dispose();
   }
