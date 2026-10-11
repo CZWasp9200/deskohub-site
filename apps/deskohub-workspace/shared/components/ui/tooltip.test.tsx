@@ -22,7 +22,28 @@ afterEach(() => {
 });
 afterAll(unregisterWorkspaceComponentTestEnv);
 
-test("keeps a touch-tapped tooltip open through later touch moves until tapped again", async () => {
+test("renders tooltips outside overflow-clipped parents", async () => {
+  const view = render(
+    <div data-overflow-parent="">
+      <TooltipProvider>
+        <Tooltip open>
+          <TooltipTrigger>Details</TooltipTrigger>
+          <TooltipContent>Sale details</TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    </div>
+  );
+
+  expect(view.container.textContent).not.toContain("Sale details");
+  expect((await view.findByRole("tooltip")).textContent).toContain(
+    "Sale details"
+  );
+});
+
+test.each([
+  ["focuses the trigger", true],
+  ["leaves focus alone", false],
+] as const)("toggles tooltips with touch taps that %s", async (_, focuses) => {
   const view = render(
     <TooltipProvider>
       <Tooltip>
@@ -33,23 +54,36 @@ test("keeps a touch-tapped tooltip open through later touch moves until tapped a
   );
   const trigger = view.getByRole("button", { name: "Details" });
   const touch = { isPrimary: true, pointerId: 1, pointerType: "touch" };
-  const tap = async () => {
+  const tap = async (target: HTMLElement) => {
     await act(async () => {
-      fireEvent.pointerDown(trigger, touch);
-      trigger.focus();
-      fireEvent.pointerMove(trigger, touch);
-      fireEvent.pointerUp(trigger, touch);
-      fireEvent.click(trigger, { detail: 1 });
-      fireEvent.pointerLeave(trigger, touch);
+      fireEvent.pointerDown(target, touch);
     });
+    await act(async () => {
+      fireEvent.pointerUp(target, touch);
+    });
+    await act(async () => {
+      fireEvent.pointerLeave(target, touch);
+    });
+    // Android emulates focus before the click; iOS does not focus buttons.
+    if (focuses) {
+      await act(async () => {
+        target.focus();
+      });
+    }
+    await act(async () => {
+      fireEvent.click(target, { detail: 1 });
+    });
+    // Let the opened tooltip register its outside-dismissal listeners.
+    await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
   };
 
-  await tap();
+  await tap(trigger);
   const tooltip = await view.findByRole("tooltip");
   expect(tooltip.textContent).toBe("Sale details");
   expect(trigger.getAttribute("aria-describedby")).toBe(tooltip.id);
 
-  // Fake timers run any close delay a later touch move would schedule.
+  // A later touch move must not start a close delay; fake timers run
+  // any delay it would schedule.
   jest.useFakeTimers();
   act(() => {
     fireEvent.pointerMove(trigger, touch);
@@ -58,6 +92,79 @@ test("keeps a touch-tapped tooltip open through later touch moves until tapped a
   jest.useRealTimers();
   expect(view.getByRole("tooltip").textContent).toBe("Sale details");
 
-  await tap();
+  await tap(trigger);
   await waitFor(() => expect(view.queryByRole("tooltip")).toBeNull());
+
+  await tap(trigger);
+  expect(await view.findByRole("tooltip")).toBeTruthy();
+
+  await tap(document.body);
+  await waitFor(() => expect(view.queryByRole("tooltip")).toBeNull());
+});
+
+test("still dismisses tooltips after a touch gesture without a click", async () => {
+  const view = render(
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger>Details</TooltipTrigger>
+        <TooltipContent>Sale details</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+  const trigger = view.getByRole("button", { name: "Details" });
+  const touch = { isPrimary: true, pointerId: 1, pointerType: "touch" };
+
+  await act(async () => {
+    fireEvent.pointerDown(trigger, touch);
+    fireEvent.pointerUp(trigger, touch);
+    trigger.focus();
+    fireEvent.click(trigger, { detail: 1 });
+  });
+  await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(await view.findByRole("tooltip")).toBeTruthy();
+
+  await act(async () => {
+    fireEvent.pointerDown(trigger, touch);
+    fireEvent.pointerUp(trigger, touch);
+    trigger.blur();
+  });
+  await waitFor(() => expect(view.queryByRole("tooltip")).toBeNull());
+
+  await act(async () => {
+    trigger.focus();
+  });
+  const tooltip = await view.findByRole("tooltip");
+  await act(async () => {
+    fireEvent.keyDown(tooltip, { key: "Escape" });
+  });
+  await waitFor(() => expect(view.queryByRole("tooltip")).toBeNull());
+
+  await act(async () => {
+    trigger.focus();
+    fireEvent.keyDown(trigger, { key: "Enter" });
+    fireEvent.click(trigger, { detail: 0 });
+  });
+  expect(view.queryByRole("tooltip")).toBeNull();
+});
+
+test("keeps tooltips closed after a mouse click", async () => {
+  const view = render(
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger>Details</TooltipTrigger>
+        <TooltipContent>Sale details</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+  const trigger = view.getByRole("button", { name: "Details" });
+  const mouse = { isPrimary: true, pointerId: 1, pointerType: "mouse" };
+
+  await act(async () => {
+    fireEvent.pointerDown(trigger, mouse);
+    trigger.focus();
+    fireEvent.pointerUp(trigger, mouse);
+    fireEvent.click(trigger, { detail: 1 });
+  });
+
+  expect(view.queryByRole("tooltip")).toBeNull();
 });
