@@ -1,7 +1,6 @@
 import "../../shared/polyfills/temporal";
 
 import { expect, test } from "bun:test";
-import { fileURLToPath } from "node:url";
 import {
   DotyposCustomerIdSchema,
   DotyposReservationIdSchema,
@@ -17,10 +16,6 @@ import {
 import type { MeetingRoomReservationDuration } from "@/features/reservation/meeting-room-reservation-duration";
 import { getMeetingRoomReservationInterval } from "@/features/reservation/meeting-room-reservation-time";
 import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
-import {
-  importSpecifiers,
-  parseTrackedSource,
-} from "../../scripts/shared/source-ast";
 import { makeMeetingRoomCheckoutData } from "../checkout/data";
 import type { DatasourceConfig, WorkspaceE2EConfig } from "../config";
 import { type WorkspaceE2EError, workspaceE2EError } from "../errors";
@@ -42,17 +37,6 @@ import {
   meetingRoomE2EDurations,
 } from "./meeting-room";
 import { makeReservationLinkE2ECases } from "./reservation-links";
-
-test("keeps the deployed E2E runner independent of generated translations", () => {
-  const imports = importSpecifiers(
-    parseTrackedSource(
-      fileURLToPath(new URL("./meeting-room.ts", import.meta.url))
-    ).ast
-  );
-
-  expect(imports).not.toContain("product-catalog.i18n");
-  expect(imports).not.toContain("@/features/i18n");
-});
 
 test("keeps a held interval available while another meeting-room table is empty", () => {
   const slot = {

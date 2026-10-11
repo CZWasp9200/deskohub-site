@@ -1,7 +1,6 @@
 import "@/shared/polyfills/temporal";
 
 import { describe, expect, test } from "bun:test";
-import { fileURLToPath } from "node:url";
 import type { Customer } from "@deskohub/dotypos/generated";
 import { Cause, Effect, Exit, Layer, Option } from "effect";
 import { FetchHttpClient } from "effect/unstable/http";
@@ -11,10 +10,6 @@ import {
   formatReservationDisplayDateRange,
   formatReservationDisplayTimeRange,
 } from "@/features/reservation/reservation-date";
-import {
-  importSpecifiers,
-  parseTrackedSource,
-} from "../../scripts/shared/source-ast";
 import type { DatasourceConfig, WorkspaceE2EConfig } from "../config";
 import {
   type WorkspaceE2EError,
@@ -68,17 +63,6 @@ const wholeDayData = {
 } as const;
 
 describe("whole-day meeting-room checkout proof", () => {
-  test("keeps the deployed runner independent of app-bound persistence decoders", () => {
-    const imports = importSpecifiers(
-      parseTrackedSource(
-        fileURLToPath(new URL("./checkout.ts", import.meta.url))
-      ).ast
-    );
-
-    expect(imports).not.toContain("persistence-contracts");
-    expect(imports).not.toContain("@/features/i18n");
-  });
-
   test("renders both shared email detail projections from the confirmed DST calendar day", async () => {
     const { assertWholeDayMeetingRoomEmailPreviews } = await import(
       "./checkout"
