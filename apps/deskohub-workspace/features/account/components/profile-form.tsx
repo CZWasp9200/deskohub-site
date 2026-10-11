@@ -95,7 +95,7 @@ type SavedIdentity = {
 };
 
 const profileFieldLayoutClass = (name: keyof ProfileFormValues) => {
-  if (name === "companyName" || name === "companyId") return "sm:col-span-2";
+  if (name === "companyName" || name === "companyId") return "@xl:col-span-2";
   if (name === "addressLine1" || name === "addressLine2") return "min-w-0";
   return undefined;
 };
@@ -593,7 +593,7 @@ export function ProfileForm({
         control={form.control}
         name="billingKind"
         render={({ field, fieldState }) => (
-          <FormItem className="sm:col-span-2">
+          <FormItem className="@xl:col-span-2">
             <Label
               htmlFor="account-profile-billing-kind"
               id="account-profile-billing-kind-label"
@@ -647,7 +647,7 @@ export function ProfileForm({
                 maxLength: 200,
                 required: true,
               })}
-              <FormItem className="sm:col-span-2">
+              <FormItem className="@xl:col-span-2">
                 <Label
                   htmlFor="account-profile-billing-company-id"
                   id="account-profile-billing-company-id-label"
@@ -761,7 +761,7 @@ export function ProfileForm({
             label: m.accountProfileCityLabel({}, { locale }),
             maxLength: 100,
           })}
-          <div className="min-w-0 grid gap-5 sm:grid-cols-2">
+          <div className="min-w-0 grid gap-5 @xl:grid-cols-2">
             {renderTextField("zip", {
               domName: "billingZip",
               id: "account-profile-billing-zip",
@@ -846,7 +846,7 @@ export function ProfileForm({
         >
           {isComplete ? (
             <>
-              <div className="grid gap-5 sm:grid-cols-2">
+              <div className="grid gap-5 @xl:grid-cols-2">
                 {identityFields}
                 <div className="space-y-2">
                   <Label htmlFor="account-profile-email">
@@ -868,7 +868,7 @@ export function ProfileForm({
                 <summary className="cursor-pointer text-sm font-bold text-navy-blue">
                   {m.accountProfileBillingSummary({}, { locale })}
                 </summary>
-                <div className="mt-4 grid gap-5 sm:grid-cols-2">
+                <div className="mt-4 grid gap-5 @xl:grid-cols-2">
                   {billingFields}
                 </div>
               </details>
@@ -905,7 +905,7 @@ export function ProfileForm({
                   footer={section === "billing" ? formFooter : undefined}
                   locale={locale}
                 >
-                  <div className="grid gap-5 sm:grid-cols-2">
+                  <div className="grid gap-5 @xl:grid-cols-2">
                     {billingFields}
                   </div>
                 </BillingScreen>
