@@ -1038,6 +1038,13 @@ export const assertFulfilledStatusScript = String.raw`
   if (document.querySelector('[data-reservation-access]')) {
     throw new Error('reservation access rendered on checkout status page');
   }
+  // Only account-origin navigation may intercept the status route. A checkout
+  // status rendered in a dialog means the reservation modal slot leaked.
+  for (const dialog of document.querySelectorAll('[role="dialog"]')) {
+    if (/Your reservation is confirmed\./i.test(dialog.textContent ?? '')) {
+      throw new Error('checkout status rendered in a reservation dialog');
+    }
+  }
   if (/Your reservation is confirmed\./i.test(text) && /secure access link has been sent by email/i.test(text)) {
     return location.href;
   }

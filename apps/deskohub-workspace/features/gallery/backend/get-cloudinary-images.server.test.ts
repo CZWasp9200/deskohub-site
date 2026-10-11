@@ -1,7 +1,7 @@
 import "@/shared/testing/workspace-test-env";
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { Effect } from "effect";
+import { Effect, Predicate } from "effect";
 
 const providerMessage =
   "provider failure for cloudinary-account-id-sentinel " +
@@ -31,8 +31,14 @@ const rejectingFetch: typeof globalThis.fetch = Object.assign(
   { preconnect: originalFetch.preconnect }
 );
 
+const cacheProfiles = () =>
+  cacheLife.mock.calls.flatMap(([profile]) =>
+    Predicate.isString(profile) ? [] : [profile]
+  );
+
 beforeEach(() => {
   tagListAttempts = 0;
+  cacheLife.mockClear();
   globalThis.fetch = rejectingFetch;
 });
 
@@ -77,25 +83,24 @@ describe("getCloudinaryImages provider failures", () => {
 
     expect(images).toEqual([]);
     expect(tagListAttempts).toBe(1);
-    expect(cacheLife).toHaveBeenCalledWith({
-      stale: 30,
-      revalidate: 60,
-      expire: 300,
-    });
+    // The gallery profile applies first; the failure profile overrides it.
+    const [galleryProfile, failureProfile] = cacheProfiles();
+    expect(failureProfile?.revalidate).toBeLessThanOrEqual(60);
+    expect(failureProfile?.revalidate).toBeLessThan(
+      galleryProfile?.revalidate ?? 0
+    );
   });
 });
 
 describe("getCloudinaryImages caching", () => {
   test("bounds the cache life so a webhook refresh racing the CDN tag list heals", async () => {
-    cacheLife.mockClear();
-
     await getCloudinaryImages({ tags: [["gallery"]] }).catch(() => undefined);
 
-    expect(cacheLife).toHaveBeenCalledWith({
-      stale: 300,
-      revalidate: 300,
-      expire: 86_400,
-    });
+    const [galleryProfile] = cacheProfiles();
+    // A tag change must surface within about six minutes: one minute of CDN
+    // regeneration plus at most five minutes until the next revalidation.
+    expect(galleryProfile?.revalidate).toBeLessThanOrEqual(5 * 60);
+    expect(Number.isFinite(galleryProfile?.expire)).toBe(true);
     expect(cacheLife).not.toHaveBeenCalledWith("max");
   });
 

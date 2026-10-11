@@ -2,7 +2,7 @@
 
 import { effectSchemaResolver } from "@deskohub/effect-schema-resolver";
 import { Option, Predicate, Schema } from "effect";
-import { type ComponentProps, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import {
   type AdvertisedPrice,
@@ -62,8 +62,8 @@ import {
   FormItem,
   FormMessage,
 } from "@/shared/components/ui/form";
-import { Input } from "@/shared/components/ui/input";
 import { cn } from "@/shared/utils";
+import { OfficeDayCountInput } from "./office-day-count-input";
 
 type OfficeReservationFormProps = {
   readonly checkoutSessionId?: CheckoutSessionId;
@@ -388,48 +388,6 @@ export function OfficeReservationForm({
         )}
       />
     </ReservationCheckoutForm>
-  );
-}
-
-function OfficeDayCountInput({
-  maximum,
-  onBlur,
-  onChange,
-  value,
-  ...props
-}: Omit<ComponentProps<typeof Input>, "onChange" | "value"> & {
-  readonly maximum: number;
-  readonly onChange: (dayCount: number) => void;
-  readonly value: number;
-}) {
-  // Keeps the visitor's raw text while editing so the field can be cleared and
-  // retyped; the committed day count is clamped and the text resyncs on blur.
-  const [draft, setDraft] = useState<string>();
-  const clampDayCount = (dayCount: number) =>
-    Math.min(Math.max(1, Math.trunc(dayCount)), maximum);
-
-  return (
-    <Input
-      {...props}
-      inputMode="numeric"
-      max={maximum}
-      min={1}
-      onBlur={(event) => {
-        setDraft(undefined);
-        onBlur?.(event);
-      }}
-      onChange={(event) => {
-        const nextDraft = event.currentTarget.value;
-        setDraft(nextDraft);
-        const nextDayCount = Number(nextDraft);
-        if (nextDraft.trim() !== "" && Number.isFinite(nextDayCount)) {
-          onChange(clampDayCount(nextDayCount));
-        }
-      }}
-      type="number"
-      value={draft ?? value}
-      required
-    />
   );
 }
 

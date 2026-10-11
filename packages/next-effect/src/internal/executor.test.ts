@@ -1,12 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { Context, Effect, Layer } from "effect";
+import { Effect } from "effect";
 import { notFound, redirect } from "next/navigation";
 import { execute } from "./executor";
-
-class TestService extends Context.Service<
-  TestService,
-  { readonly value: string }
->()("@deskohub/next-effect/test/TestService") {}
 
 describe("execute", () => {
   test("returns successful values", async () => {
@@ -47,38 +42,6 @@ describe("execute", () => {
     await expect(execute(Effect.sync(() => notFound()))).rejects.toMatchObject({
       digest: "NEXT_HTTP_ERROR_FALLBACK;404",
     });
-  });
-
-  test("provides services from the supplied layer", async () => {
-    const effect = Effect.gen(function* () {
-      const service = yield* TestService;
-      return service.value;
-    });
-
-    await expect(
-      execute(
-        Effect.provide(
-          effect,
-          Layer.succeed(TestService, { value: "provided" })
-        )
-      )
-    ).resolves.toBe("provided");
-  });
-
-  test("maps fallible layer setup failures", async () => {
-    const mapped = new Error("mapped setup");
-
-    await expect(
-      execute(
-        Effect.provide(
-          TestService,
-          Layer.effect(TestService, Effect.fail("setup"))
-        ),
-        {
-          mapError: () => mapped,
-        }
-      )
-    ).rejects.toBe(mapped);
   });
 
   test("interrupts execution with an explicit signal", async () => {

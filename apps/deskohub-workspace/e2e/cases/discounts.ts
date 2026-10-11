@@ -9,6 +9,7 @@ import {
   evalBrowserScript,
   focusBrowserElement,
   openBrowserPage,
+  readBrowserUrl,
   scrollBrowserElementIntoView,
   switchToBrowserTab,
   waitForBrowserCondition,
@@ -295,6 +296,9 @@ export const makeDiscountE2ECases = ({
           runStep,
           session,
           state: calendarCheckoutState,
+          // The least loaded payment lane carries the product-independent
+          // post-fulfillment paths for every paid case.
+          verifyPostFulfillmentPaths: true,
         }).pipe(
           Effect.provideService(HttpClient.HttpClient, httpClient),
           Effect.mapError((cause) =>
@@ -366,27 +370,17 @@ export const makeDiscountE2ECases = ({
       checkoutStates: [quoteChangeState, paymentChangeState],
       execute: ({ runStep, session }) =>
         withE2ECalendarSaleCoworkEligibility(
-          executeCalendarSaleDisappearsBeforeQuote({
+          executeCalendarSalePricingChanges({
             config,
-            data: quoteChangeData,
+            paymentChangeData,
+            paymentChangeState,
+            quoteChangeData,
+            quoteChangeState,
             run,
             runStep,
             session,
-            state: quoteChangeState,
           })
         ).pipe(
-          Effect.andThen(
-            withE2ECalendarSaleCoworkEligibility(
-              executeCalendarSaleDisappearsBeforePayment({
-                config,
-                data: paymentChangeData,
-                run,
-                runStep,
-                session,
-                state: paymentChangeState,
-              })
-            )
-          ),
           Effect.mapError((cause) =>
             toWorkspaceE2EError(
               "run Calendar pricing-change checkout e2e case",
@@ -734,10 +728,12 @@ export const makeDiscountE2ECases = ({
     return cases;
   });
 
-// Calendar discovery is a remote cache entry keyed by the booking date, so an
-// earlier ineligible window (this case's or a retried run's) can keep serving
-// the sale as ineligible until the advertisedPricingSources revalidation runs.
-// Reload until the restored sale is advertised before relying on it.
+// Calendar discovery is a remote cache entry keyed by the purchase date, and
+// direct fixture writes bypass the admin mutation's tag revalidation. Once an
+// ineligible window has been served, a restored sale can stay hidden until the
+// advertisedPricingSources revalidation runs, so this case advertises every
+// checkout before its single eligibility removal and never waits for a restore.
+// The poll remains a safety net for a stale entry left by an earlier run.
 // The step budget leaves room for the poll's own attempt-count timeout to report.
 const calendarSaleAdvertisementStepTimeoutMs = (config: WorkspaceE2EConfig) =>
   config.timeouts.calendarSaleAdvertisement + config.timeouts.browserAction;
@@ -783,91 +779,62 @@ const waitForAdvertisedCalendarSale = ({
     }
   ).pipe(Effect.asVoid);
 
-const executeCalendarSaleDisappearsBeforeQuote = ({
+const executeCalendarSalePricingChanges = ({
   config,
-  data,
+  paymentChangeData,
+  paymentChangeState,
+  quoteChangeData,
+  quoteChangeState,
   run,
   runStep,
   session,
-  state,
 }: {
   readonly config: WorkspaceE2EConfig;
-  readonly data: CheckoutData;
+  readonly paymentChangeData: CheckoutData;
+  readonly paymentChangeState: CheckoutFlowState;
+  readonly quoteChangeData: CheckoutData;
+  readonly quoteChangeState: CheckoutFlowState;
   readonly run: Runner;
   readonly runStep: WorkspaceE2EStepRunner;
   readonly session: string;
-  readonly state: CheckoutFlowState;
 }): Effect.Effect<void, WorkspaceE2EError, E2EDatabase> =>
   Effect.gen(function* () {
-    state.startedAt = new Date();
+    paymentChangeState.startedAt = new Date();
     yield* runStep({
-      execute: waitForAdvertisedCalendarSale({ config, data, run, session }),
+      execute: waitForAdvertisedCalendarSale({
+        config,
+        data: paymentChangeData,
+        run,
+        session,
+      }),
       id: "advertise-calendar-sale",
       timeoutMs: calendarSaleAdvertisementStepTimeoutMs(config),
     });
-    yield* runStep({
-      execute: setE2ECalendarSaleCoworkEligibility(false),
-      id: "remove-calendar-sale-eligibility-before-quote",
-      timeoutMs: config.timeouts.datasource,
-    });
-    const orderId = yield* runStep({
+    const { orderId: paymentChangeOrderId, payPageUrl } = yield* runStep({
       execute: submitReservationForPayPage({
         onOrderId: (startedOrderId) => {
-          state.orderId = startedOrderId;
+          paymentChangeState.orderId = startedOrderId;
         },
         run,
         session,
         submitReservationScript: submitPreparedCoworkReservationScript,
         timeouts: config.timeouts,
-      }).pipe(Effect.tap(() => waitForPricingChanged(config, run, session))),
-      id: "assert-calendar-quote-pricing-change",
-      timeoutMs: config.timeouts.checkoutStart,
-    });
-    state.orderId = orderId;
-    yield* runStep({
-      execute: assertNoDiscountPaymentState(orderId),
-      id: "assert-calendar-quote-change-created-no-payment-state",
-      timeoutMs: config.timeouts.datasource,
-    });
-    log(`Calendar quote-change e2e passed for order ${orderId}`);
-  });
-
-const executeCalendarSaleDisappearsBeforePayment = ({
-  config,
-  data,
-  run,
-  runStep,
-  session,
-  state,
-}: {
-  readonly config: WorkspaceE2EConfig;
-  readonly data: CheckoutData;
-  readonly run: Runner;
-  readonly runStep: WorkspaceE2EStepRunner;
-  readonly session: string;
-  readonly state: CheckoutFlowState;
-}): Effect.Effect<void, WorkspaceE2EError, E2EDatabase> =>
-  Effect.gen(function* () {
-    state.startedAt = new Date();
-    yield* runStep({
-      execute: waitForAdvertisedCalendarSale({ config, data, run, session }),
-      id: "advertise-restored-calendar-sale",
-      timeoutMs: calendarSaleAdvertisementStepTimeoutMs(config),
-    });
-    const orderId = yield* runStep({
-      execute: submitReservationForPayPage({
-        onOrderId: (startedOrderId) => {
-          state.orderId = startedOrderId;
-        },
-        run,
-        session,
-        submitReservationScript: submitPreparedCoworkReservationScript,
-        timeouts: config.timeouts,
-      }),
+      }).pipe(
+        Effect.flatMap((orderId) =>
+          readBrowserUrl(run, session).pipe(
+            Effect.flatMap((url) =>
+              tryWorkspaceE2ESync("read Calendar pay page URL", () => {
+                assert(url, "Calendar pay page URL missing");
+                return { orderId, payPageUrl: url };
+              })
+            )
+          )
+        )
+      ),
       id: "prepare-calendar-pay-page",
       timeoutMs: config.timeouts.checkoutStart,
     });
-    state.orderId = orderId;
+    paymentChangeState.orderId = paymentChangeOrderId;
     yield* runStep({
       execute: assertDisplayedDiscounts({
         config,
@@ -878,10 +845,61 @@ const executeCalendarSaleDisappearsBeforePayment = ({
       id: "assert-calendar-pay-page-discount",
       timeoutMs: config.timeouts.uiTransition,
     });
+
+    quoteChangeState.startedAt = new Date();
+    yield* runStep({
+      execute: waitForAdvertisedCalendarSale({
+        config,
+        data: quoteChangeData,
+        run,
+        session,
+      }),
+      id: "advertise-calendar-sale-before-quote",
+      timeoutMs: calendarSaleAdvertisementStepTimeoutMs(config),
+    });
     yield* runStep({
       execute: setE2ECalendarSaleCoworkEligibility(false),
-      id: "remove-calendar-sale-eligibility-before-payment",
+      id: "remove-calendar-sale-eligibility",
       timeoutMs: config.timeouts.datasource,
+    });
+
+    const quoteChangeOrderId = yield* runStep({
+      execute: submitReservationForPayPage({
+        onOrderId: (startedOrderId) => {
+          quoteChangeState.orderId = startedOrderId;
+        },
+        run,
+        session,
+        submitReservationScript: submitPreparedCoworkReservationScript,
+        timeouts: config.timeouts,
+      }).pipe(Effect.tap(() => waitForPricingChanged(config, run, session))),
+      id: "assert-calendar-quote-pricing-change",
+      timeoutMs: config.timeouts.checkoutStart,
+    });
+    quoteChangeState.orderId = quoteChangeOrderId;
+    yield* runStep({
+      execute: assertNoDiscountPaymentState(quoteChangeOrderId),
+      id: "assert-calendar-quote-change-created-no-payment-state",
+      timeoutMs: config.timeouts.datasource,
+    });
+    log(`Calendar quote-change e2e passed for order ${quoteChangeOrderId}`);
+
+    yield* runStep({
+      execute: openBrowserPage(config, run, session, payPageUrl, {
+        timeoutMs: config.timeouts.browserNavigation,
+      }).pipe(
+        Effect.andThen(
+          assertDisplayedDiscounts({
+            config,
+            discounts: [calendarDiscountExpectation],
+            run,
+            session,
+          })
+        )
+      ),
+      id: "reopen-calendar-pay-page",
+      timeoutMs:
+        config.timeouts.browserNavigation + config.timeouts.uiTransition,
     });
     yield* runStep({
       execute: submitCheckoutPaymentAndWaitForPricingChanged(
@@ -893,11 +911,11 @@ const executeCalendarSaleDisappearsBeforePayment = ({
       timeoutMs: config.timeouts.providerTransition,
     });
     yield* runStep({
-      execute: assertNoDiscountPaymentState(orderId),
+      execute: assertNoDiscountPaymentState(paymentChangeOrderId),
       id: "assert-calendar-payment-change-created-no-payment-state",
       timeoutMs: config.timeouts.datasource,
     });
-    log(`Calendar payment-change e2e passed for order ${orderId}`);
+    log(`Calendar payment-change e2e passed for order ${paymentChangeOrderId}`);
   });
 
 const executeCustomerDiscountChangesBeforePayment = ({
@@ -1232,6 +1250,7 @@ const executeDiscountCheckout = ({
   runStep,
   session,
   state,
+  verifyPostFulfillmentPaths,
 }: {
   readonly appliedMessage?: string;
   readonly config: WorkspaceE2EConfig;
@@ -1245,6 +1264,7 @@ const executeDiscountCheckout = ({
   readonly runStep: WorkspaceE2EStepRunner;
   readonly session: string;
   readonly state: CheckoutFlowState;
+  readonly verifyPostFulfillmentPaths?: boolean;
 }): Effect.Effect<
   void,
   WorkspaceE2EError,
@@ -1310,6 +1330,7 @@ const executeDiscountCheckout = ({
     runStep,
     session,
     state,
+    verifyPostFulfillmentPaths,
   });
 
 const executeUnavailableDiscountCode = ({

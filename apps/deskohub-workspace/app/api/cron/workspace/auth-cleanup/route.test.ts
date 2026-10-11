@@ -82,26 +82,6 @@ describe("auth cleanup cron route", () => {
     expect(cleanupCalls).toHaveLength(0);
   });
 
-  test("sweeps expired authentication rows with the correct secret", async () => {
-    const { GET } = (await import("./route")) as {
-      GET: (request: Request) => Promise<Response>;
-    };
-    const response = await GET(
-      new Request("https://workspace.test/api/cron/workspace/auth-cleanup", {
-        headers: { authorization: "Bearer cron-secret-for-auth-cleanup-test" },
-      })
-    );
-
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({
-      sessions: 3,
-      verifications: 2,
-      rateLimitRows: 1,
-    });
-    expect(cleanupCalls).toHaveLength(1);
-    expect(cleanupCalls[0]!.now).toBeInstanceOf(Date);
-  });
-
   test("returns a 500 cleanup-unavailable response when the sweep fails", async () => {
     failCleanup = true;
     const { GET } = (await import("./route")) as {

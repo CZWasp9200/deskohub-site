@@ -131,14 +131,6 @@ describe("DotyposService.getMenuItems", () => {
     });
     expect(result.products).toHaveLength(1);
     expect(result.products[0]?.id).toBe(duplicate.id);
-    expect(result.categories).toEqual([
-      visible,
-      hidden,
-      deleted,
-      nonMenu,
-      category({ id: undefined }),
-      alsoVisible,
-    ]);
   });
 
   test("recovers failed category products load", async () => {

@@ -176,14 +176,6 @@ export const loadAdministrationReservationsPage = (
   return { input, result: loadAdministrationReservationList(input) };
 };
 
-export const loadAdministrationReservations = async (
-  searchParams: AdministrationSearchParams
-) => {
-  const page = loadAdministrationReservationsPage(searchParams);
-  const [input, result] = await Promise.all([page.input, page.result]);
-  return { input, result };
-};
-
 export const loadAdministrationReservation = cache(async (id: string) => {
   await authorizeAdministratorPage();
   const reservationId = requireWorkspaceReservationRouteId(id);
@@ -238,14 +230,6 @@ export const loadAdministrationBookingsPage = (
 ) => {
   const input = getAdministrationBookingListInput(searchParams);
   return { input, result: loadAdministrationBookingList(input) };
-};
-
-export const loadAdministrationBookings = async (
-  searchParams: AdministrationSearchParams
-) => {
-  const page = loadAdministrationBookingsPage(searchParams);
-  const [input, result] = await Promise.all([page.input, page.result]);
-  return { input, result };
 };
 
 export const loadAdministrationBooking = cache(async (id: string) => {
@@ -303,14 +287,6 @@ export const loadAdministrationCustomersPage = (
 ) => {
   const input = getAdministrationCustomerListInput(searchParams);
   return { input, result: loadAdministrationCustomerList(input) };
-};
-
-export const loadAdministrationCustomers = async (
-  searchParams: AdministrationSearchParams
-) => {
-  const page = loadAdministrationCustomersPage(searchParams);
-  const [input, result] = await Promise.all([page.input, page.result]);
-  return { input, result };
 };
 
 export const loadAdministrationCustomerReservations = async (
@@ -388,14 +364,6 @@ export const loadAdministrationOrdersPage = (
   return { range, result: loadAdministrationOrderList(range) };
 };
 
-export const loadAdministrationOrders = async (
-  searchParams: AdministrationSearchParams
-) => {
-  const page = loadAdministrationOrdersPage(searchParams);
-  const [range, result] = await Promise.all([page.range, page.result]);
-  return { range, result };
-};
-
 export const loadAdministrationOrder = cache(async (orderId: string) => {
   await authorizeAdministratorPage();
   const decodedOrderId = requireNexiOrderRouteId(orderId);
@@ -445,17 +413,6 @@ export const loadAdministrationOperationsPage = (
 ) => {
   const criteria = getAdministrationOperationListInput(searchParams);
   return { criteria, result: loadAdministrationOperationList(criteria) };
-};
-
-export const loadAdministrationOperations = async (
-  searchParams: AdministrationSearchParams
-) => {
-  const page = loadAdministrationOperationsPage(searchParams);
-  const [{ input, range }, result] = await Promise.all([
-    page.criteria,
-    page.result,
-  ]);
-  return { input, range, result };
 };
 
 export const loadAdministrationOperation = cache(

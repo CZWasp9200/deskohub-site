@@ -2,50 +2,30 @@ import {
   afterAll,
   afterEach,
   beforeAll,
-  beforeEach,
+  describe,
   expect,
+  jest,
   mock,
   test,
 } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, waitFor } from "@testing-library/react";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
+import type { ReactNode } from "react";
 import type {
+  MeetingRoomWorkspaceAvailabilityQuery,
   PreloadedWorkspaceAvailability,
   WorkspaceAvailability,
-  WorkspaceAvailabilityQuery,
 } from "@/features/reservation/workspace-availability";
 import {
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
 } from "@/shared/testing/workspace-component-test-env";
+import { useReservationAvailability } from "./use-reservation-availability";
 
-const loadWorkspaceAvailability = mock(
-  (_input: {
-    readonly query: WorkspaceAvailabilityQuery;
-  }): Promise<WorkspaceAvailability> => new Promise(() => undefined)
-);
-
-mock.module("@/features/reservation/workspace-availability-client", () => ({
-  loadWorkspaceAvailability,
-}));
-
-const { useReservationAvailability } = await import(
-  "./use-reservation-availability"
-);
-
-const query = {
-  kind: "cowork",
+const availabilityResponse = {
   from: "2099-07-30",
   to: "2099-07-30",
-  entryTier: "open-space",
-  date: "2099-07-30",
-} satisfies WorkspaceAvailabilityQuery;
-
-const availability = {
-  date: "2099-07-30",
-  from: "2099-07-30",
-  to: "2099-07-30",
-  unavailableDates: ["2099-07-30"],
+  unavailableDates: [],
   reservedDeskWorkstationRequiredDates: [],
   unavailableCoworkTiers: [],
   meetingRoomUnavailable: false,
@@ -54,112 +34,283 @@ const availability = {
   notices: [],
 } satisfies WorkspaceAvailability;
 
-const AvailabilityHarness = ({
-  initialAvailability,
-  query: harnessQuery,
-}: {
-  readonly initialAvailability: ReadonlyArray<PreloadedWorkspaceAvailability>;
-  readonly query: WorkspaceAvailabilityQuery;
-}) => {
-  const result = useReservationAvailability(harnessQuery, {
-    initialAvailability,
-    replacementToken: "sealed-replacement",
+const jsonResponse = (body: WorkspaceAvailability) =>
+  new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { "Content-Type": "application/json" },
   });
-  return (
-    <output data-pending={String(result.isPending)} data-testid="availability">
-      {result.availability?.unavailableDates.join(",") ?? "none"}
-    </output>
-  );
+
+const queryStartingAt = (
+  hour: number
+): MeetingRoomWorkspaceAvailabilityQuery => ({
+  kind: "meeting-room",
+  from: "2099-07-30",
+  to: "2099-07-30",
+  startsAt: `2099-07-30T${String(hour).padStart(2, "0")}:00:00Z`,
+  endsAt: `2099-07-30T${String(hour + 1).padStart(2, "0")}:00:00Z`,
+});
+
+type AvailabilityFetch = (url: string) => Promise<Response>;
+
+const mockAvailabilityFetch = (respond: AvailabilityFetch) => {
+  const fetch = mock((request: RequestInfo | URL) => respond(String(request)));
+  globalThis.fetch = fetch as typeof globalThis.fetch;
+  return fetch;
 };
 
-const renderHarness = (props: Parameters<typeof AvailabilityHarness>[0]) =>
-  render(
-    <QueryClientProvider client={new QueryClient()}>
-      <AvailabilityHarness {...props} />
-    </QueryClientProvider>
+const renderAvailability = (
+  query: MeetingRoomWorkspaceAvailabilityQuery,
+  options: Parameters<typeof useReservationAvailability>[1] = {}
+) => {
+  // Zero retry delay keeps the hook's retry count without real backoff.
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retryDelay: 0 } },
+  });
+  const view = renderHook(
+    ({ query }) => useReservationAvailability(query, options),
+    {
+      initialProps: { query },
+      wrapper: ({ children }: { readonly children: ReactNode }) => (
+        <QueryClientProvider client={queryClient}>
+          {children}
+        </QueryClientProvider>
+      ),
+    }
   );
+  const refetch = () =>
+    queryClient.refetchQueries({
+      predicate: ({ queryKey }) => queryKey[0] === "workspace-availability",
+    });
+  return Object.assign(view, { refetch });
+};
 
-beforeAll(() => {
-  registerWorkspaceComponentTestEnv();
-});
-
-beforeEach(() => {
-  loadWorkspaceAvailability.mockImplementation(
-    () => new Promise(() => undefined)
-  );
-});
-
-afterEach(() => {
-  cleanup();
-  loadWorkspaceAvailability.mockClear();
-});
-
-afterAll(async () => {
-  await unregisterWorkspaceComponentTestEnv();
-});
-
-test("renders preloaded availability for a matching query without fetching", () => {
-  const view = renderHarness({
-    // Key order differs from the query; the query key hash ignores it.
-    initialAvailability: [
-      {
-        query: { ...query, date: "2099-07-30", kind: "cowork" },
-        availability,
-        loadedAt: Date.now(),
-      },
-    ],
-    query,
+describe("useReservationAvailability", () => {
+  beforeAll(() => {
+    registerWorkspaceComponentTestEnv();
   });
 
-  const output = view.getByTestId("availability");
-  expect(output.textContent).toBe("2099-07-30");
-  expect(output.dataset.pending).toBe("false");
-  expect(loadWorkspaceAvailability).not.toHaveBeenCalled();
-});
-
-test("keeps a fresh page-loaded seed through the initial mount", async () => {
-  const view = renderHarness({
-    initialAvailability: [{ query, availability, loadedAt: Date.now() }],
-    query,
+  afterEach(() => {
+    cleanup();
+    jest.useRealTimers();
   });
 
-  // Mount effects and any scheduled fetch run before this settles.
-  await new Promise((resolve) => setTimeout(resolve, 50));
-  expect(view.getByTestId("availability").dataset.pending).toBe("false");
-  expect(loadWorkspaceAvailability).not.toHaveBeenCalled();
-});
-
-test("fetches a query the page did not preload", async () => {
-  const view = renderHarness({
-    initialAvailability: [
-      {
-        query: { ...query, entryTier: "reserved-desk" },
-        availability,
-        loadedAt: Date.now(),
-      },
-    ],
-    query,
+  afterAll(async () => {
+    await unregisterWorkspaceComponentTestEnv();
   });
 
-  expect(view.getByTestId("availability").textContent).toBe("none");
-  expect(view.getByTestId("availability").dataset.pending).toBe("true");
-  await waitFor(() =>
-    expect(loadWorkspaceAvailability).toHaveBeenCalledTimes(1)
-  );
-  expect(loadWorkspaceAvailability.mock.calls[0]?.[0].query).toEqual(query);
-});
+  test("is pending on the first load and exposes the settled availability", async () => {
+    let respond: ((response: Response) => void) | undefined;
+    mockAvailabilityFetch(
+      () =>
+        new Promise((resolve) => {
+          respond = resolve;
+        })
+    );
 
-test("refreshes stale preloaded availability while still rendering it", async () => {
-  const view = renderHarness({
-    initialAvailability: [
-      { query, availability, loadedAt: Date.now() - 60_000 },
-    ],
-    query,
+    const { result } = renderAvailability(queryStartingAt(8));
+
+    expect(result.current.isPending).toBe(true);
+    expect(result.current.availability).toBeNull();
+    await waitFor(() => expect(respond).toBeDefined());
+
+    await act(async () => respond?.(jsonResponse(availabilityResponse)));
+
+    await waitFor(() => expect(result.current.isPending).toBe(false));
+    expect(result.current.availability).toEqual(availabilityResponse);
   });
 
-  expect(view.getByTestId("availability").textContent).toBe("2099-07-30");
-  expect(view.getByTestId("availability").dataset.pending).toBe("false");
-  await waitFor(() =>
-    expect(loadWorkspaceAvailability).toHaveBeenCalledTimes(1)
-  );
+  test("retries a failed request three times, then reports no availability", async () => {
+    const fetch = mockAvailabilityFetch(() =>
+      Promise.reject(new Error("Availability failed"))
+    );
+
+    const { result } = renderAvailability(queryStartingAt(8));
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(fetch).toHaveBeenCalledTimes(4);
+    expect(result.current.availability).toBeNull();
+    expect(result.current.isPending).toBe(false);
+  });
+
+  test("is not pending during a background refetch of settled availability", async () => {
+    let respondToRefetch: ((response: Response) => void) | undefined;
+    let isRefetching = false;
+    mockAvailabilityFetch(() =>
+      isRefetching
+        ? new Promise((resolve) => {
+            respondToRefetch = resolve;
+          })
+        : Promise.resolve(jsonResponse(availabilityResponse))
+    );
+    const view = renderAvailability(queryStartingAt(8));
+    await waitFor(() => expect(view.result.current.isSuccess).toBe(true));
+
+    isRefetching = true;
+    let refetch: Promise<void> | undefined;
+    act(() => {
+      refetch = view.refetch();
+    });
+    await waitFor(() => expect(respondToRefetch).toBeDefined());
+
+    expect(view.result.current.isFetching).toBe(true);
+    expect(view.result.current.isPending).toBe(false);
+    expect(view.result.current.availability).toEqual(availabilityResponse);
+
+    await act(async () => {
+      respondToRefetch?.(jsonResponse(availabilityResponse));
+      await refetch;
+    });
+  });
+
+  test("stays pending while retrying after a failed refresh of settled availability", async () => {
+    let mode: "available" | "failing" | "retrying" = "available";
+    let respondToRetry: ((response: Response) => void) | undefined;
+    mockAvailabilityFetch(() => {
+      if (mode === "failing") {
+        return Promise.reject(new Error("Availability refresh failed"));
+      }
+      if (mode === "retrying") {
+        return new Promise((resolve) => {
+          respondToRetry = resolve;
+        });
+      }
+      return Promise.resolve(jsonResponse(availabilityResponse));
+    });
+    const view = renderAvailability(queryStartingAt(8));
+    await waitFor(() => expect(view.result.current.isSuccess).toBe(true));
+
+    mode = "failing";
+    await act(async () => {
+      await view.refetch();
+    });
+    await waitFor(() => expect(view.result.current.isError).toBe(true));
+    expect(view.result.current.isPending).toBe(false);
+    expect(view.result.current.availability).toBeNull();
+
+    mode = "retrying";
+    let retry: Promise<void> | undefined;
+    act(() => {
+      retry = view.refetch();
+    });
+    await waitFor(() => expect(respondToRetry).toBeDefined());
+    // The errored query keeps its error status while the retry is in flight.
+    expect(view.result.current.isError).toBe(true);
+    expect(view.result.current.isPending).toBe(true);
+    expect(view.result.current.availability).toBeNull();
+
+    await act(async () => {
+      respondToRetry?.(jsonResponse(availabilityResponse));
+      await retry;
+    });
+    await waitFor(() => expect(view.result.current.isPending).toBe(false));
+    expect(view.result.current.availability).toEqual(availabilityResponse);
+  });
+
+  test("debounces rapid query changes into one request for the latest query", async () => {
+    const fetch = mockAvailabilityFetch(() =>
+      Promise.resolve(jsonResponse(availabilityResponse))
+    );
+    const view = renderAvailability(queryStartingAt(8), { debounceMs: 250 });
+    await waitFor(() => expect(view.result.current.isSuccess).toBe(true));
+    expect(fetch).toHaveBeenCalledTimes(1);
+
+    jest.useFakeTimers();
+    view.rerender({ query: queryStartingAt(9) });
+    act(() => jest.advanceTimersByTime(100));
+    view.rerender({ query: queryStartingAt(10) });
+    act(() => jest.advanceTimersByTime(200));
+
+    expect(view.result.current.isPending).toBe(true);
+    expect(view.result.current.availability).toBeNull();
+    expect(fetch).toHaveBeenCalledTimes(1);
+
+    act(() => jest.advanceTimersByTime(50));
+    jest.useRealTimers();
+
+    await waitFor(() => expect(view.result.current.isPending).toBe(false));
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch.mock.calls[1]?.[0]).toContain(
+      `startsAt=${encodeURIComponent(queryStartingAt(10).startsAt)}`
+    );
+  });
+
+  describe("with page-loaded availability", () => {
+    const preloaded = (
+      query: MeetingRoomWorkspaceAvailabilityQuery,
+      loadedAt = Date.now()
+    ): PreloadedWorkspaceAvailability => ({
+      query,
+      availability: availabilityResponse,
+      loadedAt,
+    });
+    const renderPreloaded = (
+      query: MeetingRoomWorkspaceAvailabilityQuery,
+      initialAvailability: ReadonlyArray<PreloadedWorkspaceAvailability>
+    ) =>
+      renderAvailability(query, {
+        initialAvailability,
+        replacementToken: "sealed-replacement",
+      });
+
+    test("renders preloaded availability for a matching query without fetching", () => {
+      const fetch = mockAvailabilityFetch(() => new Promise(() => undefined));
+      const query = queryStartingAt(8);
+
+      const { result } = renderPreloaded(query, [
+        // Key order differs from the query; the query key hash ignores it.
+        preloaded({
+          endsAt: query.endsAt,
+          startsAt: query.startsAt,
+          to: query.to,
+          from: query.from,
+          kind: query.kind,
+        }),
+      ]);
+
+      expect(result.current.isPending).toBe(false);
+      expect(result.current.availability).toEqual(availabilityResponse);
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    test("keeps a fresh page-loaded seed through the initial mount", async () => {
+      const fetch = mockAvailabilityFetch(() => new Promise(() => undefined));
+      const query = queryStartingAt(8);
+
+      const { result } = renderPreloaded(query, [preloaded(query)]);
+
+      // Mount effects and any scheduled fetch run before this settles.
+      await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+      expect(result.current.isPending).toBe(false);
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    test("fetches a query the page did not preload", async () => {
+      const fetch = mockAvailabilityFetch(() => new Promise(() => undefined));
+      const query = queryStartingAt(8);
+
+      const { result } = renderPreloaded(query, [
+        preloaded(queryStartingAt(9)),
+      ]);
+
+      expect(result.current.availability).toBeNull();
+      expect(result.current.isPending).toBe(true);
+      await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+      expect(fetch.mock.calls[0]?.[0]).toContain(
+        `startsAt=${encodeURIComponent(query.startsAt)}`
+      );
+    });
+
+    test("refreshes stale preloaded availability while still rendering it", async () => {
+      const fetch = mockAvailabilityFetch(() => new Promise(() => undefined));
+      const query = queryStartingAt(8);
+
+      const { result } = renderPreloaded(query, [
+        preloaded(query, Date.now() - 60_000),
+      ]);
+
+      expect(result.current.availability).toEqual(availabilityResponse);
+      expect(result.current.isPending).toBe(false);
+      await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+    });
+  });
 });

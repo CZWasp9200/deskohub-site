@@ -1,9 +1,8 @@
 import { expect, test } from "bun:test";
-import { constants } from "node:fs";
-import { access } from "node:fs/promises";
 import { createServer } from "node:http";
 import { chromium, type Page } from "@playwright/test";
 import type { ReservationCustomerMode } from "@/features/reservation/reservation-existing-customer";
+import { playwrightChromiumAvailable } from "../../shared/testing/playwright-browser";
 import {
   isWorkspaceE2EDiagnosticCode,
   WorkspaceE2EError,
@@ -30,11 +29,7 @@ type FailurePhase =
   | "card-settle"
   | "card-review"
   | "contact-handler"
-  | "contact-input-prefilled"
-  | "contact-card-present"
-  | "contact-review"
-  | "account-click"
-  | "card-restore";
+  | "contact-review";
 
 type FakeState = {
   mode: ReservationCustomerMode;
@@ -43,12 +38,6 @@ type FakeState = {
 
 const settledSubmitKey =
   'locator:#reservation-submit[data-reservation-availability-loading="false"][data-reservation-price-loading="false"]';
-const loadingSkeletonKey = 'locator:main [data-slot="skeleton"]';
-const settleActions = [
-  `visible:${settledSubmitKey}`,
-  `hidden:${loadingSkeletonKey}`,
-  "scroll-top",
-];
 
 const contactFieldByLabel = (label: string) =>
   ["Email", "Phone", "Name"].find((field) =>
@@ -58,7 +47,6 @@ const contactFieldByLabel = (label: string) =>
 const makeFakePage = (failurePhase?: FailurePhase) => {
   const actions: string[] = [];
   const state: FakeState = { mode: "account", url: "about:blank" };
-  let accountSwitches = 0;
 
   const fail = (): never => {
     throw new Error(privateFailureDetails);
@@ -67,8 +55,6 @@ const makeFakePage = (failurePhase?: FailurePhase) => {
   const isVisible = (key: string): boolean => {
     if (key === "region:Booking as") return state.mode === "account";
     if (key === "button:Book for someone else") return state.mode === "account";
-    if (key === "button:Use my account details")
-      return state.mode === "contact";
     if (key.startsWith("text:")) {
       if (
         failurePhase === "card-email" &&
@@ -93,27 +79,13 @@ const makeFakePage = (failurePhase?: FailurePhase) => {
       state.mode === "account"
     )
       return 1;
-    if (
-      failurePhase === "contact-card-present" &&
-      key === "region:Booking as" &&
-      state.mode === "contact"
-    )
-      return 1;
     return isVisible(key) ? 1 : 0;
   };
 
   const makeLocator = (key: string) => ({
     click: async () => {
       actions.push(`click:${key}`);
-      if (key === "button:Book for someone else") {
-        state.mode = "contact";
-        return;
-      }
-      if (key === "button:Use my account details") {
-        accountSwitches += 1;
-        if (failurePhase === "account-click") fail();
-        state.mode = "account";
-      }
+      if (key === "button:Book for someone else") state.mode = "contact";
     },
     count: async () => countFor(key),
     elementHandle: async () => ({
@@ -125,10 +97,6 @@ const makeFakePage = (failurePhase?: FailurePhase) => {
       expect(options.exact).toBe(true);
       return makeLocator(`text:${text}`);
     },
-    inputValue: async () => {
-      if (failurePhase === "contact-input-prefilled") return contact.email;
-      return "";
-    },
     waitFor: async (options: { readonly state?: string }) => {
       if (options.state === "hidden") {
         if (isVisible(key)) fail();
@@ -136,12 +104,6 @@ const makeFakePage = (failurePhase?: FailurePhase) => {
         return;
       }
       expect(options.state).toBe("visible");
-      if (
-        failurePhase === "card-restore" &&
-        accountSwitches > 0 &&
-        key === "region:Booking as"
-      )
-        fail();
       if (!isVisible(key)) fail();
       actions.push(`visible:${key}`);
     },
@@ -233,7 +195,7 @@ const expectReservationCustomerFailure = (
   expect(annotation).not.toContain(contact.email);
 };
 
-test("checks the card, captures both modes, and restores the card without submitting", async () => {
+test("checks only the account card without the review screenshot opt-in", async () => {
   const fake = makeFakePage();
 
   await verifyReservationExistingCustomer({
@@ -241,35 +203,31 @@ test("checks the card, captures both modes, and restores the card without submit
     captureReview: fake.captureReview,
     contact,
     page: fake.page,
+    reviewScreenshots: false,
   });
 
-  expect(fake.actions).toEqual([
-    `goto:${baseUrl}/en-US/reservation/cowork`,
-    "visible:region:Booking as",
-    `visible:text:${contact.name}`,
-    `visible:text:${contact.email}`,
-    ...settleActions,
-    "review:account",
-    "visible:button:Book for someone else",
-    "react-handler:button:Book for someone else",
-    "click:button:Book for someone else",
-    "visible:textbox:Email",
-    "visible:textbox:Phone",
-    "visible:textbox:Name",
-    ...settleActions,
-    "review:contact",
-    "visible:button:Use my account details",
-    "react-handler:button:Use my account details",
-    "click:button:Use my account details",
-    "visible:region:Booking as",
-    `visible:text:${contact.name}`,
-    `visible:text:${contact.email}`,
-  ]);
-  expect(fake.reviews).toEqual(["account", "contact"]);
+  expect(fake.reviews).toEqual([]);
   expect(fake.state.mode).toBe("account");
   expect(
     fake.actions.filter((action) => action.startsWith("click:"))
-  ).toHaveLength(2);
+  ).toHaveLength(0);
+});
+
+test("captures both modes in review runs without submitting", async () => {
+  const fake = makeFakePage();
+
+  await verifyReservationExistingCustomer({
+    baseUrl,
+    captureReview: fake.captureReview,
+    contact,
+    page: fake.page,
+    reviewScreenshots: true,
+  });
+
+  expect(fake.reviews).toEqual(["account", "contact"]);
+  expect(
+    fake.actions.filter((action) => action.startsWith("click:"))
+  ).toHaveLength(1);
 });
 
 const failurePhases = [
@@ -299,28 +257,9 @@ const failurePhases = [
       "account_reservation_existing_customer_contact_switch_failed",
   },
   {
-    phase: "contact-input-prefilled",
-    diagnosticCode:
-      "account_reservation_existing_customer_contact_inputs_failed",
-  },
-  {
-    phase: "contact-card-present",
-    diagnosticCode:
-      "account_reservation_existing_customer_contact_inputs_failed",
-  },
-  {
     phase: "contact-review",
     diagnosticCode:
       "account_reservation_existing_customer_contact_review_failed",
-  },
-  {
-    phase: "account-click",
-    diagnosticCode:
-      "account_reservation_existing_customer_account_switch_failed",
-  },
-  {
-    phase: "card-restore",
-    diagnosticCode: "account_reservation_existing_customer_card_restore_failed",
   },
 ] as const satisfies ReadonlyArray<{
   readonly diagnosticCode: WorkspaceE2EReservationExistingCustomerDiagnosticCode;
@@ -335,6 +274,7 @@ for (const { diagnosticCode, phase } of failurePhases) {
       captureReview: fake.captureReview,
       contact,
       page: fake.page,
+      reviewScreenshots: true,
     }).then(
       () => undefined,
       (cause: unknown) => cause
@@ -352,6 +292,7 @@ test("does not capture the contact review when the card check fails", async () =
     captureReview: fake.captureReview,
     contact,
     page: fake.page,
+    reviewScreenshots: true,
   }).catch(() => undefined);
 
   expect(fake.reviews).toEqual([]);
@@ -360,12 +301,7 @@ test("does not capture the contact review when the card check fails", async () =
   ).toHaveLength(0);
 });
 
-const chromiumAvailable = await access(
-  chromium.executablePath(),
-  constants.X_OK
-)
-  .then(() => true)
-  .catch(() => false);
+const chromiumAvailable = await playwrightChromiumAvailable();
 
 /**
  * A static stand-in for the cowork customer section: the account card and
@@ -497,6 +433,7 @@ test.skipIf(!chromiumAvailable)(
           },
           contact,
           page,
+          reviewScreenshots: true,
         });
 
         expect(reviewed).toEqual([
@@ -515,11 +452,6 @@ test.skipIf(!chromiumAvailable)(
             scrollY: 0,
           },
         ]);
-        await expect(
-          page
-            .getByRole("region", { exact: true, name: "Booking as" })
-            .isVisible()
-        ).resolves.toBe(true);
         // One document load, no form submission.
         expect(server.requests).toEqual(["GET /en-US/reservation/cowork"]);
       } finally {

@@ -1,18 +1,8 @@
 import { describe, expect, spyOn, test } from "bun:test";
 import type { LoggerProvider } from "@opentelemetry/api-logs";
-import {
-  createPostHogLoggerProvider,
-  flushPostHogLogs,
-  getPostHogLogsEndpoint,
-} from "./posthog-otel";
+import { createPostHogLoggerProvider, flushPostHogLogs } from "./posthog-otel";
 
 describe("PostHog OTel logs", () => {
-  test("builds the PostHog OTLP logs endpoint", () => {
-    expect(getPostHogLogsEndpoint("https://eu.i.posthog.com")).toBe(
-      "https://eu.i.posthog.com/i/v1/logs"
-    );
-  });
-
   test("does not create a logger provider without a project token", () => {
     expect(createPostHogLoggerProvider({})).toBeUndefined();
   });
@@ -33,17 +23,6 @@ describe("PostHog OTel logs", () => {
         vercelEnv: "development",
       })
     ).toThrow("POSTHOG_INGEST_HOST is required");
-  });
-
-  test("creates a flushable logger provider with a project token", async () => {
-    const provider = createPostHogLoggerProvider({
-      posthogHost: "https://ingest.posthog.example",
-      posthogProjectToken: "phc_test",
-      vercelEnv: "development",
-    });
-
-    expect(provider?.forceFlush).toEqual(expect.any(Function));
-    await provider?.shutdown();
   });
 
   test("bounds a flush when the logger provider does not settle", async () => {

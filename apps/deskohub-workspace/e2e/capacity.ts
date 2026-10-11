@@ -130,21 +130,20 @@ const newSaleCapacityGroups: readonly CapacityGroup[] = [
  * preflight, so unassigned saleable labels fail closed instead of being propped
  * up by historical tags.
  */
-export const workspaceE2ELegacyTierCleanupCapacityGroups: readonly CapacityGroup[] =
-  [
-    { id: "tier:basic", requiredTags: ["tier:basic"] },
-    { id: "tier:plus", requiredTags: ["tier:plus"] },
-    { id: "tier:profi", requiredTags: ["tier:profi"] },
-    ...workspaceProductMonitorOptions.map(
-      (monitorOption): CapacityGroup => ({
-        id: `tier:profi/monitor:${monitorOption}`,
-        requiredTags: [
-          "tier:profi",
-          ...workspaceProductMonitorOptionTableTags[monitorOption],
-        ],
-      })
-    ),
-  ];
+const workspaceE2ELegacyTierCleanupCapacityGroups: readonly CapacityGroup[] = [
+  { id: "tier:basic", requiredTags: ["tier:basic"] },
+  { id: "tier:plus", requiredTags: ["tier:plus"] },
+  { id: "tier:profi", requiredTags: ["tier:profi"] },
+  ...workspaceProductMonitorOptions.map(
+    (monitorOption): CapacityGroup => ({
+      id: `tier:profi/monitor:${monitorOption}`,
+      requiredTags: [
+        "tier:profi",
+        ...workspaceProductMonitorOptionTableTags[monitorOption],
+      ],
+    })
+  ),
+];
 
 export type WorkspaceE2ECapacityGroupReport = {
   readonly activeVisibleTableCount: number;

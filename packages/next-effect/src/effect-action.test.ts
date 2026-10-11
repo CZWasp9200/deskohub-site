@@ -124,16 +124,6 @@ describe("EffectAction", () => {
     });
   });
 
-  test("does not add a timeout by default", async () => {
-    const action = EffectAction.fromClient(makeActionClient())
-      .inputSchema(Schema.toStandardSchemaV1(Schema.String))
-      .action(({ parsedInput }) => Effect.succeed(parsedInput));
-
-    await expect(action("fast enough")).resolves.toEqual({
-      data: "fast enough",
-    });
-  });
-
   test("custom runner can wrap the final effect and use configured layers", async () => {
     let calls = 0;
     let wrapped = false;

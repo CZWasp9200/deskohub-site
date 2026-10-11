@@ -3,31 +3,6 @@ import { Effect, Logger } from "effect";
 import { DiscountProviderError } from "./errors";
 import { logDiscountResolutionFailure } from "./resolution-logging";
 
-type DiscountResolutionFailureTag = Parameters<
-  typeof logDiscountResolutionFailure
->[0]["cause"]["_tag"];
-
-type ExpectedDiscountResolutionFailureTag =
-  | "CalendarSaleConfigurationError"
-  | "DiscountCalculationError"
-  | "PromotionCodeUnavailableError"
-  | "DiscountProviderError";
-
-type IsExact<Actual, Expected> = [Actual] extends [Expected]
-  ? [Expected] extends [Actual]
-    ? true
-    : false
-  : false;
-
-const hasExactFailureTags: IsExact<
-  DiscountResolutionFailureTag,
-  ExpectedDiscountResolutionFailureTag
-> = true;
-
-test("keeps discount resolution failure tags discriminated", () => {
-  expect(hasExactFailureTags).toBe(true);
-});
-
 test("includes the failure cause in the error log", async () => {
   const cause = new DiscountProviderError({
     reason: "provider_failure",

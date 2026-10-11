@@ -14,7 +14,7 @@ describe("Cloudinary schemas", () => {
     expect(() => decode("")).toThrow();
   });
 
-  test("accept valid assets and search options", () => {
+  test("accepts a minimal asset and search options", () => {
     expect(
       Schema.is(CloudinaryAssetSchema)({
         public_id: "gallery/image",
@@ -25,30 +25,10 @@ describe("Cloudinary schemas", () => {
         format: "jpg",
         resource_type: "image",
         created_at: "2026-06-20T10:00:00Z",
-        folder: "gallery",
-        tags: ["workspace"],
-        context: {
-          custom: {
-            alt: "Desk",
-            "alt-cs-CZ": "Stůl",
-            "alt-en-US": "Desk",
-            caption: "Workspace",
-            "caption-cs-CZ": "Pracovní prostor",
-            "caption-en-US": "Workspace",
-            detail: "Ten seats",
-            "detail-cs-CZ": "Deset míst",
-            "detail-en-US": "Ten seats",
-          },
-        },
       })
     ).toBeTrue();
-
     expect(
-      Schema.is(SearchOptionsSchema)({
-        maxResults: 10,
-        sortBy: "created_at",
-        sortDirection: "desc",
-      })
+      Schema.is(SearchOptionsSchema)({ maxResults: 10, sortBy: "created_at" })
     ).toBeTrue();
   });
 

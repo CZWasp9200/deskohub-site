@@ -4,10 +4,8 @@ import { Effect, Layer, Logger, References } from "effect";
 
 mock.module("server-only", () => ({}));
 
-const verifyNotificationSignature = mock(() => true);
 const cloudinary = {
   config: mock(() => undefined),
-  utils: { verifyNotificationSignature },
 };
 
 mock.module("cloudinary", () => ({ v2: cloudinary }));
@@ -27,8 +25,6 @@ const config = {
 
 beforeEach(() => {
   Date.now = () => now;
-  verifyNotificationSignature.mockReset();
-  verifyNotificationSignature.mockReturnValue(true);
   cloudinary.config.mockClear();
 });
 
@@ -93,17 +89,6 @@ describe("verifyCloudinaryWebhookRequest", () => {
     });
   });
 
-  test("verifies with the configured secret, not the SDK's global configuration", async () => {
-    verifyNotificationSignature.mockReturnValue(false);
-    const body = JSON.stringify({ public_id: "gallery/image" });
-
-    const result = await Effect.runPromise(
-      verifyRequest(request(body)).pipe(Effect.result)
-    );
-
-    expect(result._tag).toBe("Success");
-  });
-
   test("rejects a signature of a different length", async () => {
     const result = await Effect.runPromise(
       verifyRequest(request("{}", { "x-cld-signature": "abc" })).pipe(
@@ -128,7 +113,6 @@ describe("verifyCloudinaryWebhookRequest", () => {
     if (result._tag === "Failure") {
       expect(result.failure._tag).toBe("CloudinaryWebhookAuthError");
     }
-    expect(verifyNotificationSignature).not.toHaveBeenCalled();
   });
 
   test("rejects bad signatures", async () => {

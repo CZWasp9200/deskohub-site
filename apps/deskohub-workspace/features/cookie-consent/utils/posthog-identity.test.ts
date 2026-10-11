@@ -33,6 +33,7 @@ const makeFakeClient = (input: {
   readonly distinctId: string;
   readonly userState: PersistedUserState;
 }) => {
+  // Records only state-changing SDK calls; read-only probes are free to change.
   const calls: string[] = [];
   const identifyArguments: Array<
     Parameters<PostHogIdentityClient["identify"]>
@@ -43,11 +44,9 @@ const makeFakeClient = (input: {
 
   const client: PostHogIdentityClient = {
     get_distinct_id() {
-      calls.push("get_distinct_id");
       return distinctId;
     },
     get_property(propertyName) {
-      calls.push(`get_property(${propertyName})`);
       return propertyName === "$user_state" ? userState : undefined;
     },
     identify(...arguments_) {
@@ -143,8 +142,6 @@ describe("PostHog identity controller", () => {
       "pause",
       "reset(true)",
       "opt_out",
-      "get_distinct_id",
-      "get_property($user_state)",
       "opt_in(false)",
       "identify",
       "ready",
@@ -167,7 +164,7 @@ describe("PostHog identity controller", () => {
     controller.reconcile(true, anonymous);
 
     expect(controller.isReady()).toBe(true);
-    expect(fake.calls).toEqual(["get_property($user_state)", "opt_in(false)"]);
+    expect(fake.calls).toEqual(["opt_in(false)"]);
     expect(lifecycle).toEqual(["ready"]);
     expect(fake.resetCount).toBe(0);
   });
@@ -184,11 +181,7 @@ describe("PostHog identity controller", () => {
 
     controller.reconcile(true, anonymous);
 
-    expect(fake.calls).toEqual([
-      "get_property($user_state)",
-      "reset(true)",
-      "opt_in(false)",
-    ]);
+    expect(fake.calls).toEqual(["reset(true)", "opt_in(false)"]);
     expect(fake.resetCount).toBe(1);
   });
 
@@ -212,13 +205,7 @@ describe("PostHog identity controller", () => {
       makeIdentity("authenticated", accountId("account-a"))
     );
 
-    expect(fake.calls).toEqual([
-      "get_distinct_id",
-      "get_property($user_state)",
-      "opt_in(false)",
-      "identify",
-      "ready",
-    ]);
+    expect(fake.calls).toEqual(["opt_in(false)", "identify", "ready"]);
     expect(fake.identifyArguments).toEqual([["workspace-account:account-a"]]);
     expect(readyAtIdentify).toBe(true);
     expect(fake.resetCount).toBe(0);
@@ -240,8 +227,6 @@ describe("PostHog identity controller", () => {
     );
 
     expect(fake.calls).toEqual([
-      "get_distinct_id",
-      "get_property($user_state)",
       "reset(true)",
       "opt_in(false)",
       "identify",
@@ -268,13 +253,7 @@ describe("PostHog identity controller", () => {
     controller.reconcile(true, identity);
 
     expect(fake.identifyArguments).toEqual([]);
-    expect(fake.calls).toEqual([
-      "get_distinct_id",
-      "get_property($user_state)",
-      "opt_in(false)",
-      "get_distinct_id",
-      "get_property($user_state)",
-    ]);
+    expect(fake.calls).toEqual(["opt_in(false)"]);
     expect(lifecycle).toEqual(["ready"]);
   });
 
@@ -298,13 +277,7 @@ describe("PostHog identity controller", () => {
 
     controller.reconcile(true, identity);
 
-    expect(fake.calls).toEqual([
-      "get_distinct_id",
-      "get_property($user_state)",
-      "reset(true)",
-      "opt_in(false)",
-      "identify",
-    ]);
+    expect(fake.calls).toEqual(["reset(true)", "opt_in(false)", "identify"]);
     expect(fake.identifyArguments).toEqual([["workspace-account:account-a"]]);
     expect(fake.resetCount).toBe(1);
     expect(controller.isReady()).toBe(true);
@@ -325,12 +298,7 @@ describe("PostHog identity controller", () => {
       makeIdentity("authenticated", accountId("account-a"))
     );
 
-    expect(fake.calls).toEqual([
-      "get_distinct_id",
-      "get_property($user_state)",
-      "opt_in(false)",
-      "identify",
-    ]);
+    expect(fake.calls).toEqual(["opt_in(false)", "identify"]);
     expect(fake.identifyArguments).toEqual([["workspace-account:account-a"]]);
     expect(fake.resetCount).toBe(0);
   });
@@ -352,11 +320,7 @@ describe("PostHog identity controller", () => {
     controller.reconcile(true, pending);
     controller.reconcile(true, identity);
 
-    expect(fake.calls).toEqual([
-      "get_distinct_id",
-      "get_property($user_state)",
-      "opt_in(false)",
-    ]);
+    expect(fake.calls).toEqual(["opt_in(false)"]);
     expect(fake.identifyArguments).toEqual([["workspace-account:account-a"]]);
     expect(fake.resetCount).toBe(0);
     expect(lifecycle).toEqual(["ready", "pause", "ready"]);
@@ -379,11 +343,7 @@ describe("PostHog identity controller", () => {
     controller.reconcile(true, pending);
     controller.reconcile(true, identity);
 
-    expect(fake.calls).toEqual([
-      "get_distinct_id",
-      "get_property($user_state)",
-      "opt_in(false)",
-    ]);
+    expect(fake.calls).toEqual(["opt_in(false)"]);
     expect(fake.identifyArguments).toEqual([]);
     expect(fake.resetCount).toBe(0);
   });
@@ -406,12 +366,7 @@ describe("PostHog identity controller", () => {
     controller.reconcile(true, anonymous);
     controller.reconcile(true, anonymous);
 
-    expect(fake.calls).toEqual([
-      "get_property($user_state)",
-      "reset(true)",
-      "opt_in(false)",
-      "get_property($user_state)",
-    ]);
+    expect(fake.calls).toEqual(["reset(true)", "opt_in(false)"]);
     expect(fake.resetCount).toBe(1);
   });
 
@@ -434,11 +389,7 @@ describe("PostHog identity controller", () => {
 
     controller.reconcile(true, anonymous);
 
-    expect(fake.calls).toEqual([
-      "get_property($user_state)",
-      "reset(true)",
-      "opt_in(false)",
-    ]);
+    expect(fake.calls).toEqual(["reset(true)", "opt_in(false)"]);
     expect(fake.resetCount).toBe(1);
     expect(controller.isReady()).toBe(true);
   });
