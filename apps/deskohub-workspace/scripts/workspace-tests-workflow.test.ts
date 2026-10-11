@@ -1,6 +1,10 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { relative, resolve } from "node:path";
+import {
+  shardTimingsArtifactPattern,
+  testTimingsPath,
+} from "./refresh-test-timings";
 import { runCommand } from "./shared/command";
 import { identifierNames, parseTrackedSource } from "./shared/source-ast";
 import {
@@ -108,6 +112,22 @@ test("installs the matching Chromium browser before the Workspace test task", ()
   expect(
     names.filter((name) => name === "Install Workspace Playwright Chromium")
   ).toHaveLength(1);
+
+  // Cached browser downloads are keyed on the installed Playwright version;
+  // the install step still runs to add Chromium's system packages.
+  const cacheIndex = names.indexOf("Cache Workspace Playwright browsers");
+  expect(cacheIndex).toBeGreaterThan(-1);
+  expect(cacheIndex).toBeLessThan(installIndex);
+  const cacheStep = stepByName("Cache Workspace Playwright browsers");
+  expect(cacheStep.uses).toMatch(/^actions\/cache@[0-9a-f]{40}$/);
+  expect(cacheStep.with?.path).toBe("~/.cache/ms-playwright");
+  expect(cacheStep.with?.key).toContain(
+    "$" + "{{ steps.playwright.outputs.version }}"
+  );
+  const versionStep = stepByName("Resolve Workspace Playwright version");
+  expect(versionStep.id).toBe("playwright");
+  expect(versionStep["working-directory"]).toBe("apps/deskohub-workspace");
+  expect(versionStep.run).toContain("@playwright/test/package.json");
   const shardExpression = "$" + "{{ matrix.shard }}";
   expect(stepByName("Run Workspace tests").run).toContain(
     `--shard=${shardExpression}/4`
@@ -116,6 +136,39 @@ test("installs the matching Chromium browser before the Workspace test task", ()
   expect(
     workflowStepRuns(doc).some((run) =>
       run.includes("bun install --frozen-lockfile")
+    )
+  ).toBe(true);
+});
+
+test("balances shards by committed durations and uploads each shard's recording", () => {
+  const packageJson = JSON.parse(
+    readFileSync(resolve(import.meta.dir, "../package.json"), "utf8")
+  ) as { readonly scripts: { readonly test: string } };
+  const timingsFile = relative(resolve(import.meta.dir, ".."), testTimingsPath);
+  // Every shard reads the same committed file, so the split is deterministic.
+  expect(packageJson.scripts.test).toContain(`--timings=./${timingsFile}`);
+  expect(stepByName("Run Workspace tests").run).toContain(
+    `--timings=${timingsFile} --update-timings`
+  );
+
+  const names = workflowSteps(doc, "test-functional-shards").map(
+    (step) => step.name ?? ""
+  );
+  expect(names.indexOf("Upload Workspace test timings")).toBe(
+    names.indexOf("Run Workspace tests") + 1
+  );
+  const upload = stepByName("Upload Workspace test timings");
+  // Only a passing shard's recording is trustworthy for rebalancing.
+  expect(upload.if).toBeUndefined();
+  expect(upload.uses).toMatch(/^actions\/upload-artifact@[0-9a-f]{40}$/);
+  expect(upload.with?.path).toBe(`apps/deskohub-workspace/${timingsFile}`);
+  const artifactName = String(upload.with?.name);
+  expect(artifactName).toBe(
+    "workspace-test-timings-shard-" + "$" + "{{ matrix.shard }}"
+  );
+  expect(
+    new Bun.Glob(shardTimingsArtifactPattern).match(
+      artifactName.replace("$" + "{{ matrix.shard }}", "1")
     )
   ).toBe(true);
 });
