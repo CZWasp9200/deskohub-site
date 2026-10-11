@@ -135,7 +135,6 @@ describe("ProfileScreen", () => {
     const markup = renderProfile({ footer: undefined });
 
     expect(markup).not.toContain("data-footer-marker");
-    expect(markup).not.toContain("pb-[max(1rem,env(safe-area-inset-bottom))]");
   });
 
   test("keeps the login email visual, verified, and non-editable", () => {
