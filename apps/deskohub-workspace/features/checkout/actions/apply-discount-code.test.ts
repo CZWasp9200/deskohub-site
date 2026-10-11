@@ -2,33 +2,10 @@ import "@/shared/polyfills/temporal";
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, mock, test } from "bun:test";
-import { Effect, Schema } from "effect";
-import {
-  buildSignedPayState,
-  openPayState,
-  payStateTokenQueryParam,
-  sealPayState,
-} from "@/features/checkout/backend/checkout/pay-state";
-import { buildCoworkReservationQuote } from "@/features/checkout/checkout-quote.test-utils";
-import { canonicalPromotionCodeSchema } from "@/features/discounts/contracts";
 import type { WorkspaceActionOptions } from "@/shared/backend/workspace-action";
-import { instantStringSchema } from "@/shared/utils/temporal";
 import type { ApplyDiscountCodeResult } from "./apply-discount-code-to-pay-state";
 
 mock.module("server-only", () => ({}));
-
-const payStateBookedAt = instantStringSchema.make("2026-06-01T09:58:00.000Z");
-
-const reservation = {
-  kind: "cowork" as const,
-  entryTier: "basic" as const,
-  coffee: false,
-  date: "2026-08-04",
-  name: "Ada Lovelace",
-  email: "ada@example.test",
-  phone: "+420777000111",
-};
-const quote = buildCoworkReservationQuote(reservation);
 
 const redirectMock = mock((_url: string) => {
   throw new Error("NEXT_REDIRECT");
@@ -57,38 +34,18 @@ mock.module("@/shared/backend/workspace-action", () => ({
 
 let operationResult: ApplyDiscountCodeResult;
 
-const makeTokenWithRequestedIntent = async () => {
-  const state = await Effect.runPromise(
-    Effect.gen(function* () {
-      return yield* buildSignedPayState({
-        locale: "en-US",
-        reservation,
-        quote,
-        orderId: "reservation-id",
-        bookedAt: payStateBookedAt,
-        checkoutSessionId: "checkout-session-id",
-        requestedDiscountCode: Schema.decodeUnknownSync(
-          canonicalPromotionCodeSchema
-        )("SAVE20"),
-      });
-    })
-  );
-  return await Effect.runPromise(sealPayState(state));
-};
-
 const runForm = async (
   result: ApplyDiscountCodeResult,
   input: {
     readonly locale?: string;
     readonly payStateToken: string;
-    readonly submittedCode?: string;
   }
 ) => {
   operationResult = result;
   redirectMock.mockClear();
   const { applyDiscountCodeForm } = await import("./apply-discount-code");
   const formData = new FormData();
-  formData.set("submittedCode", input.submittedCode ?? "save20");
+  formData.set("submittedCode", "save20");
 
   let redirectError: unknown;
   try {
@@ -109,29 +66,21 @@ const runForm = async (
 };
 
 describe("applyDiscountCodeForm", () => {
-  test("routes an invalid canonical attempt to the replacement token without plaintext", async () => {
-    const replacementToken = await makeTokenWithRequestedIntent();
-    const freshPayUrl = `/en-US/checkout/pay?${payStateTokenQueryParam}=${replacementToken}&discountCodeError=unavailable&discountCodeErrorId=attempt-1`;
+  test("redirects an unavailable code to the replacement pay URL", async () => {
+    const freshPayUrl = "/en-US/checkout/pay?payState=replacement-token";
 
     const redirectedUrl = await runForm(
       { status: "unavailable", freshPayUrl },
-      { payStateToken: "original-token", submittedCode: " save20 " }
+      { payStateToken: "original-token" }
     );
 
     expect(redirectedUrl).toBe(freshPayUrl);
-    expect(redirectedUrl).toContain("discountCodeError=unavailable");
-    expect(redirectedUrl).not.toContain("SAVE20");
-    expect(redirectedUrl).not.toContain("save20");
-    const opened = await Effect.runPromise(openPayState(replacementToken));
-    expect(opened.requestedDiscountCode).toBe("SAVE20");
-    expect(opened.submittedCode).toBeUndefined();
-    expect(opened.submittedCodeDiscountId).toBeUndefined();
   });
 
-  test("keeps the original-token correction route for a malformed code", async () => {
+  test("falls back to the original-token pay URL when no replacement is returned", async () => {
     const redirectedUrl = await runForm(
       { status: "unavailable" },
-      { payStateToken: "original-token", submittedCode: "not valid!" }
+      { payStateToken: "original-token" }
     );
 
     expect(redirectedUrl).toContain("payState=original-token");

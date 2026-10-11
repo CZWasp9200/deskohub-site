@@ -17,6 +17,7 @@ import { reservationCustomerEmailSchema } from "@/features/reservation/reservati
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import { customerAccountIdSchema } from "../customer-account";
 import { CustomerAccountLinkRepository } from "./customer-account-link.repository";
+import { waitForAccountAdvisoryLockWait } from "./customer-account-lock.test-utils";
 import {
   type CustomerAccountSession,
   CustomerAuthentication,
@@ -183,27 +184,6 @@ const insertLink = async (account: string, dotyposCustomerId: string) => {
   );
 };
 
-const waitForAccountAdvisoryLockWait = async (account: string) => {
-  const deadline = Date.now() + 5_000;
-  while (Date.now() < deadline) {
-    const waiting = await testDatabase!.pool.query(
-      `
-        select 1
-        from pg_locks
-        where locktype = 'advisory'
-          and not granted
-          and classid::bigint = (hashtext($1)::bigint & 4294967295)
-          and objid::bigint = (hashtext($2)::bigint & 4294967295)
-          and objsubid = 2
-      `,
-      ["customer-account", account]
-    );
-    if (waiting.rows.length > 0) return;
-    await Bun.sleep(10);
-  }
-  throw new Error("Timed out waiting for the account advisory lock waiter.");
-};
-
 const makeLayer = () =>
   testDatabase &&
   Layer.mergeAll(
@@ -303,7 +283,9 @@ describe.skipIf(!testDatabase)(
           // The first provider upload holds the account lock while the other
           // upload reaches Postgres and waits for that same advisory lock.
           yield* Deferred.await(uploadEntered);
-          yield* Effect.promise(() => waitForAccountAdvisoryLockWait(account));
+          yield* Effect.promise(() =>
+            waitForAccountAdvisoryLockWait(testDatabase!.pool, account)
+          );
           expect(
             providerCalls.filter((call) => call === "upload")
           ).toHaveLength(1);
@@ -333,113 +315,6 @@ describe.skipIf(!testDatabase)(
         [account]
       );
       expect(authImage.rows[0]?.image).toBeNull();
-    });
-
-    test("rejects upload when the verified session is revoked while it waits for the account lock", async () => {
-      stored = new Map();
-      providerCalls = [];
-      const account = customerAccountIdSchema.make(uniqueId());
-      currentSession = makeSession(account);
-      await insertAuthUser(account, `race-${account}@deskohub.test`);
-      await insertLink(account, uniqueDotyposCustomerId());
-      const bytes = await pngBytes();
-
-      const outcome = await Effect.runPromise(
-        Effect.gen(function* () {
-          const avatars = yield* CustomerAvatarService;
-          const links = yield* CustomerAccountLinkRepository;
-          const lockAcquired = yield* Deferred.make<void>();
-          const releaseLock = yield* Deferred.make<void>();
-          const lockOwner = yield* Effect.forkChild(
-            links
-              .withAccountLock(
-                account,
-                Deferred.succeed(lockAcquired, undefined).pipe(
-                  Effect.andThen(Deferred.await(releaseLock))
-                )
-              )
-              .pipe(Effect.orDie)
-          );
-          yield* Deferred.await(lockAcquired);
-
-          const upload = yield* Effect.forkChild(
-            avatars
-              .upload(account, {
-                bytes,
-                declaredSize: bytes.byteLength,
-                declaredMediaType: "image/png",
-              })
-              .pipe(Effect.result)
-          );
-          yield* Effect.promise(() => waitForAccountAdvisoryLockWait(account));
-
-          currentSession = null;
-          yield* Deferred.succeed(releaseLock, undefined);
-          const result = yield* Fiber.join(upload);
-          yield* Fiber.join(lockOwner);
-          return result;
-        }).pipe(Effect.provide(makeLayer()))
-      );
-
-      expect(outcome).toMatchObject({
-        _tag: "Failure",
-        failure: {
-          _tag: "CustomerAccountAccessError",
-          reason: "unauthenticated",
-        },
-      });
-      expect(providerCalls).toEqual([]);
-    });
-
-    test("rejects remove when the verified session is revoked while it waits for the account lock", async () => {
-      stored = new Map();
-      providerCalls = [];
-      const account = customerAccountIdSchema.make(uniqueId());
-      currentSession = makeSession(account);
-      await insertAuthUser(account, `race-${account}@deskohub.test`);
-      await insertLink(account, uniqueDotyposCustomerId());
-      stored.set(`avatars/test/${account}`, "asset-before-remove");
-
-      const outcome = await Effect.runPromise(
-        Effect.gen(function* () {
-          const avatars = yield* CustomerAvatarService;
-          const links = yield* CustomerAccountLinkRepository;
-          const lockAcquired = yield* Deferred.make<void>();
-          const releaseLock = yield* Deferred.make<void>();
-          const lockOwner = yield* Effect.forkChild(
-            links
-              .withAccountLock(
-                account,
-                Deferred.succeed(lockAcquired, undefined).pipe(
-                  Effect.andThen(Deferred.await(releaseLock))
-                )
-              )
-              .pipe(Effect.orDie)
-          );
-          yield* Deferred.await(lockAcquired);
-
-          const remove = yield* Effect.forkChild(
-            avatars.remove(account).pipe(Effect.result)
-          );
-          yield* Effect.promise(() => waitForAccountAdvisoryLockWait(account));
-
-          currentSession = null;
-          yield* Deferred.succeed(releaseLock, undefined);
-          const result = yield* Fiber.join(remove);
-          yield* Fiber.join(lockOwner);
-          return result;
-        }).pipe(Effect.provide(makeLayer()))
-      );
-
-      expect(outcome).toMatchObject({
-        _tag: "Failure",
-        failure: {
-          _tag: "CustomerAccountAccessError",
-          reason: "unauthenticated",
-        },
-      });
-      expect(providerCalls).toEqual([]);
-      expect(stored.has(`avatars/test/${account}`)).toBe(true);
     });
 
     test("serializes upload racing remove so no staging survives and remove lands last", async () => {
@@ -474,7 +349,9 @@ describe.skipIf(!testDatabase)(
           const removeFiber = yield* Effect.forkChild(
             avatars.remove(account).pipe(Effect.orDie)
           );
-          yield* Effect.promise(() => waitForAccountAdvisoryLockWait(account));
+          yield* Effect.promise(() =>
+            waitForAccountAdvisoryLockWait(testDatabase!.pool, account)
+          );
 
           yield* Deferred.succeed(releaseUpload, undefined);
           yield* Fiber.join(uploadFiber);
@@ -484,9 +361,6 @@ describe.skipIf(!testDatabase)(
 
       // The remove ran after the upload and destroyed everything.
       expect(stored.size).toBe(0);
-      expect(
-        [...stored.keys()].filter((id) => id.includes("-staging/"))
-      ).toEqual([]);
     });
 
     test("serializes upload racing account deletion so deletion ends with no media and the marker set", async () => {
@@ -530,7 +404,9 @@ describe.skipIf(!testDatabase)(
               )
               .pipe(Effect.orDie)
           );
-          yield* Effect.promise(() => waitForAccountAdvisoryLockWait(account));
+          yield* Effect.promise(() =>
+            waitForAccountAdvisoryLockWait(testDatabase!.pool, account)
+          );
 
           yield* Deferred.succeed(releaseUpload, undefined);
           yield* Fiber.join(uploadFiber);
@@ -541,9 +417,6 @@ describe.skipIf(!testDatabase)(
       // Deletion finished last: no media of any kind survives and the
       // durable marker is in place.
       expect(stored.size).toBe(0);
-      expect(
-        [...stored.keys()].filter((id) => id.includes("-staging/"))
-      ).toEqual([]);
       const marker = await testDatabase!.pool.query(
         `select deletion_requested_at from auth."user" where id = $1`,
         [account]

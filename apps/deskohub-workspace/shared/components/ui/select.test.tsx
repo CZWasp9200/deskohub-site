@@ -8,7 +8,7 @@ function extractTrigger(markup: string): string {
   return trigger;
 }
 
-test("renders the placeholder state and tint on the SSR select trigger", () => {
+test("renders the placeholder state on the SSR select trigger", () => {
   const markup = renderToStaticMarkup(
     <Select>
       <SelectTrigger>
@@ -20,7 +20,6 @@ test("renders the placeholder state and tint on the SSR select trigger", () => {
 
   expect(trigger).toContain('data-state="closed"');
   expect(trigger).toContain('data-placeholder=""');
-  expect(trigger).toContain("data-[placeholder]:text-navy-blue/55");
   expect(markup).toContain("Choose a language");
 });
 

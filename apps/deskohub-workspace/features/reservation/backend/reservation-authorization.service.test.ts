@@ -7,6 +7,11 @@ import { CustomerAccountAccessError } from "@/features/account";
 import { CustomerAccountReservationOwnership } from "@/features/account/backend/customer-account-reservation-ownership";
 import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
 import type { ReservationAccessToken } from "@/features/reservation/reservation-access-token";
+import {
+  createReservationAccessCookieCapability,
+  reservationAccessCookieMaxAgeMilliseconds,
+  sealReservationAccessCookie,
+} from "./reservation-access-cookie";
 import { createReservationAccessToken } from "./reservation-access-token";
 import {
   type ReservationAuthorizationInput,
@@ -81,6 +86,22 @@ const makeAccessToken = async (tokenOrderId = orderId) =>
     createReservationAccessToken({ orderId: tokenOrderId, locale: "en-US" })
   );
 
+const makeAccessCookie = async (
+  cookieOrderId = orderId,
+  issuedAtEpochMilliseconds = Date.now()
+) => {
+  const options = { now: () => issuedAtEpochMilliseconds };
+  const capability = await Effect.runPromise(
+    createReservationAccessCookieCapability(
+      { orderId: cookieOrderId, locale: "en-US" },
+      options
+    )
+  );
+  return Effect.runPromise(
+    sealReservationAccessCookie({ orderId: cookieOrderId, capability }, options)
+  );
+};
+
 describe("ReservationAuthorizationService", () => {
   test("accepts a valid capability before account or private reservation reads", async () => {
     const accessToken = await makeAccessToken();
@@ -105,6 +126,43 @@ describe("ReservationAuthorizationService", () => {
       }
       const result = await runAuthorization({
         input: { accessToken },
+        owner: "unavailable",
+      });
+
+      expect(result.authorized).toBe(false);
+      expect(result.findById).not.toHaveBeenCalled();
+    }
+  );
+
+  test.each(["en-US", "cs-CZ"] as const)(
+    "accepts a valid access cookie on the %s route before account or private reservation reads",
+    async (locale) => {
+      const result = await runAuthorization({
+        input: { accessCookie: await makeAccessCookie(), locale },
+        owner: "unavailable",
+      });
+
+      expect(result.authorized).toBe(true);
+      expect(result.findById).not.toHaveBeenCalled();
+    }
+  );
+
+  test.each(["tampered", "for another order", "expired"] as const)(
+    "rejects an access cookie that is %s without private reads when no account is available",
+    async (kind) => {
+      let accessCookie: string;
+      if (kind === "tampered") {
+        accessCookie = `${await makeAccessCookie()}tampered`;
+      } else if (kind === "for another order") {
+        accessCookie = await makeAccessCookie(otherOrderId);
+      } else {
+        accessCookie = await makeAccessCookie(
+          orderId,
+          Date.now() - reservationAccessCookieMaxAgeMilliseconds - 1000
+        );
+      }
+      const result = await runAuthorization({
+        input: { accessCookie },
         owner: "unavailable",
       });
 

@@ -311,8 +311,24 @@ jobs:
         with:
           bun-version: 1.4.2
 
+      # Exact, workflow-scoped key without restore-keys, saved right after
+      # install so later PR-controlled steps cannot write a reusable entry.
+      - name: Restore Bun package cache
+        id: bun-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: workspace-e2e-bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+
       - name: Install repository dependencies
         run: bun install --frozen-lockfile
+
+      - name: Save Bun package cache
+        if: steps.bun-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ steps.bun-cache.outputs.cache-primary-key }}
 
       - name: Resolve Neon branch backing the preview
         id: preview-database
@@ -331,9 +347,13 @@ jobs:
             exit 1
           fi
 
+          # Resolve the pinned CLI once instead of per bunx invocation.
+          bun add --global --exact neonctl@2.30.1 >/dev/null
+          neonctl="$(bun pm bin --global)/neonctl"
+
           branch_id=""
           for _ in $(seq 1 12); do
-            branches="$(bunx neonctl@2.30.1 branches list \
+            branches="$("$neonctl" branches list \
               --project-id "$NEON_PROJECT_ID" \
               --api-key "$NEON_API_KEY" \
               --output json)"
@@ -359,13 +379,13 @@ jobs:
           fi
           echo "Matched immutable preview to Neon branch $branch_name ($branch_id)"
 
-          direct_url="$(bunx neonctl@2.30.1 connection-string "$branch_id" \
+          direct_url="$("$neonctl" connection-string "$branch_id" \
             --project-id "$NEON_PROJECT_ID" \
             --role-name neondb_owner \
             --database-name neondb \
             --api-key "$NEON_API_KEY")"
           echo "::add-mask::$direct_url"
-          pooled_url="$(bunx neonctl@2.30.1 connection-string "$branch_id" \
+          pooled_url="$("$neonctl" connection-string "$branch_id" \
             --project-id "$NEON_PROJECT_ID" \
             --role-name neondb_owner \
             --database-name neondb \

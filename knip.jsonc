@@ -23,15 +23,9 @@
         // Command-line scripts run by path from package.json, CI, or the skills.
         "scripts/*.ts",
         "scripts/account-sticky/run.ts",
-        "scripts/account-visual/{run,capture-*-states,create-account-visual-verification,marketing-preferences-fixture}.ts",
-        // Loaded by path: bundled renderer entries, swappable adapters, module
-        // stubs aliased over app imports, and child-process fixtures.
-        "scripts/account-{sticky,visual}/browser-entry.tsx",
-        "scripts/account-visual/*-adapter.tsx",
-        "scripts/account-visual/stubs/*.{ts,tsx}",
+        // Loaded by path: bundled renderer entries and child-process fixtures.
+        "scripts/account-sticky/browser-entry.tsx",
         "scripts/shared/command.*-fixture.ts",
-        // The account visual renderer serves its stylesheet by path.
-        "scripts/account-visual/renderer.css",
         // Bundled by path for browser-rendered test fixtures.
         "shared/testing/posthog-identity-browser-fixture.tsx",
         "types/*.d.ts"

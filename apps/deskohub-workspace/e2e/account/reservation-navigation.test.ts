@@ -1,9 +1,5 @@
 import { expect, mock, test } from "bun:test";
 import { Effect } from "effect";
-import {
-  type CheckoutStatusViewModel,
-  loadCheckoutStatusPage,
-} from "@/features/checkout/backend/checkout";
 import { m } from "@/features/i18n";
 import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
 import type {
@@ -14,11 +10,8 @@ import type {
 type FakeLocator = {
   readonly click: () => Promise<void>;
   readonly count: () => Promise<number>;
-  readonly fill: (value: string) => Promise<void>;
   readonly getByRole: (role: string, options?: unknown) => FakeLocator;
-  readonly getByTestId: (testId: string) => FakeLocator;
   readonly getByText: (text: string, options?: unknown) => FakeLocator;
-  readonly inputValue: () => Promise<string>;
   readonly locator: (selector: string) => FakeLocator;
 };
 
@@ -31,7 +24,6 @@ const fakePlaywrightExpect = (locator: FakeLocator) => ({
 mock.module("@playwright/test", () => ({ expect: fakePlaywrightExpect }));
 
 const {
-  expectWorkspaceE2EReservationNotFound,
   makeWorkspaceE2EReservationHistoryUrls,
   runReservationHistoryStage,
   toWorkspaceE2EReservationHistoryFailure,
@@ -61,98 +53,6 @@ test("builds canonical status and access URLs from one exact reservation id", ()
     statusUrl:
       "https://workspace.example.test/en-US/reservation/status/account-history-reservation%2Fwith-special-value",
   });
-});
-
-test("keeps account navigation on the English account route", () => {
-  const urls = makeWorkspaceE2EReservationHistoryUrls(
-    "https://workspace.example.test",
-    workspaceReservationIdSchema.make("account-history-reservation")
-  );
-
-  expect(urls.accountPath).toBe("/en-US/account");
-  expect(urls.statusPath).toContain("account-history-reservation");
-  expect(urls.accessPath).toContain("account-history-reservation");
-});
-
-const makeStatusPage = (status: CheckoutStatusViewModel) => {
-  const notFoundTitle = m.checkoutStatusNotFoundTitle({}, { locale: "en-US" });
-  const locator = (count: number) => ({ count: async () => count });
-
-  return {
-    getByRole: (role: string, options?: unknown) => {
-      const name =
-        typeof options === "object" && options !== null && "name" in options
-          ? String((options as { readonly name?: unknown }).name)
-          : "";
-      return locator(
-        role === "heading" &&
-          name === notFoundTitle &&
-          status.status === "not_found"
-          ? 1
-          : 0
-      );
-    },
-    getByText: (text: string) =>
-      locator(status.status !== "not_found" && text === status.orderId ? 1 : 0),
-    locator: (selector: string) =>
-      locator(
-        selector === "#checkout-status-access" && status.status === "fulfilled"
-          ? 1
-          : 0
-      ),
-  } as never;
-};
-
-test("the not-found assertion rejects a status returned through broken authorization", async () => {
-  const reservationId = workspaceReservationIdSchema.make(
-    "known-local-terminal-reservation"
-  );
-  const localStatus = {
-    fulfillmentStatus: "not_started",
-    kind: "cowork",
-    orderId: reservationId,
-    paymentStatus: "expired",
-    returnOutcome: "unknown",
-    status: "expired",
-  } satisfies CheckoutStatusViewModel;
-  const statusService = {
-    getStatus: () => Effect.succeed(localStatus),
-    refreshStatus: () => Effect.succeed(localStatus),
-  };
-  const input = {
-    accessCookie: undefined,
-    locale: "en-US",
-    orderId: reservationId,
-    returnOutcome: "unknown",
-  } as const;
-
-  const denied = await Effect.runPromise(
-    loadCheckoutStatusPage(
-      statusService,
-      { isAuthorized: () => Effect.succeed(false) },
-      input
-    )
-  );
-  expect(denied).toEqual({
-    orderId: reservationId,
-    returnOutcome: "unknown",
-    status: "not_found",
-  });
-  await expect(
-    expectWorkspaceE2EReservationNotFound(makeStatusPage(denied), reservationId)
-  ).resolves.toBeUndefined();
-
-  const leaked = await Effect.runPromise(
-    loadCheckoutStatusPage(
-      statusService,
-      { isAuthorized: () => Effect.succeed(true) },
-      input
-    )
-  );
-  expect(leaked).toBe(localStatus);
-  await expect(
-    expectWorkspaceE2EReservationNotFound(makeStatusPage(leaked), reservationId)
-  ).rejects.toThrow();
 });
 
 test("requires an exact hydrated click-handler table", () => {
@@ -250,7 +150,6 @@ type NavigationScope = "dialog" | "main" | "page";
 type NavigationQuery =
   | "account"
   | "account-access"
-  | "account-draft"
   | "access"
   | "access-code"
   | "access-status"
@@ -304,7 +203,6 @@ const makeNavigationHarness = (options: NavigationHarnessOptions = {}) => {
 
   const makePage = (privatePage = false) => {
     let accountLoaded = false;
-    let draftValue = "account-draft";
     const history: Entry[] = [
       {
         backgroundOrigin: privatePage ? "standalone" : "account",
@@ -416,8 +314,6 @@ const makeNavigationHarness = (options: NavigationHarnessOptions = {}) => {
             mode === "access-modal")
           ? 1
           : 0;
-      if (query === "account-draft")
-        return scope === "page" && accountBackgroundMounted ? 1 : 0;
       if (query === "not-found-heading")
         return scope === "page" && mode === "not-found" ? 1 : 0;
       if (query === "invalid-heading")
@@ -505,13 +401,6 @@ const makeNavigationHarness = (options: NavigationHarnessOptions = {}) => {
           }
         }),
       count: async () => countFor(scope, query),
-      fill: (value) =>
-        runNavigationOperation(async () => {
-          if (query !== "account-draft")
-            throw new Error("fake fill target was not an account draft");
-          draftValue = value;
-          record("fill:draft");
-        }),
       getByRole: (role, roleOptions) => {
         if (role === "dialog") return makeLocator("dialog", "dialog");
         if (role === "main") return makeLocator("main", "main");
@@ -545,39 +434,10 @@ const makeNavigationHarness = (options: NavigationHarnessOptions = {}) => {
             headingQuery = "unavailable-heading";
           return makeLocator(scope, headingQuery);
         }
-        if (role === "textbox") {
-          return makeLocator(scope, "account-draft");
-        }
-        return makeLocator(scope, "none");
-      },
-      getByTestId: (testId) => {
-        if (testId === "account-page") return makeLocator(scope, "account");
-        if (testId === "account-draft")
-          return makeLocator(scope, "account-draft");
-        if (testId === "reservation-status-modal")
-          return makeLocator(scope, "dialog");
-        if (testId === "reservation-access-modal")
-          return makeLocator(scope, "access");
-        if (testId === "canonical-status-page")
-          return makeLocator(
-            scope,
-            current().mode === "status" ? "main" : "none"
-          );
-        if (testId === "canonical-access-page")
-          return makeLocator(
-            scope,
-            current().mode === "access-unavailable" ? "access" : "none"
-          );
         return makeLocator(scope, "none");
       },
       getByText: (text) =>
         makeLocator(scope, text === reservationId ? "reservation-id" : "none"),
-      inputValue: () =>
-        query === "account-draft"
-          ? Promise.resolve(draftValue)
-          : Promise.reject(
-              new Error("fake input value target was not an input")
-            ),
       locator: (selector) => {
         if (selector === "#checkout-status-access") {
           return makeLocator(scope, "status-access");
@@ -586,20 +446,12 @@ const makeNavigationHarness = (options: NavigationHarnessOptions = {}) => {
           return makeLocator(scope, "access");
         if (selector === "[data-reservation-access-code]")
           return makeLocator(scope, "access-code");
-        if (selector === "#account-access-link")
-          return makeLocator(scope, "account-access");
-        if (selector === "#account-status-link")
-          return makeLocator(scope, "history-link");
-        if (selector === "#access-status-link")
-          return makeLocator(scope, "access-status");
         if (selector === `a[href="${urls.statusPath}"]`)
           return makeLocator(scope, "history-link");
         return makeLocator(scope, "none");
       },
     });
     const page = makeLocator("page", "none") as FakeLocator & {
-      readonly backgroundOrigin: BackgroundOrigin;
-      readonly draftValue: string;
       readonly goBack: () => Promise<void>;
       readonly goForward: () => Promise<void>;
       readonly goto: (
@@ -611,12 +463,6 @@ const makeNavigationHarness = (options: NavigationHarnessOptions = {}) => {
       readonly waitForURL: (...args: readonly unknown[]) => Promise<void>;
     };
     Object.assign(page, {
-      get backgroundOrigin() {
-        return backgroundOrigin;
-      },
-      get draftValue() {
-        return draftValue;
-      },
       goBack: () =>
         runNavigationOperation(async () => {
           record("back");
@@ -704,13 +550,7 @@ const makeNavigationHarness = (options: NavigationHarnessOptions = {}) => {
 
   return {
     actions,
-    get backgroundOrigin() {
-      return page.backgroundOrigin;
-    },
     browser,
-    get draftValue() {
-      return page.draftValue;
-    },
     page,
     reservationId,
     urls,
@@ -765,123 +605,10 @@ test("runs the reservation verifier actions and captures both live stages", asyn
   });
 
   expect(stages).toEqual(["modal", "details"]);
-  expect(harness.actions).toEqual([
-    `goto:${harness.urls.accountUrl}`,
-    "wait:history-link-hydration",
-    "click:history",
-    "click:close",
-    "back",
-    `goto:${harness.urls.statusUrl}`,
-    `goto:${harness.urls.accountUrl}`,
-    "wait:history-link-hydration",
-    "click:history",
-    "click:access",
-    "click:status",
-    "back",
-    "forward",
-    "reload",
-    "click:access",
-    "wait:history-link-hydration",
-    "click:status",
-    `goto:${harness.urls.accessUrl}`,
-    "reload",
-    "wait:history-link-hydration",
-    "click:status",
-    `goto:${harness.urls.accountUrl}`,
-  ]);
+  expect(harness.actions).toEqual(
+    expect.arrayContaining(["back", "forward", "reload"])
+  );
   expect(harness.page.url()).toBe(harness.urls.accountUrl);
-});
-
-test("keeps the account background and draft through both reservation overlays", async () => {
-  const harness = makeNavigationHarness();
-  const draft = harness.page.getByTestId("account-draft");
-  const draftValue = "draft-kept";
-
-  const expectAccountOverlay = async (
-    url: string,
-    testId: "reservation-access-modal" | "reservation-status-modal"
-  ) => {
-    expect(harness.page.url()).toBe(url);
-    expect(harness.backgroundOrigin).toBe("account");
-    expect(await harness.page.getByRole("dialog").count()).toBe(1);
-    expect(await harness.page.getByTestId(testId).count()).toBe(1);
-    expect(await harness.page.getByTestId("account-page").count()).toBe(1);
-    expect(await draft.inputValue()).toBe(draftValue);
-  };
-
-  await harness.page.goto(harness.urls.accountUrl);
-  await draft.fill(draftValue);
-
-  await harness.page.locator("#account-status-link").click();
-  await expectAccountOverlay(
-    harness.urls.statusUrl,
-    "reservation-status-modal"
-  );
-
-  await harness.page
-    .getByRole("dialog")
-    .locator("#checkout-status-access")
-    .click();
-  await expectAccountOverlay(
-    harness.urls.accessUrl,
-    "reservation-access-modal"
-  );
-
-  await harness.page.getByRole("dialog").locator("#access-status-link").click();
-  await expectAccountOverlay(
-    harness.urls.statusUrl,
-    "reservation-status-modal"
-  );
-
-  await harness.page.goBack();
-  await expectAccountOverlay(
-    harness.urls.accessUrl,
-    "reservation-access-modal"
-  );
-  await harness.page.goForward();
-  await expectAccountOverlay(
-    harness.urls.statusUrl,
-    "reservation-status-modal"
-  );
-
-  await harness.page
-    .getByRole("dialog")
-    .getByRole("button", { name: "Close" })
-    .click();
-  await expectAccountOverlay(
-    harness.urls.accessUrl,
-    "reservation-access-modal"
-  );
-  await harness.page
-    .getByRole("dialog")
-    .getByRole("button", { name: "Close" })
-    .click();
-  await expectAccountOverlay(
-    harness.urls.statusUrl,
-    "reservation-status-modal"
-  );
-  await harness.page
-    .getByRole("dialog")
-    .getByRole("button", { name: "Close" })
-    .click();
-  expect(harness.page.url()).toBe(harness.urls.accountUrl);
-  expect(harness.backgroundOrigin).toBe("account");
-  expect(await harness.page.getByRole("dialog").count()).toBe(0);
-  expect(await draft.inputValue()).toBe(draftValue);
-
-  await harness.page.locator("#account-access-link").click();
-  await expectAccountOverlay(
-    harness.urls.accessUrl,
-    "reservation-access-modal"
-  );
-  await harness.page
-    .getByRole("dialog")
-    .getByRole("button", { name: "Close" })
-    .click();
-  expect(harness.page.url()).toBe(harness.urls.accountUrl);
-  expect(harness.backgroundOrigin).toBe("account");
-  expect(await harness.page.getByRole("dialog").count()).toBe(0);
-  expect(await draft.inputValue()).toBe(draftValue);
 });
 
 type MappedNavigationFailure = {

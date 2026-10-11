@@ -7,7 +7,9 @@ import {
 } from "@deskohub/dotypos";
 import { NexiOrderIdSchema } from "@deskohub/nexi";
 import { eq } from "drizzle-orm";
-import { Effect } from "effect";
+import { Effect, Layer } from "effect";
+import { WorkspaceDatabase } from "@/db/database.service";
+import { makeDatabaseClient, makeDatabasePool } from "@/db/database-client";
 import { paymentAttempts, workspaceReservations } from "@/db/schema";
 import {
   checkoutAttemptKeySchema,
@@ -198,6 +200,47 @@ describe.skipIf(!testDatabase)(
       expect(runs).toBeGreaterThan(1);
       for (const id of ours) {
         expect(claimed).toContain(id);
+      }
+    });
+
+    test("never claims more than the limit when Postgres re-runs the claim subquery", async () => {
+      // Statistics taken while payment_attempts was empty make Postgres pick a
+      // nested-loop semi-join that re-runs the claim subquery for every row it
+      // updates. These settings force that plan on a dedicated connection.
+      const rescanningPool = makeDatabasePool({
+        connectionString: process.env.WORKSPACE_TEST_DATABASE_URL ?? "",
+        max: 1,
+        options:
+          "-c enable_hashjoin=off -c enable_mergejoin=off -c enable_hashagg=off -c enable_material=off -c enable_sort=off",
+      });
+      try {
+        const db = await Effect.runPromise(makeDatabaseClient(rescanningPool));
+        for (let index = 0; index < 30; index += 1) {
+          await insertCheckout({
+            attemptState: "paid",
+            refundState: "required",
+          });
+        }
+        const limit = 25;
+
+        const batch = await Effect.runPromise(
+          Effect.gen(function* () {
+            const repository = yield* PaymentRefundRepository;
+            return yield* repository.claimAwaitingRefund({
+              limit,
+              checkedAt: Temporal.Now.instant(),
+            });
+          }).pipe(
+            Effect.provide(PaymentRefundRepository.Default),
+            Effect.provide(
+              Layer.succeed(WorkspaceDatabase, WorkspaceDatabase.of({ db }))
+            )
+          )
+        );
+
+        expect(batch).toHaveLength(limit);
+      } finally {
+        await rescanningPool.end();
       }
     });
 

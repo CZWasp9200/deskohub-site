@@ -47,6 +47,7 @@ import {
   submitPaymentAndWaitForHostedPage,
   submitReservationForPayPage,
 } from "../checkout/payment";
+import { reservationCookieIsolationStep } from "../checkout/reservation-cookie-isolation";
 import type { DatasourceConfig, WorkspaceE2EConfig } from "../config";
 import { tryWorkspaceE2ESync, type WorkspaceE2EError } from "../errors";
 import {
@@ -93,6 +94,7 @@ export const executeCheckoutFlow = ({
   payPageSteps,
   beforeReservationSubmit,
   expectedDiscounts,
+  verifyPostFulfillmentPaths = false,
 }: {
   config: WorkspaceE2EConfig;
   data: CheckoutData;
@@ -107,6 +109,12 @@ export const executeCheckoutFlow = ({
   ) => readonly WorkspaceE2EStep<void>[];
   beforeReservationSubmit?: Effect.Effect<void, WorkspaceE2EError>;
   expectedDiscounts?: readonly ExpectedDiscountApplication[];
+  // The reserve-again restart, the fulfillment-failed support path, and the
+  // reservation cookie isolation that starts from that support path do not
+  // depend on the product, so one paid case opts in instead of every case.
+  // The support path marks fulfillment failed, so it runs after every other
+  // assertion on the fulfilled reservation.
+  verifyPostFulfillmentPaths?: boolean;
 }): Effect.Effect<
   void,
   WorkspaceE2EError,
@@ -200,16 +208,18 @@ export const executeCheckoutFlow = ({
       id: "assert-fulfilled-status-page",
       timeoutMs: config.timeouts.uiTransition,
     });
-    yield* runStep({
-      execute: restartReservationAfterFulfillment({
-        config,
-        data,
-        run,
-        session,
-      }),
-      id: "restart-reservation-after-fulfillment",
-      timeoutMs: config.timeouts.uiTransition,
-    });
+    if (verifyPostFulfillmentPaths) {
+      yield* runStep({
+        execute: restartReservationAfterFulfillment({
+          config,
+          data,
+          run,
+          session,
+        }),
+        id: "restart-reservation-after-fulfillment",
+        timeoutMs: config.timeouts.uiTransition,
+      });
+    }
     if (
       data.meetingRoom &&
       isMeetingRoomWholeDayReservationDuration(data.meetingRoom.duration)
@@ -224,14 +234,36 @@ export const executeCheckoutFlow = ({
         timeoutMs: config.timeouts.datasource,
       });
     }
-    yield* assertFulfillmentFailedSupportPath({
-      config,
-      data,
-      orderId,
-      run,
-      runStep,
-      session,
-    });
+    if (verifyPostFulfillmentPaths) {
+      yield* assertFulfillmentFailedSupportPath({
+        config,
+        data,
+        orderId,
+        run,
+        runStep,
+        session,
+      });
+      const customerId = yield* tryWorkspaceE2ESync(
+        "read paid customer for reservation cookie isolation",
+        () => {
+          assert(
+            checkoutRow.dotypos_customer_id,
+            "paid customer id missing after checkout"
+          );
+          return checkoutRow.dotypos_customer_id;
+        }
+      );
+      yield* runStep(
+        reservationCookieIsolationStep({
+          config,
+          customerId,
+          data,
+          orderId,
+          run,
+          session,
+        })
+      );
+    }
 
     log(`${flow.id} checkout e2e passed for order ${orderId}`);
   });

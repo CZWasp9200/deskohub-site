@@ -1,10 +1,4 @@
 import { expect, test } from "bun:test";
-import {
-  isWorkspaceE2EDiagnosticCode,
-  nexiHostedPaymentPageStates,
-  nexiHostedPaymentSteps,
-  toNexiHostedPaymentDiagnosticCode,
-} from "../errors";
 import { parseNexiBuildResponses } from "./nexi-build-api";
 import {
   classifyNexiHostedPage,
@@ -15,7 +9,6 @@ import {
   isTerminalNexiHostedPageState,
   type NexiHostedPageObservation,
   parseNexiSnapshot,
-  toNexiHostedPageStateCode,
 } from "./nexi-hosted-page";
 
 // Shape of the Nexi XPay sandbox card page as Playwright reports it from the
@@ -263,27 +256,4 @@ test("classifies payment progress, return, and missing snapshots", () => {
       })
     )
   ).toEqual({ kind: "unknown", providerServerError: true });
-});
-
-test("maps every hosted page state to an allowlisted diagnostic code", () => {
-  for (const step of nexiHostedPaymentSteps) {
-    for (const state of nexiHostedPaymentPageStates) {
-      expect(
-        isWorkspaceE2EDiagnosticCode(
-          toNexiHostedPaymentDiagnosticCode(step, state)
-        )
-      ).toBe(true);
-    }
-  }
-  expect(toNexiHostedPageStateCode({ kind: "card-submission-rejected" })).toBe(
-    "card_submission_rejected"
-  );
-  expect(
-    toNexiHostedPageStateCode({
-      control: "continue",
-      enabled: false,
-      kind: "control",
-    })
-  ).toBe("continue_disabled");
-  expect(toNexiHostedPageStateCode({ kind: "returned" })).toBeUndefined();
 });

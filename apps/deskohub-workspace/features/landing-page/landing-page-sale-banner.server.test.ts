@@ -11,6 +11,7 @@ import {
 } from "effect";
 import { type ActiveSale, discountIdSchema } from "@/features/discounts";
 import type { WorkspaceProductTarget } from "@/features/discounts/product-target";
+import { getLandingPageSaleBannerLabel } from "./landing-page-sale-banner-content";
 
 type LogAnnotations = Context.Service.Shape<
   typeof References.CurrentLogAnnotations
@@ -58,6 +59,16 @@ const sale = (
   },
   products,
 });
+
+const advertisedLabel = (products: readonly WorkspaceProductTarget[]) =>
+  getLandingPageSaleBannerLabel(
+    {
+      title: "Summer focus",
+      adjustment: { kind: "percentage", basisPoints: 2000 },
+      products,
+    },
+    "en-US"
+  );
 
 let officePageEnabled = true;
 const isOfficePageEnabled = mock(() => officePageEnabled);
@@ -130,7 +141,6 @@ describe("getActiveLandingPageSaleBanner", () => {
       href,
       label: expect.objectContaining({ title: "Summer focus" }),
     });
-    expect(getActivePublicSales).toHaveBeenCalledWith({ locale: "en-US" });
   });
 
   test("renders no banner when there is no active sale", async () => {
@@ -154,12 +164,7 @@ describe("getActiveLandingPageSaleBanner", () => {
 
     expect(banner).toMatchObject({
       href: "/en-US/reservation/cowork?utm_source=deskohub&utm_medium=sale_banner&utm_content=home_hero",
-      label: {
-        template:
-          "{title}: <discount>{adjustment}</discount> off chosen products!",
-        title: "Summer focus",
-        adjustment: "20%",
-      },
+      label: advertisedLabel([coworkProduct, meetingRoomProduct]),
     });
   });
 
@@ -172,12 +177,7 @@ describe("getActiveLandingPageSaleBanner", () => {
 
     expect(banner).toMatchObject({
       href: "/en-US/reservation/meeting-room?utm_source=deskohub&utm_medium=sale_banner&utm_content=home_hero",
-      label: {
-        template:
-          "{title}: <discount>{adjustment}</discount> off meeting room reservations!",
-        title: "Summer focus",
-        adjustment: "20%",
-      },
+      label: advertisedLabel([meetingRoomProduct]),
     });
   });
 
@@ -190,11 +190,11 @@ describe("getActiveLandingPageSaleBanner", () => {
 
     expect(banner).toMatchObject({
       href: "/en-US/reservation/cowork?utm_source=deskohub&utm_medium=sale_banner&utm_content=home_hero",
-      label: {
-        template: "{title}: <discount>{adjustment}</discount> off!",
-        title: "Summer focus",
-        adjustment: "20%",
-      },
+      label: advertisedLabel([
+        coworkProduct,
+        meetingRoomProduct,
+        officeProduct,
+      ]),
     });
     expect(isOfficePageEnabled).toHaveBeenCalledTimes(1);
   });
@@ -207,12 +207,7 @@ describe("getActiveLandingPageSaleBanner", () => {
     );
 
     expect(banner).toMatchObject({
-      label: {
-        template:
-          "{title}: <discount>{adjustment}</discount> off chosen products!",
-        title: "Summer focus",
-        adjustment: "20%",
-      },
+      label: advertisedLabel([coworkProduct, meetingRoomProduct]),
     });
     expect(isOfficePageEnabled).not.toHaveBeenCalled();
   });

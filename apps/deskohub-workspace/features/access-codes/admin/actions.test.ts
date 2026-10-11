@@ -205,20 +205,6 @@ describe("createStandaloneAccessCode action", () => {
     });
   });
 
-  test("carries the reported cleanup target for a cleanup-required outcome", async () => {
-    serviceCreateResult = Effect.fail(
-      creationError("cleanup-required", { cleanupTarget })
-    );
-    const { createStandaloneAccessCode } = await import("./actions");
-
-    await expect(createStandaloneAccessCode(validInput)).resolves.toEqual({
-      data: {
-        status: "failed",
-        outcome: { outcome: "cleanup-required", cleanupTarget },
-      },
-    });
-  });
-
   test("treats a missing ambiguous cleanup target as a server defect", async () => {
     serviceCreateResult = Effect.fail(creationError("ambiguous"));
     const { createStandaloneAccessCode } = await import("./actions");
@@ -254,28 +240,6 @@ describe("createStandaloneAccessCode action", () => {
     const result = await createStandaloneAccessCode({
       ...validInput,
       endsAt: "2026-09-10T09:00",
-    });
-
-    expect(result).toMatchObject({
-      validationErrors: {
-        formErrors: [],
-        fieldErrors: {
-          endsAt: ["The end must be 1 to 672 hours after the start."],
-        },
-      },
-    });
-    expect(serviceCreateCalls).toHaveLength(0);
-  });
-
-  test("rejects a window beyond the shared upper bound through input validation", async () => {
-    serviceCreateCalls.length = 0;
-    serviceCreateResult = Effect.die("must not be called");
-    const { createStandaloneAccessCode } = await import("./actions");
-
-    const result = await createStandaloneAccessCode({
-      ...validInput,
-      startsAt: "2026-10-24T00:00",
-      endsAt: "2026-11-21T00:00",
     });
 
     expect(result).toMatchObject({

@@ -22,9 +22,10 @@ export const workspaceE2ENonPaymentCaseIds = [
   "voucher-reuse-and-exhaustion",
 ] as const;
 
+// Serial hosted-payment lanes, balanced on median deployed case durations.
 export const workspaceE2EPaymentCaseLanes = [
   [
-    "payment-failed",
+    "payment-meeting-room-cancelled",
     "payment-late-recovery-recreated",
     "checkout-cowork-basic",
     "checkout-meeting-room-paid-one-hour",
@@ -32,16 +33,16 @@ export const workspaceE2EPaymentCaseLanes = [
     "checkout-discount-code",
   ],
   [
+    "payment-failed",
     "payment-cancelled",
     "payment-late-recovery-refund-required",
-    "payment-meeting-room-cancelled",
-    "checkout-meeting-room-paid-whole-day",
+    "checkout-customer-discount-and-code",
     "checkout-calendar-sale",
     "checkout-customer-discount",
   ],
   [
     "checkout-calendar-sale-and-code",
-    "checkout-customer-discount-and-code",
+    "checkout-meeting-room-paid-whole-day",
     "checkout-calendar-and-customer-discount",
     "checkout-all-discounts",
     "checkout-voucher-full-usage",

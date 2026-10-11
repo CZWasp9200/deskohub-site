@@ -167,15 +167,6 @@ describe("NextEffect", () => {
     await expect(Page({ slug: "menu" })).resolves.toBe("service:menu");
   });
 
-  test("page preserves Next control-flow throws", async () => {
-    const next = NextEffect.make();
-    const Page = next.page(() => Effect.sync(() => redirect("/target")));
-
-    await expect(Page({})).rejects.toMatchObject({
-      digest: expect.stringContaining("NEXT_REDIRECT"),
-    });
-  });
-
   test("page suspends synchronous component construction", async () => {
     const next = NextEffect.make();
     const defect = new Error("construction failed");

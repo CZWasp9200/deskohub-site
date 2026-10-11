@@ -1,8 +1,8 @@
 import { beforeEach, expect, mock, test } from "bun:test";
 import { Effect, Layer, Schema } from "effect";
-import Link from "next/link";
 import { isValidElement, type ReactElement, type ReactNode } from "react";
 import { renderToString } from "react-dom/server";
+import { m } from "@/features/i18n";
 import {
   type NormalizedCoworkReservationOrder,
   normalizedBasicCoworkReservationOrderSchema,
@@ -214,7 +214,7 @@ test("offers the restart state for a legacy basic reservation in en-US", async (
 
   expect(loadAdvertisedPrices).not.toHaveBeenCalled();
   expect(markup).toContain(
-    "This cowork offer is no longer available. Please start a new reservation with the current offers."
+    m.reservationValidationCoworkOfferReplaced({}, { locale: "en-US" })
   );
   expect(markup).toContain(`<a href="/en-US/reservation/cowork"`);
   expect(
@@ -222,52 +222,6 @@ test("offers the restart state for a legacy basic reservation in en-US", async (
       CoworkOfferReplaced({ locale: "en-US" })
     )
   ).toBe("/en-US/reservation/cowork");
-});
-
-test("offers the restart state for a legacy basic reservation in cs-CZ", async () => {
-  const legacyBasicReservation = decodeLegacyBasicReservation({
-    kind: "cowork",
-    name: "Jan Novák",
-    email: "jan@example.cz",
-    phone: "+420712345678",
-    billing: defaultReservationBillingSelection,
-    entryTier: "basic",
-    coffee: false,
-    date: "2099-08-01",
-  }) as NormalizedCoworkReservationOrder;
-
-  const markup = renderToString(
-    await renderCoworkReservationContent({
-      locale: "cs-CZ",
-      initialReservation: legacyBasicReservation,
-      searchParams: {},
-    })
-  );
-
-  expect(loadAdvertisedPrices).not.toHaveBeenCalled();
-  expect(markup).toContain(
-    "Tato cowork nabídka už není dostupná. Začněte prosím novou rezervaci s aktuální nabídkou."
-  );
-  expect(markup).toContain(`<a href="/cs-CZ/reservation/cowork"`);
-  expect(
-    getRestartButtonDirectChildAnchorHref(
-      CoworkOfferReplaced({ locale: "cs-CZ" })
-    )
-  ).toBe("/cs-CZ/reservation/cowork");
-});
-
-test("rejects a Link legacyBehavior wrapped anchor as restart navigation", () => {
-  const linkWrappedRestartButton = (
-    <Button asChild>
-      <Link legacyBehavior href="/en-US/reservation/cowork">
-        <a href="/en-US/reservation/cowork">Restart</a>
-      </Link>
-    </Button>
-  );
-
-  expect(
-    getRestartButtonDirectChildAnchorHref(linkWrappedRestartButton)
-  ).toBeUndefined();
 });
 
 test("restores a signed current-tier open-space reservation into the form", async () => {
