@@ -149,6 +149,15 @@ const getWorkspaceAvailabilityQuery = ({
   };
 };
 
+// Selection queries only read the selected date's result, so they ask for
+// that day alone instead of the whole calendar range.
+const getSelectedDateAvailabilityQuery = ({
+  date,
+  ...query
+}: Omit<Parameters<typeof getWorkspaceAvailabilityQuery>[0], "from" | "to"> & {
+  date: string;
+}) => getWorkspaceAvailabilityQuery({ ...query, date, from: date, to: date });
+
 const formatDisplayDate = (date: string, locale: Locale) =>
   formatReservationInputDate(
     date,
@@ -203,42 +212,26 @@ export function CoworkReservationForm({
   );
   const availabilityQuery = useMemo(
     () =>
-      isWorkspaceCoworkCurrentProductTier(selectedTier)
-        ? getWorkspaceAvailabilityQuery({
+      isWorkspaceCoworkCurrentProductTier(selectedTier) && selectedDate
+        ? getSelectedDateAvailabilityQuery({
             date: selectedDate,
-            from: initialAvailabilityQuery.from,
             monitorOption: showWorkstationAddon
               ? selectedMonitorOption
               : undefined,
             tier: selectedTier,
-            to: initialAvailabilityQuery.to,
           })
         : undefined,
-    [
-      initialAvailabilityQuery.from,
-      initialAvailabilityQuery.to,
-      selectedDate,
-      selectedMonitorOption,
-      selectedTier,
-      showWorkstationAddon,
-    ]
+    [selectedDate, selectedMonitorOption, selectedTier, showWorkstationAddon]
   );
   const workstationRequirementQuery = useMemo(
     () =>
       selectedTier === "reserved-desk" && selectedDate
-        ? getWorkspaceAvailabilityQuery({
+        ? getSelectedDateAvailabilityQuery({
             date: selectedDate,
-            from: initialAvailabilityQuery.from,
             tier: selectedTier,
-            to: initialAvailabilityQuery.to,
           })
         : undefined,
-    [
-      initialAvailabilityQuery.from,
-      initialAvailabilityQuery.to,
-      selectedDate,
-      selectedTier,
-    ]
+    [selectedDate, selectedTier]
   );
   const availabilityQueryResult = useReservationAvailability(
     availabilityQuery,
@@ -404,7 +397,6 @@ export function CoworkReservationForm({
       rangeAvailability?.from === rangeAvailabilityQuery.from &&
       rangeAvailability?.to === rangeAvailabilityQuery.to &&
       rangeAvailabilityQueryResult.isSuccess &&
-      !rangeAvailabilityQueryResult.isFetching &&
       !rangeAvailabilityQueryResult.isError &&
       !rangeAvailabilityQueryResult.isPlaceholderData
   );
@@ -416,7 +408,6 @@ export function CoworkReservationForm({
       availabilityQuery?.date === selectedDate &&
       availability?.date === selectedDate &&
       availabilityQueryResult.isSuccess &&
-      !availabilityQueryResult.isFetching &&
       !availabilityQueryResult.isError &&
       !availabilityQueryResult.isPlaceholderData
   );
@@ -428,7 +419,6 @@ export function CoworkReservationForm({
       workstationRequirementQuery?.date === selectedDate &&
       workstationRequirementQueryResult.availability?.date === selectedDate &&
       workstationRequirementQueryResult.isSuccess &&
-      !workstationRequirementQueryResult.isFetching &&
       !workstationRequirementQueryResult.isError &&
       !workstationRequirementQueryResult.isPlaceholderData
   );
@@ -445,9 +435,9 @@ export function CoworkReservationForm({
     workstationRequirementQuery &&
       !isWorkstationRequirementSettledForSelectedDate
   );
-  const isAvailabilityQueryFetching =
-    availabilityQueryResult.isFetching ||
-    workstationRequirementQueryResult.isFetching;
+  const isSelectionAvailabilityPending =
+    availabilityQueryResult.isPending ||
+    workstationRequirementQueryResult.isPending;
   const unavailableCalendarDates = new Set(
     (currentRangeAvailability?.unavailableDates ?? []).filter(
       (date) =>
@@ -525,7 +515,7 @@ export function CoworkReservationForm({
     : undefined;
   const availabilityConfirmationErrorMessage =
     (isSelectedAvailabilityUnsettled || isWorkstationRequirementUnsettled) &&
-    !isAvailabilityQueryFetching
+    !isSelectionAvailabilityPending
       ? m.reservationAvailabilityError({}, { locale })
       : undefined;
 
@@ -605,10 +595,9 @@ export function CoworkReservationForm({
           : undefined,
       }}
       availability={{
-        isFetching:
-          availabilityQueryResult.isFetching ||
-          rangeAvailabilityQueryResult.isFetching ||
-          workstationRequirementQueryResult.isFetching ||
+        isPending:
+          isSelectionAvailabilityPending ||
+          rangeAvailabilityQueryResult.isPending ||
           isWorkstationNormalizationPending,
         unavailableMessage:
           availabilityMessage ?? availabilityConfirmationErrorMessage,
@@ -891,18 +880,17 @@ function CoworkCoffeeAddonField({
       name="coffee"
       render={({ field }) => (
         <FormItem className="contents" data-cowork-addon-column>
-          <div data-cowork-addon-control className="space-y-2">
-            <CoworkOptionalAddonToggle
-              addon="coffee"
-              checked={field.value}
-              icon={Coffee}
-              label={m.reservationCoffeeLabel({}, { locale })}
-              onBlur={field.onBlur}
-              onCheckedChange={(checked) => field.onChange(Boolean(checked))}
-              priceLabel={priceLabel}
-            />
+          <CoworkOptionalAddonToggle
+            addon="coffee"
+            checked={field.value}
+            icon={Coffee}
+            label={m.reservationCoffeeLabel({}, { locale })}
+            onBlur={field.onBlur}
+            onCheckedChange={(checked) => field.onChange(Boolean(checked))}
+            priceLabel={priceLabel}
+          >
             <FormMessage />
-          </div>
+          </CoworkOptionalAddonToggle>
         </FormItem>
       )}
     />
@@ -959,37 +947,35 @@ function CoworkWorkstationAddonField({
       name="monitorOption"
       render={({ field }) => (
         <FormItem className="contents" data-cowork-addon-column>
-          <div data-cowork-addon-control className="space-y-2">
-            <CoworkOptionalAddonToggle
-              addon="workstation"
-              checked={field.value !== undefined || isWorkstationRequired}
-              disabled={isWorkstationRequired}
-              icon={Monitor}
-              info={
-                isWorkstationRequired
-                  ? {
-                      triggerLabel:
-                        m.reservationWorkstationRequiredTooltipTrigger(
-                          {},
-                          { locale }
-                        ),
-                      content: m.reservationWorkstationRequiredTooltipContent(
+          <CoworkOptionalAddonToggle
+            addon="workstation"
+            checked={field.value !== undefined || isWorkstationRequired}
+            disabled={isWorkstationRequired}
+            icon={Monitor}
+            info={
+              isWorkstationRequired
+                ? {
+                    triggerLabel:
+                      m.reservationWorkstationRequiredTooltipTrigger(
                         {},
                         { locale }
                       ),
-                    }
-                  : undefined
-              }
-              label={m.reservationWorkstationLabel({}, { locale })}
-              onBlur={field.onBlur}
-              onCheckedChange={(checked) => {
-                if (isWorkstationRequired) return;
-                onManualSelection();
-                field.onChange(checked ? allowedMonitorOptions[0] : undefined);
-              }}
-              priceLabel={priceLabel}
-            />
-          </div>
+                    content: m.reservationWorkstationRequiredTooltipContent(
+                      {},
+                      { locale }
+                    ),
+                  }
+                : undefined
+            }
+            label={m.reservationWorkstationLabel({}, { locale })}
+            onBlur={field.onBlur}
+            onCheckedChange={(checked) => {
+              if (isWorkstationRequired) return;
+              onManualSelection();
+              field.onChange(checked ? allowedMonitorOptions[0] : undefined);
+            }}
+            priceLabel={priceLabel}
+          />
           {field.value !== undefined && (
             <div
               data-cowork-monitor-options
