@@ -8,6 +8,7 @@ import {
   makeCoworkInvoiceDocument,
   makeTestManualInvoiceDocument,
 } from "../invoice.test-utils";
+import { getInvoicePresentation } from "../invoice-presentation";
 import { findInvoicePaymentAccount } from "../manual-invoice";
 import { renderInvoicePdf } from "./invoice-pdf";
 
@@ -23,6 +24,9 @@ describe("invoice PDF", () => {
     expect(parsed.text).toContain(document.invoiceNumber);
     expect(parsed.text).toContain("Žluťoučký kůň s.r.o.");
     expect(parsed.text).toContain("Příčná 12");
+    for (const line of getInvoicePresentation(document).lines) {
+      expect(parsed.text).toContain(line.description);
+    }
   });
 
   test("renders the payment account block of an unpaid manual invoice", async () => {
@@ -32,6 +36,7 @@ describe("invoice PDF", () => {
 
     expectSinglePagePdf(buffer, parsed.pageCount);
     expect(parsed.text).toContain(document.invoiceNumber);
+    expect(parsed.text).toContain("One-off space rental");
     expect(parsed.text).toContain(
       `${m.invoicePaymentRequestAccount({}, { locale: "cs-CZ" })}: ${
         findInvoicePaymentAccount(document.currency)?.accountNumber

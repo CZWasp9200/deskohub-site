@@ -10,6 +10,7 @@ import type {
   User,
   Verification,
 } from "better-auth";
+import { betterAuth } from "better-auth";
 import { memoryAdapter } from "better-auth/adapters/memory";
 import { Deferred, Effect, Fiber, Layer } from "effect";
 import { makeAuthDatabase } from "@/db/auth-database-client";
@@ -361,6 +362,81 @@ test("allows magic-link issuance and verification when accounts are enabled", as
   expect(verified.status).toBe(302);
   expect(getSessionCookie(verified)).toBeTruthy();
   expect(store.session).toHaveLength(1);
+  expect(store.verification).toHaveLength(0);
+});
+
+const sha256Base64Url = async (value: string) =>
+  Buffer.from(
+    await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value))
+  ).toString("base64url");
+
+test("stores neither the emailed magic-link token nor its plain digest", async () => {
+  const sentLinks: CapturedMagicLink[] = [];
+  const { auth, store } = makeMemoryTestAuth({ sentLinks });
+
+  await signInForMagicLink(auth, uniqueEmail("token-storage"));
+
+  const rawToken = sentLinks[0]!.token;
+  const stored = store.verification.map(({ identifier }) => identifier);
+  expect(stored).toHaveLength(1);
+  // The token is hashed before the verification identifier is hashed again,
+  // so neither the emailed token nor a single digest of it is stored.
+  expect(stored).not.toContain(rawToken);
+  expect(stored).not.toContain(await sha256Base64Url(rawToken));
+});
+
+const postJson = (
+  auth: TestAuth,
+  path: string,
+  body: Readonly<Record<string, string>>
+) =>
+  callHandler(auth, path, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+test("rejects password sign-up and sign-in", async () => {
+  const { auth, store } = makeMemoryTestAuth();
+  const password = "synthetic-password-1234";
+  const signUpEmail = uniqueEmail("password-sign-up");
+
+  const signUp = await postJson(auth, "/sign-up/email", {
+    email: signUpEmail,
+    password,
+    name: "Synthetic Customer",
+  });
+  expect(signUp.ok).toBe(false);
+  expect(store.user).toHaveLength(0);
+
+  // A password account created by a password-enabled instance on the same
+  // store must still be refused by the Workspace instance.
+  const email = uniqueEmail("password-sign-in");
+  await betterAuth({
+    database: memoryAdapter(store),
+    emailAndPassword: { enabled: true },
+    logger: { disabled: true },
+    secret: SECRET_V1,
+  }).api.signUpEmail({
+    body: { email, password, name: "Synthetic Customer" },
+  });
+  store.session.length = 0;
+
+  const signIn = await postJson(auth, "/sign-in/email", { email, password });
+  expect(signIn.ok).toBe(false);
+  expect(getSessionCookie(signIn)).toBeUndefined();
+  expect(store.session).toHaveLength(0);
+});
+
+test("rejects social sign-in", async () => {
+  const { auth, store } = makeMemoryTestAuth();
+
+  const response = await postJson(auth, "/sign-in/social", {
+    provider: "google",
+    callbackURL: "/en-US/account",
+  });
+
+  expect(response.ok).toBe(false);
   expect(store.verification).toHaveLength(0);
 });
 
