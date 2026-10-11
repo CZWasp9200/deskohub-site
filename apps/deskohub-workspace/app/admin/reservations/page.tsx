@@ -17,7 +17,6 @@ import {
 import {
   type AdministrationSearchParams,
   loadAdministrationRefundAttention,
-  type loadAdministrationReservations,
   loadAdministrationReservationsPage,
 } from "@/features/administration/page-data.server";
 import { RefundAttention } from "@/features/administration/refund-attention";
@@ -68,9 +67,11 @@ export default function ReservationsAdministrationPage({
   );
 }
 
-type ReservationsData = Awaited<
-  ReturnType<typeof loadAdministrationReservations>
->;
+type ReservationsPage = ReturnType<typeof loadAdministrationReservationsPage>;
+type ReservationsData = {
+  readonly input: Awaited<ReservationsPage["input"]>;
+  readonly result: Awaited<ReservationsPage["result"]>;
+};
 
 async function ReservationCount({
   result,

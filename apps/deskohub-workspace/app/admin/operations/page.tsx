@@ -13,7 +13,6 @@ import {
 } from "@/features/administration/loading";
 import {
   type AdministrationSearchParams,
-  type loadAdministrationOperations,
   loadAdministrationOperationsPage,
 } from "@/features/administration/page-data.server";
 import { OperationTable } from "@/features/administration/payment-tables";
@@ -52,13 +51,14 @@ export default function OperationsAdministrationPage({
   );
 }
 
-type OperationsData = Awaited<ReturnType<typeof loadAdministrationOperations>>;
-type OperationCriteria = Pick<OperationsData, "input" | "range">;
+type OperationsPage = ReturnType<typeof loadAdministrationOperationsPage>;
+type OperationsResult = Awaited<OperationsPage["result"]>;
+type OperationCriteria = Awaited<OperationsPage["criteria"]>;
 
 async function OperationCount({
   result,
 }: {
-  readonly result: Promise<OperationsData["result"]>;
+  readonly result: Promise<OperationsResult>;
 }) {
   return (
     <AdministrationTableCount
@@ -79,16 +79,12 @@ async function OperationFiltersContent({
 async function OperationResultsContent({
   result,
 }: {
-  readonly result: Promise<OperationsData["result"]>;
+  readonly result: Promise<OperationsResult>;
 }) {
   return <OperationResults result={await result} />;
 }
 
-function OperationResults({
-  result,
-}: {
-  readonly result: OperationsData["result"];
-}) {
+function OperationResults({ result }: { readonly result: OperationsResult }) {
   return (
     <>
       {!result.providerAvailable && (

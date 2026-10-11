@@ -14,7 +14,6 @@ import {
 } from "@/features/administration/loading";
 import {
   type AdministrationSearchParams,
-  type loadAdministrationBookings,
   loadAdministrationBookingsPage,
 } from "@/features/administration/page-data.server";
 
@@ -52,7 +51,11 @@ export default function BookingsAdministrationPage({
   );
 }
 
-type BookingsData = Awaited<ReturnType<typeof loadAdministrationBookings>>;
+type BookingsPage = ReturnType<typeof loadAdministrationBookingsPage>;
+type BookingsData = {
+  readonly input: Awaited<BookingsPage["input"]>;
+  readonly result: Awaited<BookingsPage["result"]>;
+};
 
 async function BookingCount({
   result,

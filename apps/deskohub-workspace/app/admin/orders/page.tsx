@@ -13,7 +13,6 @@ import {
 } from "@/features/administration/loading";
 import {
   type AdministrationSearchParams,
-  type loadAdministrationOrders,
   loadAdministrationOrdersPage,
 } from "@/features/administration/page-data.server";
 import { OrderTable } from "@/features/administration/payment-tables";
@@ -52,7 +51,11 @@ export default function OrdersAdministrationPage({
   );
 }
 
-type OrdersData = Awaited<ReturnType<typeof loadAdministrationOrders>>;
+type OrdersPage = ReturnType<typeof loadAdministrationOrdersPage>;
+type OrdersData = {
+  readonly range: Awaited<OrdersPage["range"]>;
+  readonly result: Awaited<OrdersPage["result"]>;
+};
 
 async function OrderCount({
   result,

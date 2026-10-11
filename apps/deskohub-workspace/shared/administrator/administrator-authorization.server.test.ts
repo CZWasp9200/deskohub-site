@@ -126,7 +126,8 @@ describe("administrator server authorization", () => {
     const operations = [
       authorization.authorizeAdministratorPage,
       administration.loadAdministrationOverview,
-      () => administration.loadAdministrationReservations(searchParams),
+      administration.loadAdministrationRefundAttention,
+      administration.loadAdministrationReservationOverview,
       () =>
         administration.loadAdministrationReservationsPage(searchParams).result,
       () => administration.loadAdministrationReservation("reservation-id"),
@@ -134,22 +135,26 @@ describe("administrator server authorization", () => {
         administration.loadAdministrationReservationBreadcrumbLabel(
           "reservation-id"
         ),
-      () => administration.loadAdministrationBookings(searchParams),
       () => administration.loadAdministrationBookingsPage(searchParams).result,
       () => administration.loadAdministrationBooking("booking-id"),
       () =>
         administration.loadAdministrationBookingBreadcrumbLabel("booking-id"),
-      () => administration.loadAdministrationCustomers(searchParams),
+      () => administration.loadAdministrationCustomersPage(searchParams).result,
       () =>
         administration.loadAdministrationCustomerReservations(
           "customer-id",
           searchParams
         ),
-      () => administration.loadAdministrationOrders(searchParams),
+      () => administration.loadAdministrationCustomerActivity("customer-id"),
+      () =>
+        administration.loadAdministrationCustomerReservationActivity(
+          "customer-id"
+        ),
       () => administration.loadAdministrationOrdersPage(searchParams).result,
-      () => administration.loadAdministrationOperations(searchParams),
+      () => administration.loadAdministrationOrder("order-id"),
       () =>
         administration.loadAdministrationOperationsPage(searchParams).result,
+      () => administration.loadAdministrationOperation("operation-id"),
       () => discounts.loadDiscountAdminPageData(searchParams),
       () => discounts.loadDiscountAdminCodesPageData(searchParams),
       () => discounts.loadDiscountAdminSalesPageData(searchParams),
