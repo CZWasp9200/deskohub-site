@@ -161,7 +161,7 @@
   },
   "syntheticSchedulerEvidence": {
     "deployed": false,
-    "interpretation": "Each row reports baseline to candidate values.",
+    "interpretation": "Each historical row reports baseline to candidate values; the harness no longer runs the baseline graph.",
     "runs": [
       {
         "runId": "run-kUpJq2",
