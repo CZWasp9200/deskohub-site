@@ -3,7 +3,6 @@ import type { DotyposCustomerId } from "@deskohub/dotypos";
 import { Deferred, Effect, Layer } from "effect";
 import {
   type CurrentLinkedAccount,
-  type CustomerAccountContact,
   CustomerAccountContactService,
 } from "@/features/account/backend/customer-account-contact.service";
 import {
@@ -26,7 +25,7 @@ const account: CurrentLinkedAccount = {
   email: reservationCustomerEmailSchema.make("ada@example.test"),
 };
 
-const contact: CustomerAccountContact = {
+const contact = {
   ...account,
   name: "Ada Lovelace",
   phone: "+420 777 777 777",
