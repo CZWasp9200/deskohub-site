@@ -5,6 +5,7 @@ import {
   coworkCurrentReservationOrderSchema,
   coworkReservationSchema,
   getCoworkReservationDetails,
+  getCoworkReservationInterval,
   getCoworkReservationIntervalInput,
   getCoworkReservationOrder,
   isCoworkOpenSpaceDayCutoffReached,
@@ -225,6 +226,17 @@ describe("cowork offer intervals across daylight-saving changes", () => {
     );
     expect(spring.startsAt).toBe("2027-03-27T23:00:00Z");
     expect(spring.endsAt).toBe("2027-03-28T15:00:00Z");
+  });
+
+  test("resolves the same instants as normalizing the local interval", () => {
+    const normalize = Schema.decodeSync(reservationIntervalSchema);
+    for (const tier of ["open-space", "reserved-desk", undefined] as const) {
+      for (const date of ["2026-10-25", "2027-03-28", "2099-06-10"]) {
+        expect(getCoworkReservationInterval(tier, date)).toEqual(
+          normalize(getCoworkReservationIntervalInput(tier, date))
+        );
+      }
+    }
   });
 });
 

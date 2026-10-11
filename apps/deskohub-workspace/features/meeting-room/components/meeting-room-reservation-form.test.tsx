@@ -189,11 +189,11 @@ const jsonResponse = <T,>(body: T) =>
   });
 
 const renderForm = (
-  props: Partial<ComponentProps<typeof MeetingRoomReservationForm>> = {}
-) => {
-  const queryClient = new QueryClient({
+  props: Partial<ComponentProps<typeof MeetingRoomReservationForm>> = {},
+  queryClient = new QueryClient({
     defaultOptions: { queries: { retryDelay: 0 } },
-  });
+  })
+) => {
   const renderElement = () => (
     <QueryClientProvider client={queryClient}>
       <MeetingRoomReservationForm
@@ -943,6 +943,93 @@ describe("MeetingRoomReservationForm", () => {
     expect(
       view.getByRole("button", { name: "Continue" }).hasAttribute("disabled")
     ).toBe(true);
+  });
+
+  test("keeps checkout disabled while retrying availability after a failed refresh of settled data", async () => {
+    let availabilityMode: "available" | "failing" | "retrying" = "available";
+    let failedRefreshCount = 0;
+    let resolveRetry: ((response: Response) => void) | undefined;
+    globalThis.fetch = mock(() => {
+      if (availabilityMode === "failing") {
+        failedRefreshCount += 1;
+        return Promise.reject(new Error("Availability refresh failed"));
+      }
+      if (availabilityMode === "retrying") {
+        return new Promise<Response>((resolve) => {
+          resolveRetry = resolve;
+        });
+      }
+      return Promise.resolve(jsonResponse(availabilityResponse));
+    }) as typeof fetch;
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retryDelay: 0 } },
+    });
+    const refetchAvailability = () =>
+      queryClient.refetchQueries({
+        predicate: (query) => query.queryKey[0] === "workspace-availability",
+      });
+    const getAvailabilityState = () =>
+      queryClient
+        .getQueryCache()
+        .findAll({
+          predicate: (query) =>
+            query.queryKey[0] === "workspace-availability" &&
+            query.state.data !== undefined,
+        })
+        .map(({ state }) => ({
+          status: state.status,
+          fetchStatus: state.fetchStatus,
+        }));
+    const errorMessage = "We couldn't confirm availability. Please try again.";
+
+    const view = renderForm({}, queryClient);
+    const continueButton = view.getByRole("button", { name: "Continue" });
+    await waitFor(
+      () => {
+        expect(continueButton.hasAttribute("disabled")).toBe(false);
+      },
+      { timeout: 5000 }
+    );
+
+    availabilityMode = "failing";
+    await act(async () => {
+      await refetchAvailability();
+    });
+    expect(failedRefreshCount).toBe(4);
+    expect(getAvailabilityState()).toEqual([
+      { status: "error", fetchStatus: "idle" },
+    ]);
+    expect(await view.findByText(errorMessage)).toBeDefined();
+    expect(continueButton.hasAttribute("disabled")).toBe(true);
+
+    availabilityMode = "retrying";
+    let retry: Promise<void> | undefined;
+    await act(async () => {
+      retry = refetchAvailability();
+      await waitFor(() => expect(resolveRetry).toBeDefined());
+    });
+    // The errored query keeps its stale data and error status while the retry
+    // is in flight, so availability is still unknown.
+    expect(getAvailabilityState()).toEqual([
+      { status: "error", fetchStatus: "fetching" },
+    ]);
+    await waitFor(() => {
+      expect(view.queryByText(errorMessage)).toBeNull();
+    });
+    expect(continueButton.hasAttribute("disabled")).toBe(true);
+    expect(
+      continueButton.getAttribute("data-reservation-availability-loading")
+    ).toBe("true");
+
+    await act(async () => {
+      resolveRetry?.(jsonResponse(availabilityResponse));
+      await retry;
+    });
+    await waitFor(() => {
+      expect(continueButton.hasAttribute("disabled")).toBe(false);
+    });
+    expect(view.queryByText(errorMessage)).toBeNull();
+    expect(execute).not.toHaveBeenCalled();
   });
 
   test("keeps checkout disabled until advertised pricing can be retried", async () => {
