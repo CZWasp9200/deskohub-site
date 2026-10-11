@@ -294,58 +294,76 @@ test.each([
   });
 });
 
-test("keeps a deferred save single-flight and announces the pending state", async () => {
-  let resolveSave!: (result: ActionResult) => void;
-  saveMarketingPreferencesAction.mockImplementationOnce(
-    () =>
-      new Promise<ActionResult>((resolve) => {
-        resolveSave = resolve;
-      })
-  );
-  const view = renderForm({
-    context: "synthetic-account-context",
-    source: "account",
-    status: "absent",
-  });
-  const marketingSwitch = getSwitch(
-    view,
-    m.marketingPreferencesFormRowTitle({}, { locale: "en-US" })
-  );
-
-  fireEvent.click(marketingSwitch);
-  fireEvent.click(marketingSwitch);
-
-  await waitFor(() => {
-    expect(saveMarketingPreferencesAction).toHaveBeenCalledTimes(1);
-    expect(getArticle(view).getAttribute("aria-busy")).toBe("true");
-  });
-  // While the save is pending the switch already reads the target state
-  // (feedback lZJlJt7s-q7L), stays disabled, and ignores further toggles.
-  expect(marketingSwitch.hasAttribute("disabled")).toBe(true);
-  expect(
-    getSwitch(
+test.each([
+  ["absent", true],
+  ["active", false],
+] as const)(
+  "keeps a deferred save from the %s status single-flight and announces the pending state",
+  async (status, granted) => {
+    let resolveSave!: (result: ActionResult) => void;
+    saveMarketingPreferencesAction.mockImplementationOnce(
+      () =>
+        new Promise<ActionResult>((resolve) => {
+          resolveSave = resolve;
+        })
+    );
+    const context = "synthetic-account-context";
+    const view = renderForm({ context, source: "account", status });
+    const marketingSwitch = getSwitch(
       view,
       m.marketingPreferencesFormRowTitle({}, { locale: "en-US" })
-    ).getAttribute("aria-checked")
-  ).toBe("true");
-  fireEvent.click(
-    getSwitch(view, m.marketingPreferencesFormRowTitle({}, { locale: "en-US" }))
-  );
-  expect(saveMarketingPreferencesAction).toHaveBeenCalledTimes(1);
-  expect(view.getByRole("status").textContent).toBe(
-    m.marketingPreferencesFormSavingStatus({}, { locale: "en-US" })
-  );
+    );
+    const target = granted ? "true" : "false";
 
-  resolveSave({ data: { status: "saved" } });
-  await waitFor(() => {
+    expect(marketingSwitch.getAttribute("aria-checked")).toBe(
+      granted ? "false" : "true"
+    );
+    fireEvent.click(marketingSwitch);
+    fireEvent.click(marketingSwitch);
+
+    await waitFor(() => {
+      expect(saveMarketingPreferencesAction).toHaveBeenCalledTimes(1);
+      expect(getArticle(view).getAttribute("aria-busy")).toBe("true");
+    });
+    expect(saveMarketingPreferencesAction).toHaveBeenCalledWith({
+      confirmed: true,
+      context,
+      granted,
+      locale: "en-US",
+      source: "account",
+    });
+    // While the save is pending the switch already reads the target state
+    // (feedback lZJlJt7s-q7L), stays disabled, and ignores further toggles.
+    expect(marketingSwitch.hasAttribute("disabled")).toBe(true);
     expect(
       getSwitch(
         view,
         m.marketingPreferencesFormRowTitle({}, { locale: "en-US" })
       ).getAttribute("aria-checked")
-    ).toBe("true");
-  });
-});
+    ).toBe(target);
+    fireEvent.click(
+      getSwitch(
+        view,
+        m.marketingPreferencesFormRowTitle({}, { locale: "en-US" })
+      )
+    );
+    expect(saveMarketingPreferencesAction).toHaveBeenCalledTimes(1);
+    expect(view.getByRole("status").textContent).toBe(
+      m.marketingPreferencesFormSavingStatus({}, { locale: "en-US" })
+    );
+
+    resolveSave({ data: { status: "saved" } });
+    await waitFor(() => {
+      expect(marketingSwitch.hasAttribute("disabled")).toBe(false);
+      expect(
+        getSwitch(
+          view,
+          m.marketingPreferencesFormRowTitle({}, { locale: "en-US" })
+        ).getAttribute("aria-checked")
+      ).toBe(target);
+    });
+  }
+);
 
 test("permits a second toggle after a settled save and blocks duplicates while pending", async () => {
   let resolveFirstSave!: (result: ActionResult) => void;
