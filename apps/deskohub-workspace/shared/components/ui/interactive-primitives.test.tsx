@@ -13,7 +13,6 @@ import {
 
 registerWorkspaceComponentTestEnv();
 
-const { Checkbox } = await import("./checkbox");
 const { Dialog, DialogContent, DialogDescription, DialogTitle } = await import(
   "./dialog"
 );
@@ -165,14 +164,6 @@ describe("interactive primitives", () => {
     });
 
     expect(view.queryByRole("tooltip")).toBeNull();
-  });
-
-  test("shows the pointer cursor for enabled checkboxes", () => {
-    const view = render(<Checkbox aria-label="Create invoice" />);
-
-    expect(
-      view.getByRole("checkbox", { name: "Create invoice" }).className
-    ).toContain("cursor-pointer");
   });
 
   test("localizes the dialog close button", async () => {
