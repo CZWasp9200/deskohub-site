@@ -2887,6 +2887,58 @@ describe("DotyposService paginated list responses", () => {
     }
   }
 
+  test("logs table and active reservation load summaries without payloads", async () => {
+    const logs: CapturedLog[] = [];
+    const reservationPages = [
+      { data: [reservation({ id: "reservation-1" })], nextPage: "2" },
+      { data: [reservation({ id: "reservation-2" })], nextPage: "3" },
+      { data: [], nextPage: null },
+    ];
+
+    await runWithServiceClient(
+      Effect.gen(function* () {
+        const dotypos = yield* DotyposService;
+        yield* dotypos.getTables();
+        yield* dotypos.listActiveReservationsOverlapping({
+          startDate: new Date("2026-06-20T10:00:00Z"),
+          endDate: new Date("2026-06-20T12:00:00Z"),
+        });
+      }).pipe(Effect.provide(Logger.layer([captureLogs(logs)]))),
+      makePaginatedClient((operation, page) =>
+        operation === "getTables"
+          ? {
+              data: [
+                table({ id: `table-${page}`, name: providerPayloadMarker }),
+              ],
+              nextPage: page === 1 ? "2" : null,
+            }
+          : {
+              ...reservationPages[page - 1],
+              data: reservationPages[page - 1]?.data.map((item) => ({
+                ...item,
+                note: providerPayloadMarker,
+              })),
+            }
+      )
+    );
+
+    expect(
+      logs.map(({ message, annotations }) => [
+        messageParts(message)[0],
+        annotations,
+      ])
+    ).toMatchObject([
+      ["Dotypos tables load started", {}],
+      ["Dotypos tables load completed", { tableCount: 2, pageCount: 2 }],
+      ["Dotypos active reservations load started", {}],
+      [
+        "Dotypos active reservations load completed",
+        { reservationCount: 2, pageCount: 3 },
+      ],
+    ]);
+    expect(logText(logs)).not.toContain(providerPayloadMarker);
+  });
+
   test("accepts explicit empty pages for tables and reservations", async () => {
     const result = await runWithServiceClient(
       Effect.gen(function* () {

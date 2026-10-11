@@ -202,12 +202,22 @@ const getNextDotyposPageNumber = (input: {
     )
   );
 
-const loadAllDotyposPages = <A, E, R>(input: {
+type DotyposPageLoad<A, E, R> = {
   readonly loadPage: (page: number) => Effect.Effect<DotyposPage<A>, E, R>;
   readonly operation: string;
-}): Effect.Effect<readonly A[], E | ExternalAPIError, R> => {
+};
+
+type DotyposPages<A> = {
+  readonly items: readonly A[];
+  readonly pageCount: number;
+};
+
+const loadDotyposPages = <A, E, R>(
+  input: DotyposPageLoad<A, E, R>
+): Effect.Effect<DotyposPages<A>, E | ExternalAPIError, R> => {
   const items: A[] = [];
   let currentPage = 1;
+  let pageCount = 0;
   let hasNextPage = true;
 
   return Effect.whileLoop({
@@ -225,11 +235,17 @@ const loadAllDotyposPages = <A, E, R>(input: {
       ),
     step: ({ nextPage, page }) => {
       items.push(...(page.data ?? []));
+      pageCount += 1;
       hasNextPage = nextPage !== undefined;
       if (nextPage !== undefined) currentPage = nextPage;
     },
-  }).pipe(Effect.map(() => items));
+  }).pipe(Effect.map(() => ({ items, pageCount })));
 };
+
+const loadAllDotyposPages = <A, E, R>(
+  input: DotyposPageLoad<A, E, R>
+): Effect.Effect<readonly A[], E | ExternalAPIError, R> =>
+  loadDotyposPages(input).pipe(Effect.map(({ items }) => items));
 
 export type CustomerLookupField = "email" | "phone";
 
@@ -1565,28 +1581,49 @@ const makeDotyposService = Effect.gen(function* () {
     });
   });
 
-  const getTables = Effect.fn("getTables")(() =>
-    loadAllDotyposPages({
-      operation: "getTables",
-      loadPage: (page) =>
-        runDotyposRequest(
-          client.getTables(config.cloudId, {
-            params: { limit: 100, page },
-          }),
-          "getTables"
-        ).pipe(
-          Effect.flatMap((result) =>
-            decodeProviderPage(DotyposTableSchema, result, "getTables")
-          )
-        ),
-    }).pipe(Effect.retry(retryPolicy), catchUnexpectedDotyposError("getTables"))
+  const getTables = Effect.fn("getTables")(
+    function* () {
+      yield* Effect.logInfo("Dotypos tables load started");
+
+      const { items: tables, pageCount } = yield* loadDotyposPages({
+        operation: "getTables",
+        loadPage: (page) =>
+          runDotyposRequest(
+            client.getTables(config.cloudId, {
+              params: { limit: 100, page },
+            }),
+            "getTables"
+          ).pipe(
+            Effect.flatMap((result) =>
+              decodeProviderPage(DotyposTableSchema, result, "getTables")
+            )
+          ),
+      }).pipe(
+        Effect.retry(retryPolicy),
+        catchUnexpectedDotyposError("getTables")
+      );
+
+      yield* Effect.annotateLogsScoped({
+        tableCount: tables.length,
+        pageCount,
+      });
+      yield* Effect.logInfo("Dotypos tables load completed");
+      return tables;
+    },
+    (effect) =>
+      effect.pipe(
+        Effect.scoped,
+        Effect.tapError((error) =>
+          Effect.logError("Dotypos tables load failed", { error })
+        )
+      )
   );
 
   const loadReservations = (options: {
     readonly filter?: string;
     readonly sort?: string;
   }) =>
-    loadAllDotyposPages({
+    loadDotyposPages({
       operation: "listReservations",
       loadPage: (page) =>
         runDotyposRequest(
@@ -1647,21 +1684,42 @@ const makeDotyposService = Effect.gen(function* () {
       .filter((value): value is string => Boolean(value))
       .join(";");
 
-    return yield* loadReservations({
+    const { items: reservations } = yield* loadReservations({
       ...(filter && { filter }),
       ...(options.order && {
         sort:
           options.order === "startDateAscending" ? "startDate" : "-startDate",
       }),
     });
+    return reservations;
   });
 
   const listActiveReservationsOverlapping = Effect.fn(
     "listActiveReservationsOverlapping"
-  )(function* (interval: DotyposReservationInterval) {
-    const filter = yield* getActiveReservationOverlapFilter(interval);
-    return yield* loadReservations({ filter });
-  });
+  )(
+    function* (interval: DotyposReservationInterval) {
+      yield* Effect.logInfo("Dotypos active reservations load started");
+
+      const filter = yield* getActiveReservationOverlapFilter(interval);
+      const { items: reservations, pageCount } = yield* loadReservations({
+        filter,
+      });
+
+      yield* Effect.annotateLogsScoped({
+        reservationCount: reservations.length,
+        pageCount,
+      });
+      yield* Effect.logInfo("Dotypos active reservations load completed");
+      return reservations;
+    },
+    (effect) =>
+      effect.pipe(
+        Effect.scoped,
+        Effect.tapError((error) =>
+          Effect.logError("Dotypos active reservations load failed", { error })
+        )
+      )
+  );
 
   const getProducts = Effect.fn("getProducts")(function* (options: {
     categoryId?: DotyposCategoryId;
