@@ -38,7 +38,7 @@ import { dismissLegalCookieConsent } from "./legal-cookie-consent";
 import { waitForReactClickHandler } from "./react-handlers";
 
 const accountLegalPort = 3168;
-const fixtureParent = "/tmp/opencode";
+const fixtureParent = "/tmp/deskohub";
 const appRoot = resolve(import.meta.dir, "..");
 const globalsCssPath = resolve(appRoot, "app/globals.css");
 const siteHeaderSelector = "body > header";
