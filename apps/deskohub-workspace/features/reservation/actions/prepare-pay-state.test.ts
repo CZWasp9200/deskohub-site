@@ -483,6 +483,7 @@ const runReusableReservationScenario = async (input: {
     updateReservationDetails,
     grantInitialMarketingConsent,
     grantMarketingConsent,
+    withdrawMarketingConsent,
     ensureAvailable,
     createDraft,
     claimHoldCreation,
@@ -1441,6 +1442,22 @@ describe("prepareWorkspacePayState", () => {
       expect(scenario.quoteForCustomer.mock.calls[0]?.[0]).toMatchObject({
         dotyposCustomerId: accountDotyposCustomerId,
       });
+    });
+
+    test("leaves the account's stored marketing consent untouched without an opt-in", async () => {
+      const scenario = await runReusableReservationScenario({
+        findByAttemptKeys: mock(() => Effect.succeed(null)),
+        createDraft: createFreshDraft(),
+        accountAuthority: { session: {}, activityState: "active" },
+        customer: "account",
+        accountContact: accountContact(),
+        marketingConsent: false,
+      });
+
+      expect(scenario.result?.status).toBe("ready");
+      expect(scenario.grantInitialMarketingConsent).not.toHaveBeenCalled();
+      expect(scenario.grantMarketingConsent).not.toHaveBeenCalled();
+      expect(scenario.withdrawMarketingConsent).not.toHaveBeenCalled();
     });
 
     test("prices the reservation with the account contact instead of the submitted one", async () => {

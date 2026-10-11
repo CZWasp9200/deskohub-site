@@ -81,6 +81,7 @@ export async function renderOfficeReservationContent({
     existingCustomer
       ? getReservationExistingCustomerForm({
           contact: existingCustomer.contact,
+          hasMarketingConsent: existingCustomer.hasMarketingConsent,
           // Office links never prefill a contact, so only an explicit
           // `customer` parameter chooses the mode.
           queryMode: getReservationCustomerQueryMode(searchParams, {
