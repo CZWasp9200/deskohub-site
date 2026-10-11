@@ -294,6 +294,11 @@ Distinguish automated-runner behavior from manual procedures before treating a d
   against about 0.2 s in successful sandbox payments. Such failures were
   about 0.5% of roughly 1,200 preview orders from 2026-10-01 to 2026-10-09,
   across several amounts.
+- Reservation pages render their initial prices and availability with the
+  content, so an option change whose price is already loaded never takes the
+  price back to pending. Wait for a pending-then-ready transition only after
+  a change that issues a new advertised-price request, such as a new date;
+  otherwise wait only for the ready price.
 - After a full document load, `/account` streams its layout and its content
   in separate Suspense boundaries, and React can delay revealing the content
   by a few hundred milliseconds. Clicking a section before that content is

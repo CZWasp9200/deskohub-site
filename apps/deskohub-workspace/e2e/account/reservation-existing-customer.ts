@@ -11,7 +11,9 @@ const coworkReservationPath = "/en-US/reservation/cowork";
 const existingCustomerCardName = "Booking as";
 const bookForSomeoneElseName = "Book for someone else";
 // The submit button reports when availability and the advertised price are
-// still loading; offer prices render skeletons until they arrive.
+// still loading. The page renders initial prices with the content, but a
+// price the server could not load renders a skeleton until the client
+// fetches it.
 const settledSubmitSelector =
   '#reservation-submit[data-reservation-availability-loading="false"][data-reservation-price-loading="false"]';
 const loadingSkeletonSelector = 'main [data-slot="skeleton"]';
