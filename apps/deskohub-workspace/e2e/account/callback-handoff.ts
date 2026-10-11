@@ -1,11 +1,12 @@
 import type * as Playwright from "@playwright/test";
+import { isReviewScreenshotCaptureEnabled } from "../review-capture";
 import { workspaceE2ETimeouts } from "../timeouts";
-import { isExactCallbackUrl } from "./callback-url";
 import {
+  type CallbackDocumentReview,
   callbackDocumentReviewViewport,
   prepareCallbackDocumentReview,
-  type CallbackDocumentReview,
 } from "./callback-document-review";
+import { isExactCallbackUrl } from "./callback-url";
 import {
   captureAccountReview,
   persistCallbackDocumentReview,
@@ -242,11 +243,18 @@ const loadingElementIsVisible = async (
     );
   });
 
+/**
+ * Holds the first qualifying account request and verifies that the callback
+ * document still shows its loading state when it hands off. The hold is E2E
+ * evidence, so it runs on every pass; only the review screenshot and its
+ * capture viewport depend on the review screenshot opt-in.
+ */
 export const withCallbackHandoffReview = async (
   page: Playwright.Page,
   baseUrl: string,
   runCase: () => Promise<void>
 ): Promise<void> => {
+  const captureEnabled = isReviewScreenshotCaptureEnabled();
   let baseOrigin: string;
   try {
     baseOrigin = new URL(baseUrl).origin;
@@ -322,6 +330,7 @@ export const withCallbackHandoffReview = async (
           const review = documentReview;
           if (!review) throw callbackHandoffFailure();
           review.validate();
+          if (!captureEnabled) return;
           const pixels = await review.capture({
             deadline,
             signal: abortController.signal,
@@ -389,7 +398,7 @@ export const withCallbackHandoffReview = async (
     documentReview = await prepareCallbackDocumentReview(
       page,
       baseUrl,
-      { ...callbackDocumentReviewViewport },
+      captureEnabled ? { ...callbackDocumentReviewViewport } : null,
       {
         deadline: Date.now() + workspaceE2ETimeouts.browserAction,
         signal: abortController.signal,

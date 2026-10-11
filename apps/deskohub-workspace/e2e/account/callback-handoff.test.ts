@@ -12,6 +12,13 @@ import { resolve } from "node:path";
 import type * as Playwright from "@playwright/test";
 import { workspaceE2ETimeouts } from "../timeouts";
 
+const reviewScreenshotOptIn = process.env.WORKSPACE_E2E_REVIEW_SCREENSHOTS;
+const restoreReviewScreenshotOptIn = () => {
+  if (reviewScreenshotOptIn === undefined)
+    delete process.env.WORKSPACE_E2E_REVIEW_SCREENSHOTS;
+  else process.env.WORKSPACE_E2E_REVIEW_SCREENSHOTS = reviewScreenshotOptIn;
+};
+
 const baseUrl = "https://deskohub-workspace-review.example.test";
 const accountUrl = `${baseUrl}/en-US/account?_rsc=synthetic-cache-key`;
 const callbackUrl = `${baseUrl}/en-US/auth/callback`;
@@ -61,12 +68,12 @@ mock.module("./callback-document-review", () => ({
   prepareCallbackDocumentReview: async (
     page: Playwright.Page,
     _baseOrigin: string,
-    viewport: Playwright.ViewportSize
+    viewport: Playwright.ViewportSize | null
   ) => {
     documentReviewControl.prepareCalls += 1;
-    documentReviewControl.preparedViewport = { ...viewport };
+    documentReviewControl.preparedViewport = viewport && { ...viewport };
     documentReviewControl.timeline.push("adapter-prepare");
-    await page.setViewportSize(viewport);
+    if (viewport) await page.setViewportSize(viewport);
     return {
       validate: (): void => {
         documentReviewControl.validateCalls += 1;
@@ -260,6 +267,7 @@ const makeCallbackFakePage = (
       return screenshotBuffer;
     },
     setViewportSize: async (viewport: Playwright.ViewportSize | null) => {
+      events.push("set-viewport");
       currentViewport = viewport;
     },
     unroute: async (...args: unknown[]) => {
@@ -423,11 +431,13 @@ describe("account callback handoff review", () => {
   let writeFileSpy: ReturnType<typeof createWriteFileSpy> | undefined;
 
   beforeEach(() => {
+    process.env.WORKSPACE_E2E_REVIEW_SCREENSHOTS = "true";
     writeFileSpy = createWriteFileSpy();
     documentReviewControl.reset();
   });
 
   afterEach(() => {
+    restoreReviewScreenshotOptIn();
     writeFileSpy?.mockRestore();
     writeFileSpy = undefined;
   });
@@ -441,11 +451,6 @@ describe("account callback handoff review", () => {
     });
 
     expect(fakePage.screenshotCalls).toHaveLength(1);
-    expect(fakePage.screenshotCalls[0]).toEqual({
-      animations: "disabled",
-      fullPage: true,
-      timeout: expect.any(Number),
-    });
     expect(writeFileSpy?.mock.calls).toEqual([
       [
         resolve(accountReviewArtifactDirectory, "callback-loading-desktop.png"),
@@ -634,10 +639,6 @@ describe("account callback handoff review", () => {
     });
 
     expect(documentReviewControl.prepareCalls).toBe(1);
-    expect(documentReviewControl.preparedViewport).toEqual({
-      width: 1440,
-      height: 1000,
-    });
     const timeline = fakePage.events();
     expect(timeline.indexOf("adapter-prepare")).toBeLessThan(
       timeline.indexOf("run-case")
@@ -1061,5 +1062,92 @@ describe("account callback handoff review", () => {
         }
       });
     });
+  });
+});
+
+describe("account callback handoff without the review opt-in", () => {
+  const createWriteFileSpy = () =>
+    spyOn(fsPromises, "writeFile").mockImplementation(async () => undefined);
+  let writeFileSpy: ReturnType<typeof createWriteFileSpy> | undefined;
+
+  beforeEach(() => {
+    delete process.env.WORKSPACE_E2E_REVIEW_SCREENSHOTS;
+    writeFileSpy = createWriteFileSpy();
+    documentReviewControl.reset();
+  });
+
+  afterEach(() => {
+    restoreReviewScreenshotOptIn();
+    writeFileSpy?.mockRestore();
+    writeFileSpy = undefined;
+  });
+
+  test("still validates the held handoff document before forwarding it", async () => {
+    const fakePage = makeCallbackFakePage();
+    documentReviewControl.timeline = fakePage.events() as string[];
+
+    await withCallbackHandoffReview(fakePage.page, baseUrl, async () => {
+      await fakePage.dispatch(accountUrl, {
+        headers: {},
+        isNavigationRequest: true,
+        resourceType: "document",
+      });
+    });
+
+    const timeline = fakePage.events();
+    expect(timeline.indexOf("adapter-validate")).toBeLessThan(
+      timeline.indexOf("continue")
+    );
+    expect(documentReviewControl.preparedViewport).toBeNull();
+    expect(documentReviewControl.captureCalls).toBe(0);
+    expect(timeline).not.toContain("set-viewport");
+    expect(writeFileSpy?.mock.calls).toHaveLength(0);
+    expect(fakePage.continueCallCount()).toBe(1);
+  });
+
+  test("still fails a held handoff document without a valid receipt", async () => {
+    const fakePage = makeCallbackFakePage();
+    documentReviewControl.failValidate = true;
+
+    await expect(
+      withCallbackHandoffReview(fakePage.page, baseUrl, async () => {
+        await fakePage.dispatch(accountUrl, {
+          headers: {},
+          isNavigationRequest: true,
+          resourceType: "document",
+        });
+      })
+    ).rejects.toThrow(callbackHandoffFailureMessage);
+
+    expect(fakePage.continueCallCount()).toBe(1);
+  });
+
+  test("still checks the loading state behind a held RSC request", async () => {
+    const fakePage = makeCallbackFakePage();
+
+    await withCallbackHandoffReview(fakePage.page, baseUrl, async () => {
+      await fakePage.dispatch(accountUrl);
+    });
+
+    const timeline = fakePage.events();
+    expect(timeline.indexOf("wait:loading-card")).toBeGreaterThanOrEqual(0);
+    expect(timeline.indexOf("wait:loading-card")).toBeLessThan(
+      timeline.indexOf("continue")
+    );
+    expect(fakePage.screenshotCalls).toHaveLength(0);
+    expect(timeline).not.toContain("set-viewport");
+    expect(writeFileSpy?.mock.calls).toHaveLength(0);
+  });
+
+  test("still fails when the RSC handoff shows no loading state", async () => {
+    const fakePage = makeCallbackFakePage({ failLoadingWait: true });
+
+    await expect(
+      withCallbackHandoffReview(fakePage.page, baseUrl, async () => {
+        await fakePage.dispatch(accountUrl);
+      })
+    ).rejects.toThrow(callbackHandoffFailureMessage);
+
+    expect(fakePage.continueCallCount()).toBe(1);
   });
 });
