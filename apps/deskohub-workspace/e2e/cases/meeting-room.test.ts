@@ -23,11 +23,7 @@ import {
 } from "../../scripts/shared/source-ast";
 import { makeMeetingRoomCheckoutData } from "../checkout/data";
 import type { DatasourceConfig, WorkspaceE2EConfig } from "../config";
-import {
-  isWorkspaceE2ETimeout,
-  type WorkspaceE2EError,
-  workspaceE2EError,
-} from "../errors";
+import { isWorkspaceE2ETimeout, type WorkspaceE2EError } from "../errors";
 import { workspaceE2ENonPaymentCaseIds } from "../playwright-checkout/case-catalog";
 import type { Runner } from "../runtime";
 import { workspaceE2ETimeouts } from "../timeouts";
@@ -194,7 +190,7 @@ test.each([
   }
 );
 
-test("runs reservation cookie isolation after paid support failure", async () => {
+test("verifies a paid meeting-room checkout without the post-fulfillment paths", async () => {
   const config: WorkspaceE2EConfig = {
     baseUrl: "https://deskohub-workspace-abc123xyz-deskohub.vercel.app",
     bypassSecret: undefined,
@@ -242,10 +238,7 @@ test("runs reservation cookie isolation after paid support failure", async () =>
     reservation_id: workspaceReservationIdSchema.make("paid-order"),
   } as CheckoutRow;
   const observedSteps: string[] = [];
-  let fulfillmentState: "fulfilled" | "failed" = "fulfilled";
   let replayCount = 0;
-  let supportMutationCount = 0;
-  let isolationAccepted = false;
   const runStep = ((step) => {
     observedSteps.push(step.id);
     if (step.id === "prepare-checkout-pay-page") {
@@ -261,26 +254,6 @@ test("runs reservation cookie isolation after paid support failure", async () =>
     }
     if (step.id === "replay-payment-webhook") {
       replayCount += 1;
-      return Effect.void;
-    }
-    if (step.id === "mark-fulfillment-failed-for-support-path") {
-      supportMutationCount += 1;
-      fulfillmentState = "failed";
-      return Effect.void;
-    }
-    if (step.id === "assert-reservation-cookie-isolation") {
-      if (
-        fulfillmentState !== "failed" ||
-        paidRow.payment_state !== "paid" ||
-        paidState.checkoutRow?.reservation_id !== paidRow.reservation_id
-      ) {
-        return Effect.fail(
-          workspaceE2EError(
-            "reservation cookie isolation ran before paid support failure state"
-          )
-        );
-      }
-      isolationAccepted = true;
     }
     return Effect.void;
   }) as WorkspaceE2EStepRunner;
@@ -293,17 +266,16 @@ test("runs reservation cookie isolation after paid support failure", async () =>
   );
 
   expect(Exit.isSuccess(exit)).toBe(true);
-  expect(isolationAccepted).toBe(true);
-  expect(supportMutationCount).toBe(1);
   expect(replayCount).toBe(1);
+  expect(observedSteps).toContain("assert-fulfilled-status-page");
+  expect(observedSteps).not.toContain("restart-reservation-after-fulfillment");
+  expect(observedSteps).not.toContain(
+    "mark-fulfillment-failed-for-support-path"
+  );
+  expect(observedSteps).not.toContain("assert-reservation-cookie-isolation");
   expect(flowStates).toHaveLength(5);
   expect(paidCase.checkoutStates).toHaveLength(1);
   expect(paidCase.checkoutStates[0]).toBe(flowStates[0]);
-  expect(
-    observedSteps.indexOf("assert-reservation-cookie-isolation")
-  ).toBeGreaterThan(
-    observedSteps.indexOf("mark-fulfillment-failed-for-support-path")
-  );
 });
 
 const makeMeetingRoomTable = (id: string): Table => ({
