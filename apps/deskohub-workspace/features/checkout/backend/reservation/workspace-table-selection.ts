@@ -134,7 +134,7 @@ const decodeSeatCapacity = Schema.decodeUnknownResult(
   workspaceTableSeatCapacitySchema
 );
 
-export const decodeTableSeatCapacity = (table: DotyposTable) =>
+const decodeTableSeatCapacity = (table: DotyposTable) =>
   Result.mapError(
     decodeSeatCapacity(table.seats),
     (cause) =>
@@ -191,21 +191,6 @@ export const hasAvailableWorkspaceTableCandidate = (
 ) =>
   decodeWorkspaceTableCandidates(
     getWorkspaceTableCandidates(tables, requiredTags)
-  ).pipe(
-    Effect.map((candidates) =>
-      hasCandidateCapacity(candidates, occupancyByTableId, seats, requireEmpty)
-    )
-  );
-
-export const hasAvailableWorkspaceTableCandidateByPredicate = (
-  tables: readonly DotyposTable[],
-  isCandidateTable: (tableTags: ReadonlySet<string>) => boolean,
-  occupancyByTableId: ReadonlyMap<DotyposTableId, number>,
-  seats = workspaceBookingSeatCount,
-  requireEmpty = false
-) =>
-  decodeWorkspaceTableCandidates(
-    getWorkspaceTableCandidatesByPredicate(tables, isCandidateTable)
   ).pipe(
     Effect.map((candidates) =>
       hasCandidateCapacity(candidates, occupancyByTableId, seats, requireEmpty)
