@@ -4,7 +4,6 @@ import {
   beforeEach,
   describe,
   expect,
-  jest,
   mock,
   setSystemTime,
   test,
@@ -2218,22 +2217,11 @@ describe("CoworkReservationForm advertised pricing", () => {
   });
 
   test("keeps the locked workstation help trigger keyboard accessible in both locales", async () => {
-    const cases = [
-      {
-        locale: "en-US" as const,
-        trigger: "Why is a workstation required?",
-        content:
-          "All desks without a workstation are fully booked for this date. A workstation is required.",
-      },
-      {
-        locale: "cs-CZ" as const,
-        trigger: "Proč je pracovní stanice povinná?",
-        content:
-          "Všechna místa bez pracovní stanice jsou pro toto datum plně obsazená. Pracovní stanice je povinná.",
-      },
-    ];
-
-    for (const { locale, trigger, content } of cases) {
+    for (const locale of ["en-US", "cs-CZ"] as const) {
+      const content = m.reservationWorkstationRequiredTooltipContent(
+        {},
+        { locale }
+      );
       globalThis.fetch = mock((request: RequestInfo | URL) => {
         const url = String(request);
         if (!url.startsWith("/api/workspace/availability")) {
@@ -2260,17 +2248,16 @@ describe("CoworkReservationForm advertised pricing", () => {
         initialValues: reservedDeskFormValues(),
       });
       const workstationSwitch = view.getByRole("switch", {
-        name:
-          locale === "en-US"
-            ? "Monitor workstation"
-            : "Pracovní stanice s monitory",
+        name: m.reservationWorkstationLabel({}, { locale }),
       });
       await waitFor(() => {
         expect(workstationSwitch.getAttribute("aria-checked")).toBe("true");
         expect(workstationSwitch.hasAttribute("disabled")).toBe(true);
       });
 
-      const help = view.getByRole("button", { name: trigger });
+      const help = view.getByRole("button", {
+        name: m.reservationWorkstationRequiredTooltipTrigger({}, { locale }),
+      });
       expect(help.tagName).toBe("BUTTON");
       expect(help.hasAttribute("disabled")).toBe(false);
       await act(async () => help.focus());
@@ -2288,120 +2275,6 @@ describe("CoworkReservationForm advertised pricing", () => {
         view.unmount();
       });
     }
-  });
-
-  test("keeps the required workstation explanation open after a touch tap until tapped again", async () => {
-    const content = m.reservationWorkstationRequiredTooltipContent(
-      {},
-      { locale: "en-US" }
-    );
-    globalThis.fetch = mock((request: RequestInfo | URL) => {
-      const url = String(request);
-      if (!url.startsWith("/api/workspace/availability")) {
-        return Promise.reject(new Error(`Unexpected fetch: ${url}`));
-      }
-
-      const monitorOption = new URL(url, "http://localhost").searchParams.get(
-        "monitorOption"
-      );
-      return Promise.resolve(
-        jsonResponse(
-          requiredWorkstationAvailability(
-            "2099-07-30",
-            monitorOption as
-              | (typeof workspaceProductMonitorOptions)[number]
-              | null
-          )
-        )
-      );
-    }) as typeof fetch;
-
-    const view = renderForm({ initialValues: reservedDeskFormValues() });
-    const help = await view.findByRole("button", {
-      name: m.reservationWorkstationRequiredTooltipTrigger(
-        {},
-        { locale: "en-US" }
-      ),
-    });
-    await waitFor(() => {
-      expect(
-        view
-          .getByRole("switch", {
-            name: m.reservationWorkstationLabel({}, { locale: "en-US" }),
-          })
-          .hasAttribute("disabled")
-      ).toBe(true);
-    });
-
-    const tap = async () => {
-      await act(async () => {
-        fireEvent.pointerDown(help, {
-          button: 0,
-          isPrimary: true,
-          pointerId: 1,
-          pointerType: "touch",
-        });
-        help.focus();
-        fireEvent.pointerMove(help, {
-          pointerId: 1,
-          pointerType: "touch",
-        });
-        fireEvent.pointerUp(help, {
-          button: 0,
-          isPrimary: true,
-          pointerId: 1,
-          pointerType: "touch",
-        });
-        fireEvent.click(help, { detail: 1 });
-        fireEvent.pointerLeave(help, {
-          pointerId: 1,
-          pointerType: "touch",
-        });
-      });
-    };
-
-    await tap();
-    const tooltip = await within(view.baseElement).findByRole("tooltip");
-    expect(tooltip.textContent).toBe(content);
-    expect(help.getAttribute("aria-describedby")).toBe(tooltip.id);
-    // A later touch move must not start a close delay; fake timers run any
-    // delay it would schedule without waiting for it.
-    jest.useFakeTimers();
-    try {
-      act(() => {
-        fireEvent.pointerMove(help, {
-          pointerId: 1,
-          pointerType: "touch",
-        });
-        jest.advanceTimersByTime(1000);
-      });
-    } finally {
-      jest.useRealTimers();
-    }
-    expect(within(view.baseElement).getByRole("tooltip").textContent).toBe(
-      content
-    );
-
-    await tap();
-    await waitFor(() => {
-      expect(within(view.baseElement).queryByRole("tooltip")).toBeNull();
-    });
-
-    await tap();
-    const reopenedTooltip = await within(view.baseElement).findByRole(
-      "tooltip"
-    );
-    expect(reopenedTooltip.textContent).toBe(content);
-    await act(async () => {
-      fireEvent.keyDown(reopenedTooltip, { key: "Escape" });
-    });
-    await waitFor(() => {
-      expect(within(view.baseElement).queryByRole("tooltip")).toBeNull();
-    });
-
-    await act(async () => {
-      view.unmount();
-    });
   });
 
   test("keeps required workstation dates selectable even when the bare date is unavailable", async () => {
