@@ -1,6 +1,7 @@
 import { NexiService, summarizeNexiRefunds } from "@deskohub/nexi";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Data, Effect, Layer } from "effect";
+import type { SqlError } from "effect/unstable/sql/SqlError";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { WorkspaceNexiLayer } from "@/shared/backend/config/nexi.config";
 import {
@@ -51,7 +52,7 @@ export interface IPaymentRefundService {
     readonly limit: number;
   }) => Effect.Effect<
     PaymentRefundReconciliationSummary,
-    EffectDrizzleQueryError
+    EffectDrizzleQueryError | SqlError
   >;
 }
 
