@@ -1,9 +1,8 @@
 import { expect, test } from "bun:test";
-import { constants } from "node:fs";
-import { access } from "node:fs/promises";
 import { createServer } from "node:http";
 import { normalizePhoneNumber } from "@deskohub/dotypos";
 import { chromium, type Page } from "@playwright/test";
+import { playwrightChromiumAvailable } from "../../shared/testing/playwright-browser";
 import {
   isWorkspaceE2EDiagnosticCode,
   WorkspaceE2EError,
@@ -499,12 +498,7 @@ const makeProfileNavigationFakePage = (
   return { actions, page, serverPhone: serverSnapshot.phone, state };
 };
 
-const chromiumAvailable = await access(
-  chromium.executablePath(),
-  constants.X_OK
-)
-  .then(() => true)
-  .catch(() => false);
+const chromiumAvailable = await playwrightChromiumAvailable();
 
 const startNavigationTestServer = async () => {
   const server = createServer((_request, response) => {

@@ -1,7 +1,5 @@
 import { expect, mock, spyOn, test } from "bun:test";
 import {
-  access,
-  constants,
   mkdir,
   mkdtemp,
   readFile,
@@ -17,7 +15,7 @@ import {
   setTimeout as setNativeTimeout,
 } from "node:timers";
 import { pathToFileURL } from "node:url";
-import { chromium } from "@playwright/test";
+import { playwrightChromiumAvailable } from "../../shared/testing/playwright-browser";
 import {
   compileMarketingPreferencesFixture,
   formatBuildDiagnostics,
@@ -28,12 +26,7 @@ const repoRoot = resolve(import.meta.dir, "../../../..");
 const appRoot = resolve(import.meta.dir, "../..");
 const artifactRoot = join(repoRoot, ".artifacts/marketing-preferences-browser");
 
-const chromiumAvailable = await access(
-  chromium.executablePath(),
-  constants.X_OK
-)
-  .then(() => true)
-  .catch(() => false);
+const chromiumAvailable = await playwrightChromiumAvailable();
 
 const fixtureChildScript = (stdout: string, exitCode = 0): string =>
   `process.stdout.write(${JSON.stringify(stdout)}); process.exitCode = ${exitCode};`;
