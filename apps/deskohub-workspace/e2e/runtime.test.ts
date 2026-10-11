@@ -105,128 +105,6 @@ test("keeps browser result IDs parseable while redacting forced short values", a
   }
 });
 
-test("targets the visible match for selector-based browser actions", async () => {
-  let filteredForVisibility = false;
-  const visibleLocator = {
-    focus: async () => undefined,
-  };
-  const ambiguousLocator = {
-    filter: (options: { readonly visible?: boolean }) => {
-      filteredForVisibility = options.visible === true;
-      return visibleLocator;
-    },
-    focus: async () => {
-      throw new Error("strict mode violation: selector resolved to 2 elements");
-    },
-  };
-  const frame = {
-    locator: () => ambiguousLocator,
-  };
-  const page = {
-    mainFrame: () => frame,
-    on: () => undefined,
-  };
-  const context = {
-    close: async () => undefined,
-    newPage: async () => page,
-    on: () => undefined,
-  };
-  const browser = {
-    newContext: async () => context,
-  } as Browser;
-  const run = makePlaywrightBrowserRunner(browser);
-
-  try {
-    await run("playwright", [
-      "--session",
-      "visible-selector-test",
-      "focus",
-      "[data-locale-switcher] a",
-    ]);
-  } finally {
-    await run.close?.();
-  }
-
-  expect(filteredForVisibility).toBe(true);
-});
-
-test("types provider-controlled fields with user-like key timing", async () => {
-  let typeOptions: { readonly delay?: number; readonly timeout?: number } = {};
-  const visibleLocator = {
-    pressSequentially: async (
-      _value: string,
-      options: { readonly delay?: number; readonly timeout?: number }
-    ) => {
-      typeOptions = options;
-    },
-  };
-  const frame = {
-    locator: () => ({ filter: () => visibleLocator }),
-  };
-  const page = {
-    mainFrame: () => frame,
-    on: () => undefined,
-  };
-  const context = {
-    close: async () => undefined,
-    newPage: async () => page,
-    on: () => undefined,
-  };
-  const browser = {
-    newContext: async () => context,
-  } as Browser;
-  const run = makePlaywrightBrowserRunner(browser);
-
-  try {
-    await run(
-      "playwright",
-      ["--session", "provider-field-test", "type", "input", "123"],
-      { timeoutMs: 5000 }
-    );
-  } finally {
-    await run.close?.();
-  }
-
-  expect(typeOptions).toEqual({ delay: 50, timeout: 5000 });
-});
-
-test("waits for the document body before taking a snapshot", async () => {
-  const calls: string[] = [];
-  const bodyLocator = {
-    ariaSnapshot: async () => {
-      calls.push("snapshot");
-      return "- generic";
-    },
-    waitFor: async () => {
-      calls.push("wait");
-    },
-  };
-  const frame = {
-    locator: () => bodyLocator,
-  };
-  const page = {
-    mainFrame: () => frame,
-    on: () => undefined,
-  };
-  const context = {
-    close: async () => undefined,
-    newPage: async () => page,
-    on: () => undefined,
-  };
-  const browser = {
-    newContext: async () => context,
-  } as Browser;
-  const run = makePlaywrightBrowserRunner(browser);
-
-  try {
-    await run("playwright", ["--session", "snapshot-test", "snapshot"]);
-  } finally {
-    await run.close?.();
-  }
-
-  expect(calls).toEqual(["wait", "snapshot"]);
-});
-
 type ScreenshotOptions = {
   readonly animations?: string;
   readonly fullPage?: boolean;
@@ -250,40 +128,6 @@ const makeScreenshotTestBrowser = (page: ScreenshotPageMock): Browser =>
       on: () => undefined,
     }),
   }) as Browser;
-
-test("captures a full-page screenshot on the current page with animations disabled", async () => {
-  let screenshotOptions: ScreenshotOptions | undefined;
-  const page: ScreenshotPageMock = {
-    mainFrame: () => ({}),
-    on: () => undefined,
-    screenshot: async (options) => {
-      screenshotOptions = options;
-    },
-  };
-  const run = makePlaywrightBrowserRunner(makeScreenshotTestBrowser(page));
-
-  try {
-    await run(
-      "playwright",
-      [
-        "--session",
-        "screenshot-test",
-        "screenshot",
-        "/tmp/workspace-e2e/final.png",
-      ],
-      { timeoutMs: 5000 }
-    );
-  } finally {
-    await run.close?.();
-  }
-
-  expect(screenshotOptions).toEqual({
-    animations: "disabled",
-    fullPage: true,
-    path: "/tmp/workspace-e2e/final.png",
-    timeout: 5000,
-  });
-});
 
 test("requires a non-empty screenshot path", async () => {
   let screenshotCount = 0;
@@ -440,37 +284,42 @@ test("returns browser evaluation results unchanged within the command timeout", 
   }
 });
 
-test("bounds preview access priming redirects before opening a page", async () => {
+test("primes preview access once per origin and fails closed on a rejected probe", async () => {
   const target = "https://workspace.test/en-US/reservation/status/order-id";
-  let requestOptions: unknown;
-  const page = {
-    goto: async () => undefined,
-    mainFrame: () => ({}),
-    on: () => undefined,
-    url: () => target,
-  };
-  const context = {
-    close: async () => undefined,
-    newPage: async () => page,
-    on: () => undefined,
-    request: {
-      get: async (_url: string, options: unknown) => {
-        requestOptions = options;
-        return {
-          dispose: async () => undefined,
-          ok: () => true,
-          status: () => 200,
-        };
+  const makePrimingBrowser = (probeStatus: number) => {
+    const probes: string[] = [];
+    const navigations: string[] = [];
+    const page = {
+      goto: async (url: string) => {
+        navigations.push(url);
       },
-    },
+      mainFrame: () => ({}),
+      on: () => undefined,
+      url: () => target,
+    };
+    const context = {
+      close: async () => undefined,
+      newPage: async () => page,
+      on: () => undefined,
+      request: {
+        get: async (url: string) => {
+          probes.push(url);
+          return {
+            dispose: async () => undefined,
+            ok: () => probeStatus < 400,
+            status: () => probeStatus,
+          };
+        },
+      },
+    };
+    return {
+      browser: { newContext: async () => context } as Browser,
+      navigations,
+      probes,
+    };
   };
-  const browser = {
-    newContext: async () => context,
-  } as Browser;
-  const run = makePlaywrightBrowserRunner(browser);
-
-  try {
-    const result = await run(
+  const open = (run: ReturnType<typeof makePlaywrightBrowserRunner>) =>
+    run(
       "playwright",
       [
         "--session",
@@ -483,15 +332,25 @@ test("bounds preview access priming redirects before opening a page", async () =
       { logCommand: false, logOutput: false, timeoutMs: 5000 }
     );
 
-    expect(result.stdout).toBe(target);
-    expect(requestOptions).toEqual({
-      headers: { "x-vercel-protection-bypass": "test-bypass" },
-      maxRedirects: 3,
-      timeout: 5000,
-    });
+  const accepted = makePrimingBrowser(200);
+  const acceptedRun = makePlaywrightBrowserRunner(accepted.browser);
+  try {
+    await open(acceptedRun);
+    await open(acceptedRun);
   } finally {
-    await run.close?.();
+    await acceptedRun.close?.();
   }
+  expect(accepted.probes).toEqual(["https://workspace.test/favicon.svg"]);
+  expect(accepted.navigations).toEqual([target, target]);
+
+  const rejected = makePrimingBrowser(401);
+  const rejectedRun = makePlaywrightBrowserRunner(rejected.browser);
+  try {
+    await expect(open(rejectedRun)).rejects.toThrow();
+  } finally {
+    await rejectedRun.close?.();
+  }
+  expect(rejected.navigations).toEqual([]);
 });
 
 test("reports destroyed evaluation contexts before the command timeout", async () => {

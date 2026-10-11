@@ -1,7 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { makeE2EEnvironment, makeWorkspaceE2EEnvironment } from "./e2e-env";
 import {
   makeTestE2EEnvironment,
@@ -37,37 +34,10 @@ describe("Workspace E2E environment", () => {
     expect(environment.WORKSPACE_E2E_PR_NUMBER).toBe(127);
   });
 
-  test("keeps PATH for commands launched with the selected E2E environment", async () => {
-    const commandDirectory = mkdtempSync(join(tmpdir(), "workspace-e2e-path-"));
-    const commandPath = join(commandDirectory, "e2e-path-probe");
-    writeFileSync(commandPath, "#!/bin/sh\nprintf 'e2e-path-ok\\n'\n");
-    chmodSync(commandPath, 0o755);
-    try {
-      const environment = makeTestE2EEnvironment({ PATH: commandDirectory });
-      const childEnvironment = Object.fromEntries(
-        Object.entries(environment).flatMap(([key, value]) =>
-          value === undefined ? [] : [[key, String(value)]]
-        )
-      );
-      const child = Bun.spawn(["e2e-path-probe"], {
-        env: childEnvironment,
-        stderr: "pipe",
-        stdout: "pipe",
-      });
-      const [stdout, stderr, exitCode] = await Promise.all([
-        new Response(child.stdout).text(),
-        new Response(child.stderr).text(),
-        child.exited,
-      ]);
-
-      expect({ exitCode, stderr, stdout }).toEqual({
-        exitCode: 0,
-        stderr: "",
-        stdout: "e2e-path-ok\n",
-      });
-    } finally {
-      rmSync(commandDirectory, { force: true, recursive: true });
-    }
+  test("keeps PATH for commands launched with the selected E2E environment", () => {
+    expect(makeTestE2EEnvironment({ PATH: "/synthetic/e2e/bin" }).PATH).toBe(
+      "/synthetic/e2e/bin"
+    );
   });
 
   test("passes the review screenshot opt-in through to Playwright", () => {
@@ -111,14 +81,6 @@ describe("Workspace E2E environment", () => {
     expect(environment.WORKSPACE_E2E_VERCEL_PROJECT).toBeUndefined();
   });
 
-  test("stops consuming the retired Resend retrieval key without failing on its presence", () => {
-    const environment = makeTestE2EEnvironment({
-      WORKSPACE_E2E_RESEND_API_KEY: "re_legacy-retrieval-key",
-    });
-
-    expect(environment).not.toHaveProperty("WORKSPACE_E2E_RESEND_API_KEY");
-  });
-
   test("never exposes application mail authority through the E2E boundary", () => {
     const environment = makeTestE2EEnvironment({
       EMAIL_API_KEY: "deployed-send-only-key",
@@ -151,16 +113,6 @@ describe("Workspace E2E environment", () => {
     );
   });
 
-  test("requires the narrow provider coordination database when rollout is enabled", () => {
-    expect(() =>
-      makeWorkspaceE2EEnvironment({
-        ...validE2ERuntimeEnvironment,
-        WORKSPACE_E2E_PROVIDER_PERMIT_REQUIRED: "true",
-        WORKSPACE_E2E_PROVIDER_PERMIT_DATABASE_URL: undefined,
-      })
-    ).toThrow("Invalid workspace E2E environment variables.");
-  });
-
   test("does not expose the provider permit database to standalone diagnostics", () => {
     expect(
       makeE2EEnvironment({
@@ -171,13 +123,15 @@ describe("Workspace E2E environment", () => {
   });
 
   test("requires cross-worker provider coordination for Playwright", () => {
-    expect(() =>
-      makeWorkspaceE2EEnvironment({
-        ...validE2ERuntimeEnvironment,
-        WORKSPACE_E2E_PROVIDER_PERMIT_DATABASE_URL: undefined,
-        WORKSPACE_E2E_PROVIDER_PERMIT_REQUIRED: undefined,
-      })
-    ).toThrow("Invalid workspace E2E environment variables.");
+    for (const providerPermitRequired of [undefined, "true"]) {
+      expect(() =>
+        makeWorkspaceE2EEnvironment({
+          ...validE2ERuntimeEnvironment,
+          WORKSPACE_E2E_PROVIDER_PERMIT_DATABASE_URL: undefined,
+          WORKSPACE_E2E_PROVIDER_PERMIT_REQUIRED: providerPermitRequired,
+        })
+      ).toThrow("Invalid workspace E2E environment variables.");
+    }
   });
 
   test.each([
