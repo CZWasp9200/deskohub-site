@@ -402,6 +402,8 @@ const rules: { name: string; diagnostic: string; module: string; cases: Row[] }[
       ["rejects a template-literal server environment require in a client component", '"use client";\nexport const load = () => require(`@/env`);\n', true],
       ["permits a concatenated dynamic import specifier in a client component", '"use client";\nexport const load = () => import("@/env" + "/other");\n', false],
       ["permits a substituted template dynamic import specifier in a client component", '"use client";\nconst name = "other";\nexport const load = () => import(`@/env/$' + '{name}`);\n', false],
+      ["rejects a dynamic server environment import with options in a client component", '"use client";\nexport const load = () => import("@/env", {});\n', true],
+      ["permits a nested env module in a client component", '"use client";\nimport { env } from "../shared/env";\nexport { env };\n', false],
       ["rejects a server environment require in a client component", '"use client";\nexport const load = () => require("@/env");\n', true],
       ["rejects a server environment import-equals require in a client component", '"use client";\nimport env = require("@/env");\nexport { env };\n', true],
       ["rejects a server environment re-export in a client component", '"use client";\nexport { env } from "@/env";\n', true],

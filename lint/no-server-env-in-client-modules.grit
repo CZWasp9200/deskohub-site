@@ -8,6 +8,8 @@ language js(typescript, jsx)
 // Type-only imports and re-exports are erased and add no client code.
 // Only literal specifiers are checked: computed or concatenated `import()` and
 // `require` arguments, including templates with substitutions, are not.
+// Targets the app-root env module: `@/env` or only `./`/`../` segments then `env`;
+// nested modules like `../shared/env` and unnormalized paths are out of scope.
 file($name, $body) where {
   $name <: r".*apps/deskohub-workspace/.*\.(?:ts|tsx)$",
   or {
@@ -31,8 +33,8 @@ file($name, $body) where {
         }
       },
       or {
-        `import($specifier)` as $span,
-        `require($specifier)` as $span
+        `import($specifier, $...)` as $span,
+        `require($specifier, $...)` as $span
       } where {
         $specifier <: or {
           JsStringLiteralExpression() as $literal where {
