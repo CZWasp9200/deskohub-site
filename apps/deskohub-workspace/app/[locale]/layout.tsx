@@ -65,7 +65,7 @@ export default async function LocaleLayout({
   return (
     <html lang={locale} className={sculpin.variable}>
       <body>
-        {gtmId ? <DeferredTagManager gtmId={gtmId} /> : null}
+        {gtmId && <DeferredTagManager gtmId={gtmId} />}
         <PostHogProvider>
           <CookieConsentProvider locale={locale} />
           <Suspense fallback={null}>

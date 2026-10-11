@@ -1,6 +1,11 @@
 import { Predicate } from "effect";
 
 export const TAG_MANAGER_IDLE_TIMEOUT_MS = 3000;
+// Safari, including every iOS browser, still ships requestIdleCallback
+// disabled. A fixed delay cannot detect idleness, so wait out the usual
+// post-load hydration work without holding the container back for the full
+// worst-case idle timeout, which would drop more page views from quick visits.
+export const TAG_MANAGER_FALLBACK_IDLE_DELAY_MS = 1000;
 
 const TAG_MANAGER_SCRIPT_ID = "google-tag-manager";
 const INTERACTION_EVENTS = [
@@ -93,7 +98,10 @@ function whenIdle(callback: () => void): () => void {
     return () => window.cancelIdleCallback(handle);
   }
 
-  const handle = window.setTimeout(callback, 0);
+  const handle = window.setTimeout(
+    callback,
+    TAG_MANAGER_FALLBACK_IDLE_DELAY_MS
+  );
   return () => window.clearTimeout(handle);
 }
 

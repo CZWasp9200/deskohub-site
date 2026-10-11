@@ -14,6 +14,7 @@ import {
 } from "@/shared/testing/workspace-component-test-env";
 import {
   scheduleTagManagerLoad,
+  TAG_MANAGER_FALLBACK_IDLE_DELAY_MS,
   TAG_MANAGER_IDLE_TIMEOUT_MS,
 } from "./tag-manager";
 
@@ -194,7 +195,7 @@ describe("scheduleTagManagerLoad", () => {
     expect(tagManagerScripts()).toHaveLength(0);
   });
 
-  test("falls back to a timer where idle callbacks are unsupported", () => {
+  test("falls back to a delayed timer where idle callbacks are unsupported", () => {
     const originalRequestIdleCallback = window.requestIdleCallback;
     // @ts-expect-error Safari does not implement requestIdleCallback.
     window.requestIdleCallback = undefined;
@@ -207,6 +208,10 @@ describe("scheduleTagManagerLoad", () => {
 
     try {
       const cancel = scheduleTagManagerLoad(CONTAINER_ID);
+      expect(timers.map(({ delay }) => delay)).toEqual([
+        TAG_MANAGER_FALLBACK_IDLE_DELAY_MS,
+      ]);
+      expect(TAG_MANAGER_FALLBACK_IDLE_DELAY_MS).toBeGreaterThan(0);
       expect(tagManagerScripts()).toHaveLength(0);
       for (const { callback } of timers) callback();
       expect(tagManagerScripts()).toHaveLength(1);
