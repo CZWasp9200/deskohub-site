@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { Predicate, Schema } from "effect";
+import { workspaceClientEnvSchema } from "./client-env.schema";
 import { createWorkspaceEnv } from "./env";
 import {
   createEnvironmentSchema,
-  workspaceClientEnvSchema,
   workspaceServerEnvSchema,
 } from "./env.schema";
 

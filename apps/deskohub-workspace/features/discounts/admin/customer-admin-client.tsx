@@ -4,7 +4,7 @@ import {
   DotyposCustomerIdSchema,
   type DotyposDiscountGroupId,
   DotyposDiscountGroupIdSchema,
-} from "@deskohub/dotypos";
+} from "@deskohub/dotypos/types";
 import { effectSchemaResolver } from "@deskohub/effect-schema-resolver";
 import { Schema } from "effect";
 import { Minus, Plus, Search } from "lucide-react";
