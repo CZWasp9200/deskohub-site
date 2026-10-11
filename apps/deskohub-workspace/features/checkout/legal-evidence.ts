@@ -2,14 +2,12 @@ import { Schema } from "effect";
 import { locales } from "@/features/i18n";
 import { instantStringSchema } from "@/shared/utils/temporal";
 
-export const legalDocumentKeys = [
+const legalDocumentKeys = [
   "termsAndConditions",
   "operatingRules",
   "privacyPolicy",
   "marketingCommunications",
 ] as const;
-
-export type LegalDocumentKey = (typeof legalDocumentKeys)[number];
 
 export const legalEvidenceEventIdSchema = Schema.NonEmptyString.pipe(
   Schema.brand("LegalEvidenceEventId")
@@ -22,13 +20,11 @@ export type LegalEvidenceEventId = typeof legalEvidenceEventIdSchema.Type;
 
 export const paymentSubmitLegalEvidenceSource = "payment_submit" as const;
 
-export const legalDocumentHashSchema = Schema.Struct({
+const legalDocumentHashSchema = Schema.Struct({
   path: Schema.NonEmptyString,
   hash: Schema.NonEmptyString,
   hashAlgorithm: Schema.Literal("sha256"),
 });
-
-export type LegalDocumentHash = typeof legalDocumentHashSchema.Type;
 
 export const legalEvidenceSchema = Schema.Struct({
   documentKey: Schema.Literals(legalDocumentKeys),
@@ -50,8 +46,6 @@ export const legalEvidenceSchema = Schema.Struct({
     }
   )
 );
-
-export type LegalEvidence = typeof legalEvidenceSchema.Type;
 
 export const legalEvidenceMapSchema = Schema.Record(
   Schema.NonEmptyString,

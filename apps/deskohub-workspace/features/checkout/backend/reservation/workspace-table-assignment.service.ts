@@ -54,7 +54,7 @@ export type WorkspaceTableAssignmentReservation =
   | MeetingRoomReservationDetails
   | OfficeReservationDetails;
 
-export type WorkspaceTableAssignment = {
+type WorkspaceTableAssignment = {
   readonly requiredTags: readonly string[];
   readonly isCandidateTable: (tableTags: ReadonlySet<string>) => boolean;
   readonly requireEmptyTable: boolean;

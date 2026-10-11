@@ -4,7 +4,7 @@ import {
 } from "@deskohub/workspace-admin-api";
 import { Schema } from "effect";
 
-export const reservationCancellationSchema = Schema.Struct({
+const reservationCancellationSchema = Schema.Struct({
   reservationId: AdministrationWorkspaceReservationId,
   ...AdministrationReservationCancellationInput.fields,
 });

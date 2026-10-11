@@ -68,7 +68,7 @@ export type ReservationAccessCookieStore = {
   ) => void;
 };
 
-export type ReservationAccessCookieSetOptions = {
+type ReservationAccessCookieSetOptions = {
   readonly expires: Date;
   readonly httpOnly: true;
   readonly maxAge: number;

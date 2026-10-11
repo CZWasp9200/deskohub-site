@@ -43,7 +43,7 @@ export interface FaqOccupancyStats {
   readonly coworkSeatCapacity: number;
 }
 
-export class FaqOccupancyError extends Data.TaggedError("FaqOccupancyError")<{
+class FaqOccupancyError extends Data.TaggedError("FaqOccupancyError")<{
   readonly message: string;
   readonly cause?: unknown;
 }> {}

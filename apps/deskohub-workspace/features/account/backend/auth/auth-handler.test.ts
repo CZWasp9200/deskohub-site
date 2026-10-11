@@ -26,7 +26,7 @@ import {
   authVerification,
 } from "@/db/schema/auth";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
-import type { CustomerAccountId } from "../customer-account";
+import type { CustomerAccountId } from "../../customer-account";
 import { CustomerAccountDeletionService } from "../customer-account-deletion";
 import { CustomerAccountLinkRepository } from "../customer-account-link.repository";
 import {

@@ -2373,12 +2373,11 @@ test.serial.skipIf(!chromiumAvailable)(
 test.serial.skipIf(!chromiumAvailable)(
   "controlled fixture header probe accepts a genuinely contained one-layout-unit deficit with pinned Sculpin metrics",
   async () => {
-    const headingWidth = pinnedProductionHeadingWidth;
     const probe = await withControlledPage(
       {
         html: controlledHeaderFixture("Můj Workspace", {
           ...controlledFractionalHeadingOptions,
-          headingWidth,
+          headingWidth: pinnedProductionHeadingWidth,
         }),
         locale: "cs-CZ",
         width: 320,
@@ -2402,7 +2401,7 @@ test.serial.skipIf(!chromiumAvailable)(
     expect(readability.minimumHeadingWidth! - readability.headingWidth!).toBe(
       1 / 64
     );
-    expect(readability.headingWidth).toBe(headingWidth);
+    expect(readability.headingWidth).toBe(pinnedProductionHeadingWidth);
     expect(readability.lineCount).toBe(2);
     expect(readability.wrapped).toBe(true);
     expect(readability.singleWordGlyphWrapping).toBe(false);

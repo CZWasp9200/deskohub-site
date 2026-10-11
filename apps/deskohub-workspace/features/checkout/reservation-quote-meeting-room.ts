@@ -13,7 +13,7 @@ export const meetingRoomReservationQuoteItemSchema = Schema.Struct({
   amount: workspaceMoneyCodec,
 });
 
-export type MeetingRoomReservationQuoteItem =
+type MeetingRoomReservationQuoteItem =
   typeof meetingRoomReservationQuoteItemSchema.Type;
 
 export const meetingRoomReservationQuoteSchema = makeReservationQuoteSchema(

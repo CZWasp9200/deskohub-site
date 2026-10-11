@@ -214,22 +214,6 @@ export const selectWorkspaceTableFromCandidates = (
     )
   );
 
-export const selectWorkspaceTableByPredicate = (
-  tables: readonly DotyposTable[],
-  isCandidateTable: (tableTags: ReadonlySet<string>) => boolean,
-  allTables: readonly DotyposTable[],
-  occupancyByTableId: ReadonlyMap<DotyposTableId, number>,
-  seats = workspaceBookingSeatCount,
-  requireEmpty = false
-) =>
-  selectWorkspaceTableFromCandidates(
-    getWorkspaceTableCandidatesByPredicate(tables, isCandidateTable),
-    allTables,
-    occupancyByTableId,
-    seats,
-    requireEmpty
-  );
-
 const selectDecodedWorkspaceTableFromCandidates = (
   candidates: readonly WorkspaceTableCandidate[],
   allTables: readonly DotyposTable[],

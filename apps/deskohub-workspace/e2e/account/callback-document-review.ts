@@ -26,10 +26,10 @@ export const callbackDocumentReviewViewport = {
   height: 1000,
 } as const;
 
-export const callbackDocumentReviewFailureMessage =
+const callbackDocumentReviewFailureMessage =
   "Callback document review verification failed";
 
-export const callbackDocumentReviewFailure = () =>
+const callbackDocumentReviewFailure = () =>
   new Error(callbackDocumentReviewFailureMessage);
 
 export type CallbackDocumentReview = {

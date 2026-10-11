@@ -13,7 +13,7 @@ export type NexiHostedControl = Exclude<NexiHostedPaymentStep, "card_entry">;
 
 // Accessible names, compared case-insensitively. The page renders some labels
 // upper-case through CSS, so the accessible name is the authority.
-export const nexiHostedControlNames: Readonly<
+const nexiHostedControlNames: Readonly<
   Record<NexiHostedControl, readonly string[]>
 > = {
   challenge: ["Authentication successful", "Autenticazione riuscita"],
@@ -29,9 +29,7 @@ export type NexiCardField =
   | "cardholder_name"
   | "cardholder_email";
 
-export const nexiCardFieldNames: Readonly<
-  Record<NexiCardField, readonly string[]>
-> = {
+const nexiCardFieldNames: Readonly<Record<NexiCardField, readonly string[]>> = {
   card_number: ["Card number", "Numero carta", "Numero della carta"],
   cardholder_email: ["Email", "E-mail"],
   cardholder_name: ["First Name", "Cardholder name", "Nome", "Titolare"],

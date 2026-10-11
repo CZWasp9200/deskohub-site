@@ -9,14 +9,14 @@ const hiddenAvatarFixture = {
   avatar: { kind: "hidden" },
 } as const satisfies CustomerAccountPageState;
 
-export const accountVisualFixture = hiddenAvatarFixture;
+export { hiddenAvatarFixture as accountVisualFixture };
 
 export const accountVisualAdapterMetadata = {
   owner: "account-visual avatar-off adapter",
   fixture: "linked synthetic customer account with avatar hidden",
 } as const;
 
-export function HiddenAvatarAccountAdapter({
+export default function HiddenAvatarAccountAdapter({
   locale,
 }: AccountVisualAdapterProps) {
   return (
@@ -25,5 +25,3 @@ export function HiddenAvatarAccountAdapter({
     </AccountLayoutShell>
   );
 }
-
-export default HiddenAvatarAccountAdapter;

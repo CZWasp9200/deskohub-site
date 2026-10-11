@@ -75,16 +75,6 @@ const officeAdvertisedPriceSchema = Schema.Struct({
   summary: checkoutSummarySchema,
 });
 
-export const advertisedPriceSchema = Schema.Union([
-  coworkAdvertisedPriceSchema,
-  meetingRoomAdvertisedPriceSchema,
-  officeAdvertisedPriceSchema,
-]).annotate({
-  identifier: "AdvertisedPrice",
-  description:
-    "Family-specific advertised quote and its integrity-protected snapshot token.",
-});
-
 export type AdvertisedPriceRequest = typeof advertisedPriceRequestSchema.Type;
 export type CoworkAdvertisedPriceRequest =
   typeof coworkAdvertisedPriceRequestSchema.Type;

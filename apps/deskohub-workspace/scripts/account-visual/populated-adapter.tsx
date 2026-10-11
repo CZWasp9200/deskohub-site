@@ -100,7 +100,7 @@ const populatedFixture = {
   },
 } as const satisfies CustomerAccountPageState;
 
-export const accountVisualFixture = populatedFixture;
+export { populatedFixture as accountVisualFixture };
 
 export const accountVisualAdapterMetadata = {
   owner: "account-visual populated adapter",
@@ -108,12 +108,12 @@ export const accountVisualAdapterMetadata = {
     "synthetic Ada Example business billing with a synthetic avatar image, three current and two past reservations",
 } as const;
 
-export function PopulatedAccountAdapter({ locale }: AccountVisualAdapterProps) {
+export default function PopulatedAccountAdapter({
+  locale,
+}: AccountVisualAdapterProps) {
   return (
     <AccountLayoutShell accountsEnabled locale={locale} signedIn>
       <AccountVisualRoute locale={locale} state={populatedFixture} />
     </AccountLayoutShell>
   );
 }
-
-export default PopulatedAccountAdapter;

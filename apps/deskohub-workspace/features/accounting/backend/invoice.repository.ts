@@ -47,16 +47,14 @@ import {
   encryptAccountingSnapshot,
 } from "./accounting-snapshot-sql";
 
-export class InvoiceEligibilityError extends Data.TaggedError(
+class InvoiceEligibilityError extends Data.TaggedError(
   "InvoiceEligibilityError"
 )<{
   readonly paymentAttemptId: string;
   readonly message: string;
 }> {}
 
-export class InvoiceStorageError extends Data.TaggedError(
-  "InvoiceStorageError"
-)<{
+class InvoiceStorageError extends Data.TaggedError("InvoiceStorageError")<{
   readonly operation: "decrypt" | "encrypt" | "load" | "parse" | "validate";
   readonly paymentAttemptId: string;
   readonly message: string;
@@ -94,7 +92,7 @@ export interface InvoiceListItem {
   readonly needsAttention: boolean;
 }
 
-export interface InvoiceIssuance {
+interface InvoiceIssuance {
   readonly invoice: Invoice;
   readonly changed: boolean;
 }
@@ -105,7 +103,7 @@ export interface ReservationInvoice extends Invoice {
   readonly document: Exclude<InvoiceDocument, ManualInvoiceDocument>;
 }
 
-export interface ReservationInvoiceIssuance extends InvoiceIssuance {
+interface ReservationInvoiceIssuance extends InvoiceIssuance {
   readonly invoice: ReservationInvoice;
 }
 

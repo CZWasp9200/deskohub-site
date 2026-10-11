@@ -27,9 +27,6 @@ export const officeReservationQuoteItemSchema = Schema.Struct({
   amount: workspaceMoneyCodec,
 });
 
-export type OfficeReservationQuoteItem =
-  typeof officeReservationQuoteItemSchema.Type;
-
 export const officeReservationQuoteSchema = makeReservationQuoteSchema(
   Schema.Tuple([officeReservationQuoteItemSchema])
 );

@@ -15,10 +15,10 @@ import {
 import { log } from "../runtime";
 import { formatWorkspaceE2EDuration } from "../timeouts";
 
-export type E2EExecutionContext = "ci" | "manual";
+type E2EExecutionContext = "ci" | "manual";
 export type E2EOutcome = "cancelled" | "failed" | "passed" | "timed_out";
 export type E2EFailureKind = "defect" | "error" | "timeout";
-export type E2EPhaseId =
+type E2EPhaseId =
   | "case-construction"
   | "case-finalization"
   | "cowork-availability-preparation"

@@ -15,7 +15,7 @@ import {
   cliMutationRequests,
 } from "@/db/schema";
 
-export type CliMutationClaim =
+type CliMutationClaim =
   | { readonly kind: "claimed" }
   | {
       readonly kind: "completed";

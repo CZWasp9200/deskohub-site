@@ -22,7 +22,7 @@ export type MagicLinkEmailProps = {
  * Account-owned magic-link renderer. The bearer URL is embedded only in the
  * rendered body and must never reach logs, traces, or error messages.
  */
-export function MagicLinkEmail({ locale, url }: MagicLinkEmailProps) {
+function MagicLinkEmail({ locale, url }: MagicLinkEmailProps) {
   return (
     <WorkspaceEmailLayout
       locale={locale}

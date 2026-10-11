@@ -1669,19 +1669,18 @@ const openFixture = async (
     readonly sessionExpiresAtMs?: number;
   }
 ): Promise<FixtureHandle> => {
-  const problems = runnerProblems;
   const runId = server.createRun(options);
-  const context = await createContext(browser, problems);
+  const context = await createContext(browser, runnerProblems);
   try {
     const page = await openPage(
       context,
       runId,
       options.consent,
-      problems,
+      runnerProblems,
       options.fixtureMode
     );
     await assertFixtureConsentCookie(page, options.consent === "on");
-    return { context, page, problems, runId };
+    return { context, page, problems: runnerProblems, runId };
   } catch (error) {
     await context.close().catch(() => undefined);
     throw error;
@@ -2552,14 +2551,13 @@ const runCrossTabAndFocusScenario = async (
   server: LocalPostHogServer
 ) => {
   server.clearIngest();
-  const problems = runnerProblems;
   const runId = server.createRun({ session: "A" });
-  const context = await createContext(browser, problems);
+  const context = await createContext(browser, runnerProblems);
   let pageOne: Page | undefined;
   let pageTwo: Page | undefined;
   try {
-    pageOne = await openPage(context, runId, "on", problems);
-    pageTwo = await openPage(context, runId, "on", problems);
+    pageOne = await openPage(context, runId, "on", runnerProblems);
+    pageTwo = await openPage(context, runId, "on", runnerProblems);
     await waitForAuthenticated(pageOne);
     await waitForAuthenticated(pageTwo);
     await waitForAuthenticatedIdentity(pageOne);
@@ -2615,10 +2613,10 @@ const runCrossTabAndFocusScenario = async (
   } finally {
     await context.close().catch(() => undefined);
   }
-  check(problems.externalRequests === 0, "external-request");
-  check(problems.pageErrors === 0, "page-error");
+  check(runnerProblems.externalRequests === 0, "external-request");
+  check(runnerProblems.pageErrors === 0, "page-error");
   check(
-    problems.consoleErrors === problems.expectedConsoleErrors,
+    runnerProblems.consoleErrors === runnerProblems.expectedConsoleErrors,
     "console-error"
   );
 };
@@ -2631,14 +2629,13 @@ const runDomainNotificationIntegrationScenario = async (
   server: LocalPostHogServer
 ) => {
   server.clearIngest();
-  const problems = runnerProblems;
   const runId = server.createRun({ session: "A" });
-  const context = await createContext(browser, problems);
+  const context = await createContext(browser, runnerProblems);
   let pageOne: Page | undefined;
   let pageTwo: Page | undefined;
   try {
-    pageOne = await openPage(context, runId, "on", problems);
-    pageTwo = await openPage(context, runId, "on", problems);
+    pageOne = await openPage(context, runId, "on", runnerProblems);
+    pageTwo = await openPage(context, runId, "on", runnerProblems);
     await waitForAuthenticated(pageOne);
     await waitForAuthenticated(pageTwo);
     await waitForAuthenticatedIdentity(pageOne);
@@ -2713,10 +2710,10 @@ const runDomainNotificationIntegrationScenario = async (
   } finally {
     await context.close().catch(() => undefined);
   }
-  check(problems.externalRequests === 0, "external-request");
-  check(problems.pageErrors === 0, "page-error");
+  check(runnerProblems.externalRequests === 0, "external-request");
+  check(runnerProblems.pageErrors === 0, "page-error");
   check(
-    problems.consoleErrors === problems.expectedConsoleErrors,
+    runnerProblems.consoleErrors === runnerProblems.expectedConsoleErrors,
     "console-error"
   );
 };
@@ -2726,14 +2723,13 @@ const runCrossTabConsentWithdrawalScenario = async (
   server: LocalPostHogServer
 ) => {
   server.clearIngest();
-  const problems = runnerProblems;
   const runId = server.createRun({ session: "B" });
-  const context = await createContext(browser, problems);
+  const context = await createContext(browser, runnerProblems);
   let pageOne: Page | undefined;
   let pageTwo: Page | undefined;
   try {
-    pageOne = await openPage(context, runId, "on", problems);
-    pageTwo = await openPage(context, runId, "on", problems);
+    pageOne = await openPage(context, runId, "on", runnerProblems);
+    pageTwo = await openPage(context, runId, "on", runnerProblems);
     await waitForAuthenticated(pageOne);
     await waitForAuthenticated(pageTwo);
     await waitForAuthenticatedIdentity(pageOne);
@@ -2870,10 +2866,10 @@ const runCrossTabConsentWithdrawalScenario = async (
   } finally {
     await context.close().catch(() => undefined);
   }
-  check(problems.externalRequests === 0, "external-request");
-  check(problems.pageErrors === 0, "page-error");
+  check(runnerProblems.externalRequests === 0, "external-request");
+  check(runnerProblems.pageErrors === 0, "page-error");
   check(
-    problems.consoleErrors === problems.expectedConsoleErrors,
+    runnerProblems.consoleErrors === runnerProblems.expectedConsoleErrors,
     "console-error"
   );
 };
@@ -3270,7 +3266,6 @@ const writeReport = async (report: ReturnType<typeof browserReport>) => {
 const main = async () => {
   const server = new LocalPostHogServer();
   let browser: Browser | undefined;
-  const problems = runnerProblems;
   const passedScenarios: string[] = [];
   let replay: ReplayCoverage = {
     autocaptures: 0,
@@ -3338,7 +3333,7 @@ const main = async () => {
     );
     const report = browserReport(
       server,
-      problems,
+      runnerProblems,
       replay,
       passedScenarios,
       null,
@@ -3349,7 +3344,7 @@ const main = async () => {
     await writeReport(report);
     process.stdout.write(
       `${JSON.stringify({
-        externalRequests: problems.externalRequests,
+        externalRequests: runnerProblems.externalRequests,
         ingestRecords: server.report().ingestRecordCount,
         payloadMarkersAbsent: true,
         replayMode: replay.mode,
@@ -3361,7 +3356,7 @@ const main = async () => {
     failureCode = error instanceof CheckFailure ? error.code : "runner-error";
     const report = browserReport(
       server,
-      problems,
+      runnerProblems,
       replay,
       passedScenarios,
       currentScenario,
@@ -3371,7 +3366,7 @@ const main = async () => {
     await writeReport(report);
     process.stdout.write(
       `${JSON.stringify({
-        externalRequests: problems.externalRequests,
+        externalRequests: runnerProblems.externalRequests,
         failureCode,
         passedScenarios: passedScenarios.length,
         privacyHits: report.posthogPrivacyHits,

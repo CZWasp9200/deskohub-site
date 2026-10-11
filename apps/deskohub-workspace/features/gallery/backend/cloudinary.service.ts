@@ -1,26 +1,11 @@
 import {
-  type CloudinaryAsset,
-  CloudinaryAssetSchema,
-  CloudinarySearchError,
-  CloudinarySearchResponseSchema,
-  type SearchOptions,
-  SearchOptionsSchema,
-} from "@deskohub/cloudinary";
-import {
   CloudinaryService,
   makeCloudinaryRuntimeConfigLayer,
 } from "@deskohub/cloudinary/server";
 import { Layer } from "effect";
 import { env } from "@/env";
 
-export {
-  type CloudinaryAsset,
-  CloudinaryAssetSchema,
-  CloudinarySearchError,
-  CloudinarySearchResponseSchema,
-  type SearchOptions,
-  SearchOptionsSchema,
-};
+export type { CloudinaryAsset } from "@deskohub/cloudinary";
 
 const WorkspaceCloudinaryRuntimeConfigLayer = makeCloudinaryRuntimeConfigLayer({
   cloudName: env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME,

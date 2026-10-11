@@ -4,7 +4,7 @@ import { WorkspaceDatabase } from "@/db/database.service";
 import { authRateLimit, authSession, authVerification } from "@/db/schema/auth";
 import { betterAuthMagicLinkOptions } from "./auth-options";
 
-export type DeletedAuthRowCounts = {
+type DeletedAuthRowCounts = {
   readonly sessions: number;
   readonly verifications: number;
   readonly rateLimitRows: number;
@@ -18,7 +18,7 @@ export class AuthCleanupFailure extends Data.TaggedError("AuthCleanupFailure")<{
   readonly code: "account.cleanup.unavailable";
 }> {}
 
-export type AuthCleanupInput = {
+type AuthCleanupInput = {
   /** The moment the sweep treats as now; rows must be older to be deleted. */
   readonly now: Date;
 };

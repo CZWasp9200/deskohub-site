@@ -16,7 +16,7 @@ import { Context, Data, Effect, Layer, Match } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import type { relations } from "@/db/relations";
 import type { StandaloneAccessCodeAttemptEventRow } from "@/db/schema";
-import { standaloneAccessCodeAttemptEvents } from "@/db/schema";
+import { standaloneAccessCodeAttemptEvents as events } from "@/db/schema";
 import { quotedSqlList } from "@/db/schema/sql-list";
 import type {
   StandaloneAccessCodeFailureCode,
@@ -63,7 +63,7 @@ export type StandaloneAccessCodeAttemptTerminalResolution =
       readonly failureCode: StandaloneAccessCodeFailureCode;
     };
 
-export type StandaloneAccessCodeAttemptClaim =
+type StandaloneAccessCodeAttemptClaim =
   | StandaloneAccessCodeAttemptTerminalResolution
   | {
       readonly kind: "claimed";
@@ -78,7 +78,7 @@ export type StandaloneAccessCodeAttemptClaim =
   | { readonly kind: "mismatch" }
   | { readonly kind: "exhausted" };
 
-export type StandaloneAccessCodeAppendTerminalResult =
+type StandaloneAccessCodeAppendTerminalResult =
   | { readonly kind: "appended" }
   | {
       readonly kind: "already-terminal";
@@ -129,7 +129,6 @@ export class StandaloneAccessCodeAttemptLogRepository extends Context.Service<
     Effect.gen(function* () {
       const { db } = yield* WorkspaceDatabase;
 
-      const events = standaloneAccessCodeAttemptEvents;
       type Transaction = EffectPgTransaction<
         EffectPgQueryResultHKT,
         typeof relations

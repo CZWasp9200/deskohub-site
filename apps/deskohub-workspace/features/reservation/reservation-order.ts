@@ -15,7 +15,6 @@ export const reservationOrderSchema = Schema.Union([
   description: "Validated cowork or meeting-room reservation order.",
 });
 
-export type ReservationOrderInput = typeof reservationOrderSchema.Encoded;
 export type ReservationOrderData = typeof reservationOrderSchema.Type;
 
 // Public issuance only ever produces the current cowork offers while the

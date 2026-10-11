@@ -55,7 +55,7 @@ export function AdministrationSortHead({
   );
 }
 
-export function AdministrationSortIndicator({
+function AdministrationSortIndicator({
   direction,
 }: {
   readonly direction: AdministrationSortDirection;

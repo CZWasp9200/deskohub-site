@@ -29,7 +29,7 @@ export type CheckoutLegalAcceptanceSnapshot = {
   readonly marketingCommunications: CheckoutLegalDocumentSnapshot;
 };
 
-export class LegalAcceptanceSnapshotError extends Data.TaggedError(
+class LegalAcceptanceSnapshotError extends Data.TaggedError(
   "LegalAcceptanceSnapshotError"
 )<{
   readonly cause: unknown;
