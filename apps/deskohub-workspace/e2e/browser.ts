@@ -154,7 +154,7 @@ export const closeBrowserTab = (
     }
   ).pipe(Effect.asVoid);
 
-export const getBrowserHeaderArgs = (config: WorkspaceE2EConfig) =>
+const getBrowserHeaderArgs = (config: WorkspaceE2EConfig) =>
   config.bypassSecret
     ? [
         "--headers",
@@ -939,7 +939,7 @@ const asRecord = (value: unknown) =>
     ? (value as Record<string, unknown>)
     : undefined;
 
-export const findSnapshotRef = (
+const findSnapshotRef = (
   snapshot: string,
   labels: readonly string[],
   role?: string

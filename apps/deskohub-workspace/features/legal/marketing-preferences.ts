@@ -40,7 +40,7 @@ export function isManagedMarketingState(
   );
 }
 
-export const marketingPreferencesMutationFailureReasons = [
+const marketingPreferencesMutationFailureReasons = [
   "invalid-link",
   "pending-confirmation-required",
   "stale-context",

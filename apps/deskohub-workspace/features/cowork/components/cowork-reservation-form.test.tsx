@@ -286,6 +286,12 @@ const requiredWorkstationAvailability = (
   unavailableMonitorOptions: ["2x27-qhd"],
 });
 
+// Selection queries ask for the selected day alone, not the calendar range.
+const selectedDateAvailabilityQuery = (
+  entryTier: "open-space" | "reserved-desk",
+  date: string
+) => ({ kind: "cowork" as const, from: date, to: date, entryTier, date });
+
 const getCalendarDateButton = async (dialog: HTMLElement, date: string) => {
   const targetDate = new Date(`${date}T12:00:00`);
   const currentMonthLabel = within(dialog).getByRole("status").textContent;
@@ -2144,6 +2150,12 @@ describe("CoworkReservationForm advertised pricing", () => {
       expect(
         view.container.querySelectorAll("[data-cowork-optional-addon-toggle]")
       ).toHaveLength(1);
+      // The add-on label must share the date label's stack layout, or the
+      // two labels sit at different distances from their controls.
+      const dateLabel = dateColumn?.querySelector("label");
+      const addonLabel = addonControl?.querySelector("label");
+      expect(addonLabel?.parentElement).toBe(addonControl);
+      expect(addonControl?.className).toBe(dateLabel?.parentElement?.className);
 
       await act(async () => {
         view.unmount();
@@ -2262,11 +2274,10 @@ describe("CoworkReservationForm advertised pricing", () => {
     workspaceUseSearchParams.mockReturnValue(searchParams);
     const baseQuery =
       getWorkspaceAvailabilityQueryFromReservationSearchParams(searchParams);
-    const bareQuery = {
-      ...baseQuery,
-      entryTier: "reserved-desk" as const,
-      date: "2099-07-30",
-    };
+    const bareQuery = selectedDateAvailabilityQuery(
+      "reserved-desk",
+      "2099-07-30"
+    );
     const rangeQuery = {
       kind: "cowork" as const,
       from: baseQuery.from,
@@ -2371,7 +2382,10 @@ describe("CoworkReservationForm advertised pricing", () => {
       to: baseQuery.to,
       entryTier: "open-space" as const,
     };
-    const selectedDateQuery = { ...rangeQuery, date: selectedDate };
+    const selectedDateQuery = selectedDateAvailabilityQuery(
+      "open-space",
+      selectedDate
+    );
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retryDelay: 0 } },
     });
@@ -2467,15 +2481,10 @@ describe("CoworkReservationForm advertised pricing", () => {
       `entryTier=open-space&date=${selectedDate}&coffee=true&name=Ada%20Lovelace&email=ada%40example.test&phone=%2B420777777777`
     );
     workspaceUseSearchParams.mockReturnValue(searchParams);
-    const baseQuery =
-      getWorkspaceAvailabilityQueryFromReservationSearchParams(searchParams);
-    const rangeQuery = {
-      kind: "cowork" as const,
-      from: baseQuery.from,
-      to: baseQuery.to,
-      entryTier: "open-space" as const,
-    };
-    const selectedDateQuery = { ...rangeQuery, date: selectedDate };
+    const selectedDateQuery = selectedDateAvailabilityQuery(
+      "open-space",
+      selectedDate
+    );
     const selectedDateQueryKey = [
       ...workspaceAvailabilityKeys.availability(selectedDateQuery),
       null,
@@ -2544,19 +2553,16 @@ describe("CoworkReservationForm advertised pricing", () => {
     });
   });
 
-  test("keeps monitor choices non-interactive during a same-date workstation requirement refresh", async () => {
+  test("keeps the last settled monitor choices and checkout during a same-date workstation requirement refresh", async () => {
     const selectedDate = dateOffsetFromToday(1);
     const searchParams = new URLSearchParams(
       `entryTier=reserved-desk&date=${selectedDate}`
     );
     workspaceUseSearchParams.mockReturnValue(searchParams);
-    const baseQuery =
-      getWorkspaceAvailabilityQueryFromReservationSearchParams(searchParams);
-    const bareQuery = {
-      ...baseQuery,
-      entryTier: "reserved-desk" as const,
-      date: selectedDate,
-    };
+    const bareQuery = selectedDateAvailabilityQuery(
+      "reserved-desk",
+      selectedDate
+    );
     const bareQueryKey = [
       ...workspaceAvailabilityKeys.availability(bareQuery),
       null,
@@ -2646,9 +2652,11 @@ describe("CoworkReservationForm advertised pricing", () => {
       expect(
         queryClient.isFetching({ queryKey: bareQueryKey, exact: true })
       ).toBe(1);
-      expect(continueButton.hasAttribute("disabled")).toBe(true);
     });
 
+    // A background refresh keeps the last settled answer: checkout stays
+    // available and the stale-unavailable monitor stays disabled.
+    expect(continueButton.hasAttribute("disabled")).toBe(false);
     expect(unavailableMonitor?.disabled).toBe(true);
     await act(async () => {
       if (!unavailableMonitor) {
@@ -2658,8 +2666,7 @@ describe("CoworkReservationForm advertised pricing", () => {
     });
     expect(unavailableMonitor?.checked).toBe(false);
     expect(availableMonitor?.checked).toBe(true);
-    expect(continueButton.hasAttribute("disabled")).toBe(true);
-    expect(execute).not.toHaveBeenCalled();
+    expect(continueButton.hasAttribute("disabled")).toBe(false);
 
     await act(async () => {
       resolveBareQueryRefresh?.(
@@ -2693,13 +2700,10 @@ describe("CoworkReservationForm advertised pricing", () => {
       `entryTier=reserved-desk&date=${selectedDate}`
     );
     workspaceUseSearchParams.mockReturnValue(searchParams);
-    const baseQuery =
-      getWorkspaceAvailabilityQueryFromReservationSearchParams(searchParams);
-    const bareQuery = {
-      ...baseQuery,
-      entryTier: "reserved-desk" as const,
-      date: selectedDate,
-    };
+    const bareQuery = selectedDateAvailabilityQuery(
+      "reserved-desk",
+      selectedDate
+    );
     const bareQueryKey = [
       ...workspaceAvailabilityKeys.availability(bareQuery),
       null,
@@ -3237,6 +3241,166 @@ describe("CoworkReservationForm advertised pricing", () => {
         })
       );
     });
+    await act(async () => {
+      view.unmount();
+    });
+  });
+
+  test("keeps checkout enabled during a background refetch of settled selected-date availability", async () => {
+    const selectedDate = dateOffsetFromToday(1);
+    const searchParams = new URLSearchParams(
+      `entryTier=open-space&date=${selectedDate}`
+    );
+    workspaceUseSearchParams.mockReturnValue(searchParams);
+    const selectedDateQueryKey = [
+      ...workspaceAvailabilityKeys.availability(
+        selectedDateAvailabilityQuery("open-space", selectedDate)
+      ),
+      null,
+    ];
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retryDelay: 0 } },
+    });
+    let selectedDateRequestCount = 0;
+    let resolveSelectedDateRefresh: ((response: Response) => void) | undefined;
+    globalThis.fetch = mock((request: RequestInfo | URL) => {
+      const url = String(request);
+      if (!url.startsWith("/api/workspace/availability")) {
+        return Promise.reject(new Error(`Unexpected fetch: ${url}`));
+      }
+
+      const params = new URL(url, "http://localhost").searchParams;
+      const date = params.get("date");
+      if (!date) {
+        return Promise.resolve(
+          jsonResponse({
+            ...availabilityResponse,
+            date: undefined,
+            from: params.get("from"),
+            to: params.get("to"),
+            unavailableDates: [],
+          })
+        );
+      }
+      selectedDateRequestCount += 1;
+      if (selectedDateRequestCount > 1) {
+        return new Promise<Response>((resolve) => {
+          resolveSelectedDateRefresh = resolve;
+        });
+      }
+      return Promise.resolve(
+        jsonResponse({
+          ...availabilityResponse,
+          date,
+          from: params.get("from"),
+          to: params.get("to"),
+          unavailableDates: [],
+        })
+      );
+    }) as typeof fetch;
+    getAdvertisedPrices.mockImplementation((requests) =>
+      Promise.resolve(advertisedPricesResult(requests))
+    );
+
+    const view = renderForm(
+      {
+        initialValues: {
+          ...coworkReservationDefaultValues,
+          entryTier: "open-space",
+          date: selectedDate,
+          name: "Ada Lovelace",
+          email: "ada@example.test",
+          phone: "+420777777777",
+        },
+      },
+      queryClient
+    );
+    const continueButton = view.getByRole("button", { name: "Continue" });
+    await waitFor(() => {
+      expect(queryClient.getQueryData(selectedDateQueryKey)).toBeDefined();
+      expect(continueButton.hasAttribute("disabled")).toBe(false);
+    });
+
+    let refresh: Promise<void> | undefined;
+    await act(async () => {
+      refresh = queryClient.refetchQueries({
+        queryKey: selectedDateQueryKey,
+        exact: true,
+      });
+      await waitFor(() => expect(resolveSelectedDateRefresh).toBeDefined());
+    });
+    expect(
+      queryClient.isFetching({ queryKey: selectedDateQueryKey, exact: true })
+    ).toBe(1);
+    expect(continueButton.hasAttribute("disabled")).toBe(false);
+    expect(
+      continueButton.getAttribute("data-reservation-availability-loading")
+    ).toBe("false");
+    expect(
+      view.queryByText("We couldn't confirm availability. Please try again.")
+    ).toBeNull();
+
+    await act(async () => {
+      resolveSelectedDateRefresh?.(
+        jsonResponse({
+          ...availabilityResponse,
+          date: selectedDate,
+          from: selectedDate,
+          to: selectedDate,
+          unavailableDates: [],
+        })
+      );
+      await refresh;
+    });
+    expect(continueButton.hasAttribute("disabled")).toBe(false);
+    await act(async () => {
+      view.unmount();
+    });
+  });
+
+  test("requests selected-date and workstation requirement availability for the selected day only", async () => {
+    const selectedDate = dateOffsetFromToday(1);
+    workspaceUseSearchParams.mockReturnValue(
+      new URLSearchParams(`entryTier=reserved-desk&date=${selectedDate}`)
+    );
+    const selectionRequests: URLSearchParams[] = [];
+    globalThis.fetch = mock((request: RequestInfo | URL) => {
+      const url = String(request);
+      if (!url.startsWith("/api/workspace/availability")) {
+        return Promise.reject(new Error(`Unexpected fetch: ${url}`));
+      }
+
+      const params = new URL(url, "http://localhost").searchParams;
+      const date = params.get("date");
+      if (date) selectionRequests.push(params);
+      return Promise.resolve(
+        jsonResponse({
+          ...availabilityResponse,
+          date: date ?? undefined,
+          from: params.get("from"),
+          to: params.get("to"),
+          unavailableDates: [],
+          reservedDeskWorkstationRequiredDates: [],
+          unavailableMonitorOptions: [],
+        })
+      );
+    }) as typeof fetch;
+
+    const view = renderForm({
+      initialValues: reservedDeskFormValues(selectedDate, "2x32-qhd"),
+    });
+    await waitFor(() => {
+      expect(
+        new Set(selectionRequests.map((params) => params.get("monitorOption")))
+      ).toEqual(new Set([null, "2x32-qhd"]));
+    });
+    for (const params of selectionRequests) {
+      expect({
+        date: params.get("date"),
+        from: params.get("from"),
+        to: params.get("to"),
+      }).toEqual({ date: selectedDate, from: selectedDate, to: selectedDate });
+    }
     await act(async () => {
       view.unmount();
     });

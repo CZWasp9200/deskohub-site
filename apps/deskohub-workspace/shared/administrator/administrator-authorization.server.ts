@@ -9,7 +9,7 @@ import { env } from "@/env";
 import { runWorkspaceEffect } from "@/shared/backend/workspace-effect";
 import { getConfiguredAdministratorAuthorizationUsername } from "./administrator-basic-auth";
 
-export class AdministratorUnauthorizedError extends Data.TaggedError(
+class AdministratorUnauthorizedError extends Data.TaggedError(
   "AdministratorUnauthorizedError"
 )<{
   readonly message: string;

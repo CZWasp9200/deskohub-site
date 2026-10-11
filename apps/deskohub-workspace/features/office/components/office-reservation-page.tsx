@@ -38,6 +38,7 @@ export const officeReservationPage = createReservationPage({
   kind: "office",
   pathname: officeReservationPath,
   isEnabled: isOfficePageEnabled,
+  loadPageData: loadOfficeReservationSeatCapacity,
   metadata: (locale: Locale) => ({
     title: m.reservationOfficeMetadataTitle({}, { locale }),
     description: m.reservationOfficeMetadataDescription({}, { locale }),
@@ -50,6 +51,7 @@ export async function renderOfficeReservationContent({
   existingCustomer,
   initialReservation,
   locale,
+  pageData: seatCapacity,
   replacementToken,
   searchParams,
   submittedCode,
@@ -58,12 +60,13 @@ export async function renderOfficeReservationContent({
   readonly existingCustomer?: ReservationExistingCustomer<"office">;
   readonly initialReservation?: NormalizedOfficeReservationOrder;
   readonly locale: Locale;
+  /** The office seat capacity, loaded alongside the existing customer. */
+  readonly pageData: number;
   readonly replacementToken?: string;
   readonly searchParams: SearchParamsRecord;
   readonly submittedCode?: CanonicalPromotionCode;
 }) {
   const today = decodePlainDate(getCurrentWorkspaceDate().toString());
-  const seatCapacity = await loadOfficeReservationSeatCapacity();
   const restoredInitialValues = initialReservation
     ? getOfficeReservationDefaultValues(initialReservation)
     : undefined;

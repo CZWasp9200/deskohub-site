@@ -33,7 +33,7 @@ const workspaceFulfillmentSource = "workspace-paid-fulfillment";
 const customerAccessCategory = "workspace-paid-reservation-access";
 const fulfillmentEmailFailureCode = "fulfillment_email_failed";
 
-export const ResendWebhookEventIdSchema = Schema.NonEmptyString.pipe(
+const ResendWebhookEventIdSchema = Schema.NonEmptyString.pipe(
   Schema.brand("ResendWebhookEventId")
 ).annotate({
   identifier: "ResendWebhookEventId",
@@ -41,7 +41,7 @@ export const ResendWebhookEventIdSchema = Schema.NonEmptyString.pipe(
 });
 export type ResendWebhookEventId = typeof ResendWebhookEventIdSchema.Type;
 
-export const ResendEmailIdSchema = EmailDeliveryIdSchema.pipe(
+const ResendEmailIdSchema = EmailDeliveryIdSchema.pipe(
   Schema.brand("ResendEmailId")
 ).annotate({
   identifier: "ResendEmailId",
@@ -150,7 +150,7 @@ export class ResendWebhookProcessingError extends Data.TaggedError(
   readonly cause?: unknown;
 }> {}
 
-export interface ResendWebhookProcessingResult {
+interface ResendWebhookProcessingResult {
   readonly status: "processed" | "ignored";
   readonly reason?: string;
 }

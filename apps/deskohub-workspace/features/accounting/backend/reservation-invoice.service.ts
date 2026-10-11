@@ -36,7 +36,7 @@ import {
   InvoiceEmailDeliveryService,
 } from "./invoice-email-delivery.service";
 
-export type ReservationInvoiceProcessingError =
+type ReservationInvoiceProcessingError =
   | AccountingDocumentSnapshotStorageError
   | EffectDrizzleQueryError
   | ExternalAPIError
@@ -46,13 +46,13 @@ export type ReservationInvoiceProcessingError =
   | WorkspaceReservationDetailsMalformedError
   | ValidationError;
 
-export class PostOrderInvoiceUnavailableError extends Data.TaggedError(
+class PostOrderInvoiceUnavailableError extends Data.TaggedError(
   "PostOrderInvoiceUnavailableError"
 )<{ readonly message: string }> {}
 
 export type PostOrderInvoiceState = "create" | "issued" | "unavailable";
 
-export interface PostOrderInvoiceAccess {
+interface PostOrderInvoiceAccess {
   readonly orderId: WorkspaceReservationId;
   readonly locale: Locale;
   readonly accessToken?: ReservationAccessToken;

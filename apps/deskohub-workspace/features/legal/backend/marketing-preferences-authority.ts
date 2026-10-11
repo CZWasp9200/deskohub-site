@@ -112,7 +112,7 @@ export const resolveMarketingPreferencesAuthority = (
  * needs this narrow operation so it can revoke an already active session even
  * when a pending link is also present in the browser.
  */
-export const resolveMarketingLinkAuthority = (
+const resolveMarketingLinkAuthority = (
   rawSession: string,
   resolveManagementSession: MarketingPreferencesAuthorityDependencies["resolveManagementSession"]
 ): Effect.Effect<

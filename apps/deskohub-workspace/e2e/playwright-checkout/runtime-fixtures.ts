@@ -18,11 +18,7 @@ type WorkspaceE2ERuntimeServices =
   | HttpClient.HttpClient
   | WorkspaceE2ECaseService;
 
-export type WorkspaceE2EEffectRunner = <
-  A,
-  E,
-  R extends WorkspaceE2ERuntimeServices,
->(
+type WorkspaceE2EEffectRunner = <A, E, R extends WorkspaceE2ERuntimeServices>(
   effect: Effect.Effect<A, E, R>
 ) => Promise<A>;
 

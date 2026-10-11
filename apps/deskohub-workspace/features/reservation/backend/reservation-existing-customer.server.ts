@@ -31,34 +31,7 @@ export const loadReservationExistingCustomer = cache(
   ): Promise<ReservationExistingCustomer<Kind> | undefined> => {
     if (!(await areAccountsEnabled())) return undefined;
 
-    const existingCustomer = await Effect.gen(function* () {
-      const contacts = yield* CustomerAccountContactService;
-      const contact = yield* contacts.current;
-      if (!contact) return undefined;
-
-      const lastReservations = yield* CustomerLastReservationService;
-      // The remembered options only refine the defaults, so a failure keeps
-      // the account card and falls back to the usual defaults.
-      const lastReservation = yield* lastReservations
-        .load(contact.dotyposCustomerId, kind)
-        .pipe(
-          Effect.tapError((error) =>
-            Effect.logWarning("Customer last reservation load failed", {
-              error,
-            })
-          ),
-          Effect.orElseSucceed(() => null)
-        );
-
-      return {
-        contact: {
-          name: contact.name,
-          email: contact.email,
-          phone: contact.phone,
-        },
-        ...(lastReservation && { lastReservation }),
-      } satisfies ReservationExistingCustomer<Kind>;
-    }).pipe(
+    const existingCustomer = await loadLinkedExistingCustomer(kind).pipe(
       Effect.provide(
         Layer.mergeAll(
           CustomerAccountContactService.Live,
@@ -82,6 +55,54 @@ export const loadReservationExistingCustomer = cache(
       : undefined;
   }
 );
+
+/**
+ * The profile read and the last-reservation read each issue a database query
+ * (plus a Dotypos call), so a signed-in page load holds at most two pool
+ * connections for this step.
+ */
+const linkedCustomerReadConcurrency = 2;
+
+/**
+ * Both the contact and the last reservation need only the account's link,
+ * so they load concurrently once it resolves. The contact decides the
+ * outcome: when it fails or cannot book, the last reservation is discarded.
+ */
+export const loadLinkedExistingCustomer = Effect.fn(
+  "reservation.loadLinkedExistingCustomer"
+)(function* <Kind extends WorkspaceReservationKind>(kind: Kind) {
+  const contacts = yield* CustomerAccountContactService;
+  const account = yield* contacts.currentLinkedAccount;
+  if (!account) return undefined;
+
+  const lastReservations = yield* CustomerLastReservationService;
+  const [contact, lastReservation] = yield* Effect.all(
+    [
+      contacts.linkedContact(account),
+      // The remembered options only refine the defaults, so a failure keeps
+      // the account card and falls back to the usual defaults.
+      lastReservations.load(account.dotyposCustomerId, kind).pipe(
+        Effect.tapError((error) =>
+          Effect.logWarning("Customer last reservation load failed", {
+            error,
+          })
+        ),
+        Effect.orElseSucceed(() => null)
+      ),
+    ],
+    { concurrency: linkedCustomerReadConcurrency }
+  );
+  if (!contact) return undefined;
+
+  return {
+    contact: {
+      name: contact.name,
+      email: contact.email,
+      phone: contact.phone,
+    },
+    ...(lastReservation && { lastReservation }),
+  } satisfies ReservationExistingCustomer<Kind>;
+});
 
 /**
  * Availability for a remembered reservation option. A failure is logged and

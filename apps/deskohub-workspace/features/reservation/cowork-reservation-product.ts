@@ -6,7 +6,7 @@ import {
   type WorkspaceCoworkHistoricalTier,
   type WorkspaceCoworkProductTier,
   type WorkspaceProductMonitorOption,
-  workspaceCoworkProductTiers,
+  workspaceCoworkTiers,
   workspaceProductMonitorOptions,
 } from "@/features/checkout/product-catalog";
 import { m } from "@/features/i18n";
@@ -23,14 +23,14 @@ const coworkReservationMonitorOptionInputSchema = Schema.optional(
 );
 
 export const coworkReservationProductInputSchema = Schema.Struct({
-  entryTier: Schema.Literals(workspaceCoworkProductTiers),
+  entryTier: Schema.Literals(workspaceCoworkTiers),
   coffee: Schema.Boolean,
   monitorOption: coworkReservationMonitorOptionInputSchema,
 });
 
 export const workspaceCoworkProductIdentitySchema = Schema.Struct({
   kind: Schema.Literal(coworkReservationKind),
-  tier: Schema.Literals(workspaceCoworkProductTiers),
+  tier: Schema.Literals(workspaceCoworkTiers),
 });
 
 export type WorkspaceCoworkProductIdentity =
@@ -40,7 +40,7 @@ export const workspaceCoworkProductTargetSchema = Schema.Struct({
   kind: workspaceCoworkProductIdentitySchema.fields.kind,
 });
 
-export type WorkspaceCoworkProductTarget =
+type WorkspaceCoworkProductTarget =
   typeof workspaceCoworkProductTargetSchema.Type;
 
 export type WorkspaceCoworkAvailabilityTarget = WorkspaceCoworkProductTarget & {
@@ -173,14 +173,6 @@ type ReservationWithCoworkProductDetails = {
 const normalizeMonitorOption = (
   monitorOption: WorkspaceProductMonitorOption | "" | undefined
 ) => monitorOption || undefined;
-
-export const getCoworkReservationProductCoffee = (
-  reservation: CoworkReservationProductInput
-) => Boolean(reservation.coffee);
-
-export const getCoworkReservationProductMonitorOption = (
-  reservation: CoworkReservationProductInput
-) => normalizeMonitorOption(reservation.monitorOption);
 
 export const getAllowedMonitorOptionsForCoworkTier = (
   tier: WorkspaceCoworkProductTier
@@ -379,8 +371,4 @@ export const coworkReservationProductSchema =
         "Cowork product selection validated and normalized by entry tier.",
     });
 
-export type {
-  WorkspaceCoworkCurrentTier,
-  WorkspaceCoworkProductTier,
-  WorkspaceProductMonitorOption,
-};
+export type { WorkspaceCoworkProductTier, WorkspaceProductMonitorOption };

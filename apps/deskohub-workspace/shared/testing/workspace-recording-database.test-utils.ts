@@ -3,7 +3,7 @@ import { Pool, type QueryResult } from "pg";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { makeDatabaseClient } from "@/db/database-client";
 
-export interface RecordedStatement {
+interface RecordedStatement {
   readonly sql: string;
   readonly params: readonly unknown[];
 }

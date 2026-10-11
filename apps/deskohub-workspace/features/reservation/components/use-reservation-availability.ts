@@ -70,5 +70,18 @@ export function useReservationAvailability(
     availability:
       result.isError || debounced.isDebouncing ? null : (result.data ?? null),
     isFetching: result.isFetching || debounced.isDebouncing,
+    // Whether the current query still waits for a usable response:
+    // debouncing, loading, showing a previous key's placeholder, or retrying
+    // after a failure (an errored query keeps its error status while it
+    // refetches stale data). A background refetch of successful data is not
+    // pending, and an empty query never is.
+    isPending:
+      debounced.isDebouncing ||
+      Boolean(
+        availabilityQuery &&
+          (result.isPending ||
+            result.isPlaceholderData ||
+            (result.isError && result.isFetching))
+      ),
   };
 }

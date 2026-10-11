@@ -9,8 +9,8 @@ import {
 import { isNotFoundPage } from "./not-found-page";
 import { makeUrl } from "./urls";
 
-export const previewTileReferrerPolicy = "strict-origin-when-cross-origin";
-export const previewAuthSessionCacheControl = "private, no-store";
+const previewTileReferrerPolicy = "strict-origin-when-cross-origin";
+const previewAuthSessionCacheControl = "private, no-store";
 
 export const assertPreviewEndpointsReady = (
   config: WorkspaceE2EConfig

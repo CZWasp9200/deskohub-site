@@ -4,21 +4,73 @@ import { isValidElement, type ReactElement, type ReactNode } from "react";
 import { buildCoworkReservationQuote } from "@/features/checkout/reservation-quote-cowork";
 import { instantStringSchema } from "@/shared/utils/temporal";
 
+const nextServer = await import("next/server");
+
 mock.module("server-only", () => ({}));
 mock.module("next/root-params", () => ({
   locale: () => Promise.resolve("en-US"),
 }));
-const nextServer = await import("next/server");
 mock.module("next/server", () => ({
   ...nextServer,
   connection: () => Promise.resolve(),
 }));
+
+const loadReservationExistingCustomer = mock(
+  (_kind: string): Promise<unknown> => Promise.resolve(undefined)
+);
+mock.module(
+  "@/features/reservation/backend/reservation-existing-customer.server",
+  () => ({ loadReservationExistingCustomer })
+);
 
 const payStateBookedAt = instantStringSchema.make("2026-06-01T09:58:00.000Z");
 
 const { createReservationPage } = await import(
   "./create-reservation-page.server"
 );
+
+const existingCustomer = {
+  contact: {
+    name: "Ada Lovelace",
+    email: "ada@example.test",
+    phone: "+420 777 777 777",
+  },
+};
+
+type ReservationContentProps = {
+  readonly definition: unknown;
+  readonly searchParams: Promise<Record<string, string>>;
+};
+
+/** Renders the request-bound content the page shell suspends on. */
+const renderContent = async (page: ReactNode) => {
+  const content = (
+    page as ReactElement<{
+      readonly children: ReactElement<ReservationContentProps>;
+    }>
+  ).props.children;
+  const Content = content.type as (
+    props: ReservationContentProps
+  ) => Promise<ReactNode>;
+  return Content(content.props);
+};
+
+/** Fails a deadlocked load quickly instead of at the test timeout. */
+const withinOneSecond = <Value,>(promise: Promise<Value>) =>
+  Promise.race([
+    promise,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("Timed out")), 1000)
+    ),
+  ]);
+
+const createDeferred = () => {
+  let resolve!: () => void;
+  const promise = new Promise<void>((settle) => {
+    resolve = settle;
+  });
+  return { promise, resolve };
+};
 
 test("renders the reservation shell before request-bound content resolves", async () => {
   const render = mock((): ReactNode => "loaded reservation form");
@@ -149,5 +201,75 @@ test("prefers the signed requested discount code over a fresh public query code"
   expect(restored).toMatchObject({
     submittedCode: "CAMPAIGN10",
     replacementToken: token,
+  });
+});
+
+test("loads the existing customer and the page data concurrently", async () => {
+  const customerStarted = createDeferred();
+  const pageDataStarted = createDeferred();
+  // Each load waits for the other to start, so a sequential render times out.
+  loadReservationExistingCustomer.mockImplementationOnce(async () => {
+    customerStarted.resolve();
+    await pageDataStarted.promise;
+    return existingCustomer;
+  });
+  const loadPageData = mock(async () => {
+    pageDataStarted.resolve();
+    await customerStarted.promise;
+    return 5;
+  });
+  const render = mock(
+    (context: { readonly pageData: number }): ReactNode =>
+      `seats ${context.pageData}`
+  );
+  const pageDefinition = createReservationPage({
+    fallback: () => "loading reservation form",
+    kind: "office",
+    loadPageData,
+    metadata: () => ({ description: "Description", title: "Title" }),
+    pathname: "/reservation/office",
+    render,
+  });
+
+  const content = await withinOneSecond(
+    renderContent(
+      await pageDefinition.Page({ searchParams: Promise.resolve({}) })
+    )
+  );
+
+  expect(content).toBe("seats 5");
+  expect(loadReservationExistingCustomer).toHaveBeenCalledWith("office");
+  expect(render).toHaveBeenCalledWith(
+    expect.objectContaining({ existingCustomer, locale: "en-US", pageData: 5 })
+  );
+});
+
+test("fails the content when the page data load rejects", async () => {
+  const render = mock((): ReactNode => "loaded reservation form");
+  const pageDefinition = createReservationPage({
+    fallback: () => "loading reservation form",
+    kind: "office",
+    loadPageData: () => Promise.reject(new Error("capacity unavailable")),
+    metadata: () => ({ description: "Description", title: "Title" }),
+    pathname: "/reservation/office",
+    render,
+  });
+
+  await expect(
+    renderContent(
+      await pageDefinition.Page({ searchParams: Promise.resolve({}) })
+    )
+  ).rejects.toThrow("capacity unavailable");
+  expect(render).not.toHaveBeenCalled();
+});
+
+test("requires a page data loader for a render that reads page data", () => {
+  createReservationPage({
+    fallback: () => "loading reservation form",
+    kind: "office",
+    metadata: () => ({ description: "Description", title: "Title" }),
+    pathname: "/reservation/office",
+    // @ts-expect-error A definition without `loadPageData` has no page data.
+    render: (context: { readonly pageData: number }) => context.pageData,
   });
 });

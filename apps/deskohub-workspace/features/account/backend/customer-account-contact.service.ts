@@ -7,11 +7,24 @@ import {
 import {
   type CustomerAccountAccessError,
   type CustomerAccountId,
+  type LinkedCustomerAccount,
   mapCustomerAccountFailure,
 } from "../customer-account";
 import { CustomerAccountLinkRepository } from "./customer-account-link.repository";
-import { CustomerAuthentication } from "./customer-authentication.service";
+import {
+  type CustomerAccountSession,
+  CustomerAuthentication,
+} from "./customer-authentication.service";
 import { CustomerProfileService } from "./customer-profile.service";
+
+/**
+ * The current session's durable Dotypos link with its login email, before
+ * the profile is read. Work that needs only the linked customer can start
+ * from here.
+ */
+export type CurrentLinkedAccount = LinkedCustomerAccount & {
+  readonly email: CustomerAccountSession["email"];
+};
 
 /**
  * The reservation contact a signed-in, already-linked customer books with.
@@ -19,7 +32,7 @@ import { CustomerProfileService } from "./customer-profile.service";
  * linked Dotypos profile and are only exposed when they satisfy the
  * reservation contact rules.
  */
-export type CustomerAccountContact = {
+type CustomerAccountContact = {
   readonly accountId: CustomerAccountId;
   readonly dotyposCustomerId: DotyposCustomerId;
   readonly name: string;
@@ -33,6 +46,22 @@ const decodeContactField = <S extends Schema.Decoder<string>>(
 ) => Option.getOrNull(Schema.decodeUnknownOption(schema)(value));
 
 interface ICustomerAccountContactService {
+  /**
+   * Reads the current session's existing link without claiming one.
+   * Anonymous, deletion-pending, and unlinked sessions yield null.
+   */
+  readonly currentLinkedAccount: Effect.Effect<
+    CurrentLinkedAccount | null,
+    CustomerAccountAccessError
+  >;
+  /**
+   * Reads a linked account's Dotypos profile into its reservation contact.
+   * The profile read re-checks account activity; a profile whose name
+   * cannot book a reservation yields null.
+   */
+  readonly linkedContact: (
+    account: CurrentLinkedAccount
+  ) => Effect.Effect<CustomerAccountContact | null, CustomerAccountAccessError>;
   /**
    * Reads the current account's reservation contact without claiming a
    * link, so it is safe both on read-only pages and inside the account
@@ -56,7 +85,7 @@ export class CustomerAccountContactService extends Context.Service<
       const links = yield* CustomerAccountLinkRepository;
       const profiles = yield* CustomerProfileService;
 
-      const current = Effect.gen(function* () {
+      const currentLinkedAccount = Effect.gen(function* () {
         const session = yield* authentication.currentUser;
         if (!session || session.deletionRequested) return null;
 
@@ -67,9 +96,21 @@ export class CustomerAccountContactService extends Context.Service<
           );
         if (!dotyposCustomerId) return null;
 
-        const profile = yield* profiles.load({
+        return {
           accountId: session.accountId,
           dotyposCustomerId,
+          email: session.email,
+        } satisfies CurrentLinkedAccount;
+      }).pipe(
+        Effect.withSpan("CustomerAccountContactService.currentLinkedAccount")
+      );
+
+      const linkedContact = Effect.fn(
+        "CustomerAccountContactService.linkedContact"
+      )(function* (account: CurrentLinkedAccount) {
+        const profile = yield* profiles.load({
+          accountId: account.accountId,
+          dotyposCustomerId: account.dotyposCustomerId,
         });
         const name = decodeContactField(
           reservationCustomerNameSchema,
@@ -81,17 +122,28 @@ export class CustomerAccountContactService extends Context.Service<
         if (!name) return null;
 
         return {
-          accountId: session.accountId,
-          dotyposCustomerId,
+          accountId: account.accountId,
+          dotyposCustomerId: account.dotyposCustomerId,
           name,
-          email: session.email,
+          email: account.email,
           phone: profile.phone
             ? decodeContactField(reservationCustomerPhoneSchema, profile.phone)
             : null,
         } satisfies CustomerAccountContact;
-      }).pipe(Effect.withSpan("CustomerAccountContactService.current"));
+      });
 
-      return { current } satisfies ICustomerAccountContactService;
+      const current = currentLinkedAccount.pipe(
+        Effect.flatMap((account) =>
+          account ? linkedContact(account) : Effect.succeed(null)
+        ),
+        Effect.withSpan("CustomerAccountContactService.current")
+      );
+
+      return {
+        currentLinkedAccount,
+        linkedContact,
+        current,
+      } satisfies ICustomerAccountContactService;
     })
   );
 

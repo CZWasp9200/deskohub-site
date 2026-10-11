@@ -20,7 +20,7 @@ const CONTACT_VALIDATION = {
   },
 } as const;
 
-const createContactSchema = (locale: Locale) =>
+export const createContactSchema = (locale: Locale) =>
   Schema.Struct({
     name: Schema.Trim.check(
       Schema.isMinLength(CONTACT_VALIDATION.name.min, {
@@ -82,10 +82,7 @@ const createContactSchema = (locale: Locale) =>
 
 type ContactSchema = ReturnType<typeof createContactSchema>;
 
-export const getContactSchema = createContactSchema;
-
 export type ContactFormValues = ContactSchema["Encoded"];
-export type ContactData = ContactSchema["Type"];
 
 export const contactDefaultValues: ContactFormValues = {
   name: "",

@@ -9,7 +9,7 @@ const trimmedRequiredText = (maximumLength: number) =>
 const trimmedOptionalText = (maximumLength: number) =>
   Schema.optional(Schema.Trim.check(Schema.isMaxLength(maximumLength)));
 
-export const customerProfileNameFieldSchema = trimmedRequiredText(100);
+const customerProfileNameFieldSchema = trimmedRequiredText(100);
 
 /**
  * Dotypos owns the stored phone, so a blank value only means "clear the
@@ -52,7 +52,7 @@ const customerProfileBusinessBillingSchema = Schema.Struct({
 export const customerProfileBusinessBillingFields =
   customerProfileBusinessBillingSchema.fields;
 
-export const customerProfileBillingSchema = Schema.Union([
+const customerProfileBillingSchema = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("personal"),
     ...customerProfileAddressFields,
@@ -63,15 +63,12 @@ export const customerProfileBillingSchema = Schema.Union([
   }),
 ]);
 
-export type CustomerProfileBillingInput =
-  typeof customerProfileBillingSchema.Type;
-
 /**
  * Dotypos owns the customer profile, so the login email is deliberately
  * absent from the profile input: the verified email is the immutable
  * reservation-linking trust boundary and is never an editable field.
  */
-export const updateCustomerProfileSchema = Schema.Struct({
+const updateCustomerProfileSchema = Schema.Struct({
   firstName: customerProfileNameFieldSchema,
   lastName: trimmedOptionalText(100),
   phone: Schema.optional(customerProfilePhoneFieldSchema),

@@ -4,7 +4,7 @@ import {
   getWorkspaceProductCoffeeLinePriceForTier,
   type WorkspaceCoworkProductTier,
   type WorkspaceProductMonitorOption,
-  workspaceCoworkProductTiers,
+  workspaceCoworkTiers,
   workspaceProductWorkstationAddonPrice,
 } from "@/features/checkout/product-catalog";
 import { getReservationQuoteFingerprint } from "@/features/checkout/reservation-quote-fingerprint";
@@ -14,11 +14,10 @@ import {
   workspaceMoneyCodec,
 } from "@/features/checkout/workspace-money";
 import type { DiscountQuote } from "@/features/discounts";
-import type { CoworkAdvertisedPriceDetails } from "@/features/reservation/cowork-reservation";
 
 const coworkProductQuoteItemSchema = Schema.Struct({
   type: Schema.Literal("cowork"),
-  tier: Schema.Literals(workspaceCoworkProductTiers),
+  tier: Schema.Literals(workspaceCoworkTiers),
   amount: workspaceMoneyCodec,
 });
 
@@ -42,9 +41,6 @@ type CoworkProductQuoteItem = typeof coworkProductQuoteItemSchema.Type;
 type CoworkCoffeeQuoteItem = typeof coworkCoffeeQuoteItemSchema.Type;
 type CoworkWorkstationQuoteItem = typeof coworkWorkstationQuoteItemSchema.Type;
 
-export type CoworkReservationQuoteItem =
-  typeof coworkReservationQuoteItemSchema.Type;
-
 export const coworkReservationQuoteSchema = makeReservationQuoteSchema(
   Schema.Union([
     Schema.Tuple([coworkProductQuoteItemSchema]),
@@ -60,8 +56,6 @@ export const coworkReservationQuoteSchema = makeReservationQuoteSchema(
 });
 
 export type CoworkReservationQuote = typeof coworkReservationQuoteSchema.Type;
-
-export type CoworkReservationPricingInput = CoworkAdvertisedPriceDetails;
 
 export type CanonicalCoworkReservation = {
   readonly kind: "cowork";

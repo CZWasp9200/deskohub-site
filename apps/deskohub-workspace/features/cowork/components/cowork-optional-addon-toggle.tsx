@@ -1,10 +1,15 @@
 "use client";
 
 import { Info, type LucideIcon } from "lucide-react";
+import type { ReactNode } from "react";
 import { ReservationSkeletonBlock } from "@/features/reservation/components/reservation-form-fallback";
 import { ReservationFormLabel } from "@/features/reservation/components/reservation-form-label";
 import { Button } from "@/shared/components/ui/button";
-import { FormControl, useFormField } from "@/shared/components/ui/form";
+import {
+  FormControl,
+  FormItemLayout,
+  useFormField,
+} from "@/shared/components/ui/form";
 import { Label } from "@/shared/components/ui/label";
 import { Switch } from "@/shared/components/ui/switch";
 import {
@@ -17,6 +22,7 @@ import {
 type CoworkOptionalAddonToggleProps = {
   readonly addon: "coffee" | "workstation";
   readonly checked: boolean;
+  readonly children?: ReactNode;
   readonly disabled?: boolean;
   readonly icon: LucideIcon;
   readonly info?: {
@@ -32,11 +38,14 @@ type CoworkOptionalAddonToggleProps = {
 /**
  * Shared visual presentation for the one optional paid cowork add-on
  * (coffee or workstation). Domain controllers bind it to their field and
- * keep the price test hooks on the same markup path.
+ * keep the price test hooks on the same markup path. It owns the field's
+ * label/control stack, so the label spacing matches every other field;
+ * `children` render below the control inside that stack.
  */
 export function CoworkOptionalAddonToggle({
   addon,
   checked,
+  children,
   disabled,
   icon: Icon,
   info,
@@ -48,7 +57,7 @@ export function CoworkOptionalAddonToggle({
   const { formItemId } = useFormField();
 
   return (
-    <>
+    <FormItemLayout data-cowork-addon-control>
       <ReservationFormLabel>{label}</ReservationFormLabel>
       <div className="flex items-center gap-2">
         <Label
@@ -108,6 +117,7 @@ export function CoworkOptionalAddonToggle({
           </TooltipProvider>
         )}
       </div>
-    </>
+      {children}
+    </FormItemLayout>
   );
 }

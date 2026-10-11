@@ -42,7 +42,7 @@ import {
 } from "./pay-state-contract";
 import { workspaceCheckoutPriceStateSchema } from "./workspace-checkout-price-state";
 
-export const advertisedPriceStateDefaultTtlMilliseconds = 10 * 60 * 1000;
+const advertisedPriceStateDefaultTtlMilliseconds = 10 * 60 * 1000;
 
 const absentSubmittedCodeMetadataSchema = Schema.Struct({
   submittedCode: Schema.optionalKey(Schema.Never),
@@ -143,7 +143,7 @@ type AdvertisedPriceStateInput = (
 ) &
   PayStateSubmittedCodeMetadata;
 
-export class AdvertisedPriceStateTokenError extends Data.TaggedError(
+class AdvertisedPriceStateTokenError extends Data.TaggedError(
   "AdvertisedPriceStateTokenError"
 )<{
   readonly code: CheckoutStateTokenError["code"];

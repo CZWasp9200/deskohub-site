@@ -60,9 +60,7 @@ describe("Customer-account boundary", () => {
 
     for (const requiredName of [
       "CustomerAccountResolver",
-      "resolveCurrentCustomerAccount",
       "CustomerAccountAccessError",
-      "CustomerAccountId",
       "LinkedCustomerAccount",
     ]) {
       expect(exported).toContain(requiredName);
