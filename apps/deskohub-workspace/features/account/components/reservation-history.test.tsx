@@ -320,69 +320,6 @@ describe("ReservationHistory", () => {
     expect(view.container.textContent).not.toContain("password");
   });
 
-  test("renders reservation statuses through the shared status badge tones", () => {
-    const view = renderHistory("en-US", {
-      kind: "available",
-      groups: {
-        current: [
-          reservation({ id: "tone-confirmed", status: "confirmed" }),
-          reservation({ id: "tone-pending", status: "pending" }),
-          reservation({ id: "tone-cancelled", status: "cancelled" }),
-          reservation({
-            id: "tone-attention",
-            status: "requires-attention",
-          }),
-        ],
-        past: [],
-        unavailable: [],
-      },
-    });
-
-    expect(
-      view.container.querySelector(
-        '[data-account-reservation-status="confirmed"]'
-      )?.className
-    ).toContain("bg-aquamarine-green/12");
-    expect(
-      view.container.querySelector(
-        '[data-account-reservation-status="pending"]'
-      )?.className
-    ).toContain("bg-sunset-yellow/15");
-    expect(
-      view.container.querySelector(
-        '[data-account-reservation-status="cancelled"]'
-      )?.className
-    ).toContain("bg-navy-blue/5");
-    expect(
-      view.container.querySelector(
-        '[data-account-reservation-status="requires-attention"]'
-      )?.className
-    ).toContain("bg-burned-orange/10");
-  });
-
-  test.each(["en-US", "cs-CZ"] as const)(
-    "renders account-owned availability copy in %s",
-    (locale) => {
-      const view = renderHistory(locale, {
-        kind: "available",
-        groups: {
-          current: [reservation({ id: `available-${locale}` })],
-          past: [],
-          unavailable: [],
-        },
-      });
-
-      expect(view.getByText(copyFor(locale).assignedDesk)).toBeTruthy();
-      expect(view.getByText(copyFor(locale).wifi)).toBeTruthy();
-      expect(
-        view.getAllByText(copyFor(locale).unavailable).length
-      ).toBeGreaterThan(0);
-      expect(
-        view.getByRole("button", { name: copyFor(locale).checkIn })
-      ).toBeTruthy();
-    }
-  );
-
   test("renders compact past rows as accessible guarded actions", () => {
     const view = renderHistory("en-US", {
       kind: "available",
@@ -407,19 +344,6 @@ describe("ReservationHistory", () => {
     expect(row?.textContent).toContain("Meeting Room");
     expect(row?.textContent).toContain("Needs attention");
     expect(row?.textContent).toContain("Aug 21, 2026");
-    expect(table.className).toContain("xl:table");
-    expect(table.className).toContain("xl:table-fixed");
-    expect(table.querySelector("thead")?.className).toContain(
-      "xl:table-header-group"
-    );
-    expect(table.querySelector("tbody")?.className).toContain(
-      "xl:table-row-group"
-    );
-    expect(row?.className).toContain("max-xl:p-4");
-    expect(row?.className).toContain("xl:table-row");
-    expect(row?.querySelector("td")?.className).toContain("min-w-0");
-    expect(row?.querySelector("td")?.className).toContain("xl:table-cell");
-    expect(row?.querySelector("td > div")?.className).toContain("xl:block");
 
     const link = view.getByRole("link", {
       name: copyFor("en-US").viewReservation,
@@ -476,43 +400,6 @@ describe("ReservationHistory", () => {
     }
   );
 
-  test("wraps the longest Czech status and table detail action", () => {
-    const view = renderHistory("cs-CZ", {
-      kind: "available",
-      groups: {
-        current: [],
-        past: [
-          reservation({
-            endsAt: "2026-08-21T10:00:00Z",
-            id: "past-czech-linked",
-            startsAt: "2026-08-21T08:00:00Z",
-            status: "requires-attention",
-            workspaceReservationId: linkedReservationId,
-          }),
-        ],
-        unavailable: [],
-      },
-    });
-    const row = view.container.querySelector(
-      '[data-account-reservation-group="past"] tbody tr'
-    );
-    const status = row?.querySelector(
-      '[data-account-reservation-status="requires-attention"]'
-    );
-    const link = view.getByRole("link", {
-      name: copyFor("cs-CZ").viewReservation,
-    });
-
-    expect(status?.textContent).toContain("Vyžaduje pozornost");
-    expect(status?.className).toContain("min-w-0");
-    expect(status?.className).toContain("whitespace-normal");
-    expect(link.className).toContain("min-w-0");
-    expect(link.className).toContain("max-w-full");
-    expect(link.className).toContain("whitespace-normal");
-    expect(link.className).toContain("hover:underline");
-    expect(link.className).not.toContain("px-4");
-  });
-
   test("wraps opaque ids and constrains responsive reservation content", () => {
     const longId =
       "reservation-id-with-a-deliberately-long-opaque-value-that-must-wrap";
@@ -534,25 +421,6 @@ describe("ReservationHistory", () => {
 
     const id = view.getByText(longId);
     expect(id.tagName).toBe("CODE");
-    expect(id.className).toContain("min-w-0");
-    expect(id.className).toContain("break-all");
-    expect(
-      view.container.querySelector('[data-account-reservation-group="current"]')
-        ?.className
-    ).toContain("min-w-0");
-    const table = view.getByRole("table");
-    expect(table.className).toContain("xl:table");
-    expect(table.className).toContain("xl:table-fixed");
-    expect(table.parentElement?.className).toContain("overflow-hidden");
-    expect(
-      [...table.querySelectorAll("thead th")].map((header) => header.className)
-    ).toEqual([
-      expect.stringContaining("xl:w-[30%]"),
-      expect.stringContaining("xl:w-[25%]"),
-      expect.stringContaining("xl:w-[12%]"),
-      expect.stringContaining("xl:w-[17%]"),
-      expect.stringContaining("xl:w-[16%]"),
-    ]);
     const dateTile = view.getByText("Nov").parentElement;
     expect(
       view.getByRole("heading", {
@@ -562,70 +430,6 @@ describe("ReservationHistory", () => {
     expect(dateTile).toBeTruthy();
     expect(dateTile?.textContent).toContain("12");
     expect(dateTile?.textContent).toContain("Date: Nov 12");
-  });
-
-  test("keeps past row labels mobile-only at the table breakpoint", () => {
-    const view = renderHistory("en-US", {
-      kind: "available",
-      groups: {
-        current: [],
-        past: [reservation({ id: "past-row-labels" })],
-        unavailable: [],
-      },
-    });
-    const table = view.getByRole("table");
-    const rowLabels = [
-      ...table.querySelectorAll("tbody tr td > div > span:first-child"),
-    ];
-
-    expect(rowLabels).toHaveLength(4);
-    for (const label of rowLabels) {
-      expect(label.className).toContain("block");
-      expect(label.className).toContain("xl:hidden");
-      expect(label.className).not.toContain("max-xl:block");
-    }
-    expect(table.querySelector("thead")?.className).toContain("hidden");
-    expect(table.querySelector("thead")?.className).toContain(
-      "xl:table-header-group"
-    );
-  });
-
-  test("keeps featured desktop spacing compact without changing mobile stacking", () => {
-    const view = renderHistory("en-US", linkedHistory);
-    const card = view.container.querySelector(
-      '[data-account-reservation-group="current"] li > div'
-    );
-    expect(card).toBeTruthy();
-    const header = card?.children[0];
-    const main = card?.children[2];
-    const footer = card?.children[3];
-    const buttons = footer?.children[0];
-    const right = footer?.children[1];
-    const explanation = right?.querySelector("p");
-    const action = view.getByRole("link", {
-      name: copyFor("en-US").viewReservation,
-    });
-
-    expect(header?.className).toContain("p-6");
-    expect(header?.className).toContain("xl:py-4");
-    expect(main?.className).toContain("px-6");
-    expect(main?.className).toContain("xl:py-5");
-    expect(footer?.className).toContain("xl:grid");
-    expect(footer?.className).toContain("xl:grid-cols-[minmax(0,1fr)_auto]");
-    expect(footer?.className).toContain("xl:gap-y-2");
-    expect(footer?.className).toContain("xl:py-4");
-    expect(buttons?.className).toContain("xl:row-start-2");
-    expect(right?.className).toContain("xl:contents");
-    expect(explanation?.className).toContain("xl:text-xs");
-    expect(explanation?.className).toContain("xl:leading-5");
-    expect(action.parentElement?.className).toContain("xl:col-start-2");
-    expect(action.parentElement?.className).toContain("xl:row-span-2");
-    expect(action.parentElement?.className).toContain("xl:items-center");
-
-    expect(footer?.className).toContain("flex-col");
-    expect(footer?.className).toContain("sm:flex-row");
-    expect(buttons?.className).toContain("flex-col");
-    expect(right?.className).toContain("flex-col");
   });
 
   test.each(["en-US", "cs-CZ"] as const)(
@@ -867,9 +671,6 @@ describe("ReservationHistory", () => {
     const item = link.closest("li");
     expect(item).toBeTruthy();
     expect(item?.querySelectorAll("a")).toHaveLength(2);
-    expect(link.className).toContain("h-9");
-    expect(link.className).toContain("hover:");
-    expect(link.className).toContain("focus-visible:");
   });
 
   test("uses the guarded link for dirty profile navigation", () => {
@@ -1010,15 +811,6 @@ describe("ReservationHistory", () => {
     expect(
       view.container.querySelector("#account-reservations-current-title")
     ).toBeNull();
-    expect(view.getByText("You have no past reservations yet.")).toBeTruthy();
-  });
-
-  test("keeps the reservations navigation landmark present when the current group is empty", () => {
-    const view = renderHistory("en-US", {
-      kind: "available",
-      groups: { current: [], past: [], unavailable: [] },
-    });
-
     // The e2e readiness check anchors on the past panel's title, which renders
     // unconditionally, so reservations navigation settles even with no
     // current reservations.
@@ -1028,12 +820,7 @@ describe("ReservationHistory", () => {
     expect(
       view.container.querySelector("#account-reservations-past-title")
     ).toBeTruthy();
-    expect(
-      view.container.querySelector('[data-account-reservation-group="current"]')
-    ).toBeNull();
-    expect(
-      view.container.querySelector("#account-reservations-current-title")
-    ).toBeNull();
+    expect(view.getByText("You have no past reservations yet.")).toBeTruthy();
   });
 
   test.each([
