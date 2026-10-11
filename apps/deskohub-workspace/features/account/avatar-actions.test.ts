@@ -396,14 +396,20 @@ describe("customer avatar actions", () => {
     expect(revalidatePath).not.toHaveBeenCalled();
   });
 
-  test("keeps avatar mutations independent from the profile form state", async () => {
+  test("passes only the uploaded file and resolved account to the avatar service", async () => {
     const { uploadCustomerAvatar } = await importActions();
 
     const form = uploadForm();
     form.set("firstName", "Sneaky");
     await uploadCustomerAvatar(form);
 
-    expect(uploadCalls).toHaveLength(1);
-    expect(Object.fromEntries(form.entries())).toHaveProperty("firstName");
+    expect(uploadAccountIds).toEqual(["@test/account-id"]);
+    expect(uploadCalls).toEqual([
+      {
+        bytes: pngBytes(),
+        declaredMediaType: "image/png",
+        declaredSize: pngBytes().byteLength,
+      },
+    ]);
   });
 });

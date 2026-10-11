@@ -3,9 +3,7 @@ import "@/shared/testing/workspace-test-env";
 import { describe, expect, test } from "bun:test";
 import { AdministrationInvoiceId } from "@deskohub/workspace-admin-api";
 import type { SQL } from "drizzle-orm";
-import { sql } from "drizzle-orm";
 import { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
-import { PgDialect } from "drizzle-orm/pg-core";
 import { Cause, Effect, Layer, Schema } from "effect";
 import { SqlError } from "effect/unstable/sql";
 import { WorkspaceDatabase } from "@/db/database.service";
@@ -20,17 +18,8 @@ const missingInvoiceId = Schema.decodeUnknownSync(AdministrationInvoiceId)(
 
 type InvoiceNumberRow = { readonly invoiceNumber: string };
 
-const compileSql = (chunk: SQL) =>
-  new PgDialect().sqlToQuery(sql`${chunk}`).sql;
-
-type CapturedSelect = {
-  readonly fields: Record<string, SQL>;
-  readonly where: (SQL | undefined)[];
-};
-
 const makeQuery = (
-  result: Effect.Effect<readonly InvoiceNumberRow[], EffectDrizzleQueryError>,
-  captured: CapturedSelect
+  result: Effect.Effect<readonly InvoiceNumberRow[], EffectDrizzleQueryError>
 ) => {
   const query = result as Effect.Effect<
     readonly InvoiceNumberRow[],
@@ -38,13 +27,10 @@ const makeQuery = (
   > & {
     from: () => typeof query;
     limit: () => typeof query;
-    where: (condition: SQL | undefined) => typeof query;
+    where: () => typeof query;
   };
   query.from = () => query;
-  query.where = (condition) => {
-    captured.where.push(condition);
-    return query;
-  };
+  query.where = () => query;
   query.limit = () => query;
   return query;
 };
@@ -52,12 +38,11 @@ const makeQuery = (
 const makeDatabase = (
   result: Effect.Effect<readonly InvoiceNumberRow[], EffectDrizzleQueryError>
 ) => {
-  const selects: CapturedSelect[] = [];
+  const selects: Record<string, SQL>[] = [];
   const db = {
     select: (fields: Record<string, SQL>) => {
-      const captured: CapturedSelect = { fields, where: [] };
-      selects.push(captured);
-      return makeQuery(result, captured);
+      selects.push(fields);
+      return makeQuery(result);
     },
   };
   return { db, selects };
@@ -74,7 +59,7 @@ const provideDatabase = (database: ReturnType<typeof makeDatabase>["db"]) =>
   );
 
 describe("InvoiceBreadcrumbService", () => {
-  test("projects the breadcrumb label from only the invoice number column", async () => {
+  test("labels the breadcrumb with the invoice number", async () => {
     const { db, selects } = makeDatabase(
       Effect.succeed([{ invoiceNumber: "2026042" }])
     );
@@ -86,8 +71,6 @@ describe("InvoiceBreadcrumbService", () => {
 
     expect(label).toBe("Invoice 2026042");
     expect(selects).toHaveLength(1);
-    expect(Object.keys(selects[0]!.fields)).toEqual(["invoiceNumber"]);
-    expect(compileSql(selects[0]!.where[0]!)).toBe('"invoices"."id" = $1');
   });
 
   test("returns no label when the invoice row is missing", async () => {

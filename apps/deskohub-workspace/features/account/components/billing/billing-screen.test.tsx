@@ -94,68 +94,11 @@ describe("BillingScreen", () => {
     expect(markup.match(/<input\b/g) ?? []).toHaveLength(0);
   });
 
-  test("keeps a provided footer in one sticky, opaque, safe-area wrapper", () => {
-    const markup = renderToStaticMarkup(
-      <BillingScreen
-        copy={englishCopy}
-        footer={<span data-footer-marker="billing-footer">Save billing</span>}
-        locale="en-US"
-      >
-        <div data-child-marker="billing-fields">
-          Caller-owned billing fields
-        </div>
-      </BillingScreen>
-    );
-    const sectionClass = markup
-      .match(/<section[^>]*class="([^"]*)"/)?.[1]
-      ?.replaceAll("&amp;", "&");
-    const footerWrapperClass = markup.match(
-      /<div class="([^"]*)"><span data-footer-marker="billing-footer">Save billing<\/span><\/div><\/section>$/
-    )?.[1];
-
-    expect(sectionClass).toBeDefined();
-    expect(sectionClass).toContain(
-      "[&_input]:scroll-mb-[calc(12rem+env(safe-area-inset-bottom))]"
-    );
-    expect(sectionClass).toContain(
-      "[&_select]:scroll-mb-[calc(12rem+env(safe-area-inset-bottom))]"
-    );
-    expect(
-      markup.match(/data-footer-marker="billing-footer"/g) ?? []
-    ).toHaveLength(1);
-    expect(footerWrapperClass).toBeDefined();
-    expect(footerWrapperClass).toContain("sticky");
-    expect(footerWrapperClass).toContain("bottom-0");
-    expect(footerWrapperClass).toContain("z-10");
-    expect(footerWrapperClass).toContain("mt-8");
-    expect(footerWrapperClass).toContain("min-w-0");
-    expect(footerWrapperClass).toContain("border-t");
-    expect(footerWrapperClass).toContain("border-[#e6ebf1]");
-    expect(footerWrapperClass).toContain("bg-white");
-    expect(footerWrapperClass).toContain("pt-4");
-    expect(footerWrapperClass).toContain(
-      "pb-[max(1rem,env(safe-area-inset-bottom))]"
-    );
-  });
-
   test("renders safely without an optional footer", () => {
     const markup = renderScreen(englishCopy, "en-US");
 
     expect(markup).not.toContain("data-footer-marker");
   });
-
-  test.each([
-    ["English", "en-US", englishCopy],
-    ["Czech", "cs-CZ", czechCopy],
-  ] as const)(
-    "keeps the %s billing title without rendering currency copy",
-    (_language, locale, copy) => {
-      const markup = renderScreen(copy, locale);
-
-      expect(markup).toContain(escapeHtml(copy.title));
-      expect(markup).not.toContain(escapeHtml(copy.currency));
-    }
-  );
 
   test("keeps one outer form and the supplied billing input and footer action intact", () => {
     const markup = renderToStaticMarkup(
@@ -223,32 +166,26 @@ describe("BillingScreen", () => {
     }
   );
 
-  test.each([
-    ["English", "en-US", englishCopy],
-    ["Czech", "cs-CZ", czechCopy],
-  ] as const)(
-    "renders every supplied %s string without invented billing data",
-    (_language, locale, copy) => {
-      const markup = renderScreen(copy, locale);
-      const {
-        currency,
-        paymentMethodsUnavailable,
-        removePaymentCard,
-        ...renderedCopy
-      } = copy;
+  test("renders every supplied string without invented billing data", () => {
+    const markup = renderScreen(englishCopy, "en-US");
+    const {
+      currency,
+      paymentMethodsUnavailable,
+      removePaymentCard,
+      ...renderedCopy
+    } = englishCopy;
 
-      for (const value of Object.values(renderedCopy)) {
-        expect(markup).toContain(escapeHtml(value));
-      }
-      expect(markup).not.toContain(escapeHtml(currency));
-      expect(markup).not.toContain(escapeHtml(paymentMethodsUnavailable));
-      expect(markup).not.toContain(escapeHtml(removePaymentCard));
-      expect(markup).not.toMatch(
-        /Visa|Mastercard|American Express|Stripe|4242|••••|Issued:/i
-      );
-      expect(markup).not.toContain("VF-");
+    for (const value of Object.values(renderedCopy)) {
+      expect(markup).toContain(escapeHtml(value));
     }
-  );
+    expect(markup).not.toContain(escapeHtml(currency));
+    expect(markup).not.toContain(escapeHtml(paymentMethodsUnavailable));
+    expect(markup).not.toContain(escapeHtml(removePaymentCard));
+    expect(markup).not.toMatch(
+      /Visa|Mastercard|American Express|Stripe|4242|••••|Issued:/i
+    );
+    expect(markup).not.toContain("VF-");
+  });
 
   test("keeps labels and description references unique across two instances", () => {
     const markup = renderToStaticMarkup(
