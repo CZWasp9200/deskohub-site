@@ -131,10 +131,27 @@ jobs:
 
       - run: bun install --frozen-lockfile
 
+      - name: Resolve Workspace Playwright version
+        id: playwright
+        working-directory: apps/deskohub-workspace
+        run: echo "version=$(bun -p 'require("@playwright/test/package.json").version')" >> "$GITHUB_OUTPUT"
+
+      # Restores only the browser downloads; the install step below still
+      # installs Chromium's system packages on every run.
+      - name: Cache Workspace Playwright browsers
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright.outputs.version }}
+
       - name: Install Workspace Playwright Chromium
         working-directory: apps/deskohub-workspace
         run: bun ./node_modules/@playwright/test/cli.js install --with-deps chromium
 
+      # The Workspace test script balances shards with the committed
+      # test-timings.json. --update-timings needs a --timings file in every
+      # package Turborepo passes these arguments to; in the Workspace it
+      # rewrites test-timings.json with this shard's measured durations.
       - name: Run Workspace tests
         env:
           WORKSPACE_TEST_DATABASE_URL: postgresql://workspace:workspace@127.0.0.1:5432/workspace
@@ -142,6 +159,15 @@ jobs:
           bun turbo test
           --filter=./apps/deskohub-workspace
           -- --shard=${{ matrix.shard }}/4
+          --timings=test-timings.json --update-timings
+
+      - name: Upload Workspace test timings
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: workspace-test-timings-shard-${{ matrix.shard }}
+          path: apps/deskohub-workspace/test-timings.json
+          if-no-files-found: error
+          retention-days: 30
 
   test-functional:
     needs:
