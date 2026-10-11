@@ -1,0 +1,29 @@
+engine biome(1.0)
+language js(typescript, jsx)
+
+// `@/env` carries the server environment schema and its administrator,
+// igloohome, and admin API dependencies. Browser modules read the
+// browser-visible environment from `@/client-env` so that graph stays out of
+// client bundles.
+file($name, $body) where {
+  $name <: r".*apps/deskohub-workspace/.*\.(?:ts|tsx)$",
+  or {
+    $name <: r".*apps/deskohub-workspace/instrumentation-client\.ts$",
+    and {
+      $body <: r"(?s).*use client.*",
+      $body <: contains JsDirective() as $directive where {
+        $directive <: r"(?s)^['\"]use client['\"];?$"
+      }
+    }
+  },
+  $body <: contains bubble {
+    JsModuleSource() as $source where {
+      $source <: r"^['\"](?:@/env|(?:\.\.?/)+env)['\"]$",
+      register_diagnostic(
+        span = $source,
+        message = "Browser modules must read the browser-visible environment from `@/client-env`, not the server `@/env`.",
+        severity = "error"
+      )
+    }
+  }
+}

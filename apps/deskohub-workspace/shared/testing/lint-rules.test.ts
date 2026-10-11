@@ -387,6 +387,16 @@ const rules: { name: string; diagnostic: string; module: string; cases: Row[] }[
     ],
   },
   {
+    name: "no-server-env-in-client-modules", diagnostic: "Browser modules must read the browser-visible environment from `@/client-env`",
+    module: "apps/deskohub-workspace/features/cookie-consent/components/posthog-analytics.tsx",
+    cases: [
+      ["rejects the server environment in a client component", '"use client";\nimport { env } from "@/env";\nexport { env };\n', true],
+      ["rejects a relative server environment import in the client instrumentation", 'import { env } from "./env";\nexport { env };\n', true, "apps/deskohub-workspace/instrumentation-client.ts"],
+      ["permits the client environment in a client component", '"use client";\nimport { clientEnv } from "@/client-env";\nexport { clientEnv };\n', false],
+      ["permits the server environment in a server module", 'import { env } from "@/env";\nexport { env };\n', false, "apps/deskohub-workspace/app/[locale]/layout.tsx"],
+    ],
+  },
+  {
     name: "connectionless Better Auth options", diagnostic: "Keep the Better Auth options connectionless",
     module: authOptions,
     cases: [

@@ -23,8 +23,8 @@ process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN = "phc_test";
 process.env.NEXT_PUBLIC_POSTHOG_HOST = "https://posthog.example";
 let posthogHost = "https://posthog.example";
 
-mock.module("@/env", () => ({
-  env: {
+mock.module("@/client-env", () => ({
+  clientEnv: {
     get NEXT_PUBLIC_POSTHOG_HOST() {
       return posthogHost;
     },
