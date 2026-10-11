@@ -293,6 +293,8 @@ const rules: { name: string; diagnostic: string; module: string; cases: Row[] }[
     module: `${reservations}/reservation.service.ts`,
     cases: [
       ["rejects a LiveWithDependencies static member", 'export class ReservationLayers {\n  static LiveWithDependencies = Layer.empty;\n}\n', true],
+      ["rejects a LiveWithDependencies binding", "export const LiveWithDependencies = 1;\n", true],
+      ["rejects a LiveWithDependencies type", "export type LiveWithDependencies = string;\n", true],
       ["rejects reading a LiveWithDependencies member", "export const layer = ReservationService.LiveWithDependencies;\n", true],
       ["permits a Live member", "export const layer = ReservationService.Live;\n", false],
     ],

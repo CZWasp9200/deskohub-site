@@ -41,7 +41,9 @@ file($name, $body) where {
       $body <: contains bubble or {
         JsName() as $obsolete,
         JsLiteralMemberName() as $obsolete,
-        JsReferenceIdentifier() as $obsolete
+        JsReferenceIdentifier() as $obsolete,
+        JsIdentifierBinding() as $obsolete,
+        TsIdentifierBinding() as $obsolete
       } where {
         $obsolete <: r"^LiveWithDependencies$",
         register_diagnostic(
