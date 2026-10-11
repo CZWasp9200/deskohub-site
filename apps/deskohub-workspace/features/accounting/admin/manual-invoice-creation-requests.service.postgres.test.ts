@@ -5,6 +5,7 @@ import { AdministrationInvoiceCreateInput } from "@deskohub/workspace-admin-api"
 import { Deferred, Effect, Fiber, Layer, Schema } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { invoiceIdSchema } from "@/features/accounting/manual-invoice";
+import { waitForAdvisoryLockWaiter } from "@/shared/testing/workspace-postgres-lock-waiters.test-utils";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import { AccountingSnapshotKeyService } from "../backend/accounting-snapshot-key.service";
 import { getManualInvoiceCreationRequestJson } from "./invoice-administration.service";
@@ -51,27 +52,6 @@ const customerDetails = {
     country: "CZ",
   },
 } as const;
-
-const waitForCreationLockWaiter = async (invoiceId: string) => {
-  const deadline = Date.now() + 5_000;
-  while (Date.now() < deadline) {
-    const waiting = await testDatabase!.pool.query(
-      `
-        select 1
-        from pg_locks
-        where locktype = 'advisory'
-          and not granted
-          and classid::bigint = (hashtext($1)::bigint & 4294967295)
-          and objid::bigint = (hashtext($2)::bigint & 4294967295)
-          and objsubid = 2
-      `,
-      ["manual-invoice-creation", invoiceId]
-    );
-    if (waiting.rows.length > 0) return;
-    await Bun.sleep(10);
-  }
-  throw new Error("Timed out waiting for the creation lock waiter.");
-};
 
 describe.skipIf(!testDatabase)(
   "ManualInvoiceCreationRequests on disposable Postgres",
@@ -148,7 +128,12 @@ describe.skipIf(!testDatabase)(
               Effect.sync(() => events.push("contender"))
             )
           );
-          yield* Effect.promise(() => waitForCreationLockWaiter(invoiceId));
+          yield* Effect.promise(() =>
+            waitForAdvisoryLockWaiter(testDatabase!.pool, [
+              "manual-invoice-creation",
+              invoiceId,
+            ])
+          );
 
           yield* requests.withLock(
             uniqueInvoiceId(),
