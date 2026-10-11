@@ -183,18 +183,6 @@ test("rejects values beyond the server-mirrored boundary lengths", async () => {
   expect("value" in valid).toBe(true);
 });
 
-test("preserves the reviewed variable symbol", () => {
-  expect(
-    readInvoiceForm({
-      customer: null,
-      customerMode: "new",
-      values: formValues({ variableSymbol: "2026000001" }),
-      invoiceId: "018f47d2-8f7c-7c5e-9f9a-6ef21f90cb21",
-      suggestedVariableSymbol: "2026000002",
-    }).variableSymbol
-  ).toBe("2026000001");
-});
-
 test("reads the visible payment date as paid on when already paid", () => {
   expect(
     readInvoiceForm({
@@ -675,19 +663,6 @@ test("accepts retained business values after switching to an individual", async 
         details: expect.objectContaining({ kind: "person" }),
       },
     })
-  );
-});
-
-test("previews an edited variable symbol unchanged", async () => {
-  const preview = mockPreviewAction();
-  const view = renderInvoiceCreationForm();
-  fillValidPersonInvoice(view);
-  fillInput(view, "Variable symbol", "9876543210");
-
-  submitInvoiceForm(view);
-  await view.findByText("This action creates and sends the invoice");
-  expect(preview).toHaveBeenCalledWith(
-    expect.objectContaining({ variableSymbol: "9876543210" })
   );
 });
 

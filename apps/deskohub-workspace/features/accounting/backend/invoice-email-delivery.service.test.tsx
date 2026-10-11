@@ -15,6 +15,7 @@ import {
   EmailServiceTag,
 } from "@deskohub/email/backend/service";
 import { Effect, Layer, Schema } from "effect";
+import type { InvoiceDeliveryEmailProps } from "@/emails/invoice-delivery";
 import {
   type AccountingDocumentSnapshot,
   accountingDocumentSnapshotSchema,
@@ -25,6 +26,7 @@ import {
   makeTestManualInvoiceDocument,
 } from "@/features/accounting/invoice.test-utils";
 import type { InvoiceEmailDeliveryAudience } from "@/features/accounting/invoice-email-delivery";
+import { m } from "@/features/i18n";
 import * as emailRendering from "@/shared/backend/email/render-react-email";
 import { AccountingDocumentSnapshotRepository } from "./accounting-document-snapshot.repository";
 import {
@@ -42,9 +44,23 @@ import * as invoicePdf from "./invoice-pdf";
 
 mock.module("server-only", () => ({}));
 
-// The spies record executed renders; constructing a lazy render Effect does no work.
-const renderInvoicePdf = mock(invoicePdf.renderInvoicePdf);
-const renderWorkspaceEmail = mock(emailRendering.renderWorkspaceEmail);
+// Orchestration tests stub both renders; the immutable-PDF test opts into the
+// real PDF render. The spies record executed renders; constructing a lazy
+// render Effect does no work.
+const renderRealInvoicePdf = invoicePdf.renderInvoicePdf;
+const stubInvoicePdf = Buffer.from("stub invoice pdf");
+const renderStubInvoicePdf = (
+  ..._args: Parameters<typeof invoicePdf.renderInvoicePdf>
+): ReturnType<typeof invoicePdf.renderInvoicePdf> =>
+  Effect.succeed(stubInvoicePdf);
+const renderStubEmail = (
+  email: Parameters<typeof emailRendering.renderWorkspaceEmail>[0]
+): ReturnType<typeof emailRendering.renderWorkspaceEmail> => {
+  const { body } = email.props as InvoiceDeliveryEmailProps;
+  return Effect.succeed({ html: body, text: body });
+};
+const renderInvoicePdf = mock(renderStubInvoicePdf);
+const renderWorkspaceEmail = mock(renderStubEmail);
 mock.module("./invoice-pdf", () => ({
   ...invoicePdf,
   renderInvoicePdf: (...args: Parameters<typeof invoicePdf.renderInvoicePdf>) =>
@@ -58,8 +74,10 @@ mock.module("@/shared/backend/email/render-react-email", () => ({
 }));
 
 beforeEach(() => {
-  renderInvoicePdf.mockClear();
-  renderWorkspaceEmail.mockClear();
+  renderInvoicePdf.mockReset();
+  renderInvoicePdf.mockImplementation(renderStubInvoicePdf);
+  renderWorkspaceEmail.mockReset();
+  renderWorkspaceEmail.mockImplementation(renderStubEmail);
 });
 
 const document = makeCoworkInvoiceDocument("en-US");
@@ -104,6 +122,7 @@ describe("invoice email delivery", () => {
   test("sends the same immutable PDF to the frozen recipient and internal copy", async () => {
     const sentMessages: EmailMessage[] = [];
     const harness = makeHarness({ sentMessages });
+    renderInvoicePdf.mockImplementation(renderRealInvoicePdf);
 
     const result = await runDelivery(harness);
 
@@ -377,10 +396,12 @@ describe("invoice email delivery", () => {
       manualInvoice.id
     );
 
-    expect(sentMessages[0]?.html).toContain(
-      `Invoice ${manualInvoice.invoiceNumber} is attached.`
+    expect(sentMessages[0]?.html).toBe(
+      m.invoiceManualEmailBody(
+        { invoiceNumber: manualInvoice.invoiceNumber },
+        { locale: "en-US" }
+      )
     );
-    expect(sentMessages[0]?.html).not.toContain("with payment details");
   });
 
   test("does not request payment in the email for a non-positive manual invoice", async () => {
@@ -401,10 +422,12 @@ describe("invoice email delivery", () => {
       manualInvoice.id
     );
 
-    expect(sentMessages[0]?.html).toContain(
-      `Invoice ${manualInvoice.invoiceNumber} is attached.`
+    expect(sentMessages[0]?.html).toBe(
+      m.invoiceManualEmailBody(
+        { invoiceNumber: manualInvoice.invoiceNumber },
+        { locale: "en-US" }
+      )
     );
-    expect(sentMessages[0]?.html).not.toContain("with payment details");
   });
 });
 
