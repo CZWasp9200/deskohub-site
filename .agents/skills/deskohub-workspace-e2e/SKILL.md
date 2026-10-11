@@ -302,9 +302,20 @@ Distinguish automated-runner behavior from manual procedures before treating a d
   then fail at once with a strict-mode violation. Section selection
   therefore waits for the target panel's always-rendered anchor to carry
   React props before the native click; legal has no anchor because it renders
-  only when active. Profile navigation failures keep only the closed
-  diagnostic code and never attach the Playwright cause, which can contain
-  private profile values.
+  only when active. Profile navigation failures never attach the Playwright
+  cause, which can contain private profile values; they keep the closed
+  diagnostic code and name only the section selection stage and the failure
+  kind (`timeout`, `strict-mode-violation`, or `error`) in the message.
+- Never wait on an element handle pinned before a streamed reveal. React's
+  `$RC` script defers the swap of a streamed Suspense boundary to a later
+  animation frame or timer (up to 300 ms), so it can land after the document
+  `load` event. Until then `/account` shows the layout's loading shell, whose
+  disabled section buttons carry the same accessible names as the real ones.
+  The swap removes those nodes, and a handle pinned to one never gains React
+  props. Runs 38172035885 and 38148167011 timed out this way after a reload
+  (`account_profile_persisted_profile_handler_wait_failed`, with the hydrated
+  page in the failure snapshot). `waitForReactClickHandler` therefore resolves
+  its locator again whenever the observed node leaves the document.
 - Decorative provider data must never take down a page. The Cloudinary
   Search API rate-limits with HTTP 420, and Preview E2E shares that quota
   with production. In run 37850570880 attempts 5, 10, and 11 the homepage
