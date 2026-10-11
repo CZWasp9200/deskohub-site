@@ -26,6 +26,7 @@ import {
 } from "@/features/accounting/invoice.test-utils";
 import type { InvoiceEmailDeliveryAudience } from "@/features/accounting/invoice-email-delivery";
 import * as emailRendering from "@/shared/backend/email/render-react-email";
+import { workspaceSiteConstants } from "@/shared/utils";
 import { AccountingDocumentSnapshotRepository } from "./accounting-document-snapshot.repository";
 import {
   type IInvoiceRepository,
@@ -121,7 +122,8 @@ describe("invoice email delivery", () => {
       ],
     });
     expect(sentMessages[1]).toMatchObject({
-      to: { email: "delivered+workspace-internal@resend.dev" },
+      // A real customer's internal copy reaches the real mailbox.
+      to: { email: workspaceSiteConstants.contact.infoEmail },
       subject: `[TESTING] Faktura ${document.invoiceNumber}`,
       tags: ["workspace-invoice-internal"],
       idempotencyKey: `workspace-invoice-internal-${invoice.id}`,

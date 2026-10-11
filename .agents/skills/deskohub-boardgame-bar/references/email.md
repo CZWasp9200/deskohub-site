@@ -9,6 +9,10 @@ provider setting.
   provider, which logs it and never sends.
 - All other mail goes to Resend. Without `EMAIL_API_KEY` it fails with
   `EmailDeliveryUnconfiguredError` instead of falling back to Console.
+- Staff notifications follow the submitter: a `resend.dev` submitter's copy
+  goes to `delivered+boardgame-staff@resend.dev` (Console), and every other
+  submission reaches the real contact or reservation mailbox in every
+  environment (`shared/backend/email/staff-email-recipients.ts`).
 
 ## Required Configuration
 

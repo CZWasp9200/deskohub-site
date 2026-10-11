@@ -1,4 +1,8 @@
 export type { EmailProvider } from "./backend/capabilities";
+export {
+  internalRecipientForOrigin,
+  routeEmailMessage,
+} from "./backend/email-routing";
 export { NetworkError } from "./backend/network-error";
 export { ConsoleEmailProviderLive } from "./backend/providers/console-provider";
 export { ResendEmailProviderLive } from "./backend/providers/resend-provider";

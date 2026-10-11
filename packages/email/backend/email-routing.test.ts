@@ -14,8 +14,12 @@ mock.module("resend", () => ({
   },
 }));
 
-const { isTestEmailRecipient, RoutedEmailProviderLive, routeEmailMessage } =
-  await import("./email-routing");
+const {
+  internalRecipientForOrigin,
+  isTestEmailRecipient,
+  RoutedEmailProviderLive,
+  routeEmailMessage,
+} = await import("./email-routing");
 const { EmailConfigTag, EmailProviderTag } = await import("./capabilities");
 
 beforeEach(() => {
@@ -93,6 +97,25 @@ describe("routeEmailMessage", () => {
     );
     expect(routeEmailMessage({ to: testRecipient, bcc: [realRecipient] })).toBe(
       "resend"
+    );
+  });
+});
+
+describe("internalRecipientForOrigin", () => {
+  const mailboxes = {
+    real: { email: "info@example.test", name: "Staff" },
+    test: { email: "delivered+staff@resend.dev", name: "Staff" },
+  };
+
+  test("keeps staff copies of test-recipient requests on the test mailbox", () => {
+    expect(internalRecipientForOrigin(testRecipient.email, mailboxes)).toBe(
+      mailboxes.test
+    );
+  });
+
+  test("sends staff copies of real requests to the real mailbox", () => {
+    expect(internalRecipientForOrigin(realRecipient.email, mailboxes)).toBe(
+      mailboxes.real
     );
   });
 });

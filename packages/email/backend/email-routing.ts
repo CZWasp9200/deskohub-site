@@ -42,6 +42,18 @@ export const routeEmailMessage = (
     : "resend";
 
 /**
+ * Staff copies follow the provenance of the request that triggered them: a
+ * test-recipient origin addresses the test mailbox, so automated runs never
+ * reach staff, and every other origin reaches the real mailbox in every
+ * environment.
+ */
+export const internalRecipientForOrigin = (
+  originEmail: string,
+  mailboxes: { readonly real: EmailRecipient; readonly test: EmailRecipient }
+): EmailRecipient =>
+  isTestEmailRecipient(originEmail) ? mailboxes.test : mailboxes.real;
+
+/**
  * Routes each message by its recipients. A missing Resend key fails only the
  * messages that need Resend, so test mail keeps working without credentials.
  */

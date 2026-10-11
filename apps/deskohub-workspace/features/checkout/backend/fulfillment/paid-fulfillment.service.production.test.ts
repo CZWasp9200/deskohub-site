@@ -147,6 +147,107 @@ describe("WorkspacePaidFulfillmentService production email acceptance", () => {
     expect(processInvoice).not.toHaveBeenCalled();
   });
 
+  test("completes a synthetic booking on Console acceptance without awaiting a webhook", async () => {
+    const order = {
+      id: "reservation-id",
+      activePaymentAttemptId: "payment-attempt-id",
+      paymentState: "paid",
+      fulfillmentState: "not_started",
+    };
+    const claimed = {
+      ...order,
+      reservationState: "confirmed",
+      fulfillmentState: "processing",
+      dotyposReservationId: "dotypos-reservation-id",
+      dotyposCustomerId: "dotypos-customer-id",
+    };
+    const emailReservation = {
+      ...claimed,
+      reservationDetails: {
+        kind: "cowork",
+        entryTier: "basic",
+        coffee: false,
+      },
+      customer: { email: "delivered+cowork-basic-1@resend.dev" },
+      reservedFrom: Temporal.Instant.from("2026-07-01T08:00:00.000Z"),
+      reservedUntil: Temporal.Instant.from("2026-07-02T08:00:00.000Z"),
+      tableName: "12",
+    };
+    const customerEmailDeliveryId = EmailDeliveryIdSchema.make(
+      "console-production-email-delivery"
+    );
+    const sendPaidReservationEmails = mock(() =>
+      Effect.succeed(customerEmailDeliveryId)
+    );
+    const markAwaitingCustomerEmailDelivery = mock(() =>
+      Effect.die("Console acceptance must not await a webhook")
+    );
+    const markFulfilled = mock(() => Effect.void);
+    const processInvoice = mock(() => Effect.void);
+
+    const result = await Effect.gen(function* () {
+      const service = yield* WorkspacePaidFulfillmentService;
+      return yield* service
+        .fulfillPaidOrder({ orderId: "reservation-id" })
+        .pipe(Effect.result);
+    }).pipe(
+      Effect.provide(
+        WorkspacePaidFulfillmentService.Default.pipe(
+          Layer.provide(
+            Layer.mergeAll(
+              Layer.mock(WorkspaceReservationRepository, {
+                findById: mock(() => Effect.succeed(order as never)),
+                claimPaidFulfillment: mock(() =>
+                  Effect.succeed(claimed as never)
+                ),
+                markAwaitingCustomerEmailDelivery,
+                markFulfilled,
+                markFulfillmentFailed: mock(() =>
+                  Effect.die("production acceptance must not fail fulfillment")
+                ),
+              }),
+              Layer.mock(DotyposService, {}),
+              Layer.mock(WorkspaceReservationService, {
+                getReservation: mock(() =>
+                  Effect.succeed(emailReservation as never)
+                ),
+              } satisfies IWorkspaceReservationService),
+              Layer.mock(WorkspaceReservationEmailService, {
+                sendPaidReservationEmails,
+              } satisfies IWorkspaceReservationEmailService),
+              Layer.mock(WorkspaceCheckoutAccessCodeService, {
+                resolveCustomerAccessCode: mock(() =>
+                  Effect.succeed("access-code")
+                ),
+              }),
+              Layer.mock(PostHogEventService, {
+                capture: mock(() => Effect.void),
+              }),
+              Layer.mock(ReservationInvoiceService, {
+                processByPaymentAttemptId: processInvoice,
+              })
+            )
+          )
+        )
+      ),
+      Effect.runPromise
+    );
+
+    const { env: productionEnv } = await import("@/env");
+    expect(productionEnv.VERCEL_ENV).toBe("production");
+    expect(result._tag).toBe("Success");
+    expect(sendPaidReservationEmails).toHaveBeenCalledWith({
+      reservation: emailReservation,
+      customerEmailIdempotencyKey:
+        "workspace-paid-reservation-access-reservation-id",
+    });
+    expect(markAwaitingCustomerEmailDelivery).not.toHaveBeenCalled();
+    expect(markFulfilled).toHaveBeenCalledTimes(1);
+    expect(processInvoice).toHaveBeenCalledWith({
+      paymentAttemptId: "payment-attempt-id",
+    });
+  });
+
   test("retries a bounced delivery with a fresh idempotency key and attaches the new send", async () => {
     const priorDeliveryId = EmailDeliveryIdSchema.make(
       "bounced-customer-email-delivery"

@@ -39,7 +39,7 @@ import {
 import { getWorkspaceRuntimeCallbackOrigin } from "@/shared/backend/config/workspace-url.config";
 import { renderWorkspaceEmail } from "@/shared/backend/email/render-react-email";
 import {
-  internalWorkspaceEmailRecipient,
+  internalWorkspaceEmailRecipientFor,
   workspaceEmailRecipient,
 } from "@/shared/backend/email/workspace-email-recipients";
 import {
@@ -657,7 +657,7 @@ export class WorkspaceReservationEmailService extends Context.Service<
             );
             const internalMessage: EmailMessage = {
               from: emailConfig.defaultFrom,
-              to: internalWorkspaceEmailRecipient,
+              to: internalWorkspaceEmailRecipientFor(customerEmail),
               replyTo: { email: customerEmail, name: customerName },
               subject: createInternalReservationSubject(reservation),
               html: renderedInternalEmail.html,

@@ -17,7 +17,7 @@ import { m } from "@/features/i18n";
 import { EmailConfigLayer } from "@/shared/backend/config/email.config";
 import { renderWorkspaceEmail } from "@/shared/backend/email/render-react-email";
 import {
-  internalWorkspaceEmailRecipient,
+  internalWorkspaceEmailRecipientFor,
   workspaceEmailRecipient,
 } from "@/shared/backend/email/workspace-email-recipients";
 import { censorLogValue } from "@/shared/backend/logging/censorship";
@@ -389,7 +389,7 @@ export class InvoiceEmailDeliveryService extends Context.Service<
         const internal = yield* deliverAudience({
           invoice: delivery.invoice,
           audience: "internal",
-          recipient: internalWorkspaceEmailRecipient,
+          recipient: internalWorkspaceEmailRecipientFor(delivery.recipient),
           renderPdf: delivery.renderPdf,
         }).pipe(settleDelivery);
 

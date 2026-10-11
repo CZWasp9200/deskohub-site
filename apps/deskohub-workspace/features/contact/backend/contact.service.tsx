@@ -11,7 +11,7 @@ import { env } from "@/env";
 import { type Locale, m } from "@/features/i18n";
 import { renderWorkspaceEmail } from "@/shared/backend/email/render-react-email";
 import {
-  internalWorkspaceEmailRecipient,
+  internalWorkspaceEmailRecipientFor,
   workspaceEmailRecipient,
 } from "@/shared/backend/email/workspace-email-recipients";
 import { StorageError } from "@/shared/backend/errors";
@@ -146,7 +146,7 @@ export class ContactService extends Context.Service<
             );
             const businessEmailMessage: EmailMessage = {
               from: emailConfig.defaultFrom,
-              to: internalWorkspaceEmailRecipient,
+              to: internalWorkspaceEmailRecipientFor(data.email),
               subject: businessSubject,
               html: businessEmail.html,
               text: businessEmail.text,

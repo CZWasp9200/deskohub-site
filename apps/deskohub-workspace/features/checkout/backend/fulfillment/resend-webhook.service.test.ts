@@ -1304,7 +1304,7 @@ describe("ResendWebhookService", () => {
     }
     const internalLocale = "cs-CZ";
     expect(internalEmail.to).toEqual({
-      email: "delivered+workspace-internal@resend.dev",
+      email: workspaceSiteConstants.contact.infoEmail,
       name: workspaceSiteConstants.brand.name,
     });
     expect(internalEmail.subject).toBe(

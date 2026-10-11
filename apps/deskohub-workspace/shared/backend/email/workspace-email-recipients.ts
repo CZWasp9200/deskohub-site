@@ -1,5 +1,7 @@
-import type { EmailRecipient } from "@deskohub/email";
-import { env } from "@/env";
+import {
+  type EmailRecipient,
+  internalRecipientForOrigin,
+} from "@deskohub/email";
 import { workspaceSiteConstants } from "@/shared/utils";
 
 export const workspaceEmailRecipient: EmailRecipient = {
@@ -7,10 +9,16 @@ export const workspaceEmailRecipient: EmailRecipient = {
   name: workspaceSiteConstants.brand.name,
 };
 
-export const internalWorkspaceEmailRecipient: EmailRecipient =
-  env.VERCEL_ENV === "production"
-    ? workspaceEmailRecipient
-    : {
-        email: "delivered+workspace-internal@resend.dev",
-        name: workspaceSiteConstants.brand.name,
-      };
+const testInternalWorkspaceEmailRecipient: EmailRecipient = {
+  email: "delivered+workspace-internal@resend.dev",
+  name: workspaceSiteConstants.brand.name,
+};
+
+/** Staff copy of mail triggered by the customer or submitter at `originEmail`. */
+export const internalWorkspaceEmailRecipientFor = (
+  originEmail: string
+): EmailRecipient =>
+  internalRecipientForOrigin(originEmail, {
+    real: workspaceEmailRecipient,
+    test: testInternalWorkspaceEmailRecipient,
+  });
