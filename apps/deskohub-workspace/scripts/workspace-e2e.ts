@@ -7,7 +7,11 @@ import {
   toPlaywrightEnvironment,
 } from "../e2e/e2e-env";
 import { formatWorkspaceE2EFailure, workspaceE2EError } from "../e2e/errors";
-import { runWorkspacePlaywrightSuites } from "../e2e/playwright-runner";
+import { hasWorkspaceE2ERunContext } from "../e2e/playwright-checkout/run-context";
+import {
+  runWorkspacePlaywrightSuites,
+  workspacePlaywrightProcessEnvironment,
+} from "../e2e/playwright-runner";
 import { workspaceDir } from "../e2e/runtime";
 import {
   E2ERunContextService,
@@ -57,11 +61,14 @@ const runPlaywright = Effect.gen(function* () {
           ["bunx", "playwright", "test", "--config", config, ...options],
           {
             cwd: workspaceDir,
-            env: {
-              ...playwrightEnvironment,
-              WORKSPACE_E2E_RUN_CONTEXT: JSON.stringify(runContext),
-              WORKSPACE_E2E_TRACE_PARENT: `00-${span.traceId}-${span.spanId}-${span.sampled ? "01" : "00"}`,
-            },
+            env: workspacePlaywrightProcessEnvironment({
+              config,
+              environment: {
+                ...playwrightEnvironment,
+                WORKSPACE_E2E_RUN_CONTEXT: JSON.stringify(runContext),
+                WORKSPACE_E2E_TRACE_PARENT: `00-${span.traceId}-${span.spanId}-${span.sampled ? "01" : "00"}`,
+              },
+            }),
             stderr: "inherit",
             stdin: "inherit",
             stdout: "inherit",
@@ -82,6 +89,7 @@ const runPlaywright = Effect.gen(function* () {
                   ]
                 : []
             ),
+          hasCheckoutRunContext: hasWorkspaceE2ERunContext,
           instantNavigation: () =>
             spawnPlaywright("playwright.instant-navigation.config.ts"),
         })
@@ -105,7 +113,11 @@ const runPlaywright = Effect.gen(function* () {
         });
       }
       const result = checkout.value;
-      if (result.cleanupCouldNotStart) {
+      if (result.cleanupSkippedWithoutRunContext) {
+        process.stderr.write(
+          "Workspace E2E cleanup-only project skipped: the main suite failed before setup recorded its run context, so it leased and seeded nothing.\n"
+        );
+      } else if (result.cleanupCouldNotStart) {
         process.stderr.write(
           "Workspace E2E cleanup-only project could not start after the main suite failed.\n"
         );
