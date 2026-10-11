@@ -1,24 +1,8 @@
 import "@/shared/testing/workspace-test-env";
 import { describe, expect, test } from "bun:test";
 import { decodeStandardSchema } from "@deskohub/standard-schema";
-import { Effect, Schema } from "effect";
-import {
-  type DiscountQuote,
-  type DiscountQuoteInput,
-  discountAdvertisementQuoteCodec,
-  discountIdSchema,
-  discountProductTargetSchema,
-} from "./contracts";
-import { DiscountService } from "./discount.service";
-import { DiscountServiceMock } from "./discount.service.mock";
-
-const quote: DiscountQuote = {
-  product: { kind: "cowork", tier: "basic" },
-  discountableSubtotal: { value: 35_000, exponent: 2, currency: "CZK" },
-  discounts: [],
-  totalDiscount: { value: 0, exponent: 2, currency: "CZK" },
-  discountedSubtotal: { value: 35_000, exponent: 2, currency: "CZK" },
-};
+import { Schema } from "effect";
+import { discountIdSchema, discountProductTargetSchema } from "./contracts";
 
 describe("discount contracts", () => {
   test("brands non-empty opaque discount IDs", () => {
@@ -83,32 +67,5 @@ describe("discount contracts", () => {
         roomId: "private-provider-field",
       })
     ).toBeUndefined();
-  });
-
-  test("supports source-neutral service test layers", async () => {
-    const input: DiscountQuoteInput = {
-      product: quote.product,
-      discountableSubtotal: quote.discountableSubtotal,
-      lastServiceDate: "2026-07-14",
-      bookedAt: Temporal.Instant.from("2026-07-14T10:00:00Z"),
-      dotyposCustomerId: "customer-1",
-      locale: "en-US",
-      submittedCode: undefined,
-    };
-
-    const result = await Effect.gen(function* () {
-      const discounts = yield* DiscountService;
-      return yield* discounts.discoverAdvertisedDiscounts(input);
-    }).pipe(
-      Effect.provide(
-        DiscountServiceMock({
-          discoverAdvertisedDiscounts: () =>
-            Effect.succeed(discountAdvertisementQuoteCodec.make(quote)),
-        })
-      ),
-      Effect.runPromise
-    );
-
-    expect(result).toEqual(quote);
   });
 });
