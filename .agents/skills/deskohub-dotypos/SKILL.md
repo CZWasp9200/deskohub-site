@@ -24,6 +24,7 @@ Do not add a parallel hand-written response decoder when the contract can be gen
 ## Request timeouts
 
 - Prefer waiting for a slow Dotypos answer over failing the flow. The per-request timeout defaults to `dotyposApiTimeoutDefaultMilliseconds` (30 seconds, `@deskohub/dotypos/api-timeout`), and E2E uses the same value. A budget that wraps a Dotypos call, such as an E2E finalizer, must leave room for at least one full per-request timeout.
+- A page whose route `maxDuration` is shorter than the per-request timeout plus retries caps its own Dotypos reads with `Effect.timeoutOrElse` and renders a degraded state instead. The checkout status and reservation access pages (`maxDuration = 30`) cap theirs at 8 seconds, which leaves time for the database, Igloohome issuance and rendering. Keep the shared default unchanged for these pages.
 
 ## Customer records
 
