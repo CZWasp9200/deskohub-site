@@ -384,8 +384,13 @@ describe("WorkspacePaidFulfillmentService", () => {
         "workspace-paid-reservation-access-reservation-id",
     });
     expect(runs.second._tag).toBe("Success");
+    // The recovered send supersedes the bounced one, so a stale webhook for
+    // the prior delivery can no longer match the fulfilled reservation.
     expect(markFulfilled).toHaveBeenCalledWith(
-      expect.objectContaining({ id: "reservation-id" })
+      expect.objectContaining({
+        id: "reservation-id",
+        customerEmailDeliveryId: "recovered-delivery",
+      })
     );
   });
 

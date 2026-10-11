@@ -352,6 +352,40 @@ describe("WorkspaceReservationRepository", () => {
     expect(sql).not.toContain("<=");
   });
 
+  test("replaces a superseded delivery ID on fulfillment so a stale failure webhook cannot match", async () => {
+    const { recording, repository } = await makeRepository();
+    recording.setRows([[["reservation-1"]]]);
+
+    await Effect.runPromise(
+      repository.markFulfilled({
+        id: "reservation-1" as never,
+        fulfilledAt: now,
+        customerEmailDeliveryId: "console-recovered-delivery" as never,
+      })
+    );
+
+    const completion = recording.statements[0];
+    expect(completion.sql).toContain('"active_customer_email_delivery_id" = $');
+    expect(completion.params).toContain("console-recovered-delivery");
+    expect(completion.params).not.toContain("prior-resend-delivery");
+
+    recording.setRows([[]]);
+    const stale = await Effect.runPromise(
+      repository.markCustomerEmailDeliveryFailed({
+        customerEmailDeliveryId: "prior-resend-delivery" as never,
+        failureCode: "fulfillment_email_failed",
+        failedAt: now.add({ minutes: 1 }),
+      })
+    );
+
+    // A failure webhook only matches the stored delivery ID, which the
+    // completion above replaced; the stale event updates nothing.
+    expect(stale).toBeNull();
+    const failure = recording.statements[1];
+    expect(failure.sql).toContain('"active_customer_email_delivery_id" = $');
+    expect(failure.params).toContain("prior-resend-delivery");
+  });
+
   test("keeps markFulfilled restricted to processing fulfillment", async () => {
     const { recording, repository } = await makeRepository();
     recording.setRows([[]]);
@@ -361,6 +395,7 @@ describe("WorkspaceReservationRepository", () => {
         repository.markFulfilled({
           id: "reservation-1" as never,
           fulfilledAt: now,
+          customerEmailDeliveryId: "delivery-1" as never,
         })
       )
     );

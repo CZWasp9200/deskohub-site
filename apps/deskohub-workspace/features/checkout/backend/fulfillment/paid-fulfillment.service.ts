@@ -437,6 +437,7 @@ export class WorkspacePaidFulfillmentService extends Context.Service<
               yield* reservations.markFulfilled({
                 id: claimed.id,
                 fulfilledAt: Temporal.Now.instant(),
+                customerEmailDeliveryId,
               });
               yield* processReservationInvoice(claimed);
               yield* Effect.logInfo(

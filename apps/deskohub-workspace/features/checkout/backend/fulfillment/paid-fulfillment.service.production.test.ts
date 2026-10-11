@@ -242,7 +242,12 @@ describe("WorkspacePaidFulfillmentService production email acceptance", () => {
         "workspace-paid-reservation-access-reservation-id",
     });
     expect(markAwaitingCustomerEmailDelivery).not.toHaveBeenCalled();
-    expect(markFulfilled).toHaveBeenCalledTimes(1);
+    expect(markFulfilled).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "reservation-id",
+        customerEmailDeliveryId,
+      })
+    );
     expect(processInvoice).toHaveBeenCalledWith({
       paymentAttemptId: "payment-attempt-id",
     });
