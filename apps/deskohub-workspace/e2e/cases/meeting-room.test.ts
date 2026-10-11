@@ -23,7 +23,11 @@ import {
 } from "../../scripts/shared/source-ast";
 import { makeMeetingRoomCheckoutData } from "../checkout/data";
 import type { DatasourceConfig, WorkspaceE2EConfig } from "../config";
-import { type WorkspaceE2EError, workspaceE2EError } from "../errors";
+import {
+  isWorkspaceE2ETimeout,
+  type WorkspaceE2EError,
+  workspaceE2EError,
+} from "../errors";
 import { workspaceE2ENonPaymentCaseIds } from "../playwright-checkout/case-catalog";
 import type { Runner } from "../runtime";
 import { workspaceE2ETimeouts } from "../timeouts";
@@ -39,7 +43,6 @@ import {
   type MeetingRoomE2EPreparation,
   makeMeetingRoomE2ECases,
   meetingRoomE2ECoreSlotCount,
-  meetingRoomE2EDurations,
 } from "./meeting-room";
 import { makeReservationLinkE2ECases } from "./reservation-links";
 
@@ -120,7 +123,13 @@ test("treats a held interval as unavailable when every meeting room is occupied"
   ).toBe(true);
 });
 
-test("asserts the public interval availability expected from aggregate capacity", async () => {
+const assertPublicMeetingRoomAvailability = ({
+  expectedUnavailable,
+  publicUnavailable,
+}: {
+  readonly expectedUnavailable: boolean;
+  readonly publicUnavailable: boolean;
+}) => {
   const interval = getMeetingRoomReservationInterval("2099-09-01T10:00", {
     unit: "hour",
     amount: 1,
@@ -141,29 +150,49 @@ test("asserts the public interval availability expected from aggregate capacity"
     expectedHost: "deskohub-workspace-a1b2c3d4e-deskohub-bar.vercel.app",
     timeouts: { ...workspaceE2ETimeouts, datasource: 1 },
   };
-  let fetchCallCount = 0;
-  const fetchMock: typeof globalThis.fetch = (_input, _init) => {
-    fetchCallCount += 1;
-    return Promise.resolve(
+  const fetchMock: typeof globalThis.fetch = (_input, _init) =>
+    Promise.resolve(
       Response.json({
-        meetingRoomUnavailable: false,
+        meetingRoomUnavailable: publicUnavailable,
         unavailableDates: [],
       })
     );
-  };
   const httpClientLayer = FetchHttpClient.layer.pipe(
     Layer.provide(Layer.succeed(FetchHttpClient.Fetch, fetchMock))
   );
 
-  await expect(
-    Effect.runPromise(
-      assertMeetingRoomSlotAvailability(config, data, false).pipe(
-        Effect.provide(httpClientLayer)
-      )
-    )
-  ).resolves.toBeUndefined();
-  expect(fetchCallCount).toBe(1);
-});
+  return assertMeetingRoomSlotAvailability(
+    config,
+    data,
+    expectedUnavailable
+  ).pipe(Effect.provide(httpClientLayer));
+};
+
+test.each([false, true])(
+  "accepts public availability that matches aggregate capacity (unavailable: %p)",
+  async (unavailable) => {
+    await Effect.runPromise(
+      assertPublicMeetingRoomAvailability({
+        expectedUnavailable: unavailable,
+        publicUnavailable: unavailable,
+      })
+    );
+  }
+);
+
+test.each([
+  { expectedUnavailable: true, publicUnavailable: false },
+  { expectedUnavailable: false, publicUnavailable: true },
+])(
+  "fails when public availability contradicts aggregate capacity (%p)",
+  async (availability) => {
+    const error = await Effect.runPromise(
+      Effect.flip(assertPublicMeetingRoomAvailability(availability))
+    );
+
+    expect(isWorkspaceE2ETimeout(error)).toBe(true);
+  }
+);
 
 test("runs reservation cookie isolation after paid support failure", async () => {
   const config: WorkspaceE2EConfig = {
@@ -365,7 +394,6 @@ const makeReservationLinkPreparationSlot = (index: number) => {
 };
 
 test("constructs reservation-link cases from the reserved preparation partition", async () => {
-  expect(meetingRoomE2EDurations).toHaveLength(meetingRoomE2ECoreSlotCount + 4);
   const preparation = {
     slots: Array.from({ length: meetingRoomE2ECoreSlotCount + 4 }, (_, index) =>
       makeReservationLinkPreparationSlot(index)

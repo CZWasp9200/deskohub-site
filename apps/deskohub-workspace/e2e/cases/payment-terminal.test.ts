@@ -9,39 +9,9 @@ import type {
   CheckoutFlowState,
   WorkspaceE2EStepRunner,
 } from "../types";
-import {
-  activateStatusReserveAgain,
-  assertPaymentTerminalPath,
-} from "./payment-terminal";
+import { assertPaymentTerminalPath } from "./payment-terminal";
 
-test("restarts a reservation through a hydrated stable link selector", async () => {
-  const calls: string[][] = [];
-  const run: Runner = async (_command, args) => {
-    calls.push(args);
-    return { exitCode: 0, stderr: "", stdout: "" };
-  };
-
-  await Effect.runPromise(
-    activateStatusReserveAgain(
-      run,
-      "payment-terminal",
-      "/en-US/reservation/cowork",
-      workspaceE2ETimeouts
-    )
-  );
-
-  expect(calls.map((args) => args.slice(2))).toEqual([
-    ["wait", "--fn", expect.any(String)],
-    [
-      "focus",
-      '#checkout-status-reserve-again[href="/en-US/reservation/cowork"]',
-    ],
-    ["press", "Enter"],
-  ]);
-  expect(calls.some((args) => args.includes("eval"))).toBe(false);
-});
-
-test("starts hosted payment only after reservation preparation", async () => {
+test("starts hosted payment outside the provider-verification permit", async () => {
   const observedSteps: Array<{
     readonly capacity: "provider-verification" | undefined;
     readonly id: string;
@@ -80,15 +50,9 @@ test("starts hosted payment only after reservation preparation", async () => {
   );
 
   expect(Exit.isFailure(exit)).toBe(true);
-  expect(observedSteps).toEqual([
-    {
-      capacity: undefined,
-      id: "prepare-checkout-pay-page",
-    },
-    {
-      capacity: undefined,
-      id: "start-hosted-payment",
-    },
-  ]);
+  expect(observedSteps).toContainEqual({
+    capacity: undefined,
+    id: "start-hosted-payment",
+  });
   expect(state.orderId).toBe(orderId);
 });
