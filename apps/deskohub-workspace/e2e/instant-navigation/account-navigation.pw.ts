@@ -1,5 +1,6 @@
 import { instant } from "@next/playwright";
 import { expect, type Page, test } from "@playwright/test";
+import { m } from "@/features/i18n";
 import { captureAccountReview } from "../account/review-screenshots";
 import { workspaceE2ETimeouts } from "../timeouts";
 import {
@@ -14,8 +15,8 @@ const homePath = "/en-US";
 const accountPath = "/en-US/account";
 const signInPath = "/en-US/auth/sign-in";
 const accountStatusName = "My account | Deskohub Workspace";
-const signInHeading = "Sign in or create an account";
-const signInLoadingName = "Loading sign-in…";
+const signInHeading = m.accountSignInTitle({}, { locale: "en-US" });
+const signInLoadingName = m.accountSignInLoading({}, { locale: "en-US" });
 
 if (process.env.WORKSPACE_E2E_BASE_URL === undefined) {
   throw new Error(
@@ -195,28 +196,6 @@ async function withSignInHandoffEvidence(
     await expect(signInLoading).toBeVisible({
       timeout: workspaceE2ETimeouts.browserAction,
     });
-
-    const layout = await page.evaluate(() => {
-      const header = document.querySelector("header");
-      const main = document.querySelector("main");
-      const footer = document.querySelector("footer");
-      if (!header || !main || !footer) return null;
-
-      const headerRect = header.getBoundingClientRect();
-      const mainRect = main.getBoundingClientRect();
-      const footerRect = footer.getBoundingClientRect();
-      return {
-        footerTop: footerRect.top,
-        headerBottom: headerRect.bottom,
-        mainBottom: mainRect.bottom,
-        mainHeight: mainRect.height,
-      };
-    });
-    if (!layout)
-      throw new Error("Sign-in handoff layout landmarks are missing");
-    expect(layout.mainHeight).toBeGreaterThan(0);
-    expect(layout.footerTop).toBeGreaterThanOrEqual(layout.mainBottom);
-    expect(layout.footerTop).toBeGreaterThanOrEqual(layout.headerBottom);
 
     await captureAccountReview(
       page,

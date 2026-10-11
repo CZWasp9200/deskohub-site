@@ -1,28 +1,18 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { readFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
 import { type Browser, chromium } from "@playwright/test";
-import tailwindcss from "@tailwindcss/postcss";
-import postcss from "postcss";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { playwrightChromiumAvailable } from "@/shared/testing/playwright-browser";
+import { compileWorkspaceAppStyles } from "@/shared/testing/workspace-app-styles.test-utils";
 import { Skeleton } from "./skeleton";
 
-const appDirectory = resolve(import.meta.dir, "../../..");
 const chromiumAvailable = await playwrightChromiumAvailable();
 let browser: Browser | undefined;
 let appStyles = "";
 
 beforeAll(async () => {
   if (!chromiumAvailable) return;
-  const sourceStylesPath = join(appDirectory, "app/globals.css");
-  const sourceStyles = await readFile(sourceStylesPath, "utf8");
-  appStyles = (
-    await postcss([tailwindcss()]).process(sourceStyles, {
-      from: sourceStylesPath,
-    })
-  ).css;
+  appStyles = await compileWorkspaceAppStyles();
 
   browser = await chromium.launch({ headless: true });
 });

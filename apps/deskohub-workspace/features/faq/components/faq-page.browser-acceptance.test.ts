@@ -1,13 +1,11 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { type Browser, chromium, type Locator } from "@playwright/test";
-import tailwindcss from "@tailwindcss/postcss";
-import postcss from "postcss";
 import { playwrightChromiumAvailable } from "@/shared/testing/playwright-browser";
+import { compileWorkspaceAppStyles } from "@/shared/testing/workspace-app-styles.test-utils";
 
-const appDirectory = resolve(import.meta.dir, "../../..");
 const chromiumAvailable = await playwrightChromiumAvailable();
 let browser: Browser | undefined;
 let buildDirectory = "";
@@ -31,13 +29,7 @@ beforeAll(async () => {
   }
   browserBundlePath = join(buildDirectory, "faq-page-harness.js");
 
-  const sourceStylesPath = join(appDirectory, "app/globals.css");
-  const sourceStyles = await readFile(sourceStylesPath, "utf8");
-  appStyles = (
-    await postcss([tailwindcss()]).process(sourceStyles, {
-      from: sourceStylesPath,
-    })
-  ).css;
+  appStyles = await compileWorkspaceAppStyles();
 
   browser = await chromium.launch({ headless: true });
 });
