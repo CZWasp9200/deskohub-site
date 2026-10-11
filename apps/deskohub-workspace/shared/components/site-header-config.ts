@@ -144,7 +144,7 @@ const createSiteHeaderAccountEntry = (
   locale: Locale
 ): SiteHeaderAccountEntry => ({
   label: m.accountNavLabel({}, { locale }),
-  href: isCustomerSignedIn("site-header.account-link").then(
+  href: isCustomerSignedIn().then(
     (signedIn) =>
       signedIn ? getAccountPath(locale) : getAccountSignInPath(locale),
     () => getAccountSignInPath(locale)

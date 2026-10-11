@@ -1617,6 +1617,37 @@ describe("DotyposService reservations", () => {
     ).toHaveLength(1);
   });
 
+  test("reads a reservation without loading its customer", async () => {
+    const fetchMock = mockDotyposFetch((request) => {
+      const url = new URL(request.url);
+      if (url.pathname === "/signin/token") return tokenResponse();
+      if (
+        url.pathname === "/clouds/cloud-id/reservations/reservation-id" &&
+        request.method === "GET"
+      ) {
+        return Response.json(reservation());
+      }
+      return new Response("Not found", { status: 404 });
+    });
+
+    const result = await runWithService(
+      Effect.gen(function* () {
+        const dotypos = yield* DotyposService;
+        return yield* dotypos.getReservationWithoutCustomer(
+          dotyposReservationId("reservation-id")
+        );
+      }),
+      fetchMock
+    );
+
+    expect(result.id).toBe(dotyposReservationId("reservation-id"));
+    expect(
+      fetchMock.mock.calls.filter((call) =>
+        getUrl(call as FetchCall).includes("/customers/")
+      )
+    ).toHaveLength(0);
+  });
+
   test("creates reservations with the generated array payload and retries empty responses", async () => {
     let reservationAttempts = 0;
     const fetchMock = mockDotyposFetch(async (request) => {
