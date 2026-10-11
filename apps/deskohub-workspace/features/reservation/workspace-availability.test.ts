@@ -1,8 +1,13 @@
 import "@/shared/polyfills/temporal";
 
 import { describe, expect, test } from "bun:test";
+import { getCurrentWorkspaceDate } from "./reservation-date";
 import {
+  getCoworkAvailabilityQueries,
   getMeetingRoomAvailabilityQuery,
+  getMeetingRoomSelectionAvailabilityQuery,
+  getOfficeAvailabilityQuery,
+  getWorkspaceAvailabilityRange,
   isCoworkOfferAvailable,
   isMeetingRoomAvailable,
   parseWorkspaceAvailabilityQuery,
@@ -252,6 +257,30 @@ describe("meeting-room availability", () => {
     });
   });
 
+  test("queries the selected start and duration's interval", () => {
+    expect(
+      getMeetingRoomSelectionAvailabilityQuery({
+        duration: "hour:4",
+        startDateTime: "2099-07-30T15:00",
+      })
+    ).toEqual({
+      kind: "meeting-room",
+      from: "2099-07-30",
+      to: "2099-07-30",
+      startsAt: "2099-07-30T13:00:00Z",
+      endsAt: "2099-07-30T17:00:00Z",
+    });
+  });
+
+  test("skips a selection without a valid interval", () => {
+    expect(
+      getMeetingRoomSelectionAvailabilityQuery({
+        duration: "hour:4",
+        startDateTime: "not-a-date",
+      })
+    ).toBeUndefined();
+  });
+
   test("treats a blocked date or a taken room as unavailable", () => {
     const free = { meetingRoomUnavailable: false, unavailableDates: [] };
 
@@ -262,5 +291,100 @@ describe("meeting-room availability", () => {
     expect(
       isMeetingRoomAvailable({ ...free, unavailableDates: ["2099-06-10"] })
     ).toBe(false);
+  });
+});
+
+describe("workspace availability ranges", () => {
+  // 22:30 UTC is already the next day in Prague (CEST, UTC+2).
+  const beforeUtcMidnight = Temporal.Instant.from("2099-07-30T22:30:00Z");
+
+  test("spans six months from the Prague workspace date", () => {
+    const today = getCurrentWorkspaceDate(beforeUtcMidnight).toString();
+
+    expect(today).toBe("2099-07-31");
+    expect(getWorkspaceAvailabilityRange(today)).toEqual({
+      from: "2099-07-31",
+      to: "2100-01-31",
+    });
+  });
+
+  test("matches the default range the availability route parses", () => {
+    const today = getCurrentWorkspaceDate(beforeUtcMidnight).toString();
+    const parsed = parseWorkspaceAvailabilityQuery(
+      new URLSearchParams({ entryTier: "reserved-desk" }),
+      new Date(beforeUtcMidnight.epochMilliseconds)
+    );
+
+    expect(
+      getCoworkAvailabilityQueries({ today, entryTier: "reserved-desk" })
+    ).toEqual({ range: parsed });
+  });
+});
+
+describe("getCoworkAvailabilityQueries", () => {
+  const today = "2099-07-30";
+  const range = { from: "2099-07-30", to: "2100-01-30" };
+
+  test("asks for the tier's calendar range and the selected day alone", () => {
+    expect(
+      getCoworkAvailabilityQueries({
+        today,
+        entryTier: "open-space",
+        date: "2099-08-02",
+        monitorOption: "2x27-qhd",
+      })
+    ).toEqual({
+      range: { kind: "cowork", ...range, entryTier: "open-space" },
+      selection: {
+        kind: "cowork",
+        from: "2099-08-02",
+        to: "2099-08-02",
+        entryTier: "open-space",
+        date: "2099-08-02",
+      },
+    });
+  });
+
+  test("adds the monitor and the bare workstation requirement for a Reserved Desk", () => {
+    const bare = {
+      kind: "cowork" as const,
+      from: "2099-08-02",
+      to: "2099-08-02",
+      entryTier: "reserved-desk" as const,
+      date: "2099-08-02",
+    };
+
+    expect(
+      getCoworkAvailabilityQueries({
+        today,
+        entryTier: "reserved-desk",
+        date: "2099-08-02",
+        monitorOption: "2x32-qhd",
+      })
+    ).toEqual({
+      range: { kind: "cowork", ...range, entryTier: "reserved-desk" },
+      selection: { ...bare, monitorOption: "2x32-qhd" },
+      workstationRequirement: bare,
+    });
+  });
+
+  test("queries nothing for a tier the form cannot book", () => {
+    expect(
+      getCoworkAvailabilityQueries({
+        today,
+        entryTier: "",
+        date: "2099-08-02",
+      })
+    ).toEqual({});
+  });
+});
+
+describe("getOfficeAvailabilityQuery", () => {
+  test("spans the office booking horizon from the workspace date", () => {
+    expect(getOfficeAvailabilityQuery("2099-07-31")).toEqual({
+      kind: "office",
+      from: "2099-07-31",
+      to: "2099-08-31",
+    });
   });
 });

@@ -31,6 +31,7 @@ import {
   type MeetingRoomReservationDuration,
 } from "@/features/reservation/meeting-room-reservation-duration";
 import { getMeetingRoomReservationInterval } from "@/features/reservation/meeting-room-reservation-time";
+import { getMeetingRoomSelectionAvailabilityQuery } from "@/features/reservation/workspace-availability";
 import {
   workspaceUseAction,
   workspaceUseSearchParams,
@@ -270,6 +271,39 @@ describe("MeetingRoomReservationForm", () => {
       )
     ).toHaveLength(1);
     expect(getAdvertisedPrices).not.toHaveBeenCalled();
+  });
+
+  test("renders page-loaded availability on the first paint without a client request", () => {
+    const fetchCalls = mock((_request: RequestInfo | URL) =>
+      Promise.resolve(jsonResponse(availabilityResponse))
+    );
+    globalThis.fetch = fetchCalls as typeof fetch;
+    const query = getMeetingRoomSelectionAvailabilityQuery({
+      duration: "hour:1",
+      startDateTime: "2099-07-30T10:00",
+    });
+    if (!query) throw new Error("Expected a meeting-room availability query");
+
+    const view = renderForm({
+      initialAvailability: [
+        {
+          query,
+          availability: {
+            ...availabilityResponse,
+            meetingRoomUnavailable: true,
+          },
+          loadedAt: Date.now(),
+        },
+      ],
+      initialReservation: undefined,
+      initialValues: {
+        ...meetingRoomReservationDefaultValues,
+        startDateTime: "2099-07-30T10:00",
+      },
+    });
+
+    expect(view.getByText(/meeting room is not available/i)).toBeDefined();
+    expect(fetchCalls).not.toHaveBeenCalled();
   });
 
   test("loads cancellable availability and submits the current advertised reservation", async () => {

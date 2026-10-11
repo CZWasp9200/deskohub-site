@@ -13,6 +13,7 @@ import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import type {
   MeetingRoomWorkspaceAvailabilityQuery,
+  PreloadedWorkspaceAvailability,
   WorkspaceAvailability,
 } from "@/features/reservation/workspace-availability";
 import {
@@ -231,5 +232,85 @@ describe("useReservationAvailability", () => {
     expect(fetch.mock.calls[1]?.[0]).toContain(
       `startsAt=${encodeURIComponent(queryStartingAt(10).startsAt)}`
     );
+  });
+
+  describe("with page-loaded availability", () => {
+    const preloaded = (
+      query: MeetingRoomWorkspaceAvailabilityQuery,
+      loadedAt = Date.now()
+    ): PreloadedWorkspaceAvailability => ({
+      query,
+      availability: availabilityResponse,
+      loadedAt,
+    });
+    const renderPreloaded = (
+      query: MeetingRoomWorkspaceAvailabilityQuery,
+      initialAvailability: ReadonlyArray<PreloadedWorkspaceAvailability>
+    ) =>
+      renderAvailability(query, {
+        initialAvailability,
+        replacementToken: "sealed-replacement",
+      });
+
+    test("renders preloaded availability for a matching query without fetching", () => {
+      const fetch = mockAvailabilityFetch(() => new Promise(() => undefined));
+      const query = queryStartingAt(8);
+
+      const { result } = renderPreloaded(query, [
+        // Key order differs from the query; the query key hash ignores it.
+        preloaded({
+          endsAt: query.endsAt,
+          startsAt: query.startsAt,
+          to: query.to,
+          from: query.from,
+          kind: query.kind,
+        }),
+      ]);
+
+      expect(result.current.isPending).toBe(false);
+      expect(result.current.availability).toEqual(availabilityResponse);
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    test("keeps a fresh page-loaded seed through the initial mount", async () => {
+      const fetch = mockAvailabilityFetch(() => new Promise(() => undefined));
+      const query = queryStartingAt(8);
+
+      const { result } = renderPreloaded(query, [preloaded(query)]);
+
+      // Mount effects and any scheduled fetch run before this settles.
+      await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+      expect(result.current.isPending).toBe(false);
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    test("fetches a query the page did not preload", async () => {
+      const fetch = mockAvailabilityFetch(() => new Promise(() => undefined));
+      const query = queryStartingAt(8);
+
+      const { result } = renderPreloaded(query, [
+        preloaded(queryStartingAt(9)),
+      ]);
+
+      expect(result.current.availability).toBeNull();
+      expect(result.current.isPending).toBe(true);
+      await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+      expect(fetch.mock.calls[0]?.[0]).toContain(
+        `startsAt=${encodeURIComponent(query.startsAt)}`
+      );
+    });
+
+    test("refreshes stale preloaded availability while still rendering it", async () => {
+      const fetch = mockAvailabilityFetch(() => new Promise(() => undefined));
+      const query = queryStartingAt(8);
+
+      const { result } = renderPreloaded(query, [
+        preloaded(query, Date.now() - 60_000),
+      ]);
+
+      expect(result.current.availability).toEqual(availabilityResponse);
+      expect(result.current.isPending).toBe(false);
+      await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+    });
   });
 });
