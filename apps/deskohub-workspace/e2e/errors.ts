@@ -96,7 +96,7 @@ const workspaceE2EAccountDiagnosticCodes = [
 
 // The Nexi hosted payment page step that failed, paired with the provider page
 // state observed when it failed. Both halves are closed code-owned sets.
-export const nexiHostedPaymentSteps = [
+const nexiHostedPaymentSteps = [
   "card_entry",
   "continue",
   "pay",
@@ -104,7 +104,7 @@ export const nexiHostedPaymentSteps = [
   "return",
 ] as const;
 
-export const nexiHostedPaymentPageStates = [
+const nexiHostedPaymentPageStates = [
   "card_entry_incomplete",
   "card_entry_ready",
   "card_submission_rejected",
