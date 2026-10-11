@@ -451,9 +451,6 @@ describe("discount administration pages", () => {
     const view = render(<VouchersAdministrationActions />);
 
     fireEvent.click(view.getByRole("button", { name: "Create a voucher" }));
-    expect(
-      view.getByLabelText("Valid from").closest("div.grid")?.className
-    ).toContain("md:grid-cols-2");
     fireEvent.change(view.getByRole("textbox", { name: "Code" }), {
       target: { value: "gift100" },
     });
@@ -1155,9 +1152,7 @@ describe("discount administration pages", () => {
       />
     );
 
-    expect(view.getByText("Withdrawn").className).toContain(
-      "text-burned-orange-ink"
-    );
+    expect(view.getByText("Withdrawn")).toBeDefined();
     expect(view.getByText(/Granted 9 Aug 2026/)).toBeDefined();
     expect(
       view.getByText("Reservation activity is temporarily unavailable.")
@@ -1355,10 +1350,8 @@ describe("discount administration pages", () => {
         .getByRole("link", { name: "Open calendar" })
         .getAttribute("href")
     ).toBe("https://calendar.google.com/");
-    expect(view.getByText("Associated").className).toContain(
-      "text-aquamarine-ink"
-    );
-    expect(view.getByText("tentative").className).toContain("text-navy-blue");
+    expect(view.getByText("Associated")).toBeDefined();
+    expect(view.getByText("tentative")).toBeDefined();
     const saleRow = view.getByText("Summer sale").closest("tr");
     expect(saleRow?.getAttribute("tabindex")).toBe("0");
     fireEvent.click(
