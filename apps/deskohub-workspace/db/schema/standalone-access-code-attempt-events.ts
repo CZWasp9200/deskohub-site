@@ -135,5 +135,3 @@ export const standaloneAccessCodeAttemptEvents = pgTable(
 
 export type StandaloneAccessCodeAttemptEventRow =
   typeof standaloneAccessCodeAttemptEvents.$inferSelect;
-export type NewStandaloneAccessCodeAttemptEventRow =
-  typeof standaloneAccessCodeAttemptEvents.$inferInsert;

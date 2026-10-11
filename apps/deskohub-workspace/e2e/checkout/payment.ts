@@ -36,11 +36,8 @@ import {
   workspaceE2EPollIntervalMs,
 } from "../timeouts";
 import type { CheckoutData } from "../types";
-import { isCheckoutStatusUrl, isExpectedCheckoutStatusUrl } from "../urls";
-import {
-  completeNexiHostedPayment,
-  type HostedPaymentPage,
-} from "./nexi-hosted-payment";
+import { isCheckoutStatusUrl } from "../urls";
+import type { HostedPaymentPage } from "./nexi-hosted-payment";
 
 const reservationStartRetryableErrorMessages = [
   "Checkout could not be started.",
@@ -52,66 +49,6 @@ const reservationPreparationStateKey = "__deskohubWorkspaceE2EPreparation";
 const decodeWorkspaceReservationId = Schema.decodeUnknownSync(
   workspaceReservationIdSchema
 );
-
-export const completeCheckout = ({
-  config,
-  data,
-  onOrderId,
-  run,
-  session,
-  submitReservationScript,
-}: {
-  config: WorkspaceE2EConfig;
-  data: CheckoutData;
-  onOrderId?: (orderId: WorkspaceReservationId) => void;
-  run: Runner;
-  session: string;
-  submitReservationScript: string;
-}): Effect.Effect<WorkspaceReservationId, WorkspaceE2EError> =>
-  Effect.gen(function* () {
-    yield* openBrowserPage(config, run, session, data.checkoutUrl, {
-      timeoutMs: config.timeouts.browserNavigation,
-    });
-    yield* submitReservationForPayPage({
-      onOrderId,
-      run,
-      session,
-      submitReservationScript,
-      timeouts: config.timeouts,
-    });
-    const hostedPaymentPage = yield* submitPaymentAndWaitForHostedPage({
-      run,
-      session,
-      timeouts: config.timeouts,
-    });
-    yield* completeNexiHostedPayment({
-      data,
-      hostedPaymentPage,
-      run,
-      session,
-      timeouts: config.timeouts,
-    });
-    yield* waitForBrowserUrl({
-      description: "checkout status page",
-      matches: (url) => isExpectedCheckoutStatusUrl(url, config.expectedHost),
-      run,
-      session,
-      timeoutMs: config.timeouts.providerTransition,
-    });
-
-    const url = yield* runBrowserCommand(
-      "read checkout status URL",
-      run,
-      session,
-      ["get", "url"]
-    );
-    const orderId = yield* tryWorkspaceE2ESync(
-      "extract checkout status order id",
-      () => extractOrderId(url.stdout)
-    );
-    log(`Reached checkout status for order ${orderId}`);
-    return orderId;
-  });
 
 export const startCheckoutPaymentAttempt = ({
   config,
@@ -639,12 +576,6 @@ const activateCheckoutPayButton = (run: Runner, session: string) =>
     yield* focusBrowserElement(run, session, ref, { timeoutMs: 30_000 });
     yield* pressBrowserKey(run, session, "Enter", { timeoutMs: 30_000 });
   });
-
-const extractOrderId = (stdout: string) => {
-  const match = stdout.match(/\/checkout\/status\/([^\s/?#]+)/);
-  assert(match?.[1], "could not extract checkout status order id");
-  return decodeWorkspaceReservationId(match[1]);
-};
 
 const getSearchOrderId = (value: string | undefined) => {
   if (!value) return undefined;

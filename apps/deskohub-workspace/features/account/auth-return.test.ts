@@ -175,10 +175,9 @@ describe("account auth return lifecycle", () => {
   });
 
   test("threads a referral code through the fixed callback and same-device return", async () => {
-    const referralCode = VALID_REFERRAL_CODE;
     const lifecycle = authReturn.createAuthReturnLifecycle({
       locale: "en-US",
-      referralCode,
+      referralCode: VALID_REFERRAL_CODE,
     });
     setSession({
       session: { createdAt: new Date() },
@@ -189,11 +188,13 @@ describe("account auth return lifecycle", () => {
 
     expect(magicLink).toHaveBeenCalledWith({
       email: "ada@example.test",
-      callbackURL: `/en-US/auth/callback?attempt=${VALID_ATTEMPT_ID}&ref=${referralCode}`,
+      callbackURL: `/en-US/auth/callback?attempt=${VALID_ATTEMPT_ID}&ref=${VALID_REFERRAL_CODE}`,
       metadata: { locale: "en-US" },
     });
     expect(await listener?.onReturn(new AbortController().signal)).toBe(true);
-    expect(events).toContain(`replace:/en-US/account?ref=${referralCode}`);
+    expect(events).toContain(
+      `replace:/en-US/account?ref=${VALID_REFERRAL_CODE}`
+    );
     lifecycle.cancel();
   });
 
@@ -250,10 +251,9 @@ describe("account auth return lifecycle", () => {
       configurable: true,
       value: undefined,
     });
-    const referralCode = VALID_REFERRAL_CODE;
     const lifecycle = authReturn.createAuthReturnLifecycle({
       locale: "cs-CZ",
-      referralCode,
+      referralCode: VALID_REFERRAL_CODE,
     });
 
     await lifecycle.sendMagicLink("ada@example.test");
@@ -261,7 +261,7 @@ describe("account auth return lifecycle", () => {
     expect(listenForReturn).not.toHaveBeenCalled();
     expect(magicLink).toHaveBeenCalledWith({
       email: "ada@example.test",
-      callbackURL: `/cs-CZ/auth/callback?ref=${referralCode}`,
+      callbackURL: `/cs-CZ/auth/callback?ref=${VALID_REFERRAL_CODE}`,
       metadata: { locale: "cs-CZ" },
     });
   });

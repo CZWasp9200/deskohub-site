@@ -211,7 +211,7 @@ export function OfficeReservationForm({
     ? m.reservationOfficeUnavailable({}, { locale })
     : undefined;
   const availabilityErrorMessage =
-    availabilityResult.isError && !availabilityResult.isFetching
+    availabilityResult.isError && !availabilityResult.isPending
       ? m.reservationAvailabilityError({}, { locale })
       : undefined;
   const basePriceLabel = selection
@@ -237,7 +237,7 @@ export function OfficeReservationForm({
           : undefined,
       }}
       availability={{
-        isFetching: availabilityResult.isFetching,
+        isPending: availabilityResult.isPending,
         unavailableMessage: availabilityMessage ?? availabilityErrorMessage,
       }}
       checkoutSessionId={checkoutSessionId}

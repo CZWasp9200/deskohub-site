@@ -9,6 +9,10 @@ import { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Effect, Layer } from "effect";
 import "@/shared/polyfills/temporal";
 import {
+  AdvisoryAvailabilityInventory,
+  makeProviderInventory,
+} from "./availability-inventory";
+import {
   GoogleCalendarWorkspaceLimitationsService,
   WorkspaceCalendarLimitation,
   type WorkspaceCalendarLimitation as WorkspaceCalendarLimitationType,
@@ -107,6 +111,8 @@ const runWithInventory = async <A>(
   input: {
     readonly tables?: readonly Table[];
     readonly reservations?: readonly Reservation[];
+    /** Reservations in the shared snapshot; defaults to the live provider. */
+    readonly advisoryReservations?: readonly Reservation[];
     readonly expiredHoldDotyposReservationIds?: readonly string[];
     readonly expiredHoldDotyposReservationIdsError?: boolean;
     readonly limitations?: readonly WorkspaceCalendarLimitationType[];
@@ -116,10 +122,23 @@ const runWithInventory = async <A>(
   } = {}
 ) => {
   const availability = await import("./workspace-availability.service");
+  const { advisoryReservations } = input;
 
   return effect.pipe(
     Effect.provide(
       availability.WorkspaceAvailabilityService.Default.pipe(
+        Layer.provide(
+          advisoryReservations
+            ? Layer.effect(
+                AdvisoryAvailabilityInventory,
+                Effect.map(makeProviderInventory, (inventory) => ({
+                  ...inventory,
+                  listActiveReservationsOverlapping: () =>
+                    Effect.succeed(advisoryReservations),
+                }))
+              )
+            : AdvisoryAvailabilityInventory.Provider
+        ),
         Layer.provide(
           Layer.mergeAll(
             Layer.succeed(DotyposService, {
@@ -185,6 +204,7 @@ const getAvailability = (input: {
   readonly monitorOption?: "2x27-qhd" | "2x32-qhd" | "2x27-4k" | "2x32-4k";
   readonly tables?: readonly Table[];
   readonly reservations?: readonly Reservation[];
+  readonly advisoryReservations?: readonly Reservation[];
   readonly expiredHoldDotyposReservationIds?: readonly string[];
   readonly expiredHoldDotyposReservationIdsError?: boolean;
   readonly limitations?: readonly WorkspaceCalendarLimitationType[];
@@ -735,6 +755,58 @@ describe("WorkspaceAvailabilityService", () => {
         monitorOption: "2x27-qhd",
       });
     }
+  });
+
+  test("computes advisory availability from the shared snapshot", async () => {
+    const availability = await getAvailability({
+      date: testDate,
+      monitorOption: "2x27-qhd",
+      reservations: [],
+      advisoryReservations: [
+        makeReservation({ tableId: "profi-27-qhd", status: "NEW" }),
+      ],
+    });
+
+    expect(availability.unavailableMonitorOptions).toContain("2x27-qhd");
+  });
+
+  test("ensures availability against live reservations, not the snapshot", async () => {
+    const ensureAvailable = (input: {
+      readonly reservations: readonly Reservation[];
+      readonly advisoryReservations: readonly Reservation[];
+    }) =>
+      runWithInventory(
+        Effect.result(
+          Effect.gen(function* () {
+            const availability = yield* Effect.promise(
+              () => import("./workspace-availability.service")
+            );
+            const service = yield* availability.WorkspaceAvailabilityService;
+            return yield* service.ensureAvailable({
+              kind: "cowork",
+              date: testDate,
+              entryTier: "reserved-desk",
+              monitorOption: "2x27-qhd",
+            });
+          })
+        ),
+        input
+      );
+    const occupied = [
+      makeReservation({ tableId: "profi-27-qhd", status: "NEW" }),
+    ];
+
+    const bookedSinceSnapshot = await ensureAvailable({
+      reservations: occupied,
+      advisoryReservations: [],
+    });
+    const freedSinceSnapshot = await ensureAvailable({
+      reservations: [],
+      advisoryReservations: occupied,
+    });
+
+    expect(bookedSinceSnapshot._tag).toBe("Failure");
+    expect(freedSinceSnapshot._tag).toBe("Success");
   });
 
   test("rejects an occupied historical Profi monitor setup while another setup is free", async () => {

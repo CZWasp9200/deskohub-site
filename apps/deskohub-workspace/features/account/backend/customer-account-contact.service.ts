@@ -19,7 +19,7 @@ import { CustomerProfileService } from "./customer-profile.service";
  * linked Dotypos profile and are only exposed when they satisfy the
  * reservation contact rules.
  */
-export type CustomerAccountContact = {
+type CustomerAccountContact = {
   readonly accountId: CustomerAccountId;
   readonly dotyposCustomerId: DotyposCustomerId;
   readonly name: string;

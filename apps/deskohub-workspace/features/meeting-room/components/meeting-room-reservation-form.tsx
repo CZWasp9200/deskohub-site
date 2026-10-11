@@ -142,7 +142,7 @@ export function MeetingRoomReservationForm({
   const availabilityErrorMessage =
     availabilityQuery &&
     availabilityQueryResult.isError &&
-    !availabilityQueryResult.isFetching
+    !availabilityQueryResult.isPending
       ? m.reservationAvailabilityError({}, { locale })
       : undefined;
   const advertisedPriceRequests = useMemo(
@@ -209,7 +209,7 @@ export function MeetingRoomReservationForm({
           : undefined,
       }}
       availability={{
-        isFetching: availabilityQueryResult.isFetching,
+        isPending: availabilityQueryResult.isPending,
         unavailableMessage: availabilityMessage ?? availabilityErrorMessage,
       }}
       checkoutSessionId={checkoutSessionId}

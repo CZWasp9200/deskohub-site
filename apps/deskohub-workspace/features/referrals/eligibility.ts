@@ -8,7 +8,7 @@ export type ReferralHistoryEvidence = {
   readonly endsAt: Temporal.Instant;
 };
 
-export const referralHistoryWindowMilliseconds = 30 * 24 * 60 * 60 * 1000;
+const referralHistoryWindowMilliseconds = 30 * 24 * 60 * 60 * 1000;
 
 export const countEligibleReferralInvitees = (input: {
   readonly referrals: readonly ReferralHistoryEvidence[];

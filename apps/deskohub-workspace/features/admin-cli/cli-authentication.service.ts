@@ -516,7 +516,7 @@ export class CliAuthentication extends Context.Service<
   );
 }
 
-export class CliApprovalUnavailableError extends Data.TaggedError(
+class CliApprovalUnavailableError extends Data.TaggedError(
   "CliApprovalUnavailableError"
 )<{ readonly message: string }> {}
 

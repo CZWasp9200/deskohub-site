@@ -4,7 +4,7 @@ import type { Page } from "@playwright/test";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import { workspaceDir } from "../runtime";
 
-export const workspaceE2EReferralCheckoutReviewTargets = [
+const workspaceE2EReferralCheckoutReviewTargets = [
   "account-referral-invitation-applied",
   "account-referral-with-ordinary-code",
   "account-referral-with-voucher",

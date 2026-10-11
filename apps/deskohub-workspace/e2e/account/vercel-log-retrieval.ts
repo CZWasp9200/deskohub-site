@@ -8,7 +8,7 @@ import {
 import { addRedaction } from "../runtime";
 import type { WorkspaceE2EAccountConfig } from "./config";
 
-export const workspaceE2EPreviewE2ELogCode = "account.magic-link.preview-e2e";
+const workspaceE2EPreviewE2ELogCode = "account.magic-link.preview-e2e";
 
 const logLimit = 100;
 const maxVercelResponseBytes = 2 * 1024 * 1024;

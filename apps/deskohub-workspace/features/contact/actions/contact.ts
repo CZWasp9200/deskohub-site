@@ -3,7 +3,7 @@ import "server-only";
 import { Effect, Schema } from "effect";
 import { ContactService } from "@/features/contact/backend/contact.service";
 import type { ContactFormValues } from "@/features/contact/schemas/contact";
-import { getContactSchema } from "@/features/contact/schemas/contact";
+import { createContactSchema } from "@/features/contact/schemas/contact";
 import { type Locale, m } from "@/features/i18n";
 import { BotProtectionService } from "@/shared/backend/bot-protection/bot-protection.service";
 
@@ -69,7 +69,7 @@ export const processContactSubmission = Effect.fn("submitContactForm")(
     yield* Effect.logInfo("Workspace contact form action received");
 
     const validation = yield* Schema.decodeUnknownEffect(
-      getContactSchema(locale),
+      createContactSchema(locale),
       { errors: "all" }
     )(submittedValues).pipe(
       Effect.map((value) => ({ _tag: "Valid" as const, value })),

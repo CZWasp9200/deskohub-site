@@ -61,7 +61,7 @@ export class NexiWebhookProcessingError extends Data.TaggedError(
   readonly cause?: unknown;
 }> {}
 
-export interface NexiWebhookResult {
+interface NexiWebhookResult {
   readonly status: "accepted" | "duplicate";
   readonly orderId?: NexiOrderId;
   readonly eventId?: NexiWebhookEventId;
@@ -645,9 +645,11 @@ function makeNexiWebhookServiceLayer(service: typeof NexiWebhookService) {
                 );
               yield* Effect.logInfo("Nexi webhook paid order fulfilled");
             } else if (verification.status === "failure") {
-              const failureKind = classifyNexiFailureStatus(providerStatus);
-              const terminalState = failureKind;
-              yield* Effect.annotateLogsScoped({ failureKind, terminalState });
+              const terminalState = classifyNexiFailureStatus(providerStatus);
+              yield* Effect.annotateLogsScoped({
+                failureKind: terminalState,
+                terminalState,
+              });
               yield* Effect.logInfo("Nexi webhook terminal transition started");
 
               // An unsuccessful result moves no money. When the attempt is no

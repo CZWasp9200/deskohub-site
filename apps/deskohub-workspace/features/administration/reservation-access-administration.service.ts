@@ -12,7 +12,7 @@ import {
   ReservationAccessService,
 } from "@/features/reservation-access";
 
-export type ReservationAccessAdministrationMutation =
+type ReservationAccessAdministrationMutation =
   | {
       readonly kind: "retry-failed";
       readonly reservationId: WorkspaceReservationId;

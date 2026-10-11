@@ -19,7 +19,7 @@ export interface InvoicePresentationParty {
   readonly details: readonly string[];
 }
 
-export interface InvoicePresentationLine {
+interface InvoicePresentationLine {
   readonly description: string;
   readonly amount: string;
   readonly kind: "discount" | "item";

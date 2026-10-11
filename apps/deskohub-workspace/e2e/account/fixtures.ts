@@ -22,12 +22,6 @@ import {
 } from "../integrations/dotypos";
 import { assert, log } from "../runtime";
 
-export type SyntheticCustomerProfile = {
-  readonly customerId: DotyposCustomerId;
-  readonly email: string;
-  readonly firstName: string;
-};
-
 const syntheticBilling = {
   addressLine1: "E2E Synthetic Street 1",
   addressLine2: "",
@@ -99,7 +93,7 @@ export const readSyntheticCustomerProfile = (
     )
   );
 
-export const findSyntheticCustomerProfile = (
+const findSyntheticCustomerProfile = (
   config: DatasourceConfig,
   email: string
 ): Effect.Effect<readonly Customer[], WorkspaceE2EError> =>
@@ -236,13 +230,3 @@ export const cancelSyntheticReservation = (
   reservationId: DotyposReservationId
 ): Effect.Effect<void, WorkspaceE2EError> =>
   cancelDotyposReservation(config, reservationId);
-
-export const decodeSyntheticCustomerId = (value: unknown) => {
-  assert(typeof value === "string" && value.trim() !== "", "customer id");
-  return value as DotyposCustomerId;
-};
-
-export const decodeSyntheticReservationId = (value: unknown) => {
-  assert(typeof value === "string" && value.trim() !== "", "reservation id");
-  return value as DotyposReservationId;
-};

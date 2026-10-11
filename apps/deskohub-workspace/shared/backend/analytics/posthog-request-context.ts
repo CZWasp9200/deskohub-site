@@ -37,7 +37,7 @@ export interface PostHogRequestContextResult {
   readonly unexpectedConsentCookieReasons: readonly UnexpectedConsentCookieReason[];
 }
 
-export function getPostHogRequestContextFromCookieValues({
+function getPostHogRequestContextFromCookieValues({
   distinctId,
   sessionId,
 }: PostHogCookieValues): PostHogRequestContext {

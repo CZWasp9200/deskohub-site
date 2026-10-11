@@ -23,7 +23,7 @@ import {
 const decodeInstant = Schema.decodeUnknownSync(instantStringSchema);
 const decodePlainDate = Schema.decodeUnknownSync(plainDateStringSchema);
 
-export const officeReservationMaximumDurationHours = 672;
+const officeReservationMaximumDurationHours = 672;
 const millisecondsPerHour = 60 * 60 * 1000;
 
 export const officeSeatsSchema = Schema.Int.check(
@@ -159,7 +159,7 @@ const officeReservationOrderBaseSchema = Schema.Struct({
   ...officeReservationOrderSelectionFields,
 });
 
-export const officeReservationOrderInputSchema = Schema.Struct({
+const officeReservationOrderInputSchema = Schema.Struct({
   kind: Schema.Literal(officeReservationKind),
   ...officeReservationOrderBaseSchema.fields,
 }).check(...officeReservationOrderInputChecks);
@@ -170,7 +170,7 @@ const officeReservationFormSelectionFields = {
   seats: officeSeatsSchema,
 } as const;
 
-export const officeReservationFormInputSchema = Schema.Struct({
+const officeReservationFormInputSchema = Schema.Struct({
   ...reservationCustomerSchema.fields,
   billing: reservationBillingSelectionInputSchema,
   ...officeReservationFormSelectionFields,
@@ -241,7 +241,7 @@ export const normalizedOfficeReservationOrderSchema =
     })
   );
 
-export const normalizedOfficeReservationFormSchema = Schema.Struct({
+const normalizedOfficeReservationFormSchema = Schema.Struct({
   ...normalizedReservationCustomerSchema.fields,
   billing: normalizedReservationBillingSelectionSchema,
   startsOn: plainDateStringSchema,
@@ -402,12 +402,12 @@ export const getOfficeReservationMaximumEndsOn = (
   today = getCurrentWorkspaceDate()
 ) => today.add({ months: 1 });
 
-export const isOfficeReservationStartOnOrAfterToday = (
+const isOfficeReservationStartOnOrAfterToday = (
   reservation: Pick<OfficeReservationRangeInput, "startsOn">,
   today = getCurrentWorkspaceDate()
 ) => reservation.startsOn >= today.toString();
 
-export const isOfficeReservationWithinBookingHorizon = (
+const isOfficeReservationWithinBookingHorizon = (
   reservation: Pick<OfficeReservationRangeInput, "endsOn">,
   today = getCurrentWorkspaceDate()
 ) =>
@@ -504,7 +504,7 @@ export const hasOfficeReservationEnded = (
     now
   ) < 0;
 
-export const normalizeOfficeReservationOrder = (
+const normalizeOfficeReservationOrder = (
   reservation: OfficeReservationOrderInput
 ): NormalizedOfficeReservationOrder =>
   normalizedOfficeReservationOrderSchema.make({
@@ -530,7 +530,7 @@ export const officeReservationOrderSchema =
     })
   );
 
-export const normalizeOfficeReservationForm = (
+const normalizeOfficeReservationForm = (
   reservation: OfficeReservationFormInput
 ): NormalizedOfficeReservationForm =>
   normalizedOfficeReservationFormSchema.make({

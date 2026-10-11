@@ -99,7 +99,7 @@ export class PaymentLifecycleStateError extends Data.TaggedError(
   readonly message: string;
 }> {}
 
-export interface PaymentLifecycleTransition {
+interface PaymentLifecycleTransition {
   readonly attempt: PaymentAttempt;
   readonly changed: boolean;
   readonly timestamp: Temporal.Instant;
@@ -2558,7 +2558,7 @@ export const releaseCodeClaim = Effect.fn("PaymentLifecycle.releaseCodeClaim")(
   }
 );
 
-export const releaseReferralInvitationClaim = Effect.fn(
+const releaseReferralInvitationClaim = Effect.fn(
   "PaymentLifecycle.releaseReferralInvitationClaim"
 )(function* (
   tx: TransactionClient,

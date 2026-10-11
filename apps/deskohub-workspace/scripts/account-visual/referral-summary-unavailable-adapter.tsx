@@ -6,9 +6,7 @@ import type { AccountVisualAdapterProps } from "./types";
 
 export { accountVisualAdapterMetadata };
 
-export function ReferralSummaryUnavailableAdapter(
-  props: AccountVisualAdapterProps
-) {
+function ReferralSummaryUnavailableAdapter(props: AccountVisualAdapterProps) {
   return <ReferralScreenContent {...props} summary={undefined} />;
 }
 

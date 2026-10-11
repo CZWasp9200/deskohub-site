@@ -1,4 +1,3 @@
-import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { Schema } from "effect";
 
 const referralCodeCodec = Schema.String.check(
@@ -12,11 +11,6 @@ const referralCodeCodec = Schema.String.check(
   });
 
 export type ReferralCode = typeof referralCodeCodec.Type;
-
-export const referralCodeSchema: StandardSchemaV1<unknown, ReferralCode> =
-  Schema.toStandardSchemaV1(referralCodeCodec, {
-    parseOptions: { onExcessProperty: "error" },
-  });
 
 // biome-ignore lint/plugin: This parser is the browser-safe boundary for untrusted code values; the referral schema validates them here.
 export const parseReferralCode = (value: unknown): ReferralCode | undefined =>

@@ -22,11 +22,11 @@ export const referralVisualViewports = [
   { name: "mobile", width: 375, height: 1000, deviceScaleFactor: 1 },
 ] as const;
 
-export type ReferralVisualViewport = (typeof referralVisualViewports)[number];
+type ReferralVisualViewport = (typeof referralVisualViewports)[number];
 
-export const checkoutVisualScenarios = ["checkout-code-unavailable"] as const;
+const checkoutVisualScenarios = ["checkout-code-unavailable"] as const;
 
-export type CheckoutVisualScenario = (typeof checkoutVisualScenarios)[number];
+type CheckoutVisualScenario = (typeof checkoutVisualScenarios)[number];
 
 export type ReferralVisualCapture = {
   readonly scenario: ReferralVisualScenario;

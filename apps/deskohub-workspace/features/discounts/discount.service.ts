@@ -62,17 +62,16 @@ export type DisplayedDiscountAffirmationInput = DiscountAdvertisementInput & {
   readonly displayedDiscountIds: readonly DiscountId[];
 };
 
-export type DisplayedDiscountAffirmation = {
+type DisplayedDiscountAffirmation = {
   readonly quote: DiscountQuote;
   readonly commitment: DiscountCommitment;
 };
 
-export type DiscountAdvertisementAffirmationInput =
-  DiscountAdvertisementInput & {
-    readonly advertisedDiscountIds: readonly DiscountId[];
-  };
+type DiscountAdvertisementAffirmationInput = DiscountAdvertisementInput & {
+  readonly advertisedDiscountIds: readonly DiscountId[];
+};
 
-export type ApplyCustomerDiscountInput = {
+type ApplyCustomerDiscountInput = {
   readonly affirmedAdvertisement: AffirmedDiscountAdvertisementQuote;
   readonly dotyposCustomerId: DotyposCustomerId;
   readonly locale: Locale;
@@ -80,24 +79,24 @@ export type ApplyCustomerDiscountInput = {
   readonly submittedCodeDiscountId?: DiscountId;
 };
 
-export type AppliedCustomerDiscountQuote = DiscountQuote & {
+type AppliedCustomerDiscountQuote = DiscountQuote & {
   readonly advertisedPriceChanged: boolean;
   readonly submittedCodeDiscountId?: DiscountId;
 };
 
-export type ApplyDiscountCodeInput = {
+type ApplyDiscountCodeInput = {
   readonly baseQuote: DiscountQuote;
   readonly dotyposCustomerId: DotyposCustomerId;
   readonly locale: Locale;
   readonly submittedCode: CanonicalPromotionCode;
 };
 
-export type PreviewDiscountCodeInput = Omit<
+type PreviewDiscountCodeInput = Omit<
   ApplyDiscountCodeInput,
   "dotyposCustomerId"
 >;
 
-export type AppliedDiscountCodeQuote = {
+type AppliedDiscountCodeQuote = {
   readonly quote: DiscountQuote;
   readonly application: AppliedDiscount;
 };

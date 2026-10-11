@@ -16,9 +16,3 @@ export const getReferralReferrerDiscountId = (
     providerNamespace: "referral-referrer",
     providerReference: dotyposCustomerId,
   });
-
-export const getReferralDiscountIds = (dotyposCustomerId: DotyposCustomerId) =>
-  new Set([
-    getReferralInvitationDiscountId(dotyposCustomerId),
-    getReferralReferrerDiscountId(dotyposCustomerId),
-  ]);

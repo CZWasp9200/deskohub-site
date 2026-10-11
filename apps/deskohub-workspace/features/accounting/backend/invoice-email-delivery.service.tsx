@@ -131,7 +131,6 @@ export class InvoiceEmailDeliveryService extends Context.Service<
             };
           }),
           Match.when("internal", () => {
-            const locale = internalInvoiceLocale;
             let subjectPrefix = "";
             if (env.VERCEL_ENV !== "production") {
               subjectPrefix = `${internalTestingSubjectPrefix} `;
@@ -140,18 +139,21 @@ export class InvoiceEmailDeliveryService extends Context.Service<
               body: manualDocument
                 ? m.invoiceManualEmailInternalBody(
                     { invoiceNumber: input.invoice.invoiceNumber },
-                    { locale }
+                    { locale: internalInvoiceLocale }
                   )
                 : m.invoiceEmailInternalBody(
                     {
                       invoiceNumber: input.invoice.invoiceNumber,
                       orderId: input.invoice.workspaceReservationId ?? "",
                     },
-                    { locale }
+                    { locale: internalInvoiceLocale }
                   ),
               category: invoiceInternalEmailCategory,
-              heading: m.invoiceEmailInternalHeading({}, { locale }),
-              locale,
+              heading: m.invoiceEmailInternalHeading(
+                {},
+                { locale: internalInvoiceLocale }
+              ),
+              locale: internalInvoiceLocale,
               subjectPrefix,
             };
           }),

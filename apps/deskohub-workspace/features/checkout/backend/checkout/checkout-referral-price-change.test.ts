@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { CoworkReservationQuote } from "@/features/checkout/reservation-quote-cowork";
 import { makeDiscountCommitment } from "@/features/discounts/commitment";
 import {
   type AppliedDiscount,
@@ -14,7 +15,6 @@ import {
 import { calculateReferrerDiscountAmount } from "@/features/referrals/referrer-discount";
 import { dotyposCustomerIdSchema } from "@/features/reservation/dotypos-customer";
 import { isExpectedReferralQuoteAddition } from "./checkout-referral-price-change";
-import type { CoworkReservationQuote } from "./reservation-quote-cowork";
 
 const money = (value: number) => ({
   value,

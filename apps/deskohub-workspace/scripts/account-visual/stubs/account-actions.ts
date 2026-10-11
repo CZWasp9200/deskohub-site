@@ -167,12 +167,14 @@ export const removeCustomerAvatar = async (): Promise<unknown> => {
   return unavailableAvatarResult;
 };
 
-export const completeCustomerProfile = unavailable;
-export const updateCustomerProfile = unavailable;
-export const deleteCustomerAccount = unavailable;
-export const saveMarketingPreferencesAction = unavailable;
-export const confirmMarketingManagementAction = unavailable;
-export const clearMarketingManagementAction = unavailable;
+export {
+  unavailable as completeCustomerProfile,
+  unavailable as updateCustomerProfile,
+  unavailable as deleteCustomerAccount,
+  unavailable as saveMarketingPreferencesAction,
+  unavailable as confirmMarketingManagementAction,
+  unavailable as clearMarketingManagementAction,
+};
 
 type AccountVisualReferralOutcome =
   | "accepted"

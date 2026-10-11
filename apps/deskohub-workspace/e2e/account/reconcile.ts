@@ -60,7 +60,7 @@ const toWorkspaceE2EFailure = (cause: unknown): WorkspaceE2EError =>
  * accounts, and the customer-account link. Runs for completed journals again
  * because every step is idempotent for the exact owned IDs.
  */
-export const reconcileWorkspaceE2EAccountJournal = ({
+const reconcileWorkspaceE2EAccountJournal = ({
   datasourceConfig,
   journal,
   candidates = journal,

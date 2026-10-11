@@ -65,7 +65,7 @@ export function ReferralScreenContent({
   );
 }
 
-export function ReferralScreenAdapter(props: AccountVisualAdapterProps) {
+function ReferralScreenAdapter(props: AccountVisualAdapterProps) {
   return <ReferralScreenContent {...props} summary={summary} />;
 }
 

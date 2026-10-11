@@ -25,12 +25,6 @@ export type RgbMetrics = {
   readonly pixelCount: number;
 };
 
-export type ComparisonImages = {
-  readonly metrics: RgbMetrics;
-  readonly difference: RgbaImage;
-  readonly overlay: RgbaImage;
-};
-
 export type TopLeftPlacement = {
   readonly sourceWidth: number;
   readonly sourceHeight: number;
@@ -261,7 +255,7 @@ export const makeTopLeftComparisonCanvas = (
   };
 };
 
-export const accountMetricRegionRects = (width: number, height: number) =>
+const accountMetricRegionRects = (width: number, height: number) =>
   (() => {
     const scale = width / accountMetricRegionGeometry.referencePhysicalWidth;
     const sidebarBoundary = Math.min(

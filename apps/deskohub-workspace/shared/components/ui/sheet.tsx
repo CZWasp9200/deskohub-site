@@ -12,7 +12,7 @@ const SheetTrigger = SheetPrimitive.Trigger;
 const SheetClose = SheetPrimitive.Close;
 const SheetPortal = SheetPrimitive.Portal;
 
-export interface SheetOverlayProps
+interface SheetOverlayProps
   extends React.ComponentPropsWithoutRef<typeof SheetPrimitive.Overlay> {
   ref?: React.Ref<React.ComponentRef<typeof SheetPrimitive.Overlay>>;
 }
@@ -49,7 +49,7 @@ const sheetVariants = cva(
   }
 );
 
-export interface SheetContentProps
+interface SheetContentProps
   extends React.ComponentPropsWithoutRef<typeof SheetPrimitive.Content>,
     VariantProps<typeof sheetVariants> {
   locale?: Locale;
@@ -89,14 +89,7 @@ const SheetHeader = ({
   <div className={cn("flex flex-col gap-2 text-left", className)} {...props} />
 );
 
-const SheetFooter = ({
-  className,
-  ...props
-}: React.HTMLAttributes<HTMLDivElement>) => (
-  <div className={cn("mt-4 flex flex-col gap-2", className)} {...props} />
-);
-
-export interface SheetTitleProps
+interface SheetTitleProps
   extends React.ComponentPropsWithoutRef<typeof SheetPrimitive.Title> {
   ref?: React.Ref<React.ComponentRef<typeof SheetPrimitive.Title>>;
 }
@@ -111,7 +104,7 @@ function SheetTitle({ className, ref, ...props }: SheetTitleProps) {
   );
 }
 
-export interface SheetDescriptionProps
+interface SheetDescriptionProps
   extends React.ComponentPropsWithoutRef<typeof SheetPrimitive.Description> {
   ref?: React.Ref<React.ComponentRef<typeof SheetPrimitive.Description>>;
 }
@@ -129,7 +122,6 @@ function SheetDescription({ className, ref, ...props }: SheetDescriptionProps) {
 SheetOverlay.displayName = SheetPrimitive.Overlay.displayName;
 SheetContent.displayName = SheetPrimitive.Content.displayName;
 SheetHeader.displayName = "SheetHeader";
-SheetFooter.displayName = "SheetFooter";
 SheetTitle.displayName = SheetPrimitive.Title.displayName;
 SheetDescription.displayName = SheetPrimitive.Description.displayName;
 
@@ -138,7 +130,6 @@ export {
   SheetClose,
   SheetContent,
   SheetDescription,
-  SheetFooter,
   SheetHeader,
   SheetTitle,
   SheetTrigger,

@@ -176,7 +176,7 @@ export const makeWorkspaceAuth = (config: WorkspaceAuthConfig) => {
   });
 };
 
-export const makeWorkspaceMagicLinkDelivery = () =>
+const makeWorkspaceMagicLinkDelivery = () =>
   makeMagicLinkEmailDelivery(renderMagicLinkEmail, {
     isVercelPreview: env.VERCEL_ENV === "preview",
   });

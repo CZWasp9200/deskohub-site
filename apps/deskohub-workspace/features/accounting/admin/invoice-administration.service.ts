@@ -50,7 +50,7 @@ import {
 import { getAdministrationPagination } from "@/features/administration/listing";
 import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
 import {
-  defaultWorkspaceCurrency,
+  defaultWorkspaceCurrencyCode,
   findWorkspaceCurrencyDefinition,
 } from "@/shared/money/currencies";
 import { workspaceSiteConstants } from "@/shared/utils";
@@ -89,7 +89,7 @@ export type InvoiceAdministrationListQuery = {
   readonly page?: number;
 };
 
-export type InvoiceAdministrationPage = {
+type InvoiceAdministrationPage = {
   readonly items: readonly InvoiceAdministrationListItem[];
   readonly total: number;
   readonly page: number;
@@ -97,11 +97,11 @@ export type InvoiceAdministrationPage = {
   readonly pageCount: number;
 };
 
-export type InvoiceAdministrationDelivery = Readonly<
+type InvoiceAdministrationDelivery = Readonly<
   Record<"customer" | "internal", InvoiceDeliveryStatus>
 >;
 
-export type InvoiceAdministrationSource =
+type InvoiceAdministrationSource =
   | "reservation-request"
   | "post-order-link"
   | "admin-ui"
@@ -145,14 +145,14 @@ export type InvoiceAdministrationCustomer = {
   readonly details: AdministrationInvoiceCustomerDetailsType;
 };
 
-export type InvoiceAdministrationCreateResult = {
+type InvoiceAdministrationCreateResult = {
   readonly invoiceId: AdministrationInvoiceIdType;
   readonly invoiceNumber: string;
   readonly changed: boolean;
   readonly needsAttention: boolean;
 };
 
-export type InvoiceAdministrationRetryResult = {
+type InvoiceAdministrationRetryResult = {
   readonly invoiceId: AdministrationInvoiceIdType;
   readonly changed: boolean;
   readonly needsAttention: boolean;
@@ -401,7 +401,7 @@ const makeInvoiceAdministrationService = Effect.gen(function* () {
     ).toPlainDate();
     return {
       currencies: invoiceEnabledCurrencyDefinitions,
-      defaultCurrency: defaultWorkspaceCurrency.code,
+      defaultCurrency: defaultWorkspaceCurrencyCode,
       defaultServiceDate: today.toString(),
       defaultDueDate: today.add({ days: 14 }).toString(),
       suggestedVariableSymbol: yield* invoices.getSuggestedVariableSymbol(),

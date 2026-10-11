@@ -30,7 +30,7 @@ export const accountActionError =
       cause,
     });
 
-export const accountActionErrorMessage = (
+const accountActionErrorMessage = (
   cause: CustomerAccountAccessError,
   locale: Locale
 ) => {

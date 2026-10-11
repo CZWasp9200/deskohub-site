@@ -8,9 +8,7 @@ export const accountVisualAdapterMetadata = {
     "actual discount-code form with a fixed unavailable error; code input is masked in screenshots",
 } as const;
 
-export function CheckoutCodeUnavailableAdapter({
-  locale,
-}: AccountVisualAdapterProps) {
+function CheckoutCodeUnavailableAdapter({ locale }: AccountVisualAdapterProps) {
   return (
     <main className="min-h-screen bg-[#f8f5ef] px-4 py-16 sm:px-6">
       <section className="mx-auto max-w-2xl rounded-3xl border border-[#dfe4ec] bg-white p-5 shadow-sm sm:p-8">

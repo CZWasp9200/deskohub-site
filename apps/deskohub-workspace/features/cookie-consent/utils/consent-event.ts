@@ -8,7 +8,7 @@ type ConsentUpdatedEventDetail = {
   readonly acceptedCategories: ConsentCategory[];
 };
 
-export type ConsentUpdatedEvent = CustomEvent<ConsentUpdatedEventDetail>;
+type ConsentUpdatedEvent = CustomEvent<ConsentUpdatedEventDetail>;
 
 declare global {
   interface WindowEventMap {

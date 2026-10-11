@@ -265,11 +265,6 @@ export const voucherRedemptions = pgTable(
   ]
 );
 
-export type DiscountApplication = typeof discountApplications.$inferSelect;
-export type NewDiscountApplication = typeof discountApplications.$inferInsert;
 export type DiscountCodeRedemption =
   typeof discountCodeRedemptions.$inferSelect;
-export type NewDiscountCodeRedemption =
-  typeof discountCodeRedemptions.$inferInsert;
 export type VoucherRedemption = typeof voucherRedemptions.$inferSelect;
-export type NewVoucherRedemption = typeof voucherRedemptions.$inferInsert;

@@ -4,16 +4,13 @@ import { m } from "@/features/i18n";
 import {
   coworkReservationProductInputSchema,
   getAllowedMonitorOptionsForCoworkTier,
-  getCoworkReservationProductCoffee,
   getCoworkReservationProductIssues,
-  getCoworkReservationProductMonitorOption,
   normalizeCoworkReservationProduct,
   normalizedBasicCoworkReservationProductSchema,
   normalizedOpenSpaceCoworkReservationProductSchema,
   normalizedPlusCoworkReservationProductSchema,
   normalizedProfiCoworkReservationProductSchema,
   normalizedReservedDeskCoworkReservationProductSchema,
-  type WorkspaceCoworkCurrentTier,
   type WorkspaceCoworkProductTier,
 } from "@/features/reservation/cowork-reservation-product";
 import {
@@ -30,17 +27,23 @@ import {
   getCurrentWorkspaceDate,
   isTodayOrFutureWorkspaceDate,
 } from "@/features/reservation/reservation-date";
-import type { ReservationIntervalInput } from "@/features/reservation/reservation-interval-domain";
+import type {
+  ReservationInterval,
+  ReservationIntervalInput,
+} from "@/features/reservation/reservation-interval-domain";
 import { coworkReservationKind } from "@/features/reservation/reservation-kind";
 import { workspaceSiteConstants } from "@/shared/utils/site-constants";
 import {
+  instantStringSchema,
   isPlainDateString,
   localDateTimeSchema,
+  localDateTimeToTemporalInstantString,
   plainDateStringSchema,
 } from "@/shared/utils/temporal";
 
 const decodeLocalDateTime = Schema.decodeUnknownSync(localDateTimeSchema);
 const decodePlainDate = Schema.decodeUnknownSync(plainDateStringSchema);
+const decodeInstant = Schema.decodeSync(instantStringSchema);
 
 const openSpaceExclusiveEndHour = 17;
 
@@ -53,7 +56,34 @@ const openSpaceExclusiveEndHour = 17;
 export const getCoworkReservationIntervalInput = (
   tier: WorkspaceCoworkProductTier | undefined,
   date: string
-): ReservationIntervalInput => {
+): ReservationIntervalInput => getCoworkLocalInterval(tier, date);
+
+/**
+ * The canonical cowork interval already resolved to site instants, equal to
+ * normalizing {@link getCoworkReservationIntervalInput}. Evaluating many
+ * dates synchronously avoids per-date validation overhead.
+ */
+export const getCoworkReservationInterval = (
+  tier: WorkspaceCoworkProductTier | undefined,
+  date: string
+): ReservationInterval => {
+  const { startsAt, endsAt } = getCoworkLocalInterval(tier, date);
+  const timeZone = workspaceSiteConstants.location.timeZone;
+
+  return {
+    startsAt: decodeInstant(
+      localDateTimeToTemporalInstantString({ dateTime: startsAt, timeZone })
+    ),
+    endsAt: decodeInstant(
+      localDateTimeToTemporalInstantString({ dateTime: endsAt, timeZone })
+    ),
+  };
+};
+
+const getCoworkLocalInterval = (
+  tier: WorkspaceCoworkProductTier | undefined,
+  date: string
+) => {
   if (tier === "open-space") {
     return {
       startsAt: decodeLocalDateTime(`${date}T00:00`),
@@ -128,12 +158,12 @@ const coworkReservationOrderBaseSchema = Schema.Struct({
   date: dateSchema,
 });
 
-export const coworkReservationOrderInputSchema = Schema.Struct({
+const coworkReservationOrderInputSchema = Schema.Struct({
   kind: Schema.Literal(coworkReservationKind),
   ...coworkReservationOrderBaseSchema.fields,
 });
 
-export const coworkReservationFormInputSchema =
+const coworkReservationFormInputSchema =
   coworkReservationOrderBaseSchema.mapFields((fields) => ({
     ...fields,
     marketingConsent: Schema.Boolean,
@@ -170,7 +200,7 @@ export const normalizedBasicCoworkReservationOrderSchema = Schema.Struct({
   date: plainDateStringSchema,
 });
 
-export const normalizedPlusCoworkReservationOrderSchema = Schema.Struct({
+const normalizedPlusCoworkReservationOrderSchema = Schema.Struct({
   kind: Schema.Literal(coworkReservationKind),
   ...normalizedReservationCustomerSchema.fields,
   billing: normalizedReservationBillingSelectionSchema,
@@ -178,7 +208,7 @@ export const normalizedPlusCoworkReservationOrderSchema = Schema.Struct({
   date: plainDateStringSchema,
 });
 
-export const normalizedProfiCoworkReservationOrderSchema = Schema.Struct({
+const normalizedProfiCoworkReservationOrderSchema = Schema.Struct({
   kind: Schema.Literal(coworkReservationKind),
   ...normalizedReservationCustomerSchema.fields,
   billing: normalizedReservationBillingSelectionSchema,
@@ -197,7 +227,7 @@ export const normalizedCoworkReservationOrderSchema =
     ])
   );
 
-export const normalizedCoworkReservationFormSchema = Schema.Union([
+const normalizedCoworkReservationFormSchema = Schema.Union([
   Schema.Struct({
     ...normalizedOpenSpaceCoworkReservationOrderSchema.fields,
     marketingConsent: Schema.Boolean,
@@ -222,7 +252,7 @@ export const normalizedCoworkReservationFormSchema = Schema.Union([
 
 // Public issuance only ever produces the current offers; the full form union
 // above stays decodable for historical truth.
-export const normalizedCurrentCoworkReservationFormSchema = Schema.Union([
+const normalizedCurrentCoworkReservationFormSchema = Schema.Union([
   Schema.Struct({
     ...normalizedOpenSpaceCoworkReservationOrderSchema.fields,
     marketingConsent: Schema.Boolean,
@@ -472,7 +502,7 @@ export const getCoworkCheckoutAttemptDetails = (
   monitorOption: reservation.monitorOption ?? null,
 });
 
-export const getCoworkReservationIssues = (
+const getCoworkReservationIssues = (
   data: CoworkReservationOrderInput | CoworkReservationFormInput
 ): readonly Schema.FilterIssue[] => [
   ...getCoworkReservationProductIssues(data),
@@ -484,7 +514,7 @@ type NormalizedCoworkReservationBase = Omit<
   "kind" | "entryTier" | "date" | "coffee" | "monitorOption"
 >;
 
-export const normalizeCoworkReservationOrder = (
+const normalizeCoworkReservationOrder = (
   data: CoworkReservationOrderInput | CoworkReservationFormInput
 ): NormalizedCoworkReservationOrder => {
   const base: NormalizedCoworkReservationBase = {
@@ -574,7 +604,7 @@ export const coworkCurrentReservationOrderSchema =
       })
     );
 
-export const normalizeCoworkReservationForm = (
+const normalizeCoworkReservationForm = (
   data: CoworkReservationFormInput
 ): NormalizedCurrentCoworkReservationForm =>
   // Issuance input can only produce the current offers.
@@ -643,15 +673,5 @@ export const coworkReservationDefaultValues: CoworkReservationInput = {
   billing: defaultReservationBillingSelection,
   marketingConsent: false,
 };
-
-export {
-  getCoworkTierIncludesCourtesyCoffee,
-  getCoworkTierRequiresMonitorOption,
-  getCoworkTierWorkstationAddon,
-} from "@/features/checkout/product-catalog";
-export type { WorkspaceCoworkCurrentTier, WorkspaceCoworkProductTier };
-export {
-  getAllowedMonitorOptionsForCoworkTier,
-  getCoworkReservationProductCoffee,
-  getCoworkReservationProductMonitorOption,
-};
+export type { WorkspaceCoworkProductTier };
+export { getAllowedMonitorOptionsForCoworkTier };

@@ -21,12 +21,11 @@ import {
   toNexiBuildEndpoint,
 } from "./checkout/nexi-build-api";
 
-export const scriptDir = dirname(fileURLToPath(import.meta.url));
+const scriptDir = dirname(fileURLToPath(import.meta.url));
 export const workspaceDir = resolve(scriptDir, "..");
-export const repoRoot = resolve(workspaceDir, "../..");
 const redactions = new Map<string, "substring" | "token">();
 
-export type RunBrowserOptions = {
+type RunBrowserOptions = {
   allowFailure?: boolean;
   input?: string;
   logCommand?: boolean;

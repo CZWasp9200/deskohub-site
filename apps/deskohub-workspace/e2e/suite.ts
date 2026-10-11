@@ -11,7 +11,6 @@ import type { DatasourceConfig } from "./config";
 import {
   type WorkspaceE2EProviderVerificationPermit,
   WorkspaceE2EProviderVerificationPermitService,
-  workspaceE2EProviderVerificationConcurrency,
 } from "./coordination/provider-verification-permit.service";
 import {
   type WorkspaceE2EDiagnosticCode,
@@ -50,8 +49,6 @@ const e2eOutcomeStatus: Record<E2EOutcome, string> = {
   passed: "PASS",
   timed_out: "TIMEOUT",
 };
-
-export { workspaceE2EProviderVerificationConcurrency };
 
 export type WorkspaceE2EFailureDiagnostic = {
   readonly caseId: string;
