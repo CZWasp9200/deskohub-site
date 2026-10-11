@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, expect, mock, test } from "bun:test";
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { cleanup, render } from "@testing-library/react";
 import { type Locale, m } from "@/features/i18n";
 import {
   registerWorkspaceComponentTestEnv,
