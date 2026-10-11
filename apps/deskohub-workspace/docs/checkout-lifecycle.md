@@ -96,7 +96,7 @@ Paid fulfillment creates and durably records a time-limited front-door AlgoPIN f
 
 The reservation page always explains the privacy policy. Privacy-policy acknowledgement is not treated as marketing consent.
 
-Marketing consent is optional and belongs to the customer rather than one reservation. Checking the option grants consent; leaving it unchecked does not withdraw an earlier grant. A withdrawal is a separate deliberate action.
+Marketing consent is optional and belongs to the customer rather than one reservation. Checking the option grants consent; leaving it unchecked does not withdraw an earlier grant. A withdrawal is a separate deliberate action. A signed-in customer booking with their account who already consents is not shown the option again; booking for someone else still shows it, because consent belongs to the booked customer.
 
 Payment uses one affirmative checkout choice to accept the current terms and operating rules. When the service begins inside the statutory withdrawal period, that same visible choice also includes the customer's express request to begin at the reserved time and acknowledgement that the withdrawal right ends after full performance. The terms explain that a proportionate amount may be due after partial performance.
 

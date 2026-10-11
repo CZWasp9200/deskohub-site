@@ -86,6 +86,24 @@ function Harness({
 const getSubmitButton = (view: ReturnType<typeof render>) =>
   view.container.querySelector("#reservation-submit") as HTMLButtonElement;
 
+const existingCustomer: ReservationExistingCustomerForm = {
+  contact: {
+    name: "Ada Lovelace",
+    email: "ada@example.com",
+    phone: "+420777777777",
+  },
+  hasMarketingConsent: false,
+  initialMode: "account",
+  otherContact: {
+    name: "Grace Hopper",
+    email: "grace@example.com",
+    phone: "+420606060606",
+  },
+};
+
+const getMarketingConsentCheckbox = (view: ReturnType<typeof render>) =>
+  view.container.querySelector("#reservation-marketing-consent");
+
 describe("ReservationCheckoutForm", () => {
   beforeAll(() => {
     registerWorkspaceComponentTestEnv();
@@ -119,19 +137,6 @@ describe("ReservationCheckoutForm", () => {
   });
 
   test("books as the account only while the account card is shown", async () => {
-    const existingCustomer: ReservationExistingCustomerForm = {
-      contact: {
-        name: "Ada Lovelace",
-        email: "ada@example.com",
-        phone: "+420777777777",
-      },
-      initialMode: "account",
-      otherContact: {
-        name: "Grace Hopper",
-        email: "grace@example.com",
-        phone: "+420606060606",
-      },
-    };
     const view = render(
       <Harness
         advertisedPrice={{ isError: false, token: "signed-price" }}
@@ -154,6 +159,49 @@ describe("ReservationCheckoutForm", () => {
     expect(startCheckout.mock.calls[1]?.[0]).not.toHaveProperty("customer");
     expect(startCheckout.mock.calls[1]?.[0]).toMatchObject({
       reservation: existingCustomer.otherContact,
+    });
+  });
+
+  test("asks an account without marketing consent to opt in", () => {
+    const view = render(
+      <Harness
+        advertisedPrice={{ isError: false, token: "signed-price" }}
+        existingCustomer={existingCustomer}
+      />
+    );
+
+    expect(getMarketingConsentCheckbox(view)).not.toBeNull();
+  });
+
+  test("hides marketing consent for an account that already gave it", async () => {
+    const view = render(
+      <Harness
+        advertisedPrice={{ isError: false, token: "signed-price" }}
+        existingCustomer={{
+          ...existingCustomer,
+          hasMarketingConsent: true,
+          initialMode: "contact",
+        }}
+      />
+    );
+
+    // Another contact is a different customer, so they are still asked.
+    const checkbox = getMarketingConsentCheckbox(view);
+    expect(checkbox).not.toBeNull();
+    fireEvent.click(checkbox as Element);
+
+    fireEvent.click(
+      view.getByRole("button", { name: "Use my account details" })
+    );
+    expect(getMarketingConsentCheckbox(view)).toBeNull();
+
+    // The hidden checkbox submits no opt-in, which leaves the stored
+    // consent as it is.
+    fireEvent.click(getSubmitButton(view));
+    await waitFor(() => expect(startCheckout).toHaveBeenCalledTimes(1));
+    expect(startCheckout.mock.calls[0]?.[0]).toMatchObject({
+      customer: "account",
+      marketingConsent: false,
     });
   });
 });

@@ -71,6 +71,7 @@ const existingCustomer: ReservationExistingCustomerForm = {
     email: "ada@example.com",
     phone: "+420777777777",
   },
+  hasMarketingConsent: false,
   initialMode: "account",
   otherContact: {
     name: "Grace Hopper",

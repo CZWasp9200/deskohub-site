@@ -97,6 +97,7 @@ export async function renderMeetingRoomReservationContent({
     existingCustomer
       ? getReservationExistingCustomerForm({
           contact: existingCustomer.contact,
+          hasMarketingConsent: existingCustomer.hasMarketingConsent,
           queryMode: initialReservation
             ? undefined
             : getReservationCustomerQueryMode(searchParams),

@@ -271,6 +271,7 @@ describe("remembered meeting-room duration", () => {
       email: "ada@example.com",
       phone: "+420777777777",
     },
+    hasMarketingConsent: false,
     lastReservation: { kind: "meeting-room", duration: "hour:4" },
   } as const;
 
