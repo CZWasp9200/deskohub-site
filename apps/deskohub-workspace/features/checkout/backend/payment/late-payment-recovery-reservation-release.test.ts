@@ -21,12 +21,16 @@ import {
   TableAssignmentUnavailableError,
   WorkspaceTableAssignmentService,
 } from "../reservation/workspace-table-assignment.service";
-import { LatePaymentRecoveryService } from "./late-payment-recovery.service";
+import {
+  LatePaymentRecoveryService,
+  latePaymentRecoveryMaxExecutionSeconds,
+} from "./late-payment-recovery.service";
 
 type OriginalHoldStatus = "NEW" | "CONFIRMED" | "CANCELLED";
 
 type HarnessReservation = typeof coworkReservation & {
   readonly reservationState: string;
+  readonly failureCode?: string;
   readonly reservationHoldExpiresAt: Temporal.Instant;
   readonly updatedAt: Temporal.Instant;
 };
@@ -44,7 +48,13 @@ const recovery = {
 const makeRecoveryHarness = (options: {
   readonly reservation: HarnessReservation;
   readonly originalStatus: OriginalHoldStatus;
+  /** False when another run holds a fresh processing claim. */
+  readonly claimed?: boolean;
   readonly newerReservation?: boolean;
+  /** A newer reservation wins between recreation and settlement. */
+  readonly supersededAtSettlement?: boolean;
+  /** A replacement an interrupted earlier run already created in Dotypos. */
+  readonly resumedReplacementId?: string;
   readonly ensureAvailable?: () => Effect.Effect<void, unknown>;
   readonly assignTableId?: () => Effect.Effect<unknown, unknown>;
   readonly cancelReservation?: () => Effect.Effect<void, unknown>;
@@ -56,6 +66,7 @@ const makeRecoveryHarness = (options: {
   const events: string[] = [];
   let reservation = { ...options.reservation };
   let recoveryState = "pending";
+  let settlementAttempted = false;
   const settleAs = (state: string) =>
     mock(() =>
       Effect.sync(() => {
@@ -66,6 +77,14 @@ const makeRecoveryHarness = (options: {
       })
     );
   const spies = {
+    claim: mock(
+      (_input: { readonly staleProcessingBefore: Temporal.Instant }) =>
+        Effect.succeed(
+          (options.claimed === false
+            ? null
+            : { ...recovery, state: "processing" }) as never
+        )
+    ),
     completeUsingOriginalReservation: mock(() => {
       events.push("completeUsingOriginalReservation");
       return (
@@ -75,7 +94,19 @@ const makeRecoveryHarness = (options: {
         })
       );
     }),
-    completeWithReplacement: settleAs("recovered"),
+    completeWithReplacement: options.supersededAtSettlement
+      ? mock(() => {
+          events.push("completeWithReplacement");
+          settlementAttempted = true;
+          return Effect.fail(
+            new LatePaymentRecoveryStateError({
+              operation: "settle",
+              paymentAttemptId: "attempt-id" as never,
+              message: "A newer reservation prevents recovery.",
+            })
+          );
+        })
+      : settleAs("recovered"),
     requireRefund: settleAs("refund_required"),
     requireReview: settleAs("review_required"),
     claimCancellation: mock(() =>
@@ -140,15 +171,15 @@ const makeRecoveryHarness = (options: {
           findByPaymentAttemptId: mock(() =>
             Effect.sync(() => ({ ...recovery, state: recoveryState }) as never)
           ),
-          claim: mock(() =>
-            Effect.succeed({ ...recovery, state: "processing" } as never)
-          ),
+          claim: spies.claim,
           hasNewerActiveReservation: mock(() =>
-            Effect.succeed(options.newerReservation ?? false)
+            Effect.sync(
+              () => (options.newerReservation ?? false) || settlementAttempted
+            )
           ),
           completeUsingOriginalReservation:
             spies.completeUsingOriginalReservation as never,
-          completeWithReplacement: spies.completeWithReplacement,
+          completeWithReplacement: spies.completeWithReplacement as never,
           requireRefund: spies.requireRefund,
           requireReview: spies.requireReview,
         }),
@@ -167,7 +198,19 @@ const makeRecoveryHarness = (options: {
         Layer.mock(DotyposService, {
           getReservationStatus: spies.getReservationStatus,
           cancelReservation: spies.cancelReservation as never,
-          listActiveReservationsOverlapping: mock(() => Effect.succeed([])),
+          listActiveReservationsOverlapping: mock(() =>
+            Effect.succeed(
+              (options.resumedReplacementId
+                ? [
+                    {
+                      id: options.resumedReplacementId,
+                      status: "CONFIRMED",
+                      note: "Payment order: reservation-id",
+                    },
+                  ]
+                : []) as never
+            )
+          ),
           createReservation: spies.createReservation,
         }),
         Layer.mock(WorkspaceTableAssignmentService, {
@@ -328,6 +371,31 @@ describe("LatePaymentRecoveryService with an expired or released hold", () => {
     expect(harness.events).toEqual([...releaseEvents, ...recreationEvents]);
   });
 
+  test("recreates a cancellation-failed hold that Dotypos already reports cancelled", async () => {
+    const harness = makeRecoveryHarness({
+      reservation: {
+        ...currentHeldReservation,
+        reservationState: "cancellation_failed",
+      },
+      originalStatus: "CANCELLED",
+    });
+
+    const result = await harness.recover();
+
+    expect(result).toMatchObject({ _tag: "Success", success: "recovered" });
+    expect(harness.events).toEqual([
+      "getReservationStatus",
+      "claimCancellation",
+      "markCancelled",
+      ...recreationEvents,
+    ]);
+    expect(harness.spies.completeWithReplacement).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recoveredDotyposReservationId: "replacement-id",
+      })
+    );
+  });
+
   test("reuses a current hold without releasing it", async () => {
     const harness = makeRecoveryHarness({
       reservation: currentHeldReservation,
@@ -342,6 +410,12 @@ describe("LatePaymentRecoveryService with an expired or released hold", () => {
       "completeUsingOriginalReservation",
       "fulfillPaidOrder",
     ]);
+    // A processing claim only counts as stale once a run could have finished.
+    const staleProcessingBefore =
+      harness.spies.claim.mock.calls[0]?.[0].staleProcessingBefore;
+    expect(
+      Temporal.Now.instant().since(staleProcessingBefore).total("seconds")
+    ).toBeGreaterThan(latePaymentRecoveryMaxExecutionSeconds);
   });
 
   test("continues through release and recreation when the hold deadline passes during reuse", async () => {
@@ -519,5 +593,149 @@ describe("LatePaymentRecoveryService with an expired or released hold", () => {
     expect(result._tag).toBe("Failure");
     expect(harness.spies.cancelReservation).not.toHaveBeenCalled();
     expect(harness.spies.ensureAvailable).not.toHaveBeenCalled();
+  });
+});
+
+describe("LatePaymentRecoveryService settlement decisions", () => {
+  test("keeps a fresh processing claim retryable", async () => {
+    const harness = makeRecoveryHarness({
+      reservation: currentHeldReservation,
+      originalStatus: "NEW",
+      claimed: false,
+    });
+
+    const result = await harness.recover();
+
+    expect(result).toMatchObject({
+      _tag: "Failure",
+      failure: { _tag: "LatePaymentRecoveryError" },
+    });
+    expect(harness.events).toEqual([]);
+  });
+
+  test("requires a refund instead of recreating an operator force-cancelled reservation", async () => {
+    const harness = makeRecoveryHarness({
+      reservation: {
+        ...currentHeldReservation,
+        reservationState: "cancelled",
+        failureCode: "admin_forced_payment_cancellation",
+      },
+      originalStatus: "CANCELLED",
+    });
+
+    const result = await harness.recover();
+
+    expect(result).toMatchObject({
+      _tag: "Success",
+      success: "refund_required",
+    });
+    expect(harness.events).toEqual(["settle:refund_required"]);
+    expect(harness.spies.requireRefund).toHaveBeenCalledWith(
+      expect.objectContaining({
+        failureCode: "late_payment_after_administration_cancellation",
+      })
+    );
+  });
+
+  test("requires a refund without disturbing a newer active payment attempt", async () => {
+    const harness = makeRecoveryHarness({
+      reservation: {
+        ...currentHeldReservation,
+        activePaymentAttemptId: "newer-attempt-id",
+      },
+      originalStatus: "NEW",
+    });
+
+    const result = await harness.recover();
+
+    expect(result).toMatchObject({
+      _tag: "Success",
+      success: "refund_required",
+    });
+    expect(harness.events).toEqual(["settle:refund_required"]);
+    expect(harness.spies.requireRefund).toHaveBeenCalledWith(
+      expect.objectContaining({
+        failureCode: "late_payment_superseded_attempt",
+      })
+    );
+  });
+
+  test("requires a refund when the purchased historical Profi monitor setup is unavailable", async () => {
+    const harness = makeRecoveryHarness({
+      reservation: {
+        ...coworkReservation,
+        reservationDetails: {
+          kind: "cowork",
+          entryTier: "profi",
+          coffee: true,
+          monitorOption: "2x27-qhd",
+        },
+        reservationState: "cancelled",
+        reservationHoldExpiresAt: Temporal.Now.instant(),
+        updatedAt: Temporal.Now.instant(),
+      } as HarnessReservation,
+      originalStatus: "CANCELLED",
+      ensureAvailable: () =>
+        Effect.fail(
+          new WorkspaceTableUnavailableError({
+            date: "2099-01-01",
+            reservation: {
+              kind: "cowork",
+              entryTier: "profi",
+              monitorOption: "2x27-qhd",
+            },
+          })
+        ),
+    });
+
+    const result = await harness.recover();
+
+    expect(result).toMatchObject({
+      _tag: "Success",
+      success: "refund_required",
+    });
+    expect(harness.spies.ensureAvailable).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "cowork",
+        entryTier: "profi",
+        monitorOption: "2x27-qhd",
+      })
+    );
+    expect(harness.events).toEqual([
+      "ensureAvailable",
+      "settle:refund_required",
+    ]);
+    expect(harness.spies.requireRefund).toHaveBeenCalledWith(
+      expect.objectContaining({
+        failureCode: "late_payment_reservation_unavailable",
+      })
+    );
+  });
+
+  test("cancels a resumed replacement when a newer reservation wins before settlement", async () => {
+    const harness = makeRecoveryHarness({
+      reservation: {
+        ...currentHeldReservation,
+        reservationState: "cancelled",
+      },
+      originalStatus: "CANCELLED",
+      resumedReplacementId: "replacement-id",
+      supersededAtSettlement: true,
+    });
+
+    const result = await harness.recover();
+
+    expect(result).toMatchObject({
+      _tag: "Success",
+      success: "refund_required",
+    });
+    expect(harness.events).toEqual([
+      "completeWithReplacement",
+      "cancelReservation:replacement-id",
+      "settle:refund_required",
+    ]);
+    expect(harness.spies.requireRefund).toHaveBeenCalledWith(
+      expect.objectContaining({ failureCode: "late_payment_newer_reservation" })
+    );
   });
 });
