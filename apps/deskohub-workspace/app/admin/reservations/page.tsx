@@ -17,7 +17,6 @@ import {
 import {
   type AdministrationSearchParams,
   loadAdministrationRefundAttention,
-  loadAdministrationReservations,
   loadAdministrationReservationsPage,
 } from "@/features/administration/page-data.server";
 import { RefundAttention } from "@/features/administration/refund-attention";
@@ -68,9 +67,11 @@ export default function ReservationsAdministrationPage({
   );
 }
 
-type ReservationsData = Awaited<
-  ReturnType<typeof loadAdministrationReservations>
->;
+type ReservationsPage = ReturnType<typeof loadAdministrationReservationsPage>;
+type ReservationsData = {
+  readonly input: Awaited<ReservationsPage["input"]>;
+  readonly result: Awaited<ReservationsPage["result"]>;
+};
 
 async function ReservationCount({
   result,
@@ -122,34 +123,6 @@ async function ReservationResultsContent({
 }) {
   const [resolvedInput, resolvedResult] = await Promise.all([input, result]);
   return <ReservationResults input={resolvedInput} result={resolvedResult} />;
-}
-
-export async function ReservationsAdministrationContent({
-  searchParams,
-}: {
-  readonly searchParams: AdministrationSearchParams;
-}) {
-  const { input, result } = await loadAdministrationReservations(searchParams);
-  return (
-    <>
-      <h1 className="sr-only">Reservations</h1>
-      <AdministrationTableToolbar
-        count={result.total}
-        filters={
-          <ReservationsAdministrationFilterForm
-            defaultFrom={
-              getAdministrationReservationListDefaultDateRange().from
-            }
-            input={input}
-            shortcuts={getAdministrationReservationDateShortcuts()}
-          />
-        }
-        itemLabel="reservation"
-        search={<ReservationLookup variant="toolbar" />}
-      />
-      <ReservationResults input={input} result={result} />
-    </>
-  );
 }
 
 function ReservationResults({ input, result }: ReservationsData) {

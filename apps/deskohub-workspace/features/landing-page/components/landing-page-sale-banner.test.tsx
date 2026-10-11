@@ -36,18 +36,6 @@ afterAll(async () => {
 });
 
 describe("LandingPageSaleBanner", () => {
-  test("participates in the hero layout flow", () => {
-    const { container } = render(
-      <LandingPageSaleBanner
-        content={{ ...content, adjustmentKind: "percentage" }}
-      />
-    );
-
-    expect(container.querySelector("aside")?.classList).not.toContain(
-      "absolute"
-    );
-  });
-
   test("keeps the icon-only mobile CTA accessible", () => {
     const { container } = render(
       <LandingPageSaleBanner

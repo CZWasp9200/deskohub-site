@@ -1100,23 +1100,39 @@ describe("workspace production release checks", () => {
   test("rolls back to the baseline and verifies before failing an ambiguous promotion", async () => {
     const environment = promotionEnvironment();
     environment.setPostStatus(503);
-    mockGlobalFetch(environment.mockFetch);
+    // One ordered log of persisted outputs, the promotion request, and the
+    // rollback proves recovery data lands before the remote side effect.
+    const events: string[] = [];
+    mockGlobalFetch((input, init) => {
+      if ((init?.method ?? "GET").toUpperCase() === "POST") {
+        events.push("promotion request");
+      }
+      return environment.mockFetch(input, init);
+    });
     const rollbackUrls: string[] = [];
     const rollback = mock((url: string) => {
       rollbackUrls.push(url);
+      events.push("rollback");
       return Promise.resolve();
     });
+    const persist = async (output: string) => {
+      events.push(`persist ${output}`);
+      await environment.persistDeps.persist(output);
+    };
 
-    await expect(promote(environment, {}, { rollback })).rejects.toThrow(
-      "rolled back"
-    );
+    await expect(
+      promote(environment, {}, { rollback, persist })
+    ).rejects.toThrow("rolled back");
 
     expect(rollbackUrls).toEqual(["https://workspace-baseline.vercel.app"]);
-    expect(environment.persisted[0]).toBe(
-      "baseline_url=https://workspace-baseline.vercel.app\nbaseline_id=dpl_baseline\n"
-    );
-    expect(environment.persisted[1]).toBe("promotion_state=possibly-started\n");
-    expect(environment.persisted).toContain("promotion_state=restored\n");
+    expect(events.slice(0, 3)).toEqual([
+      "persist baseline_url=https://workspace-baseline.vercel.app\nbaseline_id=dpl_baseline\n",
+      "persist promotion_state=possibly-started\n",
+      "promotion request",
+    ]);
+    expect(
+      events.indexOf("persist promotion_state=restored\n")
+    ).toBeGreaterThan(events.indexOf("rollback"));
   });
 
   test("persists recovery-needed so the workflow finalizer restores the baseline when recovery verification fails", async () => {

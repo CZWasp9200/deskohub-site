@@ -145,9 +145,11 @@ Distinguish automated-runner behavior from manual procedures before treating a d
   the per-project `workers` cap on `checkout-non-payment` that leaves a worker
   free for the account lane from the first case batch. The account lane never
   pays, so the tail projects depend only on the checkout case projects.
-  Keep the bounded evidence in [account scheduling runtime](references/account-scheduling-runtime.json)
-  and reproduce its synthetic harness with `bun run test scripts/workspace-e2e-scheduling.test.ts`
-  from `apps/deskohub-workspace`. The package command supplies the preload and
+  Keep the bounded evidence in [account scheduling runtime](references/account-scheduling-runtime.json).
+  Its synthetic harness, `bun run test scripts/workspace-e2e-scheduling.test.ts`
+  from `apps/deskohub-workspace`, runs the current graph once to pass and once
+  with a checkout failure; it no longer reruns the retired baseline graph, so
+  the evidence's baseline values are historical. The package command supplies the preload and
   `--parallel=1` isolation. Load the actual config in a fresh bounded Bun
   process, validate projects and controls JSON, and do not change the actual
   scheduler. Run `bun turbo test --filter=deskohub-workspace` to prepare

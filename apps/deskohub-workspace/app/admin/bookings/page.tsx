@@ -14,7 +14,6 @@ import {
 } from "@/features/administration/loading";
 import {
   type AdministrationSearchParams,
-  loadAdministrationBookings,
   loadAdministrationBookingsPage,
 } from "@/features/administration/page-data.server";
 
@@ -52,7 +51,11 @@ export default function BookingsAdministrationPage({
   );
 }
 
-type BookingsData = Awaited<ReturnType<typeof loadAdministrationBookings>>;
+type BookingsPage = ReturnType<typeof loadAdministrationBookingsPage>;
+type BookingsData = {
+  readonly input: Awaited<BookingsPage["input"]>;
+  readonly result: Awaited<BookingsPage["result"]>;
+};
 
 async function BookingCount({
   result,
@@ -108,24 +111,5 @@ function BookingResults({ input, result }: BookingsData) {
         }}
       />
     </>
-  );
-}
-
-export async function BookingsAdministrationContent({
-  searchParams,
-}: {
-  readonly searchParams: AdministrationSearchParams;
-}) {
-  const { input, result } = await loadAdministrationBookings(searchParams);
-  return (
-    <AdministrationPage>
-      <h1 className="sr-only">Bookings</h1>
-      <AdministrationTableToolbar
-        count={result.total}
-        filters={<BookingsAdministrationFilterForm input={input} />}
-        itemLabel="booking"
-      />
-      <BookingResults input={input} result={result} />
-    </AdministrationPage>
   );
 }
