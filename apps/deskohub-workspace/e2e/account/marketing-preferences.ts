@@ -132,7 +132,7 @@ export type WorkspaceE2EMarketingPreferencesSeedRow =
  * the enclosing fixture may preserve existing token rows and clean up only
  * its token delta.
  */
-export const makeWorkspaceE2EMarketingPreferencesSeedRow = (input: {
+const makeWorkspaceE2EMarketingPreferencesSeedRow = (input: {
   readonly customerId: DotyposCustomerId;
   readonly now: Temporal.Instant;
   readonly tokenHash: string;
