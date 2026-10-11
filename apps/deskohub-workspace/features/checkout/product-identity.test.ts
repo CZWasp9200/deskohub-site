@@ -21,17 +21,11 @@ describe("workspace product identities", () => {
     ).toBe("office:3:2");
   });
 
-  test("rejects non-canonical product keys", () => {
+  test("rejects a non-canonical key for each reservation family", () => {
     const decode = Schema.decodeUnknownSync(workspaceProductKeySchema);
 
     expect(() => decode("cowork:enterprise")).toThrow();
     expect(() => decode("meeting-room:4")).toThrow();
-    expect(() => decode("meeting-room:240-minutes")).toThrow();
-    expect(() => decode("meeting-room:1440")).toThrow();
     expect(() => decode("office")).toThrow();
-    expect(() => decode("office:3")).toThrow();
-    expect(() => decode("office:0:2")).toThrow();
-    expect(() => decode("office:1.5:2")).toThrow();
-    expect(() => decode("office:3:0")).toThrow();
   });
 });

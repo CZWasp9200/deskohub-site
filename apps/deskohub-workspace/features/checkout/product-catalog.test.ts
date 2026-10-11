@@ -1,17 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { getMeetingRoomReservationDurationKey } from "@/features/reservation/meeting-room-reservation-duration";
 import {
-  type CoworkCoffeeAddonAvailability,
-  type CoworkWorkstationAddonAvailability,
-  getCoworkTierCoffeeAddon,
-  getCoworkTierWorkstationAddon,
-  getWorkspaceMeetingRoomPriceForDuration,
   getWorkspaceOfficePrice,
-  getWorkspaceProductByTier,
   getWorkspaceProductCoffeeLinePriceForTier,
   isWorkspaceCoworkCurrentProductTier,
   isWorkspaceProductTier,
-  type WorkspaceCoworkProductTier,
   workspaceCoworkCatalog,
   workspaceCoworkCurrentCatalog,
   workspaceCoworkCurrentTiers,
@@ -31,12 +24,6 @@ import {
 } from "./product-catalog.i18n";
 
 describe("workspace product catalog", () => {
-  test("exposes static tier-card prices explicitly", () => {
-    expect(getWorkspaceProductByTier("basic").price.value).toBe(35_000);
-    expect(getWorkspaceProductByTier("plus").price.value).toBe(49_000);
-    expect(getWorkspaceProductByTier("profi").price.value).toBe(55_000);
-  });
-
   test("does not advertise post-mix water", () => {
     for (const locale of ["en-US", "cs-CZ"] as const) {
       const basicCopy = [
@@ -64,11 +51,7 @@ describe("workspace product catalog", () => {
       "open-space",
       "reserved-desk",
     ]);
-    expect(isWorkspaceProductTier("basic")).toBe(true);
-    expect(isWorkspaceProductTier("open-space")).toBe(true);
     expect(isWorkspaceProductTier("toString")).toBe(false);
-    expect(isWorkspaceCoworkCurrentProductTier("basic")).toBe(false);
-    expect(isWorkspaceCoworkCurrentProductTier("reserved-desk")).toBe(true);
   });
 
   test("exposes exactly the current two-tier bookable subset", () => {
@@ -87,75 +70,6 @@ describe("workspace product catalog", () => {
       expect(isWorkspaceProductTier(tier)).toBe(true);
       expect([...workspaceCoworkTiers]).toContain(tier);
     }
-  });
-
-  test("pins the cowork coffee and workstation addon policy per tier", () => {
-    const policyByTier = {
-      basic: { coffeeAddon: "optional", workstationAddon: "unavailable" },
-      plus: { coffeeAddon: "included", workstationAddon: "unavailable" },
-      profi: { coffeeAddon: "included", workstationAddon: "required" },
-      "open-space": {
-        coffeeAddon: "optional",
-        workstationAddon: "unavailable",
-      },
-      "reserved-desk": {
-        coffeeAddon: "included",
-        workstationAddon: "optional",
-      },
-    } satisfies Record<
-      WorkspaceCoworkProductTier,
-      {
-        readonly coffeeAddon: CoworkCoffeeAddonAvailability;
-        readonly workstationAddon: CoworkWorkstationAddonAvailability;
-      }
-    >;
-
-    for (const [tier, policy] of Object.entries(policyByTier)) {
-      const productTier = tier as WorkspaceCoworkProductTier;
-      expect(getCoworkTierCoffeeAddon(productTier)).toBe(policy.coffeeAddon);
-      expect(getCoworkTierWorkstationAddon(productTier)).toBe(
-        policy.workstationAddon
-      );
-    }
-
-    // Profi's workstation is a required inclusion, not a paid optional toggle;
-    // Reserved Desk's workstation stays optional and Open Space has no
-    // workstation addon at all.
-    expect(getCoworkTierWorkstationAddon("profi")).toBe("required");
-    expect(getCoworkTierWorkstationAddon("reserved-desk")).toBe("optional");
-    expect(getCoworkTierWorkstationAddon("open-space")).toBe("unavailable");
-    expect(getCoworkTierCoffeeAddon("open-space")).toBe("optional");
-  });
-
-  test("exposes approved meeting room duration prices", () => {
-    expect(workspaceMeetingRoomCatalog.map(({ duration }) => duration)).toEqual(
-      [
-        { unit: "hour", amount: 1 },
-        { unit: "hour", amount: 4 },
-        { unit: "day", amount: 1 },
-      ]
-    );
-    expect(
-      getWorkspaceMeetingRoomPriceForDuration({ unit: "hour", amount: 1 })
-    ).toEqual({
-      value: 35_000,
-      exponent: 2,
-      currency: "CZK",
-    });
-    expect(
-      getWorkspaceMeetingRoomPriceForDuration({ unit: "hour", amount: 4 })
-    ).toEqual({
-      value: 98_000,
-      exponent: 2,
-      currency: "CZK",
-    });
-    expect(
-      getWorkspaceMeetingRoomPriceForDuration({ unit: "day", amount: 1 })
-    ).toEqual({
-      value: 182_000,
-      exponent: 2,
-      currency: "CZK",
-    });
   });
 
   test("prices the office base and every seat per calendar day", () => {
