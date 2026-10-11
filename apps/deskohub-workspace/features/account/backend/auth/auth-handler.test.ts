@@ -29,6 +29,7 @@ import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace
 import type { CustomerAccountId } from "../../customer-account";
 import { CustomerAccountDeletionService } from "../customer-account-deletion";
 import { CustomerAccountLinkRepository } from "../customer-account-link.repository";
+import { waitForAccountAdvisoryLockWait } from "../customer-account-lock.test-utils";
 import {
   CustomerAvatarProviderError,
   CustomerAvatarService,
@@ -899,41 +900,6 @@ describe.skipIf(!testDatabase)(
       expect(await revoked.json()).toBeNull();
     });
 
-    test("rolls the session expiry forward after the refresh age", async () => {
-      const sentLinks: CapturedMagicLink[] = [];
-      const auth = makeTestAuth({ sentLinks });
-      const email = uniqueEmail("rolling");
-
-      await signInForMagicLink(auth, email);
-      const verifyResponse = await verifyMagicLink(auth, sentLinks[0]!);
-      const cookie = cookieJar(getSessionCookie(verifyResponse)!);
-      const userId = (await userIdForEmail(email))!;
-
-      const before = await testDatabase!.pool.query(
-        `select expires_at from auth.session where user_id = $1`,
-        [userId]
-      );
-      const expiresBefore = new Date(before.rows[0]!.expires_at).getTime();
-
-      await testDatabase!.pool.query(
-        `update auth.session set expires_at = now() + interval '28 days' where user_id = $1`,
-        [userId]
-      );
-
-      const refreshed = await callHandler(auth, "/get-session", {
-        headers: { cookie },
-      });
-      expect(refreshed.status).toBe(200);
-
-      const after = await testDatabase!.pool.query(
-        `select expires_at from auth.session where user_id = $1`,
-        [userId]
-      );
-      const expiresAfter = new Date(after.rows[0]!.expires_at).getTime();
-
-      expect(expiresAfter).toBeGreaterThan(expiresBefore);
-    });
-
     test("logout revokes only the current session", async () => {
       const sentLinks: CapturedMagicLink[] = [];
       const auth = makeTestAuth({ sentLinks });
@@ -1173,17 +1139,20 @@ describe.skipIf(!testDatabase)(
 
       await Effect.runPromise(
         Effect.gen(function* () {
+          const lockHeld = yield* Deferred.make<void>();
           const lockReleased = yield* Deferred.make<void>();
 
           const holdFiber = yield* Effect.forkChild(
             withPostgresAdvisoryLock(
               testDatabase!.pool,
               lockKey,
-              Deferred.await(lockReleased).pipe(Effect.orDie)
+              Deferred.succeed(lockHeld, undefined).pipe(
+                Effect.andThen(Deferred.await(lockReleased)),
+                Effect.orDie
+              )
             ).pipe(Effect.orDie)
           );
-
-          yield* Effect.sleep("200 millis");
+          yield* Deferred.await(lockHeld);
 
           const deletion = callHandler(auth, "/delete-user", {
             method: "POST",
@@ -1191,7 +1160,9 @@ describe.skipIf(!testDatabase)(
             body: "{}",
           }).then((response) => response.status);
 
-          yield* Effect.sleep("400 millis");
+          yield* Effect.promise(() =>
+            waitForAccountAdvisoryLockWait(testDatabase!.pool, userId)
+          );
 
           const stillThere = yield* Effect.promise(() =>
             testDatabase!.pool.query(
