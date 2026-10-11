@@ -667,6 +667,11 @@ describe("CoworkReservationForm advertised pricing", () => {
         ?.textContent
     ).toContain("Summer sale");
     expect(
+      saleCard?.querySelector(
+        '[data-reservation-sale-discount="summer-sale"] [data-reservation-sale-discount-value]'
+      )?.textContent
+    ).toBe("-50%");
+    expect(
       view.getByRole("button", { name: /discount.*applied to.*Open Space/i })
     ).toBeDefined();
 
@@ -693,7 +698,7 @@ describe("CoworkReservationForm advertised pricing", () => {
         view.container.querySelector(
           '[data-reservation-sale-discount="launch-sale"]'
         )?.textContent
-      ).toContain("Launch sale");
+      ).toBe("Launch sale -20%");
     });
     expect(
       view.getByRole("button", { name: /discount.*applied to.*Reserved Desk/i })
