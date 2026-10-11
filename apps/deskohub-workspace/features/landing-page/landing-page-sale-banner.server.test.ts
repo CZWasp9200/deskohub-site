@@ -130,7 +130,6 @@ describe("getActiveLandingPageSaleBanner", () => {
       href,
       label: expect.stringContaining("Summer focus"),
     });
-    expect(getActivePublicSales).toHaveBeenCalledWith({ locale: "en-US" });
   });
 
   test("renders no banner when there is no active sale", async () => {

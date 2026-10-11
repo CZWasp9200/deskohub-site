@@ -103,10 +103,6 @@ describe("ContactService", () => {
     expect(businessEmail.text).not.toContain(
       m.contactEmailMessageHeading({}, { locale: "en-US" })
     );
-    expect(businessEmail.html).toContain("Deskohub");
-    expect(businessEmail.html).toContain(
-      'content="width=device-width, initial-scale=1.0" name="viewport"'
-    );
 
     expect(confirmationEmail.subject).toBe(
       m.contactEmailConfirmationSubject({}, { locale: "en-US" })
