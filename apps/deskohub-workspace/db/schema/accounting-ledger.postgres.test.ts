@@ -228,5 +228,45 @@ describe.skipIf(!testDatabase)(
         ]);
       });
     });
+
+    test("rejects an invoice for a paid attempt the reservation no longer has active", async () => {
+      await inRolledBackTransaction(async (client) => {
+        const superseded = await seedPaidReservation(client);
+        const activeAttemptId = nextId("synthetic-attempt");
+        await client.query(
+          `insert into payment_attempts (
+            id, workspace_reservation_id, provider, state, amount_value,
+            amount_exponent, currency, provider_order_id
+          ) values ($1, $2, 'nexi', 'paid', 1000, 2, 'CZK', $3)`,
+          [activeAttemptId, superseded.reservationId, nextId("synthetic-order")]
+        );
+        await client.query(
+          `insert into accounting_document_snapshots (
+            payment_attempt_id, workspace_reservation_id, key_id, encrypted_snapshot
+          ) values ($1, $2, 'SYNTHETIC_KEY', '\\x00'::bytea)`,
+          [activeAttemptId, superseded.reservationId]
+        );
+        await client.query(
+          "update workspace_reservations set active_payment_attempt_id = $1 where id = $2",
+          [activeAttemptId, superseded.reservationId]
+        );
+
+        // Same reservation, customer, paid state, and snapshot; only the
+        // active attempt differs.
+        const supersededRejection = await rejectionOf(
+          client,
+          insertInvoice,
+          invoiceParams(superseded)
+        );
+        const activeRejection = await rejectionOf(
+          client,
+          insertInvoice,
+          invoiceParams({ ...superseded, attemptId: activeAttemptId })
+        );
+
+        expect(supersededRejection?.code).toBe(checkViolation);
+        expect(activeRejection).toBeUndefined();
+      });
+    });
   }
 );
