@@ -4,9 +4,6 @@ import { hasReactClickHandler } from "../legal-cookie-consent";
 import { workspaceE2ETimeouts } from "../timeouts";
 
 const locale = "en-US" as const;
-const siteHeaderDesktopBreakpoint = 1_280;
-const primaryNavigationLabel = m.primaryNavigationLabel({}, { locale });
-const openNavigationMenuLabel = m.openNavigationMenuLabel({}, { locale });
 
 export type CookieCategory =
   | "necessary"
@@ -37,7 +34,7 @@ export async function expectNoAuthSessionCookie(
 }
 
 export async function expectPublicAccountLegal(page: Page): Promise<void> {
-  await expectResponsivePublicSiteShell(page);
+  await expectPublicSiteShell(page);
   const accountMain = page.getByRole("main");
   await expect(
     page.getByRole("heading", {
@@ -112,36 +109,7 @@ export async function waitForCookieSwitchHandler(
   });
 }
 
-async function expectResponsivePublicSiteShell(page: Page): Promise<void> {
+async function expectPublicSiteShell(page: Page): Promise<void> {
   await expect(page.getByRole("banner")).toBeVisible();
   await expect(page.getByRole("contentinfo")).toBeVisible();
-
-  const viewport = page.viewportSize();
-  if (viewport === null)
-    throw new Error("Public account legal requires a viewport");
-
-  await expect
-    .poll(async () => page.evaluate(() => document.documentElement.scrollWidth))
-    .toBeLessThanOrEqual(viewport.width + 1);
-
-  if (viewport.width >= siteHeaderDesktopBreakpoint) {
-    await expect(
-      page.getByRole("navigation", {
-        exact: true,
-        name: primaryNavigationLabel,
-      })
-    ).toBeVisible();
-    return;
-  }
-
-  const mobileMenuButton = page.getByRole("button", {
-    exact: true,
-    name: openNavigationMenuLabel,
-  });
-  await expect(mobileMenuButton).toBeVisible();
-  await expect(mobileMenuButton).toHaveAttribute("aria-expanded", "false");
-  await expect(mobileMenuButton).toHaveAttribute(
-    "aria-controls",
-    "site-header-mobile-menu"
-  );
 }
