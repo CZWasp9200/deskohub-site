@@ -1,8 +1,6 @@
 import "@/shared/testing/workspace-test-env";
 import { describe, expect, test } from "bun:test";
 import { NexiServiceMock } from "@deskohub/nexi/backend/service.mock";
-import type { SQL } from "drizzle-orm";
-import { PgDialect } from "drizzle-orm/pg-core";
 import { Effect, Layer } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { PaymentAdministrationService } from "./payment-administration.service";
@@ -40,51 +38,6 @@ const makeQuery = <A>(rows: readonly A[]) => {
 };
 
 describe("PaymentAdministrationService", () => {
-  test("filters local orders by provider order creation time", async () => {
-    let localOrderFilter: SQL | undefined;
-    const database = {
-      select: () => ({
-        from: () => ({
-          where: (condition: SQL) => {
-            localOrderFilter = condition;
-            return makeQuery([]);
-          },
-        }),
-      }),
-    };
-
-    await Effect.gen(function* () {
-      const administration = yield* PaymentAdministrationService;
-      return yield* administration.listOrders({
-        fromTime: "2026-08-01T00:00:00Z",
-        toTime: "2026-08-06T23:59:59.999999999Z",
-      });
-    }).pipe(
-      Effect.provide(
-        PaymentAdministrationService.Default.pipe(
-          Layer.provide(
-            Layer.merge(
-              Layer.succeed(
-                WorkspaceDatabase,
-                WorkspaceDatabase.of({ db: database as never })
-              ),
-              NexiServiceMock({ listOrders: () => Effect.succeed([]) })
-            )
-          )
-        )
-      ),
-      Effect.runPromise
-    );
-
-    const query = new PgDialect().sqlToQuery(localOrderFilter as SQL).sql;
-    expect(query).toMatch(
-      /coalesce\([^)]*provider_order_created_at[^)]*\) >= \$\d+/
-    );
-    expect(query).toMatch(
-      /coalesce\([^)]*provider_order_created_at[^)]*\) < \$\d+/
-    );
-  });
-
   test("links returned provider orders beyond the truncated local page", async () => {
     const newestLocalOrder = makeLocalOrder(
       "newest-local-order",

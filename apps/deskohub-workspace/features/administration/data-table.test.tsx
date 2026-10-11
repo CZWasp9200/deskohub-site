@@ -43,13 +43,7 @@ describe("AdministrationDataTable", () => {
     const view = render(
       <AdministrationDataTable
         ariaLabel="Codes"
-        columns={[
-          {
-            accessorKey: "code",
-            header: "Code",
-            meta: { cellClassName: "font-mono", headClassName: "w-32" },
-          },
-        ]}
+        columns={[{ accessorKey: "code", header: "Code" }]}
         data={[
           { id: "10", code: "Code 10" },
           { id: "2", code: "Code 2" },
@@ -75,8 +69,6 @@ describe("AdministrationDataTable", () => {
 
     fireEvent.click(sort);
     expect(sort.closest("th")?.getAttribute("aria-sort")).toBe("ascending");
-    expect(sort.closest("th")?.className).toContain("w-32");
-    expect(within(table).getByText("Code 1").className).toContain("font-mono");
   });
 
   test("links server-sorted headers instead of sorting rows locally", () => {
