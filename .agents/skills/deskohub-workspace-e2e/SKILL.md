@@ -76,13 +76,19 @@ Distinguish automated-runner behavior from manual procedures before treating a d
   processes, browser processes, fail-fast admission, and the shared-fixture
   tail. Register every case statically in the checked-in catalog and assert the
   prepared case plan matches it before execution. Use project dependencies for
-  readiness, fixture seeding, parallel availability and provider preparation,
-  plan construction, independent cases, the Calendar mutation case, and final
-  reconciliation. Keep the global worker ceiling at six: it replaces the old
+  readiness, fixture seeding, plan construction (which runs cowork,
+  meeting-room, and office availability and provider preparation concurrently
+  inside one test so no extra phase barrier precedes it), independent cases,
+  the Calendar mutation case, invoice persistence, and final reconciliation.
+  Invoice persistence takes an `ACCESS EXCLUSIVE` lock and disables the
+  `invoices_immutable` trigger, so it depends on every checkout case project
+  like the shared-fixture tail and must never overlap a paid case; do not make
+  the plan wait for it. Keep the global worker ceiling at six: it replaces the old
   reservation-start permit pool with a stricter whole-case bound. Put every
   hosted-payment case in one of exactly three serial Playwright lanes so at most
   three hosted sessions run per suite while non-payment work can use the other
-  workers. Do not reintroduce an Effect case aggregate, suite-local hosted
+  workers. Balance the lanes by recorded median case durations so they end
+  within seconds of each other; the slowest lane bounds the case phase. Do not reintroduce an Effect case aggregate, suite-local hosted
   semaphore, reservation priority pool, or browser launcher. Effect remains
   inside each Playwright test for domain workflows, semantic steps, tracing,
   provider coordination, cleanup, and interruption-safe finalizers. The
@@ -120,7 +126,11 @@ Distinguish automated-runner behavior from manual procedures before treating a d
   topological phase before advancing. Keep the long serial account lane in the
   same phase as `checkout-non-payment` and `checkout-payment-1` through
   `checkout-payment-3` by depending on `checkout-plan`; require real scheduler
-  regression evidence, not only a graph assertion.
+  regression evidence, not only a graph assertion. Playwright queues the
+  account lane behind every `checkout-non-payment` test in that phase, so keep
+  the per-project `workers` cap on `checkout-non-payment` that leaves a worker
+  free for the account lane from the first case batch. The account lane never
+  pays, so the tail projects depend only on the checkout case projects.
   Keep the bounded evidence in [account scheduling runtime](references/account-scheduling-runtime.json)
   and reproduce its synthetic harness with `bun run test scripts/workspace-e2e-scheduling.test.ts`
   from `apps/deskohub-workspace`. The package command supplies the preload and
@@ -171,7 +181,7 @@ Distinguish automated-runner behavior from manual procedures before treating a d
   cleanup journals. Keep the suite's nonzero exit even if that fallback cleanup
   passes, and never rerun the ordinary cases as part of cleanup recovery.
 - Keep interval-based availability pending while a user is rapidly editing its inputs, and coalesce intermediate queries before they reach the provider-backed route. Parallel meeting-room browsers can otherwise multiply a date, time, and duration change into enough overlapping Dotypos and Calendar inventory loads to strand the final availability request. Preserve the immediate initial query and the final selected interval rather than serializing whole E2E cases or weakening the readiness assertion.
-- Seed source-neutral discount definitions and codes only in the exact preview database before Playwright admits availability preparation or cases. Calendar-backed availability resolves the long-lived event's stored discount definition, so it reads those seeded rows even though provider discovery itself is read-only. After the seed project commits, let Playwright run cowork, meeting-room, and office availability tests in parallel while provider preparation runs in its sibling project. Keep the dedicated long-lived Calendar event immutable. When a pricing-change case must mutate its stored definition, isolate it on a product identity unused by happy paths, keep it in the Playwright project that depends on every independent-case project, serialize the related mutations inside that case, and restore the target with an interruption-safe finalizer. Calendar discovery caches resolved definitions under the date the booking is made (today), so a concurrent request for another product can otherwise preserve the transient target state, and an ineligible window keeps being advertised until `advertisedPricingSources` revalidates even after the finalizer restores the row. Any step that needs the restored sale advertised must reload until the page shows it before submitting, never assume restoration is visible immediately. Never mutate a target consumed by another parallel case.
+- Seed source-neutral discount definitions and codes only in the exact preview database before Playwright admits availability preparation or cases. Calendar-backed availability resolves the long-lived event's stored discount definition, so it reads those seeded rows even though provider discovery itself is read-only. After the seed project commits, the plan project runs cowork, meeting-room, and office availability preparation concurrently with provider preparation. Keep the dedicated long-lived Calendar event immutable. When a pricing-change case must mutate its stored definition, isolate it on a product identity unused by happy paths, keep it in the Playwright project that depends on every independent-case project, serialize the related mutations inside that case, and restore the target with an interruption-safe finalizer. Calendar discovery caches resolved definitions under the date the booking is made (today), so a concurrent request for another product can otherwise preserve the transient target state, and an ineligible window keeps being advertised until `advertisedPricingSources` revalidates even after the finalizer restores the row. Any step that needs the restored sale advertised must reload until the page shows it before submitting, never assume restoration is visible immediately. Never mutate a target consumed by another parallel case.
 - Lease one partition of the fixed 14-to-90-day candidate range before
   constructing cases. Coordinate owners through the dedicated long-lived Neon
   coordination database, never an application production, development, or
@@ -222,7 +232,7 @@ Distinguish automated-runner behavior from manual procedures before treating a d
   date so runs crossing midnight retain the same owner. Use round-robin weekday
   sequences rather than contiguous date bands so clustered unavailability does
   not starve a run that the full candidate range could support.
-- Let Playwright own one browser per worker. The compatibility runner may create one isolated context for the current Playwright test, but it must never launch or close the worker browser. Capture diagnostics for the genuine failure before closing its context. Playwright flushes HAR when the context closes, so use bounded finalizers to close every failed, completed, or interrupted context before sanitizing or discarding its raw HAR. Keep read-only instant navigation as an independent fully parallel project in the same Playwright graph so it shares CI setup and runs alongside checkout preparation without depending on it. Within checkout case finalization, let owned-reservation cleanup overlap the browser branch while preserving HAR stop before context close.
+- Let Playwright own one browser per worker. The compatibility runner may create one isolated context for the current Playwright test, but it must never launch or close the worker browser. Capture diagnostics for the genuine failure before closing its context. Playwright flushes HAR when the context closes, so use bounded finalizers to close every failed, completed, or interrupted context before sanitizing or discarding its raw HAR. Keep read-only instant navigation in its own Playwright config (`bun run test:instant-navigation`), launched by the E2E entry point concurrently with the checkout graph and without a lease or dependency on it: as a project in the checkout graph it extended the setup phase barrier. It always targets the remote preview, uses a separate output directory, and its failure fails the run after checkout finishes but does not fail-fast checkout. Within checkout case finalization, let owned-reservation cleanup overlap the browser branch while preserving HAR stop before context close.
 - Confirm Dotypos cancellation convergence through the same active-overlap read
   model used by capacity validation. Absence from the generic reservation list
   is not sufficient evidence that provider availability has released the seats.
@@ -337,12 +347,18 @@ Distinguish automated-runner behavior from manual procedures before treating a d
   account-lane browser errors during shutdown still surface as `failed` within
   about two seconds of the stop); only the annotated case is the root
   failure.
+- `pollUntil` keeps fixed spacing by default. Opt into `initialIntervalMs`
+  backoff (doubling up to `intervalMs`) only for pollers whose reads are not
+  rate-limited, currently PostgreSQL datasource reads. Dotypos-backed polls,
+  including the availability route, keep fixed spacing because Dotypos answers
+  bursts with 429, and browser polls already run at one second.
 - Express each case as named semantic steps with a focused timeout (navigation, UI transition, provider transition, or datasource convergence), plus a generous case watchdog. Avoid using a single checkout-wide timeout for every browser command and poll.
 - Preserve the E2E OTLP trace contract when changing orchestration. Emit one
   root run span, fixed phase spans, one child span for every case, and one child
   span for every semantic step. Phase IDs cover readiness, fixture seeding,
   invoice persistence, provider preparation, cowork, meeting-room, and office
-  availability preparation, case construction, per-case finalization, and
+  availability preparation (the last four as concurrent phase spans inside the
+  plan project), case construction, per-case finalization, and
   suite cleanup. Use fixed low-cardinality span names, native span duration,
   the configured timeout as a numeric attribute, closed outcome/failure-kind
   values, and the same shared censoring boundary as normal Workspace logs. Keep

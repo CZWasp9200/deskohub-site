@@ -15,7 +15,11 @@ import { runDatabaseOperation } from "../integrations/database-operation";
 import { dismissLegalCookieConsent } from "../legal-cookie-consent";
 import { pollUntil } from "../polling";
 import { addRedaction, assert } from "../runtime";
-import { workspaceE2EPollIntervalMs, workspaceE2ETimeouts } from "../timeouts";
+import {
+  workspaceE2EPollInitialIntervalMs,
+  workspaceE2EPollIntervalMs,
+  workspaceE2ETimeouts,
+} from "../timeouts";
 import { getWorkspaceE2EMarketingDocumentHash } from "./marketing-document-hash";
 import {
   type AccountReviewTarget,
@@ -555,6 +559,7 @@ export const classifyWorkspaceE2EMarketingConsentPersistence = (input: {
 };
 
 type WorkspaceE2EMarketingConsentPollOptions = {
+  readonly initialIntervalMs?: number;
   readonly intervalMs: number;
   readonly label: string;
   readonly timeoutMs: number;
@@ -640,6 +645,7 @@ export const waitForWorkspaceE2EMarketingConsentPersistence = <
   );
 
   return (input.poll ?? pollUntil)(observedConsent, {
+    initialIntervalMs: workspaceE2EPollInitialIntervalMs.database,
     intervalMs: workspaceE2EPollIntervalMs.datasource,
     label: `marketing preference ${input.expectedStatus} persisted`,
     timeoutMs: workspaceE2ETimeouts.datasource,
@@ -1116,6 +1122,7 @@ const waitForConsumedMarketingLink = (
       })
     ),
     {
+      initialIntervalMs: workspaceE2EPollInitialIntervalMs.database,
       intervalMs: workspaceE2EPollIntervalMs.datasource,
       label: "consumed marketing management link",
       timeoutMs: workspaceE2ETimeouts.datasource,
