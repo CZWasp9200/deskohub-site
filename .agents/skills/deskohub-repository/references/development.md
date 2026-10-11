@@ -75,6 +75,7 @@ Never commit real environment files or print credential values. Read the Workspa
 
 - Compile an application's localized messages after changing its message JSON and before trusting generated copy or copy-sensitive tests: `bun turbo i18n:compile --filter=<package-name>`.
 - Regenerate Dotypos and Nexi clients from their checked-in OpenAPI contracts rather than editing generated files.
+- The Games and Igloohome clients are gitignored; their package `turbo.json` makes `test` and `typecheck` depend on the cached `generate` task. Run their tests through `bun turbo test --filter=<package-name>`, or run the package's `bun run generate` once before a bare `bun test`.
 - Generate Workspace database migrations and metadata with Drizzle tooling. Never hand-write its journal or snapshots.
 
 ## Workspace build-cache boundary

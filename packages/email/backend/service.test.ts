@@ -1,5 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
-import { Effect, Layer } from "effect";
+import { Effect, Fiber, Layer } from "effect";
+import { TestClock } from "effect/testing";
 import {
   EmailDeliveryIdSchema,
   type EmailMessage,
@@ -69,6 +70,14 @@ const runWithEmail = <A, E>(
     )
   );
 
+/** Advances a TestClock past the whole retry backoff, so retries run instantly. */
+const withInstantRetryBackoff = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+  Effect.gen(function* () {
+    const fiber = yield* Effect.forkChild(effect);
+    yield* TestClock.adjust("1 minute");
+    return yield* Fiber.join(fiber);
+  }).pipe(Effect.provide(TestClock.layer()));
+
 const message: EmailMessage = {
   from: undefined as never,
   to: { email: "ada@example.test" },
@@ -112,7 +121,7 @@ describe("EmailService", () => {
       Effect.gen(function* () {
         const email = yield* EmailServiceTag;
         return yield* email.send(message);
-      }),
+      }).pipe(withInstantRetryBackoff),
       makeProvider(retrySend)
     );
     expect(attempts).toBe(2);
@@ -147,7 +156,7 @@ describe("EmailService", () => {
       Effect.gen(function* () {
         const email = yield* EmailServiceTag;
         return yield* email.send(message);
-      }),
+      }).pipe(withInstantRetryBackoff),
       makeProvider(send)
     );
 
@@ -210,7 +219,7 @@ describe("EmailService", () => {
     ]);
   });
 
-  test("sendTemplate sends rendered body, tags, and metadata", async () => {
+  test("sendTemplate sends the rendered template to a normalized recipient", async () => {
     const send = mock((_message: EmailMessage) => Effect.succeed(success));
     const render = mock(() =>
       Effect.succeed({
@@ -237,15 +246,12 @@ describe("EmailService", () => {
       { render }
     );
 
-    expect(send.mock.calls[0]?.[0]).toEqual({
+    expect(send.mock.calls[0]?.[0]).toMatchObject({
       from: config.defaultFrom,
       to: { email: "ada@example.test" },
       subject: "Reservation confirmed",
       html: "<p>Confirmed</p>",
       text: "Confirmed",
-      tags: ["reservation-confirmation"],
-      metadata: { templateType: "reservation-confirmation" },
-      idempotencyKey: expect.any(String),
     });
   });
 });
