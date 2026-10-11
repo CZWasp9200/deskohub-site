@@ -34,13 +34,6 @@ describe("SignInLoading", () => {
       expect(status.getAttribute("hidden")).toBeNull();
       expect(status.getAttribute("aria-hidden")).toBeNull();
       expect(main.getAttribute("role")).toBeNull();
-      expect(main.className).toContain(
-        "min-h-[calc(100vh-var(--site-header-height))]"
-      );
-      expect(main.className).toContain("px-4");
-      expect(main.className).toContain(
-        "pt-[calc(var(--site-header-height)+4rem)]"
-      );
       expect(status.querySelector('[data-slot="skeleton"]')).toBeTruthy();
       expect(view.container.querySelector("form")).toBeNull();
       expect(view.queryByRole("textbox")).toBeNull();

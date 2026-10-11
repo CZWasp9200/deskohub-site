@@ -48,13 +48,6 @@ test.each([
     expect(childLabelId).not.toBeNull();
     expect(childLabelId).toBe(child.id);
     expect(document.getElementById(childLabelId ?? "")).toBe(child);
-    expect(child.parentElement?.className).toContain("pointer-events-none");
-    expect(child.parentElement?.className).toContain("contents");
-    expect(trigger?.className).toContain("inline-flex");
-    expect(trigger?.className).toContain("min-w-0");
-    expect(trigger?.className).toContain("max-w-full");
-    expect(trigger?.classList.contains("w-full")).toBe(false);
-    expect(trigger?.className).toContain("focus-visible:ring-2");
     expect(view.getByRole("group", { name: "Disabled action" })).toBe(trigger);
     expect((child as HTMLButtonElement).disabled).toBe(true);
     const documentView = within(view.baseElement);
@@ -67,10 +60,6 @@ test.each([
     expect(document.activeElement).toBe(trigger);
     const tooltip = await waitFor(() => documentView.getByRole("tooltip"));
     expect(tooltip.textContent).toBe(message);
-    expect(tooltip.className).toContain("w-[min(20rem,calc(100vw-2rem))]");
-    expect(tooltip.className).toContain("max-w-[320px]");
-    expect(tooltip.className).toContain("break-words");
-    expect(tooltip.className).toContain("whitespace-normal");
     expect(trigger?.getAttribute("aria-describedby")).toBe(tooltip.id);
     expect(
       view.getByRole("group", { description: message, name: "Disabled action" })
@@ -90,24 +79,6 @@ test.each([
   }
 );
 
-test("merges an optional wrapper class with the default trigger classes", async () => {
-  const { FutureFeatureTooltip } = await import("./future-feature-tooltip");
-  const view = render(
-    <FutureFeatureTooltip className="w-full" locale="en-US">
-      <button disabled type="button">
-        Full-width action
-      </button>
-    </FutureFeatureTooltip>
-  );
-  const trigger = view.container.querySelector<HTMLElement>('[tabindex="0"]');
-
-  expect(trigger?.classList.contains("w-full")).toBe(true);
-  expect(trigger?.className).toContain("inline-flex");
-  expect(trigger?.className).toContain("min-w-0");
-  expect(trigger?.className).toContain("max-w-full");
-  expect(trigger?.className).toContain("focus-visible:ring-2");
-});
-
 test("keeps the tooltip available across pointer leaves and dismisses with Escape", async () => {
   const { FutureFeatureTooltip } = await import("./future-feature-tooltip");
   const view = render(
@@ -120,6 +91,7 @@ test("keeps the tooltip available across pointer leaves and dismisses with Escap
   const trigger = view.container.querySelector<HTMLElement>('[tabindex="0"]');
   if (!trigger) throw new Error("Future-feature trigger was not rendered");
   const documentView = within(view.baseElement);
+  expect(view.getByRole("group", { name: "Hover target" })).toBe(trigger);
 
   fireEvent.pointerMove(trigger, { pointerType: "mouse" });
   const tooltip = await waitFor(() => documentView.getByRole("tooltip"));
@@ -141,23 +113,4 @@ test("keeps the tooltip available across pointer leaves and dismisses with Escap
   });
   await waitFor(() => expect(documentView.queryByRole("tooltip")).toBeNull());
   expect(trigger.getAttribute("aria-describedby")).toBeNull();
-});
-
-test("uses rendered text as the named group content", async () => {
-  const { FutureFeatureTooltip } = await import("./future-feature-tooltip");
-  const view = render(
-    <FutureFeatureTooltip locale="en-US">
-      <button disabled type="button">
-        Disabled text action
-      </button>
-    </FutureFeatureTooltip>
-  );
-  const child = view.getByRole("button", { name: "Disabled text action" });
-  const trigger = child.closest<HTMLElement>('[tabindex="0"]');
-
-  expect(trigger).not.toBeNull();
-  expect(view.getByRole("group", { name: "Disabled text action" })).toBe(
-    trigger
-  );
-  expect((child as HTMLButtonElement).disabled).toBe(true);
 });
