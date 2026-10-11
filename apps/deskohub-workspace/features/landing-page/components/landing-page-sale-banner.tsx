@@ -3,8 +3,18 @@ import { ArrowRight, DollarSign, Percent } from "lucide-react";
 import Link from "next/link";
 import type { DiscountAdjustment } from "@/features/discounts/contracts";
 
+/**
+ * Keeps the translated template separate from the admin-entered title so the
+ * title always renders as literal text instead of interpolation markup.
+ */
+export type LandingPageSaleBannerLabel = {
+  template: string;
+  title: string;
+  adjustment: string;
+};
+
 export type LandingPageSaleBannerContent = {
-  label: string;
+  label: LandingPageSaleBannerLabel;
   adjustmentKind: DiscountAdjustment["kind"];
   statusLabel: string;
   ctaLabel: string;
@@ -57,8 +67,10 @@ export function LandingPageSaleBanner({
           <div>
             <p className="text-sm font-semibold leading-6 sm:text-base">
               <Interpolate
-                string={content.label}
+                string={content.label.template}
                 mapping={{
+                  title: content.label.title,
+                  adjustment: content.label.adjustment,
                   discount: (value) => (
                     <span
                       className="whitespace-nowrap font-bold text-sunset-yellow-ink"

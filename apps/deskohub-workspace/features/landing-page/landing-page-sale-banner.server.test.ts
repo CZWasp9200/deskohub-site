@@ -123,7 +123,7 @@ describe("getActiveLandingPageSaleBanner", () => {
     expect(banner).toMatchObject({
       adjustmentKind: "percentage",
       href,
-      label: expect.stringContaining("Summer focus"),
+      label: expect.objectContaining({ title: "Summer focus" }),
     });
     expect(getActivePublicSales).toHaveBeenCalledWith({ locale: "en-US" });
   });
