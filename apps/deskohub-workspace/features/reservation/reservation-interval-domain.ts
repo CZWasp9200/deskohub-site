@@ -18,16 +18,6 @@ export type ReservationIntervalInput = {
   readonly date?: never;
 };
 
-export type ReservationDateInput = {
-  readonly date: string;
-  readonly startsAt?: never;
-  readonly endsAt?: never;
-};
-
-export type ReservationTimeInput =
-  | ReservationDateInput
-  | ReservationIntervalInput;
-
 export type ReservationIntervalValidationIssue = {
   readonly path: keyof ReservationInterval;
   readonly message: string;

@@ -29,8 +29,6 @@ const deleteCustomerAccountConfirmedSchema = Schema.toStandardSchemaV1(
   { parseOptions: { errors: "all", onExcessProperty: "error" } }
 );
 
-const profileActionError = accountActionError;
-
 /**
  * Saves the Dotypos-owned profile for the verified account: a not-yet-linked
  * account creates and claims its customer profile, an already-linked account
@@ -66,7 +64,7 @@ const saveCustomerProfile = Effect.fn(
   },
   (effect, _input, locale) =>
     effect.pipe(
-      Effect.mapError(profileActionError(locale)),
+      Effect.mapError(accountActionError(locale)),
       Effect.provide(
         Layer.mergeAll(
           CustomerAuthentication.Default,
@@ -263,7 +261,7 @@ const lookupAresBusinessAction = defineWorkspaceAction(
     Effect.andThen(
       requireAccountsEnabled(locale),
       lookupAresBusinessWorkflow(input, locale).pipe(
-        Effect.mapError(profileActionError(locale)),
+        Effect.mapError(accountActionError(locale)),
         Effect.provide(
           Layer.mergeAll(CustomerAuthentication.Default, AresLookupService.Live)
         )

@@ -1,10 +1,12 @@
 "use client";
 
 import { effectSchemaResolver } from "@deskohub/effect-schema-resolver";
-import type {
-  AdministrationStandaloneAccessCodeAttemptIdType,
-  AdministrationStandaloneAccessCodeCleanupTargetType,
-  AdministrationStandaloneAccessCodeCreationOutcome,
+import {
+  ADMINISTRATION_STANDALONE_ACCESS_CODE_MAXIMUM_DURATION_HOURS,
+  ADMINISTRATION_STANDALONE_ACCESS_CODE_MINIMUM_DURATION_HOURS,
+  type AdministrationStandaloneAccessCodeAttemptIdType,
+  type AdministrationStandaloneAccessCodeCleanupTargetType,
+  type AdministrationStandaloneAccessCodeCreationOutcome,
 } from "@deskohub/workspace-admin-api";
 import { WORKSPACE_SITE_TIME_ZONE } from "@deskohub/workspace-admin-api/site-time-zone";
 import { Result, Schema } from "effect";
@@ -47,8 +49,6 @@ import {
   standaloneAccessCodeEarliestLocalEnd,
   standaloneAccessCodeElapsedHours,
   standaloneAccessCodeFailureNotices,
-  standaloneAccessCodeMaximumDurationHours,
-  standaloneAccessCodeMinimumDurationHours,
 } from "./create-access-code";
 
 type CreatedOutcome = Extract<
@@ -177,7 +177,7 @@ export function CreateStandaloneAccessCodeForm() {
   const endMax = isStandaloneAccessCodeLocalDateTime(startsAt)
     ? shiftStandaloneAccessCodeLocalEnd({
         startsAt,
-        hours: standaloneAccessCodeMaximumDurationHours,
+        hours: ADMINISTRATION_STANDALONE_ACCESS_CODE_MAXIMUM_DURATION_HOURS,
       })
     : undefined;
 
@@ -275,7 +275,7 @@ export function CreateStandaloneAccessCodeForm() {
             <dd className="mt-0.5 font-medium">
               {formatStandaloneAccessCodeDuration(
                 standaloneAccessCodeElapsedHours(outcome) ??
-                  standaloneAccessCodeMinimumDurationHours
+                  ADMINISTRATION_STANDALONE_ACCESS_CODE_MINIMUM_DURATION_HOURS
               )}
             </dd>
           </div>

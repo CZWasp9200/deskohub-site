@@ -1,10 +1,8 @@
 import { Record } from "effect";
 import {
   currencyCZK,
-  formatWorkspaceMoney,
   type WorkspaceMoney,
 } from "@/features/checkout/workspace-money";
-import type { Locale } from "@/features/i18n";
 import {
   getMeetingRoomReservationDurationKey,
   type MeetingRoomReservationDuration,
@@ -29,8 +27,6 @@ export const workspaceCoworkTiers = [
   ...workspaceCoworkHistoricalTiers,
   ...workspaceCoworkCurrentTiers,
 ] as const;
-export const workspaceCoworkProductTiers = workspaceCoworkTiers;
-export const workspaceProductTiers = workspaceCoworkTiers;
 
 export const workspaceProductMonitorOptions = [
   "2x27-qhd",
@@ -81,7 +77,7 @@ export const workspaceProductMonitorOptionTableTags = Record.map(
   ]
 );
 
-export type WorkspaceProductCatalogItem = {
+type WorkspaceProductCatalogItem = {
   readonly tier: WorkspaceCoworkProductTier;
   readonly label: string;
   readonly price: WorkspaceMoney;
@@ -141,14 +137,9 @@ export const workspaceCoworkCatalog = workspaceCoworkTiers.map(
   (tier) => workspaceCoworkProductsByTier[tier]
 );
 
-export const workspaceProductCatalog = workspaceCoworkCatalog;
-export const workspaceCoworkProductCatalog = workspaceCoworkCatalog;
-
 export const workspaceProductCoffeePrice: WorkspaceMoney = currencyCZK(5000);
-export const workspaceOfficeBaseDailyPrice: WorkspaceMoney =
-  currencyCZK(53_000);
-export const workspaceOfficeSeatDailyPrice: WorkspaceMoney =
-  currencyCZK(31_500);
+const workspaceOfficeBaseDailyPrice: WorkspaceMoney = currencyCZK(53_000);
+const workspaceOfficeSeatDailyPrice: WorkspaceMoney = currencyCZK(31_500);
 
 export function getWorkspaceProductByTier(tier: WorkspaceProductTier) {
   return workspaceCoworkProductsByTier[tier];
@@ -157,15 +148,9 @@ export function getWorkspaceProductByTier(tier: WorkspaceProductTier) {
 export function isWorkspaceProductTier(
   value: string | undefined
 ): value is WorkspaceProductTier {
-  return isWorkspaceCoworkProductTier(value);
-}
-
-export function isWorkspaceCoworkProductTier(
-  value: string | undefined
-): value is WorkspaceCoworkProductTier {
   return (
     value !== undefined &&
-    workspaceCoworkProductTiers.includes(value as WorkspaceCoworkProductTier)
+    workspaceCoworkTiers.includes(value as WorkspaceCoworkProductTier)
   );
 }
 
@@ -201,23 +186,8 @@ export function getCoworkTierWorkstationAddon(
   return getWorkspaceProductByTier(tier).workstationAddon;
 }
 
-export function getCoworkTierIncludesCourtesyCoffee(
-  tier: WorkspaceCoworkProductTier
-) {
+function getCoworkTierIncludesCourtesyCoffee(tier: WorkspaceCoworkProductTier) {
   return getCoworkTierCoffeeAddon(tier) === "included";
-}
-
-export function getCoworkTierRequiresMonitorOption(
-  tier: WorkspaceCoworkProductTier
-) {
-  return getCoworkTierWorkstationAddon(tier) === "required";
-}
-
-export function formatWorkspaceProductCurrencyAmount(
-  product: WorkspaceProductCatalogItem,
-  locale: Locale
-) {
-  return formatWorkspaceMoney(product.price, locale);
 }
 
 export function getWorkspaceProductCoffeeLinePriceForTier(

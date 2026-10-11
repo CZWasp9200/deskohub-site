@@ -41,13 +41,13 @@ const recoveryClaimTimeout = Temporal.Duration.from({
   seconds: latePaymentRecoveryMaxExecutionSeconds + 60,
 });
 
-export type LatePaymentRecoveryOutcome =
+type LatePaymentRecoveryOutcome =
   | "ignored"
   | "recovered"
   | "refund_required"
   | "review_required";
 
-export class LatePaymentRecoveryError extends Data.TaggedError(
+class LatePaymentRecoveryError extends Data.TaggedError(
   "LatePaymentRecoveryError"
 )<{
   readonly paymentAttemptId: PaymentAttemptId;

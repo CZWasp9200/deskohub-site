@@ -2,7 +2,7 @@ import { createRoot } from "react-dom/client";
 import "../../app/globals.css";
 import { type ReactNode, useLayoutEffect, useRef } from "react";
 import { resolveAccountVisualScreen } from "./account-route";
-import { DefaultAccountAdapter } from "./default-adapter";
+import DefaultAccountAdapter from "./default-adapter";
 import { markUnavailableActions } from "./renderer-availability";
 import { useNavigationState } from "./stubs/next-navigation";
 import {
@@ -12,8 +12,6 @@ import {
   type AccountVisualLocale,
   defaultAccountVisualAdapterMetadata,
 } from "./types";
-
-export { DefaultAccountAdapter } from "./default-adapter";
 
 function ActionAvailabilityBoundary({
   children,

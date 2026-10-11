@@ -40,7 +40,7 @@ export const profileBillingFieldNames = [
   "country",
 ] as const satisfies readonly (keyof ProfileFormValues)[];
 
-export type ProfileBillingFieldName = (typeof profileBillingFieldNames)[number];
+type ProfileBillingFieldName = (typeof profileBillingFieldNames)[number];
 
 /**
  * Billing inputs keep their legacy public DOM `name` attributes (prefixed

@@ -9,7 +9,7 @@ export const accountVisualScreens = [
 ] as const;
 
 export type AccountVisualScreen = (typeof accountVisualScreens)[number];
-export const accountVisualLocales = ["en-US", "cs-CZ"] as const;
+const accountVisualLocales = ["en-US", "cs-CZ"] as const;
 export type AccountVisualLocale = (typeof accountVisualLocales)[number];
 
 export type AccountVisualAdapterProps = {

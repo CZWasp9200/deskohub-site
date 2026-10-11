@@ -25,7 +25,7 @@ import { submitContactForm } from "@/features/contact/actions/submit-contact";
 import {
   type ContactFormValues,
   contactDefaultValues,
-  getContactSchema,
+  createContactSchema,
 } from "@/features/contact/schemas/contact";
 import { type Locale, m } from "@/features/i18n";
 import { Button } from "@/shared/components/ui/button";
@@ -229,7 +229,7 @@ function ContactFormBody({
   readonly reactiveValues?: ContactFormValues;
   readonly state: ContactFormState;
 }) {
-  const resolver = effectSchemaResolver(getContactSchema(locale));
+  const resolver = effectSchemaResolver(createContactSchema(locale));
   const form = useForm<ContactFormValues>({
     defaultValues: getContactFormValues(defaultValues),
     resolver,

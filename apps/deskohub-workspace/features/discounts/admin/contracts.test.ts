@@ -1,30 +1,33 @@
 import { describe, expect, test } from "bun:test";
+import {
+  AdministrationCustomerSearchQuery,
+  AdministrationDiscountDefinitionInput,
+  AdministrationDiscountMutation,
+  AdministrationExistingDiscountCodeCreateInput,
+} from "@deskohub/workspace-admin-api";
 import { Schema } from "effect";
 import { workspaceCurrencyDefinitions } from "@/shared/money/currencies";
-import {
-  createDiscountAdminInputSchema,
-  createDiscountCodeAdminInputSchema,
-  discountAdminCustomerSearchSchema,
-  discountAdminMutationSchema,
-} from "./contracts";
 
 const decodeDiscount = Schema.decodeUnknownSync(
-  createDiscountAdminInputSchema,
+  AdministrationDiscountDefinitionInput,
   { errors: "all", onExcessProperty: "error" }
 );
 const decodeCode = Schema.decodeUnknownSync(
-  createDiscountCodeAdminInputSchema,
+  AdministrationExistingDiscountCodeCreateInput,
   {
     errors: "all",
     onExcessProperty: "error",
   }
 );
-const decodeMutation = Schema.decodeUnknownSync(discountAdminMutationSchema, {
-  errors: "all",
-  onExcessProperty: "error",
-});
+const decodeMutation = Schema.decodeUnknownSync(
+  AdministrationDiscountMutation,
+  {
+    errors: "all",
+    onExcessProperty: "error",
+  }
+);
 const decodeCustomerSearch = Schema.decodeUnknownSync(
-  discountAdminCustomerSearchSchema,
+  AdministrationCustomerSearchQuery,
   {
     errors: "all",
     onExcessProperty: "error",

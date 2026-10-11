@@ -42,7 +42,7 @@ export type SubmittedPromotionConfiguration =
   | DiscountCodeConfiguration
   | VoucherConfiguration;
 
-export type PromotionAudienceAvailability = {
+type PromotionAudienceAvailability = {
   readonly allowlistSize: number;
   readonly customerAllowed: boolean;
 };

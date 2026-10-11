@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   czkCurrency,
-  defaultWorkspaceCurrency,
+  defaultWorkspaceCurrencyCode,
   findWorkspaceCurrencyDefinition,
   workspaceCurrencyDefinitions,
 } from "./currencies";
@@ -25,7 +25,7 @@ describe("Workspace currency definitions", () => {
       exponent: 2,
       name: "Czech koruna",
     });
-    expect(defaultWorkspaceCurrency.code).toBe("CZK");
+    expect(defaultWorkspaceCurrencyCode).toBe("CZK");
     expect(findWorkspaceCurrencyDefinition("EUR")).toEqual({
       code: "EUR",
       exponent: 2,

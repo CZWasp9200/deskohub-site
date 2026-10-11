@@ -11,7 +11,7 @@ import {
   AccountingSnapshotKeyService,
 } from "../backend/accounting-snapshot-key.service";
 
-export type ManualInvoiceCreationClaim =
+type ManualInvoiceCreationClaim =
   | { readonly kind: "claimed" }
   | { readonly kind: "completed" }
   | { readonly kind: "in-progress" }

@@ -10,6 +10,7 @@ import {
   mock,
   test,
 } from "bun:test";
+import { ADMINISTRATION_STANDALONE_ACCESS_CODE_MAXIMUM_DURATION_HOURS } from "@deskohub/workspace-admin-api";
 import {
   act,
   cleanup,
@@ -26,7 +27,6 @@ import {
 import {
   shiftStandaloneAccessCodeLocalEnd,
   standaloneAccessCodeCleanupConfirmationLabel,
-  standaloneAccessCodeMaximumDurationHours,
 } from "./create-access-code";
 
 const writeText = mock(() => Promise.resolve());
@@ -194,7 +194,7 @@ describe("CreateStandaloneAccessCodeForm", () => {
     expect(endsAt.max).toBe(
       shiftStandaloneAccessCodeLocalEnd({
         startsAt: "2026-03-29T01:00",
-        hours: standaloneAccessCodeMaximumDurationHours,
+        hours: ADMINISTRATION_STANDALONE_ACCESS_CODE_MAXIMUM_DURATION_HOURS,
       })
     );
   });

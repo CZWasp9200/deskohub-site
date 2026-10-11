@@ -16,7 +16,7 @@ import {
 import { LatePaymentRecoveryQueueService } from "./late-payment-recovery-queue.service";
 import { getNexiCurrencyOverride } from "./nexi-currency";
 
-export type LatePaymentVerificationResult =
+type LatePaymentVerificationResult =
   | "not_applicable"
   | "not_verifiable"
   | "not_settled"

@@ -343,15 +343,15 @@ export function seedWorkspaceE2EReservationHistory(
   });
 }
 
-export function cleanupWorkspaceE2EReservationHistory(
+function cleanupWorkspaceE2EReservationHistory(
   fixture: WorkspaceE2EReservationHistoryFixture,
   dependencies: WorkspaceE2EReservationHistoryFixtureTestDependencies
 ): Effect.Effect<void, WorkspaceE2EError>;
-export function cleanupWorkspaceE2EReservationHistory(
+function cleanupWorkspaceE2EReservationHistory(
   fixture: WorkspaceE2EReservationHistoryFixture,
   dependencies?: WorkspaceE2EReservationHistoryFixtureDependencies
 ): Effect.Effect<void, WorkspaceE2EError, E2EDatabase>;
-export function cleanupWorkspaceE2EReservationHistory(
+function cleanupWorkspaceE2EReservationHistory(
   fixture: WorkspaceE2EReservationHistoryFixture,
   dependencies: WorkspaceE2EReservationHistoryFixtureDependencies = {}
 ): Effect.Effect<void, WorkspaceE2EError, E2EDatabase> {

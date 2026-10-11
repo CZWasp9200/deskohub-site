@@ -84,5 +84,3 @@ export type DiscountResolutionError =
   | DiscountCalculationError
   | PromotionCodeUnavailableError
   | DiscountProviderError;
-
-export type DiscountError = DiscountClaimError | DiscountResolutionError;

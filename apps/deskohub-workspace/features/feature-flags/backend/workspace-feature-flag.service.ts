@@ -10,7 +10,7 @@ import type {
 } from "../generated/contract";
 import { postHogFeatureFlags } from "../generated/contract";
 
-export type WorkspaceFeatureFlagSnapshot = Pick<
+type WorkspaceFeatureFlagSnapshot = Pick<
   TypedPostHogFeatureFlagEvaluationSnapshot<PostHogFeatureFlagDefinitions>,
   "getFlag"
 >;

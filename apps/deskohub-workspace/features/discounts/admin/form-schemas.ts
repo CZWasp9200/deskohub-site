@@ -160,7 +160,7 @@ export const discountDefinitionFormSchema = Schema.Struct(
   permissiveDiscountDefinitionFields
 ).check(...definitionFilters<DiscountDefinitionCheckValues>(() => true));
 
-export const discountCodeConfigurationFormSchema = Schema.Struct(
+const discountCodeConfigurationFormSchema = Schema.Struct(
   discountCodeConfigurationFields
 );
 
@@ -225,7 +225,3 @@ export type DiscountCodeFormValues = typeof discountCodeFormSchema.Type;
 export type VoucherFormValues = typeof voucherFormSchema.Type;
 export type DiscountCodeCreationFormValues =
   typeof discountCodeCreationFormSchema.Type;
-export type CustomerCodeAudienceFormValues =
-  typeof customerCodeAudienceFormSchema.Type;
-export type CustomerDiscountGroupFormValues =
-  typeof customerDiscountGroupFormSchema.Type;

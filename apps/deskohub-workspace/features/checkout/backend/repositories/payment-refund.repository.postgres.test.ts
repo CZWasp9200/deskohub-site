@@ -26,16 +26,15 @@ const testDatabase = await connectWorkspacePostgresTestDatabase();
 describe.skipIf(!testDatabase)(
   "PaymentRefundRepository on disposable Postgres",
   () => {
-    const postgres = testDatabase;
-    if (!postgres) return;
+    if (!testDatabase) return;
     const reservationIds: WorkspaceReservationId[] = [];
 
     afterAll(async () => {
-      await postgres.pool.query(
+      await testDatabase.pool.query(
         "delete from payment_attempts where workspace_reservation_id = any($1)",
         [reservationIds]
       );
-      await postgres.pool.query(
+      await testDatabase.pool.query(
         "delete from workspace_reservations where id = any($1)",
         [reservationIds]
       );
@@ -51,7 +50,7 @@ describe.skipIf(!testDatabase)(
           return yield* operation(yield* PaymentRefundRepository);
         }).pipe(
           Effect.provide(PaymentRefundRepository.Default),
-          Effect.provide(postgres.layer)
+          Effect.provide(testDatabase.layer)
         )
       );
 
@@ -69,7 +68,7 @@ describe.skipIf(!testDatabase)(
       );
       reservationIds.push(reservationId);
       await Effect.runPromise(
-        postgres.db.insert(workspaceReservations).values({
+        testDatabase.db.insert(workspaceReservations).values({
           id: reservationId,
           checkoutAttemptKey: checkoutAttemptKeySchema.make(`attempt-${id}`),
           dotyposCustomerId: DotyposCustomerIdSchema.make(`customer-${id}`),
@@ -91,7 +90,7 @@ describe.skipIf(!testDatabase)(
         })
       );
       await Effect.runPromise(
-        postgres.db.insert(paymentAttempts).values({
+        testDatabase.db.insert(paymentAttempts).values({
           id: paymentAttemptId,
           workspaceReservationId: reservationId,
           provider: "nexi",
@@ -111,7 +110,7 @@ describe.skipIf(!testDatabase)(
 
     const readAttempt = async (paymentAttemptId: PaymentAttemptId) => {
       const [attempt] = await Effect.runPromise(
-        postgres.db
+        testDatabase.db
           .select()
           .from(paymentAttempts)
           .where(eq(paymentAttempts.id, paymentAttemptId))
@@ -176,7 +175,7 @@ describe.skipIf(!testDatabase)(
       }
       const {
         rows: [{ outstanding }],
-      } = await postgres.pool.query<{ outstanding: number }>(
+      } = await testDatabase.pool.query<{ outstanding: number }>(
         "select count(*)::int as outstanding from payment_attempts where refund_state = 'required'"
       );
       const limit = 25;

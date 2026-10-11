@@ -5,11 +5,8 @@ import type {
 import {
   getPostHogRequestContextFromCookieHeader,
   getPostHogRequestContextFromRequestHeadersWithDiagnostics,
-  logUnexpectedConsentCookieReasons,
   type PostHogRequestContext,
 } from "@/shared/backend/analytics/posthog-request-context";
-
-export { logUnexpectedConsentCookieReasons };
 
 export type PostHogLogAnnotations = {
   readonly posthogDistinctId?: PostHogDistinctId;
@@ -48,7 +45,7 @@ export function getPostHogLogAnnotationsFromRequestHeaders(
     .annotations;
 }
 
-export function getPostHogLogAnnotationsFromRequestHeadersWithDiagnostics(
+function getPostHogLogAnnotationsFromRequestHeadersWithDiagnostics(
   headers: Headers
 ): PostHogLogAnnotationResult {
   const { context, unexpectedConsentCookieReasons } =

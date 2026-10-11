@@ -346,6 +346,250 @@ void (0 as unknown as IndexedValues);
   expect(output).toContain("[anti-slop/no-unsafe-dictionary-type]");
 });
 
+test("useless alias rule reports const aliases of bindings that cannot be reassigned", async () => {
+  const result = await lint(`
+import { workspaceCoworkTiers } from "./tiers";
+import formatPrice from "./format";
+import * as Schema from "./schema";
+const defaultCapacity = 4;
+const { region } = { region: "eu" };
+function loadTier() {
+  return workspaceCoworkTiers;
+}
+class TierRepository {}
+declare const items: readonly string[];
+export const workspaceCoworkProductTiers = workspaceCoworkTiers;
+const priceFormatter = formatPrice;
+const Contract = Schema;
+const capacity = defaultCapacity;
+const deploymentRegion = region;
+const loadProductTier = loadTier;
+const Repository = TierRepository;
+for (const item of items) {
+  const entry = item;
+  void entry;
+}
+void priceFormatter;
+void Contract;
+void capacity;
+void deploymentRegion;
+void loadProductTier;
+void Repository;
+`);
+  const output = `${result.stdout}${result.stderr}`;
+
+  expect(output.split("[anti-slop/no-useless-alias]").length - 1).toBe(8);
+});
+
+test("useless alias rule tells identical alias declarations in nested scopes apart", async () => {
+  const result = await lint(`
+const closingHour = 18;
+const savedClosingHour = closingHour;
+export function readClosingHour() {
+  const closingHour = 20;
+  const before = () => savedClosingHour;
+  {
+    const savedClosingHour = closingHour;
+    void savedClosingHour;
+  }
+  return [before(), closingHour];
+}
+`);
+  const output = `${result.stdout}${result.stderr}`;
+
+  expect(output.split("[anti-slop/no-useless-alias]").length - 1).toBe(1);
+  expect(output).toContain("probe.ts:8:5");
+});
+
+test("useless alias rule allows snapshots, parameters, destructuring, shadowed sources, symbol aliases, and annotated aliases", async () => {
+  const result = await lint(`
+import { workspaceCoworkTiers } from "./tiers";
+const openingHour = 8;
+const savedOpeningHour = openingHour;
+function readOpeningHour() {
+  // Substituting openingHour here would read the inner binding in its TDZ.
+  const previous = [savedOpeningHour];
+  const openingHour = 9;
+  return [...previous, openingHour];
+}
+const deskCount = 4;
+const savedDeskCount = deskCount;
+const DeskCounter = class deskCount {
+  value = savedDeskCount;
+};
+const roomCount = 2;
+const savedRoomCount = roomCount;
+const countRooms = function roomCount() {
+  return savedRoomCount;
+};
+const seatCount = 6;
+const savedSeatCount = seatCount;
+enum SeatCounts {
+  seatCount = 8,
+  saved = savedSeatCount,
+}
+const floorCount = 3;
+const savedFloorCount = floorCount;
+const wingCount = 2;
+const savedWingCount = wingCount;
+enum QuotedWings {
+  "wingCount" = 4,
+  saved = savedWingCount,
+}
+const $gateCount = 1;
+const savedGateCount = $gateCount;
+enum DollarGates {
+  $gateCount = 3,
+  saved = savedGateCount,
+}
+const doorCount = 2;
+const savedDoorCount = doorCount;
+enum CommentedDoors {
+  doorCount /* shadows */ = 4,
+  saved = savedDoorCount,
+}
+const roofCount = 1;
+const savedRoofCount = roofCount;
+enum CommentedRoofs {
+  // shadows
+  roofCount // too
+    = 5,
+  saved = savedRoofCount,
+}
+const hallCount = 3;
+const savedHallCount = hallCount;
+enum BracketedHalls {
+  [ /* shadows */ "hallCount" ] = 6,
+  saved = savedHallCount,
+}
+const stairCount = 2;
+const savedStairCount = stairCount;
+enum TemplateStairs {
+  [\`stairCount\`] = 4,
+  saved = savedStairCount,
+}
+const crestKey = Symbol /* c */ ();
+const savedCrestKey = crestKey;
+import { ticketKey } from "./keys";
+const savedTicketKey = ticketKey;
+type TicketKey = typeof /* c */ savedTicketKey;
+const badgeKey = Symbol("badge");
+const savedBadgeKey = badgeKey;
+import { sessionKey } from "./keys";
+const savedSessionKey = sessionKey;
+type SessionKey = typeof savedSessionKey;
+namespace Floors {
+  const floorCount = 5;
+  export const counts = [savedFloorCount, floorCount];
+}
+let attempt = 0;
+const previousAttempt = attempt;
+attempt += 1;
+var legacyCounter = 0;
+const legacySnapshot = legacyCounter;
+const normalize = (value: string, ...rest: string[]) => {
+  const original = value;
+  const remaining = rest;
+  return [original, ...remaining];
+};
+const identity = (input: string) => {
+  const kept = input;
+  return kept;
+};
+const bareArrow = (raw) => {
+  const kept = raw;
+  return kept;
+};
+const unwrap = ({ nested }: { nested: string }) => {
+  const kept = nested;
+  return kept;
+};
+class Service {
+  constructor(private readonly client: string) {
+    const kept = client;
+    void kept;
+  }
+}
+try {
+  void 0;
+} catch (cause) {
+  const failure = cause;
+  void failure;
+}
+const { tiers } = { tiers: workspaceCoworkTiers };
+const annotatedTiers: readonly string[] = workspaceCoworkTiers;
+const firstTier = workspaceCoworkTiers[0];
+const undefinedValue = undefined;
+const global = globalThis;
+void readOpeningHour;
+void DeskCounter;
+void countRooms;
+void SeatCounts;
+void QuotedWings;
+void DollarGates;
+void CommentedDoors;
+void CommentedRoofs;
+void BracketedHalls;
+void TemplateStairs;
+void savedCrestKey;
+const ticketKeyProbe: TicketKey = ticketKey;
+void ticketKeyProbe;
+void savedBadgeKey;
+const sessionKeyProbe: SessionKey = sessionKey;
+void sessionKeyProbe;
+void Floors;
+void previousAttempt;
+void legacySnapshot;
+void normalize;
+void identity;
+void bareArrow;
+void unwrap;
+void Service;
+void tiers;
+void annotatedTiers;
+void firstTier;
+void undefinedValue;
+void global;
+`);
+  const output = `${result.stdout}${result.stderr}`;
+
+  expect(output).not.toContain("[anti-slop/no-useless-alias]");
+});
+
+test("useless alias rule skips files whose enum member names use escapes", async () => {
+  const result = await lint(`
+const laneCount = 6;
+const savedLaneCount = laneCount;
+enum EscapedLanes {
+  "\\u006caneCount" = 7,
+  saved = savedLaneCount,
+}
+void EscapedLanes;
+`);
+  const output = `${result.stdout}${result.stderr}`;
+
+  expect(output).not.toContain("[anti-slop/no-useless-alias]");
+});
+
+test("useless alias rule treats let and var declarations without whitespace as reassignable", async () => {
+  const result = await lint(`
+let{ pierCount } = { pierCount: 1 };
+const savedPierCount = pierCount;
+pierCount = 2;
+let/* snapshot */ dockCount = 1;
+const savedDockCount = dockCount;
+dockCount = 2;
+for (var/* loop */ quayCount = 0; quayCount < 1; quayCount++) {
+  void quayCount;
+}
+const savedQuayCount = quayCount;
+void [savedPierCount, savedDockCount, savedQuayCount];
+`);
+  const output = `${result.stdout}${result.stderr}`;
+
+  expect(output).not.toContain("[anti-slop/no-useless-alias]");
+});
+
 test("every workspace shared package dependency defines a lint task", () => {
   const workspaceManifest = JSON.parse(
     readFileSync(
@@ -399,7 +643,7 @@ test("Workspace lint is a Turbo dependency graph", () => {
   for (const [script, tool] of Object.entries({
     "lint:biome": "biome",
     "lint:eslint": "eslint",
-    "lint:dependencies": "knip",
+    "lint:knip": "knip",
   })) {
     expect(workspaceManifest.scripts?.[script]).toContain(tool);
   }
@@ -408,7 +652,7 @@ test("Workspace lint is a Turbo dependency graph", () => {
       "$TURBO_EXTENDS$",
       "lint:biome",
       "lint:eslint",
-      "lint:dependencies",
+      "lint:knip",
     ])
   );
   expect(rootTurbo.tasks?.lint?.dependsOn).toContain("^lint");
