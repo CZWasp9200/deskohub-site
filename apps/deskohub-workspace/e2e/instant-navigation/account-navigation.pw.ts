@@ -7,6 +7,7 @@ import {
   expectPublicSiteShell,
   prefetchRoute,
   requireBaseUrl,
+  reviewDestination,
 } from "./navigation-test-helpers";
 
 const homePath = "/en-US";
@@ -112,7 +113,7 @@ async function navigateToAccount(
         await expect(status).toBeVisible();
         await captureAccountReview(
           page,
-          requireBaseUrl(baseURL),
+          reviewDestination(baseURL),
           "account-loading-desktop"
         );
         await expect(
@@ -217,7 +218,11 @@ async function withSignInHandoffEvidence(
     expect(layout.footerTop).toBeGreaterThanOrEqual(layout.mainBottom);
     expect(layout.footerTop).toBeGreaterThanOrEqual(layout.headerBottom);
 
-    await captureAccountReview(page, baseUrl, "sign-in-handoff-desktop");
+    await captureAccountReview(
+      page,
+      reviewDestination(baseUrl),
+      "sign-in-handoff-desktop"
+    );
   } finally {
     releaseOriginalRequest();
     try {

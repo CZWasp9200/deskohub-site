@@ -67,9 +67,10 @@ Distinguish automated-runner behavior from manual procedures before treating a d
   paths, on one opted-in case instead of in the shared checkout flow.
 - Review screenshots are PR-review artifacts, not test evidence. Capture them
   only when the run sets `WORKSPACE_E2E_REVIEW_SCREENSHOTS=true`
-  (`isReviewScreenshotCaptureEnabled` in `e2e/review-capture.ts`); the account
-  capture helpers gate themselves, and review-only viewports or section visits
-  run only under the opt-in.
+  (decoded once in `e2e/e2e-env.ts` by `reviewScreenshotsEnabled`, and passed
+  through `turbo.json`). Inject the decoded setting: account capture helpers take
+  an `AccountReviewDestination`, and review-only viewports, mode switches, or
+  section visits run only when it opts in.
 - For dynamically rendered forms, wait for the relevant framework handler to be hydrated before interacting; do not use network idle as the readiness signal because analytics traffic can keep it open. Then use Playwright locators and browser-native fill or keyboard operations so framework handlers receive trusted interactions. Select the actual control by accessibility role rather than a wrapping label. Prefer a stable app-owned id or form-scoped selector for critical activation when one exists. When a provider page requires an accessibility snapshot fallback, capture a fresh Playwright AI snapshot after hydration, resolve its `aria-ref` immediately, and do not reuse the reference after intervening DOM changes. Do not replace native form submission or link navigation with an evaluated DOM click.
 - For tooltip assertions, wait for the trigger's focus handler, center it
   instantly in the viewport, wait for layout to settle, and focus it with the

@@ -69,10 +69,7 @@ const workspaceE2EReservationExistingCustomerDiagnosticCodes = [
   "account_reservation_existing_customer_card_failed",
   "account_reservation_existing_customer_card_review_failed",
   "account_reservation_existing_customer_contact_switch_failed",
-  "account_reservation_existing_customer_contact_inputs_failed",
   "account_reservation_existing_customer_contact_review_failed",
-  "account_reservation_existing_customer_account_switch_failed",
-  "account_reservation_existing_customer_card_restore_failed",
 ] as const;
 
 export type WorkspaceE2EReservationExistingCustomerDiagnosticCode =

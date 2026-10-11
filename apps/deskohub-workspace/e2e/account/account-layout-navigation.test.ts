@@ -274,7 +274,7 @@ test("switches one section per layout and restores the viewport", async () => {
     async (section) => {
       capturedSections = [...capturedSections, section];
     },
-    { reviewScreenshots: false }
+    { screenshots: false }
   );
 
   expect(selectedSections).toEqual(["profile", "reservations"]);
@@ -296,7 +296,7 @@ test("visits and captures every desktop section in review runs", async () => {
     async (section) => {
       capturedSections = [...capturedSections, section];
     },
-    { reviewScreenshots: true }
+    { screenshots: true }
   );
 
   expect(capturedSections).toEqual(sections);
@@ -353,7 +353,7 @@ const runLayoutVerificationFailure = async (
     return await verifyAccountLayoutNavigation(
       makeFakePage(options),
       captureSection,
-      { reviewScreenshots: captureSection !== undefined }
+      { screenshots: captureSection !== undefined }
     );
   } catch (cause) {
     return cause;

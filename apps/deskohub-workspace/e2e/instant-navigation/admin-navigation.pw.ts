@@ -2,8 +2,11 @@ import { instant } from "@next/playwright";
 import { expect, test } from "@playwright/test";
 import { workspaceTestAdminCredentials } from "@/shared/testing/workspace-test-environment";
 import { resolveInstantNavigationAdminCredentials } from "../admin-basic-auth";
-import { isReviewScreenshotCaptureEnabled } from "../review-capture";
-import { enablePreviewAccess, requireBaseUrl } from "./navigation-test-helpers";
+import {
+  enablePreviewAccess,
+  requireBaseUrl,
+  reviewScreenshots,
+} from "./navigation-test-helpers";
 
 const remoteBaseUrl = process.env.WORKSPACE_E2E_BASE_URL;
 // Fail closed at collection time when a remote preview is targeted without the
@@ -62,7 +65,7 @@ test("hydrates the customer activity section", async ({ page }, testInfo) => {
   await expect(customerActivity.getByText("Unique customers")).toBeVisible();
   await expect(customerActivity.getByText("New customers")).toBeVisible();
 
-  if (isReviewScreenshotCaptureEnabled()) {
+  if (reviewScreenshots) {
     const screenshotPath =
       "e2e-artifacts/account-review/admin-overview-customer-activity.png";
     await page.screenshot({ fullPage: true, path: screenshotPath });

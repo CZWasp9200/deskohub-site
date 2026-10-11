@@ -42,6 +42,23 @@ describe("workspace account e2e configuration", () => {
     );
   });
 
+  test("enables review screenshots only when the decoded opt-in is true", () => {
+    const reviewConfig = getAccountE2EConfig(
+      makeAccountEnvironment({ WORKSPACE_E2E_REVIEW_SCREENSHOTS: "true" }),
+      runId("1234567890-2")
+    );
+    const defaultConfig = getAccountE2EConfig(
+      makeAccountEnvironment(),
+      runId("1234567890-2")
+    );
+
+    expect(reviewConfig.review).toEqual({
+      baseUrl: reviewConfig.baseUrl,
+      screenshots: true,
+    });
+    expect(defaultConfig.review.screenshots).toBe(false);
+  });
+
   test("fails closed before account cases when the Vercel log-read token is absent", () => {
     expect(() =>
       getAccountE2EConfig(

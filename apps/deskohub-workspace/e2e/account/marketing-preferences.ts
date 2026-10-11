@@ -7,8 +7,8 @@ import { expect } from "@playwright/test";
 import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { customerMarketingConsents } from "@/db/schema/customer-marketing-consents";
-import { m } from "@/features/i18n";
 import { customerMarketingManagementTokens } from "@/db/schema/customer-marketing-management-tokens";
+import { m } from "@/features/i18n";
 import { type WorkspaceE2EError, workspaceE2EError } from "../errors";
 import { E2EDatabase } from "../integrations/database.service";
 import { runDatabaseOperation } from "../integrations/database-operation";
@@ -121,6 +121,8 @@ export type WorkspaceE2EMarketingPreferencesInput = {
   readonly bypassSecret: string | undefined;
   readonly customerId: DotyposCustomerId;
   readonly page: Page;
+  /** Decoded review screenshot opt-in; false skips every review capture. */
+  readonly reviewScreenshots: boolean;
 };
 
 export type WorkspaceE2EMarketingPreferencesSeedRow =
@@ -697,7 +699,10 @@ const requireManagedPreference = async (
   // The form renders the link-context sentence only for link management; the
   // status is expressed by the server-authoritative checked state, not copy.
   await expect(
-    section.getByText(m.marketingPreferencesFormLinkContext({}, { locale: "en-US" }), { exact: true })
+    section.getByText(
+      m.marketingPreferencesFormLinkContext({}, { locale: "en-US" }),
+      { exact: true }
+    )
   ).toHaveCount(source === "link" ? 1 : 0, {
     timeout: workspaceE2ETimeouts.uiTransition,
   });
@@ -731,9 +736,12 @@ const requirePendingPreference = async (page: Page): Promise<Locator> => {
     timeout: workspaceE2ETimeouts.uiTransition,
   });
   await expect(
-    section.getByText(m.marketingPreferencesFormPendingDescription({}, { locale: "en-US" }), {
-      exact: true,
-    })
+    section.getByText(
+      m.marketingPreferencesFormPendingDescription({}, { locale: "en-US" }),
+      {
+        exact: true,
+      }
+    )
   ).toHaveCount(1, { timeout: workspaceE2ETimeouts.uiTransition });
   await expect(
     section.getByRole("button", {
@@ -763,14 +771,20 @@ const requireInvalidLinkPreference = async (page: Page): Promise<Locator> => {
     timeout: workspaceE2ETimeouts.uiTransition,
   });
   await expect(
-    section.getByText(m.marketingPreferencesFormInvalidLinkDescription({}, { locale: "en-US" }), {
-      exact: true,
-    })
+    section.getByText(
+      m.marketingPreferencesFormInvalidLinkDescription({}, { locale: "en-US" }),
+      {
+        exact: true,
+      }
+    )
   ).toHaveCount(1, { timeout: workspaceE2ETimeouts.uiTransition });
   await expect(
-    section.getByText(m.marketingPreferencesFormInvalidLinkNextStep({}, { locale: "en-US" }), {
-      exact: true,
-    })
+    section.getByText(
+      m.marketingPreferencesFormInvalidLinkNextStep({}, { locale: "en-US" }),
+      {
+        exact: true,
+      }
+    )
   ).toHaveCount(1, { timeout: workspaceE2ETimeouts.uiTransition });
   await expect(
     section.locator("[data-marketing-preferences-source]")
@@ -805,19 +819,31 @@ const requireUnavailablePreference = async (page: Page): Promise<Locator> => {
     timeout: workspaceE2ETimeouts.uiTransition,
   });
   await expect(
-    section.getByText(m.marketingPreferencesFormUnavailableDescription({}, { locale: "en-US" }), {
-      exact: true,
-    })
+    section.getByText(
+      m.marketingPreferencesFormUnavailableDescription({}, { locale: "en-US" }),
+      {
+        exact: true,
+      }
+    )
   ).toHaveCount(1, { timeout: workspaceE2ETimeouts.uiTransition });
   await expect(
-    section.getByText(m.marketingPreferencesFormUnavailableNextStep({}, { locale: "en-US" }), {
-      exact: true,
-    })
+    section.getByText(
+      m.marketingPreferencesFormUnavailableNextStep({}, { locale: "en-US" }),
+      {
+        exact: true,
+      }
+    )
   ).toHaveCount(1, { timeout: workspaceE2ETimeouts.uiTransition });
   await expect(
-    section.getByText(m.marketingPreferencesFormUnavailableSignInNextStep({}, { locale: "en-US" }), {
-      exact: true,
-    })
+    section.getByText(
+      m.marketingPreferencesFormUnavailableSignInNextStep(
+        {},
+        { locale: "en-US" }
+      ),
+      {
+        exact: true,
+      }
+    )
   ).toHaveCount(1, { timeout: workspaceE2ETimeouts.uiTransition });
   await expect(
     section.locator("[data-marketing-preferences-source]")
@@ -981,9 +1007,20 @@ const waitForCanonicalLegalRoute = async (
 
 const captureMarketingReview = (
   page: Page,
-  baseUrl: string,
+  {
+    baseUrl,
+    reviewScreenshots,
+  }: Pick<
+    WorkspaceE2EMarketingPreferencesInput,
+    "baseUrl" | "reviewScreenshots"
+  >,
   target: MarketingReviewTarget
-): Promise<void> => captureAccountReview(page, baseUrl, target);
+): Promise<void> =>
+  captureAccountReview(
+    page,
+    { baseUrl, screenshots: reviewScreenshots },
+    target
+  );
 
 type MarketingReviewTarget = Extract<
   AccountReviewTarget,
@@ -1298,7 +1335,7 @@ const runAuthenticatedMarketingPreferencesFlow = (
       () =>
         captureMarketingReview(
           input.page,
-          input.baseUrl,
+          input,
           "account-marketing-withdrawn-desktop"
         )
     );
@@ -1332,7 +1369,7 @@ const runAuthenticatedMarketingPreferencesFlow = (
       () =>
         captureMarketingReview(
           input.page,
-          input.baseUrl,
+          input,
           "account-marketing-active-mobile"
         )
     );
@@ -1373,20 +1410,12 @@ const runAnonymousMarketingPreferencesFlow = (
       yield* runMarketingBrowserOperation(
         "capture pending marketing management link desktop",
         () =>
-          captureMarketingReview(
-            page,
-            input.baseUrl,
-            "marketing-link-pending-desktop"
-          )
+          captureMarketingReview(page, input, "marketing-link-pending-desktop")
       );
       yield* runMarketingBrowserOperation(
         "capture pending marketing management link mobile",
         () =>
-          captureMarketingReview(
-            page,
-            input.baseUrl,
-            "marketing-link-pending-mobile"
-          )
+          captureMarketingReview(page, input, "marketing-link-pending-mobile")
       );
 
       yield* runMarketingBrowserOperation(
@@ -1395,7 +1424,10 @@ const runAnonymousMarketingPreferencesFlow = (
           const pending = await requirePendingPreference(page);
           const continueButton = pending.getByRole("button", {
             exact: true,
-            name: m.marketingPreferencesFormContinueAction({}, { locale: "en-US" }),
+            name: m.marketingPreferencesFormContinueAction(
+              {},
+              { locale: "en-US" }
+            ),
           });
           await expect(continueButton).toHaveCount(1);
           await waitForReactHandler(
@@ -1415,20 +1447,12 @@ const runAnonymousMarketingPreferencesFlow = (
       yield* runMarketingBrowserOperation(
         "capture active marketing management link desktop",
         () =>
-          captureMarketingReview(
-            page,
-            input.baseUrl,
-            "marketing-link-active-desktop"
-          )
+          captureMarketingReview(page, input, "marketing-link-active-desktop")
       );
       yield* runMarketingBrowserOperation(
         "capture active marketing management link mobile",
         () =>
-          captureMarketingReview(
-            page,
-            input.baseUrl,
-            "marketing-link-active-mobile"
-          )
+          captureMarketingReview(page, input, "marketing-link-active-mobile")
       );
 
       yield* runMarketingBrowserOperation(
@@ -1459,18 +1483,14 @@ const runAnonymousMarketingPreferencesFlow = (
         () =>
           captureMarketingReview(
             page,
-            input.baseUrl,
+            input,
             "marketing-link-withdrawn-desktop"
           )
       );
       yield* runMarketingBrowserOperation(
         "capture withdrawn marketing management link mobile",
         () =>
-          captureMarketingReview(
-            page,
-            input.baseUrl,
-            "marketing-link-withdrawn-mobile"
-          )
+          captureMarketingReview(page, input, "marketing-link-withdrawn-mobile")
       );
 
       yield* runMarketingBrowserOperation(
@@ -1536,7 +1556,10 @@ const runReplayedMarketingPreferencesFlow = (
             const pending = await requirePendingPreference(page);
             const continueButton = pending.getByRole("button", {
               exact: true,
-              name: m.marketingPreferencesFormContinueAction({}, { locale: "en-US" }),
+              name: m.marketingPreferencesFormContinueAction(
+                {},
+                { locale: "en-US" }
+              ),
             });
             await expect(continueButton).toHaveCount(1);
             await waitForReactHandler(
@@ -1573,18 +1596,14 @@ const runReplayedMarketingPreferencesFlow = (
           () =>
             captureMarketingReview(
               page,
-              input.baseUrl,
+              input,
               "marketing-link-invalid-desktop"
             )
         );
         yield* runMarketingBrowserOperation(
           "capture invalid marketing management link mobile",
           () =>
-            captureMarketingReview(
-              page,
-              input.baseUrl,
-              "marketing-link-invalid-mobile"
-            )
+            captureMarketingReview(page, input, "marketing-link-invalid-mobile")
         );
         yield* runMarketingBrowserOperation(
           "clear malformed marketing management link",
@@ -1592,7 +1611,10 @@ const runReplayedMarketingPreferencesFlow = (
             const invalid = await requireInvalidLinkPreference(page);
             const clearButton = invalid.getByRole("button", {
               exact: true,
-              name: m.marketingPreferencesFormClearAction({}, { locale: "en-US" }),
+              name: m.marketingPreferencesFormClearAction(
+                {},
+                { locale: "en-US" }
+              ),
             });
             await waitForReactHandler(
               page,

@@ -2,9 +2,13 @@ import { expect, test } from "@playwright/test";
 import { m } from "@/features/i18n";
 import { captureAccountReview } from "../account/review-screenshots";
 import { dismissLegalCookieConsent } from "../legal-cookie-consent";
-import { isReviewScreenshotCaptureEnabled } from "../review-capture";
 import { workspaceE2ETimeouts } from "../timeouts";
-import { enablePreviewAccess, requireBaseUrl } from "./navigation-test-helpers";
+import {
+  enablePreviewAccess,
+  requireBaseUrl,
+  reviewDestination,
+  reviewScreenshots,
+} from "./navigation-test-helpers";
 import {
   type CookieCategory,
   expectNoAuthSessionCookie,
@@ -25,9 +29,7 @@ const mobileViewport = { height: 900, name: "mobile 375", width: 375 } as const;
 const viewports = [desktopViewport, mobileViewport] as const;
 // The anonymous render is one server-gating sentinel; the desktop pass exists
 // only so opted-in review runs still capture both layouts.
-const renderViewports = isReviewScreenshotCaptureEnabled()
-  ? viewports
-  : [mobileViewport];
+const renderViewports = reviewScreenshots ? viewports : [mobileViewport];
 const publicLegalReviewTargetByViewport = {
   desktop: "public-legal-desktop",
   "mobile 375": "public-legal-mobile",
@@ -64,7 +66,7 @@ for (const viewport of renderViewports) {
     await expectPublicAccountLegal(page);
     await captureAccountReview(
       page,
-      requireBaseUrl(baseURL),
+      reviewDestination(baseURL),
       publicLegalReviewTargetByViewport[viewport.name]
     );
   });

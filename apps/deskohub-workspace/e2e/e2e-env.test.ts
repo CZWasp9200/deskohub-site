@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { makeE2EEnvironment, makeWorkspaceE2EEnvironment } from "./e2e-env";
+import {
+  makeE2EEnvironment,
+  makeReviewScreenshotEnvironment,
+  makeWorkspaceE2EEnvironment,
+  reviewScreenshotsEnabled,
+} from "./e2e-env";
 import {
   makeTestE2EEnvironment,
   validE2ERuntimeEnvironment,
@@ -50,6 +55,31 @@ describe("Workspace E2E environment", () => {
     ).toBeUndefined();
     expect(() =>
       makeTestE2EEnvironment({ WORKSPACE_E2E_REVIEW_SCREENSHOTS: "yes" })
+    ).toThrow();
+  });
+
+  test("decodes review screenshot capture independently from Playwright configuration", () => {
+    expect(
+      reviewScreenshotsEnabled(
+        makeReviewScreenshotEnvironment({
+          WORKSPACE_E2E_REVIEW_SCREENSHOTS: "true",
+        })
+      )
+    ).toBe(true);
+    expect(reviewScreenshotsEnabled(makeReviewScreenshotEnvironment({}))).toBe(
+      false
+    );
+    expect(
+      reviewScreenshotsEnabled(
+        makeReviewScreenshotEnvironment({
+          WORKSPACE_E2E_REVIEW_SCREENSHOTS: "",
+        })
+      )
+    ).toBe(false);
+    expect(() =>
+      makeReviewScreenshotEnvironment({
+        WORKSPACE_E2E_REVIEW_SCREENSHOTS: "yes",
+      })
     ).toThrow();
   });
 

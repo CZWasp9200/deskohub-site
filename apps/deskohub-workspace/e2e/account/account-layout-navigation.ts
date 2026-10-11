@@ -1,12 +1,12 @@
 import type { Page } from "@playwright/test";
 import type { AccountSection } from "@/features/account/components/shell/account-shell";
 import { WorkspaceE2EError, workspaceE2EError } from "../errors";
-import { isReviewScreenshotCaptureEnabled } from "../review-capture";
 import { workspaceE2ETimeouts } from "../timeouts";
 import {
   accountSectionLandmarks,
   selectAccountSection,
 } from "./account-sections";
+import type { AccountReviewDestination } from "./review-screenshots";
 
 const desktopViewport = { height: 1000, width: 1440 } as const;
 const mobileViewport = { height: 900, width: 375 } as const;
@@ -124,12 +124,10 @@ const setLayoutViewport = async (
  */
 export async function verifyAccountLayoutNavigation(
   page: Page,
-  captureSection?: (section: AccountSection) => Promise<void>,
-  options: { readonly reviewScreenshots?: boolean } = {}
+  captureSection: ((section: AccountSection) => Promise<void>) | undefined,
+  review: Pick<AccountReviewDestination, "screenshots">
 ): Promise<void> {
-  const reviewScreenshots =
-    options.reviewScreenshots ?? isReviewScreenshotCaptureEnabled();
-  const capture = reviewScreenshots ? captureSection : undefined;
+  const capture = review.screenshots ? captureSection : undefined;
   let originalViewport: ReturnType<Page["viewportSize"]>;
   try {
     originalViewport = page.viewportSize();

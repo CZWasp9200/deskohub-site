@@ -12,14 +12,9 @@ import { resolve } from "node:path";
 import type * as Playwright from "@playwright/test";
 import { workspaceE2ETimeouts } from "../timeouts";
 
-const reviewScreenshotOptIn = process.env.WORKSPACE_E2E_REVIEW_SCREENSHOTS;
-const restoreReviewScreenshotOptIn = () => {
-  if (reviewScreenshotOptIn === undefined)
-    delete process.env.WORKSPACE_E2E_REVIEW_SCREENSHOTS;
-  else process.env.WORKSPACE_E2E_REVIEW_SCREENSHOTS = reviewScreenshotOptIn;
-};
-
 const baseUrl = "https://deskohub-workspace-review.example.test";
+const review = { baseUrl, screenshots: true } as const;
+const reviewWithoutScreenshots = { baseUrl, screenshots: false } as const;
 const accountUrl = `${baseUrl}/en-US/account?_rsc=synthetic-cache-key`;
 const callbackUrl = `${baseUrl}/en-US/auth/callback`;
 const attemptUuid = "0f0a9c1e-7b62-4c8d-9e21-53ab2f0d4c7a";
@@ -431,13 +426,11 @@ describe("account callback handoff review", () => {
   let writeFileSpy: ReturnType<typeof createWriteFileSpy> | undefined;
 
   beforeEach(() => {
-    process.env.WORKSPACE_E2E_REVIEW_SCREENSHOTS = "true";
     writeFileSpy = createWriteFileSpy();
     documentReviewControl.reset();
   });
 
   afterEach(() => {
-    restoreReviewScreenshotOptIn();
     writeFileSpy?.mockRestore();
     writeFileSpy = undefined;
   });
@@ -445,7 +438,7 @@ describe("account callback handoff review", () => {
   test("captures only the first qualifying GET before forwarding it", async () => {
     const fakePage = makeCallbackFakePage();
 
-    await withCallbackHandoffReview(fakePage.page, baseUrl, async () => {
+    await withCallbackHandoffReview(fakePage.page, review, async () => {
       await fakePage.dispatch(accountUrl);
       await fakePage.dispatch(`${baseUrl}/en-US/account?_rsc=second`);
     });
@@ -469,7 +462,7 @@ describe("account callback handoff review", () => {
     const fakePage = makeCallbackFakePage();
 
     await expect(
-      withCallbackHandoffReview(fakePage.page, baseUrl, async () => {
+      withCallbackHandoffReview(fakePage.page, review, async () => {
         void fakePage.dispatch(accountUrl);
       })
     ).rejects.toThrow(callbackHandoffFailureMessage);
@@ -490,7 +483,7 @@ describe("account callback handoff review", () => {
 
     try {
       await expect(
-        withCallbackHandoffReview(fakePage.page, baseUrl, async () => {
+        withCallbackHandoffReview(fakePage.page, review, async () => {
           void fakePage.dispatch(accountUrl);
           await fakePage.loadingEvaluationStarted;
           throw runCaseFailure;
@@ -528,7 +521,7 @@ describe("account callback handoff review", () => {
     try {
       const wrapped = withCallbackHandoffReview(
         fakePage.page,
-        baseUrl,
+        review,
         async () => {
           void fakePage.dispatch(accountUrl);
           await fakePage.screenshotStarted;
@@ -556,7 +549,7 @@ describe("account callback handoff review", () => {
   test("qualifies only a real GET without prefetch headers", async () => {
     const fakePage = makeCallbackFakePage();
 
-    await withCallbackHandoffReview(fakePage.page, baseUrl, async () => {
+    await withCallbackHandoffReview(fakePage.page, review, async () => {
       await fakePage.dispatch(accountUrl, {
         headers: { rsc: "1" },
         method: "POST",
@@ -614,7 +607,7 @@ describe("account callback handoff review", () => {
       const fakePage = makeCallbackFakePage();
 
       await expect(
-        withCallbackHandoffReview(fakePage.page, baseUrl, async () => {
+        withCallbackHandoffReview(fakePage.page, review, async () => {
           await fakePage.dispatch(accountUrl, requestOverrides);
         })
       ).rejects.toThrow(callbackHandoffFailureMessage);
@@ -629,7 +622,7 @@ describe("account callback handoff review", () => {
     const fakePage = makeCallbackFakePage();
     documentReviewControl.timeline = fakePage.events() as string[];
 
-    await withCallbackHandoffReview(fakePage.page, baseUrl, async () => {
+    await withCallbackHandoffReview(fakePage.page, review, async () => {
       documentReviewControl.timeline.push("run-case");
       await fakePage.dispatch(accountUrl, {
         headers: {},
@@ -671,7 +664,7 @@ describe("account callback handoff review", () => {
     documentReviewControl.timeline = fakePage.events() as string[];
 
     await expect(
-      withCallbackHandoffReview(fakePage.page, baseUrl, async () => {
+      withCallbackHandoffReview(fakePage.page, review, async () => {
         await fakePage.dispatch(accountUrl, {
           headers: {},
           isNavigationRequest: true,
@@ -698,7 +691,7 @@ describe("account callback handoff review", () => {
     documentReviewControl.timeline = fakePage.events() as string[];
 
     await expect(
-      withCallbackHandoffReview(fakePage.page, baseUrl, async () => {
+      withCallbackHandoffReview(fakePage.page, review, async () => {
         await fakePage.dispatch(accountUrl, {
           headers: {},
           isNavigationRequest: true,
@@ -725,7 +718,7 @@ describe("account callback handoff review", () => {
     documentReviewControl.timeline = fakePage.events() as string[];
 
     await expect(
-      withCallbackHandoffReview(fakePage.page, baseUrl, async () => {
+      withCallbackHandoffReview(fakePage.page, review, async () => {
         await fakePage.dispatch(accountUrl, {
           headers: {},
           isNavigationRequest: true,
@@ -754,7 +747,7 @@ describe("account callback handoff review", () => {
     documentReviewControl.timeline = fakePage.events() as string[];
 
     await expect(
-      withCallbackHandoffReview(fakePage.page, baseUrl, async () => {
+      withCallbackHandoffReview(fakePage.page, review, async () => {
         await fakePage.dispatch(accountUrl, {
           headers: {},
           isNavigationRequest: true,
@@ -780,7 +773,7 @@ describe("account callback handoff review", () => {
     const runCaseFailure = new Error("original run case failure");
 
     await expect(
-      withCallbackHandoffReview(fakePage.page, baseUrl, async () => {
+      withCallbackHandoffReview(fakePage.page, review, async () => {
         await fakePage.dispatch(accountUrl, {
           headers: {},
           isNavigationRequest: true,
@@ -798,7 +791,7 @@ describe("account callback handoff review", () => {
   test("accepts a callback URL with exactly one canonical attempt parameter", async () => {
     const fakePage = makeCallbackFakePage();
 
-    await withCallbackHandoffReview(fakePage.page, baseUrl, async () => {
+    await withCallbackHandoffReview(fakePage.page, review, async () => {
       await fakePage.dispatch(accountUrl, {
         pageUrl: `${callbackUrl}?attempt=${attemptUuid}`,
       });
@@ -835,7 +828,7 @@ describe("account callback handoff review", () => {
       const fakePage = makeCallbackFakePage();
 
       await expect(
-        withCallbackHandoffReview(fakePage.page, baseUrl, async () => {
+        withCallbackHandoffReview(fakePage.page, review, async () => {
           await fakePage.dispatch(accountUrl, { pageUrl });
         })
       ).rejects.toThrow(callbackHandoffFailureMessage);
@@ -850,7 +843,7 @@ describe("account callback handoff review", () => {
     const fakePage = makeCallbackFakePage();
 
     await expect(
-      withCallbackHandoffReview(fakePage.page, baseUrl, async () => undefined)
+      withCallbackHandoffReview(fakePage.page, review, async () => undefined)
     ).rejects.toThrow(callbackHandoffFailureMessage);
 
     expect(fakePage.screenshotCalls).toHaveLength(0);
@@ -873,7 +866,7 @@ describe("account callback handoff review", () => {
         try {
           const wrapped = withCallbackHandoffReview(
             fakePage.page,
-            baseUrl,
+            review,
             async () => {
               runCaseCalls += 1;
             }
@@ -910,7 +903,7 @@ describe("account callback handoff review", () => {
     let runCaseCalls = 0;
 
     await expect(
-      withCallbackHandoffReview(fakePage.page, baseUrl, async () => {
+      withCallbackHandoffReview(fakePage.page, review, async () => {
         runCaseCalls += 1;
       })
     ).rejects.toThrow(callbackHandoffFailureMessage);
@@ -934,7 +927,7 @@ describe("account callback handoff review", () => {
       const fakePage = makeCallbackFakePage(options);
 
       await expect(
-        withCallbackHandoffReview(fakePage.page, baseUrl, async () => {
+        withCallbackHandoffReview(fakePage.page, review, async () => {
           await fakePage.dispatch(accountUrl);
         })
       ).rejects.toThrow(callbackHandoffFailureMessage);
@@ -952,7 +945,7 @@ describe("account callback handoff review", () => {
     const runCaseFailure = new Error("original run case failure");
 
     await expect(
-      withCallbackHandoffReview(fakePage.page, baseUrl, async () => {
+      withCallbackHandoffReview(fakePage.page, review, async () => {
         await fakePage.dispatch(accountUrl);
         throw runCaseFailure;
       })
@@ -966,7 +959,7 @@ describe("account callback handoff review", () => {
     const fakePage = makeCallbackFakePage({ loadingConnected: false });
 
     await expect(
-      withCallbackHandoffReview(fakePage.page, baseUrl, async () => {
+      withCallbackHandoffReview(fakePage.page, review, async () => {
         await fakePage.dispatch(accountUrl);
       })
     ).rejects.toThrow(callbackHandoffFailureMessage);
@@ -986,7 +979,7 @@ describe("account callback handoff review", () => {
       });
 
       await expect(
-        withCallbackHandoffReview(fakePage.page, baseUrl, async () => {
+        withCallbackHandoffReview(fakePage.page, review, async () => {
           await fakePage.dispatch(accountUrl);
         })
       ).rejects.toThrow(callbackHandoffFailureMessage);
@@ -1021,7 +1014,7 @@ describe("account callback handoff review", () => {
         try {
           const wrapped = withCallbackHandoffReview(
             fakePage.page,
-            baseUrl,
+            review,
             async () => {
               void fakePage.dispatch(accountUrl);
               await fakePage.screenshotStarted;
@@ -1071,13 +1064,11 @@ describe("account callback handoff without the review opt-in", () => {
   let writeFileSpy: ReturnType<typeof createWriteFileSpy> | undefined;
 
   beforeEach(() => {
-    delete process.env.WORKSPACE_E2E_REVIEW_SCREENSHOTS;
     writeFileSpy = createWriteFileSpy();
     documentReviewControl.reset();
   });
 
   afterEach(() => {
-    restoreReviewScreenshotOptIn();
     writeFileSpy?.mockRestore();
     writeFileSpy = undefined;
   });
@@ -1086,13 +1077,17 @@ describe("account callback handoff without the review opt-in", () => {
     const fakePage = makeCallbackFakePage();
     documentReviewControl.timeline = fakePage.events() as string[];
 
-    await withCallbackHandoffReview(fakePage.page, baseUrl, async () => {
-      await fakePage.dispatch(accountUrl, {
-        headers: {},
-        isNavigationRequest: true,
-        resourceType: "document",
-      });
-    });
+    await withCallbackHandoffReview(
+      fakePage.page,
+      reviewWithoutScreenshots,
+      async () => {
+        await fakePage.dispatch(accountUrl, {
+          headers: {},
+          isNavigationRequest: true,
+          resourceType: "document",
+        });
+      }
+    );
 
     const timeline = fakePage.events();
     expect(timeline.indexOf("adapter-validate")).toBeLessThan(
@@ -1110,13 +1105,17 @@ describe("account callback handoff without the review opt-in", () => {
     documentReviewControl.failValidate = true;
 
     await expect(
-      withCallbackHandoffReview(fakePage.page, baseUrl, async () => {
-        await fakePage.dispatch(accountUrl, {
-          headers: {},
-          isNavigationRequest: true,
-          resourceType: "document",
-        });
-      })
+      withCallbackHandoffReview(
+        fakePage.page,
+        reviewWithoutScreenshots,
+        async () => {
+          await fakePage.dispatch(accountUrl, {
+            headers: {},
+            isNavigationRequest: true,
+            resourceType: "document",
+          });
+        }
+      )
     ).rejects.toThrow(callbackHandoffFailureMessage);
 
     expect(fakePage.continueCallCount()).toBe(1);
@@ -1125,9 +1124,13 @@ describe("account callback handoff without the review opt-in", () => {
   test("still checks the loading state behind a held RSC request", async () => {
     const fakePage = makeCallbackFakePage();
 
-    await withCallbackHandoffReview(fakePage.page, baseUrl, async () => {
-      await fakePage.dispatch(accountUrl);
-    });
+    await withCallbackHandoffReview(
+      fakePage.page,
+      reviewWithoutScreenshots,
+      async () => {
+        await fakePage.dispatch(accountUrl);
+      }
+    );
 
     const timeline = fakePage.events();
     expect(timeline.indexOf("wait:loading-card")).toBeGreaterThanOrEqual(0);
@@ -1143,9 +1146,13 @@ describe("account callback handoff without the review opt-in", () => {
     const fakePage = makeCallbackFakePage({ failLoadingWait: true });
 
     await expect(
-      withCallbackHandoffReview(fakePage.page, baseUrl, async () => {
-        await fakePage.dispatch(accountUrl);
-      })
+      withCallbackHandoffReview(
+        fakePage.page,
+        reviewWithoutScreenshots,
+        async () => {
+          await fakePage.dispatch(accountUrl);
+        }
+      )
     ).rejects.toThrow(callbackHandoffFailureMessage);
 
     expect(fakePage.continueCallCount()).toBe(1);

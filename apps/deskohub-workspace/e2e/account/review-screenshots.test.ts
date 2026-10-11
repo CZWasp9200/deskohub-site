@@ -13,14 +13,9 @@ import {
   withSignInPendingReview,
 } from "./review-screenshots";
 
-const reviewScreenshotOptIn = process.env.WORKSPACE_E2E_REVIEW_SCREENSHOTS;
-const restoreReviewScreenshotOptIn = () => {
-  if (reviewScreenshotOptIn === undefined)
-    delete process.env.WORKSPACE_E2E_REVIEW_SCREENSHOTS;
-  else process.env.WORKSPACE_E2E_REVIEW_SCREENSHOTS = reviewScreenshotOptIn;
-};
-
 const baseUrl = "https://deskohub-workspace-review.example.test";
+const review = { baseUrl, screenshots: true } as const;
+const reviewWithoutScreenshots = { baseUrl, screenshots: false } as const;
 const magicLinkUrl = new URL(
   "/api/auth/sign-in/magic-link",
   baseUrl
@@ -410,12 +405,10 @@ describe("account review screenshot capture", () => {
   let writeFileSpy: ReturnType<typeof createWriteFileSpy> | undefined;
 
   beforeEach(() => {
-    process.env.WORKSPACE_E2E_REVIEW_SCREENSHOTS = "true";
     writeFileSpy = createWriteFileSpy();
   });
 
   afterEach(() => {
-    restoreReviewScreenshotOptIn();
     writeFileSpy?.mockRestore();
     writeFileSpy = undefined;
   });
@@ -637,7 +630,7 @@ describe("account review screenshot capture", () => {
       const fakePage = makeFakePage(invalidPage.url);
 
       await expect(
-        captureAccountReview(fakePage.page, baseUrl, invalidPage.target)
+        captureAccountReview(fakePage.page, review, invalidPage.target)
       ).rejects.toThrow(captureFailureMessage);
 
       expect(fakePage.screenshotCalls).toHaveLength(0);
@@ -654,7 +647,7 @@ describe("account review screenshot capture", () => {
     try {
       await captureAccountReview(
         fakePage.page,
-        baseUrl,
+        review,
         "callback-loading-desktop"
       );
     } catch (cause) {
@@ -673,7 +666,7 @@ describe("account review screenshot capture", () => {
 
     await captureAccountReview(
       fakePage.page,
-      baseUrl,
+      review,
       "completion-mobile375x900"
     );
 
@@ -724,7 +717,7 @@ describe("account review screenshot capture", () => {
   >)("accepts %s", async (_name, target, pathAndQuery) => {
     const fakePage = makeFakePage(`${baseUrl}${pathAndQuery}`);
 
-    await captureAccountReview(fakePage.page, baseUrl, target);
+    await captureAccountReview(fakePage.page, review, target);
 
     expect(fakePage.screenshotCalls).toHaveLength(1);
     expect(writeFileSpy?.mock.calls).toHaveLength(1);
@@ -739,7 +732,7 @@ describe("account review screenshot capture", () => {
 
     await captureReservationStatusReview(
       fakePage.page,
-      baseUrl,
+      review,
       "reservation-status-modal-desktop",
       reservationId
     );
@@ -774,7 +767,7 @@ describe("account review screenshot capture", () => {
     await expect(
       captureReservationStatusReview(
         fakePage.page,
-        baseUrl,
+        review,
         "reservation-status-details-desktop",
         fixtureReservationId
       )
@@ -792,7 +785,7 @@ describe("account review screenshot capture", () => {
 
     await captureAccountReview(
       fakePage.page,
-      baseUrl,
+      review,
       "callback-failed-desktop"
     );
 
@@ -811,7 +804,7 @@ describe("account review screenshot capture", () => {
     });
 
     await expect(
-      captureAccountReview(fakePage.page, baseUrl, "linked-profile-desktop")
+      captureAccountReview(fakePage.page, review, "linked-profile-desktop")
     ).rejects.toThrow(captureFailureMessage);
 
     expect(fakePage.viewportChanges).toEqual([
@@ -859,7 +852,7 @@ describe("account review screenshot capture", () => {
         const controller = new AbortController();
         const capture = captureAccountReview(
           fakePage.page,
-          baseUrl,
+          review,
           "linked-profile-desktop",
           { signal: controller.signal }
         );
@@ -897,7 +890,7 @@ describe("account review screenshot capture", () => {
     try {
       const capture = captureAccountReview(
         fakePage.page,
-        baseUrl,
+        review,
         "linked-profile-desktop",
         { signal: controller.signal }
       );
@@ -931,7 +924,7 @@ describe("account review screenshot capture", () => {
         });
         const capture = captureAccountReview(
           fakePage.page,
-          baseUrl,
+          review,
           "linked-profile-desktop",
           { deadline: workspaceE2ETimeouts.browserAction }
         );
@@ -955,7 +948,7 @@ describe("account review screenshot capture", () => {
     let validatorCalls = 0;
     const pixels = Buffer.from("held-document-png");
 
-    await persistCallbackDocumentReview(fakePage.page, baseUrl, pixels, () => {
+    await persistCallbackDocumentReview(fakePage.page, review, pixels, () => {
       validatorCalls += 1;
     });
 
@@ -979,7 +972,7 @@ describe("account review screenshot capture", () => {
     await expect(
       persistCallbackDocumentReview(
         fakePage.page,
-        baseUrl,
+        review,
         screenshotBuffer,
         () => {
           throw new Error("receipt is not valid");
@@ -999,7 +992,7 @@ describe("account review screenshot capture", () => {
     await expect(
       persistCallbackDocumentReview(
         fakePage.page,
-        baseUrl,
+        review,
         screenshotBuffer,
         () => undefined
       )
@@ -1018,7 +1011,7 @@ describe("account review screenshot capture", () => {
     await expect(
       persistCallbackDocumentReview(
         fakePage.page,
-        baseUrl,
+        review,
         screenshotBuffer,
         () => undefined,
         { signal: controller.signal }
@@ -1037,7 +1030,7 @@ describe("account review screenshot capture", () => {
     await expect(
       persistCallbackDocumentReview(
         fakePage.page,
-        baseUrl,
+        review,
         screenshotBuffer,
         () => {
           validatorCalls += 1;
@@ -1063,7 +1056,7 @@ describe("account review screenshot capture", () => {
     });
 
     await expect(
-      captureAccountReview(fakePage.page, baseUrl, "callback-loading-desktop")
+      captureAccountReview(fakePage.page, review, "callback-loading-desktop")
     ).rejects.toThrow(captureFailureMessage);
 
     expect(fakePage.screenshotCalls).toHaveLength(1);
@@ -1076,7 +1069,7 @@ describe("account review screenshot capture", () => {
     await withControlledDateNow(clock, async () => {
       const fakePage = makePendingReviewFakePage(clock);
 
-      await withSignInPendingReview(fakePage.page, baseUrl, async () => {
+      await withSignInPendingReview(fakePage.page, review, async () => {
         await fakePage.startPost();
       });
 
@@ -1097,7 +1090,7 @@ describe("account review screenshot capture", () => {
         let runCaseCalls = 0;
         const wrapped = withSignInPendingReview(
           fakePage.page,
-          baseUrl,
+          review,
           async () => {
             runCaseCalls += 1;
           }
@@ -1133,7 +1126,7 @@ describe("account review screenshot capture", () => {
     let runCaseCalls = 0;
 
     await expect(
-      withSignInPendingReview(fakePage.page, baseUrl, async () => {
+      withSignInPendingReview(fakePage.page, review, async () => {
         runCaseCalls += 1;
       })
     ).rejects.toThrow(captureFailureMessage);
@@ -1159,7 +1152,7 @@ describe("account review screenshot capture", () => {
       });
       const wrapped = withSignInPendingReview(
         fakePage.page,
-        baseUrl,
+        review,
         async () => {
           void fakePage.startPost();
           await fakePage.captureComplete;
@@ -1219,7 +1212,7 @@ describe("account review screenshot capture", () => {
         const fakePage = makePendingReviewFakePage(clock, options);
 
         await expect(
-          withSignInPendingReview(fakePage.page, baseUrl, async () => {
+          withSignInPendingReview(fakePage.page, review, async () => {
             await fakePage.startPost();
           })
         ).rejects.toThrow(captureFailureMessage);
@@ -1239,7 +1232,7 @@ describe("account review screenshot capture", () => {
       });
 
       await expect(
-        withSignInPendingReview(fakePage.page, baseUrl, async () => {
+        withSignInPendingReview(fakePage.page, review, async () => {
           await fakePage.startPost();
           throw runCaseFailure;
         })
@@ -1256,7 +1249,7 @@ describe("account review screenshot capture", () => {
         advancePendingTo: 5_000,
       });
 
-      await withSignInPendingReview(fakePage.page, baseUrl, async () => {
+      await withSignInPendingReview(fakePage.page, review, async () => {
         await fakePage.startPost();
       });
 
@@ -1278,7 +1271,7 @@ describe("account review screenshot capture", () => {
       });
 
       await expect(
-        withSignInPendingReview(fakePage.page, baseUrl, async () => {
+        withSignInPendingReview(fakePage.page, review, async () => {
           await fakePage.startPost();
         })
       ).rejects.toThrow(captureFailureMessage);
@@ -1295,7 +1288,6 @@ describe("account review screenshots without the opt-in", () => {
   let mkdirSpy: ReturnType<typeof spyOn> | undefined;
 
   beforeEach(() => {
-    delete process.env.WORKSPACE_E2E_REVIEW_SCREENSHOTS;
     writeFileSpy = spyOn(fsPromises, "writeFile").mockImplementation(
       async () => undefined
     );
@@ -1305,7 +1297,6 @@ describe("account review screenshots without the opt-in", () => {
   });
 
   afterEach(() => {
-    restoreReviewScreenshotOptIn();
     writeFileSpy?.mockRestore();
     mkdirSpy?.mockRestore();
   });
@@ -1323,7 +1314,7 @@ describe("account review screenshots without the opt-in", () => {
 
     await captureAccountReview(
       fakePage.page,
-      baseUrl,
+      reviewWithoutScreenshots,
       "completion-mobile375x900"
     );
 
@@ -1340,7 +1331,7 @@ describe("account review screenshots without the opt-in", () => {
 
     await captureReservationStatusReview(
       fakePage.page,
-      baseUrl,
+      reviewWithoutScreenshots,
       "reservation-status-modal-desktop",
       reservationId
     );
@@ -1354,7 +1345,7 @@ describe("account review screenshots without the opt-in", () => {
 
     await persistCallbackDocumentReview(
       fakePage.page,
-      baseUrl,
+      reviewWithoutScreenshots,
       screenshotBuffer,
       () => {
         validations += 1;
@@ -1370,9 +1361,13 @@ describe("account review screenshots without the opt-in", () => {
     const fakePage = makePendingReviewFakePage(clock);
     let caseRuns = 0;
 
-    await withSignInPendingReview(fakePage.page, baseUrl, async () => {
-      caseRuns += 1;
-    });
+    await withSignInPendingReview(
+      fakePage.page,
+      reviewWithoutScreenshots,
+      async () => {
+        caseRuns += 1;
+      }
+    );
 
     expect(caseRuns).toBe(1);
     expect(fakePage.routeCalls).toHaveLength(0);
@@ -1385,9 +1380,13 @@ describe("account review screenshots without the opt-in", () => {
     const caseFailure = new Error("synthetic sign-in case failure");
 
     await expect(
-      withSignInPendingReview(fakePage.page, baseUrl, async () => {
-        throw caseFailure;
-      })
+      withSignInPendingReview(
+        fakePage.page,
+        reviewWithoutScreenshots,
+        async () => {
+          throw caseFailure;
+        }
+      )
     ).rejects.toBe(caseFailure);
 
     expect(fakePage.routeCalls).toHaveLength(0);

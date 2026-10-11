@@ -1107,6 +1107,7 @@ mock.module("./fixtures", () => ({
 
 const makeConfig = (): WorkspaceE2EAccountConfig => ({
   baseUrl,
+  review: { baseUrl, screenshots: false },
   bypassSecret: undefined,
   expectedHost,
   locale: "en-US",

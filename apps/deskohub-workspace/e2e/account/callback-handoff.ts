@@ -1,5 +1,4 @@
 import type * as Playwright from "@playwright/test";
-import { isReviewScreenshotCaptureEnabled } from "../review-capture";
 import { workspaceE2ETimeouts } from "../timeouts";
 import {
   type CallbackDocumentReview,
@@ -8,6 +7,7 @@ import {
 } from "./callback-document-review";
 import { isExactCallbackUrl } from "./callback-url";
 import {
+  type AccountReviewDestination,
   captureAccountReview,
   persistCallbackDocumentReview,
 } from "./review-screenshots";
@@ -251,10 +251,10 @@ const loadingElementIsVisible = async (
  */
 export const withCallbackHandoffReview = async (
   page: Playwright.Page,
-  baseUrl: string,
+  destination: AccountReviewDestination,
   runCase: () => Promise<void>
 ): Promise<void> => {
-  const captureEnabled = isReviewScreenshotCaptureEnabled();
+  const { baseUrl, screenshots: captureEnabled } = destination;
   let baseOrigin: string;
   try {
     baseOrigin = new URL(baseUrl).origin;
@@ -340,7 +340,7 @@ export const withCallbackHandoffReview = async (
           // callback URL grammar is rechecked explicitly as well.
           await persistCallbackDocumentReview(
             page,
-            baseUrl,
+            destination,
             pixels,
             () => {
               review.validate();
@@ -358,7 +358,7 @@ export const withCallbackHandoffReview = async (
           );
           await captureAccountReview(
             page,
-            baseUrl,
+            destination,
             "callback-loading-desktop",
             {
               deadline,

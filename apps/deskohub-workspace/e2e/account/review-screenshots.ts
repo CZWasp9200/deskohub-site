@@ -3,7 +3,6 @@ import { resolve } from "node:path";
 import type * as Playwright from "@playwright/test";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import { reservationStatusPath } from "@/features/reservation/routes";
-import { isReviewScreenshotCaptureEnabled } from "../review-capture";
 import { workspaceDir } from "../runtime";
 import { workspaceE2ETimeouts } from "../timeouts";
 import {
@@ -282,6 +281,15 @@ type AccountReviewCaptureOptions = {
   readonly signal?: AbortSignal;
 };
 
+/**
+ * The preview a review screenshot is taken from, and whether this run captures
+ * review screenshots at all (decoded once by the E2E environment boundary).
+ */
+export type AccountReviewDestination = {
+  readonly baseUrl: string;
+  readonly screenshots: boolean;
+};
+
 const remainingAccountReviewBudget = (deadline: number): number => {
   const remaining = deadline - Date.now();
   if (!Number.isFinite(remaining) || remaining <= 0)
@@ -518,8 +526,9 @@ const persistAccountReview = async (
 /**
  * Callers own the synthetic browser context and account state. This helper only
  * emits the explicitly requested PNG; it creates no browser, auth, database,
- * cookie, trace, HAR, or logging state. Without the review screenshot opt-in it
- * touches neither the page nor the artifact directory.
+ * cookie, trace, HAR, or logging state. The public capture helpers return
+ * before touching the page or the artifact directory when the destination does
+ * not capture review screenshots.
  */
 const captureAccountReviewWithMetadata = async (
   page: Playwright.Page,
@@ -528,7 +537,6 @@ const captureAccountReviewWithMetadata = async (
   metadata: AccountReviewTargetMetadata,
   options: AccountReviewCaptureOptions = {}
 ): Promise<void> => {
-  if (!isReviewScreenshotCaptureEnabled()) return;
   const deadline =
     options.deadline ?? Date.now() + workspaceE2ETimeouts.browserAction;
   validateAccountReviewPage(page, baseUrl, target, metadata);
@@ -591,7 +599,7 @@ const captureAccountReviewWithMetadata = async (
  */
 export const persistCallbackDocumentReview = async (
   page: Playwright.Page,
-  baseUrl: string,
+  { baseUrl, screenshots }: AccountReviewDestination,
   pixels: Buffer,
   validate: () => void,
   options: {
@@ -599,7 +607,7 @@ export const persistCallbackDocumentReview = async (
     readonly signal?: AbortSignal;
   } = {}
 ): Promise<void> => {
-  if (!isReviewScreenshotCaptureEnabled()) return;
+  if (!screenshots) return;
   const metadata = accountReviewTargetMetadata["callback-loading-desktop"];
   if (!metadata) throw accountReviewCaptureFailure();
   const deadline =
@@ -620,10 +628,11 @@ export const persistCallbackDocumentReview = async (
 
 export const captureAccountReview = async (
   page: Playwright.Page,
-  baseUrl: string,
+  { baseUrl, screenshots }: AccountReviewDestination,
   target: AccountReviewTarget,
   options: AccountReviewCaptureOptions = {}
 ): Promise<void> => {
+  if (!screenshots) return;
   const metadata = accountReviewTargetMetadata[target];
   if (!metadata) throw accountReviewCaptureFailure();
   await captureAccountReviewWithMetadata(
@@ -637,11 +646,12 @@ export const captureAccountReview = async (
 
 export const captureReservationStatusReview = async (
   page: Playwright.Page,
-  baseUrl: string,
+  { baseUrl, screenshots }: AccountReviewDestination,
   target: ReservationStatusReviewTarget,
   reservationId: WorkspaceReservationId,
   options: AccountReviewCaptureOptions = {}
 ): Promise<void> => {
+  if (!screenshots) return;
   const metadata = reservationStatusReviewMetadata[target];
   if (!metadata) throw accountReviewCaptureFailure();
 
@@ -675,10 +685,10 @@ const waitForDocumentFonts = async (
  */
 export const withSignInPendingReview = async (
   page: Playwright.Page,
-  baseUrl: string,
+  { baseUrl, screenshots }: AccountReviewDestination,
   runCase: () => Promise<void>
 ): Promise<void> => {
-  if (!isReviewScreenshotCaptureEnabled()) return runCase();
+  if (!screenshots) return runCase();
   const pendingMetadata =
     accountReviewTargetMetadata["sign-in-pending-desktop"];
   let fullHandlerPromise: Promise<void> | undefined;
