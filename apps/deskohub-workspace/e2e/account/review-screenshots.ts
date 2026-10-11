@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import type * as Playwright from "@playwright/test";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import { reservationStatusPath } from "@/features/reservation/routes";
+import { isReviewScreenshotCaptureEnabled } from "../review-capture";
 import { workspaceDir } from "../runtime";
 import { workspaceE2ETimeouts } from "../timeouts";
 import {
@@ -517,7 +518,8 @@ const persistAccountReview = async (
 /**
  * Callers own the synthetic browser context and account state. This helper only
  * emits the explicitly requested PNG; it creates no browser, auth, database,
- * cookie, trace, HAR, or logging state.
+ * cookie, trace, HAR, or logging state. Without the review screenshot opt-in it
+ * touches neither the page nor the artifact directory.
  */
 const captureAccountReviewWithMetadata = async (
   page: Playwright.Page,
@@ -526,6 +528,7 @@ const captureAccountReviewWithMetadata = async (
   metadata: AccountReviewTargetMetadata,
   options: AccountReviewCaptureOptions = {}
 ): Promise<void> => {
+  if (!isReviewScreenshotCaptureEnabled()) return;
   const deadline =
     options.deadline ?? Date.now() + workspaceE2ETimeouts.browserAction;
   validateAccountReviewPage(page, baseUrl, target, metadata);
@@ -596,6 +599,7 @@ export const persistCallbackDocumentReview = async (
     readonly signal?: AbortSignal;
   } = {}
 ): Promise<void> => {
+  if (!isReviewScreenshotCaptureEnabled()) return;
   const metadata = accountReviewTargetMetadata["callback-loading-desktop"];
   if (!metadata) throw accountReviewCaptureFailure();
   const deadline =
@@ -665,11 +669,16 @@ const waitForDocumentFonts = async (
   );
 };
 
+/**
+ * Holds the sign-in POST only to photograph the pending form, so without the
+ * review screenshot opt-in the case runs unwrapped.
+ */
 export const withSignInPendingReview = async (
   page: Playwright.Page,
   baseUrl: string,
   runCase: () => Promise<void>
 ): Promise<void> => {
+  if (!isReviewScreenshotCaptureEnabled()) return runCase();
   const pendingMetadata =
     accountReviewTargetMetadata["sign-in-pending-desktop"];
   let fullHandlerPromise: Promise<void> | undefined;

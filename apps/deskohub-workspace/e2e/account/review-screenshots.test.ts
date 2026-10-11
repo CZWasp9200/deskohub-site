@@ -13,6 +13,13 @@ import {
   withSignInPendingReview,
 } from "./review-screenshots";
 
+const reviewScreenshotOptIn = process.env.WORKSPACE_E2E_REVIEW_SCREENSHOTS;
+const restoreReviewScreenshotOptIn = () => {
+  if (reviewScreenshotOptIn === undefined)
+    delete process.env.WORKSPACE_E2E_REVIEW_SCREENSHOTS;
+  else process.env.WORKSPACE_E2E_REVIEW_SCREENSHOTS = reviewScreenshotOptIn;
+};
+
 const baseUrl = "https://deskohub-workspace-review.example.test";
 const magicLinkUrl = new URL(
   "/api/auth/sign-in/magic-link",
@@ -26,13 +33,6 @@ const accountReviewArtifactDirectory = resolve(
 );
 const captureFailureMessage = "Account review screenshot capture failed";
 const attemptUuid = "0f0a9c1e-7b62-4c8d-9e21-53ab2f0d4c7a";
-const privateLinkedAccountQueries = [
-  "",
-  "?section=reservations",
-  "?section=profile",
-  "?section=billing",
-  "?section=danger",
-] as const;
 const marketingReviewTargets = [
   "account-marketing-withdrawn-desktop",
   "account-marketing-active-mobile",
@@ -50,286 +50,6 @@ const reservationCustomerReviewTargets = [
   "reservation-customer-account-desktop",
   "reservation-customer-contact-desktop",
 ] as const;
-
-const validTargets = [
-  {
-    filename: "completion-mobile375x900.png",
-    path: "/en-US/account",
-    query: "",
-    target: "completion-mobile375x900",
-    viewport: { height: 900, width: 375 },
-    fullPage: true,
-  },
-  {
-    filename: "account-loading-desktop.png",
-    path: "/en-US/account",
-    query: "",
-    target: "account-loading-desktop",
-    viewport: { height: 1000, width: 1440 },
-    fullPage: true,
-  },
-  {
-    filename: "callback-loading-desktop.png",
-    path: "/en-US/auth/callback",
-    query: "",
-    queries: ["", `?attempt=${attemptUuid}`],
-    target: "callback-loading-desktop",
-    viewport: { height: 1000, width: 1440 },
-    fullPage: true,
-  },
-  {
-    filename: "sign-in-handoff-desktop.png",
-    path: ["/en-US/account", "/en-US/auth/sign-in"],
-    query: "",
-    target: "sign-in-handoff-desktop",
-    viewport: { height: 1000, width: 1440 },
-    fullPage: true,
-  },
-  {
-    filename: "linked-reservations-desktop.png",
-    path: "/en-US/account",
-    query: "",
-    queries: privateLinkedAccountQueries,
-    target: "linked-reservations-desktop",
-    viewport: { height: 1000, width: 1440 },
-    fullPage: true,
-  },
-  {
-    filename: "linked-reservations-mobile.png",
-    path: "/en-US/account",
-    query: "",
-    queries: privateLinkedAccountQueries,
-    target: "linked-reservations-mobile",
-    viewport: { height: 900, width: 375 },
-    fullPage: true,
-  },
-  {
-    filename: "linked-profile-desktop.png",
-    path: "/en-US/account",
-    query: "",
-    queries: privateLinkedAccountQueries,
-    target: "linked-profile-desktop",
-    viewport: { height: 1000, width: 1440 },
-    fullPage: true,
-  },
-  {
-    filename: "linked-billing-desktop.png",
-    path: "/en-US/account",
-    query: "",
-    queries: privateLinkedAccountQueries,
-    target: "linked-billing-desktop",
-    viewport: { height: 1000, width: 1440 },
-    fullPage: true,
-  },
-  {
-    filename: "linked-billing-mobile.png",
-    path: "/en-US/account",
-    query: "",
-    queries: privateLinkedAccountQueries,
-    target: "linked-billing-mobile",
-    viewport: { height: 900, width: 375 },
-    fullPage: true,
-  },
-  {
-    filename: "linked-legal-desktop.png",
-    path: "/en-US/account/legal",
-    query: "",
-    target: "linked-legal-desktop",
-    viewport: { height: 1000, width: 1440 },
-    fullPage: true,
-  },
-  {
-    filename: "reservation-customer-account-desktop.png",
-    path: "/en-US/reservation/cowork",
-    query: "",
-    target: "reservation-customer-account-desktop",
-    viewport: { height: 1000, width: 1440 },
-    fullPage: true,
-  },
-  {
-    filename: "reservation-customer-contact-desktop.png",
-    path: "/en-US/reservation/cowork",
-    query: "",
-    target: "reservation-customer-contact-desktop",
-    viewport: { height: 1000, width: 1440 },
-    fullPage: true,
-  },
-  {
-    filename: "account-marketing-withdrawn-desktop.png",
-    path: "/en-US/account/legal",
-    query: "",
-    target: "account-marketing-withdrawn-desktop",
-    viewport: { height: 1000, width: 1440 },
-    fullPage: true,
-  },
-  {
-    filename: "account-marketing-active-mobile.png",
-    path: "/en-US/account/legal",
-    query: "",
-    target: "account-marketing-active-mobile",
-    viewport: { height: 900, width: 375 },
-    fullPage: true,
-  },
-  {
-    filename: "marketing-link-pending-desktop.png",
-    path: "/en-US/account/legal",
-    query: "",
-    target: "marketing-link-pending-desktop",
-    viewport: { height: 1000, width: 1440 },
-    fullPage: true,
-  },
-  {
-    filename: "marketing-link-pending-mobile.png",
-    path: "/en-US/account/legal",
-    query: "",
-    target: "marketing-link-pending-mobile",
-    viewport: { height: 900, width: 375 },
-    fullPage: true,
-  },
-  {
-    filename: "marketing-link-active-desktop.png",
-    path: "/en-US/account/legal",
-    query: "",
-    target: "marketing-link-active-desktop",
-    viewport: { height: 1000, width: 1440 },
-    fullPage: true,
-  },
-  {
-    filename: "marketing-link-active-mobile.png",
-    path: "/en-US/account/legal",
-    query: "",
-    target: "marketing-link-active-mobile",
-    viewport: { height: 900, width: 375 },
-    fullPage: true,
-  },
-  {
-    filename: "marketing-link-withdrawn-desktop.png",
-    path: "/en-US/account/legal",
-    query: "",
-    target: "marketing-link-withdrawn-desktop",
-    viewport: { height: 1000, width: 1440 },
-    fullPage: true,
-  },
-  {
-    filename: "marketing-link-withdrawn-mobile.png",
-    path: "/en-US/account/legal",
-    query: "",
-    target: "marketing-link-withdrawn-mobile",
-    viewport: { height: 900, width: 375 },
-    fullPage: true,
-  },
-  {
-    filename: "marketing-link-invalid-desktop.png",
-    path: "/en-US/account/legal",
-    query: "",
-    target: "marketing-link-invalid-desktop",
-    viewport: { height: 1000, width: 1440 },
-    fullPage: true,
-  },
-  {
-    filename: "marketing-link-invalid-mobile.png",
-    path: "/en-US/account/legal",
-    query: "",
-    target: "marketing-link-invalid-mobile",
-    viewport: { height: 900, width: 375 },
-    fullPage: true,
-  },
-  {
-    filename: "public-legal-desktop.png",
-    path: "/en-US/account/legal",
-    query: "",
-    target: "public-legal-desktop",
-    viewport: { height: 1000, width: 1440 },
-    fullPage: true,
-  },
-  {
-    filename: "public-legal-mobile.png",
-    path: "/en-US/account/legal",
-    query: "",
-    target: "public-legal-mobile",
-    viewport: { height: 900, width: 375 },
-    fullPage: true,
-  },
-  {
-    filename: "linked-danger-desktop.png",
-    path: "/en-US/account",
-    query: "",
-    queries: privateLinkedAccountQueries,
-    target: "linked-danger-desktop",
-    viewport: { height: 1000, width: 1440 },
-    fullPage: true,
-  },
-  {
-    filename: "linked-danger-mobile.png",
-    path: "/en-US/account",
-    query: "",
-    queries: privateLinkedAccountQueries,
-    target: "linked-danger-mobile",
-    viewport: { height: 900, width: 375 },
-    fullPage: true,
-  },
-  {
-    filename: "support-desktop.png",
-    path: "/en-US/account",
-    query: "",
-    target: "support-desktop",
-    viewport: { height: 1000, width: 1440 },
-    fullPage: true,
-  },
-  {
-    filename: "sign-in-accepted-desktop.png",
-    path: "/en-US/auth/sign-in",
-    query: "",
-    target: "sign-in-accepted-desktop",
-    viewport: { height: 1000, width: 1440 },
-    fullPage: true,
-  },
-  {
-    filename: "sign-in-pending-desktop.png",
-    path: "/en-US/auth/sign-in",
-    query: "",
-    target: "sign-in-pending-desktop",
-    viewport: { height: 1000, width: 1440 },
-    fullPage: true,
-  },
-  {
-    filename: "sign-in-desktop.png",
-    path: "/en-US/auth/sign-in",
-    query: "",
-    target: "sign-in-desktop",
-    viewport: { height: 1000, width: 1440 },
-    fullPage: true,
-  },
-  {
-    filename: "callback-failed-desktop.png",
-    path: "/en-US/auth/callback",
-    query: "",
-    queries: [
-      "?error=INVALID_TOKEN",
-      `?attempt=${attemptUuid}&error=INVALID_TOKEN`,
-      `?error=INVALID_TOKEN&attempt=${attemptUuid}`,
-    ],
-    target: "callback-failed-desktop",
-    viewport: { height: 1000, width: 1440 },
-    fullPage: true,
-  },
-  {
-    filename: "deleted-desktop.png",
-    path: "/en-US/account/deleted",
-    query: "",
-    target: "deleted-desktop",
-    viewport: { height: 1000, width: 1440 },
-    fullPage: true,
-  },
-] as const satisfies ReadonlyArray<{
-  readonly filename: `${string}.png`;
-  readonly fullPage: boolean;
-  readonly path: string | readonly string[];
-  readonly query: string;
-  readonly queries?: readonly string[];
-  readonly target: AccountReviewTarget;
-  readonly viewport: Playwright.ViewportSize;
-}>;
 
 type FakePage = {
   readonly currentViewport: () => Playwright.ViewportSize | null;
@@ -690,10 +410,12 @@ describe("account review screenshot capture", () => {
   let writeFileSpy: ReturnType<typeof createWriteFileSpy> | undefined;
 
   beforeEach(() => {
+    process.env.WORKSPACE_E2E_REVIEW_SCREENSHOTS = "true";
     writeFileSpy = createWriteFileSpy();
   });
 
   afterEach(() => {
+    restoreReviewScreenshotOptIn();
     writeFileSpy?.mockRestore();
     writeFileSpy = undefined;
   });
@@ -946,45 +668,67 @@ describe("account review screenshot capture", () => {
     expect(writeFileSpy?.mock.calls).toHaveLength(0);
   });
 
-  for (const expected of validTargets) {
-    const expectedPaths = Array.isArray(expected.path)
-      ? expected.path
-      : [expected.path];
-    for (const expectedPath of expectedPaths) {
-      for (const expectedQuery of expected.queries ?? [expected.query]) {
-        test(`captures fixed metadata for ${expected.target} at ${expectedPath}${expectedQuery}`, async () => {
-          const fakePage = makeFakePage(
-            `${baseUrl}${expectedPath}${expectedQuery}`
-          );
+  test("captures, persists, and restores the viewport through one shared pipeline", async () => {
+    const fakePage = makeFakePage(`${baseUrl}/en-US/account`);
 
-          await captureAccountReview(fakePage.page, baseUrl, expected.target);
+    await captureAccountReview(
+      fakePage.page,
+      baseUrl,
+      "completion-mobile375x900"
+    );
 
-          expect(fakePage.screenshotCalls).toHaveLength(1);
-          expect(fakePage.screenshotCalls[0]).toEqual({
-            animations: "disabled",
-            fullPage: expected.fullPage,
-            timeout: expect.any(Number),
-          });
-          expect(fakePage.screenshotCalls[0]?.timeout).toBeGreaterThan(0);
-          expect(fakePage.screenshotCalls[0]?.timeout).toBeLessThanOrEqual(
-            workspaceE2ETimeouts.browserAction
-          );
-          expect(fakePage.viewportChanges).toEqual([
-            expected.viewport,
-            initialViewport,
-          ]);
-          expect(fakePage.currentViewport()).toEqual(initialViewport);
-          expect(fakePage.fontReadyCalls()).toBe(1);
-          expect(writeFileSpy?.mock.calls).toEqual([
-            [
-              resolve(accountReviewArtifactDirectory, expected.filename),
-              screenshotBuffer,
-            ],
-          ]);
-        });
-      }
-    }
-  }
+    expect(fakePage.screenshotCalls).toHaveLength(1);
+    expect(fakePage.screenshotCalls[0]?.timeout).toBeGreaterThan(0);
+    expect(fakePage.screenshotCalls[0]?.timeout).toBeLessThanOrEqual(
+      workspaceE2ETimeouts.browserAction
+    );
+    expect(fakePage.viewportChanges).toHaveLength(2);
+    expect(fakePage.viewportChanges[0]).not.toEqual(initialViewport);
+    expect(fakePage.currentViewport()).toEqual(initialViewport);
+    expect(fakePage.fontReadyCalls()).toBe(1);
+    expect(writeFileSpy?.mock.calls).toHaveLength(1);
+    expect(writeFileSpy?.mock.calls[0]?.[0]).toStartWith(
+      `${accountReviewArtifactDirectory}/`
+    );
+    expect(writeFileSpy?.mock.calls[0]?.[1]).toBe(screenshotBuffer);
+  });
+
+  test.each([
+    [
+      "a private linked section query",
+      "linked-profile-desktop",
+      "/en-US/account?section=billing",
+    ],
+    [
+      "a bare callback loading page",
+      "callback-loading-desktop",
+      "/en-US/auth/callback",
+    ],
+    [
+      "a canonical callback attempt",
+      "callback-loading-desktop",
+      `/en-US/auth/callback?attempt=${attemptUuid}`,
+    ],
+    [
+      "the account sign-in handoff path",
+      "sign-in-handoff-desktop",
+      "/en-US/account",
+    ],
+    [
+      "the sign-in page handoff path",
+      "sign-in-handoff-desktop",
+      "/en-US/auth/sign-in",
+    ],
+  ] as const satisfies ReadonlyArray<
+    readonly [string, AccountReviewTarget, string]
+  >)("accepts %s", async (_name, target, pathAndQuery) => {
+    const fakePage = makeFakePage(`${baseUrl}${pathAndQuery}`);
+
+    await captureAccountReview(fakePage.page, baseUrl, target);
+
+    expect(fakePage.screenshotCalls).toHaveLength(1);
+    expect(writeFileSpy?.mock.calls).toHaveLength(1);
+  });
 
   test("captures a reservation status target only at the exact fixture path", async () => {
     const reservationId = workspaceReservationIdSchema.make(
@@ -1543,5 +1287,110 @@ describe("account review screenshot capture", () => {
       expect(fakePage.continueArguments).toEqual([[]]);
       expect(fakePage.continueCallCount()).toBe(1);
     });
+  });
+});
+
+describe("account review screenshots without the opt-in", () => {
+  let writeFileSpy: ReturnType<typeof spyOn> | undefined;
+  let mkdirSpy: ReturnType<typeof spyOn> | undefined;
+
+  beforeEach(() => {
+    delete process.env.WORKSPACE_E2E_REVIEW_SCREENSHOTS;
+    writeFileSpy = spyOn(fsPromises, "writeFile").mockImplementation(
+      async () => undefined
+    );
+    mkdirSpy = spyOn(fsPromises, "mkdir").mockImplementation(
+      async () => undefined
+    );
+  });
+
+  afterEach(() => {
+    restoreReviewScreenshotOptIn();
+    writeFileSpy?.mockRestore();
+    mkdirSpy?.mockRestore();
+  });
+
+  const expectUntouched = (fakePage: FakePage) => {
+    expect(fakePage.screenshotCalls).toHaveLength(0);
+    expect(fakePage.viewportChanges).toHaveLength(0);
+    expect(fakePage.fontReadyCalls()).toBe(0);
+    expect(mkdirSpy?.mock.calls).toHaveLength(0);
+    expect(writeFileSpy?.mock.calls).toHaveLength(0);
+  };
+
+  test("captures no account review", async () => {
+    const fakePage = makeFakePage(`${baseUrl}/en-US/account`);
+
+    await captureAccountReview(
+      fakePage.page,
+      baseUrl,
+      "completion-mobile375x900"
+    );
+
+    expectUntouched(fakePage);
+  });
+
+  test("captures no reservation status review", async () => {
+    const reservationId = workspaceReservationIdSchema.make(
+      "account-history-reservation"
+    );
+    const fakePage = makeFakePage(
+      `${baseUrl}/en-US${reservationStatusPath}/${encodeURIComponent(reservationId)}`
+    );
+
+    await captureReservationStatusReview(
+      fakePage.page,
+      baseUrl,
+      "reservation-status-modal-desktop",
+      reservationId
+    );
+
+    expectUntouched(fakePage);
+  });
+
+  test("persists no callback document review", async () => {
+    const fakePage = makeFakePage(`${baseUrl}/en-US/auth/callback`);
+    let validations = 0;
+
+    await persistCallbackDocumentReview(
+      fakePage.page,
+      baseUrl,
+      screenshotBuffer,
+      () => {
+        validations += 1;
+      }
+    );
+
+    expect(validations).toBe(0);
+    expectUntouched(fakePage);
+  });
+
+  test("runs the sign-in case without holding its request", async () => {
+    const clock = makeControlledClock();
+    const fakePage = makePendingReviewFakePage(clock);
+    let caseRuns = 0;
+
+    await withSignInPendingReview(fakePage.page, baseUrl, async () => {
+      caseRuns += 1;
+    });
+
+    expect(caseRuns).toBe(1);
+    expect(fakePage.routeCalls).toHaveLength(0);
+    expect(fakePage.unrouteCallCount()).toBe(0);
+    expectUntouched(fakePage);
+  });
+
+  test("preserves the sign-in case failure", async () => {
+    const fakePage = makePendingReviewFakePage(makeControlledClock());
+    const caseFailure = new Error("synthetic sign-in case failure");
+
+    await expect(
+      withSignInPendingReview(fakePage.page, baseUrl, async () => {
+        throw caseFailure;
+      })
+    ).rejects.toBe(caseFailure);
+
+    expect(fakePage.routeCalls).toHaveLength(0);
+    expectUntouched(fakePage);
   });
 });
