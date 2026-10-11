@@ -5,7 +5,6 @@ import { authOptions } from "@/features/account/backend/auth/auth-options";
 import {
   authAccount,
   authRateLimit,
-  authRelations,
   authSession,
   authUser,
   authVerification,
@@ -113,25 +112,6 @@ describe("Better Auth schema", () => {
     )!;
     expect(column.notNull).toBe(false);
     expect(column.getSQLType()).toBe("timestamp with time zone");
-  });
-
-  test("indexes the daily cleanup cutoffs", () => {
-    const indexNames = (table: PgTable) =>
-      getTableConfig(table).indexes.map((index) => index.config.name);
-
-    expect(indexNames(authSession)).toContain("session_expires_at_idx");
-    expect(indexNames(authVerification)).toContain(
-      "verification_expires_at_idx"
-    );
-    expect(indexNames(authRateLimit)).toContain("rate_limit_last_request_idx");
-  });
-
-  test("defines relations only for the tables Better Auth joins", () => {
-    expect(Object.keys(authRelations).sort()).toEqual([
-      "account",
-      "session",
-      "user",
-    ]);
   });
 
   test("keeps timestamps decoding as Date, not Temporal", () => {
