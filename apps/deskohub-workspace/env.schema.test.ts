@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
+import { dotyposApiTimeoutDefaultMilliseconds } from "@deskohub/dotypos/api-timeout";
 import { Schema } from "effect";
 import { runCommand } from "@/scripts/shared/command";
 import {
@@ -121,7 +122,7 @@ describe("workspace environment schemas", () => {
       workspaceServerEnvSchema.fields.POSTHOG_PROJECT_ID
     );
 
-    expect(decodeTimeout(undefined)).toBe(5_000);
+    expect(decodeTimeout(undefined)).toBe(dotyposApiTimeoutDefaultMilliseconds);
     expect(decodeTimeout("2500")).toBe(2_500);
     expect(decodeServiceName(undefined)).toBe("deskohub-workspace");
     expect(decodeIgloohomeTimeout(undefined)).toBe(10_000);
@@ -296,7 +297,7 @@ describe("workspace environment schemas", () => {
         "~standard"
       ].validate(undefined);
 
-    expect(result).toEqual({ value: 5_000 });
+    expect(result).toEqual({ value: dotyposApiTimeoutDefaultMilliseconds });
   });
 
   test("validates Vercel's standard public environment", () => {

@@ -1,3 +1,4 @@
+import { dotyposApiTimeoutDefaultMilliseconds } from "@deskohub/dotypos/api-timeout";
 import { igloohomeApiTimeoutMaximumMilliseconds } from "@deskohub/igloohome/config";
 import { PostHogProjectId } from "@deskohub/posthog/identifiers";
 import { Effect, Schema } from "effect";
@@ -119,7 +120,11 @@ export const workspaceServerEnvSchema = Schema.Struct({
   DOTYPOS_API_TIMEOUT: toEnvSchema(
     Schema.FiniteFromString.check(Schema.isInt())
       .check(Schema.isGreaterThan(0))
-      .pipe(Schema.withDecodingDefaultType(Effect.succeed(5_000)))
+      .pipe(
+        Schema.withDecodingDefaultType(
+          Effect.succeed(dotyposApiTimeoutDefaultMilliseconds)
+        )
+      )
   ),
   DOTYPOS_API_URL: urlEnvSchema,
   DOTYPOS_BRANCH_ID: nonEmptyStringSchema,

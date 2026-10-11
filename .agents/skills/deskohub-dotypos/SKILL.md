@@ -21,6 +21,10 @@ For a Dotypos resource or item operation:
 
 Do not add a parallel hand-written response decoder when the contract can be generated.
 
+## Request timeouts
+
+- Prefer waiting for a slow Dotypos answer over failing the flow. The per-request timeout defaults to `dotyposApiTimeoutDefaultMilliseconds` (30 seconds, `@deskohub/dotypos/api-timeout`), and E2E uses the same value. A budget that wraps a Dotypos call, such as an E2E finalizer, must leave room for at least one full per-request timeout.
+
 ## Customer records
 
 - Dotypos filters customer `email` only through the STRING group: `email|like|value` is a case-insensitive substring match (`ILIKE '%value%'`, see the official filter and Customer entity references). Treat its results as candidates and identify a customer only by a whole-address, case-insensitive email comparison. Customers that differ only by email case are ambiguous, never silently merged.

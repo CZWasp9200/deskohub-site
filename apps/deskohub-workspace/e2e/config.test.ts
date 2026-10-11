@@ -88,7 +88,6 @@ test("rejects a datasource outside the explicit preview allowlist", () => {
 test("uses the checked-in timeout configuration", () => {
   const config = getDatasourceConfig(makeTestE2EEnvironment());
 
-  expect(config.dotypos.apiTimeout).toBe(5_000);
   expect(config.timeouts).toBe(workspaceE2ETimeouts);
   expect(config.timeouts.localeCase).toBe(3 * 60_000);
 });
