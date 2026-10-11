@@ -6,6 +6,8 @@ language js(typescript, jsx)
 // browser-visible environment from `@/client-env` so that graph stays out of
 // client bundles, whether loaded statically, with `import()`, or `require`.
 // Type-only imports and re-exports are erased and add no client code.
+// Only literal specifiers are checked: computed or concatenated `import()` and
+// `require` arguments, including templates with substitutions, are not.
 file($name, $body) where {
   $name <: r".*apps/deskohub-workspace/.*\.(?:ts|tsx)$",
   or {
@@ -28,11 +30,18 @@ file($name, $body) where {
           $export <: r"(?s)^export\s+type\s.*"
         }
       },
-      JsImportCallExpression() as $span where {
-        $span <: r"(?s)^import\s*\(\s*['\"](?:@/env|(?:\.\.?/)+env)['\"].*"
-      },
-      JsCallExpression() as $span where {
-        $span <: r"(?s)^require\s*\(\s*['\"](?:@/env|(?:\.\.?/)+env)['\"].*"
+      or {
+        `import($specifier)` as $span,
+        `require($specifier)` as $span
+      } where {
+        $specifier <: or {
+          JsStringLiteralExpression() as $literal where {
+            $literal <: r"^['\"](?:@/env|(?:\.\.?/)+env)['\"]$"
+          },
+          JsTemplateExpression() as $literal where {
+            $literal <: r"^`(?:@/env|(?:\.\.?/)+env)`$"
+          }
+        }
       }
     } where {
       register_diagnostic(
