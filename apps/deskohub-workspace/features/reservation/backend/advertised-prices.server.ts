@@ -38,7 +38,7 @@ export const loadAdvertisedPrices = Effect.fn(
         )
       )
     ),
-    { concurrency: 2 }
+    { concurrency: 6 }
   );
 
   return results.filter(Option.isSome).map(({ value }) => value);

@@ -25,6 +25,7 @@ import { discountIdSchema } from "@/features/discounts";
 import { m } from "@/features/i18n";
 import { getOfficeAdvertisedPriceRequest } from "@/features/reservation/office-advertised-price";
 import { officeReservationDefaultValues } from "@/features/reservation/office-reservation";
+import { getOfficeAvailabilityQuery } from "@/features/reservation/workspace-availability";
 import {
   workspaceUseAction,
   workspaceUseSearchParams,
@@ -218,6 +219,50 @@ describe("OfficeReservationForm", () => {
       ).toBe("2");
     });
     expect(view.queryByText(/days from this start date/i)).toBeNull();
+  });
+
+  test("bounds the stay from page-loaded availability without a client request", () => {
+    const today = decodePlainDate("2026-08-10");
+    const fetchCalls = mock((_request: RequestInfo | URL) =>
+      Promise.resolve(
+        officeAvailabilityResponse({ from: today, to: "2026-09-10" })
+      )
+    );
+    globalThis.fetch = fetchCalls as typeof fetch;
+    const query = getOfficeAvailabilityQuery(today);
+
+    const view = renderOfficeForm({
+      initialAvailability: [
+        {
+          query,
+          availability: {
+            from: query.from,
+            to: query.to,
+            unavailableDates: ["2026-08-12"],
+            reservedDeskWorkstationRequiredDates: [],
+            unavailableCoworkTiers: [],
+            meetingRoomUnavailable: false,
+            officeUnavailable: false,
+            unavailableMonitorOptions: [],
+            notices: [],
+          },
+          loadedAt: Date.now(),
+        },
+      ],
+      initialValues: {
+        ...officeReservationDefaultValues,
+        startsOn: today,
+        dayCount: 2,
+      },
+      today,
+    });
+
+    expect(
+      view.getByRole<HTMLInputElement>("spinbutton", {
+        name: "Number of days",
+      }).max
+    ).toBe("2");
+    expect(fetchCalls).not.toHaveBeenCalled();
   });
 
   test("describes office unavailability without suggesting a seat change", () => {

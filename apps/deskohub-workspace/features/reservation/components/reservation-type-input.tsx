@@ -110,7 +110,7 @@ export function ReservationTypeInput<Value extends ReservationTypeValue>({
           className={cn(
             presentation === "illustrated"
               ? "grid gap-4 md:grid-cols-2"
-              : "grid space-y-3 lg:grid-cols-3 lg:grid-rows-[repeat(4,auto)] lg:space-y-0 lg:gap-x-3",
+              : reservationTypeInputLayout,
             className
           )}
           {...props}
@@ -121,6 +121,18 @@ export function ReservationTypeInput<Value extends ReservationTypeValue>({
     </ReservationTypeInputRefContext.Provider>
   );
 }
+
+/** The option group grid, shared with its loading fallbacks. */
+export const reservationTypeInputLayout =
+  "grid space-y-3 lg:grid-cols-3 lg:grid-rows-[repeat(4,auto)] lg:space-y-0 lg:gap-x-3";
+
+/** The option card grid, shared with its loading fallbacks. */
+export const reservationTypeOptionLayout =
+  "grid rounded-[1.4rem] px-4 lg:grid-rows-subgrid lg:row-span-4";
+
+/** The illustrated option card grid, shared with its loading fallback. */
+export const illustratedReservationTypeOptionLayout =
+  "relative isolate @container/card grid content-start grid-cols-[minmax(0,3fr)_minmax(0,2fr)] grid-rows-[auto_auto_minmax(5.625rem,auto)_auto] gap-0 overflow-hidden rounded-[1.4rem] px-4 py-5 sm:px-6 sm:py-6 lg:grid-rows-[minmax(3.75rem,auto)_auto_minmax(6.75rem,auto)_auto]";
 
 export function ReservationTypeOption<Value extends ReservationTypeValue>({
   children,
@@ -151,10 +163,13 @@ export function ReservationTypeOption<Value extends ReservationTypeValue>({
       htmlFor={inputId}
       data-reservation-type-option={value}
       className={cn(
-        "group grid cursor-pointer outline -outline-offset-1 outline-1 transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_18px_44px_-28px_rgba(0,2,79,0.7)]",
+        "group cursor-pointer outline -outline-offset-1 outline-1 transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_18px_44px_-28px_rgba(0,2,79,0.7)]",
         isIllustrated
-          ? "relative isolate @container/card content-start grid-cols-[minmax(0,3fr)_minmax(0,2fr)] grid-rows-[auto_auto_minmax(5.625rem,auto)_auto] gap-0 overflow-hidden rounded-[1.4rem] px-4 py-5 focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-burned-orange sm:px-6 sm:py-6 lg:grid-rows-[minmax(3.75rem,auto)_auto_minmax(6.75rem,auto)_auto]"
-          : "rounded-[1.4rem] px-4 lg:grid-rows-subgrid lg:row-span-4",
+          ? cn(
+              illustratedReservationTypeOptionLayout,
+              "focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-burned-orange"
+            )
+          : reservationTypeOptionLayout,
         disabled &&
           "cursor-not-allowed opacity-45 hover:translate-y-0 hover:shadow-none",
         isSelected &&

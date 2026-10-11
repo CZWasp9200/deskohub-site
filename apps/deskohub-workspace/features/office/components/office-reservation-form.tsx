@@ -50,7 +50,10 @@ import {
   officeReservationSchema,
 } from "@/features/reservation/office-reservation";
 import type { ReservationExistingCustomerForm } from "@/features/reservation/reservation-existing-customer";
-import type { OfficeWorkspaceAvailabilityQuery } from "@/features/reservation/workspace-availability";
+import {
+  getOfficeAvailabilityQuery,
+  type PreloadedWorkspaceAvailability,
+} from "@/features/reservation/workspace-availability";
 import {
   FormControl,
   FormField,
@@ -64,6 +67,7 @@ type OfficeReservationFormProps = {
   readonly existingCustomer?: ReservationExistingCustomerForm;
   readonly seatCapacity: number;
   readonly initialAdvertisedPrices?: ReadonlyArray<PreloadedAdvertisedPrice>;
+  readonly initialAvailability?: ReadonlyArray<PreloadedWorkspaceAvailability>;
   readonly initialReservation?: NormalizedOfficeReservationOrder;
   readonly initialValues: OfficeReservationInput;
   readonly locale: Locale;
@@ -98,6 +102,7 @@ export function OfficeReservationForm({
   existingCustomer,
   seatCapacity,
   initialAdvertisedPrices = [],
+  initialAvailability,
   initialReservation,
   initialValues,
   locale,
@@ -126,14 +131,11 @@ export function OfficeReservationForm({
     Temporal.PlainDate.from(today)
   ).toString();
   const availabilityQuery = useMemo(
-    (): OfficeWorkspaceAvailabilityQuery => ({
-      kind: "office",
-      from: today,
-      to: maximumEndsOn,
-    }),
-    [maximumEndsOn, today]
+    () => getOfficeAvailabilityQuery(today),
+    [today]
   );
   const availabilityResult = useReservationAvailability(availabilityQuery, {
+    initialAvailability,
     replacementToken,
   });
   const advertisedPriceRequests = useMemo(
@@ -367,7 +369,7 @@ export function OfficeReservationForm({
                             {formatWorkspaceMoney(seatPrice, locale)}
                           </span>
                         ) : (
-                          <ReservationSkeletonBlock className="h-4 w-24 bg-aquamarine-green/15" />
+                          <ReservationSkeletonBlock className="h-5 w-24 bg-aquamarine-green/15" />
                         )
                       }
                       priceReady={Boolean(seatPrice)}
@@ -433,9 +435,12 @@ export function OfficeReservationFormFallback({ locale }: { locale: Locale }) {
     <ReservationFormFallback
       label={m.reservationOfficeFormTitle({}, { locale })}
     >
-      <div className="grid gap-3 sm:grid-cols-2">
-        <ReservationSkeletonField />
-        <ReservationSkeletonField />
+      <div className="flex flex-col gap-y-2">
+        <ReservationSkeletonBlock className="h-4 w-40" />
+        <div className="grid gap-3 sm:grid-cols-2">
+          <ReservationSkeletonField />
+          <ReservationSkeletonField />
+        </div>
       </div>
       <ReservationSkeletonBlock className="h-18 w-full rounded-[1.4rem]" />
       <div className="space-y-2">

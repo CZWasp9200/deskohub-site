@@ -176,7 +176,7 @@ test("keeps advertised-price preparation separable from form submission", () => 
   expect(prepare).toContain("advertised price did not become ready");
   expect(prepare).toContain("2x27-qhd");
   expect(prepare).toContain(
-    "advertised price did not refresh after monitor selection"
+    "advertised price did not become ready after monitor selection"
   );
   expect(prepare).toContain("new MutationObserver");
   expect(prepare).toContain(
@@ -267,6 +267,72 @@ test("prepares the Reserved Desk advertised price without requiring another tier
     expect(reservedDeskInput.checked).toBe(true);
     expect(monitorInput.checked).toBe(true);
     expect(reservedDeskPrice.dataset.reservationTypePriceReady).toBe("true");
+  } finally {
+    await GlobalRegistrator.unregister();
+    globalThis.Temporal = workspaceTemporal;
+  }
+});
+
+test("selects a monitor over a page-loaded Reserved Desk price", async () => {
+  const data = makeCoworkCheckoutData(
+    "https://workspace.example.test",
+    "2099-09-01",
+    "calendar-pricing-change",
+    { entryTier: "reserved-desk", monitorOption: "2x27-qhd" }
+  );
+  GlobalRegistrator.register({
+    url: "https://workspace.example.test/en-US/reservation/cowork",
+  });
+  try {
+    // The page renders both Reserved Desk variants priced, so choosing the
+    // monitor never takes the price back to pending.
+    document.body.innerHTML = `
+    <input name="date" value="2099-09-01" />
+    <button data-reservation-type-price="reserved-desk" data-reservation-type-price-ready="true"></button>
+    <input id="reservation-entry-tier-reserved-desk" type="radio" checked />
+    <label><input type="radio" value="2x27-qhd" /></label>
+  `;
+
+    const monitorInput = document.querySelector<HTMLInputElement>(
+      'input[value="2x27-qhd"]'
+    )!;
+    monitorInput.closest("label")!.addEventListener("click", () => {
+      monitorInput.checked = true;
+    });
+
+    let now = 0;
+    class FastDate extends Date {
+      static override now() {
+        now += 1_000;
+        return now;
+      }
+    }
+    const run = new Function(
+      "document",
+      "HTMLElement",
+      "HTMLInputElement",
+      "MutationObserver",
+      "Date",
+      "setTimeout",
+      "location",
+      `return (${getPrepareCoworkAdvertisedPriceScript(data).trim()})`
+    );
+
+    await expect(
+      run(
+        document,
+        HTMLElement,
+        HTMLInputElement,
+        MutationObserver,
+        FastDate,
+        (callback: () => void) => {
+          queueMicrotask(callback);
+          return 0;
+        },
+        location
+      )
+    ).resolves.toBe(location.href);
+    expect(monitorInput.checked).toBe(true);
   } finally {
     await GlobalRegistrator.unregister();
     globalThis.Temporal = workspaceTemporal;

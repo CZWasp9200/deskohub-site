@@ -4,6 +4,7 @@ import {
 } from "@deskohub/standard-schema";
 import { Match, Option, Schema } from "effect";
 import {
+  getCoworkTierWorkstationAddon,
   isWorkspaceCoworkCurrentProductTier,
   isWorkspaceProductMonitorOption,
   type WorkspaceCoworkProductTier,
@@ -16,10 +17,16 @@ import {
 } from "@/features/reservation/cowork-reservation-product";
 import type { WorkspaceMeetingRoomProductTarget } from "@/features/reservation/meeting-room-reservation";
 import {
+  getMeetingRoomReservationDuration,
+  type MeetingRoomReservationDurationKey,
+} from "@/features/reservation/meeting-room-reservation-duration";
+import {
   getMeetingRoomLastServiceDate,
   getMeetingRoomReservationDate,
+  getMeetingRoomReservationInterval,
 } from "@/features/reservation/meeting-room-reservation-time";
 import {
+  getOfficeReservationMaximumEndsOn,
   officeSeatsSchema,
   type WorkspaceOfficeProductTarget,
 } from "@/features/reservation/office-reservation";
@@ -127,6 +134,91 @@ export type WorkspaceAvailabilityNotice =
 export type WorkspaceAvailability =
   typeof workspaceAvailabilityResponseSchema.Type;
 
+/** Availability the server loaded for a query before the page rendered. */
+export type PreloadedWorkspaceAvailability = {
+  readonly availability: WorkspaceAvailability;
+  /** When the server loaded it, in epoch milliseconds. */
+  readonly loadedAt: number;
+  readonly query: WorkspaceAvailabilityQuery;
+};
+
+/**
+ * The calendar range availability is queried for by default: six months from
+ * the workspace's current date.
+ */
+export const getWorkspaceAvailabilityRange = (today: string) => ({
+  from: today,
+  to: Temporal.PlainDate.from(today).add({ months: 6 }).toString(),
+});
+
+export type CoworkAvailabilityQueries = {
+  /** The selected tier's calendar range. */
+  readonly range?: CoworkWorkspaceAvailabilityQuery;
+  /** The selected offer on the selected day alone. */
+  readonly selection?: CoworkWorkspaceAvailabilityQuery;
+  /** Whether a Reserved Desk needs a workstation on the selected day. */
+  readonly workstationRequirement?: CoworkWorkspaceAvailabilityQuery;
+};
+
+/**
+ * The availability queries a cowork reservation form reads for its selection.
+ * The page preloads the same queries, so both sides must build them here from
+ * the same workspace date.
+ */
+export const getCoworkAvailabilityQueries = ({
+  date,
+  entryTier,
+  monitorOption,
+  today,
+}: {
+  readonly date?: string;
+  readonly entryTier?: string;
+  readonly monitorOption?: string;
+  readonly today: string;
+}): CoworkAvailabilityQueries => {
+  if (!isWorkspaceCoworkCurrentProductTier(entryTier)) return {};
+
+  const range: CoworkWorkspaceAvailabilityQuery = {
+    kind: coworkReservationKind,
+    ...getWorkspaceAvailabilityRange(today),
+    entryTier,
+  };
+  if (!date) return { range };
+
+  // Selection queries only read the selected date's result, so they ask for
+  // that day alone instead of the whole calendar range.
+  const selectedDate: CoworkWorkspaceAvailabilityQuery = {
+    kind: coworkReservationKind,
+    from: date,
+    to: date,
+    entryTier,
+    date,
+  };
+
+  return {
+    range,
+    selection: {
+      ...selectedDate,
+      ...(getCoworkTierWorkstationAddon(entryTier) === "optional" &&
+        isWorkspaceProductMonitorOption(monitorOption) && { monitorOption }),
+    },
+    ...(entryTier === "reserved-desk" && {
+      workstationRequirement: selectedDate,
+    }),
+  };
+};
+
+/** The office availability query spanning the office booking horizon. */
+export const getOfficeAvailabilityQuery = (
+  today: string
+): OfficeWorkspaceAvailabilityQuery => ({
+  kind: officeReservationKind,
+  from: today,
+  to: getOfficeReservationMaximumEndsOn(
+    Temporal.PlainDate.from(today)
+  ).toString(),
+});
+
 /**
  * Whether a cowork offer can be booked on its date, by the same rules the
  * reservation form applies: a Reserved Desk stays bookable on dates that only
@@ -167,6 +259,25 @@ export const getMeetingRoomAvailabilityQuery = (
   startsAt: interval.startsAt,
   endsAt: interval.endsAt,
 });
+
+/**
+ * The availability query for a selected meeting-room start and duration,
+ * shared by the page preload and the form so both use the same query key.
+ */
+export const getMeetingRoomSelectionAvailabilityQuery = ({
+  duration,
+  startDateTime,
+}: {
+  readonly duration: MeetingRoomReservationDurationKey;
+  readonly startDateTime: string;
+}): MeetingRoomWorkspaceAvailabilityQuery | undefined => {
+  const interval = getMeetingRoomReservationInterval(
+    startDateTime,
+    getMeetingRoomReservationDuration(duration)
+  );
+
+  return interval ? getMeetingRoomAvailabilityQuery(interval) : undefined;
+};
 
 /**
  * Whether the meeting room is free for the interval its availability was
@@ -256,12 +367,13 @@ export const parseWorkspaceAvailabilityQuery = (
   searchParams: URLSearchParams,
   now = new Date()
 ): WorkspaceAvailabilityQuery => {
-  const today = getCurrentWorkspaceDate(
-    Temporal.Instant.fromEpochMilliseconds(now.getTime())
+  const range = getWorkspaceAvailabilityRange(
+    getCurrentWorkspaceDate(
+      Temporal.Instant.fromEpochMilliseconds(now.getTime())
+    ).toString()
   );
-  const from = getDateParam(searchParams, "from") ?? today.toString();
-  const to =
-    getDateParam(searchParams, "to") ?? today.add({ months: 6 }).toString();
+  const from = getDateParam(searchParams, "from") ?? range.from;
+  const to = getDateParam(searchParams, "to") ?? range.to;
   const reservationKind = getReservationKindParam(searchParams);
 
   return Match.value(reservationKind).pipe(

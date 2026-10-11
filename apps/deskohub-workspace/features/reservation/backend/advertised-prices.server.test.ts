@@ -1,6 +1,6 @@
 import "@/shared/testing/workspace-test-env";
 import { describe, expect, mock, test } from "bun:test";
-import { Deferred, Effect, Fiber, Queue } from "effect";
+import { Deferred, Effect, Fiber, Option, Queue } from "effect";
 import {
   type AdvertisedPriceRequest,
   advertisedPriceRequestBatchSize,
@@ -47,22 +47,35 @@ const requests: ReadonlyArray<AdvertisedPriceRequest> = Array.from(
 );
 
 describe("loadAdvertisedPrices", () => {
-  test("loads a full unique batch with at most two concurrent price builds", async () => {
+  test("loads a full unique batch with at most six concurrent price builds", async () => {
     const outcome = await Effect.runPromise(
       Effect.gen(function* () {
         releaseGates = yield* Queue.unbounded<Deferred.Deferred<void>>();
         const batch = yield* Effect.forkChild(loadAdvertisedPrices(requests));
-        for (let round = 0; round < requests.length / 2; round += 1) {
-          const first = yield* Queue.take(releaseGates);
-          const second = yield* Queue.take(releaseGates);
-          yield* Deferred.succeed(first, undefined);
-          yield* Deferred.succeed(second, undefined);
+        // Hold builds until six are in flight or no further build starts.
+        const heldGates: Array<Deferred.Deferred<void>> = [];
+        while (heldGates.length < 6) {
+          const gate = yield* Queue.take(releaseGates).pipe(
+            Effect.timeoutOption("1 second")
+          );
+          if (Option.isNone(gate)) break;
+          heldGates.push(gate.value);
+        }
+        for (const gate of heldGates) {
+          yield* Deferred.succeed(gate, undefined);
+        }
+        for (
+          let remaining = requests.length - heldGates.length;
+          remaining > 0;
+          remaining -= 1
+        ) {
+          yield* Deferred.succeed(yield* Queue.take(releaseGates), undefined);
         }
         return { peak: peakInFlightBuilds, results: yield* Fiber.join(batch) };
       })
     );
 
-    expect(outcome.peak).toBe(2);
+    expect(outcome.peak).toBe(6);
     expect(outcome.results).toEqual(
       requests.map((request) => ({
         request,
