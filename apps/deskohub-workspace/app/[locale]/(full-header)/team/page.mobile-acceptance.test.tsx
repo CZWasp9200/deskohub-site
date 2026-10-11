@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, expect, mock, test } from "bun:test";
-import { resolve } from "node:path";
 import { type Browser, chromium } from "@playwright/test";
 import { createElement, type ReactElement, type ReactNode } from "react";
 import { renderToReadableStream } from "react-dom/server";
