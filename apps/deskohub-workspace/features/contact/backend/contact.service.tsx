@@ -7,7 +7,6 @@ import { Context, Effect, Layer } from "effect";
 import { ContactBusinessEmail } from "@/emails/contact-business";
 import { ContactConfirmationEmail } from "@/emails/contact-confirmation";
 import type { WorkspaceEmailDetail } from "@/emails/workspace-email-detail";
-import { env } from "@/env";
 import { type Locale, m } from "@/features/i18n";
 import { renderWorkspaceEmail } from "@/shared/backend/email/render-react-email";
 import {
