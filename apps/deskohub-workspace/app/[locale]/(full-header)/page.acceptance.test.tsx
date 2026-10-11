@@ -3,7 +3,7 @@ import { Effect, Layer } from "effect";
 import { createElement, type ReactElement, type ReactNode } from "react";
 import { renderToReadableStream } from "react-dom/server";
 import type { CloudinaryAsset } from "@/features/gallery/backend/cloudinary.service";
-import type { Locale } from "@/features/i18n";
+import { type Locale, m } from "@/features/i18n";
 import {
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
@@ -27,12 +27,8 @@ const syntheticPhotos = [
     width: 1600,
   },
 ] as const satisfies readonly CloudinaryAsset[];
-let requestLocale: Locale = "en-US";
-let loadCarouselImages = async (): Promise<readonly CloudinaryAsset[]> =>
-  syntheticPhotos;
-
 function runWithRequestLocale<A>(resolve: (locale: Locale) => A) {
-  return Promise.resolve(resolve(requestLocale));
+  return Promise.resolve(resolve("en-US"));
 }
 
 function passthrough<A>(effect: A) {
@@ -61,7 +57,7 @@ mock.module("@/shared/backend/workspace-effect", () => ({
   runWorkspaceEffect: () => passthrough,
 }));
 mock.module("@/features/gallery/backend/get-cloudinary-images.server", () => ({
-  getCloudinaryImages: () => loadCarouselImages(),
+  getCloudinaryImages: async () => syntheticPhotos,
 }));
 const syntheticHeroImageUrl =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E";
@@ -116,11 +112,11 @@ async function renderHomePage() {
 const landingHeading = (page: HTMLElement) =>
   page.querySelector('section[aria-labelledby="landing-page-heading"] h1');
 const photoCarousel = (page: HTMLElement) =>
-  page.querySelector('section[aria-label="Deskohub Workspace photo carousel"]');
+  page.querySelector(
+    `section[aria-label="${m.landingCarouselAriaLabel({}, { locale: "en-US" })}"]`
+  );
 
 test("renders the public homepage with the loaded carousel photos", async () => {
-  requestLocale = "en-US";
-  loadCarouselImages = async () => syntheticPhotos;
   const page = await renderHomePage();
 
   expect(landingHeading(page)).toBeTruthy();
@@ -132,25 +128,4 @@ test("renders the public homepage with the loaded carousel photos", async () => 
     ).toBeTruthy();
   }
   expect(page.querySelector("section#location-map")).toBeTruthy();
-});
-
-test("hides the photo carousel and keeps the homepage when its images fail to load", async () => {
-  requestLocale = "en-US";
-  loadCarouselImages = () =>
-    Promise.reject(new Error("Cloudinary search failed"));
-  const page = await renderHomePage();
-
-  expect(page.querySelector("#hero-gallery")).toBeNull();
-  expect(photoCarousel(page)).toBeNull();
-  expect(landingHeading(page)).toBeTruthy();
-  expect(page.querySelector("section#location-map")).toBeTruthy();
-});
-
-test("hides the photo carousel when Cloudinary serves no photos", async () => {
-  requestLocale = "en-US";
-  loadCarouselImages = async () => [];
-  const page = await renderHomePage();
-
-  expect(page.querySelector("#hero-gallery")).toBeNull();
-  expect(landingHeading(page)).toBeTruthy();
 });

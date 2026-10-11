@@ -68,6 +68,7 @@ import { CliMutationIdempotency } from "./cli-mutation-idempotency.service";
 import {
   AdminCliAdministrationApiHandlers,
   AdminCliApiHandlers,
+  handleWorkspaceAdminApiRequest,
 } from "./workspace-admin-api.server";
 
 const UnusedCliAuthentication = Layer.succeed(
@@ -129,6 +130,15 @@ const ActorAuthorizedCliRequest = Layer.succeed(CliBearerAuthentication, {
 });
 
 describe("Workspace Admin API", () => {
+  test("disables caching for API responses", async () => {
+    const response = await handleWorkspaceAdminApiRequest(
+      new Request("https://workspace.deskohub.test/api/v1/cli/info")
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+  });
+
   test("logs the original failure before reporting the service as unavailable", async () => {
     const logRecords: { readonly level: string; readonly text: string }[] = [];
     const capturingLogger = Logger.make<unknown, void>(
