@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { WorkspaceProductTarget } from "@/features/discounts/product-target";
+import { type Locale, m } from "@/features/i18n";
 import {
   getLandingPageSaleBannerContent,
   getLandingPageSaleBannerLabel,
@@ -37,6 +38,11 @@ const formatLabel = (
     "en-US"
   );
 
+const bannerTemplate = (
+  message: typeof m.landingSaleBannerAllProducts,
+  locale: Locale = "en-US"
+) => message({ title: "{title}", adjustment: "{adjustment}" }, { locale });
+
 const summerFocusLabel = (template: string) => ({
   template,
   title: "Summer focus",
@@ -47,40 +53,32 @@ describe("getLandingPageSaleBannerLabel", () => {
   test("describes a sale on every product without clarification", () => {
     expect(
       formatLabel([coworkProduct, meetingRoomProduct, officeProduct])
-    ).toEqual(
-      summerFocusLabel("{title}: <discount>{adjustment}</discount> off!")
-    );
+    ).toEqual(summerFocusLabel(bannerTemplate(m.landingSaleBannerAllProducts)));
   });
 
   test("describes a sale on every cowork product", () => {
     expect(formatLabel([coworkProduct])).toEqual(
-      summerFocusLabel(
-        "{title}: <discount>{adjustment}</discount> off cowork access!"
-      )
+      summerFocusLabel(bannerTemplate(m.landingSaleBannerAllCoworkProducts))
     );
   });
 
   test("describes a sale on every meeting-room product", () => {
     expect(formatLabel([meetingRoomProduct])).toEqual(
       summerFocusLabel(
-        "{title}: <discount>{adjustment}</discount> off meeting room reservations!"
+        bannerTemplate(m.landingSaleBannerAllMeetingRoomProducts)
       )
     );
   });
 
   test("uses the selected-products fallback for a family mix", () => {
     expect(formatLabel([coworkProduct, meetingRoomProduct])).toEqual(
-      summerFocusLabel(
-        "{title}: <discount>{adjustment}</discount> off chosen products!"
-      )
+      summerFocusLabel(bannerTemplate(m.landingSaleBannerSelectedProducts))
     );
   });
 
   test("does not omit office from a mixed sale label", () => {
     expect(formatLabel([coworkProduct, officeProduct])).toEqual(
-      summerFocusLabel(
-        "{title}: <discount>{adjustment}</discount> off chosen products!"
-      )
+      summerFocusLabel(bannerTemplate(m.landingSaleBannerSelectedProducts))
     );
   });
 
@@ -91,13 +89,13 @@ describe("getLandingPageSaleBannerLabel", () => {
         amount: { value: 20_000, exponent: 2, currency: "CZK" },
       })
     ).toEqual({
-      template: "{title}: <discount>{adjustment}</discount> off cowork access!",
+      template: bannerTemplate(m.landingSaleBannerAllCoworkProducts),
       title: "Summer focus",
-      adjustment: "CZK 200",
+      adjustment: "CZK\u00a0200",
     });
   });
 
-  test("omits the redundant Czech quantifier", () => {
+  test("localizes the template and adjustment for Czech", () => {
     expect(
       getLandingPageSaleBannerLabel(
         {
@@ -108,10 +106,9 @@ describe("getLandingPageSaleBannerLabel", () => {
         "cs-CZ"
       )
     ).toEqual({
-      template:
-        "{title}: sleva <discount>{adjustment}</discount> na coworkingové vstupy!",
+      template: bannerTemplate(m.landingSaleBannerAllCoworkProducts, "cs-CZ"),
       title: "Letní soustředění",
-      adjustment: "20 %",
+      adjustment: "20\u00a0%",
     });
   });
 });
