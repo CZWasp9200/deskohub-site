@@ -7,6 +7,7 @@ import {
   test,
 } from "bun:test";
 import { cleanup, render } from "@testing-library/react";
+import { m } from "@/features/i18n";
 import {
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
@@ -18,15 +19,14 @@ describe("SignInLoading", () => {
   afterEach(cleanup);
   afterAll(unregisterWorkspaceComponentTestEnv);
 
-  test.each([
-    ["en-US", "Loading sign-in…"],
-    ["cs-CZ", "Načítání přihlášení…"],
-  ] as const)(
+  test.each(["en-US", "cs-CZ"] as const)(
     "renders the visible localized fallback for %s",
-    (locale, label) => {
+    (locale) => {
       const view = render(<SignInLoading locale={locale} />);
       const main = view.getByRole("main");
-      const status = view.getByRole("status", { name: label });
+      const status = view.getByRole("status", {
+        name: m.accountSignInLoading({}, { locale }),
+      });
 
       expect(status).toBeTruthy();
       expect(status.getAttribute("aria-busy")).toBe("true");
