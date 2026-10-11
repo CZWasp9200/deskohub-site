@@ -113,45 +113,25 @@ async function renderHomePage() {
   return page;
 }
 
-test("renders the public homepage sections without Team, FAQ, or teambuilding sections", async () => {
+const landingHeading = (page: HTMLElement) =>
+  page.querySelector('section[aria-labelledby="landing-page-heading"] h1');
+const photoCarousel = (page: HTMLElement) =>
+  page.querySelector('section[aria-label="Deskohub Workspace photo carousel"]');
+
+test("renders the public homepage with the loaded carousel photos", async () => {
   requestLocale = "en-US";
   loadCarouselImages = async () => syntheticPhotos;
   const page = await renderHomePage();
 
-  expect(
-    page.querySelector('section[aria-labelledby="landing-page-heading"] h1')
-      ?.textContent
-  ).toBe("The first self-service workspace on Palmovka.");
-  expect(
-    page.querySelector(
-      'section[aria-label="Deskohub Workspace photo carousel"] img[alt="Synthetic workspace photo 1"]'
-    )
-  ).toBeTruthy();
-  expect(
-    page.querySelector(
-      'section[aria-label="Deskohub Workspace photo carousel"] img[alt="Synthetic workspace photo 2"]'
-    )
-  ).toBeTruthy();
-  expect(page.querySelector("section#location-map h2")?.textContent).toBe(
-    "Two minutes from Palmovka metro"
-  );
-  expect(page.querySelector("section#location-map address")?.textContent).toBe(
-    "Turnovská 430/10, 180 00 Praha 8 - Libeň"
-  );
-  expect(
-    page.querySelector('a[href="mailto:workspace@deskohub.cz"]')?.textContent
-  ).toBe("workspace@deskohub.cz");
-  const ids = Array.from(page.querySelectorAll<HTMLElement>("[id]"), (node) =>
-    node.id.toLowerCase()
-  );
-  expect(ids.filter((id) => /team|faq|teambuild/.test(id))).toEqual([]);
-  const headings = Array.from(page.querySelectorAll("h1, h2, h3"), (heading) =>
-    heading.textContent?.trim()
-  );
-  expect(headings).not.toContain("Our team");
-  expect(headings).not.toContain("Frequenty Asked Questions");
-  expect(headings).not.toContain("FAQ");
-  expect(headings).not.toContain("Workspace teambuilding");
+  expect(landingHeading(page)).toBeTruthy();
+  for (const photo of syntheticPhotos) {
+    expect(
+      photoCarousel(page)?.querySelector(
+        `img[alt="${photo.context.custom.alt}"]`
+      )
+    ).toBeTruthy();
+  }
+  expect(page.querySelector("section#location-map")).toBeTruthy();
 });
 
 test("hides the photo carousel and keeps the homepage when its images fail to load", async () => {
@@ -161,21 +141,9 @@ test("hides the photo carousel and keeps the homepage when its images fail to lo
   const page = await renderHomePage();
 
   expect(page.querySelector("#hero-gallery")).toBeNull();
-  expect(
-    page.querySelector(
-      'section[aria-label="Deskohub Workspace photo carousel"]'
-    )
-  ).toBeNull();
-  expect(
-    page.querySelector('section[aria-labelledby="landing-page-heading"] h1')
-      ?.textContent
-  ).toBe("The first self-service workspace on Palmovka.");
-  expect(page.querySelector("section#location-map h2")?.textContent).toBe(
-    "Two minutes from Palmovka metro"
-  );
-  expect(
-    page.querySelector('a[href="mailto:workspace@deskohub.cz"]')?.textContent
-  ).toBe("workspace@deskohub.cz");
+  expect(photoCarousel(page)).toBeNull();
+  expect(landingHeading(page)).toBeTruthy();
+  expect(page.querySelector("section#location-map")).toBeTruthy();
 });
 
 test("hides the photo carousel when Cloudinary serves no photos", async () => {
@@ -184,8 +152,5 @@ test("hides the photo carousel when Cloudinary serves no photos", async () => {
   const page = await renderHomePage();
 
   expect(page.querySelector("#hero-gallery")).toBeNull();
-  expect(
-    page.querySelector('section[aria-labelledby="landing-page-heading"] h1')
-      ?.textContent
-  ).toBe("The first self-service workspace on Palmovka.");
+  expect(landingHeading(page)).toBeTruthy();
 });

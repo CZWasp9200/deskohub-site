@@ -12,7 +12,7 @@ import {
 } from "@/features/administration/loading";
 import {
   type AdministrationSearchParams,
-  loadAdministrationCustomers,
+  type loadAdministrationCustomers,
   loadAdministrationCustomersPage,
 } from "@/features/administration/page-data.server";
 import { CustomerSearch } from "@/features/discounts/admin/customer-admin-client";
@@ -90,39 +90,5 @@ export async function CustomersTable({
         }}
       />
     </section>
-  );
-}
-
-export async function CustomersAdministrationContent({
-  searchParams,
-}: {
-  readonly searchParams: AdministrationSearchParams;
-}) {
-  const { input, result } = await loadAdministrationCustomers(searchParams);
-
-  return (
-    <AdministrationPage>
-      <h1 className="sr-only">Customers</h1>
-      <AdministrationTableToolbar
-        count={result.total}
-        itemLabel="customer"
-        search={<CustomerSearch variant="toolbar" />}
-      />
-      <section className="mt-7">
-        <AdministrationCustomerTable
-          customers={result.items}
-          sorting={{
-            direction: input.direction ?? "desc",
-            field: input.sort ?? "activity",
-          }}
-        />
-        <Pagination
-          basePath="/admin/customers"
-          page={result.page}
-          pageCount={result.pageCount}
-          params={{ direction: input.direction, sort: input.sort }}
-        />
-      </section>
-    </AdministrationPage>
   );
 }

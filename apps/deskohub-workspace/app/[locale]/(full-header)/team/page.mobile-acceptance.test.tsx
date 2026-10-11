@@ -1,18 +1,19 @@
 import { afterAll, beforeAll, expect, mock, test } from "bun:test";
-import { mkdir, readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { type Browser, chromium } from "@playwright/test";
 import tailwindcss from "@tailwindcss/postcss";
 import postcss from "postcss";
 import { createElement, type ReactElement, type ReactNode } from "react";
 import { renderToReadableStream } from "react-dom/server";
-import type { Locale } from "@/features/i18n";
+import { type Locale, m } from "@/features/i18n";
+import { playwrightChromiumAvailable } from "@/shared/testing/playwright-browser";
 import {
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
 } from "@/shared/testing/workspace-component-test-env";
 
-const screenshotDirectory = "/tmp/opencode";
+const chromiumAvailable = await playwrightChromiumAvailable();
 const appDirectory = resolve(import.meta.dir, "../../../..");
 const requestLocale: Locale = "cs-CZ";
 let browser: Browser | undefined;
@@ -85,7 +86,7 @@ const { default: LocalizedTeamPage } = await import("./page");
 
 beforeAll(async () => {
   registerWorkspaceComponentTestEnv();
-  await mkdir(screenshotDirectory, { recursive: true });
+  if (!chromiumAvailable) return;
 
   const teamPage = await LocalizedTeamPage();
   const layout = await FullHeaderLayout({ children: teamPage });
@@ -106,43 +107,43 @@ afterAll(async () => {
   await unregisterWorkspaceComponentTestEnv();
 });
 
-test("the Czech Team route heading clears the fixed mobile site header", async () => {
-  if (!browser)
-    throw new Error("The Team acceptance browser was not launched.");
-  const page = await browser.newPage({
-    reducedMotion: "reduce",
-    viewport: { height: 844, width: 390 },
-  });
+test.skipIf(!chromiumAvailable)(
+  "the Czech Team route heading clears the fixed mobile site header",
+  async () => {
+    if (!browser)
+      throw new Error("The Team acceptance browser was not launched.");
+    const page = await browser.newPage({
+      reducedMotion: "reduce",
+      viewport: { height: 844, width: 390 },
+    });
 
-  await page.setContent(
-    `<!doctype html><html lang="cs-CZ"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><style>${appStyles}</style></head><body>${pageMarkup}</body></html>`
-  );
+    await page.setContent(
+      `<!doctype html><html lang="cs-CZ"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><style>${appStyles}</style></head><body>${pageMarkup}</body></html>`
+    );
 
-  const header = page.locator("header");
-  const heading = page.getByRole("heading", {
-    exact: true,
-    level: 1,
-    name: "Náš tým",
-  });
-  expect(await heading.isVisible()).toBe(true);
-  expect(
-    await header.evaluate((element) => getComputedStyle(element).position)
-  ).toBe("fixed");
+    const header = page.locator("header");
+    const heading = page.getByRole("heading", {
+      exact: true,
+      level: 1,
+      name: m.landingFoundersTitle({}, { locale: requestLocale }),
+    });
+    expect(await heading.isVisible()).toBe(true);
+    expect(
+      await header.evaluate((element) => getComputedStyle(element).position)
+    ).toBe("fixed");
 
-  const headerBounds = await header.boundingBox();
-  const headingBounds = await heading.boundingBox();
-  if (!headerBounds || !headingBounds) {
-    throw new Error("The Team header or page heading has no rendered bounds.");
+    const headerBounds = await header.boundingBox();
+    const headingBounds = await heading.boundingBox();
+    if (!headerBounds || !headingBounds) {
+      throw new Error(
+        "The Team header or page heading has no rendered bounds."
+      );
+    }
+    expect(headerBounds.y).toBe(0);
+    expect(headingBounds.y).toBeGreaterThanOrEqual(
+      headerBounds.y + headerBounds.height
+    );
+    expect(headingBounds.y + headingBounds.height).toBeLessThanOrEqual(844);
+    await page.close();
   }
-  expect(headerBounds.y).toBe(0);
-  expect(headingBounds.y).toBeGreaterThanOrEqual(
-    headerBounds.y + headerBounds.height
-  );
-  expect(headingBounds.y + headingBounds.height).toBeLessThanOrEqual(844);
-
-  await page.screenshot({
-    clip: { height: 240, width: 390, x: 0, y: 0 },
-    path: join(screenshotDirectory, "deskohub-team-mobile-fixed-header-h1.png"),
-  });
-  await page.close();
-});
+);

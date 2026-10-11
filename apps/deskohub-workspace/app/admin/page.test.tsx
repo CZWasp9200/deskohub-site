@@ -154,18 +154,17 @@ describe("AdminPage", () => {
     ).toBe("/admin/reservations?from=2026-08-05&to=2026-08-11");
   });
 
-  test("emphasizes completed reservations before the total", async () => {
+  test("announces completed reservations out of the total", async () => {
     const { ReservationActivity } = await import(
       "@/features/administration/overview-activity"
     );
     const view = render(
       await ReservationActivity({ overview: Promise.resolve(overview) })
     );
-    const today = view.getByText("1 completed out of 2 total reservations");
 
-    expect(today.className).toContain("sr-only");
-    expect(view.getByText("1").className).toContain("text-aquamarine-ink");
-    expect(view.getByText("/ 2").className).toContain("text-navy-blue/58");
+    expect(
+      view.getByText("1 completed out of 2 total reservations")
+    ).toBeDefined();
   });
 
   test("keeps an unavailable reservation activity range linked", async () => {

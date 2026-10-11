@@ -13,7 +13,7 @@ import {
 } from "@/features/administration/loading";
 import {
   type AdministrationSearchParams,
-  loadAdministrationOperations,
+  type loadAdministrationOperations,
   loadAdministrationOperationsPage,
 } from "@/features/administration/page-data.server";
 import { OperationTable } from "@/features/administration/payment-tables";
@@ -105,27 +105,5 @@ function OperationResults({
       )}
       <OperationTable operations={result.items} />
     </>
-  );
-}
-
-export async function OperationsAdministrationContent({
-  searchParams,
-}: {
-  readonly searchParams: AdministrationSearchParams;
-}) {
-  const { input, range, result } =
-    await loadAdministrationOperations(searchParams);
-  return (
-    <AdministrationPage>
-      <h1 className="sr-only">Operations</h1>
-      <AdministrationTableToolbar
-        count={result.items.length}
-        filters={
-          <OperationsAdministrationFilterForm input={input} range={range} />
-        }
-        itemLabel="operation"
-      />
-      <OperationResults result={result} />
-    </AdministrationPage>
   );
 }

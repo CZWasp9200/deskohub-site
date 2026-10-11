@@ -13,7 +13,7 @@ import {
 } from "@/features/administration/loading";
 import {
   type AdministrationSearchParams,
-  loadAdministrationOrders,
+  type loadAdministrationOrders,
   loadAdministrationOrdersPage,
 } from "@/features/administration/page-data.server";
 import { OrderTable } from "@/features/administration/payment-tables";
@@ -100,24 +100,5 @@ function OrderResults({ result }: { readonly result: OrdersData["result"] }) {
       )}
       <OrderTable orders={result.items} />
     </>
-  );
-}
-
-export async function OrdersAdministrationContent({
-  searchParams,
-}: {
-  readonly searchParams: AdministrationSearchParams;
-}) {
-  const { range, result } = await loadAdministrationOrders(searchParams);
-  return (
-    <AdministrationPage>
-      <h1 className="sr-only">Orders</h1>
-      <AdministrationTableToolbar
-        count={result.items.length}
-        filters={<OrdersAdministrationFilterForm range={range} />}
-        itemLabel="order"
-      />
-      <OrderResults result={result} />
-    </AdministrationPage>
   );
 }
