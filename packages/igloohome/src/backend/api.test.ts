@@ -101,7 +101,7 @@ describe("IgloohomeService", () => {
       const service = yield* IgloohomeService;
       return yield* service.issueHourlyAlgoPin({
         deviceId,
-        variance: 1,
+        variance: 3,
         startsAt: "2026-08-13T09:00:00+02:00",
         endsAt: "2026-08-13T17:00:00+02:00",
         accessName: "Deskohub reservation-id",
@@ -133,7 +133,7 @@ describe("IgloohomeService", () => {
       "Bearer access-token"
     );
     expect(await issueRequest.json()).toEqual({
-      variance: 1,
+      variance: 3,
       startDate: "2026-08-13T09:00:00+02:00",
       endDate: "2026-08-13T17:00:00+02:00",
       accessName: "Deskohub reservation-id",
