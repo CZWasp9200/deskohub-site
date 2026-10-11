@@ -257,10 +257,10 @@ export async function getMarketingPreferences(
 }
 `;
 
-export const fixtureMarketingActionError =
+const fixtureMarketingActionError =
   "Unavailable in account continuity fixture: backend action was not executed.";
 
-export const fixtureMarketingActions = `
+const fixtureMarketingActions = `
 "use server";
 
 type UnavailableActionResult = {
@@ -287,12 +287,6 @@ export async function clearMarketingManagementAction(
   return { serverError: unavailableMessage };
 }
 `;
-
-export const fixtureMarketingActionExports = [
-  "saveMarketingPreferencesAction",
-  "confirmMarketingManagementAction",
-  "clearMarketingManagementAction",
-] as const;
 
 const fixtureWorkspaceEffect = `
 import { Effect } from "effect";

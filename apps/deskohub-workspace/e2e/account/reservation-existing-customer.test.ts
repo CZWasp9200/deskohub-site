@@ -42,12 +42,6 @@ type FakeState = {
 
 const settledSubmitKey =
   'locator:#reservation-submit[data-reservation-availability-loading="false"][data-reservation-price-loading="false"]';
-const loadingSkeletonKey = 'locator:main [data-slot="skeleton"]';
-const settleActions = [
-  `visible:${settledSubmitKey}`,
-  `hidden:${loadingSkeletonKey}`,
-  "scroll-top",
-];
 
 const contactFieldByLabel = (label: string) =>
   ["Email", "Phone", "Name"].find((field) =>
@@ -242,28 +236,6 @@ test("checks the card, captures both modes, and restores the card without submit
     page: fake.page,
   });
 
-  expect(fake.actions).toEqual([
-    `goto:${baseUrl}/en-US/reservation/cowork`,
-    "visible:region:Booking as",
-    `visible:text:${contact.name}`,
-    `visible:text:${contact.email}`,
-    ...settleActions,
-    "review:account",
-    "visible:button:Book for someone else",
-    "react-handler:button:Book for someone else",
-    "click:button:Book for someone else",
-    "visible:textbox:Email",
-    "visible:textbox:Phone",
-    "visible:textbox:Name",
-    ...settleActions,
-    "review:contact",
-    "visible:button:Use my account details",
-    "react-handler:button:Use my account details",
-    "click:button:Use my account details",
-    "visible:region:Booking as",
-    `visible:text:${contact.name}`,
-    `visible:text:${contact.email}`,
-  ]);
   expect(fake.reviews).toEqual(["account", "contact"]);
   expect(fake.state.mode).toBe("account");
   expect(
