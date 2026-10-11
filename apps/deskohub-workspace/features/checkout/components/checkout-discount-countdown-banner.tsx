@@ -59,7 +59,10 @@ function ActiveDiscountCountdownBanner({
 
   if (countdownState?.status === "expired") {
     return (
-      <output className="flex items-start gap-3 rounded-2xl border border-burned-orange/20 bg-burned-orange/8 px-4 py-3 text-sm leading-6 text-burned-orange-ink">
+      <output
+        className="flex items-start gap-3 rounded-2xl border border-burned-orange/20 bg-burned-orange/8 px-4 py-3 text-sm leading-6 text-burned-orange-ink"
+        data-tone="attention"
+      >
         <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-full bg-burned-orange/12 text-burned-orange">
           <AlertTriangle aria-hidden="true" className="size-4" />
         </span>
@@ -83,7 +86,10 @@ function ActiveDiscountCountdownBanner({
   const remaining = formatDiscountCountdown(countdownState.countdown, locale);
 
   return (
-    <output className="flex items-start gap-3 rounded-2xl border border-aquamarine-green/40 bg-aquamarine-green/12 px-4 py-3 text-sm leading-6 text-aquamarine-ink ring-1 ring-aquamarine-green/10">
+    <output
+      className="flex items-start gap-3 rounded-2xl border border-aquamarine-green/40 bg-aquamarine-green/12 px-4 py-3 text-sm leading-6 text-aquamarine-ink ring-1 ring-aquamarine-green/10"
+      data-tone="positive"
+    >
       <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-full bg-aquamarine-green/18 text-aquamarine-ink">
         <Timer aria-hidden="true" className="size-4" />
       </span>
