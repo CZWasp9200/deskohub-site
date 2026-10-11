@@ -276,6 +276,9 @@ const getSupportContactPrefill = (
   return prefill.name || prefill.email || prefill.phone ? prefill : undefined;
 };
 
+const offersSupportContact = (statusKind: CheckoutReservationStatusKind) =>
+  statusKind === "fulfillment_failed" || statusKind === "late_payment_review";
+
 const getEmptyCheckoutStatusReservation = (
   details: WorkspaceReservation["reservationDetails"]
 ): CheckoutStatusReservationReconstruction =>
@@ -489,9 +492,33 @@ const implementation = Effect.gen(function* () {
   );
 
   /**
-   * Derives the customer status, loading the Dotypos customer only for the
-   * statuses that offer a prefilled support contact.
+   * Loads the support contact prefill for statuses that offer one. Best
+   * effort: the status renders without a prefill when Dotypos is slow.
    */
+  const loadSupportContactPrefill = Effect.fn(
+    "CheckoutStatusService.loadSupportContactPrefill"
+  )(function* (
+    reservation: WorkspaceReservation,
+    statusKind: CheckoutReservationStatusKind
+  ) {
+    if (!offersSupportContact(statusKind)) return undefined;
+
+    return yield* dotypos.getCustomer(reservation.dotyposCustomerId).pipe(
+      Effect.map(getSupportContactPrefill),
+      Effect.timeoutOrElse({
+        duration: summaryTimeout,
+        orElse: () => Effect.undefined,
+      }),
+      Effect.tapError((cause) =>
+        Effect.logWarning("Checkout status support contact load failed", {
+          cause,
+        })
+      ),
+      Effect.orElseSucceed(() => undefined)
+    );
+  });
+
+  /** Derives the customer status and its support contact prefill. */
   const resolveStatusKind = Effect.fn(
     "CheckoutStatusService.resolveStatusKind"
   )(function* (reservation: WorkspaceReservation) {
@@ -509,23 +536,10 @@ const implementation = Effect.gen(function* () {
         reservation.paymentState,
         reservation.fulfillmentState
       );
-    const supportContactPrefill =
-      statusKind === "fulfillment_failed" ||
-      statusKind === "late_payment_review"
-        ? yield* dotypos.getCustomer(reservation.dotyposCustomerId).pipe(
-            Effect.map(getSupportContactPrefill),
-            Effect.timeoutOrElse({
-              duration: summaryTimeout,
-              orElse: () => Effect.undefined,
-            }),
-            Effect.tapError((cause) =>
-              Effect.logWarning("Checkout status support contact load failed", {
-                cause,
-              })
-            ),
-            Effect.orElseSucceed(() => undefined)
-          )
-        : undefined;
+    const supportContactPrefill = yield* loadSupportContactPrefill(
+      reservation,
+      statusKind
+    );
 
     return { latePaymentStatusKind, statusKind, supportContactPrefill };
   });

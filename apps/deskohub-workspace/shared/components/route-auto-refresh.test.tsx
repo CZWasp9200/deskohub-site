@@ -79,7 +79,7 @@ test("backs off between polls up to the interval", async () => {
   }
 });
 
-test("stops polling after the attempt limit", async () => {
+test("keeps polling while enabled", async () => {
   const { RouteAutoRefresh } = await import("./route-auto-refresh");
   render(<RouteAutoRefresh enabled intervalMs={1000} />);
 
@@ -87,7 +87,7 @@ test("stops polling after the attempt limit", async () => {
     act(() => jest.advanceTimersByTime(1000));
   }
 
-  expect(workspaceRouterRefresh).toHaveBeenCalledTimes(40);
+  expect(workspaceRouterRefresh).toHaveBeenCalledTimes(50);
 });
 
 test("pauses polling while hidden and refreshes on return", async () => {

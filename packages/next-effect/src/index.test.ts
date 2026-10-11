@@ -98,6 +98,20 @@ describe("NextEffect", () => {
     expect((await Promise.all([first, second])).sort()).toEqual([1, 2]);
   });
 
+  test("runs that provide the shared layer again reuse its built instance", async () => {
+    let builds = 0;
+    const layer = Layer.sync(TestService, () => {
+      builds += 1;
+      return { value: "shared" };
+    });
+    const next = NextEffect.make({ layer });
+
+    await next.run(TestService);
+    await next.run(TestService.pipe(Effect.provide(layer)));
+
+    expect(builds).toBe(1);
+  });
+
   test("run interrupts a layer-backed effect with its signal", async () => {
     const next = NextEffect.make({
       layer: Layer.succeed(TestService, { value: "service" }),

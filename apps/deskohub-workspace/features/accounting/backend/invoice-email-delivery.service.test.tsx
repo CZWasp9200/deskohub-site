@@ -210,7 +210,7 @@ describe("invoice email delivery", () => {
         invoiceId: invoice.id,
         audience,
         attemptNumber: 1,
-        failureCode: "email_send_failed",
+        failureCode: "pdf_render_failed",
       });
     }
   });

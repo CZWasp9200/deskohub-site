@@ -29,7 +29,7 @@ import {
   type InvoiceEmailDeliveryClaim,
   InvoiceEmailDeliveryRepository,
 } from "./invoice-email-delivery.repository";
-import { renderInvoicePdf } from "./invoice-pdf";
+import { type InvoicePdfRenderingError, renderInvoicePdf } from "./invoice-pdf";
 
 const invoiceCustomerEmailCategory = "workspace-invoice-customer";
 const invoiceInternalEmailCategory = "workspace-invoice-internal";
@@ -88,7 +88,7 @@ export class InvoiceEmailDeliveryService extends Context.Service<
         readonly invoice: Invoice;
         readonly audience: "customer" | "internal";
         readonly recipient: EmailRecipient;
-        readonly renderPdf: Effect.Effect<Buffer, InvoiceEmailDeliveryError>;
+        readonly renderPdf: Effect.Effect<Buffer, InvoicePdfRenderingError>;
         readonly resend?: boolean;
       }) {
         const staleProcessingBefore = Temporal.Now.instant().subtract({
@@ -190,7 +190,17 @@ export class InvoiceEmailDeliveryService extends Context.Service<
         const title = m.invoiceTitle({}, { locale: content.locale });
         const preview = `${title} ${input.invoice.invoiceNumber}`;
         const { pdf, rendered } = yield* Effect.all({
-          pdf: input.renderPdf,
+          pdf: input.renderPdf.pipe(
+            Effect.mapError((cause) =>
+              deliveryError({
+                code: "pdf_render_failed",
+                paymentAttemptId:
+                  input.invoice.paymentAttemptId ?? input.invoice.id,
+                message: "Invoice PDF could not be rendered for delivery.",
+                cause,
+              })
+            )
+          ),
           rendered: renderWorkspaceEmail(
             <InvoiceDeliveryEmail
               body={content.body}
@@ -322,7 +332,7 @@ export class InvoiceEmailDeliveryService extends Context.Service<
           return {
             invoice,
             recipient: invoice.document.delivery.email,
-            renderPdf: yield* Effect.cached(renderDeliveryPdf(invoice)),
+            renderPdf: yield* Effect.cached(renderInvoicePdf(invoice.document)),
           };
         }
 
@@ -359,7 +369,7 @@ export class InvoiceEmailDeliveryService extends Context.Service<
         return {
           invoice,
           recipient: source.delivery.email,
-          renderPdf: yield* Effect.cached(renderDeliveryPdf(invoice)),
+          renderPdf: yield* Effect.cached(renderInvoicePdf(invoice.document)),
         };
       });
 
@@ -501,7 +511,10 @@ const failDelivery = (input: {
       invoiceId: input.invoice.id,
       audience: input.audience,
       attemptNumber: input.claim.attemptNumber,
-      failureCode: "email_send_failed",
+      failureCode:
+        input.error.code === "pdf_render_failed"
+          ? "pdf_render_failed"
+          : "email_send_failed",
     })
     .pipe(
       Effect.mapError((cause) =>
@@ -514,18 +527,6 @@ const failDelivery = (input: {
       ),
       Effect.andThen(Effect.fail(input.error))
     );
-
-const renderDeliveryPdf = (invoice: Invoice) =>
-  renderInvoicePdf(invoice.document).pipe(
-    Effect.mapError((cause) =>
-      deliveryError({
-        code: "pdf_render_failed",
-        paymentAttemptId: invoice.paymentAttemptId ?? invoice.id,
-        message: "Invoice PDF could not be rendered for delivery.",
-        cause,
-      })
-    )
-  );
 
 const deliveryError = (
   input: Omit<
