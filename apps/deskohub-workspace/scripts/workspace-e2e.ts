@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { Cause, Effect, Exit, Layer } from "effect";
 import { makeWorkspaceE2EEnvironment } from "../e2e/e2e-env";
 import { formatWorkspaceE2EFailure, workspaceE2EError } from "../e2e/errors";
-import { runWorkspacePlaywrightWithFailureCleanup } from "../e2e/playwright-runner";
+import { runWorkspacePlaywrightSuites } from "../e2e/playwright-runner";
 import { workspaceDir } from "../e2e/runtime";
 import {
   E2ERunContextService,
@@ -27,6 +27,24 @@ const playwrightEnvironment = Object.fromEntries(
     value === undefined ? [] : [[key, String(value)]]
   )
 );
+const toInstantNavigationError = (
+  instantNavigation: PromiseSettledResult<number>
+) => {
+  if (instantNavigation.status === "rejected") {
+    return workspaceE2EError(
+      "Could not launch Playwright instant navigation E2E",
+      {
+        cause: instantNavigation.reason,
+        operation: "launch Playwright instant navigation E2E",
+      }
+    );
+  }
+  if (instantNavigation.value === 0) return undefined;
+  return workspaceE2EError(
+    `Playwright instant navigation E2E exited with ${instantNavigation.value}`,
+    { operation: "run Playwright instant navigation E2E" }
+  );
+};
 const runPlaywright = Effect.gen(function* () {
   const e2eTelemetry = yield* E2ETelemetryService;
   yield* e2eTelemetry.traceRun(
@@ -52,29 +70,42 @@ const runPlaywright = Effect.gen(function* () {
         ).exited;
       // Read-only instant navigation runs beside the checkout graph instead
       // of gating its setup phase; both always target the remote preview.
-      const [result, instantNavigationExitCode] = yield* Effect.tryPromise({
-        catch: (cause) =>
-          workspaceE2EError("Could not launch Playwright E2E", {
-            cause,
-            operation: "launch Playwright E2E",
-          }),
-        try: () =>
-          Promise.all([
-            runWorkspacePlaywrightWithFailureCleanup((invocation) =>
-              spawnPlaywright(
-                "playwright.e2e.config.ts",
-                invocation === "failure-cleanup"
-                  ? [
-                      "--project=checkout-cleanup",
-                      "--no-deps",
-                      `--output=e2e-artifacts/checkout-cleanup-recovery-${randomUUID()}`,
-                    ]
-                  : []
-              )
+      const { checkout, instantNavigation } = yield* Effect.promise(() =>
+        runWorkspacePlaywrightSuites({
+          checkout: (invocation) =>
+            spawnPlaywright(
+              "playwright.e2e.config.ts",
+              invocation === "failure-cleanup"
+                ? [
+                    "--project=checkout-cleanup",
+                    "--no-deps",
+                    `--output=e2e-artifacts/checkout-cleanup-recovery-${randomUUID()}`,
+                  ]
+                : []
             ),
+          instantNavigation: () =>
             spawnPlaywright("playwright.instant-navigation.config.ts"),
-          ]),
-      });
+        })
+      );
+      const instantNavigationError =
+        toInstantNavigationError(instantNavigation);
+      // The checkout outcome is reported first; an instant navigation
+      // failure is logged beside it rather than replacing it.
+      const reportInstantNavigationFailure = () => {
+        if (instantNavigationError) {
+          process.stderr.write(
+            `${formatWorkspaceE2EFailure(instantNavigationError)}\n`
+          );
+        }
+      };
+      if (checkout.status === "rejected") {
+        reportInstantNavigationFailure();
+        return yield* workspaceE2EError("Could not launch Playwright E2E", {
+          cause: checkout.reason,
+          operation: "launch Playwright checkout E2E",
+        });
+      }
+      const result = checkout.value;
       if (result.cleanupCouldNotStart) {
         process.stderr.write(
           "Workspace E2E cleanup-only project could not start after the main suite failed.\n"
@@ -88,22 +119,13 @@ const runPlaywright = Effect.gen(function* () {
         );
       }
       if (result.suiteExitCode !== 0) {
-        if (instantNavigationExitCode !== 0) {
-          process.stderr.write(
-            `Playwright instant navigation E2E exited with ${instantNavigationExitCode}.\n`
-          );
-        }
+        reportInstantNavigationFailure();
         return yield* workspaceE2EError(
           `Playwright checkout E2E exited with ${result.suiteExitCode}`,
           { operation: "run Playwright checkout E2E" }
         );
       }
-      if (instantNavigationExitCode !== 0) {
-        return yield* workspaceE2EError(
-          `Playwright instant navigation E2E exited with ${instantNavigationExitCode}`,
-          { operation: "run Playwright instant navigation E2E" }
-        );
-      }
+      if (instantNavigationError) return yield* instantNavigationError;
     })
   );
 }).pipe(Effect.provide(telemetryServiceLayer));
