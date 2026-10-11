@@ -18,7 +18,7 @@ const numberSchema = Schema.Finite;
 const booleanSchema = Schema.Boolean;
 export type JsonObject = Schema.Schema.Type<typeof jsonObjectSchema>;
 
-const defaultVisualRoot = "/tmp/opencode/pr239-account-redesign/visual";
+const defaultVisualRoot = "/tmp/deskohub/pr239-account-redesign/visual";
 const defaultArchivePath = join(defaultVisualRoot, "final-verification.json");
 const archivalReportName = "final-archival-hash-verification.json";
 const currentChecksPath = join(defaultVisualRoot, "checks-v9.json");

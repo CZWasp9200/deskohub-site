@@ -10,7 +10,7 @@ import {
 import tailwindcss from "@tailwindcss/postcss";
 import postcss from "postcss";
 
-const screenshotDirectory = "/tmp/opencode";
+const screenshotDirectory = "/tmp/deskohub";
 const appDirectory = resolve(import.meta.dir, "../../..");
 let browser: Browser | undefined;
 let buildDirectory = "";

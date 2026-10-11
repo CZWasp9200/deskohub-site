@@ -12,7 +12,7 @@ import {
   unregisterWorkspaceComponentTestEnv,
 } from "@/shared/testing/workspace-component-test-env";
 
-const screenshotDirectory = "/tmp/opencode";
+const screenshotDirectory = "/tmp/deskohub";
 const appDirectory = resolve(import.meta.dir, "../../../..");
 const requestLocale: Locale = "cs-CZ";
 let browser: Browser | undefined;

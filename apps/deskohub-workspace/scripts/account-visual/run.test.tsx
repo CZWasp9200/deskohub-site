@@ -78,7 +78,7 @@ afterAll(async () => {
   expect(browser.isConnected()).toBe(false);
 });
 
-const outputRoot = "/tmp/opencode/pr239-account-redesign/visual";
+const outputRoot = "/tmp/deskohub/pr239-account-redesign/visual";
 const repoRoot = resolve(import.meta.dir, "../../../..");
 const expectedRendererPort = parseRendererPort(
   process.env.WORKSPACE_ACCOUNT_VISUAL_PORT
@@ -210,7 +210,7 @@ const makeArchivalArchive = (): JsonObject => {
     manifestBytes: number
   ) => ({
     label,
-    outputDirectory: `/tmp/opencode/pr239-account-redesign/visual/${output}`,
+    outputDirectory: `/tmp/deskohub/pr239-account-redesign/visual/${output}`,
     status: "passed",
     sourceManifest: {
       path: "source-manifest.json",
@@ -1773,7 +1773,7 @@ test("CLI parses the prescribed screen and adapter options", () => {
     "--references",
     "/tmp/references",
     "--output",
-    "/tmp/opencode/pr239-account-redesign/visual",
+    "/tmp/deskohub/pr239-account-redesign/visual",
   ]);
 
   expect(options).toEqual({
@@ -1781,7 +1781,7 @@ test("CLI parses the prescribed screen and adapter options", () => {
     help: false,
     label: "after",
     locale: "en-US",
-    outputRoot: "/tmp/opencode/pr239-account-redesign/visual",
+    outputRoot: "/tmp/deskohub/pr239-account-redesign/visual",
     port: expectedRendererPort,
     referencesDir: "/tmp/references",
     screen: "legal",

@@ -266,7 +266,6 @@
       "status": "APPROVED",
       "previousStatus": "AWAITING_REVIEW",
       "reviewerProvenance": {
-        "sessionId": "ses_f759529fcffeYdhIDqjVbv6wIr",
         "decision": "APPROVED",
         "basis": "recoveryEvidence"
       },
@@ -282,7 +281,6 @@
     "productionCleanupFollowUp": "Keep production cleanup as a parent follow-up; do not hide it in this scheduler artifact."
   },
   "parentOperationsEvidence": {
-    "workerId": "ses_f80052fd5ffeG5fp9lOkgBonLM",
     "deployment": {
       "deploymentId": "6365818018",
       "actor": "vercel[bot]",
@@ -356,7 +354,6 @@
       "status": "APPROVED",
       "previousStatus": "AWAITING_REVIEW",
       "reviewerProvenance": {
-        "sessionId": "ses_f759529fcffeYdhIDqjVbv6wIr",
         "decision": "APPROVED",
         "basis": "parentOperationsEvidence"
       },
@@ -390,7 +387,6 @@
       "status": "APPROVED",
       "scope": "CODE_COVERAGE_ONLY",
       "reviewerProvenance": {
-        "sessionId": "ses_f6f475f0cffemdkQldLsAf3ZnX",
         "decision": "APPROVED",
         "basis": "code coverage candidate"
       },

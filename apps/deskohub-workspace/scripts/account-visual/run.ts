@@ -57,7 +57,8 @@ import {
 
 const repoRoot = resolve(import.meta.dir, "../../../..");
 const appRoot = resolve(import.meta.dir, "../..");
-export const defaultOutputRoot = "/tmp/opencode/pr239-account-redesign/visual";
+export const defaultOutputRoot = "/tmp/deskohub/pr239-account-redesign/visual";
+const defaultReferencesDir = "/tmp/deskohub/pr239-account-redesign/references";
 const referencePrefix = "e318512b-b78b-4780-8d86-7dcd43cc3d1f-";
 const referenceSuffixes = {
   profile: "fab0fa57-710e-4a5c-9807-a8ada402931b.png",
@@ -938,8 +939,8 @@ API:
   --adapter loads a caller-owned default-exported React component receiving { screen, locale } and a named accountVisualAdapterMetadata export with owner and fixture strings. The adapter owns integrated shell and screen composition.
   --locale selects en-US or cs-CZ for the adapter and rendered AccountPage/PublicAccountLegal components. It defaults to en-US.
   --tablet selects a 768 CSS px, DPR 1 desktop/tablet capture instead of the standard 1280 CSS px, DPR 2 capture.
-  --references selects the directory containing the supplied reference PNGs.
-  --output selects a directory under /tmp/opencode/pr239-account-redesign/visual.
+  --references selects the directory containing the supplied reference PNGs. It defaults to ${defaultReferencesDir}.
+  --output selects a directory under ${defaultOutputRoot}.
   WORKSPACE_ACCOUNT_VISUAL_PORT selects the exclusive localhost renderer port (default 3111); it must be a decimal integer from 1 through 65535.
 
   Methodology:
@@ -972,7 +973,7 @@ export function parseCliArgs(argv: readonly string[]): CliOptions {
   let label: string | undefined;
   let locale: AccountVisualLocale = "en-US";
   let outputRoot = defaultOutputRoot;
-  let referencesDir = "/home/dev/.t3/userdata/attachments";
+  let referencesDir = defaultReferencesDir;
   let screen: AccountVisualScreen | undefined;
   let tablet = false;
   const port = parseRendererPort(process.env.WORKSPACE_ACCOUNT_VISUAL_PORT);
