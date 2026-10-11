@@ -79,6 +79,13 @@ export const workspaceE2EPollIntervalMs = {
   datasource: 5 * SECOND,
 } as const;
 
+// Postgres reads are not rate-limited, so database polls start here and back
+// off to the datasource interval. Dotypos-backed polls keep fixed spacing
+// because Dotypos answers bursts with 429.
+export const workspaceE2EPollInitialIntervalMs = {
+  database: 500,
+} as const;
+
 export const formatWorkspaceE2EDuration = (durationMs: number) => {
   if (durationMs < SECOND) return `${durationMs}ms`;
   if (durationMs < MINUTE) return `${(durationMs / SECOND).toFixed(1)}s`;

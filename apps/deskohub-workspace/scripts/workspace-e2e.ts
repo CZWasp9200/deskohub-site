@@ -32,41 +32,48 @@ const runPlaywright = Effect.gen(function* () {
   yield* e2eTelemetry.traceRun(
     Effect.gen(function* () {
       const span = yield* Effect.currentSpan;
-      const result = yield* Effect.tryPromise({
+      const spawnPlaywright = (
+        config: string,
+        options: readonly string[] = []
+      ) =>
+        Bun.spawn(
+          ["bunx", "playwright", "test", "--config", config, ...options],
+          {
+            cwd: workspaceDir,
+            env: {
+              ...playwrightEnvironment,
+              WORKSPACE_E2E_RUN_CONTEXT: JSON.stringify(runContext),
+              WORKSPACE_E2E_TRACE_PARENT: `00-${span.traceId}-${span.spanId}-${span.sampled ? "01" : "00"}`,
+            },
+            stderr: "inherit",
+            stdin: "inherit",
+            stdout: "inherit",
+          }
+        ).exited;
+      // Read-only instant navigation runs beside the checkout graph instead
+      // of gating its setup phase; both always target the remote preview.
+      const [result, instantNavigationExitCode] = yield* Effect.tryPromise({
         catch: (cause) =>
-          workspaceE2EError("Could not launch Playwright checkout E2E", {
+          workspaceE2EError("Could not launch Playwright E2E", {
             cause,
-            operation: "launch Playwright checkout E2E",
+            operation: "launch Playwright E2E",
           }),
         try: () =>
-          runWorkspacePlaywrightWithFailureCleanup(async (invocation) => {
-            const args = [
-              "bunx",
-              "playwright",
-              "test",
-              "--config",
-              "playwright.e2e.config.ts",
-              ...(invocation === "failure-cleanup"
-                ? [
-                    "--project=checkout-cleanup",
-                    "--no-deps",
-                    `--output=e2e-artifacts/checkout-cleanup-recovery-${randomUUID()}`,
-                  ]
-                : []),
-            ];
-            const child = Bun.spawn(args, {
-              cwd: workspaceDir,
-              env: {
-                ...playwrightEnvironment,
-                WORKSPACE_E2E_RUN_CONTEXT: JSON.stringify(runContext),
-                WORKSPACE_E2E_TRACE_PARENT: `00-${span.traceId}-${span.spanId}-${span.sampled ? "01" : "00"}`,
-              },
-              stderr: "inherit",
-              stdin: "inherit",
-              stdout: "inherit",
-            });
-            return child.exited;
-          }),
+          Promise.all([
+            runWorkspacePlaywrightWithFailureCleanup((invocation) =>
+              spawnPlaywright(
+                "playwright.e2e.config.ts",
+                invocation === "failure-cleanup"
+                  ? [
+                      "--project=checkout-cleanup",
+                      "--no-deps",
+                      `--output=e2e-artifacts/checkout-cleanup-recovery-${randomUUID()}`,
+                    ]
+                  : []
+              )
+            ),
+            spawnPlaywright("playwright.instant-navigation.config.ts"),
+          ]),
       });
       if (result.cleanupCouldNotStart) {
         process.stderr.write(
@@ -81,9 +88,20 @@ const runPlaywright = Effect.gen(function* () {
         );
       }
       if (result.suiteExitCode !== 0) {
+        if (instantNavigationExitCode !== 0) {
+          process.stderr.write(
+            `Playwright instant navigation E2E exited with ${instantNavigationExitCode}.\n`
+          );
+        }
         return yield* workspaceE2EError(
           `Playwright checkout E2E exited with ${result.suiteExitCode}`,
           { operation: "run Playwright checkout E2E" }
+        );
+      }
+      if (instantNavigationExitCode !== 0) {
+        return yield* workspaceE2EError(
+          `Playwright instant navigation E2E exited with ${instantNavigationExitCode}`,
+          { operation: "run Playwright instant navigation E2E" }
         );
       }
     })

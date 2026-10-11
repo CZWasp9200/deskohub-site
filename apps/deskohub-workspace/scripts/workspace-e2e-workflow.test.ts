@@ -24,29 +24,35 @@ import {
 type PlaywrightCheckoutConfig =
   typeof import("../playwright.e2e.config")["default"];
 
-// The real Playwright config is executed (not text-scanned) and its resolved
-// structure is asserted on. It runs in a child process because the config
-// resolves its browser executable with a top-level await, which bun's test
-// runner does not settle reliably across multiple entry files.
-const loadPlaywrightConfigStructure =
-  async (): Promise<PlaywrightCheckoutConfig> => {
-    const result = await runCommand(
-      [
-        process.execPath,
-        "-e",
-        'const config = (await import("./playwright.e2e.config")).default; console.log(JSON.stringify(config));',
-      ],
-      { cwd: resolve(import.meta.dir, "..") }
-    );
-    if (result.exitCode !== 0) {
-      throw new Error(result.stderr);
-    }
-    return JSON.parse(result.stdout) as PlaywrightCheckoutConfig;
-  };
+type PlaywrightInstantNavigationConfig =
+  typeof import("../playwright.instant-navigation.config")["default"];
+
+// The real Playwright configs are executed (not text-scanned) and their
+// resolved structure is asserted on. They run in a child process because the
+// configs resolve their browser executable with a top-level await, which
+// bun's test runner does not settle reliably across multiple entry files.
+const loadPlaywrightConfigStructure = async <Config>(
+  configModule: string
+): Promise<Config> => {
+  const result = await runCommand(
+    [
+      process.execPath,
+      "-e",
+      `const config = (await import(${JSON.stringify(configModule)})).default; console.log(JSON.stringify(config));`,
+    ],
+    { cwd: resolve(import.meta.dir, "..") }
+  );
+  if (result.exitCode !== 0) {
+    throw new Error(result.stderr);
+  }
+  return JSON.parse(result.stdout) as Config;
+};
 
 let cachedConfigStructure: Promise<PlaywrightCheckoutConfig> | undefined;
 const playwrightConfigStructure = (): Promise<PlaywrightCheckoutConfig> => {
-  cachedConfigStructure ??= loadPlaywrightConfigStructure();
+  cachedConfigStructure ??= loadPlaywrightConfigStructure(
+    "./playwright.e2e.config"
+  );
   return cachedConfigStructure;
 };
 
@@ -100,6 +106,15 @@ const parseTrackedModule = (path: string) =>
 
 const projectByName = (config: PlaywrightCheckoutConfig, name: string) =>
   config.projects.find((project) => project.name === name);
+
+// Checkout case projects; the account lane never pays, so tail projects do
+// not wait for it.
+const checkoutCaseProjectNames = [
+  "checkout-non-payment",
+  "checkout-payment-1",
+  "checkout-payment-2",
+  "checkout-payment-3",
+];
 
 const jobHasConcurrencyLock = (
   job: WorkflowJob & { readonly concurrency?: unknown }
@@ -534,7 +549,7 @@ describe("workspace E2E workflow", () => {
     expect(turboGlobal).not.toContain("WORKSPACE_E2E_RESEND_API_KEY");
   });
 
-  test("runs invoice persistence inside the normal exact-SHA Playwright graph", async () => {
+  test("runs invoice persistence after the case phase of the exact-SHA Playwright graph", async () => {
     const playwrightConfig = await playwrightConfigStructure();
     const packageJson = readTrackedJson("../package.json") as {
       readonly scripts: Record<string, string | undefined>;
@@ -556,10 +571,12 @@ describe("workspace E2E workflow", () => {
     );
     expect(invoiceProject).toBeDefined();
     expect(invoiceProject?.testMatch).toBe("invoice-persistence.pw.ts");
-    expect(invoiceProject?.dependencies).toEqual(["checkout-setup"]);
+    // Invoice persistence locks the invoices table, so it waits for every
+    // case project instead of gating the plan or overlapping paid cases.
+    expect(invoiceProject?.dependencies).toEqual(checkoutCaseProjectNames);
     expect(
       projectByName(playwrightConfig, "checkout-plan")?.dependencies
-    ).toContain("checkout-invoice-persistence");
+    ).not.toContain("checkout-invoice-persistence");
 
     // The Playwright phase imports the persistence assertion and owns the
     // single "invoice-persistence" phase id; verdicts come from the parsed
@@ -696,15 +713,18 @@ describe("workspace E2E workflow", () => {
     expect(projectByName(playwrightConfig, "checkout-setup")?.teardown).toBe(
       "checkout-cleanup"
     );
+    // Availability and provider preparation run inside the plan itself.
     expect(
       projectByName(playwrightConfig, "checkout-availability")
-    ).toBeDefined();
+    ).toBeUndefined();
+    expect(
+      projectByName(playwrightConfig, "checkout-provider-preparation")
+    ).toBeUndefined();
     const checkoutPlan = projectByName(playwrightConfig, "checkout-plan");
     expect(checkoutPlan).toBeDefined();
     expect(checkoutPlan?.dependencies).toEqual([
-      "checkout-availability",
-      "checkout-provider-preparation",
-      "checkout-invoice-persistence",
+      "checkout-setup",
+      "checkout-seed",
     ]);
 
     // The Effect suite stays out of the Playwright lane's concurrency story:
@@ -749,28 +769,26 @@ describe("workspace E2E workflow", () => {
     expect(
       projectByName(playwrightConfig, "account-auth")?.dependencies
     ).toEqual(["checkout-plan"]);
+    // The non-payment project is capped so the account lane is admitted in
+    // the first case batch instead of queueing behind its parallel tests.
     expect(
-      projectByName(playwrightConfig, "checkout-availability")?.dependencies
-    ).toEqual(["checkout-setup", "checkout-seed"]);
+      projectByName(playwrightConfig, "checkout-non-payment")?.workers
+    ).toBe(2);
     expect(
-      projectByName(playwrightConfig, "checkout-provider-preparation")
-        ?.dependencies
-    ).toEqual(["checkout-setup"]);
-    expect(
-      projectByName(playwrightConfig, "checkout-invoice-persistence")
-        ?.dependencies
-    ).toEqual(["checkout-setup"]);
+      projectByName(playwrightConfig, "checkout-shared-fixture")?.dependencies
+    ).toEqual(checkoutCaseProjectNames);
   });
 
-  test("lets Playwright schedule read-only navigation beside checkout cases", async () => {
+  test("runs read-only navigation beside the checkout graph without gating it", async () => {
     const playwrightConfig = await playwrightConfigStructure();
+    const instantNavigationConfig =
+      await loadPlaywrightConfigStructure<PlaywrightInstantNavigationConfig>(
+        "./playwright.instant-navigation.config"
+      );
+    const entry = parseTrackedModule("workspace-e2e.ts");
     const packageJson = readTrackedJson("../package.json") as {
       readonly scripts: Record<string, string>;
     };
-    const instantNavigation = projectByName(
-      playwrightConfig,
-      "instant-navigation"
-    );
     expect(Object.keys(doc.jobs).includes("test-instant-navigation")).toBe(
       false
     );
@@ -787,13 +805,50 @@ describe("workspace E2E workflow", () => {
       "resolve-target",
       "test-e2e",
     ]);
-    expect(instantNavigation).toBeDefined();
-    expect(instantNavigation?.testDir).toBe("./e2e/instant-navigation");
-    expect(playwrightConfig.fullyParallel).toBe(true);
-    expect(playwrightConfig.workers).toBe(6);
-    expect(packageJson.scripts["test:instant-navigation"]).toContain(
-      "--project=instant-navigation"
+    expect(
+      projectByName(playwrightConfig, "instant-navigation")
+    ).toBeUndefined();
+    expect(
+      stringLiterals(entry.ast).some(
+        (literal) => literal.value === "playwright.instant-navigation.config.ts"
+      )
+    ).toBe(true);
+    expect(instantNavigationConfig.testDir).toBe("./e2e/instant-navigation");
+    expect(instantNavigationConfig.fullyParallel).toBe(true);
+    expect(instantNavigationConfig.maxFailures).toBe(1);
+    expect(instantNavigationConfig.outputDir).not.toBe(
+      playwrightConfig.outputDir
     );
+    expect(packageJson.scripts["test:instant-navigation"]).toContain(
+      "--config playwright.instant-navigation.config.ts"
+    );
+  });
+
+  test("restores Bun packages from a workflow-scoped cache saved before test code runs", () => {
+    const restore = stepByName("Restore Bun package cache");
+    const save = stepByName("Save Bun package cache");
+    expect(restore.uses).toStartWith("actions/cache/restore@");
+    expect(save.uses).toStartWith("actions/cache/save@");
+    expect(restore.with?.["restore-keys"]).toBeUndefined();
+    expect(String(restore.with?.key)).toStartWith("workspace-e2e-bun-");
+    expect(
+      stepsBetweenNames(
+        "Restore Bun package cache",
+        "Resolve Neon branch backing the preview"
+      ).map((step) => step.name)
+    ).toEqual([
+      "Restore Bun package cache",
+      "Install repository dependencies",
+      "Save Bun package cache",
+    ]);
+  });
+
+  test("resolves the pinned Neon CLI once per preview lookup", () => {
+    const run = String(
+      stepByName("Resolve Neon branch backing the preview").run
+    );
+    expect(run.includes("bunx neonctl")).toBe(false);
+    expect(run.split("neonctl@2.30.1")).toHaveLength(2);
   });
 
   test("lets Playwright write complete GitHub job summaries", async () => {

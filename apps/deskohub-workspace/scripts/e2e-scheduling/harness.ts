@@ -6,7 +6,7 @@ import { z } from "zod";
 
 const appDir = resolve(import.meta.dir, "../..");
 const artifactDirectory = resolve(appDir, "e2e-artifacts", "scheduling");
-const childTimeoutMs = 20_000;
+const childTimeoutMs = 30_000;
 const checkoutProjects = [
   "checkout-non-payment",
   "checkout-payment-1",
@@ -14,10 +14,15 @@ const checkoutProjects = [
   "checkout-payment-3",
 ] as const;
 const preparationProjects = [
-  "checkout-availability",
-  "checkout-provider-preparation",
-  "checkout-invoice-persistence",
+  "checkout-setup",
+  "checkout-seed",
   "checkout-plan",
+] as const;
+// Tail projects wait for every checkout case; invoice persistence locks the
+// invoices table, so it must never overlap a paid case.
+const caseTailProjects = [
+  "checkout-shared-fixture",
+  "checkout-invoice-persistence",
 ] as const;
 const scenarios = [
   "baseline",
@@ -192,6 +197,12 @@ const checkoutFirstSignals = [
   "checkout-payment-2-first-started",
   "checkout-payment-3-first-started",
 ];
+// Failures wait until both capped non-payment workers are busy, so the whole
+// first case batch is admitted before maxFailures stops the run.
+const firstBatchSignals = [
+  ...checkoutFirstSignals,
+  "checkout-non-payment-second-started",
+];
 
 if (!eventDirectory || !scenario) {
   throw new Error("Synthetic scheduler setup is missing");
@@ -280,26 +291,36 @@ const durationFor = (project) =>
     : project.startsWith("checkout-")
       ? 180
       : 40;
+// Non-payment cases are independent and outnumber the free workers, like the
+// deployed suite, so they would queue the account lane without a worker cap.
+const parallelCases = syntheticProject === "checkout-non-payment";
 const testCount =
   syntheticProject === "account-auth"
     ? 9
-    : syntheticProject.startsWith("checkout-payment-")
-      ? 2
-      : 1;
+    : parallelCases
+      ? 4
+      : syntheticProject.startsWith("checkout-payment-")
+        ? 2
+        : 1;
 
-test.describe.configure({ mode: "serial" });
+test.describe.configure({ mode: parallelCases ? "parallel" : "serial" });
 for (let step = 1; step <= testCount; step += 1) {
   test("synthetic-" + step, async ({}, info) => {
     await runSyntheticTest(info, "synthetic-" + step, async () => {
       if (syntheticProject !== "account-auth") {
         if (step === 1) {
           await signal(syntheticProject + "-first-started");
+        }
+        if (parallelCases && step === 2) {
+          await signal(syntheticProject + "-second-started");
+        }
+        if (step === 1 || parallelCases) {
           if (
             failureMode === "candidate-account" &&
             syntheticProject.startsWith("checkout-") &&
             checkoutFirstSignals.includes(syntheticProject + "-first-started")
           ) {
-            await waitForPlaywrightInterruption(info, "synthetic-1");
+            await waitForPlaywrightInterruption(info, "synthetic-" + step);
             return;
           }
           if (
@@ -308,7 +329,7 @@ for (let step = 1; step <= testCount; step += 1) {
             syntheticProject !== "checkout-payment-1" &&
             checkoutFirstSignals.includes(syntheticProject + "-first-started")
           ) {
-            await waitForPlaywrightInterruption(info, "synthetic-1");
+            await waitForPlaywrightInterruption(info, "synthetic-" + step);
             return;
           }
           if (
@@ -317,7 +338,7 @@ for (let step = 1; step <= testCount; step += 1) {
           ) {
             await waitForSignals([
               "account-auth-first-started",
-              ...checkoutFirstSignals,
+              ...firstBatchSignals,
             ]);
             await emit(info, "checkout-failure", { testName: "synthetic-1" });
             throw new Error("Synthetic checkout failure");
@@ -343,7 +364,7 @@ for (let step = 1; step <= testCount; step += 1) {
           return;
         }
         if (failureMode === "candidate-account") {
-          await waitForSignals(checkoutFirstSignals);
+          await waitForSignals(firstBatchSignals);
           await emit(info, "account-failure", { testName: "synthetic-1" });
           throw new Error("Synthetic account failure");
         }
@@ -566,6 +587,7 @@ async function runScenario(
         teardown: project.teardown,
         testDir: testsDirectory,
         testMatch: [`${name}.mjs`],
+        workers: project.workers,
       };
     }),
     retries: graph.retries,
@@ -704,18 +726,15 @@ function assertPaymentLanes(run: Run) {
   }
 }
 
-function assertSharedFixtureTail(run: Run) {
-  const sharedFixture = requiredRange(
-    run.intervals,
-    "checkout-shared-fixture",
-    run.scenario
-  );
-  for (const name of checkoutProjects) {
-    must(
-      requiredRange(run.intervals, name, run.scenario).end <
-        sharedFixture.start,
-      `${run.scenario} shared fixture started before ${name}`
-    );
+function assertCaseTail(run: Run) {
+  for (const tailProject of caseTailProjects) {
+    const tail = requiredRange(run.intervals, tailProject, run.scenario);
+    for (const name of checkoutProjects) {
+      must(
+        requiredRange(run.intervals, name, run.scenario).end < tail.start,
+        `${run.scenario} ${tailProject} started before ${name} ended`
+      );
+    }
   }
 }
 
@@ -735,21 +754,22 @@ function assertCleanupTail(run: Run, graph: Graph) {
   }
 }
 
-function assertOnlyFirstTests(run: Run) {
-  const projects = ["account-auth", ...checkoutProjects];
-  for (const project of projects) {
-    const later = run.summary.startedTests.filter((key) => {
-      if (!key.startsWith(`${project}/synthetic-`)) return false;
-      return key !== `${project}/synthetic-1`;
-    });
+function assertOnlyFirstBatch(run: Run, graph: Graph) {
+  for (const project of ["account-auth", ...checkoutProjects]) {
+    const workers =
+      graph.projects.find((candidate) => candidate.name === project)?.workers ??
+      1;
+    const started = run.summary.startedTests.filter((key) =>
+      key.startsWith(`${project}/synthetic-`)
+    );
     must(
-      later.length === 0,
+      started.includes(`${project}/synthetic-1`) && started.length <= workers,
       `${run.scenario} admitted a later ${project} test`
     );
   }
 }
 
-function assertInterruptedFailure(run: Run) {
+function assertInterruptedFailure(run: Run, graph: Graph) {
   const failureAt = requiredEventAt(
     run.events,
     ["account-failure", "checkout-failure"],
@@ -764,7 +784,11 @@ function assertInterruptedFailure(run: Run) {
     `${run.scenario} admitted shared fixture`
   );
   must(!run.summary.cleanupAdmitted, `${run.scenario} admitted cleanup`);
-  assertOnlyFirstTests(run);
+  must(
+    !range(run.intervals, "checkout-invoice-persistence"),
+    `${run.scenario} admitted invoice persistence`
+  );
+  assertOnlyFirstBatch(run, graph);
   for (const project of ["account-auth", ...checkoutProjects]) {
     const interval = requiredRange(run.intervals, project, run.scenario);
     must(
@@ -820,8 +844,7 @@ function verify(graph: Graph, runs: readonly Run[]) {
   );
   must(
     requiredRange(baseline.intervals, "account-auth", "baseline").end <
-      requiredRange(baseline.intervals, "checkout-availability", "baseline")
-        .start,
+      requiredRange(baseline.intervals, "checkout-plan", "baseline").start,
     "baseline account ordering changed"
   );
   const candidateAccount = requiredRange(
@@ -836,6 +859,17 @@ function verify(graph: Graph, runs: readonly Run[]) {
       `candidate ${name} started after account`
     );
   }
+  const firstCaseEnd = Math.min(
+    ...candidate.intervals
+      .filter((item) =>
+        checkoutProjects.some((project) => project === item.start.project)
+      )
+      .map((item) => item.end.at)
+  );
+  must(
+    candidateAccount.start < firstCaseEnd,
+    "candidate account-auth did not start in the first case batch"
+  );
   const quietStart = requiredEventAt(
     candidate.events,
     ["account-quiet-start"],
@@ -857,12 +891,12 @@ function verify(graph: Graph, runs: readonly Run[]) {
       `candidate ${name} missed account quiet overlap`
     );
   }
-  assertSharedFixtureTail(baseline);
-  assertSharedFixtureTail(candidate);
+  assertCaseTail(baseline);
+  assertCaseTail(candidate);
   assertCleanupTail(baseline, graph);
   assertCleanupTail(candidate, graph);
-  assertInterruptedFailure(candidateAccountFailure);
-  assertInterruptedFailure(candidateCheckoutFailure);
+  assertInterruptedFailure(candidateAccountFailure, graph);
+  assertInterruptedFailure(candidateCheckoutFailure, graph);
   const expectedFailFast: FailFast = [1, 1, false, false, 0];
   for (const run of [
     baselineFailure,
@@ -898,11 +932,23 @@ export async function runWorkspaceE2ESchedulingRegression() {
   for (const name of [
     ...checkoutProjects,
     ...preparationProjects,
-    "checkout-shared-fixture",
+    ...caseTailProjects,
     "checkout-cleanup",
   ]) {
     must(projectNames.includes(name), `actual config is missing ${name}`);
   }
+  // Read-only navigation runs as its own invocation beside this graph, and
+  // invoice persistence waits for the cases instead of gating the plan.
+  must(
+    !projectNames.includes("instant-navigation"),
+    "instant-navigation is back in the checkout graph"
+  );
+  must(
+    !graph.projects
+      .find((project) => project.name === "checkout-plan")
+      ?.dependencies?.includes("checkout-invoice-persistence"),
+    "invoice persistence gates the checkout plan"
+  );
   await mkdir(artifactDirectory, { recursive: true });
   const root = await mkdtemp(join(artifactDirectory, "run-"));
   const testsDirectory = join(root, "tests");

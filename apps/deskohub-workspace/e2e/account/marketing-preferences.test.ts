@@ -13,7 +13,11 @@ import {
   stringLiterals,
 } from "../../scripts/shared/source-ast";
 import { formatWorkspaceE2EFailure, type WorkspaceE2EError } from "../errors";
-import { workspaceE2EPollIntervalMs, workspaceE2ETimeouts } from "../timeouts";
+import {
+  workspaceE2EPollInitialIntervalMs,
+  workspaceE2EPollIntervalMs,
+  workspaceE2ETimeouts,
+} from "../timeouts";
 import {
   classifyWorkspaceE2EMarketingConsentPersistence,
   makeWorkspaceE2EMarketingPreferencesSeedRow,
@@ -375,6 +379,7 @@ describe("workspace marketing preferences helper", () => {
       [];
     const timeline: string[] = [];
     const pollCalls: Array<{
+      readonly initialIntervalMs?: number;
       readonly intervalMs: number;
       readonly label: string;
       readonly timeoutMs: number;
@@ -436,6 +441,7 @@ describe("workspace marketing preferences helper", () => {
     ]);
     expect(pollCalls).toEqual([
       {
+        initialIntervalMs: workspaceE2EPollInitialIntervalMs.database,
         intervalMs: workspaceE2EPollIntervalMs.datasource,
         label: "marketing preference active persisted",
         timeoutMs: workspaceE2ETimeouts.datasource,
