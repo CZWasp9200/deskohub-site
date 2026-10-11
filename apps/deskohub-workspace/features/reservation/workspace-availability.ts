@@ -74,7 +74,7 @@ const officeWorkspaceAvailabilityQuerySchema = Schema.Struct({
   seats: Schema.optional(officeSeatsSchema),
 });
 
-export type CoworkWorkspaceAvailabilityQuery =
+type CoworkWorkspaceAvailabilityQuery =
   typeof coworkWorkspaceAvailabilityQuerySchema.Type;
 export type MeetingRoomWorkspaceAvailabilityQuery =
   typeof meetingRoomWorkspaceAvailabilityQuerySchema.Type;
