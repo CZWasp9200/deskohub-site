@@ -251,7 +251,7 @@ describe("ProfileScreen", () => {
     const markup = renderProfile();
     const errorInput = markup.match(/<input\b[^>]*name="firstName"[^>]*>/)?.[0];
     const gridClass = markup
-      .match(/<div class="([^"]*sm:grid-cols-2[^"]*)">/)?.[1]
+      .match(/<div class="([^"]*@xl:grid-cols-2[^"]*)">/)?.[1]
       ?.replaceAll("&amp;", "&");
 
     expect(errorInput).toContain("border-burned-orange");
@@ -285,8 +285,8 @@ describe("ProfileScreen", () => {
     expect(markup).toContain(longCzechEmail);
     expect(markup).toContain(longCzechVerificationCopy);
     expect(emailFieldsetClass).toContain("min-w-0");
-    expect(emailFieldsetClass).toContain("sm:col-span-2");
-    expect(emailFieldsetClass).toContain("lg:col-span-1");
+    expect(emailFieldsetClass).toContain("@xl:col-span-2");
+    expect(emailFieldsetClass).toContain("@3xl:col-span-1");
     expect(verificationButton).toContain("size-8");
     expect(verificationButton).toContain("shrink-0");
     expect(verificationButton).toContain("text-emerald-800");

@@ -155,6 +155,6 @@ describe("AccountFrame", () => {
     expect(footer.className).toBe("mt-4 min-w-0 hidden md:block");
     expect(mobileFooter.className).toBe("min-w-0 md:hidden");
     expect(mobileFooterContent).not.toBe(footer);
-    expect(contentSlot.className).toBe("min-w-0");
+    expect(contentSlot.className).toBe("@container min-w-0");
   });
 });

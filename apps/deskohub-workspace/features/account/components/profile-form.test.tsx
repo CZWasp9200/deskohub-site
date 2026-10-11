@@ -1594,22 +1594,26 @@ describe("ProfileForm", () => {
     const outerGrid = addressLine1Wrapper.parentElement!;
     const zipCountryGrid = zipWrapper.parentElement!;
 
-    expect(addressLine1Wrapper.classList.contains("sm:col-span-2")).toBe(false);
-    expect(addressLine2Wrapper.classList.contains("sm:col-span-2")).toBe(false);
+    expect(addressLine1Wrapper.classList.contains("@xl:col-span-2")).toBe(
+      false
+    );
+    expect(addressLine2Wrapper.classList.contains("@xl:col-span-2")).toBe(
+      false
+    );
     expect(addressLine1Wrapper.classList.contains("min-w-0")).toBe(true);
     expect(addressLine2Wrapper.classList.contains("min-w-0")).toBe(true);
     expect(addressLine1Wrapper.parentElement).toBe(outerGrid);
     expect(addressLine2Wrapper.parentElement).toBe(outerGrid);
     expect(addressLine1Wrapper.nextElementSibling).toBe(addressLine2Wrapper);
     expect(outerGrid.classList.contains("grid")).toBe(true);
-    expect(outerGrid.classList.contains("sm:grid-cols-2")).toBe(true);
+    expect(outerGrid.classList.contains("@xl:grid-cols-2")).toBe(true);
     expect(outerGrid.classList.contains("grid-cols-2")).toBe(false);
     expect(cityWrapper.nextElementSibling).toBe(zipCountryGrid);
     expect(zipCountryGrid.parentElement).toBe(outerGrid);
     expect(zipCountryGrid.classList.contains("min-w-0")).toBe(true);
     expect(zipCountryGrid.classList.contains("grid")).toBe(true);
     expect(zipCountryGrid.classList.contains("gap-5")).toBe(true);
-    expect(zipCountryGrid.classList.contains("sm:grid-cols-2")).toBe(true);
+    expect(zipCountryGrid.classList.contains("@xl:grid-cols-2")).toBe(true);
     expect(zipCountryGrid.classList.contains("grid-cols-2")).toBe(false);
     expect(zipWrapper.parentElement).toBe(zipCountryGrid);
     expect(countryWrapper.parentElement).toBe(zipCountryGrid);

@@ -407,19 +407,19 @@ describe("ReservationHistory", () => {
     expect(row?.textContent).toContain("Meeting Room");
     expect(row?.textContent).toContain("Needs attention");
     expect(row?.textContent).toContain("Aug 21, 2026");
-    expect(table.className).toContain("xl:table");
-    expect(table.className).toContain("xl:table-fixed");
+    expect(table.className).toContain("@4xl:table");
+    expect(table.className).toContain("@4xl:table-fixed");
     expect(table.querySelector("thead")?.className).toContain(
-      "xl:table-header-group"
+      "@4xl:table-header-group"
     );
     expect(table.querySelector("tbody")?.className).toContain(
-      "xl:table-row-group"
+      "@4xl:table-row-group"
     );
-    expect(row?.className).toContain("max-xl:p-4");
-    expect(row?.className).toContain("xl:table-row");
+    expect(row?.className).toContain("@max-4xl:p-4");
+    expect(row?.className).toContain("@4xl:table-row");
     expect(row?.querySelector("td")?.className).toContain("min-w-0");
-    expect(row?.querySelector("td")?.className).toContain("xl:table-cell");
-    expect(row?.querySelector("td > div")?.className).toContain("xl:block");
+    expect(row?.querySelector("td")?.className).toContain("@4xl:table-cell");
+    expect(row?.querySelector("td > div")?.className).toContain("@4xl:block");
 
     const link = view.getByRole("link", {
       name: copyFor("en-US").viewReservation,
@@ -541,17 +541,17 @@ describe("ReservationHistory", () => {
         ?.className
     ).toContain("min-w-0");
     const table = view.getByRole("table");
-    expect(table.className).toContain("xl:table");
-    expect(table.className).toContain("xl:table-fixed");
+    expect(table.className).toContain("@4xl:table");
+    expect(table.className).toContain("@4xl:table-fixed");
     expect(table.parentElement?.className).toContain("overflow-hidden");
     expect(
       [...table.querySelectorAll("thead th")].map((header) => header.className)
     ).toEqual([
-      expect.stringContaining("xl:w-[30%]"),
-      expect.stringContaining("xl:w-[25%]"),
-      expect.stringContaining("xl:w-[12%]"),
-      expect.stringContaining("xl:w-[17%]"),
-      expect.stringContaining("xl:w-[16%]"),
+      expect.stringContaining("@4xl:w-[30%]"),
+      expect.stringContaining("@4xl:w-[25%]"),
+      expect.stringContaining("@4xl:w-[12%]"),
+      expect.stringContaining("@4xl:w-[17%]"),
+      expect.stringContaining("@4xl:w-[16%]"),
     ]);
     const dateTile = view.getByText("Nov").parentElement;
     expect(
@@ -581,12 +581,12 @@ describe("ReservationHistory", () => {
     expect(rowLabels).toHaveLength(4);
     for (const label of rowLabels) {
       expect(label.className).toContain("block");
-      expect(label.className).toContain("xl:hidden");
-      expect(label.className).not.toContain("max-xl:block");
+      expect(label.className).toContain("@4xl:hidden");
+      expect(label.className).not.toContain("@max-4xl:block");
     }
     expect(table.querySelector("thead")?.className).toContain("hidden");
     expect(table.querySelector("thead")?.className).toContain(
-      "xl:table-header-group"
+      "@4xl:table-header-group"
     );
   });
 
@@ -607,23 +607,32 @@ describe("ReservationHistory", () => {
     });
 
     expect(header?.className).toContain("p-6");
-    expect(header?.className).toContain("xl:py-4");
+    expect(header?.className).toContain("@4xl:py-4");
     expect(main?.className).toContain("px-6");
-    expect(main?.className).toContain("xl:py-5");
-    expect(footer?.className).toContain("xl:grid");
-    expect(footer?.className).toContain("xl:grid-cols-[minmax(0,1fr)_auto]");
-    expect(footer?.className).toContain("xl:gap-y-2");
-    expect(footer?.className).toContain("xl:py-4");
-    expect(buttons?.className).toContain("xl:row-start-2");
-    expect(right?.className).toContain("xl:contents");
-    expect(explanation?.className).toContain("xl:text-xs");
-    expect(explanation?.className).toContain("xl:leading-5");
-    expect(action.parentElement?.className).toContain("xl:col-start-2");
-    expect(action.parentElement?.className).toContain("xl:row-span-2");
-    expect(action.parentElement?.className).toContain("xl:items-center");
+    expect(main?.className).toContain("@4xl:py-5");
+    expect(footer?.className).toContain("@4xl:grid");
+    expect(footer?.className).toContain("@4xl:grid-cols-[minmax(0,1fr)_auto]");
+    expect(footer?.className).toContain("@4xl:gap-y-2");
+    expect(footer?.className).toContain("@4xl:py-4");
+    expect(buttons?.className).toContain("@4xl:row-start-2");
+    expect(right?.className).toContain("@4xl:contents");
+    expect(explanation?.className).toContain("@4xl:text-xs");
+    expect(explanation?.className).toContain("@4xl:leading-5");
+    expect(action.parentElement?.className).toContain("@4xl:col-start-2");
+    expect(action.parentElement?.className).toContain("@4xl:row-span-2");
+    expect(action.parentElement?.className).toContain("@4xl:items-center");
+
+    expect(main?.className).toContain(
+      "@4xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(10rem,0.8fr)]"
+    );
+    for (const element of [card, ...(card?.querySelectorAll("*") ?? [])]) {
+      expect(element?.getAttribute("class") ?? "").not.toMatch(
+        /(^|\s)(sm|md|lg|xl):/
+      );
+    }
 
     expect(footer?.className).toContain("flex-col");
-    expect(footer?.className).toContain("sm:flex-row");
+    expect(footer?.className).toContain("@3xl:flex-row");
     expect(buttons?.className).toContain("flex-col");
     expect(right?.className).toContain("flex-col");
   });

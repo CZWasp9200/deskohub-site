@@ -157,7 +157,7 @@ export function DeleteAccountCard({
             id="delete-account-trigger"
             type="button"
             variant="primary"
-            className="mt-6 flex h-auto min-h-11 w-full whitespace-normal rounded-xl bg-rose-600 px-5 py-3 text-center leading-5 text-white hover:bg-rose-700 sm:ml-auto sm:w-auto sm:whitespace-nowrap"
+            className="mt-6 flex h-auto min-h-11 w-full whitespace-normal rounded-xl bg-rose-600 px-5 py-3 text-center leading-5 text-white hover:bg-rose-700 @xl:ml-auto @xl:w-auto @xl:whitespace-nowrap"
           >
             <Trash2 aria-hidden className="size-4" />
             {deletionPending
