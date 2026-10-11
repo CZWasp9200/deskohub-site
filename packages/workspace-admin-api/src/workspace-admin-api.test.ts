@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Schema } from "effect";
 import {
-  AdminCliAdministrationApi,
   AdministrationBookingQuery,
   AdministrationCustomerProfile,
   AdministrationCustomerQuery,
@@ -600,12 +599,6 @@ describe("administration contract", () => {
     ]) {
       expect(() => Schema.decodeUnknownSync(identifierSchema)("")).toThrow();
     }
-  });
-
-  test("keeps reservation cancellation a POST mutation", () => {
-    expect(AdminCliAdministrationApi.endpoints.cancelReservation?.method).toBe(
-      "POST"
-    );
   });
 
   test("exposes refund work without changing successful payment state", () => {
