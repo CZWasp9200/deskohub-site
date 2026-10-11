@@ -35,6 +35,18 @@ const nextConfig = {
       expire: 60 * 60 * 8,
     },
     publicContent: { stale: 30, revalidate: 60, expire: 300 },
+    // Advisory availability inputs; bookings re-check live provider data.
+    availabilityTables: {
+      stale: 30,
+      revalidate: 60 * 30,
+      expire: 60 * 60 * 24,
+    },
+    availabilityCalendar: {
+      stale: 30,
+      revalidate: 60 * 30,
+      expire: 60 * 60 * 6,
+    },
+    availabilityReservations: { stale: 30, revalidate: 60, expire: 60 * 10 },
   },
   cacheComponents: true,
   experimental: {

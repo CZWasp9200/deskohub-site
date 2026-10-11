@@ -693,6 +693,100 @@ describe("OfficeReservationForm", () => {
     ).toBe(true);
   });
 
+  test("keeps checkout disabled while retrying availability after a failed refresh of settled data", async () => {
+    const startsOn = decodePlainDate("2026-08-10");
+    const initialAdvertisedPrices = [1, 2, 3].map((seats) => {
+      const request = getOfficeAdvertisedPriceRequest({
+        endsOn: startsOn,
+        locale: "en-US",
+        seats,
+        startsOn,
+      });
+      const quote = Effect.runSync(
+        buildOfficeReservationQuote(request.reservation.details)
+      );
+
+      return {
+        request,
+        advertisedPrice: {
+          advertisedPriceToken: `office-${seats}`,
+          kind: "office" as const,
+          quote,
+          summary: getOfficeCheckoutSummary(quote),
+        },
+      };
+    });
+    let availabilityMode: "available" | "failing" | "retrying" = "available";
+    let failedRefreshCount = 0;
+    let resolveRetry: ((response: Response) => void) | undefined;
+    const availableResponse = () =>
+      officeAvailabilityResponse({ from: "2026-08-10", to: "2026-09-10" });
+    globalThis.fetch = mock(() => {
+      if (availabilityMode === "failing") {
+        failedRefreshCount += 1;
+        return Promise.reject(new Error("Availability refresh failed"));
+      }
+      if (availabilityMode === "retrying") {
+        return new Promise<Response>((resolve) => {
+          resolveRetry = resolve;
+        });
+      }
+      return Promise.resolve(availableResponse());
+    }) as typeof fetch;
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retryDelay: 0 } },
+    });
+    const refetchAvailability = () =>
+      queryClient.refetchQueries({
+        predicate: (query) => query.queryKey[0] === "workspace-availability",
+      });
+    const errorMessage = "We couldn't confirm availability. Please try again.";
+    const view = renderOfficeForm(
+      {
+        initialAdvertisedPrices,
+        initialValues: { ...officeReservationDefaultValues, startsOn },
+        today: startsOn,
+      },
+      queryClient
+    );
+    const continueButton = view.getByRole("button", { name: "Continue" });
+    await waitFor(() => {
+      expect(continueButton.hasAttribute("disabled")).toBe(false);
+    });
+
+    availabilityMode = "failing";
+    await act(async () => {
+      await refetchAvailability();
+    });
+    expect(failedRefreshCount).toBe(4);
+    expect(await view.findByText(errorMessage)).toBeDefined();
+    expect(continueButton.hasAttribute("disabled")).toBe(true);
+
+    availabilityMode = "retrying";
+    let retry: Promise<void> | undefined;
+    await act(async () => {
+      retry = refetchAvailability();
+      await waitFor(() => expect(resolveRetry).toBeDefined());
+    });
+    await waitFor(() => {
+      expect(view.queryByText(errorMessage)).toBeNull();
+    });
+    expect(continueButton.hasAttribute("disabled")).toBe(true);
+    expect(
+      continueButton.getAttribute("data-reservation-availability-loading")
+    ).toBe("true");
+
+    await act(async () => {
+      resolveRetry?.(availableResponse());
+      await retry;
+    });
+    await waitFor(() => {
+      expect(continueButton.hasAttribute("disabled")).toBe(false);
+    });
+    expect(view.queryByText(errorMessage)).toBeNull();
+    expect(execute).not.toHaveBeenCalled();
+  });
+
   test("validates an empty start date when its calendar closes", async () => {
     const today = decodePlainDate("2026-08-10");
     globalThis.fetch = mock(() =>

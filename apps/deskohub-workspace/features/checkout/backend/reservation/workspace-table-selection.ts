@@ -3,7 +3,7 @@ import {
   type DotyposTableId,
   ValidationError,
 } from "@deskohub/dotypos";
-import { Effect, Match, Schema } from "effect";
+import { Effect, Match, Result, Schema } from "effect";
 import {
   type WorkspaceCoworkProductTier,
   type WorkspaceProductMonitorOption,
@@ -100,7 +100,7 @@ const workspaceTableSeatCapacitySchema = Schema.NumberFromString.pipe(
   description: "Positive integer seat capacity configured on a Dotypos table.",
 });
 
-interface WorkspaceTableCandidate {
+export interface WorkspaceTableCandidate {
   readonly table: DotyposTable;
   readonly seatCapacity: number;
 }
@@ -130,21 +130,57 @@ export const getWorkspaceTableCandidatesByPredicate = (
     return isCandidateTable(new Set(table.tags ?? []));
   });
 
+const decodeSeatCapacity = Schema.decodeUnknownResult(
+  workspaceTableSeatCapacitySchema
+);
+
+export const decodeTableSeatCapacity = (table: DotyposTable) =>
+  Result.mapError(
+    decodeSeatCapacity(table.seats),
+    (cause) =>
+      new ValidationError({
+        message: `Dotypos workspace table ${table.id ?? table.name} has an invalid seat capacity.`,
+        cause,
+      })
+  );
+
 export const getWorkspaceTableSeatCapacity = Effect.fn(
   "WorkspaceTable.getSeatCapacity"
-)((table: DotyposTable) =>
-  Schema.decodeUnknownEffect(workspaceTableSeatCapacitySchema)(
-    table.seats
-  ).pipe(
-    Effect.mapError(
-      (cause) =>
-        new ValidationError({
-          message: `Dotypos workspace table ${table.id ?? table.name} has an invalid seat capacity.`,
-          cause,
-        })
+)((table: DotyposTable) => Effect.fromResult(decodeTableSeatCapacity(table)));
+
+/**
+ * Decodes every candidate's seat capacity, failing on the first table (in
+ * candidate order) whose capacity is invalid.
+ */
+export const decodeTableCandidates = (
+  tables: readonly DotyposTable[]
+): Result.Result<readonly WorkspaceTableCandidate[], ValidationError> => {
+  const candidates: WorkspaceTableCandidate[] = [];
+
+  for (const table of tables) {
+    const seatCapacity = decodeTableSeatCapacity(table);
+    if (Result.isFailure(seatCapacity))
+      return Result.fail(seatCapacity.failure);
+    candidates.push({ table, seatCapacity: seatCapacity.success });
+  }
+
+  return Result.succeed(candidates);
+};
+
+export const hasCandidateCapacity = (
+  candidates: readonly WorkspaceTableCandidate[],
+  occupancyByTableId: ReadonlyMap<DotyposTableId, number>,
+  seats = workspaceBookingSeatCount,
+  requireEmpty = false
+) =>
+  candidates.some((candidate) =>
+    hasWorkspaceTableCapacity(
+      candidate,
+      occupancyByTableId,
+      seats,
+      requireEmpty
     )
-  )
-);
+  );
 
 export const hasAvailableWorkspaceTableCandidate = (
   tables: readonly DotyposTable[],
@@ -157,14 +193,7 @@ export const hasAvailableWorkspaceTableCandidate = (
     getWorkspaceTableCandidates(tables, requiredTags)
   ).pipe(
     Effect.map((candidates) =>
-      candidates.some((candidate) =>
-        hasWorkspaceTableCapacity(
-          candidate,
-          occupancyByTableId,
-          seats,
-          requireEmpty
-        )
-      )
+      hasCandidateCapacity(candidates, occupancyByTableId, seats, requireEmpty)
     )
   );
 
@@ -179,14 +208,7 @@ export const hasAvailableWorkspaceTableCandidateByPredicate = (
     getWorkspaceTableCandidatesByPredicate(tables, isCandidateTable)
   ).pipe(
     Effect.map((candidates) =>
-      candidates.some((candidate) =>
-        hasWorkspaceTableCapacity(
-          candidate,
-          occupancyByTableId,
-          seats,
-          requireEmpty
-        )
-      )
+      hasCandidateCapacity(candidates, occupancyByTableId, seats, requireEmpty)
     )
   );
 
@@ -264,11 +286,7 @@ const selectDecodedWorkspaceTableFromCandidates = (
 };
 
 const decodeWorkspaceTableCandidates = (tables: readonly DotyposTable[]) =>
-  Effect.forEach(tables, (table) =>
-    getWorkspaceTableSeatCapacity(table).pipe(
-      Effect.map((seatCapacity) => ({ table, seatCapacity }))
-    )
-  );
+  Effect.fromResult(decodeTableCandidates(tables));
 
 const isAssignableWorkspaceTable = (
   table: DotyposTable,

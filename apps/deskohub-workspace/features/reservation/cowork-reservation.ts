@@ -27,17 +27,23 @@ import {
   getCurrentWorkspaceDate,
   isTodayOrFutureWorkspaceDate,
 } from "@/features/reservation/reservation-date";
-import type { ReservationIntervalInput } from "@/features/reservation/reservation-interval-domain";
+import type {
+  ReservationInterval,
+  ReservationIntervalInput,
+} from "@/features/reservation/reservation-interval-domain";
 import { coworkReservationKind } from "@/features/reservation/reservation-kind";
 import { workspaceSiteConstants } from "@/shared/utils/site-constants";
 import {
+  instantStringSchema,
   isPlainDateString,
   localDateTimeSchema,
+  localDateTimeToTemporalInstantString,
   plainDateStringSchema,
 } from "@/shared/utils/temporal";
 
 const decodeLocalDateTime = Schema.decodeUnknownSync(localDateTimeSchema);
 const decodePlainDate = Schema.decodeUnknownSync(plainDateStringSchema);
+const decodeInstant = Schema.decodeSync(instantStringSchema);
 
 const openSpaceExclusiveEndHour = 17;
 
@@ -50,7 +56,34 @@ const openSpaceExclusiveEndHour = 17;
 export const getCoworkReservationIntervalInput = (
   tier: WorkspaceCoworkProductTier | undefined,
   date: string
-): ReservationIntervalInput => {
+): ReservationIntervalInput => getCoworkLocalInterval(tier, date);
+
+/**
+ * The canonical cowork interval already resolved to site instants, equal to
+ * normalizing {@link getCoworkReservationIntervalInput}. Evaluating many
+ * dates synchronously avoids per-date validation overhead.
+ */
+export const getCoworkReservationInterval = (
+  tier: WorkspaceCoworkProductTier | undefined,
+  date: string
+): ReservationInterval => {
+  const { startsAt, endsAt } = getCoworkLocalInterval(tier, date);
+  const timeZone = workspaceSiteConstants.location.timeZone;
+
+  return {
+    startsAt: decodeInstant(
+      localDateTimeToTemporalInstantString({ dateTime: startsAt, timeZone })
+    ),
+    endsAt: decodeInstant(
+      localDateTimeToTemporalInstantString({ dateTime: endsAt, timeZone })
+    ),
+  };
+};
+
+const getCoworkLocalInterval = (
+  tier: WorkspaceCoworkProductTier | undefined,
+  date: string
+) => {
   if (tier === "open-space") {
     return {
       startsAt: decodeLocalDateTime(`${date}T00:00`),
