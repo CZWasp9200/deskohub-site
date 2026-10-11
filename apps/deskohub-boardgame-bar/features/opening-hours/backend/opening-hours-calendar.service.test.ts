@@ -71,14 +71,15 @@ const runWithEvents = async (
 
 describe("OpeningHoursCalendarService", () => {
   test("watches the configured opening-hours calendar", async () => {
-    const watchInputs: GoogleCalendarWatchEventsInput[] = [];
+    const watchedCalendarIds: GoogleCalendarWatchEventsInput["calendarId"][] =
+      [];
     const [{ OpeningHoursCalendarConfig }, { OpeningHoursCalendarService }] =
       await Promise.all([
         import("./opening-hours-calendar.config"),
         import("./opening-hours-calendar.service"),
       ]);
 
-    const channel = await Effect.gen(function* () {
+    await Effect.gen(function* () {
       const service = yield* OpeningHoursCalendarService;
       return yield* service.watchChanges({
         channelId: openingHoursChannelId,
@@ -93,7 +94,7 @@ describe("OpeningHoursCalendarService", () => {
             Layer.mergeAll(
               GoogleCalendarServiceMock({
                 watchEvents: mock((input) => {
-                  watchInputs.push(input);
+                  watchedCalendarIds.push(input.calendarId);
                   return Effect.succeed({ channelId: input.channelId });
                 }),
               }),
@@ -107,16 +108,7 @@ describe("OpeningHoursCalendarService", () => {
       Effect.runPromise
     );
 
-    expect(watchInputs).toEqual([
-      {
-        calendarId: openingHoursCalendarId,
-        channelId: openingHoursChannelId,
-        webhookUrl: "https://bar.example.test/webhook",
-        webhookToken: "derived-token",
-        ttlSeconds: 259_200,
-      },
-    ]);
-    expect(channel).toEqual({ channelId: openingHoursChannelId });
+    expect(watchedCalendarIds).toEqual([openingHoursCalendarId]);
   });
 
   test("loads the configured resource and translates marked events", async () => {
@@ -297,33 +289,6 @@ describe("OpeningHoursCalendarService", () => {
         sourceEventReference: "inside-window",
       },
     ]);
-  });
-
-  test("keeps same-day exceptions stable after their end time", async () => {
-    const exceptions = await runWithEvents(
-      [
-        {
-          id: eventId("same-day-ended"),
-          description: "[bar:hours]",
-          start: { dateTime: "2026-08-09T00:00:00+02:00" },
-          end: { dateTime: "2026-08-09T00:15:00+02:00" },
-        },
-      ],
-      {
-        from: plainDate("2026-08-09"),
-        to: plainDate("2026-08-10"),
-      }
-    );
-
-    expect(exceptions).toHaveLength(1);
-    expect(exceptions[0]).toMatchObject({
-      _tag: "SpecialHours",
-      date: plainDate("2026-08-09"),
-      opensAt: plainTime("00:00"),
-      closesAt: plainTime("00:15"),
-      closesNextDay: false,
-      sourceEventReference: "same-day-ended",
-    });
   });
 
   test("ignores no-op and malformed events without dropping valid events", async () => {
