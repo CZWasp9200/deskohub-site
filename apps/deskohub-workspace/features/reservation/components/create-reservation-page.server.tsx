@@ -36,18 +36,23 @@ type ReservationForKind<Kind extends ReservationKind> = Extract<
   { readonly kind: Kind }
 >;
 
-type ReservationPageContext<Kind extends ReservationKind> = {
+type ReservationPageContext<Kind extends ReservationKind, PageData> = {
   readonly checkoutSessionId?: CheckoutSessionId;
   /** The signed-in, linked customer the page books for by default. */
   readonly existingCustomer?: ReservationExistingCustomer<Kind>;
   readonly initialReservation?: ReservationForKind<Kind>;
   readonly locale: Locale;
+  /** Customer-independent data from the definition's `loadPageData`. */
+  readonly pageData: PageData;
   readonly replacementToken?: string;
   readonly searchParams: SearchParamsRecord;
   readonly submittedCode?: CanonicalPromotionCode;
 };
 
-type ReservationPageDefinition<Kind extends ReservationKind> = {
+type ReservationPageDefinition<
+  Kind extends ReservationKind,
+  PageData = undefined,
+> = {
   readonly fallback: (locale: Locale) => ReactNode;
   readonly isEnabled?: () => boolean | Promise<boolean>;
   readonly kind: Kind;
@@ -57,9 +62,17 @@ type ReservationPageDefinition<Kind extends ReservationKind> = {
   };
   readonly pathname: string;
   readonly render: (
-    context: ReservationPageContext<Kind>
+    context: ReservationPageContext<Kind, PageData>
   ) => ReactNode | Promise<ReactNode>;
-};
+} & ([PageData] extends [undefined]
+  ? { readonly loadPageData?: undefined }
+  : {
+      /**
+       * Loads data that depends on neither the visitor nor the restored
+       * reservation, alongside them. A rejection fails the page.
+       */
+      readonly loadPageData: () => Promise<PageData>;
+    });
 
 type LocalizedReservationPageProps = {
   readonly searchParams: Promise<SearchParamsRecord>;
@@ -95,9 +108,10 @@ export const loadRestoredReservation = Effect.fn(
   };
 });
 
-export function createReservationPage<const Kind extends ReservationKind>(
-  definition: ReservationPageDefinition<Kind>
-) {
+export function createReservationPage<
+  const Kind extends ReservationKind,
+  PageData = undefined,
+>(definition: ReservationPageDefinition<Kind, PageData>) {
   async function generateMetadata(): Promise<Metadata> {
     return runWithRequestLocale(async (locale) => {
       if (definition.isEnabled && !(await definition.isEnabled())) notFound();
@@ -157,22 +171,17 @@ export function createReservationPage<const Kind extends ReservationKind>(
   return { generateMetadata, Page };
 }
 
-async function ReservationPageContent<Kind extends ReservationKind>({
+async function ReservationPageContent<Kind extends ReservationKind, PageData>({
   definition,
   searchParams,
 }: {
-  readonly definition: ReservationPageDefinition<Kind>;
+  readonly definition: ReservationPageDefinition<Kind, PageData>;
   readonly searchParams: Promise<SearchParamsRecord>;
 }) {
   await connection();
   const resolvedSearchParams = await searchParams;
 
   return runWithRequestLocale(async (locale) => {
-    const restoredReservation = await loadRestoredReservation(
-      getSearchParam(resolvedSearchParams, payStateTokenQueryParam),
-      locale,
-      definition.kind
-    ).pipe(runWorkspaceEffect(`reservation.${definition.kind}.load-state`));
     const normalizedCode = await normalizeSubmittedPromotionCode({
       submittedCode: getSearchParam(
         resolvedSearchParams,
@@ -183,13 +192,26 @@ async function ReservationPageContent<Kind extends ReservationKind>({
       runWorkspaceEffect(`reservation.${definition.kind}.normalize-code`)
     );
     const submittedCode = Option.getOrUndefined(normalizedCode);
-    const existingCustomer = await loadReservationExistingCustomer(
-      definition.kind
+    // None of these depends on another: the restored reservation reads only
+    // the signed token, the existing customer only the session, and the page
+    // data neither. Every step before render waits on the slowest of them.
+    const [restoredReservation, existingCustomer, pageData] = await Promise.all(
+      [
+        loadRestoredReservation(
+          getSearchParam(resolvedSearchParams, payStateTokenQueryParam),
+          locale,
+          definition.kind
+        ).pipe(runWorkspaceEffect(`reservation.${definition.kind}.load-state`)),
+        loadReservationExistingCustomer(definition.kind),
+        definition.loadPageData?.(),
+      ]
     );
 
     return definition.render({
       existingCustomer,
       locale,
+      // A definition without a loader has `undefined` page data.
+      pageData: pageData as PageData,
       searchParams: resolvedSearchParams,
       submittedCode,
       ...restoredReservation,

@@ -41,7 +41,11 @@ const runCurrent = (
     readonly session?: CustomerAccountSession | null;
     readonly find?: ReturnType<typeof mock>;
     readonly profile?: CustomerProfile;
-  } = {}
+  } = {},
+  operation: (
+    contacts: CustomerAccountContactService["Service"]
+  ) => Effect.Effect<unknown, CustomerAccountAccessError> = (contacts) =>
+    contacts.current
 ) => {
   const find =
     options.find ?? mock(() => Effect.succeed(dotyposCustomerId as never));
@@ -73,7 +77,7 @@ const runCurrent = (
 
   return Effect.gen(function* () {
     const contacts = yield* CustomerAccountContactService;
-    return yield* contacts.current;
+    return yield* operation(contacts);
   })
     .pipe(Effect.provide(layer), Effect.result, Effect.runPromise)
     .then((outcome) => ({
@@ -227,5 +231,51 @@ describe("CustomerAccountContactService.current", () => {
     }).pipe(Effect.provide(layer), Effect.result, Effect.runPromise);
 
     expect(outcome).toMatchObject({ _tag: "Failure", failure: profileFailure });
+  });
+});
+
+describe("CustomerAccountContactService.currentLinkedAccount", () => {
+  test("returns the session's link without reading the profile", async () => {
+    const { outcome, find, load } = await runCurrent(
+      {},
+      (contacts) => contacts.currentLinkedAccount
+    );
+
+    expect(outcome).toMatchObject({
+      _tag: "Success",
+      success: { accountId, dotyposCustomerId, email: "ada@example.test" },
+    });
+    expect(find).toHaveBeenCalledWith(accountId);
+    expect(load).not.toHaveBeenCalled();
+  });
+
+  test("returns null for a deletion-pending session without reading the link", async () => {
+    const { outcome, find } = await runCurrent(
+      { session: session({ deletionRequested: true }) },
+      (contacts) => contacts.currentLinkedAccount
+    );
+
+    expect(outcome).toMatchObject({ _tag: "Success", success: null });
+    expect(find).not.toHaveBeenCalled();
+  });
+});
+
+describe("CustomerAccountContactService.linkedContact", () => {
+  test("reads the given link's profile into its contact", async () => {
+    const account = {
+      accountId,
+      dotyposCustomerId: dotyposCustomerId as never,
+      email: reservationCustomerEmailSchema.make("ada@example.test"),
+    };
+    const { outcome, find, load } = await runCurrent({}, (contacts) =>
+      contacts.linkedContact(account)
+    );
+
+    expect(outcome).toMatchObject({
+      _tag: "Success",
+      success: { ...account, name: "Ada Lovelace" },
+    });
+    expect(find).not.toHaveBeenCalled();
+    expect(load).toHaveBeenCalledWith({ accountId, dotyposCustomerId });
   });
 });

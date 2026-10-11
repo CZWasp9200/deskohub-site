@@ -55,11 +55,16 @@ test("synthetic referral coverage fixes every state, locale, viewport, and filen
 });
 
 test("capture command only accepts a label, output root, and renderer port", () => {
-  expect(parseReferralCaptureArgs(["--label", "referrals-synthetic"])).toEqual({
+  const argumentsWithoutPort = ["--label", "referrals-synthetic"];
+
+  expect(parseReferralCaptureArgs(argumentsWithoutPort, "3111")).toEqual({
     label: "referrals-synthetic",
     outputRoot: defaultOutputRoot,
     port: 3111,
   });
+  expect(parseReferralCaptureArgs(argumentsWithoutPort, "34661").port).toBe(
+    34661
+  );
   expect(() =>
     parseReferralCaptureArgs([
       "--label",
