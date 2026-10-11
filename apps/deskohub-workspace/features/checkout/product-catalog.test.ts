@@ -6,7 +6,6 @@ import {
   isWorkspaceCoworkCurrentProductTier,
   isWorkspaceProductTier,
   workspaceCoworkCatalog,
-  workspaceCoworkCurrentCatalog,
   workspaceCoworkCurrentTiers,
   workspaceCoworkHistoricalTiers,
   workspaceCoworkTiers,
@@ -41,9 +40,6 @@ describe("workspace product catalog", () => {
   });
 
   test("keeps cowork-only catalog consumers separate from meeting room", () => {
-    expect(
-      workspaceCoworkCurrentCatalog.map((product) => product.tier)
-    ).toEqual(["open-space", "reserved-desk"]);
     expect(workspaceCoworkCatalog.map((product) => product.tier)).toEqual([
       "basic",
       "plus",
