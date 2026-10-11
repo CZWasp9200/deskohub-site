@@ -8,10 +8,7 @@ const reservationAnalyticsUtmKeys = [
 
 type ReservationAnalyticsUtmKey = (typeof reservationAnalyticsUtmKeys)[number];
 
-const reservationAvailabilityResults = [
-  "available",
-  "unavailable",
-] as const;
+const reservationAvailabilityResults = ["available", "unavailable"] as const;
 export type ReservationAvailabilityResult =
   (typeof reservationAvailabilityResults)[number];
 
