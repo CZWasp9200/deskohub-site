@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { fileURLToPath } from "node:url";
+import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import type { Page } from "@playwright/test";
 import { m } from "@/features/i18n";
 import {
@@ -34,7 +35,6 @@ type FakeLocator = {
 type FakeConsentPage = {
   readonly clickCount: () => number;
   readonly evaluateArguments: readonly string[];
-  readonly evaluateFunctions: readonly unknown[];
   readonly page: Page;
 };
 
@@ -47,7 +47,6 @@ const makeFakeConsentPage = (input: {
   let evaluateIndex = 0;
   let clickCount = 0;
   const evaluateArguments: string[] = [];
-  const evaluateFunctions: unknown[] = [];
   const getNecessaryVisibility = () => necessaryVisible;
   const getAnalyticsVisibility = () => input.analyticsVisible;
 
@@ -73,8 +72,7 @@ const makeFakeConsentPage = (input: {
   const necessaryOnlyButton = makeLocator(getNecessaryVisibility);
   const analyticsCheckbox = makeLocator(getAnalyticsVisibility);
   const page = Object.assign({} as Page, {
-    evaluate: async (pageFunction: unknown, selector: string) => {
-      evaluateFunctions.push(pageFunction);
+    evaluate: async (_pageFunction: unknown, selector: string) => {
       evaluateArguments.push(selector);
       const result =
         input.hydrationResults[
@@ -98,7 +96,6 @@ const makeFakeConsentPage = (input: {
   return {
     clickCount: () => clickCount,
     evaluateArguments,
-    evaluateFunctions,
     page,
   };
 };
@@ -127,7 +124,6 @@ test("waits for an inline analytics control when the consent banner is absent", 
 
   expect(fake.clickCount()).toBe(0);
   expect(fake.evaluateArguments).toEqual([analyticsCheckboxSelector]);
-  expect(fake.evaluateFunctions).toEqual([hasReactClickHandler]);
 });
 
 test("does not race a visible but unhydrated inline analytics control", async () => {
@@ -140,15 +136,32 @@ test("does not race a visible but unhydrated inline analytics control", async ()
   await dismissLegalCookieConsent(fake.page, locale);
 
   expect(fake.clickCount()).toBe(0);
-  expect(fake.evaluateArguments.length).toBeGreaterThanOrEqual(2);
   expect(fake.evaluateArguments).toEqual([
     analyticsCheckboxSelector,
     analyticsCheckboxSelector,
   ]);
-  expect(fake.evaluateFunctions).toEqual([
-    hasReactClickHandler,
-    hasReactClickHandler,
-  ]);
+});
+
+test("detects the hydrated React click handler on the consent control", async () => {
+  GlobalRegistrator.register({ url: "https://workspace.example.test/" });
+  try {
+    document.body.innerHTML = `<input id="cookie-category-analytics" type="checkbox" />`;
+    const checkbox = document.querySelector(analyticsCheckboxSelector)!;
+
+    expect(hasReactClickHandler(analyticsCheckboxSelector)).toBe(false);
+    // React stores the current props on the element under a random suffix.
+    const reactProps = { onChange: (): void => undefined } as {
+      onChange: () => void;
+      onClick?: () => void;
+    };
+    Object.assign(checkbox, { __reactProps$test: reactProps });
+    expect(hasReactClickHandler(analyticsCheckboxSelector)).toBe(false);
+    reactProps.onClick = () => undefined;
+    expect(hasReactClickHandler(analyticsCheckboxSelector)).toBe(true);
+    expect(hasReactClickHandler("#missing")).toBe(false);
+  } finally {
+    await GlobalRegistrator.unregister();
+  }
 });
 
 test("does not forge consent cookies or use timer delays", () => {
@@ -168,5 +181,4 @@ test("does not forge consent cookies or use timer delays", () => {
   ]) {
     expect(identifiers.has(forbidden)).toBe(false);
   }
-  expect(typeof hasReactClickHandler).toBe("function");
 });

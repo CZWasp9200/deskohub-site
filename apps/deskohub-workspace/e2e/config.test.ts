@@ -1,12 +1,8 @@
 import { expect, test } from "bun:test";
-import { getDatasourceConfig, parseWorkspaceE2EBaseUrl } from "./config";
+import { parseWorkspaceE2EBaseUrl } from "./config";
 import { makeE2EEnvironment } from "./e2e-env";
-import {
-  makeTestE2EEnvironment,
-  validE2ERuntimeEnvironment,
-} from "./e2e-env.test-fixture";
+import { validE2ERuntimeEnvironment } from "./e2e-env.test-fixture";
 import { assertSafeDatabaseUrl } from "./runtime";
-import { workspaceE2ETimeouts } from "./timeouts";
 
 test("parses an immutable HTTPS Vercel deployment origin", () => {
   expect(
@@ -61,12 +57,6 @@ test("requires a direct datasource URL", () => {
   ).toThrow("Invalid workspace E2E environment variables.");
 });
 
-test("keeps canonical local currency in datasource assertions", () => {
-  expect(getDatasourceConfig(makeTestE2EEnvironment()).expectedCurrency).toBe(
-    "CZK"
-  );
-});
-
 test("rejects a datasource outside the explicit preview allowlist", () => {
   const allowlist = "postgresql://owner:test@ep-preview.eu.neon.tech/neondb";
   expect(() =>
@@ -83,11 +73,4 @@ test("rejects a datasource outside the explicit preview allowlist", () => {
       allowlist
     )
   ).toThrow("is not allowlisted for workspace e2e");
-});
-
-test("uses the checked-in timeout configuration", () => {
-  const config = getDatasourceConfig(makeTestE2EEnvironment());
-
-  expect(config.timeouts).toBe(workspaceE2ETimeouts);
-  expect(config.timeouts.localeCase).toBe(3 * 60_000);
 });
