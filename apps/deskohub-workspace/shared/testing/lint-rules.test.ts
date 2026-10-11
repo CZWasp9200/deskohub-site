@@ -1,33 +1,38 @@
-import { afterAll, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { afterAll, beforeAll, expect, test } from "bun:test";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runCommand } from "@/scripts/shared/command";
 
 const repositoryRoot = fileURLToPath(new URL("../../../..", import.meta.url));
 const fixtureRoot = mkdtempSync(join(tmpdir(), "deskohub-lint-rules-"));
 const config = join(fixtureRoot, "biome.json");
-const unlimited = "--max-diagnostics=none";
+
+const repositoryConfig = JSON.parse(
+  readFileSync(join(repositoryRoot, "biome.json"), "utf8")
+) as {
+  readonly plugins: readonly string[];
+  readonly overrides: readonly { readonly includes: readonly string[] }[];
+};
+
+// Every case lives in its own `case-<n>/` directory beside its siblings, so the
+// repository's path-scoped overrides gain one leading directory segment.
+const caseScoped = (glob: string) =>
+  glob.startsWith("!") ? `!*/${glob.slice(1)}` : `*/${glob}`;
 
 // biome-ignore format: compact configuration literal.
 writeFileSync(config, JSON.stringify({
   linter: { enabled: true },
-  plugins: [
-    join(repositoryRoot, "lint", "no-synchronous-subprocess.grit"),
-    join(repositoryRoot, "lint", "no-wildcard-reexport.grit"),
-    join(repositoryRoot, "lint", "prefer-effect-fn.grit"),
-    join(repositoryRoot, "lint", "prefer-effect-value.grit"),
-  ],
+  plugins: repositoryConfig.plugins.map((plugin) => join(repositoryRoot, plugin)),
+  overrides: repositoryConfig.overrides.map((override) => ({ ...override, includes: override.includes.map(caseScoped) })),
 }));
-
-const lintModule = (module: string, source: string) => {
-  const path = join(fixtureRoot, module);
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, source);
-  const args = ["lint", path, "--config-path", config, unlimited];
-  return runCommand(["bunx", "biome", ...args], { cwd: repositoryRoot });
-};
 
 type Row = readonly [string, string, boolean, string?];
 
@@ -145,6 +150,19 @@ const booking = `${reservations}/book-seat.ts`;
 const generated =
   "apps/deskohub-workspace/shared/backend/generated/dotypos-client.ts";
 
+const account = "apps/deskohub-workspace/features/account";
+const accountBackend = `${account}/backend`;
+const authServer = `${accountBackend}/auth/auth-server.ts`;
+const admin = "apps/deskohub-workspace/app/admin";
+const capabilityClass =
+  'export class ReservationService extends Context.Service<ReservationService, { readonly hold: () => Effect.Effect<void> }>()("ReservationService") {\n  static Default = Layer.succeed(this, { hold: () => Effect.void });\n}\n';
+const breadcrumbLoader =
+  "apps/deskohub-workspace/features/accounting/admin/invoice-breadcrumb.server.ts";
+const breadcrumbs =
+  "apps/deskohub-workspace/features/administration/breadcrumb.server.tsx";
+const featureFlags =
+  "apps/deskohub-workspace/features/feature-flags/backend/workspace-feature-flag.service.ts";
+
 // biome-ignore format: the case table stays one row per line on purpose.
 const rules: { name: string; diagnostic: string; module: string; cases: Row[] }[] = [
   {
@@ -217,11 +235,6 @@ const rules: { name: string; diagnostic: string; module: string; cases: Row[] }[
     ],
   },
   {
-    name: "prefer-effect-fn-analytics", diagnostic: "Define Effect generator functions with Effect.fn",
-    module: "apps/deskohub-workspace/features/checkout/backend/analytics/publish-analytics.ts",
-    cases: [["retains the bare arrow restriction", untracedGen, true]],
-  },
-  {
     name: "prefer-effect-value", diagnostic: "Define a lazy Effect value",
     module: "apps/deskohub-workspace/features/reservation/load-value.ts",
     cases: [
@@ -260,32 +273,236 @@ const rules: { name: string; diagnostic: string; module: string; cases: Row[] }[
       ["permits modules outside Workspace", 'Bun.spawnSync({ cmd: ["git", "status"] });\n', false, "apps/dhw/src/probe.ts"],
     ],
   },
+  {
+    name: "no-standalone-capability-layers", diagnostic: "instead of a standalone layer constant",
+    module: `${reservations}/reservation.service.ts`,
+    cases: [
+      ["rejects a Live constant beside its capability", `${capabilityClass}export const ReservationServiceLive = ReservationService.Default;\n`, true],
+      ["rejects a Default constant for an imported capability", 'import { ReservationService } from "./reservation.service";\nexport const ReservationServiceDefault = ReservationService.Default;\n', true],
+      ["rejects a LiveWithDependencies constant", `${capabilityClass}export const ReservationServiceLiveWithDependencies = ReservationService.Default;\n`, true],
+      ["rejects standalone layers in shared packages", `${capabilityClass}export const ReservationServiceLive = ReservationService.Default;\n`, true, "packages/dotypos/src/backend/reservation.ts"],
+      ["permits static layer members", capabilityClass, false],
+      ["permits a composed route layer", 'import { ReservationService } from "./reservation.service";\nconst ConsumerLive = Layer.mergeAll(ReservationService.Default);\nvoid ConsumerLive;\n', false],
+      ["permits a layer for an imported tag without static layers", 'import { CliBearerAuthentication } from "@deskohub/workspace-admin-api";\nconst CliBearerAuthenticationLive = Layer.effect(CliBearerAuthentication, Effect.succeed({}));\nvoid CliBearerAuthenticationLive;\n', false],
+      ["permits a layer named after an unbound concept", 'export const WorkspaceTracingLive = Layer.empty;\n', false],
+      ["permits generated modules", `${capabilityClass}export const ReservationServiceLive = ReservationService.Default;\n`, false, generated],
+    ],
+  },
+  {
+    name: "no-standalone-capability-layers-live-name", diagnostic: "not `LiveWithDependencies`",
+    module: `${reservations}/reservation.service.ts`,
+    cases: [
+      ["rejects a LiveWithDependencies static member", 'export class ReservationLayers {\n  static LiveWithDependencies = Layer.empty;\n}\n', true],
+      ["rejects reading a LiveWithDependencies member", "export const layer = ReservationService.LiveWithDependencies;\n", true],
+      ["permits a Live member", "export const layer = ReservationService.Live;\n", false],
+    ],
+  },
+  {
+    name: "no-backend-runtime-directives", diagnostic: "Backend modules must not declare",
+    module: `${accountBackend}/customer-profile.service.ts`,
+    cases: [
+      ["rejects use client", '"use client";\nexport const profile = 1;\n', true],
+      ["rejects use server", "'use server';\nexport const profile = 1;\n", true],
+      ["rejects directives in nested backend modules", '"use server";\nexport const hold = 1;\n', true, "apps/deskohub-workspace/features/checkout/backend/payments/hold.ts"],
+      ["permits a server action module", '"use server";\nexport const updateProfile = async () => undefined;\n', false, `${account}/actions.ts`],
+      ["permits a directive-like string value", 'export const mode = "use server";\n', false],
+    ],
+  },
+  {
+    name: "no-better-auth-in-account-domain", diagnostic: "Keep Better Auth names out",
+    module: `${account}/contracts.ts`,
+    cases: [
+      ["rejects a Better Auth type name", "export type BetterAuthSession = { readonly id: string };\n", true],
+      ["rejects a better-auth string", 'export const provider = "better-auth";\n', true],
+      ["rejects Better Auth names in the domain backend", 'import { readBetterAuthUser } from "./auth/auth-server";\nexport const user = readBetterAuthUser;\n', true, `${accountBackend}/customer-profile.service.ts`],
+      ["permits account names", "export type CustomerSession = { readonly id: string };\n", false],
+      ["permits the auth boundary", "export type BetterAuthSession = { readonly id: string };\n", false, `${accountBackend}/auth/auth-options.ts`],
+    ],
+  },
+  {
+    name: "account Better Auth import boundary", diagnostic: "Import Better Auth only inside the account auth boundary",
+    module: `${accountBackend}/customer-profile.service.ts`,
+    cases: [
+      ["rejects the Better Auth root module", 'import { betterAuth } from "better-auth";\nexport { betterAuth };\n', true],
+      ["rejects a Better Auth subpath", 'import { magicLink } from "better-auth/plugins";\nexport { magicLink };\n', true],
+      ["rejects a scoped Better Auth package", 'import { drizzleAdapter } from "@better-auth/drizzle-adapter/relations-v2";\nexport { drizzleAdapter };\n', true],
+      ["permits account tests that simulate Better Auth errors", 'import { betterAuth } from "better-auth";\nexport { betterAuth };\n', false, `${account}/actions.test.ts`],
+      ["permits the auth backend", 'import { betterAuth } from "better-auth";\nexport { betterAuth };\n', false, authServer],
+      ["permits the session adapter", 'import { betterAuth } from "better-auth";\nexport { betterAuth };\n', false, `${accountBackend}/customer-authentication.service.ts`],
+      ["permits the browser auth client", 'import { createAuthClient } from "better-auth/client";\nexport { createAuthClient };\n', false, `${account}/auth.client.ts`],
+      ["permits modules outside the account feature", 'import { betterAuth } from "better-auth";\nexport { betterAuth };\n', false, "apps/deskohub-workspace/features/checkout/backend/session.ts"],
+    ],
+  },
+  {
+    name: "account auth backend client modules", diagnostic: "The browser auth client lives only",
+    module: authServer,
+    cases: [
+      ["rejects the browser client", 'import { createAuthClient } from "better-auth/client";\nexport { createAuthClient };\n', true],
+      ["rejects the React client", 'import { createAuthClient } from "better-auth/react";\nexport { createAuthClient };\n', true],
+      ["permits server plugins", 'import { magicLink } from "better-auth/plugins";\nexport { magicLink };\n', false],
+    ],
+  },
+  {
+    name: "account auth backend Next handler", diagnostic: "calls auth.handler directly",
+    module: authServer,
+    cases: [
+      ["rejects toNextJsHandler", 'import { toNextJsHandler } from "better-auth/next-js";\nexport { toNextJsHandler };\n', true],
+      ["permits nextCookies", 'import { nextCookies } from "better-auth/next-js";\nexport { nextCookies };\n', false],
+    ],
+  },
+  {
+    name: "lazy feature flag providers", diagnostic: "lazily with a dynamic import",
+    module: featureFlags,
+    cases: [
+      ["rejects a static server-only import", 'import "server-only";\nexport const flags = 1;\n', true],
+      ["rejects a static Node provider import", 'import { NodeFeatureFlags } from "./node";\nexport { NodeFeatureFlags };\n', true],
+      ["rejects a static subject import", 'import { readSubject } from "./subject";\nexport { readSubject };\n', true],
+      ["permits lazy provider imports", 'export const loadProviders = () => Promise.all([import("./node"), import("./subject")]);\n', false],
+      ["permits other feature flag modules", 'import "server-only";\nexport const flags = 1;\n', false, "apps/deskohub-workspace/features/feature-flags/backend/node.ts"],
+    ],
+  },
+  {
+    name: "administration UI imports", diagnostic: "Compose administration tables through AdministrationDataTable",
+    module: `${admin}/orders/page.tsx`,
+    cases: [
+      ["rejects table primitives in a route page", 'import { Table } from "@/shared/components/ui/table";\nexport { Table };\n', true],
+      ["rejects table primitives in a feature table", 'import { Table } from "@/shared/components/ui/table";\nexport { Table };\n', true, "apps/deskohub-workspace/features/discounts/admin/admin-tables.tsx"],
+      ["permits the shared data table", 'import { Table } from "@/shared/components/ui/table";\nexport { Table };\n', false, "apps/deskohub-workspace/features/administration/data-table.tsx"],
+      ["permits table primitives outside administration", 'import { Table } from "@/shared/components/ui/table";\nexport { Table };\n', false, "apps/deskohub-workspace/features/account/components/history.tsx"],
+    ],
+  },
+  {
+    name: "administration UI badge imports", diagnostic: "Use the shared administration table toolbar and count badge",
+    module: `${admin}/orders/page.tsx`,
+    cases: [
+      ["rejects badge primitives in a route page", 'import { Badge } from "@/shared/components/ui/badge";\nexport { Badge };\n', true],
+      ["permits the shared table toolbar", 'import { Badge } from "@/shared/components/ui/badge";\nexport { Badge };\n', false, "apps/deskohub-workspace/features/administration/table-toolbar.tsx"],
+    ],
+  },
+  {
+    name: "administration request boundary", diagnostic: "establish the request boundary only through authorizeAdministratorPage",
+    module: "apps/deskohub-workspace/features/administration/page-data.server.ts",
+    cases: [
+      ["rejects connection in administration page data", 'import { connection } from "next/server";\nexport { connection };\n', true],
+      ["rejects connection in the administration layout", 'import { connection } from "next/server";\nexport { connection };\n', true, `${admin}/layout.tsx`],
+      ["permits other next/server imports", 'import { after } from "next/server";\nexport { after };\n', false],
+      ["permits the shared authorization gate", 'import { connection } from "next/server";\nexport { connection };\n', false, "apps/deskohub-workspace/shared/administrator/administrator-authorization.server.ts"],
+    ],
+  },
+  {
+    name: "no-blocking-administration-routes", diagnostic: "must not export an async default component",
+    module: `${admin}/orders/page.tsx`,
+    cases: [
+      ["rejects an async page", "export default async function OrdersPage() { return null; }\n", true],
+      ["rejects an async layout", "export default async function AdministrationLayout() { return null; }\n", true, `${admin}/layout.tsx`],
+      ["rejects an async arrow page", "export default async () => null;\n", true],
+      ["permits a synchronous page", "export default function OrdersPage() { return null; }\n", false],
+      ["permits an async breadcrumb slot", "export default async function OrderBreadcrumb() { return null; }\n", false, `${admin}/@breadcrumb/orders/[orderId]/page.tsx`],
+      ["permits async route components", "export default async function OrdersTable() { return null; }\n", false, `${admin}/orders/orders-table.tsx`],
+    ],
+  },
+  {
+    name: "no-heavy-breadcrumb-imports", diagnostic: "Breadcrumb loaders read narrow entity labels",
+    module: breadcrumbLoader,
+    cases: [
+      ["rejects page data", 'import { loadInvoiceAdministrationDetail } from "./page-data.server";\nexport { loadInvoiceAdministrationDetail };\n', true],
+      ["rejects the invoice administration service", 'import { InvoiceAdministrationService } from "./invoice-administration.service";\nexport { InvoiceAdministrationService };\n', true],
+      ["rejects Dotypos", 'import { DotyposService } from "@deskohub/dotypos";\nexport { DotyposService };\n', true],
+      ["rejects the Dotypos config", 'import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";\nexport { WorkspaceDotyposLayer };\n', true],
+      ["rejects invoice email delivery", 'import { InvoiceEmailDeliveryRepository } from "@/features/accounting/backend/invoice-email-delivery.repository";\nexport { InvoiceEmailDeliveryRepository };\n', true],
+      ["rejects snapshots in the authorization gate", 'import { readSnapshot } from "@/features/accounting/backend/accounting-snapshot-sql";\nexport { readSnapshot };\n', true, "apps/deskohub-workspace/shared/administrator/administrator-authorization.server.ts"],
+      ["rejects detail loaders in the breadcrumb surface", 'import { loadAdministrationBooking } from "@/features/administration/page-data.server";\nexport { loadAdministrationBooking };\n', true, breadcrumbs],
+      ["rejects accounting page data in the breadcrumb surface", 'import { loadInvoiceLabel } from "@/features/accounting/admin/page-data.server";\nexport { loadInvoiceLabel };\n', true, breadcrumbs],
+      ["permits the breadcrumb service", 'import { InvoiceBreadcrumbService } from "./invoice-breadcrumb.service";\nexport { InvoiceBreadcrumbService };\n', false],
+      ["permits label loaders in the breadcrumb surface", 'import { loadAdministrationBookingBreadcrumbLabel } from "@/features/administration/page-data.server";\nexport { loadAdministrationBookingBreadcrumbLabel };\n', false, breadcrumbs],
+      ["permits page data in administration pages", 'import { loadInvoiceAdministrationDetail } from "./page-data.server";\nexport { loadInvoiceAdministrationDetail };\n', false, "apps/deskohub-workspace/features/accounting/admin/invoice-detail.tsx"],
+    ],
+  },
+  {
+    name: "no-local-administration-chrome", diagnostic: "Use the shared administration EmptyState",
+    module: "apps/deskohub-workspace/features/administration/booking-table.tsx",
+    cases: [
+      ["rejects a local EmptyState", "function EmptyState() { return null; }\nexport const table = EmptyState;\n", true],
+      ["rejects a local SortIcon", "const SortIcon = () => null;\nexport const table = SortIcon;\n", true, `${admin}/orders/page.tsx`],
+      ["permits the shared EmptyState", 'import { EmptyState } from "./empty-state";\nexport const table = EmptyState;\n', false],
+      ["permits the EmptyState foundation", "export function EmptyState() { return null; }\n", false, "apps/deskohub-workspace/features/administration/empty-state.tsx"],
+      ["permits chrome outside administration", "function EmptyState() { return null; }\nexport const list = EmptyState;\n", false, "apps/deskohub-workspace/features/account/components/history.tsx"],
+    ],
+  },
 ];
 
-for (const { name, diagnostic, module, cases } of rules) {
-  for (const [behavior, source, flagged, override] of cases) {
-    test(`${name} ${behavior}`, async () => {
-      const result = await lintModule(override ?? module, source);
-      const output = `${result.stdout}${result.stderr}`;
-      expect(output.includes(diagnostic)).toBe(flagged);
-      expect(result.exitCode).toBe(flagged ? 1 : 0);
-    });
-  }
-}
+const lintCases = rules.flatMap(({ name, diagnostic, module, cases }) =>
+  cases.map(([behavior, source, flagged, override]) => ({
+    title: `${name} ${behavior}`,
+    diagnostic,
+    flagged,
+    module: override ?? module,
+    source,
+  }))
+);
 
-test("prefer-effect-fn emits exactly one diagnostic for a named Effect.fn arrow with three trailing transforms", async () => {
-  const result = await lintModule(
-    "apps/deskohub-workspace/features/reservation/load-reservation.ts",
-    traced(gen, threeTransforms)
+const writeCase = (directory: string, module: string, source: string) => {
+  const path = join(fixtureRoot, directory, module);
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, source);
+  return path;
+};
+
+const casePaths = lintCases.map(({ module, source }, index) =>
+  writeCase(`case-${index}`, module, source)
+);
+const singleDiagnosticPath = writeCase(
+  "case-single-diagnostic",
+  "apps/deskohub-workspace/features/reservation/load-reservation.ts",
+  traced(gen, threeTransforms)
+);
+
+// One Biome run lints the whole corpus; each case reads its own file's messages.
+const messagesByPath = new Map<string, string[]>();
+
+beforeAll(async () => {
+  const result = await runCommand(
+    [
+      "bunx",
+      "biome",
+      "lint",
+      fixtureRoot,
+      "--config-path",
+      config,
+      "--reporter=json",
+      "--max-diagnostics=none",
+    ],
+    { cwd: repositoryRoot }
   );
-  const output = `${result.stdout}${result.stderr}`;
+  const report = JSON.parse(result.stdout) as {
+    readonly diagnostics: readonly {
+      readonly message: string;
+      readonly location: { readonly path: string };
+    }[];
+  };
+  for (const { message, location } of report.diagnostics) {
+    const path = resolve(repositoryRoot, location.path);
+    messagesByPath.set(path, [...(messagesByPath.get(path) ?? []), message]);
+  }
+});
+
+const messagesOf = (path: string) => messagesByPath.get(path) ?? [];
+
+lintCases.forEach(({ title, diagnostic, flagged }, index) => {
+  test(title, () => {
+    const reported = messagesOf(casePaths[index]!).some((message) =>
+      message.includes(diagnostic)
+    );
+    expect(reported).toBe(flagged);
+  });
+});
+
+test("prefer-effect-fn emits exactly one diagnostic for a named Effect.fn arrow with three trailing transforms", () => {
   expect(
-    output.split("Define Effect generator functions with Effect.fn").length - 1
-  ).toBe(1);
-  expect(
-    output.split("declare the generator function directly").length - 1
-  ).toBe(0);
-  expect(result.exitCode).toBe(1);
+    messagesOf(singleDiagnosticPath).filter((message) =>
+      message.includes("Define Effect generator functions with Effect.fn")
+    )
+  ).toHaveLength(1);
 });
 
 afterAll(() => rmSync(fixtureRoot, { recursive: true, force: true }));

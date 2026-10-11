@@ -63,6 +63,14 @@ Workspace `lint` includes `lint:knip`, the full Knip analysis of `apps/deskohub-
 
 Workspace has additional database and E2E tasks. Read the Workspace operations or E2E skill before running them against any shared or hosted environment.
 
+## Test placement
+
+- Test behaviour at the cheapest layer that has the infrastructure it needs. Put CSS, animation, layout, and focus facts in component tests or real-browser component tests (`shared/testing/playwright-browser.ts`), not E2E. Keep E2E for cross-page flows, auth, persistence, payments, integrations, and deployment behaviour.
+- No tautological tests: do not re-assert source text, constants, config literals, mock return values, or your own fixtures.
+- Convention and import-boundary guards are lint rules, not tests. Use a `noRestrictedImports` override in the root `biome.json` or a Grit plugin under `lint/`, and add rejecting and permitting cases to `shared/testing/lint-rules.test.ts`, which lints its whole corpus in one Biome run with the repository plugins and overrides. Biome replaces a rule's options across matching overrides instead of merging them, so keep `noRestrictedImports` scopes disjoint and use Grit for an overlapping file set. `noRestrictedImports` also reports dynamic `import()`; use Grit when only static imports are banned.
+- Real-clock waits (retry backoff, sleeps, delays) use Effect `TestClock`, injected zero-delay schedules, or fake timers.
+- Test SQL behaviour against Postgres (`*.postgres.test.ts`), not SQL text.
+
 ## Environment files
 
 Each application owns its `.env.example`. Copy it to the app-local ignored environment file and keep developer-only values in app-local ignored overrides.
