@@ -7,8 +7,18 @@ import {
   mock,
   test,
 } from "bun:test";
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  waitFor,
+} from "@testing-library/react";
+import { Schema } from "effect";
+import { type ComponentProps, useState } from "react";
 import { useForm } from "react-hook-form";
+import { discountIdSchema } from "@/features/discounts/contracts";
+import { m } from "@/features/i18n";
 import {
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
@@ -43,14 +53,19 @@ type HarnessValues = {
   readonly phone: string;
 };
 
+type CheckoutFormProps = ComponentProps<typeof ReservationCheckoutForm>;
+
 function Harness({
   advertisedPrice,
+  availability = { isPending: false },
   existingCustomer,
 }: {
-  readonly advertisedPrice: {
-    readonly isError: boolean;
-    readonly token?: string;
-  };
+  readonly advertisedPrice: Pick<
+    CheckoutFormProps["advertisedPrice"],
+    "isError" | "token" | "sale"
+  > &
+    Partial<Pick<CheckoutFormProps["advertisedPrice"], "isFetching" | "retry">>;
+  readonly availability?: CheckoutFormProps["availability"];
   readonly existingCustomer?: ReservationExistingCustomerForm;
 }) {
   const form = useForm<HarnessValues>({
@@ -66,11 +81,11 @@ function Harness({
   return (
     <ReservationCheckoutForm
       advertisedPrice={{
-        ...advertisedPrice,
         isFetching: false,
         retry: () => undefined,
+        ...advertisedPrice,
       }}
-      availability={{ isPending: false }}
+      availability={availability}
       existingCustomer={existingCustomer}
       form={form}
       getReservation={({ email, name, phone }) =>
@@ -85,6 +100,37 @@ function Harness({
 
 const getSubmitButton = (view: ReturnType<typeof render>) =>
   view.container.querySelector("#reservation-submit") as HTMLButtonElement;
+
+function RetryablePriceHarness() {
+  const [price, setPrice] = useState({ isError: true, token: "stale-price" });
+
+  return (
+    <Harness
+      advertisedPrice={{
+        ...price,
+        retry: () => setPrice({ isError: false, token: "fresh-price" }),
+      }}
+    />
+  );
+}
+
+const money = (value: number) => ({ value, exponent: 2, currency: "CZK" });
+
+const familySale = {
+  discounts: [
+    {
+      discount: {
+        id: Schema.decodeUnknownSync(discountIdSchema)("summer-sale"),
+        label: "Summer sale",
+        adjustment: { kind: "percentage" as const, basisPoints: 5000 },
+      },
+      subtotalBefore: money(29_000),
+      amount: money(14_500),
+      subtotalAfter: money(14_500),
+    },
+  ],
+  productLabel: "Open Space",
+};
 
 describe("ReservationCheckoutForm", () => {
   beforeAll(() => {
@@ -116,6 +162,97 @@ describe("ReservationCheckoutForm", () => {
     );
 
     expect(getSubmitButton(view).disabled).toBe(true);
+  });
+
+  test("re-enables submission once a failed advertised price is retried", async () => {
+    const view = render(<RetryablePriceHarness />);
+
+    expect(view.getByRole("alert").textContent).toContain(
+      m.reservationAdvertisedPriceError({}, { locale: "en-US" })
+    );
+    expect(getSubmitButton(view).disabled).toBe(true);
+
+    await act(async () => {
+      fireEvent.click(
+        view.getByRole("button", {
+          name: m.reservationAdvertisedPriceRetry({}, { locale: "en-US" }),
+        })
+      );
+    });
+
+    expect(view.queryByRole("alert")).toBeNull();
+    expect(getSubmitButton(view).disabled).toBe(false);
+  });
+
+  test("blocks submission and explains why when availability could not be confirmed", () => {
+    const availabilityError = m.reservationAvailabilityError(
+      {},
+      { locale: "en-US" }
+    );
+    const view = render(
+      <Harness
+        advertisedPrice={{ isError: false, token: "signed-price" }}
+        availability={{
+          isPending: false,
+          unavailableMessage: availabilityError,
+        }}
+      />
+    );
+
+    expect(view.getByText(availabilityError)).toBeDefined();
+    expect(getSubmitButton(view).disabled).toBe(true);
+    expect(
+      getSubmitButton(view).getAttribute("data-reservation-unavailable")
+    ).toBe("true");
+  });
+
+  test("presents an advertised sale once around the whole form", () => {
+    const view = render(
+      <Harness
+        advertisedPrice={{
+          isError: false,
+          sale: familySale,
+          token: "signed-price",
+        }}
+      />
+    );
+
+    const saleCard = view.container.querySelector(
+      '[data-reservation-sale="active"]'
+    );
+    expect(saleCard?.contains(getSubmitButton(view))).toBe(true);
+    expect(
+      view.container.querySelectorAll("[data-reservation-sale-banner]")
+    ).toHaveLength(1);
+    expect(
+      saleCard?.querySelector('[data-reservation-sale-discount="summer-sale"]')
+        ?.textContent
+    ).toBe("Summer sale");
+    expect(
+      view.getByRole("button", {
+        name: m.checkoutSummaryDiscountDetailsTrigger(
+          { product: "Open Space" },
+          { locale: "en-US" }
+        ),
+      })
+    ).toBeDefined();
+  });
+
+  test("leaves the form undecorated without an advertised sale", () => {
+    const view = render(
+      <Harness
+        advertisedPrice={{
+          isError: false,
+          sale: { discounts: [], productLabel: "Open Space" },
+          token: "signed-price",
+        }}
+      />
+    );
+
+    expect(view.container.querySelector("[data-reservation-sale]")).toBeNull();
+    expect(
+      view.container.querySelector("[data-reservation-sale-banner]")
+    ).toBeNull();
   });
 
   test("books as the account only while the account card is shown", async () => {
