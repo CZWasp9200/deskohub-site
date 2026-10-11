@@ -1,9 +1,9 @@
 import { expect, mock, test } from "bun:test";
+import { sql } from "drizzle-orm";
 import { Cause, Effect, Exit, Fiber, Layer } from "effect";
 import { TestClock } from "effect/testing";
 import { FetchHttpClient } from "effect/unstable/http";
-import { nodesOf, parseTrackedSource } from "../../scripts/shared/source-ast";
-import type { WorkspaceE2EConfig } from "../config";
+import type { DatasourceConfig, WorkspaceE2EConfig } from "../config";
 import { workspaceE2ETimeouts } from "../timeouts";
 import type { CheckoutRow } from "../types";
 import {
@@ -16,6 +16,7 @@ import {
   replayNexiWebhook,
   waitForProviderSessionRowAfterRedirect,
 } from "./database";
+import { E2EDatabase } from "./database.service";
 
 test("accepts a recreated late-payment recovery", async () => {
   await Effect.runPromise(
@@ -94,25 +95,48 @@ test("accepts reservation terms evidence from payment submission", () => {
   ).not.toThrow();
 });
 
-test("builds the Drizzle client from the unpooled preview datasource URL", () => {
-  const databaseService = parseTrackedSource(
-    new URL("./database.service.ts", import.meta.url).pathname
-  );
+test("connects the E2E database to the unpooled preview datasource URL", async () => {
+  const connections = { pooled: 0, unpooled: 0 };
+  const listen = (target: keyof typeof connections) =>
+    Bun.listen({
+      hostname: "127.0.0.1",
+      port: 0,
+      socket: {
+        data: () => undefined,
+        open: (socket) => {
+          connections[target] += 1;
+          socket.end();
+        },
+      },
+    });
+  const pooled = listen("pooled");
+  const unpooled = listen("unpooled");
 
-  // The Drizzle client is constructed from the unpooled datasource URL only.
-  const connectionStringValues = nodesOf(databaseService.ast).flatMap((node) =>
-    node.type === "Property" &&
-    node.key.type === "Identifier" &&
-    node.key.name === "connectionString" &&
-    node.value.type === "MemberExpression" &&
-    !node.value.computed &&
-    node.value.object.type === "Identifier" &&
-    node.value.object.name === "config" &&
-    node.value.property.type === "Identifier"
-      ? [node.value.property.name]
-      : []
-  );
-  expect(connectionStringValues).toEqual(["databaseUrlUnpooled"]);
+  try {
+    const exit = await Effect.runPromiseExit(
+      Effect.gen(function* () {
+        const { db } = yield* E2EDatabase;
+        return yield* db.execute(sql`select 1`);
+      }).pipe(
+        Effect.provide(
+          E2EDatabase.layer(
+            makeDatasourceConfig({
+              databaseUrl: `postgres://e2e:e2e@127.0.0.1:${pooled.port}/workspace`,
+              databaseUrlUnpooled: `postgres://e2e:e2e@127.0.0.1:${unpooled.port}/workspace`,
+            })
+          )
+        )
+      )
+    );
+
+    // Neither listener speaks Postgres, so the query fails after connecting.
+    expect(Exit.isFailure(exit)).toBe(true);
+    expect(connections.pooled).toBe(0);
+    expect(connections.unpooled).toBeGreaterThan(0);
+  } finally {
+    pooled.stop(true);
+    unpooled.stop(true);
+  }
 });
 
 test("classifies provider session rows after the hosted redirect barrier", () => {
@@ -448,6 +472,25 @@ const makeConfig = (): WorkspaceE2EConfig => ({
   bypassSecret: "test-protection-bypass",
   expectedHost: "deskohub-workspace-a1b2c3d4e-deskohub-bar.vercel.app",
   timeouts: workspaceE2ETimeouts,
+});
+
+const makeDatasourceConfig = (
+  urls: Pick<DatasourceConfig, "databaseUrl" | "databaseUrlUnpooled">
+): DatasourceConfig => ({
+  ...urls,
+  dotypos: {
+    apiTimeout: 1_000,
+    apiUrl: "http://127.0.0.1:1",
+    branchId: "11111111",
+    clientId: "e2e-client",
+    clientSecret: "e2e-client-secret",
+    cloudId: "cloud-id",
+    employeeId: "22222222",
+    refreshToken: "e2e-refresh-token",
+  },
+  expectedCurrency: "CZK",
+  nexiApiOrigin: "https://xpaysandbox.nexigroup.com",
+  timeouts: { ...workspaceE2ETimeouts, datasource: 2_000 },
 });
 
 const makeCheckoutRow = () =>

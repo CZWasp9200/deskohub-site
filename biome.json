@@ -38,6 +38,7 @@
     "./lint/no-local-administration-chrome.grit",
     "./lint/no-next-runtime-imports-in-standalone-modules.grit",
     "./lint/no-object-parameters.grit",
+    "./lint/no-raw-environment-in-e2e-launcher.grit",
     "./lint/no-repeated-computed-conditional-operand.grit",
     "./lint/no-runtime-typeof.grit",
     "./lint/no-shape-in-symbol-names.grit",

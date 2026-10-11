@@ -2,7 +2,10 @@ import "../shared/polyfills/temporal";
 
 import { randomUUID } from "node:crypto";
 import { Cause, Effect, Exit, Layer } from "effect";
-import { makeWorkspaceE2EEnvironment } from "../e2e/e2e-env";
+import {
+  makeWorkspaceE2EEnvironment,
+  toPlaywrightEnvironment,
+} from "../e2e/e2e-env";
 import { formatWorkspaceE2EFailure, workspaceE2EError } from "../e2e/errors";
 import { runWorkspacePlaywrightSuites } from "../e2e/playwright-runner";
 import { workspaceDir } from "../e2e/runtime";
@@ -22,11 +25,7 @@ const telemetry = makeE2ETelemetryRuntime(environment);
 const telemetryServiceLayer = E2ETelemetryService.Default.pipe(
   Layer.provide(E2ERunContextService.layerValue(runContext))
 );
-const playwrightEnvironment = Object.fromEntries(
-  Object.entries(environment).flatMap(([key, value]) =>
-    value === undefined ? [] : [[key, String(value)]]
-  )
-);
+const playwrightEnvironment = toPlaywrightEnvironment(environment);
 const toInstantNavigationError = (
   instantNavigation: PromiseSettledResult<number>
 ) => {

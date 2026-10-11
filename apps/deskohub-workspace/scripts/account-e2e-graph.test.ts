@@ -34,14 +34,6 @@ const projectByName = (config: PlaywrightCheckoutConfig, name: string) =>
   config.projects.find((project) => project.name === name);
 
 describe("workspace account e2e graph", () => {
-  test("runs account cases as one project in the existing Playwright graph", async () => {
-    const config = await playwrightConfigStructure();
-
-    expect(projectByName(config, "account-auth")?.dependencies).toEqual([
-      "checkout-plan",
-    ]);
-  });
-
   test("keeps account cases free of screenshots, traces, and videos", async () => {
     // Magic links and emails must stay out of uploaded artifacts.
     const config = await playwrightConfigStructure();

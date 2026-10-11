@@ -183,6 +183,17 @@ const rules: { name: string; diagnostic: string; module: string; cases: Row[] }[
     ],
   },
   {
+    name: "no-raw-environment-in-e2e-launcher", diagnostic: "The E2E launcher forwards only toPlaywrightEnvironment",
+    module: "apps/deskohub-workspace/scripts/workspace-e2e.ts",
+    cases: [
+      ["rejects spreading process.env into the Playwright spawn", 'Bun.spawn(["bunx", "playwright", "test"], { env: { ...process.env, CI: "true" } });\n', true],
+      ["rejects reading a raw process variable", "export const baseUrl = process.env.WORKSPACE_E2E_BASE_URL;\n", true],
+      ["rejects spreading Bun.env", 'Bun.spawn(["bunx", "playwright", "test"], { env: { ...Bun.env } });\n', true],
+      ["permits the decoded Playwright environment", 'Bun.spawn(["bunx", "playwright", "test"], { env: { ...toPlaywrightEnvironment(environment), CI: "true" } });\n', false],
+      ["permits process.env in other scripts", "export const baseUrl = process.env.WORKSPACE_E2E_BASE_URL;\n", false, "apps/deskohub-workspace/scripts/workspace-e2e-allocation.ts"],
+    ],
+  },
+  {
     name: "prefer-effect-fn", diagnostic: "Define Effect generator functions with Effect.fn",
     module: "apps/deskohub-workspace/features/reservation/load-reservation.ts",
     cases: [

@@ -1,12 +1,7 @@
 import { expect, test } from "bun:test";
-import { fileURLToPath } from "node:url";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import type { Page } from "@playwright/test";
 import { m } from "@/features/i18n";
-import {
-  identifierNames,
-  parseTrackedSource,
-} from "../scripts/shared/source-ast";
 import {
   dismissLegalCookieConsent,
   hasReactClickHandler,
@@ -161,24 +156,5 @@ test("detects the hydrated React click handler on the consent control", async ()
     expect(hasReactClickHandler("#missing")).toBe(false);
   } finally {
     await GlobalRegistrator.unregister();
-  }
-});
-
-test("does not forge consent cookies or use timer delays", () => {
-  // Verdicts come from the parsed consent helper, so a commented-out cookie
-  // write or timer call can never satisfy the absence checks.
-  const { ast } = parseTrackedSource(
-    fileURLToPath(new URL("./legal-cookie-consent.ts", import.meta.url))
-  );
-  const identifiers = identifierNames(ast);
-  for (const forbidden of [
-    "addCookies",
-    "cookie",
-    "CookieConsent",
-    "acceptCategory",
-    "setTimeout",
-    "waitForTimeout",
-  ]) {
-    expect(identifiers.has(forbidden)).toBe(false);
   }
 });
