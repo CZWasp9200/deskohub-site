@@ -121,18 +121,6 @@ describe("workspace E2E workflow", () => {
     for (const checkout of tokenCheckouts) {
       expect(checkout.with?.["persist-credentials"]).toBe(false);
     }
-    expect(
-      Object.values(doc.jobs).every(
-        (job) => job.permissions?.contents !== "write"
-      )
-    ).toBe(true);
-    expect(doc.permissions?.contents).not.toBe("write");
-    // Only the jobs that publish commit statuses opt into write access; the
-    // workflow default stays read-only for the target-resolution job.
-    expect(doc.permissions?.statuses).toBe("read");
-    expect(JSON.stringify(testJob.permissions)).toBe(
-      JSON.stringify({ actions: "read", contents: "read", statuses: "write" })
-    );
 
     // The coordinator database credential reaches the allocation action only.
     const coordinatorSecretSteps = allSteps.filter((step) =>
@@ -174,6 +162,29 @@ describe("workspace E2E workflow", () => {
     expect(capacity.includes("WORKSPACE_E2E_PROVIDER_PERMIT_REQUIRED")).toBe(
       false
     );
+  });
+
+  test("grants each job only the token permissions it needs", () => {
+    // Target resolution inherits the read-only default: it reads deployments
+    // and their statuses to bind the exact-SHA preview, and the eligible PR.
+    expect(doc.permissions).toEqual({
+      contents: "read",
+      deployments: "read",
+      "pull-requests": "read",
+      statuses: "read",
+    });
+    // Only the jobs that publish commit statuses opt into write access. A job
+    // left undefined here must inherit the read-only default.
+    expect(
+      Object.fromEntries(
+        Object.entries(doc.jobs).map(([name, job]) => [name, job.permissions])
+      )
+    ).toEqual({
+      "resolve-target": undefined,
+      "test-e2e": { actions: "read", contents: "read", statuses: "write" },
+      "publish-final-status": { contents: "read", statuses: "write" },
+      "publish-skipped-status": { contents: "read", statuses: "write" },
+    });
   });
 
   test("migrates the resolved preview before capacity checks and browser setup", () => {
@@ -427,6 +438,23 @@ describe("workspace E2E workflow", () => {
     expect(doc.jobs["publish-final-status"].if).toContain(
       "needs.resolve-target.outputs.skipped != 'true'"
     );
+    // As a checkout project it extended the setup phase barrier, so no
+    // checkout project may run the read-only navigation tests.
+    const configDir = resolve(import.meta.dir, "..");
+    const instantNavigationDir = resolve(
+      configDir,
+      instantNavigationConfig.testDir ?? ""
+    );
+    expect(
+      playwrightConfig.projects
+        .filter(
+          (project) =>
+            project.name === "instant-navigation" ||
+            (project.testDir !== undefined &&
+              resolve(configDir, project.testDir) === instantNavigationDir)
+        )
+        .map((project) => project.name)
+    ).toEqual([]);
     // Concurrent invocations must not clobber each other's artifacts.
     expect(instantNavigationConfig.outputDir).not.toBe(
       playwrightConfig.outputDir
