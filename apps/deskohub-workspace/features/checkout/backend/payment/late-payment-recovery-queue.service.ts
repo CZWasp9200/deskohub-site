@@ -5,7 +5,7 @@ import { serializeErrorForLog } from "@/shared/utils/error-formatting";
 
 export const latePaymentRecoveryQueueTopic = "workspace-late-payment-recovery";
 
-export class LatePaymentRecoveryQueueError extends Data.TaggedError(
+class LatePaymentRecoveryQueueError extends Data.TaggedError(
   "LatePaymentRecoveryQueueError"
 )<{
   readonly message: string;

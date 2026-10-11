@@ -43,22 +43,22 @@ import {
   officeCheckoutPricing,
 } from "./office-checkout-pricing";
 
-export type CheckoutPricingError =
+type CheckoutPricingError =
   | CoworkCheckoutPricingError
   | MeetingRoomCheckoutPricingError
   | OfficeCheckoutPricingError;
 
-export type AdvertisementQuoteInput =
+type AdvertisementQuoteInput =
   | CoworkAdvertisementQuoteInput
   | MeetingRoomAdvertisementQuoteInput
   | OfficeAdvertisementQuoteInput;
 
-export type AdvertisementQuote =
+type AdvertisementQuote =
   | CoworkAdvertisementQuote
   | MeetingRoomAdvertisementQuote
   | OfficeAdvertisementQuote;
 
-export type CustomerQuoteInput =
+type CustomerQuoteInput =
   | CoworkCustomerQuoteInput
   | MeetingRoomCustomerQuoteInput
   | OfficeCustomerQuoteInput;
@@ -68,7 +68,7 @@ export type PreparedCustomerQuote =
   | MeetingRoomCustomerQuote
   | OfficeCustomerQuote;
 
-export type PaymentPriceAffirmationInput =
+type PaymentPriceAffirmationInput =
   | CoworkPaymentPriceAffirmationInput
   | MeetingRoomPaymentPriceAffirmationInput
   | OfficePaymentPriceAffirmationInput;
@@ -78,12 +78,12 @@ export type PaymentPriceAffirmation =
   | MeetingRoomPaymentPriceAffirmation
   | OfficePaymentPriceAffirmation;
 
-export type DiscountCodePriceInput =
+type DiscountCodePriceInput =
   | CoworkDiscountCodePriceInput
   | MeetingRoomDiscountCodePriceInput
   | OfficeDiscountCodePriceInput;
 
-export type DiscountCodePriceResult =
+type DiscountCodePriceResult =
   | CoworkDiscountCodePriceResult
   | MeetingRoomDiscountCodePriceResult
   | OfficeDiscountCodePriceResult;

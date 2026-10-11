@@ -10,7 +10,7 @@ import { DiscountProviderError } from "./errors";
 import { deriveOpaqueDiscountId } from "./opaque-discount-id";
 import type { DiscountCandidate } from "./provider";
 
-export type CustomerDiscountProviderInput = Pick<
+type CustomerDiscountProviderInput = Pick<
   DiscountQuoteInput,
   "dotyposCustomerId" | "locale" | "product"
 >;
@@ -21,7 +21,7 @@ export interface ICustomerDiscountProvider {
   ) => Effect.Effect<readonly DiscountCandidate[], DiscountProviderError>;
 }
 
-export class CustomerDiscountConfigurationError extends Data.TaggedError(
+class CustomerDiscountConfigurationError extends Data.TaggedError(
   "CustomerDiscountConfigurationError"
 )<{
   readonly message: string;

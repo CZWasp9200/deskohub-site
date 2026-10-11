@@ -26,7 +26,7 @@ const applyDiscountCodeAction = defineWorkspaceAction(
     )
 );
 
-export const applyDiscountCode: typeof applyDiscountCodeAction = async (
+const applyDiscountCode: typeof applyDiscountCodeAction = async (
   ...args: Parameters<typeof applyDiscountCodeAction>
 ) => {
   "use server";

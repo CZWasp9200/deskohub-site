@@ -37,7 +37,7 @@ const reservationDisplayDateTimeFormatOptions: Intl.DateTimeFormatOptions = {
 
 const decodePlainDate = Schema.decodeUnknownOption(plainDateStringSchema);
 
-export const parseReservationInputDate = (date: string) =>
+const parseReservationInputDate = (date: string) =>
   decodePlainDate(date).pipe(
     Option.map((plainDate) =>
       temporalPlainDateToDate({

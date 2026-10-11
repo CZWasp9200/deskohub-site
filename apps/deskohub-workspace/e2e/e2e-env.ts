@@ -58,7 +58,7 @@ const optionalUrl = toEnvironmentSchema(Schema.optional(urlStringSchema));
 const url = toEnvironmentSchema(urlStringSchema);
 type RuntimeEnvironment = Readonly<Record<string, string | undefined>>;
 
-export const e2eEnvironmentSchema = Schema.Struct({
+const e2eEnvironmentSchema = Schema.Struct({
   CI: optionalNonEmptyString,
   DATABASE_URL: nonEmptyString,
   DOTYPOS_API_URL: url,

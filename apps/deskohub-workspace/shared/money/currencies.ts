@@ -21,7 +21,7 @@ export const workspaceCurrencyCodeSchema = Schema.Literals(
   workspaceCurrencyDefinitions.map(({ code }) => code)
 );
 
-export const defaultWorkspaceCurrency = czkCurrency;
+export const defaultWorkspaceCurrencyCode = czkCurrency.code;
 
 export const findWorkspaceCurrencyDefinition = (code: string) =>
   workspaceCurrencyDefinitions.find((currency) => currency.code === code);

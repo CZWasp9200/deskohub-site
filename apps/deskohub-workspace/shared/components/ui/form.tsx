@@ -8,13 +8,11 @@ import {
   type ControllerProps,
   type FieldPath,
   type FieldValues,
-  FormProvider,
+  FormProvider as Form,
   useFormContext,
 } from "react-hook-form";
 import { Label } from "@/shared/components/ui/label";
 import { cn } from "@/shared/utils";
-
-const Form = FormProvider;
 
 const FormFieldContext = React.createContext<{ name: string } | null>(null);
 
@@ -51,14 +49,33 @@ function useFormField() {
     name: fieldContext.name,
     formItemId: `${itemContext.id}-form-item`,
     formLabelId: `${itemContext.id}-form-item-label`,
-    formDescriptionId: `${itemContext.id}-form-item-description`,
     formMessageId: `${itemContext.id}-form-item-message`,
     ...fieldState,
   };
 }
 
-function FormItem({
+/**
+ * The label, control, and message stack every `FormItem` renders. Use it
+ * directly when the item itself stays out of layout (`className="contents"`)
+ * so its label still sits at the same distance from its control.
+ */
+function FormItemLayout({
   className,
+  ref,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement> & {
+  ref?: React.Ref<HTMLDivElement>;
+}) {
+  return (
+    <div
+      ref={ref}
+      className={cn("flex flex-col gap-y-2", className)}
+      {...props}
+    />
+  );
+}
+
+function FormItem({
   ref,
   ...props
 }: React.HTMLAttributes<HTMLDivElement> & {
@@ -68,11 +85,7 @@ function FormItem({
 
   return (
     <FormItemContext.Provider value={{ id }}>
-      <div
-        ref={ref}
-        className={cn("flex flex-col gap-y-2", className)}
-        {...props}
-      />
+      <FormItemLayout ref={ref} {...props} />
     </FormItemContext.Provider>
   );
 }
@@ -123,25 +136,6 @@ function FormControl({
   );
 }
 
-function FormDescription({
-  className,
-  ref,
-  ...props
-}: React.HTMLAttributes<HTMLParagraphElement> & {
-  ref?: React.Ref<HTMLParagraphElement>;
-}) {
-  const { formDescriptionId } = useFormField();
-
-  return (
-    <p
-      ref={ref}
-      id={formDescriptionId}
-      className={cn("text-sm text-navy-blue/62", className)}
-      {...props}
-    />
-  );
-}
-
 function FormMessage({
   className,
   children,
@@ -173,9 +167,9 @@ function FormMessage({
 export {
   Form,
   FormControl,
-  FormDescription,
   FormField,
   FormItem,
+  FormItemLayout,
   FormLabel,
   FormMessage,
   useFormField,

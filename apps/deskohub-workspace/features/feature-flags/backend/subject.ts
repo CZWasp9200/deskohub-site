@@ -10,7 +10,7 @@ import {
 } from "@/shared/backend/analytics/posthog-request-context";
 import { getRequestHeaders } from "@/shared/backend/utils/request-headers";
 
-export const workspaceReleaseSubject = {
+const workspaceReleaseSubject = {
   distinctId: PostHogDistinctId.make("deskohub-workspace:global-release"),
   sendFeatureFlagEvents: false,
 } as const satisfies PostHogFeatureFlagSubject;

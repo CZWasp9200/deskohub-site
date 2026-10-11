@@ -241,10 +241,3 @@ export const createEnvironmentSchema = (
       : schema
   );
 };
-
-export type WorkspaceServerEnv = Schema.Schema.Type<
-  typeof workspaceServerEnvSchema
->;
-export type WorkspaceClientEnv = Schema.Schema.Type<
-  typeof workspaceClientEnvSchema
->;

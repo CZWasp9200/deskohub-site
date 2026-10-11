@@ -118,7 +118,7 @@ const decodeReservationCheckoutCustomer = (
  * standing customer (`account`) or the exact contact in the link
  * (`contact`).
  */
-export const reservationCustomerQueryParam = "customer";
+const reservationCustomerQueryParam = "customer";
 
 const queryCustomerModeSchema = Schema.toStandardSchemaV1(
   Schema.Literals(["account", "contact"] as const)

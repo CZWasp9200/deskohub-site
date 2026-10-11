@@ -40,7 +40,12 @@ type ReservationCheckoutFormProps<
     };
   };
   readonly availability: {
-    readonly isFetching: boolean;
+    /**
+     * Whether availability for the current selection has not settled yet. A
+     * background refetch of settled availability is not pending: submission
+     * re-checks availability authoritatively.
+     */
+    readonly isPending: boolean;
     readonly unavailableMessage?: string;
   };
   readonly checkoutSessionId?: CheckoutSessionId;
@@ -142,13 +147,13 @@ export function ReservationCheckoutForm<
               isSubmittingCheckout ||
               hasPreparedPayRedirect ||
               Boolean(availability.unavailableMessage) ||
-              availability.isFetching ||
+              availability.isPending ||
               advertisedPrice.isFetching ||
               // A failed refresh keeps the previous, possibly expired, token.
               advertisedPrice.isError ||
               !advertisedPrice.token
             }
-            isAvailabilityLoading={availability.isFetching}
+            isAvailabilityLoading={availability.isPending}
             isPriceLoading={
               advertisedPrice.isFetching && !advertisedPrice.token
             }

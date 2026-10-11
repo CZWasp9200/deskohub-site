@@ -3,7 +3,7 @@ import { isValidPhoneNumber } from "libphonenumber-js";
 import isEmail from "validator/lib/isEmail.js";
 import { m } from "@/features/i18n";
 
-export const RESERVATION_VALIDATION = {
+const RESERVATION_VALIDATION = {
   name: { min: 2, max: 100 },
   email: { max: 255 },
   phone: { max: 20 },

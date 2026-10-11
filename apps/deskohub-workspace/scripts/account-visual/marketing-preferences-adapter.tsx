@@ -100,7 +100,7 @@ export const accountVisualAdapterMetadata = {
     "synthetic marketing-preferences states rendered through the real legal preference settings composition with local controlled actions; component-only evidence",
 } as const;
 
-export function MarketingPreferencesAdapter({
+export default function MarketingPreferencesAdapter({
   locale,
 }: AccountVisualAdapterProps) {
   useNavigationState();
@@ -150,5 +150,3 @@ export function MarketingPreferencesAdapter({
     </main>
   );
 }
-
-export default MarketingPreferencesAdapter;

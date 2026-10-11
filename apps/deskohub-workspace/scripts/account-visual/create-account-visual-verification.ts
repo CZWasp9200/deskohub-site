@@ -1035,11 +1035,10 @@ export const compareCurrentPngWithHistoricalHash = ({
   );
 
   const historicalHashMatch = currentSha256 === firstSha256;
-  const methodMatches = isCurrentCaptureMethod;
   const fixtureMatches = currentFixture === expectedFixture;
   const localeMatches = currentLocale === expectedLocale;
   const controlledIterationEligible =
-    methodMatches && fixtureMatches && localeMatches;
+    isCurrentCaptureMethod && fixtureMatches && localeMatches;
 
   if (isLegacyCaptureMethod) {
     assertCurrentPngMatchesHistoricalHash({
@@ -1057,7 +1056,7 @@ export const compareCurrentPngWithHistoricalHash = ({
       changedPixelsObserved: false,
       controlledIterationEligible: false,
       controlledIterationEligibility: {
-        methodMatches,
+        methodMatches: isCurrentCaptureMethod,
         fixtureMatches,
         localeMatches,
       },
@@ -1077,7 +1076,7 @@ export const compareCurrentPngWithHistoricalHash = ({
     changedPixelsObserved: !historicalHashMatch,
     controlledIterationEligible,
     controlledIterationEligibility: {
-      methodMatches,
+      methodMatches: isCurrentCaptureMethod,
       fixtureMatches,
       localeMatches,
     },

@@ -1,5 +1,5 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { Option, Schema } from "effect";
+import { Schema } from "effect";
 import {
   type WorkspaceProductIdentity,
   workspaceProductIdentitySchema,
@@ -125,13 +125,6 @@ export const appliedDiscountCodec = Schema.Struct({
   description:
     "An immutable discount application and its before, applied, and after amounts.",
 });
-
-export const isAppliedDiscount = <T>(value: T): value is T & AppliedDiscount =>
-  Option.isSome(
-    Schema.decodeUnknownOption(appliedDiscountCodec, {
-      onExcessProperty: "error",
-    })(value)
-  );
 
 export type DiscountQuote = {
   readonly product: WorkspaceProductIdentity;
