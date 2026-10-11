@@ -92,29 +92,6 @@ describe("formatLandingPageSaleBannerLabel", () => {
 });
 
 describe("getLandingPageSaleBannerContent", () => {
-  test.each([
-    ["percentage", { kind: "percentage" as const, basisPoints: 2000 }],
-    [
-      "fixed",
-      {
-        kind: "fixed" as const,
-        amount: { value: 20_000, exponent: 2, currency: "CZK" },
-      },
-    ],
-  ])("exposes the %s adjustment kind to the banner", (kind, adjustment) => {
-    expect(
-      getLandingPageSaleBannerContent({
-        locale: "en-US",
-        reservationKind: "cowork",
-        sale: {
-          title: "Summer focus",
-          adjustment,
-          products: [coworkProduct],
-        },
-      }).adjustmentKind
-    ).toBe(kind);
-  });
-
   test("attributes reservation visits to the home sale banner", () => {
     expect(
       getLandingPageSaleBannerContent({

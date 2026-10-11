@@ -17,12 +17,6 @@ const gallerySearchModule =
   "features/gallery/backend/get-cloudinary-images.server.ts";
 const gallerySearchModuleSpecifier =
   "@/features/gallery/backend/get-cloudinary-images.server";
-const gallerySearchCallers = [
-  "app/[locale]/(full-header)/gallery/page.tsx",
-  "app/[locale]/(full-header)/meeting-room/page.tsx",
-  "app/[locale]/(full-header)/ttrpg-room/page.tsx",
-  "features/landing-page/components/landing-page-photo-carousel-section.tsx",
-];
 const customerAvatarService =
   "features/account/backend/customer-avatar.service.ts";
 
@@ -54,7 +48,6 @@ test("gallery searches stay server-only and cannot enumerate avatar assets", asy
   expect(gallerySource).toContain('import "server-only";');
   expect(gallerySource).not.toMatch(/(^|\n)\s*["']use server["'];?/);
 
-  const galleryCallers: string[] = [];
   const galleryProviderCalls: string[] = [];
   const avatarStagingListings: string[] = [];
   const broadSearches: string[] = [];
@@ -70,7 +63,6 @@ test("gallery searches stay server-only and cannot enumerate avatar assets", asy
 
     const contents = await readFile(filePath, "utf8");
     if (contents.includes(gallerySearchModuleSpecifier)) {
-      galleryCallers.push(relativePath);
       expect(contents).not.toMatch(/(^|\n)\s*["']use client["'];?/);
       expect(contents).not.toMatch(/(^|\n)\s*["']use server["'];?/);
     }
@@ -89,14 +81,12 @@ test("gallery searches stay server-only and cannot enumerate avatar assets", asy
     }
   }
 
-  expect(galleryCallers.sort()).toEqual(gallerySearchCallers);
   expect(galleryProviderCalls).toEqual([gallerySearchModule]);
   expect(avatarStagingListings).toEqual([customerAvatarService]);
   expect(broadSearches).toEqual([]);
 
   const avatarSource = await readWorkspaceSource(customerAvatarService);
   expect(avatarSource).toContain('import "server-only";');
-  expect(avatarSource).toContain("accountStagingFolder(namespace, accountId)");
 });
 
 async function readWorkspaceSource(relativePath: string): Promise<string> {

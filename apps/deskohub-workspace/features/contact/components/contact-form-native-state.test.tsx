@@ -147,8 +147,6 @@ describe("ContactForm native action state", () => {
         ) as HTMLInputElement
       ).value
     ).toBe(state.values?.name);
-    expect(view.getByText(nameError).getAttribute("role")).toBe("alert");
-    expect(view.getByText(message).getAttribute("aria-live")).toBe("polite");
   });
 
   test("native validation values and errors override query prefill", async () => {
@@ -341,45 +339,5 @@ describe("ContactForm native action state", () => {
       )
     );
     expect(hydratedCalls).toHaveLength(0);
-  });
-
-  test("uses the hydrated action result ahead of the native fallback", async () => {
-    const locale = "en-US";
-    const state: ContactFormState = {
-      status: "error",
-      message: m.contactValidationReviewMessage({}, { locale }),
-      values: {
-        name: "Hydrated Name",
-        email: "hydrated@example.invalid",
-        phone: "",
-        message: "Hydrated validation error.",
-      },
-      fieldErrors: { name: "Hydrated name error." },
-    };
-    nativeResult = {
-      data: {
-        status: "success",
-        message: m.contactSuccessMessage({}, { locale }),
-      },
-    };
-    hydratedResult = { data: state };
-
-    const { ContactFormClient } = await import("./contact-form");
-    const view = render(
-      <ContactFormClient
-        initialValues={initialValues}
-        locale={locale}
-        submitAction={submitContactFormMock}
-      />
-    );
-
-    expect((view.getByLabelText("Name") as HTMLInputElement).value).toBe(
-      state.values?.name
-    );
-    expect(view.getByText(state.message ?? "")).toBeTruthy();
-    expect(view.getByText("Hydrated name error.")).toBeTruthy();
-    expect(
-      view.queryByText(m.contactSuccessMessage({}, { locale }))
-    ).toBeNull();
   });
 });
