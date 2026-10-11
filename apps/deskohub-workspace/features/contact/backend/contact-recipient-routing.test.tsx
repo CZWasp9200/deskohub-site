@@ -3,9 +3,13 @@ import "@/shared/testing/workspace-test-env";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { Effect, Layer, Logger } from "effect";
 import * as envModule from "@/env";
+import { m } from "@/features/i18n";
 import { workspaceSiteConstants } from "@/shared/utils";
 
-type ResendPayload = { readonly to?: readonly string[] };
+type ResendPayload = {
+  readonly to?: readonly string[];
+  readonly subject?: string;
+};
 
 const resendPayloads: ResendPayload[] = [];
 
@@ -91,9 +95,13 @@ const submit = (email: string) => {
   );
 };
 
-describe.each(["preview", "production"])(
-  "contact staff notification on %s",
-  (environment) => {
+describe.each([
+  { environment: "development", subjectTag: "[TESTING] " },
+  { environment: "preview", subjectTag: "[TESTING] " },
+  { environment: "production", subjectTag: "" },
+])(
+  "contact staff notification on $environment",
+  ({ environment, subjectTag }) => {
     beforeEach(() => {
       vercelEnv = environment;
     });
@@ -105,6 +113,13 @@ describe.each(["preview", "production"])(
         [workspaceSiteConstants.contact.infoEmail],
         ["ada@example.com"],
       ]);
+      // Only Production staff copies are untagged.
+      expect(resendPayloads[0]?.subject).toBe(
+        `${subjectTag}${m.contactEmailBusinessSubject(
+          { name: "Ada Lovelace" },
+          { locale: "cs-CZ" }
+        )}`
+      );
       expect(consoleSends).toEqual([]);
     });
 

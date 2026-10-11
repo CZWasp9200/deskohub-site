@@ -40,6 +40,7 @@ import { getWorkspaceRuntimeCallbackOrigin } from "@/shared/backend/config/works
 import { renderWorkspaceEmail } from "@/shared/backend/email/render-react-email";
 import {
   internalWorkspaceEmailRecipientFor,
+  internalWorkspaceEmailSubject,
   workspaceEmailRecipient,
 } from "@/shared/backend/email/workspace-email-recipients";
 import {
@@ -76,7 +77,6 @@ const workspaceNetworkQrContentId = "workspace-wifi-qr";
 const workspaceLocationMapUrl = getWorkspaceCanonicalUrl(
   workspaceLocationMapImagePath
 );
-const internalTestingSubjectPrefix = "[TESTING]";
 const internalNotificationLocale: Locale = "cs-CZ";
 
 export const createCustomerEmailInitialIdempotencyKey = (
@@ -129,18 +129,13 @@ const createCustomerAccessHeading = (
 
 const createInternalReservationSubject = (
   reservation: WorkspaceReservationDetails
-) => {
-  const subject = m.checkoutEmailInternalPaidReservationSubject(
-    { orderId: reservation.id },
-    { locale: internalNotificationLocale }
+) =>
+  internalWorkspaceEmailSubject(
+    m.checkoutEmailInternalPaidReservationSubject(
+      { orderId: reservation.id },
+      { locale: internalNotificationLocale }
+    )
   );
-
-  if (env.VERCEL_ENV === "production") {
-    return subject;
-  }
-
-  return `${internalTestingSubjectPrefix} ${subject}`;
-};
 
 const createWorkspaceNetworkQrAttachment = (
   networkDetails: WorkspaceCheckoutNetworkDetails

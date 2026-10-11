@@ -1,7 +1,9 @@
 import {
   type EmailRecipient,
   internalRecipientForOrigin,
+  staffEmailSubject,
 } from "@deskohub/email";
+import { env } from "@/env";
 import { workspaceSiteConstants } from "@/shared/utils";
 
 export const workspaceEmailRecipient: EmailRecipient = {
@@ -22,3 +24,7 @@ export const internalWorkspaceEmailRecipientFor = (
     real: workspaceEmailRecipient,
     test: testInternalWorkspaceEmailRecipient,
   });
+
+/** Subject for a staff copy; tagged as test mail outside production. */
+export const internalWorkspaceEmailSubject = (subject: string): string =>
+  staffEmailSubject(subject, { isProduction: env.VERCEL_ENV === "production" });

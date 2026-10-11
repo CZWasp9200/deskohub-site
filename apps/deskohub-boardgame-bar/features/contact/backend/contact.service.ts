@@ -3,7 +3,10 @@ import { Context, Effect, Layer } from "effect";
 import type { Locale } from "@/features/i18n";
 import { m } from "@/features/i18n/paraglide/messages";
 import { BoardgameEmailLayer } from "@/shared/backend/config/email.config";
-import { staffEmailRecipientFor } from "@/shared/backend/email/staff-email-recipients";
+import {
+  staffEmailRecipientFor,
+  staffEmailSubjectFor,
+} from "@/shared/backend/email/staff-email-recipients";
 import { StorageError } from "@/shared/backend/errors";
 import { siteConstants } from "@/shared/utils/constants";
 import {
@@ -118,7 +121,7 @@ const contactServiceImplementation = Effect.gen(function* () {
             email: siteConstants.contact.contactEmail,
             name: "DeskoHub Kontakt",
           }),
-          subject: businessEmailContent.subject,
+          subject: staffEmailSubjectFor(businessEmailContent.subject),
           html: businessEmailContent.html,
           text: businessEmailContent.text,
           replyTo: {

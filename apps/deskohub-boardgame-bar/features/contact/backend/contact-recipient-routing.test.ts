@@ -1,9 +1,13 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { EmailConfigTag, EmailServiceTag } from "@deskohub/email";
 import { Effect, Layer, Logger } from "effect";
+import { m } from "@/features/i18n/paraglide/messages";
 import { siteConstants } from "@/shared/utils/constants";
 
-type ResendPayload = { readonly to?: readonly string[] };
+type ResendPayload = {
+  readonly to?: readonly string[];
+  readonly subject?: string;
+};
 
 const resendPayloads: ResendPayload[] = [];
 
@@ -22,11 +26,12 @@ mock.module("resend", () => ({
 // Load after the Resend mock is registered.
 const loadContactService = () => import("./contact.service");
 
-const originalVercelEnv = process.env.VERCEL_ENV;
+const originalVercelEnv = process.env.NEXT_PUBLIC_VERCEL_ENV;
 
 afterAll(() => {
-  if (originalVercelEnv === undefined) delete process.env.VERCEL_ENV;
-  else process.env.VERCEL_ENV = originalVercelEnv;
+  if (originalVercelEnv === undefined)
+    delete process.env.NEXT_PUBLIC_VERCEL_ENV;
+  else process.env.NEXT_PUBLIC_VERCEL_ENV = originalVercelEnv;
 });
 
 beforeEach(() => {
@@ -78,11 +83,15 @@ const submit = async (email: string) => {
   return consoleRecipients(consoleLogs);
 };
 
-describe.each(["preview", "production"])(
-  "contact staff notification on %s",
-  (environment) => {
+describe.each([
+  { environment: "development", subjectTag: "[TESTING] " },
+  { environment: "preview", subjectTag: "[TESTING] " },
+  { environment: "production", subjectTag: "" },
+])(
+  "contact staff notification on $environment",
+  ({ environment, subjectTag }) => {
     beforeEach(() => {
-      process.env.VERCEL_ENV = environment;
+      process.env.NEXT_PUBLIC_VERCEL_ENV = environment;
     });
 
     test("a real submitter reaches the real mailbox through Resend", async () => {
@@ -92,6 +101,13 @@ describe.each(["preview", "production"])(
         [siteConstants.contact.contactEmail],
         ["ada@example.com"],
       ]);
+      // Only Production staff copies are untagged.
+      expect(resendPayloads[0]?.subject).toBe(
+        `${subjectTag}${m["contact.email.businessSubject"](
+          { name: "Ada Lovelace" },
+          { locale: "cs-CZ" }
+        )}`
+      );
       expect(consoleSends).toEqual([]);
     });
 

@@ -416,7 +416,8 @@ and in every environment when the customer is a `resend.dev` test recipient
 email provider accepts the required customer send; the internal notification
 remains best effort. The internal notification follows the customer's
 provenance: a test-recipient customer's copy goes to the synthetic internal
-mailbox, and every other copy reaches the real mailbox.
+mailbox, and every other copy reaches the real mailbox. Outside production
+its subject carries the `[TESTING]` tag.
 Protected Preview deployments cannot receive provider callbacks reliably.
 
 Retrying a delivery failure preserves the stored delivery ID while fulfillment

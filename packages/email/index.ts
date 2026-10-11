@@ -2,6 +2,7 @@ export type { EmailProvider } from "./backend/capabilities";
 export {
   internalRecipientForOrigin,
   routeEmailMessage,
+  staffEmailSubject,
 } from "./backend/email-routing";
 export { NetworkError } from "./backend/network-error";
 export { ConsoleEmailProviderLive } from "./backend/providers/console-provider";

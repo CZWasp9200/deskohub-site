@@ -72,13 +72,20 @@ describe("ContactService", () => {
   });
 
   test("customer confirmation follows the typed locale; business email stays cs-CZ", async () => {
+    // Production staff copies carry no test tag.
+    const originalVercelEnv = process.env.NEXT_PUBLIC_VERCEL_ENV;
+    process.env.NEXT_PUBLIC_VERCEL_ENV = "production";
     const messages: EmailMessage[] = [];
     const send = mock((message: EmailMessage) => {
       messages.push(message);
       return Effect.succeed(sent(`msg-${messages.length}`));
     });
 
-    const result = await runSubmit(send, "cs-CZ");
+    const result = await runSubmit(send, "cs-CZ").finally(() => {
+      if (originalVercelEnv === undefined) {
+        delete process.env.NEXT_PUBLIC_VERCEL_ENV;
+      } else process.env.NEXT_PUBLIC_VERCEL_ENV = originalVercelEnv;
+    });
 
     expect(result.locale).toBe("cs-CZ");
     const business = messages[0];

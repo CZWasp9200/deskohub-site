@@ -53,6 +53,18 @@ export const internalRecipientForOrigin = (
 ): EmailRecipient =>
   isTestEmailRecipient(originEmail) ? mailboxes.test : mailboxes.real;
 
+const testEmailSubjectPrefix = "[TESTING]";
+
+/**
+ * Staff copies sent outside production carry the test tag, whoever triggered
+ * them, so staff can tell Preview and local mail from live requests.
+ */
+export const staffEmailSubject = (
+  subject: string,
+  environment: { readonly isProduction: boolean }
+): string =>
+  environment.isProduction ? subject : `${testEmailSubjectPrefix} ${subject}`;
+
 /**
  * Routes each message by its recipients. A missing Resend key fails only the
  * messages that need Resend, so test mail keeps working without credentials.

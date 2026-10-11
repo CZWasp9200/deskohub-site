@@ -24,3 +24,11 @@ export function isDev(config: EnvironmentConfig = {}): boolean {
 
   return false;
 }
+
+export function isProduction(
+  config: Pick<EnvironmentConfig, "vercelEnv"> = {}
+) {
+  return (
+    (config.vercelEnv ?? process.env.NEXT_PUBLIC_VERCEL_ENV) === "production"
+  );
+}

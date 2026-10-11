@@ -19,6 +19,7 @@ const {
   isTestEmailRecipient,
   RoutedEmailProviderLive,
   routeEmailMessage,
+  staffEmailSubject,
 } = await import("./email-routing");
 const { EmailConfigTag, EmailProviderTag } = await import("./capabilities");
 
@@ -116,6 +117,20 @@ describe("internalRecipientForOrigin", () => {
   test("sends staff copies of real requests to the real mailbox", () => {
     expect(internalRecipientForOrigin(realRecipient.email, mailboxes)).toBe(
       mailboxes.real
+    );
+  });
+});
+
+describe("staffEmailSubject", () => {
+  test("tags staff copies outside production", () => {
+    expect(staffEmailSubject("New request", { isProduction: false })).toBe(
+      "[TESTING] New request"
+    );
+  });
+
+  test("leaves production staff copies untagged", () => {
+    expect(staffEmailSubject("New request", { isProduction: true })).toBe(
+      "New request"
     );
   });
 });

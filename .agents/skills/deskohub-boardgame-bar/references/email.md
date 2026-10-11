@@ -12,7 +12,9 @@ provider setting.
 - Staff notifications follow the submitter: a `resend.dev` submitter's copy
   goes to `delivered+boardgame-staff@resend.dev` (Console), and every other
   submission reaches the real contact or reservation mailbox in every
-  environment (`shared/backend/email/staff-email-recipients.ts`).
+  environment (`shared/backend/email/staff-email-recipients.ts`). Outside
+  production (`NEXT_PUBLIC_VERCEL_ENV` other than `production`) their subject
+  carries the `[TESTING]` tag.
 
 ## Required Configuration
 
