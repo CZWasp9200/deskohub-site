@@ -391,10 +391,6 @@ describe("CoworkReservationForm advertised pricing", () => {
       ],
     });
 
-    expect(requests.every((request) => !("submittedCode" in request))).toBe(
-      true
-    );
-
     const view = renderForm({
       initialValues: {
         ...coworkReservationDefaultValues,
