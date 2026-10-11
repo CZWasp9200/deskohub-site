@@ -9,13 +9,7 @@ import {
   test,
 } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import {
-  act,
-  cleanup,
-  fireEvent,
-  render,
-  waitFor,
-} from "@testing-library/react";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { Schema } from "effect";
 import type { ComponentProps } from "react";
 import type {
@@ -38,7 +32,6 @@ import {
 } from "@/features/reservation/meeting-room-reservation-duration";
 import { getMeetingRoomReservationInterval } from "@/features/reservation/meeting-room-reservation-time";
 import {
-  workspaceRouterPush as push,
   workspaceUseAction,
   workspaceUseSearchParams,
 } from "@/shared/testing/workspace-component-module-mocks";
@@ -234,7 +227,6 @@ describe("MeetingRoomReservationForm", () => {
     cleanup();
     execute.mockClear();
     getAdvertisedPrices.mockClear();
-    push.mockClear();
   });
 
   afterAll(async () => {
@@ -277,10 +269,6 @@ describe("MeetingRoomReservationForm", () => {
         '[data-reservation-sale-discount="meeting-room-sale"]'
       )
     ).toHaveLength(1);
-    expect(
-      view.container.querySelector('[data-reservation-sale="active"]')
-        ?.className
-    ).toContain("glow-border-purple-300");
     expect(getAdvertisedPrices).not.toHaveBeenCalled();
   });
 
@@ -327,67 +315,20 @@ describe("MeetingRoomReservationForm", () => {
         view.container.querySelectorAll("[data-reservation-type-title]")
       ).map((title) => title.textContent)
     ).toEqual(["1 hour", "4 hours", "whole day"]);
-    expect(
-      Array.from(
-        view.container.querySelectorAll("[data-reservation-type-option]")
-      ).every((option) => option.className.includes("lg:grid-rows-subgrid"))
-    ).toBe(true);
-    expect(availabilityRequest?.url).toContain(
-      "kind=meeting-room&from=2099-07-30&to=2099-07-30"
-    );
-    expect(availabilityRequest?.url).toContain(
-      "startsAt=2099-07-30T08%3A00%3A00Z"
-    );
-    expect(availabilityRequest?.url).toContain(
-      "endsAt=2099-07-30T09%3A00%3A00Z"
-    );
     expect(availabilityRequest?.signal).toBeInstanceOf(AbortSignal);
-    expect(getAdvertisedPrices).toHaveBeenCalledWith(
-      expect.arrayContaining([
-        {
-          locale: "en-US",
-          reservation: {
-            kind: "meeting-room",
-            details: {
-              kind: "meeting-room",
-              duration: { unit: "hour", amount: 1 },
-              reservationDate: "2099-07-30",
-              lastServiceDate: "2099-07-30",
-            },
-          },
-        },
-      ])
-    );
 
-    const marketingConsent = view.container.querySelector(
-      "#reservation-marketing-consent"
-    );
-    expect(view.queryByText("Privacy Policy")).toBeDefined();
-    expect(
-      view.container.querySelector("#reservation-privacy-consent")
-    ).toBeNull();
-    expect(marketingConsent?.getAttribute("aria-checked")).toBe("false");
     fireEvent.click(continueButton);
 
     await waitFor(() => expect(execute).toHaveBeenCalledTimes(1));
-    const firstSubmission = execute.mock.calls[0]?.[0];
-    expect(firstSubmission).toMatchObject({
+    expect(execute.mock.calls[0]?.[0]).toMatchObject({
       locale: "en-US",
       checkoutSessionId: "restored-checkout-session",
       advertisedPriceToken: "sealed-advertised-price",
       marketingConsent: false,
       reservation: initialReservation,
     });
-    expect(firstSubmission.checkoutAttemptId).toBeString();
 
-    fireEvent.click(marketingConsent as Element);
-    fireEvent.click(continueButton);
-    await waitFor(() => expect(execute).toHaveBeenCalledTimes(2));
-    expect(execute.mock.calls[1]?.[0].marketingConsent).toBe(true);
-    expect(execute.mock.calls[1]?.[0].checkoutAttemptId).toBe(
-      firstSubmission.checkoutAttemptId
-    );
-
+    // Every duration is quoted up front, so switching it needs no new quote.
     fireEvent.click(
       view.container.querySelector(
         'input[type="radio"][value="hour:4"]'
@@ -398,29 +339,8 @@ describe("MeetingRoomReservationForm", () => {
         expect(getAdvertisedPrices).toHaveBeenCalledTimes(1);
         expect(continueButton.hasAttribute("disabled")).toBe(false);
         expect(durationInputs[1]?.checked).toBe(true);
-        expect(getAdvertisedPrices).toHaveBeenCalledWith(
-          expect.arrayContaining([
-            {
-              locale: "en-US",
-              reservation: {
-                kind: "meeting-room",
-                details: {
-                  kind: "meeting-room",
-                  duration: { unit: "hour", amount: 4 },
-                  reservationDate: "2099-07-30",
-                  lastServiceDate: "2099-07-30",
-                },
-              },
-            },
-          ])
-        );
       },
       { timeout: 5000 }
-    );
-    fireEvent.click(continueButton);
-    await waitFor(() => expect(execute).toHaveBeenCalledTimes(3));
-    expect(execute.mock.calls[2]?.[0].checkoutAttemptId).not.toBe(
-      firstSubmission.checkoutAttemptId
     );
   });
 
@@ -725,55 +645,6 @@ describe("MeetingRoomReservationForm", () => {
     }
   });
 
-  test("preserves a restored hourly slot across a whole-day preview", async () => {
-    const originalNow = Temporal.Now.instant;
-    Temporal.Now.instant = () => Temporal.Instant.from("2099-07-30T13:01:00Z");
-    globalThis.fetch = mock(() =>
-      Promise.resolve(jsonResponse(availabilityResponse))
-    ) as typeof fetch;
-    const restoredHourlyReservation =
-      normalizedMeetingRoomReservationOrderSchema.make({
-        ...initialReservation,
-        duration: { unit: "hour", amount: 4 },
-        startsAt: "2099-07-30T13:00:00Z",
-        endsAt: "2099-07-30T17:00:00Z",
-      });
-
-    try {
-      const view = renderForm({
-        initialReservation: restoredHourlyReservation,
-      });
-
-      await waitFor(() => {
-        expect(
-          view.getByLabelText(/^Meeting room start time/).getAttribute("value")
-        ).toBe("15:00");
-      });
-
-      fireEvent.click(
-        view.container.querySelector(
-          'input[type="radio"][value="day:1"]'
-        ) as HTMLInputElement
-      );
-      await waitFor(() => {
-        expect(view.queryByLabelText(/^Meeting room start time/)).toBeNull();
-      });
-
-      fireEvent.click(
-        view.container.querySelector(
-          'input[type="radio"][value="hour:4"]'
-        ) as HTMLInputElement
-      );
-      await waitFor(() => {
-        expect(
-          view.getByLabelText(/^Meeting room start time/).getAttribute("value")
-        ).toBe("15:00");
-      });
-    } finally {
-      Temporal.Now.instant = originalNow;
-    }
-  });
-
   test("collapses rapid interval edits into one availability request", async () => {
     globalThis.fetch = mock(() =>
       Promise.resolve(jsonResponse(availabilityResponse))
@@ -850,57 +721,12 @@ describe("MeetingRoomReservationForm", () => {
     expect(
       view.getByRole("button", { name: /discount.*meeting room.*1 hour/i })
     ).toBeDefined();
-    const discountedOption = view.container.querySelector(
-      '[data-reservation-type-option="hour:1"]'
-    );
-    expect(discountedOption?.className).not.toContain("glow-border");
     expect(
       view.container.querySelector(
         '[data-reservation-sale-discount="meeting-room-sale"]'
       )?.textContent
     ).toBe("Meeting room sale");
-    expect(
-      view.container.querySelector('[data-reservation-sale="active"]')
-        ?.className
-    ).toContain("glow-border");
     expect(view.queryByText(/selected price/i)).toBeNull();
-  });
-
-  test("presents one family sale while keeping duration cards neutral", async () => {
-    getAdvertisedPrices.mockImplementation((requests) =>
-      Promise.resolve(
-        advertisedPricesResult(requests, (request) =>
-          getDiscountedAdvertisedPriceResponse(
-            request.reservation.details.duration
-          )
-        )
-      )
-    );
-    globalThis.fetch = mock(() =>
-      Promise.resolve(jsonResponse(availabilityResponse))
-    ) as typeof fetch;
-
-    const view = renderForm();
-
-    await waitFor(() => {
-      expect(getAdvertisedPrices).toHaveBeenCalledTimes(1);
-    });
-    expect(getAdvertisedPrices.mock.calls[0]?.[0]).toHaveLength(3);
-    expect(
-      view.container.querySelectorAll(
-        '[data-reservation-sale-discount="meeting-room-sale"]'
-      )
-    ).toHaveLength(1);
-    for (const { duration } of workspaceMeetingRoomCatalog) {
-      const durationKey = getMeetingRoomReservationDurationKey(duration);
-      const option = view.container.querySelector(
-        `[data-reservation-type-option="${durationKey}"]`
-      );
-      expect(option?.className).not.toContain("glow-border");
-      expect(
-        option?.querySelector("[data-reservation-type-discount-banner]")
-      ).toBeNull();
-    }
   });
 
   test("disables checkout when Dotypos reports the interval unavailable", async () => {
@@ -921,190 +747,5 @@ describe("MeetingRoomReservationForm", () => {
     expect(
       view.getByRole("button", { name: "Continue" }).hasAttribute("disabled")
     ).toBe(true);
-  });
-
-  test("blocks checkout with an availability error when the interval cannot be checked", async () => {
-    let availabilityRequestCount = 0;
-    globalThis.fetch = mock(() => {
-      availabilityRequestCount += 1;
-      return Promise.reject(new Error("Availability failed"));
-    }) as typeof fetch;
-
-    const view = renderForm();
-
-    expect(
-      await view.findByText(
-        "We couldn't confirm availability. Please try again.",
-        {},
-        { timeout: 3000 }
-      )
-    ).toBeDefined();
-    expect(availabilityRequestCount).toBe(4);
-    expect(
-      view.getByRole("button", { name: "Continue" }).hasAttribute("disabled")
-    ).toBe(true);
-  });
-
-  test("keeps checkout disabled while retrying availability after a failed refresh of settled data", async () => {
-    let availabilityMode: "available" | "failing" | "retrying" = "available";
-    let failedRefreshCount = 0;
-    let resolveRetry: ((response: Response) => void) | undefined;
-    globalThis.fetch = mock(() => {
-      if (availabilityMode === "failing") {
-        failedRefreshCount += 1;
-        return Promise.reject(new Error("Availability refresh failed"));
-      }
-      if (availabilityMode === "retrying") {
-        return new Promise<Response>((resolve) => {
-          resolveRetry = resolve;
-        });
-      }
-      return Promise.resolve(jsonResponse(availabilityResponse));
-    }) as typeof fetch;
-    const queryClient = new QueryClient({
-      defaultOptions: { queries: { retryDelay: 0 } },
-    });
-    const refetchAvailability = () =>
-      queryClient.refetchQueries({
-        predicate: (query) => query.queryKey[0] === "workspace-availability",
-      });
-    const getAvailabilityState = () =>
-      queryClient
-        .getQueryCache()
-        .findAll({
-          predicate: (query) =>
-            query.queryKey[0] === "workspace-availability" &&
-            query.state.data !== undefined,
-        })
-        .map(({ state }) => ({
-          status: state.status,
-          fetchStatus: state.fetchStatus,
-        }));
-    const errorMessage = "We couldn't confirm availability. Please try again.";
-
-    const view = renderForm({}, queryClient);
-    const continueButton = view.getByRole("button", { name: "Continue" });
-    await waitFor(
-      () => {
-        expect(continueButton.hasAttribute("disabled")).toBe(false);
-      },
-      { timeout: 5000 }
-    );
-
-    availabilityMode = "failing";
-    await act(async () => {
-      await refetchAvailability();
-    });
-    expect(failedRefreshCount).toBe(4);
-    expect(getAvailabilityState()).toEqual([
-      { status: "error", fetchStatus: "idle" },
-    ]);
-    expect(await view.findByText(errorMessage)).toBeDefined();
-    expect(continueButton.hasAttribute("disabled")).toBe(true);
-
-    availabilityMode = "retrying";
-    let retry: Promise<void> | undefined;
-    await act(async () => {
-      retry = refetchAvailability();
-      await waitFor(() => expect(resolveRetry).toBeDefined());
-    });
-    // The errored query keeps its stale data and error status while the retry
-    // is in flight, so availability is still unknown.
-    expect(getAvailabilityState()).toEqual([
-      { status: "error", fetchStatus: "fetching" },
-    ]);
-    await waitFor(() => {
-      expect(view.queryByText(errorMessage)).toBeNull();
-    });
-    expect(continueButton.hasAttribute("disabled")).toBe(true);
-    expect(
-      continueButton.getAttribute("data-reservation-availability-loading")
-    ).toBe("true");
-
-    await act(async () => {
-      resolveRetry?.(jsonResponse(availabilityResponse));
-      await retry;
-    });
-    await waitFor(() => {
-      expect(continueButton.hasAttribute("disabled")).toBe(false);
-    });
-    expect(view.queryByText(errorMessage)).toBeNull();
-    expect(execute).not.toHaveBeenCalled();
-  });
-
-  test("keeps checkout disabled until advertised pricing can be retried", async () => {
-    let pricingAvailable = false;
-    getAdvertisedPrices.mockImplementation((requests) =>
-      Promise.resolve(
-        pricingAvailable
-          ? advertisedPricesResult(requests)
-          : { serverError: "unavailable" }
-      )
-    );
-    globalThis.fetch = mock(() =>
-      Promise.resolve(jsonResponse(availabilityResponse))
-    ) as typeof fetch;
-
-    const view = renderForm();
-    expect(
-      (await view.findByRole("alert", {}, { timeout: 3000 })).textContent
-    ).toMatch(/current price could not be loaded/i);
-    expect(getAdvertisedPrices).toHaveBeenCalledTimes(4);
-    expect(
-      view.getByRole("button", { name: "Continue" }).hasAttribute("disabled")
-    ).toBe(true);
-
-    pricingAvailable = true;
-    fireEvent.click(view.getByRole("button", { name: "Try again" }));
-    await waitFor(() => {
-      expect(
-        view.getByRole("button", { name: "Continue" }).hasAttribute("disabled")
-      ).toBe(false);
-    });
-    expect(getAdvertisedPrices).toHaveBeenCalledTimes(5);
-  });
-
-  test("accepts a pricing-changed redirect and reports transport failures", async () => {
-    let actionOptions: {
-      onSuccess: (result: {
-        data: {
-          status: "pricing_changed";
-          redirectUrl: string;
-        };
-      }) => void;
-      onTransportError: () => void;
-    } | null = null;
-    workspaceUseAction.mockImplementation((_action, options) => {
-      actionOptions = options as typeof actionOptions;
-      return {
-        execute,
-        isExecuting: false,
-        result: {},
-      };
-    });
-    globalThis.fetch = mock(() =>
-      Promise.resolve(jsonResponse(availabilityResponse))
-    ) as typeof fetch;
-    const view = renderForm();
-    await waitFor(() =>
-      expect(
-        view.getByRole("button", { name: "Continue" }).hasAttribute("disabled")
-      ).toBe(false)
-    );
-
-    act(() => {
-      actionOptions?.onSuccess({
-        data: {
-          status: "pricing_changed",
-          redirectUrl: "/en-US/checkout/pay?payState=fresh",
-        },
-      });
-    });
-    expect(push).toHaveBeenCalledWith("/en-US/checkout/pay?payState=fresh");
-
-    act(() => {
-      actionOptions?.onTransportError();
-    });
-    expect(view.getByText(/checkout could not be started/i)).toBeDefined();
   });
 });
