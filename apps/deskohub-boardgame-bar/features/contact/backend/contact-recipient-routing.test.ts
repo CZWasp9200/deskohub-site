@@ -1,4 +1,5 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { EmailConfigTag, EmailServiceTag } from "@deskohub/email";
 import { Effect, Layer, Logger } from "effect";
 import { siteConstants } from "@/shared/utils/constants";
 
@@ -18,8 +19,8 @@ mock.module("resend", () => ({
   },
 }));
 
-const { EmailConfigTag, EmailServiceTag } = await import("@deskohub/email");
-const { ContactService } = await import("./contact.service");
+// Load after the Resend mock is registered.
+const loadContactService = () => import("./contact.service");
 
 const originalVercelEnv = process.env.VERCEL_ENV;
 
@@ -38,6 +39,7 @@ const consoleRecipients = (records: unknown[][]) =>
     .map(([, facts]) => (facts as { readonly to: readonly string[] }).to);
 
 const submit = async (email: string) => {
+  const { ContactService } = await loadContactService();
   const consoleLogs: unknown[][] = [];
   await Effect.gen(function* () {
     const service = yield* ContactService;
@@ -47,25 +49,29 @@ const submit = async (email: string) => {
     );
   }).pipe(
     Effect.provide(
-      ContactService.Default.pipe(
-        Layer.provide(
-          EmailServiceTag.Live.pipe(
-            Layer.provide(
-              Layer.succeed(EmailConfigTag, {
-                apiKey: "re_test",
-                defaultFrom: { email: siteConstants.contact.fromEmail },
-              })
+      Layer.mergeAll(
+        ContactService.Default.pipe(
+          Layer.provide(
+            EmailServiceTag.Live.pipe(
+              Layer.provide(
+                Layer.succeed(EmailConfigTag, {
+                  apiKey: "re_test",
+                  defaultFrom: { email: siteConstants.contact.fromEmail },
+                })
+              )
             )
           )
-        )
+        ),
+        Logger.layer([
+          Logger.make((options) => {
+            consoleLogs.push(
+              Array.isArray(options.message)
+                ? options.message
+                : [options.message]
+            );
+          }),
+        ])
       )
-    ),
-    Effect.provide(
-      Logger.layer([
-        Logger.make((options) => {
-          consoleLogs.push([...options.message]);
-        }),
-      ])
     ),
     Effect.runPromise
   );

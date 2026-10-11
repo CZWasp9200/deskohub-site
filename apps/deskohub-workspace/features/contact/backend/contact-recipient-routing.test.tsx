@@ -67,24 +67,24 @@ const submit = (email: string) => {
     );
   }).pipe(
     Effect.provide(
-      ContactService.Default.pipe(
-        Layer.provide(
-          Layer.provideMerge(
-            EmailServiceTag.Live,
-            Layer.succeed(EmailConfigTag, {
-              apiKey: "re_test",
-              defaultFrom: { email: "reservations@workspace.deskohub.cz" },
-            })
+      Layer.mergeAll(
+        ContactService.Default.pipe(
+          Layer.provide(
+            Layer.provideMerge(
+              EmailServiceTag.Live,
+              Layer.succeed(EmailConfigTag, {
+                apiKey: "re_test",
+                defaultFrom: { email: "reservations@workspace.deskohub.cz" },
+              })
+            )
           )
-        )
+        ),
+        Logger.layer([
+          Logger.make((options) => {
+            consoleLogs.push([...options.message]);
+          }),
+        ])
       )
-    ),
-    Effect.provide(
-      Logger.layer([
-        Logger.make((options) => {
-          consoleLogs.push([...options.message]);
-        }),
-      ])
     ),
     Effect.runPromise,
     (promise) => promise.then(() => consoleRecipients(consoleLogs))
