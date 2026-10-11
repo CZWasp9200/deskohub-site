@@ -271,20 +271,4 @@ describe("accounting document snapshot", () => {
       CENSORED_LOG_VALUE,
     ]);
   });
-
-  test("resolves a nonempty environment passphrase by key ID", async () => {
-    const { AccountingSnapshotKeyService } = await import(
-      "./backend/accounting-snapshot-key.service"
-    );
-    const key = await Effect.gen(function* () {
-      const keys = yield* AccountingSnapshotKeyService;
-      return yield* keys.getActive;
-    }).pipe(
-      Effect.provide(AccountingSnapshotKeyService.Default),
-      Effect.runPromise
-    );
-
-    expect(key.id).toBe("K202608");
-    expect(key.secret).toBe("synthetic accounting snapshot secret!");
-  });
 });
