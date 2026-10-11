@@ -11,7 +11,7 @@ const recipientAddresses = (message: EmailMessage): readonly string[] =>
     ? message.to.map((r) => (typeof r === "string" ? r : r.email))
     : [typeof message.to === "string" ? message.to : message.to.email];
 
-const ConsoleEmailProvider: EmailProvider = {
+export const ConsoleEmailProvider: EmailProvider = {
   name: "console",
 
   send: Effect.fn("consoleEmailProvider.send")(function* (

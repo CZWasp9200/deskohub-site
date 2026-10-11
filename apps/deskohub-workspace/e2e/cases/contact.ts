@@ -29,7 +29,7 @@ export const assertContactForm = ({
   Effect.gen(function* () {
     const runId = new Date().toISOString().replace(/[-:.TZ]/g, "");
     const data = {
-      email: `workspace-e2e-contact-${runId}@example.com`,
+      email: `delivered+workspace-e2e-contact-${runId}@resend.dev`,
       message: `Automated workspace contact e2e ${runId}`,
       name: `Workspace Contact E2E ${runId}`,
       phone: `+420736${runId.slice(8, 14)}`,

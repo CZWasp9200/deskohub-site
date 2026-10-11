@@ -1,7 +1,7 @@
 import { Context, Data, type Effect, Match } from "effect";
 import type {
+  EmailConfig,
   EmailMessage,
-  EmailProviderConfig,
   EmailSendResult,
 } from "../types/email.types";
 import type { NetworkError } from "./network-error";
@@ -15,6 +15,25 @@ export class EmailServiceError extends Data.TaggedError("EmailServiceError")<{
     super({ message, cause, provider });
   }
 }
+
+/**
+ * Mail for a real recipient cannot leave the app because Resend has no API
+ * key. Test-recipient mail never needs one.
+ */
+export class EmailDeliveryUnconfiguredError extends Data.TaggedError(
+  "EmailDeliveryUnconfiguredError"
+)<{ readonly message: string }> {
+  constructor() {
+    super({
+      message: "EMAIL_API_KEY is required to deliver mail to real recipients",
+    });
+  }
+}
+
+export type EmailSendError =
+  | EmailServiceError
+  | EmailDeliveryUnconfiguredError
+  | NetworkError;
 
 export class EmailTemplateError extends Data.TaggedError("EmailTemplateError")<{
   readonly message: string;
@@ -30,7 +49,7 @@ export interface EmailProvider {
   readonly name: string;
   readonly send: (
     message: EmailMessage
-  ) => Effect.Effect<EmailSendResult, EmailServiceError | NetworkError>;
+  ) => Effect.Effect<EmailSendResult, EmailSendError>;
   readonly verify: Effect.Effect<boolean, EmailServiceError>;
 }
 
@@ -41,12 +60,10 @@ export class EmailProviderTag extends Context.Service<
 
 export class EmailConfigTag extends Context.Service<
   EmailConfigTag,
-  EmailProviderConfig
+  EmailConfig
 >()("EmailConfig") {}
 
-export const isRetryableEmailError = (
-  error: EmailServiceError | NetworkError
-) =>
+export const isRetryableEmailError = (error: EmailSendError) =>
   Match.value(error).pipe(
     Match.tag("NetworkError", () => true),
     Match.orElse(() => false)

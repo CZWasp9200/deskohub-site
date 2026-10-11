@@ -1,6 +1,6 @@
 import "@/shared/testing/workspace-test-environment";
 
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { ConfigProvider, Effect, Predicate, Tracer } from "effect";
 
 mock.module("server-only", () => ({}));
@@ -38,11 +38,8 @@ mock.module("resend", () => ({
   },
 }));
 
-const {
-  MagicLinkDeliveryTransportError,
-  makeMagicLinkEmailDelivery,
-  routeMagicLinkEmail,
-} = await import("./send-magic-link-email");
+const { MagicLinkDeliveryTransportError, makeMagicLinkEmailDelivery } =
+  await import("./send-magic-link-email");
 const {
   isSyntheticE2EEmailRecipient,
   magicLinkPreviewE2ELogCode,
@@ -60,6 +57,12 @@ const syntheticRequest = {
   email: "delivered+run7f3a2b-signin@resend.dev",
 };
 
+/** A test recipient outside the synthetic E2E account shape. */
+const testRecipientRequest = {
+  ...request,
+  email: "delivered@resend.dev",
+};
+
 const renderOk = () =>
   Effect.succeed({
     subject: "Sign in",
@@ -67,22 +70,11 @@ const renderOk = () =>
     text: "Sign in at https://workspace.example/api/auth/magic-link/verify?token=secret-token",
   });
 
-const previewRouting = { isVercelPreview: true } as const;
-const productionRouting = { isVercelPreview: false } as const;
+const previewEnvironment = { isVercelPreview: true } as const;
+const productionEnvironment = { isVercelPreview: false } as const;
 
 const resendEmailConfig = {
-  EMAIL_PROVIDER: "resend",
   EMAIL_API_KEY: "re_test",
-};
-
-const initialEnv = {
-  NODE_ENV: process.env.NODE_ENV,
-  VERCEL_ENV: process.env.VERCEL_ENV,
-};
-
-const setEnv = (key: string, value: string | undefined) => {
-  if (value === undefined) delete process.env[key];
-  else process.env[key] = value;
 };
 
 /**
@@ -179,19 +171,16 @@ beforeEach(() => {
   }));
 });
 
-afterEach(() => {
-  setEnv("NODE_ENV", initialEnv.NODE_ENV);
-  setEnv("VERCEL_ENV", initialEnv.VERCEL_ENV);
-});
-
-describe("Configured default provider for non-synthetic recipients", () => {
-  test("routes a non-synthetic recipient through the configured default Resend provider", async () => {
+describe("Recipient-based provider routing", () => {
+  test("delivers a real recipient through Resend", async () => {
     const consoleLines = captureConsole();
     let code: string | undefined;
     try {
       code = await runDeliver(
         resendEmailConfig,
-        makeMagicLinkEmailDelivery(renderOk, productionRouting).deliver(request)
+        makeMagicLinkEmailDelivery(renderOk, productionEnvironment).deliver(
+          request
+        )
       );
     } finally {
       consoleLines.restore();
@@ -211,13 +200,15 @@ describe("Configured default provider for non-synthetic recipients", () => {
     expect(previewE2ELines(consoleLines)).toEqual([]);
   });
 
-  test("suppresses bearer content via the sensitiveContent marker on the keyless Console default", async () => {
+  test("suppresses bearer content via the sensitiveContent marker for other test recipients", async () => {
     const consoleLines = captureConsole();
     let code: string | undefined;
     try {
       code = await runDeliver(
-        { EMAIL_PROVIDER: "console" },
-        makeMagicLinkEmailDelivery(renderOk, previewRouting).deliver(request)
+        resendEmailConfig,
+        makeMagicLinkEmailDelivery(renderOk, previewEnvironment).deliver(
+          testRecipientRequest
+        )
       );
     } finally {
       consoleLines.restore();
@@ -227,7 +218,7 @@ describe("Configured default provider for non-synthetic recipients", () => {
     expect(resendSend).not.toHaveBeenCalled();
     const logged = consoleLines.join("\n");
     expect(logged).toContain('"sensitive":true');
-    expect(logged).not.toContain(request.email);
+    expect(logged).not.toContain(testRecipientRequest.email);
     expect(logged).not.toContain("secret-token");
     expect(logged).not.toContain("Sign in");
     expect(logged).not.toContain("EMAIL CONTENT");
@@ -235,14 +226,14 @@ describe("Configured default provider for non-synthetic recipients", () => {
   });
 });
 
-describe("Synthetic Preview routing through the shared Console provider", () => {
+describe("Synthetic Preview delivery through the shared Console provider", () => {
   test("emits exactly one E2E text log line and zero Resend sends without a Resend key", async () => {
     const consoleLines = captureConsole();
     let code: string | undefined;
     try {
       code = await runDeliver(
         {},
-        makeMagicLinkEmailDelivery(renderOk, previewRouting).deliver(
+        makeMagicLinkEmailDelivery(renderOk, previewEnvironment).deliver(
           syntheticRequest
         )
       );
@@ -277,13 +268,34 @@ describe("Synthetic Preview routing through the shared Console provider", () => 
     expect(consoleLines.join("\n")).not.toContain("EMAIL CONTENT");
   });
 
-  test("non-synthetic Preview recipients use the configured default with no E2E line", async () => {
+  test("keeps synthetic recipients on Console when a Resend key exists", async () => {
     const consoleLines = captureConsole();
     let code: string | undefined;
     try {
       code = await runDeliver(
         resendEmailConfig,
-        makeMagicLinkEmailDelivery(renderOk, previewRouting).deliver(request)
+        makeMagicLinkEmailDelivery(renderOk, previewEnvironment).deliver(
+          syntheticRequest
+        )
+      );
+    } finally {
+      consoleLines.restore();
+    }
+
+    expect(code).toBe("account.magic-link.delivery-accepted");
+    expect(resendSend).not.toHaveBeenCalled();
+    expect(previewE2ELines(consoleLines)).toHaveLength(1);
+  });
+
+  test("real Preview recipients go to Resend with no E2E line", async () => {
+    const consoleLines = captureConsole();
+    let code: string | undefined;
+    try {
+      code = await runDeliver(
+        resendEmailConfig,
+        makeMagicLinkEmailDelivery(renderOk, previewEnvironment).deliver(
+          request
+        )
       );
     } finally {
       consoleLines.restore();
@@ -296,13 +308,13 @@ describe("Synthetic Preview routing through the shared Console provider", () => 
     expect(consoleLines.join("\n")).not.toContain(request.email);
   });
 
-  test("synthetic recipients outside Preview use the configured default with no E2E line", async () => {
+  test("synthetic recipients outside Preview stay on Console with no E2E line", async () => {
     const consoleLines = captureConsole();
     let code: string | undefined;
     try {
       code = await runDeliver(
         resendEmailConfig,
-        makeMagicLinkEmailDelivery(renderOk, productionRouting).deliver(
+        makeMagicLinkEmailDelivery(renderOk, productionEnvironment).deliver(
           syntheticRequest
         )
       );
@@ -311,7 +323,7 @@ describe("Synthetic Preview routing through the shared Console provider", () => 
     }
 
     expect(code).toBe("account.magic-link.delivery-accepted");
-    expect(resendSend).toHaveBeenCalledTimes(1);
+    expect(resendSend).not.toHaveBeenCalled();
     expect(previewE2ELines(consoleLines)).toEqual([]);
     expect(consoleLines.join("\n")).not.toContain("secret-token");
     expect(consoleLines.join("\n")).not.toContain(syntheticRequest.email);
@@ -328,7 +340,9 @@ describe("Errors and log safety", () => {
     try {
       code = await runDeliver(
         resendEmailConfig,
-        makeMagicLinkEmailDelivery(renderOk, productionRouting).deliver(request)
+        makeMagicLinkEmailDelivery(renderOk, productionEnvironment).deliver(
+          request
+        )
       );
     } finally {
       consoleLines.restore();
@@ -351,7 +365,9 @@ describe("Errors and log safety", () => {
     try {
       code = await runDeliver(
         resendEmailConfig,
-        makeMagicLinkEmailDelivery(renderOk, productionRouting).deliver(request)
+        makeMagicLinkEmailDelivery(renderOk, productionEnvironment).deliver(
+          request
+        )
       );
     } finally {
       consoleLines.restore();
@@ -371,7 +387,7 @@ describe("Errors and log safety", () => {
       resendEmailConfig,
       makeMagicLinkEmailDelivery(
         () => Effect.fail(new Error("render exploded with secret-token")),
-        productionRouting
+        productionEnvironment
       ).deliver(request)
     );
 
@@ -385,35 +401,25 @@ describe("Errors and log safety", () => {
     expect(transport).toBeInstanceOf(Error);
   });
 
-  test("stays unconfigured without a delivering credential and never renders or sends", async () => {
-    let rendered = false;
-    const code = await runDeliver(
-      { EMAIL_PROVIDER: "resend" },
-      makeMagicLinkEmailDelivery(() => {
-        rendered = true;
-        return renderOk();
-      }, productionRouting).deliver(request)
-    );
+  test("fails closed as unconfigured for a real recipient without a Resend key", async () => {
+    for (const environment of [productionEnvironment, previewEnvironment]) {
+      const consoleLines = captureConsole();
+      let code: string | undefined;
+      try {
+        code = await runDeliver(
+          {},
+          makeMagicLinkEmailDelivery(renderOk, environment).deliver(request)
+        );
+      } finally {
+        consoleLines.restore();
+      }
 
-    expect(code).toBe("account.magic-link.delivery-unconfigured");
-    expect(rendered).toBe(false);
-    expect(resendSend).not.toHaveBeenCalled();
-  });
-
-  test("keeps the production Console guard failing closed without a delivering credential", async () => {
-    setEnv("NODE_ENV", "production");
-    setEnv("VERCEL_ENV", "production");
-    let rendered = false;
-    const code = await runDeliver(
-      { EMAIL_PROVIDER: "console" },
-      makeMagicLinkEmailDelivery(() => {
-        rendered = true;
-        return renderOk();
-      }, productionRouting).deliver(request)
-    );
-
-    expect(code).toBe("account.magic-link.delivery-unconfigured");
-    expect(rendered).toBe(false);
+      expect(code).toBe("account.magic-link.delivery-unconfigured");
+      const logged = consoleLines.join("\n");
+      expect(logged).not.toContain(request.email);
+      expect(logged).not.toContain("secret-token");
+      expect(previewE2ELines(consoleLines)).toEqual([]);
+    }
     expect(resendSend).not.toHaveBeenCalled();
   });
 
@@ -422,7 +428,9 @@ describe("Errors and log safety", () => {
     try {
       const code = await runDeliver(
         resendEmailConfig,
-        makeMagicLinkEmailDelivery(renderOk, productionRouting).deliver(request)
+        makeMagicLinkEmailDelivery(renderOk, productionEnvironment).deliver(
+          request
+        )
       );
       expect(code).toBe("account.magic-link.delivery-accepted");
     } finally {
@@ -442,7 +450,7 @@ describe("Effect.fn trace naming", () => {
     const spanNames: string[] = [];
     const code = await runDeliver(
       resendEmailConfig,
-      makeMagicLinkEmailDelivery(renderOk, productionRouting)
+      makeMagicLinkEmailDelivery(renderOk, productionEnvironment)
         .deliver(request)
         .pipe(Effect.withTracer(makeSpanNameCaptureTracer(spanNames)))
     );
@@ -452,26 +460,6 @@ describe("Effect.fn trace naming", () => {
     expect(publicOperation).toBeDefined();
     expect(publicOperation).not.toBe("MagicLinkEmailDelivery.deliver");
     expect(new Set(spanNames).size).toBe(spanNames.length);
-  });
-});
-
-describe("Recipient-based provider routing", () => {
-  test("synthetic Preview recipients force the shared Console provider", () => {
-    expect(routeMagicLinkEmail(previewRouting, syntheticRequest.email)).toBe(
-      "preview-e2e-console"
-    );
-  });
-
-  test("every other recipient context uses the configured default provider", () => {
-    expect(routeMagicLinkEmail(previewRouting, request.email)).toBe(
-      "configured-default"
-    );
-    expect(routeMagicLinkEmail(productionRouting, syntheticRequest.email)).toBe(
-      "configured-default"
-    );
-    expect(routeMagicLinkEmail(productionRouting, request.email)).toBe(
-      "configured-default"
-    );
   });
 });
 

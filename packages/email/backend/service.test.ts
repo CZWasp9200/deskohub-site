@@ -1,9 +1,9 @@
 import { describe, expect, mock, test } from "bun:test";
 import { Effect, Layer } from "effect";
 import {
+  type EmailConfig,
   EmailDeliveryIdSchema,
   type EmailMessage,
-  type EmailProviderConfig,
 } from "../types/email.types";
 import { NetworkError } from "./network-error";
 import {
@@ -16,8 +16,7 @@ import {
   EmailTemplateServiceTag,
 } from "./service";
 
-const config: EmailProviderConfig = {
-  provider: "console",
+const config: EmailConfig = {
   defaultFrom: { email: "deskohub@example.test", name: "Deskohub" },
 };
 

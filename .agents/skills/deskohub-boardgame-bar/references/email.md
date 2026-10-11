@@ -2,15 +2,13 @@
 
 ## Overview
 
-Email delivery is selected by provider factory logic in `@deskohub/email`.
+Email delivery is routed by recipient in `@deskohub/email`; there is no
+provider setting.
 
-Default behavior:
-
-- `EMAIL_PROVIDER=resend` forces Resend.
-- `EMAIL_PROVIDER=console` forces console logging provider.
-- If `EMAIL_PROVIDER` is omitted, the app uses Resend when `EMAIL_API_KEY` is
-  present and console otherwise.
-- In production, `console` is disabled unless `EMAIL_TEST_MODE=true`; with an `EMAIL_API_KEY`, production falls back to Resend.
+- Mail addressed only to `@resend.dev` test recipients goes to the Console
+  provider, which logs it and never sends.
+- All other mail goes to Resend. Without `EMAIL_API_KEY` it fails with
+  `EmailDeliveryUnconfiguredError` instead of falling back to Console.
 
 ## Required Configuration
 
@@ -18,11 +16,10 @@ Add to `.env.local` for the Boardgame Bar app, or to the app's deployment env:
 
 ```bash
 EMAIL_API_KEY=re_...
-EMAIL_PROVIDER=resend
 ```
 
-`EMAIL_PROVIDER` can be omitted for local development; without `EMAIL_API_KEY`
-it defaults to `console`.
+For local development without a key, use `@resend.dev` recipients such as
+`delivered@resend.dev`.
 
 ## Sender Addresses
 
@@ -36,10 +33,9 @@ These are not locale-specific sender addresses in the current implementation.
 ## Verification
 
 1. Exercise the current contact or training-room request flow with synthetic data.
-2. Confirm provider logs indicate Console or Resend initialization.
-3. If using Resend, verify deliveries in the Resend dashboard.
+2. Confirm the send result names the Console or Resend provider.
+3. For Resend deliveries, verify them in the Resend dashboard.
 
 ## Production Notes
 
 - Verify your sending domain in Resend.
-- Set `EMAIL_PROVIDER=resend` if you want explicit provider selection in production.

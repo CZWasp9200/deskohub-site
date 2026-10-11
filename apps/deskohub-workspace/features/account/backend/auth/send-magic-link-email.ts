@@ -1,15 +1,5 @@
-import {
-  ConfiguredEmailProviderLayer,
-  ConsoleEmailProviderLive,
-  type EmailConfigTag,
-  type EmailMessage,
-  type EmailProviderTag,
-  type EmailServiceError,
-  EmailServiceTag,
-  EmailTemplateServiceTag,
-  type NetworkError,
-} from "@deskohub/email";
-import { type Config, Data, Effect, Layer } from "effect";
+import { type EmailMessage, EmailServiceTag } from "@deskohub/email";
+import { type Config, Data, Effect, Layer, Predicate } from "effect";
 import type { WorkspaceEmailLocale } from "@/emails/_components/workspace-email-layout";
 import { EmailConfigLayer } from "@/shared/backend/config/email.config";
 import { workspaceSiteConstants } from "@/shared/utils";
@@ -61,94 +51,88 @@ export type MagicLinkEmailRenderer = (
   unknown
 >;
 
-export type MagicLinkEmailRoute = "preview-e2e-console" | "configured-default";
-
-export type MagicLinkEmailRoutingConfig = {
+export type MagicLinkDeliveryEnvironment = {
   readonly isVercelPreview: boolean;
 };
 
 /**
- * Only synthetic recipients in Vercel Preview use the authorized Console
- * route.
+ * The shared email service picks the provider by recipient. Bearer content
+ * reaches logs only for synthetic E2E recipients in Vercel Preview, after
+ * Console accepted the message.
  */
-export const routeMagicLinkEmail = (
-  config: MagicLinkEmailRoutingConfig,
-  recipient: string
-): MagicLinkEmailRoute =>
-  config.isVercelPreview && isSyntheticE2EEmailRecipient(recipient)
-    ? "preview-e2e-console"
-    : "configured-default";
+const emitsPreviewE2ELine = (
+  environment: MagicLinkDeliveryEnvironment,
+  recipient: string,
+  provider: string
+) =>
+  environment.isVercelPreview &&
+  provider === "console" &&
+  isSyntheticE2EEmailRecipient(recipient);
 
-/**
- * Bearer content reaches logs only through the authorized synthetic Preview
- * route.
- */
 export const makeMagicLinkEmailDelivery = (
   render: MagicLinkEmailRenderer,
-  routing: MagicLinkEmailRoutingConfig
+  environment: MagicLinkDeliveryEnvironment
 ): {
   readonly deliver: (
     request: MagicLinkDeliveryRequest
   ) => Effect.Effect<MagicLinkDeliveryCode>;
 } => {
-  const deliverRouted = Effect.fn("MagicLinkEmailDelivery.deliver")(function* (
-    request: MagicLinkDeliveryRequest,
-    route: MagicLinkEmailRoute
-  ) {
-    const rendered = yield* render(request).pipe(
-      Effect.tapError(() =>
-        Effect.logWarning("Magic-link email delivery failed.", {
-          code: "account.magic-link.delivery-failed",
-        })
-      ),
-      Effect.orElseSucceed(() => null)
-    );
-    if (!rendered) return "account.magic-link.delivery-failed" as const;
-
-    const email = yield* EmailServiceTag;
-    const outcome = yield* email
-      .send(magicLinkEmailMessage(request, rendered))
-      .pipe(
-        Effect.as(null),
-        Effect.catch((error: EmailServiceError | NetworkError) => {
-          // Discard transport details after shared retries are exhausted.
-          if (error._tag === "NetworkError") {
-            return Effect.fail(new MagicLinkDeliveryTransportError());
-          }
-          return Effect.logWarning(
-            "Magic-link email was rejected by the provider.",
-            { code: "account.magic-link.delivery-rejected" }
-          ).pipe(Effect.as("account.magic-link.delivery-rejected" as const));
-        })
+  const deliverRendered = Effect.fn("MagicLinkEmailDelivery.deliver")(
+    function* (request: MagicLinkDeliveryRequest) {
+      const rendered = yield* render(request).pipe(
+        Effect.tapError(() =>
+          Effect.logWarning("Magic-link email delivery failed.", {
+            code: "account.magic-link.delivery-failed",
+          })
+        ),
+        Effect.orElseSucceed(() => null)
       );
-    if (outcome !== null) return outcome;
+      if (!rendered) return "account.magic-link.delivery-failed" as const;
 
-    // The synthetic Preview route is the only bearer-log exception.
-    if (route === "preview-e2e-console") {
-      emitPreviewE2EConsoleDelivery(request.email, rendered.text);
+      const email = yield* EmailServiceTag;
+      const sent = yield* email
+        .send(magicLinkEmailMessage(request, rendered))
+        .pipe(
+          // Discard transport details after shared retries are exhausted.
+          Effect.catchTag("NetworkError", () =>
+            Effect.fail(new MagicLinkDeliveryTransportError())
+          ),
+          Effect.catchTag(
+            "EmailDeliveryUnconfiguredError",
+            unconfiguredDelivery
+          ),
+          Effect.catchTag("EmailServiceError", () =>
+            Effect.logWarning(
+              "Magic-link email was rejected by the provider.",
+              {
+                code: "account.magic-link.delivery-rejected",
+              }
+            ).pipe(Effect.as("account.magic-link.delivery-rejected" as const))
+          )
+        );
+      if (Predicate.isString(sent)) return sent;
+
+      // The synthetic Preview recipient is the only bearer-log exception.
+      if (emitsPreviewE2ELine(environment, request.email, sent.provider)) {
+        emitPreviewE2EConsoleDelivery(request.email, rendered.text);
+      }
+
+      yield* Effect.logInfo("Magic-link email accepted for delivery.", {
+        code: "account.magic-link.delivery-accepted",
+      });
+      return "account.magic-link.delivery-accepted" as const;
     }
-
-    yield* Effect.logInfo("Magic-link email accepted for delivery.", {
-      code: "account.magic-link.delivery-accepted",
-    });
-    return "account.magic-link.delivery-accepted" as const;
-  });
+  );
 
   const deliver = Effect.fn("account.magic-link.deliver")(function* (
     request: MagicLinkDeliveryRequest
   ) {
-    const route = routeMagicLinkEmail(routing, request.email);
-    return yield* deliverRouted(request, route).pipe(
-      Effect.provide(magicLinkEmailServiceLayer(route)),
-      // Keep provider and configuration failures within the fixed code
+    return yield* deliverRendered(request).pipe(
+      Effect.provide(magicLinkEmailServiceLayer),
+      // Keep transport and configuration failures within the fixed code
       // contract.
       Effect.catch(
-        (
-          error:
-            | Config.ConfigError
-            | EmailServiceError
-            | MagicLinkDeliveryTransportError
-        ) =>
+        (error: Config.ConfigError | MagicLinkDeliveryTransportError) =>
           error._tag === "MagicLinkDeliveryTransportError"
             ? Effect.logWarning("Magic-link email delivery failed.", {
                 code: "account.magic-link.delivery-failed",
@@ -193,23 +177,9 @@ const unconfiguredDelivery = (): Effect.Effect<
     code: "account.magic-link.delivery-unconfigured",
   }).pipe(Effect.as("account.magic-link.delivery-unconfigured" as const));
 
-const magicLinkEmailServiceLayer = (
-  route: MagicLinkEmailRoute
-): Layer.Layer<EmailServiceTag, Config.ConfigError | EmailServiceError> => {
-  const providerLayer: Layer.Layer<
-    EmailProviderTag,
-    EmailServiceError,
-    EmailConfigTag
-  > =
-    route === "preview-e2e-console"
-      ? ConsoleEmailProviderLive
-      : ConfiguredEmailProviderLayer;
-  return EmailServiceTag.Default.pipe(
-    Layer.provide(EmailTemplateServiceTag.Default),
-    Layer.provide(providerLayer),
-    Layer.provide(EmailConfigLayer)
-  );
-};
+const magicLinkEmailServiceLayer = EmailServiceTag.Live.pipe(
+  Layer.provide(EmailConfigLayer)
+);
 
 /**
  * Emits the sole approved bearer-link line for synthetic protected Preview

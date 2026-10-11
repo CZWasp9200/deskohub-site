@@ -2,9 +2,9 @@ import "@/shared/testing/workspace-test-env";
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import {
+  type EmailConfig,
   EmailDeliveryIdSchema,
   type EmailMessage,
-  type EmailProviderConfig,
   type EmailSendResult,
 } from "@deskohub/email";
 import type { EmailService } from "@deskohub/email/backend/service";
@@ -1059,8 +1059,7 @@ describe("ResendWebhookService", () => {
       sendTemplate: mock(() => Effect.die("sendTemplate is not used")),
       verify: Effect.succeed(true),
     };
-    const emailConfig: EmailProviderConfig = {
-      provider: "console",
+    const emailConfig: EmailConfig = {
       defaultFrom: {
         email: "reservations@workspace.deskohub.cz",
         name: "Deskohub Workspace",
@@ -1458,8 +1457,7 @@ describe("ResendWebhookService", () => {
     const { ResendEmailProviderLive } = await import(
       "@deskohub/email/backend/providers/resend-provider"
     );
-    const emailConfig: EmailProviderConfig = {
-      provider: "resend",
+    const emailConfig: EmailConfig = {
       apiKey: "api-key",
       defaultFrom: {
         email: "reservations@workspace.deskohub.cz",

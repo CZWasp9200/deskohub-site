@@ -411,7 +411,7 @@ matching delivered event completes `awaiting_delivery` or repairs only `failed`
 with failure code `fulfillment_email_failed`; a strictly newer failure or
 bounce event fails `awaiting_delivery` and may also downgrade `fulfilled ->
 failed` so an undelivered confirmation surfaces for recovery. Outside production,
-fulfillment reaches `fulfilled` when the configured email provider accepts the
+fulfillment reaches `fulfilled` when the email provider accepts the
 required customer send; the internal notification remains best effort.
 Protected Preview deployments cannot receive provider callbacks reliably.
 

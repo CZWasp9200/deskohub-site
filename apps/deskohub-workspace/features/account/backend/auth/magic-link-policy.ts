@@ -1,6 +1,7 @@
 /**
- * Only `delivered+<run-id>-<label>@resend.dev` is synthetic; other recipients
- * use the configured provider and never enter the bearer-log route.
+ * Only `delivered+<run-id>-<label>@resend.dev` is a synthetic E2E account.
+ * Every `resend.dev` recipient is logged by Console, but only this shape may
+ * enter the Preview bearer-log route.
  */
 export const magicLinkSyntheticRecipientPattern =
   /^delivered\+[a-z0-9]+(?:-[a-z0-9]+)*-[a-z0-9]+@resend\.dev$/i;

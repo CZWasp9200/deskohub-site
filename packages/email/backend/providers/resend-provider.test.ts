@@ -46,7 +46,6 @@ beforeEach(() => {
 });
 
 const config = {
-  provider: "resend" as const,
   defaultFrom: { email: "deskohub@example.test" },
   apiKey: "api-key",
 };
@@ -240,7 +239,6 @@ describe("ResendEmailProvider", () => {
           ResendEmailProviderLive.pipe(
             Layer.provide(
               Layer.succeed(EmailConfigTag, {
-                provider: "resend" as const,
                 defaultFrom: { email: "deskohub@example.test" },
               })
             )

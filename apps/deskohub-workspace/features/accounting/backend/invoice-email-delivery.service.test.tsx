@@ -3,9 +3,9 @@ import "@/shared/testing/workspace-test-env";
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import {
+  type EmailConfig,
   EmailDeliveryIdSchema,
   type EmailMessage,
-  type EmailProviderConfig,
   type EmailSendResult,
 } from "@deskohub/email";
 import {
@@ -74,8 +74,7 @@ const invoice = {
 };
 const source = makeSourceSnapshot("frozen-recipient@example.test");
 
-const emailConfig: EmailProviderConfig = {
-  provider: "console",
+const emailConfig: EmailConfig = {
   defaultFrom: {
     email: "reservations@workspace.deskohub.cz",
     name: "Deskohub Workspace",

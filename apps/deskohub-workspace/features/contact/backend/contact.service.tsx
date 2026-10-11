@@ -10,6 +10,10 @@ import type { WorkspaceEmailDetail } from "@/emails/workspace-email-detail";
 import { env } from "@/env";
 import { type Locale, m } from "@/features/i18n";
 import { renderWorkspaceEmail } from "@/shared/backend/email/render-react-email";
+import {
+  internalWorkspaceEmailRecipient,
+  workspaceEmailRecipient,
+} from "@/shared/backend/email/workspace-email-recipients";
 import { StorageError } from "@/shared/backend/errors";
 import { workspaceSiteConstants } from "@/shared/utils";
 
@@ -28,11 +32,6 @@ export interface IContactService {
     locale: Locale
   ) => Effect.Effect<ContactSubmission, StorageError>;
 }
-
-const workspaceRecipient = {
-  email: workspaceSiteConstants.contact.infoEmail,
-  name: workspaceSiteConstants.brand.name,
-} as const;
 
 const businessNotificationLocale: Locale = "cs-CZ";
 const businessTestingSubjectPrefix = "[TESTING]";
@@ -147,7 +146,7 @@ export class ContactService extends Context.Service<
             );
             const businessEmailMessage: EmailMessage = {
               from: emailConfig.defaultFrom,
-              to: workspaceRecipient,
+              to: internalWorkspaceEmailRecipient,
               subject: businessSubject,
               html: businessEmail.html,
               text: businessEmail.text,
@@ -206,7 +205,7 @@ export class ContactService extends Context.Service<
                   email: data.email,
                   name: data.name,
                 },
-                replyTo: workspaceRecipient,
+                replyTo: workspaceEmailRecipient,
                 subject: confirmationSubject,
                 html: confirmationEmail.html,
                 text: confirmationEmail.text,

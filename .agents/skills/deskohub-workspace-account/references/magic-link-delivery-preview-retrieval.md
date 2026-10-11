@@ -9,8 +9,10 @@ Research date: 2026-09-02; retrieval contract verified 2026-10-02
 > calls**. `@deskohub/email` is provider-generic and carries no account or
 > E2E logic: magic-link messages set the `sensitiveContent` marker, and the
 > account app feature owns the synthetic-recipient pattern and the gated
-> raw-log envelope. Only synthetic Preview magic links force the shared
-> Console provider; after a successful send the app feature emits one gated
+> raw-log envelope. The shared email service routes mail addressed only to
+> `@resend.dev` test recipients to its Console provider and everything else to
+> Resend. After Console accepts a synthetic Preview magic link, the app
+> feature emits one gated
 > raw-`console.log` line under `account.magic-link.preview-e2e` carrying the
 > rendered TEXT body and bearer link, outside the Effect/OTel censorship
 > layer. The runner retrieves it by looking up Vercel runtime logs
@@ -20,9 +22,8 @@ Research date: 2026-09-02; retrieval contract verified 2026-10-02
 > its final-440 history GET returned HTTP 200 after deployment project and
 > commit metadata matched. An earlier project PAT returned HTTP 403 on that
 > route, for an unknown reason. The runner treats token scope as opaque, and
-> no drain create/delete access was tested. Every other recipient uses the
-> `EmailConfigLayer` configured
-> default provider with fixed, censored result codes and no link logging. Do
+> no drain create/delete access was tested. Every real recipient goes to
+> Resend with fixed, censored result codes and no link logging. Do
 > not cite the tenant-isolation or Resend-retrieval arrangements below as the
 > current plan. Delivery-boundary, redaction, and censorship mechanics remain
 > accurate.
@@ -35,7 +36,7 @@ and records the current retrieval contract.
 
 The viable arrangement is to keep production and test email authority separate:
 
-- Production uses the configured default provider (the existing Resend path)
+- Production sends real recipients through Resend
   with a sending-only, domain-scoped API key. Production message retrieval
   credentials are never available to CI.
 - Preview auth delivery for synthetic E2E recipients now emits the rendered
@@ -85,9 +86,9 @@ band.
 
 At research time, Workspace selected one global provider from
 [`email.config.ts`](../../../../../apps/deskohub-workspace/shared/backend/config/email.config.ts):
-Resend or console. Today, `EmailConfigLayer` resolves that configured default
-for every non-synthetic recipient, and only synthetic Preview magic-link
-recipients force the shared Console provider (see the decision status above).
+Resend or console. Today there is no provider selection: the shared email
+service routes each message by recipient, sending `@resend.dev` test mail to
+Console and all other mail to Resend (see the decision status above).
 The shared message type includes recipients, content, tags, metadata, and the
 `sensitiveContent` marker that suppresses bearer content in provider output in
 [`email.types.ts`](../../../../../packages/email/types/email.types.ts).
@@ -115,7 +116,7 @@ stringify the message, provider request, provider response, or thrown SDK
 object.
 
 Historical alternatives that preceded the current decision: the protected-preview
-contract originally set `EMAIL_PROVIDER=console` in Preview and reserved Resend
+contract originally sent all Preview mail to Console and reserved Resend
 for Production; see
 [`preview-workflow.md`](../../deskohub-workspace-e2e/references/preview-workflow.md).
 At research time, real preview magic-link delivery would have required a deliberate
@@ -196,8 +197,7 @@ domain.
 
 ### Production
 
-- Use the configured default provider (the existing Resend service) and the
-  production sending domain.
+- Send real recipients through Resend and the production sending domain.
 - Give Vercel Production a sending-only key restricted to that domain.
 - Do not put any Resend full-access key in Vercel, GitHub Actions, local checked-in
   files, or preview settings.
@@ -209,8 +209,8 @@ domain.
 ### Preview and exact-SHA E2E
 
 - Synthetic-recipient Preview delivery is console-only: auth renders the
-  message and forces the shared `@deskohub/email` Console provider, then the
-  account app feature emits one gated raw-`console.log` line with the TEXT
+  message, the shared `@deskohub/email` service routes the `@resend.dev`
+  recipient to its Console provider, and the account app feature emits one gated raw-`console.log` line with the TEXT
   body and bearer link under `account.magic-link.preview-e2e`, and never
   calls Resend. This works with or without `EMAIL_API_KEY`, since no send
   occurs.
@@ -258,9 +258,9 @@ domain.
   Do not read the token from Postgres, add a token-returning route, ship
   `testUtils`, toggle a browser-controlled delivery mode, or add a Cloudflare
   tunnel/webhook.
-- Non-synthetic Preview recipients, and all Production and development auth,
-  use the `EmailConfigLayer` configured default provider with fixed, censored
-  result codes and no link logging.
+- Real recipients in every environment go to Resend with fixed, censored
+  result codes and no link logging. Other `@resend.dev` recipients, and
+  synthetic recipients outside Preview, go to Console without the gated line.
 - Clean up only records created by the run where the provider API and retention
   policy support that safely. Cleanup failure must not trigger broad deletion.
 
@@ -277,9 +277,9 @@ tunnel into the protected deployment.
   the callback argument in process. This is test composition, not a deployed
   route or runtime environment switch.
 - The normal local app must not print magic links: the `sensitiveContent`
-  marker suppresses bearer content in configured-default Console output. A
-  missing delivering credential fails closed to the fixed unconfigured code
-  only when the configured provider needs one.
+  marker suppresses bearer content in Console output for `@resend.dev`
+  recipients. A real recipient without `EMAIL_API_KEY` fails closed to the
+  fixed unconfigured code.
 - A developer who needs a complete local browser flow can explicitly supply
   delivery credentials and retrieve the message using their own separately
   authorized tooling, or use an immutable preview.

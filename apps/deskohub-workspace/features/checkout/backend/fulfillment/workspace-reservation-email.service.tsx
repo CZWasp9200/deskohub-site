@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
 import type { Customer } from "@deskohub/dotypos/generated";
 import type { EmailDeliveryId } from "@deskohub/email";
-import type { NetworkError } from "@deskohub/email/backend/network-error";
 import {
   EmailConfigTag,
+  type EmailSendError,
   EmailServiceError,
   EmailServiceTag,
 } from "@deskohub/email/backend/service";
@@ -62,10 +62,10 @@ export interface IWorkspaceReservationEmailService {
   readonly sendPaidReservationEmails: (input: {
     readonly reservation: WorkspaceReservationDetails;
     readonly customerEmailIdempotencyKey?: string;
-  }) => Effect.Effect<EmailDeliveryId, EmailServiceError | NetworkError>;
+  }) => Effect.Effect<EmailDeliveryId, EmailSendError>;
   readonly sendCancellationEmail: (input: {
     readonly reservation: WorkspaceReservationDetails;
-  }) => Effect.Effect<void, EmailServiceError | NetworkError>;
+  }) => Effect.Effect<void, EmailSendError>;
 }
 
 const customerAccessCategory = "workspace-paid-reservation-access";

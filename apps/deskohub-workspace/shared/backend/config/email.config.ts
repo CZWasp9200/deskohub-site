@@ -1,37 +1,21 @@
-import type { EmailProviderConfig } from "@deskohub/email";
+import type { EmailConfig } from "@deskohub/email";
 import { EmailConfigTag } from "@deskohub/email";
 import { Config, Layer, Option } from "effect";
-import { env } from "@/env";
 import { workspaceSiteConstants } from "@/shared/utils";
 
 const defaultFromEmail = "reservations@workspace.deskohub.cz";
 
-const emailConfig = Config.all({
-  provider: Config.option(
-    Config.literals(["resend", "console"], "EMAIL_PROVIDER")
-  ),
-  apiKey: Config.option(Config.string("EMAIL_API_KEY")),
-});
-
 export const EmailConfigLayer = Layer.effect(
   EmailConfigTag,
-  emailConfig.pipe(
-    Config.map((config) => {
-      const apiKey = Option.getOrUndefined(config.apiKey);
-      const provider: EmailProviderConfig["provider"] = Option.getOrElse(
-        config.provider,
-        () => env.EMAIL_PROVIDER ?? (apiKey ? "resend" : "console")
-      );
-      const providerConfig: EmailProviderConfig = {
-        provider,
+  Config.option(Config.string("EMAIL_API_KEY")).pipe(
+    Config.map(
+      (apiKey): EmailConfig => ({
         defaultFrom: {
           email: defaultFromEmail,
           name: workspaceSiteConstants.brand.name,
         },
-        apiKey,
-      };
-
-      return providerConfig;
-    })
+        apiKey: Option.getOrUndefined(apiKey),
+      })
+    )
   )
 );

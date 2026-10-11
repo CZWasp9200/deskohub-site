@@ -95,11 +95,10 @@ export type EmailTemplateData = {
 };
 
 /**
- * Email provider configuration
+ * Email delivery configuration. Recipients, not configuration, choose the
+ * provider; the API key only enables Resend delivery to real recipients.
  */
-export interface EmailProviderConfig {
-  provider: "resend" | "console";
+export interface EmailConfig {
   apiKey?: string;
   defaultFrom: EmailRecipient;
-  testMode?: boolean;
 }

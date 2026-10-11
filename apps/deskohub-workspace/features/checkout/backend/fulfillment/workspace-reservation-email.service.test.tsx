@@ -9,9 +9,9 @@ import type {
   Table as DotyposTable,
 } from "@deskohub/dotypos/generated";
 import {
+  type EmailConfig,
   EmailDeliveryIdSchema,
   type EmailMessage,
-  type EmailProviderConfig,
   type EmailSendResult,
 } from "@deskohub/email";
 import type { EmailService } from "@deskohub/email/backend/service";
@@ -103,8 +103,7 @@ const sendPaidReservationEmail = async (
     sendTemplate: mock(() => Effect.die("sendTemplate is not used")),
     verify: Effect.succeed(true),
   };
-  const emailConfig: EmailProviderConfig = {
-    provider: "console",
+  const emailConfig: EmailConfig = {
     defaultFrom: {
       email: "reservations@workspace.deskohub.cz",
       name: "Deskohub Workspace",
@@ -617,8 +616,7 @@ describe("workspace reservation email details", () => {
       sendTemplate: mock(() => Effect.die("sendTemplate is not used")),
       verify: Effect.succeed(true),
     };
-    const emailConfig: EmailProviderConfig = {
-      provider: "console",
+    const emailConfig: EmailConfig = {
       defaultFrom: {
         email: "reservations@workspace.deskohub.cz",
         name: "Deskohub Workspace",
@@ -729,8 +727,7 @@ describe("sendPaidReservationEmails idempotency", () => {
       sendTemplate: mock(() => Effect.die("sendTemplate is not used")),
       verify: Effect.succeed(true),
     };
-    const emailConfig: EmailProviderConfig = {
-      provider: "console",
+    const emailConfig: EmailConfig = {
       defaultFrom: {
         email: "reservations@workspace.deskohub.cz",
         name: "Deskohub Workspace",
@@ -812,8 +809,7 @@ describe("sendPaidReservationEmails idempotent retry stability", () => {
       sendTemplate: mock(() => Effect.die("sendTemplate is not used")),
       verify: Effect.succeed(true),
     };
-    const emailConfig: EmailProviderConfig = {
-      provider: "console",
+    const emailConfig: EmailConfig = {
       defaultFrom: {
         email: "reservations@workspace.deskohub.cz",
         name: "Deskohub Workspace",
@@ -934,8 +930,7 @@ describe("sendPaidReservationEmails reservation access capability", () => {
       sendTemplate: mock(() => Effect.die("sendTemplate is not used")),
       verify: Effect.succeed(true),
     };
-    const emailConfig: EmailProviderConfig = {
-      provider: "console",
+    const emailConfig: EmailConfig = {
       defaultFrom: {
         email: "reservations@workspace.deskohub.cz",
         name: "Deskohub Workspace",

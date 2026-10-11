@@ -16,11 +16,10 @@ const readConfig = (env: Record<string, string>) =>
   );
 
 describe("EmailConfigLayer", () => {
-  test("defaults to console without email provider credentials", async () => {
+  test("reads no API key when none is configured", async () => {
     const config = await readConfig({});
 
     expect(config).toEqual({
-      provider: "console",
       defaultFrom: {
         email: "reservations@workspace.deskohub.cz",
         name: workspaceSiteConstants.brand.name,
@@ -29,26 +28,11 @@ describe("EmailConfigLayer", () => {
     });
   });
 
-  test("defaults to resend when an API key is configured", async () => {
+  test("reads the Resend API key", async () => {
     const config = await readConfig({
       EMAIL_API_KEY: "api-key",
     });
 
-    expect(config).toMatchObject({
-      provider: "resend",
-      apiKey: "api-key",
-    });
-  });
-
-  test("keeps explicit console provider with an API key", async () => {
-    const config = await readConfig({
-      EMAIL_PROVIDER: "console",
-      EMAIL_API_KEY: "api-key",
-    });
-
-    expect(config).toMatchObject({
-      provider: "console",
-      apiKey: "api-key",
-    });
+    expect(config).toMatchObject({ apiKey: "api-key" });
   });
 });

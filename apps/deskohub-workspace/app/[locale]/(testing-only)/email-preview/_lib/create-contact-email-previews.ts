@@ -1,9 +1,9 @@
 import "server-only";
 
 import {
+  type EmailConfig,
   EmailDeliveryIdSchema,
   type EmailMessage,
-  type EmailProviderConfig,
   type EmailSendResult,
 } from "@deskohub/email";
 import type { EmailService } from "@deskohub/email/backend/service";
@@ -23,8 +23,7 @@ const previewSubmission = {
     "Hello,\n\nI'd like to confirm that the Profi pass includes both monitors and coffee. Thank you!",
 } as const;
 
-const emailConfig: EmailProviderConfig = {
-  provider: "console",
+const emailConfig: EmailConfig = {
   defaultFrom: {
     email: "reservations@workspace.deskohub.cz",
     name: "Deskohub Workspace",

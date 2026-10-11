@@ -66,18 +66,16 @@ names. Inspect settings and deployment metadata without printing their values.
   stacked-discount and external-payment cases. The runner selects a usable
   group deterministically through the Dotypos API and fails closed when none
   exists.
-- `EMAIL_PROVIDER=console` for Preview. Browser cases exercise the complete
-  email workflow without making external delivery attempts or consuming the
-  Resend plan. Checkout and reservation mail use that configured default.
-  Auth ignores the global selection only for exact synthetic E2E magic-link
-  recipients: they force the shared Console transport (zero Resend sends),
-  and the account app feature then emits the single gated
-  `account.magic-link.preview-e2e` raw console line whose
+- A send-only `EMAIL_API_KEY`. There is no provider setting: the shared
+  email service sends mail addressed only to `@resend.dev` test recipients
+  to Console and everything else to Resend. Browser cases use only
+  `@resend.dev` recipients, so they exercise the complete email workflow
+  without external delivery attempts or Resend quota, while a real person
+  signing in or booking on a Preview receives real mail. For exact synthetic
+  E2E magic-link recipients the account app feature then emits the single
+  gated `account.magic-link.preview-e2e` raw console line whose
   `{code, recipient, message, text}` envelope is the E2E parser's stable wire
-  format. Non-synthetic auth uses the `EmailConfigLayer` configured default
-  provider, which may be Console. Preview keeps a send-only `EMAIL_API_KEY`
-  for Resend webhook verification and for the configured default whenever it
-  is Resend; a missing key fails closed only when that provider needs one.
+  format. Mail for a real recipient fails closed without the key.
 - The non-sensitive Preview-only
   `POSTHOG_FEATURE_FLAG_OVERRIDES={"accounts":true,"calendar_sales":true,"customer_discounts":true,"discount_codes":true,"meeting_room_page":true,"office_page":true}`.
   Account navigation E2E requires `accounts:true` even when the production
