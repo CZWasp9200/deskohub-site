@@ -20,6 +20,7 @@ import { eq, inArray } from "drizzle-orm";
 import { Effect, Layer, Schema } from "effect";
 import { Pool } from "pg";
 import { standaloneAccessCodeAttemptEvents } from "@/db/schema";
+import { waitForPostgresLockWaiter } from "@/shared/testing/workspace-postgres-lock-waiters.test-utils";
 import {
   connectWorkspacePostgresTestDatabase,
   type WorkspacePostgresTestDatabase,
@@ -161,21 +162,6 @@ describe.skipIf(!postgresDatabase)(
     });
 
     const reconcileBarrierKey = 987654321099;
-
-    const waitForWaitingLock = async (
-      predicate: string,
-      description: string
-    ) => {
-      const deadline = Date.now() + 5_000;
-      while (Date.now() < deadline) {
-        const waiting = await barrierPool.query(
-          `select 1 from pg_locks where not granted and ${predicate}`
-        );
-        if (waiting.rows.length > 0) return;
-        await Bun.sleep(10);
-      }
-      throw new Error(`Timed out waiting for ${description}.`);
-    };
 
     const installReconcileBarrier = async () => {
       await barrierPool.query(`
@@ -1314,10 +1300,11 @@ describe.skipIf(!postgresDatabase)(
           })
         );
         void replay.catch(() => {});
-        await waitForWaitingLock(
-          "locktype = 'transactionid'",
-          "the stale replay to reach the contested terminal insert"
-        );
+        await waitForPostgresLockWaiter(barrierPool, {
+          condition: "locktype = 'transactionid'",
+          description:
+            "the stale replay to reach the contested terminal insert",
+        });
 
         await barrier.query("commit");
         expect(await replay).toMatchObject({
@@ -1367,10 +1354,11 @@ describe.skipIf(!postgresDatabase)(
           })
         );
         void confirmed.catch(() => {});
-        await waitForWaitingLock(
-          `locktype = 'advisory' and classid = (${reconcileBarrierKey}::bigint >> 32)::oid and objid = (${reconcileBarrierKey}::bigint & 4294967295)::oid`,
-          "the confirmed claim to reach the reconciliation barrier"
-        );
+        await waitForPostgresLockWaiter(barrierPool, {
+          condition: `locktype = 'advisory' and classid = (${reconcileBarrierKey}::bigint >> 32)::oid and objid = (${reconcileBarrierKey}::bigint & 4294967295)::oid`,
+          description:
+            "the confirmed claim to reach the reconciliation barrier",
+        });
 
         await barrier.query("commit");
         await barrier.query(
