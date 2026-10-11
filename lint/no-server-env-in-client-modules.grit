@@ -4,7 +4,8 @@ language js(typescript, jsx)
 // `@/env` carries the server environment schema and its administrator,
 // igloohome, and admin API dependencies. Browser modules read the
 // browser-visible environment from `@/client-env` so that graph stays out of
-// client bundles.
+// client bundles, whether loaded statically, with `import()`, or `require`.
+// Type-only imports and re-exports are erased and add no client code.
 file($name, $body) where {
   $name <: r".*apps/deskohub-workspace/.*\.(?:ts|tsx)$",
   or {
@@ -17,10 +18,25 @@ file($name, $body) where {
     }
   },
   $body <: contains bubble {
-    JsModuleSource() as $source where {
-      $source <: r"^['\"](?:@/env|(?:\.\.?/)+env)['\"]$",
+    or {
+      JsModuleSource() as $span where {
+        $span <: r"^['\"](?:@/env|(?:\.\.?/)+env)['\"]$",
+        not $span <: within JsImport() as $import where {
+          $import <: r"(?s)^import\s+type\s.*"
+        },
+        not $span <: within JsExport() as $export where {
+          $export <: r"(?s)^export\s+type\s.*"
+        }
+      },
+      JsImportCallExpression() as $span where {
+        $span <: r"(?s)^import\s*\(\s*['\"](?:@/env|(?:\.\.?/)+env)['\"].*"
+      },
+      JsCallExpression() as $span where {
+        $span <: r"(?s)^require\s*\(\s*['\"](?:@/env|(?:\.\.?/)+env)['\"].*"
+      }
+    } where {
       register_diagnostic(
-        span = $source,
+        span = $span,
         message = "Browser modules must read the browser-visible environment from `@/client-env`, not the server `@/env`.",
         severity = "error"
       )
