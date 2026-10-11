@@ -4,7 +4,6 @@ import { resolve } from "node:path";
 import { runCommand } from "./shared/command";
 import {
   identifierNames,
-  importSpecifiers,
   nodesOf,
   parseTrackedSource,
 } from "./shared/source-ast";
@@ -380,18 +379,6 @@ describe("workspace E2E workflow", () => {
     expect(
       projectByName(playwrightConfig, "checkout-plan")?.dependencies
     ).not.toContain("checkout-invoice-persistence");
-
-    const databaseImports = importSpecifiers(
-      parseTrackedModule("../db/database.service.ts").ast
-    );
-    const accountingKeyImports = importSpecifiers(
-      parseTrackedModule(
-        "../features/accounting/backend/accounting-snapshot-key.service.ts"
-      ).ast
-    );
-    expect(databaseImports).not.toContain("@/env");
-    expect(accountingKeyImports).not.toContain("@/env");
-    expect(accountingKeyImports).not.toContain("server-only");
   });
 
   test("lets Playwright own checkout preparation, scheduling, and parallelism", async () => {

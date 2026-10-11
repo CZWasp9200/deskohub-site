@@ -153,6 +153,7 @@ const generated =
 const account = "apps/deskohub-workspace/features/account";
 const accountBackend = `${account}/backend`;
 const authServer = `${accountBackend}/auth/auth-server.ts`;
+const authOptions = `${accountBackend}/auth/auth-options.ts`;
 const admin = "apps/deskohub-workspace/app/admin";
 const capabilityClass =
   'export class ReservationService extends Context.Service<ReservationService, { readonly hold: () => Effect.Effect<void> }>()("ReservationService") {\n  static Default = Layer.succeed(this, { hold: () => Effect.void });\n}\n';
@@ -364,6 +365,25 @@ const rules: { name: string; diagnostic: string; module: string; cases: Row[] }[
     ],
   },
   {
+    name: "no-next-runtime-imports-in-standalone-modules", diagnostic: "loaded outside the Next.js server",
+    module: "apps/deskohub-workspace/db/database.service.ts",
+    cases: [
+      ["rejects the server environment in the database service", 'import { env } from "@/env";\nexport { env };\n', true],
+      ["rejects server-only in the accounting snapshot key service", 'import "server-only";\nexport const keyId = 1;\n', true, "apps/deskohub-workspace/features/accounting/backend/accounting-snapshot-key.service.ts"],
+      ["rejects a relative environment import in the auth options", 'import { env } from "../../../../env";\nexport { env };\n', true, authOptions],
+      ["permits type-only Better Auth imports in the auth options", 'import type { BetterAuthOptions } from "better-auth";\nexport type Options = BetterAuthOptions;\n', false, authOptions],
+      ["permits server modules", 'import "server-only";\nimport { env } from "@/env";\nexport { env };\n', false, authServer],
+    ],
+  },
+  {
+    name: "connectionless Better Auth options", diagnostic: "Keep the Better Auth options connectionless",
+    module: authOptions,
+    cases: [
+      ["rejects constructing the auth instance", 'import { betterAuth } from "better-auth";\nexport const auth = betterAuth({});\n', true],
+      ["permits constructing it in the auth server", 'import { betterAuth } from "better-auth";\nexport const auth = betterAuth({});\n', false, authServer],
+    ],
+  },
+  {
     name: "administration UI imports", diagnostic: "Compose administration tables through AdministrationDataTable",
     module: `${admin}/orders/page.tsx`,
     cases: [
@@ -379,6 +399,14 @@ const rules: { name: string; diagnostic: string; module: string; cases: Row[] }[
     cases: [
       ["rejects badge primitives in a route page", 'import { Badge } from "@/shared/components/ui/badge";\nexport { Badge };\n', true],
       ["permits the shared table toolbar", 'import { Badge } from "@/shared/components/ui/badge";\nexport { Badge };\n', false, "apps/deskohub-workspace/features/administration/table-toolbar.tsx"],
+    ],
+  },
+  {
+    name: "administration Basic Auth imports", diagnostic: "Administration pages authorize only through authorizeAdministratorPage",
+    module: `${admin}/access-codes/page.tsx`,
+    cases: [
+      ["rejects Basic Auth in the access codes page", 'import { verifyAdministratorBasicAuth } from "@/shared/administrator/administrator-basic-auth";\nexport { verifyAdministratorBasicAuth };\n', true],
+      ["permits the shared authorization gate", 'import { verifyAdministratorBasicAuth } from "@/shared/administrator/administrator-basic-auth";\nexport { verifyAdministratorBasicAuth };\n', false, "apps/deskohub-workspace/shared/administrator/administrator-authorization.server.ts"],
     ],
   },
   {

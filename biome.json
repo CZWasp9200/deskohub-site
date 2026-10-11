@@ -36,6 +36,7 @@
     "./lint/no-heavy-breadcrumb-imports.grit",
     "./lint/no-known-value-widening.grit",
     "./lint/no-local-administration-chrome.grit",
+    "./lint/no-next-runtime-imports-in-standalone-modules.grit",
     "./lint/no-object-parameters.grit",
     "./lint/no-repeated-computed-conditional-operand.grit",
     "./lint/no-runtime-typeof.grit",
@@ -164,6 +165,7 @@
                 "paths": {
                   "@/shared/components/ui/table": "Compose administration tables through AdministrationDataTable.",
                   "@/shared/components/ui/badge": "Use the shared administration table toolbar and count badge.",
+                  "@/shared/administrator/administrator-basic-auth": "Administration pages authorize only through authorizeAdministratorPage; Basic Auth credentials stay inside the shared gate and the proxy.",
                   "next/server": {
                     "importNames": ["connection"],
                     "message": "Administration pages establish the request boundary only through authorizeAdministratorPage."
