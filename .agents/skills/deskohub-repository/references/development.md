@@ -46,7 +46,7 @@ The Next.js applications use the same default development port. Set `PORT` when 
 
 ## Branch integration
 
-Before delegating a merge, the orchestrator inspects each conflict and decides the exact combined behavior. Assign each worker one file or tightly coupled production-and-test pair, the prescribed resolution, and one focused check. Keep lockfile reconciliation and generated-file cleanup separate. The orchestrator verifies the combined result and requests its review; a worker assignment is not "integrate main" or "resolve all conflicts".
+Before delegating a merge, inspect each conflict and decide the exact combined behavior. Assign each worker one file or tightly coupled production-and-test pair, the prescribed resolution, and one focused check. Keep lockfile reconciliation and generated-file cleanup separate. Verify the combined result and request its review; a worker assignment is not "integrate main" or "resolve all conflicts".
 
 ## Checks
 

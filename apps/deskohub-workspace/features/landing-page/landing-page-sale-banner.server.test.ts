@@ -128,7 +128,7 @@ describe("getActiveLandingPageSaleBanner", () => {
     expect(banner).toMatchObject({
       adjustmentKind: "percentage",
       href,
-      label: expect.stringContaining("Summer focus"),
+      label: expect.objectContaining({ title: "Summer focus" }),
     });
   });
 
@@ -153,7 +153,12 @@ describe("getActiveLandingPageSaleBanner", () => {
 
     expect(banner).toMatchObject({
       href: "/en-US/reservation/cowork?utm_source=deskohub&utm_medium=sale_banner&utm_content=home_hero",
-      label: "Summer focus: 20% off chosen products!",
+      label: {
+        template:
+          "{title}: <discount>{adjustment}</discount> off chosen products!",
+        title: "Summer focus",
+        adjustment: "20%",
+      },
     });
   });
 
@@ -166,7 +171,12 @@ describe("getActiveLandingPageSaleBanner", () => {
 
     expect(banner).toMatchObject({
       href: "/en-US/reservation/meeting-room?utm_source=deskohub&utm_medium=sale_banner&utm_content=home_hero",
-      label: "Summer focus: 20% off meeting room reservations!",
+      label: {
+        template:
+          "{title}: <discount>{adjustment}</discount> off meeting room reservations!",
+        title: "Summer focus",
+        adjustment: "20%",
+      },
     });
   });
 
@@ -179,7 +189,11 @@ describe("getActiveLandingPageSaleBanner", () => {
 
     expect(banner).toMatchObject({
       href: "/en-US/reservation/cowork?utm_source=deskohub&utm_medium=sale_banner&utm_content=home_hero",
-      label: "Summer focus: 20% off!",
+      label: {
+        template: "{title}: <discount>{adjustment}</discount> off!",
+        title: "Summer focus",
+        adjustment: "20%",
+      },
     });
     expect(isOfficePageEnabled).toHaveBeenCalledTimes(1);
   });
@@ -192,7 +206,12 @@ describe("getActiveLandingPageSaleBanner", () => {
     );
 
     expect(banner).toMatchObject({
-      label: "Summer focus: 20% off chosen products!",
+      label: {
+        template:
+          "{title}: <discount>{adjustment}</discount> off chosen products!",
+        title: "Summer focus",
+        adjustment: "20%",
+      },
     });
     expect(isOfficePageEnabled).not.toHaveBeenCalled();
   });

@@ -224,10 +224,14 @@ describe("ReservationCheckoutForm", () => {
     expect(
       view.container.querySelectorAll("[data-reservation-sale-banner]")
     ).toHaveLength(1);
+    const saleDiscount = saleCard?.querySelector(
+      '[data-reservation-sale-discount="summer-sale"]'
+    );
+    expect(saleDiscount?.textContent).toBe("Summer sale -50%");
     expect(
-      saleCard?.querySelector('[data-reservation-sale-discount="summer-sale"]')
+      saleDiscount?.querySelector("[data-reservation-sale-discount-value]")
         ?.textContent
-    ).toBe("Summer sale");
+    ).toBe("-50%");
     expect(
       view.getByRole("button", {
         name: m.checkoutSummaryDiscountDetailsTrigger(

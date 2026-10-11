@@ -725,7 +725,7 @@ describe("MeetingRoomReservationForm", () => {
       view.container.querySelector(
         '[data-reservation-sale-discount="meeting-room-sale"]'
       )?.textContent
-    ).toBe("Meeting room sale");
+    ).toBe("Meeting room sale -50%");
     expect(view.queryByText(/selected price/i)).toBeNull();
   });
 

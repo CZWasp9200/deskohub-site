@@ -18,7 +18,7 @@ import postcss from "postcss";
 import loadPostCssConfig from "postcss-load-config";
 import type { Locale } from "@/features/i18n";
 
-const fixtureParent = "/tmp/opencode";
+const fixtureParent = "/tmp/deskohub";
 const appRoot = resolve(import.meta.dir, "..");
 const globalsCssPath = resolve(appRoot, "app/globals.css");
 export const accountFixtureAuthHeader = "x-deskohub-account-fixture";
