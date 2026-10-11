@@ -165,10 +165,6 @@ for (const locale of locales) {
         m.checkoutOrderStepAccess({}, { locale }),
       ];
       const chooseSpaceItem = items.nth(0);
-      const completedBadgeClass = await chooseSpaceItem
-        .locator("span")
-        .first()
-        .getAttribute("class");
 
       await expect(chooseSpaceItem).toContainText(chooseSpaceLabel);
       await expect(chooseSpaceItem.locator("span.sr-only")).toHaveText(
@@ -184,9 +180,6 @@ for (const locale of locales) {
         const badge = completedItem.locator("span").first();
 
         await expect(completedItem).toContainText(stepLabels[index] ?? "");
-        await expect(badge).toHaveClass(/bg-aquamarine-green/);
-        await expect(badge).toHaveClass(/text-aquamarine-ink/);
-        expect(await badge.getAttribute("class")).toBe(completedBadgeClass);
         await expect(badge).toHaveText("");
         await expect(completedItem.locator("svg.lucide-check")).toHaveCount(1);
         await expect(completedItem.locator("span.sr-only")).toHaveText(
@@ -204,7 +197,6 @@ for (const locale of locales) {
       const currentBadge = currentItem.locator("span").first();
 
       await expect(currentBadge).toHaveText(String(currentStepIndex + 1));
-      await expect(currentBadge).toHaveClass(/bg-burned-orange/);
       await expect(currentItem.locator("svg.lucide-check")).toHaveCount(0);
       await expect(currentItem.locator("span.sr-only")).toHaveCount(0);
 
@@ -214,8 +206,6 @@ for (const locale of locales) {
 
         await expect(futureItem).toContainText(stepLabels[index] ?? "");
         await expect(badge).toHaveText(String(index + 1));
-        await expect(badge).toHaveClass(/border-white\/18/);
-        await expect(badge).toHaveClass(/text-white\/64/);
         await expect(futureItem.locator("svg.lucide-check")).toHaveCount(0);
         await expect(futureItem.locator("span.sr-only")).toHaveCount(0);
         expect(await futureItem.getAttribute("aria-current")).toBeNull();

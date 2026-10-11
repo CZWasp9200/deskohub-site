@@ -56,6 +56,9 @@ const optionalAdminBasicAuthPair = toEnvironmentSchema(
 );
 const optionalUrl = toEnvironmentSchema(Schema.optional(urlStringSchema));
 const url = toEnvironmentSchema(urlStringSchema);
+const optionalReviewScreenshotOptIn = toEnvironmentSchema(
+  Schema.optional(Schema.Literals(["true"]))
+);
 type RuntimeEnvironment = Readonly<Record<string, string | undefined>>;
 
 const e2eEnvironmentSchema = Schema.Struct({
@@ -104,6 +107,7 @@ const e2eEnvironmentSchema = Schema.Struct({
   WORKSPACE_E2E_POSTHOG_HOST: optionalUrl,
   WORKSPACE_E2E_POSTHOG_PROJECT_TOKEN: optionalNonEmptyString,
   WORKSPACE_E2E_PR_NUMBER: optionalPositiveInteger,
+  WORKSPACE_E2E_REVIEW_SCREENSHOTS: optionalReviewScreenshotOptIn,
   WORKSPACE_E2E_RUN_CONTEXT: optionalNonEmptyString,
   WORKSPACE_E2E_TRACE_PARENT: optionalNonEmptyString,
 });
@@ -163,6 +167,8 @@ export const makeE2EEnvironment = (
       WORKSPACE_E2E_POSTHOG_PROJECT_TOKEN:
         runtimeEnvironment.WORKSPACE_E2E_POSTHOG_PROJECT_TOKEN,
       WORKSPACE_E2E_PR_NUMBER: runtimeEnvironment.WORKSPACE_E2E_PR_NUMBER,
+      WORKSPACE_E2E_REVIEW_SCREENSHOTS:
+        runtimeEnvironment.WORKSPACE_E2E_REVIEW_SCREENSHOTS,
       WORKSPACE_E2E_RUN_CONTEXT: runtimeEnvironment.WORKSPACE_E2E_RUN_CONTEXT,
       WORKSPACE_E2E_TRACE_PARENT: runtimeEnvironment.WORKSPACE_E2E_TRACE_PARENT,
     },
@@ -184,3 +190,30 @@ export const makeWorkspaceE2EEnvironment = (
   }
   return environment as WorkspaceE2EEnvironment;
 };
+
+/**
+ * Instant-navigation suites run without the checkout environment, so they
+ * decode only the review screenshot opt-in through this boundary.
+ */
+export const makeReviewScreenshotEnvironment = (
+  runtimeEnvironment: RuntimeEnvironment = process.env
+) =>
+  createEnv({
+    emptyStringAsUndefined: true,
+    onValidationError: () => {
+      throw new Error("Invalid workspace E2E environment variables.");
+    },
+    runtimeEnv: {
+      WORKSPACE_E2E_REVIEW_SCREENSHOTS:
+        runtimeEnvironment.WORKSPACE_E2E_REVIEW_SCREENSHOTS,
+    },
+    server: { WORKSPACE_E2E_REVIEW_SCREENSHOTS: optionalReviewScreenshotOptIn },
+  });
+
+/**
+ * Review screenshots are PR-review artifacts, not test evidence, so a run
+ * captures them only when it sets WORKSPACE_E2E_REVIEW_SCREENSHOTS=true.
+ */
+export const reviewScreenshotsEnabled = (
+  environment: Pick<E2EEnvironment, "WORKSPACE_E2E_REVIEW_SCREENSHOTS">
+): boolean => environment.WORKSPACE_E2E_REVIEW_SCREENSHOTS === "true";

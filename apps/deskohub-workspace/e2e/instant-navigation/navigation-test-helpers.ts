@@ -4,6 +4,23 @@ import {
   type Page,
   type Request,
 } from "@playwright/test";
+import type { AccountReviewDestination } from "../account/review-screenshots";
+import {
+  makeReviewScreenshotEnvironment,
+  reviewScreenshotsEnabled,
+} from "../e2e-env";
+
+/** The review screenshot opt-in, decoded once through the E2E environment. */
+export const reviewScreenshots = reviewScreenshotsEnabled(
+  makeReviewScreenshotEnvironment()
+);
+
+export const reviewDestination = (
+  baseURL: string | undefined
+): AccountReviewDestination => ({
+  baseUrl: requireBaseUrl(baseURL),
+  screenshots: reviewScreenshots,
+});
 
 export async function enablePreviewAccess(
   context: BrowserContext,

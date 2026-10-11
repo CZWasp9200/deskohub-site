@@ -4,7 +4,7 @@ import * as SqlError from "effect/unstable/sql/SqlError";
 import { toWorkspaceE2EError, type WorkspaceE2EError } from "../errors";
 
 const workspaceE2EProviderVerificationConcurrency = 1;
-export const workspaceE2EProviderVerificationCooldownMs = 1_000;
+const workspaceE2EProviderVerificationCooldownMs = 1_000;
 
 export interface WorkspaceE2EProviderVerificationPermit {
   readonly withPermit: <A, E, R>(

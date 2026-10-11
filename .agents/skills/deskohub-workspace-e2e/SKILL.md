@@ -57,6 +57,20 @@ Distinguish automated-runner behavior from manual procedures before treating a d
 - Keep Vercel Deployment Protection enabled. Use its automation-bypass cookie/header/query flow for browser navigation, preview callbacks, readiness checks, and webhook replays. BotID is a separate production-only application concern; read the BotID skill before changing that boundary.
 - When priming the Vercel automation-bypass cookie, request a stable public asset that the app actually ships and require a successful response. A missing asset returns 404 even after a valid bypass, so it cannot distinguish protection failure from an invalid probe path.
 - Use ordinary document links for cross-locale switching rather than Next.js client-router links. Locale is server-owned global context and the Workspace proxy persists its cookie for localized requests; cross-locale RSC prefetches and client transitions can race or fail to commit the selected locale. Keep this invariant shared across full, mobile, and minimal headers rather than fixing one presentation in isolation.
+- Assert in E2E only what needs the deployed stack: server rendering and
+  auth gating, persistence, provider and webhook round trips, streaming and
+  navigation handoffs. Move CSS animation, layout geometry, focus, and markup
+  facts to real-browser component tests (`*.browser-acceptance.test.ts` with
+  `shared/testing/playwright-browser.ts`) or `@testing-library/react` tests,
+  and keep only a readiness sentinel in the E2E. Run a check that every paid
+  case could repeat, such as the post-fulfillment support and reserve-again
+  paths, on one opted-in case instead of in the shared checkout flow.
+- Review screenshots are PR-review artifacts, not test evidence. Capture them
+  only when the run sets `WORKSPACE_E2E_REVIEW_SCREENSHOTS=true`
+  (decoded once in `e2e/e2e-env.ts` by `reviewScreenshotsEnabled`, and passed
+  through `turbo.json`). Inject the decoded setting: account capture helpers take
+  an `AccountReviewDestination`, and review-only viewports, mode switches, or
+  section visits run only when it opts in.
 - For dynamically rendered forms, wait for the relevant framework handler to be hydrated before interacting; do not use network idle as the readiness signal because analytics traffic can keep it open. Then use Playwright locators and browser-native fill or keyboard operations so framework handlers receive trusted interactions. Select the actual control by accessibility role rather than a wrapping label. Prefer a stable app-owned id or form-scoped selector for critical activation when one exists. When a provider page requires an accessibility snapshot fallback, capture a fresh Playwright AI snapshot after hydration, resolve its `aria-ref` immediately, and do not reuse the reference after intervening DOM changes. Do not replace native form submission or link navigation with an evaluated DOM click.
 - For tooltip assertions, wait for the trigger's focus handler, center it
   instantly in the viewport, wait for layout to settle, and focus it with the
@@ -151,7 +165,10 @@ Distinguish automated-runner behavior from manual procedures before treating a d
   with exact unlink/relink transitions instead of extra auth links or
   identities. Keep the callback screenshot review on
   `account-session-lifecycle` when it consumes the handed-off
-  reauthentication link; the marker case only issues it. For a candidate that
+  reauthentication link; the marker case only issues it. The callback
+  handoff hold and its loading-document receipt are E2E evidence and run on
+  every pass; only the screenshot, its capture viewport, and the font and
+  viewport readiness checks depend on the review screenshot opt-in. For a candidate that
   removes quiet windows, the repository-root operator must deploy the exact
   committed SHA and benchmark the entire protected E2E job—setup, suite, and
   cleanup—against the 600-second limit before claiming the target. Keep
