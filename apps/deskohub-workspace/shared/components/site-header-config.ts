@@ -19,7 +19,7 @@ const siteHeaderSectionIds = {
   locationMap: "location-map",
 } as const;
 
-export type SiteHeaderMenuItemId =
+type SiteHeaderMenuItemId =
   | "locationMap"
   | "meetingRoom"
   | "office"

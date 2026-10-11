@@ -33,12 +33,12 @@ import type { DiscountCandidate } from "./provider";
 
 const providerNamespace = "google-calendar-sales";
 
-export type CalendarDiscountProviderInput = Pick<
+type CalendarDiscountProviderInput = Pick<
   DiscountQuoteInput,
   "bookedAt" | "lastServiceDate" | "locale" | "product"
 >;
 
-export interface ActiveSaleDiscoveryResult {
+interface ActiveSaleDiscoveryResult {
   readonly activeSales: readonly ActiveSale[];
   readonly complete: boolean;
 }

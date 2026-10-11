@@ -6,7 +6,7 @@ const administratorCredentialDigestPattern = /^[0-9a-f]{64}$/;
 const administratorCredentialEntryPattern =
   /^[a-z0-9][a-z0-9._-]{0,79}:[0-9a-f]{64}$/;
 
-export const AdministratorCredentialDigest = Schema.String.check(
+const AdministratorCredentialDigest = Schema.String.check(
   Schema.isPattern(administratorCredentialDigestPattern, {
     message:
       "Administrator credential digests must be 64 lowercase hexadecimal characters.",
@@ -18,8 +18,6 @@ export const AdministratorCredentialDigest = Schema.String.check(
     description:
       "Lowercase SHA-256 hexadecimal digest of a Basic-auth credential.",
   });
-export type AdministratorCredentialDigest =
-  typeof AdministratorCredentialDigest.Type;
 
 export const AdministratorUsername = AdministrationActorUsername.check(
   Schema.isPattern(administratorUsernamePattern, {
@@ -28,7 +26,7 @@ export const AdministratorUsername = AdministrationActorUsername.check(
   })
 );
 
-export const ConfiguredAdministratorCredential = Schema.Struct({
+const ConfiguredAdministratorCredential = Schema.Struct({
   username: AdministratorUsername,
   credentialDigest: AdministratorCredentialDigest,
 }).annotate({
@@ -36,8 +34,6 @@ export const ConfiguredAdministratorCredential = Schema.Struct({
   description:
     "One administrator's Basic-auth username and its configured credential digest.",
 });
-export type ConfiguredAdministratorCredential =
-  typeof ConfiguredAdministratorCredential.Type;
 
 const configuredAdministratorCredentialEntries = Schema.Array(
   ConfiguredAdministratorCredential

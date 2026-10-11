@@ -29,14 +29,14 @@ type CheckoutStepLink =
       readonly navigation: "document";
     };
 
-export const checkoutFlowSteps = [
+const checkoutFlowSteps = [
   { key: "chooseSpace", getLabel: m.checkoutOrderStepChooseSpace },
   { key: "order", getLabel: m.checkoutOrderStepReservation },
   { key: "pay", getLabel: m.checkoutOrderStepPayment },
   { key: "access", getLabel: m.checkoutOrderStepAccess },
 ] as const;
 
-export type CheckoutStepKey = Exclude<
+type CheckoutStepKey = Exclude<
   (typeof checkoutFlowSteps)[number]["key"],
   "chooseSpace"
 >;

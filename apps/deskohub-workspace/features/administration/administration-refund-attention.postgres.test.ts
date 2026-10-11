@@ -27,18 +27,17 @@ const testDatabase = await connectWorkspacePostgresTestDatabase();
 describe.skipIf(!testDatabase)(
   "Administration refund attention on disposable Postgres",
   () => {
-    const postgres = testDatabase;
-    if (!postgres) return;
+    if (!testDatabase) return;
     const reservationIds: WorkspaceReservationId[] = [];
     const runId = crypto.randomUUID();
     const customerId = DotyposCustomerIdSchema.make(`refund-customer-${runId}`);
 
     afterAll(async () => {
-      await postgres.pool.query(
+      await testDatabase.pool.query(
         "delete from payment_attempts where workspace_reservation_id = any($1)",
         [reservationIds]
       );
-      await postgres.pool.query(
+      await testDatabase.pool.query(
         "delete from workspace_reservations where id = any($1)",
         [reservationIds]
       );
@@ -57,7 +56,7 @@ describe.skipIf(!testDatabase)(
             AdministrationService.Default.pipe(
               Layer.provide(
                 Layer.mergeAll(
-                  postgres.layer,
+                  testDatabase.layer,
                   DotyposServiceMock({
                     getCustomer: () => Effect.succeed(null as never),
                     getCustomers: () => Effect.succeed([]),
@@ -87,7 +86,7 @@ describe.skipIf(!testDatabase)(
       const reservationId = workspaceReservationIdSchema.make(`refund-${id}`);
       reservationIds.push(reservationId);
       await Effect.runPromise(
-        postgres.db.insert(workspaceReservations).values({
+        testDatabase.db.insert(workspaceReservations).values({
           id: reservationId,
           checkoutAttemptKey: checkoutAttemptKeySchema.make(`attempt-${id}`),
           dotyposCustomerId: customerId,
@@ -108,7 +107,7 @@ describe.skipIf(!testDatabase)(
       );
       for (const [index, refundState] of refundStates.entries()) {
         await Effect.runPromise(
-          postgres.db.insert(paymentAttempts).values({
+          testDatabase.db.insert(paymentAttempts).values({
             id: paymentAttemptIdSchema.make(`attempt-${index}-${id}`),
             workspaceReservationId: reservationId,
             provider: "nexi",

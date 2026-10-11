@@ -14,10 +14,10 @@ type UseMotionSwipeCarouselOptions = {
   getSwipeDistance?: (stageWidth: number) => number;
 };
 
-export const swipeTimelineThreshold = 0.32;
-export const swipeVelocityThreshold = 520;
-export const swipeClickSuppressionDistance = 8;
-export const clickSuppressionAfterSwipeMs = 180;
+const swipeTimelineThreshold = 0.32;
+const swipeVelocityThreshold = 520;
+const swipeClickSuppressionDistance = 8;
+const clickSuppressionAfterSwipeMs = 180;
 
 export const wrapIndex = (index: number, length: number) => {
   if (length <= 0) return 0;
@@ -44,7 +44,7 @@ export const getClosestVirtualIndex = (
 export const truncateTowardZero = (value: number) =>
   value < 0 ? Math.ceil(value) : Math.floor(value);
 
-export const getDefaultSwipeDistance = (stageWidth: number) =>
+const getDefaultSwipeDistance = (stageWidth: number) =>
   Math.max(96, Math.min(stageWidth * 0.28, 260));
 
 export const getSwipeTargetVirtualIndex = ({

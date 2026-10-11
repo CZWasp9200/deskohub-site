@@ -8,13 +8,11 @@ import {
   type ControllerProps,
   type FieldPath,
   type FieldValues,
-  FormProvider,
+  FormProvider as Form,
   useFormContext,
 } from "react-hook-form";
 import { Label } from "@/shared/components/ui/label";
 import { cn } from "@/shared/utils";
-
-const Form = FormProvider;
 
 const FormFieldContext = React.createContext<{ name: string } | null>(null);
 
@@ -51,7 +49,6 @@ function useFormField() {
     name: fieldContext.name,
     formItemId: `${itemContext.id}-form-item`,
     formLabelId: `${itemContext.id}-form-item-label`,
-    formDescriptionId: `${itemContext.id}-form-item-description`,
     formMessageId: `${itemContext.id}-form-item-message`,
     ...fieldState,
   };
@@ -139,25 +136,6 @@ function FormControl({
   );
 }
 
-function FormDescription({
-  className,
-  ref,
-  ...props
-}: React.HTMLAttributes<HTMLParagraphElement> & {
-  ref?: React.Ref<HTMLParagraphElement>;
-}) {
-  const { formDescriptionId } = useFormField();
-
-  return (
-    <p
-      ref={ref}
-      id={formDescriptionId}
-      className={cn("text-sm text-navy-blue/62", className)}
-      {...props}
-    />
-  );
-}
-
 function FormMessage({
   className,
   children,
@@ -189,7 +167,6 @@ function FormMessage({
 export {
   Form,
   FormControl,
-  FormDescription,
   FormField,
   FormItem,
   FormItemLayout,

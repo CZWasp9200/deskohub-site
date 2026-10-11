@@ -189,15 +189,15 @@ export function seedWorkspaceE2ELocalReservation(
   });
 }
 
-export function cleanupWorkspaceE2ELocalReservation(
+function cleanupWorkspaceE2ELocalReservation(
   fixture: WorkspaceE2ELocalReservationFixture,
   dependencies: WorkspaceE2ELocalReservationFixtureTestDependencies
 ): Effect.Effect<void, WorkspaceE2EError>;
-export function cleanupWorkspaceE2ELocalReservation(
+function cleanupWorkspaceE2ELocalReservation(
   fixture: WorkspaceE2ELocalReservationFixture,
   dependencies?: WorkspaceE2ELocalReservationFixtureDependencies
 ): Effect.Effect<void, WorkspaceE2EError, E2EDatabase>;
-export function cleanupWorkspaceE2ELocalReservation(
+function cleanupWorkspaceE2ELocalReservation(
   fixture: WorkspaceE2ELocalReservationFixture,
   dependencies: WorkspaceE2ELocalReservationFixtureDependencies = {}
 ): Effect.Effect<void, WorkspaceE2EError, E2EDatabase> {

@@ -105,7 +105,7 @@ export type ReservationAdvertisementAffirmation<
   readonly discountQuote: AffirmedDiscountAdvertisementQuote;
 };
 
-export type ReservationCustomerQuote<
+type ReservationCustomerQuote<
   Reservation extends ReservationDetails,
   Quote extends ReservationQuote,
 > = {

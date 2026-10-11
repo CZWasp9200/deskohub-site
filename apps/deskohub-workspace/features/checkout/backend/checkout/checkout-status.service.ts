@@ -79,18 +79,13 @@ export type CheckoutMeetingRoomStatusSummary = CheckoutStatusSummaryBase &
 export type CheckoutOfficeStatusSummary = CheckoutStatusSummaryBase &
   StoredOfficeReservationDetails & { readonly seats: number };
 
-export type CheckoutStatusSummary =
-  | CheckoutCoworkStatusSummary
-  | CheckoutMeetingRoomStatusSummary
-  | CheckoutOfficeStatusSummary;
-
-export type CheckoutStatusContactPrefill = {
+type CheckoutStatusContactPrefill = {
   readonly name?: string;
   readonly email?: string;
   readonly phone?: string;
 };
 
-export type CheckoutStatusTableMap = WorkspaceTableMap;
+type CheckoutStatusTableMap = WorkspaceTableMap;
 
 type CheckoutStatusViewModelBase = {
   readonly orderId: WorkspaceReservationId;

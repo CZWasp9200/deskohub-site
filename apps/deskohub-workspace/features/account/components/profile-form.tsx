@@ -89,8 +89,6 @@ type AresLookupUiState = {
   generation?: number;
 };
 
-const aresDraftFields = profileBillingFieldNames;
-
 type SavedIdentity = {
   readonly firstName: string;
   readonly lastName: string | null;
@@ -220,7 +218,7 @@ export function ProfileForm({
   const applyAresReview = () => {
     const review = aresLookup.review;
     if (!review || aresLookup.status !== "found") return;
-    for (const field of aresDraftFields) {
+    for (const field of profileBillingFieldNames) {
       const value = review[field];
       if (value !== undefined) {
         form.setValue(field, value, {

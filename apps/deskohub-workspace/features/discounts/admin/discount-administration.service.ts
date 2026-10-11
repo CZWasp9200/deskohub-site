@@ -131,7 +131,7 @@ export type AdminVoucher = {
   readonly updatedAt: Temporal.Instant;
 };
 
-export type AdminDotyposCustomer = {
+type AdminDotyposCustomer = {
   readonly id: DotyposCustomerId;
   readonly displayName: string;
   readonly email: string | null;
@@ -184,7 +184,7 @@ export type AdminVoucherDetail = {
   readonly claims: readonly AdminVoucherClaim[];
 };
 
-export type AdminCustomerCode = AdminDiscountCode & {
+type AdminCustomerCode = AdminDiscountCode & {
   readonly discountAdjustment: DiscountAdjustment;
   readonly discountLabel: string;
   readonly eligible: boolean;
@@ -199,7 +199,7 @@ export type AdminCustomerProfile = {
   readonly voucherClaims: readonly AdminVoucherClaim[];
 };
 
-export type AdminCustomerCodeCreation = {
+type AdminCustomerCodeCreation = {
   readonly customer: AdminDotyposCustomer;
   readonly discounts: readonly Pick<AdminDiscount, "id" | "labels">[];
 };
@@ -1644,14 +1644,14 @@ type DiscountAdminMissingResource =
       readonly id: DotyposCustomerId;
     };
 
-export class DiscountAdminNotFoundError extends Data.TaggedError(
+class DiscountAdminNotFoundError extends Data.TaggedError(
   "DiscountAdminNotFoundError"
 )<{
   readonly resource: DiscountAdminMissingResource;
   readonly message: string;
 }> {}
 
-export class DiscountAdminAudienceError extends Data.TaggedError(
+class DiscountAdminAudienceError extends Data.TaggedError(
   "DiscountAdminAudienceError"
 )<{
   readonly message: string;

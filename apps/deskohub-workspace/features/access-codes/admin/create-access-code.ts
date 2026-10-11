@@ -13,11 +13,6 @@ import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { Match, Result, Schema } from "effect";
 import type { StandaloneAccessCodeCreationOutcome } from "../standalone-access-code";
 
-export const standaloneAccessCodeMinimumDurationHours =
-  ADMINISTRATION_STANDALONE_ACCESS_CODE_MINIMUM_DURATION_HOURS;
-export const standaloneAccessCodeMaximumDurationHours =
-  ADMINISTRATION_STANDALONE_ACCESS_CODE_MAXIMUM_DURATION_HOURS;
-
 const standaloneAccessCodeWindowDurationIssue = `The end must be ${ADMINISTRATION_STANDALONE_ACCESS_CODE_MINIMUM_DURATION_HOURS} to ${ADMINISTRATION_STANDALONE_ACCESS_CODE_MAXIMUM_DURATION_HOURS} hours after the start.`;
 
 const nanosecondsPerHour = 3_600_000_000_000n;

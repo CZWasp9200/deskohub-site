@@ -261,18 +261,7 @@ export const vouchers = pgTable(
 );
 
 export type StoredDiscount = typeof discounts.$inferSelect;
-export type NewStoredDiscount = typeof discounts.$inferInsert;
 export type DiscountProductTarget = typeof discountProductTargets.$inferSelect;
-export type NewDiscountProductTarget =
-  typeof discountProductTargets.$inferInsert;
 export type DiscountCode = typeof discountCodes.$inferSelect;
-export type NewDiscountCode = typeof discountCodes.$inferInsert;
-export type DiscountCodeCustomer = typeof discountCodeCustomers.$inferSelect;
-export type NewDiscountCodeCustomer = typeof discountCodeCustomers.$inferInsert;
 export type PromotionCode = typeof promotionCodes.$inferSelect;
-export type NewPromotionCode = typeof promotionCodes.$inferInsert;
-export type PromotionCodeCustomer = typeof promotionCodeCustomers.$inferSelect;
-export type NewPromotionCodeCustomer =
-  typeof promotionCodeCustomers.$inferInsert;
 export type Voucher = typeof vouchers.$inferSelect;
-export type NewVoucher = typeof vouchers.$inferInsert;

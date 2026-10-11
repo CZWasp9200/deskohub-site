@@ -10,7 +10,7 @@ const journalRoot = resolve(
 );
 const laneJournalPath = resolve(journalRoot, "account-lane.json");
 const formatVersion = 1;
-export const workspaceE2EAccountLaneId = "account-lane";
+const workspaceE2EAccountLaneId = "account-lane";
 
 /**
  * Ownership unit for the serial account lane: every synthetic provider and

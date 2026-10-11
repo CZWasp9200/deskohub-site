@@ -30,7 +30,7 @@ export class OfficeReservationFeatureFlagService extends Context.Service<
   );
 }
 
-export class OfficeReservationsDisabledError extends Data.TaggedError(
+class OfficeReservationsDisabledError extends Data.TaggedError(
   "OfficeReservationsDisabledError"
 )<{
   readonly message: string;

@@ -42,7 +42,7 @@ import {
 import { Input } from "@/shared/components/ui/input";
 import { StatusBadge } from "@/shared/components/ui/status-badge";
 import {
-  defaultWorkspaceCurrency,
+  defaultWorkspaceCurrencyCode,
   findWorkspaceCurrencyDefinition,
   workspaceCurrencyDefinitions,
 } from "@/shared/money/currencies";
@@ -1337,7 +1337,7 @@ export function DiscountCodeConfigurationFields({
   );
 }
 
-export function VoucherCreditFields(_props: {
+function VoucherCreditFields(_props: {
   readonly credit?: WorkspaceMoney | null;
 }) {
   const { control } = useFormContext<VoucherFormValues>();
@@ -1417,7 +1417,7 @@ const discountDefinitionFormDefaults = (
   fixedAmountCurrency:
     discount?.adjustment.kind === "fixed"
       ? discount.adjustment.amount.currency
-      : defaultWorkspaceCurrency.code,
+      : defaultWorkspaceCurrencyCode,
   products: discount ? discount.products.map(({ kind }) => kind) : [],
 });
 
@@ -1450,7 +1450,7 @@ const voucherFormDefaults = (
 ): VoucherFormValues => ({
   voucherValue: voucher ? String(voucher.issuedCredit.value) : "10000",
   voucherCurrency:
-    voucher?.issuedCredit.currency ?? defaultWorkspaceCurrency.code,
+    voucher?.issuedCredit.currency ?? defaultWorkspaceCurrencyCode,
   code: voucher?.code ?? "",
   enabled: voucher?.enabled ?? true,
   validFrom: toDateTimeInputValue(voucher?.validFrom),
