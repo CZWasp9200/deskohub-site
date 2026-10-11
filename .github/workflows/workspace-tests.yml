@@ -118,8 +118,18 @@ jobs:
     env:
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
       TURBO_TEAM: ${{ vars.TURBO_TEAM }}
+      WORKSPACE_TEST_DATABASE_URL: postgresql://workspace:workspace@127.0.0.1:5432/workspace
 
     steps:
+      # Database-backed suites skip without this URL, so a lost value must
+      # fail the shard instead of passing it with those suites unrun.
+      - name: Require the Workspace test database
+        run: |
+          if [[ -z "${WORKSPACE_TEST_DATABASE_URL:-}" ]]; then
+            echo "WORKSPACE_TEST_DATABASE_URL is missing or empty." >&2
+            exit 1
+          fi
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 2
@@ -153,8 +163,6 @@ jobs:
       # package Turborepo passes these arguments to; in the Workspace it
       # rewrites test-timings.json with this shard's measured durations.
       - name: Run Workspace tests
-        env:
-          WORKSPACE_TEST_DATABASE_URL: postgresql://workspace:workspace@127.0.0.1:5432/workspace
         run: >-
           bun turbo test
           --filter=./apps/deskohub-workspace
