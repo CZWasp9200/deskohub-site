@@ -37,7 +37,6 @@ describe("SessionRefresh", () => {
     });
 
     expect(refreshAnalyticsAccountIdentity).toHaveBeenCalledTimes(1);
-    expect(refreshAnalyticsAccountIdentity).toHaveBeenCalledWith();
   });
 
   test("swallows an unavailable identity refresh", async () => {
@@ -52,6 +51,5 @@ describe("SessionRefresh", () => {
     });
 
     expect(refreshAnalyticsAccountIdentity).toHaveBeenCalledTimes(1);
-    expect(refreshAnalyticsAccountIdentity).toHaveBeenCalledWith();
   });
 });

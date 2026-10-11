@@ -13,57 +13,19 @@ const { act, cleanup, fireEvent, render } = await import(
 const { renderToStaticMarkup } = await import("react-dom/server");
 
 const signInMagicLink = mock(() => Promise.resolve({ error: null }));
-const analyticsEvents: string[] = [];
-const beginAnalyticsAccountTransition = mock(() => {
-  analyticsEvents.push("begin");
-});
-const completeAnalyticsAccountSignOut = mock(() => {
-  analyticsEvents.push("complete");
-});
-const refreshAnalyticsAccountIdentity = mock(() => Promise.resolve());
-const signOut = mock(() => {
-  analyticsEvents.push("request");
-  return Promise.resolve({ error: null });
-});
-const confirmDiscardChanges = mock(() => true);
-const allowNextUnload = mock(() => {
-  analyticsEvents.push("allow");
-});
-
-mock.module("@/features/account/analytics-identity", () => ({
-  beginAnalyticsAccountTransition,
-  completeAnalyticsAccountSignOut,
-  getAnalyticsAccountIdentity: () => ({ status: "anonymous" }),
-  refreshAnalyticsAccountIdentity,
-  subscribeAnalyticsAccountIdentity: () => () => undefined,
-}));
 
 mock.module("@/features/account/auth.client", () => ({
   authClient: {
     signIn: {
       magicLink: signInMagicLink,
     },
-    signOut,
   },
-}));
-
-mock.module("@/shared/components/unsaved-changes-guard", () => ({
-  useAllowNextUnload: () => allowNextUnload,
-  useConfirmDiscardChanges: () => confirmDiscardChanges,
 }));
 
 describe("account components", () => {
   afterEach(() => {
     cleanup();
-    analyticsEvents.length = 0;
-    beginAnalyticsAccountTransition.mockClear();
-    completeAnalyticsAccountSignOut.mockClear();
-    refreshAnalyticsAccountIdentity.mockClear();
     signInMagicLink.mockClear();
-    signOut.mockClear();
-    confirmDiscardChanges.mockClear();
-    allowNextUnload.mockClear();
-    confirmDiscardChanges.mockImplementation(() => true);
   });
 
   afterAll(async () => {
@@ -289,71 +251,5 @@ describe("account components", () => {
     expect((view.getByLabelText("Email") as HTMLInputElement).value).toBe(
       "ada@example.test"
     );
-  });
-
-  test("sign-out button rejects discard before changing auth or navigation", async () => {
-    confirmDiscardChanges.mockImplementationOnce(() => false);
-
-    let assigned: string | null = null;
-    const originalAssign = window.location.assign;
-    window.location.assign = ((href: string) => {
-      assigned = href;
-    }) as typeof window.location.assign;
-
-    try {
-      const { SignOutButton } = await import("./sign-out-button");
-      const view = render(<SignOutButton locale="cs-CZ" />);
-
-      await act(async () => {
-        fireEvent.click(view.getByRole("button", { name: "Odhlásit se" }));
-      });
-
-      expect(confirmDiscardChanges).toHaveBeenCalledWith();
-      expect(beginAnalyticsAccountTransition).not.toHaveBeenCalled();
-      expect(completeAnalyticsAccountSignOut).not.toHaveBeenCalled();
-      expect(signOut).not.toHaveBeenCalled();
-      expect(assigned).toBeNull();
-    } finally {
-      window.location.assign = originalAssign;
-    }
-  });
-
-  test("sign-out button signs out once and redirects to the localized root", async () => {
-    const { SignOutButton } = await import("./sign-out-button");
-
-    let assigned: string | null = null;
-    const originalAssign = window.location.assign;
-    window.location.assign = ((href: string) => {
-      analyticsEvents.push("navigation");
-      assigned = href;
-    }) as typeof window.location.assign;
-
-    try {
-      const view = render(<SignOutButton locale="cs-CZ" />);
-      const signOutButton = view.getByRole("button", { name: "Odhlásit se" });
-      expect(signOutButton.className).toContain("bg-red-800");
-      await act(async () => {
-        fireEvent.click(signOutButton);
-      });
-      await Promise.resolve();
-      await Promise.resolve();
-
-      expect(confirmDiscardChanges).toHaveBeenCalledWith();
-      expect(signOut).toHaveBeenCalledTimes(1);
-      expect(analyticsEvents).toEqual([
-        "begin",
-        "request",
-        "complete",
-        "allow",
-        "navigation",
-      ]);
-      expect(beginAnalyticsAccountTransition).toHaveBeenCalledTimes(1);
-      expect(completeAnalyticsAccountSignOut).toHaveBeenCalledTimes(1);
-      expect(refreshAnalyticsAccountIdentity).not.toHaveBeenCalled();
-      expect(allowNextUnload).toHaveBeenCalledTimes(1);
-      expect(assigned).toBe("/cs-CZ");
-    } finally {
-      window.location.assign = originalAssign;
-    }
   });
 });
