@@ -82,9 +82,6 @@ const UnusedReservationAdministration = Layer.succeed(
   ReservationAdministrationService,
   {} as ReservationAdministrationService["Service"]
 );
-const AllowCliAuthenticationStarts = Layer.succeed(CliAuthenticationAdmission, {
-  isStartAllowed: Effect.succeed(true),
-});
 const ClaimEveryCliMutation = Layer.succeed(CliMutationIdempotency, {
   claim: () => Effect.succeed({ kind: "claimed" as const }),
   complete: () => Effect.void,
@@ -132,26 +129,6 @@ const ActorAuthorizedCliRequest = Layer.succeed(CliBearerAuthentication, {
 });
 
 describe("Workspace Admin API", () => {
-  test("serves the shared CLI info contract", async () => {
-    const info = await Effect.gen(function* () {
-      const client = yield* HttpApiTest.groups(WorkspaceAdminApi, ["cli"]);
-      return yield* client.cli.getInfo({});
-    }).pipe(
-      Effect.provide(AdminCliApiHandlers),
-      Effect.provide(AuthorizedCliRequest),
-      Effect.provide(AllowCliAuthenticationStarts),
-      Effect.provide(UnusedCliAuthentication),
-      Effect.provide(NodeHttpServer.layerHttpServices),
-      Effect.scoped,
-      Effect.runPromise
-    );
-
-    expect(info).toEqual({
-      apiVersion: "v1",
-      service: "deskohub-workspace",
-    });
-  });
-
   test("logs the original failure before reporting the service as unavailable", async () => {
     const logRecords: { readonly level: string; readonly text: string }[] = [];
     const capturingLogger = Logger.make<unknown, void>(

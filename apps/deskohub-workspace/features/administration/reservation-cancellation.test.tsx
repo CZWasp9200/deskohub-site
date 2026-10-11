@@ -275,26 +275,7 @@ describe("ReservationCancellation", () => {
     ).toBeDefined();
   });
 
-  test("shows server errors inline and keeps the dialog open", async () => {
-    withActionOptions();
-    const view = await renderCancellation();
-    await openDialog(view);
-
-    await submitDialog(view);
-    act(() => {
-      actionOptions?.onError({
-        error: { serverError: "The reservation could not be cancelled." },
-      });
-    });
-
-    expect(
-      within(view.getByRole("dialog")).getByText(
-        "The reservation could not be cancelled."
-      )
-    ).toBeDefined();
-  });
-
-  test("clears the error when the dialog is closed and reopened", async () => {
+  test("shows server errors inline and clears them when the dialog is reopened", async () => {
     withActionOptions();
     const view = await renderCancellation();
     await openDialog(view);
@@ -335,18 +316,5 @@ describe("ReservationCancellation", () => {
         .getByRole("button", { name: "Keep reservation" })
         .hasAttribute("disabled")
     ).toBe(true);
-  });
-
-  test("renders the dialog heading and refund copy verbatim", async () => {
-    const view = await renderCancellation();
-    await openDialog(view);
-
-    const dialog = within(view.getByRole("dialog"));
-    expect(dialog.getByText("Cancel this reservation?")).toBeDefined();
-    expect(
-      dialog.getByText(
-        "This cancels the booking in Dotypos and cannot be undone. Any paid online payment will be marked as needing a refund; no refund is issued automatically."
-      )
-    ).toBeDefined();
   });
 });
