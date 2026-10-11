@@ -7,7 +7,11 @@ import type {
 } from "@deskohub/nexi";
 import { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Effect, Layer } from "effect";
-import type { WorkspacePaidFulfillmentService as WorkspacePaidFulfillmentServiceType } from "../fulfillment/paid-fulfillment.service";
+import {
+  type IWorkspacePaidFulfillmentService,
+  WorkspacePaidFulfillmentService,
+} from "../fulfillment/paid-fulfillment.service";
+import { PaidFulfillmentQueueError } from "../fulfillment/paid-fulfillment-queue.service";
 import type { PaymentAttemptRepository as PaymentAttemptRepositoryType } from "../repositories/payment-attempt.repository";
 import {
   type IPaymentLifecycleRepository,
@@ -26,6 +30,11 @@ const paymentLifecycleLayer = (
     markTerminal: () => Effect.die("not used"),
     ...overrides,
   });
+
+const paidFulfillmentLayer = (
+  fulfillPaidOrder: IWorkspacePaidFulfillmentService["fulfillPaidOrder"] = () =>
+    Effect.die("not used")
+) => Layer.mock(WorkspacePaidFulfillmentService, { fulfillPaidOrder });
 
 const paidNotStartedReservation = {
   id: "reservation-id",
@@ -100,15 +109,15 @@ describe("ProviderPaymentFinalizationService", () => {
     "awaiting_delivery",
     "fulfilled",
   ] as const) {
-    test(`starts fulfillment for already-paid ${fulfillmentState} provider returns`, async () => {
+    test(`${fulfillmentState === "not_started" || fulfillmentState === "processing" ? "enqueues" : "skips"} fulfillment for already-paid ${fulfillmentState} provider returns`, async () => {
       const { ProviderPaymentFinalizationService } = await import(
         "./provider-payment-finalization.service"
       );
       const { PaymentAttemptRepository } = await import(
         "../repositories/payment-attempt.repository"
       );
-      const { WorkspacePaidFulfillmentService } = await import(
-        "../fulfillment/paid-fulfillment.service"
+      const { PaidFulfillmentQueueService } = await import(
+        "../fulfillment/paid-fulfillment-queue.service"
       );
       const { WorkspaceReservationRepository } = await import(
         "@/features/reservation/backend/workspace-reservation.repository"
@@ -118,14 +127,11 @@ describe("ProviderPaymentFinalizationService", () => {
       );
       const { NexiService } = await import("@deskohub/nexi");
 
-      const fulfillPaidOrder = mock(() => Effect.void);
+      const enqueue = mock(() => Effect.void);
       const reservations = {
         findById: mock(() =>
           Effect.succeed({ ...paidNotStartedReservation, fulfillmentState })
         ),
-      };
-      const fulfillment: WorkspacePaidFulfillmentServiceType = {
-        fulfillPaidOrder,
       };
 
       const result = await Effect.gen(function* () {
@@ -140,7 +146,8 @@ describe("ProviderPaymentFinalizationService", () => {
             Layer.provide(
               Layer.mergeAll(
                 Layer.mock(WorkspaceReservationRepository, reservations),
-                Layer.mock(WorkspacePaidFulfillmentService, fulfillment),
+                paidFulfillmentLayer(),
+                Layer.mock(PaidFulfillmentQueueService, { enqueue }),
                 Layer.mock(
                   PaymentAttemptRepository,
                   {} as PaymentAttemptRepositoryType
@@ -158,21 +165,26 @@ describe("ProviderPaymentFinalizationService", () => {
       );
 
       expect(result).toBe("paid");
-      expect(fulfillPaidOrder).toHaveBeenCalledWith({
-        orderId: "reservation-id",
-      });
+      if (
+        fulfillmentState === "not_started" ||
+        fulfillmentState === "processing"
+      ) {
+        expect(enqueue).toHaveBeenCalledWith({ orderId: "reservation-id" });
+      } else {
+        expect(enqueue).not.toHaveBeenCalled();
+      }
     });
   }
 
-  test("does not retry fulfillment after a paid reservation has failed fulfillment", async () => {
+  test("fulfills inline when the paid fulfillment queue is unavailable", async () => {
     const { ProviderPaymentFinalizationService } = await import(
       "./provider-payment-finalization.service"
     );
     const { PaymentAttemptRepository } = await import(
       "../repositories/payment-attempt.repository"
     );
-    const { WorkspacePaidFulfillmentService } = await import(
-      "../fulfillment/paid-fulfillment.service"
+    const { PaidFulfillmentQueueService } = await import(
+      "../fulfillment/paid-fulfillment-queue.service"
     );
     const { WorkspaceReservationRepository } = await import(
       "@/features/reservation/backend/workspace-reservation.repository"
@@ -183,6 +195,70 @@ describe("ProviderPaymentFinalizationService", () => {
     const { NexiService } = await import("@deskohub/nexi");
 
     const fulfillPaidOrder = mock(() => Effect.void);
+    const result = await Effect.gen(function* () {
+      const service = yield* ProviderPaymentFinalizationService;
+      return yield* service.finalizePendingProviderPayment({
+        orderId: "reservation-id",
+        paymentAttemptId: "attempt-id",
+      });
+    }).pipe(
+      Effect.provide(
+        ProviderPaymentFinalizationService.Default.pipe(
+          Layer.provide(
+            Layer.mergeAll(
+              Layer.mock(WorkspaceReservationRepository, {
+                findById: mock(() => Effect.succeed(paidNotStartedReservation)),
+              }),
+              paidFulfillmentLayer(fulfillPaidOrder),
+              Layer.mock(PaidFulfillmentQueueService, {
+                enqueue: () =>
+                  Effect.fail(
+                    new PaidFulfillmentQueueError({
+                      message: "queue down",
+                    })
+                  ),
+              }),
+              Layer.mock(
+                PaymentAttemptRepository,
+                {} as PaymentAttemptRepositoryType
+              ),
+              paymentLifecycleLayer(),
+              Layer.mock(PostHogEventService, {
+                capture: () => Effect.void,
+              }),
+              Layer.mock(NexiService, {} as NexiServiceType)
+            )
+          )
+        )
+      ),
+      Effect.runPromise
+    );
+
+    expect(result).toBe("paid");
+    expect(fulfillPaidOrder).toHaveBeenCalledWith({
+      orderId: "reservation-id",
+    });
+  });
+
+  test("does not retry fulfillment after a paid reservation has failed fulfillment", async () => {
+    const { ProviderPaymentFinalizationService } = await import(
+      "./provider-payment-finalization.service"
+    );
+    const { PaymentAttemptRepository } = await import(
+      "../repositories/payment-attempt.repository"
+    );
+    const { PaidFulfillmentQueueService } = await import(
+      "../fulfillment/paid-fulfillment-queue.service"
+    );
+    const { WorkspaceReservationRepository } = await import(
+      "@/features/reservation/backend/workspace-reservation.repository"
+    );
+    const { PostHogEventService } = await import(
+      "@/shared/backend/analytics/posthog-event.service"
+    );
+    const { NexiService } = await import("@deskohub/nexi");
+
+    const enqueue = mock(() => Effect.void);
     const reservations = {
       findById: mock(() =>
         Effect.succeed({
@@ -190,9 +266,6 @@ describe("ProviderPaymentFinalizationService", () => {
           fulfillmentState: "failed",
         })
       ),
-    };
-    const fulfillment: WorkspacePaidFulfillmentServiceType = {
-      fulfillPaidOrder,
     };
 
     const result = await Effect.gen(function* () {
@@ -207,7 +280,8 @@ describe("ProviderPaymentFinalizationService", () => {
           Layer.provide(
             Layer.mergeAll(
               Layer.mock(WorkspaceReservationRepository, reservations),
-              Layer.mock(WorkspacePaidFulfillmentService, fulfillment),
+              paidFulfillmentLayer(),
+              Layer.mock(PaidFulfillmentQueueService, { enqueue }),
               Layer.mock(
                 PaymentAttemptRepository,
                 {} as PaymentAttemptRepositoryType
@@ -225,7 +299,7 @@ describe("ProviderPaymentFinalizationService", () => {
     );
 
     expect(result).toBe("not_pending");
-    expect(fulfillPaidOrder).not.toHaveBeenCalled();
+    expect(enqueue).not.toHaveBeenCalled();
   });
 
   for (const scenario of [
@@ -239,8 +313,8 @@ describe("ProviderPaymentFinalizationService", () => {
       const { PaymentAttemptRepository } = await import(
         "../repositories/payment-attempt.repository"
       );
-      const { WorkspacePaidFulfillmentService } = await import(
-        "../fulfillment/paid-fulfillment.service"
+      const { PaidFulfillmentQueueService } = await import(
+        "../fulfillment/paid-fulfillment-queue.service"
       );
       const { WorkspaceReservationRepository } = await import(
         "@/features/reservation/backend/workspace-reservation.repository"
@@ -269,7 +343,7 @@ describe("ProviderPaymentFinalizationService", () => {
           timestamp: Temporal.Now.instant(),
         })
       );
-      const fulfillPaidOrder = mock(() => Effect.void);
+      const enqueue = mock(() => Effect.void);
       const paymentAttempts = {
         findById: mock(() => Effect.succeed(pendingAttempt)),
         markPaidForReservation,
@@ -297,9 +371,8 @@ describe("ProviderPaymentFinalizationService", () => {
             Layer.provide(
               Layer.mergeAll(
                 Layer.mock(WorkspaceReservationRepository, reservations),
-                Layer.mock(WorkspacePaidFulfillmentService, {
-                  fulfillPaidOrder,
-                }),
+                paidFulfillmentLayer(),
+                Layer.mock(PaidFulfillmentQueueService, { enqueue }),
                 Layer.mock(PaymentAttemptRepository, paymentAttempts),
                 paymentLifecycleLayer({
                   markPaid: markPaidForReservation,
@@ -333,7 +406,7 @@ describe("ProviderPaymentFinalizationService", () => {
             webhookEventId: "event-id",
           })
         );
-        expect(fulfillPaidOrder).toHaveBeenCalledWith({
+        expect(enqueue).toHaveBeenCalledWith({
           orderId: "reservation-id",
         });
         expect(markTerminalForReservation).not.toHaveBeenCalled();
@@ -348,7 +421,7 @@ describe("ProviderPaymentFinalizationService", () => {
           })
         );
         expect(markPaidForReservation).not.toHaveBeenCalled();
-        expect(fulfillPaidOrder).not.toHaveBeenCalled();
+        expect(enqueue).not.toHaveBeenCalled();
       }
     });
   }
@@ -360,8 +433,8 @@ describe("ProviderPaymentFinalizationService", () => {
     const { PaymentAttemptRepository } = await import(
       "../repositories/payment-attempt.repository"
     );
-    const { WorkspacePaidFulfillmentService } = await import(
-      "../fulfillment/paid-fulfillment.service"
+    const { PaidFulfillmentQueueService } = await import(
+      "../fulfillment/paid-fulfillment-queue.service"
     );
     const { WorkspaceReservationRepository } = await import(
       "@/features/reservation/backend/workspace-reservation.repository"
@@ -386,8 +459,9 @@ describe("ProviderPaymentFinalizationService", () => {
               Layer.mock(WorkspaceReservationRepository, {
                 findById: mock(() => Effect.succeed(pendingReservation)),
               }),
-              Layer.mock(WorkspacePaidFulfillmentService, {
-                fulfillPaidOrder: mock(() => Effect.void),
+              paidFulfillmentLayer(),
+              Layer.mock(PaidFulfillmentQueueService, {
+                enqueue: mock(() => Effect.void),
               }),
               Layer.mock(PaymentAttemptRepository, {
                 findById: mock(() =>
@@ -419,8 +493,8 @@ describe("ProviderPaymentFinalizationService", () => {
     const { PaymentAttemptRepository } = await import(
       "../repositories/payment-attempt.repository"
     );
-    const { WorkspacePaidFulfillmentService } = await import(
-      "../fulfillment/paid-fulfillment.service"
+    const { PaidFulfillmentQueueService } = await import(
+      "../fulfillment/paid-fulfillment-queue.service"
     );
     const { WorkspaceReservationRepository } = await import(
       "@/features/reservation/backend/workspace-reservation.repository"
@@ -486,8 +560,9 @@ describe("ProviderPaymentFinalizationService", () => {
                 Layer.mock(WorkspaceReservationRepository, {
                   findById: mock(() => Effect.succeed(pendingReservation)),
                 }),
-                Layer.mock(WorkspacePaidFulfillmentService, {
-                  fulfillPaidOrder: mock(() => Effect.die("not used")),
+                paidFulfillmentLayer(),
+                Layer.mock(PaidFulfillmentQueueService, {
+                  enqueue: mock(() => Effect.die("not used")),
                 }),
                 Layer.mock(PaymentAttemptRepository, {
                   findById: mock(() => Effect.succeed(pendingAttempt)),
@@ -519,8 +594,8 @@ describe("ProviderPaymentFinalizationService", () => {
     const { PaymentAttemptRepository } = await import(
       "../repositories/payment-attempt.repository"
     );
-    const { WorkspacePaidFulfillmentService } = await import(
-      "../fulfillment/paid-fulfillment.service"
+    const { PaidFulfillmentQueueService } = await import(
+      "../fulfillment/paid-fulfillment-queue.service"
     );
     const { WorkspaceReservationRepository } = await import(
       "@/features/reservation/backend/workspace-reservation.repository"
@@ -549,8 +624,9 @@ describe("ProviderPaymentFinalizationService", () => {
               Layer.mock(WorkspaceReservationRepository, {
                 findById: mock(() => Effect.succeed(pendingReservation)),
               }),
-              Layer.mock(WorkspacePaidFulfillmentService, {
-                fulfillPaidOrder: mock(() => Effect.void),
+              paidFulfillmentLayer(),
+              Layer.mock(PaidFulfillmentQueueService, {
+                enqueue: mock(() => Effect.void),
               }),
               Layer.mock(PaymentAttemptRepository, {
                 findById: mock(() => Effect.succeed(pendingAttempt)),
@@ -584,8 +660,8 @@ describe("ProviderPaymentFinalizationService", () => {
     const { PaymentAttemptRepository } = await import(
       "../repositories/payment-attempt.repository"
     );
-    const { WorkspacePaidFulfillmentService } = await import(
-      "../fulfillment/paid-fulfillment.service"
+    const { PaidFulfillmentQueueService } = await import(
+      "../fulfillment/paid-fulfillment-queue.service"
     );
     const { WorkspaceReservationRepository } = await import(
       "@/features/reservation/backend/workspace-reservation.repository"
@@ -621,8 +697,9 @@ describe("ProviderPaymentFinalizationService", () => {
               Layer.mock(WorkspaceReservationRepository, {
                 findById: mock(() => Effect.succeed(pendingReservation)),
               }),
-              Layer.mock(WorkspacePaidFulfillmentService, {
-                fulfillPaidOrder: mock(() => Effect.void),
+              paidFulfillmentLayer(),
+              Layer.mock(PaidFulfillmentQueueService, {
+                enqueue: mock(() => Effect.void),
               }),
               Layer.mock(PaymentAttemptRepository, {
                 findById: mock(() => Effect.succeed(pendingAttempt)),
@@ -683,8 +760,8 @@ describe("ProviderPaymentFinalizationService unattached provider sessions", () =
     const { PaymentAttemptRepository } = await import(
       "../repositories/payment-attempt.repository"
     );
-    const { WorkspacePaidFulfillmentService } = await import(
-      "../fulfillment/paid-fulfillment.service"
+    const { PaidFulfillmentQueueService } = await import(
+      "../fulfillment/paid-fulfillment-queue.service"
     );
     const { WorkspaceReservationRepository } = await import(
       "@/features/reservation/backend/workspace-reservation.repository"
@@ -727,8 +804,9 @@ describe("ProviderPaymentFinalizationService unattached provider sessions", () =
               Layer.mock(WorkspaceReservationRepository, {
                 findById: mock(() => Effect.succeed(pendingReservation)),
               }),
-              Layer.mock(WorkspacePaidFulfillmentService, {
-                fulfillPaidOrder: mock(() => Effect.die("not used")),
+              paidFulfillmentLayer(),
+              Layer.mock(PaidFulfillmentQueueService, {
+                enqueue: mock(() => Effect.die("not used")),
               }),
               Layer.mock(PaymentAttemptRepository, {
                 findById: mock(() => Effect.succeed(unattachedAttempt)),

@@ -643,6 +643,24 @@ keep authorization, provider verification, and reconciliation on the status
 page so a cookie-less return can still reach the tab coordinator. The return
 endpoint exposes no reservation data and grants no access.
 
+Status-page and hold-cleanup reconciliation go through provider payment
+finalization, which fulfills inline only when the queue rejects the enqueue.
+After it marks an attempt paid, or
+finds an already-paid order whose fulfillment is `not_started` or `processing`,
+it enqueues one `workspace-paid-fulfillment` message per order (idempotency key
+`paid-fulfillment:<orderId>`). The queue consumer runs idempotent paid
+fulfillment and fails the message for redelivery while fulfillment is still
+`not_started` or `processing`. An already-paid order in `awaiting_delivery`,
+`fulfilled`, or `failed` triggers no work from the status page, so a status
+render never retries invoice delivery. The Nexi webhook still fulfills
+synchronously. The daily `/api/cron/workspace/paid-fulfillment` reconciliation
+fulfills paid orders left in `not_started` or `processing` for over 15 minutes,
+outside unrecovered late-payment recovery, covering a lost enqueue or a message
+that expired after its one-day retention. Do not rely on re-enqueueing to recover
+those orders: the per-order idempotency key can dedupe the new message. The
+batch takes 25 orders least recently updated first; a fulfillment claim bumps
+`updatedAt`, so an order that keeps failing rotates behind untried ones.
+
 Starting a new reservation from terminal status or invalid Pay state uses a
 document navigation. Cache Components may retain the previous reservation form
 and its completed action result in an inactive route tree; restoring that tree

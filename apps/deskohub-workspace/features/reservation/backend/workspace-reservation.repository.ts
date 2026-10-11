@@ -337,6 +337,13 @@ export interface IWorkspaceReservationRepository {
   readonly selectExpiredHoldDotyposReservationIds: (input: {
     readonly now: Temporal.Instant;
   }) => Effect.Effect<readonly DotyposReservationId[], EffectDrizzleQueryError>;
+  readonly selectStalledPaidFulfillments: (input: {
+    readonly updatedBefore: Temporal.Instant;
+    readonly limit: number;
+  }) => Effect.Effect<
+    readonly WorkspaceReservationId[],
+    EffectDrizzleQueryError
+  >;
 }
 
 const ensureUpdated = (
@@ -363,6 +370,30 @@ export class WorkspaceReservationRepository extends Context.Service<
     this,
     Effect.gen(function* () {
       const { db } = yield* WorkspaceDatabase;
+
+      // A paid reservation whose active attempt is under late-payment
+      // recovery is fulfilled by that recovery, not by paid fulfillment.
+      const isOutsideLatePaymentRecovery = () =>
+        notExists(
+          db
+            .select({
+              paymentAttemptId: latePaymentRecoveries.paymentAttemptId,
+            })
+            .from(latePaymentRecoveries)
+            .where(
+              and(
+                eq(
+                  latePaymentRecoveries.workspaceReservationId,
+                  workspaceReservations.id
+                ),
+                eq(
+                  latePaymentRecoveries.paymentAttemptId,
+                  workspaceReservations.activePaymentAttemptId
+                ),
+                ne(latePaymentRecoveries.state, "recovered")
+              )
+            )
+        );
 
       const findById = Effect.fn("workspaceReservations.findById")(
         function* (id: WorkspaceReservationId) {
@@ -1116,26 +1147,7 @@ export class WorkspaceReservationRepository extends Context.Service<
                   "held",
                   "confirmed",
                 ]),
-                notExists(
-                  db
-                    .select({
-                      paymentAttemptId: latePaymentRecoveries.paymentAttemptId,
-                    })
-                    .from(latePaymentRecoveries)
-                    .where(
-                      and(
-                        eq(
-                          latePaymentRecoveries.workspaceReservationId,
-                          workspaceReservations.id
-                        ),
-                        eq(
-                          latePaymentRecoveries.paymentAttemptId,
-                          workspaceReservations.activePaymentAttemptId
-                        ),
-                        ne(latePaymentRecoveries.state, "recovered")
-                      )
-                    )
-                ),
+                isOutsideLatePaymentRecovery(),
                 or(
                   inArray(workspaceReservations.fulfillmentState, [
                     "not_started",
@@ -1476,6 +1488,38 @@ export class WorkspaceReservationRepository extends Context.Service<
             dotyposReservationId ? [dotyposReservationId] : []
           );
         }),
+        selectStalledPaidFulfillments: Effect.fn(
+          "workspaceReservations.selectStalledPaidFulfillments"
+        )(
+          function* (input) {
+            const rows = yield* db
+              .select({ id: workspaceReservations.id })
+              .from(workspaceReservations)
+              .where(
+                and(
+                  eq(workspaceReservations.paymentState, "paid"),
+                  inArray(workspaceReservations.reservationState, [
+                    "held",
+                    "confirmed",
+                  ]),
+                  inArray(workspaceReservations.fulfillmentState, [
+                    "not_started",
+                    "processing",
+                  ]),
+                  lte(workspaceReservations.updatedAt, input.updatedBefore),
+                  isOutsideLatePaymentRecovery()
+                )
+              )
+              .orderBy(
+                asc(workspaceReservations.updatedAt),
+                asc(workspaceReservations.id)
+              )
+              .limit(input.limit)
+              .pipe(retryDatabaseRead);
+            return rows.map(({ id }) => id as WorkspaceReservationId);
+          },
+          (effect, input) => effect.pipe(Effect.annotateLogs(input))
+        ),
       } satisfies IWorkspaceReservationRepository;
     })
   );

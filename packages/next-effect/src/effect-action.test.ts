@@ -76,6 +76,27 @@ describe("EffectAction", () => {
     });
   });
 
+  test("builds the client layer once across action calls", async () => {
+    let builds = 0;
+    const action = EffectAction.fromClient(makeActionClient(), {
+      layer: Layer.sync(TestService, () => {
+        builds += 1;
+        return { multiplier: builds };
+      }),
+    })
+      .inputSchema(SeatsSchema)
+      .action(({ parsedInput }) =>
+        Effect.map(
+          TestService,
+          (service) => parsedInput.seats * service.multiplier
+        )
+      );
+
+    await expect(action({ seats: "3" })).resolves.toEqual({ data: 3 });
+    await expect(action({ seats: "5" })).resolves.toEqual({ data: 5 });
+    expect(builds).toBe(1);
+  });
+
   test("runs Standard Schema decoded input", async () => {
     const action = EffectAction.fromClient(makeActionClient())
       .inputSchema(Schema.toStandardSchemaV1(Schema.FiniteFromString))

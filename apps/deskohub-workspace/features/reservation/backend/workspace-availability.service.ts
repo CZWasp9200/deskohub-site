@@ -122,19 +122,7 @@ const implementation = Effect.gen(function* () {
               from: input.query.from,
               to: input.query.to,
             }),
-            workspaceReservations
-              .selectExpiredHoldDotyposReservationIds({
-                now: Temporal.Now.instant(),
-              })
-              .pipe(
-                Effect.tapError((cause) =>
-                  Effect.logWarning(
-                    "Workspace availability expired hold filter failed",
-                    { cause }
-                  )
-                ),
-                Effect.orElseSucceed((): readonly DotyposReservationId[] => [])
-              ),
+            loadExpiredHoldDotyposReservationIds(),
           ],
           { concurrency: "inherit" }
         );
@@ -168,6 +156,40 @@ const implementation = Effect.gen(function* () {
             cause,
           })
         )
+      )
+  );
+
+  const loadExpiredHoldDotyposReservationIds = Effect.fn(
+    "workspaceAvailability.loadExpiredHoldDotyposReservationIds"
+  )(
+    function* () {
+      yield* Effect.logInfo(
+        "Workspace availability expired hold filter started"
+      );
+
+      const expiredDotyposReservationIds =
+        yield* workspaceReservations.selectExpiredHoldDotyposReservationIds({
+          now: Temporal.Now.instant(),
+        });
+
+      yield* Effect.annotateLogsScoped({
+        expiredHoldCount: expiredDotyposReservationIds.length,
+      });
+      yield* Effect.logInfo(
+        "Workspace availability expired hold filter completed"
+      );
+      return expiredDotyposReservationIds;
+    },
+    (effect) =>
+      effect.pipe(
+        Effect.scoped,
+        Effect.tapError((cause) =>
+          Effect.logWarning(
+            "Workspace availability expired hold filter failed",
+            { cause }
+          )
+        ),
+        Effect.orElseSucceed((): readonly DotyposReservationId[] => [])
       )
   );
 

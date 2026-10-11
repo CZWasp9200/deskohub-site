@@ -141,7 +141,7 @@ describe("getSiteHeaderConfig", () => {
     const cs = await getSiteHeaderConfig("cs-CZ");
     expect(await cs.account?.href).toBe("/cs-CZ/account");
     expect(cs.account?.label).toBe("Účet");
-    expect(isCustomerSignedIn).toHaveBeenCalledWith("site-header.account-link");
+    expect(isCustomerSignedIn).toHaveBeenCalledWith();
   });
 
   test("points an anonymous customer's account entry at the localized sign-in page", async () => {
