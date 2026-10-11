@@ -3,10 +3,9 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { type Browser, chromium, type Page } from "@playwright/test";
-import tailwindcss from "@tailwindcss/postcss";
-import postcss from "postcss";
 import { type Locale, locales, m } from "@/features/i18n";
 import { playwrightChromiumAvailable } from "@/shared/testing/playwright-browser";
+import { compileWorkspaceAppStyles } from "@/shared/testing/workspace-app-styles.test-utils";
 
 const appDirectory = resolve(import.meta.dir, "../..");
 const mobileViewport = { height: 812, width: 375 } as const;
@@ -86,21 +85,13 @@ beforeAll(async () => {
   }
   browserBundlePath = join(buildDirectory, "site-header-harness.js");
 
-  const sourceStylesPath = join(appDirectory, "app/globals.css");
-  const sourceStyles = await readFile(sourceStylesPath, "utf8");
   const brandFont = await readFile(
     join(appDirectory, "assets/fonts/Sculpin/regular.woff2")
   );
   // Production text widths come from the brand font that next/font injects.
   appStyles = `@font-face { font-family: "Sculpin"; font-weight: 400; src: url(data:font/woff2;base64,${brandFont.toString("base64")}) format("woff2"); }
 :root { --font-sculpin: "Sculpin"; }
-${
-  (
-    await postcss([tailwindcss()]).process(sourceStyles, {
-      from: sourceStylesPath,
-    })
-  ).css
-}`;
+${await compileWorkspaceAppStyles()}`;
 
   browser = await chromium.launch({ headless: true });
 });

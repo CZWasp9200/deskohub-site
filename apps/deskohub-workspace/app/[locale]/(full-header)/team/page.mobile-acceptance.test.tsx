@@ -1,20 +1,17 @@
 import { afterAll, beforeAll, expect, mock, test } from "bun:test";
-import { readFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import { type Browser, chromium } from "@playwright/test";
-import tailwindcss from "@tailwindcss/postcss";
-import postcss from "postcss";
 import { createElement, type ReactElement, type ReactNode } from "react";
 import { renderToReadableStream } from "react-dom/server";
 import { type Locale, m } from "@/features/i18n";
 import { playwrightChromiumAvailable } from "@/shared/testing/playwright-browser";
+import { compileWorkspaceAppStyles } from "@/shared/testing/workspace-app-styles.test-utils";
 import {
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
 } from "@/shared/testing/workspace-component-test-env";
 
 const chromiumAvailable = await playwrightChromiumAvailable();
-const appDirectory = resolve(import.meta.dir, "../../../..");
 const requestLocale: Locale = "cs-CZ";
 let browser: Browser | undefined;
 let pageMarkup = "";
@@ -93,11 +90,7 @@ beforeAll(async () => {
   const stream = await renderToReadableStream(layout as ReactElement);
   pageMarkup = await new Response(stream).text();
 
-  const stylesPath = join(appDirectory, "app/globals.css");
-  const sourceStyles = await readFile(stylesPath, "utf8");
-  appStyles = (
-    await postcss([tailwindcss()]).process(sourceStyles, { from: stylesPath })
-  ).css;
+  appStyles = await compileWorkspaceAppStyles();
 
   browser = await chromium.launch({ headless: true });
 });
