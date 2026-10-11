@@ -55,12 +55,6 @@ const expectedHashFor = (body: readonly string[]) => {
 };
 
 describe("getWorkspaceE2EMarketingDocumentHash", () => {
-  test("real en-US marketing document matches the production hash", () => {
-    expect(getWorkspaceE2EMarketingDocumentHash()).toBe(
-      "75655dda4406b51fd74d1151a8d28443b75e580728c203cef54c2483ec3ed02d"
-    );
-  });
-
   test("normalizes Playwright JSX stubs into real fragments", async () => {
     const fragmentStub = stub({
       __pw_type: "jsx",

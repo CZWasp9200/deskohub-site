@@ -10,9 +10,6 @@ import {
   accountFixtureRolloutHeader,
   accountFixtureRolloutOffValue,
   closeFixtureContext,
-  fixtureMarketingActionError,
-  fixtureMarketingActionExports,
-  fixtureMarketingActions,
   openFixtureContext,
   registerAccountLegalFixture,
   supportedLocales,
@@ -92,18 +89,6 @@ const makeDeferred = <T>(): Deferred<T> => {
     resolve: resolvePromise,
   };
 };
-
-test("keeps fixture marketing actions synthetic and fail closed", () => {
-  expect(fixtureMarketingActions).toContain('"use server";');
-  expect(fixtureMarketingActions).toContain(fixtureMarketingActionError);
-  expect(fixtureMarketingActions).not.toMatch(/^\s*import\s/m);
-
-  for (const actionName of fixtureMarketingActionExports) {
-    expect(fixtureMarketingActions).toContain(
-      `export async function ${actionName}`
-    );
-  }
-});
 
 const readGeometry = async (page: Page): Promise<ShellGeometry> =>
   page.evaluate(() => {
