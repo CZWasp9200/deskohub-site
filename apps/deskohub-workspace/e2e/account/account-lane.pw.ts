@@ -232,7 +232,7 @@ for (const caseId of workspaceE2EAccountCaseIds) {
                   captureReview: (mode) =>
                     captureAccountReview(
                       page,
-                      accountLane.config.baseUrl,
+                      accountLane.config.review,
                       reservationCustomerReviewTargetByMode[mode]
                     ),
                   contact: {
@@ -243,6 +243,7 @@ for (const caseId of workspaceE2EAccountCaseIds) {
                     name: workspaceE2EAccountProfileName,
                   },
                   page,
+                  reviewScreenshots: accountLane.config.review.screenshots,
                 });
               },
             }),
@@ -296,22 +297,26 @@ for (const caseId of workspaceE2EAccountCaseIds) {
                         }
                       ),
                 try: () =>
-                  verifyAccountLayoutNavigation(page, async (section) => {
-                    await captureAccountReview(
-                      page,
-                      accountLane.config.baseUrl,
-                      accountReviewTargetBySection[section]
-                    );
-                    const mobileTarget =
-                      mobileAccountReviewTargetBySection[section];
-                    if (mobileTarget) {
+                  verifyAccountLayoutNavigation(
+                    page,
+                    async (section) => {
                       await captureAccountReview(
                         page,
-                        accountLane.config.baseUrl,
-                        mobileTarget
+                        accountLane.config.review,
+                        accountReviewTargetBySection[section]
                       );
-                    }
-                  }),
+                      const mobileTarget =
+                        mobileAccountReviewTargetBySection[section];
+                      if (mobileTarget) {
+                        await captureAccountReview(
+                          page,
+                          accountLane.config.review,
+                          mobileTarget
+                        );
+                      }
+                    },
+                    accountLane.config.review
+                  ),
               });
             }),
             id: "checks account layout navigation",
@@ -326,6 +331,7 @@ for (const caseId of workspaceE2EAccountCaseIds) {
                 bypassSecret: accountLane.config.bypassSecret,
                 customerId: DotyposCustomerIdSchema.make(customerId),
                 page: getOwnedPage(),
+                reviewScreenshots: accountLane.config.review.screenshots,
               });
             }),
             id: "checks account marketing preferences",
@@ -364,7 +370,7 @@ for (const caseId of workspaceE2EAccountCaseIds) {
                         captureStatusReview: (stage) =>
                           captureReservationStatusReview(
                             getOwnedPage(),
-                            accountLane.config.baseUrl,
+                            accountLane.config.review,
                             stage === "modal"
                               ? "reservation-status-modal-desktop"
                               : "reservation-status-details-desktop",
@@ -398,15 +404,11 @@ for (const caseId of workspaceE2EAccountCaseIds) {
           throw new Error(accountReviewCaptureFailureMessage);
         const page = pages[0];
         if (!page) throw new Error(accountReviewCaptureFailureMessage);
-        await withSignInPendingReview(
-          page,
-          accountLane.config.baseUrl,
-          runCase
-        );
+        await withSignInPendingReview(page, accountLane.config.review, runCase);
       } else if (caseId === "account-magic-link-delivery") {
         await withCallbackHandoffReview(
           getOwnedPage(),
-          accountLane.config.baseUrl,
+          accountLane.config.review,
           runCase
         );
       } else {
@@ -423,7 +425,7 @@ for (const caseId of workspaceE2EAccountCaseIds) {
       if (!page) throw new Error(accountReviewCaptureFailureMessage);
 
       await accountTest.step(`capture account review: ${target}`, async () => {
-        await captureAccountReview(page, accountLane.config.baseUrl, target);
+        await captureAccountReview(page, accountLane.config.review, target);
       });
 
       if (caseId !== "account-linking-variants") return;
@@ -454,7 +456,11 @@ for (const caseId of workspaceE2EAccountCaseIds) {
               state: "visible",
               timeout: workspaceE2ETimeouts.browserAction,
             });
-          await captureAccountReview(page, baseUrl, "deleted-desktop");
+          await captureAccountReview(
+            page,
+            accountLane.config.review,
+            "deleted-desktop"
+          );
         }
       );
     }

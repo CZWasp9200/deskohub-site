@@ -398,7 +398,7 @@ describe("dhw mutation commands", () => {
     expect(accessCodeCreations).toHaveLength(0);
   });
 
-  test("generates one valid attempt id per invocation and forwards the decoded request", async () => {
+  test("reserves a fresh valid attempt id after each concluded creation and forwards the decoded request", async () => {
     const { accessCodeCreations, layer } = makeCommandLayer({
       authenticatedSession: {
         ...session,
@@ -524,37 +524,6 @@ describe("dhw mutation commands", () => {
 
     expect(attemptIds).toHaveLength(2);
     expect(attemptIds[1]).toBe(attemptIds[0]);
-  });
-
-  test("reserves a fresh attempt id once an access-code creation concludes", async () => {
-    const attemptIds: AdministrationStandaloneAccessCodeAttemptIdType[] = [];
-    const { layer } = makeCommandLayer({
-      authenticatedSession: {
-        ...session,
-        approvedBy: AdministrationActorUsername.make("admin"),
-      },
-      createStandaloneAccessCode: (_accessToken, attemptId) => {
-        attemptIds.push(attemptId);
-        return Effect.succeed(createdAccessCodeOutcome);
-      },
-    });
-    const args = [
-      "--json",
-      "access-codes",
-      "create",
-      "Booth A",
-      "--starts-at",
-      "2026-09-10T10:00",
-      "--ends-at",
-      "2026-09-10T12:00",
-      "--yes",
-    ];
-
-    await runCommand(args, layer).pipe(Effect.runPromise);
-    await runCommand(args, layer).pipe(Effect.runPromise);
-
-    expect(attemptIds).toHaveLength(2);
-    expect(attemptIds[1]).not.toBe(attemptIds[0]);
   });
 
   test("does not reuse a reserved attempt id for a changed access window", async () => {

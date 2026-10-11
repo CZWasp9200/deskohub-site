@@ -170,4 +170,12 @@ describe("customer profile input", () => {
       (outcome as { readonly value: { readonly phone: string } }).value.phone
     ).toBe("+420 601 123 456");
   });
+
+  test("refuses an email field because the verified login email is not editable", async () => {
+    const outcome = await updateCustomerProfileStandardSchema[
+      "~standard"
+    ].validate({ firstName: "Ada", email: "ada@example.test" });
+
+    expect(outcome).toHaveProperty("issues");
+  });
 });

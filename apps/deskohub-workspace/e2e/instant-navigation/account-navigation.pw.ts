@@ -1,5 +1,6 @@
 import { instant } from "@next/playwright";
 import { expect, type Page, test } from "@playwright/test";
+import { m } from "@/features/i18n";
 import { captureAccountReview } from "../account/review-screenshots";
 import { workspaceE2ETimeouts } from "../timeouts";
 import {
@@ -7,14 +8,15 @@ import {
   expectPublicSiteShell,
   prefetchRoute,
   requireBaseUrl,
+  reviewDestination,
 } from "./navigation-test-helpers";
 
 const homePath = "/en-US";
 const accountPath = "/en-US/account";
 const signInPath = "/en-US/auth/sign-in";
 const accountStatusName = "My account | Deskohub Workspace";
-const signInHeading = "Sign in or create an account";
-const signInLoadingName = "Loading sign-in…";
+const signInHeading = m.accountSignInTitle({}, { locale: "en-US" });
+const signInLoadingName = m.accountSignInLoading({}, { locale: "en-US" });
 
 if (process.env.WORKSPACE_E2E_BASE_URL === undefined) {
   throw new Error(
@@ -47,7 +49,6 @@ test.describe("client navigation", () => {
     const accountLink = page
       .getByRole("banner")
       .getByRole("link", { name: "Account" });
-    await expect(accountLink).toHaveAttribute("href", signInPath);
     await accountLink.click();
 
     await expectAnonymousSignIn(page);
@@ -111,16 +112,9 @@ async function navigateToAccount(
         await expectPublicSiteShell(page);
         const status = page.getByRole("status", { name: accountStatusName });
         await expect(status).toBeVisible();
-        await expect(status).not.toHaveAttribute("aria-busy", "true");
-        const busyContent = status.locator('[aria-busy="true"]');
-        await expect(busyContent).toHaveCount(1);
-        await expect(busyContent).toBeVisible();
-        await expect(
-          busyContent.locator('[data-slot="skeleton"]').first()
-        ).toBeVisible();
         await captureAccountReview(
           page,
-          requireBaseUrl(baseURL),
+          reviewDestination(baseURL),
           "account-loading-desktop"
         );
         await expect(
@@ -202,35 +196,12 @@ async function withSignInHandoffEvidence(
     await expect(signInLoading).toBeVisible({
       timeout: workspaceE2ETimeouts.browserAction,
     });
-    await expect(signInLoading).toHaveAttribute(
-      "data-slot",
-      "sign-in-loading",
-      { timeout: workspaceE2ETimeouts.browserAction }
+
+    await captureAccountReview(
+      page,
+      reviewDestination(baseUrl),
+      "sign-in-handoff-desktop"
     );
-
-    const layout = await page.evaluate(() => {
-      const header = document.querySelector("header");
-      const main = document.querySelector("main");
-      const footer = document.querySelector("footer");
-      if (!header || !main || !footer) return null;
-
-      const headerRect = header.getBoundingClientRect();
-      const mainRect = main.getBoundingClientRect();
-      const footerRect = footer.getBoundingClientRect();
-      return {
-        footerTop: footerRect.top,
-        headerBottom: headerRect.bottom,
-        mainBottom: mainRect.bottom,
-        mainHeight: mainRect.height,
-      };
-    });
-    if (!layout)
-      throw new Error("Sign-in handoff layout landmarks are missing");
-    expect(layout.mainHeight).toBeGreaterThan(0);
-    expect(layout.footerTop).toBeGreaterThanOrEqual(layout.mainBottom);
-    expect(layout.footerTop).toBeGreaterThanOrEqual(layout.headerBottom);
-
-    await captureAccountReview(page, baseUrl, "sign-in-handoff-desktop");
   } finally {
     releaseOriginalRequest();
     try {

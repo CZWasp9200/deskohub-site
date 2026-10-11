@@ -17,6 +17,7 @@ import {
   assertStagedDeploymentCrons,
   emitRollbackTarget,
   promoteStagedDeployment,
+  requiredProductionAliases,
   resolveCanonicalAlias,
   resolveProductionRollbackTarget,
   verifyCanonicalAliasServes,
@@ -618,6 +619,9 @@ describe("workspace production release checks", () => {
     const scriptPath = fileURLToPath(
       new URL("./production-release.ts", import.meta.url)
     );
+    const vercelApiFixturePath = fileURLToPath(
+      new URL("./production-release.vercel-api-fixture.ts", import.meta.url)
+    );
     const workspaceRoot = resolve(import.meta.dir, "../..");
     const fakeBin = mkdtempSync(join(tmpdir(), "release-cli-"));
     const recordFile = join(fakeBin, "invocations.log");
@@ -627,11 +631,11 @@ describe("workspace production release checks", () => {
       { mode: 0o755 }
     );
 
-    await runCommand(
+    const result = await runCommand(
       [
-        "timeout",
-        "30",
         process.execPath,
+        "--preload",
+        vercelApiFixturePath,
         scriptPath,
         "rollback",
         "--url",
@@ -645,20 +649,26 @@ describe("workspace production release checks", () => {
           RECORD_FILE: recordFile,
           VERCEL_TOKEN: "synthetic-token",
           VERCEL_PROJECT_ID: "synthetic-project",
-          HTTPS_PROXY: "http://127.0.0.1:9",
+          PRODUCTION_ALIASES: requiredProductionAliases.join(","),
         },
+        timeoutMs: 20_000,
       }
     );
 
     // The rollback command shells out through bunx; the invocation record is
     // the observable command construction.
     const recorded = readFileSync(recordFile, "utf8");
+    rmSync(fakeBin, { recursive: true, force: true });
+    expect(result).toMatchObject({
+      exitCode: 0,
+      signalCode: null,
+      timedOut: false,
+    });
     expect(recorded).toContain("vercel@54.9.1");
     expect(recorded).toContain("rollback");
     expect(recorded).toContain("https://staged.vercel.app");
     expect(recorded).not.toContain("promote");
-    rmSync(fakeBin, { recursive: true, force: true });
-  }, 60000);
+  });
 
   type DeploymentState = "baseline" | "staged";
 
@@ -1090,23 +1100,39 @@ describe("workspace production release checks", () => {
   test("rolls back to the baseline and verifies before failing an ambiguous promotion", async () => {
     const environment = promotionEnvironment();
     environment.setPostStatus(503);
-    mockGlobalFetch(environment.mockFetch);
+    // One ordered log of persisted outputs, the promotion request, and the
+    // rollback proves recovery data lands before the remote side effect.
+    const events: string[] = [];
+    mockGlobalFetch((input, init) => {
+      if ((init?.method ?? "GET").toUpperCase() === "POST") {
+        events.push("promotion request");
+      }
+      return environment.mockFetch(input, init);
+    });
     const rollbackUrls: string[] = [];
     const rollback = mock((url: string) => {
       rollbackUrls.push(url);
+      events.push("rollback");
       return Promise.resolve();
     });
+    const persist = async (output: string) => {
+      events.push(`persist ${output}`);
+      await environment.persistDeps.persist(output);
+    };
 
-    await expect(promote(environment, {}, { rollback })).rejects.toThrow(
-      "rolled back"
-    );
+    await expect(
+      promote(environment, {}, { rollback, persist })
+    ).rejects.toThrow("rolled back");
 
     expect(rollbackUrls).toEqual(["https://workspace-baseline.vercel.app"]);
-    expect(environment.persisted[0]).toBe(
-      "baseline_url=https://workspace-baseline.vercel.app\nbaseline_id=dpl_baseline\n"
-    );
-    expect(environment.persisted[1]).toBe("promotion_state=possibly-started\n");
-    expect(environment.persisted).toContain("promotion_state=restored\n");
+    expect(events.slice(0, 3)).toEqual([
+      "persist baseline_url=https://workspace-baseline.vercel.app\nbaseline_id=dpl_baseline\n",
+      "persist promotion_state=possibly-started\n",
+      "promotion request",
+    ]);
+    expect(
+      events.indexOf("persist promotion_state=restored\n")
+    ).toBeGreaterThan(events.indexOf("rollback"));
   });
 
   test("persists recovery-needed so the workflow finalizer restores the baseline when recovery verification fails", async () => {

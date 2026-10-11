@@ -276,19 +276,59 @@ describe("AvatarControl failure feedback", () => {
     );
   });
 
-  test("bounds the avatar column width and lets the remove label wrap (issue #411 tablet overflow)", () => {
-    const view = renderControl("cs-CZ");
-    const root = view.container.firstElementChild as HTMLElement;
-    expect(root.className).toMatch(/\bw-48\b/);
+  test.each([
+    ["upload", "retryable outcome"],
+    ["remove", "retryable outcome"],
+    ["upload", "server error"],
+  ] as const)(
+    "keeps the previous image when a %s returns a %s",
+    async (operation, failure) => {
+      const failedResult = () =>
+        Promise.resolve<ActionResult>(
+          failure === "server error"
+            ? { serverError: "Your session has expired. Sign in again." }
+            : { data: { status: "retryable" } }
+        );
+      if (operation === "upload") uploadResult = failedResult;
+      else removeResult = failedResult;
 
-    const removeButton = view.getByRole("button", {
-      name: m.accountProfileAvatarRemove({}, { locale: "cs-CZ" }),
-    });
-    const removeClass = removeButton.className;
-    expect(removeClass).toMatch(/\bwhitespace-normal\b/);
-    expect(removeClass).toMatch(/\bh-auto\b/);
-    expect(removeClass).toMatch(/\bmin-h-8\b/);
-  });
+      const view = renderControl();
+      await act(async () => {
+        if (operation === "upload") {
+          chooseFile(
+            view,
+            new File(["png-bytes"], "photo.png", { type: "image/png" })
+          );
+        } else {
+          fireEvent.click(
+            view.getByRole("button", {
+              name: m.accountProfileAvatarRemove({}, { locale: "en-US" }),
+            })
+          );
+        }
+      });
+
+      await waitFor(() =>
+        expect(view.getByRole("status").textContent).toBe(
+          failure === "server error"
+            ? "Your session has expired. Sign in again."
+            : m.accountProfileAvatarErrorRetryable({}, { locale: "en-US" })
+        )
+      );
+      const image = view.getByAltText(
+        m.accountProfileAvatarAlt({}, { locale: "en-US" })
+      ) as HTMLImageElement;
+      expect(image.getAttribute("src")).toBe(
+        "https://res.cloudinary.test/upload/v1/avatars/live"
+      );
+      expect(
+        view.getByRole("button", {
+          name: m.accountProfileAvatarRemove({}, { locale: "en-US" }),
+        })
+      ).toBeDefined();
+      expect(routerRefresh).not.toHaveBeenCalled();
+    }
+  );
 
   test("exposes the Czech upload, pending, success, and remove controls accessibly", async () => {
     let settleUpload: ((result: ActionResult) => void) | undefined;
@@ -318,6 +358,15 @@ describe("AvatarControl failure feedback", () => {
       m.accountProfileAvatarUploading({}, { locale: "cs-CZ" })
     );
     expect(settleUpload).toBeDefined();
+    for (const name of [
+      m.accountProfileAvatarChange({}, { locale: "cs-CZ" }),
+      m.accountProfileAvatarRemove({}, { locale: "cs-CZ" }),
+    ]) {
+      expect(
+        (view.getByRole("button", { name }) as HTMLButtonElement).disabled
+      ).toBe(true);
+    }
+    expect(routerRefresh).not.toHaveBeenCalled();
 
     await act(async () => {
       settleUpload!({

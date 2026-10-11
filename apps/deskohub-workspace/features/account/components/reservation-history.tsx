@@ -257,7 +257,7 @@ function FeaturedReservationItem({
   return (
     <li className="min-w-0">
       <Card className="min-w-0 overflow-hidden rounded-2xl border-[#e9b8a7] bg-white shadow-[0_18px_40px_-28px_rgba(0,2,79,0.35)]">
-        <div className="flex min-w-0 flex-wrap items-start justify-between gap-x-4 gap-y-3 p-6 xl:py-4">
+        <div className="flex min-w-0 flex-wrap items-start justify-between gap-x-4 gap-y-3 p-6 @4xl:py-4">
           <div className="flex min-w-0 max-w-full flex-1 flex-wrap items-center gap-3">
             <StatusBadge
               className="max-w-full min-w-0 break-words whitespace-normal"
@@ -270,7 +270,7 @@ function FeaturedReservationItem({
               {reservation.id}
             </code>
           </div>
-          <div className="min-w-0 max-w-full text-left sm:max-w-[45%] sm:text-right">
+          <div className="min-w-0 max-w-full text-left @xl:max-w-[45%] @xl:text-right">
             <span className="block text-xs font-semibold uppercase tracking-[0.1em] text-[#64748b]">
               {copy.product}
             </span>
@@ -282,7 +282,7 @@ function FeaturedReservationItem({
 
         <div className="border-t border-[#dfe4ec]" />
 
-        <div className="grid min-w-0 gap-6 px-6 py-6 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(10rem,0.8fr)] xl:py-5">
+        <div className="grid min-w-0 gap-6 px-6 py-6 @4xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(10rem,0.8fr)] @4xl:py-5">
           <div className="min-w-0">
             <p className="text-xs font-semibold uppercase tracking-[0.1em] text-[#64748b]">
               {copy.product}
@@ -308,7 +308,7 @@ function FeaturedReservationItem({
               {copy.validity}
             </p>
             {period ? (
-              <p className="mt-3 flex min-w-0 items-start gap-2 break-words text-sm leading-6 text-[#344258] xl:mt-2">
+              <p className="mt-3 flex min-w-0 items-start gap-2 break-words text-sm leading-6 text-[#344258] @4xl:mt-2">
                 <CalendarDays
                   aria-hidden="true"
                   className="mt-1 size-4 shrink-0"
@@ -336,11 +336,11 @@ function FeaturedReservationItem({
           </div>
         </div>
 
-        <div className="flex min-w-0 flex-col gap-4 border-t border-[#dfe4ec] p-6 sm:flex-row sm:items-center sm:justify-between xl:grid xl:grid-cols-[minmax(0,1fr)_auto] xl:gap-x-4 xl:gap-y-2 xl:px-6 xl:py-4">
-          <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap xl:col-start-1 xl:row-start-2">
+        <div className="flex min-w-0 flex-col gap-4 border-t border-[#dfe4ec] p-6 @3xl:flex-row @3xl:items-center @3xl:justify-between @4xl:grid @4xl:grid-cols-[minmax(0,1fr)_auto] @4xl:gap-x-4 @4xl:gap-y-2 @4xl:px-6 @4xl:py-4">
+          <div className="flex min-w-0 flex-col gap-2 @3xl:flex-row @3xl:flex-wrap @4xl:col-start-1 @4xl:row-start-2">
             <FutureFeatureTooltip locale={locale}>
               <Button
-                className="w-full sm:w-auto"
+                className="w-full @3xl:w-auto"
                 disabled
                 size="sm"
                 type="button"
@@ -352,7 +352,7 @@ function FeaturedReservationItem({
             {reservation.workspaceReservationId ? (
               <GuardedLink
                 className={buttonVariants({
-                  className: "w-full sm:w-auto",
+                  className: "w-full @3xl:w-auto",
                   size: "sm",
                   variant: "secondary",
                 })}
@@ -363,7 +363,7 @@ function FeaturedReservationItem({
             ) : (
               <div className="min-w-0">
                 <Button
-                  className="w-full sm:w-auto"
+                  className="w-full @3xl:w-auto"
                   disabled
                   size="sm"
                   type="button"
@@ -377,12 +377,12 @@ function FeaturedReservationItem({
               </div>
             )}
           </div>
-          <div className="flex min-w-0 flex-col gap-3 sm:items-end xl:contents">
-            <p className="max-w-sm break-words text-sm leading-5 text-[#64748b] xl:col-start-1 xl:row-start-1 xl:max-w-none xl:text-xs xl:leading-5">
+          <div className="flex min-w-0 flex-col gap-3 @3xl:items-end @4xl:contents">
+            <p className="max-w-sm break-words text-sm leading-5 text-[#64748b] @4xl:col-start-1 @4xl:row-start-1 @4xl:max-w-none @4xl:text-xs @4xl:leading-5">
               {copy.unsupportedDescription}
             </p>
             {reservation.workspaceReservationId && (
-              <div className="xl:col-start-2 xl:row-span-2 xl:row-start-1 xl:flex xl:items-center xl:justify-self-end">
+              <div className="@4xl:col-start-2 @4xl:row-span-2 @4xl:row-start-1 @4xl:flex @4xl:items-center @4xl:justify-self-end">
                 <ReservationDetailLink
                   copy={copy}
                   locale={locale}
@@ -411,8 +411,8 @@ function CompactReservationItem({
 
   return (
     <li className="min-w-0">
-      <article className="min-w-0 rounded-2xl border border-[#dfe4ec] bg-white p-4 shadow-[0_12px_30px_-24px_rgba(0,2,79,0.45)] sm:min-h-[74px]">
-        <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-center">
+      <article className="min-w-0 rounded-2xl border border-[#dfe4ec] bg-white p-4 shadow-[0_12px_30px_-24px_rgba(0,2,79,0.45)] @2xl:min-h-[74px]">
+        <div className="flex min-w-0 flex-col gap-4 @2xl:flex-row @2xl:items-center">
           <div className="flex size-14 shrink-0 flex-col items-center justify-center rounded-xl border border-[#dbe4ff] bg-[#f3f6ff] px-1 text-center text-[#344258]">
             <span className="sr-only">
               {copy.date}:{" "}
@@ -470,7 +470,7 @@ function CompactReservationItem({
             </div>
           </div>
 
-          <div className="flex min-w-0 flex-col items-stretch gap-3 sm:flex-row sm:items-center">
+          <div className="flex min-w-0 flex-col items-stretch gap-3 @2xl:flex-row @2xl:items-center">
             <span className="sr-only">{copy.status}: </span>
             <StatusBadge
               className="max-w-full min-w-0 self-start break-words whitespace-normal"
@@ -542,36 +542,36 @@ function PastReservationTable({
     <CardContent className="min-w-0 overflow-hidden p-0">
       <table
         aria-labelledby="account-reservations-past-title"
-        className="block w-full text-left xl:table xl:table-fixed"
+        className="block w-full text-left @4xl:table @4xl:table-fixed"
       >
-        <thead className="hidden border-b border-[#dfe4ec] text-xs font-semibold uppercase tracking-[0.1em] text-[#64748b] xl:table-header-group">
-          <tr className="block xl:table-row">
-            <th className="px-3 py-3 xl:w-[30%]" scope="col">
+        <thead className="hidden border-b border-[#dfe4ec] text-xs font-semibold uppercase tracking-[0.1em] text-[#64748b] @4xl:table-header-group">
+          <tr className="block @4xl:table-row">
+            <th className="px-3 py-3 @4xl:w-[30%]" scope="col">
               {copy.date}
             </th>
-            <th className="px-3 py-3 xl:w-[25%]" scope="col">
+            <th className="px-3 py-3 @4xl:w-[25%]" scope="col">
               {copy.product}
             </th>
-            <th className="px-3 py-3 xl:w-[12%]" scope="col">
+            <th className="px-3 py-3 @4xl:w-[12%]" scope="col">
               {copy.seats}
             </th>
-            <th className="px-3 py-3 xl:w-[17%]" scope="col">
+            <th className="px-3 py-3 @4xl:w-[17%]" scope="col">
               {copy.status}
             </th>
-            <th className="px-3 py-3 text-right xl:w-[16%]" scope="col">
+            <th className="px-3 py-3 text-right @4xl:w-[16%]" scope="col">
               <span className="sr-only">{copy.viewReservation}</span>
             </th>
           </tr>
         </thead>
-        <tbody className="block xl:table-row-group">
+        <tbody className="block @4xl:table-row-group">
           {reservations.map((reservation) => (
             <tr
-              className="block min-w-0 border-b border-[#dfe4ec] last:border-0 max-xl:p-4 xl:table-row"
+              className="block min-w-0 border-b border-[#dfe4ec] last:border-0 @max-4xl:p-4 @4xl:table-row"
               key={reservation.id}
             >
-              <td className="block min-w-0 break-words px-0 py-1 align-top text-sm text-[#344258] xl:table-cell xl:w-[30%] xl:px-3 xl:py-4">
-                <div className="flex min-w-0 items-baseline justify-between gap-4 xl:block">
-                  <span className="block shrink-0 text-xs font-semibold uppercase tracking-[0.08em] text-[#64748b] xl:hidden">
+              <td className="block min-w-0 break-words px-0 py-1 align-top text-sm text-[#344258] @4xl:table-cell @4xl:w-[30%] @4xl:px-3 @4xl:py-4">
+                <div className="flex min-w-0 items-baseline justify-between gap-4 @4xl:block">
+                  <span className="block shrink-0 text-xs font-semibold uppercase tracking-[0.08em] text-[#64748b] @4xl:hidden">
                     {copy.date}
                   </span>
                   <span className="break-words">
@@ -580,9 +580,9 @@ function PastReservationTable({
                   </span>
                 </div>
               </td>
-              <td className="block min-w-0 break-words px-0 py-1 align-top text-sm font-semibold text-[#344258] xl:table-cell xl:w-[25%] xl:px-3 xl:py-4">
-                <div className="flex min-w-0 items-baseline justify-between gap-4 xl:block">
-                  <span className="block shrink-0 text-xs font-semibold uppercase tracking-[0.08em] text-[#64748b] xl:hidden">
+              <td className="block min-w-0 break-words px-0 py-1 align-top text-sm font-semibold text-[#344258] @4xl:table-cell @4xl:w-[25%] @4xl:px-3 @4xl:py-4">
+                <div className="flex min-w-0 items-baseline justify-between gap-4 @4xl:block">
+                  <span className="block shrink-0 text-xs font-semibold uppercase tracking-[0.08em] text-[#64748b] @4xl:hidden">
                     {copy.product}
                   </span>
                   <span className="break-words">
@@ -590,9 +590,9 @@ function PastReservationTable({
                   </span>
                 </div>
               </td>
-              <td className="block min-w-0 break-words px-0 py-1 align-top text-sm text-[#344258] xl:table-cell xl:w-[12%] xl:px-3 xl:py-4">
-                <div className="flex min-w-0 items-baseline justify-between gap-4 xl:block">
-                  <span className="block shrink-0 text-xs font-semibold uppercase tracking-[0.08em] text-[#64748b] xl:hidden">
+              <td className="block min-w-0 break-words px-0 py-1 align-top text-sm text-[#344258] @4xl:table-cell @4xl:w-[12%] @4xl:px-3 @4xl:py-4">
+                <div className="flex min-w-0 items-baseline justify-between gap-4 @4xl:block">
+                  <span className="block shrink-0 text-xs font-semibold uppercase tracking-[0.08em] text-[#64748b] @4xl:hidden">
                     {copy.seats}
                   </span>
                   <span className="break-words">
@@ -605,9 +605,9 @@ function PastReservationTable({
                   </span>
                 </div>
               </td>
-              <td className="block min-w-0 px-0 py-1 align-top text-sm text-[#344258] xl:table-cell xl:w-[17%] xl:px-3 xl:py-4">
-                <div className="flex min-w-0 items-baseline justify-between gap-4 xl:block">
-                  <span className="block shrink-0 text-xs font-semibold uppercase tracking-[0.08em] text-[#64748b] xl:hidden">
+              <td className="block min-w-0 px-0 py-1 align-top text-sm text-[#344258] @4xl:table-cell @4xl:w-[17%] @4xl:px-3 @4xl:py-4">
+                <div className="flex min-w-0 items-baseline justify-between gap-4 @4xl:block">
+                  <span className="block shrink-0 text-xs font-semibold uppercase tracking-[0.08em] text-[#64748b] @4xl:hidden">
                     {copy.status}
                   </span>
                   <StatusBadge
@@ -619,7 +619,7 @@ function PastReservationTable({
                   </StatusBadge>
                 </div>
               </td>
-              <td className="block min-w-0 px-0 pt-3 align-top text-right xl:table-cell xl:w-[16%] xl:px-3 xl:py-4">
+              <td className="block min-w-0 px-0 pt-3 align-top text-right @4xl:table-cell @4xl:w-[16%] @4xl:px-3 @4xl:py-4">
                 <div className="flex min-w-0 justify-end">
                   <ReservationDetailLink
                     copy={copy}

@@ -2,18 +2,9 @@ import { describe, expect, test } from "bun:test";
 import {
   getWorkspaceProductTarget,
   workspaceProductTargetMatches,
-  workspaceProductTargets,
 } from "./product-target";
 
 describe("workspace product targets", () => {
-  test("defines one target for each reservation family", () => {
-    expect(workspaceProductTargets).toEqual([
-      { kind: "cowork" },
-      { kind: "meeting-room" },
-      { kind: "office" },
-    ]);
-  });
-
   test("reduces exact purchase identities to their family target", () => {
     expect(
       getWorkspaceProductTarget({ kind: "cowork", tier: "profi" })

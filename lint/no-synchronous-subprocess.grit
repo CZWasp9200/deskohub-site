@@ -5,6 +5,7 @@ language js(typescript, jsx)
 // specifiers, and destructured aliases are all reported.
 file($name, $body) where {
   $name <: r".*apps/deskohub-workspace/.*\.(?:ts|tsx)$",
+  $body <: r"(?s).*(?:spawnSync|execSync|execFileSync).*",
   $body <: contains bubble {
     or {
       JsName() as $use,

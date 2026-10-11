@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./api-timeout": "./src/api-timeout.ts",
     "./backend/service.mock": "./src/backend/service.mock.ts",
     "./table-map": "./src/table-map.tsx",
     "./generated": "./src/generated/index.ts",

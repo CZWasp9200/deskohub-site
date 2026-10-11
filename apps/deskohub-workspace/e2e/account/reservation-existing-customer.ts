@@ -10,7 +10,6 @@ import { workspaceE2ETimeouts } from "../timeouts";
 const coworkReservationPath = "/en-US/reservation/cowork";
 const existingCustomerCardName = "Booking as";
 const bookForSomeoneElseName = "Book for someone else";
-const useAccountDetailsName = "Use my account details";
 // The submit button reports when availability and the advertised price are
 // still loading; offer prices render skeletons until they arrive.
 const settledSubmitSelector =
@@ -21,7 +20,6 @@ const loadingSkeletonSelector = 'main [data-slot="skeleton"]';
 const contactInputNames = {
   email: /^Email(?:\s*\*)?$/,
   name: /^Name(?:\s*\*)?$/,
-  phone: /^Phone(?:\s*\*)?$/,
 } as const;
 
 export const reservationExistingCustomerFailureMessage =
@@ -36,14 +34,17 @@ export type ReservationExistingCustomerVerification = {
   /** The linked account contact the card must show. */
   readonly contact: { readonly email: string; readonly name: string };
   readonly page: Page;
+  /** Decoded review screenshot opt-in; only review runs switch modes. */
+  readonly reviewScreenshots: boolean;
 };
 
 /**
  * Checks the cowork reservation customer section of a signed-in, linked
  * account without submitting anything: the account card shows the profile
- * name and login email instead of the contact inputs, "book for someone
- * else" opens empty contact inputs, and "use my account details" restores
- * the card. Each mode is captured once the form has finished loading. Failures carry only a closed phase diagnostic, never the
+ * name and login email instead of the contact inputs. The mode switch itself
+ * is component-tested (reservation-customer-fields.test.tsx); review runs
+ * switch to the contact mode only to capture it once the form has finished
+ * loading. Failures carry only a closed phase diagnostic, never the
  * Playwright cause, which can quote the private contact.
  */
 export async function verifyReservationExistingCustomer({
@@ -51,6 +52,7 @@ export async function verifyReservationExistingCustomer({
   captureReview,
   contact,
   page,
+  reviewScreenshots,
 }: ReservationExistingCustomerVerification): Promise<void> {
   let diagnosticCode: WorkspaceE2EReservationExistingCustomerDiagnosticCode =
     "account_reservation_existing_customer_page_failed";
@@ -114,6 +116,7 @@ export async function verifyReservationExistingCustomer({
 
     diagnosticCode = "account_reservation_existing_customer_card_failed";
     await expectAccountCard();
+    if (!reviewScreenshots) return;
 
     diagnosticCode = "account_reservation_existing_customer_card_review_failed";
     await settleForReview();
@@ -124,29 +127,9 @@ export async function verifyReservationExistingCustomer({
     await switchMode(bookForSomeoneElseName);
 
     diagnosticCode =
-      "account_reservation_existing_customer_contact_inputs_failed";
-    for (const field of ["email", "phone", "name"] as const) {
-      const input = contactInput(field);
-      await input.waitFor({
-        state: "visible",
-        timeout: workspaceE2ETimeouts.uiTransition,
-      });
-      if ((await input.inputValue()) !== "") throw new Error(field);
-    }
-    await expectAbsent(card);
-
-    diagnosticCode =
       "account_reservation_existing_customer_contact_review_failed";
     await settleForReview();
     await captureReview("contact");
-
-    diagnosticCode =
-      "account_reservation_existing_customer_account_switch_failed";
-    await switchMode(useAccountDetailsName);
-
-    diagnosticCode =
-      "account_reservation_existing_customer_card_restore_failed";
-    await expectAccountCard();
   } catch {
     throw workspaceE2EError(reservationExistingCustomerFailureMessage, {
       diagnosticCode,

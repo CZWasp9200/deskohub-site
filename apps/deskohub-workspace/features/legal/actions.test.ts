@@ -267,6 +267,8 @@ describe("marketing preference actions", () => {
       })
     ).resolves.toEqual({ data: { status: "confirmed" } });
 
+    expect(readMarketingManagementCookies).toHaveBeenCalledTimes(1);
+    expect(currentScenario.exchange).toHaveBeenCalledTimes(1);
     expect(currentScenario.exchange).toHaveBeenCalledWith(pendingToken);
     expect(setMarketingManagementSessionCookie).toHaveBeenCalledWith({
       token: "new-session-token",
@@ -314,19 +316,6 @@ describe("marketing preference actions", () => {
     });
     expect(currentScenario.exchange).not.toHaveBeenCalled();
     expect(setMarketingManagementSessionCookie).not.toHaveBeenCalled();
-  });
-
-  test("reads the pending cookie exactly once for the whole confirm flow", async () => {
-    currentScenario.cookies = { pending: pendingToken, session: undefined };
-
-    await expect(
-      confirmMarketingManagementAction({
-        context: getPendingMarketingManagementContext(pendingToken),
-      })
-    ).resolves.toEqual({ data: { status: "confirmed" } });
-
-    expect(readMarketingManagementCookies).toHaveBeenCalledTimes(1);
-    expect(currentScenario.exchange).toHaveBeenCalledTimes(1);
   });
 
   test("fails closed on an already-exchanged pending token without installing a session", async () => {

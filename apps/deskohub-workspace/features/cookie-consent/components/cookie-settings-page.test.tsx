@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import { m } from "@/features/i18n";
 import {
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
@@ -18,16 +19,32 @@ mock.module("@/features/cookie-consent", () => ({
 
 import { CookieSettings } from "./cookie-settings-page";
 
-const switchRole = (category: string) =>
-  ({
-    necessary: "Necessary cookies",
-    analytics: "Analytics cookies",
-    marketing: "Marketing cookies",
-    preferences: "Preference cookies",
-  })[category];
+const categoryMessages = {
+  necessary: {
+    title: m.cookieSettingsNecessaryTitle,
+    description: m.cookieSettingsNecessaryDescription,
+  },
+  analytics: {
+    title: m.cookieSettingsAnalyticsTitle,
+    description: m.cookieSettingsAnalyticsDescription,
+  },
+  marketing: {
+    title: m.cookieSettingsMarketingTitle,
+    description: m.cookieSettingsMarketingDescription,
+  },
+  preferences: {
+    title: m.cookieSettingsPreferencesTitle,
+    description: m.cookieSettingsPreferencesDescription,
+  },
+} as const;
 
-const getSwitch = (view: ReturnType<typeof render>, category: string) =>
-  view.getByRole("switch", { name: switchRole(category) });
+const getSwitch = (
+  view: ReturnType<typeof render>,
+  category: keyof typeof categoryMessages
+) =>
+  view.getByRole("switch", {
+    name: categoryMessages[category].title({}, { locale: "en-US" }),
+  });
 
 describe("CookieSettings", () => {
   beforeEach(() => {
@@ -51,9 +68,10 @@ describe("CookieSettings", () => {
     const necessarySwitch = getSwitch(view, "necessary");
     expect(necessarySwitch.getAttribute("aria-checked")).toBe("true");
     expect(necessarySwitch.hasAttribute("disabled")).toBe(true);
-    expect(necessarySwitch.getAttribute("aria-describedby")).toBe(
-      "cookie-category-necessary-description"
-    );
+    const descriptionId = necessarySwitch.getAttribute("aria-describedby");
+    expect(
+      descriptionId && document.getElementById(descriptionId)?.textContent
+    ).toBe(m.cookieSettingsNecessaryDescription({}, { locale: "en-US" }));
 
     fireEvent.click(necessarySwitch);
     expect(acceptCategory).not.toHaveBeenCalled();
@@ -127,30 +145,23 @@ describe("CookieSettings", () => {
     });
 
     expect(rejectCategory).toHaveBeenCalledWith("analytics");
-    expect(view.getByRole("alert").textContent).toContain(
-      "Something went wrong"
+    expect(view.getByRole("alert").textContent).toBe(
+      m.errorPageTitle({}, { locale: "en-US" })
     );
     expect(getSwitch(view, "analytics").hasAttribute("disabled")).toBe(false);
   });
 
-  test("renders exactly the four category row articles without a group wrapper", () => {
+  test("renders each consent category as a peer heading", () => {
     const view = render(<CookieSettings locale="en-US" />);
 
-    // CookieSettings owns only its four row articles; composing them into a
-    // preference-row group is the caller's presentation decision.
-    const group = view.container.querySelector(
-      '[data-slot="preference-row-group"]'
+    expect(
+      view
+        .getAllByRole("heading", { level: 3 })
+        .map((heading) => heading.textContent)
+    ).toEqual(
+      Object.values(categoryMessages).map(({ title }) =>
+        title({}, { locale: "en-US" })
+      )
     );
-    expect(group).toBeNull();
-
-    const rows = view.container.querySelectorAll(
-      '[data-slot="preference-row"]'
-    );
-    expect(rows).toHaveLength(4);
-    // Peer headings: the rows carry h3 titles, not h2.
-    for (const row of rows) {
-      expect(row.querySelector("h2")).toBeNull();
-      expect(row.querySelector("h3")).toBeTruthy();
-    }
   });
 });

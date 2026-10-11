@@ -161,7 +161,7 @@
   },
   "syntheticSchedulerEvidence": {
     "deployed": false,
-    "interpretation": "Each row reports baseline to candidate values.",
+    "interpretation": "Each historical row reports baseline to candidate values; the harness no longer runs the baseline graph.",
     "runs": [
       {
         "runId": "run-kUpJq2",
@@ -240,16 +240,9 @@
         "assertions": 10832,
         "tests": 2898,
         "files": 385,
-        "unrelatedFailure": {
-          "file": "scripts/account-visual/run.test.ts",
-          "line": 1267,
-          "test": "controlled fixture header probe rejects a narrow single-word flex heading",
-          "timeoutSeconds": 120,
-          "inScope": false
-        }
+        "unrelatedFailure": "A timeout in a retired account visual renderer test, out of scope; the renderer and its tests have since been deleted."
       },
       "fullUnitNonGreen": {
-        "visualTimeout": "preserved",
         "postgresqlSkips": "preserved"
       },
       "rootTypecheck": {

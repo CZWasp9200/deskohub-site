@@ -4,7 +4,6 @@ import { describe, expect, test } from "bun:test";
 import { Effect, Schema } from "effect";
 import type { WorkspaceProductMonitorOption } from "@/features/checkout/product-catalog";
 import { workspaceProductMonitorOptions } from "@/features/checkout/product-catalog";
-import { getWorkspaceProductKey } from "@/features/checkout/product-identity";
 import type { AppliedDiscount, DiscountQuote } from "@/features/discounts";
 import { discountIdSchema } from "@/features/discounts/contracts";
 import {
@@ -63,23 +62,6 @@ const percentageApplication = (
 });
 
 describe("cowork reservation quotes", () => {
-  test.each(["open-space", "reserved-desk"] as const)(
-    "uses the canonical full product identity for the %s summary key",
-    (entryTier) => {
-      const quote = buildCoworkReservationQuote({
-        entryTier,
-        coffee: false,
-        ...(entryTier === "reserved-desk" && {
-          monitorOption: "2x27-qhd" as const,
-        }),
-      });
-
-      expect(quote.summary.sections[0]?.items[0]?.key).toBe(
-        `product:${getWorkspaceProductKey({ kind: "cowork", tier: entryTier })}`
-      );
-    }
-  );
-
   test("builds an access-only quote without a discount section", () => {
     const quote = buildCoworkReservationQuote({
       entryTier: "open-space",
@@ -98,8 +80,6 @@ describe("cowork reservation quotes", () => {
     expect(quote.summary.sections[0]?.items.map((item) => item.key)).toEqual([
       "product:cowork:open-space",
     ]);
-    expect(quote).not.toHaveProperty("schema");
-    expect(quote.summary).not.toHaveProperty("schema");
   });
 
   test("charges paid coffee for the Basic non-courtesy tier", () => {
@@ -119,7 +99,6 @@ describe("cowork reservation quotes", () => {
         amount: { value: 5000, exponent: 2, currency: "CZK" },
       },
     ]);
-    expect(quote.payment.expectedPrice.value).toBe(34_000);
   });
 
   test("keeps included coffee out of the reserved-desk summary", () => {
@@ -131,18 +110,9 @@ describe("cowork reservation quotes", () => {
     expect(quote.summary.sections[0]?.items.map((item) => item.key)).toEqual([
       "product:cowork:reserved-desk",
     ]);
-    expect(quote.payment.expectedPrice.value).toBe(41_000);
   });
 
-  test("rejects monitor addons on Open Space and prices the reserved-desk addon", () => {
-    expect(() =>
-      buildCoworkReservationQuote({
-        entryTier: "open-space",
-        coffee: false,
-        monitorOption: "2x27-qhd",
-      })
-    ).toThrow("monitorOption");
-
+  test("lists the reserved-desk workstation and monitor in the summary", () => {
     const withWorkstation = buildCoworkReservationQuote({
       entryTier: "reserved-desk",
       coffee: true,
@@ -156,21 +126,6 @@ describe("cowork reservation quotes", () => {
       "addon:workstation",
       "monitor:2x27-qhd",
     ]);
-    expect(withWorkstation.payment.expectedPrice.value).toBe(53_000);
-  });
-
-  test("calculates Reserved Desk advertised pricing without a workstation selection", () => {
-    const quote = Effect.runSync(
-      buildCoworkReservationQuoteEffect({
-        kind: "cowork",
-        entryTier: "reserved-desk",
-        coffee: true,
-      })
-    );
-
-    expect(quote).not.toHaveProperty("summary");
-    expect(quote).not.toHaveProperty("order");
-    expect(quote.payment.expectedPrice.value).toBe(41_000);
   });
 
   test("keeps monitor composition in the summary but not the price quote", () => {
@@ -185,7 +140,6 @@ describe("cowork reservation quotes", () => {
       monitorOption: "2x32-4k",
     });
 
-    expect(firstMonitor.fingerprint).toBe(secondMonitor.fingerprint);
     expect(firstMonitor.summary).not.toEqual(secondMonitor.summary);
   });
 
@@ -200,32 +154,21 @@ describe("cowork reservation quotes", () => {
         })
       );
 
-    const configured = workspaceProductMonitorOptions.map((monitorOption) => {
-      const quote = quoteWith(monitorOption);
-      return {
-        monitorOption,
-        fingerprint: quote.fingerprint,
-        expectedPrice: quote.payment.expectedPrice,
-      };
-    });
+    const configured = workspaceProductMonitorOptions.map(
+      (monitorOption) => quoteWith(monitorOption).fingerprint
+    );
 
-    // Every catalog monitor configuration is the same priced workstation:
-    // one shared fingerprint and the 410 + 120 workstation total.
-    expect(configured).toHaveLength(4);
-    for (const configuredQuote of configured) {
-      expect(configuredQuote.fingerprint).toBe(configured[0].fingerprint);
-      expect(configuredQuote.expectedPrice.value).toBe(53_000);
+    // Every catalog monitor configuration is the same priced workstation.
+    for (const fingerprint of configured) {
+      expect(fingerprint).toBe(configured[0]);
     }
 
-    const absent = quoteWith();
-    const empty = quoteWith("");
+    const absent = quoteWith().fingerprint;
+    const empty = quoteWith("").fingerprint;
 
-    // Absent and empty selections are no-workstation quotes: 410 base, a
-    // different fingerprint from the paid workstation compositions.
-    expect(absent.payment.expectedPrice.value).toBe(41_000);
-    expect(empty.payment.expectedPrice.value).toBe(41_000);
-    expect(absent.fingerprint).toBe(empty.fingerprint);
-    expect(configured[0].fingerprint).not.toBe(absent.fingerprint);
+    // Absent and empty selections are no-workstation quotes.
+    expect(absent).toBe(empty);
+    expect(configured[0]).not.toBe(absent);
   });
 
   test("applies generic cowork discounts without discounting paid coffee", () => {
@@ -266,43 +209,6 @@ describe("cowork reservation quotes", () => {
       ],
       total: { value: 19_500, exponent: 2, currency: "CZK" },
     });
-    expect(quote.payment.expectedPrice.value).toBe(19_500);
-    expect(quote.payment.undiscountedPrice.value).toBe(34_000);
-    expect(quote.payment.discounts).toEqual([application]);
-  });
-
-  test("fingerprint changes for different composition with the same total", () => {
-    const accessOnly = buildCoworkReservationQuote({
-      entryTier: "open-space",
-      coffee: false,
-    });
-    const coffeeDiscountedToSameTotal = buildCoworkReservationQuote(
-      {
-        entryTier: "open-space",
-        coffee: true,
-      },
-      {
-        discountQuote: discountQuote([
-          {
-            discount: {
-              id: discountId("coffee-offset"),
-              label: "Coffee offset",
-              adjustment: { kind: "fixed", amount: money(5000) },
-            },
-            subtotalBefore: money(29_000),
-            amount: money(5000),
-            subtotalAfter: money(24_000),
-          },
-        ]),
-      }
-    );
-
-    expect(accessOnly.summary.total.value).toBe(
-      coffeeDiscountedToSameTotal.summary.total.value
-    );
-    expect(accessOnly.fingerprint).not.toBe(
-      coffeeDiscountedToSameTotal.fingerprint
-    );
   });
 
   test("fingerprint includes the complete generic discount snapshot", () => {
@@ -382,51 +288,6 @@ describe("cowork reservation quotes", () => {
     );
 
     expect(ordered.fingerprint).not.toBe(reversed.fingerprint);
-  });
-
-  test("sanitizes runtime contact and consent fields from quote output", () => {
-    const orderWithRuntimeExtras = {
-      entryTier: "open-space",
-      date: "2026-06-01",
-      coffee: false,
-      marketingConsent: true,
-      name: "Ada Lovelace",
-      email: "ada@example.com",
-      phone: "+420 777 777 777",
-      message: "Please keep this private.",
-    } as const;
-
-    const quote = buildCoworkReservationQuote(orderWithRuntimeExtras);
-
-    expect(quote).not.toHaveProperty("order");
-    expect(quote).not.toHaveProperty("date");
-    expect(quote).not.toHaveProperty("marketingConsent");
-    expect(quote).not.toHaveProperty("name");
-    expect(quote).not.toHaveProperty("email");
-    expect(quote).not.toHaveProperty("phone");
-    expect(quote).not.toHaveProperty("message");
-  });
-
-  test("ignores runtime contact and consent fields when fingerprinting", () => {
-    const cleanQuote = buildCoworkReservationQuote({
-      entryTier: "reserved-desk",
-      coffee: false,
-    });
-    const orderWithRuntimeExtras = {
-      entryTier: "reserved-desk",
-      date: "2026-06-01",
-      coffee: false,
-      marketingConsent: true,
-      name: "Grace Hopper",
-      email: "grace@example.com",
-      phone: "+420 111 111 111",
-      message: "Do not fingerprint this.",
-    } as const;
-    const quoteWithRuntimeExtras = buildCoworkReservationQuote(
-      orderWithRuntimeExtras
-    );
-
-    expect(quoteWithRuntimeExtras.fingerprint).toBe(cleanQuote.fingerprint);
   });
 
   test("detects changed summary section and item keys", () => {

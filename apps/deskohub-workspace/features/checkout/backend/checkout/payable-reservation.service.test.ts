@@ -11,37 +11,28 @@ import {
 } from "@/features/checkout/checkout-identifiers";
 import { WorkspaceReservationRepository } from "@/features/reservation/backend/workspace-reservation.repository";
 import { deriveCheckoutSessionKeys } from "./checkout-lookup-keys.server";
-import {
-  deriveRingKeyedCheckoutSessionKey,
-  findKeyIdPrefixedLookupKey,
-} from "./checkout-lookup-keys.test-utils";
+import { findKeyIdPrefixedLookupKey } from "./checkout-lookup-keys.test-utils";
 import {
   PayableReservationService,
   PayableReservationUnavailableError,
 } from "./payable-reservation.service";
 
 const checkoutSessionId = checkoutSessionIdSchema.make("checkout-session-id");
-const originalKeyRing = `original:${Buffer.alloc(32, 1).toString("base64url")}`;
-const rotatedKeyRing = `rotated:${Buffer.alloc(32, 2).toString("base64url")},${originalKeyRing}`;
+const keyRing = `original:${Buffer.alloc(32, 1).toString("base64url")}`;
 
-const withKeyRing = (keyRing: string) =>
-  Effect.provideService(
-    ConfigProvider.ConfigProvider,
-    ConfigProvider.fromUnknown({ CHECKOUT_PAY_STATE_KEYS: keyRing })
-  );
+const withKeyRing = Effect.provideService(
+  ConfigProvider.ConfigProvider,
+  ConfigProvider.fromUnknown({ CHECKOUT_PAY_STATE_KEYS: keyRing })
+);
 
-// Rotation is only supported once new rows store the active key's prefixed
-// derivation, so rotation scenarios start from that format.
-const deriveStoredSessionKey = (keyRing: string): CheckoutSessionKey =>
-  findKeyIdPrefixedLookupKey(
-    deriveCheckoutSessionKeys(checkoutSessionId).pipe(
-      withKeyRing(keyRing),
-      Effect.runSync
-    ),
-    keyRing.slice(0, keyRing.indexOf(":"))
-  );
-
-const checkoutSessionKey = deriveStoredSessionKey(originalKeyRing);
+// New rows store the active key's prefixed derivation.
+const checkoutSessionKey: CheckoutSessionKey = findKeyIdPrefixedLookupKey(
+  deriveCheckoutSessionKeys(checkoutSessionId).pipe(
+    withKeyRing,
+    Effect.runSync
+  ),
+  "original"
+);
 
 const reservation = (overrides: Partial<WorkspaceReservation> = {}) =>
   ({
@@ -61,7 +52,6 @@ const runRequireCurrent = (input: {
   readonly current?: WorkspaceReservation | null;
   readonly dotyposStatus?: "NEW" | "CANCELLED" | "CONFIRMED";
   readonly checkoutSessionId?: string;
-  readonly keyRing?: string;
 }) => {
   const candidate =
     input.candidate === undefined ? reservation() : input.candidate;
@@ -94,11 +84,7 @@ const runRequireCurrent = (input: {
           input.checkoutSessionId ?? checkoutSessionId
         ),
       });
-    }).pipe(
-      Effect.provide(layer),
-      withKeyRing(input.keyRing ?? originalKeyRing),
-      Effect.runPromise
-    ),
+    }).pipe(Effect.provide(layer), withKeyRing, Effect.runPromise),
   };
 };
 
@@ -136,37 +122,6 @@ describe("PayableReservationService", () => {
       })
     );
     expect(getReservationStatus).not.toHaveBeenCalled();
-  });
-});
-
-describe("PayableReservationService across Pay-state key rotation", () => {
-  test("keeps a held checkout payable after a new active key is added", async () => {
-    const { result } = runRequireCurrent({ keyRing: rotatedKeyRing });
-
-    await expect(result).resolves.toMatchObject({ id: "reservation-id" });
-  });
-
-  test("keeps a held checkout payable after an unused old key is retired", async () => {
-    const storedUnderRotation = deriveStoredSessionKey(rotatedKeyRing);
-    const { result } = runRequireCurrent({
-      candidate: reservation({ checkoutSessionKey: storedUnderRotation }),
-      keyRing: rotatedKeyRing.split(",")[0],
-    });
-
-    await expect(result).resolves.toMatchObject({ id: "reservation-id" });
-  });
-
-  test("keeps a ring-keyed checkout payable while the key ring is unchanged", async () => {
-    const { result } = runRequireCurrent({
-      candidate: reservation({
-        checkoutSessionKey: deriveRingKeyedCheckoutSessionKey(
-          originalKeyRing,
-          checkoutSessionId
-        ),
-      }),
-    });
-
-    await expect(result).resolves.toMatchObject({ id: "reservation-id" });
   });
 
   test("rejects a reservation from another checkout session", async () => {

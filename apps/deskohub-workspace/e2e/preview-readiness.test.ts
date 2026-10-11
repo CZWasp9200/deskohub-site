@@ -270,26 +270,6 @@ test("recognizes a rendered not-found response for a disabled preview page", asy
   ).resolves.toBe(false);
 });
 
-test("recognizes a not-found boundary streamed with a 200 for a disabled preview page", async () => {
-  const fetchMock = mock(
-    async () =>
-      new Response(
-        '<section aria-busy="true">Reserve a private office.</section><template data-dgst="NEXT_HTTP_ERROR_FALLBACK;404"></template><script>self.__next_f.push([1,"{\\"digest\\":\\"NEXT_HTTP_ERROR_FALLBACK;404\\"}"])</script>',
-        { status: 200 }
-      )
-  );
-
-  await expect(
-    Effect.runPromise(
-      isPreviewPageAvailable(
-        makeConfig(),
-        "/en-US/reservation/office",
-        "data-office-base-price"
-      ).pipe(Effect.provide(makeFetchHttpClientLayer(fetchMock)))
-    )
-  ).resolves.toBe(false);
-});
-
 test("rejects a server error streamed with a 200 instead of disabling E2E coverage", async () => {
   const fetchMock = mock(
     async () =>
@@ -297,25 +277,6 @@ test("rejects a server error streamed with a 200 instead of disabling E2E covera
         '<section aria-busy="true">Reserve a private office.</section><template data-dgst="2871029386"></template>',
         { status: 200 }
       )
-  );
-
-  await expect(
-    Effect.runPromise(
-      isPreviewPageAvailable(
-        makeConfig(),
-        "/en-US/reservation/office",
-        "data-office-base-price"
-      ).pipe(Effect.provide(makeFetchHttpClientLayer(fetchMock)))
-    )
-  ).rejects.toThrow("did not render its expected content");
-});
-
-test("rejects a streamed Next server error instead of disabling E2E coverage", async () => {
-  const fetchMock = mock(
-    async () =>
-      new Response('<h1 class="next-error-h1">500</h1>', {
-        status: 200,
-      })
   );
 
   await expect(

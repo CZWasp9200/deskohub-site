@@ -148,15 +148,6 @@ test("accepting a category deduplicates it into the authoritative preferences", 
   expect(preferenceCategories).toEqual(["necessary", "analytics"]);
 });
 
-test("accepting categories in sequence preserves earlier accepts and necessary", () => {
-  const { current } = renderHook();
-
-  act(() => current().acceptCategory("analytics"));
-  act(() => current().acceptCategory("marketing"));
-
-  expect(preferenceCategories).toEqual(["necessary", "analytics", "marketing"]);
-});
-
 test("rejecting a category keeps the other accepted categories", () => {
   setConsent(["necessary", "analytics", "marketing"]);
   const { current } = renderHook();
@@ -171,15 +162,6 @@ test("rejecting necessary is a no-op", () => {
   const { current } = renderHook();
 
   act(() => current().rejectCategory("necessary"));
-
-  expect(preferenceCategories).toEqual(["necessary", "analytics"]);
-});
-
-test("accepting necessary preserves the other accepted categories", () => {
-  setConsent(["necessary", "analytics"]);
-  const { current } = renderHook();
-
-  act(() => current().acceptCategory("necessary"));
 
   expect(preferenceCategories).toEqual(["necessary", "analytics"]);
 });

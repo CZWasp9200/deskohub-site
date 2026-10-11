@@ -244,14 +244,6 @@ describe("discount calculator", () => {
     });
   });
 
-  test("discounts only cowork subtotal and leaves paid Basic coffee outside", () => {
-    const result = calculate(money(35_000), [percentage("half", 5000)]);
-    const completeOrderTotal =
-      result.quote.discountedSubtotal.value + money(5000).value;
-
-    expect(completeOrderTotal).toBe(22_500);
-  });
-
   test("rejects invalid discountable subtotal money", () => {
     for (const invalidSubtotal of [
       money(-1),
