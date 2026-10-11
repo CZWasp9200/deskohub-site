@@ -7,6 +7,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
+import { m } from "@/features/i18n";
 import {
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
@@ -16,13 +17,11 @@ beforeAll(registerWorkspaceComponentTestEnv);
 afterEach(cleanup);
 afterAll(unregisterWorkspaceComponentTestEnv);
 
-test.each([
-  ["en-US", "This feature is coming in the future."],
-  ["cs-CZ", "Tato funkce bude k dispozici v budoucnu."],
-] as const)(
+test.each(["en-US", "cs-CZ"] as const)(
   "focuses the wrapper, localizes the tooltip, and preserves the disabled child for %s",
-  async (locale, message) => {
+  async (locale) => {
     const { FutureFeatureTooltip } = await import("./future-feature-tooltip");
+    const message = m.account_future_feature_tooltip({}, { locale });
     let activationCount = 0;
     const view = render(
       <FutureFeatureTooltip locale={locale}>
@@ -90,18 +89,15 @@ test("keeps the tooltip available across pointer leaves and dismisses with Escap
   );
   const trigger = view.container.querySelector<HTMLElement>('[tabindex="0"]');
   if (!trigger) throw new Error("Future-feature trigger was not rendered");
+  const message = m.account_future_feature_tooltip({}, { locale: "en-US" });
   const documentView = within(view.baseElement);
   expect(view.getByRole("group", { name: "Hover target" })).toBe(trigger);
 
   fireEvent.pointerMove(trigger, { pointerType: "mouse" });
   const tooltip = await waitFor(() => documentView.getByRole("tooltip"));
-  expect(tooltip.textContent).toBe("This feature is coming in the future.");
+  expect(tooltip.textContent).toBe(message);
   expect(trigger.getAttribute("aria-describedby")).toBe(tooltip.id);
-  expect(
-    view.getByRole("group", {
-      description: "This feature is coming in the future.",
-    })
-  ).toBe(trigger);
+  expect(view.getByRole("group", { description: message })).toBe(trigger);
 
   fireEvent.pointerLeave(trigger, { pointerType: "mouse" });
   expect(documentView.getByRole("tooltip")).toBe(tooltip);

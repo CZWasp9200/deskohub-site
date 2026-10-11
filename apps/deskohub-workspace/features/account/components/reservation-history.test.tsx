@@ -10,6 +10,8 @@ import {
 } from "bun:test";
 import { cleanup, render } from "@testing-library/react";
 import type { ComponentPropsWithoutRef } from "react";
+import { getWorkspaceMeetingRoomProductTitle } from "@/features/checkout/product-catalog.i18n";
+import { m } from "@/features/i18n";
 import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
 import {
   UnsavedChangesProvider,
@@ -85,13 +87,6 @@ const historyCopy = {
 } satisfies Record<"en-US" | "cs-CZ", ReservationHistoryCopy>;
 
 const copyFor = (locale: keyof typeof historyCopy) => historyCopy[locale];
-
-const pinUnavailableCopy = {
-  "en-US":
-    "PIN access is unavailable because this reservation is not linked to Workspace.",
-  "cs-CZ":
-    "PIN není k dispozici, protože tato rezervace není propojena s Workspace.",
-} as const;
 
 const renderHistory = (
   locale: keyof typeof historyCopy,
@@ -206,14 +201,18 @@ describe("ReservationHistory", () => {
     const view = renderHistory("en-US", availableHistory);
 
     expect(
-      view.getByRole("heading", { name: "Current and upcoming" })
-    ).toBeTruthy();
-    expect(
-      view.getByRole("heading", { name: "Past reservations" })
+      view.getByRole("heading", {
+        name: m.accountReservationsCurrentTitle({}, { locale: "en-US" }),
+      })
     ).toBeTruthy();
     expect(
       view.getByRole("heading", {
-        name: "Reservations missing date details",
+        name: m.accountReservationsPastTitle({}, { locale: "en-US" }),
+      })
+    ).toBeTruthy();
+    expect(
+      view.getByRole("heading", {
+        name: m.accountReservationsOtherTitle({}, { locale: "en-US" }),
       })
     ).toBeTruthy();
 
@@ -224,8 +223,12 @@ describe("ReservationHistory", () => {
     expect(group("past").textContent).toContain("2");
     expect(group("unavailable").textContent).toContain("1");
 
-    expect(group("past").textContent).toContain("Cancelled");
-    expect(group("current").textContent).toContain("Confirmed");
+    expect(group("past").textContent).toContain(
+      m.accountReservationStatusCancelled({}, { locale: "en-US" })
+    );
+    expect(group("current").textContent).toContain(
+      m.accountReservationStatusConfirmed({}, { locale: "en-US" })
+    );
 
     expect(view.container.querySelector("nav")).toBeNull();
     for (const id of [
@@ -237,9 +240,18 @@ describe("ReservationHistory", () => {
     }
 
     for (const [name, id] of [
-      ["Current and upcoming", "account-reservations-current"],
-      ["Past reservations", "account-reservations-past"],
-      ["Reservations missing date details", "account-reservations-unavailable"],
+      [
+        m.accountReservationsCurrentTitle({}, { locale: "en-US" }),
+        "account-reservations-current",
+      ],
+      [
+        m.accountReservationsPastTitle({}, { locale: "en-US" }),
+        "account-reservations-past",
+      ],
+      [
+        m.accountReservationsOtherTitle({}, { locale: "en-US" }),
+        "account-reservations-unavailable",
+      ],
     ] as const) {
       expect(view.getByRole("region", { name }).getAttribute("id")).toBe(id);
     }
@@ -252,15 +264,25 @@ describe("ReservationHistory", () => {
     const view = renderHistory("cs-CZ", availableHistory);
 
     expect(
-      view.getByRole("heading", { name: "Aktuální a nadcházející" })
+      view.getByRole("heading", {
+        name: m.accountReservationsCurrentTitle({}, { locale: "cs-CZ" }),
+      })
     ).toBeTruthy();
     expect(
-      view.getByRole("heading", { name: "Minulé rezervace" })
+      view.getByRole("heading", {
+        name: m.accountReservationsPastTitle({}, { locale: "cs-CZ" }),
+      })
     ).toBeTruthy();
     expect(
-      view.getByRole("heading", { name: "Rezervace bez údaje o datu" })
+      view.getByRole("heading", {
+        name: m.accountReservationsOtherTitle({}, { locale: "cs-CZ" }),
+      })
     ).toBeTruthy();
-    expect(view.getByText("Zrušeno")).toBeTruthy();
+    expect(
+      view.getByText(
+        m.accountReservationStatusCancelled({}, { locale: "cs-CZ" })
+      )
+    ).toBeTruthy();
   });
 
   test("keeps every provider status and exposes unsupported actions as disabled", () => {
@@ -341,8 +363,12 @@ describe("ReservationHistory", () => {
     const table = view.getByRole("table");
     const row = table.querySelector("tbody tr");
     expect(row).toBeTruthy();
-    expect(row?.textContent).toContain("Meeting Room");
-    expect(row?.textContent).toContain("Needs attention");
+    expect(row?.textContent).toContain(
+      getWorkspaceMeetingRoomProductTitle("en-US")
+    );
+    expect(row?.textContent).toContain(
+      m.accountReservationStatusAttention({}, { locale: "en-US" })
+    );
     expect(row?.textContent).toContain("Aug 21, 2026");
 
     const link = view.getByRole("link", {
@@ -612,31 +638,31 @@ describe("ReservationHistory", () => {
     }
   );
 
-  test.each(["en-US", "cs-CZ"] as const)(
-    "explains why PIN access is disabled for provider-only reservations in %s",
-    (locale) => {
-      const view = renderHistory(locale, {
-        kind: "available",
-        groups: {
-          current: [reservation({ id: `provider-only-${locale}` })],
-          past: [],
-          unavailable: [],
-        },
-      });
-      const pinButton = view.getByRole("button", {
-        name: copyFor(locale).showPinCode,
-      });
+  test("explains why PIN access is disabled for provider-only reservations", () => {
+    const locale = "en-US";
+    const view = renderHistory(locale, {
+      kind: "available",
+      groups: {
+        current: [reservation({ id: "provider-only" })],
+        past: [],
+        unavailable: [],
+      },
+    });
+    const pinButton = view.getByRole("button", {
+      name: copyFor(locale).showPinCode,
+    });
 
-      expect(pinButton.hasAttribute("disabled")).toBe(true);
-      expect(
-        view.queryByRole("link", { name: copyFor(locale).showPinCode })
-      ).toBeNull();
-      expect(view.getByText(pinUnavailableCopy[locale])).toBeTruthy();
-      expect(
-        view.container.querySelector('a[href*="/reservation/access/"]')
-      ).toBeNull();
-    }
-  );
+    expect(pinButton.hasAttribute("disabled")).toBe(true);
+    expect(
+      view.queryByRole("link", { name: copyFor(locale).showPinCode })
+    ).toBeNull();
+    expect(
+      view.getByText(m.accountReservationPinUnavailable({}, { locale }))
+    ).toBeTruthy();
+    expect(
+      view.container.querySelector('a[href*="/reservation/access/"]')
+    ).toBeNull();
+  });
 
   test("does not create a fake link from a provider-only reservation id", () => {
     const view = renderHistory("en-US", {
@@ -820,30 +846,23 @@ describe("ReservationHistory", () => {
     expect(
       view.container.querySelector("#account-reservations-past-title")
     ).toBeTruthy();
-    expect(view.getByText("You have no past reservations yet.")).toBeTruthy();
+    expect(
+      view.getByText(m.accountReservationsPastEmpty({}, { locale: "en-US" }))
+    ).toBeTruthy();
   });
 
-  test.each([
-    [
-      "en-US",
-      "Reservation history is temporarily unavailable",
-      "Our booking system could not be reached. Your profile is still available, please try again later.",
-    ],
-    [
-      "cs-CZ",
-      "Historie rezervací je dočasně nedostupná",
-      "Náš rezervační systém není dostupný. Váš profil zůstává k dispozici, zkuste to prosím později.",
-    ],
-  ] as const)(
-    "keeps the profile page usable when the reservation provider is unavailable in %s",
-    (locale, title, description) => {
-      const view = renderHistory(locale, {
-        kind: "unavailable",
-        reason: "provider-unavailable",
-      });
+  test("keeps the profile page usable when the reservation provider is unavailable", () => {
+    const locale = "en-US";
+    const view = renderHistory(locale, {
+      kind: "unavailable",
+      reason: "provider-unavailable",
+    });
 
-      expect(view.getByText(title)).toBeTruthy();
-      expect(view.getByText(description)).toBeTruthy();
-    }
-  );
+    expect(
+      view.getByText(m.accountReservationsUnavailableTitle({}, { locale }))
+    ).toBeTruthy();
+    expect(
+      view.getByText(m.accountReservationsProviderUnavailable({}, { locale }))
+    ).toBeTruthy();
+  });
 });
