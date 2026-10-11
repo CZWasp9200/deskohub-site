@@ -37,14 +37,19 @@ const interpolatedLinkLabel = (copy: string, tag: string) => {
   return match?.[1] ?? "";
 };
 
-const chromeNeedle = "rounded-[1.35rem]";
 const focusableSelector =
   'a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])';
 
-const legalCards = (view: { container: HTMLElement }) =>
-  [...view.container.querySelectorAll("div")].filter((element) =>
-    element.className.includes(chromeNeedle)
-  );
+const legalCards = (view: ReturnType<typeof render>, locale: Locale) => {
+  const catalog = catalogs[locale];
+  return [
+    interpolatedLinkLabel(catalog.reservationPrivacyNote, "privacyPolicy"),
+    interpolatedLinkLabel(
+      catalog.reservationMarketingConsent,
+      "marketingConsent"
+    ),
+  ].map((name) => view.getByRole("link", { name }).closest("div"));
+};
 
 const LegalCardsHarness = ({ locale }: { readonly locale: Locale }) => {
   const form = useForm<{ readonly marketingConsent: boolean }>({
@@ -86,8 +91,7 @@ describe("reservation form legal cards", () => {
       const checkboxes = view.getAllByRole("checkbox");
       expect(checkboxes).toHaveLength(1);
 
-      const cards = legalCards(view);
-      expect(cards).toHaveLength(2);
+      const cards = legalCards(view, locale);
       expect(cards[0]?.querySelector('[role="checkbox"]')).toBeNull();
       expect(cards[1]?.querySelector('[role="checkbox"]')).toBe(checkboxes[0]);
 
@@ -145,7 +149,7 @@ describe("reservation form legal cards", () => {
     for (const locale of ["en-US", "cs-CZ"] as const) {
       const catalog = catalogs[locale];
       const view = render(<LegalCardsHarness locale={locale} />);
-      const cards = legalCards(view);
+      const cards = legalCards(view, locale);
       const privacyCopy = catalog.reservationPrivacyNote;
       const marketingCopy = catalog.reservationMarketingConsent;
       const privacyLinkLabel = interpolatedLinkLabel(

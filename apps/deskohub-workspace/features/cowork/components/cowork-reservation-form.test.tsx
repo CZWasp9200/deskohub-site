@@ -32,6 +32,7 @@ import {
   getWorkspaceProductByTier,
   workspaceProductMonitorOptions,
 } from "@/features/checkout/product-catalog";
+import { formatWorkspaceMoney } from "@/features/checkout/workspace-money";
 import { discountIdSchema } from "@/features/discounts/contracts";
 import { m } from "@/features/i18n";
 import { getCoworkTierAdvertisedPriceRequests } from "@/features/reservation/cowork-advertised-price";
@@ -163,6 +164,20 @@ function advertisedPricesResult(
 }
 
 const reservedDeskPrice = getWorkspaceProductByTier("reserved-desk").price;
+// Testing Library's default normalizer turns the price's no-break space into
+// a plain space.
+const openSpaceOriginalPriceText = () =>
+  m
+    .checkoutSummaryOriginalPrice(
+      {
+        price: formatWorkspaceMoney(
+          getWorkspaceProductByTier("open-space").price,
+          "en-US"
+        ),
+      },
+      { locale: "en-US" }
+    )
+    .replaceAll("\u00a0", " ");
 const reservedDeskDiscountAmount = money(
   Math.round(reservedDeskPrice.value * 0.2)
 );
@@ -546,7 +561,7 @@ describe("CoworkReservationForm advertised pricing", () => {
     const view = renderForm();
 
     expect(
-      await view.findByText(/original price.*290/i, {}, { timeout: 5000 })
+      await view.findByText(openSpaceOriginalPriceText(), {}, { timeout: 5000 })
     ).toBeDefined();
     expect(view.getByText(/discounted price.*145/i)).toBeDefined();
     expect(
@@ -667,7 +682,7 @@ describe("CoworkReservationForm advertised pricing", () => {
     }) as typeof fetch;
 
     const view = renderForm();
-    await view.findByText(/original price.*290/i, {}, { timeout: 3000 });
+    await view.findByText(openSpaceOriginalPriceText(), {}, { timeout: 3000 });
 
     // Both Reserved Desk advertised variants are requested up front so the
     // paid workstation addon price is known before the toggle is flipped.
@@ -862,7 +877,7 @@ describe("CoworkReservationForm advertised pricing", () => {
     }) as typeof fetch;
 
     const view = renderForm({}, queryClient);
-    await view.findByText(/original price.*290/i, {}, { timeout: 3000 });
+    await view.findByText(openSpaceOriginalPriceText(), {}, { timeout: 3000 });
     await act(async () => {
       fireEvent.click(
         view.container.querySelector(
@@ -932,7 +947,11 @@ describe("CoworkReservationForm advertised pricing", () => {
       { waitForBasePrice = true }: { readonly waitForBasePrice?: boolean } = {}
     ) => {
       if (waitForBasePrice) {
-        await view.findByText(/original price.*290/i, {}, { timeout: 3000 });
+        await view.findByText(
+          openSpaceOriginalPriceText(),
+          {},
+          { timeout: 3000 }
+        );
       }
       await act(async () => {
         fireEvent.click(
@@ -1061,7 +1080,7 @@ describe("CoworkReservationForm advertised pricing", () => {
     }) as typeof fetch;
 
     const view = renderForm();
-    await view.findByText(/original price.*290/i, {}, { timeout: 5000 });
+    await view.findByText(openSpaceOriginalPriceText(), {}, { timeout: 5000 });
     await act(async () => {
       fireEvent.click(
         view.container.querySelector(
@@ -1151,7 +1170,11 @@ describe("CoworkReservationForm advertised pricing", () => {
         date: "2099-07-30",
       },
     });
-    await profiView.findByText(/original price.*290/i, {}, { timeout: 3000 });
+    await profiView.findByText(
+      openSpaceOriginalPriceText(),
+      {},
+      { timeout: 3000 }
+    );
     await act(async () => {});
     expect(availabilityRequests).toHaveLength(0);
     await act(async () => {
@@ -1160,7 +1183,11 @@ describe("CoworkReservationForm advertised pricing", () => {
 
     // A current tier does issue the availability query.
     const currentView = renderForm();
-    await currentView.findByText(/original price.*290/i, {}, { timeout: 3000 });
+    await currentView.findByText(
+      openSpaceOriginalPriceText(),
+      {},
+      { timeout: 3000 }
+    );
     await waitFor(() => {
       expect(availabilityRequests.length).toBeGreaterThan(0);
     });
@@ -1845,7 +1872,7 @@ describe("CoworkReservationForm advertised pricing", () => {
       },
       queryClient
     );
-    await view.findByText(/original price.*290/i, {}, { timeout: 5000 });
+    await view.findByText(openSpaceOriginalPriceText(), {}, { timeout: 5000 });
 
     const selectedDateAvailabilityKey = [
       ...workspaceAvailabilityKeys.availability(selectedDateQuery),
@@ -1937,7 +1964,7 @@ describe("CoworkReservationForm advertised pricing", () => {
       },
       queryClient
     );
-    await view.findByText(/original price.*290/i, {}, { timeout: 5000 });
+    await view.findByText(openSpaceOriginalPriceText(), {}, { timeout: 5000 });
     await waitFor(() => {
       expect(queryClient.getQueryState(selectedDateQueryKey)?.status).toBe(
         "error"

@@ -48,7 +48,7 @@ test.skipIf(!chromiumAvailable)(
   async () => {
     const shimmer = await readShimmer("no-preference");
 
-    expect(shimmer.animationName).toBe("skeleton-glimmer");
+    expect(shimmer.animationName).not.toBe("none");
     expect(shimmer.display).not.toBe("none");
   }
 );

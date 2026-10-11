@@ -133,10 +133,7 @@ describe("CheckoutStatusPage", () => {
       monitorOption: "2x27-qhd",
     });
     expect(
-      view.queryByText("We will send the reservation details by email.")
-    ).toBeNull();
-    expect(
-      view.container.querySelector("[class*='bg-aquamarine-green/10']")
+      view.queryByText(m.checkoutStatusMissingSummary({}, { locale: "en-US" }))
     ).toBeNull();
   });
 

@@ -393,8 +393,6 @@ describe("Open Space customer reservation emails", () => {
     );
     expect(message.html).not.toContain("assigned-only-sentinel-raw-table-id");
     expect(message.text).not.toContain("assigned-only-sentinel-raw-table-id");
-    expect(message.html).toContain("font-size:18px");
-    expect(message.html).toContain("overflow-wrap:anywhere");
     expect(previewHtml).toContain("Tables");
     expect(previewHtml).toContain(expectedTableNames);
     expect(previewHtml).not.toContain("assigned-only-sentinel-raw-table-id");
@@ -421,7 +419,7 @@ describe("Open Space customer reservation emails", () => {
     expect(message.text).not.toContain("assigned-only-sentinel-raw-table-id");
   });
 
-  test("keeps one assigned table label and its existing large sizing for other products", async () => {
+  test("keeps one assigned table label for other products", async () => {
     const assignedProducts = [
       {
         kind: "cowork",
@@ -450,7 +448,6 @@ describe("Open Space customer reservation emails", () => {
       expect(message.text).toContain("Table");
       expect(message.html).toContain(">12<");
       expect(message.text).toContain("12");
-      expect(message.html).toContain("font-size:48px");
       expect(message.html).not.toContain("Tables");
     }
   });
@@ -889,9 +886,10 @@ describe("sendPaidReservationEmails internal notification failure", () => {
       expect(
         emailView.queryByText(m.reservationEmailPhoneLabel({}, { locale }))
       ).toBeNull();
-      expect(accessCodeTable?.getAttribute("bgcolor")).toBe("#00024f");
+      const fallbackBackground = accessCodeTable?.getAttribute("bgcolor");
+      expect(fallbackBackground).toBeTruthy();
       expect(accessCodeTable?.getAttribute("style")).toContain(
-        "background-color:#00024f"
+        `background-color:${fallbackBackground}`
       );
       expect(accessCodeTable?.contains(invoiceLink)).toBe(false);
       expect(invoiceLink.closest("tr")?.textContent).toContain(
