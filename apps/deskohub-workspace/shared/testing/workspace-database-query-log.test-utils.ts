@@ -49,7 +49,7 @@ export const expectQueryLogsToCensor = (input: {
       params.includes(value)
     );
     expect(statement).toBeDefined();
-    expect(input.logs.map(({ query }) => query)).toContain(statement?.sql);
+    expect(input.logs.map(({ query }) => query)).toContain(statement!.sql);
   }
 
   const serializedLogs = JSON.stringify(input.logs);
