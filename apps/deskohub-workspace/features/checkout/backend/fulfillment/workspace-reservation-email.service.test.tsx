@@ -15,8 +15,10 @@ import {
   type EmailSendResult,
 } from "@deskohub/email";
 import type { EmailService } from "@deskohub/email/backend/service";
-import { Effect, Layer } from "effect";
+import { getQueriesForElement } from "@testing-library/react";
+import { Effect, Layer, Logger } from "effect";
 import { SeatingMapFeatureFlagServiceMock } from "@/features/feature-flags/backend/seating-map-feature-flag.service.mock";
+import { m } from "@/features/i18n";
 import {
   type WorkspaceReservation,
   WorkspaceReservationRepository,
@@ -25,6 +27,11 @@ import {
   type WorkspaceReservationDetails,
   WorkspaceReservationService,
 } from "@/features/reservation/backend/workspace-reservation.service";
+import {
+  registerWorkspaceComponentTestEnv,
+  unregisterWorkspaceComponentTestEnv,
+} from "@/shared/testing/workspace-component-test-env";
+import { workspaceSiteConstants } from "@/shared/utils";
 
 mock.module("server-only", () => ({}));
 
@@ -148,6 +155,13 @@ const sendPaidReservationEmail = async (
   }
 
   return customerMessage;
+};
+
+const renderEmailHtml = (html: string) => {
+  const container = document.createElement("div");
+  container.innerHTML = html;
+
+  return getQueriesForElement(container);
 };
 
 const makeOpenSpaceSnapshotTable = (
@@ -704,6 +718,254 @@ describe("workspace reservation email details", () => {
     expect(cancellationMessage?.html).toContain("Sunday, March 28, 2027");
     expect(cancellationMessage?.html).not.toContain("accessToken=");
     expect(cancellationMessage?.text).not.toContain("1234");
+  });
+});
+
+describe("sendPaidReservationEmails internal notification failure", () => {
+  test("keeps the customer send and logs when the internal notification fails", async () => {
+    const { EmailConfigTag, EmailServiceError, EmailServiceTag } = await import(
+      "@deskohub/email/backend/service"
+    );
+    const {
+      createWorkspaceCheckoutWifiQrPayload,
+      WorkspaceCheckoutNetworkDetailsService,
+      workspaceCheckoutCustomerNetworkDetails,
+    } = await import("./network-details.service");
+    const { WorkspaceReservationEmailService } = await import(
+      "./workspace-reservation-email.service"
+    );
+    const reservation = makeReservation({
+      customer: { ...customer, phone: "123456789" },
+      tableName: "12",
+      tableMap: {
+        assignedTableId: "desk-12",
+        roomName: "Main room",
+        tables: [
+          {
+            _cloudId: "cloud-id",
+            id: "desk-12",
+            name: "12",
+            locationName: "Main room",
+            positionX: "40",
+            positionY: "80",
+            type: "SQUARE",
+          },
+        ],
+      },
+    });
+    const sentMessages: EmailMessage[] = [];
+    const send = mock((message: EmailMessage) => {
+      sentMessages.push(message);
+
+      return sentMessages.length === 1
+        ? Effect.succeed(sentResult("customer-email-id"))
+        : Effect.fail(new EmailServiceError("Internal notification failed."));
+    });
+    const emailService: EmailService = {
+      send,
+      sendTemplate: mock(() => Effect.die("sendTemplate is not used")),
+      verify: Effect.succeed(true),
+    };
+    const emailConfig: EmailProviderConfig = {
+      provider: "console",
+      defaultFrom: {
+        email: "reservations@workspace.deskohub.cz",
+        name: "Deskohub Workspace",
+      },
+    };
+    const errorMessages: string[] = [];
+    const logger = Logger.make((options) => {
+      if (options.logLevel === "Error") {
+        errorMessages.push(
+          String(
+            Array.isArray(options.message)
+              ? options.message[0]
+              : options.message
+          )
+        );
+      }
+    });
+
+    const customerDeliveryId = await Effect.gen(function* () {
+      const service = yield* WorkspaceReservationEmailService;
+      return yield* service.sendPaidReservationEmails({ reservation });
+    }).pipe(
+      Effect.provide(
+        WorkspaceReservationEmailService.Default.pipe(
+          Layer.provide(
+            Layer.mergeAll(
+              Layer.succeed(EmailServiceTag, emailService),
+              Layer.succeed(EmailConfigTag, emailConfig),
+              WorkspaceCheckoutNetworkDetailsService.Default
+            )
+          )
+        )
+      ),
+      Effect.provide(Logger.layer([logger])),
+      Effect.runPromise
+    );
+
+    expect(customerDeliveryId).toBe(
+      EmailDeliveryIdSchema.make("customer-email-id")
+    );
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(errorMessages).toContain(
+      "Workspace reservation internal email failed"
+    );
+    const [customerEmail, internalEmail] = sentMessages;
+    if (!customerEmail || !internalEmail) {
+      throw new Error("customer and internal emails were not both sent");
+    }
+    expect(customerEmail.tags).toEqual(["workspace-paid-reservation-access"]);
+    expect(internalEmail.tags).toEqual(["workspace-paid-reservation-internal"]);
+    expect(customerEmail.metadata).toMatchObject({
+      deploymentEnvironment: "development",
+      source: "workspace-paid-fulfillment",
+      workspaceReservationId: "reservation-id",
+      dotyposReservationId: "dotypos-reservation-id",
+      dotyposCustomerId: "dotypos-customer-id",
+      dotyposReservationStartDate: "2026-06-12T07:00:00Z",
+      dotyposReservationEndDate: "2026-06-12T11:00:00Z",
+    });
+
+    const customerHtml = customerEmail.html ?? "";
+    const customerText = customerEmail.text ?? "";
+    expect(customerEmail.to).toEqual({ email: "customer@example.com" });
+    expect(Object.hasOwn(customerEmail.metadata ?? {}, "customerEmail")).toBe(
+      false
+    );
+    for (const pii of [
+      "Ada",
+      "Lovelace",
+      "customer@example.com",
+      "123456789",
+    ]) {
+      expect(customerHtml).not.toContain(pii);
+      expect(customerText).not.toContain(pii);
+    }
+
+    registerWorkspaceComponentTestEnv();
+    try {
+      const emailView = renderEmailHtml(customerHtml);
+      const locale = "en-US";
+      const customerAccessHeadingDate = new Intl.DateTimeFormat(locale, {
+        weekday: "long",
+        day: "numeric",
+        month: "long",
+        timeZone: "Europe/Prague",
+      }).format(new Date("2026-06-12T07:00:00.000Z"));
+      const customerAccessHeading = m.checkoutEmailCustomerAccessHeading(
+        { date: customerAccessHeadingDate },
+        { locale }
+      );
+      const accessLink = emailView.getByRole("link", {
+        name: m.checkoutEmailCustomerAccessButton({}, { locale }),
+      });
+      const invoiceLink = emailView.getByRole("link", {
+        name: m.checkoutEmailCustomerInvoiceDownload({}, { locale }),
+      });
+      const accessCodeTable = accessLink.closest("table");
+      const tableLabel = emailView.getByText(
+        m.checkoutEmailTableNumberLabel({}, { locale })
+      );
+      const networkQrImage = emailView.getByRole("img", {
+        name: m.checkoutEmailNetworkHeading({}, { locale }),
+      });
+      const mapLink = emailView.getByRole("link", {
+        name: m.checkoutEmailLocationMapLink({}, { locale }),
+      });
+      const addressLink = emailView.getByRole("link", {
+        name: `${workspaceSiteConstants.location.address.street}, ${workspaceSiteConstants.location.address.postalCode} ${workspaceSiteConstants.location.address.city} - ${workspaceSiteConstants.location.address.cityDistrict}`,
+      });
+      const expectedMapUrl = `https://www.google.com/maps/dir/?api=1&destination=${workspaceSiteConstants.location.coordinates.lat},${workspaceSiteConstants.location.coordinates.lng}`;
+
+      expect(emailView.getByRole("heading", { level: 1 }).textContent).toBe(
+        customerAccessHeading
+      );
+      expect(customerText).toContain(customerAccessHeading.toUpperCase());
+      expect(
+        emailView.queryByText(m.reservationEmailNameLabel({}, { locale }))
+      ).toBeNull();
+      expect(
+        emailView.queryByText(m.reservationEmailPhoneLabel({}, { locale }))
+      ).toBeNull();
+      expect(accessCodeTable?.getAttribute("bgcolor")).toBe("#00024f");
+      expect(accessCodeTable?.getAttribute("style")).toContain(
+        "background-color:#00024f"
+      );
+      expect(accessCodeTable?.contains(invoiceLink)).toBe(false);
+      expect(invoiceLink.closest("tr")?.textContent).toContain(
+        m.checkoutEmailCustomerInvoiceLabel({}, { locale })
+      );
+      expect(
+        emailView.getByText(m.checkoutEmailNetworkHeading({}, { locale }))
+      ).toBeTruthy();
+      expect(
+        emailView.getByText(workspaceCheckoutCustomerNetworkDetails.ssid)
+      ).toBeTruthy();
+      expect(
+        emailView.getByText(workspaceCheckoutCustomerNetworkDetails.password)
+      ).toBeTruthy();
+      expect(networkQrImage.getAttribute("src")).toBe("cid:workspace-wifi-qr");
+      expect(tableLabel.nextElementSibling?.textContent).toBe("12");
+      expect(
+        emailView.queryByRole("img", {
+          name: m.checkoutStatusTableMapTitle({}, { locale }),
+        })
+      ).toBeNull();
+      expect(customerText).not.toContain(
+        m.checkoutStatusTableMapTitle({}, { locale })
+      );
+      expect(emailView.getByText("dotypos-reservation-id")).toBeTruthy();
+      expect(emailView.getByText("reservation-id")).toBeTruthy();
+      expect(addressLink.getAttribute("href")).toBe(expectedMapUrl);
+      expect(mapLink.getAttribute("href")).toBe(expectedMapUrl);
+    } finally {
+      await unregisterWorkspaceComponentTestEnv();
+    }
+
+    expect(customerEmail.attachments).toHaveLength(1);
+    expect(customerEmail.attachments?.[0]).toMatchObject({
+      contentId: "workspace-wifi-qr",
+      contentType: "image/png",
+      filename: "workspace-wifi-qr.png",
+    });
+    const qrAttachmentContent = customerEmail.attachments?.[0]?.content;
+    if (!Buffer.isBuffer(qrAttachmentContent)) {
+      throw new Error("Wi-Fi QR attachment content was not a PNG buffer.");
+    }
+    expect(qrAttachmentContent.subarray(1, 4).toString("ascii")).toBe("PNG");
+    expect(
+      createWorkspaceCheckoutWifiQrPayload(
+        workspaceCheckoutCustomerNetworkDetails
+      )
+    ).toBe("WIFI:T:WPA;S:Deskohub Workspace;P:Workspace42;;");
+
+    const internalLocale = "cs-CZ";
+    const internalHtml = internalEmail.html ?? "";
+    const internalText = internalEmail.text ?? "";
+    expect(internalEmail.to).toEqual({
+      email: "delivered+workspace-internal@resend.dev",
+      name: workspaceSiteConstants.brand.name,
+    });
+    expect(internalEmail.subject).toBe(
+      `[TESTING] ${m.checkoutEmailInternalPaidReservationSubject(
+        { orderId: "reservation-id" },
+        { locale: internalLocale }
+      )}`
+    );
+    const internalHeading = m.checkoutEmailInternalPaidReservationHeading(
+      {},
+      { locale: internalLocale }
+    );
+    expect(internalHtml).toContain(internalHeading);
+    expect(internalText).toContain(internalHeading.toUpperCase());
+    expect(internalHtml).toContain("customer@example.com");
+    expect(internalText).toContain("customer@example.com");
+    for (const accessFragment of ["/reservation/access/", "accessToken="]) {
+      expect(internalHtml).not.toContain(accessFragment);
+      expect(internalText).not.toContain(accessFragment);
+    }
   });
 });
 
