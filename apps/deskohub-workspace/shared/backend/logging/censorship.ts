@@ -576,10 +576,8 @@ const censorLogValueInternal = <T>(
   return result;
 };
 
-const censorTelemetryValue = <T>(value: T): unknown =>
+export const censorLogValue = <T>(value: T): unknown =>
   censorLogValueInternal(value, new WeakMap());
-
-export const censorLogValue = censorTelemetryValue;
 
 function censorErrorCauseInternal(
   cause: unknown,
@@ -740,9 +738,7 @@ export const createCensoredOtelSpanExporter = (
 });
 
 const censorReadableSpan = (span: ReadableSpan): ReadableSpan => ({
-  attributes: censorTelemetryValue(
-    span.attributes
-  ) as ReadableSpan["attributes"],
+  attributes: censorLogValue(span.attributes) as ReadableSpan["attributes"],
   droppedAttributesCount: span.droppedAttributesCount,
   droppedEventsCount: span.droppedEventsCount,
   droppedLinksCount: span.droppedLinksCount,
@@ -750,7 +746,7 @@ const censorReadableSpan = (span: ReadableSpan): ReadableSpan => ({
   ended: span.ended,
   endTime: span.endTime,
   events: span.events.map((event) => {
-    const attributes = censorTelemetryValue(
+    const attributes = censorLogValue(
       event.attributes
     ) as typeof event.attributes;
     const isException =
@@ -767,7 +763,7 @@ const censorReadableSpan = (span: ReadableSpan): ReadableSpan => ({
   kind: span.kind,
   links: span.links.map((link) => ({
     ...link,
-    attributes: censorTelemetryValue(link.attributes) as typeof link.attributes,
+    attributes: censorLogValue(link.attributes) as typeof link.attributes,
   })),
   name: span.name,
   parentSpanContext: span.parentSpanContext,
@@ -790,7 +786,7 @@ const trustedOtelResourceIdentityKeys = [
 const censorOtelResourceAttributes = (
   attributes: ReadableSpan["resource"]["attributes"]
 ): ReadableSpan["resource"]["attributes"] => {
-  const censored = censorTelemetryValue(
+  const censored = censorLogValue(
     attributes
   ) as ReadableSpan["resource"]["attributes"];
 

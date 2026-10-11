@@ -395,14 +395,13 @@ describe("workspace E2E workflow", () => {
       jobHasConcurrencyLock({ ...testJob, concurrency: { group: "e2e" } })
     ).toBe(true);
 
-    const names = stepNames;
-    const targetCheckoutIndex = names.indexOf("Checkout exact target");
-    const coordinatorCheckoutIndex = names.indexOf(
+    const targetCheckoutIndex = stepNames.indexOf("Checkout exact target");
+    const coordinatorCheckoutIndex = stepNames.indexOf(
       "Checkout allocation action"
     );
-    const leaseIndex = names.indexOf("Lease an available date shard");
-    const runIndex = names.indexOf("Run checkout E2E");
-    const releaseIndex = names.indexOf("Release date shard");
+    const leaseIndex = stepNames.indexOf("Lease an available date shard");
+    const runIndex = stepNames.indexOf("Run checkout E2E");
+    const releaseIndex = stepNames.indexOf("Release date shard");
 
     expect(targetCheckoutIndex).toBeLessThan(coordinatorCheckoutIndex);
     expect(coordinatorCheckoutIndex).toBeLessThan(leaseIndex);

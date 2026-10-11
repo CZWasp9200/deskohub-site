@@ -3,7 +3,7 @@ import { describe, expect, mock, test } from "bun:test";
 import { Effect, Layer, Schema } from "effect";
 import {
   type ContactFormValues,
-  getContactSchema,
+  createContactSchema,
 } from "@/features/contact/schemas/contact";
 import { type Locale, m } from "@/features/i18n";
 
@@ -107,7 +107,7 @@ describe("processContactSubmission", () => {
   });
 
   test("enforces the shared schema length limits", async () => {
-    const schema = Schema.toStandardSchemaV1(getContactSchema("en-US"));
+    const schema = Schema.toStandardSchemaV1(createContactSchema("en-US"));
     const email = `${"a".repeat(63)}@${"b".repeat(63)}.${"c".repeat(63)}.${"d".repeat(58)}.com`;
     const accepted = await schema["~standard"].validate({
       ...data,

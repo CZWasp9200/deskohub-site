@@ -2382,13 +2382,12 @@ export class AdministrationService extends Context.Service<
             requestedPage: input.page,
             total,
           });
-          const reservationCount = successfulReservationCount;
           const lastActivityAt = max(workspaceReservations.updatedAt);
           const order = input.direction === "asc" ? asc : desc;
           const rows = yield* db
             .select({
               customerId: workspaceReservations.dotyposCustomerId,
-              reservationCount,
+              reservationCount: successfulReservationCount,
               lastActivityAt,
             })
             .from(workspaceReservations)
@@ -2396,7 +2395,7 @@ export class AdministrationService extends Context.Service<
             .orderBy(
               order(
                 input.sort === "reservations"
-                  ? reservationCount
+                  ? successfulReservationCount
                   : lastActivityAt
               ),
               asc(workspaceReservations.dotyposCustomerId)

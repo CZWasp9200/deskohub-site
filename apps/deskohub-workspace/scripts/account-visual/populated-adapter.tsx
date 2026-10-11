@@ -100,7 +100,7 @@ const populatedFixture = {
   },
 } as const satisfies CustomerAccountPageState;
 
-export const accountVisualFixture = populatedFixture;
+export { populatedFixture as accountVisualFixture };
 
 export const accountVisualAdapterMetadata = {
   owner: "account-visual populated adapter",

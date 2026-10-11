@@ -449,9 +449,11 @@ function makeProviderPaymentFinalizationServiceLayer(
             }
 
             if (verification.status === "failure") {
-              const failureKind = classifyNexiFailureStatus(providerStatus);
-              const terminalState = failureKind;
-              yield* Effect.annotateLogsScoped({ failureKind, terminalState });
+              const terminalState = classifyNexiFailureStatus(providerStatus);
+              yield* Effect.annotateLogsScoped({
+                failureKind: terminalState,
+                terminalState,
+              });
 
               yield* Effect.logInfo(
                 "Payment finalization mark terminal started"
