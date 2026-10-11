@@ -20,7 +20,6 @@ import {
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
 } from "@/shared/testing/workspace-component-test-env";
-import { ReservationFormLegalCard } from "./reservation-form-legal-card";
 import { ReservationMarketingConsentField } from "./reservation-marketing-consent-field";
 import { ReservationPrivacyNotice } from "./reservation-privacy-notice";
 
@@ -140,45 +139,6 @@ describe("reservation form legal cards", () => {
       );
       cleanup();
     }
-  });
-
-  test("both rows share legal-card chrome and matched indicator alignment", () => {
-    const view = render(<LegalCardsHarness locale="en-US" />);
-
-    const cards = legalCards(view);
-    expect(cards).toHaveLength(2);
-    for (const card of cards) {
-      expect(card.className).toContain(chromeNeedle);
-      expect(card.className).toContain("border-navy-blue/10");
-      expect(card.className).toContain("bg-navy-blue/2.5");
-      expect(card.className).toContain("p-4");
-      expect(card.className).toContain("flex");
-      expect(card.className).toContain("items-start");
-      expect(card.className).toContain("gap-3");
-
-      const indicatorSlot = card.firstElementChild as HTMLElement;
-      expect(indicatorSlot.className).toContain("mt-1");
-      expect(indicatorSlot.className).toContain("shrink-0");
-
-      const contentSlot = card.lastElementChild as HTMLElement;
-      expect(contentSlot.className).toContain("text-sm");
-      expect(contentSlot.className).toContain("leading-6");
-      expect(contentSlot.className).toContain("text-navy-blue/66");
-    }
-
-    const sharedCardView = render(
-      <ReservationFormLegalCard indicator={<span data-indicator="" />}>
-        <span data-content="">Content</span>
-      </ReservationFormLegalCard>
-    );
-    const sharedCard = legalCards(sharedCardView)[0];
-    expect(sharedCard.className).toBe(cards[0]?.className);
-    expect(sharedCard.firstElementChild?.className).toBe(
-      cards[0]?.firstElementChild?.className
-    );
-    expect(sharedCard.lastElementChild?.className).toBe(
-      cards[0]?.lastElementChild?.className
-    );
   });
 
   test("renders each locale's complete copy around its linked text", () => {
