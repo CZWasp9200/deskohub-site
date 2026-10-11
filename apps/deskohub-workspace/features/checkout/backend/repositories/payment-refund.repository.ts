@@ -68,26 +68,35 @@ export class PaymentRefundRepository extends Context.Service<
         readonly limit: number;
         readonly checkedAt: Temporal.Instant;
       }) {
-        const claimed = yield* db
-          .update(paymentAttempts)
-          .set({ refundCheckedAt: input.checkedAt })
-          .where(
-            inArray(
-              paymentAttempts.id,
-              db
-                .select({ id: paymentAttempts.id })
-                .from(paymentAttempts)
-                .where(eq(paymentAttempts.refundState, "required"))
-                .orderBy(
-                  sql`${paymentAttempts.refundCheckedAt} asc nulls first`,
-                  asc(paymentAttempts.updatedAt),
-                  asc(paymentAttempts.id)
+        // Lock the batch in its own statement. As an `in (...)` subquery of the
+        // update, Postgres may re-run it for every updated row, and each re-run
+        // skips the rows already updated, so the claim would exceed `limit`.
+        const claimed = yield* db.transaction(
+          Effect.fn(function* (tx) {
+            const batch = yield* tx
+              .select({ id: paymentAttempts.id })
+              .from(paymentAttempts)
+              .where(eq(paymentAttempts.refundState, "required"))
+              .orderBy(
+                sql`${paymentAttempts.refundCheckedAt} asc nulls first`,
+                asc(paymentAttempts.updatedAt),
+                asc(paymentAttempts.id)
+              )
+              .limit(input.limit)
+              .for("update", { skipLocked: true });
+            if (batch.length === 0) return [];
+            return yield* tx
+              .update(paymentAttempts)
+              .set({ refundCheckedAt: input.checkedAt })
+              .where(
+                inArray(
+                  paymentAttempts.id,
+                  batch.map(({ id }) => id)
                 )
-                .limit(input.limit)
-                .for("update", { skipLocked: true })
-            )
-          )
-          .returning();
+              )
+              .returning();
+          })
+        );
         if (claimed.length === 0) return [];
 
         const reservations = yield* db
