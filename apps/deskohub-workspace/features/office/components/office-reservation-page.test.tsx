@@ -39,6 +39,7 @@ test("prefills safe office shape on a fresh date and quote", async () => {
   try {
     const form = (await renderOfficeReservationContent({
       locale: "en-US",
+      pageData: 5,
       searchParams: { dayCount: "3", seats: "4" },
     })) as ReactElement<Parameters<typeof OfficeReservationForm>[0]>;
 
@@ -50,6 +51,8 @@ test("prefills safe office shape on a fresh date and quote", async () => {
       email: "",
       phone: "",
     });
+    // The page shell loads the capacity alongside the existing customer.
+    expect(loadOfficeReservationSeatCapacity).not.toHaveBeenCalled();
     expect(loadAdvertisedPrices.mock.calls[0]?.[0]).toEqual([
       {
         locale: "en-US",
