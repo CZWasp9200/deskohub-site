@@ -40,7 +40,10 @@ Distinguish automated-runner behavior from manual procedures before treating a d
   `e2e/e2e-env.ts` as the suite's only `process.env` boundary. Select, validate,
   and decode every runner-owned variable there once; inject the immutable typed
   configuration into telemetry, Layers, datasource configuration, and child
-  command construction. Keep all E2E timeouts in the checked-in
+  command construction. The launcher spawns Playwright with
+  `toPlaywrightEnvironment(environment)` only; the
+  `no-raw-environment-in-e2e-launcher` Grit rule rejects `process.env` and
+  `Bun.env` in `scripts/workspace-e2e.ts`. Keep all E2E timeouts in the checked-in
   `e2e/timeouts.ts` configuration; do not add environment-variable overrides.
   Do not project application-only variables or use app-client PostHog variables
   as E2E telemetry fallbacks.

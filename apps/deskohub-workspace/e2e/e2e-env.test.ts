@@ -4,6 +4,7 @@ import {
   makeReviewScreenshotEnvironment,
   makeWorkspaceE2EEnvironment,
   reviewScreenshotsEnabled,
+  toPlaywrightEnvironment,
 } from "./e2e-env";
 import {
   makeTestE2EEnvironment,
@@ -42,6 +43,23 @@ describe("Workspace E2E environment", () => {
   test("keeps PATH for commands launched with the selected E2E environment", () => {
     expect(makeTestE2EEnvironment({ PATH: "/synthetic/e2e/bin" }).PATH).toBe(
       "/synthetic/e2e/bin"
+    );
+  });
+
+  test("forwards only decoded variables that Playwright decodes back unchanged", () => {
+    const environment = makeTestE2EEnvironment({
+      GITHUB_RUN_ATTEMPT: "2",
+      NEXI_API_KEY: "app-only-key",
+      WORKSPACE_E2E_ALLOCATION_SHARD: "1",
+    });
+    const playwrightEnvironment = toPlaywrightEnvironment(environment);
+
+    expect(playwrightEnvironment.GITHUB_RUN_ATTEMPT).toBe("2");
+    expect(playwrightEnvironment.WORKSPACE_E2E_ALLOCATION_SHARD).toBe("1");
+    expect(playwrightEnvironment).not.toHaveProperty("NEXI_API_KEY");
+    expect(playwrightEnvironment).not.toHaveProperty("WORKSPACE_E2E_PR_NUMBER");
+    expect(makeWorkspaceE2EEnvironment(playwrightEnvironment)).toEqual(
+      environment
     );
   });
 

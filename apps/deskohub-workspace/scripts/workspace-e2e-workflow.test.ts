@@ -3,11 +3,6 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { runCommand } from "./shared/command";
 import {
-  identifierNames,
-  nodesOf,
-  parseTrackedSource,
-} from "./shared/source-ast";
-import {
   findStepByName,
   parseWorkflow,
   type WorkflowJob,
@@ -90,10 +85,6 @@ const stepsBetweenNames = (
 
 const readTrackedJson = <T>(path: string): T =>
   JSON.parse(readFileSync(resolve(import.meta.dir, path), "utf8")) as T;
-
-/** Parsed syntax tree of a tracked repository module. */
-const parseTrackedModule = (path: string) =>
-  parseTrackedSource(resolve(import.meta.dir, path));
 
 const projectByName = (config: PlaywrightCheckoutConfig, name: string) =>
   config.projects.find((project) => project.name === name);
@@ -383,18 +374,6 @@ describe("workspace E2E workflow", () => {
 
   test("lets Playwright own checkout preparation, scheduling, and parallelism", async () => {
     const playwrightConfig = await playwrightConfigStructure();
-    const entry = parseTrackedModule("workspace-e2e.ts");
-
-    // The launcher forwards the derived Playwright environment, never the
-    // raw process env.
-    expect(
-      nodesOf(entry.ast).some(
-        (node) =>
-          node.type === "SpreadElement" &&
-          identifierNames(node).has("process") &&
-          identifierNames(node).has("env")
-      )
-    ).toBe(false);
 
     expect(projectByName(playwrightConfig, "checkout-setup")?.teardown).toBe(
       "checkout-cleanup"

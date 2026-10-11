@@ -192,6 +192,19 @@ export const makeWorkspaceE2EEnvironment = (
 };
 
 /**
+ * Playwright processes decode the same E2E environment, so the launcher
+ * forwards only the decoded variables as strings, never its raw process env.
+ */
+export const toPlaywrightEnvironment = (
+  environment: E2EEnvironment
+): Record<string, string> =>
+  Object.fromEntries(
+    Object.entries(environment).flatMap(([key, value]) =>
+      value === undefined ? [] : [[key, String(value)]]
+    )
+  );
+
+/**
  * Instant-navigation suites run without the checkout environment, so they
  * decode only the review screenshot opt-in through this boundary.
  */

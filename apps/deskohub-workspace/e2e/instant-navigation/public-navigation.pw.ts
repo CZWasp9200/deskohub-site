@@ -34,7 +34,10 @@ test("serves the resolved header and gallery on direct navigation", async ({
 
   await expectPublicSiteShell(page);
   await expect(
-    page.getByRole("heading", { level: 1, name: "Workspace gallery" })
+    page.getByRole("heading", {
+      level: 1,
+      name: m.gallerySrTitle({}, { locale }),
+    })
   ).toBeVisible();
   await expectGalleryContentToResolve(page);
 });
@@ -212,16 +215,19 @@ async function expectHomePage(page: Page) {
 
 async function expectGalleryShell(page: Page) {
   await expect(
-    page.getByRole("heading", { level: 1, name: "Workspace gallery" })
+    page.getByRole("heading", {
+      level: 1,
+      name: m.gallerySrTitle({}, { locale }),
+    })
   ).toBeVisible();
   await expect(
-    page.getByRole("region", { name: "Workspace gallery" })
+    page.getByRole("region", { name: m.gallerySrTitle({}, { locale }) })
   ).toHaveAttribute("aria-busy", "true");
 }
 
 async function expectGalleryContentToResolve(page: Page) {
   await expect(
-    page.getByRole("region", { name: "Workspace gallery" })
+    page.getByRole("region", { name: m.gallerySrTitle({}, { locale }) })
   ).toHaveCount(0);
 }
 
