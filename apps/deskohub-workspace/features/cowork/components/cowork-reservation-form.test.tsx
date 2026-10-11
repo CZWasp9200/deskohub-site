@@ -35,11 +35,18 @@ import {
 import { formatWorkspaceMoney } from "@/features/checkout/workspace-money";
 import { discountIdSchema } from "@/features/discounts/contracts";
 import { m } from "@/features/i18n";
-import { getCoworkTierAdvertisedPriceRequests } from "@/features/reservation/cowork-advertised-price";
+import {
+  getCoworkDateAdvertisedPriceRequests,
+  getCoworkFormAdvertisedPriceRequests,
+} from "@/features/reservation/cowork-advertised-price";
 import { coworkReservationDefaultValues } from "@/features/reservation/cowork-reservation";
-import { getWorkspaceAvailabilityQueryFromReservationSearchParams } from "@/features/reservation/cowork-reservation-checkout-query";
 import { getReservationAvailabilityUnavailableMessage } from "@/features/reservation/reservation.i18n";
-import { workspaceAvailabilityKeys } from "@/features/reservation/workspace-availability";
+import { getCurrentWorkspaceDate } from "@/features/reservation/reservation-date";
+import {
+  getCoworkAvailabilityQueries,
+  getWorkspaceAvailabilityRange,
+  workspaceAvailabilityKeys,
+} from "@/features/reservation/workspace-availability";
 import {
   workspaceRouterPush as push,
   workspaceUseAction,
@@ -52,9 +59,29 @@ import {
 
 registerWorkspaceComponentTestEnv();
 
+const { getImageProps } = await import("next/image");
+
 mock.module("next/image", () => ({
   // Bun resolves static image imports to their file path.
-  default: ({ src }: { readonly src: string }) => <span data-image-src={src} />,
+  default: ({
+    fetchPriority,
+    preload,
+    sizes,
+    src,
+  }: {
+    readonly fetchPriority?: string;
+    readonly preload?: boolean;
+    readonly sizes?: string;
+    readonly src: string;
+  }) => (
+    <span
+      data-image-fetch-priority={fetchPriority}
+      data-image-preload={preload ? "" : undefined}
+      data-image-sizes={sizes}
+      data-image-src={src}
+    />
+  ),
+  getImageProps,
 }));
 
 const execute = mock(() => undefined);
@@ -264,6 +291,8 @@ const jsonResponse = <T,>(body: T, status = 200) =>
     headers: { "Content-Type": "application/json" },
   });
 
+const today = () => getCurrentWorkspaceDate().toString();
+
 const renderForm = (
   props: Partial<ComponentProps<typeof CoworkReservationForm>> = {},
   queryClient: QueryClient = new QueryClient({
@@ -274,7 +303,7 @@ const renderForm = (
 ) => {
   return render(
     <QueryClientProvider client={queryClient}>
-      <CoworkReservationForm locale="en-US" {...props} />
+      <CoworkReservationForm locale="en-US" today={today()} {...props} />
     </QueryClientProvider>
   );
 };
@@ -391,18 +420,10 @@ describe("CoworkReservationForm advertised pricing", () => {
   test("renders server-loaded discounts on the first paint without refetching", () => {
     workspaceUseSearchParams.mockReturnValue(new URLSearchParams());
     getAdvertisedPrices.mockImplementation(() => new Promise(() => undefined));
-    const requests = getCoworkTierAdvertisedPriceRequests({
+    const requests = getCoworkFormAdvertisedPriceRequests({
       date: "2099-07-30",
       locale: "en-US",
-      offers: [
-        { entryTier: "open-space", coffee: true },
-        { entryTier: "reserved-desk", coffee: true },
-        {
-          entryTier: "reserved-desk",
-          coffee: true,
-          monitorOption: "2x27-qhd",
-        },
-      ],
+      coffee: true,
     });
 
     const view = renderForm({
@@ -429,6 +450,87 @@ describe("CoworkReservationForm advertised pricing", () => {
     expect(coffeePrice?.querySelector("[data-slot='skeleton']")).toBeNull();
     expect(getAdvertisedPrices).not.toHaveBeenCalled();
     view.unmount();
+  });
+
+  test("renders every page-loaded price and availability without a client request", async () => {
+    workspaceUseSearchParams.mockReturnValue(new URLSearchParams());
+    const fetchCalls = mock((request: RequestInfo | URL) =>
+      Promise.reject(new Error(`Unexpected client fetch: ${String(request)}`))
+    );
+    globalThis.fetch = fetchCalls as typeof fetch;
+    const initialValues = {
+      ...coworkReservationDefaultValues,
+      coffee: false,
+      date: "2099-07-30",
+    };
+    const view = renderForm({
+      initialValues,
+      initialAdvertisedPrices: getCoworkDateAdvertisedPriceRequests({
+        date: "2099-07-30",
+        locale: "en-US",
+      }).map((request) => ({
+        request,
+        advertisedPrice: getCoworkAdvertisedPriceResponse(request),
+      })),
+      initialAvailability: Object.values(
+        getCoworkAvailabilityQueries({ ...initialValues, today: "2099-07-30" })
+      ).map((query) => ({
+        query,
+        availability: {
+          ...availabilityResponse,
+          from: query.from,
+          to: query.to,
+        },
+        loadedAt: Date.now(),
+      })),
+      today: "2099-07-30",
+    });
+
+    for (const tier of ["open-space", "reserved-desk"]) {
+      const price = view.container.querySelector(
+        `[data-reservation-type-price="${tier}"]`
+      );
+      expect(price?.querySelector("[data-slot='skeleton']")).toBeNull();
+    }
+    expect(
+      view.container
+        .querySelector("[data-reservation-coffee-price]")
+        ?.querySelector("[data-slot='skeleton']")
+    ).toBeNull();
+    expect(
+      view.getByRole("button", { name: "Continue" }).hasAttribute("disabled")
+    ).toBe(false);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
+    expect(getAdvertisedPrices).not.toHaveBeenCalled();
+    expect(fetchCalls).not.toHaveBeenCalled();
+  });
+
+  test("loads only the initially selected tier artwork eagerly at high priority", () => {
+    const view = renderForm({
+      initialValues: reservedDeskFormValues(),
+    });
+    const artwork = (tier: string) =>
+      view.container.querySelector(
+        `[data-reservation-type-option="${tier}"] [data-image-src]`
+      );
+
+    expect(artwork("reserved-desk")?.hasAttribute("data-image-preload")).toBe(
+      true
+    );
+    expect(
+      artwork("reserved-desk")?.getAttribute("data-image-fetch-priority")
+    ).toBe("high");
+    expect(artwork("open-space")?.hasAttribute("data-image-preload")).toBe(
+      false
+    );
+    expect(
+      artwork("open-space")?.getAttribute("data-image-fetch-priority")
+    ).toBeNull();
+    expect(artwork("open-space")?.getAttribute("data-image-sizes")).toBe(
+      "(min-width: 768px) 340px, min(440px, calc(112vw - 128px))"
+    );
   });
 
   test("shows validation messages when required customer fields are empty", async () => {
@@ -1703,8 +1805,7 @@ describe("CoworkReservationForm advertised pricing", () => {
       "entryTier=reserved-desk&date=2099-07-30"
     );
     workspaceUseSearchParams.mockReturnValue(searchParams);
-    const baseQuery =
-      getWorkspaceAvailabilityQueryFromReservationSearchParams(searchParams);
+    const baseQuery = getWorkspaceAvailabilityRange(today());
     const bareQuery = selectedDateAvailabilityQuery(
       "reserved-desk",
       "2099-07-30"
@@ -1764,6 +1865,7 @@ describe("CoworkReservationForm advertised pricing", () => {
         <CoworkReservationForm
           initialValues={reservedDeskFormValues()}
           locale="en-US"
+          today={today()}
         />
       );
     }
@@ -1805,8 +1907,7 @@ describe("CoworkReservationForm advertised pricing", () => {
       `entryTier=open-space&date=${selectedDate}`
     );
     workspaceUseSearchParams.mockReturnValue(searchParams);
-    const baseQuery =
-      getWorkspaceAvailabilityQueryFromReservationSearchParams(searchParams);
+    const baseQuery = getWorkspaceAvailabilityRange(today());
     const rangeQuery = {
       kind: "cowork" as const,
       from: baseQuery.from,
@@ -2370,8 +2471,7 @@ describe("CoworkReservationForm advertised pricing", () => {
   test("disables full dates and leaves workstation-required dates selectable before a date is chosen", async () => {
     const searchParams = new URLSearchParams();
     workspaceUseSearchParams.mockReturnValue(searchParams);
-    const availabilityRange =
-      getWorkspaceAvailabilityQueryFromReservationSearchParams(searchParams);
+    const availabilityRange = getWorkspaceAvailabilityRange(today());
     const firstAvailableDate = Temporal.PlainDate.from(availabilityRange.from);
     const fullDate = firstAvailableDate.with({
       day: firstAvailableDate.daysInMonth,

@@ -29,6 +29,8 @@ import { ReservationFormLabel } from "@/features/reservation/components/reservat
 import {
   ReservationTypeInput,
   ReservationTypeOption,
+  reservationTypeInputLayout,
+  reservationTypeOptionLayout,
 } from "@/features/reservation/components/reservation-type-input";
 import { useAdvertisedPrices } from "@/features/reservation/components/use-advertised-price";
 import { useReservationAvailability } from "@/features/reservation/components/use-reservation-availability";
@@ -54,9 +56,9 @@ import {
 } from "@/features/reservation/meeting-room-reservation-time";
 import type { ReservationExistingCustomerForm } from "@/features/reservation/reservation-existing-customer";
 import {
-  getMeetingRoomAvailabilityQuery,
+  getMeetingRoomSelectionAvailabilityQuery,
   isMeetingRoomAvailable,
-  type MeetingRoomWorkspaceAvailabilityQuery,
+  type PreloadedWorkspaceAvailability,
 } from "@/features/reservation/workspace-availability";
 import {
   FormControl,
@@ -64,17 +66,21 @@ import {
   FormItem,
   FormMessage,
 } from "@/shared/components/ui/form";
+import { cn } from "@/shared/utils";
 
 type MeetingRoomReservationFormProps = {
   readonly checkoutSessionId?: CheckoutSessionId;
   readonly existingCustomer?: ReservationExistingCustomerForm;
   readonly initialAdvertisedPrices?: ReadonlyArray<PreloadedAdvertisedPrice>;
+  readonly initialAvailability?: ReadonlyArray<PreloadedWorkspaceAvailability>;
   readonly initialReservation?: NormalizedMeetingRoomReservationOrder;
   readonly initialValues?: MeetingRoomReservationInput;
   readonly locale: Locale;
   readonly replacementToken?: string;
   readonly submittedCode?: CanonicalPromotionCode;
 };
+
+const durationOptionsLayout = "sm:grid-cols-3 sm:space-y-0 sm:gap-x-3";
 
 type MeetingRoomReservationFormFallbackProps = {
   readonly locale: Locale;
@@ -84,6 +90,7 @@ export function MeetingRoomReservationForm({
   checkoutSessionId,
   existingCustomer,
   initialAdvertisedPrices = [],
+  initialAvailability,
   initialReservation,
   initialValues,
   locale,
@@ -122,15 +129,16 @@ export function MeetingRoomReservationForm({
     [selectedDuration, selectedStartDateTime]
   );
   const availabilityQuery = useMemo(
-    (): MeetingRoomWorkspaceAvailabilityQuery | undefined =>
-      selectedInterval
-        ? getMeetingRoomAvailabilityQuery(selectedInterval)
-        : undefined,
-    [selectedInterval]
+    () =>
+      getMeetingRoomSelectionAvailabilityQuery({
+        duration: selectedDurationKey,
+        startDateTime: selectedStartDateTime,
+      }),
+    [selectedDurationKey, selectedStartDateTime]
   );
   const availabilityQueryResult = useReservationAvailability(
     availabilityQuery,
-    { debounceMs: 250, replacementToken }
+    { debounceMs: 250, initialAvailability, replacementToken }
   );
   const { availability } = availabilityQueryResult;
   const isSelectedReservationUnavailable = Boolean(
@@ -264,7 +272,7 @@ export function MeetingRoomReservationForm({
             <FormControl>
               <ReservationTypeInput
                 aria-required="true"
-                className="sm:grid-cols-3 sm:space-y-0 sm:gap-x-3"
+                className={durationOptionsLayout}
                 idPrefix="meeting-room-duration"
                 inputRef={field.ref}
                 name={field.name}
@@ -312,7 +320,7 @@ export function MeetingRoomReservationForm({
                             originalAmount={originalAmount}
                           />
                         ) : (
-                          <ReservationSkeletonBlock className="h-4 w-24 bg-aquamarine-green/15" />
+                          <ReservationSkeletonBlock className="h-5 w-24 bg-aquamarine-green/15" />
                         )
                       }
                       priceReady={Boolean(advertisedProductItem)}
@@ -348,10 +356,27 @@ export function MeetingRoomReservationFormFallback({
           <ReservationSkeletonBlock className="h-13 w-full rounded-[1.1rem]" />
         </div>
       </div>
-      <div className="grid gap-3 sm:grid-cols-3">
-        <ReservationSkeletonBlock className="h-31 rounded-[1.4rem]" />
-        <ReservationSkeletonBlock className="h-31 rounded-[1.4rem]" />
-        <ReservationSkeletonBlock className="h-31 rounded-[1.4rem]" />
+      <div className="flex flex-col gap-y-2">
+        <ReservationSkeletonBlock className="h-4 w-32" />
+        <div className={cn(reservationTypeInputLayout, durationOptionsLayout)}>
+          {workspaceMeetingRoomCatalog.map(({ duration }) => (
+            <div
+              key={getMeetingRoomReservationDurationKey(duration)}
+              className={cn(
+                reservationTypeOptionLayout,
+                "bg-white pb-4 outline outline-1 -outline-offset-1 outline-navy-blue/10"
+              )}
+            >
+              <div className="mt-4 mb-3 flex items-start justify-between gap-2">
+                <ReservationSkeletonBlock className="h-6 w-28" />
+                <ReservationSkeletonBlock className="mt-1 h-4 w-4 shrink-0" />
+              </div>
+              <div className="mb-3 flex">
+                <ReservationSkeletonBlock className="h-5 w-24 bg-aquamarine-green/15" />
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
       <ReservationCustomerFieldsFallback />
       <ReservationSubmitFallback />

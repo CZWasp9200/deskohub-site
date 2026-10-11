@@ -31,6 +31,8 @@ import { ReservationFormLabel } from "@/features/reservation/components/reservat
 import {
   ReservationTypeInput,
   ReservationTypeOption,
+  reservationTypeInputLayout,
+  reservationTypeOptionLayout,
 } from "@/features/reservation/components/reservation-type-input";
 import { useAdvertisedPrices } from "@/features/reservation/components/use-advertised-price";
 import { useReservationAvailability } from "@/features/reservation/components/use-reservation-availability";
@@ -50,13 +52,17 @@ import {
   officeReservationSchema,
 } from "@/features/reservation/office-reservation";
 import type { ReservationExistingCustomerForm } from "@/features/reservation/reservation-existing-customer";
-import type { OfficeWorkspaceAvailabilityQuery } from "@/features/reservation/workspace-availability";
+import {
+  getOfficeAvailabilityQuery,
+  type PreloadedWorkspaceAvailability,
+} from "@/features/reservation/workspace-availability";
 import {
   FormControl,
   FormField,
   FormItem,
   FormMessage,
 } from "@/shared/components/ui/form";
+import { cn } from "@/shared/utils";
 import { OfficeDayCountInput } from "./office-day-count-input";
 
 type OfficeReservationFormProps = {
@@ -64,6 +70,7 @@ type OfficeReservationFormProps = {
   readonly existingCustomer?: ReservationExistingCustomerForm;
   readonly seatCapacity: number;
   readonly initialAdvertisedPrices?: ReadonlyArray<PreloadedAdvertisedPrice>;
+  readonly initialAvailability?: ReadonlyArray<PreloadedWorkspaceAvailability>;
   readonly initialReservation?: NormalizedOfficeReservationOrder;
   readonly initialValues: OfficeReservationInput;
   readonly locale: Locale;
@@ -98,6 +105,7 @@ export function OfficeReservationForm({
   existingCustomer,
   seatCapacity,
   initialAdvertisedPrices = [],
+  initialAvailability,
   initialReservation,
   initialValues,
   locale,
@@ -126,14 +134,11 @@ export function OfficeReservationForm({
     Temporal.PlainDate.from(today)
   ).toString();
   const availabilityQuery = useMemo(
-    (): OfficeWorkspaceAvailabilityQuery => ({
-      kind: "office",
-      from: today,
-      to: maximumEndsOn,
-    }),
-    [maximumEndsOn, today]
+    () => getOfficeAvailabilityQuery(today),
+    [today]
   );
   const availabilityResult = useReservationAvailability(availabilityQuery, {
+    initialAvailability,
     replacementToken,
   });
   const advertisedPriceRequests = useMemo(
@@ -333,7 +338,7 @@ export function OfficeReservationForm({
             <FormControl>
               <ReservationTypeInput
                 aria-required="true"
-                className="flex flex-wrap gap-3 space-y-0"
+                className={officeSeatOptionsLayout}
                 idPrefix="office-seats"
                 inputRef={field.ref}
                 name={field.name}
@@ -360,14 +365,14 @@ export function OfficeReservationForm({
                   return (
                     <ReservationTypeOption
                       key={seatCount}
-                      className="flex-[1_1_13rem] pb-4 lg:row-start-auto lg:row-span-1 lg:grid-rows-none"
+                      className={officeSeatOptionLayout}
                       price={
                         seatPrice ? (
                           <span className="before:content-['+']">
                             {formatWorkspaceMoney(seatPrice, locale)}
                           </span>
                         ) : (
-                          <ReservationSkeletonBlock className="h-4 w-24 bg-aquamarine-green/15" />
+                          <ReservationSkeletonBlock className="h-5 w-24 bg-aquamarine-green/15" />
                         )
                       }
                       priceReady={Boolean(seatPrice)}
@@ -386,19 +391,58 @@ export function OfficeReservationForm({
   );
 }
 
+/** Seat cards wrap and share each row, balancing any office capacity. */
+const officeSeatOptionsLayout = "flex flex-wrap gap-3 space-y-0";
+const officeSeatOptionLayout =
+  "flex-[1_1_13rem] pb-4 lg:row-start-auto lg:row-span-1 lg:grid-rows-none";
+
+/**
+ * How many seat cards the loading fallback shows. The office capacity comes
+ * from Dotypos inside the streamed content, so the fallback can only estimate
+ * it.
+ */
+export const officeSeatOptionsFallbackCount = 4;
+
 export function OfficeReservationFormFallback({ locale }: { locale: Locale }) {
   return (
     <ReservationFormFallback
       label={m.reservationOfficeFormTitle({}, { locale })}
     >
-      <div className="grid gap-3 sm:grid-cols-2">
-        <ReservationSkeletonField />
-        <ReservationSkeletonField />
+      <div className="flex flex-col gap-y-2">
+        <ReservationSkeletonBlock className="h-4 w-40" />
+        <div className="grid gap-3 sm:grid-cols-2">
+          <ReservationSkeletonField />
+          <ReservationSkeletonField />
+        </div>
       </div>
       <ReservationSkeletonBlock className="h-18 w-full rounded-[1.4rem]" />
       <div className="space-y-2">
         <ReservationSkeletonBlock className="h-4 w-64" />
-        <ReservationSkeletonBlock className="h-26 w-full rounded-[1.4rem]" />
+        <div
+          className={cn(reservationTypeInputLayout, officeSeatOptionsLayout)}
+        >
+          {getOfficeSeatOptions(officeSeatOptionsFallbackCount).map(
+            (seatCount) => (
+              <div
+                key={seatCount}
+                className={cn(
+                  reservationTypeOptionLayout,
+                  officeSeatOptionLayout,
+                  "bg-white outline outline-1 -outline-offset-1 outline-navy-blue/10"
+                )}
+                data-office-seat-option-fallback=""
+              >
+                <div className="mt-4 mb-3 flex items-start justify-between gap-2">
+                  <ReservationSkeletonBlock className="h-6 w-20" />
+                  <ReservationSkeletonBlock className="mt-1 h-4 w-4 shrink-0" />
+                </div>
+                <div className="mb-3 flex">
+                  <ReservationSkeletonBlock className="h-5 w-24 bg-aquamarine-green/15" />
+                </div>
+              </div>
+            )
+          )}
+        </div>
       </div>
       <ReservationCustomerFieldsFallback />
       <ReservationSubmitFallback />

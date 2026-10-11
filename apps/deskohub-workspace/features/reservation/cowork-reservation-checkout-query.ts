@@ -17,10 +17,6 @@ import {
 } from "@/features/reservation/reservation-checkout-query";
 import { isTodayOrFutureWorkspaceDate } from "@/features/reservation/reservation-date";
 import type { CustomerLastReservationForKind } from "@/features/reservation/reservation-existing-customer";
-import {
-  type CoworkWorkspaceAvailabilityQuery,
-  parseWorkspaceAvailabilityQuery,
-} from "@/features/reservation/workspace-availability";
 import type { SupportedSearchParams } from "@/shared/utils";
 
 const reservationCheckoutQueryFields = [
@@ -145,39 +141,5 @@ export const getReservationDefaultValuesFromPayState = (
       monitorOption: reservation.monitorOption,
     }),
     marketingConsent: false,
-  };
-};
-
-export const getWorkspaceAvailabilityQueryFromReservationSearchParams = (
-  searchParams: SupportedSearchParams
-): CoworkWorkspaceAvailabilityQuery => {
-  const defaultValues =
-    getReservationDefaultValuesFromSearchParams(searchParams);
-  const availabilitySearchParams = new URLSearchParams();
-
-  if (defaultValues.date) {
-    availabilitySearchParams.set("date", defaultValues.date);
-  }
-  if (defaultValues.entryTier) {
-    availabilitySearchParams.set("entryTier", defaultValues.entryTier);
-  }
-  if (defaultValues.monitorOption) {
-    availabilitySearchParams.set("monitorOption", defaultValues.monitorOption);
-  }
-
-  const query = parseWorkspaceAvailabilityQuery(availabilitySearchParams);
-
-  if (query.kind !== "cowork") {
-    throw new Error("Cowork checkout query produced a non-cowork query.", {
-      cause: query,
-    });
-  }
-
-  const { entryTier, ...rest } = query;
-
-  return {
-    ...rest,
-    ...(entryTier !== undefined &&
-      isWorkspaceCoworkCurrentProductTier(entryTier) && { entryTier }),
   };
 };

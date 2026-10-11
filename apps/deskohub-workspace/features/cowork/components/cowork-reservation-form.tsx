@@ -3,9 +3,10 @@
 import { effectSchemaResolver } from "@deskohub/effect-schema-resolver";
 import { Match } from "effect";
 import { AlertTriangle, Clock3, Coffee, Monitor, Wifi } from "lucide-react";
-import Image from "next/image";
+import Image, { getImageProps } from "next/image";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useId, useMemo, useRef } from "react";
+import { preload } from "react-dom";
 import { type Control, useForm, useWatch } from "react-hook-form";
 import {
   type AdvertisedPrice,
@@ -16,8 +17,6 @@ import type { CheckoutSessionId } from "@/features/checkout/checkout-identifiers
 import {
   getCoworkTierCoffeeAddon,
   getCoworkTierWorkstationAddon,
-  isWorkspaceCoworkCurrentProductTier,
-  isWorkspaceProductMonitorOption,
   type WorkspaceCoworkCurrentTier,
   type WorkspaceProductMonitorOption,
   workspaceCoworkCurrentTiers,
@@ -50,6 +49,7 @@ import {
 } from "@/features/reservation/components/reservation-form-fallback";
 import { ReservationFormLabel } from "@/features/reservation/components/reservation-form-label";
 import {
+  illustratedReservationTypeOptionLayout,
   ReservationTypeInput,
   ReservationTypeOption,
 } from "@/features/reservation/components/reservation-type-input";
@@ -57,7 +57,7 @@ import { useAdvertisedPrices } from "@/features/reservation/components/use-adver
 import { useReservationAvailability } from "@/features/reservation/components/use-reservation-availability";
 import {
   getCoworkCoffeeAdvertisedPriceRequest,
-  getCoworkTierAdvertisedPriceRequests,
+  getCoworkFormAdvertisedPriceRequests,
 } from "@/features/reservation/cowork-advertised-price";
 import {
   type CoworkReservationData,
@@ -70,7 +70,6 @@ import {
 import {
   getReservationDefaultValuesFromPayState,
   getReservationDefaultValuesFromSearchParams,
-  getWorkspaceAvailabilityQueryFromReservationSearchParams,
 } from "@/features/reservation/cowork-reservation-checkout-query";
 import { getReservationAvailabilityUnavailableMessage } from "@/features/reservation/reservation.i18n";
 import {
@@ -78,7 +77,10 @@ import {
   getCurrentWorkspaceDate,
 } from "@/features/reservation/reservation-date";
 import type { ReservationExistingCustomerForm } from "@/features/reservation/reservation-existing-customer";
-import type { CoworkWorkspaceAvailabilityQuery } from "@/features/reservation/workspace-availability";
+import {
+  getCoworkAvailabilityQueries,
+  type PreloadedWorkspaceAvailability,
+} from "@/features/reservation/workspace-availability";
 import {
   FormControl,
   FormField,
@@ -96,8 +98,11 @@ type CoworkReservationFormProps = {
   locale: Locale;
   checkoutSessionId?: CheckoutSessionId;
   existingCustomer?: ReservationExistingCustomerForm;
+  initialAvailability?: ReadonlyArray<PreloadedWorkspaceAvailability>;
   replacementToken?: string;
   submittedCode?: CanonicalPromotionCode;
+  /** The workspace date the server rendered, which anchors the calendar range. */
+  today: string;
 };
 
 type CoworkReservationFormFallbackProps = Pick<
@@ -124,39 +129,13 @@ const monitorOptions: ReadonlyArray<{
   description: workspaceProductMonitorDescriptionMessages[option],
 }));
 
-const fallbackTierCards = ["offer-1", "offer-2"] as const;
-
-const getWorkspaceAvailabilityQuery = ({
-  date,
-  from,
-  monitorOption,
-  tier,
-  to,
-}: {
-  date?: string;
-  from: string;
-  monitorOption?: string;
-  tier: WorkspaceCoworkCurrentTier;
-  to: string;
-}): CoworkWorkspaceAvailabilityQuery => {
-  return {
-    kind: "cowork",
-    from,
-    to,
-    entryTier: tier,
-    ...(date && { date }),
-    ...(isWorkspaceProductMonitorOption(monitorOption) && { monitorOption }),
-  };
-};
-
-// Selection queries only read the selected date's result, so they ask for
-// that day alone instead of the whole calendar range.
-const getSelectedDateAvailabilityQuery = ({
-  date,
-  ...query
-}: Omit<Parameters<typeof getWorkspaceAvailabilityQuery>[0], "from" | "to"> & {
-  date: string;
-}) => getWorkspaceAvailabilityQuery({ ...query, date, from: date, to: date });
+// The artwork spans 280% of the card's two-fifths illustration column, capped
+// at 440px: about 340px in the two-card grid from md, else ~112vw - 128px.
+const tierArtworkImage = {
+  height: 941,
+  sizes: "(min-width: 768px) 340px, min(440px, calc(112vw - 128px))",
+  width: 1672,
+} as const;
 
 const formatDisplayDate = (date: string, locale: Locale) =>
   formatReservationInputDate(
@@ -172,8 +151,10 @@ export function CoworkReservationForm({
   locale,
   checkoutSessionId,
   existingCustomer,
+  initialAvailability,
   replacementToken,
   submittedCode,
+  today,
 }: CoworkReservationFormProps) {
   const searchParams = useSearchParams();
   const defaultValues =
@@ -181,8 +162,6 @@ export function CoworkReservationForm({
     (initialReservation
       ? getReservationDefaultValuesFromPayState(initialReservation)
       : getReservationDefaultValuesFromSearchParams(searchParams));
-  const initialAvailabilityQuery =
-    getWorkspaceAvailabilityQueryFromReservationSearchParams(searchParams);
   const form = useForm<CoworkReservationInput, unknown, CoworkReservationData>({
     resolver: effectSchemaResolver(coworkReservationSchema),
     defaultValues,
@@ -199,74 +178,41 @@ export function CoworkReservationForm({
     getCoworkTierWorkstationAddon(selectedTier) === "optional";
   const allowedMonitorOptions =
     getAllowedMonitorOptionsForCoworkTier(selectedTier);
-  const rangeAvailabilityQuery = useMemo(
+  const {
+    range: rangeAvailabilityQuery,
+    selection: availabilityQuery,
+    workstationRequirement: workstationRequirementQuery,
+  } = useMemo(
     () =>
-      isWorkspaceCoworkCurrentProductTier(selectedTier)
-        ? getWorkspaceAvailabilityQuery({
-            from: initialAvailabilityQuery.from,
-            tier: selectedTier,
-            to: initialAvailabilityQuery.to,
-          })
-        : undefined,
-    [initialAvailabilityQuery.from, initialAvailabilityQuery.to, selectedTier]
-  );
-  const availabilityQuery = useMemo(
-    () =>
-      isWorkspaceCoworkCurrentProductTier(selectedTier) && selectedDate
-        ? getSelectedDateAvailabilityQuery({
-            date: selectedDate,
-            monitorOption: showWorkstationAddon
-              ? selectedMonitorOption
-              : undefined,
-            tier: selectedTier,
-          })
-        : undefined,
-    [selectedDate, selectedMonitorOption, selectedTier, showWorkstationAddon]
-  );
-  const workstationRequirementQuery = useMemo(
-    () =>
-      selectedTier === "reserved-desk" && selectedDate
-        ? getSelectedDateAvailabilityQuery({
-            date: selectedDate,
-            tier: selectedTier,
-          })
-        : undefined,
-    [selectedDate, selectedTier]
+      getCoworkAvailabilityQueries({
+        date: selectedDate,
+        entryTier: selectedTier,
+        monitorOption: selectedMonitorOption,
+        today,
+      }),
+    [selectedDate, selectedMonitorOption, selectedTier, today]
   );
   const availabilityQueryResult = useReservationAvailability(
     availabilityQuery,
-    { replacementToken }
+    { initialAvailability, replacementToken }
   );
   const rangeAvailabilityQueryResult = useReservationAvailability(
     rangeAvailabilityQuery,
-    { replacementToken }
+    { initialAvailability, replacementToken }
   );
   const workstationRequirementQueryResult = useReservationAvailability(
     workstationRequirementQuery,
-    { replacementToken }
+    { initialAvailability, replacementToken }
   );
   const advertisedPriceRequests = useMemo(() => {
     if (!selectedDate) {
       return [];
     }
 
-    // Both Reserved Desk advertised variants are requested so the paid
-    // workstation addon price is visible before the toggle is flipped. The
-    // canonical monitor option is display-only: workstation presence, not the
-    // chosen configuration, determines the advertised amount, so the request
-    // fingerprint never changes with the selected monitor option.
-    return getCoworkTierAdvertisedPriceRequests({
+    return getCoworkFormAdvertisedPriceRequests({
+      coffee: Boolean(selectedCoffee),
       date: selectedDate,
       locale,
-      offers: [
-        { entryTier: "open-space", coffee: Boolean(selectedCoffee) },
-        { entryTier: "reserved-desk", coffee: true },
-        {
-          entryTier: "reserved-desk",
-          coffee: true,
-          monitorOption: workspaceProductMonitorOptions[0],
-        },
-      ],
       submittedCode,
     });
   }, [locale, selectedCoffee, selectedDate, submittedCode]);
@@ -679,10 +625,13 @@ export function CoworkReservationForm({
                               "reserved-desk": "translate-x-[20%]",
                             }[option.value]
                           )}
-                          height={941}
-                          sizes="(min-width: 1024px) 440px, 280px"
+                          {...tierArtworkImage}
+                          // The initially selected tier's artwork is the LCP.
+                          {...(option.value === defaultValues.entryTier && {
+                            fetchPriority: "high",
+                            preload: true,
+                          })}
                           src={artworkSource}
-                          width={1672}
                         />
                       }
                       price={
@@ -1101,6 +1050,8 @@ export function CoworkReservationFormFallback({
   locale,
   showMonitorOption = false,
 }: CoworkReservationFormFallbackProps) {
+  preloadDefaultTierArtwork();
+
   return (
     <SharedReservationFormFallback
       label={m.reservationFormTitle({}, { locale })}
@@ -1108,28 +1059,36 @@ export function CoworkReservationFormFallback({
       <div className="space-y-2">
         <ReservationSkeletonBlock className="h-4 w-28" />
         <div className="grid gap-4 md:grid-cols-2">
-          {fallbackTierCards.map((tierCard) => (
+          {workspaceCoworkCurrentTiers.map((tier) => (
             <div
-              className="rounded-[1.4rem] border border-navy-blue/10 bg-white p-4"
-              key={tierCard}
+              className={cn(
+                illustratedReservationTypeOptionLayout,
+                "bg-white outline outline-1 -outline-offset-1 outline-navy-blue/10"
+              )}
+              key={tier}
             >
-              <div className="space-y-3">
-                <div className="flex items-start justify-between gap-2">
-                  <ReservationSkeletonBlock className="h-6 w-32" />
-                  <ReservationSkeletonBlock className="h-4 w-4 shrink-0 rounded-full" />
-                </div>
-                <ReservationSkeletonBlock className="h-4 w-24 bg-burned-orange/15" />
-                <div className="space-y-2 pt-1">
-                  <ReservationSkeletonBlock className="h-3 w-full" />
-                  <ReservationSkeletonBlock className="h-3 w-11/12" />
-                  <ReservationSkeletonBlock className="h-3 w-4/5" />
-                </div>
-                <div className="space-y-2 pt-1">
-                  <ReservationSkeletonBlock className="h-4 w-24" />
-                  <ReservationSkeletonBlock className="h-3 w-full" />
-                  <ReservationSkeletonBlock className="h-3 w-10/12" />
-                  <ReservationSkeletonBlock className="h-3 w-9/12" />
-                </div>
+              <div className="col-start-1 col-end-3 row-start-1 mb-2 flex items-start justify-between gap-2">
+                <ReservationSkeletonBlock className="h-7 w-32 lg:h-8" />
+                <ReservationSkeletonBlock className="mt-1 h-6 w-6 shrink-0 rounded-full sm:h-7 sm:w-7" />
+              </div>
+              <div className="col-start-1 row-start-2 mb-2 py-1">
+                <ReservationSkeletonBlock className="h-8 w-28 bg-aquamarine-green/15 lg:h-9" />
+              </div>
+              <div className="col-start-1 row-start-3 mb-3 min-h-[5.625rem] space-y-2 pt-1">
+                <ReservationSkeletonBlock className="h-3 w-full" />
+                <ReservationSkeletonBlock className="h-3 w-11/12" />
+                <ReservationSkeletonBlock className="h-3 w-4/5" />
+              </div>
+              <div className="col-start-1 col-end-3 row-start-4 space-y-2 pb-1">
+                {workspaceProductTierCardMessages[tier].perks.map((perk) => (
+                  <div
+                    className="flex items-center gap-2"
+                    key={getWorkspaceProductMessage(perk.message, locale)}
+                  >
+                    <ReservationSkeletonBlock className="h-8 w-8 shrink-0 rounded-full" />
+                    <ReservationSkeletonBlock className="h-3 w-40" />
+                  </div>
+                ))}
               </div>
             </div>
           ))}
@@ -1154,6 +1113,25 @@ export function CoworkReservationFormFallback({
       </div>
     </SharedReservationFormFallback>
   );
+}
+
+/**
+ * Starts the default tier artwork, the page's LCP, while the form streams in.
+ * React dedupes it with the selected tier image's own preload.
+ */
+function preloadDefaultTierArtwork() {
+  const { props } = getImageProps({
+    ...tierArtworkImage,
+    alt: "",
+    fetchPriority: "high",
+    src: openSpaceArtwork,
+  });
+  preload(props.src, {
+    as: "image",
+    fetchPriority: "high",
+    imageSizes: props.sizes,
+    imageSrcSet: props.srcSet,
+  });
 }
 
 function SkeletonMonitorOptionField() {
