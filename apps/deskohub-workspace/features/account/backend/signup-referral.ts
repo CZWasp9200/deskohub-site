@@ -69,10 +69,15 @@ const classifyRejection = (
       Effect.succeed(notApplied("already-referred"))
     ),
     Match.when("ineligible", () => Effect.succeed(notApplied("not-eligible"))),
-    Match.when(Match.is("self_referral", "invalid_code"), () =>
+    Match.when(Match.is("self_referral", "invalid_code", "cycle"), () =>
       Effect.succeed(notApplied("code-unusable"))
     ),
-    Match.when("account_unavailable", () => Effect.succeed(pending)),
+    // A pending payment may still become the first paid booking, either
+    // closing the window or recording that checkout's own referral; the
+    // retry after it settles reports whichever happened.
+    Match.when(Match.is("pending_payment", "account_unavailable"), () =>
+      Effect.succeed(pending)
+    ),
     // Acceptance reports both an unusable code and a failed database or
     // Dotypos read as `unavailable`. Only a read that succeeds and finds the
     // code unusable is definitive; anything else is retried.

@@ -47,7 +47,15 @@ type ReferralFailureReason =
   | "unavailable"
   | "self_referral"
   | "already_attributed"
+  /** The customer already has a paid booking, so the invitation window has closed. */
   | "ineligible"
+  /**
+   * The customer has no paid booking yet, but a payment is in progress (or
+   * holds the invitation) and may still become their first paid booking.
+   */
+  | "pending_payment"
+  /** The code's owner was invited, directly or through others, by this customer. */
+  | "cycle"
   | "account_unavailable";
 
 export class ReferralError extends Data.TaggedError("ReferralError")<{

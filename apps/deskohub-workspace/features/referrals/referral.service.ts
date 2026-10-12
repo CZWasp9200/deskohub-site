@@ -558,7 +558,7 @@ export class ReferralService extends Context.Service<
 
         const window = yield* findInvitationWindow(input.dotyposCustomerId);
         if (window === "closed") return yield* fail("ineligible");
-        if (window === "claimed") return yield* fail("unavailable");
+        if (window === "claimed") return yield* fail("pending_payment");
 
         const graph = yield* db
           .select({
@@ -578,6 +578,7 @@ export class ReferralService extends Context.Service<
             ])
           ),
         });
+        if (decision.kind === "cycle") return yield* fail("cycle");
         if (decision.kind !== "accepted") return yield* fail("unavailable");
         return { kind: "eligible", referral: target } as const;
       });
@@ -1076,8 +1077,11 @@ export class ReferralService extends Context.Service<
                           )
                           .limit(1)
                           .pipe(Effect.mapError(() => fail("unavailable")));
+                        // The invitation stays open until that payment
+                        // settles; a reserved invitation claim always comes
+                        // with such a pending reservation.
                         if (pendingAttempt) {
-                          return yield* Effect.fail(fail("ineligible"));
+                          return yield* Effect.fail(fail("pending_payment"));
                         }
 
                         const existingRows = yield* tx
@@ -1105,7 +1109,7 @@ export class ReferralService extends Context.Service<
                           return yield* Effect.fail(fail("already_attributed"));
                         }
                         if (decision.kind === "cycle") {
-                          return yield* Effect.fail(fail("unavailable"));
+                          return yield* Effect.fail(fail("cycle"));
                         }
 
                         yield* tx
