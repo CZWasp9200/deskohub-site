@@ -18,6 +18,9 @@ const makeLocalOrder = (
   providerOrderId,
   reservationId,
   state: "pending" as const,
+  refundState: "not_required" as const,
+  refundedAmountValue: null,
+  refundedAt: null,
   amountValue: 5000,
   amountExponent: 2,
   currency: "CZK",
@@ -27,6 +30,7 @@ const makeLocalOrder = (
       ? null
       : Temporal.Instant.from(options?.providerOrderCreatedAt ?? createdAt),
   providerSessionAttached: options?.providerSessionAttached ?? true,
+  updatedAt: Temporal.Instant.from(createdAt),
 });
 
 const makeQuery = <A>(rows: readonly A[]) => {
@@ -104,6 +108,9 @@ describe("PaymentAdministrationService", () => {
         reservationId: "linked-reservation",
         providerOrderCreatedAt: "2026-08-06T10:00:00Z",
         providerOrderCreatedAtEstimated: true,
+        refundState: "not_required",
+        refundedAmount: null,
+        refundedAt: null,
       },
     });
   });

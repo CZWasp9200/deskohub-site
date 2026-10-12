@@ -58,6 +58,18 @@ export function PaymentStatusText({
   return `${status.label} · ${formatAdministrationDateTime(status.at)}`;
 }
 
+/** The payment status, with the refund time once refunded, such as "Paid". */
+export function PaymentStatusLabel({
+  payment,
+}: {
+  readonly payment: DisplayedPayment;
+}) {
+  const status = getAdministrationPaymentStatus(payment);
+  return status.refunded
+    ? `${status.label} · ${formatAdministrationDateTime(status.at)}`
+    : status.label;
+}
+
 export function PaymentRefundRequiredLabel({
   className,
   payment,

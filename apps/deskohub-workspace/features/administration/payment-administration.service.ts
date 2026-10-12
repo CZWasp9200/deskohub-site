@@ -19,7 +19,11 @@ import {
 } from "drizzle-orm";
 import { Context, Effect, Layer } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
-import { type PaymentAttemptState, paymentAttempts } from "@/db/schema";
+import {
+  type PaymentAttemptState,
+  type PaymentRefundState,
+  paymentAttempts,
+} from "@/db/schema";
 import type { PaymentAttemptId } from "@/features/checkout/checkout-identifiers";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import { WorkspaceNexiLayer } from "@/shared/backend/config/nexi.config";
@@ -36,19 +40,26 @@ const paymentAttemptStateLabels = {
   expired: "Unsuccessful",
 } satisfies Record<PaymentAttemptState, string>;
 
+type AdministrationOrderMoney = {
+  readonly value: number;
+  readonly exponent: number;
+  readonly currency: string;
+};
+
 type AdministrationOrderLink = {
   readonly paymentAttemptId: PaymentAttemptId;
   readonly reservationId: WorkspaceReservationId;
   readonly state: PaymentAttemptState;
+  readonly refundState: PaymentRefundState;
   readonly stateLabel: string;
-  readonly amount: {
-    readonly value: number;
-    readonly exponent: number;
-    readonly currency: string;
-  };
+  readonly amount: AdministrationOrderMoney;
+  /** Total Nexi reports as refunded; set only when `refundState` is `refunded`. */
+  readonly refundedAmount: AdministrationOrderMoney | null;
+  readonly refundedAt: string | null;
   readonly attemptCreatedAt: string;
   readonly providerOrderCreatedAt: string | null;
   readonly providerOrderCreatedAtEstimated: boolean;
+  readonly updatedAt: string;
 };
 
 export type AdministrationOrder = {
@@ -95,6 +106,9 @@ type LocalOrderRow = {
   readonly providerOrderId: NexiOrderId;
   readonly reservationId: WorkspaceReservationId;
   readonly state: PaymentAttemptState;
+  readonly refundState: PaymentRefundState;
+  readonly refundedAmountValue: number | null;
+  readonly refundedAt: Temporal.Instant | null;
   readonly failureCode: string | null;
   readonly amountValue: number;
   readonly amountExponent: number;
@@ -102,6 +116,7 @@ type LocalOrderRow = {
   readonly attemptCreatedAt: Temporal.Instant;
   readonly providerOrderCreatedAt: Temporal.Instant | null;
   readonly providerSessionAttached: boolean;
+  readonly updatedAt: Temporal.Instant;
 };
 
 type ProviderOrderLookup =
@@ -122,6 +137,7 @@ const toOrderLink = (row: LocalOrderRow): AdministrationOrderLink => {
     paymentAttemptId: row.paymentAttemptId,
     reservationId: row.reservationId,
     state: row.state,
+    refundState: row.refundState,
     stateLabel:
       row.failureCode === "payment_abandoned_after_provider_cutoff"
         ? "Abandoned"
@@ -131,10 +147,20 @@ const toOrderLink = (row: LocalOrderRow): AdministrationOrderLink => {
       exponent: row.amountExponent,
       currency: row.currency,
     },
+    refundedAmount:
+      row.refundedAmountValue === null
+        ? null
+        : {
+            value: row.refundedAmountValue,
+            exponent: row.amountExponent,
+            currency: row.currency,
+          },
+    refundedAt: row.refundedAt?.toString() ?? null,
     attemptCreatedAt: row.attemptCreatedAt.toString(),
     providerOrderCreatedAt: providerOrderCreatedAt?.toString() ?? null,
     providerOrderCreatedAtEstimated:
       row.providerOrderCreatedAt === null && row.providerSessionAttached,
+    updatedAt: row.updatedAt.toString(),
   };
 };
 
@@ -143,6 +169,9 @@ const localOrderSelection = {
   providerOrderId: paymentAttempts.providerOrderId,
   reservationId: paymentAttempts.workspaceReservationId,
   state: paymentAttempts.state,
+  refundState: paymentAttempts.refundState,
+  refundedAmountValue: paymentAttempts.refundedAmountValue,
+  refundedAt: paymentAttempts.refundedAt,
   failureCode: paymentAttempts.failureCode,
   amountValue: paymentAttempts.amountValue,
   amountExponent: paymentAttempts.amountExponent,
@@ -150,6 +179,7 @@ const localOrderSelection = {
   attemptCreatedAt: paymentAttempts.createdAt,
   providerOrderCreatedAt: paymentAttempts.providerOrderCreatedAt,
   providerSessionAttached: sql<boolean>`${paymentAttempts.providerRedirectUrl} is not null`,
+  updatedAt: paymentAttempts.updatedAt,
 } as const;
 
 const normalizeMaximumRecords = (value?: number) =>
