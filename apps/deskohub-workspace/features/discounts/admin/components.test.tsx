@@ -918,7 +918,11 @@ describe("discount administration pages", () => {
     expect(within(table).getByText(/CZK.?65\.00 remaining/)).toBeDefined();
     expect(within(table).getAllByText("Discount code")).toHaveLength(3);
     expect(within(table).getAllByText("Voucher")).toHaveLength(1);
-    expect(within(table).queryByRole("button", { name: /GIFT100/ })).toBeNull();
+    expect(
+      within(table).getByRole("button", {
+        name: "Add Test Customer to GIFT100",
+      })
+    ).toBeDefined();
     expect(within(table).queryByText("SOMEONEELSE")).toBeNull();
     expect(view.getByText("1 (+ 1)")).toBeDefined();
     expect(
@@ -1344,15 +1348,17 @@ describe("discount administration pages", () => {
   });
 
   test("describes adding a customer to an existing restricted code audience", async () => {
-    const { CustomerCodeAction } = await import("./customer-admin-client");
+    const { CustomerPromotionCodeAction } = await import(
+      "./customer-admin-client"
+    );
     const view = render(
-      <CustomerCodeAction
+      <CustomerPromotionCodeAction
         audienceSize={3}
         code="TEAM"
-        codeId={dashboard.codes[0].id}
         customerId="dotypos-customer"
         customerName="Test Customer"
         eligible={false}
+        promotion={{ kind: "discount-code", id: dashboard.codes[0].id }}
       />
     );
 
@@ -1371,6 +1377,111 @@ describe("discount administration pages", () => {
       )
     ).toBeDefined();
     expect(view.getByRole("button", { name: "Add customer" })).toBeDefined();
+  });
+
+  test("adds and removes a customer from a voucher audience", async () => {
+    const captured = captureWorkspaceActions(
+      /^manageCustomerVoucherEligibility$/
+    );
+    const { CustomerPromotionCodeAction } = await import(
+      "./customer-admin-client"
+    );
+    const voucherId = "019c91dd-c560-7e55-b9d8-c95065efd56d";
+    const renderAction = (audienceSize: number, eligible: boolean) =>
+      render(
+        <CustomerPromotionCodeAction
+          audienceSize={audienceSize}
+          code="GIFT100"
+          customerId="dotypos-customer"
+          customerName="Test Customer"
+          eligible={eligible}
+          promotion={{ kind: "voucher", id: voucherId }}
+        />
+      );
+
+    const unrestricted = renderAction(0, false);
+    fireEvent.click(
+      unrestricted.getByRole("button", {
+        name: "Add Test Customer to GIFT100",
+      })
+    );
+    expect(
+      await unrestricted.findByRole("heading", {
+        name: "Limit GIFT100 to Test Customer?",
+      })
+    ).toBeDefined();
+    fireEvent.click(
+      unrestricted.getByRole("button", { name: "Limit to only this user" })
+    );
+    const action = captured("manageCustomerVoucherEligibility");
+    expect(action.execute).toHaveBeenLastCalledWith({
+      kind: "add-voucher-customer",
+      voucherId,
+      customerId: "dotypos-customer",
+    });
+    act(() =>
+      action.options.onSuccess({
+        data: { notice: "Customer added to the voucher audience." },
+      })
+    );
+    await waitFor(() => expect(unrestricted.queryByRole("dialog")).toBeNull());
+    expect(refresh).toHaveBeenCalledTimes(1);
+    cleanup();
+
+    const shared = renderAction(2, true);
+    fireEvent.click(
+      shared.getByRole("button", {
+        name: "Remove Test Customer from GIFT100",
+      })
+    );
+    expect(
+      await shared.findByText(
+        "Test Customer will no longer be able to use GIFT100."
+      )
+    ).toBeDefined();
+    fireEvent.click(shared.getByRole("button", { name: "Remove customer" }));
+    expect(action.execute).toHaveBeenLastCalledWith({
+      kind: "remove-voucher-customer",
+      voucherId,
+      customerId: "dotypos-customer",
+    });
+    act(() =>
+      action.options.onError({
+        error: {
+          serverError: "This customer is no longer in the voucher audience.",
+        },
+      })
+    );
+    expect((await shared.findByRole("alert")).textContent).toBe(
+      "This customer is no longer in the voucher audience."
+    );
+    cleanup();
+
+    const onlyCustomer = renderAction(1, true);
+    fireEvent.click(
+      onlyCustomer.getByRole("button", {
+        name: "Remove Test Customer from GIFT100",
+      })
+    );
+    expect(
+      await onlyCustomer.findByText(
+        "Removing Test Customer would leave GIFT100 without an audience, which makes it available to every customer. Choose whether to delete the voucher or make it available to all."
+      )
+    ).toBeDefined();
+    fireEvent.click(
+      onlyCustomer.getByRole("button", { name: "Delete voucher" })
+    );
+    expect(action.execute).toHaveBeenLastCalledWith({
+      kind: "delete-voucher",
+      id: voucherId,
+    });
+    fireEvent.click(
+      onlyCustomer.getByRole("button", { name: "Make available to all" })
+    );
+    expect(action.execute).toHaveBeenLastCalledWith({
+      kind: "make-voucher-unrestricted",
+      voucherId,
+    });
   });
 
   test("shows calendar sales in a table with readable status badges", async () => {

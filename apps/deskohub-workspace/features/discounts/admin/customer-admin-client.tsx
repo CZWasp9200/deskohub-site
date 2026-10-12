@@ -395,26 +395,69 @@ export function AdminMutationButton({
   );
 }
 
-export function CustomerCodeAction({
+type CustomerPromotionCode =
+  | { readonly kind: "discount-code"; readonly id: DiscountCodeId }
+  | { readonly kind: "voucher"; readonly id: VoucherId };
+
+const customerPromotionCodeMutations = (
+  promotion: CustomerPromotionCode,
+  customerId: DotyposCustomerId
+) =>
+  promotion.kind === "voucher"
+    ? ({
+        add: {
+          kind: "add-voucher-customer",
+          voucherId: promotion.id,
+          customerId,
+        },
+        remove: {
+          kind: "remove-voucher-customer",
+          voucherId: promotion.id,
+          customerId,
+        },
+        makeUnrestricted: {
+          kind: "make-voucher-unrestricted",
+          voucherId: promotion.id,
+        },
+        delete: { kind: "delete-voucher", id: promotion.id },
+      } satisfies Record<string, DiscountAdminMutation>)
+    : ({
+        add: { kind: "add-code-customer", codeId: promotion.id, customerId },
+        remove: {
+          kind: "remove-code-customer",
+          codeId: promotion.id,
+          customerId,
+        },
+        makeUnrestricted: {
+          kind: "make-code-unrestricted",
+          codeId: promotion.id,
+        },
+        delete: { kind: "delete-code", id: promotion.id },
+      } satisfies Record<string, DiscountAdminMutation>);
+
+export function CustomerPromotionCodeAction({
   audienceSize,
   code,
-  codeId,
   customerId,
   customerName,
   eligible,
+  promotion,
 }: {
   readonly audienceSize: number;
   readonly code: string;
-  readonly codeId: DiscountCodeId;
   readonly customerId: DotyposCustomerId;
   readonly customerName: string;
   readonly eligible: boolean;
+  readonly promotion: CustomerPromotionCode;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { execute, isExecuting } = useWorkspaceAction(mutateDiscountAdmin, {
-    actionName: "manageCustomerCodeEligibility",
+    actionName:
+      promotion.kind === "voucher"
+        ? "manageCustomerVoucherEligibility"
+        : "manageCustomerCodeEligibility",
     onSuccess: () => {
       setOpen(false);
       router.refresh();
@@ -425,6 +468,8 @@ export function CustomerCodeAction({
       setError("The change could not be saved. Try again."),
   });
 
+  const mutations = customerPromotionCodeMutations(promotion, customerId);
+  const noun = promotion.kind === "voucher" ? "voucher" : "code";
   const label = eligible
     ? `Remove ${customerName} from ${code}`
     : `Add ${customerName} to ${code}`;
@@ -434,7 +479,7 @@ export function CustomerCodeAction({
   let dialogDescription = `${code} is currently available to every customer. Limiting it will make ${customerName} the only eligible customer.`;
   if (isOnlyCustomer) {
     dialogTitle = "Remove the only eligible customer?";
-    dialogDescription = `Removing ${customerName} would leave ${code} without an audience, which makes it available to every customer. Choose whether to delete the code or make it available to all.`;
+    dialogDescription = `Removing ${customerName} would leave ${code} without an audience, which makes it available to every customer. Choose whether to delete the ${noun} or make it available to all.`;
   } else if (eligible) {
     dialogTitle = `Remove ${customerName}?`;
     dialogDescription = `${customerName} will no longer be able to use ${code}.`;
@@ -480,18 +525,16 @@ export function CustomerCodeAction({
             <>
               <Button
                 disabled={isExecuting}
-                onClick={() => execute({ kind: "delete-code", id: codeId })}
+                onClick={() => execute(mutations.delete)}
                 type="button"
                 variant="secondary"
               >
-                Delete code
+                Delete {noun}
               </Button>
               <Button
                 className="bg-burned-orange-ink hover:bg-burned-orange-ink/90"
                 disabled={isExecuting}
-                onClick={() =>
-                  execute({ kind: "make-code-unrestricted", codeId })
-                }
+                onClick={() => execute(mutations.makeUnrestricted)}
                 type="button"
               >
                 Make available to all
@@ -508,13 +551,7 @@ export function CustomerCodeAction({
               <Button
                 className="bg-burned-orange-ink hover:bg-burned-orange-ink/90"
                 disabled={isExecuting}
-                onClick={() =>
-                  execute({
-                    kind: "remove-code-customer",
-                    codeId,
-                    customerId,
-                  })
-                }
+                onClick={() => execute(mutations.remove)}
                 type="button"
               >
                 Remove customer
@@ -531,13 +568,7 @@ export function CustomerCodeAction({
               <Button
                 className="bg-burned-orange-ink hover:bg-burned-orange-ink/90"
                 disabled={isExecuting}
-                onClick={() =>
-                  execute({
-                    kind: "add-code-customer",
-                    codeId,
-                    customerId,
-                  })
-                }
+                onClick={() => execute(mutations.add)}
                 type="button"
               >
                 {audienceSize > 0 ? "Add customer" : "Limit to only this user"}

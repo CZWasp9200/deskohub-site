@@ -14,7 +14,7 @@ import {
 import { NexiOrderLink } from "@/features/administration/nexi-order-link";
 import type { DiscountAdjustment } from "@/features/discounts/contracts";
 import { StatusBadge } from "@/shared/components/ui/status-badge";
-import { CustomerCodeAction } from "./customer-admin-client";
+import { CustomerPromotionCodeAction } from "./customer-admin-client";
 import type {
   AdminCustomerProfile,
   AdminDiscountCodeClaim,
@@ -152,17 +152,20 @@ export function CustomerPromotionCodeTable({
         id: "action",
         header: () => <span className="sr-only">Manage eligibility</span>,
         enableSorting: false,
-        cell: ({ row }) =>
-          row.original.kind === "discount-code" && (
-            <CustomerCodeAction
-              audienceSize={row.original.audienceSize}
-              code={row.original.code}
-              codeId={row.original.id}
-              customerId={customerId}
-              customerName={customerName}
-              eligible={row.original.eligible}
-            />
-          ),
+        cell: ({ row }) => (
+          <CustomerPromotionCodeAction
+            audienceSize={row.original.audienceSize}
+            code={row.original.code}
+            customerId={customerId}
+            customerName={customerName}
+            eligible={row.original.eligible}
+            promotion={
+              row.original.kind === "voucher"
+                ? { kind: "voucher", id: row.original.id }
+                : { kind: "discount-code", id: row.original.id }
+            }
+          />
+        ),
         meta: { cellClassName: "relative z-10 text-right" },
       },
     ],
