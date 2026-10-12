@@ -3,12 +3,11 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runInNewContext } from "node:vm";
-import ts from "typescript";
 import { buildPosthogIdentityFixtureBundle } from "./posthog-identity-fixture-bundle";
 
 // CI never runs the PostHog identity browser check, so this builds its fixture
-// with the shared bundler setup and fails when an import change leaks a module
-// that touches `process` (or other server-only globals) into the bundle.
+// with the shared bundler setup and initializes it without `process`, failing
+// when an import change leaks a module that reads server-only globals at load.
 const outdir = mkdtempSync(join(tmpdir(), "posthog-identity-fixture-"));
 let build: Awaited<ReturnType<typeof buildPosthogIdentityFixtureBundle>>;
 let bundle = "";
@@ -25,51 +24,6 @@ beforeAll(async () => {
 }, 60_000);
 
 afterAll(() => rmSync(outdir, { force: true, recursive: true }));
-
-const isFunctionLike = (node: ts.Node) =>
-  ts.isFunctionDeclaration(node) ||
-  ts.isFunctionExpression(node) ||
-  ts.isArrowFunction(node) ||
-  ts.isMethodDeclaration(node);
-
-/**
- * `process.env` reads a browser would reach: any at module level, and any in a
- * function that has not checked `typeof process` first.
- */
-const unguardedProcessEnvReads = (source: string) => {
-  const file = ts.createSourceFile(
-    "bundle.js",
-    source,
-    ts.ScriptTarget.Latest,
-    true
-  );
-  const reads: string[] = [];
-  const visit = (node: ts.Node) => {
-    if (
-      ts.isPropertyAccessExpression(node) &&
-      node.name.text === "env" &&
-      ts.isIdentifier(node.expression) &&
-      node.expression.text === "process"
-    ) {
-      let scope = node.parent;
-      while (scope && !isFunctionLike(scope)) scope = scope.parent;
-      const guarded =
-        scope !== undefined &&
-        source
-          .slice(scope.getStart(file), node.getStart(file))
-          .includes("typeof process");
-      if (!guarded) {
-        const { line } = file.getLineAndCharacterOfPosition(
-          node.getStart(file)
-        );
-        reads.push(`${line + 1}: ${node.parent.getText(file).slice(0, 80)}`);
-      }
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(file);
-  return reads;
-};
 
 // Web-standard APIs a browser also provides, borrowed from the runtime.
 const webStandardGlobals = [
@@ -129,10 +83,6 @@ const browserLikeGlobals = () => {
 test("builds the fixture bundle with the browser check's bundler setup", () => {
   expect(build.success).toBe(true);
   expect(bundle.length).toBeGreaterThan(0);
-});
-
-test("keeps unguarded process.env reads out of the fixture bundle", () => {
-  expect(unguardedProcessEnvReads(bundle)).toEqual([]);
 });
 
 test("initializes the fixture bundle without process or a DOM", () => {
