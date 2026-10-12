@@ -131,9 +131,9 @@ description: Workspace customer account, Better Auth, magic link, auth persisten
   insert-on-conflict-do-nothing, so sign-in never overwrites a saved
   preference, and a capture failure never blocks login. The profile control
   and the header switcher share `switchLocale` in
-  `features/account/switch-locale.ts`. It saves through
-  `updateLocalePreference`, under the account lock with the deletion-marker
-  recheck, then navigates to the current URL under the new locale with a
+  `features/account/switch-locale.ts`. Callers pass the
+  `updateLocalePreference` Server Action as `save`. It saves under the
+  account lock with the deletion-marker recheck, then navigates to the current URL under the new locale with a
   document navigation, even when the save fails.
 - Reads: `resolveWorkspaceLocale` (`features/i18n/locale-resolution.ts`) is
   the only locale chain: saved preference, then URL path, cookie,
