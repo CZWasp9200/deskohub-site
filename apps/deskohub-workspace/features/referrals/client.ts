@@ -15,3 +15,6 @@ export type ReferralCode = typeof referralCodeCodec.Type;
 // biome-ignore lint/plugin: This parser is the browser-safe boundary for untrusted code values; the referral schema validates them here.
 export const parseReferralCode = (value: unknown): ReferralCode | undefined =>
   Schema.is(referralCodeCodec)(value) ? value : undefined;
+
+/** Search parameter that carries a shared referral code between pages. */
+export const referralCodeQueryParam = "ref";
