@@ -10,7 +10,7 @@ mock.module("next/cache", () => ({ revalidatePath }));
 const requestHeaders = new Headers({ referer: "https://deskohub.test/en-US" });
 mock.module("next/headers", () => ({
   headers: async () => requestHeaders,
-  cookies: async () => ({ getAll: () => [] }),
+  cookies: async () => ({ get: () => undefined, getAll: () => [] }),
 }));
 mock.module("next/server", () => ({
   after: () => undefined,

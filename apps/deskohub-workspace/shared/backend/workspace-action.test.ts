@@ -24,7 +24,7 @@ mock.module("@/instrumentation", () => ({
 }));
 
 mock.module("next/headers", () => ({
-  cookies: async () => ({ getAll: () => [] }),
+  cookies: async () => ({ get: () => undefined, getAll: () => [] }),
   headers: async () => {
     actionHeaderReads += 1;
     return new Headers({ referer: "https://deskohub.test/en-US" });
