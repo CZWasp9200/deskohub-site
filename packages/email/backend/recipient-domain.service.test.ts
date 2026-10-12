@@ -1,12 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import { Effect, Fiber, Layer } from "effect";
 import { TestClock } from "effect/testing";
+import { testEmailAddress } from "../testing/test-email-address";
 import {
   DnsLookupError,
   EmailRecipientDomainService,
   MailDomainDns,
   type MailDomainRecordType,
 } from "./recipient-domain.service";
+
+/** Addresses on the domain each case resolves; the domain is the subject. */
+const recipientAt = (domain: string, localPart = "ada") =>
+  `${localPart}@${domain}`;
 
 type Answer = readonly string[] | { readonly code?: string } | "hang";
 
@@ -42,65 +47,101 @@ const check = (
 ) => Effect.runPromise(checkDomain(address, records));
 
 describe("EmailRecipientDomainService", () => {
-  test("accepts a domain with a mail exchange", async () => {
-    const { status, lookups } = await check("ada@mail.example.test", {
-      MX: ["mx.example.test"],
+  test("accepts test recipients without a DNS lookup", async () => {
+    const { status, lookups } = await check(testEmailAddress("ada"), {
+      MX: { code: "ENOTFOUND" },
     });
+
+    expect(status).toBe("accepts_mail");
+    expect(lookups).toEqual([]);
+  });
+
+  test("accepts a domain with a mail exchange", async () => {
+    const { status, lookups } = await check(
+      recipientAt("mail.example.test", "ada"),
+      {
+        MX: ["mx.example.test"],
+      }
+    );
 
     expect(status).toBe("accepts_mail");
     expect(lookups).toEqual(["MX mail.example.test"]);
   });
 
   test("rejects a domain that does not exist", async () => {
-    const { status, lookups } = await check("ada@gmai.example.test", {
-      MX: { code: "ENOTFOUND" },
-    });
+    const { status, lookups } = await check(
+      recipientAt("gmai.example.test", "ada"),
+      {
+        MX: { code: "ENOTFOUND" },
+      }
+    );
 
     expect(status).toBe("rejects_mail");
     expect(lookups).toEqual(["MX gmai.example.test"]);
   });
 
   test("rejects a domain that publishes only a null MX", async () => {
-    expect((await check("ada@example.test", { MX: [""] })).status).toBe(
-      "rejects_mail"
-    );
-    expect((await check("ada@example.test", { MX: ["."] })).status).toBe(
-      "rejects_mail"
-    );
+    expect(
+      (await check(recipientAt("example.test", "ada"), { MX: [""] })).status
+    ).toBe("rejects_mail");
+    expect(
+      (await check(recipientAt("example.test", "ada"), { MX: ["."] })).status
+    ).toBe("rejects_mail");
   });
 
   test("falls back to the domain address when it publishes no MX", async () => {
-    expect((await check("ada@example.test", { A: ["192.0.2.1"] })).status).toBe(
-      "accepts_mail"
-    );
     expect(
-      (await check("ada@example.test", { AAAA: ["2001:db8::1"] })).status
+      (await check(recipientAt("example.test", "ada"), { A: ["192.0.2.1"] }))
+        .status
+    ).toBe("accepts_mail");
+    expect(
+      (
+        await check(recipientAt("example.test", "ada"), {
+          AAAA: ["2001:db8::1"],
+        })
+      ).status
     ).toBe("accepts_mail");
   });
 
   test("rejects a domain with neither MX nor address records", async () => {
     expect(
-      (await check("ada@example.test", { A: { code: "ENOTFOUND" } })).status
+      (
+        await check(recipientAt("example.test", "ada"), {
+          A: { code: "ENOTFOUND" },
+        })
+      ).status
     ).toBe("rejects_mail");
   });
 
   test("fails open when the resolver cannot answer", async () => {
     expect(
-      (await check("ada@example.test", { MX: { code: "ETIMEOUT" } })).status
+      (
+        await check(recipientAt("example.test", "ada"), {
+          MX: { code: "ETIMEOUT" },
+        })
+      ).status
     ).toBe("unknown");
     expect(
-      (await check("ada@example.test", { MX: { code: "ESERVFAIL" } })).status
+      (
+        await check(recipientAt("example.test", "ada"), {
+          MX: { code: "ESERVFAIL" },
+        })
+      ).status
     ).toBe("unknown");
     expect(
-      (await check("ada@example.test", { A: { code: "ECONNREFUSED" } })).status
+      (
+        await check(recipientAt("example.test", "ada"), {
+          A: { code: "ECONNREFUSED" },
+        })
+      ).status
     ).toBe("unknown");
   });
 
   test("fails open when the lookup does not finish in time", async () => {
     const result = await Effect.gen(function* () {
-      const fiber = yield* checkDomain("ada@example.test", { MX: "hang" }).pipe(
-        Effect.forkChild
-      );
+      const fiber = yield* checkDomain(recipientAt("example.test", "ada"), {
+        MX: "hang",
+      }).pipe(Effect.forkChild);
       yield* TestClock.adjust("4 seconds");
       return yield* Fiber.join(fiber);
     }).pipe(Effect.provide(TestClock.layer()), Effect.runPromise);
@@ -109,7 +150,7 @@ describe("EmailRecipientDomainService", () => {
   });
 
   test("looks up the ASCII form of a normalized domain", async () => {
-    const { lookups } = await check("ada@Háček.Example.Test.", {
+    const { lookups } = await check(recipientAt("Háček.Example.Test."), {
       MX: ["mx.example.test"],
     });
 
