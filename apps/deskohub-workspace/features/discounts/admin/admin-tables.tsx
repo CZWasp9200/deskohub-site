@@ -28,7 +28,10 @@ import type {
   StoredDiscountId,
   VoucherId,
 } from "@/features/discounts/persistence-contracts";
-import type { WorkspaceProductTarget } from "@/features/discounts/product-target";
+import {
+  getWorkspaceProductTargetKey,
+  type WorkspaceProductTarget,
+} from "@/features/discounts/product-target";
 import { generatePromotionCode } from "@/features/discounts/promotion-code";
 import type { DotyposCustomerId } from "@/features/reservation/dotypos-customer";
 import { Button } from "@/shared/components/ui/button";
@@ -71,6 +74,10 @@ import {
   type VoucherFormValues,
   voucherFormSchema,
 } from "./form-schemas";
+import {
+  discountProductTargetOptions,
+  formatDiscountProductTargets,
+} from "./product-target-options";
 
 export type DiscountTableItem = {
   readonly id: StoredDiscountId;
@@ -131,6 +138,16 @@ export function DiscountCodesAdminTable({
       ),
     [discounts]
   );
+  const discountProducts = useMemo(
+    () =>
+      new Map(
+        discounts.map((discount) => [
+          discount.id,
+          formatDiscountProductTargets(discount.products),
+        ])
+      ),
+    [discounts]
+  );
   const columns = useMemo<
     AdministrationDataTableColumn<DiscountCodeTableItem>[]
   >(
@@ -151,6 +168,11 @@ export function DiscountCodesAdminTable({
         accessorFn: (code) => getCodeBenefitLabel(code, discountLabels),
         id: "benefit",
         header: "Benefit",
+      },
+      {
+        accessorFn: (code) => discountProducts.get(code.discountId) ?? "",
+        id: "products",
+        header: "Products",
       },
       {
         accessorFn: (code) => (code.enabled ? "Enabled" : "Disabled"),
@@ -192,7 +214,7 @@ export function DiscountCodesAdminTable({
         cell: ({ row }) => row.original.maxUsesPerCustomer ?? "Unlimited",
       },
     ],
-    [discountLabels]
+    [discountLabels, discountProducts]
   );
 
   return (
@@ -453,8 +475,21 @@ export function CalendarSalesAdminTable({
           <CalendarAssociationBadge association={row.original.association} />
         ),
       },
+      {
+        accessorFn: (event) => {
+          const discount =
+            event.association.kind === "associated"
+              ? discountsById.get(event.association.discountId)
+              : undefined;
+          return discount
+            ? formatDiscountProductTargets(discount.products)
+            : "";
+        },
+        id: "products",
+        header: "Products",
+      },
     ],
-    []
+    [discountsById]
   );
   const getRowReference = (event: AdminCalendarSale, index: number) =>
     event.eventReference ?? `${event.start}:${event.title}:${index}`;
@@ -952,9 +987,8 @@ export function DiscountDefinitionFields({
 }: {
   readonly discount?: DiscountTableItem;
 }) {
-  const { control, register } = useFormContext<DiscountDefinitionFormValues>();
+  const { control } = useFormContext<DiscountDefinitionFormValues>();
   const kind = useWatch({ control, name: "adjustmentKind" });
-  const selectedProducts = new Set(discount?.products.map(({ kind }) => kind));
   const existingFixedCurrency =
     discount?.adjustment.kind === "fixed"
       ? discount.adjustment.amount.currency
@@ -1129,28 +1163,45 @@ export function DiscountDefinitionFields({
         )}
       </fieldset>
 
-      <fieldset>
-        <legend className="mb-3 text-sm font-semibold">
-          Eligible products
-        </legend>
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          {productOptions.map((product) => (
-            <label
-              className="flex cursor-pointer items-center gap-3 rounded-xl bg-navy-blue/[0.045] px-4 py-3 text-sm font-medium hover:bg-navy-blue/[0.075]"
-              key={product.key}
-            >
-              <input
-                {...register("products")}
-                className="size-4 accent-[var(--brand-burned-orange)]"
-                defaultChecked={selectedProducts.has(product.key)}
-                type="checkbox"
-                value={product.key}
-              />
-              {product.label}
-            </label>
-          ))}
-        </div>
-      </fieldset>
+      <FormField
+        control={control}
+        name="products"
+        render={({ field, fieldState }) => (
+          <FormItem>
+            <fieldset aria-invalid={Boolean(fieldState.error)}>
+              <legend className="mb-3 text-sm font-semibold">
+                Eligible products
+              </legend>
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {discountProductTargetOptions.map((option) => (
+                  <label
+                    className="flex cursor-pointer items-center gap-3 rounded-xl bg-navy-blue/[0.045] px-4 py-3 text-sm font-medium hover:bg-navy-blue/[0.075]"
+                    key={option.key}
+                  >
+                    <input
+                      checked={field.value.includes(option.key)}
+                      className="size-4 accent-[var(--brand-burned-orange)]"
+                      name={field.name}
+                      onBlur={field.onBlur}
+                      onChange={(event) =>
+                        field.onChange(
+                          event.target.checked
+                            ? [...field.value, option.key]
+                            : field.value.filter((key) => key !== option.key)
+                        )
+                      }
+                      type="checkbox"
+                      value={option.key}
+                    />
+                    {option.label}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+            <FormMessage />
+          </FormItem>
+        )}
+      />
     </div>
   );
 }
@@ -1435,7 +1486,7 @@ const discountDefinitionFormDefaults = (
     discount?.adjustment.kind === "fixed"
       ? discount.adjustment.amount.currency
       : defaultWorkspaceCurrencyCode,
-  products: discount ? discount.products.map(({ kind }) => kind) : [],
+  products: discount?.products.map(getWorkspaceProductTargetKey) ?? [],
 });
 
 const discountCodeFormDefaults = (
@@ -1486,9 +1537,3 @@ const fieldId = (name: string, id?: string) => (id ? `${name}-${id}` : name);
 
 const selectClassName =
   "min-h-12 w-full rounded-[1.1rem] border border-navy-blue/12 bg-white px-4 py-3 text-base outline-none focus-visible:border-burned-orange focus-visible:ring-4 focus-visible:ring-burned-orange/10";
-
-const productOptions = [
-  { key: "cowork", label: "Cowork" },
-  { key: "meeting-room", label: "Meeting room" },
-  { key: "office", label: "Private office" },
-];

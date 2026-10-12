@@ -10,13 +10,6 @@ import {
   workspaceE2EPlaywrightCheckoutTimeout,
 } from "./e2e/timeouts";
 
-const checkoutCaseProjects = [
-  "checkout-non-payment",
-  "checkout-payment-1",
-  "checkout-payment-2",
-  "checkout-payment-3",
-] as const;
-
 export default defineConfig({
   ...workspaceE2EPlaywrightDefaults,
   outputDir: "./e2e-artifacts/checkout",
@@ -61,11 +54,6 @@ export default defineConfig({
       dependencies: ["checkout-setup"],
       name: "checkout-payment-3",
       testMatch: "payment-lane-3.pw.ts",
-    },
-    {
-      dependencies: [...checkoutCaseProjects],
-      name: "checkout-shared-fixture",
-      testMatch: "shared-fixture.pw.ts",
     },
     {
       name: "checkout-cleanup",

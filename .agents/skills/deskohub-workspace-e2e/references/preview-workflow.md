@@ -155,12 +155,11 @@ The in-run contract is:
   waits for every successfully cancelled reservation to leave Dotypos active
   inventory before releasing the run's date shard, including reservations
   already cancelled by case finalizers;
-- Calendar pricing-change scenarios remain one serialized tail until two
-  separate immutable operational events and separate preview-owned definitions
-  have been provisioned for quote-change and payment-change. The regression
-  suite proves distinct event identities and dates do not share transient cache
-  mutations, but that does not replace provisioning the real Preview fixtures
-  and an exact-SHA parallel run.
+- Calendar pricing-change scenarios run as one ordinary non-payment case in
+  the case phase. Their only mutation is the reserved-desk tier target of the
+  stable Calendar definition, and no other case books reserved desk; see
+  "Discount fixtures" below for why the date-keyed discovery cache cannot
+  carry that mutation into another case.
 
 Customer-discount cases mutate only their unique customer's group assignment;
 they never mutate the selected Dotypos discount-group definition. Nexi order
@@ -438,15 +437,26 @@ covers customer-only, customer-plus-code, Calendar-plus-customer, and all three
 sources together. A separate customer's group is cleared after summary
 creation; payment must return `pricing_changed`.
 
-The stable Calendar definition targets the cowork and meeting-room families.
-Calendar pricing-change edge cases use Profi while Calendar happy paths use
-Plus. After every independent Playwright project finishes, the dependent
-shared-fixture project runs one serialized top-level case that removes
-the cowork target after reservation-page advertisement and again after
-signed-summary creation. Each scenario restores the cowork target in an
-interruption-safe finalizer. Both must show the normal pricing-change state with
-no payment attempt. The Calendar event itself remains immutable, and
-meeting-room eligibility is never mutated.
+The stable Calendar definition targets the open-space and reserved-desk cowork
+tiers separately, plus the meeting-room family. Calendar happy paths book open
+space; only the pricing-change case books reserved desk. That case runs in the
+non-payment case project alongside every other case. It advertises both of its
+checkouts first (the payment-change checkout up to its captured pay page), then
+removes only the reserved-desk target once, and restores it in an
+interruption-safe finalizer. Both scenarios must show the normal
+pricing-change state with no payment attempt. The Calendar event itself
+remains immutable; the open-space and meeting-room targets are never mutated.
+
+Concurrent cases cannot observe that mutation. Quote and payment revalidation
+read the definition directly from Postgres, where the open-space row never
+changes. Advertisement reads the `use cache: remote` source keyed by
+deployment and booking date. An entry filled during the removal window, or
+served for up to one `advertisedPricingSources` revalidation after the restore,
+lacks only the reserved-desk target, so it still advertises the sale to every
+open-space and meeting-room checkout. Only reserved-desk advertising can be
+stale, and only this case reads it. A retry of this case can meet its own stale
+entry, which the reload-until-advertised poll absorbs. Keep reserved desk out
+of every other case's checkout, or give a new mutation its own tier.
 
 Calendar all-day expiry is tied to the selected reservation date, so a browser
 case cannot safely wait across its real Prague-midnight boundary. Deterministic
@@ -472,8 +482,9 @@ of four; Plus and Profi Calendar dates stay disjoint from Basic and from one
 another. Playwright owns case scheduling with six workers, so at most six cases
 can enter reservation start at once. The 16 hosted-payment cases are distributed
 across three serial Playwright lanes, keeping at most three hosted sessions
-active while non-payment cases use the remaining workers. Playwright project
-dependencies run the Calendar mutation only after every independent project.
+active while non-payment cases use the remaining workers. The Calendar
+pricing-change case shares the case phase because it mutates only the
+reserved-desk target.
 Each worker owns a database pool capped at two connections. `maxFailures: 1`
 stops new case admission after the first failure; already-running tests finish
 their exact cleanup, and the teardown project reconciles their private cleanup

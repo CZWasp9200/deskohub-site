@@ -45,6 +45,27 @@ describe("discount administration form input", () => {
     }
   });
 
+  test("maps cowork tier keys to tier targets", () => {
+    expect(
+      toCreateDiscountInput(
+        percentageDefinition({
+          products: ["office", "cowork:reserved-desk", "cowork:open-space"],
+        })
+      ).products
+    ).toEqual([
+      { kind: "cowork", tier: "open-space" },
+      { kind: "cowork", tier: "reserved-desk" },
+      { kind: "office" },
+    ]);
+  });
+
+  test("keeps the broad cowork key as the target covering every tier", () => {
+    expect(
+      toCreateDiscountInput(percentageDefinition({ products: ["cowork"] }))
+        .products
+    ).toEqual([{ kind: "cowork" }]);
+  });
+
   test("converts a fixed amount in a known catalog currency", () => {
     expect(
       toCreateDiscountInput(

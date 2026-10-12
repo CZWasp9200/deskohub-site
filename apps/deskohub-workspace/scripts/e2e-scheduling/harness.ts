@@ -60,7 +60,6 @@ type Run = {
 type FailFast = readonly [
   failedTests: number,
   failedTestsAdmitted: number,
-  sharedFixtureAdmitted: boolean,
   cleanupAdmitted: boolean,
   lateAdmissions: number,
 ];
@@ -447,7 +446,6 @@ function summarize(
         (event) => event.event === "test-end" && event.outcome === "failed"
       )
       .map(testKey),
-    sharedFixtureAdmitted: Boolean(range(items, "checkout-shared-fixture")),
     cleanupAdmitted: Boolean(range(items, "checkout-cleanup")),
     lateAdmissions:
       failureAt === undefined
@@ -606,10 +604,6 @@ function assertInterruptedFailure(run: Run, graph: Graph) {
     run.summary.lateAdmissions === 0,
     `${run.scenario} admitted a later test`
   );
-  must(
-    !run.summary.sharedFixtureAdmitted,
-    `${run.scenario} admitted shared fixture`
-  );
   must(!run.summary.cleanupAdmitted, `${run.scenario} admitted cleanup`);
   must(
     !range(run.intervals, accessCodeProject),
@@ -631,7 +625,6 @@ function failFast(run: Run): FailFast {
     failedTests.length,
     failedTests.filter((test) => run.summary.startedTests.includes(test))
       .length,
-    run.summary.sharedFixtureAdmitted,
     run.summary.cleanupAdmitted,
     run.summary.lateAdmissions,
   ];
@@ -702,7 +695,7 @@ function verify(graph: Graph, runs: readonly Run[]) {
     );
   }
   assertInterruptedFailure(checkoutFailure, graph);
-  const expectedFailFast: FailFast = [1, 1, false, false, 0];
+  const expectedFailFast: FailFast = [1, 1, false, 0];
   must(
     JSON.stringify(failFast(checkoutFailure)) ===
       JSON.stringify(expectedFailFast),

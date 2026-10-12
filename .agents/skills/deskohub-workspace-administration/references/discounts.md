@@ -4,7 +4,7 @@ Use the authenticated Workspace administration UI or `dhw` commands for ordinary
 
 ## Mutation boundaries
 
-- Create or update a discount with its complete locale labels, one adjustment, and at least one reservation-family target.
+- Create or update a discount with its complete locale labels, one adjustment, and at least one product target: a reservation family, or a saleable cowork tier (`{kind:"cowork",tier}`). A cowork target without a tier covers every cowork tier. Reject duplicates and any mix of the whole-cowork target with cowork tier targets in the shared contract and when decoding stored definitions.
 - Code creation may create its discount atomically or reference an existing discount.
 - A voucher is a separate promotional-credit resource, never a purchasable product or a variant of `discount_codes`. It has no discount definition or use-count limit; expose issued and remaining credit rather than calling them unlimited.
 - Discount codes and vouchers use separate child tables and claim ledgers. A shared `promotion_codes` registry owns their globally unique entered value, scheduling, enablement, and customer audience.

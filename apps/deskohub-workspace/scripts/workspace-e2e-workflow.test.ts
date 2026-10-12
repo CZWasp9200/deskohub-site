@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { workspaceE2ENonPaymentCaseIds } from "../e2e/playwright-checkout/case-catalog";
 import { runCommand } from "./shared/command";
 import {
   findStepByName,
@@ -385,11 +386,17 @@ describe("workspace E2E workflow", () => {
     }
   });
 
-  test("preserves discount seeding after the case phase", async () => {
+  test("runs the Calendar pricing-change case in the case phase without a tail project", async () => {
     const playwrightConfig = await playwrightConfigStructure();
+
+    // The case only mutates the reserved-desk Calendar target, which no other
+    // case books, so it no longer needs a project after the case phase.
     expect(
-      projectByName(playwrightConfig, "checkout-shared-fixture")?.dependencies
-    ).toEqual(checkoutCaseProjectNames);
+      projectByName(playwrightConfig, "checkout-shared-fixture")
+    ).toBeUndefined();
+    expect(workspaceE2ENonPaymentCaseIds).toContain(
+      "calendar-sale-pricing-changes"
+    );
   });
 
   test("runs read-only navigation beside the checkout graph without gating it", async () => {

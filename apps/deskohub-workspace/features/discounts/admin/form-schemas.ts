@@ -1,4 +1,12 @@
 import { Schema } from "effect";
+import {
+  findWorkspaceProductTargetsIssue,
+  type WorkspaceProductTargetKey,
+} from "@/features/discounts/product-target";
+import {
+  discountProductTargetKeys,
+  toDiscountProductTargets,
+} from "./product-target-options";
 
 const minorUnitsField = Schema.String.check(
   Schema.isNonEmpty({ message: "Enter a value in minor units." }),
@@ -51,6 +59,7 @@ type DiscountDefinitionCheckValues = {
   readonly percentage: string;
   readonly fixedAmountValue: string;
   readonly fixedAmountCurrency: string;
+  readonly products: readonly WorkspaceProductTargetKey[];
 };
 
 // The inactive adjustment branch keeps its permissive string value, so only
@@ -125,6 +134,17 @@ const definitionFilters = <Values extends DiscountDefinitionCheckValues>(
           issue: "Choose a currency.",
         }
     ),
+    Schema.makeFilter<Values>(
+      (values) =>
+        !applies(values) ||
+        findWorkspaceProductTargetsIssue(
+          toDiscountProductTargets(values.products)
+        ) === undefined || {
+          path: ["products"],
+          issue:
+            "Choose either all cowork tiers or specific cowork tiers, not both.",
+        }
+    ),
   ] as const;
 
 // Fields stay permissive strings so the form-value shape is stable while a
@@ -139,7 +159,7 @@ const permissiveDiscountDefinitionFields = {
   percentage: Schema.String,
   fixedAmountValue: Schema.String,
   fixedAmountCurrency: Schema.String,
-  products: Schema.Array(Schema.String),
+  products: Schema.Array(Schema.Literals(discountProductTargetKeys)),
 };
 
 const discountCodeConfigurationFields = {

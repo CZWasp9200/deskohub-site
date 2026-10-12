@@ -3,6 +3,7 @@ export const workspaceE2ENonPaymentCaseIds = [
   "contact-form",
   "reservation-replacement",
   "checkout-zero-total",
+  "calendar-sale-pricing-changes",
   "checkout-meeting-room-zero-total-four-hours",
   "meeting-room-reservation-replacement",
   "reservation-link-meeting-room-zero-total-en-US",
@@ -49,14 +50,9 @@ export const workspaceE2EPaymentCaseLanes = [
   ],
 ] as const;
 
-export const workspaceE2ESharedFixtureCaseIds = [
-  "calendar-sale-pricing-changes",
-] as const;
-
 export const workspaceE2ECaseIds = [
   ...workspaceE2ENonPaymentCaseIds,
   ...workspaceE2EPaymentCaseLanes.flat(),
-  ...workspaceE2ESharedFixtureCaseIds,
 ] as const;
 
 export type WorkspaceE2ECaseId = (typeof workspaceE2ECaseIds)[number];
