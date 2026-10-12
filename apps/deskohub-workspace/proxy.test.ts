@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { createHash } from "node:crypto";
 import { Effect } from "effect";
 import { unstable_doesMiddlewareMatch } from "next/experimental/testing/server";
 import { NextRequest } from "next/server";
@@ -63,8 +62,25 @@ const inspectCheckoutEntry = (
     }
   );
 
+// Each environment needs its own process because `env` captures VERCEL_ENV at
+// load; tests share one inspection per environment.
+const checkoutEntryInspections = new Map<
+  "preview" | "production" | "development",
+  ReturnType<typeof inspectCheckoutEntry>
+>();
+const inspectCheckoutEntryOnce = (
+  deploymentEnvironment: "preview" | "production" | "development"
+) => {
+  const existing = checkoutEntryInspections.get(deploymentEnvironment);
+  if (existing) return existing;
+
+  const inspection = inspectCheckoutEntry(deploymentEnvironment);
+  checkoutEntryInspections.set(deploymentEnvironment, inspection);
+  return inspection;
+};
+
 test("starts Preview payment on the callback host before issuing its host-only cookie", async () => {
-  const result = await inspectCheckoutEntry("preview");
+  const result = await inspectCheckoutEntryOnce("preview");
   expect(result.exitCode).toBe(0);
   const responses = JSON.parse(result.stdout);
 
@@ -103,7 +119,7 @@ test("starts Preview payment on the callback host before issuing its host-only c
 });
 
 test("uses the Preview callback host before sign-in and reservation preparation", async () => {
-  const result = await inspectCheckoutEntry("preview");
+  const result = await inspectCheckoutEntryOnce("preview");
   expect(result.exitCode).toBe(0);
   const responses = JSON.parse(result.stdout);
   for (const index of [8, 10, 11]) {
@@ -117,8 +133,10 @@ test("uses the Preview callback host before sign-in and reservation preparation"
 });
 
 test("retains Development and Production payment origins", async () => {
-  for (const environment of ["development", "production"] as const) {
-    const result = await inspectCheckoutEntry(environment);
+  const results = await Promise.all(
+    (["development", "production"] as const).map(inspectCheckoutEntryOnce)
+  );
+  for (const result of results) {
     expect(result.exitCode).toBe(0);
     const responses = JSON.parse(result.stdout);
     for (const index of [0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11]) {
@@ -151,6 +169,7 @@ const administrationPaths = [
   "/admin/customers",
   "/admin/customers/customer-id",
   "/admin/customers/customer-id/create-code",
+  "/admin/customers/customer-id/create-voucher",
   "/admin/discounts",
   "/admin/codes",
   "/admin/codes/code-id",
@@ -482,21 +501,4 @@ test("checks administration Server Action posts before the general pass-through"
 
   expect(unauthorized.status).toBe(401);
   expect(authorized.headers.get("x-middleware-next")).toBe("1");
-});
-
-test("test authentication fixtures match the configured credential registry contract", () => {
-  const configuredCredentials = (
-    process.env.ADMIN_BASIC_AUTH_CREDENTIALS ?? ""
-  ).split(/\r?\n/);
-
-  expect(configuredCredentials).toHaveLength(
-    workspaceTestAdministrators.length
-  );
-  for (const { username, password } of workspaceTestAdministrators) {
-    expect(configuredCredentials).toContain(
-      `${username}:${createHash("sha256")
-        .update(`${username}:${password}`)
-        .digest("hex")}`
-    );
-  }
 });

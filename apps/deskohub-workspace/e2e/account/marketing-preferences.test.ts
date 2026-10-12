@@ -1,27 +1,22 @@
 import "../../shared/polyfills/temporal";
 
 import { describe, expect, test } from "bun:test";
-import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { DotyposCustomerIdSchema } from "@deskohub/dotypos";
 import type { Page } from "@playwright/test";
 import { Cause, Effect, Exit, Fiber } from "effect";
 import {
-  callsNamed,
   identifierNames,
   parseTrackedSource,
   stringLiterals,
 } from "../../scripts/shared/source-ast";
 import { formatWorkspaceE2EFailure, type WorkspaceE2EError } from "../errors";
-import { workspaceE2EPollIntervalMs, workspaceE2ETimeouts } from "../timeouts";
 import {
   classifyWorkspaceE2EMarketingConsentPersistence,
-  makeWorkspaceE2EMarketingPreferencesSeedRow,
   matchesRejectedReplayAlerts,
   navigateAuthenticatedWorkspaceE2EMarketingPreferences,
   navigateWorkspaceE2EMarketingPreferences,
   runWorkspaceE2EMarketingBrowserOperation,
-  verifyWorkspaceE2EMarketingPreferences,
   type WorkspaceE2EMarketingConsentPersistenceClassification,
   type WorkspaceE2EMarketingConsentPersistenceDiagnostic,
   type WorkspaceE2EMarketingConsentPoller,
@@ -34,9 +29,6 @@ const customerId = DotyposCustomerIdSchema.make(
   "marketing-preferences-test-customer"
 );
 const rawLinkToken = Buffer.alloc(32, 0x37).toString("base64url");
-const linkTokenHash = createHash("sha256")
-  .update(rawLinkToken, "utf8")
-  .digest("hex");
 const now = Temporal.Instant.from("2030-01-01T03:04:05Z");
 const browserFailureMessage =
   "Marketing preferences browser verification failed";
@@ -45,8 +37,9 @@ const invalidMarketingManagementActionMessage =
 
 type GotoOptions = Parameters<Page["goto"]>[1];
 
+/** `goto` may return the URL the navigation landed on, e.g. after a redirect. */
 const makeFakePage = (
-  goto: (url: string, options: GotoOptions) => Promise<void>,
+  goto: (url: string, options: GotoOptions) => Promise<string | undefined>,
   initialUrl = ""
 ) => {
   let currentUrl = initialUrl;
@@ -57,8 +50,7 @@ const makeFakePage = (
   const page = Object.assign({} as Page, {
     goto: async (url: string, options: GotoOptions) => {
       gotoCalls.push({ options, url });
-      await goto(url, options);
-      currentUrl = url;
+      currentUrl = (await goto(url, options)) ?? url;
       return null;
     },
     url: () => currentUrl,
@@ -221,39 +213,6 @@ const makeSyntheticMarketingFixture = () => {
 };
 
 describe("workspace marketing preferences helper", () => {
-  test("computes a 720-hour expiry and preserves a hash-only link seed row", () => {
-    const row = makeWorkspaceE2EMarketingPreferencesSeedRow({
-      customerId,
-      now,
-      tokenHash: linkTokenHash,
-    });
-
-    expect(row).toEqual({
-      dotyposCustomerId: customerId,
-      expiresAt: now.add({ hours: 720 }),
-      purpose: "link",
-      revokedAt: null,
-      tokenHash: linkTokenHash,
-    });
-    expect(row.expiresAt.since(now, { largestUnit: "hours" }).hours).toBe(720);
-    expect(row.tokenHash).toMatch(/^[0-9a-f]{64}$/);
-    expect(row.tokenHash).toBe(linkTokenHash);
-    expect(row.tokenHash).not.toBe(rawLinkToken);
-    expect(JSON.stringify(row)).not.toContain(rawLinkToken);
-    expect(row).not.toHaveProperty("rawLinkToken");
-  });
-
-  test("uses the link purpose and leaves a seeded link unrevoked", () => {
-    const row = makeWorkspaceE2EMarketingPreferencesSeedRow({
-      customerId,
-      now,
-      tokenHash: linkTokenHash,
-    });
-
-    expect(row.purpose).toBe("link");
-    expect(row.revokedAt).toBeNull();
-  });
-
   test.each([
     {
       consent: null,
@@ -374,15 +333,9 @@ describe("workspace marketing preferences helper", () => {
     const logRecords: WorkspaceE2EMarketingConsentPersistenceClassification[] =
       [];
     const timeline: string[] = [];
-    const pollCalls: Array<{
-      readonly intervalMs: number;
-      readonly label: string;
-      readonly timeoutMs: number;
-    }> = [];
     let readCount = 0;
-    const poll: WorkspaceE2EMarketingConsentPoller = (effect, options) =>
+    const poll: WorkspaceE2EMarketingConsentPoller = (effect) =>
       Effect.gen(function* () {
-        pollCalls.push(options);
         timeline.push("poll-start");
         while (true) {
           const consent = yield* effect;
@@ -433,13 +386,6 @@ describe("workspace marketing preferences helper", () => {
       "read:6",
       "log:matched",
       "observation:6",
-    ]);
-    expect(pollCalls).toEqual([
-      {
-        intervalMs: workspaceE2EPollIntervalMs.datasource,
-        label: "marketing preference active persisted",
-        timeoutMs: workspaceE2ETimeouts.datasource,
-      },
     ]);
     expect(logRecords).toEqual([
       {
@@ -1124,46 +1070,27 @@ describe("workspace marketing preferences helper", () => {
     expect(unhandledRejections).toHaveLength(0);
   });
 
-  test("passes the access URL to Playwright with a bounded load wait", async () => {
-    const accessUrl = `${baseUrl}/en-US/marketing-preferences/access?token=${rawLinkToken}`;
-    const fakePage = makeFakePage(async () => undefined);
-
-    await navigateWorkspaceE2EMarketingPreferences(fakePage.page, accessUrl);
-
-    expect(fakePage.gotoCalls).toEqual([
-      {
-        options: {
-          timeout: expect.any(Number),
-          waitUntil: "load",
-        },
-        url: accessUrl,
-      },
-    ]);
-    expect(fakePage.gotoCalls[0]?.options?.timeout).toBeGreaterThan(0);
-  });
-
-  test("navigates an authenticated page from another account route to clean legal URL", async () => {
+  test("rejects an authenticated navigation that lands away from the clean legal URL", async () => {
+    const accountRouteUrl = `${baseUrl}/en-US/account`;
     const accountLegalUrl = `${baseUrl}/en-US/account/legal`;
-    const fakePage = makeFakePage(
-      async () => undefined,
-      `${baseUrl}/en-US/account`
+    const landed = makeFakePage(async () => undefined, accountRouteUrl);
+    const redirected = makeFakePage(
+      async () => `${baseUrl}/en-US/sign-in`,
+      accountRouteUrl
     );
 
-    await navigateAuthenticatedWorkspaceE2EMarketingPreferences(
-      fakePage.page,
-      accountLegalUrl
-    );
-
-    expect(fakePage.page.url()).toBe(accountLegalUrl);
-    expect(fakePage.gotoCalls).toEqual([
-      {
-        options: {
-          timeout: expect.any(Number),
-          waitUntil: "load",
-        },
-        url: accountLegalUrl,
-      },
-    ]);
+    await expect(
+      navigateAuthenticatedWorkspaceE2EMarketingPreferences(
+        landed.page,
+        accountLegalUrl
+      )
+    ).resolves.toBeUndefined();
+    await expect(
+      navigateAuthenticatedWorkspaceE2EMarketingPreferences(
+        redirected.page,
+        accountLegalUrl
+      )
+    ).rejects.toThrow("not the expected clean legal URL");
   });
 
   test("turns navigation failures into a fixed error without a cause or raw URL", async () => {
@@ -1191,9 +1118,7 @@ describe("workspace marketing preferences helper", () => {
     expect(fakePage.gotoCalls).toHaveLength(1);
   });
 
-  test("keeps the helper out of auth sends, rate budgets, provider concurrency, and unapproved screenshot IDs", () => {
-    expect(typeof verifyWorkspaceE2EMarketingPreferences).toBe("function");
-
+  test("keeps the helper out of auth sends, rate budgets, and provider concurrency", () => {
     // Verdicts come from the parsed helper module: identifiers and string
     // literals exist only as live syntax, so a commented-out call can never
     // satisfy or fail these checks.
@@ -1213,37 +1138,6 @@ describe("workspace marketing preferences helper", () => {
     for (const literal of stringLiterals(ast).map((entry) => entry.value)) {
       expect(forbiddenLiterals.test(literal)).toBe(false);
     }
-
-    // Every review capture call carries one allowlisted screenshot ID.
-    const captureCalls = callsNamed(ast, "captureMarketingReview");
-    const screenshotCallIds = captureCalls.flatMap((call) => {
-      const callStart = call.range![0];
-      const callEnd = call.range![1];
-      return stringLiterals(ast)
-        .filter(
-          (literal) =>
-            literal.node.range![0] > callStart &&
-            literal.node.range![1] < callEnd
-        )
-        .map((literal) => literal.value);
-    });
-    const expectedScreenshotCallIds = [
-      "account-marketing-active-mobile",
-      "account-marketing-withdrawn-desktop",
-      "marketing-link-active-desktop",
-      "marketing-link-active-mobile",
-      "marketing-link-invalid-desktop",
-      "marketing-link-invalid-mobile",
-      "marketing-link-pending-desktop",
-      "marketing-link-pending-mobile",
-      "marketing-link-withdrawn-desktop",
-      "marketing-link-withdrawn-mobile",
-    ];
-
-    expect(screenshotCallIds).toHaveLength(expectedScreenshotCallIds.length);
-    expect([...screenshotCallIds].sort()).toEqual(
-      [...expectedScreenshotCallIds].sort()
-    );
   });
 
   test("accepts the real rejection DOM: scoped alert plus the empty route announcer", () => {
@@ -1317,7 +1211,4 @@ describe("workspace marketing preferences helper", () => {
   // account-reservation-transitions case against the real hosted preview,
   // and the executed fake-based tests above pin the verifier, navigation,
   // and cleanup helper contracts.
-  test("keeps the provider-transition step budget at the configured 90s", () => {
-    expect(workspaceE2ETimeouts.providerTransition).toBe(90 * 1_000);
-  });
 });

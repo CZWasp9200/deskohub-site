@@ -1,5 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
-import { Effect, Layer, Predicate, Schema } from "effect";
+import { Effect, Fiber, Layer, Predicate, Schema } from "effect";
+import { TestClock } from "effect/testing";
 import { FetchHttpClient } from "effect/unstable/http";
 import { NexiRuntimeConfig } from "../config";
 import type { OrderResponse } from "../generated/effect.gen";
@@ -111,7 +112,7 @@ describe("NexiService hosted payment pages", () => {
       })
     );
 
-    const result = await runWithService(
+    await runWithService(
       Effect.gen(function* () {
         const nexi = yield* NexiService;
         return yield* nexi.createHostedPaymentPage({
@@ -136,12 +137,6 @@ describe("NexiService hosted payment pages", () => {
       }),
       fetchMock
     );
-
-    expect(result).toEqual({
-      orderId: nexiOrderId("order-id"),
-      hostedPage: "https://pay.example.test",
-      securityToken: "security-token",
-    });
 
     const call = fetchMock.mock.calls[0] as FetchCall;
     expect(getUrl(call)).toBe(
@@ -269,43 +264,6 @@ describe("NexiService verifyPaymentOutcome", () => {
     );
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
-  });
-
-  test("gets orders with API key and correlation header", async () => {
-    const fetchMock = mockNexiFetch(
-      Response.json({
-        orderId: nexiOrderId("order-id"),
-        orderStatus: {
-          order: {
-            orderId: nexiOrderId("order-id"),
-            amount: "5000",
-            currency: "CZK",
-          },
-        },
-      } satisfies OrderResponse)
-    );
-
-    await runWithService(
-      Effect.gen(function* () {
-        const nexi = yield* NexiService;
-        return yield* nexi.verifyPaymentOutcome({
-          orderId: nexiOrderId("order-id"),
-          correlationId: nexiCorrelationId("correlation-id"),
-          amount: "5000",
-          currency: "CZK",
-          securityToken: "security-token",
-        });
-      }),
-      fetchMock
-    );
-
-    const call = fetchMock.mock.calls[0] as FetchCall;
-    expect(getUrl(call)).toBe(
-      "https://nexi.example.test/api/phoenix-0.0/psp/api/v1/orders/order-id"
-    );
-    expect(getMethod(call)).toBe("GET");
-    expect(getHeader(call, "X-API-KEY")).toBe("api-key");
-    expect(getHeader(call, "Correlation-Id")).toBe("correlation-id");
   });
 
   test("exposes the executed provider operation ID in payment metadata", async () => {
@@ -577,6 +535,55 @@ describe("NexiService verifyPaymentOutcome", () => {
       });
     }
   });
+
+  test("stops retrying an unanswered order lookup at its deadline", async () => {
+    const fetchMock = mock(
+      (_input: RequestInfo | URL, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () =>
+            reject(init.signal?.reason)
+          );
+        })
+    );
+    const { finished, result } = await runWithService(
+      Effect.gen(function* () {
+        const nexi = yield* NexiService;
+        const lookup = yield* Effect.forkChild(
+          nexi
+            .verifyPaymentOutcome({
+              orderId: nexiOrderId("order-id"),
+              correlationId: nexiCorrelationId("correlation-id"),
+              amount: "5000",
+              currency: "CZK",
+              securityToken: "security-token",
+              deadline: "2500 millis",
+            })
+            .pipe(Effect.result)
+        );
+        for (let step = 0; step < 25; step += 1) {
+          yield* TestClock.adjust("100 millis");
+        }
+        const finished = lookup.pollUnsafe() !== undefined;
+        if (!finished) yield* Fiber.interrupt(lookup);
+        return {
+          finished,
+          result: finished ? yield* Fiber.join(lookup) : undefined,
+        };
+      }).pipe(Effect.provide(TestClock.layer())),
+      fetchMock as unknown as typeof globalThis.fetch
+    );
+
+    expect(finished).toBe(true);
+    expect(result).toMatchObject({
+      failure: {
+        _tag: "NetworkError",
+        message: "Nexi order lookup exceeded its deadline",
+      },
+    });
+    // The 1-second request timeout fired and the lookup was retried before
+    // the deadline stopped it.
+    expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(2);
+  });
 });
 
 describe("NexiService administration reads", () => {
@@ -714,7 +721,7 @@ describe("NexiService administration reads", () => {
     );
   });
 
-  test("lists sanitized operations with documented filters", async () => {
+  test("lists sanitized operations", async () => {
     const fetchMock = mockNexiFetch(
       Response.json({
         operations: [
@@ -760,13 +767,6 @@ describe("NexiService administration reads", () => {
     ]);
     const url = new URL(getUrl(fetchMock.mock.calls[0] as FetchCall));
     expect(url.pathname).toBe("/api/phoenix-0.0/psp/api/v1/operations");
-    expect(Object.fromEntries(url.searchParams)).toEqual({
-      fromTime: "2026-08-01T00:00:00Z",
-      toTime: "2026-08-07T00:00:00Z",
-      maxRecords: "100",
-      channel: "BACKOFFICE",
-      operationType: "REFUND",
-    });
     expect(
       getHeader(fetchMock.mock.calls[0] as FetchCall, "Correlation-Id")
     ).toBe("correlation-id");

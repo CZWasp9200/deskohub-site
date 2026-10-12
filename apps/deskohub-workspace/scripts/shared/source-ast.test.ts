@@ -1,18 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import type { TSESTree } from "@typescript-eslint/types";
 import {
-  awaitedCallsInOrder,
   callsNamed,
   containsNode,
-  exportedNames,
   identifierNames,
-  importSpecifiers,
   methodCallsNamed,
   parseSource,
   parseTrackedSource,
-  positionDelta,
-  propertyAssignments,
-  stringArguments,
   stringLiterals,
   topLevelConstInitializer,
 } from "./source-ast";
@@ -48,34 +41,6 @@ describe("source-ast structured checks", () => {
     expect(callsNamed(commentOnly, "captureAccountReview")).toHaveLength(0);
   });
 
-  test("reordered awaited calls fail a source-order assertion", () => {
-    const ordered = parseSource(
-      ["await remove(invoiceEmailDeliveries);", "await remove(invoices);"].join(
-        "\n"
-      )
-    );
-    const unordered = parseSource(
-      ["await remove(invoices);", "await remove(invoiceEmailDeliveries);"].join(
-        "\n"
-      )
-    );
-    const orderedDeletes = awaitedCallsInOrder(ordered, "remove");
-    expect(positionDelta(orderedDeletes[0]!, orderedDeletes[1]!)).toBeLessThan(
-      0
-    );
-    const unorderedDeletes = awaitedCallsInOrder(unordered, "remove");
-    const argumentName = (call: (typeof unorderedDeletes)[number]): string =>
-      call.arguments[0]?.type === "Identifier" ? call.arguments[0].name : "";
-    const deliveries = unorderedDeletes.find(
-      (call) => argumentName(call) === "invoiceEmailDeliveries"
-    )!;
-    const invoices = unorderedDeletes.find(
-      (call) => argumentName(call) === "invoices"
-    )!;
-    // The required contract order (deliveries before invoices) fails loudly.
-    expect(positionDelta(deliveries, invoices)).toBeGreaterThan(0);
-  });
-
   test("containment scopes verdicts to one block, not sibling code", () => {
     const ast = parseSource(
       [
@@ -101,26 +66,7 @@ describe("source-ast structured checks", () => {
     }
   });
 
-  test("object property and literal verdicts are key-based, not position-based", () => {
-    const ast = parseSource(
-      [
-        "const mapping = {",
-        "  profile: undefined,",
-        '  reservations: "linked-reservations-mobile",',
-        "};",
-      ].join("\n")
-    );
-    const initializer = topLevelConstInitializer(ast, "mapping");
-    expect(initializer?.type).toBe("ObjectExpression");
-    const properties = propertyAssignments(
-      initializer as TSESTree.ObjectExpression
-    );
-    expect(properties.has("profile")).toBe(true);
-    expect(properties.has("reservations")).toBe(true);
-    expect(properties.has("legal")).toBe(false);
-  });
-
-  test("method calls, string arguments, imports, and exports resolve", () => {
+  test("method calls, string literals, and identifiers resolve", () => {
     const ast = parseSource(
       [
         'import { Effect } from "effect";',
@@ -130,13 +76,7 @@ describe("source-ast structured checks", () => {
         "if (missing.length > 0) process.stdout.write(stripped);",
       ].join("\n")
     );
-    expect(importSpecifiers(ast)).toEqual(["effect", "./side-effect"]);
-    expect(exportedNames(ast)).toEqual(["site"]);
     expect(methodCallsNamed(ast, "replace")).toHaveLength(1);
-    expect(stringArguments(methodCallsNamed(ast, "replace")[0]!)).toEqual([
-      "GITHUB_OUTPUT",
-      "",
-    ]);
     expect(stringLiterals(ast).map((literal) => literal.value)).toContain(
       "workspace.deskohub.cz"
     );
@@ -147,8 +87,6 @@ describe("source-ast structured checks", () => {
   test("parses a real tracked module with the same verdicts", () => {
     const { ast } = parseTrackedSource(fixturePath);
     expect(callsNamed(ast, "captureAccountReview")).toHaveLength(2);
-    const captures = awaitedCallsInOrder(ast, "captureAccountReview");
-    expect(positionDelta(captures[0]!, captures[1]!)).toBeLessThan(0);
   });
 
   test("a renamed callee breaks the check instead of matching stale text", () => {

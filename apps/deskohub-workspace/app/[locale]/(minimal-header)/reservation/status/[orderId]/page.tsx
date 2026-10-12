@@ -12,7 +12,10 @@ import {
   workspaceSiteConstants,
 } from "@/shared/utils";
 
-export const maxDuration = 30;
+// The status refresh bounds its Nexi verification at 40 seconds (one full
+// sandbox-length request; see checkout-status.service.ts) and its Dotypos
+// reads at 8 seconds, leaving time to render the stored status.
+export const maxDuration = 60;
 export const instant = true;
 
 type LocalizedCheckoutStatusPageProps = {

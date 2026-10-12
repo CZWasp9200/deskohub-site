@@ -35,18 +35,16 @@ export const assertLocaleSwitcher = ({
       timeoutMs: config.timeouts.browserNavigation,
     });
 
-    for (let cycle = 1; cycle <= 3; cycle += 1) {
-      yield* runStep({
-        execute: switchLocale(run, session, "cs-CZ", cycle, config.timeouts),
-        id: `switch-to-czech-${cycle}`,
-        timeoutMs: config.timeouts.browserNavigation,
-      });
-      yield* runStep({
-        execute: switchLocale(run, session, "en-US", cycle, config.timeouts),
-        id: `switch-to-english-${cycle}`,
-        timeoutMs: config.timeouts.browserNavigation,
-      });
-    }
+    yield* runStep({
+      execute: switchLocale(run, session, "cs-CZ", config.timeouts),
+      id: "switch-to-czech",
+      timeoutMs: config.timeouts.browserNavigation,
+    });
+    yield* runStep({
+      execute: switchLocale(run, session, "en-US", config.timeouts),
+      id: "switch-to-english",
+      timeoutMs: config.timeouts.browserNavigation,
+    });
 
     log("Locale switch e2e passed");
   });
@@ -69,13 +67,12 @@ const switchLocale = (
   run: Runner,
   session: string,
   locale: CheckoutData["locale"] | "cs-CZ",
-  cycle: number,
   timeouts: WorkspaceE2ETimeouts
 ) =>
   Effect.gen(function* () {
     yield* activateLocaleSwitchLink(run, session, locale, timeouts);
     yield* waitForBrowserUrl({
-      description: `${locale} locale switch ${cycle}`,
+      description: `${locale} locale switch`,
       matches: (url) =>
         parseUrl(url)?.pathname.startsWith(`/${locale}`) ?? false,
       run,

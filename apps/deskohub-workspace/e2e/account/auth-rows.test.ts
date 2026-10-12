@@ -2,12 +2,10 @@ import { describe, expect, test } from "bun:test";
 import type { SQL } from "drizzle-orm";
 import { PgDialect } from "drizzle-orm/pg-core";
 import { Cause, Effect, Exit } from "effect";
-import { customerAccountLinks } from "@/db/schema/customer-account-links";
 import { E2EDatabase } from "../integrations/database.service";
 import {
   classifyWorkspaceE2EAccountState,
   removeSyntheticAccountLink,
-  type WorkspaceE2EAccountState,
 } from "./auth-rows";
 
 describe("workspace account e2e account state classification", () => {
@@ -37,15 +35,6 @@ describe("workspace account e2e account state classification", () => {
       })
     ).toBe("linked");
   });
-
-  test("keeps the state values fixed and low-cardinality", () => {
-    const states: readonly WorkspaceE2EAccountState[] = [
-      "linked",
-      "missing",
-      "unlinked",
-    ];
-    expect([...states].sort()).toEqual(["linked", "missing", "unlinked"]);
-  });
 });
 
 type SyntheticLink = {
@@ -58,21 +47,15 @@ const makeFakeDatabase = (input: {
   readonly returnedRows?: readonly { readonly customerAccountId: string }[];
 }) => {
   const rows = [...input.rows];
-  const captured: {
-    table?: unknown;
-    where?: SQL;
-    returning?: Record<string, unknown>;
-  } = {};
+  const captured: { where?: SQL } = {};
 
   const db = {
-    delete: (table: unknown) => {
-      captured.table = table;
+    delete: (_table: unknown) => {
       return {
         where: (condition: SQL) => {
           captured.where = condition;
           return {
-            returning: (selection: Record<string, unknown>) => {
-              captured.returning = selection;
+            returning: (_selection: Record<string, unknown>) => {
               return Effect.sync(() => {
                 const { params } = new PgDialect().sqlToQuery(condition);
                 const [accountId, customerId] = params;
@@ -152,10 +135,6 @@ describe("removeSyntheticAccountLink", () => {
         dotyposCustomerId: "customer-other",
       },
     ]);
-    expect(database.captured.table).toBe(customerAccountLinks);
-    expect(database.captured.returning).toEqual({
-      customerAccountId: customerAccountLinks.customerAccountId,
-    });
     expect(database.captured.where).toBeDefined();
     const query = new PgDialect().sqlToQuery(database.captured.where!);
     expect(query.sql).toBe(

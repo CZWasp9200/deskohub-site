@@ -24,16 +24,26 @@
     "indentStyle": "space"
   },
   "plugins": [
+    "./lint/no-backend-runtime-directives.grit",
+    "./lint/no-better-auth-in-account-domain.grit",
+    "./lint/no-blocking-administration-routes.grit",
     "./lint/no-chained-type-assertions.grit",
     "./lint/no-conditional-empty-object-spread.grit",
     "./lint/no-direct-effect-runs.grit",
     "./lint/no-direct-next-effect-imports.grit",
     "./lint/no-direct-process-env.grit",
+    "./lint/no-eager-feature-flag-providers.grit",
+    "./lint/no-heavy-breadcrumb-imports.grit",
     "./lint/no-known-value-widening.grit",
+    "./lint/no-local-administration-chrome.grit",
+    "./lint/no-next-runtime-imports-in-standalone-modules.grit",
     "./lint/no-object-parameters.grit",
+    "./lint/no-raw-environment-in-e2e-launcher.grit",
     "./lint/no-repeated-computed-conditional-operand.grit",
     "./lint/no-runtime-typeof.grit",
+    "./lint/no-server-env-in-client-modules.grit",
     "./lint/no-shape-in-symbol-names.grit",
+    "./lint/no-standalone-capability-layers.grit",
     "./lint/no-synchronous-subprocess.grit",
     "./lint/no-throw-in-workspace-effect-modules.grit",
     "./lint/no-unknown-parameters.grit",
@@ -77,6 +87,94 @@
         "rules": {
           "suspicious": {
             "noConsole": "error"
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "apps/deskohub-workspace/features/account/**",
+        "!apps/deskohub-workspace/features/account/auth.client.ts",
+        "!apps/deskohub-workspace/features/account/backend/auth/**",
+        "!apps/deskohub-workspace/features/account/backend/customer-authentication.service.ts",
+        "!apps/deskohub-workspace/features/account/**/*.test.ts",
+        "!apps/deskohub-workspace/features/account/**/*.test.tsx"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": [
+                      "better-auth",
+                      "better-auth/**",
+                      "@better-auth/**"
+                    ],
+                    "message": "Import Better Auth only inside the account auth boundary (backend/auth, the CustomerAuthentication session adapter, and auth.client.ts)."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "apps/deskohub-workspace/features/account/backend/auth/**",
+        "apps/deskohub-workspace/features/account/backend/customer-authentication.service.ts"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  "better-auth/client": "The browser auth client lives only in features/account/auth.client.ts.",
+                  "better-auth/react": "The browser auth client lives only in features/account/auth.client.ts.",
+                  "better-auth/next-js": {
+                    "importNames": ["toNextJsHandler"],
+                    "message": "The auth route calls auth.handler directly so it can force private, no-store responses."
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "apps/deskohub-workspace/app/admin/**",
+        "apps/deskohub-workspace/features/accounting/admin/**",
+        "apps/deskohub-workspace/features/admin-cli/**",
+        "apps/deskohub-workspace/features/administration/**",
+        "apps/deskohub-workspace/features/discounts/admin/**",
+        "!apps/deskohub-workspace/features/administration/data-table.tsx",
+        "!apps/deskohub-workspace/features/administration/sort-head.tsx",
+        "!apps/deskohub-workspace/features/administration/table-toolbar.tsx"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  "@/shared/components/ui/table": "Compose administration tables through AdministrationDataTable.",
+                  "@/shared/components/ui/badge": "Use the shared administration table toolbar and count badge.",
+                  "@/shared/administrator/administrator-basic-auth": "Administration pages authorize only through authorizeAdministratorPage; Basic Auth credentials stay inside the shared gate and the proxy.",
+                  "next/server": {
+                    "importNames": ["connection"],
+                    "message": "Administration pages establish the request boundary only through authorizeAdministratorPage."
+                  }
+                }
+              }
+            }
           }
         }
       }

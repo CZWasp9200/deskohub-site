@@ -1,5 +1,5 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { Effect, type Layer } from "effect";
+import type { Effect, Layer } from "effect";
 import type {
   ActionCallbacks,
   EffectiveThrows,
@@ -18,6 +18,7 @@ import {
   type ExecuteRun,
   execute,
 } from "./internal/executor";
+import { makeSharedLayerProvider } from "./internal/shared-layer";
 
 type SchemaInput<S extends StandardSchemaV1> = StandardSchemaV1.InferInput<S>;
 type SchemaOutput<S extends StandardSchemaV1> = StandardSchemaV1.InferOutput<S>;
@@ -47,7 +48,10 @@ interface EffectActionRunnableOptions extends EffectActionBaseOptions {
 }
 
 interface EffectActionLayerOptions<R, LE> extends EffectActionBaseOptions {
+  /** Built once, on first action run, and shared by every later run. */
   readonly layer: Layer.Layer<R, LE, never>;
+  /** Lets other runtimes reuse layers this client has already built. */
+  readonly memoMap?: Layer.MemoMap;
 }
 
 export type EffectActionOptions<R = never, LE = never> =
@@ -363,8 +367,12 @@ function fromClient(
   options: EffectActionOptions<unknown, unknown> = {}
 ): unknown {
   if (options.layer) {
+    const provideLayer = makeSharedLayerProvider(
+      options.layer,
+      options.memoMap
+    );
     return makeEffectActionClient(actionClient, (effect) =>
-      execute(Effect.provide(effect, options.layer), getExecuteOptions(options))
+      execute(provideLayer(effect), getExecuteOptions(options))
     );
   }
 

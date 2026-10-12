@@ -33,6 +33,7 @@ describe("getReservationExistingCustomerForm", () => {
     expect(
       getReservationExistingCustomerForm({
         contact,
+        hasMarketingConsent: false,
         queryMode: undefined,
         restored: false,
         values: empty,
@@ -40,6 +41,7 @@ describe("getReservationExistingCustomerForm", () => {
     ).toEqual({
       existingCustomer: {
         contact,
+        hasMarketingConsent: false,
         initialMode: "account",
         otherContact: { name: "", email: "", phone: "" },
       },
@@ -51,6 +53,7 @@ describe("getReservationExistingCustomerForm", () => {
     expect(
       getReservationExistingCustomerForm({
         contact,
+        hasMarketingConsent: false,
         queryMode: "contact",
         restored: false,
         values,
@@ -58,6 +61,7 @@ describe("getReservationExistingCustomerForm", () => {
     ).toEqual({
       existingCustomer: {
         contact,
+        hasMarketingConsent: false,
         initialMode: "contact",
         otherContact: {
           name: values.name,
@@ -72,6 +76,7 @@ describe("getReservationExistingCustomerForm", () => {
   test("books an account link as the account and keeps its contact for someone else", () => {
     const form = getReservationExistingCustomerForm({
       contact: { ...contact, phone: null },
+      hasMarketingConsent: false,
       queryMode: "account",
       restored: false,
       values,
@@ -90,9 +95,22 @@ describe("getReservationExistingCustomerForm", () => {
     });
   });
 
+  test("carries the account's marketing consent to the form", () => {
+    const form = getReservationExistingCustomerForm({
+      contact,
+      hasMarketingConsent: true,
+      queryMode: "contact",
+      restored: false,
+      values,
+    });
+
+    expect(form.existingCustomer.hasMarketingConsent).toBe(true);
+  });
+
   test("reopens a restored checkout in the mode it was submitted in", () => {
     const restoredAccount = getReservationExistingCustomerForm({
       contact,
+      hasMarketingConsent: false,
       queryMode: undefined,
       restored: true,
       values: { ...values, ...contact, email: "ADA@example.com" },
@@ -104,6 +122,7 @@ describe("getReservationExistingCustomerForm", () => {
 
     const restoredContact = getReservationExistingCustomerForm({
       contact,
+      hasMarketingConsent: false,
       queryMode: "account",
       restored: true,
       values,

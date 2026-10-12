@@ -179,6 +179,15 @@ const dashboard: DiscountAdminDashboard = {
   },
 };
 
+// The field error matrix lives in form-schemas.test.ts; render tests only
+// check that a failing field shows its message as the input's description.
+const expectFieldError = (field: HTMLElement) => {
+  expect(field.getAttribute("aria-invalid")).toBe("true");
+  const messageId = field.getAttribute("aria-describedby");
+  expect(messageId).toBeTruthy();
+  expect(document.getElementById(messageId!)?.textContent).toBeTruthy();
+};
+
 describe("discount administration pages", () => {
   beforeAll(() => {
     registerWorkspaceComponentTestEnv();
@@ -214,39 +223,6 @@ describe("discount administration pages", () => {
     expect(searchboxes).toHaveLength(1);
     expect(view.getByRole("button", { name: "Find customer" })).toBeDefined();
     expect(view.queryByRole("combobox", { name: "Search by" })).toBeNull();
-  });
-
-  test("uses the shared compact list count on codes and sales", async () => {
-    const { CodesAdministrationActions, CodesAdministrationCollection } =
-      await import("./components");
-    const codes = render(
-      <>
-        <AdministrationTableToolbar
-          actions={<CodesAdministrationActions dashboard={dashboard} />}
-          count={dashboard.codes.length}
-          itemLabel="discount code"
-        />
-        <CodesAdministrationCollection dashboard={dashboard} />
-      </>
-    );
-
-    expect(codes.getByLabelText("1 discount code").textContent).toBe("1");
-    cleanup();
-
-    const { SalesAdministrationActions, SalesAdministrationCollection } =
-      await import("./components");
-    const sales = render(
-      <>
-        <AdministrationTableToolbar
-          actions={<SalesAdministrationActions />}
-          count={dashboard.calendar.events.length}
-          itemLabel="sale"
-        />
-        <SalesAdministrationCollection dashboard={dashboard} />
-      </>
-    );
-
-    expect(sales.getByLabelText("1 sale").textContent).toBe("1");
   });
 
   test("uses a sortable table and a percentage editor with a dirty save state", async () => {
@@ -475,9 +451,6 @@ describe("discount administration pages", () => {
     const view = render(<VouchersAdministrationActions />);
 
     fireEvent.click(view.getByRole("button", { name: "Create a voucher" }));
-    expect(
-      view.getByLabelText("Valid from").closest("div.grid")?.className
-    ).toContain("md:grid-cols-2");
     fireEvent.change(view.getByRole("textbox", { name: "Code" }), {
       target: { value: "gift100" },
     });
@@ -920,27 +893,36 @@ describe("discount administration pages", () => {
       />
     );
     const table = view.getByRole("table", {
-      name: "Customer code eligibility",
+      name: "Customer codes and vouchers",
     });
+    expect(view.queryAllByRole("table", { name: /eligibility/ })).toEqual([]);
+    expect(view.queryByRole("heading", { name: "Vouchers" })).toBeNull();
 
     const createCodeLink = view.getByRole("link", {
-      name: "Create code",
+      name: "Create discount code",
     });
     expect(createCodeLink.getAttribute("href")).toBe(
       "/admin/customers/dotypos-customer/create-code"
     );
-    expect(createCodeLink.className).toContain("text-white");
-    expect(createCodeLink.className).not.toContain("text-black");
+    expect(
+      view.getByRole("link", { name: "Create voucher" }).getAttribute("href")
+    ).toBe("/admin/customers/dotypos-customer/create-voucher");
 
     expect(within(table).getByText("ONLYME")).toBeDefined();
     expect(within(table).getByText("OPEN")).toBeDefined();
     expect(within(table).getByText("AADISABLED")).toBeDefined();
-    const voucherTable = view.getByRole("table", {
-      name: "Customer voucher eligibility",
-    });
-    expect(within(voucherTable).getByText("GIFT100")).toBeDefined();
-    expect(within(voucherTable).getByText(/CZK.?100\.00/)).toBeDefined();
-    expect(within(voucherTable).getByText(/CZK.?65\.00/)).toBeDefined();
+    expect(
+      within(table).getByRole("link", { name: "GIFT100" }).getAttribute("href")
+    ).toBe("/admin/vouchers/019c91dd-c560-7e55-b9d8-c95065efd55d");
+    expect(within(table).getByText(/CZK.?100\.00 credit/)).toBeDefined();
+    expect(within(table).getByText(/CZK.?65\.00 remaining/)).toBeDefined();
+    expect(within(table).getAllByText("Discount code")).toHaveLength(3);
+    expect(within(table).getAllByText("Voucher")).toHaveLength(1);
+    expect(
+      within(table).getByRole("button", {
+        name: "Add Test Customer to GIFT100",
+      })
+    ).toBeDefined();
     expect(within(table).queryByText("SOMEONEELSE")).toBeNull();
     expect(view.getByText("1 (+ 1)")).toBeDefined();
     expect(
@@ -950,6 +932,7 @@ describe("discount administration pages", () => {
         .map((row) => row.textContent)
     ).toEqual([
       expect.stringContaining("ONLYME"),
+      expect.stringContaining("GIFT100"),
       expect.stringContaining("OPEN"),
       expect.stringContaining("AADISABLED"),
     ]);
@@ -965,10 +948,23 @@ describe("discount administration pages", () => {
         .map((row) => row.textContent)
     ).toEqual([
       expect.stringContaining("AADISABLED"),
+      expect.stringContaining("GIFT100"),
       expect.stringContaining("ONLYME"),
       expect.stringContaining("OPEN"),
     ]);
-    expect(within(table).getAllByText("Enabled")).toHaveLength(2);
+    fireEvent.click(within(table).getByRole("button", { name: "Type" }));
+    expect(
+      within(table)
+        .getAllByRole("row")
+        .slice(1)
+        .map((row) => row.textContent)
+    ).toEqual([
+      expect.stringContaining("Discount code"),
+      expect.stringContaining("Discount code"),
+      expect.stringContaining("Discount code"),
+      expect.stringContaining("GIFT100"),
+    ]);
+    expect(within(table).getAllByText("Enabled")).toHaveLength(3);
     expect(within(table).getByText("Disabled")).toBeDefined();
     expect(within(table).getByText("Only me discount · 10%")).toBeDefined();
     expect(within(table).getByText("Open discount · CZK 75.00")).toBeDefined();
@@ -976,8 +972,6 @@ describe("discount administration pages", () => {
     expect(onlyMeLink.getAttribute("href")).toBe(
       `/admin/codes/${dashboard.codes[0].id}`
     );
-    expect(onlyMeLink.className).toContain("before:absolute");
-    expect(onlyMeLink.closest("tr")?.className).toContain("relative");
     expect(view.getByRole("heading", { name: "Stats" })).toBeDefined();
     expect(view.getByRole("heading", { name: "Consents" })).toBeDefined();
     expect(
@@ -996,17 +990,6 @@ describe("discount administration pages", () => {
         .querySelector('time[datetime="2026-08-11"]')
         ?.getAttribute("title")
     ).toBe("No reservations on 11 Aug 2026");
-    for (const [date, className] of [
-      ["2026-08-10", "bg-[#10b981]"],
-      ["2026-08-12", "bg-[#60a5fa]"],
-      ["2026-08-13", "bg-[#fb923c]"],
-      ["2026-08-14", "bg-aquamarine-green/25"],
-      ["2026-08-15", "bg-aquamarine-green/70"],
-    ] as const) {
-      expect(
-        view.container.querySelector(`time[datetime="${date}"]`)?.className
-      ).toContain(className);
-    }
     const reservationActivitySection = view
       .getByRole("heading", { name: "Reservation activity" })
       .closest("section");
@@ -1014,7 +997,7 @@ describe("discount administration pages", () => {
       throw new Error("Reservation activity section is missing");
     }
     const reservationActivity = within(reservationActivitySection);
-    for (const label of ["Basic", "Plus", "Profi", "Meeting room", "Office"]) {
+    for (const label of ["Profi", "Meeting room", "Office", "Basic", "Plus"]) {
       expect(reservationActivity.getByText(label)).toBeDefined();
     }
     expect(reservationActivity.queryByText("Less")).toBeNull();
@@ -1029,9 +1012,7 @@ describe("discount administration pages", () => {
         view.getByRole("heading", { name: "Consents" })
       )
     ).toBe(true);
-    expect(view.getByText("Granted").className).toContain(
-      "text-aquamarine-ink"
-    );
+    expect(view.getByText("Granted")).toBeDefined();
     expect(view.queryByText("Declined")).toBeNull();
     expect(view.queryByText("Privacy policy")).toBeNull();
     expect(
@@ -1131,6 +1112,141 @@ describe("discount administration pages", () => {
     expect(view.getByText("This customer has no payments.")).toBeDefined();
     expect(view.getByText("Not granted")).toBeDefined();
     expect(view.queryByText(/payment attempts/i)).toBeNull();
+    expect(view.getByRole("heading", { name: "Claim history" })).toBeDefined();
+    expect(view.getAllByText("No claims yet.")).toHaveLength(1);
+    expect(
+      view.queryByText(/No (discount code|voucher) claims yet/)
+    ).toBeNull();
+  });
+
+  test("lists discount code and voucher claims in one customer claim history", async () => {
+    const { CustomerAdministrationDetailPage } = await import(
+      "./customer-admin-components"
+    );
+    const voucherId = "019c91dd-c560-7e55-b9d8-c95065efd55d";
+    const claim = {
+      dotyposCustomerId: "dotypos-customer",
+      paymentAttemptId: "payment-id",
+      reservationExpiresAt: Temporal.Instant.from("2026-08-01T09:00:00Z"),
+      releasedAt: null,
+      releaseReason: null,
+    } as const;
+    const view = render(
+      <CustomerAdministrationDetailPage
+        activity={{
+          reservations: [],
+          reservationHistoryTruncated: false,
+          transactions: [],
+          transactionHistoryTruncated: false,
+          stats: {
+            reservationCount: 0,
+            favoriteProduct: null,
+            revenue: [],
+            discountSavings: [],
+          },
+          marketingConsent: null,
+        }}
+        reservationActivity={emptyReservationActivity}
+        profile={{
+          customer: {
+            id: "dotypos-customer",
+            displayName: "Test Customer",
+            email: "test@example.com",
+            phone: null,
+            discountGroupId: null,
+          },
+          discountGroups: [],
+          codes: [
+            {
+              ...dashboard.codes[0],
+              code: "ONLYME",
+              audienceSize: 1,
+              discountAdjustment: { kind: "percentage", basisPoints: 1000 },
+              discountLabel: "Only me discount",
+              eligible: true,
+            },
+          ],
+          claims: [
+            {
+              ...claim,
+              id: "shared-claim-id",
+              codeId: dashboard.codes[0].id,
+              state: "redeemed",
+              workspaceReservationId: "code-reservation",
+              appliedAmount: { value: 3500, exponent: 2, currency: "CZK" },
+              reservedAt: Temporal.Instant.from("2026-08-01T08:00:00Z"),
+              redeemedAt: Temporal.Instant.from("2026-08-01T08:10:00Z"),
+            },
+          ],
+          vouchers: [
+            {
+              id: voucherId,
+              issuedCredit: { value: 10_000, exponent: 2, currency: "CZK" },
+              remainingCredit: { value: 7500, exponent: 2, currency: "CZK" },
+              code: "GIFT100",
+              enabled: true,
+              validFrom: null,
+              validUntil: null,
+              audienceSize: 1,
+              reservedUses: 1,
+              redeemedUses: 0,
+              releasedUses: 0,
+              createdAt: Temporal.Instant.from("2026-07-01T08:00:00Z"),
+              updatedAt: Temporal.Instant.from("2026-07-02T08:00:00Z"),
+              eligible: true,
+            },
+          ],
+          voucherClaims: [
+            {
+              ...claim,
+              id: "shared-claim-id",
+              voucherId,
+              state: "reserved",
+              workspaceReservationId: "voucher-reservation",
+              appliedAmount: { value: 2500, exponent: 2, currency: "CZK" },
+              reservedAt: Temporal.Instant.from("2026-08-02T08:00:00Z"),
+              redeemedAt: null,
+            },
+          ],
+        }}
+      />
+    );
+
+    expect(view.getByRole("heading", { name: "Claim history" })).toBeDefined();
+    expect(
+      view.queryByRole("heading", { name: "Discount code history" })
+    ).toBeNull();
+    expect(view.queryByRole("heading", { name: "Voucher history" })).toBeNull();
+    const table = view.getByRole("table", { name: "Customer claim history" });
+    const rows = () =>
+      within(table)
+        .getAllByRole("row")
+        .slice(1)
+        .map((row) => row.textContent);
+    expect(rows()).toEqual([
+      expect.stringMatching(/GIFT100.*Voucher.*Reserved.*CZK.?25\.00/),
+      expect.stringMatching(/ONLYME.*Discount code.*Redeemed.*CZK.?35\.00/),
+    ]);
+    expect(
+      within(table).getByRole("link", { name: "GIFT100" }).getAttribute("href")
+    ).toBe(`/admin/vouchers/${voucherId}`);
+    expect(
+      within(table).getByRole("link", { name: "ONLYME" }).getAttribute("href")
+    ).toBe(`/admin/codes/${dashboard.codes[0].id}`);
+    expect(
+      within(table)
+        .getAllByRole("link", { name: "Open reservation" })
+        .map((link) => link.getAttribute("href"))
+    ).toEqual([
+      "/admin/reservations/voucher-reservation",
+      "/admin/reservations/code-reservation",
+    ]);
+
+    fireEvent.click(within(table).getByRole("button", { name: "Type" }));
+    expect(rows()).toEqual([
+      expect.stringContaining("ONLYME"),
+      expect.stringContaining("GIFT100"),
+    ]);
   });
 
   test("distinguishes withdrawn customer marketing consent", async () => {
@@ -1178,9 +1294,7 @@ describe("discount administration pages", () => {
       />
     );
 
-    expect(view.getByText("Withdrawn").className).toContain(
-      "text-burned-orange-ink"
-    );
+    expect(view.getByText("Withdrawn")).toBeDefined();
     expect(view.getByText(/Granted 9 Aug 2026/)).toBeDefined();
     expect(
       view.getByText("Reservation activity is temporarily unavailable.")
@@ -1245,6 +1359,76 @@ describe("discount administration pages", () => {
     expect(view.queryByRole("radio", { name: "Create a voucher" })).toBeNull();
   });
 
+  test("creates a customer voucher and returns to the customer", async () => {
+    const captured = captureWorkspaceActions(/^createCustomerVoucher$/);
+    const { CustomerVoucherCreationForm } = await import(
+      "./customer-voucher-creation"
+    );
+    const view = render(
+      <CustomerVoucherCreationForm
+        completion="back"
+        customer={{ displayName: "Test Customer", id: "dotypos-customer" }}
+      />
+    );
+
+    expect(
+      view.getByText("The new voucher will only be available to Test Customer.")
+    ).toBeDefined();
+    expect(view.queryByRole("combobox", { name: "Discount" })).toBeNull();
+    fireEvent.change(view.getByRole("spinbutton", { name: /Value/ }), {
+      target: { value: "25000" },
+    });
+    fireEvent.change(view.getByRole("textbox", { name: "Code" }), {
+      target: { value: "gift250" },
+    });
+    fireEvent.submit(
+      view.getByRole("button", { name: "Create voucher" }).closest("form")!
+    );
+
+    const action = captured("createCustomerVoucher");
+    await waitFor(() =>
+      expect(action.execute).toHaveBeenCalledWith({
+        kind: "create-customer-voucher",
+        voucher: {
+          customerId: "dotypos-customer",
+          code: "GIFT250",
+          credit: { value: 25_000, exponent: 2, currency: "CZK" },
+          enabled: true,
+          validFrom: null,
+          validUntil: null,
+        },
+      })
+    );
+    act(() =>
+      action.options.onSuccess({
+        data: { notice: "Voucher created for this customer." },
+      })
+    );
+    expect(back).toHaveBeenCalledTimes(1);
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  test("opens customer voucher creation from its own route", async () => {
+    const captured = captureWorkspaceActions(/^createCustomerVoucher$/);
+    const { CustomerVoucherCreationForm } = await import(
+      "./customer-voucher-creation"
+    );
+    render(
+      <CustomerVoucherCreationForm
+        completion="customer"
+        customer={{ displayName: "Test Customer", id: "dotypos-customer" }}
+      />
+    );
+
+    act(() =>
+      captured("createCustomerVoucher").options.onSuccess({
+        data: { notice: "Voucher created for this customer." },
+      })
+    );
+    expect(replace).toHaveBeenCalledWith("/admin/customers/dotypos-customer");
+    expect(back).not.toHaveBeenCalled();
+  });
+
   test("shows nested customer code validation errors", async () => {
     let onError:
       | ((result: {
@@ -1299,15 +1483,17 @@ describe("discount administration pages", () => {
   });
 
   test("describes adding a customer to an existing restricted code audience", async () => {
-    const { CustomerCodeAction } = await import("./customer-admin-client");
+    const { CustomerPromotionCodeAction } = await import(
+      "./customer-admin-client"
+    );
     const view = render(
-      <CustomerCodeAction
+      <CustomerPromotionCodeAction
         audienceSize={3}
         code="TEAM"
-        codeId={dashboard.codes[0].id}
         customerId="dotypos-customer"
         customerName="Test Customer"
         eligible={false}
+        promotion={{ kind: "discount-code", id: dashboard.codes[0].id }}
       />
     );
 
@@ -1326,6 +1512,111 @@ describe("discount administration pages", () => {
       )
     ).toBeDefined();
     expect(view.getByRole("button", { name: "Add customer" })).toBeDefined();
+  });
+
+  test("adds and removes a customer from a voucher audience", async () => {
+    const captured = captureWorkspaceActions(
+      /^manageCustomerVoucherEligibility$/
+    );
+    const { CustomerPromotionCodeAction } = await import(
+      "./customer-admin-client"
+    );
+    const voucherId = "019c91dd-c560-7e55-b9d8-c95065efd56d";
+    const renderAction = (audienceSize: number, eligible: boolean) =>
+      render(
+        <CustomerPromotionCodeAction
+          audienceSize={audienceSize}
+          code="GIFT100"
+          customerId="dotypos-customer"
+          customerName="Test Customer"
+          eligible={eligible}
+          promotion={{ kind: "voucher", id: voucherId }}
+        />
+      );
+
+    const unrestricted = renderAction(0, false);
+    fireEvent.click(
+      unrestricted.getByRole("button", {
+        name: "Add Test Customer to GIFT100",
+      })
+    );
+    expect(
+      await unrestricted.findByRole("heading", {
+        name: "Limit GIFT100 to Test Customer?",
+      })
+    ).toBeDefined();
+    fireEvent.click(
+      unrestricted.getByRole("button", { name: "Limit to only this user" })
+    );
+    const action = captured("manageCustomerVoucherEligibility");
+    expect(action.execute).toHaveBeenLastCalledWith({
+      kind: "add-voucher-customer",
+      voucherId,
+      customerId: "dotypos-customer",
+    });
+    act(() =>
+      action.options.onSuccess({
+        data: { notice: "Customer added to the voucher audience." },
+      })
+    );
+    await waitFor(() => expect(unrestricted.queryByRole("dialog")).toBeNull());
+    expect(refresh).toHaveBeenCalledTimes(1);
+    cleanup();
+
+    const shared = renderAction(2, true);
+    fireEvent.click(
+      shared.getByRole("button", {
+        name: "Remove Test Customer from GIFT100",
+      })
+    );
+    expect(
+      await shared.findByText(
+        "Test Customer will no longer be able to use GIFT100."
+      )
+    ).toBeDefined();
+    fireEvent.click(shared.getByRole("button", { name: "Remove customer" }));
+    expect(action.execute).toHaveBeenLastCalledWith({
+      kind: "remove-voucher-customer",
+      voucherId,
+      customerId: "dotypos-customer",
+    });
+    act(() =>
+      action.options.onError({
+        error: {
+          serverError: "This customer is no longer in the voucher audience.",
+        },
+      })
+    );
+    expect((await shared.findByRole("alert")).textContent).toBe(
+      "This customer is no longer in the voucher audience."
+    );
+    cleanup();
+
+    const onlyCustomer = renderAction(1, true);
+    fireEvent.click(
+      onlyCustomer.getByRole("button", {
+        name: "Remove Test Customer from GIFT100",
+      })
+    );
+    expect(
+      await onlyCustomer.findByText(
+        "Removing Test Customer would leave GIFT100 without an audience, which makes it available to every customer. Choose whether to delete the voucher or make it available to all."
+      )
+    ).toBeDefined();
+    fireEvent.click(
+      onlyCustomer.getByRole("button", { name: "Delete voucher" })
+    );
+    expect(action.execute).toHaveBeenLastCalledWith({
+      kind: "delete-voucher",
+      id: voucherId,
+    });
+    fireEvent.click(
+      onlyCustomer.getByRole("button", { name: "Make available to all" })
+    );
+    expect(action.execute).toHaveBeenLastCalledWith({
+      kind: "make-voucher-unrestricted",
+      voucherId,
+    });
   });
 
   test("shows calendar sales in a table with readable status badges", async () => {
@@ -1378,10 +1669,8 @@ describe("discount administration pages", () => {
         .getByRole("link", { name: "Open calendar" })
         .getAttribute("href")
     ).toBe("https://calendar.google.com/");
-    expect(view.getByText("Associated").className).toContain(
-      "text-aquamarine-ink"
-    );
-    expect(view.getByText("tentative").className).toContain("text-navy-blue");
+    expect(view.getByText("Associated")).toBeDefined();
+    expect(view.getByText("tentative")).toBeDefined();
     const saleRow = view.getByText("Summer sale").closest("tr");
     expect(saleRow?.getAttribute("tabindex")).toBe("0");
     fireEvent.click(
@@ -1794,7 +2083,7 @@ describe("discount administration pages", () => {
     expect(view.queryByRole("status")).toBeNull();
   });
 
-  test("blocks discount submission with client-side validation messages", async () => {
+  test("blocks discount submission with a client-side message beside the field", async () => {
     const execute = mock();
     workspaceUseAction.mockReturnValue({
       execute,
@@ -1809,23 +2098,12 @@ describe("discount administration pages", () => {
 
     fireEvent.submit(form);
     await waitFor(() =>
-      expect(view.getByText("Enter an English label.")).toBeDefined()
-    );
-    expect(view.getByText("Enter a Czech label.")).toBeDefined();
-    expect(execute).not.toHaveBeenCalled();
-
-    fireEvent.input(view.getByRole("spinbutton", { name: "Percentage" }), {
-      target: { value: "200" },
-    });
-    await waitFor(() =>
-      expect(
-        view.getByText("Enter a percentage between 0.01 and 100.")
-      ).toBeDefined()
+      expectFieldError(view.getByRole("textbox", { name: "English (en-US)" }))
     );
     expect(execute).not.toHaveBeenCalled();
   });
 
-  test("blocks code submission with client-side validation messages", async () => {
+  test("blocks code submission with a client-side message beside the field", async () => {
     const execute = mock();
     workspaceUseAction.mockReturnValue({
       execute,
@@ -1846,18 +2124,7 @@ describe("discount administration pages", () => {
 
     fireEvent.input(codeInput, { target: { value: "SU" } });
     fireEvent.submit(codeForm);
-    await waitFor(() =>
-      expect(
-        view.getByText("Use 3 to 64 characters for the code.")
-      ).toBeDefined()
-    );
-    expect(execute).not.toHaveBeenCalled();
-
-    fireEvent.input(codeInput, { target: { value: "" } });
-    fireEvent.submit(codeForm);
-    await waitFor(() =>
-      expect(view.getByText("Enter a discount code.")).toBeDefined()
-    );
+    await waitFor(() => expectFieldError(codeInput));
     expect(execute).not.toHaveBeenCalled();
   });
 
@@ -2213,7 +2480,9 @@ describe("discount administration pages", () => {
       codeView.getByRole("button", { name: "Add customer" }).closest("form")!
     );
     await waitFor(() =>
-      expect(codeView.getByText("Enter a Dotypos customer ID.")).toBeDefined()
+      expectFieldError(
+        codeView.getByRole("textbox", { name: "Dotypos customer ID" })
+      )
     );
     expect(execute).not.toHaveBeenCalled();
     cleanup();
@@ -2225,9 +2494,9 @@ describe("discount administration pages", () => {
       voucherView.getByRole("button", { name: "Add customer" }).closest("form")!
     );
     await waitFor(() =>
-      expect(
-        voucherView.getByText("Enter a Dotypos customer ID.")
-      ).toBeDefined()
+      expectFieldError(
+        voucherView.getByRole("textbox", { name: "Dotypos customer ID" })
+      )
     );
     expect(execute).not.toHaveBeenCalled();
 

@@ -12,7 +12,6 @@ import {
 } from "@/features/administration/loading";
 import {
   type AdministrationSearchParams,
-  loadAdministrationCustomers,
   loadAdministrationCustomersPage,
 } from "@/features/administration/page-data.server";
 import { CustomerSearch } from "@/features/discounts/admin/customer-admin-client";
@@ -47,7 +46,11 @@ export default function DiscountCustomersAdminPage({
   );
 }
 
-type CustomersData = Awaited<ReturnType<typeof loadAdministrationCustomers>>;
+type CustomersPage = ReturnType<typeof loadAdministrationCustomersPage>;
+type CustomersData = {
+  readonly input: Awaited<CustomersPage["input"]>;
+  readonly result: Awaited<CustomersPage["result"]>;
+};
 
 async function CustomerCount({
   result,
@@ -90,39 +93,5 @@ export async function CustomersTable({
         }}
       />
     </section>
-  );
-}
-
-export async function CustomersAdministrationContent({
-  searchParams,
-}: {
-  readonly searchParams: AdministrationSearchParams;
-}) {
-  const { input, result } = await loadAdministrationCustomers(searchParams);
-
-  return (
-    <AdministrationPage>
-      <h1 className="sr-only">Customers</h1>
-      <AdministrationTableToolbar
-        count={result.total}
-        itemLabel="customer"
-        search={<CustomerSearch variant="toolbar" />}
-      />
-      <section className="mt-7">
-        <AdministrationCustomerTable
-          customers={result.items}
-          sorting={{
-            direction: input.direction ?? "desc",
-            field: input.sort ?? "activity",
-          }}
-        />
-        <Pagination
-          basePath="/admin/customers"
-          page={result.page}
-          pageCount={result.pageCount}
-          params={{ direction: input.direction, sort: input.sort }}
-        />
-      </section>
-    </AdministrationPage>
   );
 }

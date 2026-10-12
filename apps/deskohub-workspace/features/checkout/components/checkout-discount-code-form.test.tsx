@@ -260,11 +260,9 @@ describe("CheckoutDiscountCodeForm", () => {
       />
     );
 
-    expect(
-      view.getByText(
-        m.checkoutDiscountCodeApplied({ discount: "20%" }, { locale: "en-US" })
-      )
-    ).toBeDefined();
+    expect(view.getByRole("status").textContent).toBe(
+      m.checkoutDiscountCodeApplied({ discount: "20%" }, { locale: "en-US" })
+    );
     expect(view.queryByRole("textbox")).toBeNull();
   });
 
@@ -405,8 +403,6 @@ describe("CheckoutDiscountCodeForm", () => {
     expect(error.textContent).toBe(
       m.checkoutDiscountCodeUnavailable({}, { locale: "en-US" })
     );
-    expect(error.className).toContain("bg-burned-orange/8");
-    expect(error.className).toContain("text-burned-orange-ink");
     expect(view.getByRole("textbox").getAttribute("aria-invalid")).toBe("true");
     expect(applyDiscountCodeForm).not.toHaveBeenCalled();
     expect(view.getByRole("textbox")).toHaveProperty("value", "SAVE20");
@@ -480,31 +476,6 @@ describe("CheckoutDiscountCodeForm", () => {
     await waitFor(() =>
       expect(view.getByRole("textbox")).toHaveProperty("value", "WINTER20")
     );
-  });
-
-  test("celebrates the applied adjustment without showing the code", async () => {
-    const { CheckoutDiscountCodeForm } = await import(
-      "./checkout-discount-code-form"
-    );
-    const view = render(
-      <CheckoutDiscountCodeForm
-        appliedAdjustment={{ kind: "percentage", basisPoints: 2000 }}
-        enabled={false}
-        fieldError={false}
-        locale="en-US"
-        payStateToken="signed-state"
-      />
-    );
-
-    expect(
-      view.getByText(
-        m.checkoutDiscountCodeApplied({ discount: "20%" }, { locale: "en-US" })
-      )
-    ).toBeDefined();
-    const status = view.getByRole("status");
-    expect(status.className).toContain("bg-aquamarine-green/12");
-    expect(status.className).toContain("text-aquamarine-ink");
-    expect(view.queryByRole("textbox")).toBeNull();
   });
 
   test("keeps payment independent while the code action is pending", async () => {

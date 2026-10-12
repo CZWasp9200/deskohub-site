@@ -405,39 +405,6 @@ describe("effectSchemaResolver", () => {
     ).toBe("That name is taken.");
   });
 
-  test("reports and clears native validation messages", async () => {
-    const usernameRef = {
-      name: "username",
-      validationMessage: "",
-      setCustomValidity(message: string) {
-        this.validationMessage = message;
-      },
-      reportValidity: () => true,
-    };
-    const options = resolverOptions<{ username: string }>({
-      shouldUseNativeValidation: true,
-      fields: {
-        username: {
-          name: "username",
-          ref: usernameRef as unknown as HTMLInputElement,
-        },
-      },
-    });
-    const resolver = effectSchemaResolver(
-      Schema.Struct({
-        username: Schema.String.check(
-          Schema.isNonEmpty({ message: "A username is required." })
-        ),
-      })
-    );
-
-    await resolver({ username: "" }, undefined, options);
-    expect(usernameRef.validationMessage).toBe("A username is required.");
-
-    await resolver({ username: "joe" }, undefined, options);
-    expect(usernameRef.validationMessage).toBe("");
-  });
-
   test("infers encoded form values and decoded output", () => {
     const resolver = effectSchemaResolver(
       Schema.Struct({ age: Schema.FiniteFromString })

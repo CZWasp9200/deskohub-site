@@ -476,18 +476,4 @@ describe("cowork quote input truthfulness", () => {
       })
     ).toThrow();
   });
-
-  test("typechecks the required cowork kind discriminator", () => {
-    expect(() =>
-      Effect.runSync(
-        // @ts-expect-error The canonical cowork kind discriminator is required
-        // in CoworkReservationQuoteInput.
-        buildCoworkReservationQuote({
-          entryTier: "reserved-desk",
-          coffee: true,
-          workstation: true,
-        })
-      )
-    ).toThrow();
-  });
 });

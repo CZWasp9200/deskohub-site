@@ -4,6 +4,7 @@ import "@/shared/polyfills/temporal";
 import {
   coworkCurrentReservationOrderSchema,
   coworkReservationSchema,
+  getCoworkAdvertisedPriceReservation,
   getCoworkReservationDetails,
   getCoworkReservationInterval,
   getCoworkReservationIntervalInput,
@@ -276,5 +277,27 @@ describe("retired reservation customer message", () => {
 
     expect(reservation).not.toHaveProperty("message");
     expect(reservation.name).toBe("Ada Lovelace");
+  });
+});
+
+describe("cowork advertised-price reservation", () => {
+  test("uses the same advertised-price snapshot for every Profi monitor", () => {
+    const reservation = {
+      entryTier: "profi" as const,
+      coffee: true,
+      date: "2026-07-20",
+    };
+
+    expect(
+      getCoworkAdvertisedPriceReservation({
+        ...reservation,
+        monitorOption: "2x27-qhd",
+      })
+    ).toEqual(
+      getCoworkAdvertisedPriceReservation({
+        ...reservation,
+        monitorOption: "2x32-4k",
+      })
+    );
   });
 });

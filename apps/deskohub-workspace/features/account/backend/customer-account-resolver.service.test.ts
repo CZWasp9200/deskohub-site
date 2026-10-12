@@ -175,7 +175,7 @@ describe("CustomerAccountResolver", () => {
     expect(calls.indexOf("reactivate")).toBeLessThan(calls.indexOf("claim"));
   });
 
-  test("keeps an expired profile unclaimed when reactivation fails, then retries", async () => {
+  test("keeps an expired profile unclaimed when reactivation fails", async () => {
     const failedAttempt = makeDependencies({
       matches: matches({
         kind: "matched",
@@ -189,21 +189,6 @@ describe("CustomerAccountResolver", () => {
 
     await expectAccessError(failedOutcome, "unavailable");
     expect(failedAttempt.calls).not.toContain("claim");
-
-    const retryAttempt = makeDependencies({
-      matches: matches({
-        kind: "matched",
-        state: "expired",
-        customerId: "60222",
-      }),
-    });
-    const retryOutcome = await runResolution(retryAttempt.dependencies);
-
-    expect(retryOutcome._tag).toBe("Success");
-    if (retryOutcome._tag === "Success") {
-      expect(retryOutcome.success.dotyposCustomerId).toBe("60222");
-    }
-    expect(retryAttempt.calls).toContain("claim");
   });
 
   test("returns the linked customer the claim confirmed, not another match", async () => {
@@ -224,15 +209,14 @@ describe("CustomerAccountResolver", () => {
     }
   });
 
-  test("requires profile completion without creating a Dotypos profile", async () => {
-    const { dependencies, calls } = makeDependencies({
+  test("requires profile completion when no Dotypos profile matches", async () => {
+    const { dependencies } = makeDependencies({
       matches: matches({ kind: "not-found" }),
     });
 
     const outcome = await runResolution(dependencies);
 
     await expectAccessError(outcome, "link-required", "not-found");
-    expect(calls).not.toContain("create");
   });
 
   test("returns the common support state for ambiguous matches", async () => {

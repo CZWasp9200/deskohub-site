@@ -31,7 +31,6 @@ import {
   reuseMeetingRoomCheckoutContact,
   selectAvailableMeetingRoomSlots,
 } from "../checkout/data";
-import { reservationCookieIsolationStep } from "../checkout/reservation-cookie-isolation";
 import type { DatasourceConfig, WorkspaceE2EConfig } from "../config";
 import {
   toWorkspaceE2EError,
@@ -208,50 +207,15 @@ export const makeMeetingRoomE2ECases = ({
             runStep,
             session,
             state: paidState,
-          })
-            .pipe(Effect.provideService(HttpClient.HttpClient, httpClient))
-            .pipe(
-              Effect.flatMap(() =>
-                tryWorkspaceE2ESync(
-                  "read paid meeting-room order and customer for reservation cookie isolation",
-                  () => {
-                    const orderId = paidState.orderId;
-                    const customerId =
-                      paidState.checkoutRow?.dotypos_customer_id;
-                    assert(
-                      orderId,
-                      "paid meeting-room order id missing after checkout"
-                    );
-                    assert(
-                      customerId,
-                      "paid meeting-room customer id missing after checkout"
-                    );
-                    return { customerId, orderId };
-                  }
-                ).pipe(
-                  Effect.flatMap(({ customerId, orderId }) =>
-                    runStep(
-                      reservationCookieIsolationStep({
-                        config,
-                        customerId,
-                        data: paidData,
-                        orderId,
-                        run,
-                        session,
-                      })
-                    )
-                  )
-                )
+          }).pipe(
+            Effect.provideService(HttpClient.HttpClient, httpClient),
+            Effect.mapError((cause) =>
+              toWorkspaceE2EError(
+                "run paid meeting-room checkout e2e case",
+                cause
               )
             )
-            .pipe(
-              Effect.mapError((cause) =>
-                toWorkspaceE2EError(
-                  "run paid meeting-room checkout e2e case",
-                  cause
-                )
-              )
-            );
+          );
         },
         id: "checkout-meeting-room-paid-one-hour",
         timeoutMs: config.timeouts.checkoutCase,

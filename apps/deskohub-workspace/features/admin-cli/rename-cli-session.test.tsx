@@ -155,36 +155,31 @@ test("submits the exact action args and closes the dialog on success", async () 
   expect(view.queryByRole("status")).toBeNull();
 });
 
-test("shows the not-found server error", async () => {
+test.each([
+  {
+    failure: "the server error",
+    reportFailure: () =>
+      actionOptions?.onError({
+        error: { serverError: "That CLI session no longer exists." },
+      }),
+    message: "That CLI session no longer exists.",
+  },
+  {
+    failure: "the fallback wording on a transport error",
+    reportFailure: () => actionOptions?.onTransportError(),
+    message: "The CLI session label could not be updated.",
+  },
+])("shows $failure", async ({ reportFailure, message }) => {
   withActionOptions();
   const view = await renderComponent();
   await openDialog(view);
   await submitForm(view);
 
   act(() => {
-    actionOptions?.onError({
-      error: { serverError: "That CLI session no longer exists." },
-    });
+    reportFailure();
   });
 
-  expect(view.getByRole("alert").textContent).toBe(
-    "That CLI session no longer exists."
-  );
-});
-
-test("shows the fallback wording on a transport error", async () => {
-  withActionOptions();
-  const view = await renderComponent();
-  await openDialog(view);
-  await submitForm(view);
-
-  act(() => {
-    actionOptions?.onTransportError();
-  });
-
-  expect(view.getByRole("alert").textContent).toBe(
-    "The CLI session label could not be updated."
-  );
+  expect(view.getByRole("alert").textContent).toBe(message);
 });
 
 test("clears the error and restores the current label on close and reopen", async () => {

@@ -8,7 +8,7 @@ const vercelApiOrigin = "https://api.vercel.com";
 
 const workspaceProductionDomain = "deskohub-workspace-site.vercel.app";
 const customerFacingProductionDomain = workspaceSiteConstants.brand.domain;
-const requiredProductionAliases = [
+export const requiredProductionAliases = [
   workspaceProductionDomain,
   customerFacingProductionDomain,
 ] as const;

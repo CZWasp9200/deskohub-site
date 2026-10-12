@@ -145,6 +145,7 @@ const breadcrumbNames = new Map([
   ["codes", "Codes"],
   ["customers", "Customers"],
   ["create-code", "Create discount code"],
+  ["create-voucher", "Create voucher"],
   ["discounts", "Discounts"],
   ["invoices", "Invoices"],
   ["new", "New invoice"],

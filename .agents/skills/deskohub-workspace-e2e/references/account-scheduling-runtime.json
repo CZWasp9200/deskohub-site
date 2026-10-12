@@ -161,7 +161,7 @@
   },
   "syntheticSchedulerEvidence": {
     "deployed": false,
-    "interpretation": "Each row reports baseline to candidate values.",
+    "interpretation": "Each historical row reports baseline to candidate values; the harness no longer runs the baseline graph.",
     "runs": [
       {
         "runId": "run-kUpJq2",
@@ -240,16 +240,9 @@
         "assertions": 10832,
         "tests": 2898,
         "files": 385,
-        "unrelatedFailure": {
-          "file": "scripts/account-visual/run.test.ts",
-          "line": 1267,
-          "test": "controlled fixture header probe rejects a narrow single-word flex heading",
-          "timeoutSeconds": 120,
-          "inScope": false
-        }
+        "unrelatedFailure": "A timeout in a retired account visual renderer test, out of scope; the renderer and its tests have since been deleted."
       },
       "fullUnitNonGreen": {
-        "visualTimeout": "preserved",
         "postgresqlSkips": "preserved"
       },
       "rootTypecheck": {
@@ -266,7 +259,6 @@
       "status": "APPROVED",
       "previousStatus": "AWAITING_REVIEW",
       "reviewerProvenance": {
-        "sessionId": "ses_f759529fcffeYdhIDqjVbv6wIr",
         "decision": "APPROVED",
         "basis": "recoveryEvidence"
       },
@@ -282,7 +274,6 @@
     "productionCleanupFollowUp": "Keep production cleanup as a parent follow-up; do not hide it in this scheduler artifact."
   },
   "parentOperationsEvidence": {
-    "workerId": "ses_f80052fd5ffeG5fp9lOkgBonLM",
     "deployment": {
       "deploymentId": "6365818018",
       "actor": "vercel[bot]",
@@ -356,7 +347,6 @@
       "status": "APPROVED",
       "previousStatus": "AWAITING_REVIEW",
       "reviewerProvenance": {
-        "sessionId": "ses_f759529fcffeYdhIDqjVbv6wIr",
         "decision": "APPROVED",
         "basis": "parentOperationsEvidence"
       },
@@ -390,7 +380,6 @@
       "status": "APPROVED",
       "scope": "CODE_COVERAGE_ONLY",
       "reviewerProvenance": {
-        "sessionId": "ses_f6f475f0cffemdkQldLsAf3ZnX",
         "decision": "APPROVED",
         "basis": "code coverage candidate"
       },

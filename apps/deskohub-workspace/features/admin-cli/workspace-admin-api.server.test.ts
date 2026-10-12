@@ -68,6 +68,7 @@ import { CliMutationIdempotency } from "./cli-mutation-idempotency.service";
 import {
   AdminCliAdministrationApiHandlers,
   AdminCliApiHandlers,
+  handleWorkspaceAdminApiRequest,
 } from "./workspace-admin-api.server";
 
 const UnusedCliAuthentication = Layer.succeed(
@@ -82,9 +83,6 @@ const UnusedReservationAdministration = Layer.succeed(
   ReservationAdministrationService,
   {} as ReservationAdministrationService["Service"]
 );
-const AllowCliAuthenticationStarts = Layer.succeed(CliAuthenticationAdmission, {
-  isStartAllowed: Effect.succeed(true),
-});
 const ClaimEveryCliMutation = Layer.succeed(CliMutationIdempotency, {
   claim: () => Effect.succeed({ kind: "claimed" as const }),
   complete: () => Effect.void,
@@ -132,24 +130,13 @@ const ActorAuthorizedCliRequest = Layer.succeed(CliBearerAuthentication, {
 });
 
 describe("Workspace Admin API", () => {
-  test("serves the shared CLI info contract", async () => {
-    const info = await Effect.gen(function* () {
-      const client = yield* HttpApiTest.groups(WorkspaceAdminApi, ["cli"]);
-      return yield* client.cli.getInfo({});
-    }).pipe(
-      Effect.provide(AdminCliApiHandlers),
-      Effect.provide(AuthorizedCliRequest),
-      Effect.provide(AllowCliAuthenticationStarts),
-      Effect.provide(UnusedCliAuthentication),
-      Effect.provide(NodeHttpServer.layerHttpServices),
-      Effect.scoped,
-      Effect.runPromise
+  test("disables caching for API responses", async () => {
+    const response = await handleWorkspaceAdminApiRequest(
+      new Request("https://workspace.deskohub.test/api/v1/cli/info")
     );
 
-    expect(info).toEqual({
-      apiVersion: "v1",
-      service: "deskohub-workspace",
-    });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
   });
 
   test("logs the original failure before reporting the service as unavailable", async () => {

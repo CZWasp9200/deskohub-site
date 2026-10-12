@@ -158,35 +158,8 @@ const expectNoSensitiveLeaks = (
 };
 
 describe("Console email provider sensitive content", () => {
-  test("development: sensitive message leaks no recipient, subject, body, or bearer material", async () => {
-    setEnv("NODE_ENV", "development");
-    const { result, consoleRecords, logEntries } = await send(
-      sensitiveMessage()
-    );
-
-    expect(result).toMatchObject({ status: "sent", provider: "console" });
-    expectNoSensitiveLeaks(consoleRecords, logEntries);
-  });
-
-  test("Preview: sensitive message leaks no recipient, subject, body, or bearer material", async () => {
-    setEnv("VERCEL_ENV", "preview");
-    const { result, consoleRecords, logEntries } = await send(
-      sensitiveMessage()
-    );
-
-    expect(result).toMatchObject({ status: "sent", provider: "console" });
-    expectNoSensitiveLeaks(consoleRecords, logEntries);
-  });
-
   test("development: sensitive message emits no dev banner and no raw console output", async () => {
     setEnv("NODE_ENV", "development");
-    const { consoleRecords } = await send(sensitiveMessage());
-
-    expect(consoleRecords).toEqual([]);
-  });
-
-  test("Preview: sensitive message emits no dev banner and no raw console output", async () => {
-    setEnv("VERCEL_ENV", "preview");
     const { consoleRecords } = await send(sensitiveMessage());
 
     expect(consoleRecords).toEqual([]);

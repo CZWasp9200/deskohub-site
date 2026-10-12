@@ -1,5 +1,5 @@
 import { createHash, timingSafeEqual } from "node:crypto";
-import { Effect, Schema } from "effect";
+import { type Duration, Effect, Schema } from "effect";
 
 export const locales = ["cs-CZ", "en-US"] as const;
 
@@ -289,6 +289,11 @@ export interface VerifyPaymentOutcomeInput {
   readonly amount: string;
   readonly currency?: NexiCurrency;
   readonly securityToken: string;
+  /**
+   * Bounds the order lookup, retries included. Without it, retryable failures
+   * are retried until the retry policy gives up.
+   */
+  readonly deadline?: Duration.Input;
 }
 
 export type PaymentOutcomeStatus = "success" | "failure" | "pending";

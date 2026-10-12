@@ -165,9 +165,9 @@ test("czech discount-listed-once predicate tolerates the localized NBSP percent"
 test("selected-duration predicate demands the exact discounted zero price", async () => {
   const option = (discounted: string, visible: string, original?: string) => `
     <div data-reservation-type-option="hour:1">
-      ${original ? `<del>${original}</del>` : ""}
+      ${original ? `<del aria-hidden="true">${original}</del>` : ""}
       <span class="sr-only">Discounted price: ${discounted}</span>
-      <span class="text-aquamarine-ink"><span aria-hidden="true">${visible}</span></span>
+      <span><span aria-hidden="true">${visible}</span></span>
     </div>`;
 
   expect(
@@ -184,14 +184,21 @@ test("selected-duration predicate demands the exact discounted zero price", asyn
     )
   ).toBe(false);
 
+  expect(
+    await withBody(
+      option(zeroText(enData), "CZK 350", "CZK 350"),
+      getSelectedDurationZeroPriceCondition(enData)
+    )
+  ).toBe(false);
+
   const csOption = `
     <div data-reservation-type-option="hour:1">
-      <del>350 Kč</del>
+      <del aria-hidden="true">350 Kč</del>
       <span class="sr-only">${m.checkoutSummaryDiscountedPrice(
         { price: "0 Kč" },
         { locale: "cs-CZ" }
       )}</span>
-      <span class="text-aquamarine-ink"><span aria-hidden="true">0 Kč</span></span>
+      <span><span aria-hidden="true">0 Kč</span></span>
     </div>`;
   expect(
     await withBody(csOption, getSelectedDurationZeroPriceCondition(csData))

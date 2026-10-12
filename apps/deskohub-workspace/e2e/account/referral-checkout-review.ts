@@ -3,6 +3,7 @@ import { dirname, resolve } from "node:path";
 import type { Page } from "@playwright/test";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import { workspaceDir } from "../runtime";
+import type { AccountReviewDestination } from "./review-screenshots";
 
 const workspaceE2EReferralCheckoutReviewTargets = [
   "account-referral-invitation-applied",
@@ -51,18 +52,19 @@ export const isOwnedReferralCheckoutReviewUrl = ({
 };
 
 export const captureReferralCheckoutReview = async ({
-  baseUrl,
   expectedPayUrl,
   orderId,
   page,
+  review: { baseUrl, screenshots },
   target,
 }: {
-  readonly baseUrl: string;
   readonly expectedPayUrl: string;
   readonly orderId: WorkspaceReservationId;
   readonly page: Page;
+  readonly review: AccountReviewDestination;
   readonly target: WorkspaceE2EReferralCheckoutReviewTarget;
 }) => {
+  if (!screenshots) return;
   assertOwnedUrl(page.url(), baseUrl, expectedPayUrl, orderId);
   const originalViewport = page.viewportSize();
   try {
