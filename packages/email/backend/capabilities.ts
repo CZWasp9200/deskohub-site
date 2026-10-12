@@ -16,24 +16,7 @@ export class EmailServiceError extends Data.TaggedError("EmailServiceError")<{
   }
 }
 
-/**
- * Mail for a real recipient cannot leave the app because Resend has no API
- * key. Test-recipient mail never needs one.
- */
-export class EmailDeliveryUnconfiguredError extends Data.TaggedError(
-  "EmailDeliveryUnconfiguredError"
-)<{ readonly message: string }> {
-  constructor() {
-    super({
-      message: "EMAIL_API_KEY is required to deliver mail to real recipients",
-    });
-  }
-}
-
-export type EmailSendError =
-  | EmailServiceError
-  | EmailDeliveryUnconfiguredError
-  | NetworkError;
+export type EmailSendError = EmailServiceError | NetworkError;
 
 export class EmailTemplateError extends Data.TaggedError("EmailTemplateError")<{
   readonly message: string;

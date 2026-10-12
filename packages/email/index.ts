@@ -13,7 +13,6 @@ export {
 export { ResendEmailProviderLive } from "./backend/providers/resend-provider";
 export {
   EmailConfigTag,
-  EmailDeliveryUnconfiguredError,
   EmailProviderTag,
   type EmailSendError,
   EmailServiceError,

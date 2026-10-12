@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Logger } from "effect";
 
-type SendImplementation = () => Promise<{ readonly data: { id: string } }>;
+type SendImplementation = (payload?: {
+  readonly subject?: string;
+}) => Promise<{ readonly data: { id: string } }>;
 
 let resendSend = mock<SendImplementation>(async () => ({
   data: { id: "resend-id" },
@@ -9,7 +11,9 @@ let resendSend = mock<SendImplementation>(async () => ({
 
 mock.module("resend", () => ({
   Resend: class {
-    emails = { send: (...args: []) => resendSend(...args) };
+    emails = {
+      send: (payload?: { readonly subject?: string }) => resendSend(payload),
+    };
     domains = { list: async () => ({ data: [] }) };
   },
 }));
@@ -37,21 +41,27 @@ const testRecipient = { email: testEmailAddress("ada") };
 const realRecipient = { email: resendSimulatorAddress("delivered", "ada") };
 const sender = { email: testEmailAddress("deskohub") };
 
-const message = (to: { email: string } | { email: string }[]) => ({
+const message = (
+  to: { email: string } | { email: string }[],
+  subject = "Hello"
+) => ({
   from: sender,
   to,
-  subject: "Hello",
+  subject,
   text: "Hello",
 });
 
-const sendRouted = (
+/** Sends one message through the routed provider, capturing its log output. */
+const sendRouted = async (
   to: { email: string } | { email: string }[],
-  apiKey?: string
-) =>
-  Effect.runPromise(
+  apiKey?: string,
+  subject?: string
+) => {
+  const logMessages: unknown[] = [];
+  const result = await Effect.runPromise(
     Effect.gen(function* () {
       const provider = yield* EmailProviderTag;
-      return yield* provider.send(message(to));
+      return yield* provider.send(message(to, subject));
     }).pipe(
       Effect.provide(
         RoutedEmailProviderLive.pipe(
@@ -63,9 +73,18 @@ const sendRouted = (
           )
         )
       ),
+      Effect.provide(
+        Logger.layer([
+          Logger.make((options) => {
+            logMessages.push(options.message);
+          }),
+        ])
+      ),
       Effect.result
     )
   );
+  return Object.assign(result, { logged: JSON.stringify(logMessages) });
+};
 
 describe("isTestEmailRecipient", () => {
   test("accepts any address on the test domain", () => {
@@ -179,15 +198,32 @@ describe("RoutedEmailProviderLive", () => {
     expect(resendSend).not.toHaveBeenCalled();
   });
 
-  test("fails closed for a real recipient without a Resend key", async () => {
+  test("logs every message through Console without a Resend key", async () => {
     for (const apiKey of [undefined, "", "   "]) {
-      const result = await sendRouted(realRecipient, apiKey);
+      for (const to of [realRecipient, [testRecipient, realRecipient]]) {
+        const result = await sendRouted(to, apiKey);
 
-      expect(result._tag).toBe("Failure");
-      if (result._tag === "Failure") {
-        expect(result.failure._tag).toBe("EmailDeliveryUnconfiguredError");
+        expect(result._tag).toBe("Success");
+        if (result._tag === "Success") {
+          expect(result.success.provider).toBe("console");
+        }
       }
     }
     expect(resendSend).not.toHaveBeenCalled();
+  });
+
+  test("keeps the test tag on staff copies outside production on both providers", async () => {
+    const subject = staffEmailSubject("New request", { isProduction: false });
+
+    const routedToConsole = await sendRouted(realRecipient, undefined, subject);
+    expect(routedToConsole._tag).toBe("Success");
+    expect(routedToConsole.logged).toContain("[TESTING] New request");
+
+    const routedToResend = await sendRouted(realRecipient, "re_test", subject);
+    expect(routedToResend._tag).toBe("Success");
+    expect(resendSend).toHaveBeenCalledTimes(1);
+    expect(resendSend.mock.calls[0]?.[0]?.subject).toBe(
+      "[TESTING] New request"
+    );
   });
 });

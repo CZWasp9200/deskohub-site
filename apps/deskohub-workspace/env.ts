@@ -73,7 +73,7 @@ export const createWorkspaceEnv = (runtimeEnv: WorkspaceRuntimeEnv) =>
         if (hasPath("EMAIL_API_KEY")) {
           return {
             ...issue,
-            message: "Invalid production email delivery configuration.",
+            message: "Invalid email delivery configuration.",
           };
         }
 

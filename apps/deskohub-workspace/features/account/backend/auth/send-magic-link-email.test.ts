@@ -357,7 +357,7 @@ describe("Errors and log safety", () => {
     expect(code).toBe("account.magic-link.delivery-failed");
   });
 
-  test("fails closed as unconfigured for a real recipient without a Resend key", async () => {
+  test("logs a real recipient through Console without a Resend key", async () => {
     for (const environment of [productionEnvironment, previewEnvironment]) {
       const consoleLines = captureConsole();
       let code: string | undefined;
@@ -370,7 +370,7 @@ describe("Errors and log safety", () => {
         consoleLines.restore();
       }
 
-      expect(code).toBe("account.magic-link.delivery-unconfigured");
+      expect(code).toBe("account.magic-link.delivery-accepted");
       const logged = consoleLines.join("\n");
       expect(logged).not.toContain(request.email);
       expect(logged).not.toContain("secret-token");

@@ -17,7 +17,6 @@ import { ConfiguredEmailProviderLayer } from "./provider-factory";
 
 export {
   EmailConfigTag,
-  EmailDeliveryUnconfiguredError,
   type EmailProvider,
   EmailProviderTag,
   type EmailSendError,
@@ -93,7 +92,8 @@ export class EmailServiceTag extends Context.Service<
 
   /**
    * Routes each message by recipient: only `EMAIL_TEST_DOMAIN` recipients go
-   * to Console, everything else to Resend. Ignores `provider` and `testMode`.
+   * to Console, everything else to Resend; without a Resend key every message
+   * goes to Console. Ignores `provider` and `testMode`.
    */
   static RecipientRouted = this.Default.pipe(
     Layer.provide(EmailTemplateServiceTag.Default),
@@ -121,10 +121,6 @@ const emailSendLogFacts = (message: {
 const emailFailureLogFacts = (error: EmailSendError) => ({
   code: Match.value(error).pipe(
     Match.tag("NetworkError", () => "email.send.transport-retryable"),
-    Match.tag(
-      "EmailDeliveryUnconfiguredError",
-      () => "email.send.unconfigured"
-    ),
     Match.orElse(() => "email.send.rejected")
   ),
   errorType: error._tag,

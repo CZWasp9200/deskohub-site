@@ -54,7 +54,6 @@ process.env.DOTYPOS_CLIENT_SECRET ??= "secret";
 process.env.DOTYPOS_CLOUD_ID ??= "cloud";
 process.env.DOTYPOS_EMPLOYEE_ID ??= "employee";
 process.env.DOTYPOS_REFRESH_TOKEN ??= "refresh";
-process.env.EMAIL_API_KEY ??= "re_test";
 process.env.CRON_SECRET ??= "synthetic-cron-secret";
 process.env.GOOGLE_CALENDAR_PRIVATE_KEY ??= "test-private-key";
 process.env.GOOGLE_CALENDAR_SALES_ID ??= "sales-calendar";

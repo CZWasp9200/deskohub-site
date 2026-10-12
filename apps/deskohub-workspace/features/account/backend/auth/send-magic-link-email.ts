@@ -34,8 +34,7 @@ class MagicLinkDeliveryTransportError extends Data.TaggedError(
 export type MagicLinkDeliveryCode =
   | "account.magic-link.delivery-accepted"
   | "account.magic-link.delivery-rejected"
-  | "account.magic-link.delivery-failed"
-  | "account.magic-link.delivery-unconfigured";
+  | "account.magic-link.delivery-failed";
 
 export type MagicLinkDeliveryRequest = {
   readonly email: string;
@@ -100,10 +99,6 @@ export const makeMagicLinkEmailDelivery = (
           Effect.catchTag("NetworkError", () =>
             Effect.fail(new MagicLinkDeliveryTransportError())
           ),
-          Effect.catchTag(
-            "EmailDeliveryUnconfiguredError",
-            unconfiguredDelivery
-          ),
           Effect.catchTag("EmailServiceError", () =>
             Effect.logWarning(
               "Magic-link email was rejected by the provider.",
@@ -135,12 +130,10 @@ export const makeMagicLinkEmailDelivery = (
       // Keep transport and configuration failures within the fixed code
       // contract.
       Effect.catch(
-        (error: Config.ConfigError | MagicLinkDeliveryTransportError) =>
-          error._tag === "MagicLinkDeliveryTransportError"
-            ? Effect.logWarning("Magic-link email delivery failed.", {
-                code: "account.magic-link.delivery-failed",
-              }).pipe(Effect.as("account.magic-link.delivery-failed" as const))
-            : unconfiguredDelivery()
+        (_error: Config.ConfigError | MagicLinkDeliveryTransportError) =>
+          Effect.logWarning("Magic-link email delivery failed.", {
+            code: "account.magic-link.delivery-failed",
+          }).pipe(Effect.as("account.magic-link.delivery-failed" as const))
       )
     );
   });
@@ -170,15 +163,6 @@ const magicLinkEmailMessage = (
   metadata: { surface: accountMagicLinkEmailSurface },
   sensitiveContent: true,
 });
-
-const unconfiguredDelivery = (): Effect.Effect<
-  "account.magic-link.delivery-unconfigured",
-  never,
-  never
-> =>
-  Effect.logWarning("Magic-link delivery has no configured email provider.", {
-    code: "account.magic-link.delivery-unconfigured",
-  }).pipe(Effect.as("account.magic-link.delivery-unconfigured" as const));
 
 const magicLinkEmailServiceLayer = EmailServiceTag.RecipientRouted.pipe(
   Layer.provide(EmailConfigLayer)

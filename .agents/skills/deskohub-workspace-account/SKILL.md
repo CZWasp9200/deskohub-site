@@ -145,10 +145,11 @@ description: Workspace customer account, Better Auth, magic link, auth persisten
   under `account.magic-link.preview-e2e` carrying the rendered TEXT body with
   its bearer link. This is the single explicitly authorized exception to the
   no-bearer-material logging rule, and only for non-PII synthetic preview
-  auth link material. Every real recipient, in every environment, goes to
-  Resend with the fixed censored delivery codes and no link logging; without
-  `EMAIL_API_KEY` it fails closed to the fixed unconfigured code. There is
-  no provider selection setting. The runner
+  auth link material. Every real recipient goes to Resend with the fixed
+  censored delivery codes and no link logging. Production and Preview env
+  validation require `EMAIL_API_KEY`; only development may omit it, and then
+  every message, real recipients included, goes to Console with bearer
+  content suppressed. There is no provider selection setting. The runner
   retrieves the link through the Vercel runtime log lookup using
   `WORKSPACE_E2E_VERCEL_TOKEN`, which lives only in the protected
   `workspace-checkout-e2e` GitHub environment and never enters Vercel or

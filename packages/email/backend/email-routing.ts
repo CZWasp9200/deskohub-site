@@ -3,7 +3,6 @@ import { Effect, Layer } from "effect";
 import type { EmailMessage, EmailRecipient } from "../types/email.types";
 import {
   EmailConfigTag,
-  EmailDeliveryUnconfiguredError,
   type EmailProvider,
   EmailProviderTag,
 } from "./capabilities";
@@ -18,9 +17,9 @@ const recipientList = (
 ): EmailRecipient[] => [recipients ?? []].flat();
 
 /**
- * The single provider decision for every message: mail addressed only to test
- * recipients is logged by Console and never sent; anything that reaches
- * another recipient goes to Resend.
+ * The recipient-based provider decision for every message: mail addressed
+ * only to test recipients is logged by Console and never sent; anything that
+ * reaches another recipient goes to Resend when a key is configured.
  */
 export const routeEmailMessage = (
   message: Pick<EmailMessage, "to" | "cc" | "bcc">
@@ -63,8 +62,8 @@ export const staffEmailSubject = (
   environment.isProduction ? subject : `${testEmailSubjectPrefix} ${subject}`;
 
 /**
- * Routes each message by its recipients. A missing Resend key fails only the
- * messages that need Resend, so test mail keeps working without credentials.
+ * Routes each message by its recipients. Without a Resend key every message
+ * goes to Console, so environments without credentials never send real mail.
  */
 export const RoutedEmailProviderLive = Layer.effect(
   EmailProviderTag,
@@ -78,11 +77,8 @@ export const RoutedEmailProviderLive = Layer.effect(
       send: Effect.fn("routedEmailProvider.send")(function* (
         message: EmailMessage
       ) {
-        if (routeEmailMessage(message) === "console") {
+        if (!resend || routeEmailMessage(message) === "console") {
           return yield* ConsoleEmailProvider.send(message);
-        }
-        if (!resend) {
-          return yield* new EmailDeliveryUnconfiguredError();
         }
         return yield* resend.send(message);
       }),

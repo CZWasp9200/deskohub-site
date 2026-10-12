@@ -97,8 +97,9 @@ export type EmailTemplateData = {
 /**
  * Email delivery configuration. `EmailServiceTag.RecipientRouted` sends mail
  * for `EMAIL_TEST_DOMAIN` recipients to Console and everything else to Resend
- * with `apiKey`; `EmailServiceTag.Live` instead selects one provider from
- * `provider` and `testMode`.
+ * with `apiKey`, or everything to Console when `apiKey` is missing;
+ * `EmailServiceTag.Live` instead selects one provider from `provider` and
+ * `testMode`.
  */
 export interface EmailConfig {
   provider?: "resend" | "console";

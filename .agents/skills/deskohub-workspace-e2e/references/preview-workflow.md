@@ -77,7 +77,9 @@ names. Inspect settings and deployment metadata without printing their values.
   E2E magic-link recipients the account app feature then emits the single
   gated `account.magic-link.preview-e2e` raw console line whose
   `{code, recipient, message, text}` envelope is the E2E parser's stable wire
-  format. Mail for a real recipient fails closed without the key.
+  format. Workspace env validation rejects a Preview or production
+  deployment without the key; only development may omit it, and then every
+  message goes to Console.
 - The non-sensitive Preview-only
   `POSTHOG_FEATURE_FLAG_OVERRIDES={"accounts":true,"calendar_sales":true,"customer_discounts":true,"discount_codes":true,"meeting_room_page":true,"office_page":true}`.
   Account navigation E2E requires `accounts:true` even when the production

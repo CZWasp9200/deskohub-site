@@ -215,8 +215,8 @@ domain.
   message, the shared `@deskohub/email` service routes the `EMAIL_TEST_DOMAIN`
   recipient to its Console provider, and the account app feature emits one gated raw-`console.log` line with the TEXT
   body and bearer link under `account.magic-link.preview-e2e`, and never
-  calls Resend. This works with or without `EMAIL_API_KEY`, since no send
-  occurs.
+  calls Resend. Preview env validation still requires `EMAIL_API_KEY`, but
+  this path never uses it.
 - The runner correlates the log line by the unique
   `delivered+<opaque-run-id>-<label>@<EMAIL_TEST_DOMAIN>` recipient it generated for
   the lifecycle, reading Vercel runtime logs for the exact immutable preview
@@ -281,8 +281,8 @@ tunnel into the protected deployment.
   route or runtime environment switch.
 - The normal local app must not print magic links: the `sensitiveContent`
   marker suppresses bearer content in Console output for `EMAIL_TEST_DOMAIN`
-  recipients. A real recipient without `EMAIL_API_KEY` fails closed to the
-  fixed unconfigured code.
+  recipients. Development may omit `EMAIL_API_KEY`; without it real-recipient
+  mail also goes to Console with bearer content suppressed.
 - A developer who needs a complete local browser flow can explicitly supply
   delivery credentials and retrieve the message using their own separately
   authorized tooling, or use an immutable preview.
