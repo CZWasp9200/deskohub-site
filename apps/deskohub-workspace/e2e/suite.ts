@@ -8,6 +8,7 @@ import {
   stopBrowserHar,
 } from "./browser";
 import type { DatasourceConfig } from "./config";
+import type { WorkspaceE2EHostedPaymentPermitService } from "./coordination/hosted-payment-permit.service";
 import {
   type WorkspaceE2EProviderVerificationPermit,
   WorkspaceE2EProviderVerificationPermitService,
@@ -96,6 +97,7 @@ export const runWorkspaceE2ECase = ({
   | E2EDatabase
   | E2ETelemetryService
   | WorkspaceE2ECleanupService
+  | WorkspaceE2EHostedPaymentPermitService
   | WorkspaceE2EProviderVerificationPermitService
 > =>
   Effect.scoped(
@@ -192,7 +194,11 @@ const runCase = (
   telemetry: E2ETelemetry,
   timeouts: WorkspaceE2ETimeouts,
   providerVerificationPermit: WorkspaceE2EProviderVerificationPermit
-): Effect.Effect<void, WorkspaceE2EError, E2EDatabase> => {
+): Effect.Effect<
+  void,
+  WorkspaceE2EError,
+  E2EDatabase | WorkspaceE2EHostedPaymentPermitService
+> => {
   const startedAt = Date.now();
   const runStep = makeStepRunner(
     runtime,

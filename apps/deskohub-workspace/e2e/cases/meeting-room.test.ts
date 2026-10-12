@@ -18,6 +18,7 @@ import { getMeetingRoomReservationInterval } from "@/features/reservation/meetin
 import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
 import { makeMeetingRoomCheckoutData } from "../checkout/data";
 import type { DatasourceConfig, WorkspaceE2EConfig } from "../config";
+import { WorkspaceE2EHostedPaymentPermitServiceMock } from "../coordination/hosted-payment-permit.service.mock";
 import { isWorkspaceE2ETimeout, type WorkspaceE2EError } from "../errors";
 import { workspaceE2ENonPaymentCaseIds } from "../playwright-checkout/case-catalog";
 import type { Runner } from "../runtime";
@@ -243,10 +244,14 @@ test("verifies a paid meeting-room checkout without the post-fulfillment paths",
   }) as WorkspaceE2EStepRunner;
 
   const exit = await Effect.runPromiseExit(
-    paidCase.execute({
-      runStep,
-      session: "meeting-room-paid-test",
-    }) as Effect.Effect<void, WorkspaceE2EError>
+    paidCase
+      .execute({
+        runStep,
+        session: "meeting-room-paid-test",
+      })
+      .pipe(
+        Effect.provide(WorkspaceE2EHostedPaymentPermitServiceMock)
+      ) as Effect.Effect<void, WorkspaceE2EError>
   );
 
   expect(Exit.isSuccess(exit)).toBe(true);
@@ -369,7 +374,10 @@ test("constructs reservation-link cases from the reserved preparation partition"
   const expectedLinkCaseIds = workspaceE2ENonPaymentCaseIds.filter((caseId) =>
     caseId.startsWith("reservation-link-")
   );
-  expect(cases.map(({ id }) => id)).toEqual([...expectedLinkCaseIds]);
+  // The catalog orders cases by duration for scheduling, not construction.
+  expect(cases.map(({ id }) => id).sort()).toEqual(
+    [...expectedLinkCaseIds].sort()
+  );
   for (const workspaceE2ECase of cases) {
     expect(workspaceE2ENonPaymentCaseIds).toContain(workspaceE2ECase.id);
   }

@@ -34,26 +34,12 @@ export default defineConfig({
     },
     {
       dependencies: ["checkout-setup"],
-      name: "checkout-non-payment",
-      testMatch: "non-payment.pw.ts",
-      // The case phase queues account-auth after every non-payment test; the
-      // cap leaves a worker free for the account lane from the first batch.
-      workers: 2,
-    },
-    {
-      dependencies: ["checkout-setup"],
-      name: "checkout-payment-1",
-      testMatch: "payment-lane-1.pw.ts",
-    },
-    {
-      dependencies: ["checkout-setup"],
-      name: "checkout-payment-2",
-      testMatch: "payment-lane-2.pw.ts",
-    },
-    {
-      dependencies: ["checkout-setup"],
-      name: "checkout-payment-3",
-      testMatch: "payment-lane-3.pw.ts",
+      name: "checkout-cases",
+      testMatch: "cases.pw.ts",
+      // The hosted-payment permit, not the project, bounds Nexi sessions. The
+      // case phase may queue account-auth after every case; the cap leaves a
+      // worker free for the account lane from the first batch.
+      workers: 5,
     },
     {
       name: "checkout-cleanup",

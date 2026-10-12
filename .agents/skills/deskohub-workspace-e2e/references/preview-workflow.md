@@ -168,8 +168,10 @@ soak produced Nexi error pages in two runs while hosted sessions were
 unbounded. A one-session suite bound then stretched the independent phase to
 5.7--5.9 minutes and caused a case-watchdog failure, so each suite now admits at
 most three hosted-payment sessions from payment submission through the return
-to the checkout status page. Three overlapping suites can hold at most nine
-sessions in aggregate.
+to the checkout status page. A run-scoped hosted-payment permit enforces that
+bound across Playwright worker processes for only the hosted portion, so paid
+cases run their preparation and post-payment validation in the shared case
+pool. Three overlapping suites can hold at most nine sessions in aggregate.
 
 Cross-run concurrency has a target of three simultaneous healthy exact-SHA
 runs. Before provider setup begins, an isolated coordinator leases one of three
@@ -288,9 +290,9 @@ fulfillment sends at most two sequential email API requests, so this bounds the
 sustained shared-team email rate without retrying a webhook or serializing
 hosted payment. Resend documents a per-team, per-second limit with no extra
 burst allowance: <https://resend.com/docs/api-reference/rate-limit>.
-Three serial Playwright payment-lane projects bound hosted-payment sessions;
-they do not use the coordination database, and the remaining Playwright workers
-continue running non-payment cases.
+The run-scoped hosted-payment permit bounds hosted-payment sessions with a
+ticket queue in the run's artifact directory; it does not use the coordination
+database, and the other case workers keep running.
 
 ### Dotypos capacity checklist
 
@@ -440,7 +442,7 @@ creation; payment must return `pricing_changed`.
 The stable Calendar definition targets the open-space and reserved-desk cowork
 tiers separately, plus the meeting-room family. Calendar happy paths book open
 space; only the pricing-change case books reserved desk. That case runs in the
-non-payment case project alongside every other case. It advertises both of its
+`checkout-cases` pool alongside every other case. It advertises both of its
 checkouts first (the payment-change checkout up to its captured pay page), then
 removes only the reserved-desk target once, and restores it in an
 interruption-safe finalizer. Both scenarios must show the normal
@@ -480,11 +482,11 @@ Every case uses a unique customer. Dates come from the run's deterministic
 allocation shard. Basic cases may share a date up to the documented capacity
 of four; Plus and Profi Calendar dates stay disjoint from Basic and from one
 another. Playwright owns case scheduling with six workers, so at most six cases
-can enter reservation start at once. The 16 hosted-payment cases are distributed
-across three serial Playwright lanes, keeping at most three hosted sessions
-active while non-payment cases use the remaining workers. The Calendar
-pricing-change case shares the case phase because it mutates only the
-reserved-desk target.
+can enter reservation start at once. The 17 hosted-payment cases share one
+five-worker case pool with the non-payment cases, and the hosted-payment permit
+keeps at most three hosted sessions active; the sixth worker runs the account
+lane. The Calendar pricing-change case shares that pool because it mutates
+only the reserved-desk target.
 Each worker owns a database pool capped at two connections. `maxFailures: 1`
 stops new case admission after the first failure; already-running tests finish
 their exact cleanup, and the teardown project reconciles their private cleanup
@@ -600,12 +602,12 @@ one still allowed aggregate capacity three. The runner therefore admits one
 synthetic `replay-payment-webhook` step globally with a transaction-scoped
 PostgreSQL advisory lock in the coordination database. Each Playwright worker
 allows only one blocked lock query at a time, while its dedicated direct SQL
-pool retains a second connection for interruption cancellation; the three
-payment lanes bound the run-wide queue. Transaction
+pool retains a second connection for interruption cancellation; the six-worker
+ceiling bounds the run-wide queue. Transaction
 commit, rollback, interruption, or connection loss releases the lock.
 
-Hosted payment is bounded by three Playwright payment lanes after an exact
-three-way round produced two hosted-provider error pages; genuine webhook
+Hosted payment is bounded by the run-scoped three-session hosted-payment permit
+after an exact three-way round produced two hosted-provider error pages; genuine webhook
 delivery, fulfillment, and unrelated provider work remain parallel. Provider-verification
 permit wait is included in the step trace duration, the semantic step timeout
 begins after admission, and the case watchdog bounds the complete wait and

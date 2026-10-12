@@ -3,6 +3,7 @@ import { Effect, Layer, Redacted } from "effect";
 import { FetchHttpClient } from "effect/unstable/http";
 import { normalizePostgresConnectionUrl } from "../../db/postgres-connection-url";
 import { getDatasourceConfig } from "../config";
+import { WorkspaceE2EHostedPaymentPermitService } from "../coordination/hosted-payment-permit.service";
 import { WorkspaceE2EProviderVerificationPermitService } from "../coordination/provider-verification-permit.service";
 import type { WorkspaceE2EEnvironment } from "../e2e-env";
 import { toWorkspaceE2EError } from "../errors";
@@ -27,6 +28,9 @@ export const makeWorkspaceE2ECaseRuntimeLive = (
   const support = Layer.mergeAll(
     FetchHttpClient.layer,
     WorkspaceE2ECleanupService.Default,
+    WorkspaceE2EHostedPaymentPermitService.Default.pipe(
+      Layer.provide(E2ERunContextService.layerValue(runContext))
+    ),
     makeWorkspaceE2EProviderVerificationPermitLive(environment),
     E2ETelemetryService.Default.pipe(
       Layer.provideMerge(E2ERunContextService.layerValue(runContext))

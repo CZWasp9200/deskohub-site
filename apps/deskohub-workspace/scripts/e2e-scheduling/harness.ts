@@ -7,12 +7,7 @@ import { z } from "zod";
 const appDir = resolve(import.meta.dir, "../..");
 const artifactDirectory = resolve(appDir, "e2e-artifacts", "scheduling");
 const childTimeoutMs = 30_000;
-const checkoutProjects = [
-  "checkout-non-payment",
-  "checkout-payment-1",
-  "checkout-payment-2",
-  "checkout-payment-3",
-] as const;
+const checkoutProjects = ["checkout-cases"] as const;
 const preparationProjects = ["checkout-setup"] as const;
 const accessCodeProject = "access-code-creation";
 const scenarios = ["candidate", "candidate-checkout-failure"] as const;
@@ -159,17 +154,15 @@ const eventDirectory = process.env.WORKSPACE_E2E_SCHEDULING_EVENT_DIR;
 const scenario = process.env.WORKSPACE_E2E_SCHEDULING_SCENARIO;
 // Stays below the Playwright test timeout so a stuck rendezvous reports itself.
 const rendezvousTimeoutMs = 8_000;
-const checkoutFirstSignals = [
-  "checkout-non-payment-first-started",
-  "checkout-payment-1-first-started",
-  "checkout-payment-2-first-started",
-  "checkout-payment-3-first-started",
-];
-// Failures wait until both capped non-payment workers are busy, so the whole
-// first case batch is admitted before maxFailures stops the run.
+const checkoutFirstSignals = ["checkout-cases-first-started"];
+// Failures wait until every capped case worker is busy, so the whole first
+// case batch is admitted before maxFailures stops the run.
 const firstBatchSignals = [
   ...checkoutFirstSignals,
-  "checkout-non-payment-second-started",
+  "checkout-cases-2-started",
+  "checkout-cases-3-started",
+  "checkout-cases-4-started",
+  "checkout-cases-5-started",
 ];
 const checkoutFailure = scenario === "candidate-checkout-failure";
 
@@ -255,22 +248,16 @@ const runSyntheticTest = async (info, testName, body) => {
   }
 };
 const durationFor = (project) =>
-  project === "checkout-non-payment" || project.startsWith("checkout-payment-")
+  project === "checkout-cases"
     ? 250
     : project.startsWith("checkout-")
       ? 180
       : 40;
-// Non-payment cases are independent and outnumber the free workers, like the
-// deployed suite, so they would queue the account lane without a worker cap.
-const parallelCases = syntheticProject === "checkout-non-payment";
+// Cases are independent and outnumber the workers, like the deployed suite,
+// so they would queue the account lane without a worker cap.
+const parallelCases = syntheticProject === "checkout-cases";
 const testCount =
-  syntheticProject === "account-auth"
-    ? 9
-    : parallelCases
-      ? 4
-      : syntheticProject.startsWith("checkout-payment-")
-        ? 2
-        : 1;
+  syntheticProject === "account-auth" ? 9 : parallelCases ? 8 : 1;
 
 test.describe.configure({ mode: parallelCases ? "parallel" : "serial" });
 for (let step = 1; step <= testCount; step += 1) {
@@ -281,14 +268,14 @@ for (let step = 1; step <= testCount; step += 1) {
         if (step === 1) {
           await signal(syntheticProject + "-first-started");
         }
-        if (parallelCases && step === 2) {
-          await signal(syntheticProject + "-second-started");
+        if (parallelCases && step > 1) {
+          await signal(syntheticProject + "-" + step + "-started");
         }
         const caseProject = checkoutFirstSignals.includes(
           syntheticProject + "-first-started"
         );
         if (caseProject && (step === 1 || parallelCases)) {
-          if (checkoutFailure && syntheticProject === "checkout-payment-1") {
+          if (checkoutFailure && step === 1) {
             await waitForSignals(info, testName, [
               "account-auth-first-started",
               ...firstBatchSignals,
@@ -434,9 +421,6 @@ function summarize(
   return {
     wallSpanMs,
     maxActiveTests: peakOverlap(items),
-    maxPaymentTests: peakOverlap(items, (item) =>
-      item.start.project.startsWith("checkout-payment-")
-    ),
     fixtureFinalizedOwnershipCount: events.filter(
       (event) => event.event === "fixture-finalizer-complete"
     ).length,
@@ -574,8 +558,8 @@ function assertRunCompletion(run: Run) {
     `${run.scenario} did not interrupt a pending test body`
   );
   must(
-    run.summary.maxActiveTests <= 6 && run.summary.maxPaymentTests <= 3,
-    `${run.scenario} exceeded worker or payment limits`
+    run.summary.maxActiveTests <= 6,
+    `${run.scenario} exceeded the worker limit`
   );
 }
 

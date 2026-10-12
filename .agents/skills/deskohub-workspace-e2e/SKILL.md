@@ -116,12 +116,11 @@ Distinguish automated-runner behavior from manual procedures before treating a d
   Use project dependencies to start every case-phase project after
   `checkout-setup` and to run final reconciliation as its teardown.
   Keep the global worker ceiling at six: it replaces the old
-  reservation-start permit pool with a stricter whole-case bound. Put every
-  hosted-payment case in one of exactly three serial Playwright lanes so at most
-  three hosted sessions run per suite while non-payment work can use the other
-  workers. Balance the lanes by recorded median case durations so they end
-  within seconds of each other; the slowest lane bounds the case phase. Do not reintroduce an Effect case aggregate, suite-local hosted
-  semaphore, reservation priority pool, or browser launcher. Effect remains
+  reservation-start permit pool with a stricter whole-case bound. Register paid
+  and non-payment cases in the one `checkout-cases` pool; the hosted-payment
+  permit below, not serial Playwright lanes, bounds Nexi sessions. Do not
+  reintroduce an Effect case aggregate, reservation priority pool, or browser
+  launcher. Effect remains
   inside each Playwright test for domain workflows, semantic steps, tracing,
   provider coordination, cleanup, and interruption-safe finalizers. The
   synthetic `replay-payment-webhook` step is the remaining measured distributed
@@ -134,7 +133,7 @@ Distinguish automated-runner behavior from manual procedures before treating a d
   cannot enforce a suite-wide limit across Playwright processes. Keep a
   worker-local Effect semaphore so each worker issues only one
   lock query at a time and a second SQL-pool connection remains available for
-  interruption cancellation; the three payment lanes bound the run-wide queue.
+  interruption cancellation; the six-worker ceiling bounds the run-wide queue.
   Use a separate direct URL whose SQL-created role
   has database connectivity only and no schema or table privileges;
   never expose the allocator URL or role to exact-SHA code. The five-round
@@ -154,13 +153,41 @@ Distinguish automated-runner behavior from manual procedures before treating a d
   Deduplicate cleanup targets and cancel independent Dotypos reservations
   concurrently while collecting every cleanup exit. Preserve parallel payment
   coverage unless exact-run evidence demonstrates a concurrency-specific failure.
+- Bound only the Nexi hosted-payment portion of a paid case, never the whole
+  case. Unbounded hosted sessions produced Nexi sandbox error pages, a
+  one-session bound stretched the phase past the case watchdog, and three per
+  suite is the measured operating bound, not a provider guarantee. Wrap the
+  span from payment submission through the return to the checkout status page
+  (or, for failed and cancelled cases, through the terminal-state preparation)
+  in `WorkspaceE2EHostedPaymentPermitService.withPermit`; the single sandbox
+  restart stays inside the same hold. Release it before
+  `replay-payment-webhook` so it never nests with the provider-verification
+  permit. Playwright workers are separate processes, so the permit is a FIFO
+  ticket queue in the run's `e2e-artifacts/checkout/hosted-payment-permit/`
+  directory, keyed by run ID and independent of the coordination database, so
+  manual and local runs enforce it too. Checkout setup creates the queue and
+  its generation marker; the permit never recreates it, and a missing or
+  replaced marker fails every waiting and holding case. A finalizer releases
+  the ticket after success, failure, timeout, or interruption, including while
+  waiting. Reclaim a ticket only when its holder process is gone: the PID no
+  longer runs, is a zombie, or has a different procfs start time (a recycled
+  PID). Never reclaim on time: a frozen holder keeps its slot until the case
+  watchdog or Playwright ends it. Any queue read or write failure, including
+  the release, fails the case. The wait counts toward the case watchdog but
+  not the hosted steps' semantic timeouts. Every admission logs `HOSTED PAYMENT PERMIT <session>
+  admitted after <s>`; read those waits before blaming Nexi or the scheduler.
+  Keep `checkout-cases` one below the global worker ceiling so the account
+  lane always gets a worker. Register its cases alternating paid and
+  non-payment, each longest median first, so about three hosted sessions are
+  in demand at a time. Re-sort by deployed medians when adding cases. Changing
+  the capacity or widening the boundary needs the same five concurrent
+  exact-SHA soak rounds as any provider-boundary change.
 - Playwright dependency phases are barriers: they await every project in a
   topological phase before advancing. Keep the long serial account lane in the
-  same phase as `checkout-non-payment` and `checkout-payment-1` through
-  `checkout-payment-3` by depending on `checkout-setup`; require real scheduler
-  regression evidence, not only a graph assertion. Playwright queues the
-  account lane behind every `checkout-non-payment` test in that phase, so keep
-  the per-project `workers` cap on `checkout-non-payment` that leaves a worker
+  same phase as `checkout-cases` by depending on `checkout-setup`; require real
+  scheduler regression evidence, not only a graph assertion. Playwright can
+  queue the account lane behind every `checkout-cases` test in that phase, so
+  keep the per-project `workers` cap on `checkout-cases` that leaves a worker
   free for the account lane from the first case batch.
   Keep the bounded evidence in [account scheduling runtime](references/account-scheduling-runtime.json).
   Its synthetic harness, `bun run test scripts/workspace-e2e-scheduling.test.ts`
@@ -288,8 +315,8 @@ Distinguish automated-runner behavior from manual procedures before treating a d
   `card_submission_rejected` page state
   (`nexi_hosted_<step>_card_submission_rejected`) from the session's Nexi
   build responses. On 2026-10-08 this hit the first hosted payment of
-  many suites (usually `checkout-calendar-sale-and-code`, lane 3) and passed
-  on exact-SHA reruns. On 2026-10-09 a local sandbox run with no runner or
+  many suites (usually `checkout-calendar-sale-and-code`, which opens the
+  case pool) and passed on exact-SHA reruns. On 2026-10-09 a local sandbox run with no runner or
   Workspace involvement reproduced it: the response body was Nexi error
   `GW0027` ("Internal Rest communication error during payment"), and Nexi's
   own `/fe/v2/build/state` also returned HTTP 500. Treat it as sandbox

@@ -6,6 +6,10 @@ import { prepareDiscountAvailabilityE2E } from "../cases/discounts";
 import { prepareMeetingRoomE2E } from "../cases/meeting-room";
 import { prepareOfficeE2E } from "../cases/office";
 import { assertNexiSandbox, getConfig, getDatasourceConfig } from "../config";
+import {
+  prepareWorkspaceE2EHostedPaymentPermitQueue,
+  workspaceE2EHostedPaymentPermitDirectory,
+} from "../coordination/hosted-payment-permit.service";
 import { makeWorkspaceE2EEnvironment } from "../e2e-env";
 import { seedDiscountE2EFixtures } from "../integrations/discount-fixtures";
 import { resolveE2EDotyposDiscountGroup } from "../integrations/dotypos";
@@ -51,6 +55,9 @@ test("prepare the workspace checkout run", async () => {
   // Cleanup recovery runs only when this file exists, so every lease, seed,
   // and provider effect below must follow it.
   await writeWorkspaceE2ERunContext(runContext);
+  await prepareWorkspaceE2EHostedPaymentPermitQueue(
+    workspaceE2EHostedPaymentPermitDirectory(runContext.runId)
+  );
 
   const run: Runner = async () => ({
     exitCode: 0,
