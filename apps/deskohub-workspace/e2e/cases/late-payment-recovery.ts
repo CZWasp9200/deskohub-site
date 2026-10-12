@@ -238,7 +238,7 @@ export const executeLatePaymentRecovery = ({
             /arrived after the reservation was no longer available/.test(
               text
             ) &&
-            !/We are sending your confirmation now/.test(text),
+            !/We.re finishing your reservation/.test(text),
           run,
           session,
           timeoutMs: config.timeouts.uiTransition,
