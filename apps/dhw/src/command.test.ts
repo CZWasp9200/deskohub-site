@@ -1180,6 +1180,112 @@ describe("dhw mutation commands", () => {
     ]);
   });
 
+  test("maps cowork tier product flags to cowork tier targets", async () => {
+    const { layer, mutations } = makeCommandLayer();
+
+    await runCommand(
+      [
+        "--json",
+        "discounts",
+        "create",
+        "percentage",
+        "--label-en",
+        "Desks",
+        "--label-cs",
+        "Stoly",
+        "--percentage",
+        "10",
+        "--product",
+        "cowork:reserved-desk",
+        "--product",
+        "cowork:open-space",
+      ],
+      layer
+    ).pipe(Effect.runPromise);
+
+    expect(mutations).toEqual([
+      {
+        kind: "create-discount",
+        discount: {
+          labels: { "cs-CZ": "Stoly", "en-US": "Desks" },
+          adjustment: { kind: "percentage", basisPoints: 1000 },
+          products: [
+            { kind: "cowork", tier: "reserved-desk" },
+            { kind: "cowork", tier: "open-space" },
+          ],
+        },
+      },
+    ]);
+  });
+
+  test("rejects every cowork tier combined with a single tier before making a request", async () => {
+    const { layer, mutations } = makeCommandLayer();
+
+    const error = await runCommand(
+      [
+        "--json",
+        "discounts",
+        "create",
+        "percentage",
+        "--label-en",
+        "Summer",
+        "--label-cs",
+        "Léto",
+        "--percentage",
+        "10",
+        "--product",
+        "cowork",
+        "--product",
+        "cowork:open-space",
+      ],
+      layer
+    ).pipe(Effect.flip, Effect.runPromise);
+
+    expect(error).toMatchObject({ _tag: "InvalidMutationInputError" });
+    expect(mutations).toHaveLength(0);
+  });
+
+  test("lists discount products with their cowork tiers", async () => {
+    const stdout: Array<string> = [];
+    const { layer } = makeCommandLayer({
+      getDiscountDashboard: () =>
+        Effect.succeed({
+          discounts: [
+            {
+              id: "01980000-0000-7000-8000-000000000002",
+              labels: { "cs-CZ": "Stoly", "en-US": "Desks" },
+              adjustment: { kind: "percentage", basisPoints: 1000 },
+              products: [
+                { kind: "cowork", tier: "reserved-desk" },
+                { kind: "office" },
+              ],
+              codeCount: 0,
+            },
+            {
+              id: "01980000-0000-7000-8000-000000000003",
+              labels: { "cs-CZ": "Léto", "en-US": "Summer" },
+              adjustment: { kind: "percentage", basisPoints: 1500 },
+              products: [{ kind: "cowork" }],
+              codeCount: 1,
+            },
+          ],
+        } as never),
+    });
+
+    await runCommand(["discounts", "list"], layer).pipe(
+      Effect.updateService(Console.Console, (service) => ({
+        ...service,
+        log: (...args) => stdout.push(args.join(" ")),
+      })),
+      Effect.runPromise
+    );
+
+    expect(stdout.slice(1).map((line) => line.split("\t")[3])).toEqual([
+      "cowork:reserved-desk,office",
+      "cowork",
+    ]);
+  });
+
   test("rejects duplicate product flags before making a request", async () => {
     const { layer, mutations } = makeCommandLayer();
 
@@ -1323,6 +1429,7 @@ const makeCommandLayer = ({
   clear = Effect.succeed(true),
   createInvoice = () => Effect.die("not used"),
   createStandaloneAccessCode = () => Effect.die("not used"),
+  getDiscountDashboard = () => Effect.die("not used"),
   authenticatedSession = session,
   listSessions = () => Effect.succeed([]),
   revokeSession = () => Effect.succeed({ changed: false }),
@@ -1332,6 +1439,7 @@ const makeCommandLayer = ({
   readonly clear?: AuthenticationService["Service"]["clear"];
   readonly createInvoice?: WorkspaceAdminApiClient["Service"]["createInvoice"];
   readonly createStandaloneAccessCode?: WorkspaceAdminApiClient["Service"]["createStandaloneAccessCode"];
+  readonly getDiscountDashboard?: WorkspaceAdminApiClient["Service"]["getDiscountDashboard"];
   readonly authenticatedSession?: CliSessionType;
   readonly listSessions?: WorkspaceAdminApiClient["Service"]["listSessions"];
   readonly revokeSession?: WorkspaceAdminApiClient["Service"]["revokeSession"];
@@ -1369,6 +1477,7 @@ const makeCommandLayer = ({
           providerCredentialRemovedAttemptId
         );
       }),
+    getDiscountDashboard,
     getReservation: () =>
       Effect.succeed({
         accessGrant: { updatedAt: "2026-08-10T10:00:00.000Z" },
