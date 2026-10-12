@@ -12,7 +12,10 @@ import {
   workspaceSiteConstants,
 } from "@/shared/utils";
 
-export const maxDuration = 30;
+// The status refresh verifies the payment with Nexi; leave room for one full
+// sandbox-length Nexi request (see nexi.config.ts) plus the 8-second Dotypos
+// cap outside production.
+export const maxDuration = 60;
 export const instant = true;
 
 type LocalizedCheckoutStatusPageProps = {

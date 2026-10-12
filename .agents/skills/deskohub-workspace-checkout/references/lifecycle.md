@@ -686,6 +686,16 @@ attempt with `nexi_hpp_create_unconfirmed` only while it is still `created`,
 releasing its claim before cancelling the hold. Payment activity on such an
 order needs operator review; an inconclusive lookup is retried later.
 
+Every Nexi request has one per-request timeout, chosen from `VERCEL_ENV` by
+`getNexiRequestTimeoutMilliseconds` in `shared/backend/config/nexi.config.ts`:
+5 seconds in production and 30 seconds in preview, development, and tests. The
+Nexi sandbox can take more than 5 seconds to create a hosted page, and every
+such timeout leaves an ambiguous `created` attempt, so test environments wait
+longer instead of retrying. Keep each deadline that wraps a Nexi call (the
+45-second Workspace action deadline around the pay submit, the checkout status
+page `maxDuration`, and E2E provider waits) above one full non-production
+request plus the work around it.
+
 ### Webhook Success And Dotypos Confirmation
 
 ```mermaid
