@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createSafeActionClient } from "next-safe-action";
 import { createLocaleActionMiddleware } from "./action";
+import { createRequestLocaleScope } from "./request-locale";
 import { createTestParaglideRuntime } from "./testing/paraglide-runtime";
 
 type Locale = "cs-CZ" | "en-US";
@@ -14,7 +15,10 @@ function createLocalizedActionClient() {
     resolveLocale: () =>
       runtime.extractLocaleFromRequest(requests.getStore() ?? {}),
     fallbackLocale: runtime.baseLocale,
-    setLocale: runtime.setLocale,
+    scope: createRequestLocaleScope({
+      overwriteServerAsyncLocalStorage:
+        runtime.overwriteServerAsyncLocalStorage,
+    }),
   });
 
   return {

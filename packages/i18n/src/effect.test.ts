@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Context, Effect } from "effect";
 import { createParaglideLocaleBridge } from "./effect";
+import { createRequestLocaleScope } from "./request-locale";
 import { createTestParaglideRuntime } from "./testing/paraglide-runtime";
 
 type Locale = "cs-CZ" | "en-US";
@@ -11,9 +12,10 @@ function createBridge() {
   const runtime = createTestParaglideRuntime<Locale>("cs-CZ");
   const bridge = createParaglideLocaleBridge({
     localeTag: TestLocale,
-    origin: "https://example.test",
-    setLocale: runtime.setLocale,
-    overwriteServerAsyncLocalStorage: runtime.overwriteServerAsyncLocalStorage,
+    scope: createRequestLocaleScope({
+      overwriteServerAsyncLocalStorage:
+        runtime.overwriteServerAsyncLocalStorage,
+    }),
   });
 
   return { runtime, runWithLocale: bridge.runWithLocale };

@@ -1,4 +1,4 @@
-import type { ParaglideAsyncLocalStorage } from "../effect";
+import type { ParaglideAsyncLocalStorage } from "../request-locale";
 
 type TestRequest<Locale extends string> = { localeCookie?: Locale };
 
