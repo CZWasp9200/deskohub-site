@@ -3,7 +3,6 @@ import "@/shared/testing/workspace-test-env";
 import { describe, expect, test } from "bun:test";
 import { DotyposCustomerIdSchema } from "@deskohub/dotypos";
 import { Effect, Layer } from "effect";
-import { WorkspaceDatabase } from "@/db/database.service";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import { CustomerEmailLocaleService } from "./customer-email-locale.service";
 
@@ -14,10 +13,9 @@ const uniqueId = () => crypto.randomUUID();
 describe.skipIf(!testDatabase)(
   "CustomerEmailLocaleService on disposable Postgres",
   () => {
-    const dbLayer = Layer.succeed(
-      WorkspaceDatabase,
-      WorkspaceDatabase.of({ db: testDatabase!.db })
-    );
+    // Read only inside tests: registration runs even when the suite is
+    // skipped without a database.
+    const dbLayer = () => testDatabase!.layer;
 
     const insertAccountWithLink = async (
       dotyposCustomerId: string,
@@ -51,7 +49,7 @@ describe.skipIf(!testDatabase)(
           service.byDotyposCustomer(dotyposCustomerId)
         ).pipe(
           Effect.provide(
-            CustomerEmailLocaleService.Default.pipe(Layer.provide(dbLayer))
+            CustomerEmailLocaleService.Default.pipe(Layer.provide(dbLayer()))
           )
         )
       );
@@ -69,7 +67,7 @@ describe.skipIf(!testDatabase)(
           service.byDotyposCustomer(dotyposCustomerId)
         ).pipe(
           Effect.provide(
-            CustomerEmailLocaleService.Default.pipe(Layer.provide(dbLayer))
+            CustomerEmailLocaleService.Default.pipe(Layer.provide(dbLayer()))
           )
         )
       );
@@ -88,7 +86,7 @@ describe.skipIf(!testDatabase)(
           service.byDotyposCustomer(dotyposCustomerId)
         ).pipe(
           Effect.provide(
-            CustomerEmailLocaleService.Default.pipe(Layer.provide(dbLayer))
+            CustomerEmailLocaleService.Default.pipe(Layer.provide(dbLayer()))
           )
         )
       );

@@ -1,8 +1,7 @@
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, test } from "bun:test";
-import { Effect, Layer } from "effect";
-import { WorkspaceDatabase } from "@/db/database.service";
+import { Effect } from "effect";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import { findSavedLocalePreference } from "./saved-locale-preference";
 
@@ -13,10 +12,9 @@ const uniqueId = () => crypto.randomUUID().replaceAll("-", "");
 describe.skipIf(!testDatabase)(
   "saved locale preference by session on disposable Postgres",
   () => {
-    const dbLayer = Layer.succeed(
-      WorkspaceDatabase,
-      WorkspaceDatabase.of({ db: testDatabase!.db })
-    );
+    // Read only inside tests: registration runs even when the suite is
+    // skipped without a database.
+    const dbLayer = () => testDatabase!.layer;
 
     const insertSession = async (options: {
       readonly locale?: string;
@@ -49,7 +47,7 @@ describe.skipIf(!testDatabase)(
 
     const find = (token: string) =>
       Effect.runPromise(
-        findSavedLocalePreference(token).pipe(Effect.provide(dbLayer))
+        findSavedLocalePreference(token).pipe(Effect.provide(dbLayer()))
       );
 
     test("reads the saved preference of a live verified session", async () => {
