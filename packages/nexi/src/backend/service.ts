@@ -10,7 +10,7 @@ import {
   Schema,
 } from "effect";
 import { FetchHttpClient } from "effect/unstable/http";
-import { ExternalAPIError, type NetworkError } from "../errors";
+import { ExternalAPIError, NetworkError } from "../errors";
 import type {
   CreateHostedPaymentPageRequest,
   Operation,
@@ -214,17 +214,31 @@ const makeNexiService = Effect.gen(function* () {
     function* (input: VerifyPaymentOutcomeInput) {
       yield* Effect.logInfo("Nexi order lookup started");
 
-      const order = yield* nexiClient
+      const lookup = nexiClient
         .getOrder({
           correlationId: input.correlationId,
           orderId: input.orderId,
         })
-        .pipe(
-          Effect.retry(retryPolicy),
-          Effect.tapError((error) =>
-            Effect.logError("Nexi order lookup failed", { error })
-          )
-        );
+        .pipe(Effect.retry(retryPolicy));
+      const order = yield* (
+        input.deadline === undefined
+          ? lookup
+          : lookup.pipe(
+              Effect.timeoutOrElse({
+                duration: input.deadline,
+                orElse: () =>
+                  Effect.fail(
+                    new NetworkError({
+                      message: "Nexi order lookup exceeded its deadline",
+                    })
+                  ),
+              })
+            )
+      ).pipe(
+        Effect.tapError((error) =>
+          Effect.logError("Nexi order lookup failed", { error })
+        )
+      );
 
       yield* Effect.logDebug("Nexi order lookup result", {
         operationCount: order.operations?.length ?? 0,

@@ -3,7 +3,7 @@ import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, mock, test } from "bun:test";
 import { DotyposService } from "@deskohub/dotypos";
-import { Effect, Layer } from "effect";
+import { Duration, Effect, Layer } from "effect";
 import { TestClock } from "effect/testing";
 import { SeatingMapFeatureFlagServiceMock } from "@/features/feature-flags/backend/seating-map-feature-flag.service.mock";
 import { AdvisoryAvailabilityInventory } from "@/features/reservation/backend/availability-inventory";
@@ -172,7 +172,10 @@ describe("CheckoutStatusService", () => {
       Effect.runPromise
     );
 
-    expect(finalizePendingProviderPayment).toHaveBeenCalledWith({ orderId });
+    expect(finalizePendingProviderPayment).toHaveBeenCalledWith({
+      orderId,
+      verificationDeadline: Duration.seconds(40),
+    });
     expect(status.status).toBe("fulfilled");
   });
 

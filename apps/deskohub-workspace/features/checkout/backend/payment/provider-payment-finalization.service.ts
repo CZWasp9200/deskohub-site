@@ -7,7 +7,7 @@ import {
   NexiService,
   type NexiWebhookEventId,
 } from "@deskohub/nexi";
-import { Context, Effect, Layer, Option, Schema } from "effect";
+import { Context, type Duration, Effect, Layer, Option, Schema } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import type { PaymentAttemptId } from "@/features/checkout/checkout-identifiers";
 import {
@@ -58,6 +58,8 @@ export interface IProviderPaymentFinalizationService {
     readonly paymentAttemptId?: PaymentAttemptId;
     readonly webhookEventId?: NexiWebhookEventId;
     readonly abandonmentCheckedAt?: Temporal.Instant;
+    /** Bounds the Nexi payment verification, retries included. */
+    readonly verificationDeadline?: Duration.Input;
   }) => Effect.Effect<
     ProviderPaymentFinalizationResult,
     PaymentLifecycleRepositoryError
@@ -377,6 +379,7 @@ function makeProviderPaymentFinalizationServiceLayer(
                 amount: String(attempt.amount.value),
                 currency: getNexiCurrencyOverride() ?? currency,
                 securityToken: attempt.securityToken,
+                deadline: input.verificationDeadline,
               })
               .pipe(
                 Effect.tapError((cause) =>

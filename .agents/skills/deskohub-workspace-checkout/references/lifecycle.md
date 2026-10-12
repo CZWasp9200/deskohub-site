@@ -686,6 +686,40 @@ attempt with `nexi_hpp_create_unconfirmed` only while it is still `created`,
 releasing its claim before cancelling the hold. Payment activity on such an
 order needs operator review; an inconclusive lookup is retried later.
 
+Every Nexi request has one per-request timeout, chosen from `VERCEL_ENV` by
+`getNexiRequestTimeoutMilliseconds` in `shared/backend/config/nexi.config.ts`:
+5 seconds in production and 30 seconds in preview, development, and tests. The
+Nexi sandbox can take more than 5 seconds to create a hosted page, and every
+such timeout leaves an ambiguous `created` attempt, so test environments wait
+longer instead of retrying. Keep each deadline that wraps a Nexi call above one
+full request plus the work around it:
+
+| Deadline | Production | Non-production | Covers |
+| --- | --- | --- | --- |
+| Pay submit (`checkoutSubmitDeadline`) | 45 s | 70 s | One full Dotypos request, one full Nexi hosted page request, 10 s of other work |
+| Status refresh Nexi verification (shared by all lookups in one refresh) | 40 s | 40 s | One full Nexi lookup plus retries, inside the status page's 60-second `maxDuration` with the 8-second Dotypos cap |
+| E2E provider transition | 90 s | 90 s | The pay submit's redirect to the hosted page |
+
+The pay submit derives its deadline from the Dotypos and Nexi request
+timeouts and passes it as the action's `deadline`; other Workspace actions keep
+the 45-second default. Once the pending attempt exists, hosted page creation and
+attachment run uninterruptibly, so the action deadline can only end the submit
+before the attempt exists or after the session is attached; a retried submit
+then reuses that session. One status refresh shares a single 40-second verification
+budget, passed to `verifyPaymentOutcome` through finalization and late-payment
+verification; on expiry the refresh reports `provider_verification_failed` and
+renders the stored status. When finalization returns `not_pending` (a slow
+lookup lost a race with a concurrent terminal transition), late-payment
+verification starts only if one full Nexi request still fits the remaining
+budget, and then gets that remainder. Otherwise the refresh logs the deferral
+and renders the stored status; Nexi's success notification or a later refresh
+starts the recovery. Never shorten that lookup below one full request. A
+production lookup with retries ends well inside the budget, so only sandbox
+refreshes defer. The account modal's status route shares this refresh. Webhook,
+queue, and cron verification keeps unbounded retries inside the 300-second
+function limit; Nexi documents no notification response deadline, and a
+webhook keeps processing after the sender disconnects.
+
 ### Webhook Success And Dotypos Confirmation
 
 ```mermaid
