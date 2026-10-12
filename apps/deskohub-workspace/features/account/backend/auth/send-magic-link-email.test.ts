@@ -44,10 +44,8 @@ mock.module("resend", () => ({
 }));
 
 const { makeMagicLinkEmailDelivery } = await import("./send-magic-link-email");
-const {
-  isSyntheticE2EEmailRecipient,
-  magicLinkPreviewE2ELogCode,
-} = await import("./magic-link-policy");
+const { isSyntheticE2EEmailRecipient, magicLinkPreviewE2ELogCode } =
+  await import("./magic-link-policy");
 
 const request = {
   // Resend's simulator is a real destination, not a test recipient.
@@ -439,5 +437,4 @@ describe("Synthetic E2E email recipient pattern", () => {
     expect(isSyntheticE2EEmailRecipient(request.email)).toBe(false);
     expect(isSyntheticE2EEmailRecipient("")).toBe(false);
   });
-
 });

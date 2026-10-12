@@ -73,7 +73,9 @@ const contactFormDataStandardSchema = Schema.toStandardSchemaV1(
 );
 
 const ContactActionLive = ContactService.Default.pipe(
-  Layer.provide(EmailServiceTag.RecipientRouted.pipe(Layer.provideMerge(EmailConfigLayer)))
+  Layer.provide(
+    EmailServiceTag.RecipientRouted.pipe(Layer.provideMerge(EmailConfigLayer))
+  )
 );
 
 const submitContactAction = defineWorkspaceStateAction(
