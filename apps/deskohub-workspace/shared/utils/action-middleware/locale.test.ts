@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { AsyncLocalStorage } from "node:async_hooks";
+import { Effect } from "effect";
+import { sealSyntheticCoworkPayState } from "@/features/checkout/backend/checkout/pay-state.test-utils";
+import { createReservationAccessToken } from "@/features/reservation/backend/reservation-access-token";
+import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
 
 const requestHeaders = new AsyncLocalStorage<Headers>();
 const currentHeaders = () => requestHeaders.getStore() ?? new Headers();
@@ -127,12 +131,15 @@ describe("action locale middleware", () => {
     });
   });
 
-  test("an action from a page carrying a locale-bound continuation keeps that page's locale", async () => {
+  test("an action from a page carrying a validly signed Pay state keeps that page's locale", async () => {
     savedPreference = "cs-CZ";
     const readLocale = await createLocaleReader();
+    const payState = encodeURIComponent(
+      await sealSyntheticCoworkPayState({ locale: "en-US" })
+    );
 
     const result = await request("cs-CZ", () => readLocale(), {
-      referer: "https://deskohub.test/en-US/checkout/pay?payState=synthetic",
+      referer: `https://deskohub.test/en-US/checkout/pay?payState=${payState}`,
       signedIn: true,
     });
 
@@ -157,19 +164,38 @@ describe("action locale middleware", () => {
     });
   });
 
-  test("an action from an invoice page keeps that page's locale", async () => {
+  test("an action from a validly signed invoice page keeps that page's locale", async () => {
     savedPreference = "cs-CZ";
     const readLocale = await createLocaleReader();
+    const orderId = workspaceReservationIdSchema.make("reservation-id");
+    const accessToken = encodeURIComponent(
+      Effect.runSync(createReservationAccessToken({ orderId, locale: "en-US" }))
+    );
 
     const result = await request("cs-CZ", () => readLocale(), {
-      referer:
-        "https://deskohub.test/en-US/reservation/invoice/reservation-id?accessToken=synthetic",
+      referer: `https://deskohub.test/en-US/reservation/invoice/${orderId}?accessToken=${accessToken}`,
       signedIn: true,
     });
 
     expect(result.data).toEqual({
       contextLocale: "en-US",
       messageLocale: "en-US",
+    });
+  });
+
+  test("an action from a page with an invalid Pay state follows the preference", async () => {
+    savedPreference = "cs-CZ";
+    const readLocale = await createLocaleReader();
+
+    const result = await request("en-US", () => readLocale(), {
+      referer:
+        "https://deskohub.test/en-US/reservation/cowork?payState=garbage",
+      signedIn: true,
+    });
+
+    expect(result.data).toEqual({
+      contextLocale: "cs-CZ",
+      messageLocale: "cs-CZ",
     });
   });
 });

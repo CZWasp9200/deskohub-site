@@ -10,7 +10,7 @@ import {
   NextResponse,
 } from "next/server";
 import { sessionTokenFromRequestHeaders } from "@/features/account/backend/auth/session-cookie";
-import { carriesLocaleBoundContinuation } from "@/features/checkout/locale-bound-continuation";
+import { preferenceApplyingTo } from "@/features/checkout/locale-bound-continuation";
 import { resolveWorkspaceLocale } from "@/features/i18n/locale-resolution";
 import { localeCookieName, locales } from "@/features/i18n/routing";
 import { env } from "./env";
@@ -119,11 +119,18 @@ export async function proxy(request: NextRequest) {
     return exchangeReservationCapability(request, localeFromUrl);
   }
 
-  // A URL continuing a flow bound to its issued locale (a Pay state or an
-  // invoice link) keeps that locale; the saved preference applies elsewhere.
-  const savedPreference = carriesLocaleBoundContinuation(request.nextUrl)
-    ? undefined
-    : await readSavedLocalePreference(request);
+  // A verified continuation (a Pay state or an invoice link) keeps the locale
+  // it was issued in; the saved preference applies everywhere else.
+  const savedPreference = await preferenceApplyingTo(
+    request.nextUrl,
+    await readSavedLocalePreference(request),
+    async (continuation) => {
+      const { continuesInIssuedLocale } = await import(
+        "./features/checkout/backend/locale-bound-continuation.server"
+      );
+      return continuesInIssuedLocale(continuation);
+    }
+  );
   const resolvedLocale = resolveWorkspaceLocale(
     {
       pathname: request.nextUrl.pathname,

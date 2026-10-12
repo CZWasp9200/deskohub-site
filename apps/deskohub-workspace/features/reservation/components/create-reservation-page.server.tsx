@@ -7,6 +7,7 @@ import { connection } from "next/server";
 import type { ReactNode } from "react";
 import {
   openPayState,
+  payStateContinuesOn,
   payStateTokenQueryParam,
 } from "@/features/checkout/backend/checkout";
 import type { CheckoutSessionId } from "@/features/checkout/checkout-identifiers";
@@ -96,8 +97,7 @@ export const loadRestoredReservation = Effect.fn(
   );
   if (
     !payState ||
-    payState.locale !== locale ||
-    payState.reservation.kind !== kind
+    !payStateContinuesOn(payState, { locale, reservationKind: kind })
   ) {
     return undefined;
   }

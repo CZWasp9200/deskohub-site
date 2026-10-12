@@ -1,7 +1,12 @@
-import { stripLocaleFromPathname } from "@deskohub/i18n/pathname";
+import {
+  getLocaleFromPathname,
+  stripLocaleFromPathname,
+} from "@deskohub/i18n/pathname";
 import { payStateTokenQueryParam } from "@/features/checkout/pay-state-token-query";
+import type { Locale } from "@/features/i18n";
 import { locales } from "@/features/i18n/routing";
 import { reservationAccessTokenQueryParam } from "@/features/reservation/reservation-access-token";
+import type { ReservationOrderData } from "@/features/reservation/reservation-order";
 import {
   coworkReservationPath,
   meetingRoomReservationPath,
@@ -11,9 +16,16 @@ import {
 
 const checkoutPayPath = "/checkout/pay";
 
+const restorationPages: Readonly<Record<string, ReservationOrderData["kind"]>> =
+  {
+    [coworkReservationPath]: "cowork",
+    [meetingRoomReservationPath]: "meeting-room",
+    [officeReservationPath]: "office",
+  };
+
 /**
- * The routes that continue a flow bound to the locale its signed value was
- * issued in:
+ * A URL that may continue a flow bound to the locale its signed value was
+ * issued in. Only a verified candidate keeps that locale:
  * - The Pay page, and the reservation pages that restore an edited
  *   reservation, take a Pay state. It fixes the language of the terms and
  *   operating rules the customer accepts and of the frozen accounting
@@ -23,45 +35,82 @@ const checkoutPayPath = "/checkout/pay";
  * Status and access links are exchanged for a locale-free cookie before any
  * locale decision, so their token never reaches this check.
  */
-const localeBoundContinuations: readonly {
-  readonly param: string;
-  readonly matches: (pathname: string) => boolean;
-}[] = [
-  {
-    param: payStateTokenQueryParam,
-    matches: (pathname) =>
-      [
-        checkoutPayPath,
-        coworkReservationPath,
-        meetingRoomReservationPath,
-        officeReservationPath,
-      ].includes(pathname),
-  },
-  {
-    param: reservationAccessTokenQueryParam,
-    matches: (pathname) =>
-      pathname.startsWith(`${reservationInvoicePath}/`) &&
-      /^[^/]+$/.test(pathname.slice(reservationInvoicePath.length + 1)),
-  },
-];
+export type LocaleBoundContinuation =
+  | {
+      readonly kind: "pay-state";
+      readonly locale: Locale;
+      /** The restoration page's reservation kind; absent on the Pay page. */
+      readonly reservationKind?: ReservationOrderData["kind"];
+      readonly token: string;
+    }
+  | {
+      readonly kind: "reservation-invoice";
+      readonly locale: Locale;
+      readonly orderId: string;
+      readonly token: string;
+    };
+
+const nonEmptyParam = (
+  searchParams: Pick<URLSearchParams, "get">,
+  param: string
+) => {
+  const value = searchParams.get(param)?.trim();
+  return value ? value : undefined;
+};
 
 /**
- * Whether a URL continues a flow bound to its own locale: a supported route
- * carrying a non-empty value of its signed parameter. Such a URL keeps the
- * locale it was issued in, since a signed-in customer's saved language
- * preference would move it to a locale where it no longer validates. Any
- * other URL follows the preference, whatever parameters it carries.
+ * The continuation a URL claims to carry: a supported route with a non-empty
+ * value of its signed parameter. This only matches the URL's shape and reads
+ * no secret, so callers must verify the candidate before keeping its locale.
  */
-export const carriesLocaleBoundContinuation = ({
+export const findLocaleBoundContinuation = ({
   pathname,
   searchParams,
 }: {
   readonly pathname: string;
   readonly searchParams: Pick<URLSearchParams, "get">;
-}): boolean => {
+}): LocaleBoundContinuation | undefined => {
+  const locale = getLocaleFromPathname(pathname, locales);
+  if (!locale) return undefined;
   const route = stripLocaleFromPathname(pathname, locales);
-  return localeBoundContinuations.some(
-    ({ param, matches }) =>
-      matches(route) && (searchParams.get(param)?.trim() ?? "") !== ""
+
+  const payState = nonEmptyParam(searchParams, payStateTokenQueryParam);
+  if (payState && route === checkoutPayPath) {
+    return { kind: "pay-state", locale, token: payState };
+  }
+  const reservationKind = restorationPages[route];
+  if (payState && reservationKind) {
+    return { kind: "pay-state", locale, reservationKind, token: payState };
+  }
+
+  const accessToken = nonEmptyParam(
+    searchParams,
+    reservationAccessTokenQueryParam
   );
+  const orderId = route.startsWith(`${reservationInvoicePath}/`)
+    ? route.slice(reservationInvoicePath.length + 1)
+    : undefined;
+  if (accessToken && orderId && /^[^/]+$/.test(orderId)) {
+    return { kind: "reservation-invoice", locale, orderId, token: accessToken };
+  }
+  return undefined;
+};
+
+/**
+ * The saved preference to apply to a page: none for a guest, none when the
+ * page is a verified continuation issued in another locale, and the saved
+ * preference otherwise. `verify` runs only for a candidate the preference
+ * would move, so most requests never load or run it.
+ */
+export const preferenceApplyingTo = async (
+  url: Parameters<typeof findLocaleBoundContinuation>[0],
+  savedPreference: Locale | undefined,
+  verify: (continuation: LocaleBoundContinuation) => Promise<boolean>
+): Promise<Locale | undefined> => {
+  if (savedPreference === undefined) return undefined;
+  const continuation = findLocaleBoundContinuation(url);
+  if (!continuation || continuation.locale === savedPreference) {
+    return savedPreference;
+  }
+  return (await verify(continuation)) ? undefined : savedPreference;
 };

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { Effect } from "effect";
 import { NextRequest } from "next/server";
+import { sealSyntheticCoworkPayState } from "@/features/checkout/backend/checkout/pay-state.test-utils";
 import { payStateTokenQueryParam } from "@/features/checkout/pay-state-token-query";
 import { localeCookieName } from "@/features/i18n/routing";
 import { getReservationAccessCookieName } from "@/features/reservation/backend/reservation-access-cookie";
@@ -123,33 +124,83 @@ describe("signed-in customer's saved language preference", () => {
     );
   });
 
-  test("keeps an emailed en-US invoice link in its issued locale for a cs-CZ owner", async () => {
+  const invoiceOrderId = workspaceReservationIdSchema.make("reservation-id");
+  const invoiceToken = (locale: "cs-CZ" | "en-US", orderId = invoiceOrderId) =>
+    encodeURIComponent(
+      Effect.runSync(createReservationAccessToken({ orderId, locale }))
+    );
+  const payState = async (
+    options: Parameters<typeof sealSyntheticCoworkPayState>[0]
+  ) => encodeURIComponent(await sealSyntheticCoworkPayState(options));
+  const expectKeptInEnglish = (response: Response) => {
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+    expect(response.headers.get("location")).toBeNull();
+  };
+  const expectMovedToCzech = (response: Response) =>
+    expect(response.headers.get("location")).toStartWith(
+      "https://workspace.example/cs-CZ/"
+    );
+
+  test("keeps a validly signed en-US invoice link in its issued locale for a cs-CZ owner", async () => {
     const response = await proxy(
       request(
-        `/en-US/reservation/invoice/reservation-id?${reservationAccessTokenQueryParam}=synthetic-token`,
+        `/en-US/reservation/invoice/${invoiceOrderId}?${reservationAccessTokenQueryParam}=${invoiceToken("en-US")}`,
         { cookie: signedInCookie }
       )
     );
 
-    expect(response.headers.get("x-middleware-next")).toBe("1");
-    expect(response.headers.get("location")).toBeNull();
+    expectKeptInEnglish(response);
     expect(response.headers.get("cache-control")).toBe("private, no-store");
-    expect(preferenceReads).toEqual([]);
   });
 
-  test("keeps an en-US Pay link in its issued locale for a cs-CZ customer", async () => {
+  test("keeps a validly signed en-US Pay state in its issued locale for a cs-CZ customer", async () => {
+    const token = await payState({ locale: "en-US" });
     for (const path of [
-      `/en-US/checkout/pay?${payStateTokenQueryParam}=synthetic-state`,
-      `/en-US/reservation/cowork?${payStateTokenQueryParam}=synthetic-state`,
-      `/en-US/reservation/meeting-room?${payStateTokenQueryParam}=synthetic-state`,
-      `/en-US/reservation/office?${payStateTokenQueryParam}=synthetic-state`,
+      `/en-US/checkout/pay?${payStateTokenQueryParam}=${token}`,
+      `/en-US/reservation/cowork?${payStateTokenQueryParam}=${token}`,
     ]) {
-      const response = await proxy(request(path, { cookie: signedInCookie }));
-
-      expect(response.headers.get("x-middleware-next")).toBe("1");
-      expect(response.headers.get("location")).toBeNull();
+      expectKeptInEnglish(
+        await proxy(request(path, { cookie: signedInCookie }))
+      );
     }
-    expect(preferenceReads).toEqual([]);
+  });
+
+  test("redirects an invalid, expired, wrong-family or wrong-locale Pay state to the preference", async () => {
+    const expired = await payState({
+      locale: "en-US",
+      issuedAt: new Date(Date.now() - 60 * 60 * 1000),
+    });
+    const coworkState = await payState({ locale: "en-US" });
+    const czechState = await payState({ locale: "cs-CZ" });
+    for (const path of [
+      `/en-US/reservation/cowork?${payStateTokenQueryParam}=garbage`,
+      `/en-US/checkout/pay?${payStateTokenQueryParam}=${expired}`,
+      `/en-US/reservation/office?${payStateTokenQueryParam}=${coworkState}`,
+      `/en-US/reservation/meeting-room?${payStateTokenQueryParam}=${coworkState}`,
+      `/en-US/checkout/pay?${payStateTokenQueryParam}=${czechState}`,
+    ]) {
+      expectMovedToCzech(
+        await proxy(request(path, { cookie: signedInCookie }))
+      );
+    }
+  });
+
+  test("redirects an invalid, wrong-order or wrong-locale invoice token to the preference", async () => {
+    const otherOrder = workspaceReservationIdSchema.make("other-reservation");
+    for (const token of [
+      "synthetic-token",
+      invoiceToken("en-US", otherOrder),
+      invoiceToken("cs-CZ"),
+    ]) {
+      expectMovedToCzech(
+        await proxy(
+          request(
+            `/en-US/reservation/invoice/${invoiceOrderId}?${reservationAccessTokenQueryParam}=${token}`,
+            { cookie: signedInCookie }
+          )
+        )
+      );
+    }
   });
 
   test("redirects a continuation parameter on a route it does not belong to", async () => {

@@ -11,6 +11,7 @@ import {
   getSignedPayStateSubmittedCodeApplication,
   openPayState,
   PayableReservationService,
+  payStateContinuesOn,
   payStateTokenQueryParam,
 } from "@/features/checkout/backend/checkout";
 import { CheckoutDiscountCodeForm } from "@/features/checkout/components/checkout-discount-code-form";
@@ -164,7 +165,10 @@ async function CheckoutPayContent({
     Option.getOrElse(() => getCoworkReservationPath(locale))
   );
 
-  if (!openedPayState.state || openedPayState.state.locale !== locale) {
+  if (
+    !openedPayState.state ||
+    !payStateContinuesOn(openedPayState.state, { locale })
+  ) {
     return runWithRequestLocale(() => (
       <InvalidPayState locale={locale} restartPath={restartPath} />
     ));

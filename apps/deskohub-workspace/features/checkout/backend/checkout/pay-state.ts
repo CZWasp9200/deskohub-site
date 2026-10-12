@@ -207,6 +207,23 @@ export const openPayState = Effect.fn("payState.open")(
     )
 );
 
+/**
+ * Whether an opened Pay state continues on a page: it was issued for the
+ * page's locale and, on a reservation page, for that page's reservation kind.
+ * The Pay page accepts every kind. The pages and the proxy share this check,
+ * so a URL keeps its issued locale exactly when its page will accept it.
+ */
+export const payStateContinuesOn = (
+  state: Pick<SignedPayState, "locale" | "reservation">,
+  page: {
+    readonly locale: string;
+    readonly reservationKind?: SignedPayState["reservation"]["kind"];
+  }
+): boolean =>
+  state.locale === page.locale &&
+  (page.reservationKind === undefined ||
+    state.reservation.kind === page.reservationKind);
+
 export const getPayStateRestartKind = Effect.fn("payState.getRestartKind")(
   (token: string, options: CheckoutStateCryptoOptions = {}) =>
     decodeCheckoutState(token, signedPayStateSchema, options).pipe(
