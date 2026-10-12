@@ -141,8 +141,10 @@ spans and the workflow timing summary.
 
 The in-run contract is:
 
-- preview readiness requests, read-only availability preparation, discount
-  fixture seeding, cleanup discovery, and independent cancellations overlap;
+- preview readiness requests and discount fixture seeding overlap, read-only
+  availability preparation follows both, and provider preparation overlaps
+  all of them inside the one `checkout-setup` test; cleanup discovery and
+  independent cancellations overlap;
 - the first case failure signals siblings before its own finalizer, so sibling
   browser and provider work is interrupted promptly;
 - every case owns its checkout states and cancels captured Dotypos reservations
@@ -674,8 +676,10 @@ case is using the documented provider-capacity boundary.
 
 Fixture seeding completes before availability preparation because Calendar
 availability resolves the seeded discount definition. Once that transaction
-commits, cowork, meeting-room, and office availability preparation run
-concurrently.
+commits and preview readiness passes, cowork, meeting-room, and office
+availability preparation run concurrently. Readiness, seeding, provider and
+availability preparation, and case construction keep their own phase spans,
+even though they all run inside the one `checkout-setup` Playwright test.
 
 The typed `WORKSPACE_E2E_EXECUTION_CONTEXT` value distinguishes `manual` from
 `ci`. Local execution defaults to `manual`. GitHub Actions sets it explicitly:
