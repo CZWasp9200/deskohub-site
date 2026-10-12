@@ -31,6 +31,7 @@ import {
   latePaymentRecoveries,
   legalEvidenceEvents,
   paymentAttempts,
+  referralInvitationClaims,
   voucherRedemptions,
   vouchers,
   webhookEvents,
@@ -898,9 +899,57 @@ const nexiSandboxRejectedFailureCode = "workspace_e2e_nexi_sandbox_rejected";
 const isRestartablePaymentState = (state: string | null) =>
   state === "failed" || state === "cancelled" || state === "expired";
 
+// Releases every reserved claim of a rejected attempt with the columns a
+// terminal payment release writes, so a fresh attempt can claim them again.
+// Referral invitations allow one active claim per invited customer, so a
+// still-reserved invitation would block the restarted attempt's admission.
+export const releaseRejectedAttemptClaims = (
+  db: Pick<DatabaseClient, "update">,
+  paymentAttemptId: PaymentAttemptId,
+  releaseReason: string,
+  releasedAt: Temporal.Instant
+) => {
+  const releasedClaim = {
+    releaseReason,
+    releasedAt,
+    state: "released",
+    updatedAt: releasedAt,
+  } as const;
+  return [
+    db
+      .update(discountCodeRedemptions)
+      .set(releasedClaim)
+      .where(
+        and(
+          eq(discountCodeRedemptions.paymentAttemptId, paymentAttemptId),
+          eq(discountCodeRedemptions.state, "reserved")
+        )
+      ),
+    db
+      .update(voucherRedemptions)
+      .set(releasedClaim)
+      .where(
+        and(
+          eq(voucherRedemptions.paymentAttemptId, paymentAttemptId),
+          eq(voucherRedemptions.state, "reserved")
+        )
+      ),
+    db
+      .update(referralInvitationClaims)
+      .set(releasedClaim)
+      .where(
+        and(
+          eq(referralInvitationClaims.paymentAttemptId, paymentAttemptId),
+          eq(referralInvitationClaims.state, "reserved")
+        )
+      ),
+  ] as const;
+};
+
 // Retires a payment attempt the Nexi sandbox rejected before authorization the
 // way a provider failure would: the attempt and the reservation payment fail
-// while the hold stays, and the attempt's discount claims are released.
+// while the hold stays, and the attempt's discount-code, voucher, and referral
+// invitation claims are released.
 // Reopening the checkout pay page then starts a fresh attempt and Nexi order.
 export const retireRejectedPaymentAttemptForE2E = (
   orderId: WorkspaceReservationId,
@@ -910,12 +959,6 @@ export const retireRejectedPaymentAttemptForE2E = (
     const { db } = yield* E2EDatabase;
     const failureCode = nexiSandboxRejectedFailureCode;
     const now = Temporal.Now.instant();
-    const releasedClaim = {
-      releaseReason: failureCode,
-      releasedAt: now,
-      state: "released",
-      updatedAt: now,
-    } as const;
 
     yield* runDatabaseOperation(
       "retire rejected payment attempt",
@@ -947,24 +990,14 @@ export const retireRejectedPaymentAttemptForE2E = (
               )
             );
 
-          yield* tx
-            .update(discountCodeRedemptions)
-            .set(releasedClaim)
-            .where(
-              and(
-                eq(discountCodeRedemptions.paymentAttemptId, paymentAttemptId),
-                eq(discountCodeRedemptions.state, "reserved")
-              )
-            );
-          yield* tx
-            .update(voucherRedemptions)
-            .set(releasedClaim)
-            .where(
-              and(
-                eq(voucherRedemptions.paymentAttemptId, paymentAttemptId),
-                eq(voucherRedemptions.state, "reserved")
-              )
-            );
+          for (const release of releaseRejectedAttemptClaims(
+            tx,
+            paymentAttemptId,
+            failureCode,
+            now
+          )) {
+            yield* release;
+          }
         })
       )
     );
