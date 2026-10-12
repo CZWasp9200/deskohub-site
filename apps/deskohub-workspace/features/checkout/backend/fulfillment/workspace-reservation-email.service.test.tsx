@@ -51,13 +51,11 @@ const customerEmailLocaleReads: string[] = [];
 const TestCustomerEmailLocaleService = Context.Service<
   TestCustomerEmailLocaleService,
   {
-    readonly byDotyposCustomer: (dotyposCustomerId: string) => Effect.Effect<
+    readonly byDotyposCustomer: (
+      dotyposCustomerId: string
+    ) => Effect.Effect<
       TestCustomerEmailLocale,
-      {
-        readonly code:
-          | "customer-email-locale.read"
-          | "customer-email-locale.missing";
-      }
+      { readonly code: "customer-email-locale.read" }
     >;
   }
 >()("@test/CustomerEmailLocaleService");
@@ -70,11 +68,7 @@ Object.assign(TestCustomerEmailLocaleService, {
       customerEmailLocaleReads.push(dotyposCustomerId);
       const outcome = customerEmailLocaleOutcome;
       return outcome.kind === "read-error"
-        ? Effect.fail({
-            code: outcome.code as
-              | "customer-email-locale.read"
-              | "customer-email-locale.missing",
-          })
+        ? Effect.fail({ code: outcome.code as "customer-email-locale.read" })
         : Effect.succeed(outcome);
     },
   }),

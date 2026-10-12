@@ -102,7 +102,7 @@ describe.skipIf(!testDatabase)(
       const outcomes = await Effect.runPromise(
         Effect.gen(function* () {
           const preferences = yield* CustomerCommunicationPreferenceRepository;
-          const missing = yield* Effect.result(preferences.load(account));
+          const missing = yield* preferences.load(account);
           yield* preferences.save(account, "cs-CZ");
           const saved = yield* preferences.load(account);
           yield* preferences.save(account, "en-US");
@@ -111,12 +111,7 @@ describe.skipIf(!testDatabase)(
         }).pipe(Effect.provide(layer))
       );
 
-      expect(outcomes.missing._tag).toBe("Failure");
-      if (outcomes.missing._tag === "Failure") {
-        expect(
-          (outcomes.missing.failure as { readonly code?: string }).code
-        ).toBe("account-communication-preference.missing");
-      }
+      expect(outcomes.missing).toBeUndefined();
       expect(outcomes.saved).toBe("cs-CZ");
       expect(outcomes.resaved).toBe("en-US");
 
@@ -146,19 +141,11 @@ describe.skipIf(!testDatabase)(
         Effect.gen(function* () {
           const preferences = yield* CustomerCommunicationPreferenceRepository;
           yield* preferences.save(firstAccount, "cs-CZ");
-          const secondView = yield* Effect.result(
-            preferences.load(secondAccount)
-          );
-          return secondView;
+          return yield* preferences.load(secondAccount);
         }).pipe(Effect.provide(layer))
       );
 
-      expect(outcomes._tag).toBe("Failure");
-      if (outcomes._tag === "Failure") {
-        expect((outcomes.failure as { readonly code?: string }).code).toBe(
-          "account-communication-preference.missing"
-        );
-      }
+      expect(outcomes).toBeUndefined();
     });
 
     test("rejects a locale outside the inlang locale list with the CHECK constraint", async () => {

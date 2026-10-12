@@ -1,38 +1,62 @@
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, test } from "bun:test";
+import { mkdtemp, readdir, rm, symlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { drizzle } from "drizzle-orm/node-postgres";
+import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { getTableConfig, PgDialect } from "drizzle-orm/pg-core";
-import type { Pool } from "pg";
-import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
+import { Pool } from "pg";
 import { customerCommunicationPreferences } from "./customer-communication-preferences";
 
 const MIGRATION_DIR = "20261012131359_customer_communication_preferences";
+const migrationsFolder = fileURLToPath(
+  new URL("../migrations", import.meta.url)
+);
 
-const readBackfillStatement = async () => {
-  const migration = await Bun.file(
-    new URL(`../migrations/${MIGRATION_DIR}/migration.sql`, import.meta.url)
-  ).text();
-  const backfill = migration
-    .split("--> statement-breakpoint")
-    .map((statement) => statement.trim())
-    .find((statement) =>
-      statement.includes(`INSERT INTO "customer_communication_preferences"`)
-    );
-  expect(backfill).toBeTruthy();
-  return backfill!;
+const testDatabaseUrl = process.env.WORKSPACE_TEST_DATABASE_URL;
+
+/**
+ * Links every migration that precedes the preference migration into a
+ * scratch folder, so a database can be brought to the pre-migration state
+ * that production customers are in.
+ */
+const linkMigrationsBefore = async (migration: string) => {
+  const folder = await mkdtemp(join(tmpdir(), "workspace-migrations-"));
+  const names = await readdir(migrationsFolder);
+  for (const name of names.filter((entry) => entry < migration)) {
+    await symlink(join(migrationsFolder, name), join(folder, name));
+  }
+  return folder;
 };
 
-const insertAuthUser = async (pool: Pool, id: string, email: string) => {
-  await pool.query(
-    `insert into auth."user" (id, name, email) values ($1, '', $2)`,
-    [id, email]
-  );
+/**
+ * Creates a disposable sibling database next to the configured test
+ * database, runs the callback against it, and always drops it.
+ */
+const withScratchDatabase = async (
+  databaseUrl: string,
+  run: (pool: Pool) => Promise<void>
+) => {
+  const name = `ccp_legacy_${crypto.randomUUID().replaceAll("-", "")}`;
+  const admin = new Pool({ connectionString: databaseUrl, max: 1 });
+  await admin.query(`create database "${name}"`);
+  const url = new URL(databaseUrl);
+  url.pathname = `/${name}`;
+  const pool = new Pool({ connectionString: url.toString(), max: 2 });
+  try {
+    await run(pool);
+  } finally {
+    await pool.end();
+    await admin.query(`drop database if exists "${name}" with (force)`);
+    await admin.end();
+  }
 };
-
-const uniqueId = () => crypto.randomUUID();
 
 describe("customer communication preferences", () => {
-  test("shapes the required preference table", () => {
+  test("shapes the preference table", () => {
     const config = getTableConfig(customerCommunicationPreferences);
     expect(config.name).toBe("customer_communication_preferences");
     const columns = Object.fromEntries(
@@ -46,53 +70,39 @@ describe("customer communication preferences", () => {
     );
   });
 
-  test(
-    "backfills every existing account and stays idempotent on a repeated run",
+  test.skipIf(!testDatabaseUrl)(
+    "leaves accounts that existed before the migration without a preference",
     async () => {
-      const testDatabase = await connectWorkspacePostgresTestDatabase();
-      if (!testDatabase) return;
+      const earlierMigrations = await linkMigrationsBefore(MIGRATION_DIR);
+      try {
+        await withScratchDatabase(testDatabaseUrl!, async (pool) => {
+          await migrate(drizzle({ client: pool }), {
+            migrationsFolder: earlierMigrations,
+          });
+          const legacyAccountIds = [crypto.randomUUID(), crypto.randomUUID()];
+          for (const id of legacyAccountIds) {
+            await pool.query(
+              `insert into auth."user" (id, name, email, email_verified) values ($1, '', $2, true)`,
+              [id, `legacy-${id}@deskohub.test`]
+            );
+          }
 
-      const backfill = await readBackfillStatement();
-      const missingAccountId = uniqueId();
-      const savedAccountId = uniqueId();
-      await insertAuthUser(
-        testDatabase.pool,
-        missingAccountId,
-        `backfill-missing-${missingAccountId}@deskohub.test`
-      );
-      await insertAuthUser(
-        testDatabase.pool,
-        savedAccountId,
-        `backfill-saved-${savedAccountId}@deskohub.test`
-      );
-      await testDatabase.pool.query(
-        `insert into customer_communication_preferences (customer_account_id, locale) values ($1, 'cs-CZ')`,
-        [savedAccountId]
-      );
+          await migrate(drizzle({ client: pool }), { migrationsFolder });
 
-      // First run: the account without a preference gets the site default;
-      // the saved cs-CZ preference is preserved untouched.
-      await testDatabase.pool.query(backfill);
-
-      const afterFirstRun = await testDatabase.pool.query(
-        `select customer_account_id, locale from customer_communication_preferences where customer_account_id = any($1) order by locale`,
-        [[missingAccountId, savedAccountId]]
-      );
-      expect(afterFirstRun.rows).toEqual([
-        { customer_account_id: savedAccountId, locale: "cs-CZ" },
-        { customer_account_id: missingAccountId, locale: "en-US" },
-      ]);
-
-      // Repeated run (the reconciliation scenario): idempotent, no overwrite,
-      // no duplicate rows.
-      await testDatabase.pool.query(backfill);
-
-      const afterSecondRun = await testDatabase.pool.query(
-        `select customer_account_id, locale from customer_communication_preferences where customer_account_id = any($1) order by locale`,
-        [[missingAccountId, savedAccountId]]
-      );
-      expect(afterSecondRun.rows).toEqual(afterFirstRun.rows);
+          const preferences = await pool.query(
+            `select customer_account_id from customer_communication_preferences`
+          );
+          expect(preferences.rows).toEqual([]);
+          const users = await pool.query(
+            `select id from auth."user" where id = any($1)`,
+            [legacyAccountIds]
+          );
+          expect(users.rows).toHaveLength(2);
+        });
+      } finally {
+        await rm(earlierMigrations, { recursive: true, force: true });
+      }
     },
-    { timeout: 30000 }
+    { timeout: 60000 }
   );
 });

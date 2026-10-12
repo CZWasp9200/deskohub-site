@@ -77,7 +77,7 @@ describe.skipIf(!testDatabase)(
       expect(outcome).toEqual({ kind: "guest" });
     });
 
-    test("fails with the typed missing error for a linked account without a preference row", async () => {
+    test("keeps the reservation locale for a linked account without a preference row", async () => {
       const dotyposCustomerId = DotyposCustomerIdSchema.make(
         `locale-missing-${uniqueId()}`
       );
@@ -87,19 +87,13 @@ describe.skipIf(!testDatabase)(
         Effect.flatMap(CustomerEmailLocaleService, (service) =>
           service.byDotyposCustomer(dotyposCustomerId)
         ).pipe(
-          Effect.result,
           Effect.provide(
             CustomerEmailLocaleService.Default.pipe(Layer.provide(dbLayer))
           )
         )
       );
 
-      expect(outcome._tag).toBe("Failure");
-      if (outcome._tag === "Failure") {
-        expect((outcome.failure as { readonly code?: string }).code).toBe(
-          "customer-email-locale.missing"
-        );
-      }
+      expect(outcome).toEqual({ kind: "guest" });
     });
   }
 );

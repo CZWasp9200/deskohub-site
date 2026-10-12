@@ -41,34 +41,23 @@ export type WorkspaceAuthConfig = {
   readonly sendMagicLink: MagicLinkSendFunction;
   readonly beforeDeleteUser: (accountId: CustomerAccountId) => Promise<void>;
   /**
-   * Seeds the required preferred communication language at account creation
-   * from the initiating site locale. The seed is retried with the same
-   * initiating locale and a persistent failure rejects the hook so the
-   * account activation request never reports success without the required
-   * preference row.
+   * Inserts the preferred communication language only when the account has
+   * none, never overwriting a saved preference. Account creation seeds it
+   * from the initiating site locale, retrying and rejecting the hook on a
+   * persistent failure. Every sign-in captures it from the callback locale
+   * for accounts that predate the preference, and a capture failure never
+   * blocks the login.
    */
   readonly createAccountCommunicationPreference: (
     accountId: CustomerAccountId,
     locale: Locale
   ) => Promise<void>;
-  /**
-   * Fails when the account's required preferred communication language row
-   * is missing or unreadable. The session-creation guard invokes this on
-   * every session-creating verification path so a user row can never start
-   * a session without its required preference, even when the creation-time
-   * seed failed on an earlier attempt.
-   */
-  readonly requireAccountCommunicationPreference: (
-    accountId: CustomerAccountId
-  ) => Promise<void>;
 };
 
 /**
  * Retries the preference seed with the same initiating locale so a transient
- * failure still produces the required row. A persistent failure is returned:
- * the hook only ever runs for a freshly created user row, so swallowing the
- * error here would leave an activated account permanently without its
- * required preference.
+ * failure still produces the row. A persistent failure is returned so the
+ * activating request reports failure.
  */
 const seedCommunicationPreferenceOrFail = async (
   config: WorkspaceAuthConfig,
@@ -140,39 +129,65 @@ type ParsedAuthContext = {
 };
 
 /**
- * Derives the initiating site language from the auth request that creates
- * the account: the magic-link verify request carries the localized callback
- * URL. Anything unparseable falls back to the site default locale.
+ * Reads the site language from the auth request's localized callback URL:
+ * the magic-link verify request carries it. Returns nothing when the
+ * callback is absent, unparseable, or carries no locale.
  */
-const siteLocaleFromAuthContext = (ctx: ParsedAuthContext): Locale => {
+const callbackLocaleFromAuthContext = (
+  ctx: ParsedAuthContext
+): Locale | undefined => {
   const callbackURL = ctx.query?.callbackURL ?? ctx.path;
-  if (!callbackURL) return defaultLocale;
+  if (!callbackURL) return undefined;
   try {
-    const fromCallback = getLocaleFromPathname(
+    return getLocaleFromPathname(
       new URL(callbackURL, "https://auth.internal.invalid").pathname,
       locales
     );
-    return fromCallback ?? defaultLocale;
   } catch {
-    return defaultLocale;
+    return undefined;
   }
 };
 
 /**
- * Picks the magic-link email language. A verified existing account always
- * uses its saved preference. For an existing account, an unreadable or
- * missing preference never falls back to a guessed site locale: delivery is
- * skipped so no wrong-language magic link reaches a customer. Only genuine
- * pre-account (first) delivery and a pending unverified signup keep the
- * initiating site locale.
+ * Captures the sign-in callback locale as the preference of an account that
+ * has none, such as one created before preferences existed. The insert never
+ * overwrites a saved preference. A failure is logged with a fixed code and
+ * never blocks the login: readers fall back without a preference, and the
+ * next sign-in retries.
+ */
+const captureCommunicationPreference = async (
+  config: WorkspaceAuthConfig,
+  accountId: CustomerAccountId,
+  ctx: ParsedAuthContext
+) => {
+  const locale = callbackLocaleFromAuthContext(ctx);
+  if (!locale) return;
+  try {
+    await config.createAccountCommunicationPreference(accountId, locale);
+  } catch {
+    await runWorkspaceEffect("account.auth.capture-locale", {
+      boundary: "route",
+    })(
+      Effect.logWarning(
+        "Customer communication preference capture failed; continuing the sign-in.",
+        { code: "account-communication-preference.capture-failed" }
+      )
+    ).catch(() => undefined);
+  }
+};
+
+/**
+ * Picks the magic-link email language. A verified existing account uses its
+ * saved preference. An account without a preference, a pre-account (first)
+ * delivery, and a pending unverified signup use the initiating site locale.
+ * An unreadable preference skips delivery so no wrong-language magic link
+ * reaches a customer.
  */
 type MagicLinkDeliveryDecision =
   | { readonly action: "deliver"; readonly locale: Locale }
   | {
       readonly action: "skip";
-      readonly code:
-        | "account.magic-link.locale.missing"
-        | "account.magic-link.locale.read-failed";
+      readonly code: "account.magic-link.locale.read-failed";
     };
 
 const decideMagicLinkDelivery = (
@@ -181,17 +196,8 @@ const decideMagicLinkDelivery = (
 ): MagicLinkDeliveryDecision => {
   if (lookup.kind === "account")
     return { action: "deliver", locale: lookup.locale };
-  if (
-    lookup.kind === "account-locale-missing" ||
-    lookup.kind === "read-failed"
-  ) {
-    return {
-      action: "skip",
-      code:
-        lookup.kind === "account-locale-missing"
-          ? "account.magic-link.locale.missing"
-          : "account.magic-link.locale.read-failed",
-    };
+  if (lookup.kind === "read-failed") {
+    return { action: "skip", code: "account.magic-link.locale.read-failed" };
   }
   return { action: "deliver", locale: fallback };
 };
@@ -272,35 +278,20 @@ export const makeWorkspaceAuth = (config: WorkspaceAuthConfig) => {
     databaseHooks: {
       session: {
         create: {
-          before: async (session) => {
+          before: async (session, ctx) => {
             const accountId = Option.getOrUndefined(
               Schema.decodeOption(customerAccountIdSchema)(session.userId)
             );
             if (accountId) {
-              try {
-                await config.requireAccountCommunicationPreference(accountId);
-              } catch {
-                // The required preference is missing or unreadable, so the
-                // account must not be activated: every session-creating
-                // verification path for an existing user is blocked here,
-                // not only user creation. The response stays a generic
-                // failure so the account's existence is never revealed.
-                void runWorkspaceEffect("account.auth.session-guard", {
-                  boundary: "route",
-                })(
-                  Effect.logWarning(
-                    "Session creation blocked: the required communication preference is missing or unreadable.",
-                    { code: "account-communication-preference.missing" }
-                  )
-                ).catch(() => undefined);
-                // Match the user.create.after rejection style: a rejected
-                // promise instead of a thrown error in this Effect module.
-                return Promise.reject(
-                  new APIError("INTERNAL_SERVER_ERROR", {
-                    message: "Internal Server Error",
-                  })
-                );
-              }
+              // The auth request context is the I/O boundary: parse it here.
+              const parsedCtx = Option.getOrUndefined(
+                Schema.decodeUnknownOption(authContextSchema)(ctx)
+              );
+              await captureCommunicationPreference(
+                config,
+                accountId,
+                parsedCtx ?? {}
+              );
             }
             return {
               data: {
@@ -323,7 +314,9 @@ export const makeWorkspaceAuth = (config: WorkspaceAuthConfig) => {
             const parsedCtx = Option.getOrUndefined(
               Schema.decodeUnknownOption(authContextSchema)(ctx)
             );
-            const locale = siteLocaleFromAuthContext(parsedCtx ?? {});
+            // Anything without a callback locale seeds the site default.
+            const locale =
+              callbackLocaleFromAuthContext(parsedCtx ?? {}) ?? defaultLocale;
             const seedFailure = await seedCommunicationPreferenceOrFail(
               config,
               accountId,
@@ -331,11 +324,9 @@ export const makeWorkspaceAuth = (config: WorkspaceAuthConfig) => {
             );
             if (seedFailure) {
               // The user row is already committed when this hook runs, but
-              // the required preference row is missing, so the activation
-              // request must not report success; the initiating locale stays
-              // attached to every retried seed attempt and the
-              // session-creation guard blocks any later verification until
-              // the preference row exists.
+              // the preference row is missing, so the activation request
+              // must not report success. A later sign-in captures the
+              // preference from its own callback locale.
               return Promise.reject(
                 seedFailure.error instanceof Error
                   ? seedFailure.error

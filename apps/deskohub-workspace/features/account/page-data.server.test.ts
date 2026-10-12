@@ -154,8 +154,10 @@ mock.module(
   })
 );
 
-let preferenceLoadEffect: Effect.Effect<"cs-CZ" | "en-US", unknown> =
-  Effect.succeed("cs-CZ");
+let preferenceLoadEffect: Effect.Effect<
+  "cs-CZ" | "en-US" | undefined,
+  unknown
+> = Effect.succeed("cs-CZ");
 
 const PreferenceRepository = Context.Service<
   PreferenceRepository,
@@ -231,9 +233,9 @@ describe("loadCustomerAccountPage", () => {
     preferenceLoadEffect = Effect.succeed("cs-CZ");
   });
 
-  const loadPageState = async () => {
+  const loadPageState = async (locale: "cs-CZ" | "en-US" = "en-US") => {
     const { loadCustomerAccountPage } = await import("./page-data.server");
-    return loadCustomerAccountPage("en-US");
+    return loadCustomerAccountPage(locale);
   };
 
   test("returns unauthenticated without customer data or downstream work when no session exists", async () => {
@@ -343,25 +345,15 @@ describe("loadCustomerAccountPage", () => {
     });
   });
 
-  test("never exposes a missing preference row as a successful unset state", async () => {
-    // A linked account always has a required preference row; the repository
-    // fails the read with the typed missing error and the page state has no
-    // null/unset success value.
-    preferenceLoadEffect = Effect.fail({
-      _tag: "CustomerCommunicationPreferenceMissingError",
-      code: "account-communication-preference.missing",
+  test("preselects the page locale for an account without a saved preference", async () => {
+    preferenceLoadEffect = Effect.succeed(undefined);
+
+    await expect(loadPageState("cs-CZ")).resolves.toMatchObject({
+      kind: "linked",
+      email: "ada@example.test",
+      preferredLanguage: "cs-CZ",
+      profile: { firstName: "Ada" },
     });
-
-    const state = await loadPageState();
-
-    expect(state.kind).toBe("linked");
-    if (state.kind === "linked") {
-      expect(["read-failed", "cs-CZ", "en-US"]).toContain(
-        state.preferredLanguage
-      );
-      expect(state.preferredLanguage).toBe("read-failed");
-      expect(state.preferredLanguage).not.toBeNull();
-    }
   });
 
   test("restores the saved communication preference in the linked state", async () => {

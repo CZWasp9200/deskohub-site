@@ -126,7 +126,7 @@ const makeSession = (accountId: CustomerAccountId): CustomerAccountSession => ({
 const accountId = "pref-account-1" as CustomerAccountId;
 
 describe("CustomerCommunicationPreferenceRepository with mock layers", () => {
-  test("fails the load with the typed missing error when no row exists", async () => {
+  test("loads no preference for an account without a row", async () => {
     const missing = makeTestLayers({
       state: { kind: "active", deletionRequestedAt: null },
     });
@@ -138,7 +138,7 @@ describe("CustomerCommunicationPreferenceRepository with mock layers", () => {
     const missingLoad = await Effect.runPromise(
       Effect.flatMap(CustomerCommunicationPreferenceRepository, (repository) =>
         repository.load(accountId)
-      ).pipe(Effect.result, Effect.provide(missing.Repository))
+      ).pipe(Effect.provide(missing.Repository))
     );
     const savedLoad = await Effect.runPromise(
       Effect.flatMap(CustomerCommunicationPreferenceRepository, (repository) =>
@@ -146,16 +146,11 @@ describe("CustomerCommunicationPreferenceRepository with mock layers", () => {
       ).pipe(Effect.provide(saved.Repository))
     );
 
-    expect(missingLoad._tag).toBe("Failure");
-    if (missingLoad._tag === "Failure") {
-      expect((missingLoad.failure as { readonly code?: string }).code).toBe(
-        "account-communication-preference.missing"
-      );
-    }
+    expect(missingLoad).toBeUndefined();
     expect(savedLoad).toBe("cs-CZ");
   });
 
-  test("keeps an operational read failure distinguishable from a missing row", async () => {
+  test("fails the load on an operational read failure", async () => {
     const readFailed = makeTestLayers({
       state: { kind: "active", deletionRequestedAt: null },
       readFails: true,
@@ -173,9 +168,6 @@ describe("CustomerCommunicationPreferenceRepository with mock layers", () => {
       expect(failure).toBeInstanceOf(Error);
       expect((failure as Error).message).toContain(
         "synthetic preference read failure"
-      );
-      expect((failure as { readonly code?: string }).code).not.toBe(
-        "account-communication-preference.missing"
       );
     }
   });
