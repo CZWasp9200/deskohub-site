@@ -55,7 +55,7 @@ const spawnHolder = (input: {
   Bun.spawn(
     [
       process.execPath,
-      join(import.meta.dir, "hosted-payment-permit.test-process.ts"),
+      join(import.meta.dir, "hosted-payment-permit.holder-fixture.ts"),
       JSON.stringify({
         ...input,
         directory: join(directory, "permit"),

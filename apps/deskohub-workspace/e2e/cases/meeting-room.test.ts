@@ -374,7 +374,10 @@ test("constructs reservation-link cases from the reserved preparation partition"
   const expectedLinkCaseIds = workspaceE2ENonPaymentCaseIds.filter((caseId) =>
     caseId.startsWith("reservation-link-")
   );
-  expect(cases.map(({ id }) => id)).toEqual([...expectedLinkCaseIds]);
+  // The catalog orders cases by duration for scheduling, not construction.
+  expect(cases.map(({ id }) => id).sort()).toEqual(
+    [...expectedLinkCaseIds].sort()
+  );
   for (const workspaceE2ECase of cases) {
     expect(workspaceE2ENonPaymentCaseIds).toContain(workspaceE2ECase.id);
   }

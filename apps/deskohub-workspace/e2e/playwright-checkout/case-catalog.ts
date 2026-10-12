@@ -27,7 +27,7 @@ export const workspaceE2ENonPaymentCaseIds = [
 // Cases that pay on the Nexi hosted page, longest median deployed duration
 // first. Only their hosted-payment portion holds the run's hosted-payment
 // permit.
-export const workspaceE2EPaidCaseIds = [
+const workspaceE2EPaidCaseIds = [
   "checkout-calendar-sale-and-code",
   "checkout-calendar-sale",
   "payment-late-recovery-recreated",
