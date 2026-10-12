@@ -252,6 +252,7 @@ describe("LinkedAccount", () => {
         <LinkedAccount
           avatarPresentation={hiddenAvatarPresentation}
           email="ada@example.test"
+          preferredLanguage="en-US"
           history={history}
           locale="en-US"
           profile={profile}
@@ -344,6 +345,7 @@ describe("LinkedAccount", () => {
         <LinkedAccount
           avatarPresentation={hiddenAvatarPresentation}
           email="ada@example.test"
+          preferredLanguage="en-US"
           history={history}
           locale="en-US"
           profile={profile}
@@ -382,6 +384,7 @@ describe("LinkedAccount", () => {
           <LinkedAccount
             avatarPresentation={hiddenAvatarPresentation}
             email="ada@example.test"
+            preferredLanguage="en-US"
             history={history}
             locale="en-US"
             profile={profile}
@@ -401,6 +404,7 @@ describe("LinkedAccount", () => {
         <LinkedAccount
           avatarPresentation={hiddenAvatarPresentation}
           email="ada@example.test"
+          preferredLanguage="en-US"
           history={history}
           locale="en-US"
           profile={profile}
@@ -429,6 +433,7 @@ describe("LinkedAccount", () => {
           <LinkedAccount
             avatarPresentation={hiddenAvatarPresentation}
             email="ada@example.test"
+            preferredLanguage="en-US"
             history={history}
             locale={locale}
             profile={profile}
@@ -500,6 +505,7 @@ describe("LinkedAccount", () => {
             <LinkedAccount
               avatarPresentation={hiddenAvatarPresentation}
               email="ada@example.test"
+              preferredLanguage="en-US"
               history={history}
               locale="en-US"
               profile={profile}
@@ -567,6 +573,7 @@ describe("LinkedAccount", () => {
           <LinkedAccount
             avatarPresentation={hiddenAvatarPresentation}
             email="ada@example.test"
+            preferredLanguage="en-US"
             history={history}
             locale="en-US"
             profile={profile}
@@ -636,6 +643,7 @@ describe("LinkedAccount", () => {
           <LinkedAccount
             avatarPresentation={hiddenAvatarPresentation}
             email="ada@example.test"
+            preferredLanguage="en-US"
             history={history}
             locale="en-US"
             profile={profile}
@@ -662,6 +670,7 @@ describe("LinkedAccount", () => {
         <LinkedAccount
           avatarPresentation={hiddenAvatarPresentation}
           email="ada@example.test"
+          preferredLanguage="en-US"
           history={history}
           locale="en-US"
           profile={profile}
@@ -693,6 +702,7 @@ describe("LinkedAccount", () => {
             <LinkedAccount
               avatarPresentation={hiddenAvatarPresentation}
               email="ada@example.test"
+              preferredLanguage="en-US"
               history={history}
               locale="en-US"
               profile={profile}

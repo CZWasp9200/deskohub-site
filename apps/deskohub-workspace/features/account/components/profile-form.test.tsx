@@ -1605,6 +1605,7 @@ describe("ProfileForm", () => {
             email="ada@example.test"
             locale="en-US"
             mode="edit"
+            preferredLanguage="en-US"
             onSectionChange={setSection}
             profile={businessProfile}
             section={section}
@@ -1654,6 +1655,7 @@ describe("ProfileForm", () => {
         <UnsavedChangesProvider>
           <ProfileForm
             mode="edit"
+            preferredLanguage="en-US"
             locale="en-US"
             email="ada@example.test"
             profile={editProfile}
@@ -1761,6 +1763,7 @@ describe("ProfileForm", () => {
     const view = render(
       <ProfileForm
         mode="edit"
+        preferredLanguage="en-US"
         locale="en-US"
         email="ada@example.test"
         profile={emptyCompanyProfile}
@@ -1810,6 +1813,7 @@ describe("ProfileForm", () => {
           email="ada@example.test"
           locale="en-US"
           mode="edit"
+          preferredLanguage="en-US"
           profile={editProfile}
           {...props}
         />
@@ -1999,6 +2003,7 @@ describe("ProfileForm", () => {
               email="ada@example.test"
               locale="en-US"
               mode="edit"
+              preferredLanguage="en-US"
               profile={profile}
               avatarPresentation={avatarPresentation}
               section={section}

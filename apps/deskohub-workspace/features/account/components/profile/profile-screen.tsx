@@ -6,6 +6,7 @@ import { type ReactNode, useId, useState } from "react";
 import { updatePreferredLanguage } from "@/features/account/actions";
 import { AccountSectionPanel } from "@/features/account/components/shell/account-section-panel";
 import {
+  isLocale,
   type Locale,
   locales,
   withLocalePrefixAndSearch,
@@ -36,11 +37,15 @@ import {
  */
 
 /**
- * The server-read state of the preference: `"read-failed"` when the read
- * could not be completed, and otherwise the locale to preselect (the saved
- * preference, or the page locale for an account without one).
+ * The server-read state of the preference: the saved locale,
+ * `{ suggested }` for an account that has none yet (it preselects the page
+ * locale and can be saved as is), or `"read-failed"` when the read could not
+ * be completed.
  */
-export type PreferredLanguageState = Locale | "read-failed";
+export type PreferredLanguageState =
+  | Locale
+  | { readonly suggested: Locale }
+  | "read-failed";
 
 export interface ProfileScreenCopy {
   readonly title: string;
@@ -140,13 +145,18 @@ export function ProfileScreen({
   const displayName = nameParts.join(" ") || copy.memberFallback;
 
   /**
-   * The read-failed placeholder is the only missing-selection state: the
-   * server already resolves an unsaved preference to the page locale.
+   * The read-failed placeholder is the only missing-selection state. An
+   * account without a saved preference preselects the suggested page locale,
+   * and Save stays enabled so it can store that value without a change.
    */
   const languagePlaceholder = copy.languageReadUnavailable;
-  const savedLanguage =
-    preferredLanguage === "read-failed" ? null : preferredLanguage;
-  const languageValue = selectedLanguage ?? savedLanguage;
+  const savedLanguage = isLocale(preferredLanguage) ? preferredLanguage : null;
+  const suggestedLanguage =
+    preferredLanguage !== "read-failed" && !isLocale(preferredLanguage)
+      ? preferredLanguage.suggested
+      : null;
+  const languageToSave = selectedLanguage ?? suggestedLanguage;
+  const languageValue = selectedLanguage ?? savedLanguage ?? suggestedLanguage;
   const saveFailed = transportFailed || result.serverError != null;
   const languageStatus = languageStatusCopy({
     copy,
@@ -170,9 +180,9 @@ export function ProfileScreen({
   };
 
   const handleSaveLanguage = () => {
-    if (!selectedLanguage || isSaving) return;
+    if (!languageToSave || isSaving) return;
     clearLanguageFeedback();
-    saveLanguage({ locale: selectedLanguage });
+    saveLanguage({ locale: languageToSave });
   };
 
   return (
@@ -248,7 +258,7 @@ export function ProfileScreen({
         <div className="mt-3 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
           <Button
             className="rounded-xl bg-burned-orange px-4 text-xs uppercase tracking-[0.08em] hover:bg-burned-orange/90"
-            disabled={isSaving || selectedLanguage === null}
+            disabled={isSaving || languageToSave === null}
             onClick={handleSaveLanguage}
             size="sm"
             type="button"

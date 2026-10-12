@@ -9,6 +9,7 @@ import { CustomerCommunicationPreferenceRepository } from "@/features/account/ba
 import type { CustomerProfile } from "@/features/account/backend/customer-dotypos-adapter.service";
 import { CustomerProfileService } from "@/features/account/backend/customer-profile.service";
 import { CustomerReservationHistoryService } from "@/features/account/backend/customer-reservation-history.service";
+import type { PreferredLanguageState } from "@/features/account/components/profile/profile-screen";
 import type {
   CustomerAvatarPresentation,
   CustomerReservationHistory,
@@ -35,7 +36,7 @@ export type CustomerAccountPageState =
   | {
       readonly kind: "linked";
       readonly email: string;
-      readonly preferredLanguage: Locale | "read-failed";
+      readonly preferredLanguage: PreferredLanguageState;
       readonly profile: CustomerProfile;
       readonly avatar: CustomerAvatarPresentation;
       readonly history: CustomerReservationHistory;
@@ -116,15 +117,18 @@ export const loadCustomerAccountPage = cache(
 
       /**
        * A saved locale renders as is. An account without a saved preference
-       * preselects the page locale, the language the site already uses for
-       * it. A failed read becomes the explicit "read-failed" state so it
-       * never blocks the rest of the page and never renders a guessed value.
+       * stays distinct and suggests the page locale, the language the site
+       * already uses for it. A failed read becomes the explicit "read-failed"
+       * state so it never blocks the rest of the page and never renders a
+       * guessed value.
        */
-      const preferredLanguage = await Effect.flatMap(
+      const preferredLanguage: PreferredLanguageState = await Effect.flatMap(
         CustomerCommunicationPreferenceRepository,
         (repository) => repository.load(account.success.accountId)
       ).pipe(
-        Effect.map((saved) => saved ?? locale),
+        Effect.map(
+          (saved): PreferredLanguageState => saved ?? { suggested: locale }
+        ),
         Effect.provide(CustomerCommunicationPreferenceRepository.Live),
         // The raw repository failure never reaches the log: fold it into the
         // fixed non-PII read-failure cause first, matching the other account

@@ -460,6 +460,39 @@ describe("ProfileScreen", () => {
     cleanup();
   });
 
+  test("lets an account without a saved preference save the suggested page locale", async () => {
+    updatePreferredLanguage.mockClear();
+    window.location.href = "http://localhost/cs-CZ/account?section=profile";
+    const view = render(
+      <ProfileScreen
+        copy={englishCopy}
+        email="ada@example.test"
+        firstName="Ada"
+        lastName="Lovelace"
+        preferredLanguage={{ suggested: "cs-CZ" }}
+      >
+        {profileFields}
+      </ProfileScreen>
+    );
+
+    expect(
+      view.getByRole("combobox", { name: englishCopy.languageLabel })
+        .textContent
+    ).toContain("Čeština");
+    const saveButton = view.getByRole("button", { name: "Save" });
+    expect(saveButton.hasAttribute("disabled")).toBe(false);
+
+    await act(async () => {
+      fireEvent.click(saveButton);
+    });
+
+    await waitFor(() =>
+      expect(updatePreferredLanguage).toHaveBeenCalledWith({ locale: "cs-CZ" })
+    );
+    expect(window.location.pathname).toBe("/cs-CZ/account");
+    cleanup();
+  });
+
   test("keeps Save disabled when a restored preference is re-picked without a change", async () => {
     // Radix Select fires onValueChange only when the value changes, so
     // re-picking the restored locale leaves the save gate closed; a case that

@@ -345,13 +345,13 @@ describe("loadCustomerAccountPage", () => {
     });
   });
 
-  test("preselects the page locale for an account without a saved preference", async () => {
+  test("keeps an unsaved preference distinct and suggests the page locale", async () => {
     preferenceLoadEffect = Effect.succeed(undefined);
 
     await expect(loadPageState("cs-CZ")).resolves.toMatchObject({
       kind: "linked",
       email: "ada@example.test",
-      preferredLanguage: "cs-CZ",
+      preferredLanguage: { suggested: "cs-CZ" },
       profile: { firstName: "Ada" },
     });
   });

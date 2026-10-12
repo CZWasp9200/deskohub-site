@@ -74,6 +74,7 @@ const sectionPanel = (section: AccountSection) => {
         email: "synthetic@example.test",
         firstName: "E2E",
         lastName: null,
+        preferredLanguage: "en-US",
       });
     case "billing":
       return createElement(

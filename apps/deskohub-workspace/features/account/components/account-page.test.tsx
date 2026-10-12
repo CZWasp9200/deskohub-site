@@ -145,6 +145,7 @@ const en = { locale: "en-US" } as const;
 const linkedState = {
   kind: "linked",
   email: "ada@example.test",
+  preferredLanguage: "en-US",
   profile: {
     firstName: "Ada",
     lastName: "Lovelace",
