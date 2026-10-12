@@ -9,7 +9,11 @@
   "files": {
     "includes": [
       "**/*.ts",
-      "**/*.tsx"
+      "**/*.tsx",
+      "**/*.js",
+      "**/*.jsx",
+      "**/*.mjs",
+      "**/*.cjs"
     ]
   },
   "formatter": {

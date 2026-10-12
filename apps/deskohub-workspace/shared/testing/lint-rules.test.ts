@@ -101,6 +101,15 @@ const concatenatedDomain = `export const recipient = "ada" + "${["", "example.co
 const concatenatedAfterAt = `export const recipient = "${["ada", ""].join("@")}" + "example.com";\n`;
 const concatenatedCredentials = `export const url = "postgresql://owner:" + "${["secret", "ep-preview.eu.neon.tech"].join("@")}/db";\n`;
 const percentWithoutDomain = 'export const label = "50%40off";\n';
+// `+` chains assembled from parts, and asset names that only look like addresses.
+const chain = (...parts: readonly string[]) =>
+  `export const recipient = ${parts.join(" + ")};\n`;
+const at = ["", ""].join("@");
+const encodedAssetUrl = `export const icon = "https://example.com/icon${["%4", "0"].join("")}2x.png";\n`;
+const entityAssetSource = `export const icon = <img alt="" src="icon${["&com", "mat;"].join("")}2x.png" />;\n`;
+const plainAssetName = `export const icon = "icon${at}2x.png";\n`;
+const encodedPathSegment = `export const url = "https://cdn.example.com/users/team${["%4", "0"].join("")}home/avatar?q=${["%4", "0"].join("")}mention";\n`;
+const assetChain = chain('"icon"', `"${at}2x.png"`);
 const emailTests = "apps/deskohub-workspace/features/contact";
 
 const blockBodiedComposed = `export const deliver = (request: string): Effect.Effect<string> => {
@@ -299,6 +308,16 @@ const rules: { name: string; diagnostic: string; module: string; cases: Row[] }[
       ["rejects a URL-encoded @", encodedAddress("%40"), true],
       ["permits concatenated URL credentials", concatenatedCredentials, false],
       ["permits an encoded @ without a domain", percentWithoutDomain, false],
+      ["rejects a three-part concatenation", chain('"ada"', `"${at}"`, '"example.com"'), true],
+      ["rejects a four-part concatenation split inside labels", chain('"ad"', '"a"', `"${at}exam"`, '"ple.com"'), true],
+      ["rejects a concatenation of template literals", chain("`ada`", `\`${at}\``, "`example.com`"), true],
+      ["rejects a mixed four-part concatenation", chain('"ada"', `\`${at}\``, '"example"', "`.com`"), true],
+      ["permits a URL-encoded @ in an asset URL", encodedAssetUrl, false],
+      ["permits an entity-encoded @ in an asset name", entityAssetSource, false, `${emailTests}/contact.test.tsx`],
+      ["permits a plain retina asset name", plainAssetName, false],
+      ["permits URL-encoded @ in a path or query that is not an address", encodedPathSegment, false],
+      ["permits a concatenated asset name", assetChain, false],
+      ["permits a concatenation of non-literal parts", chain("prefix", `"${at}"`, "suffix"), false],
       ["permits production modules", addressLiteral, false, `${emailTests}/contact.service.ts`],
     ],
   },
