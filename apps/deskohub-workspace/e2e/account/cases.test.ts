@@ -1,16 +1,11 @@
 import { afterEach, expect, mock, setSystemTime, test } from "bun:test";
 import {
-  DotyposCustomerIdSchema,
   type DotyposReservationId,
   DotyposReservationIdSchema,
 } from "@deskohub/dotypos";
 import type { Customer } from "@deskohub/dotypos/generated";
 import { Effect, Exit, Layer, Option } from "effect";
 import { FetchHttpClient } from "effect/unstable/http";
-import {
-  hasPreviousPaidBooking,
-  hasPriorConfirmedDotyposBooking,
-} from "@/features/referrals/eligibility";
 import type { DatasourceConfig } from "../config";
 import type { WorkspaceE2EError } from "../errors";
 import { E2EDatabase } from "../integrations/database.service";
@@ -26,6 +21,7 @@ import {
   makeWorkspaceE2EAccountRecipient,
   type WorkspaceE2EAccountConfig,
   workspaceE2EAccountMainRecipientLabel,
+  workspaceE2EReferralOwnerRecipientLabel,
 } from "./config";
 import type { WorkspaceE2EAccountJournal } from "./journal";
 import {
@@ -66,8 +62,11 @@ const deleteReauthSendSelector = "#delete-account-reauth-send";
 const deleteConfirmCheckboxSelector = "#confirm-account-deletion";
 const deleteConfirmSelector = "#delete-account-confirm";
 const accountReservationStartsAtMs = fixedNowMs + 120 * 24 * 60 * 60 * 1_000;
+const syntheticReferralCode = "RFLSYNTHETIC1";
+const referralOwnerCustomerId = "customer-referral-owner";
 
 const selectedCaseIds = [
+  "account-anonymous-redirect",
   "account-sign-in-form",
   "account-magic-link-delivery",
   "account-deletion-marker-reauth",
@@ -88,6 +87,7 @@ type FakeMessage = {
   readonly kind: FakeMessageKind;
   readonly link: string;
   readonly recipient: string;
+  readonly referralCode: string | undefined;
   consumed: boolean;
 };
 
@@ -123,12 +123,15 @@ type FakeEvent = {
     | "ambiguity"
     | "provider-expire"
     | "provider-reactivate"
-    | "provider-create";
+    | "provider-create"
+    | "referral-owner-seed";
   readonly customerId?: string;
   readonly id?: string;
   readonly kind?: FakeMessageKind;
   readonly mode?: "active" | "expired";
   readonly recipient?: string;
+  /** The share code a sign-in request's callback carries. */
+  readonly referralCode?: string;
   readonly userId?: string;
 };
 
@@ -184,6 +187,7 @@ type OpenAccountResult = {
 
 type ConsumeResult = {
   readonly destination: string;
+  readonly referralCode?: string | undefined;
   readonly text: string;
 };
 
@@ -215,8 +219,11 @@ class FakeAccountExternalState {
   readonly profiles = new Map<string, FakeProfile>();
   readonly reservations = new Map<DotyposReservationId, FakeReservation>();
   readonly reservationSnapshots: string[] = [];
-  readonly reservationOverlapChecks: string[][] = [];
-  readonly reservationStatusChecks: string[][] = [];
+  readonly referralOwnerSeeds: Array<{
+    readonly accountId: string;
+    readonly dotyposCustomerId: string;
+    readonly email: string;
+  }> = [];
   readonly usersByEmail = new Map<string, FakeUser>();
   readonly usersById = new Map<string, FakeUser>();
   readonly linksByUserId = new Map<string, string>();
@@ -238,7 +245,8 @@ class FakeAccountExternalState {
   constructor(
     readonly config: WorkspaceE2EAccountConfig,
     readonly mainRecipient: string,
-    readonly acceptedBRecipient: string
+    readonly acceptedBRecipient: string,
+    readonly referralOwnerRecipient: string
   ) {}
 
   recordBrowserAction(action: FakeBrowserAction) {
@@ -314,19 +322,6 @@ class FakeAccountExternalState {
     this.profileHistorySeeded = true;
   }
 
-  seedVerifiedLinkedAccountForReservationTest() {
-    this.createAuthUser("auth-original", this.mainRecipient);
-    const profile = this.makeProfile({
-      email: this.mainRecipient,
-      firstName: "E2E",
-      id: "customer-retained",
-    });
-    this.profiles.set(profile.id, profile);
-    this.linksByUserId.set("auth-original", profile.id);
-    this.currentAuthUserId = "auth-original";
-    this.historyReady = true;
-  }
-
   createReservation(customerId: string) {
     this.reservationSequence += 1;
     const id = DotyposReservationIdSchema.make(
@@ -352,40 +347,6 @@ class FakeAccountExternalState {
     reservation.status = "CANCELLED";
   }
 
-  waitForCancelledReservationOverlap(
-    reservationIds: readonly DotyposReservationId[],
-    interval: { readonly endDate: Date; readonly startDate: Date }
-  ) {
-    this.reservationOverlapChecks.push([...reservationIds]);
-    for (const id of reservationIds) {
-      const reservation = this.reservations.get(id);
-      if (reservation?.status !== "CANCELLED") {
-        throw new Error("synthetic reservation remains active");
-      }
-      if (
-        interval.startDate.getTime() >
-          Number(reservation.startsAt.epochMilliseconds) ||
-        interval.endDate.getTime() <
-          Number(reservation.endsAt.epochMilliseconds)
-      ) {
-        throw new Error(
-          "synthetic reservation falls outside the overlap interval"
-        );
-      }
-    }
-  }
-
-  readCancelledReservationStatuses(
-    reservationIds: readonly DotyposReservationId[]
-  ) {
-    this.reservationStatusChecks.push([...reservationIds]);
-    return reservationIds.map((id) => {
-      const reservation = this.reservations.get(id);
-      if (!reservation) throw new Error("unknown synthetic reservation");
-      return reservation.status;
-    });
-  }
-
   seedPendingReauthenticationForTest() {
     this.createAuthUser("auth-original", this.mainRecipient);
     const retained = this.makeProfile({
@@ -404,8 +365,11 @@ class FakeAccountExternalState {
   }
 
   createProfile(input: { readonly email: string; readonly firstName: string }) {
-    this.duplicateProfileSequence += 1;
-    const customerId = `customer-duplicate-${this.duplicateProfileSequence}`;
+    let customerId = referralOwnerCustomerId;
+    if (input.email !== this.referralOwnerRecipient) {
+      this.duplicateProfileSequence += 1;
+      customerId = `customer-duplicate-${this.duplicateProfileSequence}`;
+    }
     const profile = this.makeProfile({
       email: input.email,
       firstName: input.firstName,
@@ -455,6 +419,26 @@ class FakeAccountExternalState {
       throw new Error("the synthetic profile exists before verification");
   }
 
+  seedReferralOwner(input: {
+    readonly accountId: string;
+    readonly dotyposCustomerId: string;
+    readonly email: string;
+  }) {
+    if (!this.profiles.has(input.dotyposCustomerId)) {
+      throw new Error("the referral owner was seeded without its profile");
+    }
+    this.referralOwnerSeeds.push({
+      accountId: input.accountId,
+      dotyposCustomerId: input.dotyposCustomerId,
+      email: input.email,
+    });
+    this.events.push({
+      customerId: input.dotyposCustomerId,
+      type: "referral-owner-seed",
+    });
+    return { code: syntheticReferralCode, promotionCodeId: "promotion-owner" };
+  }
+
   findAuthUserId(email: string) {
     this.authReads.push(email);
     return this.usersByEmail.get(email)?.id;
@@ -502,7 +486,11 @@ class FakeAccountExternalState {
     this.events.push({ customerId, type: "unlink", userId: accountId });
   }
 
-  sendMessage(email: string, kind: "sign-in" | "reauthentication") {
+  sendMessage(
+    email: string,
+    kind: "sign-in" | "reauthentication",
+    referralCode?: string
+  ) {
     let messageKind: FakeMessageKind;
     if (kind === "reauthentication") {
       messageKind = "reauthentication";
@@ -513,11 +501,12 @@ class FakeAccountExternalState {
     } else {
       messageKind = "initial-main";
     }
-    const message = this.makeMessage(email, messageKind);
+    const message = this.makeMessage(email, messageKind, referralCode);
     this.events.push({
       id: message.id,
       kind: message.kind,
       recipient: email,
+      ...(referralCode === undefined ? {} : { referralCode }),
       type: "send",
     });
     return message;
@@ -581,7 +570,11 @@ class FakeAccountExternalState {
           type: "consume",
           userId: "auth-original",
         });
-        return { destination: "/en-US/account", text: completionTitle };
+        return {
+          destination: "/en-US/account",
+          referralCode: message.referralCode,
+          text: completionTitle,
+        };
       }
       case "reauthentication": {
         const user = this.requireUser("auth-original");
@@ -761,17 +754,23 @@ class FakeAccountExternalState {
     };
   }
 
-  private makeMessage(email: string, kind: FakeMessageKind): FakeMessage {
+  private makeMessage(
+    email: string,
+    kind: FakeMessageKind,
+    referralCode?: string
+  ): FakeMessage {
     this.messageSequence += 1;
     const id = `message-${this.messageSequence}`;
     const token = `synthetic-token-${this.messageSequence}`;
-    const link = `${this.config.baseUrl}/api/auth/magic-link/verify?token=${token}&callbackURL=${encodeURIComponent(`/${this.config.locale}/auth/callback`)}`;
+    const callbackURL = `/${this.config.locale}/auth/callback${referralCode === undefined ? "" : `?${new URLSearchParams({ ref: referralCode })}`}`;
+    const link = `${this.config.baseUrl}/api/auth/magic-link/verify?token=${token}&callbackURL=${encodeURIComponent(callbackURL)}`;
     const message = {
       createdAt: fixedNowMs,
       id,
       kind,
       link,
       recipient: email,
+      referralCode,
       consumed: false,
     } satisfies FakeMessage;
     const messages = this.messagesByRecipient.get(email) ?? [];
@@ -815,6 +814,7 @@ class FakeBrowser {
   private emailValue = "";
   private nativeValidationBlocked = false;
   private formReady = false;
+  private referralFieldValue: string | undefined;
   private selectedSection = "";
 
   constructor(readonly external: FakeAccountExternalState) {}
@@ -825,6 +825,9 @@ class FakeBrowser {
       kind: "open",
       selectorOrDestination: parsed.pathname,
     });
+    this.referralFieldValue = undefined;
+    // The proxy keeps the query while it adds the browser's locale.
+    if (parsed.pathname === "/account") parsed.pathname = "/en-US/account";
     this.external.lastDestination =
       parsed.pathname.replace(/^\/en-US/, "") || "/";
     if (parsed.pathname === "/en-US/auth/sign-in") {
@@ -837,9 +840,20 @@ class FakeBrowser {
     }
     if (parsed.pathname === "/en-US/account") {
       const result = this.external.openAccount();
-      this.currentUrl = `${this.external.config.baseUrl}${result.destination}`;
+      const referralCode = parsed.searchParams.get("ref");
+      // Only the anonymous redirect and the completion state keep the code.
+      const keepsReferralCode =
+        referralCode !== null &&
+        (result.destination.endsWith("/auth/sign-in") ||
+          result.text === completionTitle);
+      this.currentUrl = `${this.external.config.baseUrl}${result.destination}${keepsReferralCode ? `?${new URLSearchParams({ ref: referralCode })}` : ""}`;
       this.pageText = result.text;
       this.formReady = result.destination.endsWith("/auth/sign-in");
+      this.emailValue = "";
+      this.nativeValidationBlocked = false;
+      if (keepsReferralCode && result.text === completionTitle) {
+        this.referralFieldValue = referralCode;
+      }
       return;
     }
     if (parsed.pathname === "/en-US/contact") {
@@ -856,9 +870,14 @@ class FakeBrowser {
     }
     if (parsed.pathname === "/api/auth/magic-link/verify") {
       const result = this.external.consumeLink(url);
-      this.currentUrl = `${this.external.config.baseUrl}${result.destination}`;
+      const search =
+        result.referralCode === undefined
+          ? ""
+          : `?${new URLSearchParams({ ref: result.referralCode })}`;
+      this.currentUrl = `${this.external.config.baseUrl}${result.destination}${search}`;
       this.pageText = result.text;
       this.formReady = false;
+      this.referralFieldValue = result.referralCode;
       return;
     }
     throw new Error("unknown synthetic browser destination");
@@ -886,7 +905,13 @@ class FakeBrowser {
         this.pageText = "Sign in";
         return;
       }
-      const message = this.external.sendMessage(this.emailValue, "sign-in");
+      const referralCode =
+        new URL(this.currentUrl).searchParams.get("ref") ?? undefined;
+      const message = this.external.sendMessage(
+        this.emailValue,
+        "sign-in",
+        referralCode
+      );
       const response = `${acceptedTitle} ${acceptedBody}`;
       this.pageText =
         message.kind === "reauthentication" ? deletionReauthLinkSent : response;
@@ -894,7 +919,7 @@ class FakeBrowser {
       return;
     }
     if (selector.includes("Send another link")) {
-      this.currentUrl = `${this.external.config.baseUrl}/en-US/auth/sign-in`;
+      // The accepted card resets the form in place; the URL keeps its query.
       this.pageText = "Sign in";
       this.formReady = true;
       this.emailValue = "";
@@ -1024,6 +1049,18 @@ class FakeBrowser {
       }
       return;
     }
+    if (condition.includes("#profile-referral-code")) {
+      const expected = /input\.value === ("(?:[^"\\]|\\.)*")/.exec(
+        condition
+      )?.[1];
+      if (
+        expected === undefined ||
+        this.referralFieldValue !== JSON.parse(expected)
+      ) {
+        throw new Error("the completion referral field holds another value");
+      }
+      return;
+    }
     if (description === "reauthentication dialog") {
       if (!this.external.reauthenticationDialog) {
         throw new Error("the reauthentication dialog is missing");
@@ -1102,7 +1139,6 @@ const requireBrowser = () => {
 };
 
 const realBrowserModule = await import("../browser");
-const realDotyposIntegrationModule = await import("../integrations/dotypos");
 
 const browserResult = (stdout = ""): BrowserCommandResult => ({
   exitCode: 0,
@@ -1210,10 +1246,6 @@ mock.module("./fixtures", () => ({
     _config: DatasourceConfig,
     input: { readonly customerId: string }
   ) => Effect.sync(() => requireExternal().createReservation(input.customerId)),
-  createSyntheticReferralHistoryReservation: () =>
-    Effect.sync(() => {
-      throw new Error("referral fixture coverage belongs to its separate case");
-    }),
   expireSyntheticCustomerProfile: (
     _config: DatasourceConfig,
     customerId: string
@@ -1224,26 +1256,15 @@ mock.module("./fixtures", () => ({
   ) => Effect.sync(() => requireExternal().readProfile(customerId)),
 }));
 
-mock.module("../integrations/dotypos", () => ({
-  ...realDotyposIntegrationModule,
-  waitForCancelledDotyposReservationStatuses: (
-    _config: DatasourceConfig,
-    reservationIds: readonly DotyposReservationId[]
-  ) =>
-    Effect.sync(() =>
-      requireExternal().readCancelledReservationStatuses(reservationIds)
-    ),
-  waitForCancelledDotyposReservations: (
-    _config: DatasourceConfig,
-    reservationIds: readonly DotyposReservationId[],
-    interval: { readonly endDate: Date; readonly startDate: Date }
-  ) =>
-    Effect.sync(() =>
-      requireExternal().waitForCancelledReservationOverlap(
-        reservationIds,
-        interval
-      )
-    ),
+const realReferralFixtureModule = await import("./referral-fixture");
+
+mock.module("./referral-fixture", () => ({
+  ...realReferralFixtureModule,
+  seedWorkspaceE2EReferralOwner: (input: {
+    readonly accountId: string;
+    readonly dotyposCustomerId: string;
+    readonly email: string;
+  }) => Effect.sync(() => requireExternal().seedReferralOwner(input)),
 }));
 
 const makeConfig = (): WorkspaceE2EAccountConfig => ({
@@ -1268,10 +1289,15 @@ const makeScenario = () => {
     config,
     "accepted-b"
   );
+  const referralOwnerRecipient = makeWorkspaceE2EAccountRecipient(
+    config,
+    workspaceE2EReferralOwnerRecipientLabel
+  );
   const external = new FakeAccountExternalState(
     config,
     mainRecipient,
-    acceptedBRecipient
+    acceptedBRecipient,
+    referralOwnerRecipient
   );
   const browser = new FakeBrowser(external);
   activeExternal = external;
@@ -1461,6 +1487,39 @@ test("executes the selected account lifecycle cases", async () => {
 
   expect(stepIds.length).toBeGreaterThan(0);
   expect(scenario.lifecycleHandoff.firstAcceptedRequestedAt).toEqual(fixedNow);
+  expect(scenario.lifecycleHandoff.referralInvitation).toEqual({
+    code: syntheticReferralCode,
+    referrerCustomerId: referralOwnerCustomerId,
+  });
+
+  // The referrer exists before any sign-in request, and the first accepted
+  // request starts anonymously from the locale-free share link: no direct
+  // sign-in page visit precedes it.
+  const firstSendIndex = scenario.external.events.findIndex(
+    ({ type }) => type === "send"
+  );
+  expect(
+    scenario.external.events.findIndex(
+      ({ type }) => type === "referral-owner-seed"
+    )
+  ).toBeLessThan(firstSendIndex);
+  expect(scenario.external.referralOwnerSeeds).toEqual([
+    {
+      accountId: expect.stringMatching(/^account-referral-owner-/),
+      dotyposCustomerId: referralOwnerCustomerId,
+      email: scenario.external.referralOwnerRecipient,
+    },
+  ]);
+  const firstSendClick = scenario.external.browserActions.findIndex(
+    ({ kind, selectorOrDestination }) =>
+      kind === "click" && selectorOrDestination === signInSubmitSelector
+  );
+  expect(
+    scenario.external.browserActions
+      .slice(0, firstSendClick)
+      .filter(({ kind }) => kind === "open")
+      .map(({ selectorOrDestination }) => selectorOrDestination)
+  ).toEqual(["/account"]);
 
   expect(scenario.operations).toEqual([
     "send",
@@ -1483,10 +1542,13 @@ test("executes the selected account lifecycle cases", async () => {
     )
   );
   expect(
-    operationEvents.map(({ kind, type }) => `${type}:${kind ?? ""}`)
+    operationEvents.map(
+      ({ kind, referralCode, type }) =>
+        `${type}:${kind ?? ""}${referralCode ? `:${referralCode}` : ""}`
+    )
   ).toEqual([
-    "send:initial-main",
-    "send:accepted-b",
+    `send:initial-main:${syntheticReferralCode}`,
+    `send:accepted-b:${syntheticReferralCode}`,
     "receive:initial-main",
     "consume:initial-main",
     "send:reauthentication",
@@ -1508,6 +1570,11 @@ test("executes the selected account lifecycle cases", async () => {
     "initial-main",
     "reauthentication",
     "reactivation",
+  ]);
+  expect(mainMessages.map(({ referralCode }) => referralCode)).toEqual([
+    syntheticReferralCode,
+    undefined,
+    undefined,
   ]);
   expect(mainMessages[0]?.consumed).toBe(true);
   expect(mainMessages[1]?.consumed).toBe(true);
@@ -1621,78 +1688,16 @@ test("executes the selected account lifecycle cases", async () => {
   // equal index still proves it was persisted before the ambiguity navigation.
   expect(duplicateJournal?.eventIndex).toBeLessThanOrEqual(ambiguityEventIndex);
   expect(scenario.external.journal.authUserIds).toEqual([
+    scenario.external.referralOwnerSeeds[0]?.accountId,
     "auth-original",
     "auth-reactivated",
   ]);
   expect(scenario.external.journal.dotyposCustomerIds).toEqual([
+    referralOwnerCustomerId,
     "customer-retained",
     "customer-duplicate-1",
   ]);
   expect(scenario.external.journal.dotyposReservationIds).toEqual([]);
-});
-
-test("the account reservation transition leaves referral history eligible", async () => {
-  setSystemTime(fixedNow);
-  const { makeWorkspaceE2EAccountCases } = await import("./cases");
-  const scenario = makeScenario();
-  scenario.external.seedVerifiedLinkedAccountForReservationTest();
-  const transitionCase = await buildCase(
-    makeWorkspaceE2EAccountCases,
-    "account-reservation-transitions",
-    scenario
-  );
-  const stepIds: string[] = [];
-  let reservationStatusesDuringHistoryCheck: readonly string[] = [];
-  const historyCheck: WorkspaceE2EStep<void> = {
-    execute: Effect.sync(() => {
-      reservationStatusesDuringHistoryCheck = [
-        ...scenario.external.reservations.values(),
-      ].map(({ status }) => status);
-    }),
-    id: "checks reservation history while transition reservations are active",
-    timeoutMs: workspaceE2ETimeouts.providerTransition,
-  };
-
-  await executeCase(transitionCase, scenario, stepIds, historyCheck);
-
-  const reservationIds = [...scenario.external.reservations.keys()];
-  expect(reservationIds).toHaveLength(2);
-  expect(reservationStatusesDuringHistoryCheck).toEqual([
-    "CONFIRMED",
-    "CANCELLED",
-  ]);
-  expect(
-    [...scenario.external.reservations.values()].map(({ status }) => status)
-  ).toEqual(["CANCELLED", "CANCELLED"]);
-  expect(scenario.external.reservationOverlapChecks).toEqual([reservationIds]);
-  expect(scenario.external.reservationStatusChecks).toEqual([reservationIds]);
-  const evidence = [...scenario.external.reservations.values()].map(
-    ({ customerId, endsAt, status }) => ({
-      cancelled: status === "CANCELLED",
-      dotyposCustomerId: DotyposCustomerIdSchema.make(customerId),
-      dotyposStatus: status,
-      endsAt,
-      localPaymentState: null,
-    })
-  );
-  expect(
-    hasPreviousPaidBooking({
-      hasLocalPaidBooking: false,
-      hasPriorConfirmedDotyposBooking:
-        hasPriorConfirmedDotyposBooking(evidence),
-    })
-  ).toBe(false);
-  expect(scenario.external.reservationSnapshots).toEqual([
-    "Current and upcoming\nConfirmed",
-    "Current and upcoming\nConfirmed\nPast reservations\nCancelled",
-  ]);
-  expect(stepIds).toContain(
-    "cancels and converges the remaining reservation history"
-  );
-  expect(stepIds).toContain(historyCheck.id);
-  expect(scenario.external.journal.dotyposReservationIds).toEqual(
-    reservationIds
-  );
 });
 
 test("fails closed before external side effects when the accepted request handoff is missing", async () => {
@@ -1719,6 +1724,28 @@ test("fails closed before external side effects when the accepted request handof
   expect(scenario.external.retrieveCalls).toEqual([]);
   expect(scenario.operations).toEqual([]);
   expect(scenario.retries).toEqual([]);
+});
+
+test("fails closed before any sign-in request when the share-link handoff is missing", async () => {
+  setSystemTime(fixedNow);
+  const { makeWorkspaceE2EAccountCases } = await import("./cases");
+  const scenario = makeScenario();
+  const selected = await buildCase(
+    makeWorkspaceE2EAccountCases,
+    "account-sign-in-form",
+    scenario
+  );
+  const stepIds: string[] = [];
+  const exit = await Effect.runPromiseExit(
+    makeCaseExecution(selected, scenario, stepIds)
+  );
+
+  expect(Exit.isFailure(exit)).toBe(true);
+  expect(stepIds).toEqual(["requires the share-link sign-in handoff"]);
+  expect(scenario.external.browserActions).toEqual([]);
+  expect(scenario.external.events).toEqual([]);
+  expect(scenario.operations).toEqual([]);
+  expect(scenario.lifecycleHandoff.firstAcceptedRequestedAt).toBeUndefined();
 });
 
 test("fails closed before external side effects when the reauthentication handoff is missing", async () => {

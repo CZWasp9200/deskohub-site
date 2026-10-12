@@ -248,6 +248,8 @@ const snapshotConfig = {
   uuidPatternSource:
     "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
   callbackPath: "/en-US/auth/callback",
+  referralParamName: "ref",
+  expectedReferralCode: null as string | null,
   loadingSelector: '[data-slot="auth-callback-loading"]',
   loadingSkeletonSelector: '[data-slot="skeleton"]',
   loadingAriaLabel: "Loading sign-in…",
@@ -272,6 +274,42 @@ describe("collectCallbackDocumentSnapshot", () => {
     } finally {
       restore();
     }
+  });
+
+  test("accepts only the expected share code beside the attempt", () => {
+    const shareConfig = {
+      ...snapshotConfig,
+      expectedReferralCode: "RFLSYNTHETIC1",
+    };
+    const collect = (
+      href: string,
+      config: typeof snapshotConfig = shareConfig
+    ) => {
+      const restore = makeSnapshotGlobals({ locationHref: href });
+      try {
+        return (
+          JSON.parse(collectCallbackDocumentSnapshot(config)) as { v: boolean }
+        ).v;
+      } finally {
+        restore();
+      }
+    };
+
+    expect(collect(`${validCallbackUrl}&ref=RFLSYNTHETIC1`)).toBe(true);
+    expect(collect(`${baseOrigin}/en-US/auth/callback?ref=RFLSYNTHETIC1`)).toBe(
+      true
+    );
+    expect(collect(validCallbackUrl)).toBe(false);
+    expect(collect(`${validCallbackUrl}&ref=RFLOTHERCODE`)).toBe(false);
+    expect(
+      collect(`${validCallbackUrl}&ref=RFLSYNTHETIC1&ref=RFLSYNTHETIC1`)
+    ).toBe(false);
+    expect(collect(`${validCallbackUrl}&ref=RFLSYNTHETIC1&extra=1`)).toBe(
+      false
+    );
+    expect(
+      collect(`${validCallbackUrl}&ref=RFLSYNTHETIC1`, snapshotConfig)
+    ).toBe(false);
   });
 
   test("rejects invalid URL grammar families", () => {

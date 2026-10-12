@@ -178,7 +178,6 @@ const accountLaneRecipientLabels = [
   "main",
   "accepted-b",
   "referral-owner",
-  "referral-invitee",
 ] as const;
 
 /**

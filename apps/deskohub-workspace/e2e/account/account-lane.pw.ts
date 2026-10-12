@@ -1,6 +1,5 @@
 import "../../shared/polyfills/temporal";
 
-import { resolve } from "node:path";
 import {
   DotyposCustomerIdSchema,
   DotyposReservationIdSchema,
@@ -11,12 +10,7 @@ import { writeWorkspaceE2EFailureAnnotation } from "../github-actions";
 import type { E2EDatabase } from "../integrations/database.service";
 import { readWorkspaceE2ERunPlan } from "../playwright-checkout/run-plan";
 import { runtimeTest } from "../playwright-checkout/runtime-fixtures";
-import {
-  makePlaywrightBrowserRunner,
-  type Runner,
-  workspaceDir,
-} from "../runtime";
-import { WorkspaceE2ECaseService } from "../services/cases";
+import { makePlaywrightBrowserRunner, type Runner } from "../runtime";
 import { workspaceE2ETimeouts } from "../timeouts";
 import type { WorkspaceE2EStep } from "../types";
 import { verifyAccountLayoutNavigation } from "./account-layout-navigation";
@@ -25,7 +19,10 @@ import {
   findLinkedDotyposCustomerId,
 } from "./auth-rows";
 import { withCallbackHandoffReview } from "./callback-handoff";
-import { workspaceE2EAccountCaseIds } from "./catalog";
+import {
+  type WorkspaceE2EAccountCaseId,
+  workspaceE2EAccountCaseIds,
+} from "./catalog";
 import {
   getAccountE2EConfig,
   makeWorkspaceE2EAccountRecipient,
@@ -40,11 +37,7 @@ import { verifyWorkspaceE2EMarketingPreferences } from "./marketing-preferences"
 import { workspaceE2EAccountProfileName } from "./profile-fixture";
 import { verifyProfileNavigation } from "./profile-navigation";
 import { makeMagicLinkRateBudget } from "./rate-budget";
-import {
-  verifyReferralOverview,
-  verifyReferralScreenIgnoresShareLink,
-  waitForReferralStats,
-} from "./referral-review";
+import { waitForReferralStats } from "./referral-review";
 import { verifyReservationExistingCustomer } from "./reservation-existing-customer";
 import { withWorkspaceE2EReservationHistoryFixture } from "./reservation-history-fixture";
 import {
@@ -70,6 +63,17 @@ import {
 
 const accountReviewCaptureFailureMessage =
   "Account review screenshot capture failed";
+
+/**
+ * The cases whose pages carry the share code from the lane's first anonymous
+ * share-link visit: the sign-in form, its callback, and profile completion.
+ */
+const shareLinkCaseIds: ReadonlySet<WorkspaceE2EAccountCaseId> =
+  new Set<WorkspaceE2EAccountCaseId>([
+    "account-anonymous-redirect",
+    "account-sign-in-form",
+    "account-magic-link-delivery",
+  ]);
 
 type WorkspaceE2EAccountLane = {
   readonly config: ReturnType<typeof getAccountE2EConfig>;
@@ -202,6 +206,16 @@ for (const caseId of workspaceE2EAccountCaseIds) {
         if (!page) throw new Error(accountReviewCaptureFailureMessage);
         return page;
       };
+      // Read when a capture starts: the anonymous share-link case records the
+      // share code only while it runs.
+      const caseReview = () =>
+        shareLinkCaseIds.has(caseId)
+          ? {
+              ...accountLane.config.review,
+              referralCode:
+                accountLane.lifecycleHandoff.referralInvitation?.code,
+            }
+          : accountLane.config.review;
       let verifyPages:
         | readonly WorkspaceE2EStep<void, E2EDatabase>[]
         | undefined;
@@ -345,30 +359,6 @@ for (const caseId of workspaceE2EAccountCaseIds) {
             timeoutMs: workspaceE2ETimeouts.providerTransition,
           },
           {
-            execute: Effect.tryPromise({
-              catch: (cause) =>
-                cause instanceof WorkspaceE2EError
-                  ? cause
-                  : workspaceE2EError(
-                      "capture Czech zero-invite referral overview failed",
-                      { operation: "capture Czech referral overview" }
-                    ),
-              try: () =>
-                verifyReferralOverview({
-                  count: 0,
-                  locale: "cs-CZ",
-                  page: getOwnedPage(),
-                  review: accountLane.config.review,
-                  targets: {
-                    desktop: "linked-referrals-cs-desktop",
-                    mobile: "linked-referrals-cs-mobile",
-                  },
-                }),
-            }),
-            id: "captures zero-invite referral overview in Czech",
-            timeoutMs: workspaceE2ETimeouts.providerTransition,
-          },
-          {
             execute: Effect.gen(function* () {
               const customerId = yield* readAccountReservationCustomerId();
               yield* verifyWorkspaceE2EMarketingPreferences({
@@ -432,64 +422,6 @@ for (const caseId of workspaceE2EAccountCaseIds) {
             timeoutMs: workspaceE2ETimeouts.providerTransition,
           },
         ];
-      } else if (caseId === "account-referrals") {
-        verifyPages = [
-          {
-            execute: Effect.tryPromise({
-              catch: (cause) =>
-                cause instanceof WorkspaceE2EError
-                  ? cause
-                  : workspaceE2EError(
-                      "capture referral overview and share-link states failed",
-                      { operation: "capture referral review states" }
-                    ),
-              try: async () => {
-                const page = getOwnedPage();
-                const review = accountLane.config.review;
-                await verifyReferralOverview({
-                  count: 1,
-                  locale: "en-US",
-                  page,
-                  review,
-                  targets: {
-                    desktop: "referral-overview-positive-desktop",
-                    mobile: "referral-overview-positive-mobile",
-                  },
-                });
-                await verifyReferralOverview({
-                  count: 1,
-                  locale: "cs-CZ",
-                  page,
-                  review,
-                  targets: {
-                    desktop: "referral-overview-positive-cs-desktop",
-                    mobile: "referral-overview-positive-cs-mobile",
-                  },
-                });
-
-                const shareCode =
-                  accountLane.lifecycleHandoff.referralOtherReferrerCode;
-                if (!shareCode) {
-                  throw workspaceE2EError(
-                    "second referrer fixture is incomplete",
-                    {
-                      diagnosticCode:
-                        "postgres_account_fixture_assertion_failed",
-                      operation: "read second referrer handoff",
-                    }
-                  );
-                }
-                await verifyReferralScreenIgnoresShareLink({
-                  baseUrl: review.baseUrl,
-                  page,
-                  shareCode,
-                });
-              },
-            }),
-            id: "captures the referral overview and ignores another share link",
-            timeoutMs: workspaceE2ETimeouts.providerTransition,
-          },
-        ];
       }
       const runCase = () =>
         runEffect(
@@ -508,13 +440,9 @@ for (const caseId of workspaceE2EAccountCaseIds) {
           throw new Error(accountReviewCaptureFailureMessage);
         const page = pages[0];
         if (!page) throw new Error(accountReviewCaptureFailureMessage);
-        await withSignInPendingReview(page, accountLane.config.review, runCase);
+        await withSignInPendingReview(page, caseReview(), runCase);
       } else if (caseId === "account-magic-link-delivery") {
-        await withCallbackHandoffReview(
-          getOwnedPage(),
-          accountLane.config.review,
-          runCase
-        );
+        await withCallbackHandoffReview(getOwnedPage(), caseReview(), runCase);
       } else {
         await runCase();
       }
@@ -529,7 +457,7 @@ for (const caseId of workspaceE2EAccountCaseIds) {
       if (!page) throw new Error(accountReviewCaptureFailureMessage);
 
       await accountTest.step(`capture account review: ${target}`, async () => {
-        await captureAccountReview(page, accountLane.config.review, target);
+        await captureAccountReview(page, caseReview(), target);
       });
 
       if (caseId !== "account-linking-variants") return;
