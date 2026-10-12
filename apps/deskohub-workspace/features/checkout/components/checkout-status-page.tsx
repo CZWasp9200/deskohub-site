@@ -104,6 +104,13 @@ const getStatusCopy = (
         tone: "pending",
         Icon: Clock3,
       };
+    case "payment_pending_delayed":
+      return {
+        title: m.checkoutStatusPaymentPendingDelayedTitle({}, { locale }),
+        lead: m.checkoutStatusPaymentPendingDelayedLead({}, { locale }),
+        tone: "warning",
+        Icon: Clock3,
+      };
     case "paid_waiting_fulfillment":
       return {
         title: m.checkoutStatusPaidWaitingFulfillmentTitle({}, { locale }),
@@ -235,7 +242,7 @@ const getSupportContactMessage = (
   status: CheckoutStatusViewModel,
   locale: Locale,
   summaryPresentation: CheckoutStatusSummaryPresentation | undefined,
-  topic: "fulfillment_failed" | "late_payment_review"
+  topic: NonNullable<ReturnType<typeof getSupportTopic>>
 ) => {
   const reservation =
     summaryPresentation?.reservationTitle ??
@@ -247,6 +254,7 @@ const getSupportContactMessage = (
   const message = {
     fulfillment_failed: m.checkoutStatusFulfillmentFailedContactMessage,
     late_payment_review: m.checkoutStatusLatePaymentReviewContactMessage,
+    payment_pending: m.checkoutStatusPaymentPendingContactMessage,
   }[topic];
   return message({ orderId: status.orderId, reservation, date }, { locale });
 };
@@ -300,6 +308,8 @@ const getSupportTopic = (status: CheckoutStatusKind) => {
       return "fulfillment_failed" as const;
     case "late_payment_review":
       return "late_payment_review" as const;
+    case "payment_pending_delayed":
+      return "payment_pending" as const;
     default:
       return undefined;
   }

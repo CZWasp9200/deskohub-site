@@ -14,6 +14,8 @@ type CheckoutStatusPreviewPageProps = {
 };
 
 const previewStates = [
+  "pending",
+  "payment_pending_delayed",
   "paid_waiting_fulfillment",
   "paid_fulfillment_delayed",
   "paid_awaiting_delivery",
@@ -44,9 +46,14 @@ export default async function CheckoutStatusPreviewPage({
     orderId: workspaceReservationIdSchema.make("checkout-status-preview"),
     returnOutcome: "success",
     status: previewState,
-    paymentStatus: "paid",
+    paymentStatus:
+      previewState === "pending" || previewState === "payment_pending_delayed"
+        ? "pending"
+        : "paid",
     fulfillmentStatus: (
       {
+        pending: "not_started",
+        payment_pending_delayed: "not_started",
         paid_waiting_fulfillment: "processing",
         paid_fulfillment_delayed: "processing",
         paid_awaiting_delivery: "awaiting_delivery",

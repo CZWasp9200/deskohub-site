@@ -202,6 +202,15 @@ describe("CheckoutStatusService", () => {
     };
     const paymentAttempts = {
       findDisplayableForReservation: mock(() => Effect.succeed(null)),
+      // A just-created provider order is inside its abandonment window.
+      findById: mock(() =>
+        Effect.succeed(
+          makePaymentAttempt({
+            state: "pending",
+            providerOrderCreatedAt: Temporal.Now.instant(),
+          })
+        )
+      ),
     };
 
     const status = await Effect.gen(function* () {
@@ -931,6 +940,14 @@ describe("CheckoutStatusService", () => {
                   findDisplayableForReservation: mock(() =>
                     Effect.succeed(makePaymentAttempt())
                   ),
+                  findById: mock(() =>
+                    Effect.succeed(
+                      makePaymentAttempt({
+                        state: "pending",
+                        providerOrderCreatedAt: paidAt,
+                      })
+                    )
+                  ),
                 }),
                 dotyposLayer(
                   makeDotypos({
@@ -986,6 +1003,36 @@ describe("CheckoutStatusService", () => {
 
       expect(status).toMatchObject({
         status: "paid_fulfillment_delayed",
+        supportContactPrefill: { email: "ada@example.test" },
+      });
+    });
+
+    const pendingPayment = {
+      paymentState: "pending",
+      paidAt: null,
+      reservationState: "held",
+      reservationConfirmedAt: null,
+      fulfillmentState: "not_started",
+      activeCustomerEmailDeliveryId: null,
+    } as const;
+
+    test("keeps a payment inside the provider abandonment window pending", async () => {
+      const status = await getPaidStatus(
+        paidAt.add({ minutes: 5 }),
+        pendingPayment
+      );
+
+      expect(status).toMatchObject({ status: "pending" });
+    });
+
+    test("offers support for a payment still unconfirmed after the abandonment cutoff", async () => {
+      const status = await getPaidStatus(
+        paidAt.add({ minutes: 45 }),
+        pendingPayment
+      );
+
+      expect(status).toMatchObject({
+        status: "payment_pending_delayed",
         supportContactPrefill: { email: "ada@example.test" },
       });
     });

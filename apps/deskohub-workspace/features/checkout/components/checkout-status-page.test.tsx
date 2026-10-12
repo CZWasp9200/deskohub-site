@@ -72,6 +72,29 @@ const reconstructedCoworkStatus: CheckoutStatusViewModel = {
   },
 };
 
+/** Asserts the missing-address fallback: no address shown or prefilled. */
+const expectGuidanceWithoutAddress = (
+  view: ReturnType<typeof render>,
+  fallbackLead: string,
+  supportLabel: string
+) => {
+  expect(view.getByText(fallbackLead)).toBeTruthy();
+  expect(view.queryByText(/ada@example\.test/)).toBeNull();
+  const support = view.getByRole("link", { name: supportLabel });
+  const contactUrl = new URL(
+    support.getAttribute("href") ?? "",
+    "https://deskohub.local"
+  );
+  expect(contactUrl.searchParams.has("email")).toBe(false);
+  expect(contactUrl.searchParams.get("name")).toBe("Ada Lovelace");
+  expect(
+    view.container.querySelector("#checkout-status-reserve-again")
+  ).toBeNull();
+  expect(
+    view.container.querySelector("main ol > li:nth-child(2) > a")
+  ).toBeNull();
+};
+
 describe("CheckoutStatusPage", () => {
   beforeAll(() => {
     registerWorkspaceComponentTestEnv();
@@ -908,13 +931,16 @@ describe("CheckoutStatusPage", () => {
   describe("a paid reservation awaiting its confirmation email", () => {
     const awaitingDeliveryStatus = (
       status: "paid_awaiting_delivery" | "paid_delivery_delayed",
-      email: string | undefined = "ada@example.test"
+      email: string | null = "ada@example.test"
     ): CheckoutStatusViewModel => ({
       ...baseStatus,
       kind: "cowork",
       status,
       fulfillmentStatus: "awaiting_delivery",
-      supportContactPrefill: { name: "Ada Lovelace", email },
+      supportContactPrefill: {
+        name: "Ada Lovelace",
+        ...(email !== null && { email }),
+      },
       summary: {
         kind: "cowork",
         entryTier: "basic",
@@ -985,19 +1011,18 @@ describe("CheckoutStatusPage", () => {
       const view = render(
         <CheckoutStatusPage
           locale="cs-CZ"
-          status={awaitingDeliveryStatus("paid_delivery_delayed", undefined)}
+          status={awaitingDeliveryStatus("paid_delivery_delayed", null)}
         />
       );
 
-      expect(
-        view.getByText(/Znovu rezervovat nemusíš\./, { exact: false })
-      ).toBeTruthy();
-      expect(
-        view.getByRole("link", { name: "Zaslat žádost o podporu" })
-      ).toBeTruthy();
-      expect(
-        view.container.querySelector("#checkout-status-reserve-again")
-      ).toBeNull();
+      expectGuidanceWithoutAddress(
+        view,
+        m.checkoutStatusPaidDeliveryDelayedLeadWithoutEmail(
+          {},
+          { locale: "cs-CZ" }
+        ),
+        "Zaslat žádost o podporu"
+      );
     });
   });
 
@@ -1006,14 +1031,17 @@ describe("CheckoutStatusPage", () => {
       overrides: Partial<CheckoutStatusViewModel> & {
         readonly status: CheckoutStatusViewModel["status"];
       },
-      email: string | undefined = "ada@example.test"
+      email: string | null = "ada@example.test"
     ) =>
       ({
         ...baseStatus,
         kind: "cowork",
         paymentStatus: "paid",
         fulfillmentStatus: "processing",
-        supportContactPrefill: { name: "Ada Lovelace", email },
+        supportContactPrefill: {
+          name: "Ada Lovelace",
+          ...(email !== null && { email }),
+        },
         summary: {
           kind: "cowork",
           entryTier: "basic",
@@ -1063,16 +1091,75 @@ describe("CheckoutStatusPage", () => {
           locale="cs-CZ"
           status={paidStatus(
             { status: "fulfillment_failed", fulfillmentStatus: "failed" },
-            undefined
+            null
           )}
         />
       );
 
-      expect(view.getByText(/Znovu rezervovat nemusíš\./)).toBeTruthy();
+      expectGuidanceWithoutAddress(
+        view,
+        m.checkoutStatusFulfillmentFailedLeadWithoutEmail(
+          {},
+          { locale: "cs-CZ" }
+        ),
+        "Zaslat žádost o podporu"
+      );
+    });
+
+    test("tells a customer whose payment is processing not to book again", () => {
+      const view = render(
+        <CheckoutStatusPage
+          locale="en-US"
+          status={paidStatus({
+            status: "pending",
+            paymentStatus: "pending",
+            fulfillmentStatus: "not_started",
+          })}
+        />
+      );
+
       expect(
-        view.getByRole("link", { name: "Zaslat žádost o podporu" })
+        view.getByRole("heading", {
+          name: "Your payment is still being processed.",
+        })
       ).toBeTruthy();
-      expect(queryRestartActions(view.container).reserveAgain).toBeNull();
+      expect(view.getByText(/You don't need to book again\./)).toBeTruthy();
+      expect(view.queryByText(/confirmed/)).toBeNull();
+      expect(
+        view.container.querySelector("#checkout-status-support-contact")
+      ).toBeNull();
+      expect(queryRestartActions(view.container)).toEqual({
+        reserveAgain: null,
+        orderStep: null,
+      });
+    });
+
+    test("points a payment unconfirmed past the cutoff to support, not a new checkout", () => {
+      const view = render(
+        <CheckoutStatusPage
+          locale="en-US"
+          status={paidStatus({
+            status: "payment_pending_delayed",
+            paymentStatus: "pending",
+            fulfillmentStatus: "not_started",
+          })}
+        />
+      );
+
+      expect(view.getByText(/You don't need to book again\./)).toBeTruthy();
+      const link = view.getByRole("link", { name: "Send support request" });
+      const contactUrl = new URL(
+        link.getAttribute("href") ?? "",
+        "https://deskohub.local"
+      );
+      expect(contactUrl.searchParams.get("email")).toBe("ada@example.test");
+      expect(contactUrl.searchParams.get("message")).toContain(
+        "Please check whether my payment went through."
+      );
+      expect(queryRestartActions(view.container)).toEqual({
+        reserveAgain: null,
+        orderStep: null,
+      });
     });
 
     test("tells a paid customer awaiting confirmation not to book again", () => {

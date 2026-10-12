@@ -8,6 +8,7 @@ import type {
   LatePaymentRecovery,
   PaymentState,
 } from "@/db/schema";
+import { getProviderOrderAbandonmentCutoff } from "@/features/checkout/provider-order-abandonment";
 import type { WorkspaceMoney } from "@/features/checkout/workspace-money";
 import {
   getWorkspaceTableMap,
@@ -53,6 +54,7 @@ export type CheckoutStatusKind =
   | "not_found"
   | "created"
   | "pending"
+  | "payment_pending_delayed"
   | "paid_waiting_fulfillment"
   | "paid_fulfillment_delayed"
   | "paid_awaiting_delivery"
@@ -312,6 +314,7 @@ const getSupportContactPrefill = (
 const showsCustomerContact = (statusKind: CheckoutReservationStatusKind) =>
   statusKind === "fulfillment_failed" ||
   statusKind === "late_payment_review" ||
+  statusKind === "payment_pending_delayed" ||
   statusKind === "paid_fulfillment_delayed" ||
   statusKind === "paid_awaiting_delivery" ||
   statusKind === "paid_delivery_delayed";
@@ -555,6 +558,31 @@ const implementation = Effect.gen(function* () {
     );
   });
 
+  /**
+   * A provider payment unsettled past the abandonment cutoff may never settle,
+   * so the page stops promising confirmation and offers support. Hold
+   * cleanup later expires an empty order, which then allows a new booking.
+   */
+  const isPendingPaymentOverdue = Effect.fn(
+    "CheckoutStatusService.isPendingPaymentOverdue"
+  )(function* (reservation: WorkspaceReservation, now: Temporal.Instant) {
+    if (!reservation.activePaymentAttemptId) return false;
+
+    const attempt = yield* paymentAttempts.findById(
+      reservation.activePaymentAttemptId
+    );
+    if (!attempt) return false;
+
+    return (
+      Temporal.Instant.compare(
+        now,
+        getProviderOrderAbandonmentCutoff(
+          attempt.providerOrderCreatedAt ?? attempt.createdAt
+        )
+      ) >= 0
+    );
+  });
+
   /** Derives the customer status and its support contact prefill. */
   const resolveStatusKind = Effect.fn(
     "CheckoutStatusService.resolveStatusKind"
@@ -567,9 +595,14 @@ const implementation = Effect.gen(function* () {
       reservation,
       latePaymentRecovery
     );
+    const now = yield* currentInstant;
+    const reservationStatusKind = toCheckoutStatusKind(reservation, now);
     const statusKind =
       latePaymentStatusKind ??
-      toCheckoutStatusKind(reservation, yield* currentInstant);
+      (reservationStatusKind === "pending" &&
+      (yield* isPendingPaymentOverdue(reservation, now))
+        ? "payment_pending_delayed"
+        : reservationStatusKind);
     const supportContactPrefill = yield* loadSupportContactPrefill(
       reservation,
       statusKind

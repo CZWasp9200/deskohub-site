@@ -7,7 +7,6 @@ describe("shouldOfferNewReservation", () => {
     const withoutLivePaidReservation: CheckoutStatusKind[] = [
       "not_found",
       "created",
-      "pending",
       "payment_failed",
       "cancelled",
       "expired",
@@ -23,8 +22,10 @@ describe("shouldOfferNewReservation", () => {
     expect(shouldOfferNewReservation("fulfilled")).toBe(true);
   });
 
-  test("never invites another purchase while a paid reservation is live", () => {
+  test("never invites another purchase while a payment is processing or a paid reservation is live", () => {
     const withLivePaidReservation: CheckoutStatusKind[] = [
+      "pending",
+      "payment_pending_delayed",
       "paid_waiting_fulfillment",
       "paid_fulfillment_delayed",
       "paid_awaiting_delivery",
