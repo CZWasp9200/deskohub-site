@@ -1,8 +1,8 @@
 /**
- * Rejects hand-written email addresses in test code across apps/,
- * packages/, and scripts/, except Boardgame Bar. Tests build addresses with
+ * Finds hand-written email addresses in test code across apps/, packages/,
+ * and scripts/, except Boardgame Bar. Tests build addresses with
  * `testEmailAddress` (on the EMAIL_TEST_DOMAIN constant, so mail routes to
- * Console) or `resendSimulatorAddress` from `@deskohub/email/testing`; a
+ * Console) or `resendSimulatorAddress` from `@deskohub/test-email`; a
  * hand-written address could reach a real inbox.
  *
  * It reads string, template, and JSX literals, folds `+` chains of literals
@@ -27,9 +27,13 @@ export type TestEmailLiteral = {
   readonly address: string;
 };
 
+export type RepositoryTestEmailLiteral = TestEmailLiteral & {
+  readonly path: string;
+};
+
 /**
- * Where and what the check scans. Turbo's `//#lint:test-email-literals`
- * inputs must cover every root and extension here; a test keeps them aligned.
+ * Where and what the check scans. This package's Turbo `test` inputs must
+ * cover every root and extension here; a test keeps them aligned.
  */
 export const scannedRoots = ["apps", "packages", "scripts"] as const;
 /** Boardgame Bar keeps its own email setup and stays outside this check. */
@@ -270,25 +274,19 @@ const listRepositoryModules = async (repositoryRoot: string) => {
   return listing.split("\0").filter(Boolean);
 };
 
-const main = async () => {
-  const repositoryRoot = resolve(import.meta.dir, "..");
+/** Scans every test module in the repository for hand-written addresses. */
+export const findRepositoryTestEmailLiterals = async (
+  repositoryRoot: string
+) => {
   const paths = (await listRepositoryModules(repositoryRoot)).filter(
     isTestEmailLiteralPath
   );
-  let violations = 0;
+  const findings: RepositoryTestEmailLiteral[] = [];
   for (const path of paths) {
     const sourceText = await Bun.file(resolve(repositoryRoot, path)).text();
     for (const finding of findTestEmailLiterals(path, sourceText)) {
-      violations += 1;
-      process.stderr.write(
-        `${path}:${finding.line}:${finding.column} Build test email addresses with testEmailAddress or resendSimulatorAddress from @deskohub/email/testing instead of writing them.\n`
-      );
+      findings.push({ ...finding, path });
     }
   }
-  process.stdout.write(
-    `Checked ${paths.length} test modules; ${violations} hand-written email addresses.\n`
-  );
-  if (violations > 0) process.exitCode = 1;
+  return { checkedModules: paths.length, findings };
 };
-
-if (import.meta.main) await main();

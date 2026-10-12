@@ -3,14 +3,7 @@
   "extends": ["//"],
   "tasks": {
     "lint": {
-      "dependsOn": [
-        "$TURBO_EXTENDS$",
-        "lint:biome",
-        "lint:eslint",
-        "lint:knip",
-        "//#lint:scripts",
-        "//#lint:test-email-literals"
-      ]
+      "dependsOn": ["$TURBO_EXTENDS$", "lint:biome", "lint:eslint", "lint:knip"]
     },
     "lint:biome": {
       "inputs": ["$TURBO_DEFAULT$", "../../biome.json", "../../lint/*.grit"]
@@ -33,8 +26,7 @@
         "@deskohub/dotypos#generate",
         "@deskohub/igloohome#generate",
         "@deskohub/nexi#generate",
-        "i18n:compile",
-        "//#test:scripts"
+        "i18n:compile"
       ],
       "env": [
         "BETTER_AUTH_SECRETS",
@@ -98,8 +90,7 @@
         "@deskohub/dotypos#generate",
         "@deskohub/igloohome#generate",
         "@deskohub/nexi#generate",
-        "i18n:compile",
-        "//#test:scripts"
+        "i18n:compile"
       ],
       "passThroughEnv": ["WORKSPACE_TEST_DATABASE_URL"]
     },
@@ -121,8 +112,7 @@
         "@deskohub/igloohome#generate",
         "@deskohub/nexi#generate",
         "i18n:compile",
-        "typegen",
-        "//#typecheck:scripts"
+        "typegen"
       ]
     },
     "typegen": {

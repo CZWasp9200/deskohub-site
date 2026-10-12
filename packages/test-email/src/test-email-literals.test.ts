@@ -94,7 +94,7 @@ const rejected: readonly (readonly [string, string])[] = [
 const permitted: readonly (readonly [string, string])[] = [
   [
     "the shared helper",
-    'import { testEmailAddress } from "@deskohub/email/testing";\nexport const recipient = testEmailAddress("ada");\n',
+    'import { testEmailAddress } from "@deskohub/test-email";\nexport const recipient = testEmailAddress("ada");\n',
   ],
   [
     "addresses built from expressions",
@@ -112,7 +112,7 @@ const permitted: readonly (readonly [string, string])[] = [
     "a URL host after interpolated credentials",
     statement(`\`https://user:\${secret}${join(at, "example.com")}/app.js\``),
   ],
-  ["package specifiers", statement(quoted("@deskohub/email/testing"))],
+  ["package specifiers", statement(quoted("@deskohub/test-email"))],
   [
     "concatenated URL credentials",
     chain(
@@ -350,28 +350,22 @@ describe("isTestEmailLiteralPath", () => {
 });
 
 describe("Turbo inputs", () => {
-  const turbo = (async () =>
-    (await Bun.file(new URL("../turbo.json", import.meta.url)).json()) as {
-      readonly tasks: Record<string, { readonly inputs?: readonly string[] }>;
-    })();
-  const inputsOf = async (task: string) =>
-    (await turbo).tasks[task]?.inputs ?? [];
-
   test("hash every module the check scans, so a cached pass cannot miss one", async () => {
-    const expected = scannedRoots.flatMap((root) =>
-      scannedExtensions.map((extension) => `${root}/**/*.${extension}`)
+    const turbo = (await Bun.file(
+      new URL("../turbo.json", import.meta.url)
+    ).json()) as {
+      readonly tasks: Record<string, { readonly inputs?: readonly string[] }>;
+    };
+    const scanned = scannedRoots.flatMap((root) =>
+      scannedExtensions.map(
+        (extension) => `$TURBO_ROOT$/${root}/**/*.${extension}`
+      )
     );
-    expect(await inputsOf("//#lint:test-email-literals")).toEqual([
-      ...expected,
-      ...excludedRoots.map((root) => `!${root}/**`),
-      "!**/node_modules/**",
+    expect(turbo.tasks.test?.inputs).toEqual([
+      "$TURBO_DEFAULT$",
+      ...scanned,
+      ...excludedRoots.map((root) => `!$TURBO_ROOT$/${root}/**`),
+      "!$TURBO_ROOT$/**/node_modules/**",
     ]);
   });
-
-  test.each(["//#lint:scripts", "//#test:scripts", "//#typecheck:scripts"])(
-    "hash all of root scripts/ for %s",
-    async (task) => {
-      expect(await inputsOf(task)).toContain("scripts/**");
-    }
-  );
 });
