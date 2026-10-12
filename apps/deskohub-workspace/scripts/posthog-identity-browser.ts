@@ -9,10 +9,7 @@ import {
   type Page,
 } from "@playwright/test";
 import { Schema } from "effect";
-import {
-  buildPosthogIdentityFixtureBundle,
-  posthogProjectToken,
-} from "./posthog-identity-fixture-bundle";
+import { buildPosthogIdentityFixtureBundle } from "./posthog-identity-fixture-bundle";
 import {
   capturedOnlyByPinnedSdk,
   expectedPosthogSdkVersion,
