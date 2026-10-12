@@ -9,11 +9,21 @@ Read the business-facing [referral specification](../../../apps/deskohub-workspa
 
 ## Public boundaries
 
-- `features/referrals/client.ts` is browser-safe. Use `parseReferralCode` for untrusted values and `referralCodeSchema` for Standard Schema validation.
-- `features/referrals/index.ts` exports `ReferralService`, `ReferralError`, and the public referral contracts. Use `ReferralService.Live` for production composition. `lookupCodeKind` is a pure registry lookup; it may distinguish referral from ordinary codes but must not issue a code or change attribution.
+- `features/referrals/client.ts` is browser-safe. Use `parseReferralCode` for untrusted values and `referralCodeQueryParam` for the `ref` search parameter carried by share links, sign-in, and reservation pages.
+- `features/referrals/index.ts` exports `ReferralService`; `ReferralError` and the public referral types live in `features/referrals/contracts.ts`. Use `ReferralService.Live` for production composition. `lookupCodeKind` is a pure registry lookup; it may distinguish referral from ordinary codes but must not issue a code or change attribution.
 - `getAccountSummary` is an explicit account read that may create the customer's durable share code. Do not call it from quote or checkout pricing.
-- `acceptReferral` is the deliberate, verified-account mutation. It validates the linked Dotypos identity and active referrer, then writes the permanent relationship. It is idempotent for the same referrer and rejects a changed referrer, self-referral, ineligible first-booking history, or a cycle.
-- `features/checkout/backend/checkout/checkout-referral.service.ts` exports `CheckoutReferralService`. Its `acceptCode({ code, payStateToken, locale })` validates the signed checkout identity, deliberately accepts the relationship, and returns an updated signed checkout URL with `accepted`, `already_accepted`, `unavailable`, or `pricing_changed` status. The ordinary submitted-code slot remains available.
+- `findAvailableCode` is a read-only check that returns the canonical code only when it is an enabled, currently valid referral code whose owner has a linked account without pending deletion. Use it to validate or prefill a code before any write; it never issues codes or attributions.
+- `acceptReferral` is the only attribution mutation. It validates the linked Dotypos identity and active referrer, then writes the permanent relationship. It is idempotent for the same referrer and rejects a changed referrer, self-referral, ineligible first-booking history, or a cycle. It takes the account advisory lock in its own transaction, so never call it while another account lock or transaction is held.
+- Only three callers may attribute, matching the business sources:
+  - First-time profile completion (`features/account/actions.ts`, create branch only): the code is checked with `findAvailableCode` before the profile is created, and an unusable code returns `referral-code-unavailable`. Acceptance runs best-effort after creation. An already-linked account ignores the code. The account page prefills the field from `ref` only in the completion-required state, and only when `findAvailableCode` returns it.
+  - The checkout code field, through `CheckoutReferralService`.
+  - Reservation-page `ref` (`use-reservation-checkout.ts` → `preparePayState` `referralCode`). For `customer: "account"` only, it is accepted silently before `guardStateCreation`, and a successful acceptance adds the `referralApplied` marker.
+- Do not add an account-screen or other later acceptance path.
+- `features/checkout/backend/checkout/checkout-referral.service.ts` exports `CheckoutReferralService`. Its `acceptCode({ code, payStateToken, locale })` validates the signed checkout identity, deliberately accepts the relationship, and returns one of these statuses:
+  - `accepted` or `already_accepted`, with an updated signed checkout URL.
+  - `already_attributed` (a different existing referrer) or `ineligible` (not the first booking). The discount action redirects these to the unchanged pay state with `discountCodeError=referral-already-attributed` or `referral-ineligible` (`features/checkout/discount-code-rejection.ts`).
+  - `unavailable` or `pricing_changed`. Every other referral failure stays `unavailable`, so the response doesn't reveal whether a code or account exists.
+- The ordinary submitted-code slot remains available. Once an ordinary code is applied, the code field closes, so customers enter a referral code first.
 
 ## Pricing and snapshots
 
