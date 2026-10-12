@@ -115,7 +115,13 @@ const definitions: readonly DiscountDefinitionFixture[] = [
       "cs-CZ": "E2E kalendářová sleva",
       "en-US": "E2E Calendar sale",
     },
-    products: [{ kind: "cowork" }, { kind: "meeting-room" }],
+    // Tier targets let calendar-sale-pricing-changes remove reserved-desk
+    // eligibility without touching the open-space target other cases use.
+    products: [
+      { kind: "cowork", tier: "open-space" },
+      { kind: "cowork", tier: "reserved-desk" },
+      { kind: "meeting-room" },
+    ],
   },
   {
     basisPoints: 1000,
@@ -335,17 +341,24 @@ export const expireDiscountCodeForE2E = (
     }
   });
 
-export const setE2ECalendarSaleCoworkEligibility = (
+/**
+ * Adds or removes only the reserved-desk target of the E2E Calendar sale. No
+ * other case books reserved desk, so the open-space target stays put.
+ */
+export const setE2ECalendarSaleReservedDeskEligibility = (
   eligible: boolean
 ): Effect.Effect<void, WorkspaceE2EError, E2EDatabase> =>
   Effect.gen(function* () {
     const { db } = yield* E2EDatabase;
-    const product = { kind: "cowork" } satisfies WorkspaceProductTarget;
+    const product = {
+      kind: "cowork",
+      tier: "reserved-desk",
+    } satisfies WorkspaceProductTarget;
 
     yield* runRetrySafeDatabaseOperation(
       eligible
-        ? "restore E2E Calendar sale cowork eligibility"
-        : "remove E2E Calendar sale cowork eligibility",
+        ? "restore E2E Calendar sale reserved-desk eligibility"
+        : "remove E2E Calendar sale reserved-desk eligibility",
       eligible
         ? db
             .insert(discountProductTargets)

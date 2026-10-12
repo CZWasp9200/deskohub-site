@@ -29,7 +29,7 @@ export const workspaceCoworkTierProductTargets =
     tier,
   })) satisfies readonly WorkspaceProductTarget[];
 
-export type WorkspaceProductTargetKey =
+type WorkspaceProductTargetKey =
   | WorkspaceProductFamily
   | `cowork:${(typeof workspaceCoworkCurrentTiers)[number]}`;
 

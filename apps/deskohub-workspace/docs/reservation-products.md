@@ -24,9 +24,10 @@ Cowork offers are exactly two, both for a single Prague calendar date:
   date.
 
 Historical entry tiers (basic, plus, profi) remain decodable for stored
-reservations and reporting but are no longer saleable. A cowork discount
-applies to the base price of both current offers; coffee and workstation
-addons stay outside the discountable subtotal.
+reservations and reporting but are no longer saleable. A whole-cowork discount
+applies to the base price of both current offers, and a discount may instead
+target only Open Space or only Reserved Desk; coffee and workstation addons
+stay outside the discountable subtotal.
 
 When assigning Reserved Desk, Workspace ranks tables as though every enabled,
 visible, assignable Open Space table were occupied up to its configured seat
@@ -66,7 +67,7 @@ The office is exclusive for the complete selected date range. Any existing occup
 
 - The customer confirmation email contains a protected link to the dedicated reservation access page, never the door PIN itself. Once an authorized paid, locally and live-confirmed reservation has an issued PIN, the access page displays it together with the exact programmed access bounds. Igloohome's programmed AlgoPIN bounds alone determine when the lock accepts the code; there is no local display time gate, and display never extends the reserved use of the space. Payment redirects and fulfillment recovery remain on the separate reservation status page.
 - Product identity includes the reservation family and every choice that changes the purchased product.
-- Discount configuration may target a whole reservation family, while quotes and completed purchases preserve the exact selected product.
+- Discount configuration may target a whole reservation family or a single current cowork offer, while quotes and completed purchases preserve the exact selected product.
 - Availability, pricing, summaries, persistence, confirmation, email, and status views dispatch each family explicitly.
 - Adding a reservation family requires complete support at every issuing and consuming boundary before it becomes publicly selectable.
 

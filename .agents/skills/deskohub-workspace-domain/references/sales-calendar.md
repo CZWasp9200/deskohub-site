@@ -7,7 +7,12 @@ Model Workspace sales calendar events as references to stored discount definitio
 - Treat the Calendar title as operator-facing metadata only; never use it as a
   public label.
 - Let Postgres own the complete locale-indexed public label map, adjustment,
-  and product targets.
+  and product targets. A target names a reservation family or one saleable
+  cowork tier; match products only through `workspaceProductTargetMatches`
+  and lock claim targets through `getWorkspaceProductTargetsCovering` in
+  `features/discounts/product-target.ts`. Never reintroduce the legacy
+  `discount_product_targets` sync triggers: they widened every cowork target
+  to the whole family.
 - Select fixed-discount currencies from the shared Workspace currency catalog
   in `shared/money/currencies.ts`, and derive the stored exponent from that
   definition rather than accepting an independently entered exponent.
