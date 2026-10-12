@@ -182,8 +182,10 @@ mock.module("@/features/account/backend/customer-avatar.service", () => ({
 
 const referralSummary = {
   code: "RFL12345",
+  inviteeCount: 0,
   eligibleInviteeCount: 0,
   discount: "0",
+  savings: [],
 } as const;
 let referralSummaryEffect: Effect.Effect<typeof referralSummary, unknown>;
 let referralSummaryCalls: Array<{

@@ -1,5 +1,5 @@
 import { type DotyposCustomerId, DotyposService } from "@deskohub/dotypos";
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { Context, Effect, Layer, Schema } from "effect";
 import {
   WorkspaceDatabase,
@@ -8,7 +8,9 @@ import {
 import { WorkspaceDatabaseAdvisoryLock } from "@/db/postgres-advisory-lock";
 import { customerAccountLinks } from "@/db/schema";
 import { authUser } from "@/db/schema/auth";
+import { discountApplications } from "@/db/schema/discount-applications";
 import { promotionCodes } from "@/db/schema/discounts";
+import { paymentAttempts } from "@/db/schema/payment-attempts";
 import {
   referralAttributions,
   referralCodes,
@@ -288,37 +290,93 @@ export class ReferralService extends Context.Service<
           )
       );
 
+      const findInvitees = Effect.fn("ReferralService.findInvitees")(
+        (referrerDotyposCustomerId: DotyposCustomerId) =>
+          db
+            .select({
+              invitedDotyposCustomerId:
+                referralAttributions.invitedDotyposCustomerId,
+            })
+            .from(referralAttributions)
+            .where(
+              eq(
+                referralAttributions.referrerDotyposCustomerId,
+                referrerDotyposCustomerId
+              )
+            )
+            .pipe(
+              Effect.map((rows) =>
+                rows.map(
+                  ({ invitedDotyposCustomerId }) => invitedDotyposCustomerId
+                )
+              )
+            )
+      );
+
+      const countEligibleInvitees = Effect.fn(
+        "ReferralService.countEligibleInvitees"
+      )((invitees: readonly DotyposCustomerId[]) =>
+        Effect.forEach(invitees, (invitee) => loadCustomerHistory(invitee), {
+          concurrency: 4,
+        }).pipe(
+          Effect.map((histories) =>
+            countEligibleReferralInvitees({
+              now: Temporal.Now.instant(),
+              referrals: histories.flatMap(({ evidence }) => evidence),
+            })
+          )
+        )
+      );
+
       const eligibleInviteeCount = Effect.fn(
         "ReferralService.eligibleInviteeCount"
       )((referrerDotyposCustomerId: DotyposCustomerId) =>
-        db
-          .select({
-            invitedDotyposCustomerId:
-              referralAttributions.invitedDotyposCustomerId,
-          })
-          .from(referralAttributions)
-          .where(
-            eq(
-              referralAttributions.referrerDotyposCustomerId,
-              referrerDotyposCustomerId
+        findInvitees(referrerDotyposCustomerId).pipe(
+          Effect.flatMap(countEligibleInvitees)
+        )
+      );
+
+      /**
+       * Sums both referral benefits (the first-booking invitation and the
+       * referrer discount) on the customer's own bookings whose payment
+       * succeeded and was not refunded or marked for refund.
+       */
+      const findSavings = Effect.fn("ReferralService.findSavings")(
+        (dotyposCustomerId: DotyposCustomerId) =>
+          db
+            .select({
+              currency: discountApplications.appliedAmountCurrency,
+              exponent: discountApplications.appliedAmountExponent,
+              value: sql<number>`coalesce(sum(${discountApplications.appliedAmountValue}), 0)::integer`,
+            })
+            .from(discountApplications)
+            .innerJoin(
+              paymentAttempts,
+              eq(paymentAttempts.id, discountApplications.paymentAttemptId)
             )
-          )
-          .pipe(
-            Effect.flatMap((invitees) =>
-              Effect.forEach(
-                invitees,
-                ({ invitedDotyposCustomerId }) =>
-                  loadCustomerHistory(invitedDotyposCustomerId),
-                { concurrency: 4 }
+            .innerJoin(
+              workspaceReservations,
+              eq(
+                workspaceReservations.id,
+                discountApplications.workspaceReservationId
               )
-            ),
-            Effect.map((histories) =>
-              countEligibleReferralInvitees({
-                now: Temporal.Now.instant(),
-                referrals: histories.flatMap(({ evidence }) => evidence),
-              })
             )
-          )
+            .where(
+              and(
+                eq(workspaceReservations.dotyposCustomerId, dotyposCustomerId),
+                inArray(discountApplications.publicDiscountId, [
+                  getReferralInvitationDiscountId(dotyposCustomerId),
+                  getReferralReferrerDiscountId(dotyposCustomerId),
+                ]),
+                eq(paymentAttempts.state, "paid"),
+                eq(paymentAttempts.refundState, "not_required")
+              )
+            )
+            .groupBy(
+              discountApplications.appliedAmountCurrency,
+              discountApplications.appliedAmountExponent
+            )
+            .orderBy(asc(discountApplications.appliedAmountCurrency))
       );
 
       const resolveInvitationCandidate = Effect.fn(
@@ -617,15 +675,29 @@ export class ReferralService extends Context.Service<
                 Effect.all(
                   [
                     ensureReferralCode(identity.dotyposCustomerId),
-                    eligibleInviteeCount(identity.dotyposCustomerId),
+                    findInvitees(identity.dotyposCustomerId).pipe(
+                      Effect.flatMap((invitees) =>
+                        countEligibleInvitees(invitees).pipe(
+                          Effect.map((eligible) => ({
+                            total: invitees.length,
+                            eligible,
+                          }))
+                        )
+                      )
+                    ),
+                    findSavings(identity.dotyposCustomerId),
                   ],
                   { concurrency: "inherit" }
                 ).pipe(
                   Effect.map(
-                    ([code, count]): ReferralAccountSummary => ({
+                    ([code, invitees, savings]): ReferralAccountSummary => ({
                       code,
-                      eligibleInviteeCount: count,
-                      discount: formatReferrerDiscountPercentage(count),
+                      inviteeCount: invitees.total,
+                      eligibleInviteeCount: invitees.eligible,
+                      discount: formatReferrerDiscountPercentage(
+                        invitees.eligible
+                      ),
+                      savings,
                     })
                   )
                 )

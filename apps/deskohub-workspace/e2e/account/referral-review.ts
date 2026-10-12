@@ -1,6 +1,10 @@
 import type { Page } from "@playwright/test";
-import { type Locale, m } from "@/features/i18n";
-import { parseReferralCode } from "@/features/referrals/client";
+import type { Locale } from "@/features/i18n";
+import {
+  formatReferralDiscount,
+  parseReferralCode,
+} from "@/features/referrals/client";
+import { formatReferrerDiscountPercentage } from "@/features/referrals/referrer-discount";
 import { workspaceE2EError } from "../errors";
 import { workspaceE2ETimeouts } from "../timeouts";
 import { accountSectionLandmarks } from "./account-sections";
@@ -12,6 +16,38 @@ import {
 const referralCodeSelector = "#account-referrals-code";
 const referralLinkSelector = "#account-referrals-link";
 const referralEntrySelector = "form, input, textarea, select";
+const eligibleCountSelector = `${accountSectionLandmarks.referrals} #account-referrals-eligible-count`;
+const discountSelector = `${accountSectionLandmarks.referrals} #account-referrals-discount`;
+
+/**
+ * Waits until the referrals screen shows the expected eligible count and the
+ * discount that count earns.
+ */
+export const waitForReferralStats = async ({
+  count,
+  locale,
+  page,
+}: {
+  readonly count: number;
+  readonly locale: Locale;
+  readonly page: Page;
+}) => {
+  await page.waitForFunction(
+    ([selectors, expected]) =>
+      selectors.every(
+        (selector, index) =>
+          document.querySelector(selector)?.textContent === expected[index]
+      ),
+    [
+      [eligibleCountSelector, discountSelector],
+      [
+        String(count),
+        formatReferralDiscount(formatReferrerDiscountPercentage(count), locale),
+      ],
+    ] as const,
+    { timeout: workspaceE2ETimeouts.browserAction }
+  );
+};
 
 type ReferralOverviewTargets = {
   readonly desktop:
@@ -43,29 +79,7 @@ export const verifyReferralOverview = async ({
     new URL(`/${locale}/account?section=referrals`, review.baseUrl).toString(),
     { timeout: workspaceE2ETimeouts.browserNavigation }
   );
-  await page
-    .getByText(
-      m.accountReferralsEligibleInvitees({ count: String(count) }, { locale }),
-      { exact: true }
-    )
-    .waitFor({
-      state: "visible",
-      timeout: workspaceE2ETimeouts.browserAction,
-    });
-
-  if (count > 0) {
-    const discount = `${new Intl.NumberFormat(locale, {
-      maximumFractionDigits: 4,
-    }).format(5)}%`;
-    await page
-      .getByText(m.accountReferralsCurrentDiscount({ discount }, { locale }), {
-        exact: true,
-      })
-      .waitFor({
-        state: "visible",
-        timeout: workspaceE2ETimeouts.browserAction,
-      });
-  }
+  await waitForReferralStats({ count, locale, page });
 
   await captureAccountReview(page, review, targets.desktop);
   await captureAccountReview(page, review, targets.mobile);

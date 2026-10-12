@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseReferralCode } from "./client";
+import { formatReferralDiscount, parseReferralCode } from "./client";
 
 describe("referral code client contract", () => {
   test("accepts the canonical shared promotion-code fixture", () => {
@@ -17,5 +17,16 @@ describe("referral code client contract", () => {
     null,
   ])("rejects noncanonical referral input %p", (value) => {
     expect(parseReferralCode(value)).toBeUndefined();
+  });
+});
+
+describe("referral discount formatting", () => {
+  test.each([
+    ["en-US", "0", "0%"],
+    ["en-US", "14.2625", "14.2625%"],
+    ["en-US", "18.549375", "18.5494%"],
+    ["cs-CZ", "9.75", "9,75 %"],
+  ] as const)("formats %s %s as %p", (locale, discount, formatted) => {
+    expect(formatReferralDiscount(discount, locale)).toBe(formatted);
   });
 });

@@ -1,4 +1,5 @@
 import { Schema } from "effect";
+import type { Locale } from "@/features/i18n";
 
 const referralCodeCodec = Schema.String.check(
   Schema.isPattern(/^[A-Z0-9][A-Z0-9_-]{2,63}$/)
@@ -18,3 +19,13 @@ export const parseReferralCode = (value: unknown): ReferralCode | undefined =>
 
 /** Search parameter that carries a shared referral code between pages. */
 export const referralCodeQueryParam = "ref";
+
+/**
+ * Formats the referrer discount, a canonical decimal percentage such as
+ * "14.2625", for display.
+ */
+export const formatReferralDiscount = (discount: string, locale: Locale) =>
+  new Intl.NumberFormat(locale, {
+    style: "percent",
+    maximumFractionDigits: 4,
+  }).format(Number(discount) / 100);
