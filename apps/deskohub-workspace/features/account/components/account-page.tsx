@@ -31,7 +31,6 @@ export function AccountPage({
           email={state.email}
           history={state.history}
           locale={locale}
-          preferredLanguage={state.preferredLanguage}
           profile={state.profile}
         />
       </>

@@ -154,31 +154,6 @@ mock.module(
   })
 );
 
-let preferenceLoadEffect: Effect.Effect<
-  "cs-CZ" | "en-US" | undefined,
-  unknown
-> = Effect.succeed("cs-CZ");
-
-const PreferenceRepository = Context.Service<
-  PreferenceRepository,
-  { readonly load: () => typeof preferenceLoadEffect }
->()("@test/AccountLocalePreference");
-
-const PreferenceRepositoryLayer = Layer.succeed(PreferenceRepository, {
-  load: () => preferenceLoadEffect,
-});
-Object.assign(PreferenceRepository, {
-  Default: PreferenceRepositoryLayer,
-  Live: PreferenceRepositoryLayer,
-});
-
-mock.module(
-  "@/features/account/backend/customer-locale-preference.repository",
-  () => ({
-    CustomerLocalePreferenceRepository: PreferenceRepository,
-  })
-);
-
 let avatarLookupEffect: Effect.Effect<
   { readonly url: string; readonly version?: number } | null,
   unknown
@@ -208,11 +183,14 @@ const areAccountAvatarsEnabled = mock(() => Promise.resolve(true));
 mock.module("@/features/account/server/account-feature-flag.server", () => ({
   areAccountAvatarsEnabled,
 }));
+const runtimeRuns: { operation: string; boundary: string }[] = [];
 mock.module("@/shared/backend/workspace-effect", () => ({
   runWorkspaceEffect:
-    (_operation: string, _options: { readonly boundary: string }) =>
-    (effect: Effect.Effect<unknown, unknown, never>) =>
-      Effect.runPromise(effect),
+    (operation: string, options: { readonly boundary: string }) =>
+    (effect: Effect.Effect<unknown, unknown, never>) => {
+      runtimeRuns.push({ operation, boundary: options.boundary });
+      return Effect.runPromise(effect);
+    },
 }));
 
 describe("loadCustomerAccountPage", () => {
@@ -223,6 +201,7 @@ describe("loadCustomerAccountPage", () => {
     profileLoadCalls = 0;
     historyLoadCalls = 0;
     avatarLookupCalls = 0;
+    runtimeRuns.length = 0;
     avatarLookupEffect = Effect.succeed(null);
     areAccountAvatarsEnabled.mockReset();
     areAccountAvatarsEnabled.mockResolvedValue(true);
@@ -230,12 +209,11 @@ describe("loadCustomerAccountPage", () => {
       kind: "available",
       groups: { current: [], past: [], unavailable: [] },
     });
-    preferenceLoadEffect = Effect.succeed("cs-CZ");
   });
 
-  const loadPageState = async (locale: "cs-CZ" | "en-US" = "en-US") => {
+  const loadPageState = async () => {
     const { loadCustomerAccountPage } = await import("./page-data.server");
-    return loadCustomerAccountPage(locale);
+    return loadCustomerAccountPage();
   };
 
   test("returns unauthenticated without customer data or downstream work when no session exists", async () => {
@@ -335,47 +313,25 @@ describe("loadCustomerAccountPage", () => {
     });
   });
 
-  test("renders the linked account with profile, grouped history, and the saved preference", async () => {
-    await expect(loadPageState()).resolves.toMatchObject({
+  test("renders the linked account with profile and grouped history, in one page-boundary run", async () => {
+    await expect(loadPageState()).resolves.toEqual({
       kind: "linked",
       email: "ada@example.test",
-      preferredLanguage: "cs-CZ",
-      profile: { firstName: "Ada" },
-      history: { kind: "available" },
-    });
-  });
-
-  test("keeps an unsaved preference distinct and suggests the page locale", async () => {
-    preferenceLoadEffect = Effect.succeed(undefined);
-
-    await expect(loadPageState("cs-CZ")).resolves.toMatchObject({
-      kind: "linked",
-      email: "ada@example.test",
-      preferredLanguage: { suggested: "cs-CZ" },
-      profile: { firstName: "Ada" },
-    });
-  });
-
-  test("restores the saved language preference in the linked state", async () => {
-    preferenceLoadEffect = Effect.succeed("cs-CZ");
-
-    await expect(loadPageState()).resolves.toMatchObject({
-      kind: "linked",
-      preferredLanguage: "cs-CZ",
-    });
-  });
-
-  test("marks the linked state read-failed without blocking the page when the preference read fails", async () => {
-    preferenceLoadEffect = Effect.fail(new Error("preference read down"));
-
-    await expect(loadPageState()).resolves.toMatchObject({
-      kind: "linked",
-      email: "ada@example.test",
-      preferredLanguage: "read-failed",
-      profile: { firstName: "Ada" },
+      profile: {
+        firstName: "Ada",
+        lastName: "Lovelace",
+        phone: null,
+        billing: null,
+      },
       avatar: { kind: "available", avatar: null },
-      history: { kind: "available" },
+      history: {
+        kind: "available",
+        groups: { current: [], past: [], unavailable: [] },
+      },
     });
+    expect(runtimeRuns).toEqual([
+      { operation: "account.page", boundary: "page" },
+    ]);
   });
 
   test("keeps the profile available and marks history unavailable when the provider fails", async () => {
@@ -384,7 +340,6 @@ describe("loadCustomerAccountPage", () => {
     await expect(loadPageState()).resolves.toEqual({
       kind: "linked",
       email: "ada@example.test",
-      preferredLanguage: "cs-CZ",
       profile: {
         firstName: "Ada",
         lastName: "Lovelace",
@@ -465,7 +420,6 @@ describe("loadCustomerAccountPage", () => {
     await expect(loadPageState()).resolves.toEqual({
       kind: "linked",
       email: "ada@example.test",
-      preferredLanguage: "cs-CZ",
       profile: {
         firstName: "Ada",
         lastName: "Lovelace",

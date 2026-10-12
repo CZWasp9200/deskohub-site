@@ -59,7 +59,7 @@ const completeCustomerProfile = mock(
 const updateCustomerProfile = mock(
   (): Promise<ActionResult> => Promise.resolve({ data: { status: "updated" } })
 );
-const updatePreferredLanguage = mock(
+const updateLocalePreference = mock(
   (): Promise<ActionResult> => Promise.resolve({ data: { status: "saved" } })
 );
 const deleteCustomerAccount = mock(
@@ -72,7 +72,7 @@ mock.module("@/features/account/actions", () => ({
   completeCustomerProfile,
   deleteCustomerAccount,
   updateCustomerProfile,
-  updatePreferredLanguage,
+  updateLocalePreference,
 }));
 
 const uploadCustomerAvatar = mock(() =>
@@ -190,7 +190,7 @@ afterEach(() => {
   signInMagicLink.mockClear();
   signOut.mockClear();
   updateCustomerProfile.mockClear();
-  updatePreferredLanguage.mockClear();
+  updateLocalePreference.mockClear();
   uploadCustomerAvatar.mockClear();
   removeCustomerAvatar.mockClear();
 });
@@ -343,7 +343,6 @@ describe("account future-feature controls", () => {
         email="ada@example.test"
         locale={locale}
         mode="edit"
-        preferredLanguage="read-failed"
         profile={{
           billing: null,
           firstName: "Ada",

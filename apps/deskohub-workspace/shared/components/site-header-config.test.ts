@@ -4,10 +4,10 @@ const isMeetingRoomPageEnabled = mock();
 const isOfficePageEnabled = mock();
 const areAccountsEnabled = mock();
 const isCustomerSignedIn = mock();
-const updatePreferredLanguage = mock();
+const updateLocalePreference = mock();
 
 mock.module("@/features/account/actions", () => ({
-  updatePreferredLanguage,
+  updateLocalePreference,
 }));
 
 mock.module("@/features/account/server/account-feature-flag.server", () => ({
@@ -163,7 +163,7 @@ describe("getSiteHeaderConfig", () => {
     const minimal = await getSiteHeaderLocalePreference();
 
     expect(await config.localePreference?.signedIn).toBe(true);
-    expect(config.localePreference?.save).toBe(updatePreferredLanguage);
+    expect(config.localePreference?.save).toBe(updateLocalePreference);
     expect(await minimal?.signedIn).toBe(true);
   });
 

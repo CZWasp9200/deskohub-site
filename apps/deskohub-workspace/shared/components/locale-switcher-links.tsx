@@ -9,25 +9,15 @@ import {
   useState,
 } from "react";
 import {
+  type LocalePreferenceSaving,
+  switchLocale,
+} from "@/features/account/switch-locale";
+import {
   type Locale,
   locales,
   withLocalePrefixAndSearch,
 } from "@/features/i18n";
 import { cn } from "@/shared/utils";
-
-/**
- * Saves a signed-in customer's language preference when they switch locale.
- * Their saved preference decides the site locale, so a switch that skipped it
- * would be redirected straight back.
- */
-export type LocalePreferenceSaving = {
-  /**
-   * Resolves `true` for a signed-in customer; streamed after the shell. On the
-   * client React hands it over as a bare thenable, so use only `then`.
-   */
-  readonly signedIn: PromiseLike<boolean>;
-  readonly save: (input: { readonly locale: Locale }) => PromiseLike<unknown>;
-};
 
 type LocaleSwitcherLinksProps = {
   readonly currentLocale: Locale;
@@ -79,23 +69,16 @@ export function LocaleSwitcherLinks({
   const getLocaleHref = (locale: Locale) =>
     withLocalePrefixAndSearch(pathname, locale, searchParams);
 
-  // Guests keep plain document navigation. A signed-in switch saves the
-  // preference first, then navigates whether or not the save succeeded. A
-  // click before the session check settles waits for it, so an early
+  // Guests keep plain document navigation. A signed-in switch goes through
+  // the shared locale switch, which saves the preference before navigating.
+  // A click before the session check settles waits for it, so an early
   // signed-in switch is not redirected back to the old preference.
   const selectLocale =
     localePreference && signedIn !== false
       ? (locale: Locale, event: MouseEvent<HTMLAnchorElement>) => {
           if (!isPlainClick(event)) return;
           event.preventDefault();
-          const href = event.currentTarget.href;
-          void Promise.resolve(localePreference.signedIn)
-            .catch(() => false)
-            .then((isSignedIn) =>
-              isSignedIn ? localePreference.save({ locale }) : undefined
-            )
-            .catch(() => undefined)
-            .then(() => window.location.assign(href));
+          void switchLocale(locale, localePreference);
         }
       : undefined;
 

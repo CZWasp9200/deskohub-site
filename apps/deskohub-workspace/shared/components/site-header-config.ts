@@ -1,10 +1,11 @@
-import { updatePreferredLanguage } from "@/features/account/actions";
+import { updateLocalePreference } from "@/features/account/actions";
 import {
   getAccountPath,
   getAccountSignInPath,
 } from "@/features/account/routes";
 import { areAccountsEnabled } from "@/features/account/server/account-feature-flag.server";
 import { isCustomerSignedIn } from "@/features/account/server/customer-session.server";
+import type { LocalePreferenceSaving } from "@/features/account/switch-locale";
 import { type Locale, m } from "@/features/i18n";
 import { isMeetingRoomPageEnabled } from "@/features/meeting-room/backend/meeting-room-page-feature-flag";
 import { isOfficePageEnabled } from "@/features/office/backend/office-reservation-feature-flag.server";
@@ -12,7 +13,6 @@ import {
   getCoworkReservationPath,
   getOfficeReservationPath,
 } from "@/features/reservation/routes";
-import type { LocalePreferenceSaving } from "@/shared/components/locale-switcher-links";
 
 const siteHeaderSectionIds = {
   overview: "overview",
@@ -161,7 +161,7 @@ const createSiteHeaderAccountEntry = (
 // whether a switch must save the signed-in customer's preference.
 const createLocalePreferenceSaving = (): LocalePreferenceSaving => ({
   signedIn: isCustomerSignedIn().catch(() => false),
-  save: updatePreferredLanguage,
+  save: updateLocalePreference,
 });
 
 /** The switcher's preference saving for headers without an account entry. */

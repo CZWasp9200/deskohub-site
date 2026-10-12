@@ -7,7 +7,6 @@ import { useAccountLayout } from "@/features/account/components/account-layout-s
 import { getAccountScreenCopy } from "@/features/account/components/account-screen-copy";
 import { DeleteAccountCard } from "@/features/account/components/delete-account-card";
 import { LegalScreen } from "@/features/account/components/legal/legal-screen";
-import type { PreferredLanguageState } from "@/features/account/components/profile/profile-screen";
 import { ProfileForm } from "@/features/account/components/profile-form";
 import { ReservationHistory } from "@/features/account/components/reservation-history";
 import type {
@@ -21,7 +20,6 @@ type LinkedAccountProps = {
   readonly email: string;
   readonly history: CustomerReservationHistory;
   readonly locale: Locale;
-  readonly preferredLanguage: PreferredLanguageState;
   readonly profile: CustomerProfile;
   readonly avatarPresentation: CustomerAvatarPresentation;
 };
@@ -31,7 +29,6 @@ export function LinkedAccount({
   email,
   history,
   locale,
-  preferredLanguage,
   profile,
 }: LinkedAccountProps) {
   const pathname = usePathname();
@@ -68,7 +65,6 @@ export function LinkedAccount({
           locale={locale}
           mode="edit"
           onSectionChange={changeSection}
-          preferredLanguage={preferredLanguage}
           profile={profile}
           section={profileSection}
         />

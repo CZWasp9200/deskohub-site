@@ -35,7 +35,7 @@ mock.module("@/features/account/server/customer-session.server", () => ({
   isCustomerSignedIn: async () => false,
 }));
 mock.module("@/features/account/actions", () => ({
-  updatePreferredLanguage: async () => undefined,
+  updateLocalePreference: async () => undefined,
 }));
 mock.module(
   "@/features/meeting-room/backend/meeting-room-page-feature-flag",

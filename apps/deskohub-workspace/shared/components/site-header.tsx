@@ -3,10 +3,10 @@
 import { Menu, UserRound, X } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { Suspense, use, useState } from "react";
+import type { LocalePreferenceSaving } from "@/features/account/switch-locale";
 import type { Locale } from "@/features/i18n";
 import { GuardedLink as Link } from "@/shared/components/guarded-link";
 import {
-  type LocalePreferenceSaving,
   LocaleSwitcherLabels,
   LocaleSwitcherLinks,
 } from "@/shared/components/locale-switcher-links";

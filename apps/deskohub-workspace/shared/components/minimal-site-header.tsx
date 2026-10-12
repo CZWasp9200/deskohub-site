@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { Suspense } from "react";
+import type { LocalePreferenceSaving } from "@/features/account/switch-locale";
 import type { Locale } from "@/features/i18n";
 import {
-  type LocalePreferenceSaving,
   LocaleSwitcherLabels,
   LocaleSwitcherLinks,
 } from "@/shared/components/locale-switcher-links";

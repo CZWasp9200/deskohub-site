@@ -329,9 +329,9 @@ describe("account actions", () => {
 
   test("moves the locale cookie to the saved preference", async () => {
     const { localeCookieName } = await import("@/features/i18n/routing");
-    const { updatePreferredLanguage } = await importActions();
+    const { updateLocalePreference } = await importActions();
 
-    await updatePreferredLanguage({ locale: "cs-CZ" });
+    await updateLocalePreference({ locale: "cs-CZ" });
 
     expect(cookieWrites).toEqual([{ name: localeCookieName, value: "cs-CZ" }]);
   });
@@ -362,10 +362,10 @@ describe("account actions", () => {
     expect(areAccountsEnabled).toHaveBeenCalledTimes(1);
   });
 
-  test("saves the preferred language for the verified account", async () => {
-    const { updatePreferredLanguage } = await importActions();
+  test("saves the locale preference for the verified account", async () => {
+    const { updateLocalePreference } = await importActions();
 
-    const result = await updatePreferredLanguage({ locale: "cs-CZ" });
+    const result = await updateLocalePreference({ locale: "cs-CZ" });
 
     expect(result).toEqual({ data: { status: "saved" } });
     expect(preferenceSaveCalls).toEqual([
@@ -376,9 +376,9 @@ describe("account actions", () => {
   });
 
   test("rejects locales outside the selectable set", async () => {
-    const { updatePreferredLanguage } = await importActions();
+    const { updateLocalePreference } = await importActions();
 
-    const result = await updatePreferredLanguage({
+    const result = await updateLocalePreference({
       locale: "de-DE",
     } as never);
 
@@ -388,10 +388,10 @@ describe("account actions", () => {
 
   test("accepts every locale of the inlang locales tuple and no hard-coded list remains", async () => {
     const { locales } = await import("@/features/i18n");
-    const { updatePreferredLanguage } = await importActions();
+    const { updateLocalePreference } = await importActions();
 
     for (const locale of locales) {
-      const result = await updatePreferredLanguage({ locale });
+      const result = await updateLocalePreference({ locale });
       expect(result).toEqual({ data: { status: "saved" } });
     }
     expect(preferenceSaveCalls.map(({ locale }) => locale)).toEqual([
@@ -418,9 +418,9 @@ describe("account actions", () => {
 
   test("returns the session-expired error without saving when unauthenticated", async () => {
     currentUser = Effect.succeed(null);
-    const { updatePreferredLanguage } = await importActions();
+    const { updateLocalePreference } = await importActions();
 
-    const result = await updatePreferredLanguage({ locale: "cs-CZ" });
+    const result = await updateLocalePreference({ locale: "cs-CZ" });
 
     expect(result.serverError).toBe(
       m.accountSessionExpired({}, { locale: "en-US" })
@@ -435,9 +435,9 @@ describe("account actions", () => {
         linkReason: "deletion-requested",
       })
     );
-    const { updatePreferredLanguage } = await importActions();
+    const { updateLocalePreference } = await importActions();
 
-    const result = await updatePreferredLanguage({ locale: "en-US" });
+    const result = await updateLocalePreference({ locale: "en-US" });
 
     expect(result.serverError).toBe(
       m.accountDeletionPendingError({}, { locale: "en-US" })
@@ -450,9 +450,9 @@ describe("account actions", () => {
     preferenceSaveEffect = Effect.fail(
       new CustomerAccountAccessError({ reason: "unavailable" })
     );
-    const { updatePreferredLanguage } = await importActions();
+    const { updateLocalePreference } = await importActions();
 
-    const result = await updatePreferredLanguage({ locale: "en-US" });
+    const result = await updateLocalePreference({ locale: "en-US" });
 
     expect(result.serverError).toBe(
       m.accountProfileError({}, { locale: "en-US" })

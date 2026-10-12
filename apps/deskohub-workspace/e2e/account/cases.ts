@@ -1275,7 +1275,6 @@ export const makeWorkspaceE2EAccountCases = ({
     makeCase("account-communication-language", ({ runStep }) =>
       Effect.gen(function* () {
         const languageTriggerSelector = '[data-slot="select-trigger"]';
-        const languageSaveSelector = 'button[type="button"]:has-text("Save")';
         const languageOptionCsSelector = '[role="option"]:has-text("Čeština")';
         const czechProfileUrl = localized(
           `${accountSuffix}?section=profile`,
@@ -1431,41 +1430,32 @@ export const makeWorkspaceE2EAccountCases = ({
         );
         yield* runStep(
           step(
-            "saves Čeština and moves the site to Czech",
+            "chooses Čeština, which saves it and moves the site to Czech",
             Effect.gen(function* () {
+              // The English account shows English (US), the page locale.
+              // Choosing Čeština saves the preference through the shared
+              // locale switch, which then moves the document to Czech.
+              yield* waitForBrowserReactHandler(
+                run,
+                session,
+                `${accountSectionLandmarks.profile} ${languageTriggerSelector}`,
+                "onPointerDown",
+                { timeoutMs: uiTransition }
+              );
               yield* clickBrowserElement(
                 run,
                 session,
                 languageTriggerSelector,
                 { timeoutMs: browserTimeout }
               );
-              yield* waitForBrowserCondition(
-                run,
-                session,
-                "language Save stays disabled before any selection change",
-                `(() => {
-                    const save = Array.from(document.querySelectorAll('button[type="button"]'))
-                      .find((button) => button.textContent?.trim() === "Save");
-                    return save instanceof HTMLButtonElement && save.disabled;
-                  })()`,
-                { timeoutMs: uiTransition }
-              );
-              // The account starts with English (US) saved, so Save starts
-              // disabled. Commit one genuine selection change to Čeština:
-              // a real write that differs from the saved value.
               yield* clickBrowserElement(
                 run,
                 session,
                 languageOptionCsSelector,
                 { timeoutMs: browserTimeout }
               );
-              yield* clickBrowserElement(run, session, languageSaveSelector, {
-                timeoutMs: browserTimeout,
-              });
-              // Saving another locale than the page's moves the document to
-              // the saved locale, so the confirmation is never shown here.
               yield* waitPathname(
-                "Czech account after saving Čeština",
+                "Czech account after choosing Čeština",
                 (pathname) => pathname.startsWith(`/cs-CZ${accountSuffix}`)
               );
             }),

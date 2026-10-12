@@ -41,7 +41,7 @@ mock.module("@/features/account/actions", () => ({
   completeCustomerProfile,
   lookupAresBusiness,
   updateCustomerProfile,
-  updatePreferredLanguage: () => Promise.resolve({ data: { status: "saved" } }),
+  updateLocalePreference: () => Promise.resolve({ data: { status: "saved" } }),
 }));
 
 mock.module("@/features/account/avatar-actions", () => ({
@@ -166,7 +166,6 @@ const renderForm = (
       email="ada@example.test"
       locale="en-US"
       mode="edit"
-      preferredLanguage="read-failed"
       profile={businessProfile}
       section="billing"
       {...props}
