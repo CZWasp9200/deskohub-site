@@ -25,6 +25,10 @@ import {
 import { checkoutAttemptKeySchema } from "@/features/checkout/checkout-identifiers";
 import { canonicalPromotionCodeSchema } from "@/features/discounts/persistence-contracts";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
+import {
+  getReferralInvitationDiscountId,
+  getReferralReferrerDiscountId,
+} from "./discount-identifiers";
 import { ReferralService } from "./referral.service";
 
 const testDatabase = await connectWorkspacePostgresTestDatabase();
@@ -103,7 +107,10 @@ const makeReferralLayer = (
     readonly accountId: CustomerAccountId;
     readonly dotyposCustomerId: DotyposCustomerId;
   },
-  reservations: readonly DotyposReservation[] = []
+  /** Dotypos reservations listed for each customer. */
+  reservationsOf: (
+    customerId: DotyposCustomerId
+  ) => readonly DotyposReservation[] = () => []
 ) => {
   const databaseLayer = Layer.succeed(
     WorkspaceDatabase,
@@ -124,12 +131,127 @@ const makeReferralLayer = (
           resolve: Effect.succeed(identity),
         }),
         Layer.mock(DotyposService, {
-          listReservations: () => Effect.succeed(reservations),
+          listReservations: ({ customerId }) =>
+            Effect.succeed(reservationsOf(customerId)),
         } as Partial<DotyposService["Service"]>)
       )
     )
   );
 };
+
+const insertLinkedAccount = async (dotyposCustomerId: DotyposCustomerId) => {
+  const accountId = customerAccountIdSchema.make(uniqueId());
+  await insertAuthUser(accountId);
+  await testDatabase!.pool.query(
+    `insert into customer_account_links (customer_account_id, dotypos_customer_id) values ($1, $2)`,
+    [accountId, dotyposCustomerId]
+  );
+  return accountId;
+};
+
+/**
+ * Seeds one synthetic booking for a customer with a single 1,000.00 payment
+ * attempt and the given discount applications, applied in sequence.
+ */
+const insertDiscountedBooking = async (input: {
+  readonly dotyposCustomerId: DotyposCustomerId;
+  readonly attempt: "paid" | "expired" | "refunded" | "refund_required";
+  /** Refunded minor units when the attempt is refunded; the full payment by default. */
+  readonly refundedAmountValue?: number;
+  readonly currency?: "CZK" | "EUR" | "USD";
+  readonly applications: readonly {
+    readonly publicDiscountId: string;
+    readonly amountValue: number;
+  }[];
+}) => {
+  const reservationId = `referral-savings-${uniqueId()}`;
+  const attemptId = `referral-savings-attempt-${uniqueId()}`;
+  const paid = input.attempt !== "expired";
+  await testDatabase!.pool.query(
+    `insert into workspace_reservations (id, checkout_attempt_key, dotypos_customer_id, dotypos_reservation_id, reservation_state, payment_state, fulfillment_state, reservation_details, locale, paid_at)
+     values ($1, $2, $3, $4, $5, $6, 'not_started', '{"kind":"cowork","entryTier":"basic","coffee":false}', 'en-US', $7)`,
+    [
+      reservationId,
+      `attempt-key-${uniqueId()}`,
+      input.dotyposCustomerId,
+      `booking-${uniqueId()}`,
+      paid ? "confirmed" : "cancelled",
+      paid ? "paid" : "expired",
+      paid ? new Date().toISOString() : null,
+    ]
+  );
+  await testDatabase!.pool.query(
+    `insert into payment_attempts (id, workspace_reservation_id, provider, provider_order_id, state, failure_code, refund_state, refunded_amount_value, refunded_at, amount_value, amount_exponent, currency)
+     values ($1, $2, 'nexi', $3, $4, $5, $6, $7, $8, 100000, 2, $9)`,
+    [
+      attemptId,
+      reservationId,
+      `order-${uniqueId()}`,
+      paid ? "paid" : "expired",
+      paid ? null : "payment_abandoned_after_provider_cutoff",
+      { refunded: "refunded", refund_required: "required" }[
+        input.attempt as "refunded" | "refund_required"
+      ] ?? "not_required",
+      input.attempt === "refunded"
+        ? (input.refundedAmountValue ?? 100000)
+        : null,
+      input.attempt === "refunded" ? new Date().toISOString() : null,
+      input.currency ?? "CZK",
+    ]
+  );
+  let subtotal = 200000;
+  for (const [sequence, application] of input.applications.entries()) {
+    await testDatabase!.pool.query(
+      `insert into discount_applications (payment_attempt_id, workspace_reservation_id, sequence, public_discount_id, label, adjustment, product_identity, subtotal_before_value, subtotal_before_exponent, subtotal_before_currency, applied_amount_value, applied_amount_exponent, applied_amount_currency, subtotal_after_value, subtotal_after_exponent, subtotal_after_currency, provenance)
+       values ($1, $2, $3, $4, 'Synthetic', '{}', '{}', $5::int, 2, $7, $6::int, 2, $7, $5::int - $6::int, 2, $7, '{}')`,
+      [
+        attemptId,
+        reservationId,
+        sequence,
+        application.publicDiscountId,
+        subtotal,
+        application.amountValue,
+        input.currency ?? "CZK",
+      ]
+    );
+    subtotal -= application.amountValue;
+  }
+};
+
+const deleteBookings = async (customerIds: readonly DotyposCustomerId[]) => {
+  const reservations = `select id from workspace_reservations where dotypos_customer_id = any($1)`;
+  await testDatabase!.pool.query(
+    `delete from discount_applications where workspace_reservation_id in (${reservations})`,
+    [customerIds]
+  );
+  await testDatabase!.pool.query(
+    `delete from payment_attempts where workspace_reservation_id in (${reservations})`,
+    [customerIds]
+  );
+  await testDatabase!.pool.query(
+    `delete from workspace_reservations where dotypos_customer_id = any($1)`,
+    [customerIds]
+  );
+};
+
+const getAccountSummary = (
+  identity: {
+    readonly accountId: CustomerAccountId;
+    readonly dotyposCustomerId: DotyposCustomerId;
+  },
+  reservations: (
+    customerId: DotyposCustomerId
+  ) => readonly DotyposReservation[] = () => []
+) =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const referrals = yield* ReferralService;
+      return yield* referrals.getAccountSummary({
+        customerAccountId: identity.accountId,
+        dotyposCustomerId: identity.dotyposCustomerId,
+      });
+    }).pipe(Effect.provide(makeReferralLayer(identity, reservations)))
+  );
 
 describe.skipIf(!testDatabase)("ReferralService on disposable Postgres", () => {
   test("requires an active referrer even for an existing same-referrer attribution after a paid booking", async () => {
@@ -457,7 +579,7 @@ describe.skipIf(!testDatabase)("ReferralService on disposable Postgres", () => {
                 accountId: customerAccountIdSchema.make(uniqueId()),
                 dotyposCustomerId: unpaidCustomer,
               },
-              [makeLiveConfirmedReservation(unpaidReservationId)]
+              () => [makeLiveConfirmedReservation(unpaidReservationId)]
             )
           )
         )
@@ -476,7 +598,7 @@ describe.skipIf(!testDatabase)("ReferralService on disposable Postgres", () => {
                 accountId: customerAccountIdSchema.make(uniqueId()),
                 dotyposCustomerId: unknownCustomer,
               },
-              [
+              () => [
                 makeLiveConfirmedReservation(
                   ("untracked-" + uniqueId()) as DotyposReservationId
                 ),
@@ -701,6 +823,198 @@ describe.skipIf(!testDatabase)("ReferralService on disposable Postgres", () => {
         'delete from auth."user" where id = any($1)',
         [accountIds]
       );
+    }
+  });
+
+  test("summarizes all and currently eligible referrals with the referral discounts saved on paid bookings", async () => {
+    const referrerCustomerId = uniqueDotyposId();
+    const recentInvitee = uniqueDotyposId();
+    const lapsedInvitee = uniqueDotyposId();
+    const newInvitee = uniqueDotyposId();
+    const otherCustomer = uniqueDotyposId();
+    const referrerAccountId = await insertLinkedAccount(referrerCustomerId);
+    const referral = await insertReferralFixture({
+      inviteeCustomerId: recentInvitee,
+      ownerCustomerId: referrerCustomerId,
+      code: `RFL${uniqueId().replaceAll("-", "").slice(0, 12).toUpperCase()}`,
+    });
+    await testDatabase!.pool.query(
+      `insert into referral_attributions (invited_dotypos_customer_id, referrer_dotypos_customer_id, promotion_code_id)
+       values ($1, $3, $4), ($2, $3, $4)`,
+      [lapsedInvitee, newInvitee, referrerCustomerId, referral.promotionCodeId]
+    );
+    const inviteeBookings = new Map<DotyposCustomerId, DotyposReservationId>(
+      [recentInvitee, lapsedInvitee].map((customerId) => [
+        customerId,
+        `invitee-booking-${uniqueId()}` as DotyposReservationId,
+      ])
+    );
+    for (const [customerId, bookingId] of inviteeBookings) {
+      await testDatabase!.pool.query(
+        `insert into workspace_reservations (checkout_attempt_key, dotypos_customer_id, dotypos_reservation_id, reservation_state, payment_state, fulfillment_state, reservation_details, locale, paid_at)
+         values ($1, $2, $3, 'confirmed', 'paid', 'not_started', '{"kind":"cowork","entryTier":"basic","coffee":false}', 'en-US', now())`,
+        [`attempt-key-${uniqueId()}`, customerId, bookingId]
+      );
+    }
+    const referrerDiscountId =
+      getReferralReferrerDiscountId(referrerCustomerId);
+    await insertDiscountedBooking({
+      dotyposCustomerId: referrerCustomerId,
+      attempt: "paid",
+      applications: [
+        { publicDiscountId: "synthetic-ordinary-discount", amountValue: 1000 },
+        {
+          publicDiscountId: getReferralInvitationDiscountId(referrerCustomerId),
+          amountValue: 3000,
+        },
+        { publicDiscountId: referrerDiscountId, amountValue: 1234 },
+      ],
+    });
+    await insertDiscountedBooking({
+      dotyposCustomerId: referrerCustomerId,
+      attempt: "paid",
+      applications: [
+        { publicDiscountId: referrerDiscountId, amountValue: 5000 },
+      ],
+    });
+    await insertDiscountedBooking({
+      dotyposCustomerId: referrerCustomerId,
+      attempt: "paid",
+      currency: "EUR",
+      applications: [
+        { publicDiscountId: referrerDiscountId, amountValue: 200 },
+      ],
+    });
+    await insertDiscountedBooking({
+      dotyposCustomerId: referrerCustomerId,
+      attempt: "expired",
+      applications: [
+        { publicDiscountId: referrerDiscountId, amountValue: 9900 },
+      ],
+    });
+    // A quarter of this payment was refunded, so a quarter of its referral
+    // discount no longer counts as saved.
+    await insertDiscountedBooking({
+      dotyposCustomerId: referrerCustomerId,
+      attempt: "refunded",
+      refundedAmountValue: 25000,
+      applications: [
+        { publicDiscountId: referrerDiscountId, amountValue: 4000 },
+      ],
+    });
+    await insertDiscountedBooking({
+      dotyposCustomerId: referrerCustomerId,
+      attempt: "refunded",
+      currency: "USD",
+      applications: [
+        { publicDiscountId: referrerDiscountId, amountValue: 500 },
+      ],
+    });
+    await insertDiscountedBooking({
+      dotyposCustomerId: referrerCustomerId,
+      attempt: "refund_required",
+      applications: [
+        { publicDiscountId: referrerDiscountId, amountValue: 700 },
+      ],
+    });
+    await insertDiscountedBooking({
+      dotyposCustomerId: otherCustomer,
+      attempt: "paid",
+      applications: [
+        {
+          publicDiscountId: getReferralReferrerDiscountId(otherCustomer),
+          amountValue: 7000,
+        },
+      ],
+    });
+
+    try {
+      const now = Temporal.Now.instant();
+      const summary = await getAccountSummary(
+        { accountId: referrerAccountId, dotyposCustomerId: referrerCustomerId },
+        (customerId) => {
+          const bookingId = inviteeBookings.get(customerId);
+          if (!bookingId) return [];
+          return [
+            makeLiveConfirmedReservation(
+              bookingId,
+              (customerId === recentInvitee
+                ? now.subtract({ hours: 24 })
+                : now.subtract({ hours: 24 * 40 })
+              ).toString()
+            ),
+          ];
+        }
+      );
+
+      expect(summary).toMatchObject({
+        code: expect.any(String),
+        inviteeCount: 3,
+        eligibleInviteeCount: 1,
+        discount: "5",
+        savings: [
+          { value: 12234, exponent: 2, currency: "CZK" },
+          { value: 200, exponent: 2, currency: "EUR" },
+        ],
+      });
+    } finally {
+      await deleteBookings([
+        referrerCustomerId,
+        recentInvitee,
+        lapsedInvitee,
+        otherCustomer,
+      ]);
+      await testDatabase!.pool.query(
+        "delete from referral_attributions where invited_dotypos_customer_id = any($1)",
+        [[lapsedInvitee, newInvitee]]
+      );
+      await referral.cleanup();
+      await testDatabase!.pool.query(
+        "delete from customer_account_links where customer_account_id = $1",
+        [referrerAccountId]
+      );
+      await testDatabase!.pool.query('delete from auth."user" where id = $1', [
+        referrerAccountId,
+      ]);
+    }
+  });
+
+  test("summarizes a customer without referrals or referral savings as empty", async () => {
+    const customerId = uniqueDotyposId();
+    const accountId = await insertLinkedAccount(customerId);
+    await insertDiscountedBooking({
+      dotyposCustomerId: customerId,
+      attempt: "paid",
+      applications: [
+        { publicDiscountId: "synthetic-ordinary-discount", amountValue: 1000 },
+      ],
+    });
+
+    try {
+      const summary = await getAccountSummary({
+        accountId,
+        dotyposCustomerId: customerId,
+      });
+
+      expect(summary).toMatchObject({
+        inviteeCount: 0,
+        eligibleInviteeCount: 0,
+        discount: "0",
+        savings: [],
+      });
+    } finally {
+      await deleteBookings([customerId]);
+      await testDatabase!.pool.query(
+        `delete from promotion_codes where id in (select promotion_code_id from referral_codes where referrer_dotypos_customer_id = $1)`,
+        [customerId]
+      );
+      await testDatabase!.pool.query(
+        "delete from customer_account_links where customer_account_id = $1",
+        [accountId]
+      );
+      await testDatabase!.pool.query('delete from auth."user" where id = $1', [
+        accountId,
+      ]);
     }
   });
 });

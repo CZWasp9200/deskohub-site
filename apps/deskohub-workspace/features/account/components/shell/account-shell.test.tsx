@@ -864,6 +864,27 @@ describe("AccountShell", () => {
     }
   });
 
+  test("shows a supplied referral badge beside Referrals in the desktop navigation only", () => {
+    const view = renderShell({
+      referralBadge: { text: "-15%", label: "15% referral discount" },
+    });
+    const referralButton = () =>
+      getDesktopNavigation(view).getByRole("button", { name: /^Referrals/ });
+
+    expect(referralButton().querySelector("span.ml-auto")?.textContent).toBe(
+      "-15%15% referral discount"
+    );
+    expect(
+      getMobileNavigation(view).getByRole("button", { name: "Referrals" })
+        .textContent
+    ).toBe("Referrals");
+
+    view.rerender(
+      <AccountShell {...makeProps({ referralBadge: undefined })} />
+    );
+    expect(referralButton().querySelector("span.ml-auto")).toBeNull();
+  });
+
   test("retains long localized title and section labels", () => {
     const localizedLabels: AccountShellProps["labels"] = {
       mobileSection: "Vyberte sekci svého zákaznického účtu",

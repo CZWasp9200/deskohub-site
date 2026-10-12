@@ -6,7 +6,6 @@ import {
   DotyposReservationIdSchema,
 } from "@deskohub/dotypos";
 import { Effect } from "effect";
-import { m } from "@/features/i18n";
 import { WorkspaceE2EError, workspaceE2EError } from "../errors";
 import { writeWorkspaceE2EFailureAnnotation } from "../github-actions";
 import type { E2EDatabase } from "../integrations/database.service";
@@ -45,6 +44,7 @@ import { makeMagicLinkRateBudget } from "./rate-budget";
 import {
   verifyReferralOverview,
   verifyReferralScreenIgnoresShareLink,
+  waitForReferralStats,
 } from "./referral-review";
 import { verifyReservationExistingCustomer } from "./reservation-existing-customer";
 import { withWorkspaceE2EReservationHistoryFixture } from "./reservation-history-fixture";
@@ -317,18 +317,11 @@ for (const caseId of workspaceE2EAccountCaseIds) {
                     page,
                     async (section) => {
                       if (section === "referrals") {
-                        await page
-                          .getByText(
-                            m.accountReferralsEligibleInvitees(
-                              { count: "0" },
-                              { locale: "en-US" }
-                            ),
-                            { exact: true }
-                          )
-                          .waitFor({
-                            state: "visible",
-                            timeout: workspaceE2ETimeouts.browserAction,
-                          });
+                        await waitForReferralStats({
+                          count: 0,
+                          locale: "en-US",
+                          page,
+                        });
                       }
                       await captureAccountReview(
                         page,

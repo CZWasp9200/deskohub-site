@@ -267,6 +267,25 @@ test("continues to persist the locale for ordinary localized requests", async ()
   expect(response.cookies.get(localeCookieName)?.value).toBe("cs-CZ");
 });
 
+test.each([
+  ["cs-CZ,cs;q=0.9,en;q=0.8", "cs-CZ"],
+  ["en-US,en;q=0.9", "en-US"],
+] as const)(
+  "opens an unprefixed referral share link in the visitor's language for %s",
+  async (acceptLanguage, locale) => {
+    const response = await proxy(
+      new NextRequest("https://workspace.example/account?ref=RFL12345", {
+        headers: { "accept-language": acceptLanguage },
+      })
+    );
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(
+      `https://workspace.example/${locale}/account?ref=RFL12345`
+    );
+  }
+);
+
 test("prevents private reservation responses from being cached", async () => {
   for (const path of [
     "/en-US/reservation/status/reservation-id?outcome=success",

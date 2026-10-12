@@ -1,9 +1,10 @@
 import type { Page } from "@playwright/test";
-import { type Locale, m } from "@/features/i18n";
+import type { Locale } from "@/features/i18n";
 import { parseReferralCode } from "@/features/referrals/client";
 import { workspaceE2EError } from "../errors";
 import { workspaceE2ETimeouts } from "../timeouts";
 import { accountSectionLandmarks } from "./account-sections";
+import { referralStatsCondition } from "./referral-stats";
 import {
   type AccountReviewDestination,
   captureAccountReview,
@@ -12,6 +13,17 @@ import {
 const referralCodeSelector = "#account-referrals-code";
 const referralLinkSelector = "#account-referrals-link";
 const referralEntrySelector = "form, input, textarea, select";
+/** Waits for {@link referralStatsCondition} in a Playwright page. */
+export const waitForReferralStats = async ({
+  page,
+  ...expected
+}: Parameters<typeof referralStatsCondition>[0] & {
+  readonly page: Page;
+}) => {
+  await page.waitForFunction(referralStatsCondition(expected), undefined, {
+    timeout: workspaceE2ETimeouts.browserAction,
+  });
+};
 
 type ReferralOverviewTargets = {
   readonly desktop:
@@ -43,29 +55,7 @@ export const verifyReferralOverview = async ({
     new URL(`/${locale}/account?section=referrals`, review.baseUrl).toString(),
     { timeout: workspaceE2ETimeouts.browserNavigation }
   );
-  await page
-    .getByText(
-      m.accountReferralsEligibleInvitees({ count: String(count) }, { locale }),
-      { exact: true }
-    )
-    .waitFor({
-      state: "visible",
-      timeout: workspaceE2ETimeouts.browserAction,
-    });
-
-  if (count > 0) {
-    const discount = `${new Intl.NumberFormat(locale, {
-      maximumFractionDigits: 4,
-    }).format(5)}%`;
-    await page
-      .getByText(m.accountReferralsCurrentDiscount({ discount }, { locale }), {
-        exact: true,
-      })
-      .waitFor({
-        state: "visible",
-        timeout: workspaceE2ETimeouts.browserAction,
-      });
-  }
+  await waitForReferralStats({ count, locale, page });
 
   await captureAccountReview(page, review, targets.desktop);
   await captureAccountReview(page, review, targets.mobile);
@@ -109,10 +99,12 @@ export const verifyReferralScreenIgnoresShareLink = async ({
   const href = await screen
     .locator(referralLinkSelector)
     .getAttribute("href", { timeout: workspaceE2ETimeouts.browserAction });
-  const link = href ? new URL(href, baseUrl) : undefined;
+  // Share links are absolute and carry no locale, so the recipient's
+  // language decides which localized page opens.
+  const link = href && URL.canParse(href) ? new URL(href) : undefined;
   if (
     link?.origin !== new URL(baseUrl).origin ||
-    link.pathname !== `/${locale}/account` ||
+    link.pathname !== "/account" ||
     link.searchParams.getAll("ref").join() !== code
   ) {
     throw failure("referrals screen does not share the customer's own code");

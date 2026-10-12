@@ -15,8 +15,12 @@ import type {
 import { areAccountAvatarsEnabled } from "@/features/account/server/account-feature-flag.server";
 import type { Locale } from "@/features/i18n";
 import { ReferralService } from "@/features/referrals";
-import type { ReferralCode } from "@/features/referrals/client";
-import type { ReferralAccountSummary } from "@/features/referrals/contracts";
+import {
+  getReferralShareUrl,
+  type ReferralCode,
+} from "@/features/referrals/client";
+import type { ReferralAccountOverview } from "@/features/referrals/contracts";
+import { getWorkspaceRuntimeCallbackOrigin } from "@/shared/backend/config/workspace-url.config";
 import { runWorkspaceEffect } from "@/shared/backend/workspace-effect";
 
 /**
@@ -40,7 +44,7 @@ export type CustomerAccountPageState =
       readonly profile: CustomerProfile;
       readonly avatar: CustomerAvatarPresentation;
       readonly history: CustomerReservationHistory;
-      readonly referrals?: ReferralAccountSummary;
+      readonly referrals?: ReferralAccountOverview;
     }
   | { readonly kind: "support-required"; readonly email: string }
   | { readonly kind: "deletion-pending"; readonly email: string };
@@ -138,7 +142,20 @@ export const loadCustomerAccountPage = cache(
           dotyposCustomerId: account.success.dotyposCustomerId,
         })
       ).pipe(
+        Effect.flatMap((summary) =>
+          getWorkspaceRuntimeCallbackOrigin.pipe(
+            Effect.map(
+              (origin): ReferralAccountOverview => ({
+                summary,
+                shareUrl: getReferralShareUrl(summary.code, origin),
+              })
+            )
+          )
+        ),
         Effect.provide(ReferralService.Live),
+        Effect.tapError(() =>
+          logDegradedAccountSection("account.referrals.unavailable")
+        ),
         Effect.orElseSucceed(() => undefined),
         runWorkspaceEffect("account.referrals", { boundary: "page" })
       );

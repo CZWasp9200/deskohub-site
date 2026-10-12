@@ -69,6 +69,7 @@ import {
   seedWorkspaceE2EReferralFixture,
   seedWorkspaceE2EReferralOwner,
 } from "./referral-fixture";
+import { referralStatsCondition } from "./referral-stats";
 import type {
   WorkspaceE2EAccountCase,
   WorkspaceE2EAccountCaseCompletion,
@@ -1145,17 +1146,21 @@ export const makeWorkspaceE2EAccountCases = ({
             "shows the eligible referral count and current discount",
             Effect.gen(function* () {
               yield* openPage(localized(`${accountSuffix}?section=referrals`));
-              yield* waitForInteractiveSnapshot({
-                description: "referral overview with one eligible invitee",
-                matches: (snapshot) =>
-                  snapshot.includes(
-                    "Currently eligible invited customers: 1"
-                  ) &&
-                  snapshot.includes("Your current referral discount is 5%"),
+              // One seeded invitee with a recent paid visit: 1 of 1 eligible,
+              // a 5% discount with its "-5%" navigation badge, and no
+              // referral savings yet because the referrer has not booked.
+              yield* waitForBrowserCondition(
                 run,
                 session,
-                timeoutMs: datasourceTimeout,
-              });
+                "referral overview with one eligible invitee",
+                referralStatsCondition({
+                  count: 1,
+                  locale: config.locale,
+                  savings: "empty",
+                  total: 1,
+                }),
+                { timeoutMs: datasourceTimeout }
+              );
             }),
             accountPageLoadTimeout
           )
