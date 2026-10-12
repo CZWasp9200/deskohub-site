@@ -1,6 +1,16 @@
 import { Resolver } from "node:dns/promises";
 import { domainToASCII } from "node:url";
-import { Context, Data, Duration, Effect, Layer } from "effect";
+import {
+  Context,
+  Data,
+  Duration,
+  Effect,
+  Layer,
+  Match,
+  Option,
+  Result,
+  Schema,
+} from "effect";
 
 /**
  * Whether a recipient address's domain can receive mail. `rejects_mail` is
@@ -77,10 +87,23 @@ export class EmailRecipientDomainService extends Context.Service<
 const checkTimeout = Duration.seconds(4);
 const lookupTimeoutMilliseconds = 1500;
 
-/** The domain does not exist. */
-const noDomainCode = "ENOTFOUND";
-/** The domain exists but has no record of the requested type. */
-const noRecordsCode = "ENODATA";
+/**
+ * Resolver codes for a definite negative answer: the domain does not exist,
+ * or it exists without a record of the requested type.
+ */
+const DnsNegativeAnswerSchema = Schema.Struct({
+  code: Schema.Literals(["ENOTFOUND", "ENODATA"]),
+});
+const decodeNegativeAnswer = Schema.decodeUnknownOption(
+  DnsNegativeAnswerSchema
+);
+
+/**
+ * What one DNS lookup established: usable records, an answer without usable
+ * records (including a null MX), a missing record type, a missing domain, or
+ * no definite answer.
+ */
+type RecordLookup = "found" | "empty" | "no_records" | "no_domain" | "unknown";
 
 /**
  * RFC 5321 section 5.1: deliver to the MX hosts, or to the domain's own
@@ -88,41 +111,77 @@ const noRecordsCode = "ENODATA";
  */
 const checkDomain = Effect.fn("EmailRecipientDomainService.checkDomain")(
   function* (dns: IMailDomainDns, domain: string) {
-    const exchanges = yield* dns.resolve(domain, "MX").pipe(Effect.result);
+    const exchanges = yield* lookupRecords(dns, domain, "MX", isMailExchange);
 
-    if (exchanges._tag === "Success") {
-      return exchanges.success.some(isMailExchange)
-        ? ("accepts_mail" as const)
-        : ("rejects_mail" as const);
-    }
-    if (exchanges.failure.code === noDomainCode) return "rejects_mail" as const;
-    if (exchanges.failure.code !== noRecordsCode) return "unknown" as const;
-
-    const addresses = yield* Effect.all(
-      [
-        dns.resolve(domain, "A").pipe(Effect.result),
-        dns.resolve(domain, "AAAA").pipe(Effect.result),
-      ],
-      { concurrency: "inherit" }
+    return yield* Match.value(exchanges).pipe(
+      Match.when("found", () => Effect.succeed("accepts_mail" as const)),
+      // A null MX declines mail; a missing domain cannot receive it.
+      Match.whenOr("empty", "no_domain", () =>
+        Effect.succeed("rejects_mail" as const)
+      ),
+      Match.when("unknown", () => Effect.succeed("unknown" as const)),
+      Match.when("no_records", () => checkDomainAddress(dns, domain)),
+      Match.exhaustive
     );
-    if (
-      addresses.some(
-        (result) => result._tag === "Success" && result.success.length > 0
-      )
-    ) {
-      return "accepts_mail" as const;
-    }
-
-    return addresses.every(
-      (result) =>
-        result._tag === "Success" ||
-        result.failure.code === noDomainCode ||
-        result.failure.code === noRecordsCode
-    )
-      ? ("rejects_mail" as const)
-      : ("unknown" as const);
   }
 );
+
+const checkDomainAddress = Effect.fn(
+  "EmailRecipientDomainService.checkDomainAddress"
+)(function* (dns: IMailDomainDns, domain: string) {
+  const statuses = (yield* Effect.all(
+    [
+      lookupRecords(dns, domain, "A", isAddress),
+      lookupRecords(dns, domain, "AAAA", isAddress),
+    ],
+    { concurrency: "inherit" }
+  )).map(toAddressStatus);
+
+  if (statuses.includes("accepts_mail")) return "accepts_mail" as const;
+  return statuses.includes("unknown")
+    ? ("unknown" as const)
+    : ("rejects_mail" as const);
+});
+
+const lookupRecords = (
+  dns: IMailDomainDns,
+  domain: string,
+  type: MailDomainRecordType,
+  isUsable: (record: string) => boolean
+): Effect.Effect<RecordLookup> =>
+  dns.resolve(domain, type).pipe(
+    Effect.result,
+    Effect.map(
+      Result.match({
+        onSuccess: (records): RecordLookup =>
+          records.some(isUsable) ? "found" : "empty",
+        onFailure: (error): RecordLookup =>
+          Option.match(decodeNegativeAnswer(error), {
+            onNone: () => "unknown",
+            onSome: ({ code }) =>
+              Match.value(code).pipe(
+                Match.when("ENOTFOUND", () => "no_domain" as const),
+                Match.when("ENODATA", () => "no_records" as const),
+                Match.exhaustive
+              ),
+          }),
+      })
+    )
+  );
+
+const toAddressStatus = Match.type<RecordLookup>().pipe(
+  Match.when("found", () => "accepts_mail" as const),
+  Match.whenOr(
+    "empty",
+    "no_records",
+    "no_domain",
+    () => "rejects_mail" as const
+  ),
+  Match.when("unknown", () => "unknown" as const),
+  Match.exhaustive
+);
+
+const isAddress = () => true;
 
 const isMailExchange = (exchange: string) =>
   exchange !== "" && exchange !== ".";
@@ -171,10 +230,12 @@ function makeNodeMailDomainDns(): IMailDomainDns {
   };
 }
 
+/** Node resolver errors carry their c-ares status as a string `code`. */
+const decodeResolverError = Schema.decodeUnknownOption(
+  Schema.Struct({ code: Schema.String })
+);
+
 const getErrorCode = (cause: unknown) =>
-  typeof cause === "object" &&
-  cause !== null &&
-  "code" in cause &&
-  typeof cause.code === "string"
-    ? cause.code
-    : undefined;
+  Option.getOrUndefined(
+    Option.map(decodeResolverError(cause), ({ code }) => code)
+  );
