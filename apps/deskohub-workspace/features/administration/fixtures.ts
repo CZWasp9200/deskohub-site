@@ -449,13 +449,17 @@ export const loadFixtureReservation = (
           paymentAttemptId: fixturePaymentAttemptId("fixture-payment"),
           reservationId: reservation.id,
           state: "paid",
+          refundState: "not_required",
           stateLabel: "Paid",
           amount: { value: 240000, exponent: 2, currency: "CZK" },
+          refundedAmount: null,
+          refundedAt: null,
           attemptCreatedAt: Temporal.Instant.from(paidAt)
             .subtract({ minutes: 3 })
             .toString(),
           providerOrderCreatedAt,
           providerOrderCreatedAtEstimated: false,
+          updatedAt: paidAt,
         },
       },
     ],

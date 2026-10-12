@@ -180,7 +180,7 @@ const buildWebhookEffect = async (
             }),
             Layer.mock(PaymentRefundService, {
               reconcileAttempt: mock(() => Effect.die("unused")),
-              reconcileAwaitingRefunds: mock(() => Effect.die("unused")),
+              reconcileRefunds: mock(() => Effect.die("unused")),
               ...services.paymentRefunds,
             })
           )

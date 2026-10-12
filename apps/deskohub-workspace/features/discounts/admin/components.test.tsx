@@ -225,6 +225,49 @@ describe("discount administration pages", () => {
     expect(view.queryByRole("combobox", { name: "Search by" })).toBeNull();
   });
 
+  test("shows a refunded customer payment as refunded with its amount crossed out", async () => {
+    const { CustomerTransactionHistoryTable } = await import(
+      "./customer-admin-tables"
+    );
+    const [refunded, paid] = loadFixtureReservations({}).items.filter(
+      ({ latestPayment }) => latestPayment?.state === "paid"
+    );
+    if (!refunded?.latestPayment || !paid?.latestPayment) {
+      throw new Error("Expected two paid fixture reservations");
+    }
+    const view = render(
+      <CustomerTransactionHistoryTable
+        transactions={[
+          {
+            attempt: {
+              ...refunded.latestPayment,
+              refundState: "refunded",
+              refundedAmount: refunded.latestPayment.amount,
+              refundedAt: "2026-10-12T09:00:00Z",
+            },
+            reservation: refunded,
+          },
+          { attempt: paid.latestPayment, reservation: paid },
+        ]}
+      />
+    );
+
+    const [refundedRow, paidRow] = within(
+      view.getByRole("table", { name: "Customer transaction history" })
+    )
+      .getAllByRole("row")
+      .slice(1);
+    expect(
+      within(refundedRow as HTMLElement).getByText("Refunded")
+    ).toBeDefined();
+    expect(within(refundedRow as HTMLElement).queryByText("Paid")).toBeNull();
+    expect(
+      refundedRow?.querySelector("del")?.textContent?.replace(/\s+/g, " ")
+    ).toBe("CZK 275.00 refunded");
+    expect(within(paidRow as HTMLElement).getByText("Paid")).toBeDefined();
+    expect(paidRow?.querySelector("del")).toBeNull();
+  });
+
   test("uses a sortable table and a percentage editor with a dirty save state", async () => {
     const { CodesAdministrationCollection } = await import("./components");
     const view = render(

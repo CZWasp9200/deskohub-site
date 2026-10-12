@@ -13,7 +13,7 @@ import {
   formatOrderMoney,
   formatProviderDateTime,
   formatProviderMoney,
-  ProviderStatusBadge,
+  PaymentAttemptStatusBadge,
 } from "@/features/administration/payment-components";
 import { getProviderValueLabel } from "@/features/administration/payment-presentation";
 import { OperationTable } from "@/features/administration/payment-tables";
@@ -158,7 +158,7 @@ export async function OrderAdministrationDetail({
             <section className="rounded-xl border border-navy-blue/10 bg-white p-5">
               <h2 className="text-sm font-semibold">Local attempt</h2>
               <div className="mt-3">
-                <ProviderStatusBadge value={order.link.state} />
+                <PaymentAttemptStatusBadge link={order.link} />
               </div>
               <p className="mt-3 break-all font-mono text-xs text-navy-blue/65">
                 {order.link.paymentAttemptId}
