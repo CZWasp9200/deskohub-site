@@ -808,10 +808,32 @@ describe("account review screenshot capture", () => {
     expect(writeFileSpy?.mock.calls).toHaveLength(0);
   });
 
+  test("captures the plain sign-in page only without a share code", async () => {
+    const plain = makeFakePage(`${baseUrl}/en-US/auth/sign-in`);
+    await captureAccountReview(plain.page, review, "sign-in-desktop");
+    expect(plain.screenshotCalls).toHaveLength(1);
+
+    for (const destination of [
+      review,
+      { ...review, referralCode: "RFLSYNTHETIC1" },
+    ]) {
+      const shareLink = makeFakePage(
+        `${baseUrl}/en-US/auth/sign-in?ref=RFLSYNTHETIC1`
+      );
+      await expect(
+        captureAccountReview(shareLink.page, destination, "sign-in-desktop")
+      ).rejects.toThrow(captureFailureMessage);
+      expect(shareLink.screenshotCalls).toHaveLength(0);
+    }
+  });
+
   test("requires the destination share code on share-link pages", async () => {
     const shareReview = { ...review, referralCode: "RFLSYNTHETIC1" };
     for (const [target, url] of [
-      ["sign-in-desktop", `${baseUrl}/en-US/auth/sign-in?ref=RFLSYNTHETIC1`],
+      [
+        "sign-in-share-link-desktop",
+        `${baseUrl}/en-US/auth/sign-in?ref=RFLSYNTHETIC1`,
+      ],
       [
         "sign-in-accepted-desktop",
         `${baseUrl}/en-US/auth/sign-in?ref=RFLSYNTHETIC1`,
@@ -845,7 +867,11 @@ describe("account review screenshot capture", () => {
     ] as const) {
       const fakePage = makeFakePage(url);
       await expect(
-        captureAccountReview(fakePage.page, destination, "sign-in-desktop")
+        captureAccountReview(
+          fakePage.page,
+          destination,
+          "sign-in-share-link-desktop"
+        )
       ).rejects.toThrow(captureFailureMessage);
       expect(fakePage.screenshotCalls).toHaveLength(0);
     }

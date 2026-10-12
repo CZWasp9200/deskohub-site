@@ -6,6 +6,7 @@ import {
   type WorkspaceMoney,
 } from "@/features/checkout/workspace-money";
 import { m } from "@/features/i18n";
+import { formatReferralInvitationDiscount } from "@/features/referrals/client";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import {
   evalBrowserScript,
@@ -85,7 +86,10 @@ export const referralVoucherAdjustment = {
 } as const;
 
 export const referralAppliedMessage = (locale: CheckoutData["locale"]) =>
-  m.checkoutReferralDiscountApplied({}, { locale });
+  m.checkoutReferralDiscountApplied(
+    { discount: formatReferralInvitationDiscount(locale) },
+    { locale }
+  );
 
 export const ordinaryCodeAppliedMessage = (
   adjustment: Parameters<typeof formatDiscountAdjustment>[0],
@@ -283,14 +287,14 @@ export const rejectReferralCode = ({
       ),
       {
         intervalMs: workspaceE2EPollIntervalMs.browser,
-        label: "rejected referral code on the unchanged pay state",
+        label: "rejected referral code on a re-signed pay state",
         timeoutMs: config.timeouts.uiTransition,
       }
     );
     yield* waitForBrowserCondition(
       run,
       session,
-      "rejected referral code alert on the discount code field",
+      "rejected referral code kept in the field with its alert",
       `(() => {
         const alert = document.querySelector("#checkout-discount-code-error");
         const input = document.querySelector("#checkout-discount-code");
@@ -298,7 +302,7 @@ export const rejectReferralCode = ({
           alert.textContent?.includes(${JSON.stringify(message)}) === true &&
           input?.getAttribute("aria-invalid") === "true" &&
           input instanceof HTMLInputElement &&
-          input.value === ${JSON.stringify(code)};
+          input.value.toUpperCase() === ${JSON.stringify(code.toUpperCase())};
       })()`,
       { timeoutMs: config.timeouts.uiTransition }
     );
@@ -334,7 +338,7 @@ export const assertShareLinkReferralApplied = ({
         { operation: "verify share-link referral pay page" }
       );
     }
-    const message = m.checkoutReferralDiscountApplied({}, { locale });
+    const message = referralAppliedMessage(locale);
     yield* waitForBrowserCondition(
       run,
       session,
@@ -511,7 +515,7 @@ export const assertReferralConfirmationCleared = ({
   readonly run: Runner;
   readonly session: string;
 }) => {
-  const message = m.checkoutReferralDiscountApplied({}, { locale });
+  const message = referralAppliedMessage(locale);
   return waitForBrowserCondition(
     run,
     session,
@@ -745,9 +749,8 @@ export const isReferralAppliedPayUrl = (input: {
 };
 
 /**
- * A rejected code reports one error on a pay page for the same order. The
- * pay state is re-signed so the typed code stays in the box, so only a URL
- * different from the one the code was submitted on counts.
+ * A rejected code re-signs the pay state so the box keeps the code, and
+ * reports one error.
  */
 export const isRejectedReferralCodeUrl = ({
   error,
@@ -763,9 +766,14 @@ export const isRejectedReferralCodeUrl = ({
 }) => {
   try {
     const current = readSinglePayStateUrl(input);
+    const previous = readSinglePayStateUrl({
+      ...input,
+      currentUrl: previousUrl,
+    });
     return (
       current !== undefined &&
-      input.currentUrl !== previousUrl &&
+      previous !== undefined &&
+      current.payState !== previous.payState &&
       current.searchParams.getAll("discountCodeError").join() === error &&
       !current.searchParams.has("referralApplied")
     );

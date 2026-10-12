@@ -460,6 +460,32 @@ for (const caseId of workspaceE2EAccountCaseIds) {
         await captureAccountReview(page, caseReview(), target);
       });
 
+      if (
+        caseId === "account-anonymous-redirect" &&
+        accountLane.config.review.screenshots
+      ) {
+        // Review-only: the plain sign-in page next to the share-link one,
+        // then back to the share-link form the next case submits from.
+        await accountTest.step(
+          "capture plain sign-in review beside the share-link one",
+          async () => {
+            const shareLinkUrl = page.url();
+            await page.goto(
+              new URL("/en-US/auth/sign-in", accountLane.config.baseUrl).href,
+              { timeout: workspaceE2ETimeouts.browserNavigation }
+            );
+            await captureAccountReview(
+              page,
+              accountLane.config.review,
+              "sign-in-desktop"
+            );
+            await page.goto(shareLinkUrl, {
+              timeout: workspaceE2ETimeouts.browserNavigation,
+            });
+          }
+        );
+      }
+
       if (caseId !== "account-linking-variants") return;
 
       await accountTest.step(

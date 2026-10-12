@@ -3,6 +3,7 @@ import type { Browser, Page } from "@playwright/test";
 import { Effect } from "effect";
 import { formatWorkspaceMoney } from "@/features/checkout/workspace-money";
 import { m } from "@/features/i18n";
+import { formatReferralInvitationDiscount } from "@/features/referrals/client";
 import { accountSectionLandmarks } from "../account/account-sections";
 import { findLinkedDotyposCustomerId } from "../account/auth-rows";
 import {
@@ -27,6 +28,7 @@ import {
   fillBrowserField,
   openBrowserPage,
   waitForBrowserCondition,
+  waitForBrowserText,
 } from "../browser";
 import { assertDisplayedDiscounts } from "../cases/discounts";
 import {
@@ -653,6 +655,20 @@ const profileCompletionCheckout: ReferralCaseExecutor = (
         yield* openAccount(context, `?ref=${referrer.code}`);
         yield* waitForCompletionForm(context, referrer.code);
         yield* completeProfile(context, account);
+        // The outcome survives the refresh as a one-time linked notice.
+        yield* waitForBrowserText({
+          description: "applied referral notice on the linked account",
+          matches: (text) =>
+            text.includes(
+              m.accountProfileReferralApplied(
+                { discount: formatReferralInvitationDiscount("en-US") },
+                { locale: "en-US" }
+              )
+            ),
+          run: context.run,
+          session: context.session,
+          timeoutMs: context.config.timeouts.uiTransition,
+        });
         const customerId = yield* requireLinkedCustomer(context, account);
         yield* waitForReferrer(context, customerId, referrer.customerId);
         return customerId;

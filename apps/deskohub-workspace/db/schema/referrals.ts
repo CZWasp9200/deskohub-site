@@ -16,6 +16,7 @@ import type {
 } from "@/features/discounts/persistence-contracts";
 import { instant } from "../instant";
 import { postgresUuidV7 } from "../uuid-v7";
+import { authUser } from "./auth";
 import { discountApplications } from "./discount-applications";
 import { promotionCodes } from "./discounts";
 import { quotedSqlList } from "./sql-list";
@@ -114,8 +115,17 @@ export const referralInvitationClaims = pgTable(
     id: text("id").primaryKey().default(postgresUuidV7),
     invitedDotyposCustomerId: text("invited_dotypos_customer_id")
       .notNull()
-      .$type<DotyposCustomerId>()
-      .references(() => referralAttributions.invitedDotyposCustomerId),
+      .$type<DotyposCustomerId>(),
+    /**
+     * The referral the claimed invitation came from. A checkout code can
+     * reserve an invitation before any attribution exists; the paid
+     * transition then records the attribution from these columns. Older
+     * claims, which always had an attribution, leave them empty.
+     */
+    referrerDotyposCustomerId: text(
+      "referrer_dotypos_customer_id"
+    ).$type<DotyposCustomerId>(),
+    promotionCodeId: text("promotion_code_id").$type<PromotionCodeId>(),
     applicationId: text("application_id")
       .notNull()
       .$type<DiscountApplicationId>(),
@@ -140,6 +150,20 @@ export const referralInvitationClaims = pgTable(
         discountApplications.paymentAttemptId,
       ],
     }),
+    foreignKey({
+      name: "referral_invitation_claims_code_referrer_fk",
+      columns: [t.promotionCodeId, t.referrerDotyposCustomerId],
+      foreignColumns: [
+        referralCodes.promotionCodeId,
+        referralCodes.referrerDotyposCustomerId,
+      ],
+    }),
+    check(
+      "referral_invitation_claims_referral_check",
+      sql`(${t.promotionCodeId} is null) = (${t.referrerDotyposCustomerId} is null)
+        and (${t.referrerDotyposCustomerId} is null
+          or ${t.referrerDotyposCustomerId} <> ${t.invitedDotyposCustomerId})`
+    ),
     uniqueIndex("referral_invitation_claims_application_unique_idx").on(
       t.applicationId
     ),
@@ -184,5 +208,38 @@ export const referralInvitationClaims = pgTable(
         and btrim(${t.releaseReason}) <> ''
       )`
     ),
+  ]
+);
+
+/**
+ * A referral code entered at first-time profile completion, written in the
+ * same transaction that links the new customer so only the completion that
+ * created the link records its code. It is removed once the attribution is
+ * recorded or definitively rejected, and kept for a retry after a transient
+ * failure.
+ */
+export const referralSignupIntents = pgTable(
+  "referral_signup_intents",
+  {
+    customerAccountId: text("customer_account_id")
+      .primaryKey()
+      .references(() => authUser.id, { onDelete: "cascade" }),
+    promotionCodeId: text("promotion_code_id")
+      .notNull()
+      .$type<PromotionCodeId>(),
+    referrerDotyposCustomerId: text("referrer_dotypos_customer_id")
+      .notNull()
+      .$type<DotyposCustomerId>(),
+    createdAt: instant("created_at").notNull().default(sql`now()`),
+  },
+  (t) => [
+    foreignKey({
+      name: "referral_signup_intents_code_referrer_fk",
+      columns: [t.promotionCodeId, t.referrerDotyposCustomerId],
+      foreignColumns: [
+        referralCodes.promotionCodeId,
+        referralCodes.referrerDotyposCustomerId,
+      ],
+    }).onDelete("cascade"),
   ]
 );

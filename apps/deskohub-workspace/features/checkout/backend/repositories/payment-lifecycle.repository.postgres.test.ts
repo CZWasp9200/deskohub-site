@@ -10,7 +10,7 @@ import {
 } from "@deskohub/dotypos";
 import { NexiOrderIdSchema } from "@deskohub/nexi";
 import { eq } from "drizzle-orm";
-import { Effect, Layer, Schema } from "effect";
+import { Cause, Effect, Exit, Layer, Predicate, Schema } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { makeDatabaseClient, makeDatabasePool } from "@/db/database-client";
 import { databasePoolTimeouts } from "@/db/database-pool-timeouts";
@@ -73,6 +73,7 @@ import {
   workspaceReservationIdSchema,
 } from "@/features/reservation/persistence-contracts";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
+import { createHeldReservation as createSharedHeldReservation } from "./payment-lifecycle.test-utils";
 
 const testDatabase = await connectWorkspacePostgresTestDatabase();
 const product = { kind: "cowork", tier: "basic" } as const;
@@ -168,7 +169,7 @@ const createInvitedCustomer = async (withAttribution = true) => {
   const invitedDotyposCustomerId = customerId();
   const referrerDotyposCustomerId = customerId();
   const code = canonicalPromotionCodeSchema.make(
-    "RFL" + crypto.randomUUID().replaceAll("-", "").slice(0, 12).toUpperCase()
+    `RFL${crypto.randomUUID().replaceAll("-", "").slice(0, 12).toUpperCase()}`
   );
   const [promotion] = await Effect.runPromise(
     testDatabase!.db
@@ -253,33 +254,18 @@ const createInvitedCustomer = async (withAttribution = true) => {
   };
 };
 
-const createHeldReservation = async (
+const createHeldReservation = (
   dotyposCustomerId: DotyposCustomerId
-): Promise<Reservation> => {
-  const [reservation] = await Effect.runPromise(
-    testDatabase!.db
-      .insert(workspaceReservations)
-      .values({
-        checkoutAttemptKey: "referral-payment-" + uniqueId(),
-        dotyposCustomerId,
-        dotyposReservationId: ("dotypos-" + uniqueId()) as DotyposReservationId,
-        reservationState: "held",
-        paymentState: "not_started",
-        fulfillmentState: "not_started",
-        reservationDetails,
-        locale: "en-US",
-        reservationHoldExpiresAt: Temporal.Now.instant().add({ hours: 1 }),
-      })
-      .returning()
+): Promise<Reservation> =>
+  Effect.runPromise(
+    createSharedHeldReservation(testDatabase!.db, dotyposCustomerId)
   );
-  return reservation!;
-};
 
 const createOrdinaryDiscountCode = async (
   dotyposCustomerId: DotyposCustomerId
 ) => {
   const code = canonicalPromotionCodeSchema.make(
-    "D" + uniqueId().replaceAll("-", "").slice(0, 12).toUpperCase()
+    `D${uniqueId().replaceAll("-", "").slice(0, 12).toUpperCase()}`
   );
   const labels = {
     "en-US": "Stored campaign",
@@ -363,7 +349,7 @@ const createVoucher = async (
   amount = 2_000
 ) => {
   const code = canonicalPromotionCodeSchema.make(
-    "V" + uniqueId().replaceAll("-", "").slice(0, 12).toUpperCase()
+    `V${uniqueId().replaceAll("-", "").slice(0, 12).toUpperCase()}`
   );
   const [promotion] = await Effect.runPromise(
     testDatabase!.db
@@ -566,7 +552,7 @@ const admit = (
 ) =>
   repository.createPendingNexiAttempt({
     workspaceReservationId: reservation.id,
-    providerOrderId: ("order-" + uniqueId()) as never,
+    providerOrderId: `order-${uniqueId()}` as never,
     amount: input.admission.amount,
     commitment: input.admission.commitment,
     locale: input.locale,
@@ -740,7 +726,7 @@ describe.skipIf(!testDatabase)(
           if (alreadyPaid) {
             await Effect.runPromise(
               testDatabase!.db.insert(workspaceReservations).values({
-                checkoutAttemptKey: "referral-history-" + uniqueId(),
+                checkoutAttemptKey: `referral-history-${uniqueId()}`,
                 dotyposCustomerId: fixture.invitedDotyposCustomerId,
                 dotyposReservationId: ("dotypos-history-" +
                   uniqueId()) as DotyposReservationId,
@@ -1024,7 +1010,7 @@ describe.skipIf(!testDatabase)(
           lateRecoveries.start({
             paymentAttemptId: oldAttempt.id,
             workspaceReservationId: oldReservation.id,
-            webhookEventId: ("webhook-" + uniqueId()) as never,
+            webhookEventId: `webhook-${uniqueId()}` as never,
             verifiedPaidAt: Temporal.Now.instant(),
           })
         );
@@ -1119,7 +1105,7 @@ describe.skipIf(!testDatabase)(
           lateRecoveries.start({
             paymentAttemptId: oldAttempt.id,
             workspaceReservationId: oldReservation.id,
-            webhookEventId: ("webhook-" + uniqueId()) as never,
+            webhookEventId: `webhook-${uniqueId()}` as never,
             verifiedPaidAt: Temporal.Now.instant(),
           })
         );
@@ -1174,6 +1160,626 @@ describe.skipIf(!testDatabase)(
         ).toBe("recovered");
       } finally {
         await fixture.cleanup();
+      }
+    });
+  }
+);
+
+const createReferralCode = async (
+  referrerDotyposCustomerId: DotyposCustomerId = customerId()
+) => {
+  const [promotion] = await Effect.runPromise(
+    testDatabase!.db
+      .insert(promotionCodes)
+      .values({
+        kind: "referral",
+        code: canonicalPromotionCodeSchema.make(
+          `RFL${uniqueId().replaceAll("-", "").slice(0, 12).toUpperCase()}`
+        ),
+        enabled: true,
+      })
+      .returning({ id: promotionCodes.id })
+  );
+  await Effect.runPromise(
+    testDatabase!.db.insert(referralCodes).values({
+      promotionCodeId: promotion!.id,
+      referrerDotyposCustomerId,
+    })
+  );
+  return {
+    referrerDotyposCustomerId,
+    promotionCodeId: promotion!.id,
+    attribute: (invitedDotyposCustomerId: DotyposCustomerId) =>
+      Effect.runPromise(
+        testDatabase!.db.insert(referralAttributions).values({
+          invitedDotyposCustomerId,
+          referrerDotyposCustomerId,
+          promotionCodeId: promotion!.id,
+        })
+      ),
+    cleanup: async () => {
+      await testDatabase!.pool.query(
+        "delete from referral_attributions where promotion_code_id = $1",
+        [promotion!.id]
+      );
+      await testDatabase!.pool.query(
+        "delete from referral_codes where promotion_code_id = $1",
+        [promotion!.id]
+      );
+      await testDatabase!.pool.query(
+        "delete from promotion_codes where id = $1",
+        [promotion!.id]
+      );
+    },
+  };
+};
+
+const readAttributions = async (invitedDotyposCustomerId: DotyposCustomerId) =>
+  (
+    await testDatabase!.pool.query(
+      "select referrer_dotypos_customer_id as referrer, promotion_code_id as code from referral_attributions where invited_dotypos_customer_id = $1",
+      [invitedDotyposCustomerId]
+    )
+  ).rows;
+
+const readClaim = async (paymentAttemptId: string) =>
+  (
+    await testDatabase!.pool.query(
+      "select state, referrer_dotypos_customer_id as referrer, promotion_code_id as code from referral_invitation_claims where payment_attempt_id = $1",
+      [paymentAttemptId]
+    )
+  ).rows;
+
+const admitCheckoutReferral = async (
+  repository: IPaymentLifecycleRepository,
+  fixture: {
+    readonly invitedDotyposCustomerId: DotyposCustomerId;
+    readonly referrerDotyposCustomerId: DotyposCustomerId;
+    readonly promotionCodeId: string;
+  },
+  reservation?: Reservation
+) => {
+  const held =
+    reservation ??
+    (await createHeldReservation(fixture.invitedDotyposCustomerId));
+  const attempt = await Effect.runPromise(
+    admit(
+      repository,
+      held,
+      makeReferralAdmission({ reservation: held, ...fixture })
+    )
+  );
+  return { reservation: held, attempt };
+};
+
+describe.skipIf(!testDatabase)(
+  "Checkout referral attribution at payment on disposable Postgres",
+  () => {
+    test("reserves a checkout referral without attribution and records the attribution when paid", async () => {
+      const repository = await makeRepository();
+      const fixture = await createInvitedCustomer(false);
+      try {
+        const { reservation, attempt } = await admitCheckoutReferral(
+          repository,
+          fixture
+        );
+        expect(await readClaim(attempt.id)).toEqual([
+          {
+            state: "reserved",
+            referrer: fixture.referrerDotyposCustomerId,
+            code: fixture.promotionCodeId,
+          },
+        ]);
+        expect(
+          await readAttributions(fixture.invitedDotyposCustomerId)
+        ).toEqual([]);
+
+        const paid = await Effect.runPromise(
+          repository.markPaid({
+            id: attempt.id,
+            workspaceReservationId: reservation.id,
+            paidAt: Temporal.Now.instant(),
+          })
+        );
+
+        expect(paid.changed).toBe(true);
+        expect((await readClaim(attempt.id))[0]?.state).toBe("redeemed");
+        expect(
+          await readAttributions(fixture.invitedDotyposCustomerId)
+        ).toEqual([
+          {
+            referrer: fixture.referrerDotyposCustomerId,
+            code: fixture.promotionCodeId,
+          },
+        ]);
+      } finally {
+        await fixture.cleanup();
+      }
+    });
+
+    test("releases a checkout referral on failed, cancelled, or expired payment and leaves no attribution", async () => {
+      const repository = await makeRepository();
+      for (const state of ["failed", "cancelled", "expired"] as const) {
+        const fixture = await createInvitedCustomer(false);
+        try {
+          const { reservation, attempt } = await admitCheckoutReferral(
+            repository,
+            fixture
+          );
+          await Effect.runPromise(
+            repository.markTerminal({
+              id: attempt.id,
+              workspaceReservationId: reservation.id,
+              state,
+              failureCode: "synthetic_terminal",
+            })
+          );
+
+          expect((await readClaim(attempt.id))[0]?.state).toBe("released");
+          expect(
+            await readAttributions(fixture.invitedDotyposCustomerId)
+          ).toEqual([]);
+        } finally {
+          await fixture.cleanup();
+        }
+      }
+    });
+
+    test("refuses admission when the customer was attributed to a different referrer since pricing", async () => {
+      const repository = await makeRepository();
+      const fixture = await createInvitedCustomer(false);
+      const other = await createReferralCode();
+      try {
+        await other.attribute(fixture.invitedDotyposCustomerId);
+        const reservation = await createHeldReservation(
+          fixture.invitedDotyposCustomerId
+        );
+
+        const admission = await Effect.runPromise(
+          Effect.result(
+            admit(
+              repository,
+              reservation,
+              makeReferralAdmission({ reservation, ...fixture })
+            )
+          )
+        );
+
+        expect(admission).toMatchObject({
+          _tag: "Failure",
+          failure: { _tag: "DiscountClaimError", reason: "claim_conflict" },
+        });
+      } finally {
+        await fixture.cleanup();
+        await other.cleanup();
+      }
+    });
+
+    test("admits exactly one of two concurrent checkout referrals with different codes and attributes its referrer", async () => {
+      const repository = await makeRepository();
+      const fixture = await createInvitedCustomer(false);
+      const other = await createReferralCode();
+      try {
+        const contenders = [fixture, { ...fixture, ...other }] as const;
+        const reservations = await Promise.all(
+          contenders.map(() =>
+            createHeldReservation(fixture.invitedDotyposCustomerId)
+          )
+        );
+        const outcomes = await Promise.all(
+          contenders.map((contender, index) =>
+            Effect.runPromise(
+              Effect.result(
+                admit(
+                  repository,
+                  reservations[index]!,
+                  makeReferralAdmission({
+                    reservation: reservations[index]!,
+                    invitedDotyposCustomerId: fixture.invitedDotyposCustomerId,
+                    referrerDotyposCustomerId:
+                      contender.referrerDotyposCustomerId,
+                    promotionCodeId: contender.promotionCodeId,
+                  })
+                )
+              )
+            )
+          )
+        );
+
+        const winner = outcomes.findIndex(({ _tag }) => _tag === "Success");
+        expect(outcomes.filter(({ _tag }) => _tag === "Success")).toHaveLength(
+          1
+        );
+        expect(outcomes[1 - winner]).toMatchObject({
+          _tag: "Failure",
+          failure: { _tag: "DiscountClaimError", reason: "claim_conflict" },
+        });
+
+        const admitted = outcomes[winner]!;
+        if (admitted._tag !== "Success") throw new Error("No admission won");
+        await Effect.runPromise(
+          repository.markPaid({
+            id: admitted.success.id,
+            workspaceReservationId: reservations[winner]!.id,
+            paidAt: Temporal.Now.instant(),
+          })
+        );
+        expect(
+          await readAttributions(fixture.invitedDotyposCustomerId)
+        ).toEqual([
+          {
+            referrer: contenders[winner]!.referrerDotyposCustomerId,
+            code: contenders[winner]!.promotionCodeId,
+          },
+        ]);
+      } finally {
+        await fixture.cleanup();
+        await other.cleanup();
+      }
+    });
+
+    test("blocks an ordinary first payment while a checkout referral holds the invitation", async () => {
+      const repository = await makeRepository();
+      const fixture = await createInvitedCustomer(false);
+      try {
+        await admitCheckoutReferral(repository, fixture);
+        const ordinaryReservation = await createHeldReservation(
+          fixture.invitedDotyposCustomerId
+        );
+
+        const ordinary = await Effect.runPromise(
+          Effect.result(
+            admit(
+              repository,
+              ordinaryReservation,
+              makeOrdinaryAdmission(
+                ordinaryReservation,
+                fixture.invitedDotyposCustomerId
+              )
+            )
+          )
+        );
+
+        expect(ordinary).toMatchObject({
+          _tag: "Failure",
+          failure: { _tag: "PaymentLifecycleStateError" },
+        });
+      } finally {
+        await fixture.cleanup();
+      }
+    });
+
+    test("late recovery to paid records the checkout referral's attribution", async () => {
+      const repository = await makeRepository();
+      const lateRecoveries = await makeLateRecoveryRepository();
+      const fixture = await createInvitedCustomer(false);
+      try {
+        const { reservation, attempt } = await admitCheckoutReferral(
+          repository,
+          fixture
+        );
+        await Effect.runPromise(
+          repository.markTerminal({
+            id: attempt.id,
+            workspaceReservationId: reservation.id,
+            state: "failed",
+            failureCode: "synthetic_provider_failure",
+          })
+        );
+        await Effect.runPromise(
+          lateRecoveries.start({
+            paymentAttemptId: attempt.id,
+            workspaceReservationId: reservation.id,
+            webhookEventId: `webhook-${uniqueId()}` as never,
+            verifiedPaidAt: Temporal.Now.instant(),
+          })
+        );
+        await Effect.runPromise(
+          lateRecoveries.claim({
+            paymentAttemptId: attempt.id,
+            staleProcessingBefore: Temporal.Now.instant(),
+          })
+        );
+
+        await Effect.runPromise(
+          lateRecoveries.completeUsingOriginalReservation({
+            paymentAttemptId: attempt.id,
+            workspaceReservationId: reservation.id,
+            reservationState: "confirmed",
+            completedAt: Temporal.Now.instant(),
+          })
+        );
+
+        expect((await readClaim(attempt.id))[0]?.state).toBe("redeemed");
+        expect(
+          await readAttributions(fixture.invitedDotyposCustomerId)
+        ).toEqual([
+          {
+            referrer: fixture.referrerDotyposCustomerId,
+            code: fixture.promotionCodeId,
+          },
+        ]);
+      } finally {
+        await fixture.cleanup();
+      }
+    });
+
+    test("completes payment and keeps the graph when a different referrer or a cycle appeared after admission", async () => {
+      const repository = await makeRepository();
+      for (const conflict of ["different-referrer", "cycle"] as const) {
+        const fixture = await createInvitedCustomer(false);
+        const other = await createReferralCode(
+          conflict === "cycle" ? fixture.invitedDotyposCustomerId : undefined
+        );
+        try {
+          const { reservation, attempt } = await admitCheckoutReferral(
+            repository,
+            fixture
+          );
+          // Synthetic graph change between admission and payment.
+          await other.attribute(
+            conflict === "cycle"
+              ? fixture.referrerDotyposCustomerId
+              : fixture.invitedDotyposCustomerId
+          );
+
+          const paid = await Effect.runPromise(
+            repository.markPaid({
+              id: attempt.id,
+              workspaceReservationId: reservation.id,
+              paidAt: Temporal.Now.instant(),
+            })
+          );
+
+          expect(paid.changed).toBe(true);
+          expect((await readClaim(attempt.id))[0]?.state).toBe("redeemed");
+          expect(
+            await readAttributions(fixture.invitedDotyposCustomerId)
+          ).toEqual(
+            conflict === "cycle"
+              ? []
+              : [
+                  {
+                    referrer: other.referrerDotyposCustomerId,
+                    code: other.promotionCodeId,
+                  },
+                ]
+          );
+        } finally {
+          await fixture.cleanup();
+          await other.cleanup();
+        }
+      }
+    });
+
+    test("records the attribution on a zero-payable internal payment", async () => {
+      const repository = await makeRepository();
+      const fixture = await createInvitedCustomer(false);
+      let voucher: Awaited<ReturnType<typeof createVoucher>> | undefined;
+      try {
+        const reservation = await createHeldReservation(
+          fixture.invitedDotyposCustomerId
+        );
+        const referralOnly = makeReferralAdmission({ reservation, ...fixture });
+        voucher = await createVoucher(
+          fixture.invitedDotyposCustomerId,
+          referralOnly.admission.amount.value
+        );
+        const fullyCovered = makeReferralAdmission({
+          reservation,
+          ...fixture,
+          creditCandidates: [voucher.candidate],
+        });
+
+        const internal = await Effect.runPromise(
+          repository.completeInternalPayment({
+            workspaceReservationId: reservation.id,
+            amount: fullyCovered.admission.amount,
+            commitment: fullyCovered.admission.commitment,
+            locale: fullyCovered.locale,
+            accountingSnapshot: fullyCovered.snapshot,
+          })
+        );
+
+        expect(internal.attempt.state).toBe("paid");
+        expect(
+          await readAttributions(fixture.invitedDotyposCustomerId)
+        ).toEqual([
+          {
+            referrer: fixture.referrerDotyposCustomerId,
+            code: fixture.promotionCodeId,
+          },
+        ]);
+      } finally {
+        await fixture.cleanup();
+        await voucher?.cleanup();
+      }
+    });
+
+    test("takes the referral graph lock before the invitee's first-booking lock when payment records an attribution", async () => {
+      const repository = await makeRepository();
+      const fixture = await createInvitedCustomer(false);
+      const graphHolder = await testDatabase!.pool.connect();
+      try {
+        const { reservation, attempt } = await admitCheckoutReferral(
+          repository,
+          fixture
+        );
+        await graphHolder.query("begin");
+        await graphHolder.query(
+          "select pg_advisory_xact_lock(hashtext('referral-attribution'), hashtext('graph'))"
+        );
+
+        let settled = false;
+        const payment = Effect.runPromise(
+          repository.markPaid({
+            id: attempt.id,
+            workspaceReservationId: reservation.id,
+            paidAt: Temporal.Now.instant(),
+          })
+        ).finally(() => {
+          settled = true;
+        });
+        await new Promise((resolve) => setTimeout(resolve, 300));
+
+        // Still waiting on the graph lock, so it cannot hold first-booking.
+        const firstBooking = await testDatabase!.pool.query<{
+          readonly locked: boolean;
+        }>(
+          "select pg_try_advisory_xact_lock(hashtext('referral-first-booking'), hashtext($1)) as locked",
+          [fixture.invitedDotyposCustomerId]
+        );
+        expect(firstBooking.rows[0]?.locked).toBe(true);
+        expect(settled).toBe(false);
+
+        await graphHolder.query("rollback");
+        expect((await payment).changed).toBe(true);
+        expect(
+          await readAttributions(fixture.invitedDotyposCustomerId)
+        ).toHaveLength(1);
+      } finally {
+        graphHolder.release();
+        await fixture.cleanup();
+      }
+    });
+
+    test("fails a zero-payable internal payment cleanly after the bounded graph-lock wait, then lets it retry", async () => {
+      const repository = await makeRepository();
+      const fixture = await createInvitedCustomer(false);
+      const graphHolder = await testDatabase!.pool.connect();
+      let voucher: Awaited<ReturnType<typeof createVoucher>> | undefined;
+      try {
+        const reservation = await createHeldReservation(
+          fixture.invitedDotyposCustomerId
+        );
+        const referralOnly = makeReferralAdmission({ reservation, ...fixture });
+        voucher = await createVoucher(
+          fixture.invitedDotyposCustomerId,
+          referralOnly.admission.amount.value
+        );
+        const fullyCovered = makeReferralAdmission({
+          reservation,
+          ...fixture,
+          creditCandidates: [voucher.candidate],
+        });
+        const completeInternalPayment = () =>
+          repository.completeInternalPayment({
+            workspaceReservationId: reservation.id,
+            amount: fullyCovered.admission.amount,
+            commitment: fullyCovered.admission.commitment,
+            locale: fullyCovered.locale,
+            accountingSnapshot: fullyCovered.snapshot,
+          });
+        const readPaymentRows = async () => ({
+          reservation: (
+            await testDatabase!.pool.query(
+              "select payment_state, active_payment_attempt_id, paid_at from workspace_reservations where id = $1",
+              [reservation.id]
+            )
+          ).rows,
+          attempts: (
+            await testDatabase!.pool.query(
+              "select state from payment_attempts where workspace_reservation_id = $1",
+              [reservation.id]
+            )
+          ).rows,
+          snapshots: (
+            await testDatabase!.pool.query(
+              "select payment_attempt_id from accounting_document_snapshots where workspace_reservation_id = $1",
+              [reservation.id]
+            )
+          ).rows,
+          applications: (
+            await testDatabase!.pool.query(
+              "select public_discount_id from discount_applications where workspace_reservation_id = $1",
+              [reservation.id]
+            )
+          ).rows,
+          invitationClaims: (
+            await testDatabase!.pool.query(
+              "select state from referral_invitation_claims where invited_dotypos_customer_id = $1",
+              [fixture.invitedDotyposCustomerId]
+            )
+          ).rows,
+          voucherClaims: (
+            await testDatabase!.pool.query(
+              "select state from voucher_redemptions where dotypos_customer_id = $1",
+              [fixture.invitedDotyposCustomerId]
+            )
+          ).rows,
+          attributions: await readAttributions(
+            fixture.invitedDotyposCustomerId
+          ),
+        });
+        const before = await readPaymentRows();
+        expect(before).toEqual({
+          reservation: [
+            {
+              payment_state: "not_started",
+              active_payment_attempt_id: null,
+              paid_at: null,
+            },
+          ],
+          attempts: [],
+          snapshots: [],
+          applications: [],
+          invitationClaims: [],
+          voucherClaims: [],
+          attributions: [],
+        });
+
+        // A concurrent acceptReferral holds the graph lock past the bound.
+        await graphHolder.query("begin");
+        await graphHolder.query(
+          "select pg_advisory_xact_lock(hashtext('referral-attribution'), hashtext('graph'))"
+        );
+        const startedAt = performance.now();
+        const timedOut = await Effect.runPromise(
+          Effect.exit(completeInternalPayment())
+        );
+        const waitedMillis = performance.now() - startedAt;
+        await graphHolder.query("rollback");
+
+        // The graph lock wait gives up at the 5s bound with a lock timeout,
+        // well before the pool's 10s query timeouts would cancel it.
+        expect(waitedMillis).toBeGreaterThanOrEqual(4_900);
+        const failure = Exit.isFailure(timedOut)
+          ? Cause.squash(timedOut.cause)
+          : undefined;
+        expect(failure).toMatchObject({
+          _tag: "EffectDrizzleQueryError",
+          params: ["referral-attribution", "graph"],
+        });
+        const queryCause = Predicate.hasProperty(failure, "cause")
+          ? failure.cause
+          : undefined;
+        expect(
+          Cause.isCause(queryCause) ? Cause.squash(queryCause) : queryCause
+        ).toMatchObject({
+          _tag: "SqlError",
+          reason: { _tag: "LockTimeoutError" },
+        });
+        expect(await readPaymentRows()).toEqual(before);
+
+        const retried = await Effect.runPromise(completeInternalPayment());
+        expect(retried.changed).toBe(true);
+        expect(retried.attempt.state).toBe("paid");
+        const after = await readPaymentRows();
+        expect(after.reservation[0]?.payment_state).toBe("paid");
+        expect(after.attempts).toEqual([{ state: "paid" }]);
+        expect(after.invitationClaims).toEqual([{ state: "redeemed" }]);
+        expect(after.voucherClaims).toEqual([{ state: "redeemed" }]);
+        expect(after.attributions).toEqual([
+          {
+            referrer: fixture.referrerDotyposCustomerId,
+            code: fixture.promotionCodeId,
+          },
+        ]);
+      } finally {
+        await graphHolder.query("rollback").catch(() => {});
+        graphHolder.release();
+        await fixture.cleanup();
+        await voucher?.cleanup();
       }
     });
   }

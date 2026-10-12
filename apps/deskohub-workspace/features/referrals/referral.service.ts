@@ -29,7 +29,11 @@ import {
   customerAccountIdSchema,
 } from "@/features/account/customer-account";
 import type { WorkspaceMoney } from "@/features/checkout/workspace-money";
-import { canonicalPromotionCodeSchema } from "@/features/discounts/persistence-contracts";
+import type { CanonicalPromotionCode } from "@/features/discounts/contracts";
+import {
+  canonicalPromotionCodeSchema,
+  type PromotionCodeId,
+} from "@/features/discounts/persistence-contracts";
 import { generatePromotionCode } from "@/features/discounts/promotion-code";
 import type { DiscountCandidate } from "@/features/discounts/provider";
 import type { Locale } from "@/features/i18n";
@@ -43,6 +47,7 @@ import {
 import { evaluateReferralAttribution } from "./attribution";
 import { parseReferralCode, type ReferralCode } from "./client";
 import {
+  type CheckoutReferralEvaluation,
   type ReferralAcceptance,
   type ReferralAccountSummary,
   type ReferralCodeKind,
@@ -85,9 +90,26 @@ export interface IReferralService {
   readonly findAvailableCode: (input: {
     readonly code: unknown;
   }) => Effect.Effect<ReferralCode | undefined, ReferralError>;
+  /**
+   * Read-only check that a checkout may carry `code` for the booked customer:
+   * an active referral code whose owner's account is active, no
+   * self-referral or cycle, no different existing referrer, no prior paid
+   * booking, and no invitation held by another payment. The attribution is
+   * recorded only when the order carrying it is paid.
+   */
+  readonly evaluateCheckoutReferral: (input: {
+    readonly code: unknown;
+    readonly dotyposCustomerId: DotyposCustomerId;
+  }) => Effect.Effect<CheckoutReferralEvaluation, ReferralError>;
+  /**
+   * The 15% invitation for the customer's first paid booking, from an
+   * existing attribution or, failing that, from the checkout's still-eligible
+   * `referralCode`.
+   */
   readonly resolveInvitationCandidate: (input: {
     readonly dotyposCustomerId: DotyposCustomerId;
     readonly locale: Locale;
+    readonly referralCode?: CanonicalPromotionCode;
   }) => Effect.Effect<DiscountCandidate | undefined, ReferralError>;
   readonly resolveReferrerCandidate: (input: {
     readonly dotyposCustomerId: DotyposCustomerId;
@@ -124,6 +146,11 @@ const isReferralCodeActive = (
     Temporal.Instant.compare(now, referral.validFrom) >= 0) &&
   (referral.validUntil === null ||
     Temporal.Instant.compare(now, referral.validUntil) < 0);
+
+type InvitationReferral = {
+  readonly referrerDotyposCustomerId: DotyposCustomerId;
+  readonly promotionCodeId: PromotionCodeId;
+};
 
 const isReservationCancelled = (input: {
   readonly dotyposStatus: string;
@@ -245,7 +272,9 @@ export class ReferralService extends Context.Service<
                 order: "startDateDescending",
               }),
             ],
-            { concurrency: "inherit" }
+            // A failed Dotypos call would interrupt an in-flight transaction
+            // query and break its rollback, so transaction reads run in turn.
+            { concurrency: executor === db ? "inherit" : 1 }
           ).pipe(
             Effect.map(([localReservations, dotyposReservations]) => {
               const localById = new Map(
@@ -395,13 +424,8 @@ export class ReferralService extends Context.Service<
         }
       );
 
-      const resolveInvitationCandidate = Effect.fn(
-        "ReferralService.resolveInvitationCandidate"
-      )(
-        (input: {
-          readonly dotyposCustomerId: DotyposCustomerId;
-          readonly locale: Locale;
-        }) =>
+      const findAttribution = Effect.fn("ReferralService.findAttribution")(
+        (dotyposCustomerId: DotyposCustomerId) =>
           db
             .select({
               referrerDotyposCustomerId:
@@ -412,82 +436,253 @@ export class ReferralService extends Context.Service<
             .where(
               eq(
                 referralAttributions.invitedDotyposCustomerId,
-                input.dotyposCustomerId
+                dotyposCustomerId
               )
             )
             .limit(1)
-            .pipe(
-              Effect.flatMap(([attribution]) => {
-                if (!attribution) return Effect.succeed(undefined);
-                return Effect.all(
-                  [
-                    loadCustomerHistory(input.dotyposCustomerId),
-                    db
-                      .select({ state: referralInvitationClaims.state })
-                      .from(referralInvitationClaims)
-                      .where(
-                        and(
-                          eq(
-                            referralInvitationClaims.invitedDotyposCustomerId,
-                            input.dotyposCustomerId
-                          ),
-                          inArray(referralInvitationClaims.state, [
-                            "reserved",
-                            "redeemed",
-                          ])
-                        )
-                      )
-                      .limit(1),
-                  ],
-                  { concurrency: "inherit" }
-                ).pipe(
-                  Effect.map(([history, activeClaims]) => {
-                    if (
-                      history.hasPreviousPaidBooking ||
-                      activeClaims.length > 0
-                    ) {
-                      return undefined;
-                    }
-                    const id = getReferralInvitationDiscountId(
-                      input.dotyposCustomerId
-                    );
-                    return {
-                      discount: {
-                        id,
-                        label: m.checkoutSummaryItemReferralInvitationDiscount(
-                          {},
-                          { locale: input.locale }
-                        ),
-                        adjustment: {
-                          kind: "percentage" as const,
-                          basisPoints: referralInvitationDiscountBasisPoints,
-                        },
-                      },
-                      provenance: {
-                        providerNamespace: "referral-invitation",
-                        providerReference: attribution.promotionCodeId,
-                        details: {
-                          referralInvitation: {
-                            invitedDotyposCustomerId: input.dotyposCustomerId,
-                            referrerDotyposCustomerId:
-                              attribution.referrerDotyposCustomerId,
-                            promotionCodeId: attribution.promotionCodeId,
-                          },
-                        },
-                      },
-                      claim: {
-                        kind: "referral_invitation" as const,
-                        invitedDotyposCustomerId: input.dotyposCustomerId,
-                        referrerDotyposCustomerId:
-                          attribution.referrerDotyposCustomerId,
-                        promotionCodeId: attribution.promotionCodeId,
-                      },
-                    };
-                  })
-                );
-              }),
-              Effect.mapError(() => fail("unavailable"))
+            .pipe(Effect.map(([attribution]) => attribution))
+      );
+
+      /**
+       * `closed` once the customer has a prior paid booking, `claimed` while
+       * another payment holds the invitation, otherwise `open`.
+       */
+      const findInvitationWindow = Effect.fn(
+        "ReferralService.findInvitationWindow"
+      )((dotyposCustomerId: DotyposCustomerId) =>
+        Effect.all(
+          [
+            loadCustomerHistory(dotyposCustomerId),
+            db
+              .select({ state: referralInvitationClaims.state })
+              .from(referralInvitationClaims)
+              .where(
+                and(
+                  eq(
+                    referralInvitationClaims.invitedDotyposCustomerId,
+                    dotyposCustomerId
+                  ),
+                  inArray(referralInvitationClaims.state, [
+                    "reserved",
+                    "redeemed",
+                  ])
+                )
+              )
+              .limit(1),
+          ],
+          { concurrency: "inherit" }
+        ).pipe(
+          Effect.map(([history, activeClaims]) => {
+            if (history.hasPreviousPaidBooking) return "closed" as const;
+            if (activeClaims.length > 0) return "claimed" as const;
+            return "open" as const;
+          })
+        )
+      );
+
+      /**
+       * Enabled, currently valid referral code whose owner has a linked
+       * account without pending deletion.
+       */
+      const findActiveReferralTarget = Effect.fn(
+        "ReferralService.findActiveReferralTarget"
+      )((code: ReferralCode) =>
+        db
+          .select({
+            promotionCodeId: referralCodes.promotionCodeId,
+            referrerDotyposCustomerId: referralCodes.referrerDotyposCustomerId,
+            enabled: promotionCodes.enabled,
+            validFrom: promotionCodes.validFrom,
+            validUntil: promotionCodes.validUntil,
+          })
+          .from(referralCodes)
+          .innerJoin(
+            promotionCodes,
+            eq(promotionCodes.id, referralCodes.promotionCodeId)
+          )
+          .innerJoin(
+            customerAccountLinks,
+            eq(
+              customerAccountLinks.dotyposCustomerId,
+              referralCodes.referrerDotyposCustomerId
             )
+          )
+          .innerJoin(
+            authUser,
+            eq(authUser.id, customerAccountLinks.customerAccountId)
+          )
+          .where(
+            and(
+              eq(promotionCodes.code, canonicalPromotionCodeSchema.make(code)),
+              eq(promotionCodes.kind, "referral"),
+              isNull(authUser.deletionRequestedAt)
+            )
+          )
+          .limit(1)
+          .pipe(
+            Effect.map(([referral]) =>
+              referral && isReferralCodeActive(referral, Temporal.Now.instant())
+                ? {
+                    promotionCodeId: referral.promotionCodeId,
+                    referrerDotyposCustomerId:
+                      referral.referrerDotyposCustomerId,
+                  }
+                : undefined
+            )
+          )
+      );
+
+      /**
+       * Read-only counterpart of `acceptReferral` for a checkout: the same
+       * rules, evaluated without locks because the payment admission and
+       * paid transition recheck them before the invitation is used.
+       */
+      const evaluateReferralForCustomer = Effect.fn(
+        "ReferralService.evaluateReferralForCustomer"
+      )(function* (input: {
+        readonly code: ReferralCode;
+        readonly dotyposCustomerId: DotyposCustomerId;
+        readonly attribution: InvitationReferral | undefined;
+      }) {
+        const target = yield* findActiveReferralTarget(input.code);
+        if (!target) return yield* fail("unavailable");
+        if (target.referrerDotyposCustomerId === input.dotyposCustomerId) {
+          return yield* fail("self_referral");
+        }
+        if (input.attribution) {
+          return input.attribution.referrerDotyposCustomerId ===
+            target.referrerDotyposCustomerId
+            ? ({ kind: "attributed", referral: input.attribution } as const)
+            : yield* fail("already_attributed");
+        }
+
+        const window = yield* findInvitationWindow(input.dotyposCustomerId);
+        if (window === "closed") return yield* fail("ineligible");
+        if (window === "claimed") return yield* fail("pending_payment");
+
+        const graph = yield* db
+          .select({
+            invitedDotyposCustomerId:
+              referralAttributions.invitedDotyposCustomerId,
+            referrerDotyposCustomerId:
+              referralAttributions.referrerDotyposCustomerId,
+          })
+          .from(referralAttributions);
+        const decision = evaluateReferralAttribution({
+          invitedCustomerId: input.dotyposCustomerId,
+          referrerCustomerId: target.referrerDotyposCustomerId,
+          existingReferrerByInvitee: new Map(
+            graph.map((row) => [
+              row.invitedDotyposCustomerId,
+              row.referrerDotyposCustomerId,
+            ])
+          ),
+        });
+        if (decision.kind === "cycle") return yield* fail("cycle");
+        if (decision.kind !== "accepted") return yield* fail("unavailable");
+        return { kind: "eligible", referral: target } as const;
+      });
+
+      const evaluateCheckoutReferral = Effect.fn(
+        "ReferralService.evaluateCheckoutReferral"
+      )(
+        (input: {
+          readonly code: unknown;
+          readonly dotyposCustomerId: DotyposCustomerId;
+        }) => {
+          const code = normalizeCode(input.code);
+          if (!code) return Effect.fail(fail("invalid_code"));
+          return findAttribution(input.dotyposCustomerId).pipe(
+            Effect.flatMap((attribution) =>
+              evaluateReferralForCustomer({
+                code,
+                dotyposCustomerId: input.dotyposCustomerId,
+                attribution,
+              })
+            ),
+            Effect.map(
+              (evaluation): CheckoutReferralEvaluation =>
+                evaluation.kind === "attributed"
+                  ? { kind: "already_accepted" }
+                  : { kind: "eligible", code }
+            ),
+            Effect.mapError((error) =>
+              error instanceof ReferralError ? error : fail("unavailable")
+            )
+          );
+        }
+      );
+
+      const makeInvitationCandidate = (input: {
+        readonly dotyposCustomerId: DotyposCustomerId;
+        readonly locale: Locale;
+        readonly referral: InvitationReferral;
+      }): DiscountCandidate => ({
+        discount: {
+          id: getReferralInvitationDiscountId(input.dotyposCustomerId),
+          label: m.checkoutSummaryItemReferralInvitationDiscount(
+            {},
+            { locale: input.locale }
+          ),
+          adjustment: {
+            kind: "percentage" as const,
+            basisPoints: referralInvitationDiscountBasisPoints,
+          },
+        },
+        provenance: {
+          providerNamespace: "referral-invitation",
+          providerReference: input.referral.promotionCodeId,
+          details: {
+            referralInvitation: {
+              invitedDotyposCustomerId: input.dotyposCustomerId,
+              referrerDotyposCustomerId:
+                input.referral.referrerDotyposCustomerId,
+              promotionCodeId: input.referral.promotionCodeId,
+            },
+          },
+        },
+        claim: {
+          kind: "referral_invitation" as const,
+          invitedDotyposCustomerId: input.dotyposCustomerId,
+          referrerDotyposCustomerId: input.referral.referrerDotyposCustomerId,
+          promotionCodeId: input.referral.promotionCodeId,
+        },
+      });
+
+      const resolveInvitationCandidate = Effect.fn(
+        "ReferralService.resolveInvitationCandidate"
+      )(
+        function* (input: {
+          readonly dotyposCustomerId: DotyposCustomerId;
+          readonly locale: Locale;
+          readonly referralCode?: CanonicalPromotionCode;
+        }) {
+          const attribution = yield* findAttribution(input.dotyposCustomerId);
+          if (attribution) {
+            const window = yield* findInvitationWindow(input.dotyposCustomerId);
+            return window === "open"
+              ? makeInvitationCandidate({ ...input, referral: attribution })
+              : undefined;
+          }
+
+          const code = normalizeCode(input.referralCode);
+          if (!code) return undefined;
+          // A carried code that is no longer usable simply stops pricing.
+          const evaluation = yield* evaluateReferralForCustomer({
+            code,
+            dotyposCustomerId: input.dotyposCustomerId,
+            attribution,
+          }).pipe(
+            Effect.catchTag("ReferralError", () => Effect.succeed(undefined))
+          );
+          return evaluation
+            ? makeInvitationCandidate({
+                ...input,
+                referral: evaluation.referral,
+              })
+            : undefined;
+        },
+        Effect.mapError(() => fail("unavailable"))
       );
 
       const resolveReferrerCandidate = Effect.fn(
@@ -634,48 +829,10 @@ export class ReferralService extends Context.Service<
         (input: { readonly code: unknown }) => {
           const code = normalizeCode(input.code);
           if (!code) return Effect.succeed(undefined);
-          return db
-            .select({
-              enabled: promotionCodes.enabled,
-              validFrom: promotionCodes.validFrom,
-              validUntil: promotionCodes.validUntil,
-            })
-            .from(referralCodes)
-            .innerJoin(
-              promotionCodes,
-              eq(promotionCodes.id, referralCodes.promotionCodeId)
-            )
-            .innerJoin(
-              customerAccountLinks,
-              eq(
-                customerAccountLinks.dotyposCustomerId,
-                referralCodes.referrerDotyposCustomerId
-              )
-            )
-            .innerJoin(
-              authUser,
-              eq(authUser.id, customerAccountLinks.customerAccountId)
-            )
-            .where(
-              and(
-                eq(
-                  promotionCodes.code,
-                  canonicalPromotionCodeSchema.make(code)
-                ),
-                eq(promotionCodes.kind, "referral"),
-                isNull(authUser.deletionRequestedAt)
-              )
-            )
-            .limit(1)
-            .pipe(
-              Effect.map(([referral]) =>
-                referral &&
-                isReferralCodeActive(referral, Temporal.Now.instant())
-                  ? code
-                  : undefined
-              ),
-              Effect.mapError(() => fail("unavailable"))
-            );
+          return findActiveReferralTarget(code).pipe(
+            Effect.map((target) => (target ? code : undefined)),
+            Effect.mapError(() => fail("unavailable"))
+          );
         }
       );
 
@@ -920,8 +1077,11 @@ export class ReferralService extends Context.Service<
                           )
                           .limit(1)
                           .pipe(Effect.mapError(() => fail("unavailable")));
+                        // The invitation stays open until that payment
+                        // settles; a reserved invitation claim always comes
+                        // with such a pending reservation.
                         if (pendingAttempt) {
-                          return yield* Effect.fail(fail("ineligible"));
+                          return yield* Effect.fail(fail("pending_payment"));
                         }
 
                         const existingRows = yield* tx
@@ -949,7 +1109,7 @@ export class ReferralService extends Context.Service<
                           return yield* Effect.fail(fail("already_attributed"));
                         }
                         if (decision.kind === "cycle") {
-                          return yield* Effect.fail(fail("unavailable"));
+                          return yield* Effect.fail(fail("cycle"));
                         }
 
                         yield* tx
@@ -981,6 +1141,7 @@ export class ReferralService extends Context.Service<
         acceptReferral,
         lookupCodeKind,
         findAvailableCode,
+        evaluateCheckoutReferral,
         resolveInvitationCandidate,
         resolveReferrerCandidate,
       } satisfies IReferralService;

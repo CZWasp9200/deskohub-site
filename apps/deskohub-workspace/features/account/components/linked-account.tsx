@@ -7,6 +7,7 @@ import { useAccountLayout } from "@/features/account/components/account-layout-s
 import { getAccountScreenCopy } from "@/features/account/components/account-screen-copy";
 import { DeleteAccountCard } from "@/features/account/components/delete-account-card";
 import { LegalScreen } from "@/features/account/components/legal/legal-screen";
+import { ProfileCompletionReferralNotice } from "@/features/account/components/profile-completion-referral-notice";
 import { ProfileForm } from "@/features/account/components/profile-form";
 import { ReferralScreen } from "@/features/account/components/referral-screen";
 import { ReservationHistory } from "@/features/account/components/reservation-history";
@@ -85,6 +86,8 @@ export function LinkedAccount({
 
   return (
     <>
+      <ProfileCompletionReferralNotice locale={locale} />
+
       <div hidden={activeSection !== "reservations"}>
         <ReservationHistory
           copy={copy.reservations}

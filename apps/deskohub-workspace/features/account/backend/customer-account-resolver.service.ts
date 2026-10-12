@@ -61,9 +61,27 @@ export type CustomerAccountResolutionDependencies = {
   ) => Effect.Effect<A, unknown, R>;
 };
 
+/**
+ * How the current account resolved. `autoLinked` is true only when this
+ * resolution itself claimed the link to an existing exact-email Dotypos
+ * customer; an existing link, including one created by profile completion,
+ * reports false.
+ */
+export type CustomerAccountLinkResolution = {
+  readonly account: LinkedCustomerAccount;
+  readonly autoLinked: boolean;
+};
+
 export const resolveCustomerAccount = (
   dependencies: CustomerAccountResolutionDependencies
 ): Effect.Effect<LinkedCustomerAccount, CustomerAccountAccessError> =>
+  resolveCustomerAccountLink(dependencies).pipe(
+    Effect.map((resolution) => resolution.account)
+  );
+
+export const resolveCustomerAccountLink = (
+  dependencies: CustomerAccountResolutionDependencies
+): Effect.Effect<CustomerAccountLinkResolution, CustomerAccountAccessError> =>
   Effect.gen(function* () {
     const user = yield* dependencies.currentUser();
     const identity = yield* requireVerifiedIdentity(user);
@@ -85,8 +103,11 @@ export const resolveCustomerAccount = (
             );
           if (existingCustomerId) {
             return {
-              accountId: lockedIdentity.accountId,
-              dotyposCustomerId: existingCustomerId,
+              account: {
+                accountId: lockedIdentity.accountId,
+                dotyposCustomerId: existingCustomerId,
+              },
+              autoLinked: false,
             };
           }
 
@@ -127,13 +148,42 @@ export const resolveCustomerAccount = (
           }
 
           return {
-            accountId: lockedIdentity.accountId,
-            dotyposCustomerId: claimed.customerId,
+            account: {
+              accountId: lockedIdentity.accountId,
+              dotyposCustomerId: claimed.customerId,
+            },
+            autoLinked: true,
           };
         })
       )
       .pipe(Effect.mapError(mapCustomerAccountFailure("account-link.lock")));
   });
+
+const resolutionDependencies: Effect.Effect<
+  CustomerAccountResolutionDependencies,
+  never,
+  | CustomerAuthentication
+  | CustomerAccountLinkRepository
+  | CustomerDotyposAdapter
+> = Effect.gen(function* () {
+  const authentication = yield* CustomerAuthentication;
+  const links = yield* CustomerAccountLinkRepository;
+  const dotypos = yield* CustomerDotyposAdapter;
+  return {
+    currentUser: () => authentication.currentUser,
+    findLink: links.find,
+    classify: dotypos.classifyExactEmailCustomers,
+    claimLink: links.claim,
+    reactivate: dotypos.reactivateCustomer,
+    withAccountLock: links.withAccountLock,
+  };
+});
+
+const resolutionDependenciesLive = Layer.mergeAll(
+  CustomerAuthentication.Default,
+  CustomerAccountLinkRepository.Live,
+  CustomerDotyposAdapter.Live
+);
 
 interface ICustomerAccountResolver {
   readonly resolve: Effect.Effect<
@@ -148,42 +198,25 @@ export class CustomerAccountResolver extends Context.Service<
 >()("@deskohub-workspace/account/CustomerAccountResolver") {
   static Default = Layer.effect(
     this,
-    Effect.gen(function* () {
-      const authentication = yield* CustomerAuthentication;
-      const links = yield* CustomerAccountLinkRepository;
-      const dotypos = yield* CustomerDotyposAdapter;
-
-      const resolve = resolveCustomerAccount({
-        currentUser: () => authentication.currentUser,
-        findLink: links.find,
-        classify: dotypos.classifyExactEmailCustomers,
-        claimLink: links.claim,
-        reactivate: dotypos.reactivateCustomer,
-        withAccountLock: links.withAccountLock,
-      });
-
-      return { resolve } satisfies ICustomerAccountResolver;
-    })
-  );
-
-  static Live = this.Default.pipe(
-    Layer.provide(
-      Layer.mergeAll(
-        CustomerAuthentication.Default,
-        CustomerAccountLinkRepository.Live,
-        CustomerDotyposAdapter.Live
-      )
+    Effect.map(
+      resolutionDependencies,
+      (dependencies): ICustomerAccountResolver => ({
+        resolve: resolveCustomerAccount(dependencies),
+      })
     )
   );
+
+  static Live = this.Default.pipe(Layer.provide(resolutionDependenciesLive));
 }
 
+/**
+ * Live-wired resolution of the current account for the account page, the one
+ * place that also needs to know whether this visit auto-linked the account.
+ */
 export const resolveCurrentCustomerAccount: Effect.Effect<
-  LinkedCustomerAccount,
+  CustomerAccountLinkResolution,
   CustomerAccountAccessError
-> = Effect.flatMap(
-  CustomerAccountResolver,
-  (resolver) => resolver.resolve
-).pipe(
-  Effect.provide(CustomerAccountResolver.Live),
+> = Effect.flatMap(resolutionDependencies, resolveCustomerAccountLink).pipe(
+  Effect.provide(resolutionDependenciesLive),
   Effect.mapError(mapCustomerAccountFailure("account-link.lock"))
 );

@@ -10,7 +10,10 @@ import {
 import { useState } from "react";
 import type { CustomerProfileInput } from "@/features/account/contracts";
 import { type Locale, m } from "@/features/i18n";
-import { parseReferralCode } from "@/features/referrals/client";
+import {
+  formatReferralInvitationDiscount,
+  parseReferralCode,
+} from "@/features/referrals/client";
 import {
   workspaceRouterPush,
   workspaceRouterRefresh,
@@ -349,7 +352,12 @@ describe("AccountPage states", () => {
     ).toBe("page");
   });
 
-  test("submits the server-checked referral code with first-time profile completion", async () => {
+  test("submits the shared-link referral code with completion and shows its outcome after the refresh", async () => {
+    completeCustomerProfile.mockImplementationOnce(() =>
+      Promise.resolve({
+        data: { status: "completed", referral: { status: "applied" } },
+      } as never)
+    );
     const referralCode = parseReferralCode("RFL12345");
     if (referralCode === undefined) throw new Error("invalid referral code");
     workspaceUseSearchParams.mockReturnValue(
@@ -396,6 +404,7 @@ describe("AccountPage states", () => {
       expect(completeCustomerProfile).toHaveBeenCalledWith({
         firstName: "Ada",
         referralCode: "RFL12345",
+        prefilledReferralCode: "RFL12345",
       });
       expect(workspaceRouterRefresh).toHaveBeenCalledTimes(1);
     });
@@ -404,6 +413,14 @@ describe("AccountPage states", () => {
         view.container.querySelector('[data-screen="referrals-screen"]')
       ).toBeTruthy();
     });
+    expect(
+      view.getByText(
+        m.accountProfileReferralApplied(
+          { discount: formatReferralInvitationDiscount(en.locale) },
+          en
+        )
+      )
+    ).toBeTruthy();
     expect(view.container.querySelector("#profile-referral-code")).toBeNull();
     expect(view.queryByRole("button", { name: /accept/i })).toBeNull();
   });

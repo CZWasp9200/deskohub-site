@@ -49,6 +49,7 @@ export type AccountReviewTarget =
   | "sign-in-accepted-desktop"
   | "sign-in-pending-desktop"
   | "sign-in-desktop"
+  | "sign-in-share-link-desktop"
   | "callback-failed-desktop"
   | "deleted-desktop";
 
@@ -261,6 +262,11 @@ const accountReviewTargetMetadata = {
     path: "/en-US/auth/sign-in",
     viewport: { height: 1000, width: 1440 },
   },
+  "sign-in-share-link-desktop": {
+    filename: "sign-in-share-link-desktop.png",
+    path: "/en-US/auth/sign-in",
+    viewport: { height: 1000, width: 1440 },
+  },
   "callback-failed-desktop": {
     filename: "callback-failed-desktop.png",
     path: "/en-US/auth/callback",
@@ -342,7 +348,7 @@ const isPrivateLinkedAccountTarget = (target: ReviewTarget): boolean =>
  * exactly when the destination names one.
  */
 const isShareLinkTarget = (target: ReviewTarget): boolean =>
-  target === "sign-in-desktop" ||
+  target === "sign-in-share-link-desktop" ||
   target === "sign-in-pending-desktop" ||
   target === "sign-in-accepted-desktop" ||
   target === "completion-mobile375x900";

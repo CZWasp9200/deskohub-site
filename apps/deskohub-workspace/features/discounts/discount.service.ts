@@ -59,6 +59,8 @@ import {
 export type DisplayedDiscountAffirmationInput = DiscountAdvertisementInput & {
   readonly dotyposCustomerId: DotyposCustomerId;
   readonly submittedCode?: CanonicalPromotionCode;
+  /** Referral code the checkout carries for an unattributed customer. */
+  readonly referralCode?: CanonicalPromotionCode;
   readonly displayedDiscountIds: readonly DiscountId[];
 };
 
@@ -77,6 +79,7 @@ type ApplyCustomerDiscountInput = {
   readonly locale: Locale;
   readonly submittedCode?: CanonicalPromotionCode;
   readonly submittedCodeDiscountId?: DiscountId;
+  readonly referralCode?: CanonicalPromotionCode;
 };
 
 type AppliedCustomerDiscountQuote = DiscountQuote & {
@@ -89,11 +92,12 @@ type ApplyDiscountCodeInput = {
   readonly dotyposCustomerId: DotyposCustomerId;
   readonly locale: Locale;
   readonly submittedCode: CanonicalPromotionCode;
+  readonly referralCode?: CanonicalPromotionCode;
 };
 
 type PreviewDiscountCodeInput = Omit<
   ApplyDiscountCodeInput,
-  "dotyposCustomerId"
+  "dotyposCustomerId" | "referralCode"
 >;
 
 type AppliedDiscountCodeQuote = {
@@ -151,6 +155,7 @@ export class DiscountService extends Context.Service<
           readonly baseQuote: DiscountQuote;
           readonly dotyposCustomerId: DotyposCustomerId;
           readonly locale: Locale;
+          readonly referralCode: CanonicalPromotionCode | undefined;
           readonly operation: DiscountResolutionOperation;
           readonly voucherCandidates: readonly DiscountCandidate[];
         }) => {
@@ -167,6 +172,9 @@ export class DiscountService extends Context.Service<
                 referrals.resolveInvitationCandidate({
                   dotyposCustomerId: input.dotyposCustomerId,
                   locale: input.locale,
+                  ...(input.referralCode !== undefined && {
+                    referralCode: input.referralCode,
+                  }),
                 }),
                 { operation: input.operation, provider: "referral" }
               ).pipe(Effect.map(Option.getOrUndefined))
@@ -363,6 +371,7 @@ export class DiscountService extends Context.Service<
                 baseQuote: calculation.quote,
                 dotyposCustomerId: input.dotyposCustomerId,
                 locale: input.locale,
+                referralCode: input.referralCode,
                 operation: "quote",
                 voucherCandidates: calculation.applications.map(
                   ({ candidate }) => candidate
@@ -529,6 +538,7 @@ export class DiscountService extends Context.Service<
                 baseQuote: ordinaryQuote,
                 dotyposCustomerId: input.dotyposCustomerId,
                 locale: input.locale,
+                referralCode: input.referralCode,
                 operation: "apply_customer_discount",
                 voucherCandidates: codeCandidates,
               })
@@ -619,6 +629,7 @@ export class DiscountService extends Context.Service<
                 baseQuote: calculation.quote,
                 dotyposCustomerId: input.dotyposCustomerId,
                 locale: input.locale,
+                referralCode: input.referralCode,
                 operation: "affirm_displayed_discounts",
                 voucherCandidates: calculation.applications.map(
                   ({ candidate }) => candidate
@@ -697,6 +708,7 @@ export class DiscountService extends Context.Service<
                 baseQuote: ordinaryQuote,
                 dotyposCustomerId: input.dotyposCustomerId,
                 locale: input.locale,
+                referralCode: input.referralCode,
                 operation: "apply_discount_code",
                 voucherCandidates: candidates,
               })

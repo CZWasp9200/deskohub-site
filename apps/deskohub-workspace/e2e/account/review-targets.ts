@@ -32,7 +32,7 @@ export const mobileAccountReviewTargetBySection: Readonly<
 export const accountReviewTargetByCaseId: Partial<
   Record<WorkspaceE2EAccountCaseId, AccountReviewTarget>
 > = {
-  "account-anonymous-redirect": "sign-in-desktop",
+  "account-anonymous-redirect": "sign-in-share-link-desktop",
   "account-sign-in-form": "sign-in-accepted-desktop",
   "account-magic-link-delivery": "completion-mobile375x900",
   "account-session-lifecycle": "callback-failed-desktop",

@@ -6,6 +6,7 @@ import {
   type DotyposReservation,
   type DotyposReservationId,
   DotyposService,
+  ExternalAPIError,
 } from "@deskohub/dotypos";
 import { Effect, Layer } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
@@ -110,7 +111,10 @@ const makeReferralLayer = (
   /** Dotypos reservations listed for each customer. */
   reservationsOf: (
     customerId: DotyposCustomerId
-  ) => readonly DotyposReservation[] = () => []
+  ) => readonly DotyposReservation[] = () => [],
+  listReservations: DotyposService["Service"]["listReservations"] = ({
+    customerId,
+  }) => Effect.succeed(reservationsOf(customerId))
 ) => {
   const databaseLayer = Layer.succeed(
     WorkspaceDatabase,
@@ -131,8 +135,7 @@ const makeReferralLayer = (
           resolve: Effect.succeed(identity),
         }),
         Layer.mock(DotyposService, {
-          listReservations: ({ customerId }) =>
-            Effect.succeed(reservationsOf(customerId)),
+          listReservations,
         } as Partial<DotyposService["Service"]>)
       )
     )
@@ -397,10 +400,10 @@ describe.skipIf(!testDatabase)("ReferralService on disposable Postgres", () => {
     const customerA = uniqueDotyposId();
     const customerB = uniqueDotyposId();
     const codeA = canonicalPromotionCodeSchema.make(
-      "RFL" + uniqueId().replaceAll("-", "").slice(0, 12).toUpperCase()
+      `RFL${uniqueId().replaceAll("-", "").slice(0, 12).toUpperCase()}`
     );
     const codeB = canonicalPromotionCodeSchema.make(
-      "RFL" + uniqueId().replaceAll("-", "").slice(0, 12).toUpperCase()
+      `RFL${uniqueId().replaceAll("-", "").slice(0, 12).toUpperCase()}`
     );
     let promotionA: string | undefined;
     let promotionB: string | undefined;
@@ -537,17 +540,17 @@ describe.skipIf(!testDatabase)("ReferralService on disposable Postgres", () => {
     const unpaidReferral = await insertReferralFixture({
       inviteeCustomerId: unpaidCustomer,
       ownerCustomerId: unpaidOwner,
-      code: "RFL" + uniqueId().replaceAll("-", "").slice(0, 12).toUpperCase(),
+      code: `RFL${uniqueId().replaceAll("-", "").slice(0, 12).toUpperCase()}`,
     });
     const unknownReferral = await insertReferralFixture({
       inviteeCustomerId: unknownCustomer,
       ownerCustomerId: unknownOwner,
-      code: "RFL" + uniqueId().replaceAll("-", "").slice(0, 12).toUpperCase(),
+      code: `RFL${uniqueId().replaceAll("-", "").slice(0, 12).toUpperCase()}`,
     });
     await Effect.runPromise(
       testDatabase!.db.insert(workspaceReservations).values({
         checkoutAttemptKey: checkoutAttemptKeySchema.make(
-          "referral-unpaid-" + uniqueId()
+          `referral-unpaid-${uniqueId()}`
         ),
         dotyposCustomerId: unpaidCustomer,
         dotyposReservationId: unpaidReservationId,
@@ -600,7 +603,7 @@ describe.skipIf(!testDatabase)("ReferralService on disposable Postgres", () => {
               },
               () => [
                 makeLiveConfirmedReservation(
-                  ("untracked-" + uniqueId()) as DotyposReservationId
+                  `untracked-${uniqueId()}` as DotyposReservationId
                 ),
               ]
             )
@@ -626,11 +629,11 @@ describe.skipIf(!testDatabase)("ReferralService on disposable Postgres", () => {
     const inviteeCustomerId = uniqueDotyposId();
     const ownerCustomerId = uniqueDotyposId();
     const ownerAccountId = customerAccountIdSchema.make(uniqueId());
-    const paidReservationId = ("paid-" + uniqueId()) as DotyposReservationId;
+    const paidReservationId = `paid-${uniqueId()}` as DotyposReservationId;
     const referral = await insertReferralFixture({
       inviteeCustomerId,
       ownerCustomerId,
-      code: "RFL" + uniqueId().replaceAll("-", "").slice(0, 12).toUpperCase(),
+      code: `RFL${uniqueId().replaceAll("-", "").slice(0, 12).toUpperCase()}`,
     });
     await insertAuthUser(oldAccountId);
     await insertAuthUser(newAccountId);
@@ -642,7 +645,7 @@ describe.skipIf(!testDatabase)("ReferralService on disposable Postgres", () => {
     await Effect.runPromise(
       testDatabase!.db.insert(workspaceReservations).values({
         checkoutAttemptKey: checkoutAttemptKeySchema.make(
-          "referral-paid-" + uniqueId()
+          `referral-paid-${uniqueId()}`
         ),
         dotyposCustomerId: inviteeCustomerId,
         dotyposReservationId: paidReservationId,
@@ -1018,3 +1021,423 @@ describe.skipIf(!testDatabase)("ReferralService on disposable Postgres", () => {
     }
   });
 });
+
+const createActiveReferrer = async () => {
+  const accountId = customerAccountIdSchema.make(uniqueId());
+  const dotyposCustomerId = uniqueDotyposId();
+  const code = `RFC${uniqueId().replaceAll("-", "").slice(0, 10).toUpperCase()}`;
+  await insertAuthUser(accountId);
+  await testDatabase!.pool.query(
+    `insert into customer_account_links (customer_account_id, dotypos_customer_id) values ($1, $2)`,
+    [accountId, dotyposCustomerId]
+  );
+  const [promotion] = await Effect.runPromise(
+    testDatabase!.db
+      .insert(promotionCodes)
+      .values({
+        kind: "referral",
+        code: canonicalPromotionCodeSchema.make(code),
+        enabled: true,
+      })
+      .returning({ id: promotionCodes.id })
+  );
+  await Effect.runPromise(
+    testDatabase!.db.insert(referralCodes).values({
+      promotionCodeId: promotion!.id,
+      referrerDotyposCustomerId: dotyposCustomerId,
+    })
+  );
+  return {
+    accountId,
+    dotyposCustomerId,
+    code: canonicalPromotionCodeSchema.make(code),
+    promotionCodeId: promotion!.id,
+    cleanup: async () => {
+      await testDatabase!.pool.query(
+        "delete from referral_attributions where promotion_code_id = $1",
+        [promotion!.id]
+      );
+      await testDatabase!.pool.query(
+        "delete from promotion_codes where id = $1",
+        [promotion!.id]
+      );
+      await testDatabase!.pool.query(
+        "delete from customer_account_links where customer_account_id = $1",
+        [accountId]
+      );
+      await testDatabase!.pool.query('delete from auth."user" where id = $1', [
+        accountId,
+      ]);
+    },
+  };
+};
+
+const insertPaidBooking = (dotyposCustomerId: DotyposCustomerId) =>
+  Effect.runPromise(
+    testDatabase!.db.insert(workspaceReservations).values({
+      checkoutAttemptKey: checkoutAttemptKeySchema.make(
+        `referral-${uniqueId()}`
+      ),
+      dotyposCustomerId,
+      dotyposReservationId: `reservation-${uniqueId()}` as DotyposReservationId,
+      reservationState: "confirmed",
+      paymentState: "paid",
+      paidAt: Temporal.Now.instant(),
+      fulfillmentState: "not_started",
+      reservationDetails: { kind: "cowork", entryTier: "basic", coffee: false },
+      locale: "en-US",
+    })
+  );
+
+/** A held booking whose payment has started but not completed. */
+const insertPendingBooking = (dotyposCustomerId: DotyposCustomerId) =>
+  Effect.runPromise(
+    testDatabase!.db
+      .insert(workspaceReservations)
+      .values({
+        checkoutAttemptKey: checkoutAttemptKeySchema.make(
+          `referral-${uniqueId()}`
+        ),
+        dotyposCustomerId,
+        dotyposReservationId:
+          `reservation-${uniqueId()}` as DotyposReservationId,
+        reservationState: "held",
+        paymentState: "pending",
+        fulfillmentState: "not_started",
+        reservationDetails: {
+          kind: "cowork",
+          entryTier: "basic",
+          coffee: false,
+        },
+        locale: "en-US",
+        reservationHoldExpiresAt: Temporal.Now.instant().add({ hours: 1 }),
+      })
+      .returning({ id: workspaceReservations.id })
+      .pipe(Effect.map(([reservation]) => reservation!.id))
+  );
+
+const runReferrals = <A, E>(
+  use: (referrals: ReferralService["Service"]) => Effect.Effect<A, E>,
+  layer = makeReferralLayer({
+    accountId: customerAccountIdSchema.make(uniqueId()),
+    dotyposCustomerId: uniqueDotyposId(),
+  })
+) =>
+  Effect.runPromise(
+    Effect.result(
+      Effect.gen(function* () {
+        return yield* use(yield* ReferralService);
+      }).pipe(Effect.provide(layer))
+    )
+  );
+
+describe.skipIf(!testDatabase)(
+  "ReferralService checkout referral evaluation on disposable Postgres",
+  () => {
+    test("lets a customer without a referral at completion take one at the first checkout, then rejects it after the first paid order", async () => {
+      const referrer = await createActiveReferrer();
+      // Completed profile without a referral: a linked account, no attribution.
+      const inviteeAccountId = customerAccountIdSchema.make(uniqueId());
+      const inviteeCustomerId = uniqueDotyposId();
+      await insertAuthUser(inviteeAccountId);
+      await testDatabase!.pool.query(
+        `insert into customer_account_links (customer_account_id, dotypos_customer_id) values ($1, $2)`,
+        [inviteeAccountId, inviteeCustomerId]
+      );
+      try {
+        const evaluate = () =>
+          runReferrals((referrals) =>
+            referrals.evaluateCheckoutReferral({
+              code: referrer.code.toLowerCase(),
+              dotyposCustomerId: inviteeCustomerId,
+            })
+          );
+        const price = (referralCode?: typeof referrer.code) =>
+          runReferrals((referrals) =>
+            referrals.resolveInvitationCandidate({
+              dotyposCustomerId: inviteeCustomerId,
+              locale: "en-US",
+              ...(referralCode && { referralCode }),
+            })
+          );
+
+        expect(await evaluate()).toMatchObject({
+          _tag: "Success",
+          success: { kind: "eligible", code: referrer.code },
+        });
+        expect(await price(referrer.code)).toMatchObject({
+          _tag: "Success",
+          success: {
+            discount: {
+              adjustment: { kind: "percentage", basisPoints: 1_500 },
+            },
+            claim: {
+              kind: "referral_invitation",
+              invitedDotyposCustomerId: inviteeCustomerId,
+              referrerDotyposCustomerId: referrer.dotyposCustomerId,
+              promotionCodeId: referrer.promotionCodeId,
+            },
+          },
+        });
+        expect(await price()).toMatchObject({
+          _tag: "Success",
+          success: undefined,
+        });
+        const attributions = await testDatabase!.pool.query(
+          "select 1 from referral_attributions where invited_dotypos_customer_id = $1",
+          [inviteeCustomerId]
+        );
+        expect(attributions.rows).toEqual([]);
+
+        await insertPaidBooking(inviteeCustomerId);
+
+        expect(await evaluate()).toMatchObject({
+          _tag: "Failure",
+          failure: { _tag: "ReferralError", reason: "ineligible" },
+        });
+        expect(await price(referrer.code)).toMatchObject({
+          _tag: "Success",
+          success: undefined,
+        });
+      } finally {
+        await testDatabase!.pool.query(
+          "delete from workspace_reservations where dotypos_customer_id = $1",
+          [inviteeCustomerId]
+        );
+        await testDatabase!.pool.query(
+          "delete from customer_account_links where customer_account_id = $1",
+          [inviteeAccountId]
+        );
+        await testDatabase!.pool.query(
+          'delete from auth."user" where id = $1',
+          [inviteeAccountId]
+        );
+        await referrer.cleanup();
+      }
+    });
+
+    test("evaluates guest, attributed, self, and cyclic checkout referrals without writing", async () => {
+      const first = await createActiveReferrer();
+      const second = await createActiveReferrer();
+      const guestCustomerId = uniqueDotyposId();
+      const attributedCustomerId = uniqueDotyposId();
+      try {
+        await Effect.runPromise(
+          testDatabase!.db.insert(referralAttributions).values([
+            {
+              invitedDotyposCustomerId: attributedCustomerId,
+              referrerDotyposCustomerId: first.dotyposCustomerId,
+              promotionCodeId: first.promotionCodeId,
+            },
+            // first was invited by second, so second cannot be invited by first.
+            {
+              invitedDotyposCustomerId: first.dotyposCustomerId,
+              referrerDotyposCustomerId: second.dotyposCustomerId,
+              promotionCodeId: second.promotionCodeId,
+            },
+          ])
+        );
+        const evaluate = (code: string, dotyposCustomerId: DotyposCustomerId) =>
+          runReferrals((referrals) =>
+            referrals.evaluateCheckoutReferral({ code, dotyposCustomerId })
+          );
+
+        expect(await evaluate(first.code, guestCustomerId)).toMatchObject({
+          _tag: "Success",
+          success: { kind: "eligible" },
+        });
+        expect(await evaluate(first.code, attributedCustomerId)).toMatchObject({
+          _tag: "Success",
+          success: { kind: "already_accepted" },
+        });
+        expect(await evaluate(second.code, attributedCustomerId)).toMatchObject(
+          {
+            _tag: "Failure",
+            failure: { reason: "already_attributed" },
+          }
+        );
+        expect(
+          await evaluate(first.code, first.dotyposCustomerId)
+        ).toMatchObject({
+          _tag: "Failure",
+          failure: { reason: "self_referral" },
+        });
+        expect(
+          await evaluate(first.code, second.dotyposCustomerId)
+        ).toMatchObject({
+          _tag: "Failure",
+          failure: { reason: "cycle" },
+        });
+        expect(
+          (
+            await testDatabase!.pool.query(
+              "select 1 from referral_attributions where invited_dotypos_customer_id = any($1)",
+              [[guestCustomerId, second.dotyposCustomerId]]
+            )
+          ).rows
+        ).toEqual([]);
+      } finally {
+        await first.cleanup();
+        await second.cleanup();
+      }
+    });
+
+    test("tells a pending first payment, a paid booking, and a cycle apart at acceptance", async () => {
+      const referrer = await createActiveReferrer();
+      const inviteeAccountId = customerAccountIdSchema.make(uniqueId());
+      const inviteeCustomerId = uniqueDotyposId();
+      await insertAuthUser(inviteeAccountId);
+      await testDatabase!.pool.query(
+        `insert into customer_account_links (customer_account_id, dotypos_customer_id) values ($1, $2)`,
+        [inviteeAccountId, inviteeCustomerId]
+      );
+      const invitee = {
+        accountId: inviteeAccountId,
+        dotyposCustomerId: inviteeCustomerId,
+      };
+      let inviteePromotionId: string | undefined;
+      try {
+        const accept = (code: string, identity = invitee) =>
+          runReferrals(
+            (referrals) =>
+              referrals.acceptReferral({
+                code,
+                customerAccountId: identity.accountId,
+                dotyposCustomerId: identity.dotyposCustomerId,
+              }),
+            makeReferralLayer(identity)
+          );
+
+        const pendingId = await insertPendingBooking(inviteeCustomerId);
+        expect(await accept(referrer.code)).toMatchObject({
+          _tag: "Failure",
+          failure: { _tag: "ReferralError", reason: "pending_payment" },
+        });
+
+        await testDatabase!.pool.query(
+          "update workspace_reservations set payment_state = 'paid', paid_at = now() where id = $1",
+          [pendingId]
+        );
+        expect(await accept(referrer.code)).toMatchObject({
+          _tag: "Failure",
+          failure: { _tag: "ReferralError", reason: "ineligible" },
+        });
+
+        // The referrer was invited by the invitee, so the invitee's code
+        // cannot refer the referrer back.
+        const inviteeCode = canonicalPromotionCodeSchema.make(
+          `RFC${uniqueId().replaceAll("-", "").slice(0, 10).toUpperCase()}`
+        );
+        const [inviteePromotion] = await Effect.runPromise(
+          testDatabase!.db
+            .insert(promotionCodes)
+            .values({ kind: "referral", code: inviteeCode, enabled: true })
+            .returning({ id: promotionCodes.id })
+        );
+        inviteePromotionId = inviteePromotion!.id;
+        await Effect.runPromise(
+          testDatabase!.db.insert(referralCodes).values({
+            promotionCodeId: inviteePromotionId,
+            referrerDotyposCustomerId: inviteeCustomerId,
+          })
+        );
+        await Effect.runPromise(
+          testDatabase!.db.insert(referralAttributions).values({
+            invitedDotyposCustomerId: inviteeCustomerId,
+            referrerDotyposCustomerId: referrer.dotyposCustomerId,
+            promotionCodeId: referrer.promotionCodeId,
+          })
+        );
+        expect(
+          await accept(inviteeCode, {
+            accountId: referrer.accountId,
+            dotyposCustomerId: referrer.dotyposCustomerId,
+          })
+        ).toMatchObject({
+          _tag: "Failure",
+          failure: { _tag: "ReferralError", reason: "cycle" },
+        });
+      } finally {
+        if (inviteePromotionId) {
+          await testDatabase!.pool.query(
+            "delete from promotion_codes where id = $1",
+            [inviteePromotionId]
+          );
+        }
+        await testDatabase!.pool.query(
+          "delete from workspace_reservations where dotypos_customer_id = $1",
+          [inviteeCustomerId]
+        );
+        await testDatabase!.pool.query(
+          "delete from customer_account_links where customer_account_id = $1",
+          [inviteeAccountId]
+        );
+        await testDatabase!.pool.query(
+          'delete from auth."user" where id = $1',
+          [inviteeAccountId]
+        );
+        await referrer.cleanup();
+      }
+    });
+
+    test("rejects acceptance cleanly when Dotypos history fails inside the attribution transaction", async () => {
+      const referrer = await createActiveReferrer();
+      const inviteeAccountId = customerAccountIdSchema.make(uniqueId());
+      const inviteeCustomerId = uniqueDotyposId();
+      await insertAuthUser(inviteeAccountId);
+      await testDatabase!.pool.query(
+        `insert into customer_account_links (customer_account_id, dotypos_customer_id) values ($1, $2)`,
+        [inviteeAccountId, inviteeCustomerId]
+      );
+      try {
+        const identity = {
+          accountId: inviteeAccountId,
+          dotyposCustomerId: inviteeCustomerId,
+        };
+        const failingHistory = makeReferralLayer(
+          identity,
+          () => [],
+          () =>
+            Effect.fail(
+              new ExternalAPIError({
+                operation: "listReservations",
+                service: "Dotypos",
+                statusCode: 503,
+              })
+            )
+        );
+
+        const acceptance = await runReferrals(
+          (referrals) =>
+            referrals.acceptReferral({
+              code: referrer.code,
+              customerAccountId: inviteeAccountId,
+              dotyposCustomerId: inviteeCustomerId,
+            }),
+          failingHistory
+        );
+
+        expect(acceptance).toMatchObject({
+          _tag: "Failure",
+          failure: { _tag: "ReferralError", reason: "unavailable" },
+        });
+        // The pool connection is still usable after the rollback.
+        const attributions = await testDatabase!.pool.query(
+          "select 1 from referral_attributions where invited_dotypos_customer_id = $1",
+          [inviteeCustomerId]
+        );
+        expect(attributions.rows).toEqual([]);
+      } finally {
+        await testDatabase!.pool.query(
+          "delete from customer_account_links where customer_account_id = $1",
+          [inviteeAccountId]
+        );
+        await testDatabase!.pool.query(
+          'delete from auth."user" where id = $1',
+          [inviteeAccountId]
+        );
+        await referrer.cleanup();
+      }
+    });
+  }
+);

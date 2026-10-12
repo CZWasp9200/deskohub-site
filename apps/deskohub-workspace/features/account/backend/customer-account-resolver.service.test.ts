@@ -7,6 +7,7 @@ import {
 import {
   type CustomerAccountResolutionDependencies,
   resolveCustomerAccount,
+  resolveCustomerAccountLink,
 } from "./customer-account-resolver.service";
 import type { CustomerAccountSession } from "./customer-authentication.service";
 
@@ -300,5 +301,45 @@ describe("CustomerAccountResolver", () => {
 
     await expectAccessError(outcome, "link-required", "deletion-requested");
     expect(calls).toEqual(["lock-acquire", "lock-release"]);
+  });
+
+  test("reports an auto-link only when this resolution claimed an existing profile", async () => {
+    const resolveLink = (dependencies: CustomerAccountResolutionDependencies) =>
+      Effect.runPromise(resolveCustomerAccountLink(dependencies));
+
+    await expect(
+      resolveLink(makeDependencies({ link: "60111" }).dependencies)
+    ).resolves.toEqual({
+      account: { accountId, dotyposCustomerId: "60111" },
+      autoLinked: false,
+    });
+    await expect(
+      resolveLink(
+        makeDependencies({
+          matches: matches({
+            kind: "matched",
+            state: "active",
+            customerId: "60111",
+          }),
+        }).dependencies
+      )
+    ).resolves.toEqual({
+      account: { accountId, dotyposCustomerId: "60111" },
+      autoLinked: true,
+    });
+    await expect(
+      resolveLink(
+        makeDependencies({
+          matches: matches({
+            kind: "matched",
+            state: "expired",
+            customerId: "60222",
+          }),
+        }).dependencies
+      )
+    ).resolves.toEqual({
+      account: { accountId, dotyposCustomerId: "60222" },
+      autoLinked: true,
+    });
   });
 });

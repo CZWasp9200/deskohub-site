@@ -1,13 +1,15 @@
 import "server-only";
 
-import { Effect, Result } from "effect";
+import { Effect, Layer, Result } from "effect";
 import { cache } from "react";
+import { acceptAutoLinkedReferral } from "@/features/account/backend/auto-linked-referral";
 import { resolveCurrentCustomerAccount } from "@/features/account/backend/customer-account-resolver.service";
 import { CustomerAuthentication } from "@/features/account/backend/customer-authentication.service";
 import { CustomerAvatarService } from "@/features/account/backend/customer-avatar.service";
 import type { CustomerProfile } from "@/features/account/backend/customer-dotypos-adapter.service";
 import { CustomerProfileService } from "@/features/account/backend/customer-profile.service";
 import { CustomerReservationHistoryService } from "@/features/account/backend/customer-reservation-history.service";
+import { recordSignupReferral } from "@/features/account/backend/signup-referral";
 import type {
   CustomerAvatarPresentation,
   CustomerReservationHistory,
@@ -20,6 +22,7 @@ import {
   type ReferralCode,
 } from "@/features/referrals/client";
 import type { ReferralAccountOverview } from "@/features/referrals/contracts";
+import { ReferralSignupIntentRepository } from "@/features/referrals/signup-intent.repository";
 import { getWorkspaceRuntimeCallbackOrigin } from "@/shared/backend/config/workspace-url.config";
 import { runWorkspaceEffect } from "@/shared/backend/workspace-effect";
 
@@ -53,7 +56,10 @@ const unavailable = (): CustomerAccountPageState => ({ kind: "unavailable" });
 
 /**
  * Loads the account page for the current session. A shared referral code only
- * matters before first-time profile completion; a linked account ignores it.
+ * matters at sign-up: it prefills first-time profile completion, and it is
+ * recorded when this visit links the account to an existing Dotypos customer.
+ * An account that was already linked ignores it. A linked visit also retries
+ * the code its profile completion could not record yet.
  */
 export const loadCustomerAccountPage = cache(
   async (
@@ -79,16 +85,40 @@ export const loadCustomerAccountPage = cache(
       return { kind: "deletion-pending", email: user.email };
     }
 
-    const account = await resolveCurrentCustomerAccount.pipe(
+    const resolution = await resolveCurrentCustomerAccount.pipe(
       Effect.tapError((error) =>
         Effect.logError("Account resolution failed", { error })
       ),
       Effect.result,
       runWorkspaceEffect("account.resolve", { boundary: "page" })
     );
-    if (Result.isSuccess(account)) {
+    if (Result.isSuccess(resolution)) {
+      const account = resolution.success.account;
+      // Resolution has released the account lock that acceptance takes.
+      await acceptAutoLinkedReferral(resolution.success, referralCode).pipe(
+        Effect.provide(ReferralService.Live),
+        Effect.catchCause(() =>
+          logDegradedAccountSection("account.auto-link.referral.unavailable")
+        ),
+        runWorkspaceEffect("account.auto-link.referral", { boundary: "page" })
+      );
+      // Retries a profile-completion referral whose recording failed
+      // transiently; outside any account lock, like the auto-link above.
+      await recordSignupReferral(account).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            ReferralService.Live,
+            ReferralSignupIntentRepository.Live
+          )
+        ),
+        Effect.catchCause(() =>
+          logDegradedAccountSection("account.signup-referral.unavailable")
+        ),
+        runWorkspaceEffect("account.signup-referral", { boundary: "page" })
+      );
+
       const profile = await Effect.flatMap(CustomerProfileService, (service) =>
-        service.load(account.success)
+        service.load(account)
       ).pipe(
         Effect.provide(CustomerProfileService.Live),
         Effect.tapError((error) =>
@@ -103,7 +133,7 @@ export const loadCustomerAccountPage = cache(
 
       const history = await Effect.flatMap(
         CustomerReservationHistoryService,
-        (service) => service.load(account.success)
+        (service) => service.load(account)
       ).pipe(
         Effect.provide(CustomerReservationHistoryService.Live),
         Effect.tapError(() =>
@@ -124,7 +154,7 @@ export const loadCustomerAccountPage = cache(
         // degrades to the initials fallback.
         const availableAvatar = await Effect.flatMap(
           CustomerAvatarService,
-          (service) => service.lookup(account.success.accountId)
+          (service) => service.lookup(account.accountId)
         ).pipe(
           Effect.provide(CustomerAvatarService.Live),
           Effect.tapError(() =>
@@ -138,8 +168,8 @@ export const loadCustomerAccountPage = cache(
 
       const referrals = await Effect.flatMap(ReferralService, (service) =>
         service.getAccountSummary({
-          customerAccountId: account.success.accountId,
-          dotyposCustomerId: account.success.dotyposCustomerId,
+          customerAccountId: account.accountId,
+          dotyposCustomerId: account.dotyposCustomerId,
         })
       ).pipe(
         Effect.flatMap((summary) =>
@@ -170,7 +200,7 @@ export const loadCustomerAccountPage = cache(
       };
     }
 
-    const failure = account.failure;
+    const failure = resolution.failure;
     if (failure.reason === "unauthenticated") {
       return { kind: "unauthenticated" };
     }

@@ -20,6 +20,10 @@ import {
   discountIdSchema,
   PromotionCodeUnavailableError,
 } from "@/features/discounts";
+import {
+  type CanonicalPromotionCode,
+  canonicalPromotionCodeSchema,
+} from "@/features/discounts/contracts";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import { instantStringSchema } from "@/shared/utils/temporal";
 
@@ -171,6 +175,7 @@ describe("applyDiscountCodeToPayState", () => {
           ...opened,
           submittedCode: undefined,
           submittedCodeDiscountId: undefined,
+          referralCode: canonicalPromotionCodeSchema.make("RFL12345"),
         });
         return { status: "accepted" as const, freshPayUrl };
       })
@@ -208,40 +213,59 @@ describe("applyDiscountCodeToPayState", () => {
       payStateToken: acceptedToken ?? "",
     });
     expect(ordinary.applyDiscountCode).toHaveBeenCalledWith(
-      expect.objectContaining({ submittedCode: "SAVE20" })
+      expect.objectContaining({
+        submittedCode: "SAVE20",
+        referralCode: "RFL12345",
+      })
     );
-    expect(ordinary.result.status).toBe("applied");
+    if (ordinary.result.status !== "applied") {
+      throw new Error("Expected applied ordinary code");
+    }
+    const ordinaryState = await Effect.runPromise(
+      openPayState(
+        new URL(
+          ordinary.result.freshPayUrl,
+          "https://deskohub.test"
+        ).searchParams.get(payStateTokenQueryParam) ?? ""
+      )
+    );
+    expect(ordinaryState.referralCode).toBe("RFL12345");
   });
 
-  test("returns an unavailable referral result without falling through to promotion pricing", async () => {
-    const acceptCode = mock(() =>
-      Effect.succeed({ status: "unavailable" as const })
-    );
-    const scenario = await runSubmission({
-      submittedCode: "RFL12345",
-      codeKind: "referral",
-      acceptCode,
-    });
-
-    expect(scenario.result).toEqual({ status: "unavailable" });
-    expect(acceptCode).toHaveBeenCalledTimes(1);
-    expect(scenario.applyDiscountCode).not.toHaveBeenCalled();
-    expect(scenario.requireCurrent).not.toHaveBeenCalled();
-  });
-
-  test.each(["already_attributed", "ineligible"] as const)(
-    "returns the explained %s referral rejection without promotion pricing",
-    async (status) => {
+  test.each([
+    ["unavailable", "unavailable"],
+    ["already_attributed", "referral-already-attributed"],
+    ["ineligible", "referral-ineligible"],
+  ] as const)(
+    "keeps a %s referral code in the box without promotion pricing",
+    async (status, discountCodeError) => {
       const acceptCode = mock(() => Effect.succeed({ status }));
       const scenario = await runSubmission({
-        submittedCode: "RFL12345",
+        submittedCode: "rfl12345",
         codeKind: "referral",
         acceptCode,
       });
 
-      expect(scenario.result).toEqual({ status });
+      expect(scenario.result.status).toBe(status);
       expect(scenario.applyDiscountCode).not.toHaveBeenCalled();
       expect(scenario.requireCurrent).not.toHaveBeenCalled();
+      const freshPayUrl =
+        "freshPayUrl" in scenario.result
+          ? scenario.result.freshPayUrl
+          : undefined;
+      if (!freshPayUrl) throw new Error("Expected a replacement Pay URL");
+      expect(freshPayUrl).not.toContain("RFL12345");
+      const freshUrl = new URL(freshPayUrl, "https://deskohub.test");
+      expect(freshUrl.searchParams.get("discountCodeError")).toBe(
+        discountCodeError
+      );
+      expect(freshUrl.searchParams.get("discountCodeErrorId")).toBeTruthy();
+      const freshState = await Effect.runPromise(
+        openPayState(freshUrl.searchParams.get(payStateTokenQueryParam) ?? "")
+      );
+      expect(freshState.requestedDiscountCode).toBe("RFL12345");
+      expect(freshState).not.toHaveProperty("referralCode");
+      expect(freshState).not.toHaveProperty("submittedCode");
     }
   );
 

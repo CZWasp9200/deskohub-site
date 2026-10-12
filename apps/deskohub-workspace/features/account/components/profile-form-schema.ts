@@ -90,14 +90,19 @@ export const getProfileFormDefaultValues = (
   zip: profile?.billing?.zip ?? "",
 });
 
-/** The completion payload: the profile plus a referral code when entered. */
+/**
+ * The completion payload: the profile plus a referral code when entered, and
+ * the shared-link prefill it is compared against so a link code never blocks.
+ */
 export const toCustomerProfileCompletionInput = (
-  values: ProfileFormValues
+  values: ProfileFormValues,
+  prefilledReferralCode?: string
 ): CustomerProfileCompletionInput => {
   const referralCode = trimmedToUndefined(values.referralCode);
   return {
     ...toCustomerProfileInput(values),
     ...(referralCode && { referralCode }),
+    ...(referralCode && prefilledReferralCode && { prefilledReferralCode }),
   };
 };
 

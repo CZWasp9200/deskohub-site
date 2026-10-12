@@ -1,0 +1,183 @@
+import { Effect, Match, Result } from "effect";
+import { ReferralService } from "@/features/referrals";
+import type { ReferralError } from "@/features/referrals/contracts";
+import {
+  type ReferralSignupIntent,
+  ReferralSignupIntentRepository,
+} from "@/features/referrals/signup-intent.repository";
+import type { ProfileCompletionReferralOutcome } from "../contracts";
+import type { LinkedCustomerAccount } from "../customer-account";
+
+const applied = { status: "applied" } as const;
+const pending = { status: "pending" } as const;
+const notApplied = (
+  reason: Extract<
+    ProfileCompletionReferralOutcome,
+    { readonly status: "not-applied" }
+  >["reason"]
+) => ({ status: "not-applied", reason }) as const;
+
+const normalizeEnteredCode = (code: string) => code.trim().toUpperCase();
+
+/**
+ * Checks the code entered at first-time completion before anything is
+ * created. A typed code that cannot be used now rejects the completion. A code
+ * still equal to the shared-link prefill is dropped silently instead, because
+ * it may have stopped being usable after the page rendered, and a link must
+ * never block sign-up.
+ */
+export const prepareSignupReferral = Effect.fn("account.prepareSignupReferral")(
+  function* (input: {
+    readonly code: string | undefined;
+    readonly prefilledCode: string | undefined;
+  }) {
+    if (input.code === undefined) return { kind: "none" } as const;
+
+    const referrals = yield* ReferralService;
+    const intents = yield* ReferralSignupIntentRepository;
+    const target = yield* referrals
+      .findAvailableCode({ code: input.code })
+      .pipe(
+        Effect.flatMap((code) =>
+          code === undefined
+            ? Effect.succeed(undefined)
+            : intents.findCodeTarget(code)
+        ),
+        Effect.orElseSucceed(() => undefined)
+      );
+    if (target) return { kind: "intent", intent: target } as const;
+
+    const fromSharedLink =
+      input.prefilledCode !== undefined &&
+      normalizeEnteredCode(input.code) ===
+        normalizeEnteredCode(input.prefilledCode);
+    if (!fromSharedLink) return { kind: "unavailable" } as const;
+
+    yield* Effect.logInfo(
+      "Shared-link referral code was dropped at profile completion"
+    ).pipe(Effect.annotateLogs({ code: "account.complete-profile.referral" }));
+    return { kind: "none" } as const;
+  }
+);
+
+const classifyRejection = (
+  error: ReferralError,
+  code: string
+): Effect.Effect<ProfileCompletionReferralOutcome, never, ReferralService> =>
+  Match.value(error.reason).pipe(
+    Match.when("already_attributed", () =>
+      Effect.succeed(notApplied("already-referred"))
+    ),
+    Match.when("ineligible", () => Effect.succeed(notApplied("not-eligible"))),
+    Match.when(Match.is("self_referral", "invalid_code", "cycle"), () =>
+      Effect.succeed(notApplied("code-unusable"))
+    ),
+    // A pending payment may still become the first paid booking, either
+    // closing the window or recording that checkout's own referral; the
+    // retry after it settles reports whichever happened.
+    Match.when(Match.is("pending_payment", "account_unavailable"), () =>
+      Effect.succeed(pending)
+    ),
+    // Acceptance reports both an unusable code and a failed database or
+    // Dotypos read as `unavailable`. Only a read that succeeds and finds the
+    // code unusable is definitive; anything else is retried.
+    Match.when("unavailable", () =>
+      Effect.flatMap(ReferralService, (referrals) =>
+        referrals.findAvailableCode({ code })
+      ).pipe(
+        Effect.map((available) =>
+          available === undefined ? notApplied("code-unusable") : pending
+        ),
+        Effect.orElseSucceed(() => pending)
+      )
+    ),
+    Match.exhaustive
+  );
+
+/**
+ * Records the referral stored by the completion that created this account's
+ * link. Acceptance takes the account lock in its own transaction, so call
+ * this only once no account lock or transaction is held. An accepted or
+ * definitively rejected code removes the intent; a transient failure keeps it
+ * for the next account visit. Returns undefined when no intent is stored.
+ */
+export const recordSignupReferral = Effect.fn("account.recordSignupReferral")(
+  function* (account: LinkedCustomerAccount) {
+    const intents = yield* ReferralSignupIntentRepository;
+    const referrals = yield* ReferralService;
+    const intent = yield* intents.find(account.accountId);
+    if (!intent) return undefined;
+
+    const acceptance = yield* referrals
+      .acceptReferral({
+        code: intent.code,
+        customerAccountId: account.accountId,
+        dotyposCustomerId: account.dotyposCustomerId,
+      })
+      .pipe(Effect.result);
+    const outcome: ProfileCompletionReferralOutcome = Result.isSuccess(
+      acceptance
+    )
+      ? applied
+      : yield* classifyRejection(acceptance.failure, intent.code);
+
+    if (outcome.status !== "pending") {
+      // A failed removal only repeats an idempotent attempt on a later visit.
+      yield* intents
+        .remove(account.accountId, intent.promotionCodeId)
+        .pipe(
+          Effect.catch(() =>
+            Effect.logWarning("Referral signup intent was not removed").pipe(
+              Effect.annotateLogs({ code: "account.signup-referral.remove" })
+            )
+          )
+        );
+    }
+    yield* Effect.logInfo("Referral signup intent settled").pipe(
+      Effect.annotateLogs({
+        code: "account.signup-referral",
+        outcome: outcome.status,
+        ...(Result.isFailure(acceptance) && {
+          reason: acceptance.failure.reason,
+        }),
+      })
+    );
+    return outcome;
+  }
+);
+
+/**
+ * Reports a completion's code from the account's current referral state when
+ * this completion did not record it itself: another completion created the
+ * link first, or the stored intent was already settled.
+ */
+export const describeSignupReferral = Effect.fn(
+  "account.describeSignupReferral"
+)(function* (
+  account: LinkedCustomerAccount,
+  intent: ReferralSignupIntent,
+  created: boolean
+) {
+  const intents = yield* ReferralSignupIntentRepository;
+  const unrecorded = created
+    ? notApplied("code-unusable")
+    : notApplied("profile-already-completed");
+
+  return yield* Effect.gen(function* () {
+    const attributedCode = yield* intents.findAttributedCode(
+      account.dotyposCustomerId
+    );
+    if (attributedCode !== undefined) {
+      return attributedCode === intent.promotionCodeId
+        ? applied
+        : notApplied("already-referred");
+    }
+    const stored = yield* intents.find(account.accountId);
+    if (stored) {
+      return stored.promotionCodeId === intent.promotionCodeId
+        ? pending
+        : notApplied("already-referred");
+    }
+    return unrecorded;
+  }).pipe(Effect.orElseSucceed(() => (created ? pending : unrecorded)));
+});

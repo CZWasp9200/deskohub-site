@@ -6,6 +6,16 @@ export type ReferralAcceptance =
   | { readonly kind: "accepted" }
   | { readonly kind: "already_accepted" };
 
+/**
+ * A referral code a checkout may carry for its customer. `eligible` means the
+ * invitation can be priced and attributed when the order is paid;
+ * `already_accepted` means the customer is already attributed to that
+ * referrer, so the code adds nothing to carry.
+ */
+export type CheckoutReferralEvaluation =
+  | { readonly kind: "eligible"; readonly code: ReferralCode }
+  | { readonly kind: "already_accepted" };
+
 export type ReferralCodeKind =
   | { readonly kind: "referral" }
   | { readonly kind: "other" };
@@ -37,7 +47,15 @@ type ReferralFailureReason =
   | "unavailable"
   | "self_referral"
   | "already_attributed"
+  /** The customer already has a paid booking, so the invitation window has closed. */
   | "ineligible"
+  /**
+   * The customer has no paid booking yet, but a payment is in progress (or
+   * holds the invitation) and may still become their first paid booking.
+   */
+  | "pending_payment"
+  /** The code's owner was invited, directly or through others, by this customer. */
+  | "cycle"
   | "account_unavailable";
 
 export class ReferralError extends Data.TaggedError("ReferralError")<{

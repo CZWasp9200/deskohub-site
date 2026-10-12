@@ -47,9 +47,13 @@ description: Workspace customer account, Better Auth, magic link, auth persisten
 
 - Keep `CustomerAccountResolver` as the public, replaceable
   identity-to-customer capability for authenticated route composition and
-  provider-independent tests. `resolveCurrentCustomerAccount()` is the
-  Live-wired page convenience. Both return only `CustomerAccountId` and
-  `DotyposCustomerId`, without exposing session or profile data.
+  provider-independent tests. `CustomerAccountResolver.resolve` returns only
+  `CustomerAccountId` and `DotyposCustomerId`, without exposing session or
+  profile data. `resolveCurrentCustomerAccount()` is the Live-wired account
+  page convenience: it returns `{ account, autoLinked }`, where `autoLinked`
+  is true only when this resolution claimed the link to an existing
+  exact-email customer. The account page uses that to record a sign-up
+  referral; keep other callers on `resolve`.
 - Require the authoritative current session and verified email. Resolve the
   profile in a fixed order: an existing durable link wins; one unique active
   exact-email profile links; one unique expired profile reactivates first and
@@ -59,6 +63,10 @@ description: Workspace customer account, Better Auth, magic link, auth persisten
   already-claimed profiles return the common support state.
 - Claim links with database uniqueness and conflict rereads so same-account
   races are idempotent and a customer claimed by another account is rejected.
+  A `linked` claim reports `created` only for the call that inserted the link.
+  `CustomerProfileService.create` returns `{ account, profile, created }`.
+  An optional signup referral passed to `claim` is written in the link's
+  transaction (see the referrals skill).
 - Keep authentication-not-configured, unauthenticated, unverified-email,
   link-required, and unavailable as a closed public error contract. Attach only
   fixed, non-PII internal failure codes so Auth, link reads, Dotypos lookup,

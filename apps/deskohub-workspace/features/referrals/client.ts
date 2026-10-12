@@ -4,6 +4,7 @@ import {
   formatDiscountReduction,
 } from "@/features/checkout/format-discount-adjustment";
 import type { Locale } from "@/features/i18n";
+import { referralInvitationDiscountBasisPoints } from "./program";
 
 const referralCodeCodec = Schema.String.check(
   Schema.isPattern(/^[A-Z0-9][A-Z0-9_-]{2,63}$/)
@@ -53,3 +54,10 @@ const roundUpReferralDiscount = (discount: string) => {
   const percent = Number(whole) + (/[1-9]/.test(fraction) ? 1 : 0);
   return { kind: "percentage", basisPoints: percent * 100 } as const;
 };
+
+/** The invited customer's first-booking discount, such as "15%". */
+export const formatReferralInvitationDiscount = (locale: Locale) =>
+  formatDiscountAdjustment(
+    { kind: "percentage", basisPoints: referralInvitationDiscountBasisPoints },
+    locale
+  );

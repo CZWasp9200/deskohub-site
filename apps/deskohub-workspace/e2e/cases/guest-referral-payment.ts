@@ -42,7 +42,10 @@ import {
 } from "../integrations/database";
 import { E2EDatabase } from "../integrations/database.service";
 import type { WorkspaceE2ECaseBinder } from "../playwright-checkout/fixtures";
-import { isReferralAppliedPayUrl } from "../referrals/checkout";
+import {
+  isReferralAppliedPayUrl,
+  referralAppliedMessage,
+} from "../referrals/checkout";
 import type { WorkspaceE2ERunId } from "../run-identifiers";
 import { addRedaction, assert, type Runner } from "../runtime";
 import type {
@@ -262,7 +265,7 @@ const executeGuestReferralPayment = Effect.fn("GuestReferralPayment.execute")(
       {
         execute: Effect.gen(function* () {
           yield* applyDiscountCode({
-            appliedMessage: m.checkoutReferralDiscountApplied({}, { locale }),
+            appliedMessage: referralAppliedMessage(locale),
             code: referrer.code,
             config,
             run,

@@ -348,7 +348,7 @@ test("accepts only the owned first pay page that reports the share-link referral
   }
 });
 
-test("accepts only a newly reported referral rejection on the owned pay page", () => {
+test("accepts only a rejected referral code on a re-signed pay state", () => {
   const baseUrl = "https://workspace.example.test";
   const orderId = "workspace-reservation-123" as WorkspaceReservationId;
   const previousUrl = `${baseUrl}/en-US/checkout/pay?payState=signed&orderId=${orderId}`;
@@ -361,15 +361,12 @@ test("accepts only a newly reported referral rejection on the owned pay page", (
       orderId,
       previousUrl,
     });
-  const rejected = `${previousUrl}&discountCodeError=referral-already-attributed&discountCodeErrorId=synthetic`;
+  const rejected = `${baseUrl}/en-US/checkout/pay?payState=fresh&orderId=${orderId}&discountCodeError=referral-already-attributed&discountCodeErrorId=synthetic`;
 
   expect(accepts(rejected)).toBe(true);
-  // The rejection re-signs the pay state so the typed code stays in the box.
-  expect(accepts(rejected.replace("payState=signed", "payState=fresh"))).toBe(
-    true
-  );
   for (const candidate of [
     previousUrl,
+    rejected.replace("payState=fresh", "payState=signed"),
     rejected.replace("referral-already-attributed", "referral-ineligible"),
     `${rejected}&discountCodeError=referral-already-attributed`,
     `${rejected}&referralApplied=1`,
@@ -380,16 +377,6 @@ test("accepts only a newly reported referral rejection on the owned pay page", (
   ]) {
     expect(accepts(candidate)).toBe(false);
   }
-  expect(
-    isRejectedReferralCodeUrl({
-      baseUrl,
-      currentUrl: rejected,
-      error: "referral-already-attributed",
-      locale: "en-US",
-      orderId,
-      previousUrl: rejected,
-    })
-  ).toBe(false);
 });
 
 test("writes checkout review PNGs into the account-review artifact bundle", () => {
