@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { testEmailAddress } from "@deskohub/email/testing";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Deferred, Effect, Fiber, Semaphore } from "effect";
 import { SqlError } from "effect/unstable/sql";
 import { reservationCustomerEmailSchema } from "@/features/reservation/reservation-contact";

@@ -2,7 +2,7 @@ import "@/shared/polyfills/temporal";
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, mock, test } from "bun:test";
-import { testEmailAddress } from "@deskohub/email/testing";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Effect, Layer, Schema } from "effect";
 import { CheckoutPricingServiceMock } from "@/features/checkout/backend/checkout/checkout-pricing.service.mock";
 import {

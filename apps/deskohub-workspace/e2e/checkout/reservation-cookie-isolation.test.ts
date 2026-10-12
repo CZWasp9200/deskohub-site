@@ -1,7 +1,7 @@
 import "../../shared/polyfills/temporal";
 
 import { expect, test } from "bun:test";
-import { testEmailAddress } from "@deskohub/email/testing";
+import { testEmailAddress } from "@deskohub/test-email";
 import type { Browser } from "@playwright/test";
 import { Effect } from "effect";
 import { browserTextScript } from "../browser-scripts";

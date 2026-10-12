@@ -1,5 +1,5 @@
 import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
-import { testEmailAddress } from "@deskohub/email/testing";
+import { testEmailAddress } from "@deskohub/test-email";
 import { type ComponentPropsWithoutRef, useState } from "react";
 import { type Locale, m } from "@/features/i18n";
 import {

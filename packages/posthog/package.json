@@ -30,7 +30,7 @@
     "react": ">=16.8.0"
   },
   "devDependencies": {
-    "@deskohub/email": "workspace:*",
+    "@deskohub/test-email": "workspace:*",
     "@effect/openapi-generator": "4.0.0-beta.85",
     "@types/mustache": "^4.2.6",
     "@types/react": "^19.3.0",

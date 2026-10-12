@@ -1,4 +1,4 @@
-import { testEmailAddress } from "@deskohub/email/testing";
+import { testEmailAddress } from "@deskohub/test-email";
 import { workspaceSiteConstants } from "@/shared/utils";
 import type { ContactBusinessEmailProps } from "../contact-business";
 import type { ContactConfirmationEmailProps } from "../contact-confirmation";

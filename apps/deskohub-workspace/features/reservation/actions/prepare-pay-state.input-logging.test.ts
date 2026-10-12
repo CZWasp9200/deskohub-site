@@ -1,7 +1,7 @@
 import "@/shared/polyfills/temporal";
 
 import { describe, expect, test } from "bun:test";
-import { testEmailAddress } from "@deskohub/email/testing";
+import { testEmailAddress } from "@deskohub/test-email";
 import { mockWorkspaceActionTelemetry } from "@/shared/testing/workspace-action-logging.test-utils";
 
 const { getOperationLogRecords } = await mockWorkspaceActionTelemetry();

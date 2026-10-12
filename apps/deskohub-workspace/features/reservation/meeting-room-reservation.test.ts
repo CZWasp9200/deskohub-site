@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, setSystemTime, test } from "bun:test";
 import { Effect, Result, Schema } from "effect";
 import "@/shared/polyfills/temporal";
-import { testEmailAddress } from "@deskohub/email/testing";
+import { testEmailAddress } from "@deskohub/test-email";
 import {
   getMeetingRoomReservationDefaultValues,
   getMeetingRoomReservationIssues,

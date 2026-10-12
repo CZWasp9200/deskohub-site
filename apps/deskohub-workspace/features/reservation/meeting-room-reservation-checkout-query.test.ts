@@ -1,7 +1,7 @@
 import "@/shared/polyfills/temporal";
 
 import { describe, expect, test } from "bun:test";
-import { testEmailAddress } from "@deskohub/email/testing";
+import { testEmailAddress } from "@deskohub/test-email";
 import { workspaceSiteConstants } from "@/shared/utils/site-constants";
 import { getMeetingRoomReservationDefaultValuesFromSearchParams } from "./meeting-room-reservation-checkout-query";
 import { getMeetingRoomReservationInterval } from "./meeting-room-reservation-time";

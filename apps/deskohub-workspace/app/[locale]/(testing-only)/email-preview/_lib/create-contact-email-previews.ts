@@ -11,7 +11,7 @@ import {
   EmailConfigTag,
   EmailServiceTag,
 } from "@deskohub/email/backend/service";
-import { testEmailAddress } from "@deskohub/email/testing";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Effect, Layer } from "effect";
 import { ContactService } from "@/features/contact/backend/contact.service";
 import type { Locale } from "@/features/i18n";

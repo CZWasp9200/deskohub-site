@@ -3,8 +3,8 @@ import {
   DotyposReservationIdSchema,
   DotyposTableIdSchema,
 } from "@deskohub/dotypos";
-import { testEmailAddress } from "@deskohub/email/testing";
 import { NexiOperationIdSchema, NexiOrderIdSchema } from "@deskohub/nexi";
+import { testEmailAddress } from "@deskohub/test-email";
 import { paymentAttemptIdSchema } from "@/features/checkout/checkout-identifiers";
 import { discountApplicationIdSchema } from "@/features/discounts/persistence-contracts";
 import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";

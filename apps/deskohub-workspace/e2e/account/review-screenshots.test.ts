@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { testEmailAddress } from "@deskohub/email/testing";
 import * as fsPromises from "node:fs/promises";
 import { resolve } from "node:path";
+import { testEmailAddress } from "@deskohub/test-email";
 import type * as Playwright from "@playwright/test";
 import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
 import { reservationStatusPath } from "@/features/reservation/routes";

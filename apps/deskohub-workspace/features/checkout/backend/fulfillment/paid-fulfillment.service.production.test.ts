@@ -3,7 +3,7 @@ import "@/shared/testing/workspace-test-env";
 import { describe, expect, mock, test } from "bun:test";
 import { DotyposService } from "@deskohub/dotypos";
 import { EmailDeliveryIdSchema } from "@deskohub/email";
-import { testEmailAddress } from "@deskohub/email/testing";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Effect, Layer } from "effect";
 import { env, getAccountingDocumentSnapshotSecret } from "@/env";
 import { ReservationInvoiceService } from "@/features/accounting/backend/reservation-invoice.service";

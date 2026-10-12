@@ -5,8 +5,8 @@ import {
   DotyposCustomerIdSchema,
   DotyposReservationIdSchema,
 } from "@deskohub/dotypos";
-import { testEmailAddress } from "@deskohub/email/testing";
 import { NexiOrderIdSchema } from "@deskohub/nexi";
+import { testEmailAddress } from "@deskohub/test-email";
 import { eq } from "drizzle-orm";
 import { Effect, Schema } from "effect";
 import {

@@ -2,6 +2,7 @@ import "@/shared/polyfills/temporal";
 
 import { describe, expect, test } from "bun:test";
 import type { Customer } from "@deskohub/dotypos/generated";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Cause, Effect, Exit, Layer, Option } from "effect";
 import { FetchHttpClient } from "effect/unstable/http";
 import {
@@ -31,8 +32,6 @@ import {
   executeCheckoutFlow,
 } from "./checkout";
 import { makeDiscountE2ECases } from "./discounts";
-
-import { testEmailAddress } from "@deskohub/email/testing";
 
 const customer: Customer = {
   _cloudId: "customer-id",

@@ -1,7 +1,7 @@
 import "@/shared/polyfills/temporal";
 
 import { describe, expect, test } from "bun:test";
-import { testEmailAddress } from "@deskohub/email/testing";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Schema } from "effect";
 import { normalizedCoworkReservationOrderSchema } from "./cowork-reservation";
 import {

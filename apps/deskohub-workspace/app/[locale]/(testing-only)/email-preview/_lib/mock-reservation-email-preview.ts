@@ -7,7 +7,7 @@ import {
 import type { Customer } from "@deskohub/dotypos/generated";
 import type { WorkspaceReservationDetails } from "@/features/reservation/backend/workspace-reservation.service";
 import "@/shared/polyfills/temporal";
-import { testEmailAddress } from "@deskohub/email/testing";
+import { testEmailAddress } from "@deskohub/test-email";
 import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
 
 const mockDate = Temporal.Instant.from("2026-06-12T09:00:00.000+02:00");

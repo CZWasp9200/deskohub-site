@@ -6,6 +6,7 @@ import {
 } from "@deskohub/dotypos";
 import { EmailDeliveryIdSchema } from "@deskohub/email";
 import { NexiCorrelationIdSchema, NexiOrderIdSchema } from "@deskohub/nexi";
+import { testEmailAddress } from "@deskohub/test-email";
 import { asc, eq, inArray, like, sql } from "drizzle-orm";
 import { Effect, Layer } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
@@ -59,8 +60,6 @@ import { workspaceReservationIdSchema } from "@/features/reservation/persistence
 import { temporalInstantToIsoString } from "@/shared/utils/temporal";
 import { toWorkspaceE2EError } from "../errors";
 import { E2EDatabase } from "./database.service";
-
-import { testEmailAddress } from "@deskohub/email/testing";
 
 const testKey: AccountingSnapshotKey = {
   id: accountingSnapshotKeyIdSchema.make("K202608"),

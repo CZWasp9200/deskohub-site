@@ -1,5 +1,5 @@
 import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
-import { testEmailAddress } from "@deskohub/email/testing";
+import { testEmailAddress } from "@deskohub/test-email";
 import React, { type ComponentPropsWithoutRef } from "react";
 import type { AresBusinessLookupResult } from "@/features/account/actions";
 import { workspaceRouterRefresh } from "@/shared/testing/workspace-component-module-mocks";

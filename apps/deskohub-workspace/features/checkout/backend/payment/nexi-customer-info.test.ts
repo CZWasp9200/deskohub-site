@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { testEmailAddress } from "@deskohub/email/testing";
+import { testEmailAddress } from "@deskohub/test-email";
 import { getNexiHostedPaymentCustomer } from "./nexi-customer-info";
 
 const testEmailAddressForAda = testEmailAddress("ada");

@@ -14,7 +14,7 @@ import {
   EmailServiceError,
   EmailServiceTag,
 } from "@deskohub/email/backend/service";
-import { testEmailAddress } from "@deskohub/email/testing";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Effect, Layer, Schema } from "effect";
 import type { InvoiceDeliveryEmailProps } from "@/emails/invoice-delivery";
 import {

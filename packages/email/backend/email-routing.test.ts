@@ -23,7 +23,7 @@ const {
 const { EmailConfigTag, EmailProviderTag } = await import("./capabilities");
 const { isTestEmailRecipient } = await import("./test-recipients");
 const { resendSimulatorAddress, testEmailAddress } = await import(
-  "../testing/test-email-address"
+  "@deskohub/test-email"
 );
 
 beforeEach(() => {

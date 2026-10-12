@@ -1,5 +1,5 @@
 import { expect, mock, test } from "bun:test";
-import { testEmailAddress } from "@deskohub/email/testing";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Effect } from "effect";
 import { isValidElement, type ReactElement, type ReactNode } from "react";
 import { buildCoworkReservationQuote } from "@/features/checkout/reservation-quote-cowork";

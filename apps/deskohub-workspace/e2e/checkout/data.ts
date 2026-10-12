@@ -1,5 +1,5 @@
-import { testEmailAddress } from "@deskohub/email/testing";
 import { randomUUID } from "node:crypto";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Effect, Schema } from "effect";
 import { HttpClient, HttpClientRequest } from "effect/unstable/http";
 import type {

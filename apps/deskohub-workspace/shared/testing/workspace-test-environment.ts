@@ -2,7 +2,7 @@ import "@/shared/polyfills/temporal";
 
 import { createHash } from "node:crypto";
 
-import { testEmailAddress } from "@deskohub/email/testing";
+import { testEmailAddress } from "@deskohub/test-email";
 
 const checkoutKey = Buffer.alloc(32, 7).toString("base64url");
 const accountingSnapshotKey = "synthetic accounting snapshot secret!";

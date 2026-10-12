@@ -7,7 +7,7 @@ import {
   mock,
   test,
 } from "bun:test";
-import { testEmailAddress } from "@deskohub/email/testing";
+import { testEmailAddress } from "@deskohub/test-email";
 import React, { Activity, type ComponentPropsWithoutRef } from "react";
 import type {
   CustomerAvatarPresentation,

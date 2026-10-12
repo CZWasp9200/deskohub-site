@@ -1,6 +1,6 @@
 import "@/shared/testing/workspace-test-env";
 import { describe, expect, mock, test } from "bun:test";
-import { testEmailAddress } from "@deskohub/email/testing";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Effect, Schema } from "effect";
 import { buildCoworkReservationQuote } from "@/features/checkout/reservation-quote-cowork";
 import type { WorkspaceMoney } from "@/features/checkout/workspace-money";

@@ -1,6 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
-import { EMAIL_TEST_DOMAIN } from "@deskohub/email/backend/test-recipients";
-import { testEmailAddress } from "@deskohub/email/testing";
+import { EMAIL_TEST_DOMAIN, testEmailAddress } from "@deskohub/test-email";
 import {
   Effect,
   Fiber,

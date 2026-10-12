@@ -1,8 +1,8 @@
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, test } from "bun:test";
-import { testEmailAddress } from "@deskohub/email/testing";
 import { IgloohomeService } from "@deskohub/igloohome";
+import { testEmailAddress } from "@deskohub/test-email";
 import {
   AdministrationActorUsername,
   AdministrationCanonicalPromotionCode,

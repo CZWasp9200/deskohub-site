@@ -8,7 +8,7 @@ import {
   mock,
   test,
 } from "bun:test";
-import { testEmailAddress } from "@deskohub/email/testing";
+import { testEmailAddress } from "@deskohub/test-email";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { m } from "@/features/i18n";
 import { normalizedMeetingRoomReservationOrderSchema } from "@/features/reservation/meeting-room-reservation";

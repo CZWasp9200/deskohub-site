@@ -1,4 +1,5 @@
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import type { Page } from "@playwright/test";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { createElement, useState } from "react";
@@ -20,8 +21,6 @@ import {
   verifyAccountLayoutNavigation,
 } from "./account-layout-navigation";
 import { accountSectionLabels } from "./account-sections";
-
-import { testEmailAddress } from "@deskohub/email/testing";
 
 const sections = [
   "reservations",

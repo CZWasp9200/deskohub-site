@@ -20,10 +20,7 @@ export {
   EmailServiceTag,
   EmailTemplateServiceTag,
 } from "./backend/service";
-export {
-  EMAIL_TEST_DOMAIN,
-  isTestEmailRecipient,
-} from "./backend/test-recipients";
+export { isTestEmailRecipient } from "./backend/test-recipients";
 export type {
   EmailAttachment,
   EmailConfig,

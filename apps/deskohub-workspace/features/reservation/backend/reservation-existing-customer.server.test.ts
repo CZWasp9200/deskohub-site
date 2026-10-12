@@ -1,6 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
 import type { DotyposCustomerId } from "@deskohub/dotypos";
-import { testEmailAddress } from "@deskohub/email/testing";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Deferred, Effect, Layer } from "effect";
 import type { CustomerMarketingConsent } from "@/db/schema/customer-marketing-consents";
 import {

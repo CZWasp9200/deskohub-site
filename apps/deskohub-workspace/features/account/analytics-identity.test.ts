@@ -9,7 +9,7 @@ import {
   setSystemTime,
   test,
 } from "bun:test";
-import { testEmailAddress } from "@deskohub/email/testing";
+import { testEmailAddress } from "@deskohub/test-email";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { customerAccountIdSchema } from "./customer-account";
 

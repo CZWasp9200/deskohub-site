@@ -1,4 +1,4 @@
-import { EMAIL_TEST_DOMAIN } from "@deskohub/email/backend/test-recipients";
+import { EMAIL_TEST_DOMAIN } from "@deskohub/test-email";
 
 /**
  * Only `delivered+<run-id>-<label>@<EMAIL_TEST_DOMAIN>` is a synthetic E2E

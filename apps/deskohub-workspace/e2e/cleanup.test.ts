@@ -1,5 +1,6 @@
 import { expect, mock, test } from "bun:test";
 import { ExternalAPIError } from "@deskohub/dotypos";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Effect } from "effect";
 import {
   cleanupCheckoutFlowStates,
@@ -7,8 +8,6 @@ import {
 } from "./cleanup";
 import type { DatasourceConfig } from "./config";
 import type { CheckoutData, CheckoutFlowState, CheckoutRow } from "./types";
-
-import { testEmailAddress } from "@deskohub/email/testing";
 
 const otherRunEmail = testEmailAddress("delivered+other-run");
 

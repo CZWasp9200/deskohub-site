@@ -1,4 +1,4 @@
-import { testEmailAddress } from "@deskohub/email/testing";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Option, Schema } from "effect";
 import { connection } from "next/server";
 import type { CheckoutStatusViewModel } from "@/features/checkout/backend/checkout";

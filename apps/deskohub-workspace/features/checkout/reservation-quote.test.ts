@@ -16,7 +16,7 @@ import {
   reservationOrderSchema,
 } from "@/features/reservation/reservation-order";
 import "@/shared/polyfills/temporal";
-import { testEmailAddress } from "@deskohub/email/testing";
+import { testEmailAddress } from "@deskohub/test-email";
 import { buildReservationQuote } from "./reservation-quote";
 
 const buildQuote = (...args: Parameters<typeof buildReservationQuote>) =>

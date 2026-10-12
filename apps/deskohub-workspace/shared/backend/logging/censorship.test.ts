@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { runInNewContext } from "node:vm";
-import { testEmailAddress } from "@deskohub/email/testing";
+import { testEmailAddress } from "@deskohub/test-email";
 import { resourceFromAttributes } from "@opentelemetry/resources";
 import {
   InMemoryLogRecordExporter,

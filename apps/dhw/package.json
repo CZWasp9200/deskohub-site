@@ -16,7 +16,7 @@
     "semver": "^7.7.4"
   },
   "devDependencies": {
-    "@deskohub/email": "workspace:*",
+    "@deskohub/test-email": "workspace:*",
     "@types/semver": "^7.7.1",
     "typescript": "npm:@typescript/typescript6@6.0.2"
   }

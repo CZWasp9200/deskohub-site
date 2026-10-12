@@ -1,12 +1,11 @@
 import { expect, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Cause, Effect, Exit, Fiber } from "effect";
 import type { WorkspaceE2EError } from "../errors";
 import type { Runner } from "../runtime";
 import { workspaceE2ETimeouts } from "../timeouts";
 import type { CheckoutData } from "../types";
 import { completeNexiHostedPayment } from "./nexi-hosted-payment";
-
-import { testEmailAddress } from "@deskohub/email/testing";
 
 const workspaceE2EEmail = testEmailAddress("workspace-e2e");
 

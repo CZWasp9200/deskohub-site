@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Effect, Layer } from "effect";
-import { testEmailAddress } from "../testing/test-email-address";
 import type { EmailProviderConfig } from "../types/email.types";
 import { ConfiguredEmailProviderLayer } from "./provider-factory";
 import { EmailConfigTag, EmailProviderTag } from "./service";

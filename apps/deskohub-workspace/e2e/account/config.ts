@@ -1,4 +1,4 @@
-import { testEmailAddress } from "@deskohub/email/testing";
+import { testEmailAddress } from "@deskohub/test-email";
 import type { WorkspaceE2EConfig } from "../config";
 import { parseWorkspaceE2EBaseUrl } from "../config";
 import {

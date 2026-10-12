@@ -8,7 +8,7 @@ import {
   mock,
   test,
 } from "bun:test";
-import { testEmailAddress } from "@deskohub/email/testing";
+import { testEmailAddress } from "@deskohub/test-email";
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { ContactFormState } from "@/features/contact/actions/contact";

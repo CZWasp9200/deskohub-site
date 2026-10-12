@@ -5,6 +5,7 @@ import type {
 } from "@deskohub/dotypos";
 import { ExternalAPIError } from "@deskohub/dotypos";
 import type { Customer } from "@deskohub/dotypos/generated";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Effect } from "effect";
 import {
   emptyWorkspaceE2EAccountJournal,
@@ -33,8 +34,6 @@ import {
   traceWorkspaceE2ESuiteCleanup,
   type WorkspaceE2ECleanupCandidates,
 } from "./cleanup-plan";
-
-import { testEmailAddress } from "@deskohub/email/testing";
 
 const sourceRunRecipientEmail = testEmailAddress("delivered+source-run-main");
 

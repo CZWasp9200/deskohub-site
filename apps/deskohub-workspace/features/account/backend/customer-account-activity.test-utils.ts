@@ -1,4 +1,4 @@
-import { testEmailAddress } from "@deskohub/email/testing";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Effect, Layer } from "effect";
 import { reservationCustomerEmailSchema } from "@/features/reservation/reservation-contact";
 import {

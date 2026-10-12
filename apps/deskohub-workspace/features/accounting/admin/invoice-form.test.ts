@@ -8,7 +8,7 @@ import {
   spyOn,
   test,
 } from "bun:test";
-import { testEmailAddress } from "@deskohub/email/testing";
+import { testEmailAddress } from "@deskohub/test-email";
 import { AdministrationInvoiceCreateInput } from "@deskohub/workspace-admin-api";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { Schema } from "effect";

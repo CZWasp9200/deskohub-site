@@ -4,7 +4,7 @@ import {
   DotyposService,
   FindCustomerResult,
 } from "@deskohub/dotypos";
-import { testEmailAddress } from "@deskohub/email/testing";
+import { testEmailAddress } from "@deskohub/test-email";
 import {
   AdministrationDotyposCustomerId,
   AdministrationInvoiceCreateInput,

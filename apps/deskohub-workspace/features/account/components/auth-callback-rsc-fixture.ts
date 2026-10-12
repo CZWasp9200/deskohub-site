@@ -1,6 +1,6 @@
 /// <reference path="./auth-callback-rsc-fixture.d.ts" />
 
-import { testEmailAddress } from "@deskohub/email/testing";
+import { testEmailAddress } from "@deskohub/test-email";
 import "@/shared/testing/workspace-test-env";
 
 import { afterEach, describe, expect, mock, test } from "bun:test";

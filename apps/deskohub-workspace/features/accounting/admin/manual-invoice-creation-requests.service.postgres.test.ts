@@ -1,7 +1,7 @@
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, test } from "bun:test";
-import { testEmailAddress } from "@deskohub/email/testing";
+import { testEmailAddress } from "@deskohub/test-email";
 import { AdministrationInvoiceCreateInput } from "@deskohub/workspace-admin-api";
 import { Deferred, Effect, Fiber, Layer, Schema } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";

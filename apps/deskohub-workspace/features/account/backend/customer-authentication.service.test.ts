@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { testEmailAddress } from "@deskohub/email/testing";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Effect, Logger } from "effect";
 import type { CustomerAccountAccessError } from "../customer-account";
 import {

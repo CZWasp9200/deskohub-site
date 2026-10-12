@@ -1,7 +1,6 @@
 import { expect, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import { formatWorkspaceE2EFailureAnnotation } from "./github-actions";
-
-import { testEmailAddress } from "@deskohub/email/testing";
 
 test("formats only closed Workspace E2E failure fields", () => {
   expect(

@@ -1,10 +1,7 @@
 import "@/shared/testing/workspace-test-env";
 
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
-import {
-  resendSimulatorAddress,
-  testEmailAddress,
-} from "@deskohub/email/testing";
+import { resendSimulatorAddress, testEmailAddress } from "@deskohub/test-email";
 import { Effect, Layer, Logger } from "effect";
 import * as envModule from "@/env";
 import { m } from "@/features/i18n";

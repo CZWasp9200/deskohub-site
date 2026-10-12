@@ -1,7 +1,7 @@
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, test } from "bun:test";
-import { testEmailAddress } from "@deskohub/email/testing";
+import { testEmailAddress } from "@deskohub/test-email";
 import { PgDialect } from "drizzle-orm/pg-core";
 import { Effect, Schema } from "effect";
 import { accountingDocumentSnapshots } from "@/db/schema";

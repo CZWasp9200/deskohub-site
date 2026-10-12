@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import {
   BasicTracerProvider,
   InMemorySpanExporter,
@@ -28,8 +29,6 @@ import {
   resolveWorkspaceE2EPreviewLogs,
   type WorkspaceE2EMagicLinkRequest,
 } from "./vercel-log-retrieval";
-
-import { testEmailAddress } from "@deskohub/email/testing";
 
 const config = getAccountE2EConfig(
   makeWorkspaceE2EEnvironment({

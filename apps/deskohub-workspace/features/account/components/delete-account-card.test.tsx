@@ -7,7 +7,7 @@ import {
   mock,
   test,
 } from "bun:test";
-import { testEmailAddress } from "@deskohub/email/testing";
+import { testEmailAddress } from "@deskohub/test-email";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import React from "react";
 import { type Locale, m } from "@/features/i18n";

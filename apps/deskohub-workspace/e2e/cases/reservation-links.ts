@@ -1,3 +1,4 @@
+import { testEmailAddress } from "@deskohub/test-email";
 import { Effect } from "effect";
 import { HttpClient } from "effect/unstable/http";
 import { formatDiscountAdjustment } from "@/features/checkout/format-discount-adjustment";
@@ -65,8 +66,6 @@ import {
   type MeetingRoomE2EPreparation,
   meetingRoomE2ECoreSlotCount,
 } from "./meeting-room";
-
-import { testEmailAddress } from "@deskohub/email/testing";
 
 const _reservationLinkSlotCount = 4;
 // Syntactically canonical but never seeded, so the checkout can only treat it

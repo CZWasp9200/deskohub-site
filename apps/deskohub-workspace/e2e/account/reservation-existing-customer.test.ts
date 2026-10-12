@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { createServer } from "node:http";
+import { testEmailAddress } from "@deskohub/test-email";
 import { chromium, type Page } from "@playwright/test";
 import type { ReservationCustomerMode } from "@/features/reservation/reservation-existing-customer";
 import { playwrightChromiumAvailable } from "../../shared/testing/playwright-browser";
@@ -14,8 +15,6 @@ import {
   reservationExistingCustomerOperation,
   verifyReservationExistingCustomer,
 } from "./reservation-existing-customer";
-
-import { testEmailAddress } from "@deskohub/email/testing";
 
 const baseUrl = "https://reservation-customer.example.test";
 const contact = {

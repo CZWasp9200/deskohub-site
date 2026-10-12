@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
-import { testEmailAddress } from "@deskohub/email/testing";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Effect, Fiber, Layer, Schema } from "effect";
 import { TestClock } from "effect/testing";
 import { GoogleCalendarRuntimeConfig } from "../config";

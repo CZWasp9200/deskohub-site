@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
-import { testEmailAddress } from "@deskohub/email/testing";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Context, Effect, Layer } from "effect";
 import { createElement, type ReactElement, type ReactNode } from "react";
 

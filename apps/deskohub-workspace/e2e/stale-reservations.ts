@@ -3,10 +3,7 @@ import {
   DotyposReservationIdSchema,
 } from "@deskohub/dotypos";
 import type { Customer, Reservation } from "@deskohub/dotypos/generated";
-import {
-  EMAIL_TEST_DOMAIN,
-  resendSimulatorDomain,
-} from "@deskohub/email/backend/test-recipients";
+import { EMAIL_TEST_DOMAIN, resendSimulatorDomain } from "@deskohub/test-email";
 import { Effect, Exit, Option, Schema } from "effect";
 
 export type WorkspaceE2EStaleReservationReport = {

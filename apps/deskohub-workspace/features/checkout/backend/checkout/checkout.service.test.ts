@@ -6,8 +6,8 @@ import {
   DotyposService,
   dotyposApiTimeoutDefaultMilliseconds,
 } from "@deskohub/dotypos";
-import { testEmailAddress } from "@deskohub/email/testing";
 import { ExternalAPIError, NexiService } from "@deskohub/nexi";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Data, Duration, Effect, Layer, Schema } from "effect";
 import { env } from "@/env";
 import type { OptionalAccountActivityFixture } from "@/features/account/backend/customer-account-activity.test-utils";

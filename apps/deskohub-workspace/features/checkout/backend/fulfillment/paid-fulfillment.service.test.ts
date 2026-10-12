@@ -6,7 +6,7 @@ import {
   DotyposService,
 } from "@deskohub/dotypos";
 import { EmailDeliveryIdSchema } from "@deskohub/email";
-import { testEmailAddress } from "@deskohub/email/testing";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Effect, Layer } from "effect";
 import { ReservationInvoiceService } from "@/features/accounting/backend/reservation-invoice.service";
 import type { IWorkspaceReservationService } from "@/features/reservation/backend/workspace-reservation.service";

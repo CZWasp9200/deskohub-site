@@ -6,7 +6,7 @@ import {
   expect,
   test,
 } from "bun:test";
-import { testEmailAddress } from "@deskohub/email/testing";
+import { testEmailAddress } from "@deskohub/test-email";
 import { type UseFormReturn, useForm } from "react-hook-form";
 import { m } from "@/features/i18n";
 import type {

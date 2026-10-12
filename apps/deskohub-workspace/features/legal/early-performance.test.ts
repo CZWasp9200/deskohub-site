@@ -8,7 +8,7 @@ import {
   setSystemTime,
   test,
 } from "bun:test";
-import { testEmailAddress } from "@deskohub/email/testing";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Schema } from "effect";
 import { reservationOrderSchema } from "@/features/reservation/reservation-order";
 import {

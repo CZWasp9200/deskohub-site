@@ -1,16 +1,12 @@
 import { expect, mock, test } from "bun:test";
 import type { Customer, Reservation } from "@deskohub/dotypos/generated";
+import { resendSimulatorAddress, testEmailAddress } from "@deskohub/test-email";
 import { Effect } from "effect";
 import {
   isStaleWorkspaceE2ETestCustomer,
   isWorkspaceE2ETestCustomer,
   reconcileStaleWorkspaceE2EReservations,
 } from "./stale-reservations";
-
-import {
-  resendSimulatorAddress,
-  testEmailAddress,
-} from "@deskohub/email/testing";
 
 const nonTestEmail = testEmailAddress("person").replace("@", "@not");
 

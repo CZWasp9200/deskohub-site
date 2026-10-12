@@ -8,7 +8,7 @@ import {
   mock,
   test,
 } from "bun:test";
-import { testEmailAddress } from "@deskohub/email/testing";
+import { testEmailAddress } from "@deskohub/test-email";
 import type { ContactFormState } from "@/features/contact/actions/contact";
 import type { submitContactForm } from "@/features/contact/actions/submit-contact";
 import { m } from "@/features/i18n";

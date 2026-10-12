@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Effect, Fiber, Layer } from "effect";
 import { TestClock } from "effect/testing";
-import { testEmailAddress } from "../testing/test-email-address";
 import {
   DnsLookupError,
   EmailRecipientDomainService,

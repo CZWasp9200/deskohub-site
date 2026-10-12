@@ -1,3 +1,4 @@
+import { EMAIL_TEST_DOMAIN } from "@deskohub/test-email";
 import { Effect, Layer } from "effect";
 import type { EmailMessage, EmailRecipient } from "../types/email.types";
 import {
@@ -8,7 +9,7 @@ import {
 } from "./capabilities";
 import { ConsoleEmailProvider } from "./providers/console-provider";
 import { createResendProvider } from "./providers/resend-provider";
-import { EMAIL_TEST_DOMAIN, isTestEmailRecipient } from "./test-recipients";
+import { isTestEmailRecipient } from "./test-recipients";
 
 export type EmailRoute = "console" | "resend";
 

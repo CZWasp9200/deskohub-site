@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Effect, Fiber, Layer, Tracer } from "effect";
 import { TestClock } from "effect/testing";
-import { testEmailAddress } from "../../testing/test-email-address";
 
 const adaAddress = testEmailAddress("ada");
 const deskohubAddress = testEmailAddress("deskohub");

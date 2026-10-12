@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Effect, Logger, References } from "effect";
-import { testEmailAddress } from "../../testing/test-email-address";
 import type { EmailMessage } from "../../types/email.types";
 import { EmailProviderTag } from "../capabilities";
 import { ConsoleEmailProviderLive } from "./console-provider";

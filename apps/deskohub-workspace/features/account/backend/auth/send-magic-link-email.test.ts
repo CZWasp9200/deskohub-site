@@ -1,10 +1,7 @@
 import "@/shared/testing/workspace-test-environment";
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
-import {
-  resendSimulatorAddress,
-  testEmailAddress,
-} from "@deskohub/email/testing";
+import { resendSimulatorAddress, testEmailAddress } from "@deskohub/test-email";
 import { ConfigProvider, Effect, Predicate } from "effect";
 import { withInstantSleeps } from "@/shared/testing/workspace-test-clock.test-utils";
 

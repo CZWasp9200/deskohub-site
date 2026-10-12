@@ -1,4 +1,5 @@
 import { expect, mock, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Cause, Effect, Exit } from "effect";
 import { browserDiagnosticsScript } from "../browser-scripts";
 import type { WorkspaceE2EConfig } from "../config";
@@ -11,8 +12,6 @@ import {
   submitPaymentAndWaitForHostedPage,
   submitReservationForPayPage,
 } from "./payment";
-
-import { testEmailAddress } from "@deskohub/email/testing";
 
 const orderId = "019f7082-1bec-7ab4-8fcd-2f0fdfd9dd71";
 const checkoutUrl =

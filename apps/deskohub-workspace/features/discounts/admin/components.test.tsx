@@ -8,7 +8,7 @@ import {
   mock,
   test,
 } from "bun:test";
-import { testEmailAddress } from "@deskohub/email/testing";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Profiler, StrictMode } from "react";
 import { AdministrationTableToolbar } from "@/features/administration/components";
 import { loadFixtureReservations } from "@/features/administration/fixtures";

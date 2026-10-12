@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Config, ConfigProvider, Effect } from "effect";
-import { testEmailAddress } from "../testing/test-email-address";
 import { EmailConfigTag } from "./capabilities";
 import { makeEmailConfigLayer } from "./email-config";
 
