@@ -1,10 +1,20 @@
 # Workspace referrals
 
-Workspace customers can invite new customers through a personal share link or by sharing their referral code. The same code can be entered in the existing checkout code field. Both entry points follow the same eligibility and attribution rules.
+Workspace customers can invite new customers through a personal share link or by sharing their referral code. All entry points follow the same eligibility and attribution rules.
+
+## Referral sources
+
+A customer's referral can come from exactly three sources:
+
+- **Profile completion.** When a customer signs in for the first time, the profile-completion form has an optional referral code field. A code entered there becomes the customer's referral when the profile is saved, and the invitation discount then applies automatically to their first booking. The customer doesn't enter the code again at checkout. An unusable code is reported on the field, so the customer can correct or remove it before saving.
+- **Checkout code field.** A referral code entered in the existing checkout code field, which is shared with ordinary discount codes, applies the referral to the current booking when the customer is eligible.
+- **Share link.** The share link carries the code in the address. On a first-time sign-in, the profile-completion referral field is pre-filled with the code. When a signed-in customer starts a reservation from an address that carries a code, checkout applies it automatically. A link code that can't be used is ignored without blocking sign-up or checkout.
+
+There is no separate step for accepting an invitation.
 
 ## Attribution and eligibility
 
-Accepting a referral requires a verified customer account linked to a Workspace customer. The invited customer keeps one permanent referrer. Accepting the same referral again is harmless; changing referrer, referring yourself, and forming a referral cycle are rejected.
+A referral requires a verified customer account linked to a Workspace customer. It is set once, between account creation and the customer's first booking, and never changes afterwards. Submitting the same referral again is harmless. Changing referrer, referring yourself, and forming a referral cycle are rejected. At checkout, a different referral code for a customer who already has a referrer is rejected with an explanation. A customer whose profile is already complete can still get a referral, but only through checkout on their first booking. A customer with an earlier booking can't get one at all.
 
 An invited customer receives a 15% discount on their first paid Workspace booking. A customer with any earlier locally recorded paid Workspace booking is ineligible, including a booking made before account signup. An older confirmed Dotypos reservation without local payment evidence also excludes that customer. An unpaid checkout hold does not count as an earlier paid booking.
 
@@ -24,13 +34,13 @@ Both referral benefits apply to Workspace reservation families under their exist
 
 Customer-specific referral discounts appear after customer identity is resolved. A change in referral eligibility after the customer reviews a price requires an updated price to be accepted before payment begins. Completed bookings preserve the accepted labels and monetary discounts.
 
-Entering a referral code in checkout requires the same verified account and eligibility checks as accepting its share link. It cannot attribute another customer's booking, replace an existing referrer, bypass a previous booking, or apply the invitation benefit twice. Ordinary codes and vouchers remain usable alongside a referral relationship.
+Entering a referral code in checkout requires a verified account and the same eligibility checks as every other source. It cannot attribute another customer's booking, replace an existing referrer, bypass a previous booking, or apply the invitation benefit twice. Ordinary codes and vouchers remain usable alongside a referral relationship. The checkout code field takes one code at a time: a customer who wants both should enter the referral code first, then the ordinary code.
 
 ## Customer account
 
-The account has a referral section showing the customer's share link and code, the current referrer discount, and the number of currently eligible invited people. It explains the first-booking 15% benefit and the trailing 30-day rule. Counts do not disclose other customers' profile details.
+The account has a referral section showing the customer's share link and code, the current referrer discount, and the number of currently eligible invited people. It explains the first-booking 15% benefit and the trailing 30-day rule. Counts do not disclose other customers' profile details. The section does not accept other customers' codes.
 
-Referral relationships and prior paid-booking evidence use the existing customer identity. Deleting an authentication account does not erase paid history, reset first-booking eligibility, or rewrite accepted discounts. A share code cannot be accepted while its owner's account is unavailable or being deleted.
+Referral relationships and prior paid-booking evidence use the existing customer identity. Deleting an authentication account does not erase paid history, reset first-booking eligibility, or rewrite accepted discounts. A referral code cannot be used while its owner's account is unavailable or being deleted.
 
 ## First-release scope
 
