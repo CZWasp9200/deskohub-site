@@ -341,11 +341,7 @@ describe("AccountPage states", () => {
     expect(view.queryByRole("button", { name: /accept/i })).toBeNull();
     expect(view.container.querySelector("#profile-referral-code")).toBeNull();
     expect(
-      within(
-        view.getByRole("navigation", {
-          name: m.accountNavigationLabel({}, en),
-        })
-      )
+      within(view.getByRole("group", { name: m.accountSectionLabel({}, en) }))
         .getByRole("button", {
           name: new RegExp(`^${m.accountSectionReservations({}, en)}`),
         })
