@@ -429,7 +429,10 @@ describe("loadCustomerAccountPage", () => {
 
     const state = await loadPageState("RFL12345");
 
-    expect(state).toMatchObject({ kind: "linked", referrals: accountReferrals });
+    expect(state).toMatchObject({
+      kind: "linked",
+      referrals: accountReferrals,
+    });
     expect(acceptReferralCalls).toEqual([
       {
         code: "RFL12345",
