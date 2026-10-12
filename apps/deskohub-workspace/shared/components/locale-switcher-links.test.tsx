@@ -479,3 +479,65 @@ test("uses document navigation for the alternate-locale minimal-header link", as
     view.unmount();
   }
 });
+
+const localePreference = (signedIn: boolean) => {
+  const saves: { locale: string }[] = [];
+  const saved = Promise.withResolvers<void>();
+  return {
+    saves,
+    saved,
+    preference: {
+      signedIn: Promise.resolve(signedIn),
+      save: (input: { locale: "cs-CZ" | "en-US" }) => {
+        saves.push(input);
+        return saved.promise;
+      },
+    },
+  };
+};
+
+test("a signed-in switch saves the preference before navigating to the new locale", async () => {
+  const { LocaleSwitcherLinks } = await import("./locale-switcher-links");
+  window.location.href = "http://localhost/en-US";
+  const { saves, saved, preference } = localePreference(true);
+  const view = render(
+    <LocaleSwitcherLinks
+      currentLocale="en-US"
+      languageLabels={{ "cs-CZ": "Czech", "en-US": "English" }}
+      localePreference={preference}
+    />
+  );
+  await act(() => preference.signedIn);
+
+  fireEvent.click(view.getByRole("link", { name: "Czech" }));
+
+  expect(saves).toEqual([{ locale: "cs-CZ" }]);
+  expect(window.location.pathname).toBe("/en-US");
+
+  await act(async () => {
+    saved.resolve();
+    await saved.promise;
+  });
+
+  expect(window.location.pathname).toBe("/cs-CZ");
+});
+
+test("a guest switch stays a plain link without saving", async () => {
+  const { LocaleSwitcherLinks } = await import("./locale-switcher-links");
+  const { saves, preference } = localePreference(false);
+  const view = render(
+    <LocaleSwitcherLinks
+      currentLocale="en-US"
+      languageLabels={{ "cs-CZ": "Czech", "en-US": "English" }}
+      localePreference={preference}
+    />
+  );
+  await act(() => preference.signedIn);
+
+  const link = view.getByRole("link", { name: "Czech" });
+  const notPrevented = fireEvent.click(link);
+
+  expect(notPrevented).toBe(true);
+  expect(link.getAttribute("href")).toBe("/cs-CZ");
+  expect(saves).toEqual([]);
+});

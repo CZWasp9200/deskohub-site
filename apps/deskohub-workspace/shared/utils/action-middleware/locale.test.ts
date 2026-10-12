@@ -1,15 +1,51 @@
-import { describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { AsyncLocalStorage } from "node:async_hooks";
 
 const requestHeaders = new AsyncLocalStorage<Headers>();
+const currentHeaders = () => requestHeaders.getStore() ?? new Headers();
+let savedPreference: "cs-CZ" | "en-US" | undefined;
 
 mock.module("next/headers", () => ({
-  headers: async () => requestHeaders.getStore() ?? new Headers(),
+  headers: async () => currentHeaders(),
+  cookies: async () => ({
+    get: (name: string) => {
+      const value = currentHeaders()
+        .get("cookie")
+        ?.split(";")
+        .map((cookie) => cookie.trim().split("="))
+        .find(([cookieName]) => cookieName === name)?.[1];
+      return value === undefined ? undefined : { name, value };
+    },
+  }),
 }));
 
-function request<T>(localeCookie: string | undefined, callback: () => T) {
-  const headers = new Headers({ referer: "https://deskohub.test/checkout" });
-  if (localeCookie) headers.set("cookie", `PARAGLIDE_LOCALE=${localeCookie}`);
+mock.module("@/features/account/server/saved-locale-preference.server", () => ({
+  readSavedLocalePreference: (headers: Pick<Headers, "get">) =>
+    Promise.resolve(
+      headers.get("cookie")?.includes("session_token=")
+        ? savedPreference
+        : undefined
+    ),
+}));
+
+beforeEach(() => {
+  savedPreference = undefined;
+});
+
+function request<T>(
+  localeCookie: string | undefined,
+  callback: () => T,
+  {
+    referer = "https://deskohub.test/checkout",
+    signedIn = false,
+  }: { readonly referer?: string; readonly signedIn?: boolean } = {}
+) {
+  const headers = new Headers({ referer });
+  const cookies = [
+    localeCookie && `PARAGLIDE_LOCALE=${localeCookie}`,
+    signedIn && "better-auth.session_token=synthetic-token.signature",
+  ].filter(Boolean);
+  if (cookies.length > 0) headers.set("cookie", cookies.join("; "));
 
   return requestHeaders.run(headers, callback);
 }
@@ -60,6 +96,34 @@ describe("action locale middleware", () => {
     expect(english.data).toEqual({
       contextLocale: "en-US",
       messageLocale: "en-US",
+    });
+  });
+
+  test("the referring page's locale outranks the cookie", async () => {
+    const readLocale = await createLocaleReader();
+
+    const result = await request("en-US", () => readLocale(), {
+      referer: "https://deskohub.test/cs-CZ/checkout",
+    });
+
+    expect(result.data).toEqual({
+      contextLocale: "cs-CZ",
+      messageLocale: "cs-CZ",
+    });
+  });
+
+  test("a signed-in customer's saved preference outranks the referring page and cookie", async () => {
+    savedPreference = "cs-CZ";
+    const readLocale = await createLocaleReader();
+
+    const result = await request("en-US", () => readLocale(), {
+      referer: "https://deskohub.test/en-US/account",
+      signedIn: true,
+    });
+
+    expect(result.data).toEqual({
+      contextLocale: "cs-CZ",
+      messageLocale: "cs-CZ",
     });
   });
 });

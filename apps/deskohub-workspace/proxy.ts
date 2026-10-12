@@ -1,7 +1,6 @@
 import {
   getLocaleFromRequestPathname,
   getLocalizedRedirectPathname,
-  resolveRequestLocale,
   setLocaleCookie,
 } from "@deskohub/i18n/next";
 import { Result } from "effect";
@@ -10,11 +9,9 @@ import {
   type NextRequest,
   NextResponse,
 } from "next/server";
-import {
-  localeConfig,
-  localeCookieName,
-  locales,
-} from "@/features/i18n/routing";
+import { sessionTokenFromRequestHeaders } from "@/features/account/backend/auth/session-cookie";
+import { resolveWorkspaceLocale } from "@/features/i18n/locale-resolution";
+import { localeCookieName, locales } from "@/features/i18n/routing";
 import { env } from "./env";
 import { appendVercelPreviewProtectionBypass } from "./features/checkout/backend/checkout/vercel-preview-protection-bypass";
 import { reservationAccessTokenQueryParam } from "./features/reservation/reservation-access-token";
@@ -43,6 +40,24 @@ const hasReservationCapabilityToExchange = (request: NextRequest) =>
 
 const isPrivateAccountPath = (pathname: string) =>
   /\/account(\/|$)/.test(pathname) || /\/auth(\/|$)/.test(pathname);
+
+// Only page requests from a browser holding a session cookie can carry a saved
+// language preference, so guests and router prefetches never load the reader
+// or touch the database. Prefetched links already share the page's locale.
+const readSavedLocalePreference = async (request: NextRequest) => {
+  if (
+    (request.method !== "GET" && request.method !== "HEAD") ||
+    request.headers.has("next-router-prefetch") ||
+    !sessionTokenFromRequestHeaders(request.headers)
+  ) {
+    return undefined;
+  }
+
+  const { readSavedLocalePreference } = await import(
+    "./features/account/server/saved-locale-preference.server"
+  );
+  return readSavedLocalePreference(request.headers);
+};
 
 export async function proxy(request: NextRequest) {
   if (isAdministrationPath(request.nextUrl.pathname)) {
@@ -94,14 +109,26 @@ export async function proxy(request: NextRequest) {
 
   const localeFromUrl = getLocaleFromRequestPathname(request, locales);
 
-  if (localeFromUrl) {
-    if (hasReservationCapabilityToExchange(request)) {
-      const { exchangeReservationCapability } = await import(
-        "./features/reservation/backend/reservation-capability-exchange"
-      );
-      return exchangeReservationCapability(request, localeFromUrl);
-    }
+  // A reservation capability is bound to the locale it was issued in, so it is
+  // exchanged before any preference redirect moves the request elsewhere.
+  if (localeFromUrl && hasReservationCapabilityToExchange(request)) {
+    const { exchangeReservationCapability } = await import(
+      "./features/reservation/backend/reservation-capability-exchange"
+    );
+    return exchangeReservationCapability(request, localeFromUrl);
+  }
 
+  const savedPreference = await readSavedLocalePreference(request);
+  const resolvedLocale = resolveWorkspaceLocale(
+    {
+      pathname: request.nextUrl.pathname,
+      cookies: request.cookies,
+      headers: request.headers,
+    },
+    savedPreference
+  );
+
+  if (localeFromUrl === resolvedLocale) {
     const response = NextResponse.next();
     if (
       isPrivateReservationPath(request.nextUrl.pathname) ||
@@ -109,15 +136,9 @@ export async function proxy(request: NextRequest) {
     ) {
       markPrivateResponse(response);
     }
-    setLocaleCookie(response, localeCookieName, localeFromUrl);
+    setLocaleCookie(response, localeCookieName, resolvedLocale);
     return response;
   }
-
-  const resolvedLocale = resolveRequestLocale({
-    request,
-    localeConfig: localeConfig,
-    localeCookieName: localeCookieName,
-  });
 
   const redirectUrl = request.nextUrl.clone();
   redirectUrl.pathname = getLocalizedRedirectPathname(
@@ -128,7 +149,10 @@ export async function proxy(request: NextRequest) {
 
   const response = NextResponse.redirect(redirectUrl);
   response.headers.set("Vary", "Accept-Language");
-  if (isPrivateReservationPath(request.nextUrl.pathname)) {
+  if (
+    savedPreference !== undefined ||
+    isPrivateReservationPath(request.nextUrl.pathname)
+  ) {
     markPrivateResponse(response);
   }
   setLocaleCookie(response, localeCookieName, resolvedLocale);

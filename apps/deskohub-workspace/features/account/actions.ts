@@ -1,8 +1,10 @@
 "use server";
 
 import { type AresLookupFailure, AresLookupService } from "@deskohub/ares";
+import { setLocaleCookie } from "@deskohub/i18n/next";
 import { Effect, Layer, Match, Result, Schema } from "effect";
 import { revalidatePath } from "next/cache";
+import { cookies } from "next/headers";
 import {
   accountActionError,
   requireAccountsEnabled,
@@ -24,6 +26,7 @@ import { CustomerAccountAccessError } from "@/features/account/customer-account"
 import { getAccountPath } from "@/features/account/routes";
 import type { Locale } from "@/features/i18n";
 import { locales, m } from "@/features/i18n";
+import { localeCookieName } from "@/features/i18n/routing";
 import { defineWorkspaceAction } from "@/shared/backend/workspace-action";
 
 const deleteCustomerAccountConfirmedSchema = Schema.toStandardSchemaV1(
@@ -88,15 +91,24 @@ const saveCustomerProfile = Effect.fn(
 );
 
 /**
- * Saves the Workspace-owned preferred communication language for the
- * verified account under the account lock. The action never touches the
- * locale cookie, redirects, or the Dotypos profile: it only writes the
- * durable preference row.
+ * Saves the Workspace-owned preferred language for the verified account under
+ * the account lock, then moves the locale cookie to it. The preference is
+ * also the site locale for the signed-in customer, so the caller navigates to
+ * the page under the saved locale; the Dotypos profile is never touched.
  */
 const savePreferredLanguage = (accountId: CustomerAccountId, locale: Locale) =>
   Effect.flatMap(CustomerCommunicationPreferenceRepository, (repository) =>
     repository.save(accountId, locale)
-  ).pipe(Effect.provide(CustomerCommunicationPreferenceRepository.Live));
+  ).pipe(
+    Effect.andThen(
+      Effect.promise(() => cookies()).pipe(
+        Effect.map((cookieStore) =>
+          setLocaleCookie({ cookies: cookieStore }, localeCookieName, locale)
+        )
+      )
+    ),
+    Effect.provide(CustomerCommunicationPreferenceRepository.Live)
+  );
 
 const completeCustomerProfileAction = defineWorkspaceAction(
   {

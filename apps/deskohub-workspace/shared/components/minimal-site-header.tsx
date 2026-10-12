@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Suspense } from "react";
 import type { Locale } from "@/features/i18n";
 import {
+  type LocalePreferenceSaving,
   LocaleSwitcherLabels,
   LocaleSwitcherLinks,
 } from "@/shared/components/locale-switcher-links";
@@ -11,12 +12,14 @@ type MinimalSiteHeaderProps = {
   currentLocale: Locale;
   languageLabels: Record<Locale, string>;
   languageSwitcherLabel: string;
+  localePreference?: LocalePreferenceSaving;
 };
 
 export function MinimalSiteHeader({
   currentLocale,
   languageLabels,
   languageSwitcherLabel,
+  localePreference,
 }: MinimalSiteHeaderProps) {
   return (
     <header className="fixed inset-x-0 top-0 z-50 h-[var(--site-header-height)] border-b border-white/10 bg-navy-blue/92 text-white backdrop-blur-md">
@@ -44,6 +47,7 @@ export function MinimalSiteHeader({
             <LocaleSwitcherLinks
               currentLocale={currentLocale}
               languageLabels={languageLabels}
+              localePreference={localePreference}
             />
           </Suspense>
         </nav>

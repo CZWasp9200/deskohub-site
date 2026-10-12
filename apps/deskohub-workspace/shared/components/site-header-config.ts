@@ -1,3 +1,4 @@
+import { updatePreferredLanguage } from "@/features/account/actions";
 import {
   getAccountPath,
   getAccountSignInPath,
@@ -11,6 +12,7 @@ import {
   getCoworkReservationPath,
   getOfficeReservationPath,
 } from "@/features/reservation/routes";
+import type { LocalePreferenceSaving } from "@/shared/components/locale-switcher-links";
 
 const siteHeaderSectionIds = {
   overview: "overview",
@@ -130,7 +132,10 @@ const createSiteHeaderConfig = (
 
   return {
     ...getSiteHeaderAccessibilityLabels(locale),
-    ...(accountsEnabled && { account: createSiteHeaderAccountEntry(locale) }),
+    ...(accountsEnabled && {
+      account: createSiteHeaderAccountEntry(locale),
+      localePreference: createLocalePreferenceSaving(),
+    }),
     languageLabels: getSiteHeaderLanguageLabels(locale),
     links: links.filter(({ id }) => disabledMenuItems[id] !== true),
     contactLabel: m.reservationNavCta({}, { locale }),
@@ -151,5 +156,16 @@ const createSiteHeaderAccountEntry = (
   ),
   signInHref: getAccountSignInPath(locale),
 });
+
+// Not awaited, like the account entry: the switcher learns after the shell
+// whether a switch must save the signed-in customer's preference.
+const createLocalePreferenceSaving = (): LocalePreferenceSaving => ({
+  signedIn: isCustomerSignedIn().catch(() => false),
+  save: updatePreferredLanguage,
+});
+
+/** The switcher's preference saving for headers without an account entry. */
+export const getSiteHeaderLocalePreference = async () =>
+  (await areAccountsEnabled()) ? createLocalePreferenceSaving() : undefined;
 
 export { siteHeaderSectionIds };

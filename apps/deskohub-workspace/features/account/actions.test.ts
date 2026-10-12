@@ -10,9 +10,16 @@ const revalidatePath = mock((_path: string) => undefined);
 mock.module("next/cache", () => ({ revalidatePath }));
 
 const requestHeaders = new Headers({ referer: "https://deskohub.test/en-US" });
+const cookieWrites: { name: string; value: string }[] = [];
 mock.module("next/headers", () => ({
   headers: async () => requestHeaders,
-  cookies: async () => ({ getAll: () => [] }),
+  cookies: async () => ({
+    get: () => undefined,
+    getAll: () => [],
+    set: (name: string, value: string) => {
+      cookieWrites.push({ name, value });
+    },
+  }),
 }));
 mock.module("next/server", () => ({
   after: () => undefined,
@@ -238,6 +245,7 @@ describe("account actions", () => {
     deleteUser = () => Promise.resolve({ success: true });
     preferenceSaveEffect = Effect.succeed(undefined);
     preferenceSaveCalls = [];
+    cookieWrites.length = 0;
   });
 
   const importActions = () => import("./actions");
@@ -317,6 +325,15 @@ describe("account actions", () => {
     expect(result.serverError).toBeTruthy();
     expect(profileCalls).toHaveLength(0);
     expect(revalidatePath).not.toHaveBeenCalled();
+  });
+
+  test("moves the locale cookie to the saved preference", async () => {
+    const { localeCookieName } = await import("@/features/i18n/routing");
+    const { updatePreferredLanguage } = await importActions();
+
+    await updatePreferredLanguage({ locale: "cs-CZ" });
+
+    expect(cookieWrites).toEqual([{ name: localeCookieName, value: "cs-CZ" }]);
   });
 
   test("returns the existing unavailable failure without reading account data when accounts are disabled", async () => {
@@ -426,6 +443,7 @@ describe("account actions", () => {
       m.accountDeletionPendingError({}, { locale: "en-US" })
     );
     expect(preferenceSaveCalls).toHaveLength(1);
+    expect(cookieWrites).toEqual([]);
   });
 
   test("returns the generic profile error without leaking the write failure", async () => {
