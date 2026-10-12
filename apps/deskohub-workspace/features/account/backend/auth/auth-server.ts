@@ -20,7 +20,7 @@ import {
   type CustomerAccountId,
   customerAccountIdSchema,
 } from "@/features/account/customer-account";
-import { defaultLocale, isLocale, type Locale, locales } from "@/features/i18n";
+import { defaultLocale, type Locale, locales } from "@/features/i18n";
 import { runWorkspaceEffect } from "@/shared/backend/workspace-effect";
 import {
   lookupMagicLinkDeliveryLocale,
@@ -99,18 +99,16 @@ const isAccountsUnavailableError = (error: APIError) =>
   accountsUnavailableErrors.has(error);
 
 const magicLinkMetadataSchema = Schema.Struct({
-  locale: Schema.optional(Schema.String),
+  locale: Schema.optional(Schema.Literals(locales)),
 });
 
+/** The initiating site locale in the magic-link metadata, else the default. */
 const decodeMagicLinkLocale = (
   data: Parameters<MagicLinkSendFunction>[0]
-): Locale => {
-  const decoded = Option.getOrUndefined(
+): Locale =>
+  Option.getOrUndefined(
     Schema.decodeOption(magicLinkMetadataSchema)(data.metadata ?? {})
-  );
-  const locale = decoded?.locale;
-  return locale && isLocale(locale) ? locale : defaultLocale;
-};
+  )?.locale ?? defaultLocale;
 
 const authContextSchema = Schema.Struct({
   path: Schema.optional(Schema.String),
