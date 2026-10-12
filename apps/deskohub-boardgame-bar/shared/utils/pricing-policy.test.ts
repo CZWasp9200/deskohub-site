@@ -1,5 +1,4 @@
 import { expect, test } from "bun:test";
-import { formatDate } from "./date-formatting";
 import {
   ENTRANCE_FEE_TIERS_START_AT,
   ENTRANCE_FEE_TIERS_VISIBLE_AT,
@@ -26,22 +25,7 @@ test("quotes only the tiers once they take effect", () => {
   expect(getEntranceFeeTiersPhase(ENTRANCE_FEE_TIERS_START_AT)).toBe("active");
 });
 
-test("formats the production tiers start date for every locale", () => {
-  const productionStart = Date.UTC(2026, 11, 31, 23);
-  expect(
-    formatDate(new Date(productionStart), "en-US", { dateStyle: "long" })
-  ).toBe("January 1, 2027");
-  expect(
-    formatDate(new Date(productionStart), "cs-CZ", { dateStyle: "long" })
-  ).toBe("1. ledna 2027");
-});
-
-test("formats the configured tiers start date for every locale", () => {
-  const expected = (locale: string) =>
-    formatDate(new Date(ENTRANCE_FEE_TIERS_START_AT), locale, {
-      dateStyle: "long",
-    });
-
-  expect(formatEntranceFeeTiersStartDate("en-US")).toBe(expected("en-US"));
-  expect(formatEntranceFeeTiersStartDate("cs-CZ")).toBe(expected("cs-CZ"));
+test("formats the tiers start date as the local calendar day in every locale", () => {
+  expect(formatEntranceFeeTiersStartDate("en-US")).toBe("January 1, 2027");
+  expect(formatEntranceFeeTiersStartDate("cs-CZ")).toBe("1. ledna 2027");
 });

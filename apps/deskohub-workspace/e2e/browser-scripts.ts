@@ -514,36 +514,20 @@ export const getPrepareCoworkAdvertisedPriceScript = (data: CheckoutData) => {
     if (!(price instanceof HTMLElement)) {
       throw new Error(desiredTier + ' advertised price not found');
     }
-    if (
-      !monitorInput.checked ||
-      price.dataset.reservationTypePriceReady !== 'true'
-    ) {
-      let sawPendingPrice = price.dataset.reservationTypePriceReady === 'false';
-      const priceObserver = new MutationObserver((records) => {
-        if (records.some((record) => record.oldValue === 'true')) {
-          sawPendingPrice = true;
-        }
-      });
-      priceObserver.observe(price, {
-        attributeFilter: ['data-reservation-type-price-ready'],
-        attributeOldValue: true,
-      });
-      try {
-        (monitorInput.closest('label') ?? monitorInput).click();
-        await waitUntil(
-          () => monitorInput.checked,
-          desiredMonitorOption + ' monitor option was not selected'
-        );
-        await waitUntil(
-          () =>
-            sawPendingPrice &&
-            price.dataset.reservationTypePriceReady === 'true',
-          desiredTier + ' advertised price did not refresh after monitor selection'
-        );
-      } finally {
-        priceObserver.disconnect();
-      }
+    // Advertised prices do not depend on the monitor option, and the page
+    // renders both Reserved Desk variants already priced, so the selection
+    // only has to land on a ready price.
+    if (!monitorInput.checked) {
+      (monitorInput.closest('label') ?? monitorInput).click();
+      await waitUntil(
+        () => monitorInput.checked,
+        desiredMonitorOption + ' monitor option was not selected'
+      );
     }
+    await waitUntil(
+      () => price.dataset.reservationTypePriceReady === 'true',
+      desiredTier + ' advertised price did not become ready after monitor selection'
+    );
   }
   return location.href;
 })()
@@ -1053,6 +1037,13 @@ export const assertFulfilledStatusScript = String.raw`
   const text = document.body?.textContent ?? '';
   if (document.querySelector('[data-reservation-access]')) {
     throw new Error('reservation access rendered on checkout status page');
+  }
+  // Only account-origin navigation may intercept the status route. A checkout
+  // status rendered in a dialog means the reservation modal slot leaked.
+  for (const dialog of document.querySelectorAll('[role="dialog"]')) {
+    if (/Your reservation is confirmed\./i.test(dialog.textContent ?? '')) {
+      throw new Error('checkout status rendered in a reservation dialog');
+    }
   }
   if (/Your reservation is confirmed\./i.test(text) && /secure access link has been sent by email/i.test(text)) {
     return location.href;

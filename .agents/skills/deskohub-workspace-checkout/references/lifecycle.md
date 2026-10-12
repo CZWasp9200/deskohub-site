@@ -32,7 +32,7 @@ Discount and voucher configuration and audit history extend this lifecycle throu
 
 `discount_codes` and `vouchers` are separate aggregates and have separate claim ledgers. The shared `promotion_codes` registry provides one globally unique submitted-code namespace and common timing/audience policy without making a voucher a discount code. Voucher availability is issued value minus reserved and redeemed voucher applications. Admission locks the voucher row, rechecks the exact available money, and inserts the voucher claim in the same payment transaction; release restores availability by state alone.
 
-Customer marketing consent is independent of a reservation and lives in `customer_marketing_consents`, keyed directly by the stable Dotypos customer ID. The reservation page always shows a privacy notice and link, but privacy-policy acknowledgement is not a consent gate and is not persisted. The optional marketing checkbox grants customer-level consent; leaving it unchecked is a no-op, not a withdrawal.
+Customer marketing consent is independent of a reservation and lives in `customer_marketing_consents`, keyed directly by the stable Dotypos customer ID. The reservation page always shows a privacy notice and link, but privacy-policy acknowledgement is not a consent gate and is not persisted. The optional marketing checkbox grants customer-level consent; leaving it unchecked is a no-op, not a withdrawal. The reservation-page account loader reads the linked customer's consent; the form omits the checkbox and submits no opt-in while the account card books for a customer whose consent is active (not withdrawn). Contact mode always shows it because the typed contact resolves to its own Dotypos customer. An unreadable consent shows the checkbox.
 
 ## Advertised, quoted, and payable prices
 
@@ -351,7 +351,7 @@ Attempt-level `payment_attempts.refund_state` remains separate from settlement s
 - `required`: the paid Nexi attempt needs operator refund work, whether caused by an operator cancellation or an unrecoverable late payment; the payment remains truthfully `paid`.
 - `refunded`: Nexi reports at least one successful refund on the paid attempt's order. `refunded_amount_value` and `refunded_at` record the refund total and time; a partial refund still clears the refund work, and administration shows the partial amount. The attempt state stays `paid`.
 
-Refund reconciliation reads `GET /orders/{orderId}` and counts `REFUND` operations whose result is `EXECUTED`, `REFUNDED`, or `VOIDED`. A back-office refund made before settlement is confirmed to appear as `REFUND` with `VOIDED`. Declined, denied, failed, and cancelled refunds are excluded, and so are pending or unrecognized results, because they are not final; the next notification or batch picks up the final result. `verifyPaymentOutcome` never treats a refund operation as a failed payment, so a refunded paid order cannot reach the failure, terminal, or late-payment recovery paths. Reconciliation runs when Nexi sends a refund notification for the order and in the daily `/api/cron/workspace/payment-refunds` batch of 25 `required` attempts. The batch claims attempts by `refund_checked_at`, never-checked first and then least recently checked, and stamps each claim whatever the outcome (refund found, no refund, or provider failure), so attempts whose refund stays outstanding rotate behind newer ones instead of starving them. Concurrent batches skip each other's claimed rows. Recording is monotonic: a smaller or equal total is `unchanged`, and an attempt that is not a paid Nexi attempt is `not_applicable`. A refund recorded on a `not_required` paid attempt is kept, so a direct back-office refund of a fulfilled booking is still visible. Late-payment settlement into a refund outcome preserves an existing `refunded` state instead of reopening it.
+Refund reconciliation reads `GET /orders/{orderId}` and counts `REFUND` operations whose result is `EXECUTED`, `REFUNDED`, or `VOIDED`. A back-office refund made before settlement is confirmed to appear as `REFUND` with `VOIDED`. Declined, denied, failed, and cancelled refunds are excluded, and so are pending or unrecognized results, because they are not final; the next notification or batch picks up the final result. `verifyPaymentOutcome` never treats a refund operation as a failed payment, so a refunded paid order cannot reach the failure, terminal, or late-payment recovery paths. Reconciliation runs when Nexi sends a refund notification for the order and in the daily `/api/cron/workspace/payment-refunds` batch of 25 `required` attempts. The batch claims attempts by `refund_checked_at`, never-checked first and then least recently checked, and stamps each claim whatever the outcome (refund found, no refund, or provider failure), so attempts whose refund stays outstanding rotate behind newer ones instead of starving them. Concurrent batches skip each other's claimed rows. Lock the batch in its own `select … for update skip locked` statement and then stamp it by ID inside the same transaction. An `update … where id in (select … limit n for update skip locked)` can claim more than `n` rows: when Postgres re-runs the subquery for each updated row, every re-run skips the rows already updated. Recording is monotonic: a smaller or equal total is `unchanged`, and an attempt that is not a paid Nexi attempt is `not_applicable`. A refund recorded on a `not_required` paid attempt is kept, so a direct back-office refund of a fulfilled booking is still visible. Late-payment settlement into a refund outcome preserves an existing `refunded` state instead of reopening it.
 
 Use `payment_attempts.refund_state` as the single refund-work source of truth. Source-specific recovery rows may retain the reason and workflow outcome, but any transition to their refund-required outcome must mark the same payment attempt `required` atomically rather than create a competing refund queue.
 
@@ -643,6 +643,24 @@ keep authorization, provider verification, and reconciliation on the status
 page so a cookie-less return can still reach the tab coordinator. The return
 endpoint exposes no reservation data and grants no access.
 
+Status-page and hold-cleanup reconciliation go through provider payment
+finalization, which fulfills inline only when the queue rejects the enqueue.
+After it marks an attempt paid, or
+finds an already-paid order whose fulfillment is `not_started` or `processing`,
+it enqueues one `workspace-paid-fulfillment` message per order (idempotency key
+`paid-fulfillment:<orderId>`). The queue consumer runs idempotent paid
+fulfillment and fails the message for redelivery while fulfillment is still
+`not_started` or `processing`. An already-paid order in `awaiting_delivery`,
+`fulfilled`, or `failed` triggers no work from the status page, so a status
+render never retries invoice delivery. The Nexi webhook still fulfills
+synchronously. The daily `/api/cron/workspace/paid-fulfillment` reconciliation
+fulfills paid orders left in `not_started` or `processing` for over 15 minutes,
+outside unrecovered late-payment recovery, covering a lost enqueue or a message
+that expired after its one-day retention. Do not rely on re-enqueueing to recover
+those orders: the per-order idempotency key can dedupe the new message. The
+batch takes 25 orders least recently updated first; a fulfillment claim bumps
+`updatedAt`, so an order that keeps failing rotates behind untried ones.
+
 Starting a new reservation from terminal status or invalid Pay state uses a
 document navigation. Cache Components may retain the previous reservation form
 and its completed action result in an inactive route tree; restoring that tree
@@ -667,6 +685,40 @@ order with no operations and no authorized or captured amount, it fails the
 attempt with `nexi_hpp_create_unconfirmed` only while it is still `created`,
 releasing its claim before cancelling the hold. Payment activity on such an
 order needs operator review; an inconclusive lookup is retried later.
+
+Every Nexi request has one per-request timeout, chosen from `VERCEL_ENV` by
+`getNexiRequestTimeoutMilliseconds` in `shared/backend/config/nexi.config.ts`:
+5 seconds in production and 30 seconds in preview, development, and tests. The
+Nexi sandbox can take more than 5 seconds to create a hosted page, and every
+such timeout leaves an ambiguous `created` attempt, so test environments wait
+longer instead of retrying. Keep each deadline that wraps a Nexi call above one
+full request plus the work around it:
+
+| Deadline | Production | Non-production | Covers |
+| --- | --- | --- | --- |
+| Pay submit (`checkoutSubmitDeadline`) | 45 s | 70 s | One full Dotypos request, one full Nexi hosted page request, 10 s of other work |
+| Status refresh Nexi verification (shared by all lookups in one refresh) | 40 s | 40 s | One full Nexi lookup plus retries, inside the status page's 60-second `maxDuration` with the 8-second Dotypos cap |
+| E2E provider transition | 90 s | 90 s | The pay submit's redirect to the hosted page |
+
+The pay submit derives its deadline from the Dotypos and Nexi request
+timeouts and passes it as the action's `deadline`; other Workspace actions keep
+the 45-second default. Once the pending attempt exists, hosted page creation and
+attachment run uninterruptibly, so the action deadline can only end the submit
+before the attempt exists or after the session is attached; a retried submit
+then reuses that session. One status refresh shares a single 40-second verification
+budget, passed to `verifyPaymentOutcome` through finalization and late-payment
+verification; on expiry the refresh reports `provider_verification_failed` and
+renders the stored status. When finalization returns `not_pending` (a slow
+lookup lost a race with a concurrent terminal transition), late-payment
+verification starts only if one full Nexi request still fits the remaining
+budget, and then gets that remainder. Otherwise the refresh logs the deferral
+and renders the stored status; Nexi's success notification or a later refresh
+starts the recovery. Never shorten that lookup below one full request. A
+production lookup with retries ends well inside the budget, so only sandbox
+refreshes defer. The account modal's status route shares this refresh. Webhook,
+queue, and cron verification keeps unbounded retries inside the 300-second
+function limit; Nexi documents no notification response deadline, and a
+webhook keeps processing after the sender disconnects.
 
 ### Webhook Success And Dotypos Confirmation
 

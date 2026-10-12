@@ -2,7 +2,7 @@
  * Only `delivered+<run-id>-<label>@resend.dev` is synthetic; other recipients
  * use the configured provider and never enter the bearer-log route.
  */
-export const magicLinkSyntheticRecipientPattern =
+const magicLinkSyntheticRecipientPattern =
   /^delivered\+[a-z0-9]+(?:-[a-z0-9]+)*-[a-z0-9]+@resend\.dev$/i;
 
 export const isSyntheticE2EEmailRecipient = (email: string): boolean =>

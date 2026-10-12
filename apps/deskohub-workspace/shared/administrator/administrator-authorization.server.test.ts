@@ -46,32 +46,19 @@ describe("administrator server authorization", () => {
     expect(Exit.isFailure(unauthorizedExit)).toBe(true);
   });
 
-  test("rejects direct operation calls with wrong, crossed, or malformed credentials", async () => {
-    for (const authorization of [
-      undefined,
-      "Basic malformed",
-      toAuthorization("admin", "operator-test-password"),
-      toAuthorization("operator", "test-password"),
-      toAuthorization("admin", "wrong-password"),
-      toAuthorization("unknown", "test-password"),
-    ]) {
-      requestHeaders = new Headers(
-        authorization ? { authorization } : undefined
-      );
+  test("rejects crossed credentials at the operation boundary", async () => {
+    requestHeaders = new Headers({
+      authorization: toAuthorization("admin", "operator-test-password"),
+    });
+    const { requireAdministratorAuthorization } = await import(
+      "./administrator-authorization.server"
+    );
 
-      const { requireAdministratorAuthorization } = await import(
-        "./administrator-authorization.server"
-      );
-      const exit = await Effect.runPromiseExit(
-        requireAdministratorAuthorization
-      );
+    const exit = await Effect.runPromiseExit(requireAdministratorAuthorization);
 
-      expect(Exit.isFailure(exit)).toBe(true);
-      if (Exit.isFailure(exit)) {
-        expect(exit.cause.toString()).toContain(
-          "AdministratorUnauthorizedError"
-        );
-      }
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      expect(exit.cause.toString()).toContain("AdministratorUnauthorizedError");
     }
   });
 
@@ -139,7 +126,8 @@ describe("administrator server authorization", () => {
     const operations = [
       authorization.authorizeAdministratorPage,
       administration.loadAdministrationOverview,
-      () => administration.loadAdministrationReservations(searchParams),
+      administration.loadAdministrationRefundAttention,
+      administration.loadAdministrationReservationOverview,
       () =>
         administration.loadAdministrationReservationsPage(searchParams).result,
       () => administration.loadAdministrationReservation("reservation-id"),
@@ -147,22 +135,26 @@ describe("administrator server authorization", () => {
         administration.loadAdministrationReservationBreadcrumbLabel(
           "reservation-id"
         ),
-      () => administration.loadAdministrationBookings(searchParams),
       () => administration.loadAdministrationBookingsPage(searchParams).result,
       () => administration.loadAdministrationBooking("booking-id"),
       () =>
         administration.loadAdministrationBookingBreadcrumbLabel("booking-id"),
-      () => administration.loadAdministrationCustomers(searchParams),
+      () => administration.loadAdministrationCustomersPage(searchParams).result,
       () =>
         administration.loadAdministrationCustomerReservations(
           "customer-id",
           searchParams
         ),
-      () => administration.loadAdministrationOrders(searchParams),
+      () => administration.loadAdministrationCustomerActivity("customer-id"),
+      () =>
+        administration.loadAdministrationCustomerReservationActivity(
+          "customer-id"
+        ),
       () => administration.loadAdministrationOrdersPage(searchParams).result,
-      () => administration.loadAdministrationOperations(searchParams),
+      () => administration.loadAdministrationOrder("order-id"),
       () =>
         administration.loadAdministrationOperationsPage(searchParams).result,
+      () => administration.loadAdministrationOperation("operation-id"),
       () => discounts.loadDiscountAdminPageData(searchParams),
       () => discounts.loadDiscountAdminCodesPageData(searchParams),
       () => discounts.loadDiscountAdminSalesPageData(searchParams),

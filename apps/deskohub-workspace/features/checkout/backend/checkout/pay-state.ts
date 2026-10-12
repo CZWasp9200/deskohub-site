@@ -226,10 +226,3 @@ export const sealPayStateForUrl = Effect.fn("payState.sealForUrl")(function* (
     queryParam: payStateTokenQueryParam,
   };
 });
-
-export const buildPayStateQueryParams = (result: SealPayStateForUrlResult) => {
-  const searchParams = new URLSearchParams();
-  searchParams.set(payStateTokenQueryParam, result.token);
-
-  return searchParams;
-};

@@ -47,9 +47,9 @@ type ProfileBillingFieldName = (typeof profileBillingFieldNames)[number];
 
 /**
  * Billing inputs keep their legacy public DOM `name` attributes (prefixed
- * with `billing`) for native validation messages and the account-visual
- * harness, even though the RHF field paths drop the prefix. Non-billing
- * fields use their field path as the DOM name.
+ * with `billing`) for native validation messages, even though the RHF field
+ * paths drop the prefix. Non-billing fields use their field path as the DOM
+ * name.
  */
 const billingFieldPathByDomName = new Map<string, ProfileBillingFieldName>(
   profileBillingFieldNames.map((field) => [

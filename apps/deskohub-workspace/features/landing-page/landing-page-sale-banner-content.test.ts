@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import type { WorkspaceProductTarget } from "@/features/discounts/product-target";
+import { type Locale, m } from "@/features/i18n";
 import {
-  formatLandingPageSaleBannerLabel,
   getLandingPageSaleBannerContent,
+  getLandingPageSaleBannerLabel,
 } from "./landing-page-sale-banner-content";
 
 const coworkProduct = {
@@ -28,7 +29,7 @@ const formatLabel = (
         };
       } = { kind: "percentage", basisPoints: 2000 }
 ) =>
-  formatLandingPageSaleBannerLabel(
+  getLandingPageSaleBannerLabel(
     {
       title: "Summer focus",
       adjustment,
@@ -37,34 +38,47 @@ const formatLabel = (
     "en-US"
   );
 
-describe("formatLandingPageSaleBannerLabel", () => {
+const bannerTemplate = (
+  message: typeof m.landingSaleBannerAllProducts,
+  locale: Locale = "en-US"
+) => message({ title: "{title}", adjustment: "{adjustment}" }, { locale });
+
+const summerFocusLabel = (template: string) => ({
+  template,
+  title: "Summer focus",
+  adjustment: "20%",
+});
+
+describe("getLandingPageSaleBannerLabel", () => {
   test("describes a sale on every product without clarification", () => {
     expect(
       formatLabel([coworkProduct, meetingRoomProduct, officeProduct])
-    ).toBe("Summer focus: 20% off!");
+    ).toEqual(summerFocusLabel(bannerTemplate(m.landingSaleBannerAllProducts)));
   });
 
   test("describes a sale on every cowork product", () => {
-    expect(formatLabel([coworkProduct])).toBe(
-      "Summer focus: 20% off cowork access!"
+    expect(formatLabel([coworkProduct])).toEqual(
+      summerFocusLabel(bannerTemplate(m.landingSaleBannerAllCoworkProducts))
     );
   });
 
   test("describes a sale on every meeting-room product", () => {
-    expect(formatLabel([meetingRoomProduct])).toBe(
-      "Summer focus: 20% off meeting room reservations!"
+    expect(formatLabel([meetingRoomProduct])).toEqual(
+      summerFocusLabel(
+        bannerTemplate(m.landingSaleBannerAllMeetingRoomProducts)
+      )
     );
   });
 
   test("uses the selected-products fallback for a family mix", () => {
-    expect(formatLabel([coworkProduct, meetingRoomProduct])).toBe(
-      "Summer focus: 20% off chosen products!"
+    expect(formatLabel([coworkProduct, meetingRoomProduct])).toEqual(
+      summerFocusLabel(bannerTemplate(m.landingSaleBannerSelectedProducts))
     );
   });
 
   test("does not omit office from a mixed sale label", () => {
-    expect(formatLabel([coworkProduct, officeProduct])).toBe(
-      "Summer focus: 20% off chosen products!"
+    expect(formatLabel([coworkProduct, officeProduct])).toEqual(
+      summerFocusLabel(bannerTemplate(m.landingSaleBannerSelectedProducts))
     );
   });
 
@@ -74,12 +88,16 @@ describe("formatLandingPageSaleBannerLabel", () => {
         kind: "fixed",
         amount: { value: 20_000, exponent: 2, currency: "CZK" },
       })
-    ).toBe("Summer focus: CZK 200 off cowork access!");
+    ).toEqual({
+      template: bannerTemplate(m.landingSaleBannerAllCoworkProducts),
+      title: "Summer focus",
+      adjustment: "CZK\u00a0200",
+    });
   });
 
-  test("omits the redundant Czech quantifier", () => {
+  test("localizes the template and adjustment for Czech", () => {
     expect(
-      formatLandingPageSaleBannerLabel(
+      getLandingPageSaleBannerLabel(
         {
           title: "Letní soustředění",
           adjustment: { kind: "percentage", basisPoints: 2000 },
@@ -87,34 +105,15 @@ describe("formatLandingPageSaleBannerLabel", () => {
         },
         "cs-CZ"
       )
-    ).toBe("Letní soustředění: sleva 20 % na coworkingové vstupy!");
+    ).toEqual({
+      template: bannerTemplate(m.landingSaleBannerAllCoworkProducts, "cs-CZ"),
+      title: "Letní soustředění",
+      adjustment: "20\u00a0%",
+    });
   });
 });
 
 describe("getLandingPageSaleBannerContent", () => {
-  test.each([
-    ["percentage", { kind: "percentage" as const, basisPoints: 2000 }],
-    [
-      "fixed",
-      {
-        kind: "fixed" as const,
-        amount: { value: 20_000, exponent: 2, currency: "CZK" },
-      },
-    ],
-  ])("exposes the %s adjustment kind to the banner", (kind, adjustment) => {
-    expect(
-      getLandingPageSaleBannerContent({
-        locale: "en-US",
-        reservationKind: "cowork",
-        sale: {
-          title: "Summer focus",
-          adjustment,
-          products: [coworkProduct],
-        },
-      }).adjustmentKind
-    ).toBe(kind);
-  });
-
   test("attributes reservation visits to the home sale banner", () => {
     expect(
       getLandingPageSaleBannerContent({

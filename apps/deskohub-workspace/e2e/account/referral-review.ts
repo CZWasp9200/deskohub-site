@@ -2,6 +2,7 @@ import type { Page } from "@playwright/test";
 import { type Locale, m } from "@/features/i18n";
 import { workspaceE2ETimeouts } from "../timeouts";
 import {
+  type AccountReviewDestination,
   type AccountReviewTarget,
   captureAccountReview,
 } from "./review-screenshots";
@@ -20,20 +21,20 @@ type ReferralOverviewTargets = {
 };
 
 export const verifyReferralOverview = async ({
-  baseUrl,
   count,
   locale,
   page,
+  review,
   targets,
 }: {
-  readonly baseUrl: string;
   readonly count: number;
   readonly locale: Locale;
   readonly page: Page;
+  readonly review: AccountReviewDestination;
   readonly targets: ReferralOverviewTargets;
 }) => {
   await page.goto(
-    new URL(`/${locale}/account?section=referrals`, baseUrl).toString(),
+    new URL(`/${locale}/account?section=referrals`, review.baseUrl).toString(),
     { timeout: workspaceE2ETimeouts.browserNavigation }
   );
   await page
@@ -60,21 +61,22 @@ export const verifyReferralOverview = async ({
       });
   }
 
-  await captureAccountReview(page, baseUrl, targets.desktop);
-  await captureAccountReview(page, baseUrl, targets.mobile);
+  await captureAccountReview(page, review, targets.desktop);
+  await captureAccountReview(page, review, targets.mobile);
 };
 
 export const verifyReferralInvitationReview = async ({
-  baseUrl,
   invitationCode,
   page,
+  review,
   unavailableCode,
 }: {
-  readonly baseUrl: string;
   readonly invitationCode: string;
   readonly page: Page;
+  readonly review: AccountReviewDestination;
   readonly unavailableCode: string;
 }) => {
+  const { baseUrl } = review;
   const locale = "en-US";
   const visitInvitation = async (code: string) => {
     const query = new URLSearchParams({ section: "referrals", ref: code });
@@ -104,7 +106,7 @@ export const verifyReferralInvitationReview = async ({
     });
   };
   const capture = (target: AccountReviewTarget) =>
-    captureAccountReview(page, baseUrl, target);
+    captureAccountReview(page, review, target);
 
   await visitInvitation(invitationCode);
   await capture("referral-invitation-eligible-desktop");

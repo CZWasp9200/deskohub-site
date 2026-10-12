@@ -35,6 +35,7 @@ const existingCustomer = {
     email: "ada@example.test",
     phone: "+420 777 777 777",
   },
+  hasMarketingConsent: false,
 };
 
 type ReservationContentProps = {
@@ -107,7 +108,7 @@ test("renders the reservation shell before request-bound content resolves", asyn
   expect(isValidElement(pageProps.children)).toBe(true);
 });
 
-test("rejects a disabled gated page before rendering its shell", async () => {
+test("gates a disabled page inside its content, keeping the shell static", async () => {
   const render = mock((): ReactNode => "loaded reservation form");
   const fallback = mock((): ReactNode => "loading reservation form");
   const isEnabled = mock(() => Promise.resolve(false));
@@ -120,14 +121,28 @@ test("rejects a disabled gated page before rendering its shell", async () => {
     render,
   });
 
-  await expect(
-    pageDefinition.Page({ searchParams: Promise.resolve({}) })
-  ).rejects.toThrow("NEXT_HTTP_ERROR_FALLBACK;404");
+  const page = await pageDefinition.Page({
+    searchParams: Promise.resolve({}),
+  });
+
+  expect(isEnabled).not.toHaveBeenCalled();
+  expect(fallback).toHaveBeenCalledWith("en-US");
+
+  type ContentProps = { readonly searchParams: Promise<object> };
+  const content = (
+    page as ReactElement<{ readonly children: ReactElement<ContentProps> }>
+  ).props.children;
+  const renderContent = content.type as (
+    props: ContentProps
+  ) => Promise<ReactNode>;
+
+  await expect(renderContent(content.props)).rejects.toThrow(
+    "NEXT_HTTP_ERROR_FALLBACK;404"
+  );
   await expect(pageDefinition.generateMetadata()).rejects.toThrow(
     "NEXT_HTTP_ERROR_FALLBACK;404"
   );
   expect(isEnabled).toHaveBeenCalledTimes(2);
-  expect(fallback).not.toHaveBeenCalled();
   expect(render).not.toHaveBeenCalled();
 });
 
@@ -247,15 +262,4 @@ test("fails the content when the page data load rejects", async () => {
     )
   ).rejects.toThrow("capacity unavailable");
   expect(render).not.toHaveBeenCalled();
-});
-
-test("requires a page data loader for a render that reads page data", () => {
-  createReservationPage({
-    fallback: () => "loading reservation form",
-    kind: "office",
-    metadata: () => ({ description: "Description", title: "Title" }),
-    pathname: "/reservation/office",
-    // @ts-expect-error A definition without `loadPageData` has no page data.
-    render: (context: { readonly pageData: number }) => context.pageData,
-  });
 });

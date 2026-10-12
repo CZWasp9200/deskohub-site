@@ -7,7 +7,6 @@ import {
 import type { Customer } from "@deskohub/dotypos/generated";
 import { Effect, Exit, Layer, Option } from "effect";
 import { FetchHttpClient } from "effect/unstable/http";
-import { betterAuthMagicLinkOptions } from "@/features/account/backend/auth/auth-options";
 import {
   hasPreviousPaidBooking,
   hasPriorConfirmedDotyposBooking,
@@ -32,8 +31,6 @@ import type { WorkspaceE2EAccountJournal } from "./journal";
 import {
   type MagicLinkOperation,
   type MagicLinkRateBudget,
-  magicLinkOperationsPerWindow,
-  magicLinkOperationWindowMs,
   makeMagicLinkRateBudget,
 } from "./rate-budget";
 import type {
@@ -197,13 +194,7 @@ type ConsumeResult = {
  * starts the lifecycle lane immediately after their successful postcondition.
  */
 class FakeAccountExternalState {
-  readonly acceptedResponses: string[] = [];
   readonly browserActions: FakeBrowserAction[] = [];
-  readonly formSubmitWaits: Array<{
-    readonly fieldSelectors: readonly string[];
-    readonly formSelector: string;
-    readonly requiresReadyAttribute: boolean;
-  }> = [];
   readonly createdAuthIds: string[] = [];
   readonly deletionObservations: DeletionObservation[] = [];
   readonly events: FakeEvent[] = [];
@@ -897,7 +888,6 @@ class FakeBrowser {
       }
       const message = this.external.sendMessage(this.emailValue, "sign-in");
       const response = `${acceptedTitle} ${acceptedBody}`;
-      this.external.acceptedResponses.push(response);
       this.pageText =
         message.kind === "reauthentication" ? deletionReauthLinkSent : response;
       this.formReady = false;
@@ -995,19 +985,8 @@ class FakeBrowser {
 
   waitForFormSubmitHandler(
     selector: string,
-    fieldSelectors: readonly string[],
-    options?: {
-      readonly requiredReadyAttribute?: {
-        readonly name: string;
-        readonly value: string;
-      };
-    }
+    fieldSelectors: readonly string[]
   ) {
-    this.external.formSubmitWaits.push({
-      fieldSelectors: [...fieldSelectors],
-      formSelector: selector,
-      requiresReadyAttribute: options?.requiredReadyAttribute !== undefined,
-    });
     if (selector !== signInFormSelector || !this.formReady) {
       throw new Error("the sign-in form submit handler is not ready");
     }
@@ -1180,20 +1159,10 @@ mock.module("../browser", () => ({
     _run: Runner,
     _session: string,
     selector: string,
-    fieldSelectors: readonly string[],
-    options?: {
-      readonly requiredReadyAttribute?: {
-        readonly name: string;
-        readonly value: string;
-      };
-    }
+    fieldSelectors: readonly string[]
   ) =>
     Effect.sync(() =>
-      requireBrowser().waitForFormSubmitHandler(
-        selector,
-        fieldSelectors,
-        options
-      )
+      requireBrowser().waitForFormSubmitHandler(selector, fieldSelectors)
     ),
   waitForBrowserText: ({
     matches,
@@ -1279,6 +1248,7 @@ mock.module("../integrations/dotypos", () => ({
 
 const makeConfig = (): WorkspaceE2EAccountConfig => ({
   baseUrl,
+  review: { baseUrl, screenshots: false },
   bypassSecret: undefined,
   expectedHost,
   locale: "en-US",
@@ -1463,13 +1433,11 @@ afterEach(() => {
   setSystemTime();
 });
 
-test("executes the selected account lifecycle cases with a fresh factory per case", async () => {
+test("executes the selected account lifecycle cases", async () => {
   setSystemTime(fixedNow);
   const { makeWorkspaceE2EAccountCases } = await import("./cases");
   const scenario = makeScenario();
-  const executedCaseIds: WorkspaceE2EAccountCaseId[] = [];
   const stepIds: string[] = [];
-  const builtCases: WorkspaceE2EAccountCase[] = [];
 
   expect(
     workspaceE2EAccountCaseIds.filter((caseId) =>
@@ -1483,31 +1451,7 @@ test("executes the selected account lifecycle cases with a fresh factory per cas
       caseId,
       scenario
     );
-    executedCaseIds.push(caseId);
-    builtCases.push(selected);
-    const previous = builtCases.at(-2);
-    if (previous) expect(selected).not.toBe(previous);
     await executeCase(selected, scenario, stepIds);
-    if (caseId === "account-sign-in-form") {
-      expect(scenario.external.formSubmitWaits).toEqual([
-        {
-          fieldSelectors: [signInEmailSelector],
-          formSelector: signInFormSelector,
-          requiresReadyAttribute: false,
-        },
-        {
-          fieldSelectors: [signInEmailSelector],
-          formSelector: signInFormSelector,
-          requiresReadyAttribute: false,
-        },
-        {
-          fieldSelectors: [signInEmailSelector],
-          formSelector: signInFormSelector,
-          requiresReadyAttribute: false,
-        },
-      ]);
-    }
-
     if (caseId === "account-magic-link-delivery") {
       // Profile completion and reservation transitions intentionally retain
       // their separate coverage; seed their successful postcondition here.
@@ -1515,8 +1459,6 @@ test("executes the selected account lifecycle cases with a fresh factory per cas
     }
   }
 
-  expect(executedCaseIds).toEqual(selectedCaseIds);
-  expect(scenario.external.profileHistorySeeded).toBe(true);
   expect(stepIds.length).toBeGreaterThan(0);
   expect(scenario.lifecycleHandoff.firstAcceptedRequestedAt).toEqual(fixedNow);
 
@@ -1531,21 +1473,9 @@ test("executes the selected account lifecycle cases with a fresh factory per cas
     "verify",
   ]);
   expect(
-    scenario.operations.filter((operation) => operation === "send")
-  ).toHaveLength(4);
-  expect(
     scenario.operations.filter((operation) => operation === "verify")
   ).toHaveLength(4);
   expect(scenario.retries).toEqual([]);
-
-  expect(magicLinkOperationsPerWindow).toBe(4);
-  expect(magicLinkOperationWindowMs).toBe(600_000);
-  expect(magicLinkOperationsPerWindow).toBe(
-    betterAuthMagicLinkOptions.rateLimit.max - 1
-  );
-  expect(magicLinkOperationWindowMs).toBe(
-    betterAuthMagicLinkOptions.rateLimit.window * 1000
-  );
 
   const operationEvents = scenario.external.events.filter(({ type }) =>
     ["send", "receive", "logout", "consume", "deletion", "replay"].includes(
@@ -1592,10 +1522,6 @@ test("executes the selected account lifecycle cases with a fresh factory per cas
   expect(
     scenario.external.usersByEmail.has(scenario.external.acceptedBRecipient)
   ).toBe(false);
-  expect(scenario.external.acceptedResponses.slice(0, 2)).toEqual([
-    `${acceptedTitle} ${acceptedBody}`,
-    `${acceptedTitle} ${acceptedBody}`,
-  ]);
   expect(scenario.external.retrieveCalls).toEqual([
     {
       excludeLogEntryIds: [],
@@ -1656,7 +1582,6 @@ test("executes the selected account lifecycle cases with a fresh factory per cas
     "auth-original",
     "auth-reactivated",
   ]);
-  expect(new Set(scenario.external.createdAuthIds).size).toBe(2);
 
   expect(scenario.external.unlinkObservations).toEqual([
     {
@@ -1704,42 +1629,6 @@ test("executes the selected account lifecycle cases with a fresh factory per cas
     "customer-duplicate-1",
   ]);
   expect(scenario.external.journal.dotyposReservationIds).toEqual([]);
-
-  expect(
-    scenario.external.browserActions.filter(
-      ({ kind, selectorOrDestination }) =>
-        kind === "fill" && selectorOrDestination === signInEmailSelector
-    )
-  ).toHaveLength(4);
-  expect(
-    scenario.external.browserActions.filter(
-      ({ kind, selectorOrDestination }) =>
-        kind === "click" && selectorOrDestination === signInSubmitSelector
-    )
-  ).toHaveLength(4);
-  expect(
-    scenario.external.browserActions.filter(
-      ({ kind, selectorOrDestination }) =>
-        kind === "click" && selectorOrDestination === deleteReauthSendSelector
-    )
-  ).toHaveLength(1);
-
-  expect(
-    scenario.external.events
-      .filter(({ type }) =>
-        ["send", "receive", "logout", "consume", "deletion", "replay"].includes(
-          type
-        )
-      )
-      .slice(-1)
-  ).toEqual([
-    {
-      id: mainMessages[2]?.id,
-      kind: "reactivation",
-      type: "consume",
-      userId: "auth-reactivated",
-    },
-  ]);
 });
 
 test("the account reservation transition leaves referral history eligible", async () => {

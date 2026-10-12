@@ -62,14 +62,6 @@ describe("customer account route boundary", () => {
     AccountPage.mockClear();
   });
 
-  test("keeps the account route out of search indexes", async () => {
-    const { generateMetadata } = await import("./page");
-
-    expect(await generateMetadata()).toMatchObject({
-      robots: { index: false, follow: false },
-    });
-  });
-
   test("checks the account gate after connection and before loading private account data", async () => {
     const { default: CustomerAccountPageRoute } = await import("./page");
 

@@ -5,13 +5,12 @@ description: Pull request review feedback, regression fixes, thread resolution, 
 
 # Deskohub PR review
 
-In OpenCode, use the native read-only `review` subagent, following the active
-`orchestrator` and `review` agent instructions. Supply a fixed base/artifact
-revision or diff hash, the actual diff, acceptance criteria, changed files, test
-evidence, known risks, and applicable child review coverage because the reviewer
-cannot run shell commands. Route accepted findings to their implementation
-owners, reverify, and resume the same reviewer until it returns `APPROVED`, then
-perform final verification. A fixed uncommitted diff is valid. Treat commits as
+Use a read-only review subagent. Supply a fixed base/artifact revision or diff
+hash, the actual diff, acceptance criteria, changed files, test evidence, known
+risks, and applicable child review coverage, so the review does not depend on
+running shell commands. Route accepted findings to their implementation owners,
+reverify, and resume the same reviewer until it approves, then perform final
+verification. A fixed uncommitted diff is valid. Treat commits as
 separate publishing steps subject to user authorization, not prerequisites for
 each review. Review units may contain multiple execution contributions; impose
 neither a root-only rule nor a per-worker review requirement.

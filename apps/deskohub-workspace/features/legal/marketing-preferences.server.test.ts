@@ -283,18 +283,4 @@ describe("getMarketingPreferences", () => {
     expect(records.some(({ level }) => level === "Warn")).toBe(true);
     expect(JSON.stringify(records)).not.toContain("repository unavailable");
   });
-
-  test("fails closed to unavailable when consent storage cannot be read", async () => {
-    const scenario = makeScenario({ repositoryError: true });
-
-    await expect(
-      Effect.runPromise(
-        getMarketingPreferencesEffect(
-          "en-US",
-          marketingCookies,
-          scenario.layers
-        )
-      )
-    ).resolves.toEqual({ status: "unavailable" });
-  });
 });

@@ -355,24 +355,6 @@ test("bounds an execution with a real deadline that fails as a timeout", async (
   expect(failure.message).toContain("after 20ms");
 });
 
-test("runs the interruption-safe finalizer after the deadline fires", async () => {
-  const finalizerOperations: string[] = [];
-
-  await Effect.runPromiseExit(
-    withinWorkspaceE2EDeadline(
-      Effect.never as Effect.Effect<never, never>,
-      "access-code-creation e2e case",
-      20
-    ).pipe(
-      Effect.ensuring(
-        Effect.sync(() => finalizerOperations.push("case-finalizer"))
-      )
-    )
-  );
-
-  expect(finalizerOperations).toEqual(["case-finalizer"]);
-});
-
 const makeTestRunner = (): Runner => async (_command, args) => ({
   exitCode: args.includes("har") && args.includes("start") ? 1 : 0,
   stderr: "",

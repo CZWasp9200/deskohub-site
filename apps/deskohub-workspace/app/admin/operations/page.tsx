@@ -13,7 +13,6 @@ import {
 } from "@/features/administration/loading";
 import {
   type AdministrationSearchParams,
-  loadAdministrationOperations,
   loadAdministrationOperationsPage,
 } from "@/features/administration/page-data.server";
 import { OperationTable } from "@/features/administration/payment-tables";
@@ -52,13 +51,14 @@ export default function OperationsAdministrationPage({
   );
 }
 
-type OperationsData = Awaited<ReturnType<typeof loadAdministrationOperations>>;
-type OperationCriteria = Pick<OperationsData, "input" | "range">;
+type OperationsPage = ReturnType<typeof loadAdministrationOperationsPage>;
+type OperationsResult = Awaited<OperationsPage["result"]>;
+type OperationCriteria = Awaited<OperationsPage["criteria"]>;
 
 async function OperationCount({
   result,
 }: {
-  readonly result: Promise<OperationsData["result"]>;
+  readonly result: Promise<OperationsResult>;
 }) {
   return (
     <AdministrationTableCount
@@ -79,16 +79,12 @@ async function OperationFiltersContent({
 async function OperationResultsContent({
   result,
 }: {
-  readonly result: Promise<OperationsData["result"]>;
+  readonly result: Promise<OperationsResult>;
 }) {
   return <OperationResults result={await result} />;
 }
 
-function OperationResults({
-  result,
-}: {
-  readonly result: OperationsData["result"];
-}) {
+function OperationResults({ result }: { readonly result: OperationsResult }) {
   return (
     <>
       {!result.providerAvailable && (
@@ -105,27 +101,5 @@ function OperationResults({
       )}
       <OperationTable operations={result.items} />
     </>
-  );
-}
-
-export async function OperationsAdministrationContent({
-  searchParams,
-}: {
-  readonly searchParams: AdministrationSearchParams;
-}) {
-  const { input, range, result } =
-    await loadAdministrationOperations(searchParams);
-  return (
-    <AdministrationPage>
-      <h1 className="sr-only">Operations</h1>
-      <AdministrationTableToolbar
-        count={result.items.length}
-        filters={
-          <OperationsAdministrationFilterForm input={input} range={range} />
-        }
-        itemLabel="operation"
-      />
-      <OperationResults result={result} />
-    </AdministrationPage>
   );
 }

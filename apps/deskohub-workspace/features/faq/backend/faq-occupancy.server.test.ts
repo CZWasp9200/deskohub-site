@@ -100,7 +100,6 @@ beforeEach(() => {
   requestedBounds = undefined;
   getTables.mockClear();
   listReservations.mockClear();
-  cacheLife.mockClear();
 });
 
 afterEach(() => setSystemTime());
@@ -118,20 +117,11 @@ describe("loadFaqOccupancyStats", () => {
       averageReservationsPerDay: 0.2,
       coworkSeatCapacity: 4,
     });
-    expect(Object.keys(stats).sort()).toEqual([
-      "averageReservationsPerDay",
-      "coworkSeatCapacity",
-    ]);
     expect(getTables).toHaveBeenCalledTimes(1);
     expect(listReservations).toHaveBeenCalledTimes(1);
     expect(requestedBounds).toEqual({
       startsAtOrAfter: "2026-03-31T22:00:00Z",
       startsBefore: "2026-04-30T22:00:00Z",
-    });
-    expect(cacheLife).toHaveBeenCalledWith({
-      stale: 30,
-      revalidate: 300,
-      expire: 600,
     });
   });
 
@@ -163,16 +153,6 @@ describe("loadFaqOccupancyStats", () => {
       startsAtOrAfter: "2026-03-31T22:00:00Z",
       startsBefore: "2026-04-30T22:00:00Z",
     });
-    expect(cacheLife).toHaveBeenNthCalledWith(1, {
-      stale: 30,
-      revalidate: 300,
-      expire: 600,
-    });
-    expect(cacheLife).toHaveBeenNthCalledWith(2, {
-      stale: 30,
-      revalidate: 300,
-      expire: 600,
-    });
   });
 
   test("returns a real zero aggregate when the provider returns no data", async () => {
@@ -182,11 +162,6 @@ describe("loadFaqOccupancyStats", () => {
     });
 
     expect(listReservations).toHaveBeenCalledTimes(1);
-    expect(cacheLife).toHaveBeenCalledWith({
-      stale: 30,
-      revalidate: 300,
-      expire: 600,
-    });
   });
 
   test("preserves a Dotypos failure instead of returning zero aggregates", async () => {

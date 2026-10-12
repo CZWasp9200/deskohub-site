@@ -54,6 +54,10 @@ type ReservationPageDefinition<
   PageData = undefined,
 > = {
   readonly fallback: (locale: Locale) => ReactNode;
+  /**
+   * Release gate shared by the metadata and the page content. Memoize it per
+   * render so both share one evaluation.
+   */
   readonly isEnabled?: () => boolean | Promise<boolean>;
   readonly kind: Kind;
   readonly metadata: (locale: Locale) => {
@@ -150,22 +154,18 @@ export function createReservationPage<
   }
 
   async function Page({ searchParams }: LocalizedReservationPageProps) {
-    return runWithRequestLocale(async (locale) => {
-      if (definition.isEnabled && !(await definition.isEnabled())) notFound();
-
-      return (
-        <ReservationPage
-          fallback={definition.fallback(locale)}
-          locale={locale}
-          title={definition.metadata(locale).title}
-        >
-          <ReservationPageContent
-            definition={definition}
-            searchParams={searchParams}
-          />
-        </ReservationPage>
-      );
-    });
+    return runWithRequestLocale(async (locale) => (
+      <ReservationPage
+        fallback={definition.fallback(locale)}
+        locale={locale}
+        title={definition.metadata(locale).title}
+      >
+        <ReservationPageContent
+          definition={definition}
+          searchParams={searchParams}
+        />
+      </ReservationPage>
+    ));
   }
 
   return { generateMetadata, Page };
@@ -179,6 +179,9 @@ async function ReservationPageContent<Kind extends ReservationKind, PageData>({
   readonly searchParams: Promise<SearchParamsRecord>;
 }) {
   await connection();
+  // The release gate may read the request subject, so it stays out of the
+  // prerendered shell. Disabled pages stream the not-found boundary instead.
+  if (definition.isEnabled && !(await definition.isEnabled())) notFound();
   const resolvedSearchParams = await searchParams;
 
   return runWithRequestLocale(async (locale) => {

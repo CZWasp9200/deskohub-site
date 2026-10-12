@@ -270,12 +270,13 @@ test("recognizes a rendered not-found response for a disabled preview page", asy
   ).resolves.toBe(false);
 });
 
-test("rejects a streamed Next server error instead of disabling E2E coverage", async () => {
+test("rejects a server error streamed with a 200 instead of disabling E2E coverage", async () => {
   const fetchMock = mock(
     async () =>
-      new Response('<h1 class="next-error-h1">500</h1>', {
-        status: 200,
-      })
+      new Response(
+        '<section aria-busy="true">Reserve a private office.</section><template data-dgst="2871029386"></template>',
+        { status: 200 }
+      )
   );
 
   await expect(

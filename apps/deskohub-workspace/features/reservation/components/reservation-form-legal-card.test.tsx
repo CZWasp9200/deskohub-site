@@ -20,7 +20,6 @@ import {
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
 } from "@/shared/testing/workspace-component-test-env";
-import { ReservationFormLegalCard } from "./reservation-form-legal-card";
 import { ReservationMarketingConsentField } from "./reservation-marketing-consent-field";
 import { ReservationPrivacyNotice } from "./reservation-privacy-notice";
 
@@ -38,14 +37,19 @@ const interpolatedLinkLabel = (copy: string, tag: string) => {
   return match?.[1] ?? "";
 };
 
-const chromeNeedle = "rounded-[1.35rem]";
 const focusableSelector =
   'a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])';
 
-const legalCards = (view: { container: HTMLElement }) =>
-  [...view.container.querySelectorAll("div")].filter((element) =>
-    element.className.includes(chromeNeedle)
-  );
+const legalCards = (view: ReturnType<typeof render>, locale: Locale) => {
+  const catalog = catalogs[locale];
+  return [
+    interpolatedLinkLabel(catalog.reservationPrivacyNote, "privacyPolicy"),
+    interpolatedLinkLabel(
+      catalog.reservationMarketingConsent,
+      "marketingConsent"
+    ),
+  ].map((name) => view.getByRole("link", { name }).closest("div"));
+};
 
 const LegalCardsHarness = ({ locale }: { readonly locale: Locale }) => {
   const form = useForm<{ readonly marketingConsent: boolean }>({
@@ -87,8 +91,7 @@ describe("reservation form legal cards", () => {
       const checkboxes = view.getAllByRole("checkbox");
       expect(checkboxes).toHaveLength(1);
 
-      const cards = legalCards(view);
-      expect(cards).toHaveLength(2);
+      const cards = legalCards(view, locale);
       expect(cards[0]?.querySelector('[role="checkbox"]')).toBeNull();
       expect(cards[1]?.querySelector('[role="checkbox"]')).toBe(checkboxes[0]);
 
@@ -142,50 +145,11 @@ describe("reservation form legal cards", () => {
     }
   });
 
-  test("both rows share legal-card chrome and matched indicator alignment", () => {
-    const view = render(<LegalCardsHarness locale="en-US" />);
-
-    const cards = legalCards(view);
-    expect(cards).toHaveLength(2);
-    for (const card of cards) {
-      expect(card.className).toContain(chromeNeedle);
-      expect(card.className).toContain("border-navy-blue/10");
-      expect(card.className).toContain("bg-navy-blue/2.5");
-      expect(card.className).toContain("p-4");
-      expect(card.className).toContain("flex");
-      expect(card.className).toContain("items-start");
-      expect(card.className).toContain("gap-3");
-
-      const indicatorSlot = card.firstElementChild as HTMLElement;
-      expect(indicatorSlot.className).toContain("mt-1");
-      expect(indicatorSlot.className).toContain("shrink-0");
-
-      const contentSlot = card.lastElementChild as HTMLElement;
-      expect(contentSlot.className).toContain("text-sm");
-      expect(contentSlot.className).toContain("leading-6");
-      expect(contentSlot.className).toContain("text-navy-blue/66");
-    }
-
-    const sharedCardView = render(
-      <ReservationFormLegalCard indicator={<span data-indicator="" />}>
-        <span data-content="">Content</span>
-      </ReservationFormLegalCard>
-    );
-    const sharedCard = legalCards(sharedCardView)[0];
-    expect(sharedCard.className).toBe(cards[0]?.className);
-    expect(sharedCard.firstElementChild?.className).toBe(
-      cards[0]?.firstElementChild?.className
-    );
-    expect(sharedCard.lastElementChild?.className).toBe(
-      cards[0]?.lastElementChild?.className
-    );
-  });
-
   test("renders each locale's complete copy around its linked text", () => {
     for (const locale of ["en-US", "cs-CZ"] as const) {
       const catalog = catalogs[locale];
       const view = render(<LegalCardsHarness locale={locale} />);
-      const cards = legalCards(view);
+      const cards = legalCards(view, locale);
       const privacyCopy = catalog.reservationPrivacyNote;
       const marketingCopy = catalog.reservationMarketingConsent;
       const privacyLinkLabel = interpolatedLinkLabel(

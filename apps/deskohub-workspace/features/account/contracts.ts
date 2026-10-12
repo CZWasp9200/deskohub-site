@@ -1,4 +1,4 @@
-import { normalizePhoneNumber } from "@deskohub/dotypos";
+import { normalizePhoneNumber } from "@deskohub/dotypos/phone-number";
 import { Schema } from "effect";
 import type { WorkspaceCoworkProductTier } from "@/features/checkout/product-catalog";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";

@@ -574,7 +574,6 @@ test("watchdog interrupts verification and releases before journal flush", async
   );
 
   journalFlushObserver = undefined;
-  expect(testCase.timeoutMs).toBe(1_000);
   expect(Exit.isFailure(exit)).toBe(true);
   expect(events).toEqual([
     "case:execute",

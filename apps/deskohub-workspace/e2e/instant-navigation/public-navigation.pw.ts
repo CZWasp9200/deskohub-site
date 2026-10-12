@@ -1,5 +1,6 @@
 import { instant } from "@next/playwright";
 import { expect, type Page, test } from "@playwright/test";
+import { m } from "@/features/i18n";
 import {
   enablePreviewAccess,
   expectPublicSiteShell,
@@ -10,6 +11,7 @@ const galleryPath = "/en-US/gallery";
 const contactPath = "/en-US/contact";
 const homePath = "/en-US";
 const ttrpgRoomPath = "/en-US/ttrpg-room";
+const locale = "en-US" as const;
 
 test.beforeEach(async ({ baseURL, context }) => {
   await enablePreviewAccess(context, baseURL);
@@ -32,7 +34,10 @@ test("serves the resolved header and gallery on direct navigation", async ({
 
   await expectPublicSiteShell(page);
   await expect(
-    page.getByRole("heading", { level: 1, name: "Workspace gallery" })
+    page.getByRole("heading", {
+      level: 1,
+      name: m.gallerySrTitle({}, { locale }),
+    })
   ).toBeVisible();
   await expectGalleryContentToResolve(page);
 });
@@ -194,20 +199,11 @@ test.describe("client navigation", () => {
   }
 });
 
-const homeHeading = "The first self-service workspace on Palmovka.";
-
 async function expectHomePage(page: Page) {
   await expect(
-    page.getByRole("heading", { level: 1, name: homeHeading })
-  ).toBeVisible();
-  await expect(page.getByRole("region", { name: homeHeading })).toBeVisible();
-  await expect(
-    page.getByRole("link", { name: "Reserve cowork" })
-  ).toBeVisible();
-  await expect(
     page.getByRole("heading", {
-      level: 2,
-      name: "Two minutes from Palmovka metro",
+      level: 1,
+      name: m.landingHeroTitle({}, { locale }),
     })
   ).toBeVisible();
   // The decorative carousel may be absent when Cloudinary has no usable
@@ -219,16 +215,19 @@ async function expectHomePage(page: Page) {
 
 async function expectGalleryShell(page: Page) {
   await expect(
-    page.getByRole("heading", { level: 1, name: "Workspace gallery" })
+    page.getByRole("heading", {
+      level: 1,
+      name: m.gallerySrTitle({}, { locale }),
+    })
   ).toBeVisible();
   await expect(
-    page.getByRole("region", { name: "Workspace gallery" })
+    page.getByRole("region", { name: m.gallerySrTitle({}, { locale }) })
   ).toHaveAttribute("aria-busy", "true");
 }
 
 async function expectGalleryContentToResolve(page: Page) {
   await expect(
-    page.getByRole("region", { name: "Workspace gallery" })
+    page.getByRole("region", { name: m.gallerySrTitle({}, { locale }) })
   ).toHaveCount(0);
 }
 
@@ -236,31 +235,18 @@ async function expectContactPage(page: Page) {
   await expect(
     page.getByRole("heading", {
       level: 1,
-      name: "Contact details",
+      name: m.contactDetailsTitle({}, { locale }),
     })
   ).toBeVisible();
-  await expect(page.getByRole("textbox", { name: "Name" })).toBeVisible();
-  await expect(page.getByRole("textbox", { name: "Email" })).toBeVisible();
-  await expect(page.getByRole("textbox", { name: "Message" })).toBeVisible();
 }
 
 async function expectTtrpgRoomPage(page: Page) {
   await expect(
     page.getByRole("heading", {
       level: 1,
-      name: "Private rooms for TTRPGs and similar events",
+      name: m.ttrpgRoomHeroTitle({}, { locale }),
     })
   ).toBeVisible();
-  await expect(
-    page.getByRole("heading", { level: 2, name: "Cozy private session" })
-  ).toBeVisible();
-  await expect(
-    page.getByRole("heading", { level: 2, name: "Large-scale adventure" })
-  ).toBeVisible();
-  await expect(
-    page.getByRole("link", { name: "Contact Deskohub Bar" })
-  ).toBeVisible();
-  await expect(page.getByRole("link", { name: "Reserve" })).toBeVisible();
 }
 
 async function getPrimaryNavigationLinks(page: Page) {

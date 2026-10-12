@@ -141,7 +141,7 @@ governs Better Auth retention and provider-first account deletion. It does not
 define PostHog erasure.
 
 Public legal content uses generic provider-settings language for analytics
-retention. A completed read-only audit on 2026-09-11 (`ses_f6e3efbd7ffeQB1apvi5w3UW0l`)
+retention. A completed read-only audit on 2026-09-11
 observed these settings in PostHog project `204184`:
 `session_recording_retention_period=30d`, `event_retention_months=84`, and
 `events_retention_enforced=false`. These observed settings are not guaranteed
