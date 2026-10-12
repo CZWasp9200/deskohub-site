@@ -12,8 +12,10 @@ import {
   formatAdministrationReservationDate,
   getBookingTableLabel,
   NexiOrderLink,
+  PaymentAmount,
   PaymentAttemptList,
-  PaymentRefundLabel,
+  PaymentRefundRequiredLabel,
+  PaymentStatusText,
   RelatedReservationLink,
   ReservationReferences,
   ReservationTimeline,
@@ -170,19 +172,14 @@ export async function ReservationAdministrationDetail({
               {reservation.latestPayment ? (
                 <>
                   <p className="font-semibold">
-                    {formatAdministrationMoney(
-                      reservation.latestPayment.amount
-                    )}
+                    <PaymentAmount payment={reservation.latestPayment} />
                   </p>
                   <p className="mt-1 text-sm text-navy-blue/60">
-                    {reservation.latestPayment.stateLabel} ·{" "}
-                    {formatAdministrationDateTime(
-                      reservation.latestPayment.updatedAt
-                    )}
+                    <PaymentStatusText payment={reservation.latestPayment} />
                   </p>
-                  <PaymentRefundLabel
-                    attempt={reservation.latestPayment}
+                  <PaymentRefundRequiredLabel
                     className="mt-2 text-sm"
+                    payment={reservation.latestPayment}
                   />
                   {reservation.latestPayment.providerOrderId && (
                     <NexiOrderLink

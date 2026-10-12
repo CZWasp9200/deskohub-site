@@ -8,7 +8,7 @@ process.env.CRON_SECRET = "cron-secret-for-payment-refund-test";
 const reconcileCalls: { readonly limit: number }[] = [];
 
 interface IFakePaymentRefunds {
-  readonly reconcileAwaitingRefunds: (input: {
+  readonly reconcileRefunds: (input: {
     readonly limit: number;
   }) => Effect.Effect<
     { checked: number; recorded: number; failed: number },
@@ -24,7 +24,7 @@ const FakePaymentRefundService = Context.Service<
 >()("@test/FakePaymentRefundService");
 
 const fakePaymentRefundLayer = Layer.succeed(FakePaymentRefundService, {
-  reconcileAwaitingRefunds: (input) => {
+  reconcileRefunds: (input) => {
     reconcileCalls.push(input);
     return failReconciliation
       ? Effect.fail(new Error("refund reconciliation unavailable"))
