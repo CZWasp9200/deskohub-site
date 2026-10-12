@@ -40,5 +40,3 @@ export {
   type PayStateSubmittedCodeMetadata,
 } from "./pay-state-contract";
 export { PayableReservationService } from "./payable-reservation.service";
-export { recoverReplacementPayState } from "./replacement-pay-state";
-export { ReservationSupersessionService } from "./reservation-supersession.service";

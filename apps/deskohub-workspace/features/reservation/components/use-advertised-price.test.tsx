@@ -122,3 +122,29 @@ test("keeps a successful advertised-price batch independent from a failed siblin
     { timeout: 5000 }
   );
 });
+
+test("keeps fresh page-loaded prices through the initial mount", async () => {
+  const preloaded = requests.map((request) => ({
+    request,
+    advertisedPrice: {} as AdvertisedPrice,
+  }));
+  const PreloadedHarness = () =>
+    useAdvertisedPrices(requests, preloaded).map((result, index) => (
+      <output
+        data-testid={`advertised-price-${index}`}
+        key={requests[index]?.reservation.details.reservationDate}
+      >
+        {result.status}
+      </output>
+    ));
+  const view = render(
+    <QueryClientProvider client={new QueryClient()}>
+      <PreloadedHarness />
+    </QueryClientProvider>
+  );
+
+  // The batch flush is scheduled on a timer, so let it run.
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(view.getByTestId("advertised-price-0").textContent).toBe("success");
+  expect(getAdvertisedPrices).not.toHaveBeenCalled();
+});

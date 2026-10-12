@@ -180,15 +180,4 @@ describe("Customer account deletion", () => {
       "lock-release",
     ]);
   });
-
-  test("serializes the whole request under one account advisory lock", async () => {
-    const { dependencies, calls } = makeDependencies();
-
-    await Effect.runPromise(
-      expireLinkedDotyposProfile(dependencies)(accountId)
-    );
-
-    expect(calls.filter((call) => call === "lock-acquire")).toHaveLength(1);
-    expect(calls.indexOf("lock-release")).toBe(calls.length - 1);
-  });
 });

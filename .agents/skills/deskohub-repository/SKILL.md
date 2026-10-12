@@ -1,13 +1,13 @@
 ---
 name: deskohub-repository
-description: Deskohub monorepo setup, development, build, validation, architecture, shared packages, Cloudinary gallery tag lists, Admin API quota.
+description: Deskohub monorepo setup, development, build, validation, test placement, lint rules, architecture, shared packages, Cloudinary gallery tag lists, Admin API quota.
 ---
 
 # Deskohub repository
 
 Read only the reference relevant to the change:
 
-- For installation, root commands, environment files, generated assets, checks, and CI boundaries, read [references/development.md](references/development.md).
+- For installation, root commands, environment files, generated assets, checks, test placement, lint rules, and CI boundaries, read [references/development.md](references/development.md).
 - For application, package, feature, shared-module, and import boundaries, read [references/architecture.md](references/architecture.md).
 - For gallery photo lists from `@deskohub/cloudinary` (tag resource lists, URL signing, Admin API quota, freshness), read [references/cloudinary-gallery-source.md](references/cloudinary-gallery-source.md).
 

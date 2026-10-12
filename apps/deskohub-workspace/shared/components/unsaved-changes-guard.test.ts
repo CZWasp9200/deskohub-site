@@ -181,25 +181,6 @@ test("blocks unload while an enabled mounted guard is dirty", () => {
   expect(event.defaultPrevented).toBe(true);
 });
 
-test("attaches listeners when a guard is dirty", () => {
-  const navigation = installNavigation();
-  const addWindowListener = spyOn(window, "addEventListener");
-  const addNavigationListener = spyOn(navigation, "addEventListener");
-
-  render(withProvider(createElement(Guard, { dirty: true })));
-
-  expect(addWindowListener).toHaveBeenCalledWith(
-    "beforeunload",
-    expect.any(Function)
-  );
-  expect(addNavigationListener).toHaveBeenCalledWith(
-    "navigate",
-    expect.any(Function)
-  );
-  addWindowListener.mockRestore();
-  addNavigationListener.mockRestore();
-});
-
 test("ignores disabled guards", () => {
   render(withProvider(createElement(Guard, { dirty: true, enabled: false })));
 

@@ -1,5 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
 import {
+  Children,
   createElement,
   isValidElement,
   type ReactElement,
@@ -9,12 +10,18 @@ import {
 mock.module("next/font/local", () => ({
   default: () => ({ variable: "--font-sculpin" }),
 }));
-mock.module("@next/third-parties/google", () => ({
-  GoogleTagManager: () => null,
-}));
+let gtmId: string | undefined;
 mock.module("@/env", () => ({
-  env: { NEXT_PUBLIC_GTM_ID: undefined },
+  env: {
+    get NEXT_PUBLIC_GTM_ID() {
+      return gtmId;
+    },
+  },
 }));
+mock.module(
+  "@/features/cookie-consent/components/deferred-tag-manager",
+  () => ({ DeferredTagManager: () => null })
+);
 mock.module(
   "@/features/cookie-consent/components/consent-aware-analytics",
   () => ({ ConsentAwareAnalytics: () => null })
@@ -60,6 +67,33 @@ describe("localized route layout", () => {
 
     expect(ownsModalSlot).toBe(false);
     expect(rendersChildren).toBe(true);
+  });
+
+  test("defers the configured Tag Manager container from the body", async () => {
+    const { default: LocaleLayout } = await import("./layout");
+    const { DeferredTagManager } = await import(
+      "@/features/cookie-consent/components/deferred-tag-manager"
+    );
+    gtmId = "GTM-TEST123";
+
+    try {
+      const tree = (await LocaleLayout({
+        children: page,
+        params: Promise.resolve({ locale: "en-US" }),
+      })) as ReactElement<{ children: ReactNode }>;
+      const [body] = Children.toArray(tree.props.children) as [
+        ReactElement<{ children: ReactNode }>,
+      ];
+
+      expect(body.type).toBe("body");
+      const [tagManager] = Children.toArray(body.props.children) as [
+        ReactElement<{ gtmId: string }>,
+      ];
+      expect(tagManager.type).toBe(DeferredTagManager);
+      expect(tagManager.props.gtmId).toBe("GTM-TEST123");
+    } finally {
+      gtmId = undefined;
+    }
   });
 
   test("rejects an unknown locale", async () => {

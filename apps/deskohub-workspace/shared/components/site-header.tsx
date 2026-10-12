@@ -201,17 +201,17 @@ export function SiteHeader({
         </nav>
 
         <div className="flex shrink-0 items-center gap-2 sm:gap-3 xl:gap-3">
-          {account !== undefined && (
-            <AccountEntryLink entry={account} onClick={closeMenu} />
-          )}
-
           <Link
             href={contactHref}
-            className="shrink-0 whitespace-nowrap max-xl:order-first rounded-full border border-white/12 bg-white px-3 py-2 text-center text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-navy-blue transition-colors hover:bg-sunset-yellow sm:px-4 sm:text-xs sm:tracking-[0.14em]"
+            className="shrink-0 whitespace-nowrap rounded-full border border-white/12 bg-white px-3 py-2 text-center text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-navy-blue transition-colors hover:bg-sunset-yellow sm:px-4 sm:text-xs sm:tracking-[0.14em]"
             onClick={closeMenu}
           >
             {contactLabel}
           </Link>
+
+          {account !== undefined && (
+            <AccountEntryLink entry={account} onClick={closeMenu} />
+          )}
 
           <nav
             aria-label={languageSwitcherLabel}

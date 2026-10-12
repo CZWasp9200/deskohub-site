@@ -25,7 +25,7 @@ import {
  * deliberately not attached: the error must stay censored even if it escapes
  * delivery handling.
  */
-export class MagicLinkDeliveryTransportError extends Data.TaggedError(
+class MagicLinkDeliveryTransportError extends Data.TaggedError(
   "MagicLinkDeliveryTransportError"
 )<{ readonly code: "account.magic-link.transport" }> {
   constructor() {

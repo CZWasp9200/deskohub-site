@@ -68,7 +68,7 @@ export function ProfileScreen({
       title={copy.title}
       titleId={titleId}
     >
-      <div className="flex min-w-0 flex-col gap-5 sm:flex-row sm:items-start">
+      <div className="flex min-w-0 flex-col gap-5 @xl:flex-row @xl:items-start">
         {avatar}
         <div className="min-w-0">
           <p className="break-words text-2xl font-semibold leading-tight text-[#202b3d]">
@@ -81,12 +81,12 @@ export function ProfileScreen({
         </div>
       </div>
 
-      <div className="mt-8 grid min-w-0 gap-x-6 gap-y-5 sm:grid-cols-2 [&>div]:min-w-0 [&>div]:space-y-2 [&_label]:block [&_label]:text-[13px] [&_label]:font-bold [&_label]:uppercase [&_label]:leading-5 [&_label]:tracking-[0.04em] [&_label]:text-[#344258] [&_[data-slot=label]]:block [&_[data-slot=label]]:text-[13px] [&_[data-slot=label]]:font-bold [&_[data-slot=label]]:uppercase [&_[data-slot=label]]:leading-5 [&_[data-slot=label]]:tracking-[0.04em] [&_[data-slot=label]]:text-[#344258] [&_input]:h-11 [&_input]:min-h-11 [&_input]:w-full [&_input]:rounded-2xl [&_input]:px-3 [&_input]:py-2 [&_input]:text-base [&_[data-slot=input]]:h-11 [&_[data-slot=input]]:min-h-11 [&_[data-slot=input]]:w-full [&_[data-slot=input]]:rounded-2xl [&_[data-slot=input]]:px-3 [&_[data-slot=input]]:py-2 [&_[data-slot=input]]:text-base">
+      <div className="mt-8 grid min-w-0 gap-x-6 gap-y-5 @xl:grid-cols-2 [&>div]:min-w-0 [&>div]:space-y-2 [&_label]:block [&_label]:text-[13px] [&_label]:font-bold [&_label]:uppercase [&_label]:leading-5 [&_label]:tracking-[0.04em] [&_label]:text-[#344258] [&_[data-slot=label]]:block [&_[data-slot=label]]:text-[13px] [&_[data-slot=label]]:font-bold [&_[data-slot=label]]:uppercase [&_[data-slot=label]]:leading-5 [&_[data-slot=label]]:tracking-[0.04em] [&_[data-slot=label]]:text-[#344258] [&_input]:h-11 [&_input]:min-h-11 [&_input]:w-full [&_input]:rounded-2xl [&_input]:px-3 [&_input]:py-2 [&_input]:text-base [&_[data-slot=input]]:h-11 [&_[data-slot=input]]:min-h-11 [&_[data-slot=input]]:w-full [&_[data-slot=input]]:rounded-2xl [&_[data-slot=input]]:px-3 [&_[data-slot=input]]:py-2 [&_[data-slot=input]]:text-base">
         {children}
 
         <fieldset
           aria-labelledby={`${languageId}-email-label`}
-          className="m-0 min-w-0 space-y-2 border-0 p-0 sm:col-span-2 lg:col-span-1"
+          className="m-0 min-w-0 space-y-2 border-0 p-0 @xl:col-span-2 @3xl:col-span-1"
         >
           <legend
             className="block text-[13px] font-bold uppercase leading-5 tracking-[0.04em] text-[#344258]"

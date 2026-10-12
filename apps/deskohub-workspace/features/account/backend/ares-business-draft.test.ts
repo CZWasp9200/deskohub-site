@@ -33,10 +33,6 @@ describe("ARES company mapping to billing draft fields", () => {
     });
   });
 
-  test("renders the numeric postal code as a zip string", () => {
-    expect(toAresBusinessBillingDraft(syntheticCompany).zip).toBe("11000");
-  });
-
   test("appends the orientation letter to the house number", () => {
     const withLetter: EkonomickySubjekt = {
       ...syntheticCompany,

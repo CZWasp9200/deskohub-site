@@ -115,4 +115,6 @@ export class CustomerMarketingConsentRepository extends Context.Service<
       } satisfies ICustomerMarketingConsentRepository;
     })
   );
+
+  static Live = this.Default.pipe(Layer.provide(WorkspaceDatabase.Default));
 }

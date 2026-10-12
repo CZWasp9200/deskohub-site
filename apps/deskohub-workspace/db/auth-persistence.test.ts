@@ -57,10 +57,6 @@ describe.skipIf(!postgresDatabase)(
       await pool.end();
     });
 
-    test("applies the complete migration chain from an empty database", () => {
-      expect(postgresDatabase).not.toBeNull();
-    });
-
     test("decodes timestamps as Date through the shared-pool facade", async () => {
       const instant = new Date("2026-09-03T10:30:00.123Z");
       const rawEmail = `raw-${uniqueId()}@deskohub.test`;

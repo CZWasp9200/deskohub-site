@@ -10,6 +10,7 @@ import {
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import { customerAccountIdSchema } from "../customer-account";
 import { CustomerAccountLinkRepository } from "./customer-account-link.repository";
+import { waitForAccountAdvisoryLockWait } from "./customer-account-lock.test-utils";
 
 const testDatabase = await connectWorkspacePostgresTestDatabase();
 
@@ -167,17 +168,20 @@ describe.skipIf(!testDatabase)(
       await Effect.runPromise(
         Effect.gen(function* () {
           const links = yield* CustomerAccountLinkRepository;
+          const held = yield* Deferred.make<void>();
           const gate = yield* Deferred.make<never, void>();
 
           const outer = yield* Effect.forkChild(
             withPostgresAdvisoryLock(
               testDatabase!.pool,
               ["customer-account", account],
-              Deferred.await(gate).pipe(Effect.orDie)
+              Deferred.succeed(held, undefined).pipe(
+                Effect.andThen(Deferred.await(gate)),
+                Effect.orDie
+              )
             ).pipe(Effect.orDie)
           );
-
-          yield* Effect.sleep("150 millis");
+          yield* Deferred.await(held);
 
           const inner = yield* Effect.forkChild(
             links
@@ -190,7 +194,9 @@ describe.skipIf(!testDatabase)(
               .pipe(Effect.orDie)
           );
 
-          yield* Effect.sleep("300 millis");
+          yield* Effect.promise(() =>
+            waitForAccountAdvisoryLockWait(testDatabase!.pool, account)
+          );
           expect(innerCompleted).toBe(false);
 
           yield* Deferred.succeed(gate, undefined);

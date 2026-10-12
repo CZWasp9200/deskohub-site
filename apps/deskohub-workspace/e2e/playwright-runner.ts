@@ -19,3 +19,23 @@ export const runWorkspacePlaywrightWithFailureCleanup = async (
     return { cleanupCouldNotStart: true, suiteExitCode };
   }
 };
+
+export type WorkspacePlaywrightSuitesResult = {
+  readonly checkout: PromiseSettledResult<WorkspacePlaywrightResult>;
+  readonly instantNavigation: PromiseSettledResult<number>;
+};
+
+// Settles only after both runs finish, so a launch failure in one cannot let
+// the caller exit (and release shared E2E allocations) while the other runs.
+export const runWorkspacePlaywrightSuites = async (runs: {
+  readonly checkout: (
+    invocation: WorkspacePlaywrightInvocation
+  ) => Promise<number>;
+  readonly instantNavigation: () => Promise<number>;
+}): Promise<WorkspacePlaywrightSuitesResult> => {
+  const [checkout, instantNavigation] = await Promise.allSettled([
+    Promise.try(() => runWorkspacePlaywrightWithFailureCleanup(runs.checkout)),
+    Promise.try(runs.instantNavigation),
+  ]);
+  return { checkout, instantNavigation };
+};

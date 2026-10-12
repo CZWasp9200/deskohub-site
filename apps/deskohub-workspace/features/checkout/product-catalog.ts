@@ -129,10 +129,6 @@ const workspaceCoworkProductsByTier = {
   },
 } satisfies Record<WorkspaceCoworkProductTier, WorkspaceProductCatalogItem>;
 
-export const workspaceCoworkCurrentCatalog = workspaceCoworkCurrentTiers.map(
-  (tier) => workspaceCoworkProductsByTier[tier]
-);
-
 export const workspaceCoworkCatalog = workspaceCoworkTiers.map(
   (tier) => workspaceCoworkProductsByTier[tier]
 );

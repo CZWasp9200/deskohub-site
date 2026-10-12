@@ -35,6 +35,7 @@ const existingCustomer = {
     email: "ada@example.test",
     phone: "+420 777 777 777",
   },
+  hasMarketingConsent: false,
 };
 
 type ReservationContentProps = {
@@ -261,15 +262,4 @@ test("fails the content when the page data load rejects", async () => {
     )
   ).rejects.toThrow("capacity unavailable");
   expect(render).not.toHaveBeenCalled();
-});
-
-test("requires a page data loader for a render that reads page data", () => {
-  createReservationPage({
-    fallback: () => "loading reservation form",
-    kind: "office",
-    metadata: () => ({ description: "Description", title: "Title" }),
-    pathname: "/reservation/office",
-    // @ts-expect-error A definition without `loadPageData` has no page data.
-    render: (context: { readonly pageData: number }) => context.pageData,
-  });
 });

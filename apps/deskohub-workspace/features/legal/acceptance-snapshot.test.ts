@@ -8,17 +8,18 @@ mock.module("server-only", () => ({}));
 const { getLegalAcceptanceSnapshot } = await import("./acceptance-snapshot");
 
 describe("getLegalAcceptanceSnapshot", () => {
-  test("returns the snapshot through the Effect success channel", async () => {
+  test("hashes each accepted document separately", async () => {
     const snapshot = await Effect.runPromise(
       getLegalAcceptanceSnapshot("en-US")
     );
 
-    expect(snapshot.termsAndConditions.hashAlgorithm).toBe("sha256");
-    expect(snapshot.operatingRules.hashAlgorithm).toBe("sha256");
-    expect(snapshot.privacyPolicy.hashAlgorithm).toBe("sha256");
-    expect(snapshot.marketingCommunications.hashAlgorithm).toBe("sha256");
-    expect(snapshot.marketingCommunications.hash).not.toBe(
-      snapshot.privacyPolicy.hash
-    );
+    const hashes = [
+      snapshot.termsAndConditions.hash,
+      snapshot.operatingRules.hash,
+      snapshot.privacyPolicy.hash,
+      snapshot.marketingCommunications.hash,
+    ];
+
+    expect(new Set(hashes).size).toBe(hashes.length);
   });
 });

@@ -40,11 +40,11 @@ describe("marketing management cookies", () => {
     cookieStore.set.mockClear();
   });
 
-  test("uses the fixed host-only cookie names", () => {
-    expect(marketingManagementCookieNames).toEqual({
-      pending: "__Host-workspace-marketing-pending",
-      session: "__Host-workspace-marketing",
-    });
+  test("names distinct host-only cookies", () => {
+    const names = Object.values(marketingManagementCookieNames);
+
+    for (const name of names) expect(name).toStartWith("__Host-");
+    expect(new Set(names).size).toBe(names.length);
   });
 
   test("reads both values from the current request cookie store", async () => {

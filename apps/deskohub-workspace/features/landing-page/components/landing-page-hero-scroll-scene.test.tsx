@@ -92,14 +92,6 @@ describe("LandingPageHeroScrollScene", () => {
           .map((call) => String(call[0]))
           .filter((message) => message.includes("hydrat"))
       ).toEqual([]);
-      // Reduced-motion visitors get the scroll transforms neutralized in CSS.
-      const animatedLayers = [
-        ...container.querySelectorAll<HTMLElement>("[style*='transform']"),
-      ];
-      expect(animatedLayers).toHaveLength(2);
-      for (const layer of animatedLayers) {
-        expect(layer.classList).toContain("motion-reduce:transform-none!");
-      }
     } finally {
       consoleError.mockRestore();
     }

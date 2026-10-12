@@ -1,3 +1,4 @@
+import { dotyposApiTimeoutDefaultMilliseconds } from "@deskohub/dotypos/api-timeout";
 import type { E2EEnvironment } from "./e2e-env";
 import {
   addDatabaseUrlRedactions,
@@ -77,7 +78,7 @@ export const getDatasourceConfig = (environment: E2EEnvironment) => {
     databaseUrl,
     databaseUrlUnpooled,
     dotypos: {
-      apiTimeout: 5_000,
+      apiTimeout: dotyposApiTimeoutDefaultMilliseconds,
       apiUrl: environment.DOTYPOS_API_URL,
       branchId: environment.DOTYPOS_BRANCH_ID,
       clientId: environment.DOTYPOS_CLIENT_ID,

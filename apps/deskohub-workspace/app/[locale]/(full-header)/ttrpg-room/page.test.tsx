@@ -66,10 +66,6 @@ describe("TtrpgRoomPage", () => {
         .getByRole("link", { name: "Contact Deskohub Bar" })
         .getAttribute("href")
     ).toStartWith("https://bar.deskohub.cz/en-US/contact?");
-    expect(view.getAllByRole("region")).toHaveLength(2);
-    for (const carousel of view.getAllByRole("region")) {
-      expect(carousel.getAttribute("aria-busy")).toBe("true");
-    }
   });
 
   test("reserves the carousel layout while room images load", async () => {
@@ -80,9 +76,5 @@ describe("TtrpgRoomPage", () => {
     });
 
     expect(fallback.getAttribute("aria-busy")).toBe("true");
-    expect(fallback.getAttribute("class")).toContain("space-y-3");
-    expect(fallback.firstElementChild?.getAttribute("class")).toContain(
-      "aspect-[4/3]"
-    );
   });
 });

@@ -4,7 +4,6 @@ import {
   checkoutAttemptIdSchema,
   checkoutSessionIdSchema,
   paymentAttemptIdSchema,
-  promoteCheckoutAttemptToSessionId,
 } from "./checkout-identifiers";
 
 describe("checkout identifier schemas", () => {
@@ -14,15 +13,5 @@ describe("checkout identifier schemas", () => {
     paymentAttemptIdSchema,
   ])("rejects empty identifiers", (schema) => {
     expect(() => Schema.decodeUnknownSync(schema)("")).toThrow();
-  });
-
-  test("requires an explicit promotion when an attempt starts a new session", () => {
-    const attemptId = Schema.decodeUnknownSync(checkoutAttemptIdSchema)(
-      "checkout-attempt"
-    );
-
-    expect(promoteCheckoutAttemptToSessionId(attemptId)).toBe(
-      "checkout-attempt"
-    );
   });
 });
