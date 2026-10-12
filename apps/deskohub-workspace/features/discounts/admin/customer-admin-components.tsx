@@ -30,9 +30,8 @@ import {
 } from "./customer-admin-client";
 import {
   ClaimHistoryTable,
-  CustomerCodeEligibilityTable,
+  CustomerPromotionCodeTable,
   CustomerTransactionHistoryTable,
-  CustomerVoucherEligibilityTable,
 } from "./customer-admin-tables";
 import type {
   AdminCustomerProfile,
@@ -305,8 +304,49 @@ export function CustomerAdministrationDetailPage({
   } else if (profile.customer.discountGroupId) {
     currentGroupLabel = `Unavailable (${profile.customer.discountGroupId})`;
   }
-  const visibleCodes = profile.codes
-    .filter((code) => code.eligible || code.audienceSize === 0)
+  const visiblePromotionCodes = [
+    ...profile.codes.map(
+      ({
+        audienceSize,
+        code,
+        discountAdjustment,
+        discountLabel,
+        eligible,
+        enabled,
+        id,
+      }) => ({
+        kind: "discount-code" as const,
+        audienceSize,
+        code,
+        discountAdjustment,
+        discountLabel,
+        eligible,
+        enabled,
+        id,
+      })
+    ),
+    ...profile.vouchers.map(
+      ({
+        audienceSize,
+        code,
+        eligible,
+        enabled,
+        id,
+        issuedCredit,
+        remainingCredit,
+      }) => ({
+        kind: "voucher" as const,
+        audienceSize,
+        code,
+        eligible,
+        enabled,
+        id,
+        issuedCredit,
+        remainingCredit,
+      })
+    ),
+  ]
+    .filter((item) => item.eligible || item.audienceSize === 0)
     .toSorted(
       (left, right) =>
         Number(right.enabled) - Number(left.enabled) ||
@@ -319,9 +359,6 @@ export function CustomerAdministrationDetailPage({
   const universalCodeCount = profile.codes.filter(
     (code) => code.enabled && code.audienceSize === 0
   ).length;
-  const visibleVouchers = profile.vouchers
-    .filter((voucher) => voucher.eligible || voucher.audienceSize === 0)
-    .toSorted((left, right) => left.code.localeCompare(right.code));
   const reservationGroups = groupCustomerReservations(activity.reservations);
   return (
     <AdministrationPage>
@@ -414,41 +451,33 @@ export function CustomerAdministrationDetailPage({
 
           <section>
             <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
-              <h2 className="text-xl">Discount codes</h2>
-              <Button asChild size="sm">
-                <Link
-                  href={`/admin/customers/${profile.customer.id}/create-code`}
-                >
-                  <Plus aria-hidden className="size-4" />
-                  Create code
-                </Link>
-              </Button>
+              <h2 className="text-xl">Codes and vouchers</h2>
+              <div className="flex flex-wrap gap-2">
+                <Button asChild size="sm">
+                  <Link
+                    href={`/admin/customers/${profile.customer.id}/create-code`}
+                  >
+                    <Plus aria-hidden className="size-4" />
+                    Create code
+                  </Link>
+                </Button>
+                <Button asChild size="sm">
+                  <Link
+                    href={`/admin/customers/${profile.customer.id}/create-voucher`}
+                  >
+                    <Plus aria-hidden className="size-4" />
+                    Create voucher
+                  </Link>
+                </Button>
+              </div>
             </div>
-            {visibleCodes.length === 0 ? (
-              <EmptyState message="No discount codes are available to this customer." />
+            {visiblePromotionCodes.length === 0 ? (
+              <EmptyState message="No discount codes or vouchers are available to this customer." />
             ) : (
-              <CustomerCodeEligibilityTable
-                codes={visibleCodes.map(
-                  ({
-                    audienceSize,
-                    code,
-                    discountAdjustment,
-                    discountLabel,
-                    eligible,
-                    enabled,
-                    id,
-                  }) => ({
-                    audienceSize,
-                    code,
-                    discountAdjustment,
-                    discountLabel,
-                    eligible,
-                    enabled,
-                    id,
-                  })
-                )}
+              <CustomerPromotionCodeTable
                 customerId={profile.customer.id}
                 customerName={profile.customer.displayName}
+                items={visiblePromotionCodes}
               />
             )}
           </section>
@@ -456,33 +485,6 @@ export function CustomerAdministrationDetailPage({
           <section>
             <h2 className="mb-3 text-xl">Discount code history</h2>
             <ClaimHistory claims={profile.claims} resource="code" />
-          </section>
-
-          <section>
-            <h2 className="mb-3 text-xl">Vouchers</h2>
-            {visibleVouchers.length === 0 ? (
-              <EmptyState message="No vouchers are available to this customer." />
-            ) : (
-              <CustomerVoucherEligibilityTable
-                vouchers={visibleVouchers.map(
-                  ({
-                    audienceSize,
-                    code,
-                    eligible,
-                    id,
-                    issuedCredit,
-                    remainingCredit,
-                  }) => ({
-                    audienceSize,
-                    code,
-                    eligible,
-                    id,
-                    issuedCredit,
-                    remainingCredit,
-                  })
-                )}
-              />
-            )}
           </section>
 
           <section>

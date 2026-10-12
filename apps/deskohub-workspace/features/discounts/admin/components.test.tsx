@@ -893,8 +893,10 @@ describe("discount administration pages", () => {
       />
     );
     const table = view.getByRole("table", {
-      name: "Customer code eligibility",
+      name: "Customer codes and vouchers",
     });
+    expect(view.queryAllByRole("table", { name: /eligibility/ })).toEqual([]);
+    expect(view.queryByRole("heading", { name: "Vouchers" })).toBeNull();
 
     const createCodeLink = view.getByRole("link", {
       name: "Create code",
@@ -902,16 +904,21 @@ describe("discount administration pages", () => {
     expect(createCodeLink.getAttribute("href")).toBe(
       "/admin/customers/dotypos-customer/create-code"
     );
+    expect(
+      view.getByRole("link", { name: "Create voucher" }).getAttribute("href")
+    ).toBe("/admin/customers/dotypos-customer/create-voucher");
 
     expect(within(table).getByText("ONLYME")).toBeDefined();
     expect(within(table).getByText("OPEN")).toBeDefined();
     expect(within(table).getByText("AADISABLED")).toBeDefined();
-    const voucherTable = view.getByRole("table", {
-      name: "Customer voucher eligibility",
-    });
-    expect(within(voucherTable).getByText("GIFT100")).toBeDefined();
-    expect(within(voucherTable).getByText(/CZK.?100\.00/)).toBeDefined();
-    expect(within(voucherTable).getByText(/CZK.?65\.00/)).toBeDefined();
+    expect(
+      within(table).getByRole("link", { name: "GIFT100" }).getAttribute("href")
+    ).toBe("/admin/vouchers/019c91dd-c560-7e55-b9d8-c95065efd55d");
+    expect(within(table).getByText(/CZK.?100\.00 credit/)).toBeDefined();
+    expect(within(table).getByText(/CZK.?65\.00 remaining/)).toBeDefined();
+    expect(within(table).getAllByText("Discount code")).toHaveLength(3);
+    expect(within(table).getAllByText("Voucher")).toHaveLength(1);
+    expect(within(table).queryByRole("button", { name: /GIFT100/ })).toBeNull();
     expect(within(table).queryByText("SOMEONEELSE")).toBeNull();
     expect(view.getByText("1 (+ 1)")).toBeDefined();
     expect(
@@ -921,6 +928,7 @@ describe("discount administration pages", () => {
         .map((row) => row.textContent)
     ).toEqual([
       expect.stringContaining("ONLYME"),
+      expect.stringContaining("GIFT100"),
       expect.stringContaining("OPEN"),
       expect.stringContaining("AADISABLED"),
     ]);
@@ -936,10 +944,23 @@ describe("discount administration pages", () => {
         .map((row) => row.textContent)
     ).toEqual([
       expect.stringContaining("AADISABLED"),
+      expect.stringContaining("GIFT100"),
       expect.stringContaining("ONLYME"),
       expect.stringContaining("OPEN"),
     ]);
-    expect(within(table).getAllByText("Enabled")).toHaveLength(2);
+    fireEvent.click(within(table).getByRole("button", { name: "Type" }));
+    expect(
+      within(table)
+        .getAllByRole("row")
+        .slice(1)
+        .map((row) => row.textContent)
+    ).toEqual([
+      expect.stringContaining("Discount code"),
+      expect.stringContaining("Discount code"),
+      expect.stringContaining("Discount code"),
+      expect.stringContaining("GIFT100"),
+    ]);
+    expect(within(table).getAllByText("Enabled")).toHaveLength(3);
     expect(within(table).getByText("Disabled")).toBeDefined();
     expect(within(table).getByText("Only me discount · 10%")).toBeDefined();
     expect(within(table).getByText("Open discount · CZK 75.00")).toBeDefined();
@@ -1197,6 +1218,76 @@ describe("discount administration pages", () => {
     expect(view.queryByRole("combobox", { name: "Discount" })).toBeNull();
 
     expect(view.queryByRole("radio", { name: "Create a voucher" })).toBeNull();
+  });
+
+  test("creates a customer voucher and returns to the customer", async () => {
+    const captured = captureWorkspaceActions(/^createCustomerVoucher$/);
+    const { CustomerVoucherCreationForm } = await import(
+      "./customer-voucher-creation"
+    );
+    const view = render(
+      <CustomerVoucherCreationForm
+        completion="back"
+        customer={{ displayName: "Test Customer", id: "dotypos-customer" }}
+      />
+    );
+
+    expect(
+      view.getByText("The new voucher will only be available to Test Customer.")
+    ).toBeDefined();
+    expect(view.queryByRole("combobox", { name: "Discount" })).toBeNull();
+    fireEvent.change(view.getByRole("spinbutton", { name: /Value/ }), {
+      target: { value: "25000" },
+    });
+    fireEvent.change(view.getByRole("textbox", { name: "Code" }), {
+      target: { value: "gift250" },
+    });
+    fireEvent.submit(
+      view.getByRole("button", { name: "Create voucher" }).closest("form")!
+    );
+
+    const action = captured("createCustomerVoucher");
+    await waitFor(() =>
+      expect(action.execute).toHaveBeenCalledWith({
+        kind: "create-customer-voucher",
+        voucher: {
+          customerId: "dotypos-customer",
+          code: "GIFT250",
+          credit: { value: 25_000, exponent: 2, currency: "CZK" },
+          enabled: true,
+          validFrom: null,
+          validUntil: null,
+        },
+      })
+    );
+    act(() =>
+      action.options.onSuccess({
+        data: { notice: "Voucher created for this customer." },
+      })
+    );
+    expect(back).toHaveBeenCalledTimes(1);
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  test("opens customer voucher creation from its own route", async () => {
+    const captured = captureWorkspaceActions(/^createCustomerVoucher$/);
+    const { CustomerVoucherCreationForm } = await import(
+      "./customer-voucher-creation"
+    );
+    render(
+      <CustomerVoucherCreationForm
+        completion="customer"
+        customer={{ displayName: "Test Customer", id: "dotypos-customer" }}
+      />
+    );
+
+    act(() =>
+      captured("createCustomerVoucher").options.onSuccess({
+        data: { notice: "Voucher created for this customer." },
+      })
+    );
+    expect(replace).toHaveBeenCalledWith("/admin/customers/dotypos-customer");
+    expect(back).not.toHaveBeenCalled();
   });
 
   test("shows nested customer code validation errors", async () => {

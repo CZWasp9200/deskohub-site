@@ -30,6 +30,7 @@ import type {
 } from "@/features/discounts/persistence-contracts";
 import type { WorkspaceProductTarget } from "@/features/discounts/product-target";
 import { generatePromotionCode } from "@/features/discounts/promotion-code";
+import type { DotyposCustomerId } from "@/features/reservation/dotypos-customer";
 import { Button } from "@/shared/components/ui/button";
 import {
   Form,
@@ -574,20 +575,31 @@ export function CreateDiscountForm({
 }
 
 export function CreateVoucherForm({
+  customer,
   onCreated,
 }: {
+  /** Restricts the new voucher to this customer's audience. */
+  readonly customer?: {
+    readonly id: DotyposCustomerId;
+    readonly displayName: string;
+  };
   readonly onCreated?: (message: string) => void;
 } = {}) {
   return (
     <MutationForm
-      actionName="createVoucher"
-      buildMutation={(values) => ({
-        kind: "create-voucher",
-        voucher: {
+      actionName={customer ? "createCustomerVoucher" : "createVoucher"}
+      buildMutation={(values): DiscountAdminMutation => {
+        const voucher = {
           ...toVoucherConfigurationInput(values),
           credit: toVoucherCreditInput(values),
-        },
-      })}
+        };
+        return customer
+          ? {
+              kind: "create-customer-voucher",
+              voucher: { customerId: customer.id, ...voucher },
+            }
+          : { kind: "create-voucher", voucher };
+      }}
       defaultValues={voucherFormDefaults()}
       onSuccess={onCreated}
       schema={voucherFormSchema}
@@ -595,6 +607,11 @@ export function CreateVoucherForm({
       submitIcon={<Plus aria-hidden className="size-4" />}
     >
       <div className="grid gap-5">
+        {customer && (
+          <div className="rounded-xl bg-aquamarine-green/12 px-4 py-3 text-sm text-aquamarine-ink">
+            The new voucher will only be available to {customer.displayName}.
+          </div>
+        )}
         <VoucherCreditFields />
         <DiscountCodeConfigurationFields showMaxUses={false} />
       </div>
