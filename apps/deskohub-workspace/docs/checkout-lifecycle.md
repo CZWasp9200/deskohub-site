@@ -64,6 +64,8 @@ Example with synthetic, deliberately non-working values (`example.invalid`, `EXA
 
 Reservation submission creates a temporary hold before payment. Repeating the same immediate submission is idempotent and must not create duplicate holds.
 
+The confirmation and access link go only to the reservation email, so submission rejects a typed contact email whose domain provably cannot receive mail (it does not exist, declares that it accepts no mail, or publishes neither a mail server nor an address) before any customer, hold, or payment is created, and asks the customer to correct it. A lookup that cannot reach a definite answer does not block the booking. A signed-in account booking uses the account's own email and is not rechecked.
+
 Returning from the order summary to edit a reservation replaces the previous unpaid hold rather than mutating or transferring it. Availability may show the capacity that will be freed by that customer's replaceable hold, but final submission must cancel the old hold and perform the ordinary full availability check before creating the replacement.
 
 An existing reservation with a pending or completed payment is never silently cancelled or reused by a new form submission. The new submission starts a separate checkout journey.

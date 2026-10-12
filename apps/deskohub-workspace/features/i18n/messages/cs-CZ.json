@@ -789,6 +789,7 @@
   "contactValidationEmailRequired": "Email je povinný.",
   "contactValidationEmailInvalid": "Zadej platnou emailovou adresu.",
   "contactValidationEmailMaximum": "Email může mít maximálně {max} znaků.",
+  "contactValidationEmailUndeliverable": "Na tuto emailovou adresu nelze doručit email. Zkontroluj, jestli v ní není překlep, protože na ni posíláme potvrzení a přístupový odkaz.",
   "contactValidationPhoneInvalid": "Zadej platné české telefonní číslo.",
   "contactValidationPhoneMaximum": "Telefon může mít maximálně {max} znaků.",
   "contactValidationPhoneRequired": "Telefon je povinný.",

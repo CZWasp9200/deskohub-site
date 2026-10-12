@@ -782,6 +782,7 @@
   "contactValidationEmailRequired": "Email is required.",
   "contactValidationEmailInvalid": "Enter a valid email address.",
   "contactValidationEmailMaximum": "Email can be at most {max} characters.",
+  "contactValidationEmailUndeliverable": "This email address can't receive email. Check it for typos, because we send your confirmation and access link there.",
   "contactValidationPhoneInvalid": "Enter a valid Czech phone number.",
   "contactValidationPhoneMaximum": "Phone can be at most {max} characters.",
   "contactValidationPhoneRequired": "Phone is required.",
