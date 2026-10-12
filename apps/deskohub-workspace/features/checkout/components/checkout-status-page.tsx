@@ -16,6 +16,7 @@ import type {
   CheckoutStatusKind,
   CheckoutStatusViewModel,
 } from "@/features/checkout/backend/checkout";
+import { shouldOfferNewReservation } from "@/features/checkout/checkout-status-new-reservation-policy";
 import type { CheckoutStatusSummaryPresentation } from "@/features/checkout/checkout-status-summary-presentation";
 import { getCoworkCheckoutStatusSummary } from "@/features/cowork/components/cowork-checkout-status-summary";
 import { type Locale, m } from "@/features/i18n";
@@ -110,6 +111,13 @@ const getStatusCopy = (
         tone: "pending",
         Icon: MailCheck,
       };
+    case "paid_fulfillment_delayed":
+      return {
+        title: m.checkoutStatusPaidFulfillmentDelayedTitle({}, { locale }),
+        lead: m.checkoutStatusPaidFulfillmentDelayedLead({}, { locale }),
+        tone: "warning",
+        Icon: AlertTriangle,
+      };
     case "paid_awaiting_delivery":
       return {
         title: m.checkoutStatusPaidAwaitingDeliveryTitle({}, { locale }),
@@ -147,7 +155,12 @@ const getStatusCopy = (
     case "fulfillment_failed":
       return {
         title: m.checkoutStatusFulfillmentFailedTitle({}, { locale }),
-        lead: m.checkoutStatusFulfillmentFailedLead({}, { locale }),
+        lead: recipientEmail
+          ? getConfirmationRecipientLead(
+              m.checkoutStatusFulfillmentFailedLead({}, { locale }),
+              recipientEmail
+            )
+          : m.checkoutStatusFulfillmentFailedLeadWithoutEmail({}, { locale }),
         tone: "warning",
         Icon: AlertTriangle,
       };
@@ -282,6 +295,7 @@ const getReserveAgainPath = (
 const getSupportTopic = (status: CheckoutStatusKind) => {
   switch (status) {
     case "fulfillment_failed":
+    case "paid_fulfillment_delayed":
     case "paid_delivery_delayed":
       return "fulfillment_failed" as const;
     case "late_payment_review":
@@ -334,10 +348,7 @@ export function CheckoutStatusPage({
     repeatReservationSearchParams
   );
   const showSupportButton = !!supportContactHref;
-  // A paid, confirmed reservation needs its email, not another purchase.
-  const offersNewReservation =
-    status.status !== "paid_awaiting_delivery" &&
-    status.status !== "paid_delivery_delayed";
+  const offersNewReservation = shouldOfferNewReservation(status.status);
   const reservationAccessHref =
     status.status === "fulfilled"
       ? `/${locale}${reservationAccessPath}/${encodeURIComponent(status.orderId)}`
@@ -521,12 +532,11 @@ export function CheckoutStatusPage({
     <CheckoutFlowLayout
       activeStepKey="access"
       locale={locale}
-      stepLinks={{
-        order: {
-          href: reserveAgainPath,
-          navigation: "document",
-        },
-      }}
+      stepLinks={
+        offersNewReservation
+          ? { order: { href: reserveAgainPath, navigation: "document" } }
+          : undefined
+      }
     >
       {content}
     </CheckoutFlowLayout>

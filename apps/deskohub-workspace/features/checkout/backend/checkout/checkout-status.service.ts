@@ -54,6 +54,7 @@ export type CheckoutStatusKind =
   | "created"
   | "pending"
   | "paid_waiting_fulfillment"
+  | "paid_fulfillment_delayed"
   | "paid_awaiting_delivery"
   | "paid_delivery_delayed"
   | "fulfilled"
@@ -171,11 +172,11 @@ export interface ICheckoutStatusService {
 }
 
 /**
- * Delivery is normally confirmed within seconds. After this long the status
- * page stops promising automatic completion and offers support instead,
- * because the email may never arrive.
+ * Fulfillment and delivery normally finish within seconds. After this long
+ * the status page stops promising automatic completion and offers support
+ * instead, because the work may have stalled or the email may never arrive.
  */
-const confirmationDeliveryGracePeriod = { minutes: 10 };
+const paidFulfillmentGracePeriod = { minutes: 10 };
 
 const toCheckoutStatusKind = (
   reservation: Pick<
@@ -186,25 +187,29 @@ const toCheckoutStatusKind = (
 ): CheckoutReservationStatusKind => {
   const { paymentState } = reservation;
   if (paymentState === "paid") {
+    const isOverdue =
+      !!reservation.paidAt &&
+      Temporal.Instant.compare(
+        now,
+        reservation.paidAt.add(paidFulfillmentGracePeriod)
+      ) >= 0;
     switch (reservation.fulfillmentState) {
       case "fulfilled":
         return "fulfilled";
       case "failed":
         return "fulfillment_failed";
       case "awaiting_delivery":
-        if (reservation.reservationState !== "confirmed") {
-          return "paid_waiting_fulfillment";
+        if (reservation.reservationState === "confirmed") {
+          return isOverdue ? "paid_delivery_delayed" : "paid_awaiting_delivery";
         }
-        return reservation.paidAt &&
-          Temporal.Instant.compare(
-            now,
-            reservation.paidAt.add(confirmationDeliveryGracePeriod)
-          ) >= 0
-          ? "paid_delivery_delayed"
-          : "paid_awaiting_delivery";
+        return isOverdue
+          ? "paid_fulfillment_delayed"
+          : "paid_waiting_fulfillment";
       case "processing":
       case "not_started":
-        return "paid_waiting_fulfillment";
+        return isOverdue
+          ? "paid_fulfillment_delayed"
+          : "paid_waiting_fulfillment";
     }
   }
 
@@ -307,6 +312,7 @@ const getSupportContactPrefill = (
 const showsCustomerContact = (statusKind: CheckoutReservationStatusKind) =>
   statusKind === "fulfillment_failed" ||
   statusKind === "late_payment_review" ||
+  statusKind === "paid_fulfillment_delayed" ||
   statusKind === "paid_awaiting_delivery" ||
   statusKind === "paid_delivery_delayed";
 

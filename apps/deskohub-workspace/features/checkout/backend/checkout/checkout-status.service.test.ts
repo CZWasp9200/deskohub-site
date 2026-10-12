@@ -875,10 +875,13 @@ describe("CheckoutStatusService", () => {
     });
   });
 
-  describe("a paid, confirmed reservation awaiting its confirmation email", () => {
+  describe("a paid reservation whose fulfillment has not completed", () => {
     const paidAt = testInstant("2026-06-01T10:00:00.000Z");
 
-    const getAwaitingDeliveryStatus = async (now: Temporal.Instant) => {
+    const getPaidStatus = async (
+      now: Temporal.Instant,
+      overrides: Partial<ReturnType<typeof makeReservation>> = {}
+    ) => {
       const { CheckoutStatusService } = await import(
         "./checkout-status.service"
       );
@@ -919,6 +922,7 @@ describe("CheckoutStatusService", () => {
                         paidAt,
                         fulfillmentState: "awaiting_delivery",
                         activeCustomerEmailDeliveryId: "delivery-id",
+                        ...overrides,
                       })
                     )
                   ),
@@ -954,12 +958,47 @@ describe("CheckoutStatusService", () => {
     };
 
     test("tells the customer where the confirmation went while delivery is recent", async () => {
-      const status = await getAwaitingDeliveryStatus(
-        paidAt.add({ minutes: 2 })
-      );
+      const status = await getPaidStatus(paidAt.add({ minutes: 2 }));
 
       expect(status).toMatchObject({
         status: "paid_awaiting_delivery",
+        supportContactPrefill: { email: "ada@example.test" },
+      });
+    });
+
+    test("does not call a reservation confirmed before Dotypos confirms it", async () => {
+      const status = await getPaidStatus(paidAt.add({ minutes: 2 }), {
+        reservationState: "confirming",
+        reservationConfirmedAt: null,
+        fulfillmentState: "processing",
+        activeCustomerEmailDeliveryId: null,
+      });
+
+      expect(status).toMatchObject({ status: "paid_waiting_fulfillment" });
+    });
+
+    test("reports a fulfillment retry that outlasts the wait as delayed, with a support contact", async () => {
+      // A retry after a failed send keeps that send as its generation marker.
+      const status = await getPaidStatus(paidAt.add({ minutes: 30 }), {
+        fulfillmentState: "processing",
+        activeCustomerEmailDeliveryId: "failed-delivery-id",
+      });
+
+      expect(status).toMatchObject({
+        status: "paid_fulfillment_delayed",
+        supportContactPrefill: { email: "ada@example.test" },
+      });
+    });
+
+    test("keeps a bounced confirmation as a failed fulfillment with its address", async () => {
+      const status = await getPaidStatus(paidAt.add({ minutes: 2 }), {
+        fulfillmentState: "failed",
+        fulfillmentFailedAt: paidAt.add({ minutes: 1 }),
+        fulfillmentFailureCode: "fulfillment_email_failed",
+      });
+
+      expect(status).toMatchObject({
+        status: "fulfillment_failed",
         supportContactPrefill: { email: "ada@example.test" },
       });
     });
@@ -968,9 +1007,7 @@ describe("CheckoutStatusService", () => {
     // address whose domain check was inconclusive, must not keep promising
     // automatic completion.
     test("reports a delivery that never arrived as delayed, with a support contact", async () => {
-      const status = await getAwaitingDeliveryStatus(
-        paidAt.add({ minutes: 45 })
-      );
+      const status = await getPaidStatus(paidAt.add({ minutes: 45 }));
 
       expect(status).toMatchObject({
         status: "paid_delivery_delayed",

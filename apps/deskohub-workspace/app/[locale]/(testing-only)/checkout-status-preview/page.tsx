@@ -14,8 +14,11 @@ type CheckoutStatusPreviewPageProps = {
 };
 
 const previewStates = [
+  "paid_waiting_fulfillment",
+  "paid_fulfillment_delayed",
   "paid_awaiting_delivery",
   "paid_delivery_delayed",
+  "fulfillment_failed",
 ] as const;
 
 const decodePreviewSearchParams = getSearchParamsDecoder(
@@ -35,13 +38,22 @@ export default async function CheckoutStatusPreviewPage({
     () => ({ state: undefined, email: undefined })
   );
 
+  const previewState = state ?? "paid_awaiting_delivery";
   const status: CheckoutStatusViewModel = {
     kind: "cowork",
     orderId: workspaceReservationIdSchema.make("checkout-status-preview"),
     returnOutcome: "success",
-    status: state ?? "paid_awaiting_delivery",
+    status: previewState,
     paymentStatus: "paid",
-    fulfillmentStatus: "awaiting_delivery",
+    fulfillmentStatus: (
+      {
+        paid_waiting_fulfillment: "processing",
+        paid_fulfillment_delayed: "processing",
+        paid_awaiting_delivery: "awaiting_delivery",
+        paid_delivery_delayed: "awaiting_delivery",
+        fulfillment_failed: "failed",
+      } as const
+    )[previewState],
     supportContactPrefill: {
       name: "Ada Lovelace",
       ...(email !== "hidden" && { email: "ada@example.test" }),

@@ -346,7 +346,7 @@ describe("CheckoutStatusPage", () => {
       )
     ).toBeTruthy();
     expect(
-      view.queryByText("We are sending your confirmation now!")
+      view.queryByText("Payment received. We're finishing your reservation.")
     ).toBeNull();
     expect(view.container.querySelector("#checkout-status-access")).toBeNull();
     expect(
@@ -998,6 +998,125 @@ describe("CheckoutStatusPage", () => {
       expect(
         view.container.querySelector("#checkout-status-reserve-again")
       ).toBeNull();
+    });
+  });
+
+  describe("a paid reservation without a delivered confirmation", () => {
+    const paidStatus = (
+      overrides: Partial<CheckoutStatusViewModel> & {
+        readonly status: CheckoutStatusViewModel["status"];
+      },
+      email: string | undefined = "ada@example.test"
+    ) =>
+      ({
+        ...baseStatus,
+        kind: "cowork",
+        paymentStatus: "paid",
+        fulfillmentStatus: "processing",
+        supportContactPrefill: { name: "Ada Lovelace", email },
+        summary: {
+          kind: "cowork",
+          entryTier: "basic",
+          coffee: false,
+          reservedFrom: Temporal.Instant.from("2026-06-19T22:00:00.000Z"),
+          reservedUntil: Temporal.Instant.from("2026-06-20T22:00:00.000Z"),
+          price: { value: 35_000, exponent: 2, currency: "CZK" },
+        },
+        ...overrides,
+      }) as CheckoutStatusViewModel;
+    const queryRestartActions = (container: HTMLElement) => ({
+      reserveAgain: container.querySelector("#checkout-status-reserve-again"),
+      orderStep: container.querySelector("main ol > li:nth-child(2) > a"),
+    });
+
+    test("points a bounced confirmation to support with its address instead of a rebook", () => {
+      const view = render(
+        <CheckoutStatusPage
+          locale="en-US"
+          status={paidStatus({
+            status: "fulfillment_failed",
+            fulfillmentStatus: "failed",
+          })}
+        />
+      );
+
+      expect(view.getByText("ada@example.test")).toBeTruthy();
+      expect(
+        view.getByText(
+          /Your payment went through and your reservation is saved/
+        )
+      ).toBeTruthy();
+      expect(view.getByText(/You don't need to book again\./)).toBeTruthy();
+      expect(view.queryByText(/confirmed/)).toBeNull();
+      expect(
+        view.getByRole("link", { name: "Send support request" })
+      ).toBeTruthy();
+      expect(queryRestartActions(view.container)).toEqual({
+        reserveAgain: null,
+        orderStep: null,
+      });
+    });
+
+    test("keeps bounced-confirmation guidance without a known address", () => {
+      const view = render(
+        <CheckoutStatusPage
+          locale="cs-CZ"
+          status={paidStatus(
+            { status: "fulfillment_failed", fulfillmentStatus: "failed" },
+            undefined
+          )}
+        />
+      );
+
+      expect(view.getByText(/Znovu rezervovat nemusíš\./)).toBeTruthy();
+      expect(
+        view.getByRole("link", { name: "Zaslat žádost o podporu" })
+      ).toBeTruthy();
+      expect(queryRestartActions(view.container).reserveAgain).toBeNull();
+    });
+
+    test("tells a paid customer awaiting confirmation not to book again", () => {
+      const view = render(
+        <CheckoutStatusPage
+          locale="en-US"
+          status={paidStatus({ status: "paid_waiting_fulfillment" })}
+        />
+      );
+
+      expect(
+        view.getByRole("heading", {
+          name: "Payment received. We're finishing your reservation.",
+        })
+      ).toBeTruthy();
+      expect(view.getByText(/You don't need to book again\./)).toBeTruthy();
+      expect(view.queryByText(/confirmed/)).toBeNull();
+      expect(queryRestartActions(view.container)).toEqual({
+        reserveAgain: null,
+        orderStep: null,
+      });
+    });
+
+    test("offers support once finishing a paid reservation takes too long", () => {
+      const view = render(
+        <CheckoutStatusPage
+          locale="en-US"
+          status={paidStatus({ status: "paid_fulfillment_delayed" })}
+        />
+      );
+
+      expect(view.getByText(/You don't need to book again\./)).toBeTruthy();
+      expect(view.queryByText(/confirmed/)).toBeNull();
+      const link = view.getByRole("link", { name: "Send support request" });
+      expect(
+        new URL(
+          link.getAttribute("href") ?? "",
+          "https://deskohub.local"
+        ).searchParams.get("email")
+      ).toBe("ada@example.test");
+      expect(queryRestartActions(view.container)).toEqual({
+        reserveAgain: null,
+        orderStep: null,
+      });
     });
   });
 
