@@ -614,10 +614,6 @@ function assertInterruptedFailure(run: Run, graph: Graph) {
     `${run.scenario} admitted shared fixture`
   );
   must(!run.summary.cleanupAdmitted, `${run.scenario} admitted cleanup`);
-  must(
-    !range(run.intervals, "checkout-invoice-persistence"),
-    `${run.scenario} admitted invoice persistence`
-  );
   assertOnlyFirstBatch(run, graph);
   for (const project of ["account-auth", ...checkoutProjects]) {
     const interval = requiredRange(run.intervals, project, run.scenario);

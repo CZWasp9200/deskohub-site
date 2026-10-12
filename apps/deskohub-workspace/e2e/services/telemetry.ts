@@ -23,7 +23,6 @@ type E2EPhaseId =
   | "case-finalization"
   | "cowork-availability-preparation"
   | "fixture-seeding"
-  | "invoice-persistence"
   | "meeting-room-availability-preparation"
   | "office-availability-preparation"
   | "preview-readiness"

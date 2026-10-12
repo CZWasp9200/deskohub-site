@@ -119,6 +119,34 @@ describe.skipIf(!testDatabase)(
       });
     });
 
+    test("admits one of many concurrent claims per audience", async () => {
+      const invoiceId = await insertInvoice();
+
+      const claims = await Promise.all(
+        Array.from({ length: 10 }, () =>
+          runRepository((repository) =>
+            repository.claim({
+              invoiceId,
+              audience: "customer",
+              staleProcessingBefore: freshProcessingBefore(),
+            })
+          )
+        )
+      );
+      const internal = await runRepository((repository) =>
+        repository.claim({
+          invoiceId,
+          audience: "internal",
+          staleProcessingBefore: freshProcessingBefore(),
+        })
+      );
+
+      expect(claims.filter((claim) => claim !== null)).toEqual([
+        { attemptNumber: 1 },
+      ]);
+      expect(internal).toEqual({ attemptNumber: 1 });
+    });
+
     test("reclaims a stale processing delivery as the next attempt", async () => {
       const invoiceId = await insertInvoice();
 

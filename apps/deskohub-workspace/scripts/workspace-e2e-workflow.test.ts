@@ -358,20 +358,6 @@ describe("workspace E2E workflow", () => {
     expect(turboGlobal).not.toContain("WORKSPACE_E2E_RESEND_API_KEY");
   });
 
-  test("runs invoice persistence after the case phase of the exact-SHA Playwright graph", async () => {
-    const playwrightConfig = await playwrightConfigStructure();
-
-    // Invoice persistence locks the invoices table, so it waits for every
-    // case project instead of gating the plan or overlapping paid cases.
-    expect(
-      projectByName(playwrightConfig, "checkout-invoice-persistence")
-        ?.dependencies
-    ).toEqual(checkoutCaseProjectNames);
-    expect(
-      projectByName(playwrightConfig, "checkout-plan")?.dependencies
-    ).not.toContain("checkout-invoice-persistence");
-  });
-
   test("lets Playwright own checkout preparation, scheduling, and parallelism", async () => {
     const playwrightConfig = await playwrightConfigStructure();
 
