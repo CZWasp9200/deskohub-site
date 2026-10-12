@@ -36,7 +36,7 @@ const paymentAttemptStateLabels = {
   expired: "Unsuccessful",
 } satisfies Record<PaymentAttemptState, string>;
 
-export type AdministrationOrderLink = {
+type AdministrationOrderLink = {
   readonly paymentAttemptId: PaymentAttemptId;
   readonly reservationId: WorkspaceReservationId;
   readonly state: PaymentAttemptState;
@@ -67,24 +67,24 @@ export type AdministrationOperation = NexiOperation & {
   readonly linkedReservationId: WorkspaceReservationId | null;
 };
 
-export type AdministrationOrderListInput = {
+type AdministrationOrderListInput = {
   readonly fromTime?: string;
   readonly toTime?: string;
   readonly maxRecords?: number;
 };
 
-export type AdministrationOperationListInput = AdministrationOrderListInput & {
+type AdministrationOperationListInput = AdministrationOrderListInput & {
   readonly channel?: string;
   readonly operationType?: string;
 };
 
-export type AdministrationOrderList = {
+type AdministrationOrderList = {
   readonly items: readonly AdministrationOrder[];
   readonly providerAvailable: boolean;
   readonly truncated: boolean;
 };
 
-export type AdministrationOperationList = {
+type AdministrationOperationList = {
   readonly items: readonly AdministrationOperation[];
   readonly providerAvailable: boolean;
   readonly truncated: boolean;

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { Effect, Layer, Predicate } from "effect";
+import { Effect, Fiber, Layer, Predicate } from "effect";
+import { TestClock } from "effect/testing";
 import { FetchHttpClient, type HttpClient } from "effect/unstable/http";
 import sharp from "sharp";
 import { generateStaticMapImage } from "./static-map";
@@ -111,6 +112,64 @@ describe("generateStaticMapImage", () => {
     });
   });
 
+  test("crops inside the tiles when the map centre falls on a sub-pixel", async () => {
+    const tile = await sharp({
+      create: {
+        width: 256,
+        height: 256,
+        channels: 3,
+        background: "#ffffff",
+      },
+    })
+      .png()
+      .toBuffer();
+    const fetch = makeFetch(
+      async () =>
+        new Response(tile, {
+          status: 200,
+          headers: { "Content-Type": "image/png" },
+        })
+    );
+
+    const image = await runWithFetch(
+      generateStaticMapImage({
+        ...staticMapOptions,
+        lng: 0.84375,
+        width: 256,
+        height: 256,
+        tileSize: 256,
+      }),
+      fetch
+    );
+
+    expect(await sharp(image).metadata()).toMatchObject({
+      width: 256,
+      height: 256,
+    });
+  });
+
+  test("fails a stalled tile request", async () => {
+    const fetch = makeFetch(() => new Promise<Response>(() => {}));
+
+    const error = await runWithFetch(
+      Effect.gen(function* () {
+        const fiber = yield* generateStaticMapImage(staticMapOptions).pipe(
+          Effect.flip,
+          Effect.forkChild
+        );
+        yield* TestClock.adjust("10 seconds");
+        return yield* Fiber.join(fiber);
+      }).pipe(Effect.provide(TestClock.layer())),
+      fetch
+    );
+
+    expect(error).toMatchObject({
+      _tag: "OsmTileRequestError",
+      message: "OpenStreetMap tile 0/0/0 timed out.",
+      url: "https://tiles.example.test/0/0/0.png",
+    });
+  });
+
   test("reports non-successful tile responses as typed failures", async () => {
     const fetch = makeFetch(async () => new Response(null, { status: 429 }));
 
@@ -172,6 +231,70 @@ describe("generateSvgPngBuffer", () => {
       width: 2,
       height: 3,
     });
+  });
+
+  test("fits SVG content without distortion inside a padded opaque canvas", async () => {
+    const image = await Effect.runPromise(
+      generateSvgPngBuffer(
+        '<svg width="200" height="100" xmlns="http://www.w3.org/2000/svg"><rect x="10" y="10" width="180" height="80" fill="#00024F"/></svg>',
+        {
+          canvas: {
+            width: 512,
+            height: 512,
+            padding: 24,
+            background: "#FFFFFF",
+          },
+        }
+      )
+    );
+    const { data, info } = await sharp(image)
+      .ensureAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+
+    expect(info).toMatchObject({ width: 512, height: 512, channels: 4 });
+    const pixelAt = (x: number, y: number) => [
+      ...data.subarray(
+        (y * info.width + x) * info.channels,
+        (y * info.width + x + 1) * info.channels
+      ),
+    ];
+    expect(pixelAt(0, 0)).toEqual([255, 255, 255, 255]);
+    expect(pixelAt(256, 155)).toEqual([255, 255, 255, 255]);
+    expect(pixelAt(256, 256)).toEqual([0, 2, 79, 255]);
+
+    const navyPixelOffsets = [];
+    for (let x = 0; x < info.width; x += 1) {
+      const offset = (256 * info.width + x) * info.channels;
+      if (
+        data[offset] === 0 &&
+        data[offset + 1] === 2 &&
+        data[offset + 2] === 79 &&
+        data[offset + 3] === 255
+      ) {
+        navyPixelOffsets.push(x);
+      }
+    }
+    const navyColumnOffsets = [];
+    for (let y = 0; y < info.height; y += 1) {
+      const offset = (y * info.width + 256) * info.channels;
+      if (
+        data[offset] === 0 &&
+        data[offset + 1] === 2 &&
+        data[offset + 2] === 79 &&
+        data[offset + 3] === 255
+      ) {
+        navyColumnOffsets.push(y);
+      }
+    }
+    expect(navyPixelOffsets[0]).toBeGreaterThanOrEqual(24);
+    expect(navyPixelOffsets.at(-1)).toBeLessThan(488);
+    expect(navyColumnOffsets[0]).toBeGreaterThan(24);
+    expect(navyColumnOffsets.at(-1)).toBeLessThan(488);
+    expect(navyPixelOffsets.length / navyColumnOffsets.length).toBeCloseTo(
+      2.25,
+      1
+    );
   });
 
   test("composites centered text overlays without changing output dimensions", async () => {

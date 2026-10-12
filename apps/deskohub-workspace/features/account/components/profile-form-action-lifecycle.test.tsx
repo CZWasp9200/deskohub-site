@@ -7,16 +7,9 @@ import {
   mock,
   test,
 } from "bun:test";
-import {
-  act,
-  cleanup,
-  fireEvent,
-  render,
-  waitFor,
-  within,
-} from "@testing-library/react";
 import React, { Activity } from "react";
 import type { CustomerProfileInput } from "@/features/account/contracts";
+import { m } from "@/features/i18n";
 import { UnsavedChangesProvider } from "@/shared/components/unsaved-changes-guard";
 import {
   registerWorkspaceComponentTestEnv,
@@ -24,6 +17,11 @@ import {
 } from "@/shared/testing/workspace-component-test-env";
 
 registerWorkspaceComponentTestEnv();
+// @testing-library/react must load after the happy-dom registration, or
+// React's synthetic change events never fire against controlled inputs.
+const { act, cleanup, fireEvent, render, waitFor, within } = await import(
+  "@testing-library/react"
+);
 
 type ActionResult = {
   readonly data?: { readonly status?: string };
@@ -56,6 +54,11 @@ mock.module("@/features/account/actions", () => ({
     Promise.resolve({ data: { status: "not-found", message: "" } }),
   completeCustomerProfile,
   updateCustomerProfile,
+}));
+
+mock.module("@/features/account/avatar-actions", () => ({
+  removeCustomerAvatar: () => Promise.resolve({ data: { status: "removed" } }),
+  uploadCustomerAvatar: () => Promise.resolve({ data: { status: "removed" } }),
 }));
 
 const businessProfile = {
@@ -147,8 +150,8 @@ describe("ProfileForm action lifecycle", () => {
     routerRefresh.mockClear();
   });
 
-  afterAll(() => {
-    unregisterWorkspaceComponentTestEnv();
+  afterAll(async () => {
+    await unregisterWorkspaceComponentTestEnv();
   });
 
   test("reveals profile after a billing save reports a phone error and retains drafts", async () => {
@@ -322,6 +325,36 @@ describe("ProfileForm action lifecycle", () => {
     expectDirty();
   });
 
+  test("reports a transport failure with the generic profile error and allows a retry", async () => {
+    updateCustomerProfile.mockImplementationOnce(() =>
+      Promise.reject(new Error("synthetic transport failure"))
+    );
+
+    const view = render(<ProfileFixture />);
+    const feedback = () =>
+      view.container.querySelector("#account-profile-feedback") as HTMLElement;
+    const firstName = view.getByLabelText("First name") as HTMLInputElement;
+
+    await act(async () => {
+      fireEvent.input(firstName, { target: { value: "Changed" } });
+      fireEvent.submit(view.container.querySelector("#account-profile-form")!);
+    });
+    await waitFor(() => expect(updateCustomerProfile).toHaveBeenCalledTimes(1));
+
+    await waitFor(() =>
+      expect(feedback().textContent).toBe(
+        m.accountProfileError({}, { locale: "en-US" })
+      )
+    );
+    expect(
+      (
+        view.container.querySelector("#account-profile-submit") as HTMLElement
+      ).hasAttribute("disabled")
+    ).toBe(false);
+    expect(firstName.value).toBe("Changed");
+    expectDirty();
+  });
+
   test("reveals billing after a profile save reports a company error with feedback", async () => {
     updateCustomerProfile.mockImplementationOnce(() =>
       Promise.resolve({
@@ -361,32 +394,59 @@ describe("ProfileForm action lifecycle", () => {
     expectDirty();
   });
 
-  test("prioritizes profile when profile and billing errors arrive together", async () => {
-    updateCustomerProfile.mockImplementationOnce(() =>
-      Promise.resolve({
-        validationErrors: {
-          formErrors: [],
-          fieldErrors: {
-            firstName: ["Enter your first name."],
-            billing: ["companyName: Company name is required."],
+  test.each([
+    ["firstName", true, m.accountProfileFirstNameRequired],
+    ["lastName", false, m.accountProfileValidationError],
+    ["lastName", true, m.accountProfileValidationError],
+  ] as const)(
+    "reveals profile when a billing-view save reports a %s error (billing errors too: %p)",
+    async (field, withBillingErrors, expectedMessage) => {
+      const fieldId = field === "firstName" ? "first-name" : "last-name";
+      updateCustomerProfile.mockImplementationOnce(() =>
+        Promise.resolve({
+          validationErrors: {
+            formErrors: [],
+            fieldErrors: {
+              [field]: ["Server field error."],
+              ...(withBillingErrors && {
+                billing: ["companyName: Company name is required."],
+              }),
+            },
           },
-        },
-      })
-    );
+        })
+      );
 
-    const view = render(<ProfileFixture initialSection="billing" />);
-    await act(async () => {
-      fireEvent.submit(view.container.querySelector("#account-profile-form")!);
-    });
+      const view = render(<ProfileFixture initialSection="billing" />);
+      await act(async () => {
+        fireEvent.submit(
+          view.container.querySelector("#account-profile-form")!
+        );
+      });
 
-    await waitFor(() => expect(updateCustomerProfile).toHaveBeenCalledTimes(1));
-    await waitFor(() =>
-      expect(view.getByTestId("active-section").textContent).toBe("profile")
-    );
-    expect(view.getByLabelText("First name").getAttribute("aria-invalid")).toBe(
-      "true"
-    );
-  });
+      await waitFor(() =>
+        expect(updateCustomerProfile).toHaveBeenCalledTimes(1)
+      );
+      await waitFor(() =>
+        expect(view.getByTestId("active-section").textContent).toBe("profile")
+      );
+      const input = view.container.querySelector(
+        `#account-profile-${fieldId}`
+      )!;
+      expect(input.getAttribute("aria-invalid")).toBe("true");
+      expect(input.getAttribute("aria-describedby")).toBe(
+        `account-profile-${fieldId}-error`
+      );
+      expect(
+        view.container.querySelector(`#account-profile-${fieldId}-error`)
+          ?.textContent
+      ).toBe(expectedMessage({}, { locale: "en-US" }));
+      expect(
+        view.container
+          .querySelector("#account-profile-billing-company-name")!
+          .getAttribute("aria-invalid")
+      ).toBe(withBillingErrors ? "true" : null);
+    }
+  );
 
   test("preserves the full submitted baseline through late edits and Activity hide/show", async () => {
     let resolveUpdate!: (result: ActionResult) => void;

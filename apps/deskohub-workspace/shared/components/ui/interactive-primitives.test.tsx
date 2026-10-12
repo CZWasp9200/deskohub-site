@@ -7,37 +7,53 @@ import {
 
 registerWorkspaceComponentTestEnv();
 
-const { Checkbox } = await import("./checkbox");
-const { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } =
-  await import("./tooltip");
+const { Dialog, DialogContent, DialogDescription, DialogTitle } = await import(
+  "./dialog"
+);
+const { Sheet, SheetContent, SheetDescription, SheetTitle } = await import(
+  "./sheet"
+);
 
 afterEach(cleanup);
 afterAll(unregisterWorkspaceComponentTestEnv);
 
 describe("interactive primitives", () => {
-  test("renders tooltips outside overflow-clipped parents", async () => {
+  test("localizes the dialog close button", async () => {
     const view = render(
-      <div data-overflow-parent="">
-        <TooltipProvider>
-          <Tooltip open>
-            <TooltipTrigger>Details</TooltipTrigger>
-            <TooltipContent>Sale details</TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-      </div>
+      <Dialog open>
+        <DialogContent locale="cs-CZ">
+          <DialogTitle>Detail</DialogTitle>
+          <DialogDescription>Popis</DialogDescription>
+        </DialogContent>
+      </Dialog>
     );
 
-    expect(view.container.textContent).not.toContain("Sale details");
-    expect((await view.findByRole("tooltip")).textContent).toContain(
-      "Sale details"
-    );
+    expect(await view.findByRole("button", { name: "Zavřít" })).toBeTruthy();
   });
 
-  test("shows the pointer cursor for enabled checkboxes", () => {
-    const view = render(<Checkbox aria-label="Create invoice" />);
+  test("localizes the sheet close button", async () => {
+    const view = render(
+      <Sheet open>
+        <SheetContent locale="cs-CZ">
+          <SheetTitle>Menu</SheetTitle>
+          <SheetDescription>Navigace</SheetDescription>
+        </SheetContent>
+      </Sheet>
+    );
 
-    expect(
-      view.getByRole("checkbox", { name: "Create invoice" }).className
-    ).toContain("cursor-pointer");
+    expect(await view.findByRole("button", { name: "Zavřít" })).toBeTruthy();
+  });
+
+  test("keeps the English close label for unlocalized dialogs", async () => {
+    const view = render(
+      <Dialog open>
+        <DialogContent>
+          <DialogTitle>Details</DialogTitle>
+          <DialogDescription>Description</DialogDescription>
+        </DialogContent>
+      </Dialog>
+    );
+
+    expect(await view.findByRole("button", { name: "Close" })).toBeTruthy();
   });
 });

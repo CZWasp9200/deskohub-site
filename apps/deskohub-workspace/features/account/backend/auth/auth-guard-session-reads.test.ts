@@ -136,6 +136,9 @@ const callHandler = (
     })
   );
 
+/** One read past the default Better Auth limit of 100 requests per window. */
+const guardReadsPastRateLimit = 101;
+
 /**
  * The exact session read the checkout guard issues from every RSC render
  * and Server Action: refresh-free, against one request identity whose
@@ -181,7 +184,7 @@ const userIdForEmail = async (email: string) => {
 describe.skipIf(!testDatabase)(
   "checkout guard session reads against the migrated disposable Postgres",
   () => {
-    test("keeps 120 repeated guard-shaped guest reads on one request identity unrate-limited", async () => {
+    test("keeps guard-shaped guest reads past the rate limit on one request identity unrate-limited", async () => {
       const auth = makeTestAuth();
       const sharedHeaders = new Headers({
         host: HOST,
@@ -189,14 +192,14 @@ describe.skipIf(!testDatabase)(
       });
 
       cookieStoreSets.length = 0;
-      for (let index = 0; index < 120; index += 1) {
+      for (let index = 0; index < guardReadsPastRateLimit; index += 1) {
         const session = await readGuardSession(auth, sharedHeaders);
         expect(session).toBeNull();
       }
       expect(cookieStoreSets).toHaveLength(0);
     });
 
-    test("keeps 120 repeated guard-shaped authenticated reads on one request identity unrate-limited and unrefreshed", async () => {
+    test("keeps guard-shaped authenticated reads past the rate limit on one request identity unrate-limited and unrefreshed", async () => {
       const sentMagicLinks: { url: string }[] = [];
       const auth = makeTestAuth(sentMagicLinks);
       const email = uniqueEmail("guard-flood");
@@ -204,6 +207,11 @@ describe.skipIf(!testDatabase)(
       const userId = await userIdForEmail(email);
       expect(userId).toBeDefined();
 
+      // Past `updateAge`, so any refreshing read would roll the expiry.
+      await testDatabase!.pool.query(
+        `update auth.session set expires_at = now() + interval '28 days' where user_id = $1`,
+        [userId]
+      );
       const before = await testDatabase!.pool.query(
         `select expires_at from auth.session where user_id = $1`,
         [userId]
@@ -216,7 +224,7 @@ describe.skipIf(!testDatabase)(
         "x-vercel-forwarded-for": uniqueIp(),
       });
 
-      for (let index = 0; index < 120; index += 1) {
+      for (let index = 0; index < guardReadsPastRateLimit; index += 1) {
         const session = await readGuardSession(auth, sharedHeaders);
         expect(session?.user.email).toBe(email);
       }

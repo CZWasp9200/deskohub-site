@@ -1,0 +1,232 @@
+import { describe, expect, mock, test } from "bun:test";
+import type { DotyposCustomerId } from "@deskohub/dotypos";
+import { Deferred, Effect, Layer } from "effect";
+import type { CustomerMarketingConsent } from "@/db/schema/customer-marketing-consents";
+import {
+  type CurrentLinkedAccount,
+  CustomerAccountContactService,
+} from "@/features/account/backend/customer-account-contact.service";
+import {
+  CustomerAccountAccessError,
+  customerAccountIdSchema,
+} from "@/features/account/customer-account";
+import { CustomerMarketingConsentRepository } from "@/features/legal/backend/customer-marketing-consent.repository";
+import { reservationCustomerEmailSchema } from "@/features/reservation/reservation-contact";
+import type { CustomerLastReservation } from "@/features/reservation/reservation-existing-customer";
+import { CustomerLastReservationService } from "./customer-last-reservation.service";
+
+mock.module("server-only", () => ({}));
+
+const { loadLinkedExistingCustomer } = await import(
+  "./reservation-existing-customer.server"
+);
+
+const account: CurrentLinkedAccount = {
+  accountId: customerAccountIdSchema.make("auth-user-1"),
+  dotyposCustomerId: "60111" as DotyposCustomerId,
+  email: reservationCustomerEmailSchema.make("ada@example.test"),
+};
+
+const contact = {
+  ...account,
+  name: "Ada Lovelace",
+  phone: "+420 777 777 777",
+};
+
+const lastReservation: CustomerLastReservation = {
+  kind: "cowork",
+  entryTier: "open-space",
+  coffee: true,
+};
+
+const marketingConsent = (
+  withdrawnAt: Temporal.Instant | null
+): CustomerMarketingConsent =>
+  ({
+    dotyposCustomerId: account.dotyposCustomerId,
+    documentHash: "marketing-hash",
+    locale: "en-US",
+    grantedAt: Temporal.Instant.from("2026-01-01T00:00:00Z"),
+    withdrawnAt,
+  }) as CustomerMarketingConsent;
+
+const runLoad = (options: {
+  readonly currentLinkedAccount?: CurrentLinkedAccount | null;
+  readonly getMarketingConsent?: CustomerMarketingConsentRepository["Service"]["get"];
+  readonly linkedContact: CustomerAccountContactService["Service"]["linkedContact"];
+  readonly load: CustomerLastReservationService["Service"]["load"];
+}) =>
+  loadLinkedExistingCustomer("cowork").pipe(
+    Effect.timeout("1 second"),
+    Effect.provide(
+      Layer.mergeAll(
+        Layer.mock(CustomerAccountContactService, {
+          currentLinkedAccount: Effect.succeed(
+            options.currentLinkedAccount === undefined
+              ? account
+              : options.currentLinkedAccount
+          ),
+          linkedContact: options.linkedContact,
+        }),
+        Layer.mock(CustomerLastReservationService, { load: options.load }),
+        Layer.mock(CustomerMarketingConsentRepository, {
+          get: options.getMarketingConsent ?? (() => Effect.succeed(null)),
+        })
+      )
+    ),
+    Effect.result,
+    Effect.runPromise
+  );
+
+describe("loadLinkedExistingCustomer", () => {
+  test("reads neither the profile nor the last reservation without a link", async () => {
+    const linkedContact = mock(() => Effect.succeed(contact));
+    const load = mock(() => Effect.succeed(lastReservation as never));
+
+    const outcome = await runLoad({
+      currentLinkedAccount: null,
+      linkedContact,
+      load,
+    });
+
+    expect(outcome).toMatchObject({ _tag: "Success", success: undefined });
+    expect(linkedContact).not.toHaveBeenCalled();
+    expect(load).not.toHaveBeenCalled();
+  });
+
+  test("loads the contact and the last reservation concurrently from the link", async () => {
+    const lastReservationStarted = Deferred.makeUnsafe<void>();
+    const contactStarted = Deferred.makeUnsafe<void>();
+    // Each read waits for the other to start, so a sequential load times out.
+    const linkedContact = mock((_account: CurrentLinkedAccount) =>
+      Deferred.succeed(contactStarted, undefined).pipe(
+        Effect.andThen(Deferred.await(lastReservationStarted)),
+        Effect.as(contact)
+      )
+    );
+    const load = mock(() =>
+      Deferred.succeed(lastReservationStarted, undefined).pipe(
+        Effect.andThen(Deferred.await(contactStarted)),
+        Effect.as(lastReservation as never)
+      )
+    );
+
+    const outcome = await runLoad({ linkedContact, load });
+
+    expect(outcome).toMatchObject({
+      _tag: "Success",
+      success: {
+        contact: {
+          name: "Ada Lovelace",
+          email: "ada@example.test",
+          phone: "+420 777 777 777",
+        },
+        hasMarketingConsent: false,
+        lastReservation,
+      },
+    });
+    expect(linkedContact).toHaveBeenCalledWith(account);
+    expect(load).toHaveBeenCalledWith(account.dotyposCustomerId, "cowork");
+  });
+
+  test("keeps the account contact when the last reservation fails", async () => {
+    const outcome = await runLoad({
+      linkedContact: () => Effect.succeed(contact),
+      load: () => Effect.fail(new Error("database unavailable") as never),
+    });
+
+    expect(outcome._tag).toBe("Success");
+    if (outcome._tag !== "Success") throw new Error("Expected a customer");
+    expect(outcome.success).toEqual({
+      contact: {
+        name: "Ada Lovelace",
+        email: "ada@example.test",
+        phone: "+420 777 777 777",
+      },
+      hasMarketingConsent: false,
+    });
+  });
+
+  test("reports only a current, unwithdrawn marketing consent", async () => {
+    const loadConsent = (consent: CustomerMarketingConsent | null) => {
+      const getMarketingConsent = mock(() => Effect.succeed(consent));
+      return runLoad({
+        getMarketingConsent,
+        linkedContact: () => Effect.succeed(contact),
+        load: () => Effect.succeed(null),
+      }).then((outcome) => {
+        expect(getMarketingConsent).toHaveBeenCalledWith(
+          account.dotyposCustomerId
+        );
+        return outcome;
+      });
+    };
+
+    expect(await loadConsent(marketingConsent(null))).toMatchObject({
+      _tag: "Success",
+      success: { hasMarketingConsent: true },
+    });
+    expect(
+      await loadConsent(
+        marketingConsent(Temporal.Instant.from("2026-02-01T00:00:00Z"))
+      )
+    ).toMatchObject({
+      _tag: "Success",
+      success: { hasMarketingConsent: false },
+    });
+    expect(await loadConsent(null)).toMatchObject({
+      _tag: "Success",
+      success: { hasMarketingConsent: false },
+    });
+  });
+
+  test("keeps asking for marketing consent when it cannot be read", async () => {
+    const outcome = await runLoad({
+      getMarketingConsent: () =>
+        Effect.fail(new Error("database unavailable") as never),
+      linkedContact: () => Effect.succeed(contact),
+      load: () => Effect.succeed(null),
+    });
+
+    expect(outcome).toMatchObject({
+      _tag: "Success",
+      success: { hasMarketingConsent: false },
+    });
+  });
+
+  test("discards the last reservation when the profile cannot book", async () => {
+    const outcome = await runLoad({
+      linkedContact: () => Effect.succeed(null),
+      load: () => Effect.succeed(lastReservation as never),
+    });
+
+    expect(outcome).toMatchObject({ _tag: "Success", success: undefined });
+  });
+
+  test("fails on a profile failure and interrupts the pending last reservation", async () => {
+    const profileFailure = new CustomerAccountAccessError({
+      reason: "unavailable",
+    });
+    const lastReservationStarted = Deferred.makeUnsafe<void>();
+    let lastReservationInterrupted = false;
+
+    const outcome = await runLoad({
+      linkedContact: () =>
+        Deferred.await(lastReservationStarted).pipe(
+          Effect.andThen(Effect.fail(profileFailure))
+        ),
+      load: () =>
+        Deferred.succeed(lastReservationStarted, undefined).pipe(
+          Effect.andThen(Effect.never),
+          Effect.onInterrupt(() =>
+            Effect.sync(() => {
+              lastReservationInterrupted = true;
+            })
+          )
+        ),
+    });
+
+    expect(outcome).toMatchObject({ _tag: "Failure", failure: profileFailure });
+    expect(lastReservationInterrupted).toBe(true);
+  });
+});

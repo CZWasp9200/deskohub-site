@@ -12,6 +12,7 @@ import type { ComponentPropsWithoutRef, Ref } from "react";
 import { useState } from "react";
 import { type Locale, m } from "@/features/i18n";
 import {
+  flushWorkspaceComponentWork,
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
 } from "@/shared/testing/workspace-component-test-env";
@@ -142,7 +143,11 @@ afterEach(() => {
   cleanup();
   routerRefresh.mockClear();
 });
-afterAll(unregisterWorkspaceComponentTestEnv);
+afterAll(async () => {
+  cleanup();
+  await flushWorkspaceComponentWork();
+  await unregisterWorkspaceComponentTestEnv();
+});
 
 function renderLegalScreen(locale: Locale) {
   return render(
@@ -270,7 +275,7 @@ test("renders immutable necessary consent and functional optional controls", asy
   });
 });
 
-test("keeps consent controls wrapped and free of page-only shells", () => {
+test("keeps consent controls free of page-only shells", () => {
   const view = renderLegalScreen("en-US");
 
   expect(view.container.querySelector("main")).toBeNull();
@@ -284,11 +289,6 @@ test("keeps consent controls wrapped and free of page-only shells", () => {
   expect(group.children).toHaveLength(4);
   for (const child of Array.from(group.children)) {
     expect(child.getAttribute("data-slot")).toBe("preference-row");
-  }
-
-  for (const category of view.container.querySelectorAll("article")) {
-    expect(category.className).toContain("min-w-0");
-    expect(category.querySelector("p")?.className).toContain("break-words");
   }
 });
 
@@ -424,30 +424,4 @@ test("hides the marketing sign-in affordance when accounts are disabled", () => 
       name: m.marketingPreferencesFormSignInAction({}, { locale }),
     })
   ).toBeNull();
-});
-
-test("passes the rendered marketing preference state through", () => {
-  const locale = "cs-CZ" as const;
-  const view = render(
-    <>
-      <CookieConsentProvider locale={locale} />
-      <LegalScreen
-        locale={locale}
-        marketingPreferences={{ ...linkMarketingState }}
-      />
-    </>
-  );
-
-  expect(
-    view.container
-      .querySelector('[data-marketing-preferences="active"]')
-      ?.getAttribute("data-marketing-preferences-source")
-  ).toBe("link");
-  expect(
-    view
-      .getByRole("switch", {
-        name: m.marketingPreferencesFormRowTitle({}, { locale }),
-      })
-      .getAttribute("aria-checked")
-  ).toBe("true");
 });

@@ -29,7 +29,7 @@ import {
   type InvoiceEmailDeliveryClaim,
   InvoiceEmailDeliveryRepository,
 } from "./invoice-email-delivery.repository";
-import { renderInvoicePdf } from "./invoice-pdf";
+import { type InvoicePdfRenderingError, renderInvoicePdf } from "./invoice-pdf";
 
 const invoiceCustomerEmailCategory = "workspace-invoice-customer";
 const invoiceInternalEmailCategory = "workspace-invoice-internal";
@@ -88,9 +88,37 @@ export class InvoiceEmailDeliveryService extends Context.Service<
         readonly invoice: Invoice;
         readonly audience: "customer" | "internal";
         readonly recipient: EmailRecipient;
-        readonly pdf: Buffer;
+        readonly renderPdf: Effect.Effect<Buffer, InvoicePdfRenderingError>;
         readonly resend?: boolean;
       }) {
+        const staleProcessingBefore = Temporal.Now.instant().subtract({
+          milliseconds: INVOICE_EMAIL_PROCESSING_RETRY_AFTER_MS,
+        });
+        const claim = yield* (
+          input.resend
+            ? deliveries.claimResend({
+                invoiceId: input.invoice.id,
+                staleProcessingBefore,
+              })
+            : deliveries.claim({
+                invoiceId: input.invoice.id,
+                audience: input.audience,
+                staleProcessingBefore,
+              })
+        ).pipe(
+          Effect.mapError((cause) =>
+            deliveryError({
+              code: "persistence_failed",
+              paymentAttemptId:
+                input.invoice.paymentAttemptId ?? input.invoice.id,
+              message: "Invoice email delivery could not be claimed.",
+              cause,
+            })
+          )
+        );
+
+        if (!claim) return false;
+
         const manualDocument = isManualInvoiceDocument(input.invoice.document)
           ? input.invoice.document
           : null;
@@ -131,7 +159,6 @@ export class InvoiceEmailDeliveryService extends Context.Service<
             };
           }),
           Match.when("internal", () => {
-            const locale = internalInvoiceLocale;
             let subjectPrefix = "";
             if (env.VERCEL_ENV !== "production") {
               subjectPrefix = `${internalTestingSubjectPrefix} `;
@@ -140,18 +167,21 @@ export class InvoiceEmailDeliveryService extends Context.Service<
               body: manualDocument
                 ? m.invoiceManualEmailInternalBody(
                     { invoiceNumber: input.invoice.invoiceNumber },
-                    { locale }
+                    { locale: internalInvoiceLocale }
                   )
                 : m.invoiceEmailInternalBody(
                     {
                       invoiceNumber: input.invoice.invoiceNumber,
                       orderId: input.invoice.workspaceReservationId ?? "",
                     },
-                    { locale }
+                    { locale: internalInvoiceLocale }
                   ),
               category: invoiceInternalEmailCategory,
-              heading: m.invoiceEmailInternalHeading({}, { locale }),
-              locale,
+              heading: m.invoiceEmailInternalHeading(
+                {},
+                { locale: internalInvoiceLocale }
+              ),
+              locale: internalInvoiceLocale,
               subjectPrefix,
             };
           }),
@@ -159,51 +189,47 @@ export class InvoiceEmailDeliveryService extends Context.Service<
         );
         const title = m.invoiceTitle({}, { locale: content.locale });
         const preview = `${title} ${input.invoice.invoiceNumber}`;
-        const rendered = yield* renderWorkspaceEmail(
-          <InvoiceDeliveryEmail
-            body={content.body}
-            heading={content.heading}
-            locale={content.locale}
-            preview={preview}
-          />
-        ).pipe(
-          Effect.mapError((cause) =>
-            deliveryError({
-              code: "email_delivery_failed",
-              paymentAttemptId:
-                input.invoice.paymentAttemptId ?? input.invoice.id,
-              message: "Invoice delivery email could not be rendered.",
-              cause,
+        const { pdf, rendered } = yield* Effect.all({
+          pdf: input.renderPdf.pipe(
+            Effect.mapError((cause) =>
+              deliveryError({
+                code: "pdf_render_failed",
+                paymentAttemptId:
+                  input.invoice.paymentAttemptId ?? input.invoice.id,
+                message: "Invoice PDF could not be rendered for delivery.",
+                cause,
+              })
+            )
+          ),
+          rendered: renderWorkspaceEmail(
+            <InvoiceDeliveryEmail
+              body={content.body}
+              heading={content.heading}
+              locale={content.locale}
+              preview={preview}
+            />
+          ).pipe(
+            Effect.mapError((cause) =>
+              deliveryError({
+                code: "email_delivery_failed",
+                paymentAttemptId:
+                  input.invoice.paymentAttemptId ?? input.invoice.id,
+                message: "Invoice delivery email could not be rendered.",
+                cause,
+              })
+            )
+          ),
+        }).pipe(
+          Effect.catch((error) =>
+            failDelivery({
+              deliveries,
+              claim,
+              invoice: input.invoice,
+              audience: input.audience,
+              error,
             })
           )
         );
-        const staleProcessingBefore = Temporal.Now.instant().subtract({
-          milliseconds: INVOICE_EMAIL_PROCESSING_RETRY_AFTER_MS,
-        });
-        const claim = yield* (
-          input.resend
-            ? deliveries.claimResend({
-                invoiceId: input.invoice.id,
-                staleProcessingBefore,
-              })
-            : deliveries.claim({
-                invoiceId: input.invoice.id,
-                audience: input.audience,
-                staleProcessingBefore,
-              })
-        ).pipe(
-          Effect.mapError((cause) =>
-            deliveryError({
-              code: "persistence_failed",
-              paymentAttemptId:
-                input.invoice.paymentAttemptId ?? input.invoice.id,
-              message: "Invoice email delivery could not be claimed.",
-              cause,
-            })
-          )
-        );
-
-        if (!claim) return false;
 
         const message: EmailMessage = {
           from: emailConfig.defaultFrom,
@@ -218,7 +244,7 @@ export class InvoiceEmailDeliveryService extends Context.Service<
           attachments: [
             {
               filename: `${input.invoice.invoiceNumber}.pdf`,
-              content: input.pdf,
+              content: pdf,
               contentType: "application/pdf",
             },
           ],
@@ -235,26 +261,26 @@ export class InvoiceEmailDeliveryService extends Context.Service<
         };
 
         const sendResult = yield* emailService.send(message).pipe(
+          Effect.filterOrFail(
+            (result) => result.status !== "failed",
+            () => new EmailServiceError("Email provider rejected delivery.")
+          ),
           Effect.catch((cause) =>
             failDelivery({
               deliveries,
               claim,
               invoice: input.invoice,
               audience: input.audience,
-              cause,
+              error: deliveryError({
+                code: "email_delivery_failed",
+                paymentAttemptId:
+                  input.invoice.paymentAttemptId ?? input.invoice.id,
+                message: "Invoice email delivery failed.",
+                cause,
+              }),
             })
           )
         );
-
-        if (sendResult.status === "failed") {
-          return yield* failDelivery({
-            deliveries,
-            claim,
-            invoice: input.invoice,
-            audience: input.audience,
-            cause: new EmailServiceError("Email provider rejected delivery."),
-          });
-        }
 
         yield* deliveries
           .markAccepted({
@@ -303,20 +329,10 @@ export class InvoiceEmailDeliveryService extends Context.Service<
         "InvoiceEmailDeliveryService.loadInvoiceDelivery"
       )(function* (invoice: Invoice) {
         if (isManualInvoiceDocument(invoice.document)) {
-          const pdf = yield* renderInvoicePdf(invoice.document).pipe(
-            Effect.mapError((cause) =>
-              deliveryError({
-                code: "pdf_render_failed",
-                paymentAttemptId: invoice.id,
-                message: "Invoice PDF could not be rendered for delivery.",
-                cause,
-              })
-            )
-          );
           return {
             invoice,
             recipient: invoice.document.delivery.email,
-            pdf,
+            renderPdf: yield* Effect.cached(renderInvoicePdf(invoice.document)),
           };
         }
 
@@ -350,17 +366,11 @@ export class InvoiceEmailDeliveryService extends Context.Service<
           });
         }
 
-        const pdf = yield* renderInvoicePdf(invoice.document).pipe(
-          Effect.mapError((cause) =>
-            deliveryError({
-              code: "pdf_render_failed",
-              paymentAttemptId,
-              message: "Invoice PDF could not be rendered for delivery.",
-              cause,
-            })
-          )
-        );
-        return { invoice, recipient: source.delivery.email, pdf };
+        return {
+          invoice,
+          recipient: source.delivery.email,
+          renderPdf: yield* Effect.cached(renderInvoicePdf(invoice.document)),
+        };
       });
 
       const deliverLoaded = Effect.fn(
@@ -374,13 +384,13 @@ export class InvoiceEmailDeliveryService extends Context.Service<
           invoice: delivery.invoice,
           audience: "customer",
           recipient: { email: delivery.recipient },
-          pdf: delivery.pdf,
+          renderPdf: delivery.renderPdf,
         }).pipe(settleDelivery);
         const internal = yield* deliverAudience({
           invoice: delivery.invoice,
           audience: "internal",
           recipient: internalWorkspaceEmailRecipient,
-          pdf: delivery.pdf,
+          renderPdf: delivery.renderPdf,
         }).pipe(settleDelivery);
 
         if (!customer.success) return yield* customer.error;
@@ -438,7 +448,7 @@ export class InvoiceEmailDeliveryService extends Context.Service<
             invoice: delivery.invoice,
             audience: "customer",
             recipient: { email: delivery.recipient },
-            pdf: delivery.pdf,
+            renderPdf: delivery.renderPdf,
             resend: true,
           });
           if (!changed) {
@@ -494,14 +504,17 @@ const failDelivery = (input: {
   readonly claim: InvoiceEmailDeliveryClaim;
   readonly invoice: Invoice;
   readonly audience: "customer" | "internal";
-  readonly cause: unknown;
+  readonly error: InvoiceEmailDeliveryError;
 }) =>
   input.deliveries
     .markFailed({
       invoiceId: input.invoice.id,
       audience: input.audience,
       attemptNumber: input.claim.attemptNumber,
-      failureCode: "email_send_failed",
+      failureCode:
+        input.error.code === "pdf_render_failed"
+          ? "pdf_render_failed"
+          : "email_send_failed",
     })
     .pipe(
       Effect.mapError((cause) =>
@@ -512,17 +525,7 @@ const failDelivery = (input: {
           cause,
         })
       ),
-      Effect.andThen(
-        Effect.fail(
-          deliveryError({
-            code: "email_delivery_failed",
-            paymentAttemptId:
-              input.invoice.paymentAttemptId ?? input.invoice.id,
-            message: "Invoice email delivery failed.",
-            cause: input.cause,
-          })
-        )
-      )
+      Effect.andThen(Effect.fail(input.error))
     );
 
 const deliveryError = (

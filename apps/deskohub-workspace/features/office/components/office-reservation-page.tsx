@@ -1,21 +1,27 @@
-import { Effect, Schema } from "effect";
-import { CheckoutPricingService } from "@/features/checkout/backend/checkout/checkout-pricing.service";
+import { Schema } from "effect";
 import type { CheckoutSessionId } from "@/features/checkout/checkout-identifiers";
 import type { CanonicalPromotionCode } from "@/features/discounts";
 import { type Locale, m } from "@/features/i18n";
 import { loadOfficeReservationSeatCapacity } from "@/features/office/backend/office-reservation-capacity.server";
 import { isOfficePageEnabled } from "@/features/office/backend/office-reservation-feature-flag.server";
-import { loadAdvertisedPrices } from "@/features/reservation/backend/advertised-prices.server";
+import { preloadPageAdvertisedPrices } from "@/features/reservation/backend/advertised-prices.server";
+import { preloadPageAvailability } from "@/features/reservation/backend/workspace-availability-loader";
 import { createReservationPage } from "@/features/reservation/components/create-reservation-page.server";
-import { getOfficeAdvertisedPriceRequest } from "@/features/reservation/office-advertised-price";
+import { getOfficeSeatAdvertisedPriceRequests } from "@/features/reservation/office-advertised-price";
 import {
   getOfficeReservationDefaultValues,
   getOfficeReservationEndsOn,
   type NormalizedOfficeReservationOrder,
 } from "@/features/reservation/office-reservation";
-import { getOfficeReservationDefaultValuesFromSearchParams } from "@/features/reservation/reservation-checkout-query";
+import { getOfficeReservationDefaultValuesFromSearchParams } from "@/features/reservation/office-reservation-checkout-query";
+import { getReservationCustomerQueryMode } from "@/features/reservation/reservation-checkout-query";
 import { getCurrentWorkspaceDate } from "@/features/reservation/reservation-date";
+import {
+  getReservationExistingCustomerForm,
+  type ReservationExistingCustomer,
+} from "@/features/reservation/reservation-existing-customer";
 import { officeReservationPath } from "@/features/reservation/routes";
+import { getOfficeAvailabilityQuery } from "@/features/reservation/workspace-availability";
 import { runWorkspaceEffect } from "@/shared/backend/workspace-effect";
 import type { SearchParamsRecord } from "@/shared/utils";
 import { plainDateStringSchema } from "@/shared/utils/temporal";
@@ -31,6 +37,7 @@ export const officeReservationPage = createReservationPage({
   kind: "office",
   pathname: officeReservationPath,
   isEnabled: isOfficePageEnabled,
+  loadPageData: loadOfficeReservationSeatCapacity,
   metadata: (locale: Locale) => ({
     title: m.reservationOfficeMetadataTitle({}, { locale }),
     description: m.reservationOfficeMetadataDescription({}, { locale }),
@@ -40,52 +47,75 @@ export const officeReservationPage = createReservationPage({
 
 export async function renderOfficeReservationContent({
   checkoutSessionId,
+  existingCustomer,
   initialReservation,
   locale,
+  pageData: seatCapacity,
   replacementToken,
   searchParams,
   submittedCode,
 }: {
   readonly checkoutSessionId?: CheckoutSessionId;
+  readonly existingCustomer?: ReservationExistingCustomer<"office">;
   readonly initialReservation?: NormalizedOfficeReservationOrder;
   readonly locale: Locale;
+  /** The office seat capacity, loaded alongside the existing customer. */
+  readonly pageData: number;
   readonly replacementToken?: string;
   readonly searchParams: SearchParamsRecord;
   readonly submittedCode?: CanonicalPromotionCode;
 }) {
   const today = decodePlainDate(getCurrentWorkspaceDate().toString());
-  const seatCapacity = await loadOfficeReservationSeatCapacity();
   const restoredInitialValues = initialReservation
     ? getOfficeReservationDefaultValues(initialReservation)
     : undefined;
-  const initialValues =
+  const restoredOrQueryValues =
     restoredInitialValues ??
     getOfficeReservationDefaultValuesFromSearchParams(searchParams, {
+      lastReservation: existingCustomer?.lastReservation,
       seatCapacity,
       startsOn: today,
     });
+  const { existingCustomer: existingCustomerForm, initialValues } =
+    existingCustomer
+      ? getReservationExistingCustomerForm({
+          contact: existingCustomer.contact,
+          hasMarketingConsent: existingCustomer.hasMarketingConsent,
+          // Office links never prefill a contact, so only an explicit
+          // `customer` parameter chooses the mode.
+          queryMode: getReservationCustomerQueryMode(searchParams, {
+            prefillsContact: false,
+          }),
+          restored: Boolean(restoredInitialValues),
+          values: restoredOrQueryValues,
+        })
+      : { existingCustomer: undefined, initialValues: restoredOrQueryValues };
   const initialEndsOn = decodePlainDate(
     getOfficeReservationEndsOn(initialValues)
   );
-  const initialAdvertisedPrices = await loadAdvertisedPrices([
-    getOfficeAdvertisedPriceRequest({
-      locale,
-      startsOn: decodePlainDate(initialValues.startsOn),
-      seats: initialValues.seats,
-      submittedCode,
-      endsOn: initialEndsOn,
-    }),
-  ]).pipe(
-    Effect.provide(CheckoutPricingService.Live),
-    Effect.scoped,
-    runWorkspaceEffect("reservation.office.load-advertised-price")
-  );
+  const [initialAdvertisedPrices, initialAvailability] = await Promise.all([
+    preloadPageAdvertisedPrices(
+      getOfficeSeatAdvertisedPriceRequests({
+        locale,
+        seatCapacity,
+        startsOn: decodePlainDate(initialValues.startsOn),
+        endsOn: initialEndsOn,
+        submittedCode,
+      })
+    ).pipe(runWorkspaceEffect("reservation.office.load-advertised-price")),
+    preloadPageAvailability({
+      queries: [getOfficeAvailabilityQuery(today)],
+      replacementToken,
+    }).pipe(runWorkspaceEffect("reservation.office.preload-availability")),
+  ]);
 
   return (
     <OfficeReservationForm
       checkoutSessionId={checkoutSessionId}
+      existingCustomer={existingCustomerForm}
       seatCapacity={seatCapacity}
       initialAdvertisedPrices={initialAdvertisedPrices}
+      initialAvailability={initialAvailability}
       initialReservation={initialReservation}
       initialValues={initialValues}
       locale={locale}

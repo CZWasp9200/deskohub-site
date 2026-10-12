@@ -27,6 +27,7 @@ export function AccountPage({
       <>
         <SessionRefresh />
         <LinkedAccount
+          avatarPresentation={state.avatar}
           email={state.email}
           history={state.history}
           locale={locale}
@@ -106,8 +107,8 @@ function CompletionCard({
   return (
     <div className="grid items-start gap-6">
       <Card className={`mx-auto max-w-2xl ${cardClassName}`}>
-        <CardContent className="p-6 sm:p-10">
-          <h2 className="text-3xl text-navy-blue sm:text-4xl">
+        <CardContent className="p-6 @xl:p-10">
+          <h2 className="text-3xl text-navy-blue @xl:text-4xl">
             {m.accountCompletionTitle({}, { locale })}
           </h2>
           <p className="mt-3 text-sm leading-6 text-navy-blue/68">
@@ -137,8 +138,8 @@ function SupportRequiredCard({
   return (
     <div className="grid items-start gap-6">
       <Card className={`mx-auto max-w-2xl ${cardClassName}`}>
-        <CardContent className="p-6 text-center sm:p-10">
-          <h2 className="text-3xl text-navy-blue sm:text-4xl">
+        <CardContent className="p-6 text-center @xl:p-10">
+          <h2 className="text-3xl text-navy-blue @xl:text-4xl">
             {m.accountSupportTitle({}, { locale })}
           </h2>
           <p className="mt-4 leading-7 text-navy-blue/68">

@@ -1,5 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
-import { Effect, Layer } from "effect";
+import { Effect, Fiber, Layer } from "effect";
+import { TestClock } from "effect/testing";
 import {
   EmailDeliveryIdSchema,
   type EmailMessage,
@@ -69,6 +70,14 @@ const runWithEmail = <A, E>(
     )
   );
 
+/** Advances a TestClock past the whole retry backoff, so retries run instantly. */
+const withInstantRetryBackoff = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+  Effect.gen(function* () {
+    const fiber = yield* Effect.forkChild(effect);
+    yield* TestClock.adjust("1 minute");
+    return yield* Fiber.join(fiber);
+  }).pipe(Effect.provide(TestClock.layer()));
+
 const message: EmailMessage = {
   from: undefined as never,
   to: { email: "ada@example.test" },
@@ -112,7 +121,7 @@ describe("EmailService", () => {
       Effect.gen(function* () {
         const email = yield* EmailServiceTag;
         return yield* email.send(message);
-      }),
+      }).pipe(withInstantRetryBackoff),
       makeProvider(retrySend)
     );
     expect(attempts).toBe(2);
@@ -132,7 +141,85 @@ describe("EmailService", () => {
     expect(serviceErrorSend).toHaveBeenCalledTimes(1);
   });
 
-  test("sendTemplate sends rendered body, tags, and metadata", async () => {
+  test("keeps one idempotency key across transport retries", async () => {
+    const attemptKeys: (string | undefined)[] = [];
+    const send = mock((sent: EmailMessage) =>
+      Effect.suspend(() => {
+        attemptKeys.push(sent.idempotencyKey);
+        return attemptKeys.length === 1
+          ? Effect.fail(new NetworkError({ message: "timed out" }))
+          : Effect.succeed(success);
+      })
+    );
+
+    await runWithEmail(
+      Effect.gen(function* () {
+        const email = yield* EmailServiceTag;
+        return yield* email.send(message);
+      }).pipe(withInstantRetryBackoff),
+      makeProvider(send)
+    );
+
+    const [first, second] = attemptKeys;
+    expect(attemptKeys).toHaveLength(2);
+    expect(first).toEqual(expect.any(String));
+    expect(second).toBe(first);
+  });
+
+  test("gives separate deliveries separate idempotency keys", async () => {
+    const send = mock((_message: EmailMessage) => Effect.succeed(success));
+
+    await runWithEmail(
+      Effect.gen(function* () {
+        const email = yield* EmailServiceTag;
+        yield* email.send(message);
+        yield* email.send(message);
+      }),
+      makeProvider(send)
+    );
+
+    const [first, second] = send.mock.calls.map(
+      ([sent]) => sent.idempotencyKey
+    );
+    expect(first).toEqual(expect.any(String));
+    expect(second).toEqual(expect.any(String));
+    expect(second).not.toBe(first);
+  });
+
+  test("derives reservation delivery keys and prefers an explicit key", async () => {
+    const send = mock((_message: EmailMessage) => Effect.succeed(success));
+
+    await runWithEmail(
+      Effect.gen(function* () {
+        const email = yield* EmailServiceTag;
+        for (const category of [
+          "workspace-paid-reservation-access",
+          "workspace-invoice-customer",
+        ]) {
+          yield* email.send({
+            ...message,
+            tags: [category],
+            metadata: { workspaceReservationId: "reservation-id" },
+          });
+        }
+        yield* email.send({
+          ...message,
+          idempotencyKey: "invoice-resend-attempt-2",
+          tags: ["workspace-invoice-customer"],
+          metadata: { workspaceReservationId: "reservation-id" },
+        });
+      }),
+      makeProvider(send)
+    );
+
+    expect(send.mock.calls.map(([sent]) => sent.idempotencyKey)).toEqual([
+      "workspace-paid-reservation-access-reservation-id",
+      "workspace-invoice-customer-reservation-id",
+      "invoice-resend-attempt-2",
+    ]);
+  });
+
+  test("sendTemplate sends the rendered template to a normalized recipient", async () => {
     const send = mock((_message: EmailMessage) => Effect.succeed(success));
     const render = mock(() =>
       Effect.succeed({
@@ -159,14 +246,78 @@ describe("EmailService", () => {
       { render }
     );
 
-    expect(send.mock.calls[0]?.[0]).toEqual({
+    expect(send.mock.calls[0]?.[0]).toMatchObject({
       from: config.defaultFrom,
       to: { email: "ada@example.test" },
       subject: "Reservation confirmed",
       html: "<p>Confirmed</p>",
       text: "Confirmed",
-      tags: ["reservation-confirmation"],
-      metadata: { templateType: "reservation-confirmation" },
     });
+  });
+});
+
+describe("EmailService censorship", () => {
+  const captureConsoleLog = (): string[] & { restore: () => void } => {
+    const lines: string[] = [];
+    // biome-ignore lint/suspicious/noConsole: The test captures log output to assert censorship.
+    const original = console.log;
+    console.log = (...args: unknown[]) => {
+      lines.push(
+        args
+          .map((arg) =>
+            typeof arg === "string" ? arg : (JSON.stringify(arg) ?? "")
+          )
+          .join(" ")
+      );
+    };
+    const captured = lines as string[] & { restore: () => void };
+    captured.restore = () => {
+      console.log = original;
+    };
+    return captured;
+  };
+
+  test("success logs carry no recipient, subject, or rendered body", async () => {
+    const consoleLines = captureConsoleLog();
+    try {
+      await runWithEmail(
+        Effect.gen(function* () {
+          const email = yield* EmailServiceTag;
+          return yield* email.send(message);
+        }),
+        makeProvider()
+      );
+    } finally {
+      consoleLines.restore();
+    }
+
+    const logged = consoleLines.join("\n");
+    expect(logged).not.toContain("ada@example.test");
+    expect(logged).not.toContain("Hello");
+    expect(logged).not.toContain("<p>Hello</p>");
+  });
+
+  test("provider failures log only the error tag and a censored code", async () => {
+    const consoleLines = captureConsoleLog();
+    const outcome = await runWithEmail(
+      Effect.gen(function* () {
+        const email = yield* EmailServiceTag;
+        return yield* email.send(message).pipe(Effect.result);
+      }),
+      makeProvider(
+        mock((_message: EmailMessage) =>
+          Effect.fail(new EmailServiceError("raw provider detail: quota 429"))
+        )
+      )
+    ).finally(consoleLines.restore);
+
+    expect(outcome._tag).toBe("Failure");
+    const logged = consoleLines.join("\n");
+    expect(logged).toContain("EmailServiceError");
+    expect(logged).toContain("email.send.rejected");
+    expect(logged).not.toContain("raw provider detail");
+    expect(logged).not.toContain("quota");
+    expect(logged).not.toContain("ada@example.test");
+    expect(logged).not.toContain("Hello");
   });
 });

@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import { Clock, Effect, Schema } from "effect";
 
 export const unixTimestampSecondsSchema = Schema.Int.check(
   Schema.isGreaterThanOrEqualTo(0)
@@ -15,21 +15,15 @@ export const TemporalInstantSchema = Schema.declare(
   }
 );
 
-export const TemporalPlainDateSchema = Schema.declare(
-  (input): input is Temporal.PlainDate => input instanceof Temporal.PlainDate,
-  {
-    identifier: "TemporalPlainDate",
-    description: "Temporal plain date value.",
-  }
-);
-
-export const TemporalPlainTimeSchema = Schema.declare(
-  (input): input is Temporal.PlainTime => input instanceof Temporal.PlainTime,
-  {
-    identifier: "TemporalPlainTime",
-    description: "Temporal plain time value.",
-  }
-);
+/**
+ * Current instant read from the Effect `Clock`, so tests can control time.
+ */
+export const currentInstant: Effect.Effect<Temporal.Instant> =
+  Clock.currentTimeMillis.pipe(
+    Effect.map((epochMilliseconds) =>
+      Temporal.Instant.fromEpochMilliseconds(epochMilliseconds)
+    )
+  );
 
 export const localTimeSchema = Schema.String.check(
   Schema.makeFilter((value) => {
@@ -48,8 +42,6 @@ export const localTimeSchema = Schema.String.check(
     identifier: "LocalTime",
     description: "Canonical local time in HH:mm format.",
   });
-
-export type LocalTime = typeof localTimeSchema.Type;
 
 export const localDateTimeSchema = Schema.String.check(
   Schema.makeFilter((value) => {
@@ -109,8 +101,6 @@ export const plainDateStringSchema = Schema.String.check(isPlainDateString())
 
 export type PlainDate = typeof plainDateStringSchema.Type;
 
-export const isValidDate = (date: Date) => !Number.isNaN(date.getTime());
-
 export const temporalInstantToDate = (instant: Temporal.Instant) =>
   new Date(instant.epochMilliseconds);
 
@@ -152,14 +142,6 @@ export const localDateTimeToTemporalInstantString = ({
     .toInstant()
     .toString();
 
-export const dateToTemporalInstant = (date: Date) =>
-  isValidDate(date)
-    ? Temporal.Instant.fromEpochMilliseconds(date.getTime())
-    : undefined;
-
-export const toTemporalInstant = (date: Date | Temporal.Instant) =>
-  date instanceof Date ? dateToTemporalInstant(date) : date;
-
 export const temporalPlainDateToDate = ({
   date,
   plainTime,
@@ -180,14 +162,6 @@ export const temporalInstantToPlainDate = ({
   readonly instant: Temporal.Instant;
   readonly timeZone: string;
 }) => instant.toZonedDateTimeISO(timeZone).toPlainDate();
-
-export const dateToTemporalPlainDate = ({
-  date,
-  timeZone,
-}: {
-  readonly date: Date;
-  readonly timeZone: string;
-}) => dateToTemporalInstant(date)?.toZonedDateTimeISO(timeZone).toPlainDate();
 
 export const isFuturePlainDateTime = ({
   dateTime,
@@ -248,3 +222,13 @@ export const makeWholeHourInstantStringSchema = (timeZone: string) =>
       }
     })
   );
+
+export const addCalendarDuration = ({
+  instant,
+  duration,
+  timeZone,
+}: {
+  readonly instant: Temporal.Instant;
+  readonly duration: Temporal.DurationLike;
+  readonly timeZone: string;
+}) => instant.toZonedDateTimeISO(timeZone).add(duration).toInstant();

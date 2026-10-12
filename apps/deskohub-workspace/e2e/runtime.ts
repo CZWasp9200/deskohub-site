@@ -13,13 +13,19 @@ import type {
 } from "@playwright/test";
 import { normalizePostgresConnectionUrl } from "../db/postgres-connection-url";
 import { escapeRegExp } from "../shared/utils/escape-regexp";
+import {
+  formatNexiBuildFailureLine,
+  isNexiBuildApiUrl,
+  listNexiBuildFailureCodes,
+  summarizeNexiBuildFailureBody,
+  toNexiBuildEndpoint,
+} from "./checkout/nexi-build-api";
 
-export const scriptDir = dirname(fileURLToPath(import.meta.url));
+const scriptDir = dirname(fileURLToPath(import.meta.url));
 export const workspaceDir = resolve(scriptDir, "..");
-export const repoRoot = resolve(workspaceDir, "../..");
 const redactions = new Map<string, "substring" | "token">();
 
-export type RunBrowserOptions = {
+type RunBrowserOptions = {
   allowFailure?: boolean;
   input?: string;
   logCommand?: boolean;
@@ -254,10 +260,18 @@ class PlaywrightRuntime {
             },
             success: true,
           });
-        const tabId = requireArgument(commandArgs[0], "browser tab id");
+        const closing = commandArgs[0] === "close";
+        const tabId = requireArgument(
+          commandArgs[closing ? 1 : 0],
+          "browser tab id"
+        );
         const target = [...session.pageIds].find(([, id]) => id === tabId)?.[0];
         if (!target || target.isClosed())
           throw new Error(`Playwright tab ${tabId} is unavailable`);
+        if (closing) {
+          await target.close();
+          return "";
+        }
         session.currentPage = target;
         session.currentFrame = target.mainFrame();
         await target.bringToFront();
@@ -493,9 +507,10 @@ const registerPage = (
   page.on("request", (request) =>
     pushDiagnostic(session.networkRequests, formatRequest(request))
   );
-  page.on("response", (response) =>
-    pushDiagnostic(session.networkRequests, formatResponse(response))
-  );
+  page.on("response", (response) => {
+    pushDiagnostic(session.networkRequests, formatResponse(response));
+    recordNexiBuildFailure(session, response);
+  });
   page.on("requestfailed", (request) =>
     pushDiagnostic(
       session.networkRequests,
@@ -516,6 +531,40 @@ const pushDiagnostic = (entries: string[], value: string) => {
   entries.push(value);
   if (entries.length > maximumDiagnosticEntries)
     entries.splice(0, entries.length - maximumDiagnosticEntries);
+};
+
+// A failed Nexi hosted-field call states its reason only in the response
+// body. Record the provider codes alone, never the URL or body, so the driver
+// can name the rejection while the run continues.
+const recordNexiBuildFailure = (
+  session: PlaywrightSession,
+  response: Response
+) => {
+  const status = response.status();
+  if (status < 400) return;
+  let url: URL;
+  try {
+    url = new URL(response.url());
+  } catch {
+    return;
+  }
+  if (!isNexiBuildApiUrl(url)) return;
+  response.text().then(
+    (text) => {
+      const summary = summarizeNexiBuildFailureBody(text);
+      const codes = summary ? listNexiBuildFailureCodes(summary) : [];
+      if (codes.length === 0) return;
+      pushDiagnostic(
+        session.networkRequests,
+        formatNexiBuildFailureLine({
+          codes,
+          endpoint: toNexiBuildEndpoint(url),
+          status,
+        })
+      );
+    },
+    () => undefined
+  );
 };
 
 const formatConsoleMessage = (message: ConsoleMessage) =>

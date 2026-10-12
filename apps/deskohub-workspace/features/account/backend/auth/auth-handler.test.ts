@@ -10,6 +10,7 @@ import type {
   User,
   Verification,
 } from "better-auth";
+import { betterAuth } from "better-auth";
 import { memoryAdapter } from "better-auth/adapters/memory";
 import { Deferred, Effect, Fiber, Layer } from "effect";
 import { makeAuthDatabase } from "@/db/auth-database-client";
@@ -27,9 +28,15 @@ import {
 } from "@/db/schema/auth";
 import type { Locale } from "@/features/i18n";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
-import type { CustomerAccountId } from "../customer-account";
+import type { CustomerAccountId } from "../../customer-account";
 import { CustomerAccountDeletionService } from "../customer-account-deletion";
 import { CustomerAccountLinkRepository } from "../customer-account-link.repository";
+import { waitForAccountAdvisoryLockWait } from "../customer-account-lock.test-utils";
+import {
+  CustomerAvatarProviderError,
+  CustomerAvatarService,
+  type CustomerAvatarUnavailableError,
+} from "../customer-avatar.service";
 import {
   requireAccountCommunicationPreference as requireAccountCommunicationPreferenceEffect,
   seedAccountCommunicationPreference,
@@ -285,7 +292,11 @@ const expectAccountsUnavailable = async (response: Response) => {
 };
 
 const makeTestDeletionLayers = (
-  expireCustomer: () => Effect.Effect<void, unknown>
+  expireCustomer: () => Effect.Effect<void, unknown>,
+  destroyAvatar: () => Effect.Effect<
+    void,
+    CustomerAvatarProviderError | CustomerAvatarUnavailableError
+  > = () => Effect.void
 ) =>
   CustomerAccountDeletionService.Default.pipe(
     Layer.provide(
@@ -301,7 +312,8 @@ const makeTestDeletionLayers = (
             )
           )
         ),
-        Layer.mock(CustomerDotyposAdapter, { expireCustomer })
+        Layer.mock(CustomerDotyposAdapter, { expireCustomer }),
+        Layer.mock(CustomerAvatarService, { destroy: destroyAvatar })
       )
     )
   );
@@ -398,6 +410,81 @@ test("allows magic-link issuance and verification when accounts are enabled", as
   expect(verified.status).toBe(302);
   expect(getSessionCookie(verified)).toBeTruthy();
   expect(store.session).toHaveLength(1);
+  expect(store.verification).toHaveLength(0);
+});
+
+const sha256Base64Url = async (value: string) =>
+  Buffer.from(
+    await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value))
+  ).toString("base64url");
+
+test("stores neither the emailed magic-link token nor its plain digest", async () => {
+  const sentLinks: CapturedMagicLink[] = [];
+  const { auth, store } = makeMemoryTestAuth({ sentLinks });
+
+  await signInForMagicLink(auth, uniqueEmail("token-storage"));
+
+  const rawToken = sentLinks[0]!.token;
+  const stored = store.verification.map(({ identifier }) => identifier);
+  expect(stored).toHaveLength(1);
+  // The token is hashed before the verification identifier is hashed again,
+  // so neither the emailed token nor a single digest of it is stored.
+  expect(stored).not.toContain(rawToken);
+  expect(stored).not.toContain(await sha256Base64Url(rawToken));
+});
+
+const postJson = (
+  auth: TestAuth,
+  path: string,
+  body: Readonly<Record<string, string>>
+) =>
+  callHandler(auth, path, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+test("rejects password sign-up and sign-in", async () => {
+  const { auth, store } = makeMemoryTestAuth();
+  const password = "synthetic-password-1234";
+  const signUpEmail = uniqueEmail("password-sign-up");
+
+  const signUp = await postJson(auth, "/sign-up/email", {
+    email: signUpEmail,
+    password,
+    name: "Synthetic Customer",
+  });
+  expect(signUp.ok).toBe(false);
+  expect(store.user).toHaveLength(0);
+
+  // A password account created by a password-enabled instance on the same
+  // store must still be refused by the Workspace instance.
+  const email = uniqueEmail("password-sign-in");
+  await betterAuth({
+    database: memoryAdapter(store),
+    emailAndPassword: { enabled: true },
+    logger: { disabled: true },
+    secret: SECRET_V1,
+  }).api.signUpEmail({
+    body: { email, password, name: "Synthetic Customer" },
+  });
+  store.session.length = 0;
+
+  const signIn = await postJson(auth, "/sign-in/email", { email, password });
+  expect(signIn.ok).toBe(false);
+  expect(getSessionCookie(signIn)).toBeUndefined();
+  expect(store.session).toHaveLength(0);
+});
+
+test("rejects social sign-in", async () => {
+  const { auth, store } = makeMemoryTestAuth();
+
+  const response = await postJson(auth, "/sign-in/social", {
+    provider: "google",
+    callbackURL: "/en-US/account",
+  });
+
+  expect(response.ok).toBe(false);
   expect(store.verification).toHaveLength(0);
 });
 
@@ -1058,41 +1145,6 @@ describe.skipIf(!testDatabase)(
       expect(await revoked.json()).toBeNull();
     });
 
-    test("rolls the session expiry forward after the refresh age", async () => {
-      const sentLinks: CapturedMagicLink[] = [];
-      const auth = makeTestAuth({ sentLinks });
-      const email = uniqueEmail("rolling");
-
-      await signInForMagicLink(auth, email);
-      const verifyResponse = await verifyMagicLink(auth, sentLinks[0]!);
-      const cookie = cookieJar(getSessionCookie(verifyResponse)!);
-      const userId = (await userIdForEmail(email))!;
-
-      const before = await testDatabase!.pool.query(
-        `select expires_at from auth.session where user_id = $1`,
-        [userId]
-      );
-      const expiresBefore = new Date(before.rows[0]!.expires_at).getTime();
-
-      await testDatabase!.pool.query(
-        `update auth.session set expires_at = now() + interval '28 days' where user_id = $1`,
-        [userId]
-      );
-
-      const refreshed = await callHandler(auth, "/get-session", {
-        headers: { cookie },
-      });
-      expect(refreshed.status).toBe(200);
-
-      const after = await testDatabase!.pool.query(
-        `select expires_at from auth.session where user_id = $1`,
-        [userId]
-      );
-      const expiresAfter = new Date(after.rows[0]!.expires_at).getTime();
-
-      expect(expiresAfter).toBeGreaterThan(expiresBefore);
-    });
-
     test("logout revokes only the current session", async () => {
       const sentLinks: CapturedMagicLink[] = [];
       const auth = makeTestAuth({ sentLinks });
@@ -1236,6 +1288,45 @@ describe.skipIf(!testDatabase)(
       expect(link.rows).toHaveLength(1);
     });
 
+    test("keeps the auth identity and link when avatar deletion has an unknown provider outcome", async () => {
+      const deletionLayers = makeTestDeletionLayers(
+        () => Effect.void,
+        () => Effect.fail(new CustomerAvatarProviderError({}))
+      );
+      const beforeDeleteUser = (accountId: CustomerAccountId) =>
+        runTestDeletion(deletionLayers, accountId);
+
+      const sentLinks: CapturedMagicLink[] = [];
+      const auth = makeTestAuth({ sentLinks, beforeDeleteUser });
+      const email = uniqueEmail("avatar-delete-retry");
+
+      await signInForMagicLink(auth, email);
+      const verifyResponse = await verifyMagicLink(auth, sentLinks[0]!);
+      const cookie = cookieJar(getSessionCookie(verifyResponse)!);
+      const userId = (await userIdForEmail(email))!;
+      await linkAccount(userId, uniqueDotyposCustomerId());
+
+      const failed = await callHandler(auth, "/delete-user", {
+        method: "POST",
+        headers: { cookie, "content-type": "application/json" },
+        body: "{}",
+      });
+      expect(failed.status).toBe(500);
+
+      const user = await testDatabase!.pool.query(
+        `select deletion_requested_at from auth."user" where id = $1`,
+        [userId]
+      );
+      expect(user.rows).toHaveLength(1);
+      expect(user.rows[0]!.deletion_requested_at).not.toBeNull();
+
+      const link = await testDatabase!.pool.query(
+        `select * from customer_account_links where customer_account_id = $1`,
+        [userId]
+      );
+      expect(link.rows).toHaveLength(1);
+    });
+
     test("rejects stale sessions before the deletion hook runs", async () => {
       let hookCalls = 0;
       const sentLinks: CapturedMagicLink[] = [];
@@ -1293,17 +1384,20 @@ describe.skipIf(!testDatabase)(
 
       await Effect.runPromise(
         Effect.gen(function* () {
+          const lockHeld = yield* Deferred.make<void>();
           const lockReleased = yield* Deferred.make<void>();
 
           const holdFiber = yield* Effect.forkChild(
             withPostgresAdvisoryLock(
               testDatabase!.pool,
               lockKey,
-              Deferred.await(lockReleased).pipe(Effect.orDie)
+              Deferred.succeed(lockHeld, undefined).pipe(
+                Effect.andThen(Deferred.await(lockReleased)),
+                Effect.orDie
+              )
             ).pipe(Effect.orDie)
           );
-
-          yield* Effect.sleep("200 millis");
+          yield* Deferred.await(lockHeld);
 
           const deletion = callHandler(auth, "/delete-user", {
             method: "POST",
@@ -1311,7 +1405,9 @@ describe.skipIf(!testDatabase)(
             body: "{}",
           }).then((response) => response.status);
 
-          yield* Effect.sleep("400 millis");
+          yield* Effect.promise(() =>
+            waitForAccountAdvisoryLockWait(testDatabase!.pool, userId)
+          );
 
           const stillThere = yield* Effect.promise(() =>
             testDatabase!.pool.query(

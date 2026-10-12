@@ -1,6 +1,6 @@
 import { DotyposService } from "@deskohub/dotypos";
 import { EmailServiceTag } from "@deskohub/email/backend/service";
-import { Context, Data, Effect, Layer, Predicate } from "effect";
+import { Context, Data, Effect, Layer, Match, Predicate } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { env } from "@/env";
 import { CustomerEmailLocaleService } from "@/features/account";
@@ -50,7 +50,7 @@ export class WorkspacePaidFulfillmentError extends Data.TaggedError(
 
 class CustomerEmailDeliveryGenerationClosed extends Data.TaggedError(
   "CustomerEmailDeliveryGenerationClosed"
-)<{}> {}
+) {}
 
 export const PAID_FULFILLMENT_PROCESSING_RETRY_AFTER_MS = 60 * 1000;
 
@@ -320,7 +320,18 @@ export class WorkspacePaidFulfillmentService extends Context.Service<
                   Effect.catch((cause) =>
                     failFulfillment({
                       orderId: input.orderId,
-                      failureCode: "dotypos_reservation_failed",
+                      failureCode: Match.value(cause).pipe(
+                        Match.tagsExhaustive({
+                          DotyposReservationCancelledError: () =>
+                            "dotypos_reservation_unfulfillable" as const,
+                          ExternalAPIError: () =>
+                            "dotypos_reservation_failed" as const,
+                          NetworkError: () =>
+                            "dotypos_reservation_failed" as const,
+                          ValidationError: () =>
+                            "dotypos_reservation_failed" as const,
+                        })
+                      ),
                       cause,
                     })
                   )
@@ -371,10 +382,13 @@ export class WorkspacePaidFulfillmentService extends Context.Service<
                     }
                   )
                 ),
+                // Only a real email failure may later be repaired by a
+                // delivered webhook, so a provider read failure keeps the
+                // Dotypos failure code.
                 Effect.catch((cause) =>
                   failFulfillment({
                     orderId: input.orderId,
-                    failureCode: "fulfillment_email_failed",
+                    failureCode: "dotypos_reservation_failed",
                     cause,
                   })
                 )

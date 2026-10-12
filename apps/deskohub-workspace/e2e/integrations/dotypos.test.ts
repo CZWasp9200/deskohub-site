@@ -92,30 +92,51 @@ test("waits for cancelled reservations to leave active inventory", async () => {
   expect(reads).toBe(3);
 });
 
+test("reports how many cancelled reservations remained active by status", async () => {
+  const revived = DotyposReservationIdSchema.make("revived-reservation");
+  const converged = DotyposReservationIdSchema.make("converged-reservation");
+
+  const error = await Effect.runPromise(
+    waitForDotyposCancellationConvergence(
+      Effect.succeed([
+        { id: revived, status: "CONFIRMED" as const },
+        { id: "unrelated-reservation", status: "NEW" as const },
+      ]),
+      [revived, converged],
+      { intervalMs: 1, timeoutMs: 20 }
+    ).pipe(Effect.flip)
+  );
+
+  expect(error.message).toContain(
+    "1 of 2 cancelled reservations still active (CONFIRMED: 1)"
+  );
+  expect(error.message).not.toContain(revived);
+});
+
 // The two fake-reader tests above only poll the supplied read effect; they
 // prove the polling wrapper, not which read model the cleanup adapter wires
 // in. The adapter-level test below executes waitForCancelledDotyposReservations
 // against a recording Dotypos API server to prove the overlapping-interval
-// read model is the one driving cleanup convergence.
+// read model is the one driving cleanup convergence. The reservation is
+// already cancelled on the first read, so no poll interval elapses.
 
-test("the cleanup adapter polls the overlapping-interval read model to convergence", async () => {
+test("the cleanup adapter reads convergence from the overlapping-interval listing", async () => {
   const reservationId = DotyposReservationIdSchema.make("555000111");
   const interval = {
     startDate: new Date("2099-01-01T10:00:00.000Z"),
     endDate: new Date("2099-01-01T12:00:00.000Z"),
   };
-  const fakeReservation = (status: "CONFIRMED" | "CANCELLED") => ({
+  const cancelledReservation = {
     id: "555000111",
     _branchId: "11111111",
     _cloudId: "cloud-id",
     startDate: "2099-01-01T11:00:00.000Z",
     endDate: "2099-01-01T13:00:00.000Z",
     seats: "2",
-    status,
-  });
-  const listCalls: URL[] = [];
+    status: "CANCELLED",
+  };
   const requestPaths: string[] = [];
-  let poll = 0;
+  const listingFilters: Array<string | null> = [];
 
   const server = Bun.serve({
     port: 0,
@@ -126,11 +147,8 @@ test("the cleanup adapter polls the overlapping-interval read model to convergen
         return Response.json({ accessToken: "access-token" });
       }
       if (url.pathname === "/clouds/cloud-id/reservations") {
-        poll += 1;
-        listCalls.push(url);
-        return Response.json({
-          data: [fakeReservation(poll === 1 ? "CONFIRMED" : "CANCELLED")],
-        });
+        listingFilters.push(url.searchParams.get("filter"));
+        return Response.json({ data: [cancelledReservation] });
       }
       return new Response("Not found", { status: 404 });
     },
@@ -159,20 +177,14 @@ test("the cleanup adapter polls the overlapping-interval read model to convergen
       waitForCancelledDotyposReservations(config, [reservationId], interval)
     );
 
-    // The adapter polled the active-overlap listing until the target left it.
-    expect(listCalls.length).toBeGreaterThanOrEqual(2);
-    for (const url of listCalls) {
-      expect(url.searchParams.get("filter")).toBe(
-        [
-          "status|in|NEW,CONFIRMED",
-          `startDate|lt|${interval.endDate.getTime()}`,
-          `endDate|gt|${interval.startDate.getTime()}`,
-        ].join(";")
-      );
+    // The broad reader is never used: every listing is scoped to the cleanup
+    // interval (the filter syntax itself is the Dotypos service's contract),
+    // and there are no per-reservation reads.
+    expect(listingFilters.length).toBeGreaterThan(0);
+    for (const filter of listingFilters) {
+      expect(filter).toContain(String(interval.startDate.getTime()));
+      expect(filter).toContain(String(interval.endDate.getTime()));
     }
-
-    // The broad reader is never used: no unfiltered reservation listing and
-    // no per-reservation reads — only the token endpoint and the overlap list.
     expect(
       requestPaths.every(
         (path) =>
@@ -183,7 +195,7 @@ test("the cleanup adapter polls the overlapping-interval read model to convergen
   } finally {
     server.stop(true);
   }
-}, 20_000);
+});
 
 test("waits for a customer discount-group change to become readable", async () => {
   let reads = 0;

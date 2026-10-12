@@ -10,7 +10,11 @@ import { LegalScreen } from "@/features/account/components/legal/legal-screen";
 import type { PreferredLanguageState } from "@/features/account/components/profile/profile-screen";
 import { ProfileForm } from "@/features/account/components/profile-form";
 import { ReservationHistory } from "@/features/account/components/reservation-history";
-import type { CustomerReservationHistory } from "@/features/account/contracts";
+import type {
+  CustomerAvatarPresentation,
+  CustomerReservationHistory,
+} from "@/features/account/contracts";
+import { getAccountPath } from "@/features/account/routes";
 import type { Locale } from "@/features/i18n";
 
 type LinkedAccountProps = {
@@ -19,9 +23,11 @@ type LinkedAccountProps = {
   readonly locale: Locale;
   readonly preferredLanguage: PreferredLanguageState;
   readonly profile: CustomerProfile;
+  readonly avatarPresentation: CustomerAvatarPresentation;
 };
 
 export function LinkedAccount({
+  avatarPresentation,
   email,
   history,
   locale,
@@ -33,7 +39,8 @@ export function LinkedAccount({
     useAccountLayout();
   const normalizedPathname =
     pathname === null ? null : pathname.replace(/\/+$/, "") || "/";
-  const isPrivateAccountPathname = normalizedPathname === `/${locale}/account`;
+  const isPrivateAccountPathname =
+    normalizedPathname === getAccountPath(locale);
   const profileSection = activeSection === "billing" ? "billing" : "profile";
   const copy = getAccountScreenCopy(locale);
   const reservationCount =
@@ -56,6 +63,7 @@ export function LinkedAccount({
 
       <div hidden={activeSection !== "profile" && activeSection !== "billing"}>
         <ProfileForm
+          avatarPresentation={avatarPresentation}
           email={email}
           locale={locale}
           mode="edit"

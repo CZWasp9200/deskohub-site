@@ -1,9 +1,48 @@
+import { type Locale, m } from "@/features/i18n";
 import {
   getMeetingRoomReservationDurationKey,
   isMeetingRoomWholeDayReservationDuration,
 } from "@/features/reservation/meeting-room-reservation-duration";
 import { workspaceE2ETimeouts } from "./timeouts";
 import type { CheckoutData, CheckoutRow } from "./types";
+
+// The real cowork form renders the coffee switch only for Open Space and the
+// workstation (monitor) switch only for Reserved Desk. Both are FormControl
+// switches whose accessible name comes from aria-labelledby pointing at their
+// FormLabel (shared/components/ui/form.tsx), so assertions match by that
+// localized label text.
+const getCoworkSwitchExpectations = (entryTier: string, locale: Locale) => ({
+  coffeeSwitchLabel:
+    entryTier === "open-space"
+      ? m.reservationCoffeeLabel({}, { locale })
+      : null,
+  workstationSwitchLabel:
+    entryTier === "reserved-desk"
+      ? m.reservationWorkstationLabel({}, { locale })
+      : null,
+});
+
+const getCoworkSwitchSelectionScript = () => `
+  const switchAccessibleName = (element) => {
+    const labelledby = element.getAttribute('aria-labelledby');
+    if (typeof labelledby === 'string' && labelledby.length > 0) {
+      const labelText = labelledby
+        .split(/\\s+/)
+        .map((id) => document.getElementById(id)?.textContent ?? '')
+        .join(' ')
+        .replace(/\\s+/g, ' ')
+        .trim();
+      if (labelText.length > 0) return labelText;
+    }
+    return (element.textContent ?? '').replace(/\\s+/g, ' ').trim();
+  };
+  const findSwitchByLabel = (label) =>
+    [...document.querySelectorAll('[role="switch"]')].find(
+      (candidate) =>
+        candidate instanceof HTMLButtonElement &&
+        switchAccessibleName(candidate).includes(label)
+    );
+`;
 
 const getOfficeDayCount = (office: NonNullable<CheckoutData["office"]>) =>
   Temporal.PlainDate.from(office.startsOn).until(
@@ -18,6 +57,7 @@ export const getAssertRepeatReservationScript = (data: CheckoutData) => {
         data.expectedReservationDetails;
       return {
         coffee,
+        ...getCoworkSwitchExpectations(entryTier, data.locale),
         entryTier,
         kind: "cowork",
         monitorOption: monitorOption ?? null,
@@ -54,6 +94,7 @@ export const getAssertRepeatReservationScript = (data: CheckoutData) => {
   return `
 (() => {
   const expected = ${JSON.stringify(expected)};
+  ${getCoworkSwitchSelectionScript()}
   const fail = (field) => {
     throw new Error('repeat reservation ' + field + ' did not match');
   };
@@ -68,14 +109,34 @@ export const getAssertRepeatReservationScript = (data: CheckoutData) => {
   if (value('input[name="email"]', 'email') !== '') fail('email reset');
   if (value('input[name="phone"]', 'phone') !== '') fail('phone reset');
   if (value('input[name="name"]', 'name') !== '') fail('name reset');
-  if (value('textarea[name="message"]', 'message') !== '') fail('message reset');
 
   if (expected.kind === 'cowork') {
     if (value('input[name="date"]', 'date') === expected.oldDate) fail('fresh date');
     const tier = document.querySelector('input[name="entryTier"]:checked');
     if (!(tier instanceof HTMLInputElement) || tier.value !== expected.entryTier) fail('entry tier');
-    const coffee = document.querySelector('[role="switch"]');
-    if (!(coffee instanceof HTMLButtonElement) || coffee.getAttribute('aria-checked') !== String(expected.coffee)) fail('coffee');
+    const coffee = expected.coffeeSwitchLabel
+      ? findSwitchByLabel(expected.coffeeSwitchLabel)
+      : undefined;
+    if (expected.coffeeSwitchLabel) {
+      if (
+        !(coffee instanceof HTMLButtonElement) ||
+        coffee.getAttribute('aria-checked') !== String(expected.coffee)
+      ) {
+        fail('coffee switch');
+      }
+    }
+    const workstation = expected.workstationSwitchLabel
+      ? findSwitchByLabel(expected.workstationSwitchLabel)
+      : undefined;
+    if (expected.workstationSwitchLabel) {
+      if (
+        !(workstation instanceof HTMLButtonElement) ||
+        workstation.getAttribute('aria-checked') !==
+          String(expected.monitorOption !== null)
+      ) {
+        fail('workstation switch');
+      }
+    }
     const monitor = document.querySelector('input[name="monitorOption"]:checked');
     if (expected.monitorOption === null ? monitor !== null : !(monitor instanceof HTMLInputElement) || monitor.value !== expected.monitorOption) fail('monitor option');
   } else if (expected.kind === 'office') {
@@ -108,14 +169,15 @@ export const getAssertPrefilledReservationScript = (data: CheckoutData) => {
 (() => {
   const expected = ${JSON.stringify({
     coffee: expectedReservation.coffee,
+    ...getCoworkSwitchExpectations(expectedReservation.entryTier, data.locale),
     date: data.date,
     email: data.email,
     entryTier: expectedReservation.entryTier,
-    message: data.message,
     monitorOption: expectedReservation.monitorOption ?? null,
     name: data.name,
     phone: data.phone,
   })};
+  ${getCoworkSwitchSelectionScript()}
   const fail = (field) => {
     throw new Error('restored reservation ' + field + ' did not match');
   };
@@ -136,12 +198,32 @@ export const getAssertPrefilledReservationScript = (data: CheckoutData) => {
   }).format(new Date(expected.date + 'T12:00:00Z'));
   if ((dateButton.textContent ?? '').trim() !== restoredDate) fail('date');
 
-  const coffee = document.querySelector('[role="switch"]');
-  if (!(coffee instanceof HTMLButtonElement) || coffee.getAttribute('aria-checked') !== String(expected.coffee)) fail('coffee');
+  const coffee = expected.coffeeSwitchLabel
+    ? findSwitchByLabel(expected.coffeeSwitchLabel)
+    : undefined;
+  if (expected.coffeeSwitchLabel) {
+    if (
+      !(coffee instanceof HTMLButtonElement) ||
+      coffee.getAttribute('aria-checked') !== String(expected.coffee)
+    ) {
+      fail('coffee switch');
+    }
+  }
+  const workstation = expected.workstationSwitchLabel
+    ? findSwitchByLabel(expected.workstationSwitchLabel)
+    : undefined;
+  if (expected.workstationSwitchLabel) {
+    if (
+      !(workstation instanceof HTMLButtonElement) ||
+      workstation.getAttribute('aria-checked') !==
+        String(expected.monitorOption !== null)
+    ) {
+      fail('workstation switch');
+    }
+  }
   if (value('input[name="email"]', 'email') !== expected.email) fail('email');
   if (value('input[name="phone"]', 'phone') !== expected.phone) fail('phone');
   if (value('input[name="name"]', 'name') !== expected.name) fail('name');
-  if (value('textarea[name="message"]', 'message') !== expected.message) fail('message');
 
   const monitorInputs = [...document.querySelectorAll('input[type="radio"]')]
     .filter((input) => input instanceof HTMLInputElement && input.name !== 'entryTier');
@@ -172,7 +254,6 @@ const getAssertPrefilledMeetingRoomReservationScript = (data: CheckoutData) => {
       data.meetingRoom.duration
     ),
     email: data.email,
-    message: data.message,
     name: data.name,
     phone: data.phone,
     time: data.meetingRoom.startDateTime.slice(11),
@@ -203,7 +284,6 @@ const getAssertPrefilledMeetingRoomReservationScript = (data: CheckoutData) => {
   if (value('input[name="email"]', 'email') !== expected.email) fail('email');
   if (value('input[name="phone"]', 'phone') !== expected.phone) fail('phone');
   if (value('input[name="name"]', 'name') !== expected.name) fail('name');
-  if (value('textarea[name="message"]', 'message') !== expected.message) fail('message');
 
   const marketingConsent = document.querySelector('#reservation-marketing-consent');
   if (!(marketingConsent instanceof HTMLButtonElement) || marketingConsent.getAttribute('aria-checked') !== 'false') fail('marketing consent reset');
@@ -222,7 +302,6 @@ const getAssertPrefilledOfficeReservationScript = (data: CheckoutData) => {
   const expected = ${JSON.stringify({
     email: data.email,
     dayCount: getOfficeDayCount(data.office),
-    message: data.message,
     name: data.name,
     phone: data.phone,
     seats: data.office.seats,
@@ -244,7 +323,6 @@ const getAssertPrefilledOfficeReservationScript = (data: CheckoutData) => {
   if (value('input[name="email"]', 'email') !== expected.email) fail('email');
   if (value('input[name="phone"]', 'phone') !== expected.phone) fail('phone');
   if (value('input[name="name"]', 'name') !== expected.name) fail('name');
-  if (value('textarea[name="message"]', 'message') !== expected.message) fail('message');
 
   const marketingConsent = document.querySelector('#reservation-marketing-consent');
   if (!(marketingConsent instanceof HTMLButtonElement) || marketingConsent.getAttribute('aria-checked') !== 'false') fail('marketing consent reset');
@@ -436,36 +514,20 @@ export const getPrepareCoworkAdvertisedPriceScript = (data: CheckoutData) => {
     if (!(price instanceof HTMLElement)) {
       throw new Error(desiredTier + ' advertised price not found');
     }
-    if (
-      !monitorInput.checked ||
-      price.dataset.reservationTypePriceReady !== 'true'
-    ) {
-      let sawPendingPrice = price.dataset.reservationTypePriceReady === 'false';
-      const priceObserver = new MutationObserver((records) => {
-        if (records.some((record) => record.oldValue === 'true')) {
-          sawPendingPrice = true;
-        }
-      });
-      priceObserver.observe(price, {
-        attributeFilter: ['data-reservation-type-price-ready'],
-        attributeOldValue: true,
-      });
-      try {
-        (monitorInput.closest('label') ?? monitorInput).click();
-        await waitUntil(
-          () => monitorInput.checked,
-          desiredMonitorOption + ' monitor option was not selected'
-        );
-        await waitUntil(
-          () =>
-            sawPendingPrice &&
-            price.dataset.reservationTypePriceReady === 'true',
-          desiredTier + ' advertised price did not refresh after monitor selection'
-        );
-      } finally {
-        priceObserver.disconnect();
-      }
+    // Advertised prices do not depend on the monitor option, and the page
+    // renders both Reserved Desk variants already priced, so the selection
+    // only has to land on a ready price.
+    if (!monitorInput.checked) {
+      (monitorInput.closest('label') ?? monitorInput).click();
+      await waitUntil(
+        () => monitorInput.checked,
+        desiredMonitorOption + ' monitor option was not selected'
+      );
     }
+    await waitUntil(
+      () => price.dataset.reservationTypePriceReady === 'true',
+      desiredTier + ' advertised price did not become ready after monitor selection'
+    );
   }
   return location.href;
 })()
@@ -490,7 +552,6 @@ export const getPrepareMeetingRoomAdvertisedPriceScript = (
       data.meetingRoom.duration
     ),
     email: data.email,
-    message: data.message,
     name: data.name,
     phone: data.phone,
     time: data.meetingRoom.startDateTime.slice(11),
@@ -593,7 +654,6 @@ export const getPrepareMeetingRoomAdvertisedPriceScript = (
   setField('input[name="email"]', expected.email);
   setField('input[name="phone"]', expected.phone);
   setField('input[name="name"]', expected.name);
-  setField('textarea[name="message"]', expected.message);
 
   let priceRetryAttempted = false;
   await waitUntil(() => {
@@ -655,7 +715,6 @@ export const getPrepareOfficeAdvertisedPriceScript = (data: CheckoutData) => {
   const expected = ${JSON.stringify({
     email: data.email,
     dayCount: getOfficeDayCount(data.office),
-    message: data.message,
     name: data.name,
     phone: data.phone,
     seats: data.office.seats,
@@ -824,7 +883,6 @@ export const getPrepareOfficeAdvertisedPriceScript = (data: CheckoutData) => {
   setField('input[name="email"]', expected.email);
   setField('input[name="phone"]', expected.phone);
   setField('input[name="name"]', expected.name);
-  setField('textarea[name="message"]', expected.message);
 
   let priceRetryAttempted = false;
   await waitUntil(() => {
@@ -909,50 +967,6 @@ export const submitPreparedMeetingRoomReservationScript =
 export const submitPreparedOfficeReservationScript =
   getSubmitPreparedReservationScript();
 
-export const getSubmitContactFormScript = (data: {
-  readonly email: string;
-  readonly message: string;
-  readonly name: string;
-  readonly phone: string;
-}) => `
-(async () => {
-  const data = ${JSON.stringify(data)};
-  const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-  const waitUntil = async (predicate, label) => {
-    const deadline = Date.now() + 60000;
-    while (Date.now() < deadline) {
-      if (predicate()) return;
-      await wait(250);
-    }
-    throw new Error(label);
-  };
-  const setField = (selector, value) => {
-    const field = document.querySelector(selector);
-    if (!(field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement)) {
-      throw new Error(selector + ' not found');
-    }
-    field.focus();
-    field.value = value;
-    field.dispatchEvent(new Event('input', { bubbles: true }));
-    field.dispatchEvent(new Event('change', { bubbles: true }));
-  };
-
-  await waitUntil(() => document.querySelector('#contact-form form'), 'contact form not found');
-  setField('#contact-name', data.name);
-  setField('#contact-phone', data.phone);
-  setField('#contact-email', data.email);
-  setField('#contact-message', data.message);
-
-  const form = document.querySelector('#contact-form form');
-  if (!(form instanceof HTMLFormElement)) throw new Error('contact form element missing');
-  const button = form.querySelector('button[type="submit"]');
-  if (!(button instanceof HTMLButtonElement)) throw new Error('contact submit button missing');
-  await waitUntil(() => !button.disabled, 'contact submit button stayed disabled');
-  button.click();
-  return location.href;
-})()
-`;
-
 export const getAssertFulfillmentFailedSupportScript = (
   data: CheckoutData,
   orderId: CheckoutRow["reservation_id"]
@@ -1023,6 +1037,13 @@ export const assertFulfilledStatusScript = String.raw`
   const text = document.body?.textContent ?? '';
   if (document.querySelector('[data-reservation-access]')) {
     throw new Error('reservation access rendered on checkout status page');
+  }
+  // Only account-origin navigation may intercept the status route. A checkout
+  // status rendered in a dialog means the reservation modal slot leaked.
+  for (const dialog of document.querySelectorAll('[role="dialog"]')) {
+    if (/Your reservation is confirmed\./i.test(dialog.textContent ?? '')) {
+      throw new Error('checkout status rendered in a reservation dialog');
+    }
   }
   if (/Your reservation is confirmed\./i.test(text) && /secure access link has been sent by email/i.test(text)) {
     return location.href;

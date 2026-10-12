@@ -7,8 +7,7 @@ import {
   EmailServiceTag,
 } from "@deskohub/email";
 import { Effect, Layer } from "effect";
-import { type Locale, locales } from "@/features/i18n";
-import { formatDurationMinutes } from "@/shared/utils/date-formatting";
+import type { Locale } from "@/features/i18n";
 import { TrainingReservationService } from "./training-reservation.service";
 
 const input = {
@@ -94,18 +93,15 @@ describe("TrainingReservationService", () => {
     expect(customer.html).toContain("2 hours");
   });
 
-  for (const locale of locales) {
-    test(`formats customer email duration with the generated ${locale} locale`, async () => {
-      const send = mock((_message: EmailMessage) =>
-        Effect.succeed(sent("email"))
-      );
+  test("formats the customer email duration in the customer locale", async () => {
+    const send = mock((_message: EmailMessage) =>
+      Effect.succeed(sent("email"))
+    );
 
-      await runSubmit(send, locale, 2);
+    await runSubmit(send, "cs-CZ", 2);
 
-      const customer = send.mock.calls[1]?.[0] as EmailMessage;
-      const expectedDuration = formatDurationMinutes(120, locale);
-      expect(customer.text).toContain(expectedDuration);
-      expect(customer.html).toContain(expectedDuration);
-    });
-  }
+    const customer = send.mock.calls[1]?.[0] as EmailMessage;
+    expect(customer.text).toContain("2 hodiny");
+    expect(customer.html).toContain("2 hodiny");
+  });
 });

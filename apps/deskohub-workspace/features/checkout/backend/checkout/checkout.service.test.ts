@@ -2,9 +2,12 @@ import "@/shared/polyfills/temporal";
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, mock, test } from "bun:test";
-import { DotyposService } from "@deskohub/dotypos";
+import {
+  DotyposService,
+  dotyposApiTimeoutDefaultMilliseconds,
+} from "@deskohub/dotypos";
 import { ExternalAPIError, NexiService } from "@deskohub/nexi";
-import { Data, Effect, Layer, Schema } from "effect";
+import { Data, Duration, Effect, Layer, Schema } from "effect";
 import { env } from "@/env";
 import type { OptionalAccountActivityFixture } from "@/features/account/backend/customer-account-activity.test-utils";
 import { makeOptionalAccountActivityGuard } from "@/features/account/backend/customer-account-activity.test-utils";
@@ -25,14 +28,21 @@ import {
 } from "@/features/discounts/contracts";
 import { DiscountClaimError } from "@/features/discounts/errors";
 import type { Locale } from "@/features/i18n";
-import { normalizedCoworkReservationOrderSchema } from "@/features/reservation/cowork-reservation";
+import {
+  type NormalizedCoworkReservationOrder,
+  normalizedCoworkReservationOrderSchema,
+} from "@/features/reservation/cowork-reservation";
 import { normalizedMeetingRoomReservationOrderSchema } from "@/features/reservation/meeting-room-reservation";
 import { normalizedOfficeReservationOrderSchema } from "@/features/reservation/office-reservation";
 import { reservationOrderSchema } from "@/features/reservation/reservation-order";
+import { getNexiRequestTimeoutMilliseconds } from "@/shared/backend/config/nexi.config";
+import { withInstantSleeps } from "@/shared/testing/workspace-test-clock.test-utils";
 import { workspaceSiteConstants } from "@/shared/utils/site-constants";
+import { instantStringSchema } from "@/shared/utils/temporal";
 import type { PaymentAttemptRepository as PaymentAttemptRepositoryType } from "../repositories/payment-attempt.repository";
 import type { IPaymentLifecycleRepository } from "../repositories/payment-lifecycle.repository";
 import { CheckoutPricingServiceMock } from "./checkout-pricing.service.mock";
+import { getCheckoutSubmitDeadline } from "./checkout-submit-deadline";
 import {
   buildSignedPayState,
   openPayState,
@@ -41,6 +51,8 @@ import {
 } from "./pay-state";
 
 mock.module("server-only", () => ({}));
+
+const payStateBookedAt = instantStringSchema.make("2026-06-01T09:58:00.000Z");
 
 const testInstant = (value = "2026-06-01T10:00:00Z") =>
   Temporal.Instant.from(value);
@@ -70,7 +82,7 @@ const reservationData = Schema.decodeUnknownSync(
   normalizedCoworkReservationOrderSchema
 )({
   kind: "cowork",
-  entryTier: "profi",
+  entryTier: "reserved-desk",
   date: "2099-06-20",
   coffee: true,
   monitorOption: "2x27-qhd",
@@ -110,25 +122,25 @@ const application = {
     label: "Letni sleva 50 %",
     adjustment: { kind: "percentage" as const, basisPoints: 5000 },
   },
-  subtotalBefore: money(55_000),
-  amount: money(27_500),
-  subtotalAfter: money(27_500),
+  subtotalBefore: money(41_000),
+  amount: money(20_500),
+  subtotalAfter: money(20_500),
 };
 
 const undiscountedQuote: DiscountQuote = {
-  product: { kind: "cowork", tier: "profi" },
-  discountableSubtotal: money(55_000),
+  product: { kind: "cowork", tier: "reserved-desk" },
+  discountableSubtotal: money(41_000),
   discounts: [],
   totalDiscount: money(0),
-  discountedSubtotal: money(55_000),
+  discountedSubtotal: money(41_000),
 };
 
 const discountedQuote: DiscountQuote = {
-  product: { kind: "cowork", tier: "profi" },
-  discountableSubtotal: money(55_000),
+  product: { kind: "cowork", tier: "reserved-desk" },
+  discountableSubtotal: money(41_000),
   discounts: [application],
-  totalDiscount: money(27_500),
-  discountedSubtotal: money(27_500),
+  totalDiscount: money(20_500),
+  discountedSubtotal: money(20_500),
 };
 
 const fullyDiscountedApplication = {
@@ -137,15 +149,45 @@ const fullyDiscountedApplication = {
     ...application.discount,
     adjustment: { kind: "percentage" as const, basisPoints: 10_000 },
   },
-  amount: money(55_000),
+  amount: money(41_000),
   subtotalAfter: money(0),
 };
 
 const fullyDiscountedQuote: DiscountQuote = {
-  product: { kind: "cowork", tier: "profi" },
-  discountableSubtotal: money(55_000),
+  product: { kind: "cowork", tier: "reserved-desk" },
+  discountableSubtotal: money(41_000),
   discounts: [fullyDiscountedApplication],
-  totalDiscount: money(55_000),
+  totalDiscount: money(41_000),
+  discountedSubtotal: money(0),
+};
+
+const zeroTotalReservation = Schema.decodeUnknownSync(
+  normalizedCoworkReservationOrderSchema
+)({
+  kind: "cowork",
+  entryTier: "open-space",
+  date: "2099-06-20",
+  coffee: false,
+  name: "Ada Lovelace",
+  email: "ada@example.com",
+  phone: "+420 777 777 777",
+});
+
+const zeroTotalQuote: DiscountQuote = {
+  product: { kind: "cowork", tier: "open-space" },
+  discountableSubtotal: money(29_000),
+  discounts: [
+    {
+      discount: {
+        ...application.discount,
+        adjustment: { kind: "percentage" as const, basisPoints: 10_000 },
+      },
+      amount: money(29_000),
+      subtotalBefore: money(29_000),
+      subtotalAfter: money(0),
+    },
+  ],
+  totalDiscount: money(29_000),
   discountedSubtotal: money(0),
 };
 
@@ -191,7 +233,7 @@ const fullyDiscountedCommitment = makeDiscountCommitment({
 const buildPayStateToken = (input: {
   readonly orderId: string;
   readonly locale?: Locale;
-  readonly reservation?: typeof reservationData;
+  readonly reservation?: NormalizedCoworkReservationOrder;
   readonly quote?: CoworkReservationQuote;
   readonly checkoutSessionId?: string;
   readonly submittedCode?: CanonicalPromotionCode;
@@ -206,6 +248,7 @@ const buildPayStateToken = (input: {
         reservation,
         quote: input.quote ?? buildCoworkReservationQuote(reservation),
         orderId: input.orderId,
+        bookedAt: payStateBookedAt,
         checkoutSessionId: input.checkoutSessionId ?? "checkout-session-id",
         ...(input.submittedCode !== undefined && {
           submittedCode: input.submittedCode,
@@ -254,6 +297,7 @@ const buildMeetingRoomPayStateToken = (input: {
         reservation,
         quote: input.quote ?? buildMeetingRoomQuote(undefined, reservation),
         orderId: input.orderId,
+        bookedAt: payStateBookedAt,
         checkoutSessionId:
           input.checkoutSessionId ?? "meeting-room-checkout-session-id",
         ...(input.submittedCode !== undefined && {
@@ -338,6 +382,21 @@ const buildEndedOfficeReservation = () => {
   });
 };
 
+const buildSaleableCoworkReservation = (
+  entryTier: "open-space" | "reserved-desk",
+  date: string
+) =>
+  Schema.decodeUnknownSync(normalizedCoworkReservationOrderSchema)({
+    kind: "cowork",
+    entryTier,
+    date,
+    coffee: entryTier === "reserved-desk",
+    ...(entryTier === "reserved-desk" && { monitorOption: "2x27-qhd" }),
+    name: "Ada Lovelace",
+    email: "ada@example.com",
+    phone: "+420 777 777 777",
+  });
+
 const buildOfficePayStateToken = (input: {
   readonly orderId: string;
   readonly reservation: ReturnType<typeof buildEndedOfficeReservation>;
@@ -350,6 +409,7 @@ const buildOfficePayStateToken = (input: {
         reservation: input.reservation,
         quote,
         orderId: input.orderId,
+        bookedAt: payStateBookedAt,
         checkoutSessionId: "office-checkout-session-id",
         ttlMilliseconds: 10 * 60 * 1000,
       });
@@ -369,7 +429,7 @@ const makeAttempt = (input: {
   provider: "nexi" as const,
   providerOrderId: input.id,
   state: input.state ?? ("created" as const),
-  amount: money(55_000),
+  amount: money(53_000),
   securityToken: input.securityToken ?? null,
   providerRedirectUrl: input.providerRedirectUrl ?? null,
   lastWebhookEventId: null,
@@ -783,6 +843,88 @@ describe("CheckoutService", () => {
     expect(events).toEqual(["attempt-created", "provider-created"]);
   });
 
+  describe("within the pay submit deadline", () => {
+    const createSlowProviderHarness = async (orderId: string) => {
+      const harness = await createCheckoutHarness({
+        orderId,
+        createHostedPaymentPage: mock(() =>
+          Effect.sleep("26 seconds").pipe(
+            Effect.as({
+              securityToken: "provider-security-token",
+              hostedPage: "https://payments.example/hosted",
+            })
+          )
+        ),
+      });
+      harness.updateReservation.mockImplementation(() =>
+        Effect.sleep("20 seconds")
+      );
+      return harness;
+    };
+
+    const submitWithinDeadline = async <A, E>(
+      effect: Effect.Effect<A, E>,
+      deploymentEnvironment: "preview" | "production"
+    ) => {
+      const { withActionDeadline } = await import(
+        "@/shared/backend/workspace-action"
+      );
+      const deadline = getCheckoutSubmitDeadline({
+        dotypos: Duration.millis(dotyposApiTimeoutDefaultMilliseconds),
+        nexi: Duration.millis(
+          getNexiRequestTimeoutMilliseconds(deploymentEnvironment)
+        ),
+      });
+      return await effect.pipe(
+        withActionDeadline(deadline),
+        Effect.exit,
+        withInstantSleeps,
+        Effect.runPromise
+      );
+    };
+
+    test("completes a slow Dotypos update followed by a slow sandbox hosted page", async () => {
+      const harness = await createSlowProviderHarness(
+        "reservation-slow-sandbox-providers"
+      );
+
+      const exit = await submitWithinDeadline(harness.effect, "preview");
+
+      expect(exit).toMatchObject({
+        _tag: "Success",
+        value: {
+          status: "redirect",
+          redirectUrl: "https://payments.example/hosted",
+        },
+      });
+      expect(harness.attachHostedPaymentPage).toHaveBeenCalled();
+      expect(harness.markTerminalForReservation).not.toHaveBeenCalled();
+    });
+
+    test("attaches a hosted page that finishes after the deadline passes", async () => {
+      const harness = await createSlowProviderHarness(
+        "reservation-hosted-page-past-deadline"
+      );
+
+      const exit = await submitWithinDeadline(harness.effect, "production");
+
+      expect(exit).toMatchObject({
+        _tag: "Failure",
+        cause: {
+          reasons: [
+            { error: { message: "Request timed out. Please try again." } },
+          ],
+        },
+      });
+      expect(harness.attachHostedPaymentPage).toHaveBeenCalledWith({
+        id: "attempt-reservation-hosted-page-past-deadline",
+        securityToken: "provider-security-token",
+        providerRedirectUrl: "https://payments.example/hosted",
+      });
+      expect(harness.markTerminalForReservation).not.toHaveBeenCalled();
+    });
+  });
+
   test("redirects a reusable active attempt before discount affirmation and note refresh", async () => {
     const orderId = "reservation-reuses-provider-attempt";
     const activeAttempt = makeAttempt({
@@ -797,7 +939,7 @@ describe("CheckoutService", () => {
       activeAttempt,
       changedKeys: {
         sectionKeys: ["order", "total"],
-        itemKeys: ["product:cowork:profi"],
+        itemKeys: ["product:cowork:reserved-desk"],
       },
       reservationOverrides: { activePaymentAttemptId: activeAttempt.id },
     });
@@ -854,7 +996,7 @@ describe("CheckoutService", () => {
         securityToken: "active-security-token",
         providerRedirectUrl: "https://payments.example/existing",
       }),
-      amount: money(55_000, "EUR"),
+      amount: money(53_000, "EUR"),
     };
     const harness = await createCheckoutHarness({
       orderId,
@@ -876,7 +1018,7 @@ describe("CheckoutService", () => {
       orderId: "reservation-review-required",
       changedKeys: {
         sectionKeys: ["order", "total"],
-        itemKeys: ["product:cowork:profi"],
+        itemKeys: ["product:cowork:reserved-desk"],
       },
     });
 
@@ -886,7 +1028,7 @@ describe("CheckoutService", () => {
       status: "pricing_changed",
       changedKeys: {
         sectionKeys: ["order", "total"],
-        itemKeys: ["product:cowork:profi"],
+        itemKeys: ["product:cowork:reserved-desk"],
       },
       freshSummary: expect.any(Object),
       freshPayUrl: expect.stringContaining("/en-US/checkout/pay?payState="),
@@ -934,17 +1076,18 @@ describe("CheckoutService", () => {
         locale: "cs-CZ",
         submittedCode,
         quote: acceptedQuote,
+        bookedAt: Temporal.Instant.from(payStateBookedAt),
       })
     );
     expect(harness.createPendingNexiAttempt).toHaveBeenCalledWith(
       expect.objectContaining({
-        amount: money(55_000),
+        amount: money(53_000),
         commitment: emptyCommitment,
       })
     );
     expect(harness.createHostedPaymentPage).toHaveBeenCalledWith(
       expect.objectContaining({
-        amount: "55000",
+        amount: "53000",
         currency: "EUR",
         customer: {
           id: "stored-dotypos-customer-id",
@@ -989,8 +1132,8 @@ describe("CheckoutService", () => {
   });
 
   test("completes a zero-total checkout internally without preparing Nexi", async () => {
-    const acceptedQuote = buildCoworkReservationQuote(reservationData, {
-      discountQuote: fullyDiscountedQuote,
+    const acceptedQuote = buildCoworkReservationQuote(zeroTotalReservation, {
+      discountQuote: zeroTotalQuote,
     });
     const affirm = mock(() =>
       Effect.succeed({
@@ -1090,8 +1233,8 @@ describe("CheckoutService", () => {
   });
 
   test("keeps an internal payment completed when fulfillment fails", async () => {
-    const acceptedQuote = buildCoworkReservationQuote(reservationData, {
-      discountQuote: fullyDiscountedQuote,
+    const acceptedQuote = buildCoworkReservationQuote(zeroTotalReservation, {
+      discountQuote: zeroTotalQuote,
     });
     const affirm = mock(() =>
       Effect.succeed({
@@ -1406,6 +1549,343 @@ describe("CheckoutService", () => {
     expect(harness.createHostedPaymentPage).not.toHaveBeenCalled();
   });
 
+  test("rejects a new Reserved Desk payment at midnight after the reserved day", async () => {
+    const originalNow = Temporal.Now.instant;
+    // Prague midnight starting 2099-06-11: the exclusive end of the day
+    // reserved for 2099-06-10. Exactly midnight is rejected.
+    Temporal.Now.instant = () => Temporal.Instant.from("2099-06-10T22:00:00Z");
+    const endedReservation = buildSaleableCoworkReservation(
+      "reserved-desk",
+      "2099-06-10"
+    );
+    const orderId = "cowork-reserved-desk-ended-at-midnight";
+
+    try {
+      const harness = await createCheckoutHarness({
+        orderId,
+        payStateToken: buildPayStateToken({
+          orderId,
+          reservation: endedReservation,
+        }),
+      });
+
+      const error = await Effect.runPromise(Effect.flip(harness.effect));
+
+      expect(error).toMatchObject({
+        _tag: "CheckoutError",
+        code: "cowork_reservation_ended",
+        message: "Reserved Desk reservation day has already ended.",
+      });
+      expect(harness.affirm).not.toHaveBeenCalled();
+      expect(harness.createPendingNexiAttempt).not.toHaveBeenCalled();
+      expect(harness.createHostedPaymentPage).not.toHaveBeenCalled();
+    } finally {
+      Temporal.Now.instant = originalNow;
+    }
+  });
+
+  test("allows a new Reserved Desk payment just before next-day midnight", async () => {
+    const originalNow = Temporal.Now.instant;
+    Temporal.Now.instant = () => Temporal.Instant.from("2099-06-10T21:59:59Z");
+    const reservation = buildSaleableCoworkReservation(
+      "reserved-desk",
+      "2099-06-10"
+    );
+    const orderId = "cowork-reserved-desk-before-midnight";
+
+    try {
+      const harness = await createCheckoutHarness({
+        orderId,
+        payStateToken: buildPayStateToken({
+          orderId,
+          reservation,
+        }),
+      });
+
+      const result = await Effect.runPromise(harness.effect);
+
+      expect(result).toEqual({
+        status: "redirect",
+        redirectUrl: "https://payments.example/hosted",
+        statusUrl: `/en-US/reservation/status/${orderId}`,
+      });
+      expect(harness.createPendingNexiAttempt).toHaveBeenCalled();
+      expect(harness.createHostedPaymentPage).toHaveBeenCalled();
+    } finally {
+      Temporal.Now.instant = originalNow;
+    }
+  });
+
+  test("rejects a new Open Space payment at the 17:00 same-day cutoff", async () => {
+    const originalNow = Temporal.Now.instant;
+    // 17:00 Prague on the reserved date is the exclusive Open Space end.
+    Temporal.Now.instant = () => Temporal.Instant.from("2099-06-10T15:00:00Z");
+    const endedReservation = buildSaleableCoworkReservation(
+      "open-space",
+      "2099-06-10"
+    );
+    const orderId = "cowork-open-space-ended-at-cutoff";
+
+    try {
+      const harness = await createCheckoutHarness({
+        orderId,
+        payStateToken: buildPayStateToken({
+          orderId,
+          reservation: endedReservation,
+        }),
+      });
+
+      const error = await Effect.runPromise(Effect.flip(harness.effect));
+
+      expect(error).toMatchObject({
+        _tag: "CheckoutError",
+        code: "cowork_reservation_ended",
+        message: "Open Space reservation day has already ended.",
+      });
+      expect(harness.affirm).not.toHaveBeenCalled();
+      expect(harness.createPendingNexiAttempt).not.toHaveBeenCalled();
+      expect(harness.createHostedPaymentPage).not.toHaveBeenCalled();
+    } finally {
+      Temporal.Now.instant = originalNow;
+    }
+  });
+
+  test("reuses an active provider session after the Reserved Desk day ends", async () => {
+    const originalNow = Temporal.Now.instant;
+    Temporal.Now.instant = () => Temporal.Instant.from("2099-06-10T22:00:00Z");
+    const endedReservation = buildSaleableCoworkReservation(
+      "reserved-desk",
+      "2099-06-10"
+    );
+    const orderId = "cowork-reserved-desk-ended-active-payment";
+    const activeAttempt = {
+      ...makeAttempt({
+        id: "cowork-active-attempt",
+        orderId,
+        state: "pending",
+        securityToken: "active-security-token",
+        providerRedirectUrl: "https://payments.example/existing",
+      }),
+      amount: money(53_000),
+    };
+
+    try {
+      const harness = await createCheckoutHarness({
+        orderId,
+        payStateToken: buildPayStateToken({
+          orderId,
+          reservation: endedReservation,
+        }),
+        activeAttempt,
+        reservationOverrides: {
+          activePaymentAttemptId: activeAttempt.id,
+        },
+      });
+
+      const result = await Effect.runPromise(harness.effect);
+
+      // Reuse is consulted before the end guard: the matching provider
+      // session is returned even though the reserved day has ended.
+      expect(result).toEqual({
+        status: "redirect",
+        redirectUrl: "https://payments.example/existing",
+        statusUrl: `/en-US/reservation/status/${orderId}`,
+      });
+      expect(harness.findAttempt).toHaveBeenCalledWith(activeAttempt.id);
+      expect(harness.affirm).not.toHaveBeenCalled();
+      expect(harness.createPendingNexiAttempt).not.toHaveBeenCalled();
+      expect(harness.createHostedPaymentPage).not.toHaveBeenCalled();
+    } finally {
+      Temporal.Now.instant = originalNow;
+    }
+  });
+
+  test("rechecks the cowork day end immediately before starting payment", async () => {
+    const originalNow = Temporal.Now.instant;
+    let now = Temporal.Instant.from("2099-06-10T21:59:59Z");
+    Temporal.Now.instant = () => now;
+    const reservation = buildSaleableCoworkReservation(
+      "reserved-desk",
+      "2099-06-10"
+    );
+    const orderId = "cowork-ends-during-payment-preparation";
+    const affirm = mock(() => {
+      now = Temporal.Instant.from("2099-06-10T22:00:00Z");
+      return Effect.succeed({
+        quote: buildCoworkReservationQuote(reservation),
+        commitment: emptyCommitment,
+      });
+    });
+
+    try {
+      const harness = await createCheckoutHarness({
+        orderId,
+        payStateToken: buildPayStateToken({
+          orderId,
+          reservation,
+        }),
+        affirm,
+      });
+
+      const error = await Effect.runPromise(Effect.flip(harness.effect));
+
+      expect(error).toMatchObject({
+        _tag: "CheckoutError",
+        message: "Reserved Desk reservation day has already ended.",
+      });
+      expect(harness.affirm).toHaveBeenCalled();
+      expect(harness.createPendingNexiAttempt).not.toHaveBeenCalled();
+      expect(harness.createHostedPaymentPage).not.toHaveBeenCalled();
+    } finally {
+      Temporal.Now.instant = originalNow;
+    }
+  });
+
+  test("rejects a new Open Space payment for a date before the current local date", async () => {
+    const yesterday = Temporal.Now.zonedDateTimeISO(
+      workspaceSiteConstants.location.timeZone
+    )
+      .toPlainDate()
+      .subtract({ days: 1 })
+      .toString();
+    const endedReservation = buildSaleableCoworkReservation(
+      "open-space",
+      yesterday
+    );
+    const orderId = "cowork-open-space-past-date";
+
+    const harness = await createCheckoutHarness({
+      orderId,
+      payStateToken: buildPayStateToken({
+        orderId,
+        reservation: endedReservation,
+      }),
+    });
+
+    const error = await Effect.runPromise(Effect.flip(harness.effect));
+
+    expect(error).toMatchObject({
+      _tag: "CheckoutError",
+      code: "cowork_reservation_ended",
+      message: "Open Space reservation day has already ended.",
+    });
+    expect(harness.affirm).not.toHaveBeenCalled();
+    expect(harness.createPendingNexiAttempt).not.toHaveBeenCalled();
+    expect(harness.createHostedPaymentPage).not.toHaveBeenCalled();
+  });
+
+  test("does not create a provider attempt when the reserved day ends during final revalidation", async () => {
+    const originalNow = Temporal.Now.instant;
+    let now = Temporal.Instant.from("2099-06-10T21:59:59Z");
+    Temporal.Now.instant = () => now;
+    const reservation = buildSaleableCoworkReservation(
+      "reserved-desk",
+      "2099-06-10"
+    );
+    const orderId = "cowork-ends-during-final-revalidation";
+    let revalidationCount = 0;
+    const requireCurrent = mock(() => {
+      revalidationCount += 1;
+      if (revalidationCount === 2) {
+        // Midnight after the reserved date arrives during the final
+        // revalidation inside the provider session start.
+        now = Temporal.Instant.from("2099-06-10T22:00:00Z");
+      }
+      return Effect.succeed(makeReservation(orderId));
+    });
+
+    try {
+      const harness = await createCheckoutHarness({
+        orderId,
+        payStateToken: buildPayStateToken({
+          orderId,
+          reservation,
+        }),
+        requireCurrent,
+      });
+
+      const error = await Effect.runPromise(Effect.flip(harness.effect));
+
+      expect(error).toMatchObject({
+        _tag: "CheckoutError",
+        message: "Reserved Desk reservation day has already ended.",
+      });
+      expect(requireCurrent).toHaveBeenCalledTimes(2);
+      expect(harness.affirm).toHaveBeenCalled();
+      expect(harness.createPendingNexiAttempt).not.toHaveBeenCalled();
+      expect(harness.createHostedPaymentPage).not.toHaveBeenCalled();
+    } finally {
+      Temporal.Now.instant = originalNow;
+    }
+  });
+
+  test("does not complete an internal payment when the reserved day ends during final revalidation", async () => {
+    const originalNow = Temporal.Now.instant;
+    let now = Temporal.Instant.from("2099-06-10T14:59:59Z");
+    Temporal.Now.instant = () => now;
+    const zeroTotalReservationEndedDay = Schema.decodeUnknownSync(
+      normalizedCoworkReservationOrderSchema
+    )({
+      kind: "cowork",
+      entryTier: "open-space",
+      date: "2099-06-10",
+      coffee: false,
+      name: "Ada Lovelace",
+      email: "ada@example.com",
+      phone: "+420 777 777 777",
+    });
+    const acceptedQuote = buildCoworkReservationQuote(
+      zeroTotalReservationEndedDay,
+      {
+        discountQuote: zeroTotalQuote,
+      }
+    );
+    const orderId = "cowork-zero-total-ends-during-final-revalidation";
+    let revalidationCount = 0;
+    const requireCurrent = mock(() => {
+      revalidationCount += 1;
+      if (revalidationCount === 2) {
+        // The 17:00 Open Space cutoff arrives during the final revalidation
+        // inside the internal payment completion.
+        now = Temporal.Instant.from("2099-06-10T15:00:00Z");
+      }
+      return Effect.succeed(makeReservation(orderId));
+    });
+
+    try {
+      const harness = await createCheckoutHarness({
+        orderId,
+        payStateToken: buildPayStateToken({
+          orderId,
+          reservation: zeroTotalReservationEndedDay,
+          quote: acceptedQuote,
+        }),
+        acceptedQuote,
+        affirm: mock(() =>
+          Effect.succeed({
+            quote: acceptedQuote,
+            commitment: fullyDiscountedCommitment,
+          })
+        ),
+        requireCurrent,
+      });
+
+      const error = await Effect.runPromise(Effect.flip(harness.effect));
+
+      expect(error).toMatchObject({
+        _tag: "CheckoutError",
+        message: "Open Space reservation day has already ended.",
+      });
+      expect(requireCurrent).toHaveBeenCalledTimes(2);
+      expect(harness.affirm).toHaveBeenCalled();
+      expect(harness.completeInternalPayment).not.toHaveBeenCalled();
+      expect(harness.fulfillPaidOrder).not.toHaveBeenCalled();
+      expect(harness.createPendingNexiAttempt).not.toHaveBeenCalled();
+    } finally {
+      Temporal.Now.instant = originalNow;
+    }
+  });
+
   test("recovers an active provider session after the meeting-room reservation ends", async () => {
     const endedReservation = buildEndedMeetingRoomReservation();
     const orderId = "meeting-room-ended-active-payment";
@@ -1584,7 +2064,7 @@ describe("CheckoutService", () => {
     }
     expect(result.changedKeys).toEqual({
       sectionKeys: [],
-      itemKeys: ["product:cowork:profi"],
+      itemKeys: ["product:cowork:reserved-desk"],
     });
     const freshToken = new URL(
       result.freshPayUrl,
@@ -1752,7 +2232,7 @@ describe("CheckoutService", () => {
     expect(harness.updateReservation).toHaveBeenCalledTimes(1);
     const note = harness.updateReservation.mock.calls[0]?.[0]?.note;
     expect(note).toContain("Discount: Letni sleva 50 % (");
-    expect(note).toContain("-CZK\u00a0275");
+    expect(note).toContain("-CZK\u00a0205");
     expect(note).not.toContain("public-summer-sale");
     expect(note).not.toContain("private-provider-namespace");
     expect(note).not.toContain("private-provider-reference");
@@ -1870,7 +2350,7 @@ describe("CheckoutService", () => {
     expect(result).toMatchObject({
       status: "pricing_changed",
       freshSummary: {
-        total: money(55_000),
+        total: money(53_000),
       },
     });
     expect(affirm).toHaveBeenCalledTimes(2);
@@ -1892,8 +2372,8 @@ describe("CheckoutService", () => {
 
   test("returns refreshed pricing when a zero-total code loses claim admission", async () => {
     const requestedCode = canonicalCode("CAMPAIGN10");
-    const acceptedQuote = buildCoworkReservationQuote(reservationData, {
-      discountQuote: fullyDiscountedQuote,
+    const acceptedQuote = buildCoworkReservationQuote(zeroTotalReservation, {
+      discountQuote: zeroTotalQuote,
     });
     const affirm = mock()
       .mockImplementationOnce(() =>
@@ -1930,7 +2410,7 @@ describe("CheckoutService", () => {
     expect(result).toMatchObject({
       status: "pricing_changed",
       freshSummary: {
-        total: money(55_000),
+        total: money(53_000),
       },
     });
     expect(affirm).toHaveBeenCalledTimes(2);

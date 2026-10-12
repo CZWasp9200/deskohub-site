@@ -1,4 +1,3 @@
-import { GoogleTagManager } from "@next/third-parties/google";
 import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
 import { notFound } from "next/navigation";
@@ -6,6 +5,7 @@ import { type ReactNode, Suspense } from "react";
 import { env } from "@/env";
 import { ConsentAwareAnalytics } from "@/features/cookie-consent/components/consent-aware-analytics";
 import { CookieConsentProvider } from "@/features/cookie-consent/components/cookie-consent-provider";
+import { DeferredTagManager } from "@/features/cookie-consent/components/deferred-tag-manager";
 import { PostHogProvider } from "@/features/cookie-consent/components/posthog-analytics";
 import { isLocale, locales } from "@/features/i18n";
 import { UnsavedChangesProvider } from "@/shared/components/unsaved-changes-guard";
@@ -32,7 +32,11 @@ export const metadata: Metadata = {
   title: "Deskohub Workspace",
   description: "Workspace shell application for Deskohub products.",
   icons: {
-    icon: "/favicon.svg",
+    icon: {
+      url: "/favicon.png",
+      type: "image/png",
+      sizes: "512x512",
+    },
   },
 };
 
@@ -56,13 +60,12 @@ export default async function LocaleLayout({
 }: LocaleLayoutProps) {
   const { locale } = await params;
   if (!isLocale(locale)) notFound();
+  const gtmId = env.NEXT_PUBLIC_GTM_ID;
 
   return (
     <html lang={locale} className={sculpin.variable}>
-      {env.NEXT_PUBLIC_GTM_ID && (
-        <GoogleTagManager gtmId={env.NEXT_PUBLIC_GTM_ID} />
-      )}
       <body>
+        {gtmId && <DeferredTagManager gtmId={gtmId} />}
         <PostHogProvider>
           <CookieConsentProvider locale={locale} />
           <Suspense fallback={null}>

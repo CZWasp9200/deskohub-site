@@ -4,19 +4,23 @@ import { Effect, Predicate, Schema } from "effect";
 import type { JsonObject } from "type-fest";
 import { buildCoworkReservationQuote } from "@/features/checkout/checkout-quote.test-utils";
 import { buildReservationQuote } from "@/features/checkout/reservation-quote";
+import { buildOfficeReservationQuote } from "@/features/checkout/reservation-quote-office";
 import {
   canonicalPromotionCodeSchema,
   discountIdSchema,
 } from "@/features/discounts/contracts";
 import { normalizedCoworkReservationOrderSchema } from "@/features/reservation/cowork-reservation";
+import { normalizedOfficeReservationOrderSchema } from "@/features/reservation/office-reservation";
 import { reservationOrderSchema } from "@/features/reservation/reservation-order";
 import { getReservationStartPath } from "@/features/reservation/routes";
+import { instantStringSchema } from "@/shared/utils/temporal";
 import type { PayStateKey, SignedPayState } from "./pay-state";
 
 mock.module("server-only", () => ({}));
 
+const payStateBookedAt = instantStringSchema.make("2026-06-01T09:58:00.000Z");
+
 const {
-  buildPayStateQueryParams,
   buildSignedPayState,
   getPayStateRestartKind,
   getSignedPayStateSubmittedCodeApplication,
@@ -30,6 +34,7 @@ const {
 const { buildCheckoutPayContinuationPath, buildCheckoutPayPath } = await import(
   "./checkout-pay-url"
 );
+const { sealCheckoutState } = await import("./checkout-state-token");
 
 const runSync = <A, E>(effect: Effect.Effect<A, E>) => Effect.runSync(effect);
 
@@ -66,7 +71,6 @@ const baseReservation = Schema.decodeUnknownSync(
   name: "Ada Lovelace",
   email: "ada@example.com",
   phone: "+420 777 777 777",
-  message: "Private setup note.",
 });
 
 const buildState = (overrides: Partial<SignedPayState> = {}) => ({
@@ -77,6 +81,7 @@ const buildState = (overrides: Partial<SignedPayState> = {}) => ({
         reservation: baseReservation,
         quote: buildCoworkReservationQuote(baseReservation),
         orderId: "pay-state-test-order-id",
+        bookedAt: payStateBookedAt,
         checkoutSessionId: "pay-state-test-checkout-session-id",
         ttlMilliseconds: 10 * 60 * 1000,
       },
@@ -108,6 +113,32 @@ const buildMeetingRoomState = () => {
         reservation,
         quote: Effect.runSync(buildReservationQuote(reservation)),
         orderId: "meeting-room-pay-state-test-order-id",
+        bookedAt: payStateBookedAt,
+      },
+      { keys: [fixedKey], now: () => fixedNow }
+    )
+  );
+};
+
+const buildOfficeState = () => {
+  const reservation = normalizedOfficeReservationOrderSchema.make({
+    kind: "office",
+    startsOn: "2099-06-20",
+    endsOn: "2099-06-21",
+    seats: 3,
+    name: "Ada Lovelace",
+    email: "ada@example.com",
+    phone: "+420 777 777 777",
+  });
+
+  return runSync(
+    buildSignedPayState(
+      {
+        locale: "en-US",
+        reservation,
+        quote: runSync(buildOfficeReservationQuote(reservation)),
+        orderId: "office-pay-state-test-order-id",
+        bookedAt: payStateBookedAt,
       },
       { keys: [fixedKey], now: () => fixedNow }
     )
@@ -153,12 +184,6 @@ const tamperCiphertext = (token: string) => {
 };
 
 describe("Pay URL state", () => {
-  test("does not expose a temporary reservation-family rejection gate", async () => {
-    const payState = await import("./pay-state");
-
-    expect(payState).not.toHaveProperty("isCoworkSignedPayState");
-  });
-
   test("round-trips signed Pay state", () => {
     const state = buildState();
     const token = seal(state);
@@ -178,15 +203,22 @@ describe("Pay URL state", () => {
       itemKeys: ["meeting-room"],
     };
 
-    const state = {
-      ...buildMeetingRoomState(),
-      submittedCode: canonicalCode,
-      submittedCodeDiscountId,
-      changedKeys,
-    };
+    const opened = runSync(
+      openPayState(
+        seal({
+          ...buildMeetingRoomState(),
+          submittedCode: canonicalCode,
+          submittedCodeDiscountId,
+          changedKeys,
+        }),
+        { keys: [fixedKey], now: () => fixedNow }
+      )
+    );
 
-    expect(state.submittedCode).toBe(canonicalCode);
-    expect(state.changedKeys).toEqual(changedKeys);
+    expect(opened.reservation.kind).toBe("meeting-room");
+    expect(opened.submittedCode).toBe(canonicalCode);
+    expect(opened.submittedCodeDiscountId).toBe(submittedCodeDiscountId);
+    expect(opened.changedKeys).toEqual(changedKeys);
   });
 
   test("derives the meeting-room restart path from sealed Pay state", () => {
@@ -212,13 +244,6 @@ describe("Pay URL state", () => {
     );
   });
 
-  test("omits redundant payload markers from signed Pay state", () => {
-    const state = buildState();
-
-    expect(state).not.toHaveProperty("type");
-    expect(state).not.toHaveProperty("schema");
-  });
-
   test("fails closed when no encryption key is configured", () => {
     expect(() =>
       runSync(
@@ -228,6 +253,7 @@ describe("Pay URL state", () => {
             reservation: baseReservation,
             quote: buildCoworkReservationQuote(baseReservation),
             orderId: "missing-key-test",
+            bookedAt: payStateBookedAt,
           },
           { keys: [] }
         )
@@ -323,6 +349,7 @@ describe("Pay URL state", () => {
           reservation: baseReservation,
           quote: buildCoworkReservationQuote(baseReservation),
           orderId: "rotated-key-order-id",
+          bookedAt: payStateBookedAt,
         },
         { keys: [rotatedKey, fixedKey], now: () => fixedNow }
       )
@@ -502,7 +529,6 @@ describe("Pay URL state", () => {
     expect(token).not.toContain(baseReservation.name);
     expect(token).not.toContain(baseReservation.email);
     expect(token).not.toContain(baseReservation.phone);
-    expect(token).not.toContain(baseReservation.message);
     expect(token).not.toContain("SUMMER50");
   });
 
@@ -544,19 +570,6 @@ describe("Pay URL state", () => {
     ).toEqual(codeApplication);
   });
 
-  test("builds URL query params", () => {
-    const result = runSync(
-      sealPayStateForUrl(buildState(), {
-        keys: [fixedKey],
-        randomBytes: fixedRandomBytes,
-      })
-    );
-    const searchParams = buildPayStateQueryParams(result);
-
-    expect(result.type).toBe("sealedPayState");
-    expect(searchParams.get(payStateTokenQueryParam)).toBe(result.token);
-  });
-
   test("builds a clean payable continuation after price review", () => {
     const reviewState = buildState({
       changedKeys: {
@@ -586,5 +599,92 @@ describe("Pay URL state", () => {
     expect(continued.orderId).toBe(reviewState.orderId);
     expect(continued.submittedCode).toBeUndefined();
     expect(continued.submittedCodeDiscountId).toBeUndefined();
+  });
+});
+
+describe("legacy signed Pay state with a retired customer message", () => {
+  const openLegacyPayStateWithMessage = (state: SignedPayState) => {
+    const legacyState = {
+      ...state,
+      reservation: {
+        ...state.reservation,
+        message: "Private setup note.",
+      },
+    };
+    // Seal below the Pay-state schema so the retired key is already in the token.
+    const token = runSync(
+      sealCheckoutState(legacyState, fixedKey.kid, {
+        keys: [fixedKey],
+        randomBytes: fixedRandomBytes,
+      })
+    );
+
+    return {
+      legacyState,
+      opened: runSync(
+        openPayState(token, { keys: [fixedKey], now: () => fixedNow })
+      ),
+      restartKind: runSync(getPayStateRestartKind(token, { keys: [fixedKey] })),
+    };
+  };
+
+  test("restores meeting-room Pay state from a token with retired message", () => {
+    const state = buildMeetingRoomState();
+    const { legacyState, opened, restartKind } =
+      openLegacyPayStateWithMessage(state);
+
+    expect(legacyState.reservation).toHaveProperty(
+      "message",
+      "Private setup note."
+    );
+    expect(opened).toEqual(state);
+    expect(opened.reservation).not.toHaveProperty("message");
+    expect(opened.reservation).toMatchObject({
+      kind: "meeting-room",
+      duration: { unit: "hour", amount: 4 },
+      reservationDate: "2099-06-10",
+    });
+    expect(restartKind).toBe("meeting-room");
+  });
+
+  test("restores office Pay state from a token with retired message", () => {
+    const state = buildOfficeState();
+    const { legacyState, opened, restartKind } =
+      openLegacyPayStateWithMessage(state);
+
+    expect(legacyState.reservation).toHaveProperty(
+      "message",
+      "Private setup note."
+    );
+    expect(opened).toEqual(state);
+    expect(opened.reservation).not.toHaveProperty("message");
+    expect(opened.reservation).toMatchObject({
+      kind: "office",
+      startsOn: "2099-06-20",
+      endsOn: "2099-06-21",
+      seats: 3,
+    });
+    expect(restartKind).toBe("office");
+  });
+
+  test("restores cowork Pay state from a token with retired message", () => {
+    const state = buildState();
+    const { legacyState, opened, restartKind } =
+      openLegacyPayStateWithMessage(state);
+
+    expect(legacyState.reservation).toHaveProperty(
+      "message",
+      "Private setup note."
+    );
+    expect(opened).toEqual(state);
+    expect(opened.reservation).not.toHaveProperty("message");
+    expect(opened.reservation).toMatchObject({
+      kind: "cowork",
+      entryTier: "profi",
+      date: "2026-06-20",
+      coffee: true,
+      monitorOption: "2x27-qhd",
+    });
+    expect(restartKind).toBe("cowork");
   });
 });

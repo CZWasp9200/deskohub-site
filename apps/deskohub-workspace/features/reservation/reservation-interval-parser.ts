@@ -49,9 +49,6 @@ const decodeReservationTimestamp = Schema.decodeUnknownEffect(
   reservationTimestampSchema
 );
 
-export const toPlainDateTime = (value: Instant, timeZone: string) =>
-  Temporal.Instant.from(value).toZonedDateTimeISO(timeZone).toPlainDateTime();
-
 export const toInstantMilliseconds = (value: Instant) =>
   Temporal.Instant.from(value).epochMilliseconds;
 

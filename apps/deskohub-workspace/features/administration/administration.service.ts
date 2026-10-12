@@ -66,7 +66,10 @@ import {
   storedWebhookEventIdSchema,
 } from "@/features/checkout/checkout-identifiers";
 import { legalEvidenceEventIdSchema } from "@/features/checkout/legal-evidence";
-import type { WorkspaceCoworkProductTier } from "@/features/checkout/product-catalog";
+import {
+  getWorkspaceProductByTier,
+  type WorkspaceCoworkProductTier,
+} from "@/features/checkout/product-catalog";
 import {
   type DiscountApplicationId,
   discountApplicationIdSchema,
@@ -90,9 +93,9 @@ import {
   PaymentAdministrationService,
 } from "./payment-administration.service";
 import {
-  getProviderOperationTimelineTone,
-  getProviderValueLabel,
-} from "./payment-presentation";
+  buildPaymentAttemptTimeline,
+  getOrderTimeline,
+} from "./payment-timeline";
 import {
   mergeReservationHistory,
   PostHogReservationHistory,
@@ -127,6 +130,15 @@ const paymentAttemptStateLabels = {
   expired: "Unsuccessful",
 } as const;
 
+/**
+ * Reservation list filters: the durable workflow status groups plus the
+ * payment-attempt refund work queue shared by late payments and operator
+ * cancellations.
+ */
+export type AdministrationReservationStatusFilter =
+  | Exclude<AdministrationStatusGroup, "attention">
+  | "needs_refund";
+
 export type AdministrationReservationListInput = {
   readonly customerId?: DotyposCustomerId;
   readonly date?: string;
@@ -134,7 +146,7 @@ export type AdministrationReservationListInput = {
   readonly from?: string;
   readonly page?: number;
   readonly sort?: AdministrationReservationSort;
-  readonly status?: Exclude<AdministrationStatusGroup, "attention">;
+  readonly status?: AdministrationReservationStatusFilter;
   readonly to?: string;
   readonly type?: "cowork" | "meeting-room" | "office";
 };
@@ -145,10 +157,9 @@ export type AdministrationReservationSort =
   | "reservation"
   | "status";
 
-export type AdministrationSortDirection = "asc" | "desc";
+type AdministrationSortDirection = "asc" | "desc";
 
-export type AdministrationReservationSortDirection =
-  AdministrationSortDirection;
+type AdministrationReservationSortDirection = AdministrationSortDirection;
 
 type ReservationListInput = AdministrationReservationListInput & {
   readonly pageSize?: number;
@@ -171,7 +182,7 @@ export type AdministrationBookingListInput = {
 
 export type AdministrationBookingSort = "booking" | "status";
 
-export type AdministrationCustomer = {
+type AdministrationCustomer = {
   readonly id: DotyposCustomerId;
   readonly displayName: string;
   readonly email: string | null;
@@ -247,11 +258,10 @@ export type AdministrationPaymentAttempt = {
   readonly providerLabel: string;
   readonly stateLabel: string;
   readonly failureCode: string | null;
-  readonly amount: {
-    readonly value: number;
-    readonly exponent: number;
-    readonly currency: string;
-  };
+  readonly amount: AdministrationMoney;
+  /** Total Nexi reports as refunded; set only when `refundState` is `refunded`. */
+  readonly refundedAmount: AdministrationMoney | null;
+  readonly refundedAt: string | null;
   readonly createdAt: string;
   readonly providerOrderCreatedAt: string | null;
   readonly updatedAt: string;
@@ -309,6 +319,8 @@ export type AdministrationCustomerReservationActivityCategory =
   | Exclude<WorkspaceReservationKind, "cowork">;
 
 const customerReservationActivityCategoryPriority = {
+  "cowork-open-space": 0,
+  "cowork-reserved-desk": 1,
   "cowork-basic": 0,
   "cowork-plus": 1,
   "cowork-profi": 2,
@@ -316,7 +328,7 @@ const customerReservationActivityCategoryPriority = {
   office: 4,
 } satisfies Record<AdministrationCustomerReservationActivityCategory, number>;
 
-export type AdministrationDiscountApplication = {
+type AdministrationDiscountApplication = {
   readonly id: DiscountApplicationId;
   readonly label: string;
   readonly amount: {
@@ -398,7 +410,7 @@ export type AdministrationOverviewMetric = {
   readonly value: number;
 };
 
-export type AdministrationCustomerOverviewMetric = {
+type AdministrationCustomerOverviewMetric = {
   readonly customers: readonly Pick<
     AdministrationCustomerSummary,
     "customer" | "customerId"
@@ -407,7 +419,7 @@ export type AdministrationCustomerOverviewMetric = {
   readonly value: number;
 };
 
-export type AdministrationReservationOverview = {
+type AdministrationReservationOverview = {
   readonly ranges: ReturnType<typeof getAdministrationOverviewDateRanges>;
   readonly today: AdministrationOverviewMetric;
   readonly upcoming: AdministrationOverviewMetric;
@@ -556,6 +568,8 @@ type SafePaymentAttemptRow = {
   readonly state: PaymentAttemptState;
   readonly failureCode: string | null;
   readonly refundState: PaymentRefundState;
+  readonly refundedAmountValue: number | null;
+  readonly refundedAt: Temporal.Instant | null;
   readonly amountValue: number;
   readonly amountExponent: number;
   readonly currency: string;
@@ -572,6 +586,8 @@ const safePaymentAttemptSelection = {
   state: paymentAttempts.state,
   failureCode: paymentAttempts.failureCode,
   refundState: paymentAttempts.refundState,
+  refundedAmountValue: paymentAttempts.refundedAmountValue,
+  refundedAt: paymentAttempts.refundedAt,
   amountValue: paymentAttempts.amountValue,
   amountExponent: paymentAttempts.amountExponent,
   currency: paymentAttempts.currency,
@@ -599,6 +615,15 @@ const toAdministrationPaymentAttempt = (
     exponent: attempt.amountExponent,
     currency: attempt.currency,
   },
+  refundedAmount:
+    attempt.refundedAmountValue === null
+      ? null
+      : {
+          value: attempt.refundedAmountValue,
+          exponent: attempt.amountExponent,
+          currency: attempt.currency,
+        },
+  refundedAt: attempt.refundedAt ? toIsoString(attempt.refundedAt) : null,
   createdAt: toIsoString(attempt.createdAt),
   providerOrderCreatedAt: attempt.providerOrderCreatedAt?.toString() ?? null,
   updatedAt: toIsoString(attempt.updatedAt),
@@ -620,8 +645,7 @@ const getReservationTypeLabel = (
 ) => {
   if (row.reservationDetails.kind === "meeting-room") return "Meeting Room";
   if (row.reservationDetails.kind === "office") return "Private Office";
-  const tier = row.reservationDetails.entryTier;
-  return `Cowork ${tier[0]?.toUpperCase()}${tier.slice(1)}`;
+  return getWorkspaceProductByTier(row.reservationDetails.entryTier).label;
 };
 
 const getReservationDate = (startsAt: string) =>
@@ -663,16 +687,34 @@ type LiveReservationDetails = {
   readonly customer: DotyposCustomer | null;
 };
 
-const getReservationStatusNote = (
-  row: SafeReservationRow,
-  live: LiveReservationDetails,
-  latePayment: boolean,
-  recoveryState?: LatePaymentRecoveryState
-) => {
+/**
+ * A reservation is refunded once Nexi reports a refund for every payment that
+ * required one. Any successful refund counts, including a partial one.
+ */
+const isReservationRefunded = (
+  attempts: readonly Pick<SafePaymentAttemptRow, "refundState">[]
+) =>
+  attempts.some(({ refundState }) => refundState === "refunded") &&
+  !attempts.some(({ refundState }) => refundState === "required");
+
+const getReservationStatusNote = ({
+  latePayment,
+  live,
+  recoveryState,
+  refunded,
+  row,
+}: {
+  readonly latePayment: boolean;
+  readonly live: LiveReservationDetails;
+  readonly recoveryState?: LatePaymentRecoveryState;
+  readonly refunded: boolean;
+  readonly row: SafeReservationRow;
+}) => {
   if (recoveryState === "pending" || recoveryState === "processing") {
     return "Recovery in progress";
   }
   if (recoveryState === "review_required") return "Recovery needs review";
+  if (refunded) return "Refunded";
   if (latePayment) return "Refund required";
   if (row.failureCode === "payment_outcome_unconfirmed_before_cleanup") {
     return "Payment needs review";
@@ -685,12 +727,18 @@ const getReservationStatusNote = (
 
 const toReservationSummary = ({
   latePayment = false,
+  needsRefund = false,
+  refunded = false,
   recoveryState,
   latestPayment = null,
   live,
   row,
 }: {
   readonly latePayment?: boolean;
+  /** Any payment attempt of the reservation, not only the latest, needs a refund. */
+  readonly needsRefund?: boolean;
+  /** Nexi reported a refund for every payment attempt that required one. */
+  readonly refunded?: boolean;
   readonly recoveryState?: LatePaymentRecoveryState;
   readonly latestPayment?: AdministrationPaymentAttempt | null;
   readonly live: LiveReservationDetails;
@@ -718,12 +766,19 @@ const toReservationSummary = ({
       latePayment,
       latePaymentRecovery: recoveryState,
       paymentState: row.paymentState,
+      refunded,
       reservationState: row.reservationState,
     }),
     statusNote:
-      latestPayment?.refundState === "required"
+      needsRefund || latestPayment?.refundState === "required"
         ? "Needs refund"
-        : getReservationStatusNote(row, live, latePayment, recoveryState),
+        : getReservationStatusNote({
+            latePayment,
+            live,
+            recoveryState,
+            refunded,
+            row,
+          }),
     createdAt: toIsoString(row.createdAt),
     latestPayment,
     updatedAt: toIsoString(row.updatedAt),
@@ -830,9 +885,18 @@ const successfulReservationCount =
     Number
   );
 
+const needsRefundCondition = sql`exists (
+  select 1 from ${paymentAttempts}
+  where ${paymentAttempts.workspaceReservationId} = ${workspaceReservations.id}
+    and ${paymentAttempts.refundState} = 'required'
+)`;
+
 const statusCondition = (
-  status: Exclude<AdministrationStatusGroup, "attention">
+  status: AdministrationReservationStatusFilter
 ): SQL => {
+  if (status === "needs_refund") {
+    return needsRefundCondition;
+  }
   if (status === "complete") {
     return successfulReservationCondition;
   }
@@ -984,46 +1048,6 @@ const buildTimeline = (row: SafeReservationRow) => {
   );
 };
 
-const buildPaymentAttemptTimeline = (
-  attempts: readonly AdministrationPaymentAttempt[]
-): readonly AdministrationTimelineItem[] =>
-  attempts.flatMap((attempt) => {
-    const started: AdministrationTimelineItem = {
-      id: `payment-attempt-${attempt.id}-started`,
-      title: "Payment started",
-      description: `${attempt.providerLabel} attempt ${attempt.id}.`,
-      occurredAt: attempt.createdAt,
-      tone: "neutral",
-    };
-    if (
-      attempt.state === "created" ||
-      attempt.state === "pending" ||
-      attempt.state === "paid"
-    ) {
-      return [started];
-    }
-    const abandoned =
-      attempt.failureCode === "payment_abandoned_after_provider_cutoff";
-    return [
-      started,
-      {
-        id: `payment-attempt-${attempt.id}-${attempt.state}`,
-        title: abandoned
-          ? "Payment abandoned"
-          : {
-              cancelled: "Payment unsuccessful",
-              expired: "Payment unsuccessful",
-              failed: "Payment failed",
-            }[attempt.state],
-        description: abandoned
-          ? "Workspace released the reservation after the local payment window elapsed and Nexi still reported no payment activity."
-          : "The attempt ended without a recorded payment.",
-        occurredAt: attempt.updatedAt,
-        tone: "warning" as const,
-      },
-    ];
-  });
-
 type LatePaymentEventRow = {
   readonly eventId: string;
   readonly receivedAt: Temporal.Instant;
@@ -1120,11 +1144,17 @@ const buildLatePaymentRecoveryTimeline = (
     ];
   });
 
-const getReservationOperatorNotice = (
-  row: SafeReservationRow,
-  latePayment: boolean,
-  recovery?: LatePaymentRecoveryRow
-): AdministrationReservationDetail["operatorNotice"] => {
+const getReservationOperatorNotice = ({
+  latePayment,
+  recovery,
+  refunded,
+  row,
+}: {
+  readonly latePayment: boolean;
+  readonly recovery?: LatePaymentRecoveryRow;
+  readonly refunded: boolean;
+  readonly row: SafeReservationRow;
+}): AdministrationReservationDetail["operatorNotice"] => {
   if (recovery?.state === "pending" || recovery?.state === "processing") {
     return {
       status: "warning",
@@ -1149,6 +1179,14 @@ const getReservationOperatorNotice = (
         "Workspace could not safely complete recovery. Check the original and replacement Dotypos bookings before fulfilling or refunding.",
     };
   }
+  if (latePayment && refunded) {
+    return {
+      status: "success",
+      title: "Late payment refunded",
+      message:
+        "Nexi reported a refund for the late payment. No further refund work is needed.",
+    };
+  }
   if (latePayment) {
     return {
       status: "error",
@@ -1168,87 +1206,6 @@ const getReservationOperatorNotice = (
   return null;
 };
 
-const getOperationTimelineTitle = (
-  operationType: string | undefined,
-  operationResult: string | undefined
-) => {
-  if (operationType === "AUTHORIZATION" && operationResult === "AUTHORIZED") {
-    return "Payment authorized by Nexi";
-  }
-  if (
-    (operationType === "AUTHORIZATION" || operationType === "CAPTURE") &&
-    operationResult === "EXECUTED"
-  ) {
-    return "Payment executed by Nexi";
-  }
-  if (operationType === "REFUND") return "Refund reported by Nexi";
-  if (operationType === "CANCEL" || operationType === "VOID") {
-    return "Payment reversal reported by Nexi";
-  }
-  const typeLabel = operationType
-    ? getProviderValueLabel(operationType)
-    : "Payment operation";
-  return operationResult
-    ? `${typeLabel}: ${getProviderValueLabel(operationResult)}`
-    : typeLabel;
-};
-
-const getOrderTimeline = (
-  orders: readonly AdministrationOrder[]
-): readonly AdministrationTimelineItem[] => {
-  const items: AdministrationTimelineItem[] = [];
-  for (const order of orders) {
-    if (order.link?.providerOrderCreatedAt) {
-      items.push({
-        id: `order-${order.orderId}-created`,
-        title: order.link.providerOrderCreatedAtEstimated
-          ? "Nexi order created (estimated)"
-          : "Nexi order created",
-        description: order.link.providerOrderCreatedAtEstimated
-          ? "This attached Nexi session predates exact order-creation tracking; the local payment-attempt time is shown."
-          : "Nexi accepted the hosted-payment request.",
-        occurredAt: order.link.providerOrderCreatedAt,
-        tone: "neutral",
-        href: `#order-${order.orderId}`,
-      });
-    }
-    for (const [index, operation] of (
-      order.provider?.operations ?? []
-    ).entries()) {
-      if (!operation.operationTime) continue;
-      let occurredAt: string;
-      try {
-        occurredAt = Temporal.Instant.from(operation.operationTime).toString();
-      } catch {
-        continue;
-      }
-      const result = operation.operationResult?.toUpperCase();
-      const operationId = operation.operationId;
-      items.push({
-        id: operationId
-          ? `nexi-operation-${operationId}`
-          : `nexi-operation-${order.orderId}-${index}`,
-        title: getOperationTimelineTitle(
-          operation.operationType?.toUpperCase(),
-          result
-        ),
-        description: operation.channel
-          ? `Nexi reported this ${getProviderValueLabel(operation.channel)} operation.`
-          : "Nexi reported this payment operation.",
-        occurredAt,
-        tone: getProviderOperationTimelineTone(
-          operation.operationType,
-          operation.operationResult
-        ),
-        ...(operationId && {
-          href: `#operation-${operationId}`,
-        }),
-      });
-    }
-  }
-  return items;
-};
-
 export class AdministrationService extends Context.Service<
   AdministrationService,
   {
@@ -1259,6 +1216,11 @@ export class AdministrationService extends Context.Service<
     readonly loadOverview: (
       source: AdministrationOverviewSource
     ) => Effect.Effect<AdministrationOverview, unknown>;
+    /** Reservations with at least one paid Nexi attempt awaiting refund work. */
+    readonly countReservationsNeedingRefund: () => Effect.Effect<
+      number,
+      unknown
+    >;
     readonly listReservations: (
       input: AdministrationReservationListInput
     ) => Effect.Effect<
@@ -1530,6 +1492,17 @@ export class AdministrationService extends Context.Service<
           const latePaymentReservationIds = new Set(
             latePaymentRows.map(({ reservationId }) => reservationId)
           );
+          const refundReservationIds = new Set<string>(
+            attemptRows.flatMap((attempt) =>
+              attempt.refundState === "required"
+                ? [attempt.workspaceReservationId]
+                : []
+            )
+          );
+          const attemptsByReservation = Map.groupBy(
+            attemptRows,
+            ({ workspaceReservationId }) => workspaceReservationId
+          );
           const recoveryByReservation = new Map(
             recoveryRows.map((recovery) => [recovery.reservationId, recovery])
           );
@@ -1555,6 +1528,10 @@ export class AdministrationService extends Context.Service<
                 ? recoveryByReservation.get(row.id)?.state === "refund_required"
                 : latePaymentReservationIds.has(row.id),
               recoveryState: recoveryByReservation.get(row.id)?.state,
+              needsRefund: refundReservationIds.has(row.id),
+              refunded: isReservationRefunded(
+                attemptsByReservation.get(row.id) ?? []
+              ),
               live,
               row,
             })
@@ -1646,6 +1623,18 @@ export class AdministrationService extends Context.Service<
               }).pipe(Effect.as(null));
             })
           );
+      });
+
+      const countReservationsNeedingRefund = Effect.fn(
+        "AdministrationService.countReservationsNeedingRefund"
+      )(function* () {
+        const [row] = yield* db
+          .select({
+            value: countDistinct(paymentAttempts.workspaceReservationId),
+          })
+          .from(paymentAttempts)
+          .where(eq(paymentAttempts.refundState, "required"));
+        return Number(row?.value ?? 0);
       });
 
       const listReservations = Effect.fn(
@@ -1886,6 +1875,7 @@ export class AdministrationService extends Context.Service<
           );
 
         const attempts = attemptRows.map(toAdministrationPaymentAttempt);
+        const refunded = isReservationRefunded(attemptRows);
         const recovery = recoveryRows.at(-1);
         const latePayment = recovery
           ? recovery.state === "refund_required"
@@ -1906,6 +1896,7 @@ export class AdministrationService extends Context.Service<
             latestPayment: attempts.at(-1) ?? null,
             latePayment,
             recoveryState: recovery?.state,
+            refunded,
             live,
             row,
           }),
@@ -1928,17 +1919,19 @@ export class AdministrationService extends Context.Service<
             latePayment,
             latePaymentRecovery: recovery?.state,
             paymentState: row.paymentState,
+            refunded,
             reservationState: row.reservationState,
           }),
-          operatorNotice: getReservationOperatorNotice(
-            row,
+          operatorNotice: getReservationOperatorNotice({
             latePayment,
-            recovery
-          ),
+            recovery,
+            refunded,
+            row,
+          }),
           timeline: mergeReservationHistory({
             durable: [
               ...buildTimeline(row),
-              ...buildPaymentAttemptTimeline(attempts),
+              ...buildPaymentAttemptTimeline(attempts, orders),
               ...buildLatePaymentTimeline(latePaymentRows),
               ...buildLatePaymentRecoveryTimeline(recoveryRows),
               ...getOrderTimeline(orders),
@@ -2389,13 +2382,12 @@ export class AdministrationService extends Context.Service<
             requestedPage: input.page,
             total,
           });
-          const reservationCount = successfulReservationCount;
           const lastActivityAt = max(workspaceReservations.updatedAt);
           const order = input.direction === "asc" ? asc : desc;
           const rows = yield* db
             .select({
               customerId: workspaceReservations.dotyposCustomerId,
-              reservationCount,
+              reservationCount: successfulReservationCount,
               lastActivityAt,
             })
             .from(workspaceReservations)
@@ -2403,7 +2395,7 @@ export class AdministrationService extends Context.Service<
             .orderBy(
               order(
                 input.sort === "reservations"
-                  ? reservationCount
+                  ? successfulReservationCount
                   : lastActivityAt
               ),
               asc(workspaceReservations.dotyposCustomerId)
@@ -2948,6 +2940,7 @@ export class AdministrationService extends Context.Service<
       return {
         loadOverviewSource,
         loadOverview,
+        countReservationsNeedingRefund,
         listReservations,
         loadReservation,
         loadReservationBreadcrumbLabel,

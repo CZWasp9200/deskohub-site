@@ -5,6 +5,7 @@ description: React, TSX, JSX, component, UI convention, translated copy, and Inl
 
 # Deskohub React UI
 
+- For Workspace forms, read [form state and submission boundaries](references/workspace-forms.md).
 - For conditional rendering with no else branch, use `{condition && <Component />}` instead of `{condition ? <Component /> : null}`.
 - When mapping a small variant union to copy, icons, or similar values, use an inline object lookup instead of ternaries. Keep one-use lookup objects inline.
 - Inline a JSX `className` string when it is used only once. Do not hoist it into a local variable.
@@ -13,9 +14,17 @@ description: React, TSX, JSX, component, UI convention, translated copy, and Inl
 - Use the matching shadcn primitive for standard interactions. In particular, use Tooltip for hover and focus hints instead of building controlled Popover timers or pointer-state machinery. If the primitive is missing, add it through the app's existing `components.json` configuration and adapt only its shared styling and React conventions.
 - Keep reservation-family-neutral form shells and interaction primitives, including date and date-time pickers, in `features/reservation/components`. Keep only family-specific selection fields and policy UI under `features/cowork` or `features/meeting-room`.
 - Treat screenshots as part of delivering UI work: every pull request that introduces a visible UI state must attach a screenshot of each newly introduced state from the exact committed implementation. Follow the screenshot upload workflow in the Deskohub PR review skill; never use Cloudinary for PR screenshots. Commit an image only when it is durable documentation or a test fixture. Use tests, not empty screenshots, for hidden preconditions or terminal states that deliberately render nothing.
+- Lay out content that renders beside a sidebar or in another variable-width slot with Tailwind container queries (`@container` on the slot, `@xl:`-style variants inside), not viewport breakpoints. The Workspace account content slot is the reference. Keep viewport breakpoints for page shells and for portaled content such as dialogs, which sit outside the container.
 - Model recurring time-driven client state with the existing Effect Atom and Stream pattern instead of manual `useEffect` interval state.
 - Use `@doist/react-interpolate` when a localized sentence contains links or other React components. Keep the complete sentence in one translation so each locale controls word order and punctuation.
 - Keep user-facing translated copy in the owning app's Inlang message catalogs: full sentences in both locale files, consumed with `m.*`, in component and email-rendering TSX alike. Long-form per-locale legal and GDPR prose in the designated source modules (`features/legal/content.tsx` in deskohub-workspace, `features/gdpr/texts/` in deskohub-boardgame-bar) is a deliberate exception. Never build prebuilt per-locale copy maps or unused copy props for injection: consume `m.someMessage({}, { locale })` directly at each use site, and have tests assert real catalog/rendered text instead of injected strings.
+- In deskohub-workspace, never rely on Paraglide's ambient locale (`getLocale()` or `m.*()` without `{ locale }`) during rendering. `runWithRequestLocale` scopes the locale only to its callback; child components that React renders afterward fall back to `en-US`. Server route files take the locale from `getRequestLocale()` or the callback argument and pass it down. Client route boundaries such as `error.tsx` read it from `useParams()`.
+- When skeletons communicate loading, avoid redundant visible loading copy while retaining an accessible announcement/label.
 - Pass dates into localized messages after locale-aware formatting. Do not hardcode localized calendar dates in message strings.
+- Keep `aria-live`, `role="status"` and `role="alert"` containers mounted and toggle only their content; regions inserted together with their text are often not announced. Do not combine `role="alert"` with `aria-live="polite"`.
+- Pass the visitor's `locale` to `DialogContent` and `SheetContent` in customer-facing UI; their screen-reader close label defaults to the base locale.
+- The React Compiler memoizes render-only derivations, so do not add `useMemo`/`useCallback` for them. Keep manual memoization only where identity is observable: effect dependencies, inputs to identity-compared hooks such as reservation availability debouncing, and third-party props such as lightbox `slides` or photo-album `photos`.
+- Do not key a component by server state that its own `router.refresh()` changes; the remount drops local feedback and focus. Adjust local state from changed props during render instead.
+- Surface thrown (transport) action failures: `useWorkspaceAction` reports them as `hasErrored` with no `serverError`, and `onError` already runs for them, so do not also duplicate the handling in `onTransportError`.
 
 Update this skill when developer feedback changes a durable React convention.

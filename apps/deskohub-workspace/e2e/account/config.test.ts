@@ -12,7 +12,6 @@ import {
   makeWorkspaceE2EAccountRecipient,
   makeWorkspaceE2EAccountRecipientForRunId,
   workspaceE2EAccountMainRecipientLabel,
-  workspaceE2EAuthCorrelationTags,
 } from "./config";
 
 const runId = (value: string): WorkspaceE2ERunId =>
@@ -23,12 +22,13 @@ const makeAccountEnvironment = (
 ) =>
   makeWorkspaceE2EEnvironment({
     ...validE2ERuntimeEnvironment,
-    WORKSPACE_E2E_RESEND_API_KEY: "re_full-access-retrieval-key",
+    WORKSPACE_E2E_VERCEL_PROJECT: "workspace-preview-project",
+    WORKSPACE_E2E_VERCEL_TOKEN: "vercel-log-read-token",
     ...overrides,
   });
 
 describe("workspace account e2e configuration", () => {
-  test("derives the exact immutable preview origin and keeps the validated run id", () => {
+  test("derives the exact immutable preview origin", () => {
     const config = getAccountE2EConfig(
       makeAccountEnvironment(),
       runId("1234567890-2")
@@ -40,37 +40,39 @@ describe("workspace account e2e configuration", () => {
     expect(config.expectedHost).toBe(
       "deskohub-workspace-abc123xyz-deskohub.vercel.app"
     );
-    expect(config.locale).toBe("en-US");
-    expect(config.runId).toBe("1234567890-2");
   });
 
-  test("fails closed before account cases when the retrieval key is absent", () => {
-    expect(() =>
-      getAccountE2EConfig(
-        makeAccountEnvironment({ WORKSPACE_E2E_RESEND_API_KEY: undefined })
-      )
-    ).toThrow("WORKSPACE_E2E_RESEND_API_KEY is required");
+  test("enables review screenshots only when the decoded opt-in is true", () => {
+    const reviewConfig = getAccountE2EConfig(
+      makeAccountEnvironment({ WORKSPACE_E2E_REVIEW_SCREENSHOTS: "true" }),
+      runId("1234567890-2")
+    );
+    const defaultConfig = getAccountE2EConfig(
+      makeAccountEnvironment(),
+      runId("1234567890-2")
+    );
+
+    expect(reviewConfig.review).toEqual({
+      baseUrl: reviewConfig.baseUrl,
+      screenshots: true,
+    });
+    expect(defaultConfig.review.screenshots).toBe(false);
   });
 
-  test("fails closed when the base URL is not an immutable Vercel origin", () => {
+  test("fails closed before account cases when the Vercel log-read token is absent", () => {
     expect(() =>
       getAccountE2EConfig(
-        makeAccountEnvironment({
-          WORKSPACE_E2E_BASE_URL: "https://deskohub-workspace.example.test",
-        })
+        makeAccountEnvironment({ WORKSPACE_E2E_VERCEL_TOKEN: undefined })
       )
-    ).toThrow("must use a Vercel deployment host");
+    ).toThrow("WORKSPACE_E2E_VERCEL_TOKEN is required");
   });
 
-  test("rejects a mutable branch alias instead of an exact deployment", () => {
+  test("fails closed before account cases when the Vercel project id is absent", () => {
     expect(() =>
       getAccountE2EConfig(
-        makeAccountEnvironment({
-          WORKSPACE_E2E_BASE_URL:
-            "https://deskohub-workspace-git-main-deskohub.vercel.app",
-        })
+        makeAccountEnvironment({ WORKSPACE_E2E_VERCEL_PROJECT: undefined })
       )
-    ).toThrow("immutable deployment URL, not a branch alias");
+    ).toThrow("WORKSPACE_E2E_VERCEL_PROJECT is required");
   });
 
   test("registers the protection bypass secret with the process redactor", () => {
@@ -85,10 +87,10 @@ describe("workspace account e2e configuration", () => {
     );
   });
 
-  test("registers the retrieval key with the process redactor", () => {
+  test("registers the Vercel log-read token with the process redactor", () => {
     getAccountE2EConfig(makeAccountEnvironment());
 
-    expect(redact("token re_full-access-retrieval-key tail")).toBe(
+    expect(redact("token vercel-log-read-token tail")).toBe(
       "token [redacted] tail"
     );
   });
@@ -108,28 +110,6 @@ describe("workspace account e2e configuration", () => {
     expect(other).toBe(`delivered+${config.runId}-active-linking@resend.dev`);
     expect(redact(recipient)).toBe("[redacted]");
     expect(redact(other)).toBe("[redacted]");
-  });
-
-  test("derives the same recipient from the validated run id alone", () => {
-    const config = getAccountE2EConfig(
-      makeAccountEnvironment(),
-      runId("manual-018f3ca2-0000-7000-8000-000000000000")
-    );
-
-    expect(
-      makeWorkspaceE2EAccountRecipientForRunId(
-        config.runId,
-        workspaceE2EAccountMainRecipientLabel
-      )
-    ).toBe(
-      "delivered+manual-018f3ca2-0000-7000-8000-000000000000-main@resend.dev"
-    );
-    expect(
-      makeWorkspaceE2EAccountRecipientForRunId(
-        runId("1234567890-2"),
-        workspaceE2EAccountMainRecipientLabel
-      )
-    ).toBe("delivered+1234567890-2-main@resend.dev");
   });
 
   test("rejects run ids that could encode data beyond the run identity", () => {
@@ -156,12 +136,5 @@ describe("workspace account e2e configuration", () => {
     expect(() => makeWorkspaceE2EAccountRecipient(config, "user@mail")).toThrow(
       "must stay opaque"
     );
-  });
-
-  test("exposes the fixed correlation tags shared with the deployed sender", () => {
-    expect(workspaceE2EAuthCorrelationTags).toEqual([
-      { name: "category", value: "account-magic-link" },
-      { name: "surface", value: "workspace" },
-    ]);
   });
 });

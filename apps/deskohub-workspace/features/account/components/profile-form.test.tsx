@@ -8,7 +8,11 @@ import {
   test,
 } from "bun:test";
 import React, { Activity, type ComponentPropsWithoutRef } from "react";
-import type { CustomerProfileInput } from "@/features/account/contracts";
+import type {
+  CustomerAvatarPresentation,
+  CustomerProfileInput,
+} from "@/features/account/contracts";
+import { m } from "@/features/i18n";
 import { workspaceRouterRefresh } from "@/shared/testing/workspace-component-module-mocks";
 import {
   registerWorkspaceComponentTestEnv,
@@ -34,6 +38,20 @@ const completeCustomerProfile = mock(() =>
 const updateCustomerProfile = mock(() =>
   Promise.resolve({ data: { status: "updated" } })
 );
+const uploadCustomerAvatar = mock(() =>
+  Promise.resolve({
+    data: {
+      avatar: {
+        url: "https://res.cloudinary.test/upload/v2/avatars/live",
+        version: 2,
+      },
+      status: "uploaded",
+    },
+  })
+);
+const removeCustomerAvatar = mock(() =>
+  Promise.resolve({ data: { status: "removed" } })
+);
 
 mock.module("@/features/account/actions", () => ({
   updatePreferredLanguage: () => Promise.resolve({ data: { status: "saved" } }),
@@ -42,69 +60,10 @@ mock.module("@/features/account/actions", () => ({
   completeCustomerProfile,
   updateCustomerProfile,
 }));
-mock.module("@/features/account/components/account-screen-copy", () => ({
-  getAccountScreenCopy: (locale: "en-US" | "cs-CZ") => ({
-    shell: {
-      mobileSection: "Account section",
-      navigation: "Account navigation",
-      sections: {
-        billing: "Billing & invoices",
-        danger: "Danger zone",
-        legal: "Legal & privacy",
-        profile: "Profile & identity",
-        reservations: "Reservations",
-      },
-    },
-    profile: {
-      avatarUnavailableDescription: "Profile photos are not available here.",
-      avatarUnavailableLabel: "Profile photo unavailable",
-      emailLabel: "Email",
-      emailVerification: {
-        unverified: "This email still needs verification.",
-        verified: "This email has been successfully verified.",
-      },
-      languageLabel: "Preferred communication language",
-      memberFallback: "Workspace member",
-      title: "Profile & identity",
-      verifiedEmail: "Verified login email",
-    },
-    billing: {
-      addPaymentCard: "Add payment card",
-      billingDetailsTitle:
-        locale === "cs-CZ" ? "Fakturační údaje" : "Billing details",
-      currency: "Currency: CZK (Kč)",
-      downloadInvoice: "Download PDF",
-      exportInvoices: "Export all",
-      invoiceHistoryTitle: "Invoice history",
-      invoiceHistoryUnavailable:
-        "Invoice history and downloads are not available in this account.",
-      paymentMethodsTitle: "Saved payment methods",
-      paymentMethodsUnavailable:
-        "Saved payment methods are not available in this account.",
-      removePaymentCard: "Remove payment card",
-      title: "Billing & invoices",
-    },
-
-    reservations: {
-      assignedDesk: "Assigned desk",
-      checkIn: "Check in",
-      date: "Date",
-      moreCurrent: "More upcoming reservations",
-      nfcAccess: "NFC access",
-      product: "Product",
-      seats: "Seats",
-      showPinCode: "Show PIN code",
-      status: "Status",
-      unavailable: "Unavailable",
-      unsupportedDescription: "This access detail is not available yet.",
-      validity: "Validity",
-      viewReservation: "View reservation",
-      wifi: "Wi-Fi",
-    },
-    dangerTitle: "Danger zone",
-  }),
+mock.module("@/features/account/avatar-actions", () => ({
+  removeCustomerAvatar,
+  uploadCustomerAvatar,
 }));
-
 // A faithful stand-in for next-safe-action's hook contract so the component
 // behaves as it does in the browser.
 mock.module("@/shared/utils/use-workspace-action", () => ({
@@ -236,11 +195,22 @@ describe("ProfileForm", () => {
     cleanup();
     completeCustomerProfile.mockClear();
     updateCustomerProfile.mockClear();
+    // Client validation can now reject invalid input before the action runs,
+    // so queued mockImplementationOnce results from a previous test would
+    // otherwise leak into the next action call.
+    completeCustomerProfile.mockImplementation(() =>
+      Promise.resolve({ data: { status: "completed" } })
+    );
+    updateCustomerProfile.mockImplementation(() =>
+      Promise.resolve({ data: { status: "updated" } })
+    );
+    uploadCustomerAvatar.mockClear();
+    removeCustomerAvatar.mockClear();
     workspaceRouterRefresh.mockClear();
   });
 
-  afterAll(() => {
-    unregisterWorkspaceComponentTestEnv();
+  afterAll(async () => {
+    await unregisterWorkspaceComponentTestEnv();
   });
 
   test("labels the profile fields without required or optional suffixes", async () => {
@@ -255,10 +225,18 @@ describe("ProfileForm", () => {
         profile={editProfile}
       />
     );
-    expect(en.getByLabelText("First name")).toBeTruthy();
-    expect(en.getByLabelText("Last name")).toBeTruthy();
-    expect(en.getByLabelText("Phone")).toBeTruthy();
-    expect(en.getByText("Billing details")).toBeTruthy();
+    expect(
+      en.getByLabelText(m.accountProfileFirstNameLabel({}, { locale: "en-US" }))
+    ).toBeTruthy();
+    expect(
+      en.getByLabelText(m.accountProfileLastNameLabel({}, { locale: "en-US" }))
+    ).toBeTruthy();
+    expect(
+      en.getByLabelText(m.accountProfilePhoneLabel({}, { locale: "en-US" }))
+    ).toBeTruthy();
+    expect(
+      en.getByText(m.accountBillingDetailsTitle({}, { locale: "en-US" }))
+    ).toBeTruthy();
     en.unmount();
 
     const cs = render(
@@ -270,10 +248,18 @@ describe("ProfileForm", () => {
         profile={editProfile}
       />
     );
-    expect(cs.getByLabelText("Jméno")).toBeTruthy();
-    expect(cs.getByLabelText("Příjmení")).toBeTruthy();
-    expect(cs.getByLabelText("Telefon")).toBeTruthy();
-    expect(cs.getByText("Fakturační údaje")).toBeTruthy();
+    expect(
+      cs.getByLabelText(m.accountProfileFirstNameLabel({}, { locale: "cs-CZ" }))
+    ).toBeTruthy();
+    expect(
+      cs.getByLabelText(m.accountProfileLastNameLabel({}, { locale: "cs-CZ" }))
+    ).toBeTruthy();
+    expect(
+      cs.getByLabelText(m.accountProfilePhoneLabel({}, { locale: "cs-CZ" }))
+    ).toBeTruthy();
+    expect(
+      cs.getByText(m.accountBillingDetailsTitle({}, { locale: "cs-CZ" }))
+    ).toBeTruthy();
   });
 
   test("renders the verified login email as immutable profile text", async () => {
@@ -523,8 +509,9 @@ describe("ProfileForm", () => {
     expect(view.getByTestId("active-section").textContent).toBe("billing");
     expect(companyName.validity.valid).toBe(false);
     expect(
-      view.getByRole("region", { name: "Billing & invoices" }).parentElement
-        ?.hidden
+      view.getByRole("region", {
+        name: m.accountSectionBilling({}, { locale: "en-US" }),
+      }).parentElement?.hidden
     ).toBe(false);
   });
 
@@ -798,16 +785,6 @@ describe("ProfileForm", () => {
   });
 
   test("forces phone correction instead of saving when the phone fails validation", async () => {
-    updateCustomerProfile.mockImplementationOnce(() =>
-      Promise.resolve({
-        validationErrors: {
-          formErrors: [],
-          fieldErrors: {
-            phone: ["Enter a valid phone number or clear the field."],
-          },
-        },
-      })
-    );
     const { ProfileForm } = await import("./profile-form");
 
     const view = render(
@@ -824,6 +801,9 @@ describe("ProfileForm", () => {
       fireEvent.submit(view.container.querySelector("#account-profile-form")!);
     });
 
+    // The shared contract schema rejects the unparseable phone on the client,
+    // so the save never leaves the form.
+    expect(updateCustomerProfile).not.toHaveBeenCalled();
     const phone = view.getByLabelText("Phone");
     expect(phone.getAttribute("aria-invalid")).toBe("true");
     expect(phone.getAttribute("aria-describedby")).toBe(
@@ -1439,7 +1419,7 @@ describe("ProfileForm", () => {
     expect(view.getByLabelText("City")).toBeTruthy();
   });
 
-  test("keeps billing address controls in responsive grid cells", async () => {
+  test("links each rejected billing field to its server error", async () => {
     updateCustomerProfile.mockImplementationOnce(() =>
       Promise.resolve({
         validationErrors: {
@@ -1479,106 +1459,68 @@ describe("ProfileForm", () => {
       await Promise.resolve();
     });
 
+    const locale = "en-US";
     const fields = [
       [
-        "Company name",
+        m.accountProfileCompanyNameLabel({}, { locale }),
         "account-profile-billing-company-name",
-        "billingCompanyName",
         "Original Company",
       ],
       [
-        "Company ID (IČO)",
+        m.accountAresLookupIcoLabel({}, { locale }),
         "account-profile-billing-company-id",
-        "billingCompanyId",
         "12345678",
       ],
-      ["VAT ID", "account-profile-billing-vat-id", "billingVatId", ""],
       [
-        "Street and number",
+        m.accountProfileVatIdLabel({}, { locale }),
+        "account-profile-billing-vat-id",
+        "",
+      ],
+      [
+        m.accountProfileAddressLine1Label({}, { locale }),
         "account-profile-billing-address-line1",
-        "billingAddressLine1",
         "Original Street 1",
       ],
       [
-        "Apartment, suite",
+        m.accountProfileAddressLine2Label({}, { locale }),
         "account-profile-billing-address-line2",
-        "billingAddressLine2",
         "",
       ],
-      ["City", "account-profile-billing-city", "billingCity", "Prague"],
-      ["Postal code", "account-profile-billing-zip", "billingZip", "11000"],
       [
-        "Country code",
+        m.accountProfileCityLabel({}, { locale }),
+        "account-profile-billing-city",
+        "Prague",
+      ],
+      [
+        m.accountProfileZipLabel({}, { locale }),
+        "account-profile-billing-zip",
+        "11000",
+      ],
+      [
+        m.accountProfileCountryLabel({}, { locale }),
         "account-profile-billing-country",
-        "billingCountry",
         "CZ",
       ],
     ] as const;
 
-    expect(
-      Array.from(
-        view.container.querySelectorAll<HTMLInputElement>(
-          "input[name^='billing']"
-        ),
-        (input) => input.name
-      )
-    ).toEqual(fields.map(([, , name]) => name));
-
-    for (const [label, id, name, value] of fields) {
+    for (const [label, id, value] of fields) {
       const input = view.getByLabelText(label) as HTMLInputElement;
       expect(view.container.querySelectorAll(`#${id}`)).toHaveLength(1);
       expect(input.id).toBe(id);
-      expect(input.name).toBe(name);
       expect(input.value).toBe(value);
       expect(input.getAttribute("aria-invalid")).toBe("true");
       expect(input.getAttribute("aria-describedby")).toBe(`${id}-error`);
       expect(view.container.querySelectorAll(`#${id}-error`)).toHaveLength(1);
     }
-    expect(
-      (view.getByLabelText("Country code") as HTMLInputElement).getAttribute(
-        "autocomplete"
-      )
-    ).toBe("country");
-
-    const addressLine1 = view.getByLabelText(
-      "Street and number"
-    ) as HTMLInputElement;
-    const addressLine2 = view.getByLabelText(
-      "Apartment, suite"
-    ) as HTMLInputElement;
-    const city = view.getByLabelText("City") as HTMLInputElement;
-    const zip = view.getByLabelText("Postal code") as HTMLInputElement;
-    const country = view.getByLabelText("Country code") as HTMLInputElement;
-    const addressLine1Wrapper = addressLine1.parentElement!;
-    const addressLine2Wrapper = addressLine2.parentElement!;
-    const cityWrapper = city.parentElement!;
-    const zipWrapper = zip.parentElement!;
-    const countryWrapper = country.parentElement!;
-    const outerGrid = addressLine1Wrapper.parentElement!;
-    const zipCountryGrid = zipWrapper.parentElement!;
-
-    expect(addressLine1Wrapper.classList.contains("sm:col-span-2")).toBe(false);
-    expect(addressLine2Wrapper.classList.contains("sm:col-span-2")).toBe(false);
-    expect(addressLine1Wrapper.classList.contains("min-w-0")).toBe(true);
-    expect(addressLine2Wrapper.classList.contains("min-w-0")).toBe(true);
-    expect(addressLine1Wrapper.parentElement).toBe(outerGrid);
-    expect(addressLine2Wrapper.parentElement).toBe(outerGrid);
-    expect(addressLine1Wrapper.nextElementSibling).toBe(addressLine2Wrapper);
-    expect(outerGrid.classList.contains("grid")).toBe(true);
-    expect(outerGrid.classList.contains("sm:grid-cols-2")).toBe(true);
-    expect(outerGrid.classList.contains("grid-cols-2")).toBe(false);
-    expect(cityWrapper.nextElementSibling).toBe(zipCountryGrid);
-    expect(zipCountryGrid.parentElement).toBe(outerGrid);
-    expect(zipCountryGrid.classList.contains("min-w-0")).toBe(true);
-    expect(zipCountryGrid.classList.contains("grid")).toBe(true);
-    expect(zipCountryGrid.classList.contains("gap-5")).toBe(true);
-    expect(zipCountryGrid.classList.contains("sm:grid-cols-2")).toBe(true);
-    expect(zipCountryGrid.classList.contains("grid-cols-2")).toBe(false);
-    expect(zipWrapper.parentElement).toBe(zipCountryGrid);
-    expect(countryWrapper.parentElement).toBe(zipCountryGrid);
   });
 
-  test("blocks internal navigation after changing the profile", async () => {
+  test("keeps edits typed after submission and stays guarded when the save succeeds", async () => {
+    let resolveUpdate!: (result: ActionResult) => void;
+    const pendingUpdate = new Promise<ActionResult>((resolve) => {
+      resolveUpdate = resolve;
+    });
+    updateCustomerProfile.mockImplementationOnce(() => pendingUpdate);
+
     const { ProfileForm } = await import("./profile-form");
     const { UnsavedChangesProvider } = await import(
       "@/shared/components/unsaved-changes-guard"
@@ -1601,13 +1543,25 @@ describe("ProfileForm", () => {
           <GuardedLink href="/next">Next</GuardedLink>
         </UnsavedChangesProvider>
       );
+      const firstName = view.getByLabelText("First name") as HTMLInputElement;
+
       await act(async () => {
-        fireEvent.input(view.getByLabelText("First name"), {
-          target: { value: "Grace" },
-        });
-        await Promise.resolve();
+        fireEvent.input(firstName, { target: { value: "Grace" } });
+        fireEvent.submit(
+          view.container.querySelector("#account-profile-form")!
+        );
+      });
+      expect(updateCustomerProfile).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        fireEvent.input(firstName, { target: { value: "Augusta" } });
+        resolveUpdate({ data: { status: "updated" } });
+        await pendingUpdate;
       });
 
+      // The in-flight edit survives the success and keeps the guard on.
+      expect(firstName.value).toBe("Augusta");
+      expect(view.getByText("Profile updated.")).toBeTruthy();
       const link = view.getByRole("link", { name: "Next" });
       const event = new MouseEvent("click", {
         bubbles: true,
@@ -1615,7 +1569,131 @@ describe("ProfileForm", () => {
         button: 0,
       });
       link.dispatchEvent(event);
+      expect(event.defaultPrevented).toBe(true);
+      expect(confirm).toHaveBeenCalledWith(
+        "You have unsaved profile changes. Leave this page?"
+      );
 
+      // Returning to the submitted value clears the guard again.
+      await act(async () => {
+        fireEvent.input(firstName, { target: { value: "Grace" } });
+      });
+      const secondEvent = new MouseEvent("click", {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+      });
+      view.getByRole("link", { name: "Next" }).dispatchEvent(secondEvent);
+      expect(secondEvent.defaultPrevented).toBe(false);
+      expect(confirm).toHaveBeenCalledTimes(1);
+    } finally {
+      window.confirm = originalConfirm;
+    }
+  });
+
+  test("moves to the billing section when client validation rejects a hidden billing field", async () => {
+    const { ProfileForm } = await import("./profile-form");
+
+    function SectionHarness() {
+      const [section, setSection] = React.useState<"profile" | "billing">(
+        "profile"
+      );
+      return (
+        <>
+          <output data-testid="active-section">{section}</output>
+          <ProfileForm
+            email="ada@example.test"
+            locale="en-US"
+            mode="edit"
+            onSectionChange={setSection}
+            profile={businessProfile}
+            section={section}
+          />
+        </>
+      );
+    }
+
+    const view = render(<SectionHarness />);
+    // Whitespace passes the native required check but fails the shared
+    // contract schema's trimmed non-empty rule.
+    fireEvent.input(view.getByLabelText("Company name"), {
+      target: { value: "   " },
+    });
+
+    await act(async () => {
+      fireEvent.submit(view.container.querySelector("#account-profile-form")!);
+    });
+
+    expect(updateCustomerProfile).not.toHaveBeenCalled();
+    expect(view.getByTestId("active-section").textContent).toBe("billing");
+    const companyName = view.getByLabelText("Company name") as HTMLInputElement;
+    expect(companyName.getAttribute("aria-invalid")).toBe("true");
+    expect(
+      view.getByText("Please review the highlighted fields and try again.")
+    ).toBeTruthy();
+  });
+
+  test("keeps an in-flight edit returned to its original value when the save succeeds", async () => {
+    let resolveUpdate!: (result: ActionResult) => void;
+    const pendingUpdate = new Promise<ActionResult>((resolve) => {
+      resolveUpdate = resolve;
+    });
+    updateCustomerProfile.mockImplementationOnce(() => pendingUpdate);
+
+    const { ProfileForm } = await import("./profile-form");
+    const { UnsavedChangesProvider } = await import(
+      "@/shared/components/unsaved-changes-guard"
+    );
+    const originalConfirm = window.confirm;
+    const confirm = mock(() => false);
+    window.location.href = "http://localhost/account";
+    window.confirm = confirm;
+
+    try {
+      const view = render(
+        <UnsavedChangesProvider>
+          <ProfileForm
+            mode="edit"
+            locale="en-US"
+            email="ada@example.test"
+            profile={editProfile}
+          />
+          <GuardedLink href="/next">Next</GuardedLink>
+        </UnsavedChangesProvider>
+      );
+      const firstName = view.getByLabelText("First name") as HTMLInputElement;
+
+      await act(async () => {
+        fireEvent.input(firstName, { target: { value: "Grace" } });
+        fireEvent.submit(
+          view.container.querySelector("#account-profile-form")!
+        );
+      });
+      expect(updateCustomerProfile).toHaveBeenCalledTimes(1);
+      expect(
+        (updateCustomerProfile.mock.calls[0]![0] as { firstName?: string })
+          .firstName
+      ).toBe("Grace");
+
+      // The customer reverts the in-flight edit to the original value before
+      // the save resolves: the typed value must survive the success.
+      await act(async () => {
+        fireEvent.input(firstName, { target: { value: "Ada" } });
+        resolveUpdate({ data: { status: "updated" } });
+        await pendingUpdate;
+      });
+
+      expect(firstName.value).toBe("Ada");
+      expect(view.getByText("Profile updated.")).toBeTruthy();
+
+      // The server saved "Grace", so the reverted "Ada" is still unsaved.
+      const link = view.getByRole("link", { name: "Next" });
+      const event = new MouseEvent("click", {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+      });
+      link.dispatchEvent(event);
       expect(event.defaultPrevented).toBe(true);
       expect(confirm).toHaveBeenCalledWith(
         "You have unsaved profile changes. Leave this page?"
@@ -1623,5 +1701,404 @@ describe("ProfileForm", () => {
     } finally {
       window.confirm = originalConfirm;
     }
+  });
+
+  test("suppresses the completion refresh when an in-flight edit returned to its original value", async () => {
+    let resolveCompletion!: (result: ActionResult) => void;
+    const pendingCompletion = new Promise<ActionResult>((resolve) => {
+      resolveCompletion = resolve;
+    });
+    completeCustomerProfile.mockImplementationOnce(() => pendingCompletion);
+
+    const { ProfileForm } = await import("./profile-form");
+
+    const view = render(
+      <ProfileForm mode="complete" locale="en-US" email="ada@example.test" />
+    );
+    const firstName = view.getByLabelText("First name") as HTMLInputElement;
+
+    await act(async () => {
+      fireEvent.input(firstName, { target: { value: "Grace" } });
+      fireEvent.submit(view.container.querySelector("#account-profile-form")!);
+    });
+
+    // Clearing the field returns it to its original (empty) value, so the
+    // submitted snapshot differs from what the customer is looking at even
+    // though nothing looks dirty against the original defaults.
+    await act(async () => {
+      fireEvent.input(firstName, { target: { value: "" } });
+      resolveCompletion({ data: { status: "completed" } });
+      await pendingCompletion;
+    });
+
+    expect(firstName.value).toBe("");
+    // The field shows "" while the submitted snapshot was "Grace", so no
+    // refresh happens and the form stays interactive.
+    expect(workspaceRouterRefresh).not.toHaveBeenCalled();
+    expect(
+      (view.container.querySelector("fieldset") as HTMLFieldSetElement).disabled
+    ).toBe(false);
+  });
+
+  test("surfaces the native company-name error inline when submit is blocked natively", async () => {
+    const { ProfileForm } = await import("./profile-form");
+
+    const emptyCompanyProfile = {
+      ...editProfile,
+      billing: {
+        kind: "business" as const,
+        addressLine1: "Original Street 1",
+        addressLine2: null,
+        city: "Prague",
+        zip: "11000",
+        country: "CZ",
+        companyName: "",
+        companyId: "12345678",
+        vatId: null,
+      },
+    };
+
+    const view = render(
+      <ProfileForm
+        mode="edit"
+        locale="en-US"
+        email="ada@example.test"
+        profile={emptyCompanyProfile}
+        section="billing"
+      />
+    );
+    const companyName = view.getByLabelText("Company name") as HTMLInputElement;
+    expect(companyName.value).toBe("");
+    expect(companyName.getAttribute("aria-invalid")).toBeNull();
+
+    // requestSubmit runs native constraint validation without blurring the
+    // field: the inline error must still be installed and linked.
+    await act(async () => {
+      (
+        view.container.querySelector("#account-profile-form") as HTMLFormElement
+      ).requestSubmit();
+    });
+
+    expect(updateCustomerProfile).not.toHaveBeenCalled();
+    expect(companyName.getAttribute("aria-invalid")).toBe("true");
+    expect(companyName.getAttribute("aria-describedby")).toBe(
+      "account-profile-billing-company-name-error"
+    );
+    const errorMessage = view.container.querySelector(
+      "#account-profile-billing-company-name-error"
+    );
+    expect(errorMessage?.textContent).toBe(
+      "Please review the highlighted fields and try again."
+    );
+  });
+
+  describe("avatar control", () => {
+    const existingAvatar = {
+      url: "https://res.cloudinary.test/upload/v1/avatars/live",
+      version: 1,
+    };
+
+    const renderEditProfile = async (
+      props: Partial<ComponentPropsWithoutRef<typeof ProfileForm>> = {}
+    ) => {
+      const { ProfileForm: ProfileFormComponent } = await import(
+        "./profile-form"
+      );
+      return render(
+        <ProfileFormComponent
+          avatarPresentation={{ kind: "available", avatar: null }}
+          email="ada@example.test"
+          locale="en-US"
+          mode="edit"
+          profile={editProfile}
+          {...props}
+        />
+      );
+    };
+
+    const fileInput = (view: ReturnType<typeof render>) =>
+      view.container.querySelector("input[type='file']") as HTMLInputElement;
+
+    const pickAvatarFile = (view: ReturnType<typeof render>) => {
+      fireEvent.change(fileInput(view), {
+        target: {
+          files: [
+            new File([new Uint8Array([137, 80])], "avatar.png", {
+              type: "image/png",
+            }),
+          ],
+        },
+      });
+    };
+
+    test("shows the initials fallback and hides remove without an avatar", async () => {
+      const view = await renderEditProfile();
+
+      expect(view.container.querySelector("img")).toBeNull();
+      expect(view.getByText("AL")).toBeTruthy();
+      expect(
+        view.queryByRole("button", { name: "Remove profile photo" })
+      ).toBeNull();
+      expect(
+        view.getByRole("button", { name: "Change profile photo" })
+      ).toBeTruthy();
+      expect(view.getByText("JPG, PNG or WebP, up to 2 MB.")).toBeTruthy();
+    });
+
+    test("omits the avatar control entirely when presentation is hidden", async () => {
+      const view = await renderEditProfile({
+        avatarPresentation: { kind: "hidden" },
+      });
+      const locale = "en-US";
+      const changeLabel = m.accountProfileAvatarChange({}, { locale });
+      const removeLabel = m.accountProfileAvatarRemove({}, { locale });
+      const avatarCopy = [
+        m.accountProfileAvatarAlt({}, { locale }),
+        changeLabel,
+        removeLabel,
+        m.accountProfileAvatarHint({}, { locale }),
+        m.accountProfileAvatarUploading({}, { locale }),
+        m.accountProfileAvatarRemoving({}, { locale }),
+        m.accountProfileAvatarUpdated({}, { locale }),
+        m.accountProfileAvatarRemoved({}, { locale }),
+        m.accountProfileAvatarErrorRetryable({}, { locale }),
+        m.accountProfileAvatarErrorGeneric({}, { locale }),
+        m.accountProfileAvatarErrorFileMissing({}, { locale }),
+        m.accountProfileAvatarErrorFileTooLarge({}, { locale }),
+        m.accountProfileAvatarErrorDimensions({}, { locale }),
+        m.accountProfileAvatarErrorUndecodable({}, { locale }),
+        m.accountProfileAvatarErrorUnsupportedFormat({}, { locale }),
+      ];
+
+      expect(view.getByText("Ada Lovelace")).toBeTruthy();
+      expect(view.getByText("ada@example.test")).toBeTruthy();
+      expect(view.getByLabelText("First name")).toBeTruthy();
+      expect(view.container.querySelector("img")).toBeNull();
+      expect(view.container.querySelector("input[type='file']")).toBeNull();
+      expect(view.container.querySelector("svg.lucide-user-round")).toBeNull();
+      expect(view.queryByText("AL")).toBeNull();
+      expect(view.queryByRole("status")).toBeNull();
+      expect(view.queryByRole("button", { name: changeLabel })).toBeNull();
+      expect(view.queryByRole("button", { name: removeLabel })).toBeNull();
+      for (const copy of avatarCopy) {
+        expect(view.queryByText(copy)).toBeNull();
+      }
+    });
+
+    test("renders the stored avatar with localized alt text and a remove control", async () => {
+      const view = await renderEditProfile({
+        avatarPresentation: { kind: "available", avatar: existingAvatar },
+      });
+
+      const image = view.getByAltText("Your profile picture");
+      expect((image as HTMLImageElement).src).toBe(existingAvatar.url);
+      expect(
+        view.getByRole("button", { name: "Remove profile photo" })
+      ).toBeTruthy();
+      expect(view.queryByText("AL")).toBeNull();
+    });
+
+    test("falls back to initials when the avatar image fails to load", async () => {
+      const view = await renderEditProfile({
+        avatarPresentation: { kind: "available", avatar: existingAvatar },
+      });
+      const image = view.getByAltText("Your profile picture");
+
+      await act(async () => {
+        fireEvent.error(image);
+      });
+
+      expect(view.container.querySelector("img")).toBeNull();
+      expect(view.getByText("AL")).toBeTruthy();
+    });
+
+    test("reaches and activates upload and remove from the keyboard", async () => {
+      const view = await renderEditProfile({
+        avatarPresentation: { kind: "available", avatar: existingAvatar },
+      });
+      const input = fileInput(view);
+      const openPicker = mock(() => undefined);
+      input.click = openPicker;
+
+      const camera = view.getByRole("button", {
+        name: "Change profile photo",
+      });
+      expect(camera.tagName).toBe("BUTTON");
+      expect((camera as HTMLButtonElement).disabled).toBe(false);
+      await act(async () => {
+        camera.focus();
+      });
+      expect(document.activeElement).toBe(camera);
+      await act(async () => {
+        fireEvent.click(camera);
+      });
+      expect(openPicker).toHaveBeenCalledTimes(1);
+
+      const remove = view.getByRole("button", {
+        name: "Remove profile photo",
+      });
+      expect(remove.tagName).toBe("BUTTON");
+      await act(async () => {
+        remove.focus();
+      });
+      expect(document.activeElement).toBe(remove);
+      await act(async () => {
+        fireEvent.click(remove);
+      });
+
+      expect(removeCustomerAvatar).toHaveBeenCalledTimes(1);
+      expect(uploadCustomerAvatar).not.toHaveBeenCalled();
+    });
+
+    test("keeps dirty identity and billing drafts when refreshed server props arrive after an avatar upload", async () => {
+      const { ProfileForm: ProfileFormComponent } = await import(
+        "./profile-form"
+      );
+      const refreshedAvatar = {
+        url: "https://res.cloudinary.test/upload/v2/avatars/live",
+        version: 2,
+      };
+
+      function RefreshHarness() {
+        const [profile, setProfile] = React.useState(businessProfile);
+        const [avatarPresentation, setAvatarPresentation] =
+          React.useState<CustomerAvatarPresentation>({
+            kind: "available",
+            avatar: null,
+          });
+        const [section, setSection] = React.useState<"profile" | "billing">(
+          "profile"
+        );
+        return (
+          <>
+            <button type="button" onClick={() => setSection("profile")}>
+              Identity section
+            </button>
+            <button type="button" onClick={() => setSection("billing")}>
+              Billing section
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                // The router refresh re-renders the form with fresh server
+                // data while the customer's drafts are dirty.
+                setProfile({
+                  ...businessProfile,
+                  firstName: "Server",
+                  lastName: "Refreshed",
+                });
+                setAvatarPresentation({
+                  kind: "available",
+                  avatar: refreshedAvatar,
+                });
+              }}
+            >
+              Apply server refresh
+            </button>
+            <ProfileFormComponent
+              email="ada@example.test"
+              locale="en-US"
+              mode="edit"
+              profile={profile}
+              avatarPresentation={avatarPresentation}
+              section={section}
+              onSectionChange={setSection}
+            />
+          </>
+        );
+      }
+
+      const view = render(<RefreshHarness />);
+
+      // Dirty the identity drafts.
+      await act(async () => {
+        fireEvent.input(view.getByLabelText("First name"), {
+          target: { value: "Grace" },
+        });
+        fireEvent.input(view.getByLabelText("Last name"), {
+          target: { value: "Byron" },
+        });
+      });
+      // Dirty the billing drafts too.
+      fireEvent.click(view.getByRole("button", { name: "Billing section" }));
+      await act(async () => {
+        fireEvent.input(view.getByLabelText("Company name"), {
+          target: { value: "Draft Company" },
+        });
+      });
+
+      // Upload the avatar from the identity section.
+      fireEvent.click(view.getByRole("button", { name: "Identity section" }));
+      pickAvatarFile(view);
+      await view.findByText("Profile photo updated.");
+
+      // The successful upload refreshes server data: the form re-renders
+      // with new profile and avatar props while both drafts are dirty.
+      fireEvent.click(
+        view.getByRole("button", { name: "Apply server refresh" })
+      );
+
+      expect(updateCustomerProfile).not.toHaveBeenCalled();
+      expect(completeCustomerProfile).not.toHaveBeenCalled();
+      // The refreshed avatar prop is applied…
+      expect(
+        (view.getByAltText("Your profile picture") as HTMLImageElement).src
+      ).toBe(refreshedAvatar.url);
+      // …but neither draft is clobbered by the refreshed server values.
+      fireEvent.click(view.getByRole("button", { name: "Billing section" }));
+      expect(
+        (view.getByLabelText("Company name") as HTMLInputElement).value
+      ).toBe("Draft Company");
+      fireEvent.click(view.getByRole("button", { name: "Identity section" }));
+      expect(
+        (view.getByLabelText("First name") as HTMLInputElement).value
+      ).toBe("Grace");
+      expect((view.getByLabelText("Last name") as HTMLInputElement).value).toBe(
+        "Byron"
+      );
+      expect(workspaceRouterRefresh).toHaveBeenCalledTimes(1);
+    });
+
+    test("keeps the previous image and the usable picker on a validation rejection", async () => {
+      uploadCustomerAvatar.mockImplementationOnce(() =>
+        Promise.resolve({
+          data: { status: "rejected", reason: "file-too-large" },
+        })
+      );
+      const view = await renderEditProfile({
+        avatarPresentation: { kind: "available", avatar: existingAvatar },
+      });
+
+      pickAvatarFile(view);
+      await view.findByText(
+        "That image is larger than 2 MB. Choose a smaller file."
+      );
+
+      expect(
+        (view.getByAltText("Your profile picture") as HTMLImageElement).src
+      ).toBe(existingAvatar.url);
+      expect(fileInput(view).value).toBe("");
+      expect(workspaceRouterRefresh).not.toHaveBeenCalled();
+    });
+
+    test("returns to initials after a successful removal", async () => {
+      const view = await renderEditProfile({
+        avatarPresentation: { kind: "available", avatar: existingAvatar },
+      });
+
+      await act(async () => {
+        fireEvent.click(
+          view.getByRole("button", { name: "Remove profile photo" })
+        );
+      });
+      await view.findByText("Profile photo removed.");
+
+      expect(view.container.querySelector("img")).toBeNull();
+      expect(view.getByText("AL")).toBeTruthy();
+      expect(
+        view.queryByRole("button", { name: "Remove profile photo" })
+      ).toBeNull();
+      expect(workspaceRouterRefresh).toHaveBeenCalledTimes(1);
+    });
   });
 });

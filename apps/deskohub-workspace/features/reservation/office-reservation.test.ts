@@ -10,9 +10,11 @@ import {
   getOfficeReservationMaximumDayCount,
   getOfficeReservationMaximumEndsOn,
   getOfficeReservationOrder,
+  getOfficeReservationSelection,
   getStoredOfficeReservationDetails,
   getWorkspaceOfficeProductKey,
   isOfficeReservationWithinMaximumDuration,
+  normalizedOfficeReservationOrderSchema,
   officeReservationDetailsSchema,
   officeReservationOrderSchema,
   officeReservationSchema,
@@ -35,7 +37,6 @@ const validCustomer = {
   name: "Ada Lovelace",
   email: "ada@example.com",
   phone: "+420777777777",
-  message: "",
   marketingConsent: false,
 };
 
@@ -226,7 +227,6 @@ describe("office reservation", () => {
           name: validCustomer.name,
           email: validCustomer.email,
           phone: validCustomer.phone,
-          message: validCustomer.message,
           startsOn,
           endsOn,
           seats: 1,
@@ -245,7 +245,6 @@ describe("office reservation", () => {
           name: validCustomer.name,
           email: validCustomer.email,
           phone: validCustomer.phone,
-          message: validCustomer.message,
           startsOn: today.subtract({ days: 1 }).toString(),
           endsOn: today.toString(),
           seats: 1,
@@ -311,4 +310,103 @@ describe("office reservation", () => {
       )
     ).toBe(true);
   });
+});
+
+describe("retired reservation customer message", () => {
+  test("omits the message field from new normalized orders", () => {
+    const today = getCurrentWorkspaceDate();
+    const result = safeParseForm({
+      ...validCustomer,
+      startsOn: today.add({ days: 1 }).toString(),
+      dayCount: 1,
+      seats: 1,
+    });
+
+    expect(Result.isSuccess(result)).toBe(true);
+    if (Result.isSuccess(result)) {
+      expect(result.success).not.toHaveProperty("message");
+    }
+  });
+
+  test("drops a legacy customer message on strict normalized decode", () => {
+    const startsOn = getCurrentWorkspaceDate().add({ days: 1 });
+    const reservation = Schema.decodeUnknownSync(
+      normalizedOfficeReservationOrderSchema,
+      { onExcessProperty: "error" }
+    )({
+      kind: "office",
+      name: "Ada Lovelace",
+      email: "ada@example.com",
+      phone: "+420777777777",
+      message: "Legacy office note.",
+      startsOn: startsOn.toString(),
+      endsOn: startsOn.add({ days: 1 }).toString(),
+      seats: 2,
+    });
+
+    expect(reservation).not.toHaveProperty("message");
+    expect(reservation.name).toBe("Ada Lovelace");
+    expect(getOfficeReservationDefaultValues(reservation)).not.toHaveProperty(
+      "message"
+    );
+  });
+});
+
+describe("getOfficeReservationSelection", () => {
+  test("repeats whole Prague calendar days across DST", () => {
+    expect(
+      getOfficeReservationSelection({
+        startsAt: Temporal.Instant.from("2026-03-28T23:00:00Z"),
+        endsAt: Temporal.Instant.from("2026-03-30T22:00:00Z"),
+        seats: 3,
+      })
+    ).toEqual({ dayCount: 2, seats: 3 });
+  });
+
+  test("rejects intervals that are not whole days and invalid seats", () => {
+    expect(
+      getOfficeReservationSelection({
+        startsAt: Temporal.Instant.from("2026-06-10T08:00:00Z"),
+        endsAt: Temporal.Instant.from("2026-06-11T22:00:00Z"),
+        seats: 2,
+      })
+    ).toBeNull();
+    expect(
+      getOfficeReservationSelection({
+        startsAt: Temporal.Instant.from("2026-06-09T22:00:00Z"),
+        endsAt: Temporal.Instant.from("2026-06-10T22:00:00Z"),
+        seats: 0,
+      })
+    ).toBeNull();
+    expect(
+      getOfficeReservationSelection({
+        startsAt: Temporal.Instant.from("2026-06-10T22:00:00Z"),
+        endsAt: Temporal.Instant.from("2026-06-10T22:00:00Z"),
+        seats: 1,
+      })
+    ).toBeNull();
+  });
+});
+
+describe("office reservation selection", () => {
+  test("rejects an interval a millisecond past Workspace midnight", () => {
+    expect(
+      getOfficeReservationSelection({
+        startsAt: Temporal.Instant.from("2026-06-11T22:00:00.001Z"),
+        endsAt: Temporal.Instant.from("2026-06-14T22:00:00.001Z"),
+        seats: 3,
+      })
+    ).toBeNull();
+  });
+});
+
+describe("office product key", () => {
+  test.each(["office:3", "office:0:2", "office:1.5:2", "office:3:0"])(
+    "rejects the non-canonical key %s",
+    (key) => {
+      expect(() =>
+        Schema.decodeUnknownSync(workspaceOfficeProductKeySchema)(key)
+      ).toThrow();
+    }
+  );
 });

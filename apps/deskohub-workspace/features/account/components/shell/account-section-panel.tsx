@@ -1,5 +1,3 @@
-"use client";
-
 import type { ComponentPropsWithoutRef, ReactNode } from "react";
 import { useId } from "react";
 import { cn } from "@/shared/utils";
@@ -40,7 +38,7 @@ export function AccountSectionPanel({
     <section
       aria-labelledby={headingId}
       className={cn(
-        "min-w-0 rounded-2xl border bg-white p-5 text-navy-blue shadow-[0_18px_40px_-28px_rgba(0,2,79,0.45)] sm:p-8 [&_input]:scroll-mb-[calc(12rem+env(safe-area-inset-bottom))] [&_select]:scroll-mb-[calc(12rem+env(safe-area-inset-bottom))]",
+        "min-w-0 rounded-2xl border bg-white p-5 text-navy-blue shadow-[0_18px_40px_-28px_rgba(0,2,79,0.45)] @xl:p-8 [&_input]:scroll-mb-[calc(12rem+env(safe-area-inset-bottom))] [&_select]:scroll-mb-[calc(12rem+env(safe-area-inset-bottom))]",
         destructive ? "border-rose-200" : "border-[#dfe4ec]",
         className
       )}

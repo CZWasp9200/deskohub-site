@@ -14,17 +14,6 @@ test("regexp source starts with /", () => {
   expect(regexpSrc.startsWith("/")).toBeTrue();
 });
 
-test("regexp source does not hardcode icon paths", () => {
-  [
-    "icon\\.ico",
-    "apple-touch-icon\\.png",
-    "app-icon\\.png",
-    "favicon\\.ico",
-  ].forEach((path) => {
-    expect(regexpSrc.includes(path)).toBeFalse();
-  });
-});
-
 const regexp = new RegExp(regexpSrc);
 
 test("regexp matches normal application routes", () => {

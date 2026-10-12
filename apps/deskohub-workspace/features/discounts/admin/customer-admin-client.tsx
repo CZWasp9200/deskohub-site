@@ -4,11 +4,13 @@ import {
   DotyposCustomerIdSchema,
   type DotyposDiscountGroupId,
   DotyposDiscountGroupIdSchema,
-} from "@deskohub/dotypos";
+} from "@deskohub/dotypos/types";
+import { effectSchemaResolver } from "@deskohub/effect-schema-resolver";
 import { Schema } from "effect";
 import { Minus, Plus, Search } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { type FormEvent, type ReactNode, useId, useRef, useState } from "react";
+import { type ReactNode, useState } from "react";
+import { type DefaultValues, type FieldValues, useForm } from "react-hook-form";
 import { AdministrationLink as Link } from "@/features/administration/admin-link";
 import { AdministrationAlert } from "@/features/administration/notice";
 import type {
@@ -27,6 +29,14 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/shared/components/ui/dialog";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/shared/components/ui/form";
 import { Input } from "@/shared/components/ui/input";
 import { Label } from "@/shared/components/ui/label";
 import { useWorkspaceAction } from "@/shared/utils/use-workspace-action";
@@ -36,6 +46,10 @@ import type {
   AdminCustomerSearchResult,
   AdminDiscountGroup,
 } from "./discount-administration.service";
+import {
+  customerCodeAudienceFormSchema,
+  customerDiscountGroupFormSchema,
+} from "./form-schemas";
 
 const selectClassName =
   "flex min-h-10 w-full rounded-lg border border-navy-blue/20 bg-white px-3 py-2 text-sm outline-none transition focus:border-burned-orange focus:ring-2 focus:ring-burned-orange/20";
@@ -47,19 +61,27 @@ const decodeDotyposCustomerId = Schema.decodeUnknownSync(
   DotyposCustomerIdSchema
 );
 
-const getOptionalDiscountGroupId = (
-  value: FormDataEntryValue | null
-): DotyposDiscountGroupId | null =>
-  value?.toString() ? decodeDotyposDiscountGroupId(value.toString()) : null;
+const searchFormSchema = Schema.Struct({
+  query: Schema.String.check(
+    Schema.makeFilter((value) => value.trim().length >= 2, {
+      message: "Enter at least 2 characters.",
+    })
+  ),
+});
 
 export function CustomerSearch({
   variant = "card",
 }: {
   readonly variant?: "card" | "toolbar";
 }) {
-  const queryId = useId();
   const [result, setResult] = useState<AdminCustomerSearchResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const form = useForm<{ query: string }>({
+    defaultValues: { query: "" },
+    mode: "onSubmit",
+    reValidateMode: "onChange",
+    resolver: effectSchemaResolver(searchFormSchema),
+  });
   const { execute, isExecuting } = useWorkspaceAction(
     searchDiscountAdminCustomers,
     {
@@ -85,43 +107,51 @@ export function CustomerSearch({
 
   return (
     <div className="space-y-4">
-      <form
-        className={
-          {
-            card: "grid gap-3 rounded-xl border border-navy-blue/10 bg-white p-5 md:grid-cols-[minmax(0,1fr)_auto] md:items-end",
-            toolbar:
-              "grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end",
-          }[variant]
-        }
-        onSubmit={(event) => {
-          event.preventDefault();
-          setError(null);
-          setResult(null);
-          const value = new FormData(event.currentTarget)
-            .get("query")
-            ?.toString()
-            .trim();
-          if (!value) return;
-          execute({ query: value });
-        }}
-      >
-        <div className="grid gap-1.5">
-          <Label htmlFor={queryId}>Customer name or email</Label>
-          <Input
-            autoComplete="off"
-            id={queryId}
-            minLength={2}
+      <Form {...form}>
+        <form
+          className={
+            {
+              card: "grid gap-3 rounded-xl border border-navy-blue/10 bg-white p-5 md:grid-cols-[minmax(0,1fr)_auto] md:items-end",
+              toolbar:
+                "grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end",
+            }[variant]
+          }
+          noValidate
+          onSubmit={form.handleSubmit((values) => {
+            setError(null);
+            setResult(null);
+            const query = values.query.trim();
+            if (!query) return;
+            execute({ query });
+          })}
+        >
+          <FormField
+            control={form.control}
             name="query"
-            placeholder="Search by name or email"
-            required
-            type="search"
+            render={({ field, fieldState }) => (
+              <FormItem className="grid gap-1.5">
+                <FormLabel>Customer name or email</FormLabel>
+                <FormControl>
+                  <Input
+                    {...field}
+                    autoComplete="off"
+                    minLength={2}
+                    placeholder="Search by name or email"
+                    required
+                    type="search"
+                    variant={fieldState.error ? "error" : "default"}
+                  />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
           />
-        </div>
-        <Button disabled={isExecuting} type="submit">
-          <Search aria-hidden className="size-4" />
-          {isExecuting ? "Searching…" : "Find customer"}
-        </Button>
-      </form>
+          <Button disabled={isExecuting} type="submit">
+            <Search aria-hidden className="size-4" />
+            {isExecuting ? "Searching…" : "Find customer"}
+          </Button>
+        </form>
+      </Form>
 
       {error && (
         <AdministrationAlert
@@ -183,30 +213,40 @@ export function AddCodeCustomerForm({
 }: {
   readonly codeId: DiscountCodeId;
 }) {
-  const formRef = useRef<HTMLFormElement>(null);
   return (
     <AdminMutationForm
-      buildMutation={(formData) => ({
+      buildMutation={(values) => ({
         kind: "add-code-customer",
         codeId,
-        customerId: decodeDotyposCustomerId(
-          formData.get("customerId")?.toString().trim()
-        ),
+        customerId: decodeDotyposCustomerId(values.customerId.trim()),
       })}
-      formRef={formRef}
+      defaultValues={{ customerId: "" }}
+      schema={customerCodeAudienceFormSchema}
       submitLabel="Add customer"
     >
-      <div className="grid gap-1.5">
-        <Label htmlFor={`audience-customer-${codeId}`}>
-          Dotypos customer ID
-        </Label>
-        <Input
-          autoComplete="off"
-          id={`audience-customer-${codeId}`}
+      {({ control }) => (
+        <FormField
+          control={control}
           name="customerId"
-          required
+          render={({ field, fieldState }) => (
+            <FormItem className="grid gap-1.5">
+              <FormLabel htmlFor={`audience-customer-${codeId}`}>
+                Dotypos customer ID
+              </FormLabel>
+              <FormControl>
+                <Input
+                  {...field}
+                  autoComplete="off"
+                  id={`audience-customer-${codeId}`}
+                  required
+                  variant={fieldState.error ? "error" : "default"}
+                />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
         />
-      </div>
+      )}
     </AdminMutationForm>
   );
 }
@@ -216,30 +256,40 @@ export function AddVoucherCustomerForm({
 }: {
   readonly voucherId: VoucherId;
 }) {
-  const formRef = useRef<HTMLFormElement>(null);
   return (
     <AdminMutationForm
-      buildMutation={(formData) => ({
+      buildMutation={(values) => ({
         kind: "add-voucher-customer",
         voucherId,
-        customerId: decodeDotyposCustomerId(
-          formData.get("customerId")?.toString().trim()
-        ),
+        customerId: decodeDotyposCustomerId(values.customerId.trim()),
       })}
-      formRef={formRef}
+      defaultValues={{ customerId: "" }}
+      schema={customerCodeAudienceFormSchema}
       submitLabel="Add customer"
     >
-      <div className="grid gap-1.5">
-        <Label htmlFor={`voucher-audience-customer-${voucherId}`}>
-          Dotypos customer ID
-        </Label>
-        <Input
-          autoComplete="off"
-          id={`voucher-audience-customer-${voucherId}`}
+      {({ control }) => (
+        <FormField
+          control={control}
           name="customerId"
-          required
+          render={({ field, fieldState }) => (
+            <FormItem className="grid gap-1.5">
+              <FormLabel htmlFor={`voucher-audience-customer-${voucherId}`}>
+                Dotypos customer ID
+              </FormLabel>
+              <FormControl>
+                <Input
+                  {...field}
+                  autoComplete="off"
+                  id={`voucher-audience-customer-${voucherId}`}
+                  required
+                  variant={fieldState.error ? "error" : "default"}
+                />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
         />
-      </div>
+      )}
     </AdminMutationForm>
   );
 }
@@ -259,36 +309,41 @@ export function CustomerDiscountGroupForm({
 
   return (
     <AdminMutationForm
-      buildMutation={(formData) => ({
+      buildMutation={(values) => ({
         kind: "set-customer-discount-group",
         customerId,
-        discountGroupId: getOptionalDiscountGroupId(
-          formData.get("discountGroupId")
-        ),
+        discountGroupId:
+          values.discountGroupId === ""
+            ? null
+            : decodeDotyposDiscountGroupId(values.discountGroupId),
       })}
+      defaultValues={{ discountGroupId: currentGroupId ?? "" }}
+      resetOnSuccessTo="submitted"
+      schema={customerDiscountGroupFormSchema}
       submitLabel="Save group"
     >
-      <div className="grid gap-1.5">
-        <Label htmlFor={`discount-group-${customerId}`}>Discount group</Label>
-        <select
-          className={selectClassName}
-          defaultValue={currentGroupId ?? ""}
-          id={`discount-group-${customerId}`}
-          name="discountGroupId"
-        >
-          <option value="">No discount group</option>
-          {!currentIsAvailable && currentGroupId && (
-            <option value={currentGroupId}>
-              Unavailable group ({currentGroupId})
-            </option>
-          )}
-          {discountGroups.map((group) => (
-            <option key={group.id} value={group.id}>
-              {group.name} ({group.basisPoints / 100}%)
-            </option>
-          ))}
-        </select>
-      </div>
+      {({ register }) => (
+        <div className="grid gap-1.5">
+          <Label htmlFor={`discount-group-${customerId}`}>Discount group</Label>
+          <select
+            className={selectClassName}
+            id={`discount-group-${customerId}`}
+            {...register("discountGroupId")}
+          >
+            <option value="">No discount group</option>
+            {!currentIsAvailable && currentGroupId && (
+              <option value={currentGroupId}>
+                Unavailable group ({currentGroupId})
+              </option>
+            )}
+            {discountGroups.map((group) => (
+              <option key={group.id} value={group.id}>
+                {group.name} ({group.basisPoints / 100}%)
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
     </AdminMutationForm>
   );
 }
@@ -340,26 +395,69 @@ export function AdminMutationButton({
   );
 }
 
-export function CustomerCodeAction({
+type CustomerPromotionCode =
+  | { readonly kind: "discount-code"; readonly id: DiscountCodeId }
+  | { readonly kind: "voucher"; readonly id: VoucherId };
+
+const customerPromotionCodeMutations = (
+  promotion: CustomerPromotionCode,
+  customerId: DotyposCustomerId
+) =>
+  promotion.kind === "voucher"
+    ? ({
+        add: {
+          kind: "add-voucher-customer",
+          voucherId: promotion.id,
+          customerId,
+        },
+        remove: {
+          kind: "remove-voucher-customer",
+          voucherId: promotion.id,
+          customerId,
+        },
+        makeUnrestricted: {
+          kind: "make-voucher-unrestricted",
+          voucherId: promotion.id,
+        },
+        delete: { kind: "delete-voucher", id: promotion.id },
+      } satisfies Record<string, DiscountAdminMutation>)
+    : ({
+        add: { kind: "add-code-customer", codeId: promotion.id, customerId },
+        remove: {
+          kind: "remove-code-customer",
+          codeId: promotion.id,
+          customerId,
+        },
+        makeUnrestricted: {
+          kind: "make-code-unrestricted",
+          codeId: promotion.id,
+        },
+        delete: { kind: "delete-code", id: promotion.id },
+      } satisfies Record<string, DiscountAdminMutation>);
+
+export function CustomerPromotionCodeAction({
   audienceSize,
   code,
-  codeId,
   customerId,
   customerName,
   eligible,
+  promotion,
 }: {
   readonly audienceSize: number;
   readonly code: string;
-  readonly codeId: DiscountCodeId;
   readonly customerId: DotyposCustomerId;
   readonly customerName: string;
   readonly eligible: boolean;
+  readonly promotion: CustomerPromotionCode;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { execute, isExecuting } = useWorkspaceAction(mutateDiscountAdmin, {
-    actionName: "manageCustomerCodeEligibility",
+    actionName:
+      promotion.kind === "voucher"
+        ? "manageCustomerVoucherEligibility"
+        : "manageCustomerCodeEligibility",
     onSuccess: () => {
       setOpen(false);
       router.refresh();
@@ -370,6 +468,8 @@ export function CustomerCodeAction({
       setError("The change could not be saved. Try again."),
   });
 
+  const mutations = customerPromotionCodeMutations(promotion, customerId);
+  const noun = { "discount-code": "code", voucher: "voucher" }[promotion.kind];
   const label = eligible
     ? `Remove ${customerName} from ${code}`
     : `Add ${customerName} to ${code}`;
@@ -379,7 +479,7 @@ export function CustomerCodeAction({
   let dialogDescription = `${code} is currently available to every customer. Limiting it will make ${customerName} the only eligible customer.`;
   if (isOnlyCustomer) {
     dialogTitle = "Remove the only eligible customer?";
-    dialogDescription = `Removing ${customerName} would leave ${code} without an audience, which makes it available to every customer. Choose whether to delete the code or make it available to all.`;
+    dialogDescription = `Removing ${customerName} would leave ${code} without an audience, which makes it available to every customer. Choose whether to delete the ${noun} or make it available to all.`;
   } else if (eligible) {
     dialogTitle = `Remove ${customerName}?`;
     dialogDescription = `${customerName} will no longer be able to use ${code}.`;
@@ -425,18 +525,16 @@ export function CustomerCodeAction({
             <>
               <Button
                 disabled={isExecuting}
-                onClick={() => execute({ kind: "delete-code", id: codeId })}
+                onClick={() => execute(mutations.delete)}
                 type="button"
                 variant="secondary"
               >
-                Delete code
+                Delete {noun}
               </Button>
               <Button
                 className="bg-burned-orange-ink hover:bg-burned-orange-ink/90"
                 disabled={isExecuting}
-                onClick={() =>
-                  execute({ kind: "make-code-unrestricted", codeId })
-                }
+                onClick={() => execute(mutations.makeUnrestricted)}
                 type="button"
               >
                 Make available to all
@@ -453,13 +551,7 @@ export function CustomerCodeAction({
               <Button
                 className="bg-burned-orange-ink hover:bg-burned-orange-ink/90"
                 disabled={isExecuting}
-                onClick={() =>
-                  execute({
-                    kind: "remove-code-customer",
-                    codeId,
-                    customerId,
-                  })
-                }
+                onClick={() => execute(mutations.remove)}
                 type="button"
               >
                 Remove customer
@@ -476,13 +568,7 @@ export function CustomerCodeAction({
               <Button
                 className="bg-burned-orange-ink hover:bg-burned-orange-ink/90"
                 disabled={isExecuting}
-                onClick={() =>
-                  execute({
-                    kind: "add-code-customer",
-                    codeId,
-                    customerId,
-                  })
-                }
+                onClick={() => execute(mutations.add)}
                 type="button"
               >
                 {audienceSize > 0 ? "Add customer" : "Limit to only this user"}
@@ -495,15 +581,30 @@ export function CustomerCodeAction({
   );
 }
 
-function AdminMutationForm({
+function AdminMutationForm<Input extends FieldValues, Values = Input>({
   buildMutation,
   children,
-  formRef,
+  defaultValues,
+  resetOnSuccessTo = "initial",
+  schema,
   submitLabel,
 }: {
-  readonly buildMutation: (formData: FormData) => DiscountAdminMutation;
-  readonly children: ReactNode;
-  readonly formRef?: React.RefObject<HTMLFormElement | null>;
+  readonly buildMutation: (values: Values) => DiscountAdminMutation;
+  readonly children: (api: {
+    readonly control: ReturnType<
+      typeof useForm<Input, unknown, Values>
+    >["control"];
+    readonly register: ReturnType<
+      typeof useForm<Input, unknown, Values>
+    >["register"];
+  }) => ReactNode;
+  readonly defaultValues: DefaultValues<Input>;
+  /**
+   * Edit forms rebase onto the submitted values so a follow-up edit submits
+   * the saved state plus the new change; audience-add forms clear.
+   */
+  readonly resetOnSuccessTo?: "initial" | "submitted";
+  readonly schema: Schema.Codec<Values, Input>;
   readonly submitLabel: string;
 }) {
   const router = useRouter();
@@ -511,12 +612,29 @@ function AdminMutationForm({
     readonly kind: "error" | "success";
     readonly message: string;
   } | null>(null);
+  const form = useForm<Input, unknown, Values>({
+    defaultValues,
+    mode: "onSubmit",
+    reValidateMode: "onChange",
+    resolver: effectSchemaResolver(schema),
+  });
+  // Snapshot taken at submit entry so the success reset cannot absorb values
+  // edited while the request is in flight.
+  const [submittedValues, setSubmittedValues] = useState<Input | null>(null);
   const { execute, isExecuting } = useWorkspaceAction(mutateDiscountAdmin, {
     actionName: submitLabel,
     onSuccess: ({ data }) => {
       if (!data) return;
       setFeedback({ kind: "success", message: data.notice });
-      formRef?.current?.reset();
+      // Rebase the defaults onto the submitted snapshot while retaining every
+      // current value, so dirty state recomputes against the snapshot and an
+      // in-flight edit that reverted a field to its original value survives.
+      form.reset(
+        resetOnSuccessTo === "submitted"
+          ? (submittedValues ?? undefined)
+          : undefined,
+        resetOnSuccessTo === "submitted" ? { keepValues: true } : undefined
+      );
       router.refresh();
     },
     onError: ({ error }) =>
@@ -532,35 +650,37 @@ function AdminMutationForm({
   });
 
   return (
-    <form
-      className="grid gap-3"
-      onSubmit={(event: FormEvent<HTMLFormElement>) => {
-        event.preventDefault();
-        setFeedback(null);
-        execute(buildMutation(new FormData(event.currentTarget)));
-      }}
-      ref={formRef}
-    >
-      {children}
-      {feedback && (
-        <p
-          className={
-            feedback.kind === "error"
-              ? "text-sm font-semibold text-burned-orange-ink"
-              : "text-sm font-semibold text-aquamarine-ink"
-          }
-          role={feedback.kind === "error" ? "alert" : "status"}
-        >
-          {feedback.message}
-        </p>
-      )}
-      <Button
-        className="justify-self-start"
-        disabled={isExecuting}
-        type="submit"
+    <Form {...form}>
+      <form
+        className="grid gap-3"
+        noValidate
+        onSubmit={form.handleSubmit((values) => {
+          setFeedback(null);
+          setSubmittedValues(form.getValues());
+          execute(buildMutation(values));
+        })}
       >
-        {isExecuting ? "Saving…" : submitLabel}
-      </Button>
-    </form>
+        {children({ control: form.control, register: form.register })}
+        {feedback && (
+          <p
+            className={
+              feedback.kind === "error"
+                ? "text-sm font-semibold text-burned-orange-ink"
+                : "text-sm font-semibold text-aquamarine-ink"
+            }
+            role={feedback.kind === "error" ? "alert" : "status"}
+          >
+            {feedback.message}
+          </p>
+        )}
+        <Button
+          className="justify-self-start"
+          disabled={isExecuting}
+          type="submit"
+        >
+          {isExecuting ? "Saving…" : submitLabel}
+        </Button>
+      </form>
+    </Form>
   );
 }

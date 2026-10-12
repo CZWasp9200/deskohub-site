@@ -2,10 +2,9 @@
 
 import { Predicate } from "effect";
 import { CalendarIcon } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { isLocale, m } from "@/features/i18n";
 import { Button } from "@/shared/components/ui/button";
-import { Calendar } from "@/shared/components/ui/calendar";
 import { useFormField } from "@/shared/components/ui/form";
 import {
   Popover,
@@ -14,6 +13,11 @@ import {
 } from "@/shared/components/ui/popover";
 import { cn } from "@/shared/utils";
 import { formatPlainDate } from "@/shared/utils/date-time-format";
+import {
+  createPreloadableModule,
+  useLoadedModule,
+  usePreloadWhenIdle,
+} from "@/shared/utils/preloadable-module";
 
 export type ReservationDatePickerProps = {
   readonly ariaDescribedBy?: string;
@@ -28,11 +32,20 @@ export type ReservationDatePickerProps = {
   readonly maximum?: string | (() => string);
   readonly minimum?: string | (() => string);
   readonly name?: string;
+  readonly onBlur?: () => void;
   readonly onChange?: (value: string) => void;
   readonly placeholder?: string;
   readonly value?: string;
   readonly variant?: "default" | "error";
 };
+
+// The day picker stays out of the page bundle. It preloads when the browser
+// is idle or the trigger is approached, and the popover opens only once it is
+// loaded, so the popover never shows a loading state. An open requested
+// before then is dropped if the user moves on.
+const reservationCalendar = createPreloadableModule(
+  () => import("@/shared/components/ui/calendar")
+);
 
 const parsePlainDate = (value: string | undefined) => {
   if (!value) return undefined;
@@ -67,12 +80,50 @@ export function ReservationDatePicker({
   maximum,
   minimum,
   name,
+  onBlur,
   onChange,
   placeholder = "Pick a date",
   value,
   variant = "default",
 }: ReservationDatePickerProps) {
-  const [open, setOpen] = useState(false);
+  const [openRequested, setOpenRequested] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const calendar = useLoadedModule(reservationCalendar);
+  usePreloadWhenIdle(reservationCalendar);
+  const open = openRequested && calendar !== undefined;
+  const openPending = openRequested && calendar === undefined;
+
+  useEffect(() => {
+    if (!openPending) return;
+
+    // Leaving the trigger dismisses the pending open as it would dismiss the
+    // open popover, including the blur that runs onBlur validation.
+    const dismiss = () => {
+      setOpenRequested(false);
+      onBlur?.();
+    };
+    const dismissOutside = (event: Event) => {
+      if (
+        event.target instanceof Node &&
+        triggerRef.current?.contains(event.target)
+      ) {
+        return;
+      }
+      dismiss();
+    };
+    const dismissOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") dismiss();
+    };
+
+    document.addEventListener("pointerdown", dismissOutside, true);
+    document.addEventListener("focusin", dismissOutside);
+    document.addEventListener("keydown", dismissOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", dismissOutside, true);
+      document.removeEventListener("focusin", dismissOutside);
+      document.removeEventListener("keydown", dismissOnEscape);
+    };
+  }, [onBlur, openPending]);
   const accessibleLabel = ariaRequired
     ? `${ariaLabel}, ${m.requiredFieldLabel(
         {},
@@ -90,13 +141,28 @@ export function ReservationDatePicker({
   return (
     <>
       {name && <input name={name} type="hidden" value={value ?? ""} />}
-      <Popover open={open} onOpenChange={setOpen}>
+      <Popover
+        open={open}
+        onOpenChange={(nextOpen) => {
+          // The popover opens once the calendar is loaded. A failed chunk load
+          // leaves it closed; the next open request retries it.
+          if (nextOpen) reservationCalendar.preload();
+          setOpenRequested(nextOpen);
+          // The calendar replaces a native input, so closing it is the
+          // field's blur; this lets onBlur form validation run.
+          if (!nextOpen) onBlur?.();
+        }}
+      >
         <PopoverTrigger asChild>
           <Button
+            ref={triggerRef}
             id={id}
             aria-describedby={ariaDescribedBy}
             aria-invalid={ariaInvalid}
             aria-label={accessibleLabel}
+            onFocus={reservationCalendar.preload}
+            onPointerDown={reservationCalendar.preload}
+            onPointerEnter={reservationCalendar.preload}
             className={cn(
               "h-13 w-full justify-start rounded-[1.1rem] border-navy-blue/45 bg-white px-4 py-3 text-left text-base font-normal text-navy-blue hover:border-burned-orange",
               !selectedDate && "text-navy-blue/55",
@@ -122,37 +188,42 @@ export function ReservationDatePicker({
           aria-label={ariaLabel}
           className="w-auto p-3"
         >
-          <Calendar
-            disabled={(date) => {
-              const plainDate = getPlainDateFromCalendar(date);
-              return Boolean(
-                (minimumDate &&
-                  Temporal.PlainDate.compare(plainDate, minimumDate) < 0) ||
+          {calendar && (
+            <calendar.Calendar
+              disabled={(date) => {
+                const plainDate = getPlainDateFromCalendar(date);
+                return Boolean(
+                  (minimumDate &&
+                    Temporal.PlainDate.compare(plainDate, minimumDate) < 0) ||
+                    (maximumDate &&
+                      Temporal.PlainDate.compare(plainDate, maximumDate) > 0) ||
+                    isDateDisabled?.(plainDate)
+                );
+              }}
+              mode="single"
+              onSelect={(date) => {
+                if (!date) return;
+
+                const plainDate = getPlainDateFromCalendar(date);
+                if (
+                  (minimumDate &&
+                    Temporal.PlainDate.compare(plainDate, minimumDate) < 0) ||
                   (maximumDate &&
                     Temporal.PlainDate.compare(plainDate, maximumDate) > 0) ||
                   isDateDisabled?.(plainDate)
-              );
-            }}
-            mode="single"
-            onSelect={(date) => {
-              if (!date) return;
+                ) {
+                  return;
+                }
 
-              const plainDate = getPlainDateFromCalendar(date);
-              if (
-                (minimumDate &&
-                  Temporal.PlainDate.compare(plainDate, minimumDate) < 0) ||
-                (maximumDate &&
-                  Temporal.PlainDate.compare(plainDate, maximumDate) > 0) ||
-                isDateDisabled?.(plainDate)
-              ) {
-                return;
+                onChange?.(plainDate.toString());
+                setOpenRequested(false);
+                onBlur?.();
+              }}
+              selected={
+                selectedDate ? getCalendarDate(selectedDate) : undefined
               }
-
-              onChange?.(plainDate.toString());
-              setOpen(false);
-            }}
-            selected={selectedDate ? getCalendarDate(selectedDate) : undefined}
-          />
+            />
+          )}
         </PopoverContent>
       </Popover>
     </>

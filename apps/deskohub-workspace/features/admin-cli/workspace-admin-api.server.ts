@@ -69,6 +69,10 @@ import {
   type ReservationAccessGrant,
   reservationAccessProvisioningStaleAfterMilliseconds,
 } from "@/features/reservation-access";
+import {
+  WorkspaceObservabilityLive,
+  workspaceMemoMap,
+} from "@/shared/backend/workspace-effect";
 import { CliAuthentication } from "./cli-authentication.service";
 import { CliAuthenticationAdmission } from "./cli-authentication-admission.service";
 import { CliMutationIdempotency } from "./cli-mutation-idempotency.service";
@@ -107,7 +111,7 @@ export const AdminCliApiHandlers = HttpApiBuilder.group(
         authentication
           .exchange(payload)
           .pipe(
-            Effect.mapError((cause) =>
+            mapAdministrationApiFailure((cause) =>
               cause instanceof CliGrantRejected
                 ? cause
                 : makeServiceUnavailable()
@@ -161,7 +165,7 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
             reservationId: params.reservationId,
             sendCancellationEmail: payload.sendCancellationEmail,
           })
-          .pipe(Effect.mapError(mapReservationCancellationFailure))
+          .pipe(mapAdministrationApiFailure(mapReservationCancellationFailure))
       )
       .handle(
         "mutateReservationAccess",
@@ -193,7 +197,7 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
                       .release(request)
                       .pipe(Effect.catch(() => Effect.void))
               ),
-              Effect.mapError(mapReservationAccessMutationFailure),
+              mapAdministrationApiFailure(mapReservationAccessMutationFailure),
               Effect.tap((result) =>
                 mutationIdempotency
                   .complete({ ...request, result })
@@ -228,7 +232,9 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
                     .release(request)
                     .pipe(Effect.catch(() => Effect.void))
                 ),
-                Effect.mapError(mapReservationAccessMutationFailure),
+                mapAdministrationApiFailure(
+                  mapReservationAccessMutationFailure
+                ),
                 Effect.tap((result) =>
                   mutationIdempotency
                     .complete({ ...request, result })
@@ -243,7 +249,7 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
               completed: ({ result }) =>
                 Schema.decodeUnknownEffect(
                   AdministrationReservationAccessGrant
-                )(result).pipe(Effect.mapError(makeServiceUnavailable)),
+                )(result).pipe(mapServiceFailure),
               "in-progress": () => resumeInterruptedMutation,
               mismatch: () =>
                 new CliMutationRejected({
@@ -359,7 +365,7 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
                 message: "The discount code was not found.",
               })
           ),
-          Effect.mapError((cause) =>
+          mapAdministrationApiFailure((cause) =>
             cause instanceof CliResourceNotFound
               ? cause
               : makeServiceUnavailable()
@@ -376,7 +382,7 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
                 message: "The voucher was not found.",
               })
           ),
-          Effect.mapError((cause) =>
+          mapAdministrationApiFailure((cause) =>
             cause instanceof CliResourceNotFound
               ? cause
               : makeServiceUnavailable()
@@ -389,12 +395,12 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
       .handle("getInvoice", ({ params }) =>
         invoices
           .get(params.invoiceId)
-          .pipe(Effect.mapError(mapInvoiceReadFailure))
+          .pipe(mapAdministrationApiFailure(mapInvoiceReadFailure))
       )
       .handle("getInvoicePdf", ({ params }) =>
         invoices.getPdf(params.invoiceId).pipe(
           Effect.map(({ bytes }) => bytes),
-          Effect.mapError(mapInvoiceReadFailure)
+          mapAdministrationApiFailure(mapInvoiceReadFailure)
         )
       )
       .handle(
@@ -412,7 +418,7 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
               source: "dhw-cli",
               actor: session.approvedBy,
             })
-            .pipe(Effect.mapError(mapInvoiceMutationFailure));
+            .pipe(mapAdministrationApiFailure(mapInvoiceMutationFailure));
         })
       )
       .handle(
@@ -450,7 +456,7 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
                 payload.providerCredentialRemovedAttemptId,
             })
             .pipe(
-              Effect.mapError((cause) =>
+              mapAdministrationApiFailure((cause) =>
                 mapStandaloneAccessCodeCreationFailure(cause, requestId)
               ),
               Effect.tapError((cause) =>
@@ -523,7 +529,7 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
                 Schema.decodeUnknownEffect(
                   AdministrationStandaloneAccessCodeResult
                 )(result).pipe(
-                  Effect.mapError(makeServiceUnavailable),
+                  mapServiceFailure,
                   Effect.map((safeResult) => ({
                     outcome: "already-created" as const,
                     ...safeResult,
@@ -541,7 +547,7 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
       )
       .handle("resendInvoice", ({ params }) =>
         invoices.retry(params.invoiceId).pipe(
-          Effect.mapError((cause) =>
+          mapAdministrationApiFailure((cause) =>
             cause instanceof InvoiceAdministrationNotFoundError
               ? new CliResourceNotFound({
                   message: "The invoice was not found.",
@@ -578,7 +584,7 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
               claimed: () =>
                 executeDiscountAdminMutation(payload.mutation).pipe(
                   Effect.provideService(DiscountAdministration, discounts),
-                  Effect.mapError(mapDiscountMutationFailure),
+                  mapAdministrationApiFailure(mapDiscountMutationFailure),
                   Effect.tap(() =>
                     refreshCalendarDiscountSourceAfterMutation(payload.mutation)
                   ),
@@ -600,7 +606,7 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
                 Schema.decodeUnknownEffect(
                   AdministrationDiscountMutationResult
                 )(result).pipe(
-                  Effect.mapError(makeServiceUnavailable),
+                  mapServiceFailure,
                   Effect.tap(() =>
                     refreshCalendarDiscountSourceAfterMutation(payload.mutation)
                   )
@@ -670,7 +676,7 @@ const CliBearerAuthenticationLive = Layer.effect(
         authentication
           .authenticateSession(`Bearer ${Redacted.value(credential)}`)
           .pipe(
-            Effect.mapError((cause) =>
+            mapAdministrationApiFailure((cause) =>
               cause instanceof CliSessionUnauthorized
                 ? cause
                 : makeServiceUnavailable()
@@ -688,8 +694,28 @@ const makeServiceUnavailable = () =>
     message: "The administration API is temporarily unavailable.",
   });
 
+/**
+ * Maps a failure to its public API error. A service-unavailable response
+ * carries no cause, so the original failure is logged first; otherwise an
+ * operator would see the 503 with no record of what failed.
+ */
+const mapAdministrationApiFailure =
+  <E, F>(toPublicFailure: (cause: E) => F) =>
+  <A, R>(effect: Effect.Effect<A, E, R>): Effect.Effect<A, F, R> =>
+    effect.pipe(
+      Effect.catch((cause) => {
+        const failure = toPublicFailure(cause);
+        return Effect.logError("Administration API request failed", {
+          cause,
+        }).pipe(
+          Effect.when(Effect.succeed(failure instanceof CliServiceUnavailable)),
+          Effect.andThen(Effect.fail(failure))
+        );
+      })
+    );
+
 const mapServiceFailure = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-  effect.pipe(Effect.mapError(makeServiceUnavailable));
+  effect.pipe(mapAdministrationApiFailure(makeServiceUnavailable));
 
 const mapDiscountMutationFailure = (
   cause: Effect.Error<ReturnType<typeof executeDiscountAdminMutation>>
@@ -913,7 +939,7 @@ const noStore = HttpRouter.middleware(
   { global: true }
 );
 
-const WorkspaceAdminApiLive = Layer.merge(
+const WorkspaceAdminApiLive = Layer.mergeAll(
   HttpApiBuilder.layer(WorkspaceAdminApi).pipe(
     Layer.provide(AdminCliApiHandlers),
     Layer.provide(AdminCliAdministrationApiHandlers),
@@ -928,10 +954,14 @@ const WorkspaceAdminApiLive = Layer.merge(
     Layer.provide(CliAuthenticationAdmission.Default),
     Layer.provide(CliAuthentication.Live)
   ),
-  noStore
+  noStore,
+  // This handler runs outside the route's Effect runtime, so it needs the
+  // censoring Workspace logger and tracer. Building with the Workspace memo
+  // map reuses the instance the route runtime already built.
+  WorkspaceObservabilityLive
 ).pipe(Layer.provide(NodeHttpServer.layerHttpServices));
 
 export const handleWorkspaceAdminApiRequest = HttpRouter.toWebHandler(
   WorkspaceAdminApiLive,
-  { disableLogger: true }
+  { disableLogger: true, memoMap: workspaceMemoMap }
 ).handler;

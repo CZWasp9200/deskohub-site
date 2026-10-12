@@ -1,13 +1,13 @@
 import "server-only";
 
 import { drizzleAdapter } from "@better-auth/drizzle-adapter/relations-v2";
+import { getLocaleFromPathname } from "@deskohub/i18n/pathname";
 import { APIError, type BetterAuthOptions, betterAuth } from "better-auth";
 import { createAuthMiddleware, isAPIError } from "better-auth/api";
 import { nextCookies } from "better-auth/next-js";
 import { magicLink } from "better-auth/plugins";
 import { Effect, Option, Schema } from "effect";
 import { after } from "next/server";
-import { Resend } from "resend";
 import { makeAuthDatabase } from "@/db/auth-database-client";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { workspaceDatabasePool } from "@/db/database-provider.server";
@@ -18,24 +18,15 @@ import {
   type CustomerAccountId,
   customerAccountIdSchema,
 } from "@/features/account/customer-account";
-import {
-  defaultLocale,
-  getLocaleFromPathname,
-  isLocale,
-  type Locale,
-} from "@/features/i18n";
+import { defaultLocale, isLocale, type Locale, locales } from "@/features/i18n";
 import { runWorkspaceEffect } from "@/shared/backend/workspace-effect";
-import { workspaceSiteConstants } from "@/shared/utils";
 import {
   lookupMagicLinkDeliveryLocale,
   type MagicLinkLocaleLookup,
 } from "../customer-communication-preference.repository";
 import { authOptions, betterAuthMagicLinkOptions } from "./auth-options";
 import { renderMagicLinkEmail } from "./magic-link-email";
-import {
-  magicLinkCorrelationTags,
-  makeMagicLinkEmailDelivery,
-} from "./send-magic-link-email";
+import { makeMagicLinkEmailDelivery } from "./send-magic-link-email";
 
 export type MagicLinkSendFunction = NonNullable<
   Parameters<typeof magicLink>[0]["sendMagicLink"]
@@ -158,7 +149,8 @@ const siteLocaleFromAuthContext = (ctx: ParsedAuthContext): Locale => {
   if (!callbackURL) return defaultLocale;
   try {
     const fromCallback = getLocaleFromPathname(
-      new URL(callbackURL, "https://auth.internal.invalid").pathname
+      new URL(callbackURL, "https://auth.internal.invalid").pathname,
+      locales
     );
     return fromCallback ?? defaultLocale;
   } catch {
@@ -174,7 +166,7 @@ const siteLocaleFromAuthContext = (ctx: ParsedAuthContext): Locale => {
  * pre-account (first) delivery and a pending unverified signup keep the
  * initiating site locale.
  */
-export type MagicLinkDeliveryDecision =
+type MagicLinkDeliveryDecision =
   | { readonly action: "deliver"; readonly locale: Locale }
   | {
       readonly action: "skip";
@@ -183,7 +175,7 @@ export type MagicLinkDeliveryDecision =
         | "account.magic-link.locale.read-failed";
     };
 
-export const decideMagicLinkDelivery = (
+const decideMagicLinkDelivery = (
   lookup: MagicLinkLocaleLookup,
   fallback: Locale
 ): MagicLinkDeliveryDecision => {
@@ -379,37 +371,10 @@ export const makeWorkspaceAuth = (config: WorkspaceAuthConfig) => {
   });
 };
 
-const magicLinkSenderIdentity = `${workspaceSiteConstants.brand.name} <reservations@workspace.deskohub.cz>`;
-
-export const makeResendMagicLinkSender = (apiKey: string | undefined) => {
-  if (!apiKey) return null;
-  const resend = new Resend(apiKey);
-  return (message: {
-    readonly to: string;
-    readonly subject: string;
-    readonly html: string;
-    readonly text: string;
-  }) =>
-    resend.emails
-      .send({
-        from: magicLinkSenderIdentity,
-        to: [message.to],
-        subject: message.subject,
-        html: message.html,
-        text: message.text,
-        tags: [...magicLinkCorrelationTags],
-      })
-      .then((result) => ({
-        id: result.data?.id ?? null,
-        error: result.error,
-      }));
-};
-
-export const makeWorkspaceMagicLinkDelivery = (apiKey: string | undefined) =>
-  makeMagicLinkEmailDelivery(
-    apiKey ? makeResendMagicLinkSender(apiKey) : null,
-    renderMagicLinkEmail
-  );
+const makeWorkspaceMagicLinkDelivery = () =>
+  makeMagicLinkEmailDelivery(renderMagicLinkEmail, {
+    isVercelPreview: env.VERCEL_ENV === "preview",
+  });
 
 export const makeWorkspaceAuthDatabase = () =>
   drizzleAdapter(makeAuthDatabase(workspaceDatabasePool), {
@@ -442,7 +407,7 @@ export const workspaceSendMagicLink: MagicLinkSendFunction = async (data) => {
   const locale = decision.locale;
   after(() =>
     runWorkspaceEffect("account.magic-link.deliver", { boundary: "task" })(
-      makeWorkspaceMagicLinkDelivery(env.EMAIL_API_KEY).deliver({
+      makeWorkspaceMagicLinkDelivery().deliver({
         email: data.email,
         url: data.url,
         locale,
@@ -457,13 +422,5 @@ export const workspaceBeforeDeleteUser = (accountId: CustomerAccountId) =>
   })(
     Effect.flatMap(CustomerAccountDeletionService, (service) =>
       service.requestDeletion(accountId)
-    ).pipe(
-      Effect.provide(CustomerAccountDeletionService.Live),
-      Effect.tapError(() =>
-        Effect.logWarning(
-          "Customer account deletion: Dotypos expiration failed; deletion stays retryable.",
-          { code: "account.deletion.retryable" }
-        )
-      )
-    )
+    ).pipe(Effect.provide(CustomerAccountDeletionService.Live))
   );

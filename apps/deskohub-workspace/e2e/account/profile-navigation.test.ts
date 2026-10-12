@@ -1,9 +1,14 @@
 import { expect, test } from "bun:test";
-import { constants } from "node:fs";
-import { access } from "node:fs/promises";
 import { createServer } from "node:http";
 import { normalizePhoneNumber } from "@deskohub/dotypos";
-import { chromium, type Page } from "@playwright/test";
+import { chromium, errors, type Page } from "@playwright/test";
+import { playwrightChromiumAvailable } from "../../shared/testing/playwright-browser";
+import {
+  isWorkspaceE2EDiagnosticCode,
+  WorkspaceE2EError,
+  type WorkspaceE2EProfileNavigationDiagnosticCode,
+} from "../errors";
+import { formatWorkspaceE2EFailureAnnotation } from "../github-actions";
 import {
   accountSectionLabels,
   accountSectionLandmarks,
@@ -12,39 +17,6 @@ import {
   triggerProfileHistoryBack,
   verifyProfileNavigation,
 } from "./profile-navigation";
-
-type MockPage = {
-  readonly evaluateInputs: readonly unknown[];
-  readonly navigationWaitCalls: () => number;
-  readonly page: Page;
-  readonly goBackCalls: () => number;
-};
-
-const makeMockPage = (): MockPage => {
-  const evaluateInputs: unknown[] = [];
-  let goBackCallCount = 0;
-  let navigationWaitCallCount = 0;
-  const page = Object.assign({} as Page, {
-    evaluate: async (expression: unknown) => {
-      evaluateInputs.push(expression);
-    },
-    goBack: async () => {
-      goBackCallCount += 1;
-      throw new Error("page.goBack must not be used for guarded history");
-    },
-    waitForNavigation: async () => {
-      navigationWaitCallCount += 1;
-      throw new Error("navigation waits must not be used for guarded history");
-    },
-  });
-
-  return {
-    evaluateInputs,
-    goBackCalls: () => goBackCallCount,
-    navigationWaitCalls: () => navigationWaitCallCount,
-    page,
-  };
-};
 
 type ProfileNavigationSection =
   | "reservations"
@@ -75,8 +47,31 @@ type ProfileNavigationFakePage = {
   readonly state: ProfileNavigationState;
 };
 
+type PersistedRestoreFailureStage =
+  | "document-reload"
+  | "profile-handler-wait"
+  | "profile-native-click"
+  | "profile-selected-landmark"
+  | "profile-form-visibility"
+  | "first-name-restore"
+  | "last-name-restore"
+  | "phone-restore"
+  | "billing-navigation"
+  | "billing-kind-restore"
+  | "billing-company-restore"
+  | "return-profile-navigation"
+  | "unavailable-heading-expectation";
+
+type ProfileNavigationFailurePhase =
+  | "saved-profile-baseline"
+  | "draft-retention"
+  | PersistedRestoreFailureStage;
+
+const privateFailureDetails = "private profile navigation fixture details";
+
 const makeProfileNavigationFakePage = (
-  baseUrl: string
+  baseUrl: string,
+  failurePhase?: ProfileNavigationFailurePhase
 ): ProfileNavigationFakePage => {
   const homeUrl = `${baseUrl}/en-US`;
   const accountUrl = `${baseUrl}/en-US/account`;
@@ -111,9 +106,17 @@ const makeProfileNavigationFakePage = (
         readonly type: () => string;
       }) => void)
     | undefined;
+  let documentReloaded = false;
+  let restoredProfileNavigationCount = 0;
+  let restoredBillingNavigationCount = 0;
 
   const isProfileFormVisible = () =>
-    state.section === "profile" || state.section === "billing";
+    (state.section === "profile" || state.section === "billing") &&
+    !(
+      documentReloaded &&
+      failurePhase === "profile-form-visibility" &&
+      state.section === "profile"
+    );
   const isVisible = (name: string) => {
     if (name === "#account-profile-form") return isProfileFormVisible();
     if (name === accountSectionLandmarks.profile)
@@ -187,10 +190,46 @@ const makeProfileNavigationFakePage = (
   const makeLocator = (name: string) => {
     const locator = {
       _apiName: "Locator",
+      elementHandle: async () => ({
+        dispose: async () => {},
+        sectionButton: name,
+      }),
       _expect: async (
         expression: string,
         parameters: Record<string, unknown>
       ) => {
+        if (
+          failurePhase === "draft-retention" &&
+          expression === "to.have.value" &&
+          name === "#account-profile-first-name" &&
+          state.profile.firstName === "Ada draft"
+        ) {
+          throw new Error(privateFailureDetails);
+        }
+        if (
+          documentReloaded &&
+          expression === "to.have.value" &&
+          ((failurePhase === "first-name-restore" &&
+            name === "#account-profile-first-name") ||
+            (failurePhase === "last-name-restore" &&
+              name === "#account-profile-last-name") ||
+            (failurePhase === "phone-restore" &&
+              name === "#account-profile-phone") ||
+            (failurePhase === "billing-kind-restore" &&
+              name === "#account-profile-billing-kind") ||
+            (failurePhase === "billing-company-restore" &&
+              name === "#account-profile-billing-company-name"))
+        ) {
+          throw new Error(privateFailureDetails);
+        }
+        if (
+          documentReloaded &&
+          failurePhase === "unavailable-heading-expectation" &&
+          expression === "to.have.count" &&
+          name === "heading:Customer accounts are temporarily unavailable"
+        ) {
+          throw new Error(privateFailureDetails);
+        }
         let actual: boolean | number | string;
         let matches: boolean;
         if (expression === "to.be.visible") {
@@ -216,6 +255,34 @@ const makeProfileNavigationFakePage = (
       click: async () => {
         actions.push(`click:${name}`);
         if (name.startsWith("section:")) {
+          if (documentReloaded && name === "section:profile") {
+            restoredProfileNavigationCount += 1;
+            if (
+              (failurePhase === "profile-native-click" &&
+                restoredProfileNavigationCount === 1) ||
+              (failurePhase === "return-profile-navigation" &&
+                restoredProfileNavigationCount === 2)
+            ) {
+              throw new Error(privateFailureDetails);
+            }
+          }
+          if (documentReloaded && name === "section:billing") {
+            restoredBillingNavigationCount += 1;
+            if (
+              failurePhase === "billing-navigation" &&
+              restoredBillingNavigationCount === 1
+            ) {
+              throw new Error(privateFailureDetails);
+            }
+          }
+          if (
+            documentReloaded &&
+            name === "section:profile" &&
+            failurePhase === "profile-selected-landmark" &&
+            restoredProfileNavigationCount === 1
+          ) {
+            return;
+          }
           state.section = name.slice(
             "section:".length
           ) as ProfileNavigationSection;
@@ -275,7 +342,15 @@ const makeProfileNavigationFakePage = (
         if (options.name === "Account") return makeLocator("account-link");
         throw new Error(`unsupported banner link: ${options.name}`);
       },
-      inputValue: async () => valueFor(name),
+      inputValue: async () => {
+        if (
+          failurePhase === "saved-profile-baseline" &&
+          name === "#account-profile-first-name"
+        ) {
+          throw new Error(privateFailureDetails);
+        }
+        return valueFor(name);
+      },
       isVisible: async () => isVisible(name),
       toString: () => `Locator(${name})`,
       waitFor: async (options?: { readonly state?: string }) => {
@@ -317,11 +392,15 @@ const makeProfileNavigationFakePage = (
     goto: async (url: string) => {
       if (url !== accountUrl)
         throw new Error(`unsupported document URL: ${url}`);
+      if (failurePhase === "document-reload") {
+        throw new Error(privateFailureDetails);
+      }
       state.url = url;
       state.section = "reservations";
       state.dirty = false;
       state.profile = { ...serverSnapshot };
       state.billing = { ...originalBilling };
+      documentReloaded = true;
       actions.push("document-remount:account");
     },
     locator: (selector: string) => makeLocator(selector),
@@ -345,16 +424,39 @@ const makeProfileNavigationFakePage = (
       new Promise((resolve) => {
         dialogResolver = resolve;
       }),
-    waitForFunction: async (
-      _predicate: unknown,
-      argument: { readonly section?: string }
-    ) => {
-      if (argument.section) {
-        actions.push(`section-ready:${argument.section}`);
-        if (state.section !== argument.section) {
-          throw new Error(`section did not become ready: ${argument.section}`);
+    waitForFunction: async (_predicate: unknown, argument: unknown) => {
+      if (
+        typeof argument === "object" &&
+        argument !== null &&
+        "sectionButton" in argument
+      ) {
+        if (
+          documentReloaded &&
+          failurePhase === "profile-handler-wait" &&
+          (argument as { readonly sectionButton: string }).sectionButton ===
+            "section:profile"
+        ) {
+          throw new errors.TimeoutError(privateFailureDetails);
+        }
+        actions.push(
+          `handler-ready:${String(
+            (argument as { readonly sectionButton: unknown }).sectionButton
+          )}`
+        );
+        return { dispose: async () => {}, jsonValue: async () => "ready" };
+      }
+      if (
+        typeof argument === "object" &&
+        argument !== null &&
+        "section" in argument
+      ) {
+        const section = (argument as { readonly section: string }).section;
+        actions.push(`section-ready:${section}`);
+        if (state.section !== section) {
+          throw new Error(`section did not become ready: ${section}`);
         }
       }
+      return { dispose: async () => {}, jsonValue: async () => true };
     },
     waitForURL: async (url: string) => {
       actions.push(`wait-url:${url}`);
@@ -364,12 +466,7 @@ const makeProfileNavigationFakePage = (
   return { actions, page, serverPhone: serverSnapshot.phone, state };
 };
 
-const chromiumAvailable = await access(
-  chromium.executablePath(),
-  constants.X_OK
-)
-  .then(() => true)
-  .catch(() => false);
+const chromiumAvailable = await playwrightChromiumAvailable();
 
 const startNavigationTestServer = async () => {
   const server = createServer((_request, response) => {
@@ -408,18 +505,6 @@ const startNavigationTestServer = async () => {
       }),
   };
 };
-
-test("uses one evaluated history trigger instead of Playwright navigation waits", async () => {
-  const mockPage = makeMockPage();
-
-  await triggerProfileHistoryBack(mockPage.page);
-
-  expect(mockPage.goBackCalls()).toBe(0);
-  expect(mockPage.navigationWaitCalls()).toBe(0);
-  expect(mockPage.evaluateInputs).toHaveLength(1);
-  expect(mockPage.evaluateInputs[0]).toBeInstanceOf(Function);
-  expect(String(mockPage.evaluateInputs[0])).toContain("window.history.back()");
-});
 
 test("keeps cached drafts through soft navigation and resets them on document remount", async () => {
   const fake = makeProfileNavigationFakePage(
@@ -499,6 +584,174 @@ test("keeps cached drafts through soft navigation and resets them on document re
   expect(fake.state.profile.phone).toBe(fake.serverPhone);
   expect(fake.state.billing.companyName).toBe("Original Company");
 });
+
+test("redacts a saved-profile baseline failure with its closed diagnostic", async () => {
+  const fake = makeProfileNavigationFakePage(
+    "https://account-navigation.example.test",
+    "saved-profile-baseline"
+  );
+  const failure = await verifyProfileNavigation(
+    fake.page,
+    "https://account-navigation.example.test"
+  ).then(
+    () => undefined,
+    (cause: unknown) => cause
+  );
+
+  expectProfileNavigationFailure(failure, "account_profile_baseline_failed");
+});
+
+test("redacts a draft-retention failure with its later-phase diagnostic", async () => {
+  const fake = makeProfileNavigationFakePage(
+    "https://account-navigation.example.test",
+    "draft-retention"
+  );
+  const failure = await verifyProfileNavigation(
+    fake.page,
+    "https://account-navigation.example.test"
+  ).then(
+    () => undefined,
+    (cause: unknown) => cause
+  );
+
+  expectProfileNavigationFailure(
+    failure,
+    "account_profile_draft_retention_failed"
+  );
+});
+
+const persistedRestoreFailureStages = [
+  {
+    phase: "document-reload",
+    diagnosticCode: "account_profile_persisted_document_reload_failed",
+  },
+  {
+    phase: "profile-handler-wait",
+    diagnosticCode: "account_profile_persisted_profile_handler_wait_failed",
+  },
+  {
+    phase: "profile-native-click",
+    diagnosticCode: "account_profile_persisted_profile_click_failed",
+  },
+  {
+    phase: "profile-selected-landmark",
+    diagnosticCode: "account_profile_persisted_profile_landmark_wait_failed",
+  },
+  {
+    phase: "profile-form-visibility",
+    diagnosticCode: "account_profile_persisted_profile_form_visibility_failed",
+  },
+  {
+    phase: "first-name-restore",
+    diagnosticCode: "account_profile_persisted_first_name_restore_failed",
+  },
+  {
+    phase: "last-name-restore",
+    diagnosticCode: "account_profile_persisted_last_name_restore_failed",
+  },
+  {
+    phase: "phone-restore",
+    diagnosticCode: "account_profile_persisted_phone_restore_failed",
+  },
+  {
+    phase: "billing-navigation",
+    diagnosticCode: "account_profile_persisted_billing_navigation_failed",
+  },
+  {
+    phase: "billing-kind-restore",
+    diagnosticCode: "account_profile_persisted_billing_kind_restore_failed",
+  },
+  {
+    phase: "billing-company-restore",
+    diagnosticCode: "account_profile_persisted_billing_company_restore_failed",
+  },
+  {
+    phase: "return-profile-navigation",
+    diagnosticCode:
+      "account_profile_persisted_return_profile_navigation_failed",
+  },
+  {
+    phase: "unavailable-heading-expectation",
+    diagnosticCode:
+      "account_profile_persisted_unavailable_heading_expectation_failed",
+  },
+] as const satisfies readonly {
+  readonly phase: PersistedRestoreFailureStage;
+  readonly diagnosticCode: WorkspaceE2EProfileNavigationDiagnosticCode;
+}[];
+
+test("reports a closed stage-specific diagnostic for persisted profile restore failures", async () => {
+  for (const { phase, diagnosticCode } of persistedRestoreFailureStages) {
+    const fake = makeProfileNavigationFakePage(
+      "https://account-navigation.example.test",
+      phase
+    );
+    const failure = await verifyProfileNavigation(
+      fake.page,
+      "https://account-navigation.example.test"
+    ).then(
+      () => undefined,
+      (cause: unknown) => cause
+    );
+
+    expectProfileNavigationFailure(failure, diagnosticCode);
+  }
+});
+
+test("names the section selection stage and failure kind without the private cause", async () => {
+  const fake = makeProfileNavigationFakePage(
+    "https://account-navigation.example.test",
+    "profile-handler-wait"
+  );
+  const failure = await verifyProfileNavigation(
+    fake.page,
+    "https://account-navigation.example.test"
+  ).then(
+    () => undefined,
+    (cause: unknown) => cause
+  );
+
+  expectProfileNavigationFailure(
+    failure,
+    "account_profile_persisted_profile_handler_wait_failed"
+  );
+  expect(failure).toMatchObject({
+    message:
+      "Profile navigation verification failed at section selection stage button-handler-wait (timeout)",
+  });
+});
+
+const closedProfileNavigationFailureMessage =
+  /^Profile navigation verification failed (at section selection stage (button-handler-wait|panel-hydration-wait|native-button-click|selected-landmark-wait) )?\((timeout|strict-mode-violation|error)\)$/;
+
+const expectProfileNavigationFailure = (
+  failure: unknown,
+  diagnosticCode: WorkspaceE2EProfileNavigationDiagnosticCode
+) => {
+  expect(failure).toBeInstanceOf(WorkspaceE2EError);
+  if (!(failure instanceof WorkspaceE2EError)) return;
+
+  expect(failure.diagnosticCode).toBe(diagnosticCode);
+  expect(isWorkspaceE2EDiagnosticCode(failure.diagnosticCode)).toBe(true);
+  expect(failure).toMatchObject({
+    diagnosticCode,
+    operation: "verify profile navigation and unsaved changes",
+  });
+  expect(failure.message).toMatch(closedProfileNavigationFailureMessage);
+  expect(failure.cause).toBeUndefined();
+  expect(failure.causes).toBeUndefined();
+  expect(failure.message).not.toContain(privateFailureDetails);
+  expect(JSON.stringify(failure)).not.toContain(privateFailureDetails);
+  const annotation = formatWorkspaceE2EFailureAnnotation({
+    caseId: "account-profile-completion",
+    diagnosticCode: failure.diagnosticCode,
+    failureKind: "error",
+    outcome: "failed",
+    stepId: "verifyPages",
+  });
+  expect(annotation).toContain(`diagnostic_code=${diagnosticCode}`);
+  expect(annotation).not.toContain(privateFailureDetails);
+};
 
 test.skipIf(!chromiumAvailable)(
   "resolves the evaluated trigger when the Navigation API cancels same-document back",

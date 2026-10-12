@@ -31,9 +31,7 @@ import {
 } from "./billing-identity";
 
 export {
-  type CompanyRegistrationId,
   companyRegistrationIdSchema,
-  type VatRegistrationId,
   vatRegistrationIdSchema,
 } from "./billing-identity";
 
@@ -76,12 +74,10 @@ const businessAccountingBuyerSchema = Schema.Struct({
   }),
 });
 
-export const accountingBuyerSchema = Schema.Union([
+const accountingBuyerSchema = Schema.Union([
   personalAccountingBuyerSchema,
   businessAccountingBuyerSchema,
 ]);
-
-export type AccountingBuyer = typeof accountingBuyerSchema.Type;
 
 const accountingSupplierSchema = Schema.Struct({
   legalName: Schema.NonEmptyString,

@@ -7,7 +7,8 @@ import {
   mock,
   test,
 } from "bun:test";
-import { cleanup, render, within } from "@testing-library/react";
+import { within } from "@testing-library/react";
+import { prerender } from "react-dom/static";
 import type {
   AdministrationReservationListInput,
   AdministrationReservationPage,
@@ -41,11 +42,14 @@ const defaultReservationPage: LoadedReservationPage = {
 };
 
 let reservationPage: LoadedReservationPage = defaultReservationPage;
+let reservationPageInput:
+  | Promise<AdministrationReservationListInput>
+  | undefined;
 
 mock.module("@/features/administration/page-data.server", () => ({
-  loadAdministrationReservations: () => Promise.resolve(reservationPage),
+  loadAdministrationRefundAttention: () => Promise.resolve(0),
   loadAdministrationReservationsPage: () => ({
-    input: Promise.resolve(reservationPage.input),
+    input: reservationPageInput ?? Promise.resolve(reservationPage.input),
     result: Promise.resolve(reservationPage.result),
   }),
 }));
@@ -54,29 +58,53 @@ mock.module("@/features/administration/reservation-lookup", () => ({
   ReservationLookup: () => null,
 }));
 
+async function prerenderReservationsPage() {
+  const { default: ReservationsAdministrationPage } = await import("./page");
+  const { prelude } = await prerender(
+    <ReservationsAdministrationPage searchParams={Promise.resolve({})} />,
+    // Inline every completed boundary instead of streaming hidden segments.
+    { progressiveChunkSize: Number.POSITIVE_INFINITY }
+  );
+  const container = document.createElement("div");
+  container.innerHTML = await new Response(prelude).text();
+  return within(container);
+}
+
 describe("ReservationsAdministrationPage", () => {
   beforeAll(() => registerWorkspaceComponentTestEnv());
   afterEach(() => {
-    cleanup();
     reservationPage = defaultReservationPage;
+    reservationPageInput = undefined;
   });
-  afterAll(() => {
-    unregisterWorkspaceComponentTestEnv();
+  afterAll(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await unregisterWorkspaceComponentTestEnv();
   });
 
-  test("shows the reservation count as a compact accessible badge", async () => {
-    const { ReservationsAdministrationContent } = await import("./page");
-    const view = render(
-      await ReservationsAdministrationContent({
-        searchParams: Promise.resolve({}),
-      })
-    );
+  test("waits for request input before reading the default date", async () => {
+    const originalNow = Temporal.Now.instant;
+    let nowReadCount = 0;
+    Temporal.Now.instant = () => {
+      nowReadCount += 1;
+      return Temporal.Instant.from("2026-08-12T10:00:00Z");
+    };
+    let resolveInput!: (input: AdministrationReservationListInput) => void;
+    reservationPageInput = new Promise((resolve) => {
+      resolveInput = resolve;
+    });
 
-    expect(view.getByLabelText("115 reservations").textContent).toBe("115");
-    expect(
-      view.getByRole("combobox", { name: "Deskohub status" })
-    ).toBeDefined();
-    expect(view.queryByText("115 reservations")).toBeNull();
+    try {
+      const rendered = prerenderReservationsPage();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(nowReadCount).toBe(0);
+
+      resolveInput({});
+      await rendered;
+    } finally {
+      Temporal.Now.instant = originalNow;
+    }
+
+    expect(nowReadCount).toBeGreaterThan(0);
   });
 
   test("preserves server sorting while moving across reservation pages", async () => {
@@ -109,16 +137,7 @@ describe("ReservationsAdministrationPage", () => {
         dateSortUnavailable: false,
       },
     };
-    const { ReservationsAdministrationContent } = await import("./page");
-    const view = render(
-      await ReservationsAdministrationContent({
-        searchParams: Promise.resolve({
-          direction: "asc",
-          page: "2",
-          sort: "reservation",
-        }),
-      })
-    );
+    const view = await prerenderReservationsPage();
 
     const table = view.getByRole("table", { name: "Reservations" });
     expect(
@@ -135,6 +154,23 @@ describe("ReservationsAdministrationPage", () => {
     );
   });
 
+  test("keeps the selected start-date range across reservation pages", async () => {
+    reservationPage = {
+      input: {
+        direction: "asc",
+        from: "2026-08-04",
+        sort: "date",
+        to: "2026-08-10",
+      },
+      result: { ...defaultReservationPage.result, page: 2, pageCount: 3 },
+    };
+    const view = await prerenderReservationsPage();
+
+    expect(view.getByRole("link", { name: "Next" }).getAttribute("href")).toBe(
+      "/admin/reservations?direction=asc&from=2026-08-04&sort=date&to=2026-08-10&page=3"
+    );
+  });
+
   test("preserves other filters when clearing the customer", async () => {
     reservationPage = {
       input: {
@@ -148,20 +184,7 @@ describe("ReservationsAdministrationPage", () => {
       },
       result: defaultReservationPage.result,
     };
-    const { ReservationsAdministrationContent } = await import("./page");
-    const view = render(
-      await ReservationsAdministrationContent({
-        searchParams: Promise.resolve({
-          customerId: "customer-one",
-          direction: "asc",
-          from: "2026-08-04",
-          sort: "status",
-          status: "complete",
-          to: "2026-08-10",
-          type: "cowork",
-        }),
-      })
-    );
+    const view = await prerenderReservationsPage();
 
     expect(
       view.getByRole("link", { name: "Clear customer" }).getAttribute("href")
@@ -170,108 +193,19 @@ describe("ReservationsAdministrationPage", () => {
     );
   });
 
-  test("shows the selected inclusive start-date range", async () => {
+  test("clears the customer from a complete customer history", async () => {
     reservationPage = {
       input: {
-        direction: "asc",
-        from: "2026-08-04",
-        sort: "date",
-        to: "2026-08-10",
-      },
-      result: {
-        ...defaultReservationPage.result,
-        page: 2,
-        pageCount: 3,
-      },
-    };
-    const { ReservationsAdministrationContent } = await import("./page");
-    const view = render(
-      await ReservationsAdministrationContent({
-        searchParams: Promise.resolve({
-          direction: "asc",
-          from: "2026-08-04",
-          sort: "date",
-          to: "2026-08-10",
-        }),
-      })
-    );
-
-    expect(view.getByLabelText("Start date from").getAttribute("value")).toBe(
-      "2026-08-04"
-    );
-    expect(view.getByLabelText("Start date to").getAttribute("value")).toBe(
-      "2026-08-10"
-    );
-    expect(view.getByRole("link", { name: "Next" }).getAttribute("href")).toBe(
-      "/admin/reservations?direction=asc&from=2026-08-04&sort=date&to=2026-08-10&page=3"
-    );
-  });
-
-  test("places date shortcuts before right-aligned clear and apply actions", async () => {
-    const originalNow = Temporal.Now.instant;
-    Temporal.Now.instant = () => Temporal.Instant.from("2026-08-12T10:00:00Z");
-    reservationPage = {
-      input: {
-        direction: "asc",
-        from: "2026-08-04",
-        sort: "date",
-        status: "complete",
-        to: "2026-08-10",
-        type: "cowork",
+        customerId: "customer-one",
+        direction: "desc",
+        sort: "created",
       },
       result: defaultReservationPage.result,
     };
-
-    try {
-      const { ReservationsAdministrationContent } = await import("./page");
-      const view = render(
-        await ReservationsAdministrationContent({
-          searchParams: Promise.resolve({}),
-        })
-      );
-      const shortcuts = view.getByRole("navigation", {
-        name: "Reservation date shortcuts",
-      });
-      const shortcutLinks = within(shortcuts).getAllByRole("link");
-
-      expect(shortcutLinks.map((link) => link.textContent)).toEqual([
-        "Today",
-        "Upcoming",
-        "Past",
-      ]);
-      expect(shortcutLinks.map((link) => link.getAttribute("href"))).toEqual([
-        "/admin/reservations?direction=asc&from=2026-08-12&sort=date&status=complete&to=2026-08-12&type=cowork",
-        "/admin/reservations?direction=asc&from=2026-08-13&sort=date&status=complete&type=cowork",
-        "/admin/reservations?direction=asc&sort=date&status=complete&to=2026-08-11&type=cowork",
-      ]);
-
-      const actions = view.getByRole("group", { name: "Filter actions" });
-      expect(actions.className).toContain("justify-end");
-      expect(actions.textContent).toBe("ClearApply filters");
-    } finally {
-      Temporal.Now.instant = originalNow;
-    }
-  });
-
-  test("explains the fallback when provider date sorting is unavailable", async () => {
-    reservationPage = {
-      input: { direction: "asc", sort: "date" },
-      result: {
-        ...defaultReservationPage.result,
-        dateSortUnavailable: true,
-      },
-    };
-    const { ReservationsAdministrationContent } = await import("./page");
-    const view = render(
-      await ReservationsAdministrationContent({
-        searchParams: Promise.resolve({ direction: "asc", sort: "date" }),
-      })
-    );
+    const view = await prerenderReservationsPage();
 
     expect(
-      view.getByText(
-        "Reservation dates are temporarily unavailable for sorting. Showing newest records instead."
-      )
-    ).toBeDefined();
+      view.getByRole("link", { name: "Clear customer" }).getAttribute("href")
+    ).toBe("/admin/reservations?direction=desc&sort=created");
   });
 });

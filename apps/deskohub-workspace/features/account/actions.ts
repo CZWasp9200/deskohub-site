@@ -3,6 +3,11 @@
 import { type AresLookupFailure, AresLookupService } from "@deskohub/ares";
 import { Effect, Layer, Match, Result, Schema } from "effect";
 import { revalidatePath } from "next/cache";
+import {
+  accountActionError,
+  requireAccountsEnabled,
+  requireVerifiedSession,
+} from "@/features/account/account-action-guards";
 import type { AresBusinessBillingDraft } from "@/features/account/backend/ares-business-draft";
 import { toAresBusinessBillingDraft } from "@/features/account/backend/ares-business-draft";
 import { deleteCurrentAccountThroughAuthEndpoint } from "@/features/account/backend/auth/delete-account-endpoint";
@@ -16,11 +21,10 @@ import {
 } from "@/features/account/contracts";
 import type { CustomerAccountId } from "@/features/account/customer-account";
 import { CustomerAccountAccessError } from "@/features/account/customer-account";
-import { areAccountsEnabled } from "@/features/account/server/account-feature-flag.server";
+import { getAccountPath } from "@/features/account/routes";
 import type { Locale } from "@/features/i18n";
 import { locales, m } from "@/features/i18n";
 import { defineWorkspaceAction } from "@/shared/backend/workspace-action";
-import { PublicSafeActionError } from "@/shared/utils/safe-action-client";
 
 const deleteCustomerAccountConfirmedSchema = Schema.toStandardSchemaV1(
   Schema.Struct({ confirmed: Schema.Literal(true) }),
@@ -36,55 +40,6 @@ const preferredLanguageSchema = Schema.toStandardSchemaV1(
   Schema.Struct({ locale: Schema.Literals(locales) }),
   { parseOptions: { errors: "all", onExcessProperty: "error" } }
 );
-
-const requireVerifiedSession = Effect.flatMap(
-  CustomerAuthentication,
-  (authentication) => authentication.currentUser
-).pipe(
-  Effect.flatMap((user) =>
-    user
-      ? Effect.succeed(user)
-      : Effect.fail(
-          new CustomerAccountAccessError({ reason: "unauthenticated" })
-        )
-  )
-);
-
-const profileActionErrorMessage = (
-  cause: CustomerAccountAccessError,
-  locale: Locale
-) => {
-  if (cause.reason === "unauthenticated") {
-    return m.accountSessionExpired({}, { locale });
-  }
-  if (
-    cause.reason === "link-required" &&
-    cause.linkReason === "deletion-requested"
-  ) {
-    return m.accountDeletionPendingError({}, { locale });
-  }
-  return m.accountProfileError({}, { locale });
-};
-
-const profileActionError =
-  (locale: Locale) =>
-  (cause: CustomerAccountAccessError): PublicSafeActionError =>
-    new PublicSafeActionError({
-      message: profileActionErrorMessage(cause, locale),
-      cause,
-    });
-
-const requireAccountsEnabled = (locale: Locale) =>
-  Effect.promise(areAccountsEnabled).pipe(
-    Effect.filterOrFail(
-      (enabled) => enabled,
-      () =>
-        new PublicSafeActionError({
-          message: m.accountUnavailableDescription({}, { locale }),
-        })
-    ),
-    Effect.asVoid
-  );
 
 /**
  * Saves the Dotypos-owned profile for the verified account: a not-yet-linked
@@ -121,7 +76,7 @@ const saveCustomerProfile = Effect.fn(
   },
   (effect, _input, locale) =>
     effect.pipe(
-      Effect.mapError(profileActionError(locale)),
+      Effect.mapError(accountActionError(locale)),
       Effect.provide(
         Layer.mergeAll(
           CustomerAuthentication.Default,
@@ -185,7 +140,7 @@ const updatePreferredLanguageAction = defineWorkspaceAction(
       Effect.flatMap(requireVerifiedSession, (user) =>
         savePreferredLanguage(user.accountId, input.locale)
       ).pipe(
-        Effect.mapError(profileActionError(locale)),
+        Effect.mapError(accountActionError(locale)),
         Effect.provide(CustomerAuthentication.Default),
         Effect.as({ status: "saved" as const })
       )
@@ -199,7 +154,7 @@ export type CustomerAccountDeletionResult =
 
 const revalidateDeletionAuthority = (locale: Locale) =>
   Effect.sync(() => {
-    revalidatePath(`/${locale}/account`);
+    revalidatePath(getAccountPath(locale));
     revalidatePath(`/${locale}/account/deleted`);
   });
 
@@ -207,8 +162,9 @@ const revalidateDeletionAuthority = (locale: Locale) =>
  * Runs account deletion exclusively through Better Auth's public delete-user
  * endpoint, so its session-freshness gate and the provider-first beforeDelete
  * hook stay the single identity-deletion path. A stale or missing session
- * asks for reauthentication; a retryable provider failure keeps the durable
- * deletion marker and the account untouched.
+ * asks for reauthentication; an unreadable session or a retryable provider
+ * failure reports a retryable failure and keeps the durable deletion marker
+ * and the account untouched.
  */
 const deleteCustomerAccountAction = defineWorkspaceAction(
   {
@@ -222,34 +178,47 @@ const deleteCustomerAccountAction = defineWorkspaceAction(
       Effect.result
     );
     if (Result.isFailure(session)) {
-      return yield* revalidateDeletionAuthority(locale).pipe(
-        Effect.as({ status: "reauthentication-required" } as const)
+      const result = toDeletionSessionFailureResult(session.failure);
+      yield* Effect.log("Customer account deletion did not complete").pipe(
+        Effect.annotateLogs({
+          code: "account.delete.session",
+          reason: session.failure.reason,
+          diagnostic: session.failure.diagnostic,
+        }),
+        Effect.when(Effect.succeed(result.status === "failed"))
       );
+      return yield* revalidateDeletionAuthority(locale).pipe(Effect.as(result));
     }
 
-    const deletion = yield* Effect.promise(() =>
+    // The endpoint adapter converts every rejection into its closed result.
+    const result = yield* Effect.promise(() =>
       deleteCurrentAccountThroughAuthEndpoint()
-    ).pipe(Effect.result);
+    );
 
     yield* revalidateDeletionAuthority(locale);
 
-    if (Result.isSuccess(deletion)) {
-      const result = deletion.success;
-      if (result.status === "failed") {
-        yield* Effect.log("Customer account deletion did not complete").pipe(
-          Effect.annotateLogs({ code: result.code })
-        );
-        return { status: "failed" } as const;
-      }
-      return result;
+    if (result.status === "failed") {
+      yield* Effect.log("Customer account deletion did not complete").pipe(
+        Effect.annotateLogs({ code: result.code })
+      );
+      return { status: "failed" } as const;
     }
-
-    yield* Effect.log("Customer account deletion did not complete").pipe(
-      Effect.annotateLogs({ code: "account.delete.unexpected" })
-    );
-    return { status: "failed" } as const;
+    return result;
   })
 );
+
+const toDeletionSessionFailureResult = (failure: CustomerAccountAccessError) =>
+  Match.value(failure.reason).pipe(
+    Match.when(
+      Match.is("unauthenticated", "unverified-email", "link-required"),
+      () => ({ status: "reauthentication-required" }) as const
+    ),
+    Match.when(
+      Match.is("not-configured", "unavailable"),
+      () => ({ status: "failed" }) as const
+    ),
+    Match.exhaustive
+  );
 
 const aresLookupStandardSchema = Schema.toStandardSchemaV1(
   Schema.Struct({ ico: Schema.String }),
@@ -334,7 +303,7 @@ const lookupAresBusinessAction = defineWorkspaceAction(
     Effect.andThen(
       requireAccountsEnabled(locale),
       lookupAresBusinessWorkflow(input, locale).pipe(
-        Effect.mapError(profileActionError(locale)),
+        Effect.mapError(accountActionError(locale)),
         Effect.provide(
           Layer.mergeAll(CustomerAuthentication.Default, AresLookupService.Live)
         )

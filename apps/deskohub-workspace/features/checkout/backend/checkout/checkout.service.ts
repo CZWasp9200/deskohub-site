@@ -29,6 +29,10 @@ import {
   legalEvidenceMapSchema,
   paymentSubmitLegalEvidenceSource,
 } from "@/features/checkout/legal-evidence";
+import {
+  isWorkspaceCoworkCurrentProductTier,
+  type WorkspaceCoworkProductTier,
+} from "@/features/checkout/product-catalog";
 import { getCoworkCheckoutDetails } from "@/features/checkout/schemas/checkout-details-cowork";
 import { getMeetingRoomCheckoutDetails } from "@/features/checkout/schemas/checkout-details-meeting-room";
 import { getOfficeCheckoutDetails } from "@/features/checkout/schemas/checkout-details-office";
@@ -46,6 +50,7 @@ import {
 import { isEarlyPerformanceRequestRequired } from "@/features/legal/early-performance";
 import type { WorkspaceTableUnavailableError } from "@/features/reservation/backend/workspace-availability.service";
 import { WorkspaceReservationRepository } from "@/features/reservation/backend/workspace-reservation.repository";
+import { getCoworkReservationIntervalInput } from "@/features/reservation/cowork-reservation";
 import { dotyposCustomerIdSchema } from "@/features/reservation/dotypos-customer";
 import { hasOfficeReservationEnded } from "@/features/reservation/office-reservation";
 import {
@@ -60,6 +65,7 @@ import {
   getWorkspaceRuntimeCallbackOrigin,
   type WorkspaceUrlConfigError,
 } from "@/shared/backend/config/workspace-url.config";
+import { workspaceSiteConstants } from "@/shared/utils/site-constants";
 import {
   capturePaymentCompleted,
   capturePaymentFailed,
@@ -84,6 +90,7 @@ import {
 } from "./checkout-pricing.service";
 import {
   type BuildSignedPayStateInput,
+  getSignedPayStateBookedAt,
   getSignedPayStateCheckoutSummary,
   getSignedPayStateSubmittedCode,
   openPayState,
@@ -110,7 +117,9 @@ export class CheckoutError extends Data.TaggedError("CheckoutError")<{
   readonly code:
     | "checkout_failed"
     | "meeting_room_reservation_ended"
-    | "office_reservation_ended";
+    | "office_reservation_ended"
+    | "cowork_reservation_ended"
+    | "cowork_offer_replaced";
   readonly message: string;
   readonly cause?: unknown;
 }> {}
@@ -121,12 +130,64 @@ type CheckoutRedirectResult = {
   readonly statusUrl?: string;
 };
 
+/**
+ * Exclusive-end guard for cowork days, tier-aware via the reservation
+ * domain's shared interval constructor: an Open Space day spans Prague-local
+ * 00:00 until 17:00 exclusive on the reserved date, every other tier spans
+ * Prague midnight to the next midnight (DST-correct calendar day). A new
+ * payment attempt fails once the current instant is at or after the reserved
+ * day's exclusive end — exactly at the end included, and always for dates
+ * already before the current local date, whose exclusive end is past.
+ */
+const isCoworkReservationExclusiveEndReached = (input: {
+  readonly entryTier: WorkspaceCoworkProductTier;
+  readonly date: string;
+  readonly now?: Temporal.Instant;
+}) => {
+  const now = input.now ?? Temporal.Now.instant();
+  const exclusiveEnd = Temporal.PlainDateTime.from(
+    getCoworkReservationIntervalInput(input.entryTier, input.date).endsAt
+  )
+    .toZonedDateTime(workspaceSiteConstants.location.timeZone)
+    .toInstant();
+
+  return Temporal.Instant.compare(now, exclusiveEnd) >= 0;
+};
+
 const ensureReservationHasNotEnded = Effect.fn(
   "checkout.ensureReservationHasNotEnded"
 )(function* (reservation: SignedPayState["reservation"]) {
   const error = Match.value(reservation).pipe(
     Match.discriminatorsExhaustive("kind")({
-      cowork: () => undefined,
+      cowork: (coworkReservation) => {
+        // Old tiers stay decodable for history but are no longer current:
+        // in-flight legacy checkouts get no grace path and must restart with
+        // the current offers instead of creating a payment attempt at old
+        // amounts.
+        if (!isWorkspaceCoworkCurrentProductTier(coworkReservation.entryTier)) {
+          return new CheckoutError({
+            code: "cowork_offer_replaced",
+            message:
+              "This cowork offer is no longer available. Please start a new reservation with the current offers.",
+          });
+        }
+        // Exclusive-day end: a new payment attempt for an Open Space day
+        // fails once the current Prague time is at or after 17:00 on the
+        // reserved date, and a Reserved Desk day once it is at or after
+        // midnight after the reserved date — including reservations whose
+        // date is already before the current local date. Idempotent
+        // provider-session reuse above is not affected.
+        if (isCoworkReservationExclusiveEndReached(coworkReservation)) {
+          return new CheckoutError({
+            code: "cowork_reservation_ended",
+            message:
+              coworkReservation.entryTier === "open-space"
+                ? "Open Space reservation day has already ended."
+                : "Reserved Desk reservation day has already ended.",
+          });
+        }
+        return undefined;
+      },
       "meeting-room": (meetingRoomReservation) => {
         if (!hasReservationIntervalEnded(meetingRoomReservation)) return;
         return new CheckoutError({
@@ -553,6 +614,7 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
           readonly commitment: DiscountCommitment;
           readonly customer: HostedPaymentCustomer;
           readonly accountingSnapshot: AccountingDocumentSnapshot;
+          readonly reservation: SignedPayState["reservation"];
         }) {
           yield* Effect.annotateLogsScoped({
             providerSessionInput: {
@@ -594,63 +656,85 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
           yield* Effect.annotateLogsScoped({ nexiAmount });
           yield* Effect.logDebug("Checkout provider session inputs prepared");
 
-          const attempt = yield* paymentLifecycle.createPendingNexiAttempt({
-            workspaceReservationId: input.workspaceReservationId,
-            providerOrderId,
-            amount: input.total,
-            commitment: input.commitment,
-            locale: input.locale,
-            accountingSnapshot: input.accountingSnapshot,
-          });
-          if (!isNexiPaymentAttempt(attempt)) {
-            return yield* new CheckoutError({
-              code: "checkout_failed",
-              message: "Nexi payment attempt configuration is invalid.",
-            });
-          }
-          yield* Effect.annotateLogsScoped({ attempt });
-          yield* Effect.logInfo("Checkout payment attempt created");
+          yield* ensureReservationHasNotEnded(input.reservation);
 
-          yield* Effect.logInfo("Nexi hosted payment page creation started");
-          const hostedPaymentPage = yield* nexi
-            .createHostedPaymentPage({
-              orderId: attempt.providerOrderId,
-              correlationId: input.correlationId,
-              amount: nexiAmount.amount,
-              currency: nexiAmount.currency,
-              locale: input.locale,
-              notificationUrl,
-              resultUrl,
-              cancelUrl,
-              customer: input.customer,
-            })
-            .pipe(
-              Effect.tapError((cause) =>
-                handleHostedPaymentPageCreationFailure({
-                  cause,
-                  attempt,
-                  workspaceReservationId: input.workspaceReservationId,
-                })
-              )
-            );
-          yield* Effect.annotateLogsScoped({ hostedPaymentPage });
-          yield* Effect.logInfo("Nexi hosted payment page creation completed");
+          // Once the attempt exists, finish creating and attaching its hosted
+          // page even when the action deadline passes. Nexi has no idempotency
+          // key, so cutting the request off would leave an ambiguous `created`
+          // attempt; the Nexi request timeout still bounds this section.
+          const { attachedAttempt, hostedPaymentPage } =
+            yield* Effect.uninterruptible(
+              Effect.gen(function* () {
+                const attempt =
+                  yield* paymentLifecycle.createPendingNexiAttempt({
+                    workspaceReservationId: input.workspaceReservationId,
+                    providerOrderId,
+                    amount: input.total,
+                    commitment: input.commitment,
+                    locale: input.locale,
+                    accountingSnapshot: input.accountingSnapshot,
+                  });
+                if (!isNexiPaymentAttempt(attempt)) {
+                  return yield* new CheckoutError({
+                    code: "checkout_failed",
+                    message: "Nexi payment attempt configuration is invalid.",
+                  });
+                }
+                yield* Effect.annotateLogsScoped({ attempt });
+                yield* Effect.logInfo("Checkout payment attempt created");
 
-          yield* Effect.logInfo("Checkout hosted payment page attach started");
-          const attachedAttempt = yield* paymentLifecycle
-            .attachProviderSession({
-              id: attempt.id,
-              securityToken: hostedPaymentPage.securityToken,
-              providerRedirectUrl: hostedPaymentPage.hostedPage,
-            })
-            .pipe(
-              Effect.tapError((cause) =>
-                Effect.logError("Checkout hosted payment page attach failed", {
-                  attempt,
-                  hostedPaymentPage,
-                  cause,
-                })
-              )
+                yield* Effect.logInfo(
+                  "Nexi hosted payment page creation started"
+                );
+                const hostedPaymentPage = yield* nexi
+                  .createHostedPaymentPage({
+                    orderId: attempt.providerOrderId,
+                    correlationId: input.correlationId,
+                    amount: nexiAmount.amount,
+                    currency: nexiAmount.currency,
+                    locale: input.locale,
+                    notificationUrl,
+                    resultUrl,
+                    cancelUrl,
+                    customer: input.customer,
+                  })
+                  .pipe(
+                    Effect.tapError((cause) =>
+                      handleHostedPaymentPageCreationFailure({
+                        cause,
+                        attempt,
+                        workspaceReservationId: input.workspaceReservationId,
+                      })
+                    )
+                  );
+                yield* Effect.annotateLogsScoped({ hostedPaymentPage });
+                yield* Effect.logInfo(
+                  "Nexi hosted payment page creation completed"
+                );
+
+                yield* Effect.logInfo(
+                  "Checkout hosted payment page attach started"
+                );
+                const attachedAttempt = yield* paymentLifecycle
+                  .attachProviderSession({
+                    id: attempt.id,
+                    securityToken: hostedPaymentPage.securityToken,
+                    providerRedirectUrl: hostedPaymentPage.hostedPage,
+                  })
+                  .pipe(
+                    Effect.tapError((cause) =>
+                      Effect.logError(
+                        "Checkout hosted payment page attach failed",
+                        {
+                          attempt,
+                          hostedPaymentPage,
+                          cause,
+                        }
+                      )
+                    )
+                  );
+                return { attachedAttempt, hostedPaymentPage };
+              })
             );
           yield* capturePaymentStarted({
             attempt: attachedAttempt,
@@ -678,8 +762,11 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
         readonly total: WorkspaceMoney;
         readonly commitment: DiscountCommitment;
         readonly accountingSnapshot: AccountingDocumentSnapshot;
+        readonly reservation: SignedPayState["reservation"];
       }) {
         yield* revalidatePayableReservation(input);
+
+        yield* ensureReservationHasNotEnded(input.reservation);
 
         const transition = yield* paymentLifecycle.completeInternalPayment({
           workspaceReservationId: input.workspaceReservationId,
@@ -939,6 +1026,7 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
             );
             const prepared = yield* pricing.affirmForPayment({
               ...state,
+              bookedAt: getSignedPayStateBookedAt(state),
               dotyposCustomerId,
               locale,
             });
@@ -979,6 +1067,7 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
                 ...prepared,
                 locale,
                 orderId: reservation.id,
+                bookedAt: state.bookedAt,
                 checkoutSessionId: state.checkoutSessionId,
                 requestedDiscountCode:
                   state.requestedDiscountCode ?? state.submittedCode,
@@ -1106,6 +1195,7 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
                           total: expectedPrice,
                           commitment: prepared.commitment,
                           accountingSnapshot,
+                          reservation: state.reservation,
                         })
                       : startProviderSession({
                           workspaceReservationId: reservation.id,
@@ -1121,6 +1211,7 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
                             phone: data.phone,
                           }),
                           accountingSnapshot,
+                          reservation: state.reservation,
                         });
 
                   return yield* startPayment.pipe(
@@ -1137,6 +1228,7 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
                         );
                         const refreshed = yield* pricing.affirmForPayment({
                           ...state,
+                          bookedAt: getSignedPayStateBookedAt(state),
                           dotyposCustomerId,
                           locale,
                         });
@@ -1171,6 +1263,7 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
                           ...refreshed,
                           locale,
                           orderId: reservation.id,
+                          bookedAt: state.bookedAt,
                           checkoutSessionId: state.checkoutSessionId,
                           requestedDiscountCode:
                             state.requestedDiscountCode ?? state.submittedCode,

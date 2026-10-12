@@ -8,9 +8,7 @@ import {
   assignQueuedAllocationRequests,
 } from "./allocation";
 
-export class AllocationStoreError extends Data.TaggedError(
-  "AllocationStoreError"
-)<{
+class AllocationStoreError extends Data.TaggedError("AllocationStoreError")<{
   readonly message: string;
   readonly cause?: unknown;
 }> {

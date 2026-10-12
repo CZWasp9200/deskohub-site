@@ -2,7 +2,7 @@
 
 import { Menu, UserRound, X } from "lucide-react";
 import { usePathname } from "next/navigation";
-import { Suspense, useState } from "react";
+import { Suspense, use, useState } from "react";
 import type { Locale } from "@/features/i18n";
 import { GuardedLink as Link } from "@/shared/components/guarded-link";
 import {
@@ -10,13 +10,15 @@ import {
   LocaleSwitcherLinks,
 } from "@/shared/components/locale-switcher-links";
 import { HorizontalLogo, Logo } from "@/shared/components/logo";
-import type { SiteHeaderMenuItem } from "@/shared/components/site-header-config";
+import type {
+  SiteHeaderAccountEntry,
+  SiteHeaderMenuItem,
+} from "@/shared/components/site-header-config";
 import { Button } from "@/shared/components/ui/button";
 import { cn } from "@/shared/utils";
 
 type SiteHeaderProps = {
-  accountHref?: string;
-  accountLabel?: string;
+  account?: SiteHeaderAccountEntry;
   currentLocale: Locale;
   languageLabels: Record<Locale, string>;
   links: SiteHeaderMenuItem[];
@@ -67,14 +69,84 @@ function AccountLink({
   );
 }
 
-function ActiveAccountLink(props: Omit<AccountLinkProps, "active">) {
+type AccountEntryLinkProps = Omit<
+  AccountLinkProps,
+  "active" | "href" | "label"
+> & {
+  readonly entry: SiteHeaderAccountEntry;
+};
+
+function ResolvedAccountLink({ entry, ...props }: AccountEntryLinkProps) {
+  const href = use(entry.href);
   const pathname = usePathname();
-  return <AccountLink {...props} active={pathname === props.href} />;
+  return (
+    <AccountLink
+      {...props}
+      href={href}
+      label={entry.label}
+      active={pathname === href}
+    />
+  );
+}
+
+function AccountEntryLink(props: AccountEntryLinkProps) {
+  return (
+    <Suspense
+      fallback={
+        <AccountLink
+          {...props}
+          href={props.entry.signInHref}
+          label={props.entry.label}
+        />
+      }
+    >
+      <ResolvedAccountLink {...props} />
+    </Suspense>
+  );
+}
+
+type NavigationLinkProps = {
+  readonly active?: boolean;
+  readonly className: string;
+  readonly href: string;
+  readonly label: string;
+  readonly onClick?: () => void;
+};
+
+function NavigationLink({
+  active = false,
+  className,
+  href,
+  label,
+  onClick,
+}: NavigationLinkProps) {
+  return (
+    <Link
+      href={href}
+      aria-current={active ? "page" : undefined}
+      className={className}
+      onClick={onClick}
+    >
+      {label}
+    </Link>
+  );
+}
+
+function ActiveNavigationLink(props: Omit<NavigationLinkProps, "active">) {
+  const pathname = usePathname();
+  return <NavigationLink {...props} active={pathname === props.href} />;
+}
+
+function CurrentPageNavigationLink(props: Omit<NavigationLinkProps, "active">) {
+  return (
+    <Suspense fallback={<NavigationLink {...props} />}>
+      <ActiveNavigationLink {...props} />
+    </Suspense>
+  );
 }
 
 export function SiteHeader({
-  accountHref,
-  accountLabel,
+  account,
   currentLocale,
   languageLabels,
   links,
@@ -119,35 +191,16 @@ export function SiteHeader({
           className="hidden items-center gap-6 xl:flex"
         >
           {links.map((link) => (
-            <Link
+            <CurrentPageNavigationLink
               key={link.id}
               href={link.href}
+              label={link.label}
               className="text-balance text-center text-sm uppercase tracking-[0.12em] text-white/76 transition-colors hover:text-sunset-yellow"
-            >
-              {link.label}
-            </Link>
+            />
           ))}
         </nav>
 
         <div className="flex shrink-0 items-center gap-2 sm:gap-3 xl:gap-3">
-          {accountHref !== undefined && accountLabel !== undefined && (
-            <Suspense
-              fallback={
-                <AccountLink
-                  href={accountHref}
-                  label={accountLabel}
-                  onClick={closeMenu}
-                />
-              }
-            >
-              <ActiveAccountLink
-                href={accountHref}
-                label={accountLabel}
-                onClick={closeMenu}
-              />
-            </Suspense>
-          )}
-
           <Link
             href={contactHref}
             className="shrink-0 whitespace-nowrap rounded-full border border-white/12 bg-white px-3 py-2 text-center text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-navy-blue transition-colors hover:bg-sunset-yellow sm:px-4 sm:text-xs sm:tracking-[0.14em]"
@@ -155,6 +208,10 @@ export function SiteHeader({
           >
             {contactLabel}
           </Link>
+
+          {account !== undefined && (
+            <AccountEntryLink entry={account} onClick={closeMenu} />
+          )}
 
           <nav
             aria-label={languageSwitcherLabel}
@@ -210,34 +267,17 @@ export function SiteHeader({
       >
         <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-5 sm:px-6 lg:px-8">
           <nav aria-label={mobilePrimaryNavigationLabel} className="grid gap-2">
-            {accountHref !== undefined && accountLabel !== undefined && (
-              <Suspense
-                fallback={
-                  <AccountLink
-                    href={accountHref}
-                    label={accountLabel}
-                    mobile
-                    onClick={closeMenu}
-                  />
-                }
-              >
-                <ActiveAccountLink
-                  href={accountHref}
-                  label={accountLabel}
-                  mobile
-                  onClick={closeMenu}
-                />
-              </Suspense>
+            {account !== undefined && (
+              <AccountEntryLink entry={account} mobile onClick={closeMenu} />
             )}
             {links.map((link) => (
-              <Link
+              <CurrentPageNavigationLink
                 key={link.id}
                 href={link.href}
+                label={link.label}
                 onClick={closeMenu}
                 className="rounded-2xl border border-white/8 bg-white/5 px-4 py-3 text-sm uppercase tracking-[0.12em] text-white/80 transition-colors hover:border-sunset-yellow/60 hover:text-sunset-yellow"
-              >
-                {link.label}
-              </Link>
+              />
             ))}
           </nav>
 

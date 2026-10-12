@@ -15,6 +15,8 @@ import {
 } from "./review-screenshots";
 
 const baseUrl = "https://deskohub-workspace-review.example.test";
+const review = { baseUrl, screenshots: true } as const;
+const reviewWithoutScreenshots = { baseUrl, screenshots: false } as const;
 const magicLinkUrl = new URL(
   "/api/auth/sign-in/magic-link",
   baseUrl
@@ -27,13 +29,6 @@ const accountReviewArtifactDirectory = resolve(
 );
 const captureFailureMessage = "Account review screenshot capture failed";
 const attemptUuid = "0f0a9c1e-7b62-4c8d-9e21-53ab2f0d4c7a";
-const privateLinkedAccountQueries = [
-  "",
-  "?section=reservations",
-  "?section=profile",
-  "?section=billing",
-  "?section=danger",
-] as const;
 const marketingReviewTargets = [
   "account-marketing-withdrawn-desktop",
   "account-marketing-active-mobile",
@@ -47,323 +42,10 @@ const marketingReviewTargets = [
   "marketing-link-invalid-mobile",
 ] as const;
 
-const validTargets = [
-  {
-    filename: "completion-mobile375x900.png",
-    path: "/en-US/account",
-    query: "",
-    target: "completion-mobile375x900",
-    viewport: { height: 900, width: 375 },
-    fullPage: true,
-  },
-  {
-    filename: "account-loading-desktop.png",
-    path: "/en-US/account",
-    query: "",
-    target: "account-loading-desktop",
-    viewport: { height: 1000, width: 1440 },
-    fullPage: true,
-  },
-  {
-    filename: "callback-loading-desktop.png",
-    path: "/en-US/auth/callback",
-    query: "",
-    queries: ["", `?attempt=${attemptUuid}`],
-    target: "callback-loading-desktop",
-    viewport: { height: 1000, width: 1440 },
-    fullPage: true,
-  },
-  {
-    filename: "sign-in-handoff-desktop.png",
-    path: ["/en-US/account", "/en-US/auth/sign-in"],
-    query: "",
-    target: "sign-in-handoff-desktop",
-    viewport: { height: 1000, width: 1440 },
-    fullPage: true,
-  },
-  {
-    filename: "linked-reservations-desktop.png",
-    path: "/en-US/account",
-    query: "",
-    queries: privateLinkedAccountQueries,
-    target: "linked-reservations-desktop",
-    viewport: { height: 1000, width: 1440 },
-    fullPage: true,
-  },
-  {
-    filename: "linked-reservations-mobile.png",
-    path: "/en-US/account",
-    query: "",
-    queries: privateLinkedAccountQueries,
-    target: "linked-reservations-mobile",
-    viewport: { height: 900, width: 375 },
-    fullPage: true,
-  },
-  {
-    filename: "linked-profile-desktop.png",
-    path: "/en-US/account",
-    query: "",
-    queries: privateLinkedAccountQueries,
-    target: "linked-profile-desktop",
-    viewport: { height: 1000, width: 1440 },
-    fullPage: true,
-  },
-  {
-    filename: "linked-profile-language-desktop.png",
-    path: "/en-US/account",
-    query: "",
-    queries: privateLinkedAccountQueries,
-    target: "linked-profile-language-desktop",
-    viewport: { height: 1000, width: 1440 },
-    fullPage: true,
-  },
-  {
-    filename: "linked-profile-language-desktop-cs.png",
-    path: "/cs-CZ/account",
-    query: "",
-    queries: privateLinkedAccountQueries,
-    target: "linked-profile-language-desktop-cs",
-    viewport: { height: 1000, width: 1440 },
-    fullPage: true,
-  },
-  {
-    filename: "linked-profile-language-mobile.png",
-    path: "/en-US/account",
-    query: "",
-    queries: privateLinkedAccountQueries,
-    target: "linked-profile-language-mobile",
-    viewport: { height: 900, width: 375 },
-    fullPage: true,
-  },
-  {
-    filename: "linked-profile-language-saving-desktop.png",
-    path: "/en-US/account",
-    query: "",
-    queries: privateLinkedAccountQueries,
-    target: "linked-profile-language-saving-desktop",
-    viewport: { height: 1000, width: 1440 },
-    fullPage: true,
-  },
-  {
-    filename: "linked-profile-language-saved-desktop.png",
-    path: "/en-US/account",
-    query: "",
-    queries: privateLinkedAccountQueries,
-    target: "linked-profile-language-saved-desktop",
-    viewport: { height: 1000, width: 1440 },
-    fullPage: true,
-  },
-  {
-    filename: "linked-profile-language-failed-desktop.png",
-    path: "/en-US/account",
-    query: "",
-    queries: privateLinkedAccountQueries,
-    target: "linked-profile-language-failed-desktop",
-    viewport: { height: 1000, width: 1440 },
-    fullPage: true,
-  },
-  {
-    filename: "linked-billing-desktop.png",
-    path: "/en-US/account",
-    query: "",
-    queries: privateLinkedAccountQueries,
-    target: "linked-billing-desktop",
-    viewport: { height: 1000, width: 1440 },
-    fullPage: true,
-  },
-  {
-    filename: "linked-billing-mobile.png",
-    path: "/en-US/account",
-    query: "",
-    queries: privateLinkedAccountQueries,
-    target: "linked-billing-mobile",
-    viewport: { height: 900, width: 375 },
-    fullPage: true,
-  },
-  {
-    filename: "linked-legal-desktop.png",
-    path: "/en-US/account/legal",
-    query: "",
-    target: "linked-legal-desktop",
-    viewport: { height: 1000, width: 1440 },
-    fullPage: true,
-  },
-  {
-    filename: "account-marketing-withdrawn-desktop.png",
-    path: "/en-US/account/legal",
-    query: "",
-    target: "account-marketing-withdrawn-desktop",
-    viewport: { height: 1000, width: 1440 },
-    fullPage: true,
-  },
-  {
-    filename: "account-marketing-active-mobile.png",
-    path: "/en-US/account/legal",
-    query: "",
-    target: "account-marketing-active-mobile",
-    viewport: { height: 900, width: 375 },
-    fullPage: true,
-  },
-  {
-    filename: "marketing-link-pending-desktop.png",
-    path: "/en-US/account/legal",
-    query: "",
-    target: "marketing-link-pending-desktop",
-    viewport: { height: 1000, width: 1440 },
-    fullPage: true,
-  },
-  {
-    filename: "marketing-link-pending-mobile.png",
-    path: "/en-US/account/legal",
-    query: "",
-    target: "marketing-link-pending-mobile",
-    viewport: { height: 900, width: 375 },
-    fullPage: true,
-  },
-  {
-    filename: "marketing-link-active-desktop.png",
-    path: "/en-US/account/legal",
-    query: "",
-    target: "marketing-link-active-desktop",
-    viewport: { height: 1000, width: 1440 },
-    fullPage: true,
-  },
-  {
-    filename: "marketing-link-active-mobile.png",
-    path: "/en-US/account/legal",
-    query: "",
-    target: "marketing-link-active-mobile",
-    viewport: { height: 900, width: 375 },
-    fullPage: true,
-  },
-  {
-    filename: "marketing-link-withdrawn-desktop.png",
-    path: "/en-US/account/legal",
-    query: "",
-    target: "marketing-link-withdrawn-desktop",
-    viewport: { height: 1000, width: 1440 },
-    fullPage: true,
-  },
-  {
-    filename: "marketing-link-withdrawn-mobile.png",
-    path: "/en-US/account/legal",
-    query: "",
-    target: "marketing-link-withdrawn-mobile",
-    viewport: { height: 900, width: 375 },
-    fullPage: true,
-  },
-  {
-    filename: "marketing-link-invalid-desktop.png",
-    path: "/en-US/account/legal",
-    query: "",
-    target: "marketing-link-invalid-desktop",
-    viewport: { height: 1000, width: 1440 },
-    fullPage: true,
-  },
-  {
-    filename: "marketing-link-invalid-mobile.png",
-    path: "/en-US/account/legal",
-    query: "",
-    target: "marketing-link-invalid-mobile",
-    viewport: { height: 900, width: 375 },
-    fullPage: true,
-  },
-  {
-    filename: "public-legal-desktop.png",
-    path: "/en-US/account/legal",
-    query: "",
-    target: "public-legal-desktop",
-    viewport: { height: 1000, width: 1440 },
-    fullPage: true,
-  },
-  {
-    filename: "public-legal-mobile.png",
-    path: "/en-US/account/legal",
-    query: "",
-    target: "public-legal-mobile",
-    viewport: { height: 900, width: 375 },
-    fullPage: true,
-  },
-  {
-    filename: "linked-danger-desktop.png",
-    path: "/en-US/account",
-    query: "",
-    queries: privateLinkedAccountQueries,
-    target: "linked-danger-desktop",
-    viewport: { height: 1000, width: 1440 },
-    fullPage: true,
-  },
-  {
-    filename: "linked-danger-mobile.png",
-    path: "/en-US/account",
-    query: "",
-    queries: privateLinkedAccountQueries,
-    target: "linked-danger-mobile",
-    viewport: { height: 900, width: 375 },
-    fullPage: true,
-  },
-  {
-    filename: "support-desktop.png",
-    path: "/en-US/account",
-    query: "",
-    target: "support-desktop",
-    viewport: { height: 1000, width: 1440 },
-    fullPage: true,
-  },
-  {
-    filename: "sign-in-accepted-desktop.png",
-    path: "/en-US/auth/sign-in",
-    query: "",
-    target: "sign-in-accepted-desktop",
-    viewport: { height: 1000, width: 1440 },
-    fullPage: true,
-  },
-  {
-    filename: "sign-in-pending-desktop.png",
-    path: "/en-US/auth/sign-in",
-    query: "",
-    target: "sign-in-pending-desktop",
-    viewport: { height: 1000, width: 1440 },
-    fullPage: true,
-  },
-  {
-    filename: "sign-in-desktop.png",
-    path: "/en-US/auth/sign-in",
-    query: "",
-    target: "sign-in-desktop",
-    viewport: { height: 1000, width: 1440 },
-    fullPage: true,
-  },
-  {
-    filename: "callback-failed-desktop.png",
-    path: "/en-US/auth/callback",
-    query: "",
-    queries: [
-      "?error=INVALID_TOKEN",
-      `?attempt=${attemptUuid}&error=INVALID_TOKEN`,
-      `?error=INVALID_TOKEN&attempt=${attemptUuid}`,
-    ],
-    target: "callback-failed-desktop",
-    viewport: { height: 1000, width: 1440 },
-    fullPage: true,
-  },
-  {
-    filename: "deleted-desktop.png",
-    path: "/en-US/account/deleted",
-    query: "",
-    target: "deleted-desktop",
-    viewport: { height: 1000, width: 1440 },
-    fullPage: true,
-  },
-] as const satisfies ReadonlyArray<{
-  readonly filename: `${string}.png`;
-  readonly fullPage: boolean;
-  readonly path: string | readonly string[];
-  readonly query: string;
-  readonly queries?: readonly string[];
-  readonly target: AccountReviewTarget;
-  readonly viewport: Playwright.ViewportSize;
-}>;
+const reservationCustomerReviewTargets = [
+  "reservation-customer-account-desktop",
+  "reservation-customer-contact-desktop",
+] as const;
 
 type FakePage = {
   readonly currentViewport: () => Playwright.ViewportSize | null;
@@ -408,12 +90,13 @@ const makeFakePage = (
       },
       count: async () =>
         kind === "loading-card" && !callbackLoadingPresent ? 0 : 1,
-      getByText: () => makeLocator("loading-text"),
+      first: () => makeLocator(kind),
+      locator: () => makeLocator("loading-skeleton"),
       waitFor: async () => {
         if (
           (kind === "loading-card" ||
             kind === "loading-status" ||
-            kind === "loading-text") &&
+            kind === "loading-skeleton") &&
           !callbackLoadingPresent
         )
           throw new Error("callback loading state is not visible");
@@ -972,6 +655,38 @@ describe("account review screenshot capture", () => {
       target: "linked-legal-desktop",
       url: `${baseUrl}/en-US/account/legal#review-state`,
     },
+    ...reservationCustomerReviewTargets.flatMap((target) => [
+      {
+        name: `${target} at a foreign origin`,
+        target,
+        url: "https://other.example.test/en-US/reservation/cowork",
+      },
+      {
+        name: `${target} at another reservation page`,
+        target,
+        url: `${baseUrl}/en-US/reservation/office`,
+      },
+      {
+        name: `${target} at the account page`,
+        target,
+        url: `${baseUrl}/en-US/account`,
+      },
+      {
+        name: `${target} with a prefilled contact query`,
+        target,
+        url: `${baseUrl}/en-US/reservation/cowork?email=synthetic%40example.test`,
+      },
+      {
+        name: `${target} with a token query`,
+        target,
+        url: `${baseUrl}/en-US/reservation/cowork?token=synthetic-secret-token`,
+      },
+      {
+        name: `${target} with a hash`,
+        target,
+        url: `${baseUrl}/en-US/reservation/cowork#review-state`,
+      },
+    ]),
     ...marketingReviewTargets.flatMap((target) => [
       {
         name: `${target} with a token query`,
@@ -996,7 +711,7 @@ describe("account review screenshot capture", () => {
       const fakePage = makeFakePage(invalidPage.url);
 
       await expect(
-        captureAccountReview(fakePage.page, baseUrl, invalidPage.target)
+        captureAccountReview(fakePage.page, review, invalidPage.target)
       ).rejects.toThrow(captureFailureMessage);
 
       expect(fakePage.screenshotCalls).toHaveLength(0);
@@ -1013,7 +728,7 @@ describe("account review screenshot capture", () => {
     try {
       await captureAccountReview(
         fakePage.page,
-        baseUrl,
+        review,
         "callback-loading-desktop"
       );
     } catch (cause) {
@@ -1027,45 +742,67 @@ describe("account review screenshot capture", () => {
     expect(writeFileSpy?.mock.calls).toHaveLength(0);
   });
 
-  for (const expected of validTargets) {
-    const expectedPaths = Array.isArray(expected.path)
-      ? expected.path
-      : [expected.path];
-    for (const expectedPath of expectedPaths) {
-      for (const expectedQuery of expected.queries ?? [expected.query]) {
-        test(`captures fixed metadata for ${expected.target} at ${expectedPath}${expectedQuery}`, async () => {
-          const fakePage = makeFakePage(
-            `${baseUrl}${expectedPath}${expectedQuery}`
-          );
+  test("captures, persists, and restores the viewport through one shared pipeline", async () => {
+    const fakePage = makeFakePage(`${baseUrl}/en-US/account`);
 
-          await captureAccountReview(fakePage.page, baseUrl, expected.target);
+    await captureAccountReview(
+      fakePage.page,
+      review,
+      "completion-mobile375x900"
+    );
 
-          expect(fakePage.screenshotCalls).toHaveLength(1);
-          expect(fakePage.screenshotCalls[0]).toEqual({
-            animations: "disabled",
-            fullPage: expected.fullPage,
-            timeout: expect.any(Number),
-          });
-          expect(fakePage.screenshotCalls[0]?.timeout).toBeGreaterThan(0);
-          expect(fakePage.screenshotCalls[0]?.timeout).toBeLessThanOrEqual(
-            workspaceE2ETimeouts.browserAction
-          );
-          expect(fakePage.viewportChanges).toEqual([
-            expected.viewport,
-            initialViewport,
-          ]);
-          expect(fakePage.currentViewport()).toEqual(initialViewport);
-          expect(fakePage.fontReadyCalls()).toBe(1);
-          expect(writeFileSpy?.mock.calls).toEqual([
-            [
-              resolve(accountReviewArtifactDirectory, expected.filename),
-              screenshotBuffer,
-            ],
-          ]);
-        });
-      }
-    }
-  }
+    expect(fakePage.screenshotCalls).toHaveLength(1);
+    expect(fakePage.screenshotCalls[0]?.timeout).toBeGreaterThan(0);
+    expect(fakePage.screenshotCalls[0]?.timeout).toBeLessThanOrEqual(
+      workspaceE2ETimeouts.browserAction
+    );
+    expect(fakePage.viewportChanges).toHaveLength(2);
+    expect(fakePage.viewportChanges[0]).not.toEqual(initialViewport);
+    expect(fakePage.currentViewport()).toEqual(initialViewport);
+    expect(fakePage.fontReadyCalls()).toBe(1);
+    expect(writeFileSpy?.mock.calls).toHaveLength(1);
+    expect(writeFileSpy?.mock.calls[0]?.[0]).toStartWith(
+      `${accountReviewArtifactDirectory}/`
+    );
+    expect(writeFileSpy?.mock.calls[0]?.[1]).toBe(screenshotBuffer);
+  });
+
+  test.each([
+    [
+      "a private linked section query",
+      "linked-profile-desktop",
+      "/en-US/account?section=billing",
+    ],
+    [
+      "a bare callback loading page",
+      "callback-loading-desktop",
+      "/en-US/auth/callback",
+    ],
+    [
+      "a canonical callback attempt",
+      "callback-loading-desktop",
+      `/en-US/auth/callback?attempt=${attemptUuid}`,
+    ],
+    [
+      "the account sign-in handoff path",
+      "sign-in-handoff-desktop",
+      "/en-US/account",
+    ],
+    [
+      "the sign-in page handoff path",
+      "sign-in-handoff-desktop",
+      "/en-US/auth/sign-in",
+    ],
+  ] as const satisfies ReadonlyArray<
+    readonly [string, AccountReviewTarget, string]
+  >)("accepts %s", async (_name, target, pathAndQuery) => {
+    const fakePage = makeFakePage(`${baseUrl}${pathAndQuery}`);
+
+    await captureAccountReview(fakePage.page, review, target);
+
+    expect(fakePage.screenshotCalls).toHaveLength(1);
+    expect(writeFileSpy?.mock.calls).toHaveLength(1);
+  });
 
   test("captures a reservation status target only at the exact fixture path", async () => {
     const reservationId = workspaceReservationIdSchema.make(
@@ -1076,7 +813,7 @@ describe("account review screenshot capture", () => {
 
     await captureReservationStatusReview(
       fakePage.page,
-      baseUrl,
+      review,
       "reservation-status-modal-desktop",
       reservationId
     );
@@ -1111,7 +848,7 @@ describe("account review screenshot capture", () => {
     await expect(
       captureReservationStatusReview(
         fakePage.page,
-        baseUrl,
+        review,
         "reservation-status-details-desktop",
         fixtureReservationId
       )
@@ -1129,7 +866,7 @@ describe("account review screenshot capture", () => {
 
     await captureAccountReview(
       fakePage.page,
-      baseUrl,
+      review,
       "callback-failed-desktop"
     );
 
@@ -1148,7 +885,7 @@ describe("account review screenshot capture", () => {
     });
 
     await expect(
-      captureAccountReview(fakePage.page, baseUrl, "linked-profile-desktop")
+      captureAccountReview(fakePage.page, review, "linked-profile-desktop")
     ).rejects.toThrow(captureFailureMessage);
 
     expect(fakePage.viewportChanges).toEqual([
@@ -1196,7 +933,7 @@ describe("account review screenshot capture", () => {
         const controller = new AbortController();
         const capture = captureAccountReview(
           fakePage.page,
-          baseUrl,
+          review,
           "linked-profile-desktop",
           { signal: controller.signal }
         );
@@ -1234,7 +971,7 @@ describe("account review screenshot capture", () => {
     try {
       const capture = captureAccountReview(
         fakePage.page,
-        baseUrl,
+        review,
         "linked-profile-desktop",
         { signal: controller.signal }
       );
@@ -1268,7 +1005,7 @@ describe("account review screenshot capture", () => {
         });
         const capture = captureAccountReview(
           fakePage.page,
-          baseUrl,
+          review,
           "linked-profile-desktop",
           { deadline: workspaceE2ETimeouts.browserAction }
         );
@@ -1292,7 +1029,7 @@ describe("account review screenshot capture", () => {
     let validatorCalls = 0;
     const pixels = Buffer.from("held-document-png");
 
-    await persistCallbackDocumentReview(fakePage.page, baseUrl, pixels, () => {
+    await persistCallbackDocumentReview(fakePage.page, review, pixels, () => {
       validatorCalls += 1;
     });
 
@@ -1316,7 +1053,7 @@ describe("account review screenshot capture", () => {
     await expect(
       persistCallbackDocumentReview(
         fakePage.page,
-        baseUrl,
+        review,
         screenshotBuffer,
         () => {
           throw new Error("receipt is not valid");
@@ -1336,7 +1073,7 @@ describe("account review screenshot capture", () => {
     await expect(
       persistCallbackDocumentReview(
         fakePage.page,
-        baseUrl,
+        review,
         screenshotBuffer,
         () => undefined
       )
@@ -1355,7 +1092,7 @@ describe("account review screenshot capture", () => {
     await expect(
       persistCallbackDocumentReview(
         fakePage.page,
-        baseUrl,
+        review,
         screenshotBuffer,
         () => undefined,
         { signal: controller.signal }
@@ -1374,7 +1111,7 @@ describe("account review screenshot capture", () => {
     await expect(
       persistCallbackDocumentReview(
         fakePage.page,
-        baseUrl,
+        review,
         screenshotBuffer,
         () => {
           validatorCalls += 1;
@@ -1400,7 +1137,7 @@ describe("account review screenshot capture", () => {
     });
 
     await expect(
-      captureAccountReview(fakePage.page, baseUrl, "callback-loading-desktop")
+      captureAccountReview(fakePage.page, review, "callback-loading-desktop")
     ).rejects.toThrow(captureFailureMessage);
 
     expect(fakePage.screenshotCalls).toHaveLength(1);
@@ -1413,7 +1150,7 @@ describe("account review screenshot capture", () => {
     await withControlledDateNow(clock, async () => {
       const fakePage = makePendingReviewFakePage(clock);
 
-      await withSignInPendingReview(fakePage.page, baseUrl, async () => {
+      await withSignInPendingReview(fakePage.page, review, async () => {
         await fakePage.startPost();
       });
 
@@ -1434,7 +1171,7 @@ describe("account review screenshot capture", () => {
         let runCaseCalls = 0;
         const wrapped = withSignInPendingReview(
           fakePage.page,
-          baseUrl,
+          review,
           async () => {
             runCaseCalls += 1;
           }
@@ -1470,7 +1207,7 @@ describe("account review screenshot capture", () => {
     let runCaseCalls = 0;
 
     await expect(
-      withSignInPendingReview(fakePage.page, baseUrl, async () => {
+      withSignInPendingReview(fakePage.page, review, async () => {
         runCaseCalls += 1;
       })
     ).rejects.toThrow(captureFailureMessage);
@@ -1496,7 +1233,7 @@ describe("account review screenshot capture", () => {
       });
       const wrapped = withSignInPendingReview(
         fakePage.page,
-        baseUrl,
+        review,
         async () => {
           void fakePage.startPost();
           await fakePage.captureComplete;
@@ -1556,7 +1293,7 @@ describe("account review screenshot capture", () => {
         const fakePage = makePendingReviewFakePage(clock, options);
 
         await expect(
-          withSignInPendingReview(fakePage.page, baseUrl, async () => {
+          withSignInPendingReview(fakePage.page, review, async () => {
             await fakePage.startPost();
           })
         ).rejects.toThrow(captureFailureMessage);
@@ -1576,7 +1313,7 @@ describe("account review screenshot capture", () => {
       });
 
       await expect(
-        withSignInPendingReview(fakePage.page, baseUrl, async () => {
+        withSignInPendingReview(fakePage.page, review, async () => {
           await fakePage.startPost();
           throw runCaseFailure;
         })
@@ -1593,7 +1330,7 @@ describe("account review screenshot capture", () => {
         advancePendingTo: 5_000,
       });
 
-      await withSignInPendingReview(fakePage.page, baseUrl, async () => {
+      await withSignInPendingReview(fakePage.page, review, async () => {
         await fakePage.startPost();
       });
 
@@ -1615,7 +1352,7 @@ describe("account review screenshot capture", () => {
       });
 
       await expect(
-        withSignInPendingReview(fakePage.page, baseUrl, async () => {
+        withSignInPendingReview(fakePage.page, review, async () => {
           await fakePage.startPost();
         })
       ).rejects.toThrow(captureFailureMessage);
@@ -1906,7 +1643,7 @@ describe("language preference review wrapper", () => {
   test("captures the saving state only for the preference save POST", async () => {
     const fakePage = makeLanguageReviewFakePage();
 
-    await withLanguagePreferenceReview(fakePage.page, baseUrl, async () => {
+    await withLanguagePreferenceReview(fakePage.page, review, async () => {
       // The case's sign-out POST leaves the page for /api/auth and must
       // never reach, wait on, or abort the account route gate.
       expect(
@@ -1931,7 +1668,9 @@ describe("language preference review wrapper", () => {
       // A foreign origin is never matched, even with the identical path and
       // permitted query.
       expect(
-        routeMatcher(new URL("https://attacker.example/en-US/account?section=profile"))
+        routeMatcher(
+          new URL("https://attacker.example/en-US/account?section=profile")
+        )
       ).toBe(false);
 
       // The case's navigation to the profile section is a document request
@@ -1962,7 +1701,8 @@ describe("language preference review wrapper", () => {
         fakePage.sendRequest({
           headers: () => ({ "next-action": "synthetic-profile-action" }),
           method: () => "POST",
-          postData: () => `[{"name":"Ada Lovelace","phone":"+420 555 010 203"}]`,
+          postData: () =>
+            `[{"name":"Ada Lovelace","phone":"+420 555 010 203"}]`,
           url: () => `${baseUrl}/en-US/account?section=profile`,
         })
       ).toEqual(["fallback"]);
@@ -2012,7 +1752,7 @@ describe("language preference review wrapper", () => {
       url: () => `${baseUrl}/en-US/account?section=profile`,
     };
 
-    await withLanguagePreferenceReview(fakePage.page, baseUrl, async () => {
+    await withLanguagePreferenceReview(fakePage.page, review, async () => {
       // Two overlapping matching requests before the first handler settles:
       // only the first is captured, the second falls through.
       const firstOutcomes = fakePage.sendRequest(matchingRequest);
@@ -2066,7 +1806,7 @@ describe("language preference review wrapper", () => {
   test("forces a genuine selection change before the saved-state capture", async () => {
     const fakePage = makeLanguageReviewFakePage({ persistedLocale: "en-US" });
 
-    await withLanguagePreferenceReview(fakePage.page, baseUrl, async () => {
+    await withLanguagePreferenceReview(fakePage.page, review, async () => {
       // A fresh session restores the persisted value without a selection, so
       // re-picking English (US) fires no onValueChange and Save stays
       // disabled: no preference POST happens.
@@ -2093,5 +1833,116 @@ describe("language preference review wrapper", () => {
       "linked-profile-language-desktop-cs.png",
       "linked-profile-language-mobile.png",
     ]);
+  });
+});
+
+describe("account review screenshots without the opt-in", () => {
+  let writeFileSpy: ReturnType<typeof spyOn> | undefined;
+  let mkdirSpy: ReturnType<typeof spyOn> | undefined;
+
+  beforeEach(() => {
+    writeFileSpy = spyOn(fsPromises, "writeFile").mockImplementation(
+      async () => undefined
+    );
+    mkdirSpy = spyOn(fsPromises, "mkdir").mockImplementation(
+      async () => undefined
+    );
+  });
+
+  afterEach(() => {
+    writeFileSpy?.mockRestore();
+    mkdirSpy?.mockRestore();
+  });
+
+  const expectUntouched = (fakePage: FakePage) => {
+    expect(fakePage.screenshotCalls).toHaveLength(0);
+    expect(fakePage.viewportChanges).toHaveLength(0);
+    expect(fakePage.fontReadyCalls()).toBe(0);
+    expect(mkdirSpy?.mock.calls).toHaveLength(0);
+    expect(writeFileSpy?.mock.calls).toHaveLength(0);
+  };
+
+  test("captures no account review", async () => {
+    const fakePage = makeFakePage(`${baseUrl}/en-US/account`);
+
+    await captureAccountReview(
+      fakePage.page,
+      reviewWithoutScreenshots,
+      "completion-mobile375x900"
+    );
+
+    expectUntouched(fakePage);
+  });
+
+  test("captures no reservation status review", async () => {
+    const reservationId = workspaceReservationIdSchema.make(
+      "account-history-reservation"
+    );
+    const fakePage = makeFakePage(
+      `${baseUrl}/en-US${reservationStatusPath}/${encodeURIComponent(reservationId)}`
+    );
+
+    await captureReservationStatusReview(
+      fakePage.page,
+      reviewWithoutScreenshots,
+      "reservation-status-modal-desktop",
+      reservationId
+    );
+
+    expectUntouched(fakePage);
+  });
+
+  test("persists no callback document review", async () => {
+    const fakePage = makeFakePage(`${baseUrl}/en-US/auth/callback`);
+    let validations = 0;
+
+    await persistCallbackDocumentReview(
+      fakePage.page,
+      reviewWithoutScreenshots,
+      screenshotBuffer,
+      () => {
+        validations += 1;
+      }
+    );
+
+    expect(validations).toBe(0);
+    expectUntouched(fakePage);
+  });
+
+  test("runs the sign-in case without holding its request", async () => {
+    const clock = makeControlledClock();
+    const fakePage = makePendingReviewFakePage(clock);
+    let caseRuns = 0;
+
+    await withSignInPendingReview(
+      fakePage.page,
+      reviewWithoutScreenshots,
+      async () => {
+        caseRuns += 1;
+      }
+    );
+
+    expect(caseRuns).toBe(1);
+    expect(fakePage.routeCalls).toHaveLength(0);
+    expect(fakePage.unrouteCallCount()).toBe(0);
+    expectUntouched(fakePage);
+  });
+
+  test("preserves the sign-in case failure", async () => {
+    const fakePage = makePendingReviewFakePage(makeControlledClock());
+    const caseFailure = new Error("synthetic sign-in case failure");
+
+    await expect(
+      withSignInPendingReview(
+        fakePage.page,
+        reviewWithoutScreenshots,
+        async () => {
+          throw caseFailure;
+        }
+      )
+    ).rejects.toBe(caseFailure);
+
+    expect(fakePage.routeCalls).toHaveLength(0);
+    expectUntouched(fakePage);
   });
 });

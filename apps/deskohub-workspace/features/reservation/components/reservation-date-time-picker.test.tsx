@@ -7,7 +7,13 @@ import {
   mock,
   test,
 } from "bun:test";
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  waitFor,
+} from "@testing-library/react";
 import "@/shared/polyfills/temporal";
 import {
   registerWorkspaceComponentTestEnv,
@@ -24,8 +30,8 @@ describe("ReservationDateTimePicker", () => {
     cleanup();
   });
 
-  afterAll(() => {
-    unregisterWorkspaceComponentTestEnv();
+  afterAll(async () => {
+    await unregisterWorkspaceComponentTestEnv();
   });
 
   test("prevents selecting a time before the same-day minimum", () => {
@@ -83,6 +89,33 @@ describe("ReservationDateTimePicker", () => {
     fireEvent.input(timeInput, { target: { value: "" } });
     expect(onChange).not.toHaveBeenCalled();
     expect((timeInput as HTMLInputElement).value).toBe("16:00");
+  });
+
+  test("reports a blur when the date calendar closes", async () => {
+    const onBlur = mock(() => undefined);
+    const view = render(
+      <ReservationDateTimePicker
+        dateLabel="Start date"
+        locale="en-US"
+        onBlur={onBlur}
+        timeLabel="Start time"
+        value="2099-06-10T16:00"
+      />
+    );
+    const dateButton = view.getByRole("button", { name: "Start date" });
+
+    act(() => {
+      fireEvent.click(dateButton);
+    });
+    await waitFor(() => {
+      expect(dateButton.getAttribute("aria-expanded")).toBe("true");
+    });
+    expect(onBlur).not.toHaveBeenCalled();
+
+    act(() => {
+      fireEvent.click(dateButton);
+    });
+    expect(onBlur).toHaveBeenCalledTimes(1);
   });
 
   test("shows only the selected date in the date control", () => {

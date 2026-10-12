@@ -12,9 +12,9 @@ import { workspaceReservationIdSchema } from "@/features/reservation/persistence
 const mockDate = Temporal.Instant.from("2026-06-12T09:00:00.000+02:00");
 const mockEndDate = Temporal.Instant.from("2026-06-13T09:00:00.000+02:00");
 
-export const workspaceReservationEmailPreviewTableName = "12";
+const workspaceReservationEmailPreviewTableName = "12";
 
-export const workspaceReservationEmailPreviewCustomer: Customer = {
+const workspaceReservationEmailPreviewCustomer: Customer = {
   _cloudId: "preview-cloud-id",
   firstName: "Ada",
   lastName: "Lovelace",
@@ -70,4 +70,17 @@ export const createWorkspaceReservationEmailPreviewReservation = (
       },
     ],
   },
+});
+
+export const createWorkspaceOpenSpaceReservationEmailPreviewReservation = (
+  locale: string
+): WorkspaceReservationDetails => ({
+  ...createWorkspaceReservationEmailPreviewReservation(locale),
+  reservationDetails: {
+    kind: "cowork",
+    entryTier: "open-space",
+    coffee: false,
+  },
+  tableName: "assigned-only-preview-table-id",
+  openSpaceTableNames: ["9", "10", "11", "12", "15", "16", "wallee", "gromice"],
 });

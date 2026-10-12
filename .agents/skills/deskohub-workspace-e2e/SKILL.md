@@ -30,8 +30,8 @@ Distinguish automated-runner behavior from manual procedures before treating a d
   preview URL. Do not add a dedicated package script, Turbo task, test-file
   naming convention, environment switch, or case-specific database allowlist
   for those assertions.
-- Treat email-provider secrets that exist only in Vercel as intentionally unavailable to local E2E. Validate delivery through Vercel runtime or webhook evidence, and validate email body content with the fake transport renderer.
-- Treat exact immutable-preview runtime transport evidence as the authority for provider isolation: reservation checkout may use the Console email provider while the auth boundary remains direct Resend. An `EMAIL_PROVIDER` fallback, including Resend when `EMAIL_API_KEY` exists, is not evidence that checkout used Console. The stale `.env.example` Preview-Resend instruction is not the current checkout policy. The historic replay quiet cooldown justified by Resend cases remains a safeguard, not an assertion that the current target uses Resend.
+- Treat email-provider secrets that exist only in Vercel as intentionally unavailable to local E2E. Validate delivery through Vercel runtime or webhook evidence, and validate email body content with the fake transport renderer. Preview magic links for synthetic E2E recipients are console-logged by the account app feature, not the shared email package (zero Resend calls). The account worker uses the historical request-log route from pinned Vercel CLI 54.9.1, scoped to the immutable deployment, project, time window, marker, baseline row IDs, and exact recipient. The route is an internal CLI contract, not a documented public history API. `WORKSPACE_E2E_VERCEL_TOKEN` is an opaque secret held only in the protected `workspace-checkout-e2e` GitHub environment; the runner does not validate its scope, and it never enters Vercel or application configuration. The currently accepted same-account Workspace team PAT returned HTTP 200 for a history GET after the final-440 deployment's project and commit metadata matched. An earlier project PAT returned HTTP 403 on the same route. This confirms read access for the configured credential only; the denial reason and general project-token support remain unknown, and no drain create/delete access was tested. A narrower project credential remains preferred if the history route supports it; do not require a full-account key. Require an exact-preview E2E pass before treating a delivered link as verified.
+- Treat exact immutable-preview runtime transport evidence as the authority for provider isolation: reservation checkout may use the Console email provider, and auth forces the shared Console provider only for synthetic E2E Preview recipients, after which the app feature emits the single `account.magic-link.preview-e2e` log line; every other auth recipient uses the `EmailConfigLayer` configured default provider, which may be Console. A configured `EMAIL_PROVIDER` default, including Resend when `EMAIL_API_KEY` exists, is not evidence that checkout used Console; `.env.example` documents the current checkout and auth-mail policy. The historic replay quiet cooldown justified by Resend cases remains a safeguard, not an assertion that the current target uses Resend.
 - Run full E2E only against the ordinary protected Vercel Git preview for the exact committed and pushed SHA. Use the immutable deployment URL from `vercel.deployment.success` or an explicitly supplied workflow-dispatch input; never scrape the PR comment or substitute a mutable branch/custom-domain alias. For manual dispatch, fail before the test job unless GitHub deployment metadata records that origin as a successful Workspace deployment for the exact target SHA.
 - Treat `WORKSPACE_E2E_BASE_URL` and its integration-created Neon preview branch as one target. Resolve and migrate the validated `preview/<internal-head-ref>` branch after the preview succeeds, pass its pooled URL to runtime checks and its direct URL to migrations, assertions, and the allowlist, and fail closed rather than falling back to production or shared development.
 - Do not deploy or mutate Vercel from the E2E runner. Uncommitted local code has no externally reachable Git preview and must not be described as tested through a previously built preview.
@@ -40,10 +40,22 @@ Distinguish automated-runner behavior from manual procedures before treating a d
   `e2e/e2e-env.ts` as the suite's only `process.env` boundary. Select, validate,
   and decode every runner-owned variable there once; inject the immutable typed
   configuration into telemetry, Layers, datasource configuration, and child
-  command construction. Keep all E2E timeouts in the checked-in
+  command construction. The launcher spawns Playwright with
+  `toPlaywrightEnvironment(environment)` only; the
+  `no-raw-environment-in-e2e-launcher` Grit rule rejects `process.env` and
+  `Bun.env` in `scripts/workspace-e2e.ts`. Keep all E2E timeouts in the checked-in
   `e2e/timeouts.ts` configuration; do not add environment-variable overrides.
   Do not project application-only variables or use app-client PostHog variables
   as E2E telemetry fallbacks.
+- The launcher runs the checkout and instant-navigation Playwright processes
+  concurrently. Build every child environment with
+  `workspacePlaywrightProcessEnvironment` so each config gets its own
+  transform cache: Playwright writes cache entries in place, and a shared
+  cache once handed the checkout config a half-written module (a missing
+  named export at config load).
+- Checkout setup records `run-context.json` before it leases or seeds
+  anything, and the launcher skips the cleanup-only recovery when a failed
+  suite never recorded it. Keep every side effect after that write.
 - In TypeScript configuration files outside that dedicated runner boundary, use
   the application's typed `env` instead of reading `process.env` directly, and
   declare any configuration-owned inputs in the root environment schema.
@@ -57,6 +69,20 @@ Distinguish automated-runner behavior from manual procedures before treating a d
 - Keep Vercel Deployment Protection enabled. Use its automation-bypass cookie/header/query flow for browser navigation, preview callbacks, readiness checks, and webhook replays. BotID is a separate production-only application concern; read the BotID skill before changing that boundary.
 - When priming the Vercel automation-bypass cookie, request a stable public asset that the app actually ships and require a successful response. A missing asset returns 404 even after a valid bypass, so it cannot distinguish protection failure from an invalid probe path.
 - Use ordinary document links for cross-locale switching rather than Next.js client-router links. Locale is server-owned global context and the Workspace proxy persists its cookie for localized requests; cross-locale RSC prefetches and client transitions can race or fail to commit the selected locale. Keep this invariant shared across full, mobile, and minimal headers rather than fixing one presentation in isolation.
+- Assert in E2E only what needs the deployed stack: server rendering and
+  auth gating, persistence, provider and webhook round trips, streaming and
+  navigation handoffs. Move CSS animation, layout geometry, focus, and markup
+  facts to real-browser component tests (`*.browser-acceptance.test.ts` with
+  `shared/testing/playwright-browser.ts`) or `@testing-library/react` tests,
+  and keep only a readiness sentinel in the E2E. Run a check that every paid
+  case could repeat, such as the post-fulfillment support and reserve-again
+  paths, on one opted-in case instead of in the shared checkout flow.
+- Review screenshots are PR-review artifacts, not test evidence. Capture them
+  only when the run sets `WORKSPACE_E2E_REVIEW_SCREENSHOTS=true`
+  (decoded once in `e2e/e2e-env.ts` by `reviewScreenshotsEnabled`, and passed
+  through `turbo.json`). Inject the decoded setting: account capture helpers take
+  an `AccountReviewDestination`, and review-only viewports, mode switches, or
+  section visits run only when it opts in.
 - For dynamically rendered forms, wait for the relevant framework handler to be hydrated before interacting; do not use network idle as the readiness signal because analytics traffic can keep it open. Then use Playwright locators and browser-native fill or keyboard operations so framework handlers receive trusted interactions. Select the actual control by accessibility role rather than a wrapping label. Prefer a stable app-owned id or form-scoped selector for critical activation when one exists. When a provider page requires an accessibility snapshot fallback, capture a fresh Playwright AI snapshot after hydration, resolve its `aria-ref` immediately, and do not reuse the reference after intervening DOM changes. Do not replace native form submission or link navigation with an evaluated DOM click.
 - For tooltip assertions, wait for the trigger's focus handler, center it
   instantly in the viewport, wait for layout to settle, and focus it with the
@@ -76,13 +102,19 @@ Distinguish automated-runner behavior from manual procedures before treating a d
   processes, browser processes, fail-fast admission, and the shared-fixture
   tail. Register every case statically in the checked-in catalog and assert the
   prepared case plan matches it before execution. Use project dependencies for
-  readiness, fixture seeding, parallel availability and provider preparation,
-  plan construction, independent cases, the Calendar mutation case, and final
-  reconciliation. Keep the global worker ceiling at six: it replaces the old
+  readiness, fixture seeding, plan construction (which runs cowork,
+  meeting-room, and office availability and provider preparation concurrently
+  inside one test so no extra phase barrier precedes it), independent cases,
+  the Calendar mutation case, invoice persistence, and final reconciliation.
+  Invoice persistence takes an `ACCESS EXCLUSIVE` lock and disables the
+  `invoices_immutable` trigger, so it depends on every checkout case project
+  like the shared-fixture tail and must never overlap a paid case; do not make
+  the plan wait for it. Keep the global worker ceiling at six: it replaces the old
   reservation-start permit pool with a stricter whole-case bound. Put every
   hosted-payment case in one of exactly three serial Playwright lanes so at most
   three hosted sessions run per suite while non-payment work can use the other
-  workers. Do not reintroduce an Effect case aggregate, suite-local hosted
+  workers. Balance the lanes by recorded median case durations so they end
+  within seconds of each other; the slowest lane bounds the case phase. Do not reintroduce an Effect case aggregate, suite-local hosted
   semaphore, reservation priority pool, or browser launcher. Effect remains
   inside each Playwright test for domain workflows, semantic steps, tracing,
   provider coordination, cleanup, and interruption-safe finalizers. The
@@ -120,10 +152,16 @@ Distinguish automated-runner behavior from manual procedures before treating a d
   topological phase before advancing. Keep the long serial account lane in the
   same phase as `checkout-non-payment` and `checkout-payment-1` through
   `checkout-payment-3` by depending on `checkout-plan`; require real scheduler
-  regression evidence, not only a graph assertion.
-  Keep the bounded evidence in [account scheduling runtime](references/account-scheduling-runtime.json)
-  and reproduce its synthetic harness with `bun run test scripts/workspace-e2e-scheduling.test.ts`
-  from `apps/deskohub-workspace`. The package command supplies the preload and
+  regression evidence, not only a graph assertion. Playwright queues the
+  account lane behind every `checkout-non-payment` test in that phase, so keep
+  the per-project `workers` cap on `checkout-non-payment` that leaves a worker
+  free for the account lane from the first case batch. The account lane never
+  pays, so the tail projects depend only on the checkout case projects.
+  Keep the bounded evidence in [account scheduling runtime](references/account-scheduling-runtime.json).
+  Its synthetic harness, `bun run test scripts/workspace-e2e-scheduling.test.ts`
+  from `apps/deskohub-workspace`, runs the current graph once to pass and once
+  with a checkout failure; it no longer reruns the retired baseline graph, so
+  the evidence's baseline values are historical. The package command supplies the preload and
   `--parallel=1` isolation. Load the actual config in a fresh bounded Bun
   process, validate projects and controls JSON, and do not change the actual
   scheduler. Run `bun turbo test --filter=deskohub-workspace` to prepare
@@ -141,7 +179,10 @@ Distinguish automated-runner behavior from manual procedures before treating a d
   with exact unlink/relink transitions instead of extra auth links or
   identities. Keep the callback screenshot review on
   `account-session-lifecycle` when it consumes the handed-off
-  reauthentication link; the marker case only issues it. For a candidate that
+  reauthentication link; the marker case only issues it. The callback
+  handoff hold and its loading-document receipt are E2E evidence and run on
+  every pass; only the screenshot, its capture viewport, and the font and
+  viewport readiness checks depend on the review screenshot opt-in. For a candidate that
   removes quiet windows, the repository-root operator must deploy the exact
   committed SHA and benchmark the entire protected E2E job—setup, suite, and
   cleanup—against the 600-second limit before claiming the target. Keep
@@ -164,9 +205,14 @@ Distinguish automated-runner behavior from manual procedures before treating a d
   locale/product/time fallback for states whose exact finalizer did not finish,
   after every dependent project has stopped. Keep Playwright's outer watchdog
   longer than the longest semantic case plus artifact and cleanup budgets so
-  Effect finalizers win every timeout race.
+  Effect finalizers win every timeout race. A fail-fast suite can exit before
+  Playwright schedules its teardown project; after a nonzero suite exit, the
+  existing runner must invoke the cleanup-only project once with `--no-deps`
+  and a fresh output directory, while preserving the original run context and
+  cleanup journals. Keep the suite's nonzero exit even if that fallback cleanup
+  passes, and never rerun the ordinary cases as part of cleanup recovery.
 - Keep interval-based availability pending while a user is rapidly editing its inputs, and coalesce intermediate queries before they reach the provider-backed route. Parallel meeting-room browsers can otherwise multiply a date, time, and duration change into enough overlapping Dotypos and Calendar inventory loads to strand the final availability request. Preserve the immediate initial query and the final selected interval rather than serializing whole E2E cases or weakening the readiness assertion.
-- Seed source-neutral discount definitions and codes only in the exact preview database before Playwright admits availability preparation or cases. Calendar-backed availability resolves the long-lived event's stored discount definition, so it reads those seeded rows even though provider discovery itself is read-only. After the seed project commits, let Playwright run cowork, meeting-room, and office availability tests in parallel while provider preparation runs in its sibling project. Keep the dedicated long-lived Calendar event immutable. When a pricing-change case must mutate its stored definition, isolate it on a product identity unused by happy paths, keep it in the Playwright project that depends on every independent-case project, serialize the related mutations inside that case, and restore the target with an interruption-safe finalizer. Calendar discovery caches resolved definitions by date, so a concurrent request for another product can otherwise preserve the transient target state. Never mutate a target consumed by another parallel case.
+- Seed source-neutral discount definitions and codes only in the exact preview database before Playwright admits availability preparation or cases. Calendar-backed availability resolves the long-lived event's stored discount definition, so it reads those seeded rows even though provider discovery itself is read-only. After the seed project commits, the plan project runs cowork, meeting-room, and office availability preparation concurrently with provider preparation. Keep the dedicated long-lived Calendar event immutable. When a pricing-change case must mutate its stored definition, isolate it on a product identity unused by happy paths, keep it in the Playwright project that depends on every independent-case project, serialize the related mutations inside that case, and restore the target with an interruption-safe finalizer. Calendar discovery caches resolved definitions under the date the booking is made (today), so a concurrent request for another product can otherwise preserve the transient target state, and an ineligible window keeps being advertised until `advertisedPricingSources` revalidates even after the finalizer restores the row. Fixture writes bypass the admin mutation's tag revalidation, so order the case so every checkout that needs the sale advertised reaches that state (open the advertised checkout, or capture its pay page URL and reopen it later) before the single eligibility removal; never make a step wait to observe a restored row through the cache, which costs a full revalidation cycle. Keep the reload-until-advertised poll only as a safety net for a stale entry left by an earlier run, never as the normal path. Never mutate a target consumed by another parallel case.
 - Lease one partition of the fixed 14-to-90-day candidate range before
   constructing cases. Coordinate owners through the dedicated long-lived Neon
   coordination database, never an application production, development, or
@@ -217,16 +263,149 @@ Distinguish automated-runner behavior from manual procedures before treating a d
   date so runs crossing midnight retain the same owner. Use round-robin weekday
   sequences rather than contiguous date bands so clustered unavailability does
   not starve a run that the full candidate range could support.
-- Let Playwright own one browser per worker. The compatibility runner may create one isolated context for the current Playwright test, but it must never launch or close the worker browser. Capture diagnostics for the genuine failure before closing its context. Playwright flushes HAR when the context closes, so use bounded finalizers to close every failed, completed, or interrupted context before sanitizing or discarding its raw HAR. Keep read-only instant navigation as an independent fully parallel project in the same Playwright graph so it shares CI setup and runs alongside checkout preparation without depending on it. Within checkout case finalization, let owned-reservation cleanup overlap the browser branch while preserving HAR stop before context close.
+- Let Playwright own one browser per worker. The compatibility runner may create one isolated context for the current Playwright test, but it must never launch or close the worker browser. Capture diagnostics for the genuine failure before closing its context. Playwright flushes HAR when the context closes, so use bounded finalizers to close every failed, completed, or interrupted context before sanitizing or discarding its raw HAR. Keep read-only instant navigation in its own Playwright config (`bun run test:instant-navigation`), launched by the E2E entry point concurrently with the checkout graph and without a lease or dependency on it: as a project in the checkout graph it extended the setup phase barrier. It always targets the remote preview, uses a separate output directory, and its failure fails the run after checkout finishes but does not fail-fast checkout. Within checkout case finalization, let owned-reservation cleanup overlap the browser branch while preserving HAR stop before context close.
 - Confirm Dotypos cancellation convergence through the same active-overlap read
   model used by capacity validation. Absence from the generic reservation list
   is not sufficient evidence that provider availability has released the seats.
+- When convergence times out with a tracked reservation still `CONFIRMED`,
+  check for a late paid fulfillment before blaming provider latency. A
+  hosted-payment case interrupted after card submission can still settle at
+  Nexi after its finalizer cancelled the hold. Paid fulfillment must never
+  confirm a reservation Dotypos already reports `CANCELLED`: the provider
+  confirmation reads the reservation and its ETag, refuses `CANCELLED`, and
+  patches with `If-Match`, and fulfillment records
+  `dotypos_reservation_unfulfillable` for operator recovery. The timeout
+  message reports only counts by status, never reservation IDs. The
+  `suite-cleanup` phase span must fail whenever cleanup fails.
+- Nexi's hosted fields submit card details to `/fe/build/text/` after
+  Continue. A failed POST there (4xx or 5xx) leaves the fields disabled and
+  never offers PAY; the hosted-page driver reports it as the
+  `card_submission_rejected` page state
+  (`nexi_hosted_<step>_card_submission_rejected`) from the session's Nexi
+  build responses. On 2026-10-08 this hit the first hosted payment of
+  many suites (usually `checkout-calendar-sale-and-code`, lane 3) and passed
+  on exact-SHA reruns. On 2026-10-09 a local sandbox run with no runner or
+  Workspace involvement reproduced it: the response body was Nexi error
+  `GW0027` ("Internal Rest communication error during payment"), and Nexi's
+  own `/fe/v2/build/state` also returned HTTP 500. Treat it as sandbox
+  instability; never re-submit card details on the inert form. The only
+  recovery is the single classified restart in
+  [references/nexi-sandbox.md](references/nexi-sandbox.md).
+- The sandbox can also mark the authorization itself `FAILED` after the 3DS
+  success click (`orderStatus: FAILED`, zero authorized amount). Workspace
+  then correctly settles the order unpaid. The fulfillment-marker wait fails
+  immediately with `checkout_payment_terminal_before_fulfillment` or
+  `checkout_fulfillment_failed_before_marker` instead of polling the
+  datasource timeout for a fulfillment that cannot happen. Confirm the
+  provider verdict in the preview's `Nexi payment outcome verification
+  completed` logs before suspecting Workspace. In the failed CI runs, Nexi
+  took about 10 s between its 3DS notification and `challenge_hpp.html`,
+  against about 0.2 s in successful sandbox payments. Such failures were
+  about 0.5% of roughly 1,200 preview orders from 2026-10-01 to 2026-10-09,
+  across several amounts.
+- Reservation pages render their initial prices and availability with the
+  content, so an option change whose price is already loaded never takes the
+  price back to pending. Wait for a pending-then-ready transition only after
+  a change that issues a new advertised-price request, such as a new date;
+  otherwise wait only for the ready price.
+- After a full document load, `/account` streams its layout and its content
+  in separate Suspense boundaries, and React can delay revealing the content
+  by a few hundred milliseconds. Clicking a section before that content is
+  hydrated makes React client-render a second copy of the panel next to the
+  hidden server copy, and strict locators such as `#account-profile-form`
+  then fail at once with a strict-mode violation. Section selection
+  therefore waits for the target panel's always-rendered anchor to carry
+  React props before the native click; legal has no anchor because it renders
+  only when active. Profile navigation failures never attach the Playwright
+  cause, which can contain private profile values; they keep the closed
+  diagnostic code and name only the section selection stage and the failure
+  kind (`timeout`, `strict-mode-violation`, or `error`) in the message.
+- Never wait on an element handle pinned before a streamed reveal. React's
+  `$RC` script defers the swap of a streamed Suspense boundary to a later
+  animation frame or timer (up to 300 ms), so it can land after the document
+  `load` event. Until then `/account` shows the layout's loading shell, whose
+  disabled section buttons carry the same accessible names as the real ones.
+  The swap removes those nodes, and a handle pinned to one never gains React
+  props. Runs 38172035885 and 38148167011 timed out this way after a reload
+  (`account_profile_persisted_profile_handler_wait_failed`, with the hydrated
+  page in the failure snapshot). `waitForReactClickHandler` therefore resolves
+  its locator again whenever the observed node leaves the document.
+- Decorative provider data must never take down a page. The Cloudinary
+  Search API rate-limits with HTTP 420, and Preview E2E shares that quota
+  with production. In run 37850570880 attempts 5, 10, and 11 the homepage
+  request threw `CloudinarySearchError` (`httpCode: 420`) from the carousel
+  lookup into `app/[locale]/error.tsx`, while its sale and calendar data
+  loaded normally. The response stayed HTTP 200 because the page streams, and
+  the instant-navigation tests could not find the site banner. Confirm with
+  the deployment's Vercel request logs for `/en-US`. Gallery search uses
+  `"use cache: remote"` with `cacheLife("max")`, so cold serverless
+  instances share results instead of re-searching Cloudinary; the Cloudinary
+  webhook revalidates its tags. On 2026-10-09 between 09:00 and 09:25 UTC,
+  four previews still on the per-instance cache made 119–143 searches each,
+  while this cache made 7. The homepage hides the carousel section when the
+  decorative lookup returns no images, including a build-time prerender during
+  a rate-limit window, so instant-navigation accepts either a resolved,
+  visible `#hero-gallery` or no carousel. It must never accept a busy or
+  half-rendered carousel.
+  With Cache Components, a `"use cache"` function that rejects during a
+  build-time prerender fails the whole build, even when the page catches the
+  rejection (the PR #497 preview build failed on `/en-US/meeting-room` with a
+  420). `getCloudinaryImages` therefore absorbs provider failures inside its
+  cache scope: it logs the failure, returns no images, and switches to a short
+  `cacheLife` (expire 300 s, so the entry stays prerenderable) that retries
+  within a minute. Callers treat an empty result as "no photos": the homepage
+  hides its carousel, the room pages render without photos, and the gallery
+  page shows its empty state. A missing site banner with a "Something went wrong." page is an
+  application error-boundary failure, not a navigation race.
+- Account deletion also spends the shared Cloudinary Admin API quota: it
+  deletes the avatar prefix after expiring the Dotypos profile. During a
+  rate-limit window (PR #497 run 37904601281, 2026-10-09 08:32), the retry in
+  `account-session-lifecycle` stayed pending and the step timed out. The
+  account showed "could not expire your customer profile", but the logged
+  cause was `Cloudinary asset prefix delete failed` (`outcome: failed`, a
+  4xx). The retryable-deletion warning now carries its `cause`; read that
+  `_tag` instead of the user-facing copy before blaming Dotypos.
+  Provider failure logs deliberately omit the HTTP code, so confirm the quota
+  from concurrent bursts instead: query PostHog logs for `Cloudinary search
+  page failed` across all `service.version` values around the failed
+  deletion. In run 37958123336 (2026-10-09 16:26 UTC) the exact preview made
+  four successful remote-cached searches, while three previews from other
+  branches logged about 200 failed searches in the same minutes. That is an
+  external quota flake: rerun after the hourly window resets instead of
+  changing the deletion flow.
+- A fresh preview database logs `DiscountProviderError` /
+  `DiscountDefinitionNotFoundError` during its first E2E run, while instant
+  navigation resolves the Calendar sale before fixture seeding has inserted
+  its definition. Later attempts on the same preview do not log it, and pages
+  still render. `PromotionCodeUnavailableError` entries come from the
+  negative discount-code cases. Neither explains a checkout failure.
+- The Vercel request-log history route intermittently returns gateway errors
+  (run 37850570880-6 failed on one HTTP 504). Deployment resolution, history
+  polling, and the baseline listing are read-only, so they repeat transport
+  failures, per-request timeouts, and HTTP 408/429/500/502/503/504 at the
+  poll interval. Retrieval stays inside the existing auth-delivery deadline,
+  the baseline listing inside the existing provider-transition budget, and
+  neither is extended. Other statuses,
+  malformed or truncated payloads, and ambiguous matches stay terminal. At the
+  deadline, report the last provider failure. A deadline-clipped request after
+  history already answered reports `auth_delivery_message_not_observed`.
+- Separate genuine failures from fail-fast interruptions before triage. After
+  the first failure, cases still running are recorded `cancelled` (some
+  account-lane browser errors during shutdown still surface as `failed` within
+  about two seconds of the stop); only the annotated case is the root
+  failure.
+- `pollUntil` keeps fixed spacing by default. Opt into `initialIntervalMs`
+  backoff (doubling up to `intervalMs`) only for pollers whose reads are not
+  rate-limited, currently PostgreSQL datasource reads. Dotypos-backed polls,
+  including the availability route, keep fixed spacing because Dotypos answers
+  bursts with 429, and browser polls already run at one second.
 - Express each case as named semantic steps with a focused timeout (navigation, UI transition, provider transition, or datasource convergence), plus a generous case watchdog. Avoid using a single checkout-wide timeout for every browser command and poll.
 - Preserve the E2E OTLP trace contract when changing orchestration. Emit one
   root run span, fixed phase spans, one child span for every case, and one child
   span for every semantic step. Phase IDs cover readiness, fixture seeding,
   invoice persistence, provider preparation, cowork, meeting-room, and office
-  availability preparation, case construction, per-case finalization, and
+  availability preparation (the last four as concurrent phase spans inside the
+  plan project), case construction, per-case finalization, and
   suite cleanup. Use fixed low-cardinality span names, native span duration,
   the configured timeout as a numeric attribute, closed outcome/failure-kind
   values, and the same shared censoring boundary as normal Workspace logs. Keep
@@ -261,7 +440,7 @@ Distinguish automated-runner behavior from manual procedures before treating a d
 - Configure the public PostHog project ingest token and ingest host as
   variables in the `workspace-checkout-e2e` GitHub Actions environment, not
   secrets; management and trace-read API keys remain secrets.
-- Propagate Effect's `AbortSignal` through the Playwright runner and close the interrupted case's context so in-flight browser work is cancelled. Do not retry state-creating checkout submission as a whole; a retry can create duplicate orders and leak cleanup state. The reservation-preparation UI action may retry once after its recognized generic error only when it reuses the same `checkoutAttemptId` within the same `checkoutSessionId`; the backend attempt key is the immediate-retry idempotency boundary. Never extend that retry to provider payment creation.
+- Propagate Effect's `AbortSignal` through the Playwright runner and close the interrupted case's context so in-flight browser work is cancelled. Do not retry state-creating checkout submission as a whole; a retry can create duplicate orders and leak cleanup state. The reservation-preparation UI action may retry once after its recognized generic error only when it reuses the same `checkoutAttemptId` within the same `checkoutSessionId`; the backend attempt key is the immediate-retry idempotency boundary. Never extend that retry to provider payment creation. The only payment restart is the single classified Nexi sandbox restart in [references/nexi-sandbox.md](references/nexi-sandbox.md). It runs only before any possible authorization, retires the rejected attempt and releases its claims, then pays again through the app's normal pay page with a fresh attempt and Nexi order.
 - Treat arrival at the Nexi hosted page as the provider-session creation
   barrier: production creates and links the attempt, awaits provider-session
   attachment, and only then returns the redirect URL. Database visibility can

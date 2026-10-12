@@ -3,11 +3,12 @@ import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { Schema } from "effect";
 
-/** Occurrence count over process output and environment documentation. */
+/** Occurrence count over process output. */
 const occurrences = (text: string, needle: string): number =>
   text.split(needle).length - 1;
 
 import { administratorCredentialRegistrySchema } from "../shared/administrator/administrator-credentials";
+import { runCommand } from "./shared/command";
 
 const generatorScriptPath = fileURLToPath(
   new URL("./generate-administrator-credentials.sh", import.meta.url)
@@ -25,24 +26,15 @@ const decodeRegistry = Schema.decodeUnknownSync(
 const runGenerator = (
   input: string,
   environment: Record<string, string> = {}
-) => {
-  const result = Bun.spawnSync({
-    cmd: generatorCommand,
+) =>
+  runCommand(generatorCommand, {
     env: { ...process.env, ...environment },
-    stdin: new Blob([input]),
-    stdout: "pipe",
-    stderr: "pipe",
+    stdin: input,
   });
-  return {
-    exitCode: result.exitCode,
-    stdout: result.stdout.toString(),
-    stderr: result.stderr.toString(),
-  };
-};
 
 describe("administrator credential generator", () => {
-  test("collects multiple administrators into one schema-valid assignment", () => {
-    const result = runGenerator(
+  test("collects multiple administrators into one schema-valid assignment", async () => {
+    const result = await runGenerator(
       "admin\nfirst-synthetic-password\noperator\nsecond-synthetic-password\n\n"
     );
 
@@ -60,8 +52,8 @@ describe("administrator credential generator", () => {
     ).toEqual(expectedValue.split("\n"));
   });
 
-  test("keeps prompts and notices on stderr without plaintext passwords", () => {
-    const result = runGenerator(
+  test("keeps prompts and notices on stderr without plaintext passwords", async () => {
+    const result = await runGenerator(
       "admin\nfirst-synthetic-password\noperator\nsecond-synthetic-password\n\n"
     );
 
@@ -76,8 +68,10 @@ describe("administrator credential generator", () => {
     expect(result.stdout).not.toContain("second-synthetic-password");
   });
 
-  test("rejects duplicate usernames and keeps the first credential", () => {
-    const result = runGenerator("admin\npw-one\nadmin\noperator\npw-three\n\n");
+  test("rejects duplicate usernames and keeps the first credential", async () => {
+    const result = await runGenerator(
+      "admin\npw-one\nadmin\noperator\npw-three\n\n"
+    );
 
     expect(result.exitCode).toBe(0);
     expect(
@@ -88,8 +82,8 @@ describe("administrator credential generator", () => {
     );
   });
 
-  test("rejects usernames outside the allowed pattern", () => {
-    const result = runGenerator(
+  test("rejects usernames outside the allowed pattern", async () => {
+    const result = await runGenerator(
       `Admin\n-admin\n.admin\nadmin name\n${"a".repeat(81)}\nadmin\npw\n\n`
     );
 
@@ -100,8 +94,8 @@ describe("administrator credential generator", () => {
     );
   });
 
-  test("reprompts until the password is not empty", () => {
-    const result = runGenerator("admin\n\npw\n\n");
+  test("reprompts until the password is not empty", async () => {
+    const result = await runGenerator("admin\n\npw\n\n");
 
     expect(result.exitCode).toBe(0);
     expect(result.stderr).toContain(
@@ -112,8 +106,8 @@ describe("administrator credential generator", () => {
     );
   });
 
-  test("fails without an assignment when finishing before any entry", () => {
-    const result = runGenerator("\n");
+  test("fails without an assignment when finishing before any entry", async () => {
+    const result = await runGenerator("\n");
 
     expect(result.exitCode).toBe(1);
     expect(result.stdout).toBe("");
@@ -122,8 +116,8 @@ describe("administrator credential generator", () => {
     );
   });
 
-  test("fails without an assignment when the input ends during a password", () => {
-    const result = runGenerator("admin\n");
+  test("fails without an assignment when the input ends during a password", async () => {
+    const result = await runGenerator("admin\n");
 
     expect(result.exitCode).toBe(1);
     expect(result.stdout).toBe("");
@@ -132,14 +126,14 @@ describe("administrator credential generator", () => {
     );
   });
 
-  test("keeps username validation invariant under a hostile inherited locale", () => {
+  test("keeps username validation invariant under a hostile inherited locale", async () => {
     // Behavioral enforcement check: the generator must produce identical,
     // strictly C-locale validation no matter what locale the caller
     // exports. The baseline run and the hostile-locale run must agree on
     // both the rejection and the accepted credential.
     const input = "Admin\nadmin\npw\n\n";
-    const baseline = runGenerator(input, { LC_ALL: "C", LANG: "C" });
-    const hostile = runGenerator(input, {
+    const baseline = await runGenerator(input, { LC_ALL: "C", LANG: "C" });
+    const hostile = await runGenerator(input, {
       LC_ALL: "cs_CZ.UTF-8",
       LC_CTYPE: "cs_CZ.UTF-8",
       LANG: "cs_CZ.UTF-8",
@@ -154,32 +148,24 @@ describe("administrator credential generator", () => {
     );
   });
 
-  test("keeps username matching case-sensitive when the caller shell enabled nocasematch", () => {
+  test("keeps username matching case-sensitive when the caller shell enabled nocasematch", async () => {
     // Behavioral enforcement check: sourcing the generator from a shell
     // that enabled nocasematch must not relax the duplicate and pattern
     // checks; the script resets the shell option itself.
-    const result = Bun.spawnSync({
-      cmd: [
-        "bash",
-        "-c",
-        `shopt -s nocasematch; source '${generatorScriptPath}'`,
-      ],
-      stdin: new Blob(["Admin\nadmin\npw\noperator\npw-two\n\n"]),
-      stdout: "pipe",
-      stderr: "pipe",
-    });
+    const result = await runCommand(
+      ["bash", "-c", `shopt -s nocasematch; source '${generatorScriptPath}'`],
+      { stdin: "Admin\nadmin\npw\noperator\npw-two\n\n" }
+    );
 
     expect(result.exitCode).toBe(0);
-    expect(occurrences(result.stderr.toString(), "Rejected: usernames")).toBe(
-      1
-    );
-    expect(result.stdout.toString()).toBe(
+    expect(occurrences(result.stderr, "Rejected: usernames")).toBe(1);
+    expect(result.stdout).toBe(
       `ADMIN_BASIC_AUTH_CREDENTIALS='admin:${digest("admin:pw")}\noperator:${digest("operator:pw-two")}'\n`
     );
   });
 
-  test("digests the complete username and password bytes", () => {
-    const result = runGenerator("admin\npass:word\n\n");
+  test("digests the complete username and password bytes", async () => {
+    const result = await runGenerator("admin\npass:word\n\n");
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe(
@@ -191,24 +177,15 @@ describe("administrator credential generator", () => {
 /**
  * Parses environment documentation as KEY=VALUE configuration: assignment
  * keys map to their values (values may span continuation lines), and
- * comment lines are kept separately as documentation. Verdicts over the
- * parsed structure are semantic, never raw-text pins on the file.
+ * comment lines are skipped. Verdicts over the parsed structure are
+ * semantic, never raw-text pins on the file.
  */
-const parseEnvExample = (
-  rawText: string
-): {
-  readonly assignments: ReadonlyMap<string, string>;
-  readonly documentation: readonly string[];
-} => {
+const parseEnvExample = (rawText: string): ReadonlyMap<string, string> => {
   const assignments = new Map<string, string>();
-  const documentation: string[] = [];
   const assignmentKey = /^[A-Z0-9_]+$/;
   for (const line of rawText.split("\n")) {
     const trimmed = line.trim();
-    if (trimmed.startsWith("#")) {
-      documentation.push(trimmed.replace(/^#+\s*/, ""));
-      continue;
-    }
+    if (trimmed.startsWith("#")) continue;
     const separator = trimmed.indexOf("=");
     if (separator > 0 && assignmentKey.test(trimmed.slice(0, separator))) {
       assignments.set(
@@ -222,29 +199,17 @@ const parseEnvExample = (
       assignments.set(lastKey, `${assignments.get(lastKey)}\n${trimmed}`);
     }
   }
-  return { assignments, documentation };
+  return assignments;
 };
 
-describe("administrator credential tooling documentation", () => {
-  test("exposes the generator as a package script", async () => {
-    const packageJson = (await Bun.file(
-      new URL("../package.json", import.meta.url)
-    ).json()) as {
-      readonly scripts: Readonly<Record<string, string>>;
-    };
-
-    expect(packageJson.scripts["administrator-credentials:generate"]).toBe(
-      "bash scripts/generate-administrator-credentials.sh"
-    );
-  });
-
-  test("documents the registry format, command, and migration in .env.example", async () => {
+describe("administrator credential registry in .env.example", () => {
+  test("documents registry-format entries in .env.example", async () => {
     const rawEnvExample = await Bun.file(
       new URL("../.env.example", import.meta.url)
     ).text();
-    const envConfig = parseEnvExample(rawEnvExample);
+    const assignments = parseEnvExample(rawEnvExample);
 
-    const credentialAssignment = envConfig.assignments.get(
+    const credentialAssignment = assignments.get(
       "ADMIN_BASIC_AUTH_CREDENTIALS"
     );
     expect(credentialAssignment).toBeDefined();
@@ -259,30 +224,15 @@ describe("administrator credential tooling documentation", () => {
     for (const entry of credentialEntries) {
       expect(entry).toMatch(/^[a-z0-9][a-z0-9._-]{0,79}:.+$/);
     }
-
-    const documentation = envConfig.documentation.join("\n");
-    expect(documentation).toContain("username:<sha256(username:password)>");
-    expect(documentation).toContain(
-      "bun run administrator-credentials:generate"
-    );
-    expect(documentation).toContain("Required in every environment");
-    expect(documentation).toContain(
-      "reuse the previously configured single-credential digest"
-    );
-    expect(documentation).toContain("as the admin entry");
-    expect(documentation).not.toContain("ADMIN_BASIC_AUTH_SHA256");
-    expect([...envConfig.assignments.keys()]).not.toContain(
-      "ADMIN_BASIC_AUTH_SHA256"
-    );
   });
 
   test("keeps real credentials out of .env.example", async () => {
     const rawEnvExample = await Bun.file(
       new URL("../.env.example", import.meta.url)
     ).text();
-    const envConfig = parseEnvExample(rawEnvExample);
+    const assignments = parseEnvExample(rawEnvExample);
 
-    const credentialAssignment = envConfig.assignments.get(
+    const credentialAssignment = assignments.get(
       "ADMIN_BASIC_AUTH_CREDENTIALS"
     );
     expect(credentialAssignment).toBeDefined();

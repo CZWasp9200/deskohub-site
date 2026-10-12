@@ -33,6 +33,7 @@ import {
 } from "@/shared/components/ui/sheet";
 import { cn } from "@/shared/utils";
 import { AdministrationLink as Link } from "./admin-link";
+import { useCredentialFreeDocumentUrl } from "./credential-free-url";
 import { AdministrationBreadcrumbLoading } from "./loading";
 
 type NavItem = {
@@ -144,6 +145,7 @@ const breadcrumbNames = new Map([
   ["codes", "Codes"],
   ["customers", "Customers"],
   ["create-code", "Create discount code"],
+  ["create-voucher", "Create voucher"],
   ["discounts", "Discounts"],
   ["invoices", "Invoices"],
   ["new", "New invoice"],
@@ -236,6 +238,8 @@ export function AdminShell({
   readonly breadcrumb: ReactNode;
   readonly children: ReactNode;
 }) {
+  useCredentialFreeDocumentUrl();
+
   return (
     <div className="min-h-screen bg-[#f6f6f3] text-navy-blue lg:grid lg:grid-cols-[15rem_minmax(0,1fr)]">
       <SkipLink label="Skip to main content" />

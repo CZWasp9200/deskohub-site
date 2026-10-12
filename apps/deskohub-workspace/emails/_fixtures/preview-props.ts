@@ -51,6 +51,7 @@ export const customerReservationPreviewProps = {
     location: "Where to go",
     directions: "Open route in Google Maps",
     table: "Table",
+    tables: "Tables",
     network: "Wi-Fi",
     networkName: "Network name",
     networkPassword: "Password",
@@ -62,6 +63,7 @@ export const customerReservationPreviewProps = {
     mapImageSrc: workspaceLocationMapUrl,
   },
   table: {
+    mode: "assigned",
     name: "12",
   },
   network: {
@@ -74,7 +76,7 @@ export const customerReservationPreviewProps = {
     { label: "Entry tier", value: "Profi Workstation" },
     { label: "Reservation date", value: "Friday, June 12, 2026" },
     { label: "Coffee", value: "Yes" },
-    { label: "Monitors", value: "2x 27 QHD" },
+    { label: "Monitors", value: "2x 27″ QHD" },
     { label: "Reservation reference", value: "123456789" },
     {
       label: "Order reference",
@@ -96,7 +98,7 @@ export const reservationNotificationPreviewProps = {
     { label: "Vstup", value: "Profi Workstation" },
     { label: "Datum rezervace", value: "pátek 12. června 2026" },
     { label: "Káva", value: "Ano" },
-    { label: "Monitory", value: "2x 27 QHD" },
+    { label: "Monitory", value: "2x 27″ QHD" },
     { label: "Číslo rezervace", value: "123456789" },
     {
       label: "Číslo objednávky",

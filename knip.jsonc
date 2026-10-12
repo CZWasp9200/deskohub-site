@@ -1,16 +1,33 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
-  // Report dependency-level issues only (dependencies, unlisted, binaries).
-  "include": ["dependencies", "unlisted", "binaries"],
+  // Keep the configuration itself free of redundant or stale patterns.
+  "treatConfigHintsAsErrors": true,
   "workspaces": {
     "apps/deskohub-workspace": {
       "entry": [
-        "app/**/*.{ts,tsx}",
         "**/*.test.{ts,tsx}",
         "**/*.pw.ts",
+        "**/*.typecheck.ts",
+        "**/*.rsc-fixture.ts",
+        "**/*-rsc-fixture.ts",
+        "**/*.browser-harness.tsx",
         "**/drizzle.config.ts",
+        "playwright.*.config.ts",
+        // drizzle.config.ts files load their schema by path, not by import,
+        // and drizzle-kit reads every export of these modules.
+        "db/schema/index.ts",
+        "db/schema/auth.ts",
+        "e2e/coordination/schema.ts",
+        "e2e/account/marketing-document-hash.config.ts",
         "env.ts",
+        // Command-line scripts run by path from package.json, CI, or the skills.
         "scripts/*.ts",
+        "scripts/account-sticky/run.ts",
+        // Loaded by path: bundled renderer entries and child-process fixtures.
+        "scripts/account-sticky/browser-entry.tsx",
+        "scripts/shared/command.*-fixture.ts",
+        // Bundled by path for browser-rendered test fixtures.
+        "shared/testing/posthog-identity-browser-fixture.tsx",
         "types/*.d.ts"
       ],
       // drizzle.config.ts decodes DATABASE_URL at module load, so the plugin cannot

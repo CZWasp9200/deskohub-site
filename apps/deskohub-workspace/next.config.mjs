@@ -35,11 +35,29 @@ const nextConfig = {
       expire: 60 * 60 * 8,
     },
     publicContent: { stale: 30, revalidate: 60, expire: 300 },
+    // Advisory availability inputs; bookings re-check live provider data.
+    availabilityTables: {
+      stale: 30,
+      revalidate: 60 * 30,
+      expire: 60 * 60 * 24,
+    },
+    availabilityCalendar: {
+      stale: 30,
+      revalidate: 60 * 30,
+      expire: 60 * 60 * 6,
+    },
+    availabilityReservations: { stale: 30, revalidate: 60, expire: 60 * 10 },
   },
   cacheComponents: true,
   experimental: {
     // Next's TS CLI integration needs bin tsc, which the official TS6 wrapper (tsc6-only) must not provide; API-worker type checking still runs.
     useTypeScriptCli: false,
+    // Customer avatar uploads carry up to 2 MiB of raw image bytes plus the
+    // Server Action / multipart envelope, so the 1 MiB default body limit is
+    // too small; oversized images are rejected by the avatar policy itself.
+    serverActions: {
+      bodySizeLimit: "4mb",
+    },
     exposeTestingApiInProductionBuild:
       workspaceBotIdVercelEnvironment === "preview",
     instantInsights: {

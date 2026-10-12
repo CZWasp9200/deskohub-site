@@ -9,12 +9,7 @@ import {
   test,
 } from "bun:test";
 import { act, cleanup, render } from "@testing-library/react";
-import type {
-  BeforeSendFn,
-  CapturedNetworkRequest,
-  CaptureResult,
-  PostHogConfig,
-} from "posthog-js";
+import type { CaptureResult, PostHogConfig } from "posthog-js";
 import {
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
@@ -28,8 +23,8 @@ process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN = "phc_test";
 process.env.NEXT_PUBLIC_POSTHOG_HOST = "https://posthog.example";
 let posthogHost = "https://posthog.example";
 
-mock.module("@/env", () => ({
-  env: {
+mock.module("@/client-env", () => ({
+  clientEnv: {
     get NEXT_PUBLIC_POSTHOG_HOST() {
       return posthogHost;
     },
@@ -294,8 +289,8 @@ describe("PostHogAnalytics", () => {
     document.cookie = "cc_cookie=; Path=/; Max-Age=0";
   });
 
-  afterAll(() => {
-    unregisterWorkspaceComponentTestEnv();
+  afterAll(async () => {
+    await unregisterWorkspaceComponentTestEnv();
   });
 
   test("rejects unsafe telemetry hosts before first SDK initialization", async () => {
@@ -343,20 +338,16 @@ describe("PostHogAnalytics", () => {
 
     const distinctIdBeforeHostGuard = currentDistinctId;
     setConsentCookie(["necessary", "analytics"]);
-    for (const unsafeHost of [
-      "https://deskohub.test/ingest",
-      "https://deskohub.test:3211/ingest",
-      "https://user:password@telemetry.example/ingest",
-    ]) {
-      posthogHost = unsafeHost;
-      const unsafeView = render(
-        <UnsafeHostAnalyticsBoundary analyticsAccepted discountCodesOverride />
-      );
-      expect(
-        unsafeView.getByRole("form", { name: "Discount code" })
-      ).toBeDefined();
-      unsafeView.unmount();
-    }
+    // The unsafe-host matrix lives in utils/posthog-config.test.ts; one
+    // same-origin host proves the component honours the guard.
+    posthogHost = "https://deskohub.test/ingest";
+    const unsafeView = render(
+      <UnsafeHostAnalyticsBoundary analyticsAccepted discountCodesOverride />
+    );
+    expect(
+      unsafeView.getByRole("form", { name: "Discount code" })
+    ).toBeDefined();
+    unsafeView.unmount();
 
     expect(init).not.toHaveBeenCalled();
     expect(identify).not.toHaveBeenCalled();
@@ -575,15 +566,6 @@ describe("PostHogAnalytics", () => {
     });
 
     expect(init).toHaveBeenCalledTimes(1);
-    expect(initConfig).toEqual(
-      expect.objectContaining({
-        advanced_disable_feature_flags: true,
-        advanced_disable_feature_flags_on_first_load: true,
-        capture_pageleave: false,
-        capture_pageview: false,
-        tracing_headers: [],
-      })
-    );
     expect(seededInitialPersonProperties).toEqual({});
     expect(posthogLifecycle.slice(0, 4)).toEqual([
       "init",
@@ -972,120 +954,5 @@ describe("PostHogAnalytics", () => {
     );
 
     view.unmount();
-  });
-
-  test("builds a privacy-safe production configuration", async () => {
-    const { createPostHogConfig, isPostHogTelemetryHostAllowed } = await import(
-      "../utils/posthog-config"
-    );
-    const beforeSend: BeforeSendFn = (event) => event;
-    const config = createPostHogConfig({
-      apiHost: "https://posthog.example",
-      beforeSend,
-      optOutUseragentFilter: false,
-    });
-
-    expect(
-      isPostHogTelemetryHostAllowed(
-        "https://posthog.example/ingest",
-        "deskohub.test"
-      )
-    ).toBe(true);
-    expect(
-      isPostHogTelemetryHostAllowed(
-        "https://deskohub.test/ingest",
-        "deskohub.test"
-      )
-    ).toBe(false);
-    expect(
-      isPostHogTelemetryHostAllowed(
-        "https://DESKOHUB.TEST./ingest",
-        "deskohub.test"
-      )
-    ).toBe(false);
-    expect(
-      isPostHogTelemetryHostAllowed(
-        "https://deskohub.test/ingest",
-        "DESKOHUB.TEST."
-      )
-    ).toBe(false);
-    expect(
-      isPostHogTelemetryHostAllowed(
-        "https://deskohub.test:3211/ingest",
-        "deskohub.test"
-      )
-    ).toBe(false);
-    expect(
-      isPostHogTelemetryHostAllowed(
-        "https://user:password@posthog.example/ingest",
-        "deskohub.test"
-      )
-    ).toBe(false);
-    expect(isPostHogTelemetryHostAllowed("/ingest", "deskohub.test")).toBe(
-      false
-    );
-    expect(isPostHogTelemetryHostAllowed("http://.", "deskohub.test")).toBe(
-      false
-    );
-    expect(
-      isPostHogTelemetryHostAllowed(
-        "ftp://posthog.example/ingest",
-        "deskohub.test"
-      )
-    ).toBe(false);
-
-    expect(config).toMatchObject({
-      advanced_disable_feature_flags: true,
-      advanced_disable_feature_flags_on_first_load: true,
-      autocapture: false,
-      capture_exceptions: false,
-      capture_dead_clicks: false,
-      capture_heatmaps: false,
-      capture_pageleave: false,
-      capture_pageview: false,
-      disable_capture_url_hashes: true,
-      disable_session_recording: true,
-      disable_surveys: true,
-      mask_all_text: true,
-      rageclick: false,
-      save_campaign_params: false,
-      save_referrer: false,
-      session_recording: {
-        maskAllInputs: true,
-        maskTextSelector: "body",
-        recordBody: false,
-        recordHeaders: false,
-      },
-      tracing_headers: [],
-    });
-    expect(config.mask_all_element_attributes).toBeUndefined();
-    expect(config.session_recording.maskAllElementAttributes).toBeUndefined();
-
-    const maskCapturedNetworkRequestFn =
-      config.session_recording.maskCapturedNetworkRequestFn;
-    if (!maskCapturedNetworkRequestFn) {
-      throw new Error("The production config needs network URL masking");
-    }
-
-    const request: CapturedNetworkRequest = {
-      duration: 1,
-      entryType: "resource",
-      name: "https://deskohub.test/account?email=synthetic%40example.test#secret",
-      requestBody: "synthetic-request-body",
-      requestHeaders: { authorization: "synthetic-token" },
-      responseBody: "synthetic-response-body",
-      responseHeaders: { "x-private": "synthetic-header" },
-      startTime: 0,
-    };
-    const maskedRequest = maskCapturedNetworkRequestFn(request);
-
-    expect(maskedRequest).toMatchObject({
-      name: "https://deskohub.test/account",
-      requestBody: undefined,
-      requestHeaders: undefined,
-      responseBody: undefined,
-      responseHeaders: undefined,
-    });
-    expect(JSON.stringify(maskedRequest)).not.toContain("synthetic");
   });
 });

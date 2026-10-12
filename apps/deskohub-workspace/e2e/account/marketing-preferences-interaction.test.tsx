@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, expect, mock, test } from "bun:test";
-import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { cleanup, render } from "@testing-library/react";
 import { useState } from "react";
 import { m } from "@/features/i18n";
 import {
@@ -47,28 +47,41 @@ mock.module("@/shared/utils/use-workspace-action", () => ({
   useWorkspaceAction: (
     action: (input: unknown) => Promise<{ serverError?: string }>,
     options: {
-      onSuccess?: (args: { readonly data?: unknown; readonly input: unknown }) => void;
+      onSuccess?: (args: {
+        readonly data?: unknown;
+        readonly input: unknown;
+      }) => void;
       onError?: (args: { readonly error: unknown }) => void;
     }
   ) => {
     const [isExecuting, setIsExecuting] = useState(false);
-    const execute = (input: unknown) => {
+    const executeAsync = async (input: unknown) => {
       setIsExecuting(true);
-      void action(input)
-        .then((result) => {
-          setIsExecuting(false);
-          if (result.serverError) {
-            options.onError?.({ error: result });
-            return;
-          }
+      try {
+        const result = await action(input);
+        setIsExecuting(false);
+        if (result.serverError) {
+          options.onError?.({ error: result });
+        } else {
           options.onSuccess?.({ input });
-        })
-        .catch((error: unknown) => {
-          setIsExecuting(false);
-          options.onError?.({ error });
-        });
+        }
+        return result;
+      } catch (error) {
+        setIsExecuting(false);
+        options.onError?.({ error });
+        throw error;
+      }
     };
-    return { execute, isExecuting, reset: () => undefined, result: {} };
+    const execute = (input: unknown) => {
+      void executeAsync(input).catch(() => undefined);
+    };
+    return {
+      execute,
+      executeAsync,
+      isExecuting,
+      reset: () => undefined,
+      result: {},
+    };
   },
 }));
 
@@ -76,27 +89,9 @@ const { MarketingPreferencesForm } = await import(
   "@/features/legal/components/marketing-preferences-form"
 );
 
-
-let releaseSave: (() => void) | undefined;
-const deferSave = () => {
-  saveMarketingPreferencesAction.mockImplementation(
-    () =>
-      new Promise<{ data: { status: string } }>((resolve) => {
-        releaseSave = () => resolve({ data: { status: "saved" } });
-      })
-  );
-};
-
 beforeAll(registerWorkspaceComponentTestEnv);
 
-afterEach(() => {
-  cleanup();
-  releaseSave = undefined;
-  saveMarketingPreferencesAction.mockClear();
-  saveMarketingPreferencesAction.mockImplementation(() =>
-    Promise.resolve({ data: { status: "saved" } })
-  );
-});
+afterEach(cleanup);
 
 afterAll(unregisterWorkspaceComponentTestEnv);
 
@@ -154,56 +149,25 @@ test("helper selectors keep the link context exclusive to link management", () =
   const linkSection = document.querySelector(
     managedPreferenceSelector("withdrawn", "link")
   );
-  expect(linkSection?.textContent).toContain(m.marketingPreferencesFormLinkContext({}, { locale: "en-US" }));
-  expect(linkSection?.textContent).not.toContain(m.marketingPreferencesFormAccountContext({}, { locale: "en-US" }));
+  expect(linkSection?.textContent).toContain(
+    m.marketingPreferencesFormLinkContext({}, { locale: "en-US" })
+  );
+  expect(linkSection?.textContent).not.toContain(
+    m.marketingPreferencesFormAccountContext({}, { locale: "en-US" })
+  );
   linkView.unmount();
 
   renderManaged("active", "account");
   const accountSection = document.querySelector(
     managedPreferenceSelector("active", "account")
   );
-  expect(accountSection?.textContent).not.toContain(m.marketingPreferencesFormLinkContext({}, { locale: "en-US" }));
-  expect(accountSection?.textContent).not.toContain(m.marketingPreferencesFormStatusActive({}, { locale: "en-US" }));
-  expect(accountSection?.textContent).not.toContain(m.marketingPreferencesFormStatusWithdrawn({}, { locale: "en-US" }));
-});
-
-test("the transition switch shows the target state while the save is pending", async () => {
-  deferSave();
-  renderManaged("active", "account");
-
-  const switchEl = document.querySelector<HTMLButtonElement>(
-    helperSwitchSelector("account")
+  expect(accountSection?.textContent).not.toContain(
+    m.marketingPreferencesFormLinkContext({}, { locale: "en-US" })
   );
-  expect(switchEl?.getAttribute("aria-checked")).toBe("true");
-
-  fireEvent.click(switchEl!);
-
-  expect(saveMarketingPreferencesAction).toHaveBeenCalledWith({
-    confirmed: true,
-    context: "synthetic-context",
-    granted: false,
-    locale: "en-US",
-    source: "account",
-  });
-  // Pending save: the switch is disabled and already reads the target state.
-  expect(
-    document
-      .querySelector<HTMLButtonElement>(helperSwitchSelector("account"))
-      ?.hasAttribute("disabled")
-  ).toBe(true);
-  expect(
-    document
-      .querySelector<HTMLButtonElement>(helperSwitchSelector("account"))
-      ?.getAttribute("aria-checked")
-  ).toBe("false");
-
-  await act(async () => {
-    releaseSave?.();
-  });
-  expect(releaseSave).toBeDefined();
-  expect(
-    document
-      .querySelector<HTMLButtonElement>(helperSwitchSelector("account"))
-      ?.getAttribute("aria-checked")
-  ).toBe("false");
+  expect(accountSection?.textContent).not.toContain(
+    m.marketingPreferencesFormStatusActive({}, { locale: "en-US" })
+  );
+  expect(accountSection?.textContent).not.toContain(
+    m.marketingPreferencesFormStatusWithdrawn({}, { locale: "en-US" })
+  );
 });

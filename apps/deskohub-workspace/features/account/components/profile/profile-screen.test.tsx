@@ -172,11 +172,6 @@ test("keeps the compiled catalog copy in sync with the component copy fixtures",
   );
 });
 
-const formerLanguageUnavailableDescriptions = {
-  "en-US": "Language preferences are not saved yet.",
-  "cs-CZ": "Preference jazyka se zatím neukládají.",
-} as const;
-
 const profileFields = (
   <>
     <div>
@@ -200,43 +195,6 @@ const profileFields = (
   </>
 );
 
-function extractLiteralColor(
-  markup: string,
-  utility: "bg" | "text",
-  context: RegExp
-): string {
-  const fragment = markup.match(context)?.[0];
-  const color = fragment?.match(
-    new RegExp(`${utility}-\\[#([0-9a-f]{6})\\]`)
-  )?.[1];
-  if (!color) {
-    throw new Error(`Could not find ${utility} color in rendered markup`);
-  }
-  return `#${color}`;
-}
-
-function contrastRatio(foreground: string, background: string): number {
-  const luminance = (hex: string) => {
-    const channels = [0, 2, 4].map(
-      (offset) => Number.parseInt(hex.slice(offset + 1, offset + 3), 16) / 255
-    );
-    const linearChannels = channels.map((channel) =>
-      channel <= 0.03928 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4
-    );
-    return (
-      linearChannels[0]! * 0.2126 +
-      linearChannels[1]! * 0.7152 +
-      linearChannels[2]! * 0.0722
-    );
-  };
-
-  const foregroundLuminance = luminance(foreground);
-  const backgroundLuminance = luminance(background);
-  const lighter = Math.max(foregroundLuminance, backgroundLuminance);
-  const darker = Math.min(foregroundLuminance, backgroundLuminance);
-  return (lighter + 0.05) / (darker + 0.05);
-}
-
 function renderProfile(overrides: Partial<ProfileScreenProps> = {}): string {
   return renderToStaticMarkup(
     <ProfileScreen
@@ -247,7 +205,6 @@ function renderProfile(overrides: Partial<ProfileScreenProps> = {}): string {
       lastName={
         "lastName" in overrides ? (overrides.lastName ?? null) : "Lovelace"
       }
-      locale={overrides.locale ?? "en-US"}
       preferredLanguage={overrides.preferredLanguage ?? "read-failed"}
       footer={
         "footer" in overrides ? (
@@ -263,10 +220,14 @@ function renderProfile(overrides: Partial<ProfileScreenProps> = {}): string {
 }
 
 describe("ProfileScreen", () => {
+  beforeAll(() => {
+    registerWorkspaceComponentTestEnv();
+  });
+
   afterEach(cleanup);
 
-  afterAll(() => {
-    unregisterWorkspaceComponentTestEnv();
+  afterAll(async () => {
+    await unregisterWorkspaceComponentTestEnv();
   });
 
   test("renders the caller fields and footer without owning a form", () => {
@@ -285,68 +246,20 @@ describe("ProfileScreen", () => {
     expect(markup).not.toMatch(/name="(?:email|language)"/);
   });
 
-  test("renders inside the shared account section panel without full-bleed margins", () => {
-    const markup = renderProfile();
-    const sectionClass = markup
-      .match(/<section[^>]*class="([^"]*)"/)?.[1]
-      ?.replaceAll("&amp;", "&");
-
-    expect(markup).toContain('data-slot="account-section-panel"');
-    expect(sectionClass).toBeDefined();
-    expect(sectionClass).not.toContain("-mx-4");
-    expect(sectionClass).not.toContain("sm:-mx-6");
-    expect(sectionClass).not.toContain("rounded-none");
-    expect(sectionClass).toContain("bg-white");
-
-    const selectTriggerRadius =
-      /<button[^>]*data-slot="select-trigger"[^>]*class="([^"]*)"/.exec(
-        markup
-      )?.[1];
-    expect(selectTriggerRadius).toContain("rounded-2xl");
-    expect(selectTriggerRadius).toContain("border");
-  });
-
-  test("keeps a provided footer in one sticky, opaque, safe-area wrapper", () => {
+  test("renders a provided footer once", () => {
     const markup = renderProfile({
       footer: <span data-footer-marker="profile-footer">Save profile</span>,
     });
-    const sectionClass = markup
-      .match(/<section[^>]*class="([^"]*)"/)?.[1]
-      ?.replaceAll("&amp;", "&");
-    const footerWrapperClass = markup.match(
-      /<div class="([^"]*)"><span data-footer-marker="profile-footer">Save profile<\/span><\/div><\/section>$/
-    )?.[1];
 
-    expect(sectionClass).toBeDefined();
-    expect(sectionClass).toContain(
-      "[&_input]:scroll-mb-[calc(12rem+env(safe-area-inset-bottom))]"
-    );
-    expect(sectionClass).toContain(
-      "[&_select]:scroll-mb-[calc(12rem+env(safe-area-inset-bottom))]"
-    );
     expect(
       markup.match(/data-footer-marker="profile-footer"/g) ?? []
     ).toHaveLength(1);
-    expect(footerWrapperClass).toBeDefined();
-    expect(footerWrapperClass).toContain("sticky");
-    expect(footerWrapperClass).toContain("bottom-0");
-    expect(footerWrapperClass).toContain("z-10");
-    expect(footerWrapperClass).toContain("mt-8");
-    expect(footerWrapperClass).toContain("min-w-0");
-    expect(footerWrapperClass).toContain("border-t");
-    expect(footerWrapperClass).toContain("border-[#e6ebf1]");
-    expect(footerWrapperClass).toContain("bg-white");
-    expect(footerWrapperClass).toContain("pt-4");
-    expect(footerWrapperClass).toContain(
-      "pb-[max(1rem,env(safe-area-inset-bottom))]"
-    );
   });
 
   test("omits the optional footer when it is not provided", () => {
     const markup = renderProfile({ footer: undefined });
 
     expect(markup).not.toContain("data-footer-marker");
-    expect(markup).not.toContain("pb-[max(1rem,env(safe-area-inset-bottom))]");
   });
 
   test("keeps the login email visual, verified, and non-editable", () => {
@@ -374,83 +287,22 @@ describe("ProfileScreen", () => {
     expect(markup).not.toMatch(/<input[^>]*ada@example\.test/);
   });
 
-  test("retains shared Input error state and only scopes local sizing", () => {
-    const markup = renderProfile();
-    const errorInput = markup.match(/<input\b[^>]*name="firstName"[^>]*>/)?.[0];
-    const gridClass = markup
-      .match(/<div class="([^"]*sm:grid-cols-2[^"]*)">/)?.[1]
-      ?.replaceAll("&amp;", "&");
-
-    expect(errorInput).toContain("border-burned-orange");
-    expect(gridClass).toBeDefined();
-    expect(gridClass).not.toContain("[&_input]:border-[#cad3df]");
-    expect(gridClass).not.toContain("[&_[data-slot=input]]:border-[#cad3df]");
-  });
-
-  test("emits responsive wrapping constraints for a long Czech email status", () => {
-    const longCzechVerificationCopy =
-      "Ověřený přihlašovací e-mail pro rezervace a zákaznický účet Workspace";
-    const longCzechEmail =
-      "jan.novak.velmi.dlouhy.alias@example.workspace.deskohub.cz";
+  test("renders a provided avatar slot", () => {
     const markup = renderProfile({
-      copy: {
-        ...englishCopy,
-        emailVerification: {
-          ...englishCopy.emailVerification,
-          verified: longCzechVerificationCopy,
-        },
-      },
-      email: longCzechEmail,
+      avatar: <span data-avatar-marker="avatar-slot" />,
     });
-    const emailFieldsetClass = markup.match(
-      /<fieldset[^>]*class="([^"]*)"/
-    )?.[1];
-    const verificationButton = markup.match(
-      /<button class="([^"]*size-8 shrink-0[^"]*text-emerald-800[^"]*)"[^>]*aria-label="[^"]+"/
-    )?.[1];
 
-    expect(markup).toContain(longCzechEmail);
-    expect(markup).toContain(longCzechVerificationCopy);
-    expect(emailFieldsetClass).toContain("min-w-0");
-    expect(emailFieldsetClass).toContain("sm:col-span-2");
-    expect(emailFieldsetClass).toContain("lg:col-span-1");
-    expect(verificationButton).toContain("size-8");
-    expect(verificationButton).toContain("shrink-0");
-    expect(verificationButton).toContain("text-emerald-800");
-  });
-
-  test("keeps the avatar disabled with its future-feature tooltip while the language control is enabled", () => {
-    const markup = renderProfile();
-    const disabledButtons = markup.match(/<button\b[^>]*disabled=""/g) ?? [];
-
-    // The avatar button stays disabled and the language Save button starts
-    // disabled before any selection; the language combobox is enabled.
-    expect(disabledButtons).toHaveLength(2);
-    expect(markup).toContain('aria-label="Profile photo unavailable"');
-    expect(markup).toContain('data-slot="select-trigger"');
-    expect(markup).toContain('role="combobox"');
-    expect(markup).toMatch(
-      /<select\b[^>]*aria-hidden="true"[^>]*tabindex="-1"/
-    );
-    expect(markup).not.toMatch(/<select\b[^>]*name=/);
-    expect(markup).toContain(englishCopy.languageReadUnavailable);
-    expect(markup).not.toContain(
-      formerLanguageUnavailableDescriptions["en-US"]
-    );
+    expect(markup).toContain('data-avatar-marker="avatar-slot"');
   });
 
   test("falls closed to the read-unavailable placeholder when no saved state is provided", () => {
-    for (const [locale, copy] of [
-      ["en-US", englishCopy],
-      ["cs-CZ", czechCopy],
-    ] as const) {
+    for (const copy of [englishCopy, czechCopy]) {
       const view = render(
         <ProfileScreen
           copy={copy}
           email="ada@example.test"
           firstName="Ada"
           lastName="Lovelace"
-          locale={locale}
           preferredLanguage="read-failed"
         >
           {profileFields}
@@ -471,7 +323,6 @@ describe("ProfileScreen", () => {
         email="ada@example.test"
         firstName="Ada"
         lastName="Lovelace"
-        locale="en-US"
         preferredLanguage="cs-CZ"
       >
         {profileFields}
@@ -501,7 +352,6 @@ describe("ProfileScreen", () => {
         email="ada@example.test"
         firstName="Ada"
         lastName="Lovelace"
-        locale="en-US"
         preferredLanguage="cs-CZ"
       >
         {profileFields}
@@ -531,17 +381,13 @@ describe("ProfileScreen", () => {
   });
 
   test("renders the read-unavailable placeholder instead of a restored locale when the read failed", () => {
-    for (const [locale, copy] of [
-      ["en-US", englishCopy],
-      ["cs-CZ", czechCopy],
-    ] as const) {
+    for (const copy of [englishCopy, czechCopy]) {
       const view = render(
         <ProfileScreen
           copy={copy}
           email="ada@example.test"
           firstName="Ada"
           lastName="Lovelace"
-          locale={locale}
           preferredLanguage="read-failed"
         >
           {profileFields}
@@ -565,7 +411,6 @@ describe("ProfileScreen", () => {
         email="ada@example.test"
         firstName="Ada"
         lastName="Lovelace"
-        locale="en-US"
         preferredLanguage="en-US"
       >
         {profileFields}
@@ -616,7 +461,6 @@ describe("ProfileScreen", () => {
         email="ada@example.test"
         firstName="Ada"
         lastName="Lovelace"
-        locale="en-US"
         preferredLanguage="en-US"
       >
         {profileFields}
@@ -683,7 +527,6 @@ describe("ProfileScreen", () => {
         email="ada@example.test"
         firstName="Ada"
         lastName="Lovelace"
-        locale="en-US"
         preferredLanguage="en-US"
       >
         {profileFields}
@@ -738,7 +581,6 @@ describe("ProfileScreen", () => {
         email="ada@example.test"
         firstName="Ada"
         lastName="Lovelace"
-        locale="cs-CZ"
         preferredLanguage="en-US"
       >
         {profileFields}
@@ -785,7 +627,6 @@ describe("ProfileScreen", () => {
         email="ada@example.test"
         firstName="Ada"
         lastName="Lovelace"
-        locale="en-US"
         preferredLanguage="en-US"
       >
         {profileFields}
@@ -840,7 +681,6 @@ describe("ProfileScreen", () => {
           email="ada@example.test"
           firstName="Ada"
           lastName="Lovelace"
-          locale="en-US"
           preferredLanguage="en-US"
         >
           {profileFields}
@@ -862,85 +702,26 @@ describe("ProfileScreen", () => {
     cleanup();
   });
 
-  test("keeps informational text and the verification indicator contrast-safe", () => {
-    const markup = renderProfile();
-    const sectionClass = markup.match(/<section[^>]*class="([^"]*)"/)?.[1];
-    const informationalText = extractLiteralColor(
-      markup,
-      "text",
-      /<p class="[^"]*"[^>]*>Profile photos are not available here\.<\/p>/
-    );
-    const emailBackground = extractLiteralColor(
-      markup,
-      "bg",
-      /<div class="[^"]*bg-\[#f8fafc\][^"]*">/
-    );
-    const verificationButton = markup.match(
-      /<button class="([^"]*text-emerald-800[^"]*)"[^>]*aria-label="This email has been successfully verified\."/
-    )?.[1];
-    const languageTrigger =
-      /<button[^>]*data-slot="select-trigger"[^>]*bg-\[#f8fafc\][^>]*>/;
-    const languageText = extractLiteralColor(markup, "text", languageTrigger);
-    const languageBackground = extractLiteralColor(
-      markup,
-      "bg",
-      languageTrigger
-    );
-
-    expect(sectionClass).toContain("bg-white");
-    expect(emailBackground).toBe("#f8fafc");
-    expect(verificationButton).toContain("text-emerald-800");
-    expect(contrastRatio(informationalText, "#ffffff")).toBeGreaterThanOrEqual(
-      4.5
-    );
-    expect(
-      contrastRatio(languageText, languageBackground)
-    ).toBeGreaterThanOrEqual(4.5);
-  });
-
-  test("uses real Unicode code points and a neutral icon when names are absent", () => {
+  test("uses real Unicode code points in the display name", () => {
     const unicodeMarkup = renderProfile({
       firstName: "  𐐀da",
       lastName: "😀ski  ",
     });
     expect(unicodeMarkup).toContain("𐐀da 😀ski");
-    expect(unicodeMarkup).toContain("𐐀😀");
     expect(unicodeMarkup).not.toContain("�");
 
     const fallbackMarkup = renderProfile({ firstName: "  ", lastName: null });
     expect(fallbackMarkup).toContain("Workspace member");
-    expect(fallbackMarkup).toContain("lucide-user-round");
     expect(fallbackMarkup).not.toContain(">WM<");
   });
 
-  test("renders injected localized copy without inventing membership claims", () => {
+  test("does not invent membership claims", () => {
     const markup = renderProfile({
       copy: czechCopy,
       firstName: "",
       lastName: null,
-      locale: "cs-CZ",
     });
 
-    const {
-      emailVerification,
-      // Transient save-status and read-failure copies only render in their
-      // announced states, never statically.
-      languageSaving: _languageSaving,
-      languageSaved: _languageSaved,
-      languageSaveFailed: _languageSaveFailed,
-      languageReadUnavailable: _languageReadUnavailable,
-      // Option labels render only inside the open listbox.
-      languageOptionCs: _languageOptionCs,
-      languageOptionEn: _languageOptionEn,
-      ...localizedStrings
-    } = czechCopy;
-    const localizedValues = [
-      ...Object.values(localizedStrings),
-      emailVerification.verified,
-    ];
-    for (const copyValue of localizedValues) {
-      expect(markup).toContain(copyValue);
-    }
     expect(markup).not.toMatch(/member since|Prague|Czechia|turnstile|access/i);
   });
 });

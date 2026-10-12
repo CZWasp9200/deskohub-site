@@ -4,14 +4,14 @@ Research date: 2026-08-28. This note defines the production-only candidate query
 
 ## Decision
 
-Use two `posthog-cli api` queries on every timer run:
+Use two `posthog-cli api` queries on every dispatcher pass:
 
 1. Fetch Logs with severity `error` or `fatal`.
 2. Fetch Error Tracking issues backed by `$exception` events.
 
-Do not use PostHog's native Error Tracking spike endpoint for the MVP. The installed CLI does not expose it, it does not cover Logs, and it omits one-off exceptions that have not crossed PostHog's spike threshold. The timer's T3 agent should inspect the complete candidate set and decide whether the evidence is new, abnormal, actionable, or already handled.
+Do not use PostHog's native Error Tracking spike endpoint for the MVP. `posthog-cli` does not expose it, it does not cover Logs, and it omits one-off exceptions that have not crossed PostHog's spike threshold. The dispatcher agent should inspect the complete candidate set and decide whether the evidence is new, abnormal, actionable, or already handled.
 
-Use a rolling seven-day lookback. Exact PostHog UUIDs and GitHub issue searches make repeated reads harmless. This avoids a cursor database and survives ordinary devbox downtime. At validation time, the production window contained 88 Error/Fatal Logs and one Error Tracking issue, well below the CLI's 1,000-row Logs limit.
+Use a rolling seven-day lookback. Exact PostHog UUIDs and GitHub issue searches make repeated reads harmless. This avoids a cursor database and survives missed dispatcher passes. At validation time, the production window contained 88 Error/Fatal Logs and one Error Tracking issue, well below the CLI's 1,000-row Logs limit.
 
 ## Query Error and Fatal logs
 
@@ -35,7 +35,7 @@ PostHog matches `severityLevels` exactly against lowercase `severity_text`. The 
 
 Each result has a stable `uuid` plus `timestamp`, `body`, `severity_text`, trace identifiers, attributes, and resource attributes. Use the UUID in the GitHub issue marker. [PostHog's result mapping](https://github.com/PostHog/posthog/blob/06bc099f80c670614a7195b927c93a7972ebc98f/products/logs/backend/logs_query_runner.py#L751-L772) defines the response.
 
-The installed CLI has one important defect. Its schema advertises `hasMore` and `nextCursor`, but version 0.8.4 returns only `results`. If `logs-count` exceeds 1,000, split the seven-day range into smaller date ranges before calling `query-logs`. Do not assume the CLI returned every row.
+`posthog-cli` has one important defect. Its schema advertises `hasMore` and `nextCursor`, but version 0.8.4 returns only `results`. If `logs-count` exceeds 1,000, split the seven-day range into smaller date ranges before calling `query-logs`. Do not assume the CLI returned every row.
 
 ## Query thrown errors
 
@@ -59,7 +59,7 @@ PostHog captures JavaScript errors as `$exception` events and groups them into i
 
 The Workspace browser hook adds `deployment.environment.name` to every event before sending it. See [`posthog-analytics.tsx`](../../../../apps/deskohub-workspace/features/cookie-consent/components/posthog-analytics.tsx), [`posthog-event.ts`](../../../../apps/deskohub-workspace/features/cookie-consent/utils/posthog-event.ts), and [`posthog-url.ts`](../../../../apps/deskohub-workspace/features/cookie-consent/utils/posthog-url.ts).
 
-Use the Error Tracking issue ID as the subject identity and each sampled event UUID as an occurrence identity. Put both in the GitHub issue marker. Search open and closed issues for those markers before creating work. The T3 triage agent must still decide whether a recurrence belongs on active work, is already fixed, or needs a new regression issue.
+Use the Error Tracking issue ID as the subject identity and each sampled event UUID as an occurrence identity. Put both in the GitHub issue marker. Search open and closed issues for those markers before creating work. The dispatcher must still decide whether a recurrence belongs on active work, is already fixed, or needs a new regression issue.
 
 ## What this captures
 
@@ -71,7 +71,7 @@ The repository does not currently call server-side `captureException`. An escape
 
 ## Live validation
 
-The installed executable is `posthog-cli 0.8.4`. Read-only checks against project `204184` confirmed these facts without publishing log bodies or exception values:
+Validation used `posthog-cli 0.8.4`. Read-only checks against project `204184` confirmed these facts without publishing log bodies or exception values:
 
 - `deskohub-workspace` is the only current Logs service name.
 - Logs carry both `preview` and `production` environment values, so the production filter is necessary.

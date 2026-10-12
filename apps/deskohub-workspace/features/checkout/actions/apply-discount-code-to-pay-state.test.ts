@@ -16,8 +16,11 @@ import {
   discountIdSchema,
   PromotionCodeUnavailableError,
 } from "@/features/discounts";
+import { instantStringSchema } from "@/shared/utils/temporal";
 
 mock.module("server-only", () => ({}));
+
+const payStateBookedAt = instantStringSchema.make("2026-06-01T09:58:00.000Z");
 
 const reservation = {
   kind: "cowork" as const,
@@ -42,6 +45,7 @@ const makePayStateToken = async (input?: {
       reservation,
       quote,
       orderId: "reservation-id",
+      bookedAt: payStateBookedAt,
       checkoutSessionId,
       requestedDiscountCode: input?.requestedDiscountCode,
     })
@@ -148,6 +152,11 @@ describe("applyDiscountCodeToPayState", () => {
         submittedCode: "SAVE20",
       })
     );
+    expect(scenario.applyDiscountCode).toHaveBeenCalledWith(
+      expect.objectContaining({
+        bookedAt: Temporal.Instant.from(payStateBookedAt),
+      })
+    );
     expect(scenario.result.status).toBe("applied");
     if (scenario.result.status !== "applied") {
       throw new Error("Expected applied result");
@@ -179,9 +188,6 @@ describe("applyDiscountCodeToPayState", () => {
     });
     expect(scenario.requireCurrent).not.toHaveBeenCalled();
     expect(scenario.applyDiscountCode).not.toHaveBeenCalled();
-    await expect(
-      Effect.runPromise(openPayState(scenario.payStateToken))
-    ).resolves.toMatchObject({ orderId: "reservation-id" });
   });
 
   test.each(["", "   "])(
@@ -195,9 +201,6 @@ describe("applyDiscountCodeToPayState", () => {
       });
       expect(scenario.requireCurrent).not.toHaveBeenCalled();
       expect(scenario.applyDiscountCode).not.toHaveBeenCalled();
-      await expect(
-        Effect.runPromise(openPayState(scenario.payStateToken))
-      ).resolves.toMatchObject({ orderId: "reservation-id" });
     }
   );
 

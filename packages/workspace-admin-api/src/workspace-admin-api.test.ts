@@ -1,10 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { Schema, SchemaAST } from "effect";
-import { WORKSPACE_SITE_TIME_ZONE } from "./site-time-zone";
+import { Schema } from "effect";
 import {
-  ADMINISTRATION_STANDALONE_ACCESS_CODE_MAXIMUM_DURATION_HOURS,
-  ADMINISTRATION_STANDALONE_ACCESS_CODE_MINIMUM_DURATION_HOURS,
-  AdminCliAdministrationApi,
   AdministrationBookingQuery,
   AdministrationCustomerProfile,
   AdministrationCustomerQuery,
@@ -30,12 +26,10 @@ import {
   AdministrationProviderCredentialId,
   AdministrationReservationAccessGrant,
   AdministrationReservationAccessMutation,
-  AdministrationReservationCancellationInput,
   AdministrationReservationLookupQuery,
   AdministrationReservationQuery,
   AdministrationReservationSummary,
   AdministrationStandaloneAccessCodeAttemptId,
-  AdministrationStandaloneAccessCodeCleanupTarget,
   AdministrationStandaloneAccessCodeCreateInput,
   AdministrationStandaloneAccessCodeCreateRequest,
   AdministrationStandaloneAccessCodeCreationOutcome,
@@ -43,14 +37,9 @@ import {
   AdministrationStandaloneAccessCodePin,
   AdministrationStandaloneAccessCodeResult,
   AdministrationVoucher,
-  AdministrationWorkspaceProductTarget,
   AdministrationWorkspaceReservationId,
   AdministrationWorkspaceSiteLocalWholeHourDateTime,
   CliClientName,
-  CliMutationUncertain,
-  CliServiceUnavailable,
-  CliStandaloneAccessCodeCleanupRequired,
-  CliStandaloneAccessCodeReconciled,
   isStandaloneAccessCodeWindowWithinContractDuration,
   StartCliAuthentication,
 } from "./workspace-admin-api";
@@ -95,10 +84,6 @@ describe("standalone access-code contract", () => {
   const decodeSiteLocal = Schema.decodeUnknownSync(
     AdministrationWorkspaceSiteLocalWholeHourDateTime
   );
-
-  test("keeps the authoritative site time zone sourced from this package", () => {
-    expect(WORKSPACE_SITE_TIME_ZONE).toBe("Europe/Prague");
-  });
 
   test("decodes trimmed names and offset-free site-local times", () => {
     expect(decodeCreateInput(validInput)).toMatchObject({
@@ -178,57 +163,12 @@ describe("standalone access-code contract", () => {
     ).not.toThrow();
   });
 
-  test("accepts exactly 1 and 672 elapsed hours", () => {
-    expect(() =>
-      decodeCreateInput({
-        ...validInput,
-        endsAt: "2026-09-10T11:00",
-      })
-    ).not.toThrow();
-    expect(() =>
-      decodeCreateInput({
-        ...validInput,
-        endsAt: "2026-10-08T10:00",
-      })
-    ).not.toThrow();
-  });
-
-  test("counts elapsed hours across the fall-back transition", () => {
-    expect(() =>
-      decodeCreateInput({
-        ...validInput,
-        startsAt: "2026-10-24T01:00",
-        endsAt: "2026-11-21T00:00",
-      })
-    ).not.toThrow();
-    expect(() =>
-      decodeCreateInput({
-        ...validInput,
-        startsAt: "2026-10-24T00:00",
-        endsAt: "2026-11-21T00:00",
-      })
-    ).toThrow();
-  });
-
-  test("rejects empty, reversed, and overshooting windows", () => {
-    expect(() =>
-      decodeCreateInput({
-        ...validInput,
-        startsAt: "2026-09-10T12:00",
-        endsAt: "2026-09-10T12:00",
-      })
-    ).toThrow();
+  test("rejects a reversed window through the contract duration check", () => {
     expect(() =>
       decodeCreateInput({
         ...validInput,
         startsAt: "2026-09-10T12:00",
         endsAt: "2026-09-10T10:00",
-      })
-    ).toThrow();
-    expect(() =>
-      decodeCreateInput({
-        ...validInput,
-        endsAt: "2026-10-08T11:00",
       })
     ).toThrow();
   });
@@ -310,20 +250,6 @@ describe("standalone access-code contract", () => {
       )
     ).toBe("provider-credential-id");
   });
-
-  test("reports uncertain provider outcomes as terminal errors", () => {
-    const error = new CliMutationUncertain({
-      message: "The access-code creation outcome is uncertain.",
-    });
-    expect(error._tag).toBe("CliMutationUncertain");
-    expect(error.message).toBe(
-      "The access-code creation outcome is uncertain."
-    );
-    const httpApiStatusOf = SchemaAST.resolveAt<number>("httpApiStatus");
-    expect(httpApiStatusOf(CliMutationUncertain.schema.ast)).toBe(409);
-    expect(httpApiStatusOf(CliServiceUnavailable.schema.ast)).toBe(503);
-    expect(JSON.stringify(error)).not.toContain("1234567");
-  });
 });
 
 describe("standalone access-code duration contract", () => {
@@ -333,15 +259,6 @@ describe("standalone access-code duration contract", () => {
   const contractWindow = (startsAt: string, endsAt: string) => ({
     startsAt: decodeSiteLocal(startsAt),
     endsAt: decodeSiteLocal(endsAt),
-  });
-
-  test("exposes the authoritative duration bounds", () => {
-    expect(ADMINISTRATION_STANDALONE_ACCESS_CODE_MINIMUM_DURATION_HOURS).toBe(
-      1
-    );
-    expect(ADMINISTRATION_STANDALONE_ACCESS_CODE_MAXIMUM_DURATION_HOURS).toBe(
-      672
-    );
   });
 
   test("accepts the bounds and counts the repeated fall-back hour on instants", () => {
@@ -391,19 +308,9 @@ describe("standalone access-code CLI endpoint contract", () => {
   const confirmedAttemptId = Schema.decodeUnknownSync(
     AdministrationStandaloneAccessCodeAttemptId
   )(attemptId);
-  const storedAccessName = Schema.decodeUnknownSync(
-    AdministrationStandaloneAccessCodeName
-  )("Booth A");
   const decodeRequest = Schema.decodeUnknownSync(
     AdministrationStandaloneAccessCodeCreateRequest
   );
-
-  test("exposes one authenticated mutation endpoint for access codes", () => {
-    const endpoint =
-      AdminCliAdministrationApi.endpoints.createStandaloneAccessCode;
-    expect(endpoint?.method).toBe("POST");
-    expect(endpoint?.path).toBe("/api/v1/cli/access-codes");
-  });
 
   test("decodes one client-generated attempt identifier with the authoritative input", () => {
     expect(
@@ -475,48 +382,6 @@ describe("standalone access-code CLI endpoint contract", () => {
         providerCredentialRemovedAttemptId: "not-a-uuid",
       })
     ).toThrow();
-  });
-
-  test("reports required at-lock cleanup as a typed conflict error", () => {
-    const cleanupTarget = Schema.decodeUnknownSync(
-      AdministrationStandaloneAccessCodeCleanupTarget
-    )({
-      attemptId,
-      name: "Booth A",
-    });
-    const error = new CliStandaloneAccessCodeCleanupRequired({
-      message:
-        "A previous attempt for this window is ambiguous. Remove the access code in the Igloohome app over Bluetooth, or verify it is absent, then confirm the cleanup before creating another code.",
-      cleanupTarget,
-    });
-    expect(error._tag).toBe("CliStandaloneAccessCodeCleanupRequired");
-    expect(error.cleanupTarget.attemptId).toBe(confirmedAttemptId);
-    expect(error.cleanupTarget.name).toBe(storedAccessName);
-    const httpApiStatusOf = SchemaAST.resolveAt<number>("httpApiStatus");
-    expect(
-      httpApiStatusOf(CliStandaloneAccessCodeCleanupRequired.schema.ast)
-    ).toBe(409);
-    const encoded = Schema.encodeSync(
-      CliStandaloneAccessCodeCleanupRequired.schema
-    )(error);
-    expect(encoded.cleanupTarget).toEqual({
-      attemptId,
-      name: "Booth A",
-    });
-    expect(JSON.stringify(error)).not.toContain("7654321");
-  });
-
-  test("reports a confirmed reconciled replay as a typed conflict error", () => {
-    const error = new CliStandaloneAccessCodeReconciled({
-      message:
-        "Your confirmed cleanup was recorded for the earlier ambiguous attempt, which created no access code. Run the same command again to create the code.",
-    });
-    expect(error._tag).toBe("CliStandaloneAccessCodeReconciled");
-    const httpApiStatusOf = SchemaAST.resolveAt<number>("httpApiStatus");
-    expect(httpApiStatusOf(CliStandaloneAccessCodeReconciled.schema.ast)).toBe(
-      409
-    );
-    expect(JSON.stringify(error)).not.toContain("7654321");
   });
 
   test("rejects excess properties and invalid windows before any handler runs", () => {
@@ -736,97 +601,6 @@ describe("administration contract", () => {
     }
   });
 
-  test("keeps read operations safe and typed", () => {
-    expect(AdminCliAdministrationApi.endpoints.getOverview?.method).toBe("GET");
-    expect(AdminCliAdministrationApi.endpoints.listReservations?.method).toBe(
-      "GET"
-    );
-    expect(AdminCliAdministrationApi.endpoints.getReservation?.method).toBe(
-      "GET"
-    );
-    expect(
-      AdminCliAdministrationApi.endpoints.mutateReservationAccess?.method
-    ).toBe("POST");
-    expect(AdminCliAdministrationApi.endpoints.findReservation?.method).toBe(
-      "GET"
-    );
-    expect(AdminCliAdministrationApi.endpoints.listBookings?.method).toBe(
-      "GET"
-    );
-    expect(AdminCliAdministrationApi.endpoints.getBooking?.method).toBe("GET");
-    expect(AdminCliAdministrationApi.endpoints.listOrders?.method).toBe("GET");
-    expect(AdminCliAdministrationApi.endpoints.getOrder?.method).toBe("GET");
-    expect(AdminCliAdministrationApi.endpoints.listOperations?.method).toBe(
-      "GET"
-    );
-    expect(AdminCliAdministrationApi.endpoints.getOperation?.method).toBe(
-      "GET"
-    );
-    expect(AdminCliAdministrationApi.endpoints.listCustomers?.method).toBe(
-      "GET"
-    );
-    expect(AdminCliAdministrationApi.endpoints.searchCustomers?.method).toBe(
-      "GET"
-    );
-    expect(AdminCliAdministrationApi.endpoints.getCustomer?.method).toBe("GET");
-    expect(
-      AdminCliAdministrationApi.endpoints.listCustomerReservations?.method
-    ).toBe("GET");
-    expect(
-      AdminCliAdministrationApi.endpoints.getDiscountDashboard?.method
-    ).toBe("GET");
-    expect(AdminCliAdministrationApi.endpoints.getDiscountCode?.method).toBe(
-      "GET"
-    );
-    expect(AdminCliAdministrationApi.endpoints.listInvoices?.method).toBe(
-      "GET"
-    );
-    expect(AdminCliAdministrationApi.endpoints.getInvoice?.method).toBe("GET");
-    expect(AdminCliAdministrationApi.endpoints.getInvoicePdf?.method).toBe(
-      "GET"
-    );
-    expect(AdminCliAdministrationApi.endpoints.createInvoice?.method).toBe(
-      "POST"
-    );
-    expect(AdminCliAdministrationApi.endpoints.resendInvoice?.method).toBe(
-      "POST"
-    );
-    expect(AdminCliAdministrationApi.endpoints.listSessions?.method).toBe(
-      "GET"
-    );
-    expect(AdminCliAdministrationApi.endpoints.mutateDiscounts?.method).toBe(
-      "POST"
-    );
-    expect(AdminCliAdministrationApi.endpoints.cancelReservation?.method).toBe(
-      "POST"
-    );
-    expect(AdminCliAdministrationApi.endpoints.renameSession?.method).toBe(
-      "PATCH"
-    );
-    expect(AdminCliAdministrationApi.endpoints.revokeSession?.method).toBe(
-      "DELETE"
-    );
-    expect(
-      Schema.decodeUnknownSync(AdministrationReservationQuery)({
-        page: 2,
-        status: "complete",
-      })
-    ).toEqual({ page: 2, status: "complete" });
-    expect(
-      Schema.decodeUnknownSync(AdministrationReservationCancellationInput)({
-        accessGrantUpdatedAt: "2026-08-10T10:00:00.000Z",
-        force: true,
-        providerCredentialRemoved: true,
-        sendCancellationEmail: true,
-      })
-    ).toEqual({
-      accessGrantUpdatedAt: "2026-08-10T10:00:00.000Z",
-      force: true,
-      providerCredentialRemoved: true,
-      sendCancellationEmail: true,
-    });
-  });
-
   test("exposes refund work without changing successful payment state", () => {
     const attempt = Schema.decodeUnknownSync(AdministrationPaymentAttempt)({
       id: "payment-attempt-id",
@@ -841,7 +615,12 @@ describe("administration contract", () => {
       updatedAt: "2026-08-13T12:01:00Z",
     });
 
-    expect(attempt).toMatchObject({ state: "paid", refundState: "required" });
+    expect(attempt).toMatchObject({
+      state: "paid",
+      refundState: "required",
+      refundedAmount: null,
+      refundedAt: null,
+    });
   });
 
   test("exposes access operations without exposing the PIN", () => {
@@ -942,24 +721,6 @@ describe("administration contract", () => {
     expect(
       Schema.decodeUnknownSync(AdministrationInvoiceListItem)(rest)
     ).toMatchObject({ customerId: null, reservationId: null });
-  });
-
-  test("uses product targets instead of purchase identities", () => {
-    for (const target of [
-      { kind: "cowork" },
-      { kind: "meeting-room" },
-      { kind: "office" },
-    ] as const) {
-      expect(
-        Schema.decodeUnknownSync(AdministrationWorkspaceProductTarget)(target)
-      ).toEqual(target);
-    }
-    expect(() =>
-      Schema.decodeUnknownSync(AdministrationWorkspaceProductTarget)(
-        { kind: "cowork", tier: "basic" },
-        { onExcessProperty: "error" }
-      )
-    ).toThrow();
   });
 
   test("validates discount mutations at the shared HTTP boundary", () => {

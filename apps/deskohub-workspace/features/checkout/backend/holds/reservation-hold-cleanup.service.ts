@@ -9,7 +9,7 @@ import { captureReservationAbandoned } from "../analytics/posthog-lifecycle-even
 import { ProviderPaymentFinalizationService } from "../payment/provider-payment-finalization.service";
 import { PaymentLifecycleRepository } from "../repositories/payment-lifecycle.repository";
 
-export class ReservationHoldCleanupError extends Data.TaggedError(
+class ReservationHoldCleanupError extends Data.TaggedError(
   "ReservationHoldCleanupError"
 )<{
   readonly message: string;

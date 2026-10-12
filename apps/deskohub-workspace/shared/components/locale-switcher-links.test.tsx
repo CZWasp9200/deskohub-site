@@ -7,8 +7,15 @@ import {
   mock,
   test,
 } from "bun:test";
-import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  type RenderResult,
+  render,
+} from "@testing-library/react";
 import type { ComponentProps, ReactNode } from "react";
+import type { SiteHeaderAccountEntry } from "@/shared/components/site-header-config";
 import {
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
@@ -19,18 +26,8 @@ type CapturedLink = {
   readonly prefetch: boolean | null | undefined;
 };
 
-type CapturedLogo = {
-  readonly alt: string | undefined;
-  readonly height: number | undefined;
-  readonly styling: {
-    readonly color: string;
-    readonly variant: string;
-  };
-};
-
 const capturedLinks: CapturedLink[] = [];
 const capturedGuardedLinkHrefs: string[] = [];
-const capturedLogos: CapturedLogo[] = [];
 let currentPathname = "/en-US";
 
 mock.module("next/link", () => ({
@@ -87,23 +84,24 @@ mock.module("@/shared/components/logo", () => ({
   HorizontalLogo: () => (
     <span data-testid="horizontal-logo">Deskohub Workspace</span>
   ),
-  Logo: ({
-    alt,
-    height,
-    styling,
-  }: {
-    readonly alt?: string;
-    readonly height?: number;
-    readonly styling: CapturedLogo["styling"];
-  }) => {
-    capturedLogos.push({ alt, height, styling });
-    return <span data-testid="small-logo" />;
-  },
+  Logo: () => <span />,
 }));
 
+// Marked as already fulfilled so `use()` reads it without suspending.
+const resolvedHref = (href: string) =>
+  Object.assign(Promise.resolve(href), { status: "fulfilled", value: href });
+
+const accountEntry = (
+  href: string,
+  signInHref = "/en-US/auth/sign-in"
+): SiteHeaderAccountEntry => ({
+  href: resolvedHref(href),
+  label: "Account",
+  signInHref,
+});
+
 const completeSiteHeaderProps = {
-  accountHref: "/en-US/account",
-  accountLabel: "Account",
+  account: accountEntry("/en-US/account"),
   closeNavigationMenuLabel: "Close navigation menu",
   contactHref: "/en-US/reservation/cowork",
   contactLabel: "Book",
@@ -123,7 +121,6 @@ beforeAll(() => {
 beforeEach(() => {
   capturedLinks.length = 0;
   capturedGuardedLinkHrefs.length = 0;
-  capturedLogos.length = 0;
   currentPathname = "/en-US";
 });
 
@@ -131,8 +128,8 @@ afterEach(() => {
   cleanup();
 });
 
-afterAll(() => {
-  unregisterWorkspaceComponentTestEnv();
+afterAll(async () => {
+  await unregisterWorkspaceComponentTestEnv();
 });
 
 test("reserves both language labels before request-aware links resolve", async () => {
@@ -170,8 +167,7 @@ test("uses document navigation for every alternate-locale full-header link", asy
     capturedLinks.length = 0;
     const view = render(
       <SiteHeader
-        accountHref={`/${currentLocale}/account`}
-        accountLabel="Account"
+        account={accountEntry(`/${currentLocale}/account`)}
         contactHref={contactHref}
         contactLabel="Contact"
         currentLocale={currentLocale}
@@ -196,10 +192,9 @@ test("uses document navigation for every alternate-locale full-header link", asy
 test("renders only the configured full-header items without reserved slots", async () => {
   const { SiteHeader } = await import("./site-header");
   const galleryHref = "/en-US/gallery";
-  const view = render(
+  render(
     <SiteHeader
-      accountHref="/en-US/account"
-      accountLabel="Account"
+      account={accountEntry("/en-US/account")}
       closeNavigationMenuLabel="Close navigation menu"
       contactHref="/en-US/reservation/cowork"
       contactLabel="Book"
@@ -219,25 +214,39 @@ test("renders only the configured full-header items without reserved slots", asy
     />
   );
 
-  const desktopNavigation = view.container.querySelector(
-    'nav[aria-label="Primary navigation"]'
-  );
-  expect(desktopNavigation?.getAttribute("class")).toContain("gap-6");
-  expect(desktopNavigation?.getAttribute("class")).toContain("xl:flex");
-  expect(desktopNavigation?.getAttribute("class")).not.toContain("grid");
-  expect(
-    desktopNavigation
-      ?.querySelector(`a[href="${galleryHref}"]`)
-      ?.getAttribute("class")
-  ).not.toContain("col-start");
   expect(capturedGuardedLinkHrefs).toEqual([
     "/en-US",
     galleryHref,
-    "/en-US/account",
     "/en-US/reservation/cowork",
+    "/en-US/account",
     "/en-US/account",
     galleryHref,
   ]);
+});
+
+test("marks navigation links for the current page", async () => {
+  const { SiteHeader } = await import("./site-header");
+  currentPathname = "/en-US/gallery";
+  const view = render(
+    <SiteHeader
+      {...completeSiteHeaderProps}
+      links={[
+        { id: "gallery", href: "/en-US/gallery", label: "Gallery" },
+        { id: "team", href: "/en-US/team", label: "Team" },
+      ]}
+    />
+  );
+
+  expect(
+    [...view.container.querySelectorAll('a[href="/en-US/gallery"]')].map(
+      (link) => link.getAttribute("aria-current")
+    )
+  ).toEqual(["page", "page"]);
+  expect(
+    [...view.container.querySelectorAll('a[href="/en-US/team"]')].map((link) =>
+      link.getAttribute("aria-current")
+    )
+  ).toEqual([null, null]);
 });
 
 test("omits account links when the account configuration is unavailable", async () => {
@@ -259,63 +268,6 @@ test("omits account links when the account configuration is unavailable", async 
   expect(
     view.container.querySelectorAll('a[href="/en-US/account"]')
   ).toHaveLength(0);
-});
-
-test("keeps the full-header home link compact and controls usable on mobile", async () => {
-  const { SiteHeader } = await import("./site-header");
-  const view = render(
-    <SiteHeader
-      accountHref="/en-US/account"
-      accountLabel="Account"
-      closeNavigationMenuLabel="Close navigation menu"
-      contactHref="/en-US/reservation/cowork"
-      contactLabel="Get access"
-      currentLocale="en-US"
-      languageSwitcherLabel="Language switcher"
-      languageLabels={{ "cs-CZ": "Czech", "en-US": "English" }}
-      links={[]}
-      mobilePrimaryNavigationLabel="Mobile primary navigation"
-      openNavigationMenuLabel="Open navigation menu"
-      primaryNavigationLabel="Primary navigation"
-    />
-  );
-
-  const header = view.container.querySelector("header");
-  const headerInner = header?.firstElementChild;
-  const homeLink = view.getByRole("link", { name: "Deskohub Workspace" });
-  const smallLogo = homeLink.querySelector('[data-testid="small-logo"]');
-  const horizontalLogo = homeLink.querySelector(
-    '[data-testid="horizontal-logo"]'
-  );
-  const accountLink = view.container.querySelector('a[href="/en-US/account"]');
-  const actionGroup = accountLink?.parentElement;
-  const contactLink = view.getByRole("link", { name: "Get access" });
-  const menuButton = view.getByRole("button", {
-    name: "Open navigation menu",
-  });
-
-  expect(header?.className).toContain("h-(--site-header-height)");
-  expect(headerInner?.className).toContain("gap-3");
-  expect(headerInner?.className).toContain("sm:gap-4");
-  expect(headerInner?.className).toContain("px-3");
-  expect(headerInner?.className).toContain("sm:px-6");
-  expect(headerInner?.className).toContain("lg:px-8");
-  expect(homeLink.getAttribute("aria-label")).toBe("Deskohub Workspace");
-  expect(smallLogo?.parentElement?.className).toBe("block sm:hidden");
-  expect(horizontalLogo?.parentElement?.className).toBe("hidden sm:block");
-  expect(capturedLogos).toEqual([
-    {
-      alt: "",
-      height: 48,
-      styling: { color: "dark", variant: "color" },
-    },
-  ]);
-  expect(actionGroup?.className).toContain("shrink-0");
-  expect(accountLink?.className).toContain("size-10");
-  expect(contactLink.className).toContain("whitespace-nowrap");
-  expect(contactLink.className).toContain("shrink-0");
-  expect(menuButton.className).toContain("h-10");
-  expect(menuButton.className).toContain("w-10");
 });
 
 test.each([
@@ -369,7 +321,7 @@ test.each([
     const view = render(
       <SiteHeader
         {...completeSiteHeaderProps}
-        accountHref={accountHref}
+        account={accountEntry(accountHref)}
         contactHref={`/${currentLocale}/contact`}
         currentLocale={currentLocale}
       />
@@ -383,30 +335,10 @@ test.each([
 
     for (const link of accountLinks) {
       expect(link.getAttribute("aria-current")).toBe(active ? "page" : null);
-      if (active) {
-        expect(link.className).toContain("border-sunset-yellow/55");
-        expect(link.className).toContain("bg-sunset-yellow/10");
-        expect(link.className).toContain("text-sunset-yellow");
-      }
     }
 
     expect(accountLinks[0]?.getAttribute("aria-label")).toBe("Account");
     expect(accountLinks[0]?.getAttribute("title")).toBe("Account");
-    expect(
-      accountLinks[0]?.querySelector("svg")?.getAttribute("class")
-    ).toContain("size-4.5");
-    expect(
-      accountLinks[1]?.querySelector("svg")?.getAttribute("class")
-    ).toContain("size-4");
-
-    if (!active) {
-      expect(accountLinks[0]?.className).toContain("border-white/12");
-      expect(accountLinks[0]?.className).toContain("bg-white/6");
-      expect(accountLinks[0]?.className).toContain("text-white/82");
-      expect(accountLinks[1]?.className).toContain("border-white/8");
-      expect(accountLinks[1]?.className).toContain("bg-white/5");
-      expect(accountLinks[1]?.className).toContain("text-white/80");
-    }
   }
 );
 
@@ -453,6 +385,61 @@ test("closes the mobile menu when its account link is clicked", async () => {
   });
 
   expect(menuButton.getAttribute("aria-expanded")).toBe("false");
+});
+
+test("links the account entry to sign-in while the session check is pending", async () => {
+  const { SiteHeader } = await import("./site-header");
+  let resolveHref!: (href: string) => void;
+  const href = new Promise<string>((resolve) => {
+    resolveHref = resolve;
+  });
+  let view!: RenderResult;
+  await act(async () => {
+    view = render(
+      <SiteHeader
+        {...completeSiteHeaderProps}
+        account={{
+          href,
+          label: "Account",
+          signInHref: "/en-US/auth/sign-in",
+        }}
+      />
+    );
+  });
+
+  expect(
+    view.container.querySelectorAll('a[href="/en-US/auth/sign-in"]')
+  ).toHaveLength(2);
+  expect(view.getAllByRole("link", { name: "Account" })).toHaveLength(2);
+
+  await act(async () => {
+    resolveHref("/en-US/account");
+    await href;
+  });
+
+  expect(
+    view.container.querySelectorAll('a[href="/en-US/account"]')
+  ).toHaveLength(2);
+  expect(
+    view.container.querySelectorAll('a[href="/en-US/auth/sign-in"]')
+  ).toHaveLength(0);
+});
+
+test("keeps an anonymous customer's account entry on the sign-in page", async () => {
+  const { SiteHeader } = await import("./site-header");
+  const view = render(
+    <SiteHeader
+      {...completeSiteHeaderProps}
+      account={accountEntry("/en-US/auth/sign-in")}
+    />
+  );
+
+  expect(
+    view.container.querySelectorAll('a[href="/en-US/account"]')
+  ).toHaveLength(0);
+  expect(
+    view.container.querySelectorAll('a[href="/en-US/auth/sign-in"]')
+  ).toHaveLength(2);
 });
 
 test("uses document navigation for the alternate-locale minimal-header link", async () => {

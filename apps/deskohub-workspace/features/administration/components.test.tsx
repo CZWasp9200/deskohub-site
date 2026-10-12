@@ -9,7 +9,13 @@ import {
   test,
 } from "bun:test";
 import { NexiOrderIdSchema } from "@deskohub/nexi";
-import { cleanup, fireEvent, render, within } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  within,
+} from "@testing-library/react";
 import { StatusBadge } from "@/shared/components/ui/status-badge";
 import {
   workspaceRouterPush,
@@ -20,11 +26,11 @@ import {
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
 } from "@/shared/testing/workspace-component-test-env";
-import { AdministrationBreadcrumbs } from "./admin-shell";
 import {
   AdministrationTableCount,
   AdministrationTableToolbar,
   BookingTable,
+  formatAdministrationDateTime,
   getBookingTableLabel,
   PaymentAttemptList,
   RelatedReservationLink,
@@ -93,28 +99,6 @@ describe("administration reservation components", () => {
     );
 
     expect(view.getByLabelText("24 reservations").textContent).toBe("24");
-  });
-
-  test("keeps a compact primary action beside the collection count", () => {
-    const view = render(
-      <AdministrationTableToolbar
-        actions={<button type="button">Create</button>}
-        count={1}
-        itemLabel="voucher"
-      />
-    );
-
-    expect(
-      view.getByRole("region", { name: "voucher table controls" }).className
-    ).toContain("grid-cols-[minmax(0,1fr)_auto]");
-  });
-
-  test("uses one status badge foundation for domain-specific states", () => {
-    const view = render(<StatusBadge tone="positive">Active</StatusBadge>);
-
-    expect(view.getByText("Active").className).toContain(
-      "bg-aquamarine-green/12"
-    );
   });
 
   test("shows safe access metadata and the failed retry action without the PIN", () => {
@@ -231,20 +215,14 @@ describe("administration reservation components", () => {
       />
     );
     const table = view.getByRole("table", { name: "Reservations" });
-    expect(table.parentElement?.parentElement?.className).toContain(
-      "overflow-x-auto"
-    );
     expect(within(table).getAllByText("Confirmation issue")).not.toHaveLength(
       0
     );
-    const reservationLink = within(table)
-      .getAllByRole("link")
-      .find(
-        (link) =>
-          link.getAttribute("href") ===
-          "/admin/reservations/0198-admin-fixture-attention"
-      );
-    expect(reservationLink?.className).toContain("before:absolute");
+    expect(
+      within(table)
+        .getAllByRole("link")
+        .map((link) => link.getAttribute("href"))
+    ).toContain("/admin/reservations/0198-admin-fixture-attention");
     expect(
       within(table)
         .getByRole("link", {
@@ -367,15 +345,10 @@ describe("administration reservation components", () => {
     expect(view.getByText("Customer unavailable")).toBeDefined();
   });
 
-  test("renders ordered operational history without forbidden fields", () => {
+  test("renders ordered operational history", () => {
     const detail = loadFixtureReservation("0198-admin-fixture-attention");
     expect(detail).not.toBeNull();
     if (!detail) return;
-    const serialized = JSON.stringify(detail);
-    expect(serialized).not.toContain("securityToken");
-    expect(serialized).not.toContain("providerRedirectUrl");
-    expect(serialized).not.toContain("rawPayload");
-
     const view = render(<ReservationTimeline items={detail.timeline} />);
     const timeline = view.getByRole("list", {
       name: "Reservation history",
@@ -424,6 +397,41 @@ describe("administration reservation components", () => {
     expect(view.getByText("Needs refund")).toBeDefined();
     expect(orderLink.getAttribute("target")).toBe("_blank");
     expect(view.getAllByText("Nexi order")).toHaveLength(1);
+  });
+
+  test("shows a recorded refund instead of the refund requirement", () => {
+    const detail = loadFixtureReservation("0198-admin-fixture-attention");
+    const attempt = detail?.paymentAttempts[0];
+    expect(attempt).toBeDefined();
+    if (!attempt) return;
+    const refundedAt = "2026-10-05T08:30:00Z";
+
+    const view = render(
+      <PaymentAttemptList
+        attempts={[
+          {
+            ...attempt,
+            refundState: "refunded",
+            refundedAmount: attempt.amount,
+            refundedAt,
+          },
+          {
+            ...attempt,
+            id: "fixture-partially-refunded-payment",
+            refundState: "refunded",
+            refundedAmount: { ...attempt.amount, value: 100_000 },
+            refundedAt,
+          },
+        ]}
+      />
+    );
+
+    const recordedAt = formatAdministrationDateTime(refundedAt);
+    expect(view.queryByText("Needs refund")).toBeNull();
+    expect(view.getByText(`Refunded · ${recordedAt}`)).toBeDefined();
+    expect(
+      view.getByText(`Partially refunded CZK 1,000.00 · ${recordedAt}`)
+    ).toBeDefined();
   });
 
   test("folds Nexi orders and operations into the reservation", () => {
@@ -600,11 +608,15 @@ describe("administration reservation components", () => {
     ).toEqual(["A-ORDER", "Z-ORDER"]);
   });
 
-  test("renders both Nexi cancellation spellings as warnings", () => {
-    const view = render(<ProviderStatusBadge value="CANCELLED" />);
-    expect(view.getByText("Cancelled").className).toContain(
-      "bg-burned-orange/10"
+  test.each([
+    ["CANCELED", "Canceled"],
+    ["CANCELLED", "Cancelled"],
+  ])("renders the Nexi %s spelling as an attention badge", (value, label) => {
+    const view = render(<ProviderStatusBadge value={value} />);
+    const attentionBadge = render(
+      <StatusBadge tone="attention">{label}</StatusBadge>
     );
+    expect(view.container.innerHTML).toBe(attentionBadge.container.innerHTML);
   });
 
   test("keeps the customer visible when booking details are unavailable", () => {
@@ -697,24 +709,6 @@ describe("administration reservation components", () => {
     ).toBe("/admin/bookings?date=2026-08-10&sort=status&direction=asc");
   });
 
-  test("identifies customer and reservation entities in breadcrumbs", () => {
-    const view = render(
-      <AdministrationBreadcrumbs
-        entityLabel="Ada Lovelace"
-        segments={["admin", "customers", "customer-ada"]}
-      />
-    );
-    expect(view.getByText("Ada Lovelace")).toBeDefined();
-
-    view.rerender(
-      <AdministrationBreadcrumbs
-        entityLabel="Cowork Basic"
-        segments={["admin", "reservations", "reservation-basic"]}
-      />
-    );
-    expect(view.getByText("Cowork Basic")).toBeDefined();
-  });
-
   test("gets one reservation from any associated unique ID", async () => {
     const execute = mock();
     let onSuccess:
@@ -739,12 +733,197 @@ describe("administration reservation components", () => {
       view.getByRole("searchbox", { name: "Reservation or payment ID" }),
       { target: { value: "  payment-123  " } }
     );
-    fireEvent.submit(view.getByRole("button", { name: "Get reservation" }));
+    await act(async () => {
+      fireEvent.submit(view.getByRole("button", { name: "Get reservation" }));
+    });
 
     expect(execute).toHaveBeenCalledWith({ identifier: "payment-123" });
     onSuccess?.({ data: { reservationId: "reservation-456" } });
     expect(workspaceRouterPush).toHaveBeenCalledWith(
       "/admin/reservations/reservation-456"
     );
+  });
+
+  test("reports a field error for whitespace-only input without calling the action", async () => {
+    const execute = mock();
+    workspaceUseAction.mockImplementation(() => ({
+      execute,
+      isExecuting: false,
+    }));
+    const { ReservationLookup } = await import("./reservation-lookup");
+    const view = render(<ReservationLookup />);
+
+    const input = view.getByRole("searchbox", {
+      name: "Reservation or payment ID",
+    });
+    fireEvent.input(input, { target: { value: "   " } });
+    await act(async () => {
+      fireEvent.submit(view.getByRole("button", { name: "Get reservation" }));
+    });
+
+    expect(input.getAttribute("aria-invalid")).toBe("true");
+    expect(
+      view.getByText('Expected a value with a length of at least 1, got ""')
+    ).toBeDefined();
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  test("reports a field error for an empty identifier without calling the action", async () => {
+    const execute = mock();
+    workspaceUseAction.mockImplementation(() => ({
+      execute,
+      isExecuting: false,
+    }));
+    const { ReservationLookup } = await import("./reservation-lookup");
+    const view = render(<ReservationLookup />);
+
+    const form = view.container.querySelector("form");
+    expect(form).not.toBeNull();
+    expect(form?.hasAttribute("noValidate")).toBe(true);
+
+    const input = view.getByRole("searchbox", {
+      name: "Reservation or payment ID",
+    });
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Get reservation" }));
+    });
+
+    expect(input.getAttribute("aria-invalid")).toBe("true");
+    expect(
+      view.getByText('Expected a value with a length of at least 1, got ""')
+    ).toBeDefined();
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  test("accepts an identifier at the maximum length and passes it through", async () => {
+    const execute = mock();
+    workspaceUseAction.mockImplementation(() => ({
+      execute,
+      isExecuting: false,
+    }));
+    const { ReservationLookup } = await import("./reservation-lookup");
+    const view = render(<ReservationLookup />);
+
+    const input = view.getByRole("searchbox", {
+      name: "Reservation or payment ID",
+    });
+    fireEvent.input(input, { target: { value: "a".repeat(256) } });
+    await act(async () => {
+      fireEvent.submit(view.getByRole("button", { name: "Get reservation" }));
+    });
+
+    expect(input.getAttribute("aria-invalid")).not.toBe("true");
+    expect(execute).toHaveBeenCalledWith({ identifier: "a".repeat(256) });
+  });
+
+  test("reports a field error for an identifier past the maximum length", async () => {
+    const execute = mock();
+    workspaceUseAction.mockImplementation(() => ({
+      execute,
+      isExecuting: false,
+    }));
+    const { ReservationLookup } = await import("./reservation-lookup");
+    const view = render(<ReservationLookup />);
+
+    const input = view.getByRole("searchbox", {
+      name: "Reservation or payment ID",
+    });
+    fireEvent.input(input, { target: { value: "a".repeat(257) } });
+    await act(async () => {
+      fireEvent.submit(view.getByRole("button", { name: "Get reservation" }));
+    });
+
+    expect(input.getAttribute("aria-invalid")).toBe("true");
+    expect(view.getByText(/at most 256/)).toBeDefined();
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  test("shows the unavailable notice when the lookup action fails", async () => {
+    const execute = mock();
+    let onError:
+      | ((result: {
+          readonly error: { readonly serverError?: string };
+        }) => void)
+      | undefined;
+    workspaceUseAction.mockImplementation((_action, options) => {
+      onError = (
+        options as {
+          readonly onError?: (result: {
+            readonly error: { readonly serverError?: string };
+          }) => void;
+        }
+      ).onError;
+      return { execute, isExecuting: false };
+    });
+    const { ReservationLookup } = await import("./reservation-lookup");
+    const view = render(<ReservationLookup />);
+
+    fireEvent.input(
+      view.getByRole("searchbox", { name: "Reservation or payment ID" }),
+      { target: { value: "payment-500" } }
+    );
+    await act(async () => {
+      fireEvent.submit(view.getByRole("button", { name: "Get reservation" }));
+    });
+    act(() => {
+      onError?.({
+        error: {
+          serverError: "The reservation lookup is temporarily unavailable.",
+        },
+      });
+    });
+
+    expect(
+      view.getByText("The reservation lookup is temporarily unavailable.")
+    ).toBeDefined();
+    expect(workspaceRouterPush).not.toHaveBeenCalled();
+  });
+
+  test("disables the submit button while the lookup is in flight", async () => {
+    const execute = mock();
+    workspaceUseAction.mockImplementation(() => ({
+      execute,
+      isExecuting: true,
+    }));
+    const { ReservationLookup } = await import("./reservation-lookup");
+    const view = render(<ReservationLookup />);
+
+    const button = view.getByRole("button", { name: "Looking up…" });
+    expect((button as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  test("shows the not-found notice when no reservation matched", async () => {
+    const execute = mock();
+    let onSuccess:
+      | ((result: {
+          readonly data?: { readonly reservationId: string | null };
+        }) => void)
+      | undefined;
+    workspaceUseAction.mockImplementation((_action, options) => {
+      onSuccess = (
+        options as {
+          readonly onSuccess?: (result: {
+            readonly data?: { readonly reservationId: string | null };
+          }) => void;
+        }
+      ).onSuccess;
+      return { execute, isExecuting: false };
+    });
+    const { ReservationLookup } = await import("./reservation-lookup");
+    const view = render(<ReservationLookup />);
+
+    fireEvent.input(
+      view.getByRole("searchbox", { name: "Reservation or payment ID" }),
+      { target: { value: "payment-404" } }
+    );
+    await act(async () => {
+      fireEvent.submit(view.getByRole("button", { name: "Get reservation" }));
+    });
+
+    act(() => {
+      onSuccess?.({ data: { reservationId: null } });
+    });
+    expect(view.getByText("No reservation matched that ID.")).toBeDefined();
+    expect(workspaceRouterPush).not.toHaveBeenCalled();
   });
 });

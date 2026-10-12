@@ -15,23 +15,28 @@ jobs:
   validate-workspace-migrations:
     if: github.event.action != 'converted_to_draft'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
 
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
-          bun-version: 1.4.0
+          bun-version: 1.4.2
 
       - name: Validate Workspace migration count
         working-directory: apps/deskohub-workspace
-        run: bun scripts/validate-migration-count.ts "${{ github.event.pull_request.base.sha }}"
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: bun scripts/validate-migration-count.ts "$BASE_SHA"
 
-  test-functional:
+  validate-workspace:
     if: github.event.action != 'converted_to_draft'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     services:
       postgres:
@@ -53,19 +58,15 @@ jobs:
       TURBO_TEAM: ${{ vars.TURBO_TEAM }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 2
+          persist-credentials: false
 
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
-          bun-version: 1.4.0
+          bun-version: 1.4.2
 
       - run: bun install --frozen-lockfile
-
-      - name: Install Workspace Playwright Chromium
-        working-directory: apps/deskohub-workspace
-        run: bun ./node_modules/@playwright/test/cli.js install --with-deps chromium
 
       - name: Report TypeScript compiler versions
         run: bun tsc --version && bun tsc6 --version
@@ -89,7 +90,112 @@ jobs:
 
       - run: bun turbo typecheck
 
-      - name: Run Workspace tests
+  test-functional-shards:
+    if: github.event.action != 'converted_to_draft'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+
+    services:
+      postgres:
+        image: ghcr.io/fboulnois/pg_uuidv7:1.7.0
         env:
-          WORKSPACE_TEST_DATABASE_URL: postgresql://workspace:workspace@127.0.0.1:5432/workspace
-        run: bun turbo test --filter=./apps/deskohub-workspace
+          POSTGRES_USER: workspace
+          POSTGRES_PASSWORD: workspace
+          POSTGRES_DB: workspace
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U workspace"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+      TURBO_TEAM: ${{ vars.TURBO_TEAM }}
+      WORKSPACE_TEST_DATABASE_URL: postgresql://workspace:workspace@127.0.0.1:5432/workspace
+
+    steps:
+      # Database-backed suites skip without this URL, so a lost value must
+      # fail the shard instead of passing it with those suites unrun.
+      - name: Require the Workspace test database
+        run: |
+          if [[ -z "${WORKSPACE_TEST_DATABASE_URL:-}" ]]; then
+            echo "WORKSPACE_TEST_DATABASE_URL is missing or empty." >&2
+            exit 1
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.2
+
+      - run: bun install --frozen-lockfile
+
+      - name: Resolve Workspace Playwright version
+        id: playwright
+        working-directory: apps/deskohub-workspace
+        run: echo "version=$(bun -p 'require("@playwright/test/package.json").version')" >> "$GITHUB_OUTPUT"
+
+      # Restores only the browser downloads; the install step below still
+      # installs Chromium's system packages on every run.
+      - name: Cache Workspace Playwright browsers
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright.outputs.version }}
+
+      - name: Install Workspace Playwright Chromium
+        working-directory: apps/deskohub-workspace
+        run: bun ./node_modules/@playwright/test/cli.js install --with-deps chromium
+
+      # The Workspace test script balances shards with the committed
+      # test-timings.json. --update-timings needs a --timings file in every
+      # package Turborepo passes these arguments to; in the Workspace it
+      # rewrites test-timings.json with this shard's measured durations.
+      - name: Run Workspace tests
+        run: >-
+          bun turbo test
+          --filter=./apps/deskohub-workspace
+          -- --shard=${{ matrix.shard }}/4
+          --timings=test-timings.json --update-timings
+
+      - name: Upload Workspace test timings
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: workspace-test-timings-shard-${{ matrix.shard }}
+          path: apps/deskohub-workspace/test-timings.json
+          if-no-files-found: error
+          retention-days: 30
+
+  test-functional:
+    needs:
+      - validate-workspace
+      - validate-workspace-migrations
+      - test-functional-shards
+    if: always() && github.event.action != 'converted_to_draft'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Require all Workspace CI jobs to succeed
+        env:
+          VALIDATION_RESULT: ${{ needs.validate-workspace.result }}
+          MIGRATION_COUNT_RESULT: ${{ needs.validate-workspace-migrations.result }}
+          FUNCTIONAL_SHARDS_RESULT: ${{ needs.test-functional-shards.result }}
+        run: |
+          if [[ "$VALIDATION_RESULT" != success || \
+                "$MIGRATION_COUNT_RESULT" != success || \
+                "$FUNCTIONAL_SHARDS_RESULT" != success ]]; then
+            echo "Workspace CI dependency failed, was cancelled, or was skipped." >&2
+            exit 1
+          fi

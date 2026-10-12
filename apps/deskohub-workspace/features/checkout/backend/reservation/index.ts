@@ -1,15 +1,26 @@
 export { splitCustomerName } from "./dotypos-customer-policy";
 export { createWorkspaceDotyposReservation } from "./dotypos-reservation.adapter";
 export { WorkspaceTableAssignmentService } from "./workspace-table-assignment.service";
+export type { OccupancyReservation } from "./workspace-table-occupancy";
 export {
   excludeDotyposReservationsById,
-  getWorkspaceTableOccupancyById,
+  getOccupancyWindow,
+  getTableBookingOccupancyById,
+  toOccupancyReservation,
+  toTableBookings,
   workspaceBookingSeatCount,
 } from "./workspace-table-occupancy";
+export type {
+  WorkspaceCoworkTableCandidateQuery,
+  WorkspaceTableCandidate,
+} from "./workspace-table-selection";
 export {
+  decodeTableCandidates,
   getWorkspaceTableCandidates,
+  getWorkspaceTableCandidatesByPredicate,
   getWorkspaceTableSeatCapacity,
-  hasAvailableWorkspaceTableCandidate,
+  hasCandidateCapacity,
+  isWorkspaceCoworkTableCandidate,
   workspaceMeetingRoomReservationTableTag,
   workspaceOfficeReservationTableTag,
 } from "./workspace-table-selection";

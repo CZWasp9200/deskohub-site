@@ -5,7 +5,7 @@ import { PostHogProvider as ReactPostHogProvider } from "@posthog/react";
 import { usePathname } from "next/navigation";
 import posthog, { type BeforeSendFn } from "posthog-js";
 import { type ReactNode, useEffect } from "react";
-import { env } from "@/env";
+import { clientEnv } from "@/client-env";
 import type { AnalyticsAccountIdentity } from "@/features/account/analytics-identity";
 import {
   getAnalyticsAccountIdentity,
@@ -81,11 +81,11 @@ export function PostHogAnalytics({
   posthogEnvironment,
 }: PostHogAnalyticsProps) {
   const pathname = usePathname();
-  const posthogProjectToken = env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN;
+  const posthogProjectToken = clientEnv.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN;
 
   if (!posthogProjectToken) return children;
 
-  const posthogHost = env.NEXT_PUBLIC_POSTHOG_HOST;
+  const posthogHost = clientEnv.NEXT_PUBLIC_POSTHOG_HOST;
   const applicationHostname = globalThis.window?.location.hostname;
   const telemetryHostAllowed =
     posthogHost !== undefined &&

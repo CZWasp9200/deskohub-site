@@ -2,6 +2,7 @@ import { Option, Schema } from "effect";
 import {
   isMeetingRoomWholeDayReservationDuration,
   type MeetingRoomReservationDuration,
+  meetingRoomReservationDurations,
 } from "@/features/reservation/meeting-room-reservation-duration";
 import type { ReservationInterval } from "@/features/reservation/reservation-interval-domain";
 import { workspaceSiteConstants } from "@/shared/utils/site-constants";
@@ -9,6 +10,8 @@ import {
   instantStringSchema,
   type LocalDateTime,
   localDateTimeSchema,
+  type PlainDate,
+  plainDateStringSchema,
 } from "@/shared/utils/temporal";
 
 const decodeInstant = Schema.decodeUnknownOption(instantStringSchema);
@@ -92,17 +95,24 @@ export const getMeetingRoomReservationInterval = (
   );
 };
 
-export const getMeetingRoomAvailabilityToDate = ({
+/**
+ * Last Prague calendar date a meeting-room interval occupies. The end is
+ * exclusive, so a booking ending exactly at midnight belongs to the previous
+ * day.
+ */
+export const getMeetingRoomLastServiceDate = ({
   endsAt,
-}: Pick<ReservationInterval, "endsAt">) => {
+}: Pick<ReservationInterval, "endsAt">): PlainDate => {
   const lastTouchedInstant = Temporal.Instant.fromEpochMilliseconds(
     Temporal.Instant.from(endsAt).epochMilliseconds - 1
   );
 
-  return lastTouchedInstant
-    .toZonedDateTimeISO(workspaceSiteConstants.location.timeZone)
-    .toPlainDate()
-    .toString();
+  return plainDateStringSchema.make(
+    lastTouchedInstant
+      .toZonedDateTimeISO(workspaceSiteConstants.location.timeZone)
+      .toPlainDate()
+      .toString()
+  );
 };
 
 export const getMeetingRoomReservationDate = ({
@@ -112,3 +122,29 @@ export const getMeetingRoomReservationDate = ({
     .toZonedDateTimeISO(workspaceSiteConstants.location.timeZone)
     .toPlainDate()
     .toString();
+
+/**
+ * The purchasable duration whose interval from the booked start exactly
+ * matches the booked interval, so a past reservation can preselect it.
+ */
+export const findMeetingRoomReservationDuration = (interval: {
+  readonly startsAt: Temporal.Instant;
+  readonly endsAt: Temporal.Instant;
+}): MeetingRoomReservationDuration | undefined => {
+  const startDateTime = interval.startsAt
+    .toZonedDateTimeISO(workspaceSiteConstants.location.timeZone)
+    .toPlainDateTime()
+    .toString({ smallestUnit: "minute" });
+
+  return meetingRoomReservationDurations.find((duration) => {
+    const candidate = getMeetingRoomReservationInterval(
+      startDateTime,
+      duration
+    );
+    return (
+      candidate !== null &&
+      Temporal.Instant.compare(candidate.startsAt, interval.startsAt) === 0 &&
+      Temporal.Instant.compare(candidate.endsAt, interval.endsAt) === 0
+    );
+  });
+};

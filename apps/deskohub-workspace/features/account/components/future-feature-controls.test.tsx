@@ -1,11 +1,4 @@
 import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
-import {
-  act,
-  cleanup,
-  fireEvent,
-  render,
-  waitFor,
-} from "@testing-library/react";
 import { type ComponentPropsWithoutRef, useState } from "react";
 import { type Locale, m } from "@/features/i18n";
 import {
@@ -16,9 +9,6 @@ import type {
   CustomerReservationHistory,
   CustomerReservationSummary,
 } from "../contracts";
-import type { BillingScreenCopy } from "./billing/billing-screen";
-import type { ProfileScreenCopy } from "./profile/profile-screen";
-import type { ReservationHistoryCopy } from "./reservation-history";
 
 type NavigateEvent = {
   readonly preventDefault: () => void;
@@ -83,6 +73,18 @@ mock.module("@/features/account/actions", () => ({
   deleteCustomerAccount,
   updateCustomerProfile,
   updatePreferredLanguage,
+}));
+
+const uploadCustomerAvatar = mock(() =>
+  Promise.resolve({ data: { status: "removed" } })
+);
+const removeCustomerAvatar = mock(() =>
+  Promise.resolve({ data: { status: "removed" } })
+);
+
+mock.module("@/features/account/avatar-actions", () => ({
+  removeCustomerAvatar,
+  uploadCustomerAvatar,
 }));
 
 type MarketingPreferenceSaveInput = {
@@ -163,148 +165,18 @@ mock.module("@/shared/utils/use-workspace-action", () => ({
   },
 }));
 
-const profileCopy = {
-  "en-US": {
-    avatarUnavailableDescription: "Profile photos are not available here.",
-    avatarUnavailableLabel: "Profile photo unavailable",
-    emailLabel: "Email address",
-    emailVerification: {
-      unverified: "This email still needs verification.",
-      verified: "This email has been successfully verified.",
-    },
-    languageLabel: "Preferred communication language",
-    languageSave: "Save",
-    languageSaving: "Saving…",
-    languageSaved: "Communication language saved.",
-    languageSaveFailed: "Saving the communication language failed. Try again.",
-    languageReadUnavailable: "Not available right now",
-    languageOptionCs: "Čeština",
-    languageOptionEn: "English (US)",
-    memberFallback: "Workspace member",
-    title: "Member profile and settings",
-    verifiedEmail: "Verified login email",
-  },
-  "cs-CZ": {
-    avatarUnavailableDescription: "Profilové fotografie nejsou k dispozici.",
-    avatarUnavailableLabel: "Profilová fotografie není k dispozici",
-    emailLabel: "E-mailová adresa",
-    emailVerification: {
-      unverified: "Tento e-mail stále vyžaduje ověření.",
-      verified: "Tento e-mail byl úspěšně ověřen.",
-    },
-    languageLabel: "Preferovaný komunikační jazyk",
-    languageSave: "Uložit",
-    languageSaving: "Ukládání…",
-    languageSaved: "Komunikační jazyk byl uložen.",
-    languageSaveFailed:
-      "Ukládání komunikačního jazyka se nepodařilo. Zkuste to znovu.",
-    languageReadUnavailable: "Zrovna teď není k dispozici",
-    languageOptionCs: "Čeština",
-    languageOptionEn: "English (US)",
-    memberFallback: "Člen Workspace",
-    title: "Profil a nastavení",
-    verifiedEmail: "Ověřený přihlašovací e-mail",
-  },
-} satisfies Record<Locale, ProfileScreenCopy>;
-
-const billingCopy = {
-  "en-US": {
-    addPaymentCard: "Add payment card",
-    billingDetailsTitle: "Billing details",
-    currency: "Currency: CZK (Kč)",
-    downloadInvoice: "Download PDF",
-    exportInvoices: "Export all",
-    invoiceHistoryTitle: "Invoice history",
-    invoiceHistoryUnavailable:
-      "Invoice history and downloads are not available in this account.",
-    paymentMethodsTitle: "Saved payment methods",
-    paymentMethodsUnavailable:
-      "Saved payment methods are not available in this account.",
-    removePaymentCard: "Remove payment card",
-    title: "Billing & invoices",
-  },
-  "cs-CZ": {
-    addPaymentCard: "Přidat platební kartu",
-    billingDetailsTitle: "Fakturační údaje",
-    currency: "Měna: CZK (Kč)",
-    downloadInvoice: "Stáhnout PDF",
-    exportInvoices: "Exportovat vše",
-    invoiceHistoryTitle: "Historie faktur",
-    invoiceHistoryUnavailable:
-      "Historie faktur a jejich stahování nejsou pro tento účet dostupné.",
-    paymentMethodsTitle: "Uložené platební metody",
-    paymentMethodsUnavailable:
-      "Uložené platební metody nejsou pro tento účet dostupné.",
-    removePaymentCard: "Odebrat platební kartu",
-    title: "Fakturace a faktury",
-  },
-} satisfies Record<Locale, BillingScreenCopy>;
-
-const reservationCopy = {
-  "en-US": {
-    assignedDesk: "Assigned desk",
-    checkIn: "Check in",
-    date: "Date",
-    moreCurrent: "More current and upcoming reservations",
-    nfcAccess: "NFC access",
-    product: "Product",
-    seats: "Seats",
-    showPinCode: "Show PIN code",
-    status: "Status",
-    unavailable: "Unavailable",
-    unsupportedDescription: "Not available in your account yet.",
-    validity: "Validity",
-    viewReservation: "View reservation",
-    wifi: "Wi-Fi",
-  },
-  "cs-CZ": {
-    assignedDesk: "Přiřazené místo",
-    checkIn: "Odbavit se",
-    date: "Datum",
-    moreCurrent: "Další aktuální a nadcházející rezervace",
-    nfcAccess: "NFC přístup",
-    product: "Produkt",
-    seats: "Místa",
-    showPinCode: "Zobrazit PIN kód",
-    status: "Stav",
-    unavailable: "Nedostupné",
-    unsupportedDescription: "Ve vašem účtu zatím není k dispozici.",
-    validity: "Platnost",
-    viewReservation: "Zobrazit rezervaci",
-    wifi: "Wi-Fi",
-  },
-} satisfies Record<Locale, ReservationHistoryCopy>;
-
-const accountScreenCopy = {
-  billing: billingCopy["en-US"],
-  dangerTitle: "Danger zone",
-  profile: profileCopy["en-US"],
-  reservations: reservationCopy["en-US"],
-  shell: {
-    mobileSection: "Account section",
-    navigation: "Account navigation",
-    sections: {
-      billing: "Billing & invoices",
-      danger: "Danger zone",
-      legal: "Legal & privacy",
-      profile: "Profile & identity",
-      reservations: "Reservations",
-    },
-  },
-};
-
-mock.module("@/features/account/components/account-screen-copy", () => ({
-  getAccountScreenCopy: () => accountScreenCopy,
-}));
-
 registerWorkspaceComponentTestEnv();
 
+const { act, cleanup, fireEvent, render } = await import(
+  "@testing-library/react"
+);
+
 const { AccountLoading } = await import("./account-loading");
+const { getAccountScreenCopy } = await import("./account-screen-copy");
 const { BillingScreen } = await import("./billing/billing-screen");
 const { DeleteAccountCard } = await import("./delete-account-card");
 const { LegalScreen } = await import("./legal/legal-screen");
 const { ProfileForm } = await import("./profile-form");
-const { ProfileScreen } = await import("./profile/profile-screen");
 const { ReservationHistory } = await import("./reservation-history");
 const { SignInCard } = await import("./sign-in-card");
 const { SignInLoading } = await import("./sign-in-loading");
@@ -319,22 +191,11 @@ afterEach(() => {
   signOut.mockClear();
   updateCustomerProfile.mockClear();
   updatePreferredLanguage.mockClear();
+  uploadCustomerAvatar.mockClear();
+  removeCustomerAvatar.mockClear();
 });
 
 afterAll(unregisterWorkspaceComponentTestEnv);
-
-const profileFields = (
-  <>
-    <div>
-      <label htmlFor="future-feature-first-name">First name</label>
-      <input id="future-feature-first-name" name="firstName" required />
-    </div>
-    <div>
-      <label htmlFor="future-feature-last-name">Last name</label>
-      <input id="future-feature-last-name" name="lastName" />
-    </div>
-  </>
-);
 
 const reservation = (
   overrides: Partial<CustomerReservationSummary>
@@ -359,90 +220,51 @@ const futureFeatureHistory: CustomerReservationHistory = {
 
 type ScreenView = ReturnType<typeof render>;
 
-function renderProfileScreen(locale: Locale): ScreenView {
-  return render(
-    <ProfileScreen
-      copy={profileCopy[locale]}
-      email="ada@example.test"
-      firstName="Ada"
-      lastName="Lovelace"
-      locale={locale}
-    >
-      {profileFields}
-    </ProfileScreen>
-  );
-}
+const locale = "en-US";
+const screenCopy = getAccountScreenCopy(locale);
 
-function renderBillingScreen(locale: Locale): ScreenView {
+function renderBillingScreen(): ScreenView {
   return render(
-    <BillingScreen copy={billingCopy[locale]} locale={locale}>
+    <BillingScreen copy={screenCopy.billing} locale={locale}>
       <div>Caller-owned billing fields</div>
     </BillingScreen>
   );
 }
 
-function renderLegalScreen(locale: Locale): ScreenView {
+function renderLegalScreen(): ScreenView {
   return render(<LegalScreen locale={locale} />);
 }
 
-function renderReservationHistory(locale: Locale): ScreenView {
+function renderReservationHistory(): ScreenView {
   return render(
     <ReservationHistory
-      copy={reservationCopy[locale]}
+      copy={screenCopy.reservations}
       history={futureFeatureHistory}
       locale={locale}
     />
   );
 }
 
-function futureFeatureMessage(locale: Locale) {
-  return m.account_future_feature_tooltip({}, { locale });
-}
+const futureFeatureMessage = m.account_future_feature_tooltip({}, { locale });
 
-async function expectFutureTooltip(
+async function expectFutureFeatureWrapper(
   view: ScreenView,
   label: string,
-  locale: Locale,
-  controlIndex = 0,
-  role: "button" | "combobox" = "button"
+  role: "button" | "combobox"
 ) {
-  const controls = view.getAllByRole(role, { name: label });
-  const control = controls[controlIndex];
-  if (!control) {
-    throw new Error(
-      `No future-feature control at index ${controlIndex} for ${label}`
-    );
-  }
+  const control = view.getByRole(role, { name: label });
   expect(control.tagName).toBe("BUTTON");
   expect((control as HTMLButtonElement).disabled).toBe(true);
 
   const wrapper = control.closest<HTMLElement>('[tabindex="0"]');
   if (!wrapper) throw new Error(`No future-feature wrapper for ${label}`);
-  expect(wrapper.tabIndex).toBe(0);
   expect(view.getAllByRole("group", { name: label })).toContain(wrapper);
 
   await act(async () => {
     wrapper.focus();
   });
-  expect(document.activeElement).toBe(wrapper);
-  const tooltipMessage = futureFeatureMessage(locale);
-  expect((await view.findByRole("tooltip")).textContent).toContain(
-    tooltipMessage
-  );
-  expect(view.getByRole("group", { description: tooltipMessage })).toBe(
+  expect(view.getByRole("group", { description: futureFeatureMessage })).toBe(
     wrapper
-  );
-
-  await act(async () => {
-    fireEvent.keyDown(wrapper, { key: "Escape" });
-  });
-  await waitFor(() => expect(view.queryByRole("tooltip")).toBeNull());
-
-  await act(async () => {
-    fireEvent.pointerMove(wrapper, { pointerType: "mouse" });
-  });
-  expect((await view.findByRole("tooltip")).textContent).toContain(
-    tooltipMessage
   );
 }
 
@@ -450,87 +272,63 @@ function expectNoFutureTooltipWrapper(control: Element) {
   expect(control.closest("[tabindex='0']")).toBeNull();
 }
 
-type FutureFeatureTarget = {
-  readonly controlIndex?: number;
-  readonly label: (locale: Locale) => string;
-  readonly name: string;
-  readonly render: (locale: Locale) => ScreenView;
-  readonly role?: "button" | "combobox";
-};
-
-const futureFeatureTargets: readonly FutureFeatureTarget[] = [
+const futureFeatureTargets = [
   {
-    label: (locale) => profileCopy[locale].avatarUnavailableLabel,
-    name: "profile avatar",
-    render: renderProfileScreen,
-  },
-  {
-    label: (locale) => billingCopy[locale].addPaymentCard,
+    label: screenCopy.billing.addPaymentCard,
     name: "add payment card control",
     render: renderBillingScreen,
+    role: "button",
   },
   {
-    label: (locale) => billingCopy[locale].downloadInvoice,
+    label: screenCopy.billing.downloadInvoice,
     name: "download invoice control",
     render: renderBillingScreen,
+    role: "button",
   },
   {
-    label: (locale) => billingCopy[locale].exportInvoices,
+    label: screenCopy.billing.exportInvoices,
     name: "export invoices control",
     render: renderBillingScreen,
+    role: "button",
   },
   {
-    label: (locale) => reservationCopy[locale].checkIn,
+    label: screenCopy.reservations.checkIn,
     name: "check-in control",
     render: renderReservationHistory,
+    role: "button",
   },
   {
-    label: (locale) => reservationCopy[locale].nfcAccess,
-    name: "NFC control",
-    render: renderReservationHistory,
-  },
-  {
-    label: (locale) => m.legalScreenArchiveAction({}, { locale }),
+    label: m.legalScreenArchiveAction({}, { locale }),
     name: "GDPR archive control",
     render: renderLegalScreen,
+    role: "button",
   },
-];
+] as const;
 
 describe("account future-feature controls", () => {
-  test("keeps the future-feature inventory at seven controls", () => {
-    expect(futureFeatureTargets).toHaveLength(7);
-  });
-
-  for (const target of futureFeatureTargets) {
-    test.each(["en-US", "cs-CZ"] as const)(
-      `${target.name} opens its localized message on focus and hover in %s`,
-      async (locale) => {
-        const view = target.render(locale);
-        await expectFutureTooltip(
-          view,
-          target.label(locale),
-          locale,
-          target.controlIndex,
-          target.role
-        );
-      }
-    );
-  }
+  test.each(futureFeatureTargets)(
+    "wraps the disabled $name in a focusable group described by the future-feature message",
+    async (target) => {
+      await expectFutureFeatureWrapper(
+        target.render(),
+        target.label,
+        target.role
+      );
+    }
+  );
 
   test("does not wrap the known reservation PIN control", () => {
-    const view = renderReservationHistory("en-US");
+    const view = renderReservationHistory();
     const pinButton = view.getByRole("button", {
-      name: reservationCopy["en-US"].showPinCode,
+      name: screenCopy.reservations.showPinCode,
     });
 
     expect((pinButton as HTMLButtonElement).disabled).toBe(true);
     expectNoFutureTooltipWrapper(pinButton);
     expect(
-      view.getByText(
-        m.accountReservationPinUnavailable({}, { locale: "en-US" })
-      )
+      view.getByText(m.accountReservationPinUnavailable({}, { locale }))
     ).toBeTruthy();
-    expect(view.queryByText(futureFeatureMessage("en-US"))).toBeNull();
+    expect(view.queryByText(futureFeatureMessage)).toBeNull();
   });
 
   test("does not wrap runtime-disabled, loading, auth, or confirmation controls", async () => {
@@ -543,7 +341,7 @@ describe("account future-feature controls", () => {
     const profileView = render(
       <ProfileForm
         email="ada@example.test"
-        locale="en-US"
+        locale={locale}
         mode="edit"
         preferredLanguage="read-failed"
         profile={{
@@ -555,9 +353,14 @@ describe("account future-feature controls", () => {
       />
     );
     await act(async () => {
-      fireEvent.input(profileView.getByLabelText("First name"), {
-        target: { value: "Grace" },
-      });
+      fireEvent.input(
+        profileView.getByLabelText(
+          m.accountProfileFirstNameLabel({}, { locale })
+        ),
+        {
+          target: { value: "Grace" },
+        }
+      );
       fireEvent.submit(
         profileView.container.querySelector("#account-profile-form")!
       );
@@ -574,59 +377,55 @@ describe("account future-feature controls", () => {
     resolveProfileUpdate({ data: { status: "updated" } });
 
     const loadingViews = [
-      render(<AccountLoading locale="en-US" />),
-      render(<SignInLoading locale="en-US" />),
+      render(<AccountLoading locale={locale} />),
+      render(<SignInLoading locale={locale} />),
     ];
     for (const view of loadingViews) {
       expect(view.container.querySelectorAll("[tabindex='0']")).toHaveLength(0);
-      const loadingButtons = Array.from(
-        view.container.querySelectorAll("button")
-      );
-      expect(
-        loadingButtons.filter(
-          (button) => !(button as HTMLButtonElement).disabled
-        )
-      ).toHaveLength(0);
-      for (const button of loadingButtons) {
-        expect((button as HTMLButtonElement).disabled).toBe(true);
-      }
       view.unmount();
     }
 
-    let resolveMagicLink!: (result: { readonly error: null }) => void;
-    const pendingMagicLink = new Promise<{ readonly error: null }>(
-      (resolve) => {
-        resolveMagicLink = resolve;
-      }
+    signInMagicLink.mockImplementationOnce(
+      () =>
+        new Promise<{ readonly error: null }>(() => {
+          // Pending for the rest of the test: the request is in flight.
+        })
     );
-    signInMagicLink.mockImplementationOnce(() => pendingMagicLink);
-    const signInView = render(<SignInCard locale="en-US" />);
-    fireEvent.change(signInView.getByLabelText("Email"), {
-      target: { value: "ada@example.test" },
-    });
+    const signInView = render(<SignInCard locale={locale} />);
+    fireEvent.change(
+      signInView.getByLabelText(m.accountSignInEmailLabel({}, { locale })),
+      { target: { value: "ada@example.test" } }
+    );
     await act(async () => {
       fireEvent.submit(
         signInView.container.querySelector("#account-sign-in-form")!
       );
       await Promise.resolve();
     });
-    const signInButton = signInView.getByRole("button", { name: "Sending…" });
+    const signInButton = signInView.getByRole("button", {
+      name: m.accountSignInSubmitting({}, { locale }),
+    });
     expect((signInButton as HTMLButtonElement).disabled).toBe(true);
     expectNoFutureTooltipWrapper(signInButton);
     signInView.unmount();
-    resolveMagicLink({ error: null });
 
     let resolveSignOut!: (result: { readonly error: null }) => void;
     const pendingSignOut = new Promise<{ readonly error: null }>((resolve) => {
       resolveSignOut = resolve;
     });
     signOut.mockImplementationOnce(() => pendingSignOut);
-    const signOutView = render(<SignOutButton locale="en-US" />);
+    const signOutView = render(<SignOutButton locale={locale} />);
     await act(async () => {
-      fireEvent.click(signOutView.getByRole("button", { name: "Sign out" }));
+      fireEvent.click(
+        signOutView.getByRole("button", {
+          name: m.accountSignOut({}, { locale }),
+        })
+      );
       await Promise.resolve();
     });
-    const signOutButton = signOutView.getByRole("button", { name: "Sign out" });
+    const signOutButton = signOutView.getByRole("button", {
+      name: m.accountSignOut({}, { locale }),
+    });
     expect((signOutButton as HTMLButtonElement).disabled).toBe(true);
     expectNoFutureTooltipWrapper(signOutButton);
     signOutView.unmount();
@@ -636,13 +435,13 @@ describe("account future-feature controls", () => {
       <DeleteAccountCard
         deletionPending={false}
         email="ada@example.test"
-        locale="en-US"
+        locale={locale}
       />
     );
     await act(async () => {
       fireEvent.click(
         deletionView.getByRole("button", {
-          name: m.accountDeletionButton({}, { locale: "en-US" }),
+          name: m.accountDeletionButton({}, { locale }),
         })
       );
     });

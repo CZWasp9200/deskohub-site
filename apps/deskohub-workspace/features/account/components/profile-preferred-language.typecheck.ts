@@ -15,8 +15,6 @@ const screenProps = (
 ): ProfileScreenProps => ({
   children: null,
   copy: {
-    avatarUnavailableDescription: "",
-    avatarUnavailableLabel: "",
     emailLabel: "",
     emailVerification: { unverified: "", verified: "" },
     languageLabel: "",
@@ -34,7 +32,6 @@ const screenProps = (
   email: "",
   firstName: "",
   lastName: null,
-  locale: "en-US",
   preferredLanguage,
 });
 

@@ -12,7 +12,12 @@ import {
 } from "effect";
 import { FetchHttpClient } from "effect/unstable/http";
 import { DotyposRuntimeConfig } from "../config";
-import { ExternalAPIError, NetworkError, ValidationError } from "../errors";
+import {
+  DotyposReservationCancelledError,
+  ExternalAPIError,
+  NetworkError,
+  ValidationError,
+} from "../errors";
 import type {
   CreateCustomerRequest,
   CreateReservationRequest,
@@ -86,11 +91,28 @@ const isRetryableDotyposError = (error: DotyposError) =>
     Match.orElse(() => false)
   );
 
-const retryPolicy = {
+const emptyResponseMessage = "Dotypos returned an empty array.";
+
+/**
+ * Creation requests are not idempotent, so only failures that prove Dotypos
+ * created nothing are retried. A timeout, transport failure, or server error
+ * may follow a successful write and would create a duplicate.
+ */
+const isRetryableCreationError = (error: DotyposError) =>
+  Match.value(error).pipe(
+    Match.tag(
+      "ExternalAPIError",
+      (apiError) =>
+        apiError.statusCode === 429 || apiError.message === emptyResponseMessage
+    ),
+    Match.orElse(() => false)
+  );
+
+const makeRetryPolicy = (isRetryable: (error: DotyposError) => boolean) => ({
   schedule: Schedule.exponential("100 millis").pipe(
     Schedule.jittered,
     Schedule.while<DotyposError, Duration.Duration>(({ input }) =>
-      isRetryableDotyposError(input)
+      isRetryable(input)
     ),
     Schedule.both(Schedule.recurs(3)),
     Schedule.tapOutput(([delay, attempt]) =>
@@ -101,7 +123,10 @@ const retryPolicy = {
       })
     )
   ),
-};
+});
+
+const retryPolicy = makeRetryPolicy(isRetryableDotyposError);
+const creationRetryPolicy = makeRetryPolicy(isRetryableCreationError);
 
 const catchUnexpectedDotyposError = (operation: string) =>
   Effect.catch((error: unknown) =>
@@ -177,12 +202,22 @@ const getNextDotyposPageNumber = (input: {
     )
   );
 
-const loadAllDotyposPages = <A, E, R>(input: {
+type DotyposPageLoad<A, E, R> = {
   readonly loadPage: (page: number) => Effect.Effect<DotyposPage<A>, E, R>;
   readonly operation: string;
-}): Effect.Effect<readonly A[], E | ExternalAPIError, R> => {
+};
+
+type DotyposPages<A> = {
+  readonly items: readonly A[];
+  readonly pageCount: number;
+};
+
+const loadDotyposPages = <A, E, R>(
+  input: DotyposPageLoad<A, E, R>
+): Effect.Effect<DotyposPages<A>, E | ExternalAPIError, R> => {
   const items: A[] = [];
   let currentPage = 1;
+  let pageCount = 0;
   let hasNextPage = true;
 
   return Effect.whileLoop({
@@ -200,11 +235,17 @@ const loadAllDotyposPages = <A, E, R>(input: {
       ),
     step: ({ nextPage, page }) => {
       items.push(...(page.data ?? []));
+      pageCount += 1;
       hasNextPage = nextPage !== undefined;
       if (nextPage !== undefined) currentPage = nextPage;
     },
-  }).pipe(Effect.map(() => items));
+  }).pipe(Effect.map(() => ({ items, pageCount })));
 };
+
+const loadAllDotyposPages = <A, E, R>(
+  input: DotyposPageLoad<A, E, R>
+): Effect.Effect<readonly A[], E | ExternalAPIError, R> =>
+  loadDotyposPages(input).pipe(Effect.map(({ items }) => items));
 
 export type CustomerLookupField = "email" | "phone";
 
@@ -284,9 +325,23 @@ const normalizeCustomerLookupData = (
 
   return {
     ...customerData,
+    email: customerData.email?.trim() || undefined,
     phone: normalizedPhone || undefined,
   };
 };
+
+/**
+ * Customers own one mailbox regardless of how its address was cased, so
+ * customer identity compares emails case-insensitively. Dotypos' `like`
+ * filter is a case-insensitive substring match (`ILIKE '%value%'`), so the
+ * provider search returns every case variant and longer addresses that
+ * contain the value; only a whole-address match identifies the customer.
+ */
+const toCustomerEmailIdentity = (email: string) => email.trim().toLowerCase();
+
+const hasCustomerEmail = (customer: DotyposCustomer, email: string) =>
+  customer.email != null &&
+  toCustomerEmailIdentity(customer.email) === toCustomerEmailIdentity(email);
 
 const normalizeIdentifier = <A>(
   schema: Schema.Decoder<A>,
@@ -403,7 +458,7 @@ const makeDotyposService = Effect.gen(function* () {
           new ExternalAPIError({
             service: "Dotypos",
             operation,
-            message: "Dotypos returned an empty array.",
+            message: emptyResponseMessage,
             statusCode: 502,
           })
         );
@@ -440,12 +495,25 @@ const makeDotyposService = Effect.gen(function* () {
     schema: Schema.Decoder<A>,
     page: DotyposPage<unknown>,
     operation: string
-  ) =>
-    decodeProviderEntities(schema, page.data ?? [], operation).pipe(
+  ): Effect.Effect<DotyposPage<A>, ExternalAPIError> => {
+    if (!Array.isArray(page.data)) {
+      return Effect.fail(
+        new ExternalAPIError({
+          service: "Dotypos",
+          operation,
+          message: "Dotypos returned a malformed list response.",
+        })
+      );
+    }
+
+    return decodeProviderEntities(schema, page.data, operation).pipe(
       Effect.map((data) => ({ ...page, data }))
     );
+  };
 
-  const getReservation = Effect.fn("getReservation")(
+  const getReservationWithoutCustomer = Effect.fn(
+    "getReservationWithoutCustomer"
+  )(
     function* (id: DotyposReservationId) {
       const reservationId = yield* normalizeIdentifier(
         DotyposReservationIdSchema,
@@ -460,15 +528,27 @@ const makeDotyposService = Effect.gen(function* () {
         catchUnexpectedDotyposError("getReservation")
       );
 
-      const reservation = yield* decodeProviderEntity(
+      return yield* decodeProviderEntity(
         DotyposReservationSchema,
         { ...reservationResult, id: reservationId },
         "getReservation"
       );
+    },
+    (effect, reservationId) =>
+      effect.pipe(
+        Effect.annotateLogs({
+          reservationId,
+        })
+      )
+  );
+
+  const getReservation = Effect.fn("getReservation")(
+    function* (id: DotyposReservationId) {
+      const reservation = yield* getReservationWithoutCustomer(id);
 
       if (!reservation._customerId) {
         return yield* new ValidationError({
-          message: `Reservation ${reservationId} has no customer ID`,
+          message: `Reservation ${reservation.id} has no customer ID`,
         });
       }
 
@@ -569,7 +649,7 @@ const makeDotyposService = Effect.gen(function* () {
         "createReservation"
       ).pipe(
         Effect.withSpan("dotyposService.createReservation"),
-        Effect.retry(retryPolicy),
+        Effect.retry(creationRetryPolicy),
         Effect.tapError((error) =>
           Effect.logError("Dotypos reservation creation failed", {
             error,
@@ -640,46 +720,74 @@ const makeDotyposService = Effect.gen(function* () {
       readonly payload: UpdateReservationRequest;
     }) =>
       Effect.succeed(input).pipe(
-        Effect.bind("response", ({ reservationId }) =>
-          runDotyposRequest(
-            client.getReservation(config.cloudId, reservationId, {
-              config: { includeResponse: true },
-            }),
-            "getReservation"
-          ).pipe(Effect.retry(retryPolicy))
+        Effect.bind("current", ({ reservationId }) =>
+          readReservationVersion(reservationId)
         ),
-        Effect.bind("etag", ({ response: [, response] }) => {
-          const etag = response.headers.etag ?? response.headers.ETag;
+        Effect.flatMap(({ current, payload, reservationId }) =>
+          patchReservationVersion({
+            reservationId,
+            etag: current.etag,
+            payload,
+          })
+        )
+      )
+  );
 
-          return etag
-            ? Effect.succeed(etag)
-            : Effect.fail(
-                new ExternalAPIError({
-                  service: "Dotypos",
-                  operation: "getReservation",
-                  message: "Reservation ETag header was missing.",
-                })
-              );
+  const readReservationVersion = Effect.fn(
+    "DotyposService.readReservationVersion"
+  )((reservationId: DotyposReservationId) =>
+    runDotyposRequest(
+      client.getReservation(config.cloudId, reservationId, {
+        config: { includeResponse: true },
+      }),
+      "getReservation"
+    ).pipe(
+      Effect.retry(retryPolicy),
+      Effect.flatMap(([reservation, response]) => {
+        const etag = response.headers.etag ?? response.headers.ETag;
+
+        if (!etag) {
+          return Effect.fail(
+            new ExternalAPIError({
+              service: "Dotypos",
+              operation: "getReservation",
+              message: "Reservation ETag header was missing.",
+            })
+          );
+        }
+
+        return decodeProviderEntity(
+          DotyposReservationSchema,
+          { ...reservation, id: reservation.id ?? reservationId },
+          "getReservation"
+        ).pipe(Effect.map((decoded) => ({ etag, reservation: decoded })));
+      })
+    )
+  );
+
+  const patchReservationVersion = Effect.fn(
+    "DotyposService.patchReservationVersion"
+  )(
+    (input: {
+      readonly reservationId: DotyposReservationId;
+      readonly etag: string;
+      readonly payload: UpdateReservationRequest;
+    }) =>
+      runDotyposRequest(
+        client.patchReservation(config.cloudId, input.reservationId, {
+          params: { "If-Match": input.etag },
+          payload: input.payload,
         }),
-        Effect.bind("reservation", ({ etag, payload, reservationId }) =>
-          runDotyposRequest(
-            client.patchReservation(config.cloudId, reservationId, {
-              params: { "If-Match": etag },
-              payload,
-            }),
+        "patchReservation"
+      ).pipe(
+        Effect.retry(retryPolicy),
+        Effect.flatMap((reservation) =>
+          decodeProviderEntity(
+            DotyposReservationSchema,
+            { ...reservation, id: reservation.id ?? input.reservationId },
             "patchReservation"
-          ).pipe(
-            Effect.retry(retryPolicy),
-            Effect.flatMap((reservation) =>
-              decodeProviderEntity(
-                DotyposReservationSchema,
-                { ...reservation, id: reservation.id ?? reservationId },
-                "patchReservation"
-              )
-            )
           )
-        ),
-        Effect.map(({ reservation }) => reservation)
+        )
       )
   );
 
@@ -693,10 +801,31 @@ const makeDotyposService = Effect.gen(function* () {
 
       yield* Effect.logInfo("Dotypos reservation confirmation patch started");
 
-      const reservation = yield* patchReservation({
-        reservationId: id,
-        payload: { status: "CONFIRMED" },
-      }).pipe(
+      // The If-Match ETag makes the status check and the PATCH one atomic
+      // transition: a cancellation after this read fails the PATCH instead of
+      // being overwritten, so a cancelled hold is never revived.
+      const reservation = yield* readReservationVersion(id).pipe(
+        Effect.flatMap((current) =>
+          Match.value(current.reservation.status).pipe(
+            Match.when("CANCELLED", () =>
+              Effect.fail(
+                new DotyposReservationCancelledError({
+                  reservationId: id,
+                  message: "Dotypos reservation is already cancelled.",
+                })
+              )
+            ),
+            Match.when("CONFIRMED", () => Effect.succeed(current.reservation)),
+            Match.when("NEW", () =>
+              patchReservationVersion({
+                reservationId: id,
+                etag: current.etag,
+                payload: { status: "CONFIRMED" },
+              })
+            ),
+            Match.exhaustive
+          )
+        ),
         Effect.tapError((error) =>
           Effect.logError("Dotypos reservation confirmation failed", {
             error,
@@ -918,12 +1047,12 @@ const makeDotyposService = Effect.gen(function* () {
       const matchingCustomers: DotyposCustomer[] = [];
 
       if (shouldLookupBy("email") && normalizedCustomerData.email) {
-        const customersByEmail = yield* searchByField(
-          "email",
-          normalizedCustomerData.email
-        );
+        const email = normalizedCustomerData.email;
+        // The provider filter is already case-insensitive; send the address as
+        // entered so its collation, not JavaScript case mapping, folds case.
+        const customersByEmail = yield* searchByField("email", email);
         for (const customer of customersByEmail) {
-          if (customer.email === normalizedCustomerData.email) {
+          if (hasCustomerEmail(customer, email)) {
             addUniqueCustomer(matchingCustomers, customer);
           }
         }
@@ -1039,7 +1168,9 @@ const makeDotyposService = Effect.gen(function* () {
         hexColor: "#000000",
         internalNote: "",
         lastName: details.lastName.trim(),
-        phone: details.phone ? normalizePhoneNumber(details.phone) || "" : "",
+        // Dotypos requires a phone on creation; a new customer has no stored
+        // phone to preserve, so an absent or unparseable phone stays blank.
+        phone: normalizePhoneNumber(details.phone) ?? "",
         points: "0",
         tags: [],
         vatId: details.vatId.trim(),
@@ -1078,7 +1209,10 @@ const makeDotyposService = Effect.gen(function* () {
 
       const lookup = yield* lookupCustomer(customerData, options);
 
-      yield* Effect.logDebug("Dotypos customer lookup result", { lookup });
+      yield* Effect.logDebug("Dotypos customer lookup result", {
+        outcome: lookup._tag,
+        matchedCustomerIds: lookup.matches.map((customer) => customer.id),
+      });
 
       const normalizedCustomerData = lookup.normalizedCustomerData;
       const existingCustomer = yield* Match.value(lookup).pipe(
@@ -1115,8 +1249,7 @@ const makeDotyposService = Effect.gen(function* () {
 
         yield* Effect.logDebug("Dotypos customer update-needed decision", {
           needsUpdate,
-          existingCustomer,
-          normalizedCustomerData,
+          customerId: existingCustomer.id,
         });
 
         if (needsUpdate) {
@@ -1158,31 +1291,24 @@ const makeDotyposService = Effect.gen(function* () {
             ),
             Effect.tapError((error) =>
               Effect.logWarning("Dotypos customer update failed", {
-                error,
-                existingCustomer,
-                input: normalizedCustomerData,
+                errorTag: error._tag,
                 operation: "updateCustomer",
-                request: {
-                  path: {
-                    cloudId: config.cloudId,
-                    customerId,
-                  },
-                  body: updateRequest,
-                },
+                customerId,
+                updatedFields: Object.keys(updateRequest),
               })
             ),
             Effect.orElseSucceed(() => existingCustomer)
           );
 
           yield* Effect.logDebug("Dotypos existing customer result", {
-            customer: updatedCustomer,
+            customerId: updatedCustomer.id,
           });
 
           return updatedCustomer;
         }
 
         yield* Effect.logDebug("Dotypos existing customer result", {
-          customer: existingCustomer,
+          customerId: existingCustomer.id,
         });
 
         return existingCustomer;
@@ -1238,7 +1364,7 @@ const makeDotyposService = Effect.gen(function* () {
           ),
         "createCustomer"
       ).pipe(
-        Effect.retry(retryPolicy),
+        Effect.retry(creationRetryPolicy),
         Effect.tapError((error) => {
           const apiErrorDetails = Match.value(error).pipe(
             Match.tag("ExternalAPIError", (apiError) => ({
@@ -1266,7 +1392,9 @@ const makeDotyposService = Effect.gen(function* () {
         "createCustomer"
       );
 
-      yield* Effect.logInfo("Dotypos customer created", { customer });
+      yield* Effect.logInfo("Dotypos customer created", {
+        customerId: customer.id,
+      });
 
       return customer;
     },
@@ -1443,10 +1571,15 @@ const makeDotyposService = Effect.gen(function* () {
     patchCustomer(customerId, details)
   );
 
+  /**
+   * An absent or unparseable phone omits the field so the phone stored in
+   * Dotypos stays untouched; clearing it requires an explicit provider patch.
+   */
   const updateCustomerDetails = Effect.fn(
     "DotyposService.updateCustomerDetails"
-  )((customerId: DotyposCustomerId, details: DotyposCustomerDetails) =>
-    patchCustomer(customerId, {
+  )((customerId: DotyposCustomerId, details: DotyposCustomerDetails) => {
+    const phone = normalizePhoneNumber(details.phone);
+    return patchCustomer(customerId, {
       addressLine1: details.addressLine1.trim(),
       addressLine2: details.addressLine2.trim(),
       city: details.city.trim(),
@@ -1456,34 +1589,55 @@ const makeDotyposService = Effect.gen(function* () {
       email: details.email.trim(),
       firstName: details.firstName.trim(),
       lastName: details.lastName.trim(),
-      phone: details.phone ? normalizePhoneNumber(details.phone) || "" : "",
+      ...(phone && { phone }),
       vatId: details.vatId.trim(),
       zip: details.zip.trim(),
-    })
-  );
+    });
+  });
 
-  const getTables = Effect.fn("getTables")(() =>
-    loadAllDotyposPages({
-      operation: "getTables",
-      loadPage: (page) =>
-        runDotyposRequest(
-          client.getTables(config.cloudId, {
-            params: { limit: 100, page },
-          }),
-          "getTables"
-        ).pipe(
-          Effect.flatMap((result) =>
-            decodeProviderPage(DotyposTableSchema, result, "getTables")
-          )
-        ),
-    }).pipe(Effect.retry(retryPolicy), catchUnexpectedDotyposError("getTables"))
+  const getTables = Effect.fn("getTables")(
+    function* () {
+      yield* Effect.logInfo("Dotypos tables load started");
+
+      const { items: tables, pageCount } = yield* loadDotyposPages({
+        operation: "getTables",
+        loadPage: (page) =>
+          runDotyposRequest(
+            client.getTables(config.cloudId, {
+              params: { limit: 100, page },
+            }),
+            "getTables"
+          ).pipe(
+            Effect.flatMap((result) =>
+              decodeProviderPage(DotyposTableSchema, result, "getTables")
+            )
+          ),
+      }).pipe(
+        Effect.retry(retryPolicy),
+        catchUnexpectedDotyposError("getTables")
+      );
+
+      yield* Effect.annotateLogsScoped({
+        tableCount: tables.length,
+        pageCount,
+      });
+      yield* Effect.logInfo("Dotypos tables load completed");
+      return tables;
+    },
+    (effect) =>
+      effect.pipe(
+        Effect.scoped,
+        Effect.tapError((error) =>
+          Effect.logError("Dotypos tables load failed", { error })
+        )
+      )
   );
 
   const loadReservations = (options: {
     readonly filter?: string;
     readonly sort?: string;
   }) =>
-    loadAllDotyposPages({
+    loadDotyposPages({
       operation: "listReservations",
       loadPage: (page) =>
         runDotyposRequest(
@@ -1544,39 +1698,63 @@ const makeDotyposService = Effect.gen(function* () {
       .filter((value): value is string => Boolean(value))
       .join(";");
 
-    return yield* loadReservations({
+    const { items: reservations } = yield* loadReservations({
       ...(filter && { filter }),
       ...(options.order && {
         sort:
           options.order === "startDateAscending" ? "startDate" : "-startDate",
       }),
     });
+    return reservations;
   });
 
   const listActiveReservationsOverlapping = Effect.fn(
     "listActiveReservationsOverlapping"
-  )(function* (interval: DotyposReservationInterval) {
-    const filter = yield* getActiveReservationOverlapFilter(interval);
-    return yield* loadReservations({ filter });
-  });
+  )(
+    function* (interval: DotyposReservationInterval) {
+      yield* Effect.logInfo("Dotypos active reservations load started");
+
+      const filter = yield* getActiveReservationOverlapFilter(interval);
+      const { items: reservations, pageCount } = yield* loadReservations({
+        filter,
+      });
+
+      yield* Effect.annotateLogsScoped({
+        reservationCount: reservations.length,
+        pageCount,
+      });
+      yield* Effect.logInfo("Dotypos active reservations load completed");
+      return reservations;
+    },
+    (effect) =>
+      effect.pipe(
+        Effect.scoped,
+        Effect.tapError((error) =>
+          Effect.logError("Dotypos active reservations load failed", { error })
+        )
+      )
+  );
 
   const getProducts = Effect.fn("getProducts")(function* (options: {
     categoryId?: DotyposCategoryId;
     includeDeleted?: boolean;
   }) {
-    return yield* runDotyposRequest(
-      client
-        .getProducts(config.cloudId, {
-          params: {
-            limit: 100,
-            ...(options?.categoryId && {
-              filter: `_categoryId|eq|${options.categoryId}`,
-            }),
-          },
-        })
-        .pipe(Effect.map((page) => [...(page.data ?? [])])),
-      "getProducts"
-    ).pipe(
+    return yield* loadAllDotyposPages({
+      operation: "getProducts",
+      loadPage: (page) =>
+        runDotyposRequest(
+          client.getProducts(config.cloudId, {
+            params: {
+              limit: 100,
+              page,
+              ...(options?.categoryId && {
+                filter: `_categoryId|eq|${options.categoryId}`,
+              }),
+            },
+          }),
+          "getProducts"
+        ),
+    }).pipe(
       Effect.flatMap((products) =>
         decodeProviderEntities(DotyposProductSchema, products, "getProducts")
       ),
@@ -1591,12 +1769,16 @@ const makeDotyposService = Effect.gen(function* () {
   });
 
   const getCategories = Effect.fn("getCategories")(function* () {
-    const categories = yield* runDotyposRequest(
-      client
-        .getCategories(config.cloudId, { params: { limit: 100 } })
-        .pipe(Effect.map((page) => [...(page.data ?? [])])),
-      "getCategories"
-    ).pipe(Effect.retry(retryPolicy));
+    const categories = yield* loadAllDotyposPages({
+      operation: "getCategories",
+      loadPage: (page) =>
+        runDotyposRequest(
+          client.getCategories(config.cloudId, {
+            params: { limit: 100, page },
+          }),
+          "getCategories"
+        ),
+    }).pipe(Effect.retry(retryPolicy));
     return yield* decodeProviderEntities(
       DotyposCategorySchema,
       categories,
@@ -1610,6 +1792,7 @@ const makeDotyposService = Effect.gen(function* () {
     cancelReservation,
     confirmReservation,
     getReservation,
+    getReservationWithoutCustomer,
     getReservationStatus,
     getCustomer,
     getCustomers,

@@ -1,3 +1,4 @@
+import Interpolate from "@doist/react-interpolate";
 import { cva } from "class-variance-authority";
 import { Match } from "effect";
 import {
@@ -6,19 +7,22 @@ import {
   Clock3,
   HelpCircle,
   MailCheck,
+  RotateCcw,
   XCircle,
 } from "lucide-react";
 import Link from "next/link";
+import type { ReactNode } from "react";
 import type {
   CheckoutStatusKind,
   CheckoutStatusViewModel,
 } from "@/features/checkout/backend/checkout";
+import { shouldOfferNewReservation } from "@/features/checkout/checkout-status-new-reservation-policy";
 import type { CheckoutStatusSummaryPresentation } from "@/features/checkout/checkout-status-summary-presentation";
 import { getCoworkCheckoutStatusSummary } from "@/features/cowork/components/cowork-checkout-status-summary";
 import { type Locale, m } from "@/features/i18n";
 import { getMeetingRoomCheckoutStatusSummary } from "@/features/meeting-room/components/meeting-room-checkout-status-summary";
 import { getOfficeCheckoutStatusSummary } from "@/features/office/components/office-checkout-status-summary";
-import { getOfficeReservationDayCount } from "@/features/reservation/office-reservation";
+import { getOfficeReservationSelection } from "@/features/reservation/office-reservation";
 import { formatReservationDisplayDate } from "@/features/reservation/reservation-date";
 import {
   getCoworkReservationPath,
@@ -27,7 +31,6 @@ import {
 } from "@/features/reservation/routes";
 import { Button } from "@/shared/components/ui/button";
 import { cn } from "@/shared/utils";
-import { workspaceSiteConstants } from "@/shared/utils/site-constants";
 import { CheckoutFlowLayout } from "./checkout-flow-layout";
 import { WorkspaceTableMapView } from "./workspace-table-map-view";
 
@@ -39,7 +42,7 @@ type CheckoutStatusPageProps = {
 
 type StatusCopy = {
   readonly title: string;
-  readonly lead: string;
+  readonly lead: ReactNode;
   readonly tone: "success" | "pending" | "warning" | "failed" | "unknown";
   readonly Icon: typeof CheckCircle2;
 };
@@ -60,11 +63,33 @@ const statusIconWrapperVariants = cva(
   }
 );
 
+/** Shows the recipient so the customer can spot a mistyped address. */
+const getConfirmationRecipientLead = (
+  template: string,
+  email: string
+): ReactNode => (
+  <Interpolate
+    string={template}
+    mapping={{
+      email: (
+        <strong className="break-words font-semibold text-navy-blue">
+          {email}
+        </strong>
+      ),
+    }}
+  />
+);
+
 const getStatusCopy = (
-  status: CheckoutStatusKind,
+  status: CheckoutStatusViewModel,
   locale: Locale
 ): StatusCopy => {
-  switch (status) {
+  const recipientEmail =
+    status.status === "not_found"
+      ? undefined
+      : status.supportContactPrefill?.email;
+
+  switch (status.status) {
     case "created":
       return {
         title: m.checkoutStatusCreatedTitle({}, { locale }),
@@ -79,12 +104,53 @@ const getStatusCopy = (
         tone: "pending",
         Icon: Clock3,
       };
+    case "payment_pending_delayed":
+      return {
+        title: m.checkoutStatusPaymentPendingDelayedTitle({}, { locale }),
+        lead: m.checkoutStatusPaymentPendingDelayedLead({}, { locale }),
+        tone: "warning",
+        Icon: Clock3,
+      };
     case "paid_waiting_fulfillment":
       return {
         title: m.checkoutStatusPaidWaitingFulfillmentTitle({}, { locale }),
         lead: m.checkoutStatusPaidWaitingFulfillmentLead({}, { locale }),
         tone: "pending",
         Icon: MailCheck,
+      };
+    case "paid_fulfillment_delayed":
+      return {
+        title: m.checkoutStatusPaidFulfillmentDelayedTitle({}, { locale }),
+        lead: m.checkoutStatusPaidFulfillmentDelayedLead({}, { locale }),
+        tone: "warning",
+        Icon: AlertTriangle,
+      };
+    case "paid_awaiting_delivery":
+      return {
+        title: m.checkoutStatusPaidAwaitingDeliveryTitle({}, { locale }),
+        lead: recipientEmail
+          ? getConfirmationRecipientLead(
+              m.checkoutStatusPaidAwaitingDeliveryLead({}, { locale }),
+              recipientEmail
+            )
+          : m.checkoutStatusPaidAwaitingDeliveryLeadWithoutEmail(
+              {},
+              { locale }
+            ),
+        tone: "success",
+        Icon: MailCheck,
+      };
+    case "paid_delivery_delayed":
+      return {
+        title: m.checkoutStatusPaidDeliveryDelayedTitle({}, { locale }),
+        lead: recipientEmail
+          ? getConfirmationRecipientLead(
+              m.checkoutStatusPaidDeliveryDelayedLead({}, { locale }),
+              recipientEmail
+            )
+          : m.checkoutStatusPaidDeliveryDelayedLeadWithoutEmail({}, { locale }),
+        tone: "warning",
+        Icon: AlertTriangle,
       };
     case "fulfilled":
       return {
@@ -96,7 +162,12 @@ const getStatusCopy = (
     case "fulfillment_failed":
       return {
         title: m.checkoutStatusFulfillmentFailedTitle({}, { locale }),
-        lead: m.checkoutStatusFulfillmentFailedLead({}, { locale }),
+        lead: recipientEmail
+          ? getConfirmationRecipientLead(
+              m.checkoutStatusFulfillmentFailedLead({}, { locale }),
+              recipientEmail
+            )
+          : m.checkoutStatusFulfillmentFailedLeadWithoutEmail({}, { locale }),
         tone: "warning",
         Icon: AlertTriangle,
       };
@@ -120,6 +191,27 @@ const getStatusCopy = (
         lead: m.checkoutStatusExpiredLead({}, { locale }),
         tone: "warning",
         Icon: Clock3,
+      };
+    case "late_payment_checking":
+      return {
+        title: m.checkoutStatusLatePaymentCheckingTitle({}, { locale }),
+        lead: m.checkoutStatusLatePaymentCheckingLead({}, { locale }),
+        tone: "pending",
+        Icon: Clock3,
+      };
+    case "late_payment_refund":
+      return {
+        title: m.checkoutStatusLatePaymentRefundTitle({}, { locale }),
+        lead: m.checkoutStatusLatePaymentRefundLead({}, { locale }),
+        tone: "warning",
+        Icon: RotateCcw,
+      };
+    case "late_payment_review":
+      return {
+        title: m.checkoutStatusLatePaymentReviewTitle({}, { locale }),
+        lead: m.checkoutStatusLatePaymentReviewLead({}, { locale }),
+        tone: "warning",
+        Icon: AlertTriangle,
       };
     case "not_found":
       return {
@@ -146,10 +238,11 @@ const getSummaryPresentation = (
       )
     : undefined;
 
-const getFulfillmentFailedContactMessage = (
+const getSupportContactMessage = (
   status: CheckoutStatusViewModel,
   locale: Locale,
-  summaryPresentation: CheckoutStatusSummaryPresentation | undefined
+  summaryPresentation: CheckoutStatusSummaryPresentation | undefined,
+  topic: NonNullable<ReturnType<typeof getSupportTopic>>
 ) => {
   const reservation =
     summaryPresentation?.reservationTitle ??
@@ -158,10 +251,12 @@ const getFulfillmentFailedContactMessage = (
     ? formatReservationDisplayDate(status.summary.reservedFrom, locale)
     : m.checkoutStatusMissingSummary({}, { locale });
 
-  return m.checkoutStatusFulfillmentFailedContactMessage(
-    { orderId: status.orderId, reservation, date },
-    { locale }
-  );
+  const message = {
+    fulfillment_failed: m.checkoutStatusFulfillmentFailedContactMessage,
+    late_payment_review: m.checkoutStatusLatePaymentReviewContactMessage,
+    payment_pending: m.checkoutStatusPaymentPendingContactMessage,
+  }[topic];
+  return message({ orderId: status.orderId, reservation, date }, { locale });
 };
 
 const getRepeatReservationSearchParams = (
@@ -179,31 +274,17 @@ const getRepeatReservationSearchParams = (
         }),
       "meeting-room": () => undefined,
       office: ({ reservedFrom, reservedUntil, seats }) => {
-        const startsAt = reservedFrom.toZonedDateTimeISO(
-          workspaceSiteConstants.location.timeZone
-        );
-        const endsAt = reservedUntil.toZonedDateTimeISO(
-          workspaceSiteConstants.location.timeZone
-        );
-        if (
-          !startsAt.equals(startsAt.startOfDay()) ||
-          !endsAt.equals(endsAt.startOfDay())
-        ) {
-          return undefined;
-        }
-
-        const dayCount = getOfficeReservationDayCount({
-          startsOn: startsAt.toPlainDate().toString(),
-          endsOn: endsAt.toPlainDate().subtract({ days: 1 }).toString(),
+        const selection = getOfficeReservationSelection({
+          startsAt: reservedFrom,
+          endsAt: reservedUntil,
+          seats,
         });
-        if (dayCount < 1 || !Number.isInteger(seats) || seats < 1) {
-          return undefined;
-        }
-
-        return new URLSearchParams({
-          dayCount: String(dayCount),
-          seats: String(seats),
-        });
+        return selection
+          ? new URLSearchParams({
+              dayCount: String(selection.dayCount),
+              seats: String(selection.seats),
+            })
+          : undefined;
       },
     })
   );
@@ -218,12 +299,29 @@ const getReserveAgainPath = (
   return getReservationStartPath(locale, status.kind, searchParams);
 };
 
-const getFulfillmentFailedContactHref = (
+/** An undelivered confirmation shares the failed-delivery support request. */
+const getSupportTopic = (status: CheckoutStatusKind) => {
+  switch (status) {
+    case "fulfillment_failed":
+    case "paid_fulfillment_delayed":
+    case "paid_delivery_delayed":
+      return "fulfillment_failed" as const;
+    case "late_payment_review":
+      return "late_payment_review" as const;
+    case "payment_pending_delayed":
+      return "payment_pending" as const;
+    default:
+      return undefined;
+  }
+};
+
+const getSupportContactHref = (
   status: CheckoutStatusViewModel,
   locale: Locale,
   summaryPresentation: CheckoutStatusSummaryPresentation | undefined
 ) => {
-  if (status.status !== "fulfillment_failed") return undefined;
+  const topic = getSupportTopic(status.status);
+  if (!topic || status.status === "not_found") return undefined;
 
   const url = new URL(`/${locale}/contact`, "https://deskohub.local");
   const prefill = status.supportContactPrefill;
@@ -232,7 +330,7 @@ const getFulfillmentFailedContactHref = (
   if (prefill?.phone) url.searchParams.set("phone", prefill.phone);
   url.searchParams.set(
     "message",
-    getFulfillmentFailedContactMessage(status, locale, summaryPresentation)
+    getSupportContactMessage(status, locale, summaryPresentation, topic)
   );
 
   return `${url.pathname}${url.search}`;
@@ -243,11 +341,11 @@ export function CheckoutStatusPage({
   presentation = "page",
   status,
 }: CheckoutStatusPageProps) {
-  const copy = getStatusCopy(status.status, locale);
+  const copy = getStatusCopy(status, locale);
   const showReservationDetails = status.status !== "not_found";
   const summaryPresentation = getSummaryPresentation(status, locale);
   const summaryRows = summaryPresentation?.rows ?? [];
-  const supportContactHref = getFulfillmentFailedContactHref(
+  const supportContactHref = getSupportContactHref(
     status,
     locale,
     summaryPresentation
@@ -260,6 +358,7 @@ export function CheckoutStatusPage({
     repeatReservationSearchParams
   );
   const showSupportButton = !!supportContactHref;
+  const offersNewReservation = shouldOfferNewReservation(status.status);
   const reservationAccessHref =
     status.status === "fulfilled"
       ? `/${locale}${reservationAccessPath}/${encodeURIComponent(status.orderId)}`
@@ -329,6 +428,21 @@ export function CheckoutStatusPage({
                 {status.orderId}
               </dd>
             </div>
+            {showReservationDetails && status.table && (
+              <div className="grid gap-1 rounded-2xl border border-navy-blue/8 bg-white/80 px-4 py-3 sm:grid-cols-[10rem_1fr] sm:gap-4">
+                <dt className="text-xs font-semibold uppercase tracking-[0.14em] text-navy-blue/52">
+                  {
+                    {
+                      assigned: m.checkoutEmailTableNumberLabel({}, { locale }),
+                      shared: m.checkoutEmailTablesLabel({}, { locale }),
+                    }[status.table.mode]
+                  }
+                </dt>
+                <dd className="text-base font-semibold text-navy-blue">
+                  {status.table.name}
+                </dd>
+              </div>
+            )}
             {summaryRows.map((row) => (
               <div
                 key={row.label}
@@ -384,13 +498,15 @@ export function CheckoutStatusPage({
         <div className="mt-8 flex flex-col gap-3 sm:flex-row">
           {showPageActions && (
             <>
-              <Button asChild className="h-12 px-6">
-                <a href={reserveAgainPath} id="checkout-status-reserve-again">
-                  {repeatReservationSearchParams
-                    ? m.checkoutStatusBookAgain({}, { locale })
-                    : m.checkoutStatusReserveAgain({}, { locale })}
-                </a>
-              </Button>
+              {offersNewReservation && (
+                <Button asChild className="h-12 px-6">
+                  <a href={reserveAgainPath} id="checkout-status-reserve-again">
+                    {repeatReservationSearchParams
+                      ? m.checkoutStatusBookAgain({}, { locale })
+                      : m.checkoutStatusReserveAgain({}, { locale })}
+                  </a>
+                </Button>
+              )}
               <Button asChild variant="secondary" className="h-12 px-6">
                 <Link href={`/${locale}`} prefetch={false}>
                   {m.checkoutStatusBackHome({}, { locale })}
@@ -423,7 +539,15 @@ export function CheckoutStatusPage({
   return presentation === "modal" ? (
     content
   ) : (
-    <CheckoutFlowLayout activeStepKey="access" locale={locale}>
+    <CheckoutFlowLayout
+      activeStepKey="access"
+      locale={locale}
+      stepLinks={
+        offersNewReservation
+          ? { order: { href: reserveAgainPath, navigation: "document" } }
+          : undefined
+      }
+    >
       {content}
     </CheckoutFlowLayout>
   );

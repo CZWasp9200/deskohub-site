@@ -1,4 +1,4 @@
-import { normalizePhoneNumber } from "@deskohub/dotypos";
+import { normalizePhoneNumber } from "@deskohub/dotypos/phone-number";
 import { Schema } from "effect";
 import type { WorkspaceCoworkProductTier } from "@/features/checkout/product-catalog";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
@@ -9,7 +9,7 @@ const trimmedRequiredText = (maximumLength: number) =>
 const trimmedOptionalText = (maximumLength: number) =>
   Schema.optional(Schema.Trim.check(Schema.isMaxLength(maximumLength)));
 
-export const customerProfileNameFieldSchema = trimmedRequiredText(100);
+const customerProfileNameFieldSchema = trimmedRequiredText(100);
 
 /**
  * Dotypos owns the stored phone, so a blank value only means "clear the
@@ -52,15 +52,7 @@ const customerProfileBusinessBillingSchema = Schema.Struct({
 export const customerProfileBusinessBillingFields =
   customerProfileBusinessBillingSchema.fields;
 
-export type CustomerProfileAddressInput = {
-  readonly addressLine1?: string;
-  readonly addressLine2?: string;
-  readonly city?: string;
-  readonly zip?: string;
-  readonly country?: string;
-};
-
-export const customerProfileBillingSchema = Schema.Union([
+const customerProfileBillingSchema = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("personal"),
     ...customerProfileAddressFields,
@@ -71,15 +63,12 @@ export const customerProfileBillingSchema = Schema.Union([
   }),
 ]);
 
-export type CustomerProfileBillingInput =
-  typeof customerProfileBillingSchema.Type;
-
 /**
  * Dotypos owns the customer profile, so the login email is deliberately
  * absent from the profile input: the verified email is the immutable
  * reservation-linking trust boundary and is never an editable field.
  */
-export const updateCustomerProfileSchema = Schema.Struct({
+const updateCustomerProfileSchema = Schema.Struct({
   firstName: customerProfileNameFieldSchema,
   lastName: trimmedOptionalText(100),
   phone: Schema.optional(customerProfilePhoneFieldSchema),
@@ -129,6 +118,16 @@ export type CustomerReservationHistory =
         | "email-unverified"
         | "link-required"
         | "provider-unavailable";
+    };
+
+export type CustomerAvatarPresentation =
+  | { readonly kind: "hidden" }
+  | {
+      readonly kind: "available";
+      readonly avatar: {
+        readonly url: string;
+        readonly version?: number;
+      } | null;
     };
 
 const toInstantOrNull = (value: string): Temporal.Instant | null => {

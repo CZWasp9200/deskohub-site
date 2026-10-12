@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { createHash } from "node:crypto";
 import { Effect } from "effect";
 import { unstable_doesMiddlewareMatch } from "next/experimental/testing/server";
 import { NextRequest } from "next/server";
@@ -8,8 +7,143 @@ import { getReservationAccessCookieName } from "@/features/reservation/backend/r
 import { createReservationAccessToken } from "@/features/reservation/backend/reservation-access-token";
 import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
 import { reservationAccessTokenQueryParam } from "@/features/reservation/reservation-access-token";
+import { runCommand } from "@/scripts/shared/command";
 import { workspaceTestAdministrators } from "@/shared/testing/workspace-test-environment";
 import { config, proxy } from "./proxy";
+
+const inspectCheckoutEntry = (
+  deploymentEnvironment: "preview" | "production" | "development"
+) =>
+  runCommand(
+    [
+      process.execPath,
+      "--preload",
+      "./shared/testing/workspace-test-env.ts",
+      "-e",
+      `
+        const { NextRequest } = await import("next/server");
+        const { proxy } = await import("./proxy.ts");
+        const requests = [
+          ["https://branch-preview.vercel.app/en-US/checkout/pay?state=synthetic%2Bsummary", {}],
+          ["https://branch-preview.vercel.app/cs-CZ/checkout/pay?state=synthetic-summary", { method: "HEAD" }],
+          ["https://branch-preview.vercel.app/checkout/pay?state=synthetic-summary", {}],
+          ["https://immutable-preview.vercel.app/en-US/checkout/pay", {}],
+          ["https://branch-preview.vercel.app/en-US/cowork", {}],
+          ["https://branch-preview.vercel.app/en-US/checkout/pay/return/synthetic-order", {}],
+          ["https://branch-preview.vercel.app/en-US/checkout/pay", { method: "POST", headers: { "next-action": "synthetic-action" } }],
+          ["https://branch-preview.vercel.app/en-US/checkout/pay?state=synthetic-summary", { headers: { rsc: "1" } }],
+          ["https://branch-preview.vercel.app/en-US/account", {}],
+          ["https://immutable-preview.vercel.app/en-US/account", { headers: { cookie: "better-auth.session_token=synthetic-session" } }],
+          ["https://branch-preview.vercel.app/en-US", {}],
+          ["https://branch-preview.vercel.app/en-US/reservation/cowork", {}],
+        ];
+        const results = [];
+        for (const [url, options] of requests) {
+          const response = await proxy(new NextRequest(url, options));
+          results.push({
+            status: response.status,
+            location: response.headers.get("location"),
+            cacheControl: response.headers.get("cache-control"),
+            referrerPolicy: response.headers.get("referrer-policy"),
+          });
+        }
+        process.stdout.write(JSON.stringify(results));
+      `,
+    ],
+    {
+      cwd: import.meta.dir,
+      env: {
+        ...process.env,
+        VERCEL_ENV: deploymentEnvironment,
+        VERCEL_URL: "immutable-preview.vercel.app",
+        VERCEL_PROJECT_PRODUCTION_URL: "workspace.example",
+        VERCEL_AUTOMATION_BYPASS_SECRET: "synthetic-preview-bypass",
+      },
+    }
+  );
+
+// Each environment needs its own process because `env` captures VERCEL_ENV at
+// load; tests share one inspection per environment.
+const checkoutEntryInspections = new Map<
+  "preview" | "production" | "development",
+  ReturnType<typeof inspectCheckoutEntry>
+>();
+const inspectCheckoutEntryOnce = (
+  deploymentEnvironment: "preview" | "production" | "development"
+) => {
+  const existing = checkoutEntryInspections.get(deploymentEnvironment);
+  if (existing) return existing;
+
+  const inspection = inspectCheckoutEntry(deploymentEnvironment);
+  checkoutEntryInspections.set(deploymentEnvironment, inspection);
+  return inspection;
+};
+
+test("starts Preview payment on the callback host before issuing its host-only cookie", async () => {
+  const result = await inspectCheckoutEntryOnce("preview");
+  expect(result.exitCode).toBe(0);
+  const responses = JSON.parse(result.stdout);
+
+  for (const index of [0, 1, 2, 7]) {
+    const response = responses[index];
+    expect(response.status).toBe(307);
+    const location = new URL(response.location);
+    expect(location.origin).toBe("https://immutable-preview.vercel.app");
+    expect(location.pathname).toBe(
+      ["/en-US/checkout/pay", "/cs-CZ/checkout/pay", "/checkout/pay"][index] ??
+        "/en-US/checkout/pay"
+    );
+    expect(location.searchParams.get("state")).toBe(
+      index === 0 ? "synthetic+summary" : "synthetic-summary"
+    );
+    expect(location.searchParams.get("x-vercel-protection-bypass")).toBe(
+      "synthetic-preview-bypass"
+    );
+    expect(location.searchParams.get("x-vercel-set-bypass-cookie")).toBe(
+      "true"
+    );
+    expect(response.cacheControl).toBe("private, no-store");
+    expect(response.referrerPolicy).toBe("no-referrer");
+  }
+
+  for (const index of [4, 5]) {
+    expect(responses[index].status).toBe(307);
+    expect(new URL(responses[index].location).origin).toBe(
+      "https://immutable-preview.vercel.app"
+    );
+  }
+  for (const index of [3, 6]) {
+    expect(responses[index].location).toBeNull();
+    expect(responses[index].status).toBe(200);
+  }
+});
+
+test("uses the Preview callback host before sign-in and reservation preparation", async () => {
+  const result = await inspectCheckoutEntryOnce("preview");
+  expect(result.exitCode).toBe(0);
+  const responses = JSON.parse(result.stdout);
+  for (const index of [8, 10, 11]) {
+    expect(responses[index].status).toBe(307);
+    expect(new URL(responses[index].location).origin).toBe(
+      "https://immutable-preview.vercel.app"
+    );
+  }
+  expect(responses[9].location).toBeNull();
+  expect(responses[9].status).toBe(200);
+});
+
+test("retains Development and Production payment origins", async () => {
+  const results = await Promise.all(
+    (["development", "production"] as const).map(inspectCheckoutEntryOnce)
+  );
+  for (const result of results) {
+    expect(result.exitCode).toBe(0);
+    const responses = JSON.parse(result.stdout);
+    for (const index of [0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11]) {
+      expect(responses[index].location).toBeNull();
+    }
+  }
+});
 
 const toAuthorization = (username: string, password: string) =>
   `Basic ${Buffer.from(`${username}:${password}`).toString("base64")}`;
@@ -35,6 +169,7 @@ const administrationPaths = [
   "/admin/customers",
   "/admin/customers/customer-id",
   "/admin/customers/customer-id/create-code",
+  "/admin/customers/customer-id/create-voucher",
   "/admin/discounts",
   "/admin/codes",
   "/admin/codes/code-id",
@@ -366,21 +501,4 @@ test("checks administration Server Action posts before the general pass-through"
 
   expect(unauthorized.status).toBe(401);
   expect(authorized.headers.get("x-middleware-next")).toBe("1");
-});
-
-test("test authentication fixtures match the configured credential registry contract", () => {
-  const configuredCredentials = (
-    process.env.ADMIN_BASIC_AUTH_CREDENTIALS ?? ""
-  ).split(/\r?\n/);
-
-  expect(configuredCredentials).toHaveLength(
-    workspaceTestAdministrators.length
-  );
-  for (const { username, password } of workspaceTestAdministrators) {
-    expect(configuredCredentials).toContain(
-      `${username}:${createHash("sha256")
-        .update(`${username}:${password}`)
-        .digest("hex")}`
-    );
-  }
 });

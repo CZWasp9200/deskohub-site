@@ -1,12 +1,13 @@
 import type * as Playwright from "@playwright/test";
 import { workspaceE2ETimeouts } from "../timeouts";
-import { isExactCallbackUrl } from "./callback-url";
 import {
+  type CallbackDocumentReview,
   callbackDocumentReviewViewport,
   prepareCallbackDocumentReview,
-  type CallbackDocumentReview,
 } from "./callback-document-review";
+import { isExactCallbackUrl } from "./callback-url";
 import {
+  type AccountReviewDestination,
   captureAccountReview,
   persistCallbackDocumentReview,
 } from "./review-screenshots";
@@ -132,9 +133,7 @@ const waitForCallbackLoading = async (
     exact: true,
     name: callbackLoadingName,
   });
-  const loadingText = loadingCard.getByText(callbackLoadingName, {
-    exact: true,
-  });
+  const loadingSkeleton = loadingCard.locator('[data-slot="skeleton"]').first();
   const banner = page.getByRole("banner");
   const footer = page.getByRole("contentinfo");
 
@@ -166,7 +165,7 @@ const waitForCallbackLoading = async (
   );
   await waitForCallbackOperation(
     () =>
-      loadingText.waitFor({
+      loadingSkeleton.waitFor({
         state: "visible",
         timeout: remainingBrowserActionBudget(deadline),
       }),
@@ -244,11 +243,18 @@ const loadingElementIsVisible = async (
     );
   });
 
+/**
+ * Holds the first qualifying account request and verifies that the callback
+ * document still shows its loading state when it hands off. The hold is E2E
+ * evidence, so it runs on every pass; only the review screenshot and its
+ * capture viewport depend on the review screenshot opt-in.
+ */
 export const withCallbackHandoffReview = async (
   page: Playwright.Page,
-  baseUrl: string,
+  destination: AccountReviewDestination,
   runCase: () => Promise<void>
 ): Promise<void> => {
+  const { baseUrl, screenshots: captureEnabled } = destination;
   let baseOrigin: string;
   try {
     baseOrigin = new URL(baseUrl).origin;
@@ -324,6 +330,7 @@ export const withCallbackHandoffReview = async (
           const review = documentReview;
           if (!review) throw callbackHandoffFailure();
           review.validate();
+          if (!captureEnabled) return;
           const pixels = await review.capture({
             deadline,
             signal: abortController.signal,
@@ -333,7 +340,7 @@ export const withCallbackHandoffReview = async (
           // callback URL grammar is rechecked explicitly as well.
           await persistCallbackDocumentReview(
             page,
-            baseUrl,
+            destination,
             pixels,
             () => {
               review.validate();
@@ -351,7 +358,7 @@ export const withCallbackHandoffReview = async (
           );
           await captureAccountReview(
             page,
-            baseUrl,
+            destination,
             "callback-loading-desktop",
             {
               deadline,
@@ -391,7 +398,7 @@ export const withCallbackHandoffReview = async (
     documentReview = await prepareCallbackDocumentReview(
       page,
       baseUrl,
-      { ...callbackDocumentReviewViewport },
+      captureEnabled ? { ...callbackDocumentReviewViewport } : null,
       {
         deadline: Date.now() + workspaceE2ETimeouts.browserAction,
         signal: abortController.signal,

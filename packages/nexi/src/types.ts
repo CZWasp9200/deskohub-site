@@ -1,4 +1,5 @@
-import { Effect, Schema } from "effect";
+import { createHash, timingSafeEqual } from "node:crypto";
+import { type Duration, Effect, Schema } from "effect";
 
 export const locales = ["cs-CZ", "en-US"] as const;
 
@@ -117,6 +118,12 @@ export interface NexiWebhookEventIdentity {
   readonly source: NexiWebhookEventIdentitySource;
 }
 
+/**
+ * Nexi marks the notification security token optional, so `absent` is not a
+ * rejection: callers must verify such a notification against the order API
+ * before acting on it. A present token that differs from the issued one, or
+ * any token for a payment that was never issued one, is a `mismatch`.
+ */
 export type NexiWebhookSecurityTokenStatus = "absent" | "match" | "mismatch";
 
 export interface NexiWebhookSecurityTokenCheck {
@@ -211,13 +218,24 @@ export const checkNexiWebhookSecurityToken = (input: {
   );
   if (!notificationSecurityToken) return { status: "absent" };
 
+  const expectedSecurityToken = cleanOptionalString(
+    input.expectedSecurityToken ?? undefined
+  );
   return {
     status:
-      notificationSecurityToken === input.expectedSecurityToken
+      expectedSecurityToken &&
+      securityTokensEqual(notificationSecurityToken, expectedSecurityToken)
         ? "match"
         : "mismatch",
   };
 };
+
+// Compares fixed-length digests so neither content nor length leaks timing.
+const securityTokensEqual = (received: string, expected: string) =>
+  timingSafeEqual(
+    createHash("sha256").update(received).digest(),
+    createHash("sha256").update(expected).digest()
+  );
 
 export const classifyNexiFailureStatus = (
   providerStatus: string | undefined
@@ -271,6 +289,11 @@ export interface VerifyPaymentOutcomeInput {
   readonly amount: string;
   readonly currency?: NexiCurrency;
   readonly securityToken: string;
+  /**
+   * Bounds the order lookup, retries included. Without it, retryable failures
+   * are retried until the retry policy gives up.
+   */
+  readonly deadline?: Duration.Input;
 }
 
 export type PaymentOutcomeStatus = "success" | "failure" | "pending";

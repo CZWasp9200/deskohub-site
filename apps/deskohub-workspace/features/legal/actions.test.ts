@@ -267,6 +267,8 @@ describe("marketing preference actions", () => {
       })
     ).resolves.toEqual({ data: { status: "confirmed" } });
 
+    expect(readMarketingManagementCookies).toHaveBeenCalledTimes(1);
+    expect(currentScenario.exchange).toHaveBeenCalledTimes(1);
     expect(currentScenario.exchange).toHaveBeenCalledWith(pendingToken);
     expect(setMarketingManagementSessionCookie).toHaveBeenCalledWith({
       token: "new-session-token",
@@ -310,24 +312,10 @@ describe("marketing preference actions", () => {
         context: getPendingMarketingManagementContext("different-token"),
       })
     ).resolves.toEqual({
-      serverError:
-        "This marketing preference context is no longer current. Refresh the page and try again.",
+      serverError: "stale-context",
     });
     expect(currentScenario.exchange).not.toHaveBeenCalled();
     expect(setMarketingManagementSessionCookie).not.toHaveBeenCalled();
-  });
-
-  test("reads the pending cookie exactly once for the whole confirm flow", async () => {
-    currentScenario.cookies = { pending: pendingToken, session: undefined };
-
-    await expect(
-      confirmMarketingManagementAction({
-        context: getPendingMarketingManagementContext(pendingToken),
-      })
-    ).resolves.toEqual({ data: { status: "confirmed" } });
-
-    expect(readMarketingManagementCookies).toHaveBeenCalledTimes(1);
-    expect(currentScenario.exchange).toHaveBeenCalledTimes(1);
   });
 
   test("fails closed on an already-exchanged pending token without installing a session", async () => {
@@ -343,7 +331,7 @@ describe("marketing preference actions", () => {
         context: getPendingMarketingManagementContext(pendingToken),
       })
     ).resolves.toEqual({
-      serverError: "This marketing management link is invalid or has expired.",
+      serverError: "invalid-link",
     });
     expect(setMarketingManagementSessionCookie).not.toHaveBeenCalled();
   });
@@ -397,8 +385,7 @@ describe("marketing preference actions", () => {
         source: "link",
       })
     ).resolves.toEqual({
-      serverError:
-        "Confirm this management link before saving a marketing preference.",
+      serverError: "pending-confirmation-required",
     });
     expect(currentScenario.grant).not.toHaveBeenCalled();
     expect(currentScenario.withdraw).not.toHaveBeenCalled();
@@ -423,8 +410,7 @@ describe("marketing preference actions", () => {
         source: "link",
       })
     ).resolves.toEqual({
-      serverError:
-        "This marketing preference context is no longer current. Refresh the page and try again.",
+      serverError: "stale-context",
     });
     expect(currentScenario.grant).not.toHaveBeenCalled();
   });
@@ -513,8 +499,7 @@ describe("marketing preference actions", () => {
         }),
       })
     ).resolves.toEqual({
-      serverError:
-        "This marketing preference context is no longer current. Refresh the page and try again.",
+      serverError: "stale-context",
     });
 
     expect(currentScenario.revoke).not.toHaveBeenCalled();
@@ -536,8 +521,7 @@ describe("marketing preference actions", () => {
     };
 
     await expect(clearMarketingManagementAction(input)).resolves.toEqual({
-      serverError:
-        "We could not update your marketing preference. Please try again.",
+      serverError: "unavailable",
     });
     expect(currentScenario.cookies).toEqual({
       pending: undefined,

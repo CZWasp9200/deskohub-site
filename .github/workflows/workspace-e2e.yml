@@ -24,7 +24,7 @@ permissions:
   contents: read
   deployments: read
   pull-requests: read
-  statuses: write
+  statuses: read
 
 concurrency:
   group: workspace-e2e-${{ github.event_name == 'workflow_dispatch' && 'prj_7FliQBcbBiBwGaO2JLrigicnXCRd' || github.event.client_payload.project.id }}-pr-${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.event.client_payload.git.ref }}
@@ -37,6 +37,7 @@ jobs:
       (github.event.client_payload.project.id == 'prj_7FliQBcbBiBwGaO2JLrigicnXCRd' &&
        github.event.client_payload.environment == 'preview')
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       eligible: ${{ steps.target.outputs.eligible }}
       head_ref: ${{ steps.target.outputs.head_ref }}
@@ -212,102 +213,8 @@ jobs:
             echo "url=$normalized_url"
           } >> "$GITHUB_OUTPUT"
 
-  migrate-preview:
-    needs: resolve-target
-    if: needs.resolve-target.outputs.eligible == 'true' && needs.resolve-target.outputs.skipped != 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    environment: workspace-checkout-e2e
-    permissions:
-      contents: read
-    env:
-      NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
-      TARGET_SHA: ${{ needs.resolve-target.outputs.sha }}
-
-    steps:
-      - name: Checkout exact target
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.resolve-target.outputs.sha }}
-          persist-credentials: false
-
-      - name: Confirm checked-out commit
-        run: |
-          set -euo pipefail
-          actual_sha="$(git rev-parse HEAD)"
-          if [[ "$actual_sha" != "$TARGET_SHA" ]]; then
-            echo "Checked-out commit does not match the deployment SHA" >&2
-            exit 1
-          fi
-
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.4.0
-
-      - name: Install repository dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Resolve Neon branch backing the preview
-        id: preview-database
-        env:
-          HEAD_REF: ${{ needs.resolve-target.outputs.head_ref }}
-          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
-        run: |
-          set -euo pipefail
-          if ! git check-ref-format --branch "$HEAD_REF" >/dev/null; then
-            echo "Unsupported preview branch name" >&2
-            exit 1
-          fi
-          branch_name="preview/$HEAD_REF"
-          if ! git check-ref-format --branch "$branch_name" >/dev/null; then
-            echo "Derived Neon preview branch name is invalid" >&2
-            exit 1
-          fi
-
-          branch_id=""
-          for _ in $(seq 1 12); do
-            branches="$(bunx neonctl@2.30.1 branches list \
-              --project-id "$NEON_PROJECT_ID" \
-              --api-key "$NEON_API_KEY" \
-              --output json)"
-            matches="$(jq \
-              --arg name "$branch_name" \
-              '[(if type == "array" then . else .branches end)[] | select(.name == $name and .primary != true)]' \
-              <<<"$branches")"
-            match_count="$(jq 'length' <<<"$matches")"
-            if [[ "$match_count" == "1" ]]; then
-              branch_id="$(jq -r '.[0].id' <<<"$matches")"
-              break
-            fi
-            if [[ "$match_count" != "0" ]]; then
-              echo "Neon preview branch mapping is ambiguous" >&2
-              exit 1
-            fi
-            sleep 5
-          done
-
-          if [[ ! "$branch_id" =~ ^br-[A-Za-z0-9-]+$ ]]; then
-            echo "The integration-created Neon preview branch was not found" >&2
-            exit 1
-          fi
-
-          direct_url="$(bunx neonctl@2.30.1 connection-string "$branch_id" \
-            --project-id "$NEON_PROJECT_ID" \
-            --role-name neondb_owner \
-            --database-name neondb \
-            --api-key "$NEON_API_KEY")"
-          echo "::add-mask::$direct_url"
-          echo "direct_url=$direct_url" >> "$GITHUB_OUTPUT"
-
-      - name: Migrate preview database
-        working-directory: apps/deskohub-workspace
-        env:
-          DATABASE_URL: ${{ steps.preview-database.outputs.direct_url }}
-          DATABASE_URL_UNPOOLED: ${{ steps.preview-database.outputs.direct_url }}
-        run: bun run db:migrate
-
   test-e2e:
-    needs: [resolve-target, migrate-preview]
+    needs: resolve-target
     if: needs.resolve-target.outputs.eligible == 'true' && needs.resolve-target.outputs.skipped != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 50
@@ -330,7 +237,7 @@ jobs:
 
     steps:
       - name: Checkout exact target
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.resolve-target.outputs.sha }}
           fetch-depth: 2
@@ -347,7 +254,7 @@ jobs:
           echo "Checked out exact deployment SHA $actual_sha"
 
       - name: Checkout allocation action
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.workflow_sha }}
           path: .workspace-e2e-coordinator
@@ -400,12 +307,28 @@ jobs:
             -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
             >/dev/null
 
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
-          bun-version: 1.4.0
+          bun-version: 1.4.2
+
+      # Exact, workflow-scoped key without restore-keys, saved right after
+      # install so later PR-controlled steps cannot write a reusable entry.
+      - name: Restore Bun package cache
+        id: bun-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: workspace-e2e-bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
 
       - name: Install repository dependencies
         run: bun install --frozen-lockfile
+
+      - name: Save Bun package cache
+        if: steps.bun-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ steps.bun-cache.outputs.cache-primary-key }}
 
       - name: Resolve Neon branch backing the preview
         id: preview-database
@@ -424,9 +347,13 @@ jobs:
             exit 1
           fi
 
+          # Resolve the pinned CLI once instead of per bunx invocation.
+          bun add --global --exact neonctl@2.30.1 >/dev/null
+          neonctl="$(bun pm bin --global)/neonctl"
+
           branch_id=""
           for _ in $(seq 1 12); do
-            branches="$(bunx neonctl@2.30.1 branches list \
+            branches="$("$neonctl" branches list \
               --project-id "$NEON_PROJECT_ID" \
               --api-key "$NEON_API_KEY" \
               --output json)"
@@ -452,13 +379,13 @@ jobs:
           fi
           echo "Matched immutable preview to Neon branch $branch_name ($branch_id)"
 
-          direct_url="$(bunx neonctl@2.30.1 connection-string "$branch_id" \
+          direct_url="$("$neonctl" connection-string "$branch_id" \
             --project-id "$NEON_PROJECT_ID" \
             --role-name neondb_owner \
             --database-name neondb \
             --api-key "$NEON_API_KEY")"
           echo "::add-mask::$direct_url"
-          pooled_url="$(bunx neonctl@2.30.1 connection-string "$branch_id" \
+          pooled_url="$("$neonctl" connection-string "$branch_id" \
             --project-id "$NEON_PROJECT_ID" \
             --role-name neondb_owner \
             --database-name neondb \
@@ -472,6 +399,13 @@ jobs:
             echo "direct_url=$direct_url"
             echo "pooled_url=$pooled_url"
           } >> "$GITHUB_OUTPUT"
+
+      - name: Migrate preview database
+        working-directory: apps/deskohub-workspace
+        env:
+          DATABASE_URL: ${{ steps.preview-database.outputs.direct_url }}
+          DATABASE_URL_UNPOOLED: ${{ steps.preview-database.outputs.direct_url }}
+        run: bun run db:migrate
 
       - name: Reconcile stale Workspace E2E reservations
         if: github.event_name == 'workflow_dispatch' && inputs.cleanup_stale_e2e_reservations
@@ -523,7 +457,8 @@ jobs:
           WORKSPACE_E2E_DATABASE_ALLOWLIST: ${{ steps.preview-database.outputs.direct_url }}
           WORKSPACE_E2E_PROVIDER_PERMIT_REQUIRED: "true"
           WORKSPACE_E2E_PROVIDER_PERMIT_DATABASE_URL: ${{ secrets.WORKSPACE_E2E_PROVIDER_PERMIT_DATABASE_URL }}
-          WORKSPACE_E2E_RESEND_API_KEY: ${{ secrets.WORKSPACE_E2E_RESEND_API_KEY }}
+          WORKSPACE_E2E_VERCEL_TOKEN: ${{ secrets.WORKSPACE_E2E_VERCEL_TOKEN }}
+          WORKSPACE_E2E_VERCEL_PROJECT: ${{ vars.WORKSPACE_E2E_VERCEL_PROJECT }}
           DOTYPOS_API_URL: ${{ secrets.WORKSPACE_E2E_DOTYPOS_API_URL }}
           DOTYPOS_CLIENT_ID: ${{ secrets.WORKSPACE_E2E_DOTYPOS_CLIENT_ID }}
           DOTYPOS_CLIENT_SECRET: ${{ secrets.WORKSPACE_E2E_DOTYPOS_CLIENT_SECRET }}
@@ -536,7 +471,7 @@ jobs:
           WORKSPACE_E2E_ALLOCATION_SHARD: ${{ steps.lease.outputs.shard }}
         run: bun turbo test:e2e --filter=deskohub-workspace
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure()
         with:
           name: workspace-e2e-artifacts-${{ github.run_id }}-${{ github.run_attempt }}
@@ -546,7 +481,7 @@ jobs:
 
       - name: Upload reservation-link screenshots
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: workspace-e2e-reservation-link-screenshots-${{ github.run_id }}-${{ github.run_attempt }}
           path: apps/deskohub-workspace/e2e-artifacts/reservation-links/*.png
@@ -554,7 +489,7 @@ jobs:
           retention-days: 7
 
       - name: Upload synthetic PR review screenshots
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: workspace-account-review-${{ github.run_id }}-${{ github.run_attempt }}
@@ -590,6 +525,7 @@ jobs:
     needs: [resolve-target, test-e2e]
     if: always() && needs.resolve-target.outputs.eligible == 'true' && needs.resolve-target.outputs.skipped != 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       contents: read
       statuses: write
@@ -631,6 +567,7 @@ jobs:
     needs: resolve-target
     if: needs.resolve-target.outputs.eligible == 'true' && needs.resolve-target.outputs.skipped == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       contents: read
       statuses: write

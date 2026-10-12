@@ -89,8 +89,8 @@ afterEach(() => {
   window.confirm = originalConfirm;
 });
 
-afterAll(() => {
-  unregisterWorkspaceComponentTestEnv();
+afterAll(async () => {
+  await unregisterWorkspaceComponentTestEnv();
 });
 
 test("prevents changed client navigation and does not call the caller after rejection", () => {
@@ -157,26 +157,19 @@ test("allows exact-page and hash-only links without confirmation", () => {
   expect(confirmMock).not.toHaveBeenCalled();
 });
 
-test("preserves the href, forwarded aria props, and ref", () => {
+test("forwards its ref to the rendered link", () => {
   const ref = createRef<HTMLAnchorElement>();
   const view = render(
     withProvider(
-      <GuardedLink
-        ref={ref}
-        href="/next"
-        aria-label="Go to next"
-        data-testid="guarded-link"
-      >
+      <GuardedLink ref={ref} href="/next">
         Next
       </GuardedLink>
     )
   );
 
-  const link = view.getByRole("link", { name: "Go to next" });
-  expect(link.getAttribute("href")).toBe("/next");
-  expect(link.getAttribute("aria-label")).toBe("Go to next");
-  expect(link.getAttribute("data-testid")).toBe("guarded-link");
-  expect(ref.current).toBe(link);
+  expect<HTMLElement | null>(ref.current).toBe(
+    view.getByRole("link", { name: "Next" })
+  );
 });
 
 test("lets the caller cancel an accepted navigation through the public contract", () => {

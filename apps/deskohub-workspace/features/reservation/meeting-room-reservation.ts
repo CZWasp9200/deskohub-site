@@ -6,13 +6,17 @@ import {
   meetingRoomReservationDurationKeySchema,
   meetingRoomReservationDurationSchema,
 } from "@/features/reservation/meeting-room-reservation-duration";
-import { getMeetingRoomReservationInterval } from "@/features/reservation/meeting-room-reservation-time";
+import {
+  getMeetingRoomLastServiceDate,
+  getMeetingRoomReservationInterval,
+} from "@/features/reservation/meeting-room-reservation-time";
 import {
   defaultReservationBillingSelection,
   normalizedReservationBillingSelectionSchema,
   reservationBillingSelectionInputSchema,
 } from "@/features/reservation/reservation-billing";
 import {
+  droppingRetiredReservationCustomerMessage,
   normalizedReservationCustomerSchema,
   reservationCustomerSchema,
 } from "@/features/reservation/reservation-contact";
@@ -78,15 +82,18 @@ export const meetingRoomReservationOrderInputSchema = Schema.Struct({
   ...meetingRoomReservationOrderBaseSchema.fields,
 });
 
-export const normalizedMeetingRoomReservationOrderSchema = Schema.Struct({
-  kind: Schema.Literal(meetingRoomReservationKind),
-  ...normalizedReservationCustomerSchema.fields,
-  billing: normalizedReservationBillingSelectionSchema,
-  duration: meetingRoomReservationDurationSchema,
-  reservationDate: plainDateStringSchema,
-  startsAt: instantStringSchema,
-  endsAt: instantStringSchema,
-});
+export const normalizedMeetingRoomReservationOrderSchema =
+  droppingRetiredReservationCustomerMessage(
+    Schema.Struct({
+      kind: Schema.Literal(meetingRoomReservationKind),
+      ...normalizedReservationCustomerSchema.fields,
+      billing: normalizedReservationBillingSelectionSchema,
+      duration: meetingRoomReservationDurationSchema,
+      reservationDate: plainDateStringSchema,
+      startsAt: instantStringSchema,
+      endsAt: instantStringSchema,
+    })
+  );
 
 export type MeetingRoomReservationOrderInput =
   typeof meetingRoomReservationOrderInputSchema.Type;
@@ -119,14 +126,28 @@ export const getMeetingRoomReservationDetails = (
     endsAt: reservation.endsAt,
   });
 
-export const meetingRoomReservationPricingInputSchema = Schema.Struct({
+const meetingRoomReservationPricingInputSchema = Schema.Struct({
   kind: Schema.Literal(meetingRoomReservationKind),
   duration: meetingRoomReservationDurationSchema,
   reservationDate: plainDateStringSchema,
-}).annotate({
-  identifier: "MeetingRoomReservationPricingInput",
-  description: "The complete set of inputs that can affect meeting-room price.",
-});
+  /** Last Prague date the booking occupies; calendar sales depend on it. */
+  lastServiceDate: plainDateStringSchema,
+})
+  .check(
+    Schema.makeFilter(
+      ({ lastServiceDate, reservationDate }) =>
+        Temporal.PlainDate.compare(lastServiceDate, reservationDate) >= 0 &&
+        Temporal.PlainDate.compare(
+          lastServiceDate,
+          Temporal.PlainDate.from(reservationDate).add({ days: 1 })
+        ) <= 0
+    )
+  )
+  .annotate({
+    identifier: "MeetingRoomReservationPricingInput",
+    description:
+      "The complete set of inputs that can affect meeting-room price.",
+  });
 
 export type MeetingRoomReservationPricingInput =
   typeof meetingRoomReservationPricingInputSchema.Type;
@@ -156,6 +177,7 @@ export const getMeetingRoomAdvertisedPriceReservation = (
       kind: meetingRoomReservationKind,
       duration: reservation.duration,
       reservationDate: reservation.reservationDate,
+      lastServiceDate: getMeetingRoomLastServiceDate(reservation),
     },
   });
 
@@ -291,9 +313,6 @@ export const normalizeMeetingRoomReservationOrder = (
         name: reservation.name,
         email: reservation.email,
         phone: reservation.phone,
-        ...(reservation.message !== undefined && {
-          message: reservation.message,
-        }),
         billing: reservation.billing ?? defaultReservationBillingSelection,
         ...interval,
       })
@@ -391,7 +410,6 @@ export const meetingRoomReservationDefaultValues: MeetingRoomReservationInput =
     name: "",
     email: "",
     phone: "",
-    message: "",
     billing: defaultReservationBillingSelection,
     marketingConsent: false,
   };
@@ -414,7 +432,6 @@ export const getMeetingRoomReservationDefaultValues = (
     name: reservation.name,
     email: reservation.email,
     phone: reservation.phone,
-    ...(reservation.message !== undefined && { message: reservation.message }),
     billing: reservation.billing,
     marketingConsent: false,
   };
@@ -444,9 +461,6 @@ export const getMeetingRoomReservationOrder = (
     name: reservation.name,
     email: reservation.email,
     phone: reservation.phone,
-    ...(reservation.message !== undefined && {
-      message: reservation.message,
-    }),
     billing: reservation.billing,
   });
 };

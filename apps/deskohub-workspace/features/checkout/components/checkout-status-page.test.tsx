@@ -13,6 +13,7 @@ import {
 import { cleanup, render } from "@testing-library/react";
 import type { ComponentProps, ReactNode } from "react";
 import type { CheckoutStatusViewModel } from "@/features/checkout/backend/checkout";
+import { m } from "@/features/i18n";
 import {
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
@@ -71,6 +72,29 @@ const reconstructedCoworkStatus: CheckoutStatusViewModel = {
   },
 };
 
+/** Asserts the missing-address fallback: no address shown or prefilled. */
+const expectGuidanceWithoutAddress = (
+  view: ReturnType<typeof render>,
+  fallbackLead: string,
+  supportLabel: string
+) => {
+  expect(view.getByText(fallbackLead)).toBeTruthy();
+  expect(view.queryByText(/ada@example\.test/)).toBeNull();
+  const support = view.getByRole("link", { name: supportLabel });
+  const contactUrl = new URL(
+    support.getAttribute("href") ?? "",
+    "https://deskohub.local"
+  );
+  expect(contactUrl.searchParams.has("email")).toBe(false);
+  expect(contactUrl.searchParams.get("name")).toBe("Ada Lovelace");
+  expect(
+    view.container.querySelector("#checkout-status-reserve-again")
+  ).toBeNull();
+  expect(
+    view.container.querySelector("main ol > li:nth-child(2) > a")
+  ).toBeNull();
+};
+
 describe("CheckoutStatusPage", () => {
   beforeAll(() => {
     registerWorkspaceComponentTestEnv();
@@ -84,8 +108,8 @@ describe("CheckoutStatusPage", () => {
     cleanup();
   });
 
-  afterAll(() => {
-    unregisterWorkspaceComponentTestEnv();
+  afterAll(async () => {
+    await unregisterWorkspaceComponentTestEnv();
   });
 
   test("exposes an accessible busy status shell", () => {
@@ -109,21 +133,6 @@ describe("CheckoutStatusPage", () => {
     });
 
     expect(status.getAttribute("aria-busy")).toBe("true");
-    expect(status.getAttribute("class")).toBe(
-      "block bg-white p-6 text-navy-blue sm:p-10"
-    );
-  });
-
-  test("keeps the canonical default skeleton equivalent to explicit page markup", () => {
-    const defaultView = render(<CheckoutStatusPageSkeleton locale="en-US" />);
-    const defaultMarkup = defaultView.container.innerHTML;
-    cleanup();
-
-    const explicitPageView = render(
-      <CheckoutStatusPageSkeleton locale="en-US" presentation="page" />
-    );
-
-    expect(explicitPageView.container.innerHTML).toBe(defaultMarkup);
   });
 
   test("renders reconstructed reservation summary rows", () => {
@@ -133,7 +142,7 @@ describe("CheckoutStatusPage", () => {
 
     expect(view.getByText("Profi Workstation")).toBeDefined();
     expect(view.getByText("Saturday, June 20, 2026")).toBeDefined();
-    expect(view.getByText("2x 27 QHD")).toBeDefined();
+    expect(view.getByText("2x 27″ QHD")).toBeDefined();
     expect(view.getByText("CZK 550")).toBeDefined();
     const repeatLink = view.getByRole("link", { name: "Book again" });
     const repeatUrl = new URL(
@@ -147,10 +156,59 @@ describe("CheckoutStatusPage", () => {
       monitorOption: "2x27-qhd",
     });
     expect(
-      view.queryByText("We will send the reservation details by email.")
+      view.queryByText(m.checkoutStatusMissingSummary({}, { locale: "en-US" }))
     ).toBeNull();
+  });
+
+  test.each(["page", "modal"] as const)(
+    "shows the assigned table without a seating map in %s presentation",
+    (presentation) => {
+      const view = render(
+        <CheckoutStatusPage
+          locale="en-US"
+          presentation={presentation}
+          status={{
+            ...reconstructedCoworkStatus,
+            table: { mode: "assigned", name: "12" },
+          }}
+        />
+      );
+
+      const label = view.getByText("Table", { selector: "dt" });
+      expect(label.nextElementSibling?.textContent).toBe("12");
+      expect(view.queryByText("Your reserved table")).toBeNull();
+    }
+  );
+
+  test.each([
+    ["en-US", "Tables"],
+    ["cs-CZ", "Stoly"],
+  ] as const)("shows shared Open Space tables in %s", (locale, label) => {
+    const view = render(
+      <CheckoutStatusPage
+        locale={locale}
+        status={{
+          ...baseStatus,
+          summary: {
+            reservedFrom: Temporal.Instant.from("2026-06-19T22:00:00Z"),
+            reservedUntil: Temporal.Instant.from("2026-06-20T22:00:00Z"),
+            price: { value: 55_000, exponent: 2, currency: "CZK" },
+            kind: "cowork",
+            entryTier: "open-space",
+            coffee: false,
+          },
+          table: { mode: "shared", name: "1–3, 5" },
+        }}
+      />
+    );
+
     expect(
-      view.container.querySelector("[class*='bg-aquamarine-green/10']")
+      view.getByText(label, { selector: "dt" }).nextElementSibling?.textContent
+    ).toBe("1–3, 5");
+    expect(
+      view.queryByText(locale === "en-US" ? "Table" : "Stůl", {
+        selector: "dt",
+      })
     ).toBeNull();
   });
 
@@ -173,6 +231,7 @@ describe("CheckoutStatusPage", () => {
     expect(
       view.getByText("We will send the reservation details by email.")
     ).toBeDefined();
+    expect(view.queryByText("Table", { selector: "dt" })).toBeNull();
   });
 
   test("keeps reservation access outside the payment status page", () => {
@@ -188,24 +247,6 @@ describe("CheckoutStatusPage", () => {
     ).toBeNull();
   });
 
-  test("keeps the default page presentation equivalent to explicit page presentation", () => {
-    const defaultView = render(
-      <CheckoutStatusPage locale="en-US" status={baseStatus} />
-    );
-    const defaultMarkup = defaultView.container.innerHTML;
-    cleanup();
-
-    const explicitPageView = render(
-      <CheckoutStatusPage
-        locale="en-US"
-        presentation="page"
-        status={baseStatus}
-      />
-    );
-
-    expect(explicitPageView.container.innerHTML).toBe(defaultMarkup);
-  });
-
   test("renders fulfilled modal content without the page shell or page CTAs", () => {
     const view = render(
       <CheckoutStatusPage
@@ -217,9 +258,6 @@ describe("CheckoutStatusPage", () => {
 
     expect(view.container.querySelector("main")).toBeNull();
     expect(view.container.querySelector("ol")).toBeNull();
-    expect(view.container.firstElementChild?.className).toBe(
-      "bg-white p-6 text-navy-blue sm:p-10"
-    );
     expect(view.getByText("Reservation summary")).toBeDefined();
     expect(view.getByText("reservation-status-page")).toBeDefined();
     expect(view.getByText("Profi Workstation")).toBeDefined();
@@ -304,6 +342,97 @@ describe("CheckoutStatusPage", () => {
       expect(view.queryByRole("link", { name: "Back home" })).toBeNull();
       expect(
         view.queryByRole("link", { name: "Send support request" })
+      ).toBeNull();
+      cleanup();
+    }
+  });
+
+  test("tells the customer a late payment will be refunded instead of awaiting confirmation", () => {
+    const view = render(
+      <CheckoutStatusPage
+        locale="en-US"
+        status={{
+          ...reconstructedCoworkStatus,
+          status: "late_payment_refund",
+          paymentStatus: "paid",
+          fulfillmentStatus: "not_started",
+        }}
+      />
+    );
+
+    expect(
+      view.getByRole("heading", { name: "We will refund your payment." })
+    ).toBeTruthy();
+    expect(
+      view.getByText(
+        "Your payment arrived after the reservation was no longer available, so we could not confirm it and will refund the payment. Start a new reservation if you still want to book."
+      )
+    ).toBeTruthy();
+    expect(
+      view.queryByText("Payment received. We're finishing your reservation.")
+    ).toBeNull();
+    expect(view.container.querySelector("#checkout-status-access")).toBeNull();
+    expect(
+      view.container.querySelector("#checkout-status-reserve-again")
+    ).not.toBeNull();
+  });
+
+  test("renders the late-payment refund copy in Czech", () => {
+    const view = render(
+      <CheckoutStatusPage
+        locale="cs-CZ"
+        status={{
+          ...baseStatus,
+          status: "late_payment_refund",
+          paymentStatus: "paid",
+          fulfillmentStatus: "not_started",
+        }}
+      />
+    );
+
+    expect(
+      view.getByRole("heading", {
+        name: m.checkoutStatusLatePaymentRefundTitle({}, { locale: "cs-CZ" }),
+      })
+    ).toBeTruthy();
+    expect(
+      view.getByText(
+        m.checkoutStatusLatePaymentRefundLead({}, { locale: "cs-CZ" })
+      )
+    ).toBeTruthy();
+  });
+
+  test("explains a late payment that is still being checked or needs review", () => {
+    const cases = [
+      {
+        status: "late_payment_checking",
+        title: "We are checking your reservation.",
+        lead: "Your payment arrived after the reservation hold expired, so we are checking that the space is still available. Keep this page open; it will update automatically.",
+      },
+      {
+        status: "late_payment_review",
+        title: "We are reviewing your reservation.",
+        lead: "Your payment arrived after the reservation hold expired, and we need to check your reservation manually. Please contact us so we can confirm the reservation or refund the payment.",
+      },
+    ] as const;
+
+    for (const { lead, status, title } of cases) {
+      const view = render(
+        <CheckoutStatusPage
+          locale="en-US"
+          status={{
+            ...baseStatus,
+            status,
+            paymentStatus: "expired",
+            fulfillmentStatus: "not_started",
+          }}
+        />
+      );
+
+      expect(view.getByRole("heading", { name: title })).toBeTruthy();
+      expect(view.getByText(lead)).toBeTruthy();
+      expect(
+        view.container.querySelector("#checkout-status-access")
       ).toBeNull();
       cleanup();
     }
@@ -438,6 +567,186 @@ describe("CheckoutStatusPage", () => {
     ).toBe("/en-US/reservation/office?dayCount=3&seats=3");
   });
 
+  test("links the completed order step to the cowork repeat start as a raw document anchor", () => {
+    const view = render(
+      <CheckoutStatusPage locale="en-US" status={reconstructedCoworkStatus} />
+    );
+
+    const ctaHref = view.container
+      .querySelector("#checkout-status-reserve-again")
+      ?.getAttribute("href");
+    const completedOrderStep = view.container.querySelector(
+      "main ol > li:nth-child(2) > a"
+    );
+    expect(completedOrderStep).not.toBeNull();
+    expect(completedOrderStep?.getAttribute("href")).toBe(ctaHref);
+    expect(completedOrderStep?.getAttribute("data-next-link")).toBeNull();
+    const stepHref = completedOrderStep?.getAttribute("href");
+    expect(capturedLinks.some(({ href }) => href === stepHref)).toBe(false);
+
+    const url = new URL(stepHref ?? "", "https://deskohub.local");
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      entryTier: "profi",
+      coffee: "true",
+      monitorOption: "2x27-qhd",
+    });
+  });
+
+  test("restores a current Reserved Desk through the raw repeat anchor", () => {
+    const view = render(
+      <CheckoutStatusPage
+        locale="en-US"
+        status={{
+          ...baseStatus,
+          summary: {
+            kind: "cowork",
+            entryTier: "reserved-desk",
+            coffee: true,
+            monitorOption: "2x27-qhd",
+            reservedFrom: Temporal.Instant.from("2026-06-19T22:00:00Z"),
+            reservedUntil: Temporal.Instant.from("2026-06-20T22:00:00Z"),
+            price: { value: 53_000, exponent: 2, currency: "CZK" },
+          },
+        }}
+      />
+    );
+
+    const ctaHref = view.container
+      .querySelector("#checkout-status-reserve-again")
+      ?.getAttribute("href");
+    expect(ctaHref).toBe(
+      "/en-US/reservation/cowork?entryTier=reserved-desk&coffee=true&monitorOption=2x27-qhd"
+    );
+    const completedOrderStep = Array.from(
+      view.container.querySelectorAll("main ol a")
+    ).find((step) => step.getAttribute("href") === ctaHref);
+    expect(completedOrderStep).not.toBeNull();
+    expect(completedOrderStep?.getAttribute("href")).toBe(ctaHref);
+    expect(completedOrderStep?.getAttribute("data-next-link")).toBeNull();
+    const stepHref = completedOrderStep?.getAttribute("href");
+    expect(capturedLinks.some(({ href }) => href === stepHref)).toBe(false);
+  });
+
+  test("links the completed order step to the office repeat start as a raw document anchor", () => {
+    const view = render(
+      <CheckoutStatusPage
+        locale="en-US"
+        status={{
+          ...baseStatus,
+          kind: "office",
+          summary: {
+            kind: "office",
+            reservedFrom: Temporal.Instant.from("2026-06-11T22:00:00Z"),
+            reservedUntil: Temporal.Instant.from("2026-06-14T22:00:00Z"),
+            seats: 3,
+            price: { value: 442_500, exponent: 2, currency: "CZK" },
+          },
+        }}
+      />
+    );
+
+    const ctaHref = view.container
+      .querySelector("#checkout-status-reserve-again")
+      ?.getAttribute("href");
+    expect(ctaHref).toBe("/en-US/reservation/office?dayCount=3&seats=3");
+    const completedOrderStep = view.container.querySelector(
+      "main ol > li:nth-child(2) > a"
+    );
+    expect(completedOrderStep).not.toBeNull();
+    expect(completedOrderStep?.getAttribute("href")).toBe(ctaHref);
+    expect(completedOrderStep?.getAttribute("data-next-link")).toBeNull();
+    const stepHref = completedOrderStep?.getAttribute("href");
+    expect(capturedLinks.some(({ href }) => href === stepHref)).toBe(false);
+  });
+
+  test("links the completed order step to the generic meeting-room start as a raw document anchor", () => {
+    const view = render(
+      <CheckoutStatusPage
+        locale="en-US"
+        status={{
+          ...baseStatus,
+          kind: "meeting-room",
+          summary: {
+            kind: "meeting-room",
+            reservedFrom: Temporal.Instant.from("2026-06-20T07:00:00.000Z"),
+            reservedUntil: Temporal.Instant.from("2026-06-20T11:00:00.000Z"),
+            price: { value: 155_000, exponent: 2, currency: "CZK" },
+          },
+        }}
+      />
+    );
+
+    const ctaHref = view.container
+      .querySelector("#checkout-status-reserve-again")
+      ?.getAttribute("href");
+    expect(ctaHref).toBe("/en-US/reservation/meeting-room");
+    const completedOrderStep = view.container.querySelector(
+      "main ol > li:nth-child(2) > a"
+    );
+    expect(completedOrderStep).not.toBeNull();
+    expect(completedOrderStep?.getAttribute("href")).toBe(ctaHref);
+    expect(completedOrderStep?.getAttribute("data-next-link")).toBeNull();
+    const stepHref = completedOrderStep?.getAttribute("href");
+    expect(capturedLinks.some(({ href }) => href === stepHref)).toBe(false);
+
+    const url = new URL(stepHref ?? "", "https://deskohub.local");
+    expect(url.search).toBe("");
+  });
+
+  test("links the completed order step to the generic start for non-fulfilled status as a raw document anchor", () => {
+    const view = render(
+      <CheckoutStatusPage
+        locale="en-US"
+        status={{
+          ...baseStatus,
+          status: "payment_failed",
+          paymentStatus: "failed",
+          fulfillmentStatus: "not_started",
+          summary: {
+            kind: "cowork",
+            entryTier: "profi",
+            coffee: true,
+            monitorOption: "2x27-qhd",
+            reservedFrom: Temporal.Instant.from("2026-06-19T22:00:00Z"),
+            reservedUntil: Temporal.Instant.from("2026-06-20T22:00:00Z"),
+            price: { value: 55_000, exponent: 2, currency: "CZK" },
+          },
+        }}
+      />
+    );
+
+    const ctaHref = view.container
+      .querySelector("#checkout-status-reserve-again")
+      ?.getAttribute("href");
+    expect(ctaHref).toBe("/en-US/reservation/cowork");
+    const completedOrderStep = view.container.querySelector(
+      "main ol > li:nth-child(2) > a"
+    );
+    expect(completedOrderStep).not.toBeNull();
+    expect(completedOrderStep?.getAttribute("href")).toBe(ctaHref);
+    expect(completedOrderStep?.getAttribute("data-next-link")).toBeNull();
+    const stepHref = completedOrderStep?.getAttribute("href");
+    expect(capturedLinks.some(({ href }) => href === stepHref)).toBe(false);
+
+    const url = new URL(stepHref ?? "", "https://deskohub.local");
+    expect(url.search).toBe("");
+  });
+
+  test("omits the step 1 link in modal presentation", () => {
+    const view = render(
+      <CheckoutStatusPage
+        locale="en-US"
+        presentation="modal"
+        status={reconstructedCoworkStatus}
+      />
+    );
+
+    expect(view.container.querySelector("main ol")).toBeNull();
+    expect(
+      view.container.querySelector("main ol > li:first-child > a")
+    ).toBeNull();
+  });
+
   test("propagates only allowlisted booking shape", () => {
     const view = render(
       <CheckoutStatusPage
@@ -488,37 +797,15 @@ describe("CheckoutStatusPage", () => {
     expect(href).not.toContain("CZ12345678");
     expect(href).not.toContain("35000");
     expect(href).not.toContain("2026-06");
+    const completedOrderStep = view.container.querySelector(
+      "main ol > li:nth-child(2) > a"
+    );
+    expect(completedOrderStep).not.toBeNull();
+    expect(completedOrderStep?.getAttribute("href")).toBe(href);
   });
 
-  test("keeps generic starts for non-fulfilled or unusable booking shapes", () => {
-    const nonFulfilled = render(
-      <CheckoutStatusPage
-        locale="en-US"
-        status={{
-          ...baseStatus,
-          status: "payment_failed",
-          paymentStatus: "failed",
-          fulfillmentStatus: "not_started",
-          summary: {
-            kind: "cowork",
-            entryTier: "profi",
-            coffee: true,
-            monitorOption: "2x27-qhd",
-            reservedFrom: Temporal.Instant.from("2026-06-19T22:00:00Z"),
-            reservedUntil: Temporal.Instant.from("2026-06-20T22:00:00Z"),
-            price: { value: 55_000, exponent: 2, currency: "CZK" },
-          },
-        }}
-      />
-    );
-    expect(
-      nonFulfilled
-        .getByRole("link", { name: "Start a new reservation" })
-        .getAttribute("href")
-    ).toBe("/en-US/reservation/cowork");
-    cleanup();
-
-    const unusableOffice = render(
+  test("keeps the generic office start for an unusable booking shape", () => {
+    const view = render(
       <CheckoutStatusPage
         locale="en-US"
         status={{
@@ -535,30 +822,7 @@ describe("CheckoutStatusPage", () => {
       />
     );
     expect(
-      unusableOffice
-        .getByRole("link", { name: "Start a new reservation" })
-        .getAttribute("href")
-    ).toBe("/en-US/reservation/office");
-    cleanup();
-
-    const fractionalMidnightOffice = render(
-      <CheckoutStatusPage
-        locale="en-US"
-        status={{
-          ...baseStatus,
-          kind: "office",
-          summary: {
-            kind: "office",
-            reservedFrom: Temporal.Instant.from("2026-06-11T22:00:00.001Z"),
-            reservedUntil: Temporal.Instant.from("2026-06-14T22:00:00.001Z"),
-            seats: 3,
-            price: { value: 442_500, exponent: 2, currency: "CZK" },
-          },
-        }}
-      />
-    );
-    expect(
-      fractionalMidnightOffice
+      view
         .getByRole("link", { name: "Start a new reservation" })
         .getAttribute("href")
     ).toBe("/en-US/reservation/office");
@@ -660,6 +924,340 @@ describe("CheckoutStatusPage", () => {
         "Reservation: Basic Day Pass on Saturday, June 20, 2026",
         "",
         "Please help me get my secure access link.",
+      ].join("\n")
+    );
+  });
+
+  describe("a paid reservation awaiting its confirmation email", () => {
+    const awaitingDeliveryStatus = (
+      status: "paid_awaiting_delivery" | "paid_delivery_delayed",
+      email: string | null = "ada@example.test"
+    ): CheckoutStatusViewModel => ({
+      ...baseStatus,
+      kind: "cowork",
+      status,
+      fulfillmentStatus: "awaiting_delivery",
+      supportContactPrefill: {
+        name: "Ada Lovelace",
+        ...(email !== null && { email }),
+      },
+      summary: {
+        kind: "cowork",
+        entryTier: "basic",
+        coffee: false,
+        reservedFrom: Temporal.Instant.from("2026-06-19T22:00:00.000Z"),
+        reservedUntil: Temporal.Instant.from("2026-06-20T22:00:00.000Z"),
+        price: { value: 35_000, exponent: 2, currency: "CZK" },
+      },
+    });
+
+    test("shows the recipient address and does not invite another booking while delivery is recent", () => {
+      const view = render(
+        <CheckoutStatusPage
+          locale="en-US"
+          status={awaitingDeliveryStatus("paid_awaiting_delivery")}
+        />
+      );
+
+      expect(
+        view.getByRole("heading", {
+          name: "Your reservation is paid and confirmed.",
+        })
+      ).toBeTruthy();
+      expect(view.getByText("ada@example.test")).toBeTruthy();
+      expect(view.getByText(/You don't need to book again\./)).toBeTruthy();
+      expect(
+        view.container.querySelector("#checkout-status-reserve-again")
+      ).toBeNull();
+      expect(
+        view.container.querySelector("#checkout-status-support-contact")
+      ).toBeNull();
+      expect(view.getByRole("link", { name: "Back home" })).toBeTruthy();
+    });
+
+    test("replaces rebooking with a support request once delivery is overdue", () => {
+      const view = render(
+        <CheckoutStatusPage
+          locale="en-US"
+          status={awaitingDeliveryStatus("paid_delivery_delayed")}
+        />
+      );
+
+      expect(
+        view.getByRole("heading", {
+          name: "Your reservation is confirmed, but the email hasn't arrived yet.",
+        })
+      ).toBeTruthy();
+      expect(view.getByText("ada@example.test")).toBeTruthy();
+      expect(view.getByText(/may contain a typo/)).toBeTruthy();
+      expect(view.queryByText(/update/i)).toBeNull();
+      expect(
+        view.container.querySelector("#checkout-status-reserve-again")
+      ).toBeNull();
+
+      const link = view.getByRole("link", { name: "Send support request" });
+      expect(link.id).toBe("checkout-status-support-contact");
+      const contactUrl = new URL(
+        link.getAttribute("href") ?? "",
+        "https://deskohub.local"
+      );
+      expect(contactUrl.searchParams.get("email")).toBe("ada@example.test");
+      expect(contactUrl.searchParams.get("message")).toContain(
+        "the reservation confirmation email did not arrive."
+      );
+    });
+
+    test("keeps the overdue guidance when the recipient address is unavailable", () => {
+      const view = render(
+        <CheckoutStatusPage
+          locale="cs-CZ"
+          status={awaitingDeliveryStatus("paid_delivery_delayed", null)}
+        />
+      );
+
+      expectGuidanceWithoutAddress(
+        view,
+        m.checkoutStatusPaidDeliveryDelayedLeadWithoutEmail(
+          {},
+          { locale: "cs-CZ" }
+        ),
+        "Zaslat žádost o podporu"
+      );
+    });
+  });
+
+  describe("a paid reservation without a delivered confirmation", () => {
+    const paidStatus = (
+      overrides: Partial<CheckoutStatusViewModel> & {
+        readonly status: CheckoutStatusViewModel["status"];
+      },
+      email: string | null = "ada@example.test"
+    ) =>
+      ({
+        ...baseStatus,
+        kind: "cowork",
+        paymentStatus: "paid",
+        fulfillmentStatus: "processing",
+        supportContactPrefill: {
+          name: "Ada Lovelace",
+          ...(email !== null && { email }),
+        },
+        summary: {
+          kind: "cowork",
+          entryTier: "basic",
+          coffee: false,
+          reservedFrom: Temporal.Instant.from("2026-06-19T22:00:00.000Z"),
+          reservedUntil: Temporal.Instant.from("2026-06-20T22:00:00.000Z"),
+          price: { value: 35_000, exponent: 2, currency: "CZK" },
+        },
+        ...overrides,
+      }) as CheckoutStatusViewModel;
+    const queryRestartActions = (container: HTMLElement) => ({
+      reserveAgain: container.querySelector("#checkout-status-reserve-again"),
+      orderStep: container.querySelector("main ol > li:nth-child(2) > a"),
+    });
+
+    test("points a bounced confirmation to support with its address instead of a rebook", () => {
+      const view = render(
+        <CheckoutStatusPage
+          locale="en-US"
+          status={paidStatus({
+            status: "fulfillment_failed",
+            fulfillmentStatus: "failed",
+          })}
+        />
+      );
+
+      expect(view.getByText("ada@example.test")).toBeTruthy();
+      expect(
+        view.getByText(
+          /Your payment went through and your reservation is saved/
+        )
+      ).toBeTruthy();
+      expect(view.getByText(/You don't need to book again\./)).toBeTruthy();
+      expect(view.queryByText(/confirmed/)).toBeNull();
+      expect(
+        view.getByRole("link", { name: "Send support request" })
+      ).toBeTruthy();
+      expect(queryRestartActions(view.container)).toEqual({
+        reserveAgain: null,
+        orderStep: null,
+      });
+    });
+
+    test("keeps bounced-confirmation guidance without a known address", () => {
+      const view = render(
+        <CheckoutStatusPage
+          locale="cs-CZ"
+          status={paidStatus(
+            { status: "fulfillment_failed", fulfillmentStatus: "failed" },
+            null
+          )}
+        />
+      );
+
+      expectGuidanceWithoutAddress(
+        view,
+        m.checkoutStatusFulfillmentFailedLeadWithoutEmail(
+          {},
+          { locale: "cs-CZ" }
+        ),
+        "Zaslat žádost o podporu"
+      );
+    });
+
+    test("tells a customer whose payment is processing not to book again", () => {
+      const view = render(
+        <CheckoutStatusPage
+          locale="en-US"
+          status={paidStatus({
+            status: "pending",
+            paymentStatus: "pending",
+            fulfillmentStatus: "not_started",
+          })}
+        />
+      );
+
+      expect(
+        view.getByRole("heading", {
+          name: "Your payment is still being processed.",
+        })
+      ).toBeTruthy();
+      expect(view.getByText(/You don't need to book again\./)).toBeTruthy();
+      expect(view.queryByText(/confirmed/)).toBeNull();
+      expect(
+        view.container.querySelector("#checkout-status-support-contact")
+      ).toBeNull();
+      expect(queryRestartActions(view.container)).toEqual({
+        reserveAgain: null,
+        orderStep: null,
+      });
+    });
+
+    test("points a payment unconfirmed past the cutoff to support, not a new checkout", () => {
+      const view = render(
+        <CheckoutStatusPage
+          locale="en-US"
+          status={paidStatus({
+            status: "payment_pending_delayed",
+            paymentStatus: "pending",
+            fulfillmentStatus: "not_started",
+          })}
+        />
+      );
+
+      // A local release cannot stop the provider payment from settling later.
+      expect(
+        view.getByText(
+          /Don't book again until we confirm your payment or you hear from us/
+        )
+      ).toBeTruthy();
+      expect(view.queryByText(/release/i)).toBeNull();
+      const link = view.getByRole("link", { name: "Send support request" });
+      const contactUrl = new URL(
+        link.getAttribute("href") ?? "",
+        "https://deskohub.local"
+      );
+      expect(contactUrl.searchParams.get("email")).toBe("ada@example.test");
+      expect(contactUrl.searchParams.get("message")).toContain(
+        "Please check whether my payment went through."
+      );
+      expect(queryRestartActions(view.container)).toEqual({
+        reserveAgain: null,
+        orderStep: null,
+      });
+    });
+
+    test("tells a paid customer awaiting confirmation not to book again", () => {
+      const view = render(
+        <CheckoutStatusPage
+          locale="en-US"
+          status={paidStatus({ status: "paid_waiting_fulfillment" })}
+        />
+      );
+
+      expect(
+        view.getByRole("heading", {
+          name: "Payment received. We're finishing your reservation.",
+        })
+      ).toBeTruthy();
+      expect(view.getByText(/You don't need to book again\./)).toBeTruthy();
+      expect(view.queryByText(/confirmed/)).toBeNull();
+      expect(queryRestartActions(view.container)).toEqual({
+        reserveAgain: null,
+        orderStep: null,
+      });
+    });
+
+    test("offers support once finishing a paid reservation takes too long", () => {
+      const view = render(
+        <CheckoutStatusPage
+          locale="en-US"
+          status={paidStatus({ status: "paid_fulfillment_delayed" })}
+        />
+      );
+
+      expect(view.getByText(/You don't need to book again\./)).toBeTruthy();
+      expect(view.queryByText(/confirmed/)).toBeNull();
+      const link = view.getByRole("link", { name: "Send support request" });
+      expect(
+        new URL(
+          link.getAttribute("href") ?? "",
+          "https://deskohub.local"
+        ).searchParams.get("email")
+      ).toBe("ada@example.test");
+      expect(queryRestartActions(view.container)).toEqual({
+        reserveAgain: null,
+        orderStep: null,
+      });
+    });
+  });
+
+  test("asks the customer to contact us about a late payment under review", () => {
+    const view = render(
+      <CheckoutStatusPage
+        locale="en-US"
+        status={{
+          ...baseStatus,
+          kind: "cowork",
+          status: "late_payment_review",
+          paymentStatus: "paid",
+          fulfillmentStatus: "not_started",
+          supportContactPrefill: {
+            name: "Ada Lovelace",
+            email: "ada@example.com",
+          },
+          summary: {
+            kind: "cowork",
+            entryTier: "basic",
+            coffee: false,
+            reservedFrom: Temporal.Instant.from("2026-06-19T22:00:00.000Z"),
+            reservedUntil: Temporal.Instant.from("2026-06-20T22:00:00.000Z"),
+            price: { value: 35_000, exponent: 2, currency: "CZK" },
+          },
+        }}
+      />
+    );
+
+    expect(view.queryByText(/We will email you/)).toBeNull();
+    const link = view.getByRole("link", { name: "Send support request" });
+    expect(link.id).toBe("checkout-status-support-contact");
+    const contactUrl = new URL(
+      link.getAttribute("href") ?? "",
+      "https://deskohub.local"
+    );
+    expect(contactUrl.pathname).toBe("/en-US/contact");
+    expect(contactUrl.searchParams.get("email")).toBe("ada@example.com");
+    expect(contactUrl.searchParams.get("message")).toBe(
+      [
+        "Hi Deskohub Workspace,",
+        "",
+        "My payment arrived after the reservation hold expired, and the payment status page says my reservation needs a manual check.",
+        "",
+        "Order reference: reservation-status-page",
+        "Reservation: Basic Day Pass on Saturday, June 20, 2026",
+        "",
+        "Please confirm my reservation or refund the payment.",
       ].join("\n")
     );
   });

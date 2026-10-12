@@ -29,6 +29,7 @@ import {
   getReservationAccessPath,
   getReservationInvoicePath,
 } from "@/features/reservation/backend/reservation-access-url";
+import { getCustomerReservationTable } from "@/features/reservation/backend/reservation-table";
 import type { WorkspaceReservationDetails } from "@/features/reservation/backend/workspace-reservation.service";
 import type { StoredCoworkReservationDetails } from "@/features/reservation/cowork-reservation-product";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
@@ -54,7 +55,7 @@ import {
   createWorkspaceCheckoutWifiQrPayload,
   type WorkspaceCheckoutNetworkDetails,
   WorkspaceCheckoutNetworkDetailsService,
-  workspaceCheckoutPlaceholderNetworkDetails,
+  workspaceCheckoutCustomerNetworkDetails,
 } from "./network-details.service";
 import { createWorkspaceMeetingRoomEmailDetailRows } from "./workspace-meeting-room-email-details";
 
@@ -222,6 +223,16 @@ const createCoworkReservationDetails = (
   },
   ...Match.value(details).pipe(
     Match.discriminatorsExhaustive("entryTier")({
+      "open-space": () => [],
+      "reserved-desk": ({ monitorOption }) =>
+        monitorOption
+          ? [
+              {
+                label: m.reservationEmailMonitorsLabel({}, { locale }),
+                value: getWorkspaceProductMonitorTitle(monitorOption, locale),
+              } satisfies WorkspaceEmailDetail,
+            ]
+          : [],
       basic: () => [],
       plus: () => [],
       profi: ({ monitorOption }) => [
@@ -346,6 +357,7 @@ const createCustomerReservationEmail = (input: {
     {},
     { locale: input.locale }
   );
+  const table = getCustomerReservationTable(input.reservation);
 
   return (
     <CustomerReservationEmail
@@ -380,6 +392,7 @@ const createCustomerReservationEmail = (input: {
           { locale: input.locale }
         ),
         table: m.checkoutEmailTableNumberLabel({}, { locale: input.locale }),
+        tables: m.checkoutEmailTablesLabel({}, { locale: input.locale }),
         network: m.checkoutEmailNetworkHeading({}, { locale: input.locale }),
         networkName: m.checkoutEmailNetworkSsidLabel(
           {},
@@ -402,9 +415,7 @@ const createCustomerReservationEmail = (input: {
         qrImageSrc: input.networkQrImageSrc,
       }}
       preview={subject}
-      {...(input.reservation.tableName
-        ? { table: { name: input.reservation.tableName } }
-        : {})}
+      {...(table && { table })}
     />
   );
 };
@@ -451,7 +462,7 @@ export const createWorkspaceReservationCustomerEmailPreviewHtml = Effect.fn(
             locale,
             accessUrl: input.accessUrl,
             invoiceUrl: input.invoiceUrl,
-            networkDetails: workspaceCheckoutPlaceholderNetworkDetails,
+            networkDetails: workspaceCheckoutCustomerNetworkDetails,
             networkQrImageSrc: `data:image/png;base64,${networkQrPng.toString("base64")}`,
             locationMapImageSrc: workspaceLocationMapUrl,
           })
@@ -467,7 +478,7 @@ const createPreviewNetworkQrPng = () =>
     try: () =>
       generateQrCodePngBuffer(
         createWorkspaceCheckoutWifiQrPayload(
-          workspaceCheckoutPlaceholderNetworkDetails
+          workspaceCheckoutCustomerNetworkDetails
         ),
         {
           errorCorrectionLevel: "M",

@@ -64,8 +64,3 @@ export const findStepByName = (
   Object.values(doc.jobs)
     .flatMap((job) => job.steps ?? [])
     .find((step) => step.name === name);
-
-export const stepOrderIndexes = (
-  stepNames: readonly string[],
-  names: readonly string[]
-): readonly number[] => names.map((name) => stepNames.indexOf(name));

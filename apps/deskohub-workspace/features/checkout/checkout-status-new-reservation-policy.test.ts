@@ -1,0 +1,48 @@
+import { describe, expect, test } from "bun:test";
+import type { CheckoutStatusKind } from "@/features/checkout/backend/checkout";
+import { shouldOfferNewReservation } from "@/features/checkout/checkout-status-new-reservation-policy";
+
+describe("shouldOfferNewReservation", () => {
+  test("starts a new reservation only when the checkout holds no live paid reservation", () => {
+    const withoutLivePaidReservation: CheckoutStatusKind[] = [
+      "not_found",
+      "created",
+      "payment_failed",
+      "cancelled",
+      "expired",
+      "late_payment_refund",
+    ];
+
+    for (const status of withoutLivePaidReservation) {
+      expect(shouldOfferNewReservation(status)).toBe(true);
+    }
+  });
+
+  test("offers to book again for another visit after fulfillment", () => {
+    expect(shouldOfferNewReservation("fulfilled")).toBe(true);
+  });
+
+  test("never invites another purchase while a payment is processing or a paid reservation is live", () => {
+    const withLivePaidReservation: CheckoutStatusKind[] = [
+      "pending",
+      "payment_pending_delayed",
+      "paid_waiting_fulfillment",
+      "paid_fulfillment_delayed",
+      "paid_awaiting_delivery",
+      "paid_delivery_delayed",
+      "fulfillment_failed",
+      "late_payment_checking",
+      "late_payment_review",
+    ];
+
+    for (const status of withLivePaidReservation) {
+      expect(shouldOfferNewReservation(status)).toBe(false);
+    }
+  });
+
+  test("defaults an unlisted status to no new reservation", () => {
+    expect(
+      shouldOfferNewReservation("future_status" as CheckoutStatusKind)
+    ).toBe(false);
+  });
+});

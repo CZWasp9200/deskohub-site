@@ -3,8 +3,13 @@ import {
   type DotyposTableId,
   ValidationError,
 } from "@deskohub/dotypos";
-import { Effect, Match, Schema } from "effect";
-import { workspaceCoworkTiers } from "@/features/checkout/product-catalog";
+import { Effect, Match, Result, Schema } from "effect";
+import {
+  type WorkspaceCoworkProductTier,
+  type WorkspaceProductMonitorOption,
+  workspaceCoworkHistoricalTiers,
+  workspaceProductMonitorOptionTableTags,
+} from "@/features/checkout/product-catalog";
 import {
   type WorkspaceReservationKind,
   workspaceReservationKindSchema,
@@ -15,6 +20,71 @@ import { workspaceBookingSeatCount } from "./workspace-table-occupancy";
 export const workspaceMeetingRoomReservationTableTag =
   "reservation:meeting-room";
 export const workspaceOfficeReservationTableTag = "reservation:office";
+export const workspaceCoworkOpenSpaceTableTag = "cowork:open-space";
+export const workspaceCoworkReservedDeskTableTag = "cowork:reserved-desk";
+
+export type WorkspaceCoworkTableCandidateQuery = {
+  readonly entryTier: WorkspaceCoworkProductTier;
+  readonly monitorOption?: WorkspaceProductMonitorOption;
+};
+
+const hasNoMonitorTag = (tableTags: ReadonlySet<string>) => {
+  for (const tag of tableTags) {
+    if (tag.startsWith("monitor:")) return false;
+  }
+  return true;
+};
+
+const hasExactMonitorConfigurationTags = (
+  tableTags: ReadonlySet<string>,
+  monitorOption: WorkspaceProductMonitorOption
+) => {
+  const expectedTags = workspaceProductMonitorOptionTableTags[monitorOption];
+  if (!expectedTags.every((tag) => tableTags.has(tag))) return false;
+  // Fail closed on unknown or contradictory monitor tags: a configured
+  // workstation must carry exactly the chosen configuration's monitor tags.
+  for (const tag of tableTags) {
+    if (tag.startsWith("monitor:") && !expectedTags.includes(tag)) return false;
+  }
+  return true;
+};
+
+/**
+ * Shared saleable-offer candidate predicate used by BOTH availability and
+ * authoritative table assignment. Partial monitor tagging fails closed: any
+ * `monitor:` tag excludes a table from no-addon queries, and a configured
+ * addon query requires exactly the chosen configuration's monitor-tag set.
+ */
+export const isWorkspaceCoworkTableCandidate = (
+  tableTags: ReadonlySet<string>,
+  query: WorkspaceCoworkTableCandidateQuery
+) => {
+  if (query.entryTier === "open-space") {
+    return (
+      tableTags.has(workspaceCoworkOpenSpaceTableTag) &&
+      hasNoMonitorTag(tableTags)
+    );
+  }
+
+  if (!tableTags.has(workspaceCoworkReservedDeskTableTag)) return false;
+
+  if (!query.monitorOption) return hasNoMonitorTag(tableTags);
+
+  return hasExactMonitorConfigurationTags(tableTags, query.monitorOption);
+};
+
+/**
+ * Historical-only predicate: legacy tiers keep their `tier:${tier}` tags on
+ * decode, reconcile, fulfillment, and cancellation paths. It must never serve
+ * a new saleable request.
+ */
+export const isWorkspaceCoworkHistoricalTableCandidate = (
+  tableTags: ReadonlySet<string>,
+  tier: WorkspaceCoworkProductTier
+) =>
+  workspaceCoworkHistoricalTiers.includes(
+    tier as (typeof workspaceCoworkHistoricalTiers)[number]
+  ) && tableTags.has(`tier:${tier}`);
 
 const fallbackRoomKey = "__workspace-table-selection:fallback-room__";
 
@@ -30,7 +100,7 @@ const workspaceTableSeatCapacitySchema = Schema.NumberFromString.pipe(
   description: "Positive integer seat capacity configured on a Dotypos table.",
 });
 
-interface WorkspaceTableCandidate {
+export interface WorkspaceTableCandidate {
   readonly table: DotyposTable;
   readonly seatCapacity: number;
 }
@@ -48,21 +118,69 @@ export const getWorkspaceTableCandidates = (
   requiredTags: readonly string[]
 ) => tables.filter((table) => isAssignableWorkspaceTable(table, requiredTags));
 
+export const getWorkspaceTableCandidatesByPredicate = (
+  tables: readonly DotyposTable[],
+  isCandidateTable: (tableTags: ReadonlySet<string>) => boolean
+) =>
+  tables.filter((table) => {
+    const tableId = getAssignableDotyposTableId(table);
+    if (!tableId) return false;
+    if (table.enabled !== true || table.display !== true) return false;
+
+    return isCandidateTable(new Set(table.tags ?? []));
+  });
+
+const decodeSeatCapacity = Schema.decodeUnknownResult(
+  workspaceTableSeatCapacitySchema
+);
+
+const decodeTableSeatCapacity = (table: DotyposTable) =>
+  Result.mapError(
+    decodeSeatCapacity(table.seats),
+    (cause) =>
+      new ValidationError({
+        message: `Dotypos workspace table ${table.id ?? table.name} has an invalid seat capacity.`,
+        cause,
+      })
+  );
+
 export const getWorkspaceTableSeatCapacity = Effect.fn(
   "WorkspaceTable.getSeatCapacity"
-)((table: DotyposTable) =>
-  Schema.decodeUnknownEffect(workspaceTableSeatCapacitySchema)(
-    table.seats
-  ).pipe(
-    Effect.mapError(
-      (cause) =>
-        new ValidationError({
-          message: `Dotypos workspace table ${table.id ?? table.name} has an invalid seat capacity.`,
-          cause,
-        })
+)((table: DotyposTable) => Effect.fromResult(decodeTableSeatCapacity(table)));
+
+/**
+ * Decodes every candidate's seat capacity, failing on the first table (in
+ * candidate order) whose capacity is invalid.
+ */
+export const decodeTableCandidates = (
+  tables: readonly DotyposTable[]
+): Result.Result<readonly WorkspaceTableCandidate[], ValidationError> => {
+  const candidates: WorkspaceTableCandidate[] = [];
+
+  for (const table of tables) {
+    const seatCapacity = decodeTableSeatCapacity(table);
+    if (Result.isFailure(seatCapacity))
+      return Result.fail(seatCapacity.failure);
+    candidates.push({ table, seatCapacity: seatCapacity.success });
+  }
+
+  return Result.succeed(candidates);
+};
+
+export const hasCandidateCapacity = (
+  candidates: readonly WorkspaceTableCandidate[],
+  occupancyByTableId: ReadonlyMap<DotyposTableId, number>,
+  seats = workspaceBookingSeatCount,
+  requireEmpty = false
+) =>
+  candidates.some((candidate) =>
+    hasWorkspaceTableCapacity(
+      candidate,
+      occupancyByTableId,
+      seats,
+      requireEmpty
     )
-  )
-);
+  );
 
 export const hasAvailableWorkspaceTableCandidate = (
   tables: readonly DotyposTable[],
@@ -75,14 +193,7 @@ export const hasAvailableWorkspaceTableCandidate = (
     getWorkspaceTableCandidates(tables, requiredTags)
   ).pipe(
     Effect.map((candidates) =>
-      candidates.some((candidate) =>
-        hasWorkspaceTableCapacity(
-          candidate,
-          occupancyByTableId,
-          seats,
-          requireEmpty
-        )
-      )
+      hasCandidateCapacity(candidates, occupancyByTableId, seats, requireEmpty)
     )
   );
 
@@ -91,7 +202,11 @@ export const selectWorkspaceTableFromCandidates = (
   allTables: readonly DotyposTable[],
   occupancyByTableId: ReadonlyMap<DotyposTableId, number>,
   seats = workspaceBookingSeatCount,
-  requireEmpty = false
+  requireEmpty = false,
+  rankingOccupancyByTableId: ReadonlyMap<
+    DotyposTableId,
+    number
+  > = occupancyByTableId
 ) =>
   decodeWorkspaceTableCandidates(candidates).pipe(
     Effect.map((decodedCandidates) =>
@@ -99,6 +214,7 @@ export const selectWorkspaceTableFromCandidates = (
         decodedCandidates,
         allTables,
         occupancyByTableId,
+        rankingOccupancyByTableId,
         seats,
         requireEmpty
       )
@@ -109,6 +225,7 @@ const selectDecodedWorkspaceTableFromCandidates = (
   candidates: readonly WorkspaceTableCandidate[],
   allTables: readonly DotyposTable[],
   occupancyByTableId: ReadonlyMap<DotyposTableId, number>,
+  rankingOccupancyByTableId: ReadonlyMap<DotyposTableId, number>,
   seats: number,
   requireEmpty: boolean
 ) => {
@@ -135,7 +252,7 @@ const selectDecodedWorkspaceTableFromCandidates = (
       table,
       scoringTablesByRoom.get(getWorkspaceTableRoomKey(table)) ?? [],
       maxDistanceByRoom.get(getWorkspaceTableRoomKey(table)) ?? 0,
-      occupancyByTableId
+      rankingOccupancyByTableId
     );
     const scoreComparison = score - selectedScore;
 
@@ -154,11 +271,7 @@ const selectDecodedWorkspaceTableFromCandidates = (
 };
 
 const decodeWorkspaceTableCandidates = (tables: readonly DotyposTable[]) =>
-  Effect.forEach(tables, (table) =>
-    getWorkspaceTableSeatCapacity(table).pipe(
-      Effect.map((seatCapacity) => ({ table, seatCapacity }))
-    )
-  );
+  Effect.fromResult(decodeTableCandidates(tables));
 
 const isAssignableWorkspaceTable = (
   table: DotyposTable,
@@ -259,7 +372,13 @@ const hasWorkspaceReservationTableTag = (
   Match.value({ kind }).pipe(
     Match.discriminatorsExhaustive("kind")({
       cowork: () =>
-        workspaceCoworkTiers.some((tier) => tableTags.has(`tier:${tier}`)),
+        // Display/scoring predicate: recognizes both historical tier tags and
+        // the saleable offer labels.
+        workspaceCoworkHistoricalTiers.some((tier) =>
+          tableTags.has(`tier:${tier}`)
+        ) ||
+        tableTags.has(workspaceCoworkOpenSpaceTableTag) ||
+        tableTags.has(workspaceCoworkReservedDeskTableTag),
       "meeting-room": () =>
         tableTags.has(workspaceMeetingRoomReservationTableTag),
       office: () => tableTags.has(workspaceOfficeReservationTableTag),

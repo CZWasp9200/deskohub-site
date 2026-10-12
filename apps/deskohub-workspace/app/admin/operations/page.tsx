@@ -1,14 +1,11 @@
 import { Suspense } from "react";
 import {
   AdministrationAlert,
-  AdministrationFilterField,
-  AdministrationFilterForm,
-  AdministrationFilterInput,
-  AdministrationFilterSelect,
   AdministrationPage,
   AdministrationTableCount,
   AdministrationTableToolbar,
 } from "@/features/administration/components";
+import { OperationsAdministrationFilterForm } from "@/features/administration/filter-forms";
 import {
   AdministrationCollectionLoading,
   AdministrationCountLoading,
@@ -16,15 +13,9 @@ import {
 } from "@/features/administration/loading";
 import {
   type AdministrationSearchParams,
-  type loadAdministrationOperations,
   loadAdministrationOperationsPage,
 } from "@/features/administration/page-data.server";
-import {
-  nexiOperationChannels,
-  nexiOperationTypes,
-} from "@/features/administration/payment-administration-filters";
 import { OperationTable } from "@/features/administration/payment-tables";
-import { Button } from "@/shared/components/ui/button";
 
 export default function OperationsAdministrationPage({
   searchParams,
@@ -60,13 +51,14 @@ export default function OperationsAdministrationPage({
   );
 }
 
-type OperationsData = Awaited<ReturnType<typeof loadAdministrationOperations>>;
-type OperationCriteria = Pick<OperationsData, "input" | "range">;
+type OperationsPage = ReturnType<typeof loadAdministrationOperationsPage>;
+type OperationsResult = Awaited<OperationsPage["result"]>;
+type OperationCriteria = Awaited<OperationsPage["criteria"]>;
 
 async function OperationCount({
   result,
 }: {
-  readonly result: Promise<OperationsData["result"]>;
+  readonly result: Promise<OperationsResult>;
 }) {
   return (
     <AdministrationTableCount
@@ -81,51 +73,18 @@ async function OperationFiltersContent({
 }: {
   readonly criteria: Promise<OperationCriteria>;
 }) {
-  return <OperationFilters {...(await criteria)} />;
+  return <OperationsAdministrationFilterForm {...(await criteria)} />;
 }
 
 async function OperationResultsContent({
   result,
 }: {
-  readonly result: Promise<OperationsData["result"]>;
+  readonly result: Promise<OperationsResult>;
 }) {
   return <OperationResults result={await result} />;
 }
 
-function OperationFilters({ input, range }: OperationCriteria) {
-  return (
-    <AdministrationFilterForm variant="standalone">
-      <FilterField
-        defaultValue={range.from}
-        label="From"
-        name="from"
-        type="date"
-      />
-      <FilterField defaultValue={range.to} label="To" name="to" type="date" />
-      <SelectField
-        defaultValue={input.channel}
-        label="Origin"
-        name="channel"
-        options={nexiOperationChannels}
-      />
-      <SelectField
-        defaultValue={input.operationType}
-        label="Type"
-        name="operationType"
-        options={nexiOperationTypes}
-      />
-      <Button className="min-h-10" size="sm" type="submit">
-        Show operations
-      </Button>
-    </AdministrationFilterForm>
-  );
-}
-
-function OperationResults({
-  result,
-}: {
-  readonly result: OperationsData["result"];
-}) {
+function OperationResults({ result }: { readonly result: OperationsResult }) {
   return (
     <>
       {!result.providerAvailable && (
@@ -142,57 +101,5 @@ function OperationResults({
       )}
       <OperationTable operations={result.items} />
     </>
-  );
-}
-
-function FilterField({
-  defaultValue,
-  label,
-  name,
-  type,
-}: {
-  readonly defaultValue?: string;
-  readonly label: string;
-  readonly name: string;
-  readonly type: "date";
-}) {
-  return (
-    <AdministrationFilterField htmlFor={`operation-${name}`} label={label}>
-      <AdministrationFilterInput
-        defaultValue={defaultValue}
-        id={`operation-${name}`}
-        name={name}
-        type={type}
-      />
-    </AdministrationFilterField>
-  );
-}
-
-function SelectField({
-  defaultValue,
-  label,
-  name,
-  options,
-}: {
-  readonly defaultValue?: string;
-  readonly label: string;
-  readonly name: string;
-  readonly options: readonly string[];
-}) {
-  return (
-    <AdministrationFilterField htmlFor={`operation-${name}`} label={label}>
-      <AdministrationFilterSelect
-        defaultValue={defaultValue ?? ""}
-        id={`operation-${name}`}
-        name={name}
-      >
-        <option value="">All</option>
-        {options.map((option) => (
-          <option key={option} value={option}>
-            {option.replaceAll("_", " ")}
-          </option>
-        ))}
-      </AdministrationFilterSelect>
-    </AdministrationFilterField>
   );
 }

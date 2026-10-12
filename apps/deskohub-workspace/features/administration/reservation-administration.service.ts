@@ -20,7 +20,7 @@ import {
   canCancelReservation,
 } from "./reservation-status";
 
-export type ReservationCancellationResult = {
+type ReservationCancellationResult = {
   readonly outcome: "cancelled" | "already_cancelled";
   readonly email: "not_requested" | "sent" | "failed";
 };

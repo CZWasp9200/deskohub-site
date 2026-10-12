@@ -4,8 +4,11 @@ import {
 } from "@deskohub/standard-schema";
 import { Match, Option, Schema } from "effect";
 import {
-  isWorkspaceCoworkProductTier,
+  getCoworkTierWorkstationAddon,
+  isWorkspaceCoworkCurrentProductTier,
   isWorkspaceProductMonitorOption,
+  type WorkspaceCoworkProductTier,
+  workspaceCoworkCurrentTiers,
   workspaceProductMonitorOptions,
 } from "@/features/checkout/product-catalog";
 import {
@@ -14,6 +17,16 @@ import {
 } from "@/features/reservation/cowork-reservation-product";
 import type { WorkspaceMeetingRoomProductTarget } from "@/features/reservation/meeting-room-reservation";
 import {
+  getMeetingRoomReservationDuration,
+  type MeetingRoomReservationDurationKey,
+} from "@/features/reservation/meeting-room-reservation-duration";
+import {
+  getMeetingRoomLastServiceDate,
+  getMeetingRoomReservationDate,
+  getMeetingRoomReservationInterval,
+} from "@/features/reservation/meeting-room-reservation-time";
+import {
+  getOfficeReservationMaximumEndsOn,
   officeSeatsSchema,
   type WorkspaceOfficeProductTarget,
 } from "@/features/reservation/office-reservation";
@@ -36,24 +49,24 @@ const workspaceAvailabilityQueryBaseFields = {
   to: Schema.String,
 };
 
-export const coworkWorkspaceAvailabilityQuerySchema = Schema.Struct({
+const coworkWorkspaceAvailabilityQuerySchema = Schema.Struct({
   kind: Schema.Literal(coworkReservationKind),
   ...workspaceAvailabilityQueryBaseFields,
   date: Schema.optional(Schema.String),
-  entryTier: Schema.optional(workspaceCoworkProductIdentitySchema.fields.tier),
+  entryTier: Schema.optional(Schema.Literals(workspaceCoworkCurrentTiers)),
   monitorOption: Schema.optional(
     Schema.Literals(workspaceProductMonitorOptions)
   ),
 });
 
-export const meetingRoomWorkspaceAvailabilityQuerySchema = Schema.Struct({
+const meetingRoomWorkspaceAvailabilityQuerySchema = Schema.Struct({
   kind: Schema.Literal(meetingRoomReservationKind),
   ...workspaceAvailabilityQueryBaseFields,
   startsAt: Schema.optional(reservationTimestampInputSchema),
   endsAt: Schema.optional(reservationTimestampInputSchema),
 });
 
-export const officeWorkspaceAvailabilityQuerySchema = Schema.Struct({
+const officeWorkspaceAvailabilityQuerySchema = Schema.Struct({
   kind: Schema.Literal(officeReservationKind),
   ...workspaceAvailabilityQueryBaseFields,
   startsAt: Schema.optional(reservationTimestampInputSchema),
@@ -61,20 +74,25 @@ export const officeWorkspaceAvailabilityQuerySchema = Schema.Struct({
   seats: Schema.optional(officeSeatsSchema),
 });
 
-export const workspaceAvailabilityQuerySchema = Schema.Union([
-  coworkWorkspaceAvailabilityQuerySchema,
-  meetingRoomWorkspaceAvailabilityQuerySchema,
-  officeWorkspaceAvailabilityQuerySchema,
-]);
-
-export type WorkspaceAvailabilityQuery =
-  typeof workspaceAvailabilityQuerySchema.Type;
-export type CoworkWorkspaceAvailabilityQuery =
+type CoworkWorkspaceAvailabilityQuery =
   typeof coworkWorkspaceAvailabilityQuerySchema.Type;
 export type MeetingRoomWorkspaceAvailabilityQuery =
   typeof meetingRoomWorkspaceAvailabilityQuerySchema.Type;
 export type OfficeWorkspaceAvailabilityQuery =
   typeof officeWorkspaceAvailabilityQuerySchema.Type;
+
+// Internal availability computations also serve historical recovery paths,
+// so the selection query keeps every cowork tier decodable even though the
+// public query schema only accepts the current offers.
+export type CoworkWorkspaceAvailabilitySelectionQuery = Omit<
+  CoworkWorkspaceAvailabilityQuery,
+  "entryTier"
+> & { readonly entryTier?: WorkspaceCoworkProductTier };
+
+export type WorkspaceAvailabilityQuery =
+  | CoworkWorkspaceAvailabilitySelectionQuery
+  | MeetingRoomWorkspaceAvailabilityQuery
+  | OfficeWorkspaceAvailabilityQuery;
 
 export type WorkspaceAvailabilityUnavailableTarget =
   | WorkspaceCoworkAvailabilityTarget
@@ -98,6 +116,7 @@ const workspaceAvailabilityResponseSchema = Schema.Struct({
   from: Schema.String,
   to: Schema.String,
   unavailableDates: Schema.Array(Schema.String),
+  reservedDeskWorkstationRequiredDates: Schema.Array(Schema.String),
   unavailableCoworkTiers: Schema.Array(
     workspaceCoworkProductIdentitySchema.fields.tier
   ),
@@ -114,6 +133,164 @@ export type WorkspaceAvailabilityNotice =
 
 export type WorkspaceAvailability =
   typeof workspaceAvailabilityResponseSchema.Type;
+
+/** Availability the server loaded for a query before the page rendered. */
+export type PreloadedWorkspaceAvailability = {
+  readonly availability: WorkspaceAvailability;
+  /** When the server loaded it, in epoch milliseconds. */
+  readonly loadedAt: number;
+  readonly query: WorkspaceAvailabilityQuery;
+};
+
+/**
+ * The calendar range availability is queried for by default: six months from
+ * the workspace's current date.
+ */
+export const getWorkspaceAvailabilityRange = (today: string) => ({
+  from: today,
+  to: Temporal.PlainDate.from(today).add({ months: 6 }).toString(),
+});
+
+type CoworkAvailabilityQueries = {
+  /** The selected tier's calendar range. */
+  readonly range?: CoworkWorkspaceAvailabilityQuery;
+  /** The selected offer on the selected day alone. */
+  readonly selection?: CoworkWorkspaceAvailabilityQuery;
+  /** Whether a Reserved Desk needs a workstation on the selected day. */
+  readonly workstationRequirement?: CoworkWorkspaceAvailabilityQuery;
+};
+
+/**
+ * The availability queries a cowork reservation form reads for its selection.
+ * The page preloads the same queries, so both sides must build them here from
+ * the same workspace date.
+ */
+export const getCoworkAvailabilityQueries = ({
+  date,
+  entryTier,
+  monitorOption,
+  today,
+}: {
+  readonly date?: string;
+  readonly entryTier?: string;
+  readonly monitorOption?: string;
+  readonly today: string;
+}): CoworkAvailabilityQueries => {
+  if (!isWorkspaceCoworkCurrentProductTier(entryTier)) return {};
+
+  const range: CoworkWorkspaceAvailabilityQuery = {
+    kind: coworkReservationKind,
+    ...getWorkspaceAvailabilityRange(today),
+    entryTier,
+  };
+  if (!date) return { range };
+
+  // Selection queries only read the selected date's result, so they ask for
+  // that day alone instead of the whole calendar range.
+  const selectedDate: CoworkWorkspaceAvailabilityQuery = {
+    kind: coworkReservationKind,
+    from: date,
+    to: date,
+    entryTier,
+    date,
+  };
+
+  return {
+    range,
+    selection: {
+      ...selectedDate,
+      ...(getCoworkTierWorkstationAddon(entryTier) === "optional" &&
+        isWorkspaceProductMonitorOption(monitorOption) && { monitorOption }),
+    },
+    ...(entryTier === "reserved-desk" && {
+      workstationRequirement: selectedDate,
+    }),
+  };
+};
+
+/** The office availability query spanning the office booking horizon. */
+export const getOfficeAvailabilityQuery = (
+  today: string
+): OfficeWorkspaceAvailabilityQuery => ({
+  kind: officeReservationKind,
+  from: today,
+  to: getOfficeReservationMaximumEndsOn(
+    Temporal.PlainDate.from(today)
+  ).toString(),
+});
+
+/**
+ * Whether a cowork offer can be booked on its date, by the same rules the
+ * reservation form applies: a Reserved Desk stays bookable on dates that only
+ * require a workstation, which the form adds itself.
+ */
+export const isCoworkOfferAvailable = (
+  availability: Pick<
+    WorkspaceAvailability,
+    | "reservedDeskWorkstationRequiredDates"
+    | "unavailableCoworkTiers"
+    | "unavailableDates"
+    | "unavailableMonitorOptions"
+  >,
+  offer: Pick<
+    CoworkWorkspaceAvailabilitySelectionQuery,
+    "entryTier" | "monitorOption"
+  > & { readonly date: string }
+) =>
+  !(
+    (offer.entryTier !== undefined &&
+      availability.unavailableCoworkTiers.includes(offer.entryTier)) ||
+    (offer.monitorOption !== undefined &&
+      availability.unavailableMonitorOptions.includes(offer.monitorOption)) ||
+    (availability.unavailableDates.includes(offer.date) &&
+      !(
+        offer.entryTier === "reserved-desk" &&
+        availability.reservedDeskWorkstationRequiredDates.includes(offer.date)
+      ))
+  );
+
+/** The availability query for one meeting-room reservation interval. */
+export const getMeetingRoomAvailabilityQuery = (
+  interval: ReservationInterval
+): MeetingRoomWorkspaceAvailabilityQuery => ({
+  kind: "meeting-room",
+  from: getMeetingRoomReservationDate(interval),
+  to: getMeetingRoomLastServiceDate(interval),
+  startsAt: interval.startsAt,
+  endsAt: interval.endsAt,
+});
+
+/**
+ * The availability query for a selected meeting-room start and duration,
+ * shared by the page preload and the form so both use the same query key.
+ */
+export const getMeetingRoomSelectionAvailabilityQuery = ({
+  duration,
+  startDateTime,
+}: {
+  readonly duration: MeetingRoomReservationDurationKey;
+  readonly startDateTime: string;
+}): MeetingRoomWorkspaceAvailabilityQuery | undefined => {
+  const interval = getMeetingRoomReservationInterval(
+    startDateTime,
+    getMeetingRoomReservationDuration(duration)
+  );
+
+  return interval ? getMeetingRoomAvailabilityQuery(interval) : undefined;
+};
+
+/**
+ * Whether the meeting room is free for the interval its availability was
+ * queried for.
+ */
+export const isMeetingRoomAvailable = (
+  availability: Pick<
+    WorkspaceAvailability,
+    "meetingRoomUnavailable" | "unavailableDates"
+  >
+) =>
+  availability.unavailableDates.length === 0 &&
+  !availability.meetingRoomUnavailable;
 
 const workspaceAvailabilitySchema = Schema.toStandardSchemaV1(
   workspaceAvailabilityResponseSchema
@@ -143,7 +320,9 @@ const getDateParam = (searchParams: URLSearchParams, key: string) => {
 
 const getTierParam = (value: string | null) => {
   const normalized = value?.trim();
-  return isWorkspaceCoworkProductTier(normalized) ? normalized : undefined;
+  return isWorkspaceCoworkCurrentProductTier(normalized)
+    ? normalized
+    : undefined;
 };
 
 const decodeReservationKindParam = Schema.decodeUnknownOption(
@@ -188,12 +367,13 @@ export const parseWorkspaceAvailabilityQuery = (
   searchParams: URLSearchParams,
   now = new Date()
 ): WorkspaceAvailabilityQuery => {
-  const today = getCurrentWorkspaceDate(
-    Temporal.Instant.fromEpochMilliseconds(now.getTime())
+  const range = getWorkspaceAvailabilityRange(
+    getCurrentWorkspaceDate(
+      Temporal.Instant.fromEpochMilliseconds(now.getTime())
+    ).toString()
   );
-  const from = getDateParam(searchParams, "from") ?? today.toString();
-  const to =
-    getDateParam(searchParams, "to") ?? today.add({ months: 6 }).toString();
+  const from = getDateParam(searchParams, "from") ?? range.from;
+  const to = getDateParam(searchParams, "to") ?? range.to;
   const reservationKind = getReservationKindParam(searchParams);
 
   return Match.value(reservationKind).pipe(

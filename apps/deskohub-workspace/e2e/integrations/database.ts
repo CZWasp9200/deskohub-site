@@ -56,7 +56,10 @@ import {
 } from "../errors";
 import { pollUntil } from "../polling";
 import { assert, log } from "../runtime";
-import { workspaceE2EPollIntervalMs } from "../timeouts";
+import {
+  workspaceE2EPollInitialIntervalMs,
+  workspaceE2EPollIntervalMs,
+} from "../timeouts";
 import type {
   CheckoutData,
   CheckoutRow,
@@ -86,6 +89,7 @@ export const requireProviderSessionRowAfterRedirect = (
       ),
       {
         ...options,
+        initialIntervalMs: workspaceE2EPollInitialIntervalMs.database,
         intervalMs: workspaceE2EPollIntervalMs.datasource,
       }
     );
@@ -94,6 +98,7 @@ export const requireProviderSessionRowAfterRedirect = (
 export const waitForProviderSessionRowAfterRedirect = (
   readRow: Effect.Effect<CheckoutRow | undefined, WorkspaceE2EError>,
   options: {
+    readonly initialIntervalMs?: number;
     readonly intervalMs: number;
     readonly onRow?: (row: CheckoutRow) => void;
     readonly timeoutMs: number;
@@ -113,6 +118,7 @@ export const waitForProviderSessionRowAfterRedirect = (
       Effect.map((row) => (isProviderSessionRow(row) ? row : undefined))
     ),
     {
+      initialIntervalMs: options.initialIntervalMs,
       intervalMs: options.intervalMs,
       label: "provider session row after hosted redirect",
       timeoutMs: options.timeoutMs,
@@ -262,6 +268,7 @@ export const validatePostgres = (
         )
       ),
       {
+        initialIntervalMs: workspaceE2EPollInitialIntervalMs.database,
         intervalMs: workspaceE2EPollIntervalMs.datasource,
         label: `Postgres checkout rows for ${orderId}`,
         timeoutMs: config.timeouts.datasource,
@@ -338,6 +345,20 @@ export const validateDiscountApplications = (
         .leftJoin(
           voucherRedemptions,
           eq(voucherRedemptions.applicationId, discountApplications.id)
+        )
+        // A checkout may restart its payment; only the active attempt counts.
+        .innerJoin(
+          workspaceReservations,
+          and(
+            eq(
+              workspaceReservations.id,
+              discountApplications.workspaceReservationId
+            ),
+            eq(
+              workspaceReservations.activePaymentAttemptId,
+              discountApplications.paymentAttemptId
+            )
+          )
         )
         .where(eq(discountApplications.workspaceReservationId, orderId))
         .orderBy(asc(discountApplications.sequence))
@@ -649,6 +670,7 @@ export const validateInternalPostgres = (
         )
       ),
       {
+        initialIntervalMs: workspaceE2EPollInitialIntervalMs.database,
         intervalMs: workspaceE2EPollIntervalMs.datasource,
         label: `internal Postgres checkout rows for ${orderId}`,
         timeoutMs: config.timeouts.datasource,
@@ -750,6 +772,7 @@ export const waitForCheckoutRow = (
   Effect.gen(function* () {
     const { db } = yield* E2EDatabase;
     return yield* pollUntil(readCheckoutRowFromDatabase(db, orderId), {
+      initialIntervalMs: workspaceE2EPollInitialIntervalMs.database,
       intervalMs: workspaceE2EPollIntervalMs.datasource,
       label: "checkout row",
       timeoutMs: config.timeouts.datasource,
@@ -864,6 +887,105 @@ export const markPaymentTerminalForE2E = (
       "assert terminal checkout row exists",
       () => {
         assert(row, "terminal checkout row missing");
+        return row;
+      }
+    );
+  });
+
+const nexiSandboxRejectedFailureCode = "workspace_e2e_nexi_sandbox_rejected";
+
+// Unpaid terminal payment states from which checkout starts a new attempt.
+const isRestartablePaymentState = (state: string | null) =>
+  state === "failed" || state === "cancelled" || state === "expired";
+
+// Retires a payment attempt the Nexi sandbox rejected before authorization the
+// way a provider failure would: the attempt and the reservation payment fail
+// while the hold stays, and the attempt's discount claims are released.
+// Reopening the checkout pay page then starts a fresh attempt and Nexi order.
+export const retireRejectedPaymentAttemptForE2E = (
+  orderId: WorkspaceReservationId,
+  paymentAttemptId: PaymentAttemptId
+): Effect.Effect<CheckoutRow, WorkspaceE2EError, E2EDatabase> =>
+  Effect.gen(function* () {
+    const { db } = yield* E2EDatabase;
+    const failureCode = nexiSandboxRejectedFailureCode;
+    const now = Temporal.Now.instant();
+    const releasedClaim = {
+      releaseReason: failureCode,
+      releasedAt: now,
+      state: "released",
+      updatedAt: now,
+    } as const;
+
+    yield* runDatabaseOperation(
+      "retire rejected payment attempt",
+      db.transaction((tx) =>
+        Effect.gen(function* () {
+          yield* tx
+            .update(paymentAttempts)
+            .set({ state: "failed", failureCode, updatedAt: now })
+            .where(
+              and(
+                eq(paymentAttempts.id, paymentAttemptId),
+                eq(paymentAttempts.workspaceReservationId, orderId),
+                inArray(paymentAttempts.state, ["created", "pending"])
+              )
+            );
+
+          yield* tx
+            .update(workspaceReservations)
+            .set({ paymentState: "failed", failureCode, updatedAt: now })
+            .where(
+              and(
+                eq(workspaceReservations.id, orderId),
+                eq(
+                  workspaceReservations.activePaymentAttemptId,
+                  paymentAttemptId
+                ),
+                eq(workspaceReservations.reservationState, "held"),
+                eq(workspaceReservations.paymentState, "pending")
+              )
+            );
+
+          yield* tx
+            .update(discountCodeRedemptions)
+            .set(releasedClaim)
+            .where(
+              and(
+                eq(discountCodeRedemptions.paymentAttemptId, paymentAttemptId),
+                eq(discountCodeRedemptions.state, "reserved")
+              )
+            );
+          yield* tx
+            .update(voucherRedemptions)
+            .set(releasedClaim)
+            .where(
+              and(
+                eq(voucherRedemptions.paymentAttemptId, paymentAttemptId),
+                eq(voucherRedemptions.state, "reserved")
+              )
+            );
+        })
+      )
+    );
+
+    const row = yield* readCheckoutRowFromDatabase(db, orderId);
+    return yield* tryWorkspaceE2ESync(
+      "assert rejected payment attempt retired",
+      () => {
+        assert(row, "retired checkout row missing");
+        // The app may already have failed the attempt from a Nexi
+        // notification; any unpaid terminal state lets checkout start afresh.
+        assert(
+          row.payment_attempt_id === paymentAttemptId &&
+            isRestartablePaymentState(row.payment_attempt_state) &&
+            isRestartablePaymentState(row.payment_state),
+          "rejected payment attempt was not retired"
+        );
+        assert(
+          row.reservation_state === "held",
+          "reservation hold ended before the payment could restart"
+        );
         return row;
       }
     );
@@ -1017,6 +1139,9 @@ export const waitForLatePaymentRecoveryOutcome = (
 
         const checkoutRow = yield* readCheckoutRowFromDatabase(db, orderId);
         if (!checkoutRow) return undefined;
+        // Status-page verification can settle the recovery while the
+        // replayed webhook is still being processed; wait for both.
+        if (checkoutRow.webhook_state !== "processed") return undefined;
         if (
           expected.state === "recovered" &&
           checkoutRow.fulfillment_state !== "processing" &&
@@ -1027,6 +1152,7 @@ export const waitForLatePaymentRecoveryOutcome = (
         return { checkoutRow, recovery };
       }),
       {
+        initialIntervalMs: workspaceE2EPollInitialIntervalMs.database,
         intervalMs: workspaceE2EPollIntervalMs.datasource,
         label: `late payment recovery for ${orderId}`,
         timeoutMs: config.timeouts.datasource,
@@ -1151,6 +1277,25 @@ export const markFulfillmentFailedForE2E = (
     );
   });
 
+const terminalUnpaidPaymentStates: ReadonlySet<string> = new Set([
+  "failed",
+  "cancelled",
+  "expired",
+]);
+
+export const getPreviewFulfillmentMarkerDiagnosticCode = (
+  row: CheckoutRow | undefined
+): WorkspaceE2EDiagnosticCode | undefined => {
+  if (!row) return undefined;
+  if (terminalUnpaidPaymentStates.has(row.payment_state)) {
+    return "checkout_payment_terminal_before_fulfillment";
+  }
+  if (row.fulfillment_state === "failed") {
+    return "checkout_fulfillment_failed_before_marker";
+  }
+  return undefined;
+};
+
 export const markPreviewFulfillmentDeliveredForE2E = (
   config: DatasourceConfig,
   orderId: WorkspaceReservationId
@@ -1182,6 +1327,17 @@ export const markPreviewFulfillmentDeliveredForE2E = (
 
         if (rows[0]?.id !== orderId) {
           const current = yield* readCheckoutRowFromDatabase(db, orderId);
+          const diagnosticCode =
+            getPreviewFulfillmentMarkerDiagnosticCode(current);
+          if (diagnosticCode) {
+            return yield* workspaceE2EError(
+              `Checkout ${orderId} can no longer reach fulfillment (payment ${current?.payment_state}, fulfillment ${current?.fulfillment_state})`,
+              {
+                diagnosticCode,
+                operation: "mark preview fulfillment delivered",
+              }
+            );
+          }
           return current?.fulfillment_state === "fulfilled"
             ? current
             : undefined;
@@ -1190,6 +1346,7 @@ export const markPreviewFulfillmentDeliveredForE2E = (
         return yield* readCheckoutRowFromDatabase(db, orderId);
       }),
       {
+        initialIntervalMs: workspaceE2EPollInitialIntervalMs.database,
         intervalMs: workspaceE2EPollIntervalMs.datasource,
         label: `preview fulfillment marker for ${orderId}`,
         timeoutMs: config.timeouts.datasource,
@@ -1546,7 +1703,7 @@ const assertNoLocalPii = (
   data: CheckoutData
 ): Effect.Effect<void, WorkspaceE2EError> =>
   Effect.gen(function* () {
-    const patterns = [data.email, data.phone, data.name, data.message].map(
+    const patterns = [data.email, data.phone, data.name].map(
       (value) => `%${value}%`
     );
     const [

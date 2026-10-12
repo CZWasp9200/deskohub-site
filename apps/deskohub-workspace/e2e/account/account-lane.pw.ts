@@ -30,8 +30,10 @@ import {
   writeWorkspaceE2EAccountJournal,
 } from "./journal";
 import { verifyWorkspaceE2EMarketingPreferences } from "./marketing-preferences";
+import { workspaceE2EAccountProfileName } from "./profile-fixture";
 import { verifyProfileNavigation } from "./profile-navigation";
 import { makeMagicLinkRateBudget } from "./rate-budget";
+import { verifyReservationExistingCustomer } from "./reservation-existing-customer";
 import { withWorkspaceE2EReservationHistoryFixture } from "./reservation-history-fixture";
 import {
   toWorkspaceE2EReservationHistoryFailure,
@@ -47,8 +49,13 @@ import {
   accountReviewTargetByCaseId,
   accountReviewTargetBySection,
   mobileAccountReviewTargetBySection,
+  reservationCustomerReviewTargetByMode,
 } from "./review-targets";
 import type { WorkspaceE2EAccountLifecycleHandoff } from "./types";
+import {
+  resolveWorkspaceE2EPreviewLogs,
+  type WorkspaceE2EPreviewLogs,
+} from "./vercel-log-retrieval";
 
 const accountReviewCaptureFailureMessage =
   "Account review screenshot capture failed";
@@ -61,6 +68,7 @@ type WorkspaceE2EAccountLane = {
    * it stays in memory only and never joins the cleanup journal.
    */
   readonly lifecycleHandoff: WorkspaceE2EAccountLifecycleHandoff;
+  readonly previewLogs: WorkspaceE2EPreviewLogs;
   readonly journalRef: {
     readonly journal: WorkspaceE2EAccountJournal;
     readonly record: (update: {
@@ -89,7 +97,7 @@ const accountTest = runtimeTest.extend<
   WorkspaceE2EAccountWorkerFixtures
 >({
   accountLane: [
-    async ({ browser, environment, runContext }, applyFixture) => {
+    async ({ browser, environment, runContext, runEffect }, applyFixture) => {
       const config = getAccountE2EConfig(environment, runContext.runId);
       const run = makePlaywrightBrowserRunner(browser, { recordHar: false });
       const lifecycleHandoff: WorkspaceE2EAccountLifecycleHandoff = {};
@@ -123,14 +131,24 @@ const accountTest = runtimeTest.extend<
         },
       };
       try {
-        await applyFixture({
-          config,
-          lifecycleHandoff,
-          journalRef,
-          rateBudget: makeMagicLinkRateBudget(),
-          run,
-          session: `workspace-account-e2e-${runContext.runId}`,
-        });
+        await runEffect(
+          Effect.scoped(
+            Effect.gen(function* () {
+              const previewLogs = yield* resolveWorkspaceE2EPreviewLogs(config);
+              yield* Effect.promise(() =>
+                applyFixture({
+                  config,
+                  lifecycleHandoff,
+                  journalRef,
+                  previewLogs,
+                  rateBudget: makeMagicLinkRateBudget(),
+                  run,
+                  session: `workspace-account-e2e-${runContext.runId}`,
+                })
+              );
+            })
+          )
+        );
       } finally {
         await run.close?.();
       }
@@ -153,6 +171,7 @@ for (const caseId of workspaceE2EAccountCaseIds) {
         config: accountLane.config,
         datasourceConfig,
         lifecycleHandoff: accountLane.lifecycleHandoff,
+        previewLogs: accountLane.previewLogs,
         rateBudget: accountLane.rateBudget,
         run: accountLane.run,
         session: accountLane.session,
@@ -176,13 +195,16 @@ for (const caseId of workspaceE2EAccountCaseIds) {
         verifyPages = [
           {
             execute: Effect.tryPromise({
-              catch: () =>
-                workspaceE2EError(
-                  "verify profile navigation and unsaved changes failed",
-                  {
-                    operation: "verify profile navigation and unsaved changes",
-                  }
-                ),
+              catch: (cause) =>
+                cause instanceof WorkspaceE2EError
+                  ? cause
+                  : workspaceE2EError(
+                      "verify profile navigation and unsaved changes failed",
+                      {
+                        operation:
+                          "verify profile navigation and unsaved changes",
+                      }
+                    ),
               try: async () => {
                 await verifyProfileNavigation(
                   getOwnedPage(),
@@ -191,6 +213,42 @@ for (const caseId of workspaceE2EAccountCaseIds) {
               },
             }),
             id: "checks profile re-entry and unsaved navigation",
+            timeoutMs: workspaceE2ETimeouts.providerTransition,
+          },
+          {
+            execute: Effect.tryPromise({
+              catch: (cause) =>
+                cause instanceof WorkspaceE2EError
+                  ? cause
+                  : workspaceE2EError(
+                      "verify reservation existing customer card failed",
+                      {
+                        operation: "verify reservation existing customer card",
+                      }
+                    ),
+              try: async () => {
+                const page = getOwnedPage();
+                await verifyReservationExistingCustomer({
+                  baseUrl: accountLane.config.baseUrl,
+                  captureReview: (mode) =>
+                    captureAccountReview(
+                      page,
+                      accountLane.config.review,
+                      reservationCustomerReviewTargetByMode[mode]
+                    ),
+                  contact: {
+                    email: makeWorkspaceE2EAccountRecipient(
+                      accountLane.config,
+                      workspaceE2EAccountMainRecipientLabel
+                    ),
+                    name: workspaceE2EAccountProfileName,
+                  },
+                  page,
+                  reviewScreenshots: accountLane.config.review.screenshots,
+                });
+              },
+            }),
+            id: "checks reservation existing customer card",
             timeoutMs: workspaceE2ETimeouts.providerTransition,
           },
         ];
@@ -240,22 +298,26 @@ for (const caseId of workspaceE2EAccountCaseIds) {
                         }
                       ),
                 try: () =>
-                  verifyAccountLayoutNavigation(page, async (section) => {
-                    await captureAccountReview(
-                      page,
-                      accountLane.config.baseUrl,
-                      accountReviewTargetBySection[section]
-                    );
-                    const mobileTarget =
-                      mobileAccountReviewTargetBySection[section];
-                    if (mobileTarget) {
+                  verifyAccountLayoutNavigation(
+                    page,
+                    async (section) => {
                       await captureAccountReview(
                         page,
-                        accountLane.config.baseUrl,
-                        mobileTarget
+                        accountLane.config.review,
+                        accountReviewTargetBySection[section]
                       );
-                    }
-                  }),
+                      const mobileTarget =
+                        mobileAccountReviewTargetBySection[section];
+                      if (mobileTarget) {
+                        await captureAccountReview(
+                          page,
+                          accountLane.config.review,
+                          mobileTarget
+                        );
+                      }
+                    },
+                    accountLane.config.review
+                  ),
               });
             }),
             id: "checks account layout navigation",
@@ -270,6 +332,7 @@ for (const caseId of workspaceE2EAccountCaseIds) {
                 bypassSecret: accountLane.config.bypassSecret,
                 customerId: DotyposCustomerIdSchema.make(customerId),
                 page: getOwnedPage(),
+                reviewScreenshots: accountLane.config.review.screenshots,
               });
             }),
             id: "checks account marketing preferences",
@@ -308,7 +371,7 @@ for (const caseId of workspaceE2EAccountCaseIds) {
                         captureStatusReview: (stage) =>
                           captureReservationStatusReview(
                             getOwnedPage(),
-                            accountLane.config.baseUrl,
+                            accountLane.config.review,
                             stage === "modal"
                               ? "reservation-status-modal-desktop"
                               : "reservation-status-details-desktop",
@@ -342,21 +405,17 @@ for (const caseId of workspaceE2EAccountCaseIds) {
           throw new Error(accountReviewCaptureFailureMessage);
         const page = pages[0];
         if (!page) throw new Error(accountReviewCaptureFailureMessage);
-        await withSignInPendingReview(
-          page,
-          accountLane.config.baseUrl,
-          runCase
-        );
+        await withSignInPendingReview(page, accountLane.config.review, runCase);
       } else if (caseId === "account-magic-link-delivery") {
         await withCallbackHandoffReview(
           getOwnedPage(),
-          accountLane.config.baseUrl,
+          accountLane.config.review,
           runCase
         );
       } else if (caseId === "account-communication-language") {
         await withLanguagePreferenceReview(
           getOwnedPage(),
-          accountLane.config.baseUrl,
+          accountLane.config.review,
           runCase
         );
       } else {
@@ -373,7 +432,7 @@ for (const caseId of workspaceE2EAccountCaseIds) {
       if (!page) throw new Error(accountReviewCaptureFailureMessage);
 
       await accountTest.step(`capture account review: ${target}`, async () => {
-        await captureAccountReview(page, accountLane.config.baseUrl, target);
+        await captureAccountReview(page, accountLane.config.review, target);
       });
 
       if (caseId !== "account-linking-variants") return;
@@ -404,7 +463,11 @@ for (const caseId of workspaceE2EAccountCaseIds) {
               state: "visible",
               timeout: workspaceE2ETimeouts.browserAction,
             });
-          await captureAccountReview(page, baseUrl, "deleted-desktop");
+          await captureAccountReview(
+            page,
+            accountLane.config.review,
+            "deleted-desktop"
+          );
         }
       );
     }

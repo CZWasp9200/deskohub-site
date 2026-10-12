@@ -82,15 +82,26 @@ export const scheduleWorkspaceTelemetryFlush = () =>
       )
     : Effect.void;
 
-const WorkspaceObservabilityLive = Layer.merge(
+export const WorkspaceObservabilityLive = Layer.merge(
   postHogLoggerProvider
     ? createWorkspaceOtelLoggerLive(postHogLoggerProvider)
     : WorkspaceLoggerLive,
   WorkspaceTracingLive
 );
 
+/**
+ * Process-wide memo map for Workspace runtimes. Runtimes that build their
+ * layers with it reuse layers another runtime has already built, such as
+ * `WorkspaceObservabilityLive`.
+ */
+export const workspaceMemoMap = Layer.makeMemoMapUnsafe();
+
+// Built on first run and kept for the life of the process. It is never
+// disposed: telemetry is flushed per request through `after()` and per task
+// through `Effect.ensuring`, not by closing a layer scope.
 const workspaceRuntime = NextEffect.make({
   layer: WorkspaceObservabilityLive,
+  memoMap: workspaceMemoMap,
 });
 
 const flushTelemetry = Effect.tryPromise({

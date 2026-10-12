@@ -17,6 +17,7 @@ import type {
 import {
   formatAdministrationDateTime,
   formatAdministrationMoney,
+  formatAdministrationRefund,
   formatAdministrationReservationDate,
 } from "./formatters";
 import { NexiOrderLink } from "./nexi-order-link";
@@ -27,18 +28,13 @@ export { AdministrationCustomerTable } from "./customer-table";
 export {
   AdministrationDataTable,
   type AdministrationDataTableColumn,
+  type AdministrationDataTableSorting,
 } from "./data-table";
 export {
   AdministrationDetailSection,
   AdministrationFact,
 } from "./detail-components";
 export { EmptyState } from "./empty-state";
-export {
-  AdministrationFilterField,
-  AdministrationFilterForm,
-  AdministrationFilterInput,
-  AdministrationFilterSelect,
-} from "./filter-controls";
 export {
   formatAdministrationDateTime,
   formatAdministrationMoney,
@@ -48,18 +44,9 @@ export {
 export { NexiOrderLink } from "./nexi-order-link";
 export {
   AdministrationAlert,
-  type AdministrationNotice,
   AdministrationNoticeBanner,
 } from "./notice";
-export {
-  ReservationStatusBadge,
-  ReservationTable,
-} from "./reservation-table";
-export { AdministrationSortHead } from "./sort-head";
-export {
-  AdministrationResponsiveTable,
-  AdministrationTableFrame,
-} from "./table-frame";
+export { ReservationTable } from "./reservation-table";
 export {
   AdministrationTableCount,
   AdministrationTableToolbar,
@@ -127,6 +114,33 @@ export function AdministrationPageHeader({
   );
 }
 
+export function PaymentRefundLabel({
+  attempt,
+  className,
+}: {
+  readonly className?: string;
+  readonly attempt: Pick<
+    AdministrationPaymentAttempt,
+    "amount" | "refundState" | "refundedAmount" | "refundedAt"
+  >;
+}) {
+  const refund = formatAdministrationRefund(attempt);
+  if (!refund) return null;
+  return (
+    <span
+      className={cn(
+        "block",
+        className,
+        refund.needsAction
+          ? "font-semibold text-burned-orange-ink"
+          : "text-navy-blue/65"
+      )}
+    >
+      {refund.label}
+    </span>
+  );
+}
+
 export function PaymentAttemptList({
   attempts,
 }: {
@@ -164,11 +178,7 @@ export function PaymentAttemptList({
             </p>
             <p className="mt-1 text-sm text-navy-blue/65">
               {attempt.stateLabel}
-              {attempt.refundState === "required" && (
-                <span className="block font-semibold text-burned-orange-ink">
-                  Needs refund
-                </span>
-              )}
+              <PaymentRefundLabel attempt={attempt} />
             </p>
           </div>
         </li>

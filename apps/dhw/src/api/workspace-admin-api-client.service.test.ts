@@ -406,6 +406,7 @@ describe("WorkspaceAdminApiClient", () => {
       buildTarget: "development",
       createdAt: expiresAt,
       lastUsedAt: expiresAt,
+      expiresAt: null,
     } as const;
     const booking = Schema.decodeUnknownSync(AdministrationBookingSummary)({
       id: "booking-1",
@@ -562,6 +563,17 @@ describe("WorkspaceAdminApiClient", () => {
           );
           expect(url.searchParams.get("identifier")).toBe("payment-1");
           return Response.json({ reservationId: reservation.id });
+        }
+        if (url.pathname.endsWith("/reservations/reservation-1/cancellation")) {
+          expect(request.headers.get("authorization")).toBe(
+            `Bearer ${accessToken}`
+          );
+          expect(await request.json()).toEqual({
+            accessGrantUpdatedAt: null,
+            providerCredentialRemoved: false,
+            sendCancellationEmail: true,
+          });
+          return Response.json({ outcome: "cancelled", email: "sent" });
         }
         if (url.pathname.endsWith("/reservations/reservation-1/access")) {
           accessMutationAttempts += 1;
@@ -879,6 +891,17 @@ describe("WorkspaceAdminApiClient", () => {
           reservation.id,
           { kind: "retry-failed" }
         );
+        expect(
+          yield* client.cancelReservation(
+            Redacted.make(accessToken),
+            reservation.id,
+            {
+              accessGrantUpdatedAt: null,
+              providerCredentialRemoved: false,
+              sendCancellationEmail: true,
+            }
+          )
+        ).toEqual({ outcome: "cancelled", email: "sent" });
         yield* client.findReservation(Redacted.make(accessToken), "payment-1");
         yield* client.listBookings(Redacted.make(accessToken), {
           date: "2026-08-10",
@@ -954,6 +977,10 @@ describe("WorkspaceAdminApiClient", () => {
         {
           method: "POST",
           path: "/api/v1/cli/reservations/reservation-1/access",
+        },
+        {
+          method: "POST",
+          path: "/api/v1/cli/reservations/reservation-1/cancellation",
         },
         { method: "GET", path: "/api/v1/cli/reservations/find" },
         { method: "GET", path: "/api/v1/cli/bookings" },

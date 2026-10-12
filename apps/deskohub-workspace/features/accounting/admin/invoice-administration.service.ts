@@ -50,11 +50,14 @@ import {
 import { getAdministrationPagination } from "@/features/administration/listing";
 import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
 import {
-  defaultWorkspaceCurrency,
+  defaultWorkspaceCurrencyCode,
   findWorkspaceCurrencyDefinition,
 } from "@/shared/money/currencies";
 import { workspaceSiteConstants } from "@/shared/utils";
-import { plainDateStringSchema } from "@/shared/utils/temporal";
+import {
+  plainDateStringSchema,
+  temporalInstantToPlainDate,
+} from "@/shared/utils/temporal";
 import { AccountingDocumentSnapshotRepository } from "../backend/accounting-document-snapshot.repository";
 import { AccountingSnapshotKeyService } from "../backend/accounting-snapshot-key.service";
 import {
@@ -86,7 +89,7 @@ export type InvoiceAdministrationListQuery = {
   readonly page?: number;
 };
 
-export type InvoiceAdministrationPage = {
+type InvoiceAdministrationPage = {
   readonly items: readonly InvoiceAdministrationListItem[];
   readonly total: number;
   readonly page: number;
@@ -94,11 +97,11 @@ export type InvoiceAdministrationPage = {
   readonly pageCount: number;
 };
 
-export type InvoiceAdministrationDelivery = Readonly<
+type InvoiceAdministrationDelivery = Readonly<
   Record<"customer" | "internal", InvoiceDeliveryStatus>
 >;
 
-export type InvoiceAdministrationSource =
+type InvoiceAdministrationSource =
   | "reservation-request"
   | "post-order-link"
   | "admin-ui"
@@ -142,14 +145,14 @@ export type InvoiceAdministrationCustomer = {
   readonly details: AdministrationInvoiceCustomerDetailsType;
 };
 
-export type InvoiceAdministrationCreateResult = {
+type InvoiceAdministrationCreateResult = {
   readonly invoiceId: AdministrationInvoiceIdType;
   readonly invoiceNumber: string;
   readonly changed: boolean;
   readonly needsAttention: boolean;
 };
 
-export type InvoiceAdministrationRetryResult = {
+type InvoiceAdministrationRetryResult = {
   readonly invoiceId: AdministrationInvoiceIdType;
   readonly changed: boolean;
   readonly needsAttention: boolean;
@@ -398,7 +401,7 @@ const makeInvoiceAdministrationService = Effect.gen(function* () {
     ).toPlainDate();
     return {
       currencies: invoiceEnabledCurrencyDefinitions,
-      defaultCurrency: defaultWorkspaceCurrency.code,
+      defaultCurrency: defaultWorkspaceCurrencyCode,
       defaultServiceDate: today.toString(),
       defaultDueDate: today.add({ days: 14 }).toString(),
       suggestedVariableSymbol: yield* invoices.getSuggestedVariableSymbol(),
@@ -643,7 +646,14 @@ const toDetail = (
   return {
     ...summary,
     locale: document.locale,
-    serviceDate: document.fulfilledAt ?? null,
+    // The administration contract carries a calendar date; the service date
+    // of a reservation invoice is the Prague date of its fulfillment instant.
+    serviceDate: document.fulfilledAt
+      ? temporalInstantToPlainDate({
+          instant: Temporal.Instant.from(document.fulfilledAt),
+          timeZone: workspaceSiteConstants.location.timeZone,
+        }).toString()
+      : null,
     dueDate: null,
     paidOn: null,
     variableSymbol: null,

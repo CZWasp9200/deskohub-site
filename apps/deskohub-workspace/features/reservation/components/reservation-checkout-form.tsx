@@ -4,12 +4,16 @@ import type { FormEvent, ReactNode } from "react";
 import type { FieldValues, UseFormReturn } from "react-hook-form";
 import type { CheckoutSessionId } from "@/features/checkout/checkout-identifiers";
 import type { CheckoutSummaryDiscount } from "@/features/checkout/checkout-summary";
-import { CheckoutPayPageSkeleton } from "@/features/checkout/components/checkout-pay-page";
+import { CheckoutPayPageSkeleton } from "@/features/checkout/components/checkout-pay-page-skeleton";
 import { type Locale, m } from "@/features/i18n";
-import type { ReservationOrderData } from "@/features/reservation/reservation-order";
+import type { ReservationExistingCustomerForm } from "@/features/reservation/reservation-existing-customer";
+import type { ReservationOrderIssuanceData } from "@/features/reservation/reservation-order";
 import { Form } from "@/shared/components/ui/form";
 import { ReservationBillingFields } from "./reservation-billing-fields";
-import { ReservationCustomerFields } from "./reservation-customer-fields";
+import {
+  ReservationCustomerSection,
+  useReservationCustomer,
+} from "./reservation-customer-fields";
 import { ReservationFormCard } from "./reservation-form-card";
 import { ReservationFormSale } from "./reservation-form-sale";
 import { ReservationMarketingConsentField } from "./reservation-marketing-consent-field";
@@ -36,16 +40,21 @@ type ReservationCheckoutFormProps<
     };
   };
   readonly availability: {
-    readonly isFetching: boolean;
+    /**
+     * Whether availability for the current selection has not settled yet. A
+     * background refetch of settled availability is not pending: submission
+     * re-checks availability authoritatively.
+     */
+    readonly isPending: boolean;
     readonly unavailableMessage?: string;
   };
-  readonly afterCustomerFields?: ReactNode;
   readonly checkoutSessionId?: CheckoutSessionId;
   readonly children: ReactNode;
+  /** The signed-in customer the form can book as, if any. */
+  readonly existingCustomer?: ReservationExistingCustomerForm;
   readonly form: UseFormReturn<Input, unknown, Data>;
-  readonly getReservation: (data: Data) => ReservationOrderData;
+  readonly getReservation: (data: Data) => ReservationOrderIssuanceData;
   readonly locale: Locale;
-  readonly messagePlaceholder: string;
 };
 
 export function ReservationCheckoutForm<
@@ -53,15 +62,20 @@ export function ReservationCheckoutForm<
   Data extends ReservationFormData,
 >({
   advertisedPrice,
-  afterCustomerFields,
   availability,
   checkoutSessionId,
   children,
+  existingCustomer,
   form,
   getReservation,
   locale,
-  messagePlaceholder,
 }: ReservationCheckoutFormProps<Input, Data>) {
+  const customer = useReservationCustomer(existingCustomer);
+  // Consent belongs to the Dotypos customer being booked, so only the account
+  // card knows it is already given; another contact is always asked.
+  const asksMarketingConsent = !(
+    existingCustomer?.hasMarketingConsent && customer.mode === "account"
+  );
   const {
     capturePrePaymentOutcome,
     clearSubmissionError,
@@ -95,7 +109,9 @@ export function ReservationCheckoutForm<
 
         startCheckout({
           advertisedPriceToken: advertisedPrice.token,
-          marketingConsent: data.marketingConsent,
+          ...(existingCustomer &&
+            customer.mode === "account" && { customer: "account" }),
+          marketingConsent: asksMarketingConsent && data.marketingConsent,
           reservation: getReservation(data),
         });
       },
@@ -122,25 +138,29 @@ export function ReservationCheckoutForm<
       <Form {...form}>
         <form className="space-y-7" noValidate onSubmit={handleSubmit}>
           {children}
-          <ReservationCustomerFields
+          <ReservationCustomerSection
+            customer={customer}
+            existingCustomer={existingCustomer}
             locale={locale}
-            messagePlaceholder={messagePlaceholder}
           />
           <ReservationBillingFields locale={locale} />
-          {afterCustomerFields}
           <ReservationPrivacyNotice locale={locale} />
-          <ReservationMarketingConsentField locale={locale} />
+          {asksMarketingConsent && (
+            <ReservationMarketingConsentField locale={locale} />
+          )}
           <ReservationSubmitSection
             disabled={
               form.formState.isSubmitting ||
               isSubmittingCheckout ||
               hasPreparedPayRedirect ||
               Boolean(availability.unavailableMessage) ||
-              availability.isFetching ||
+              availability.isPending ||
               advertisedPrice.isFetching ||
+              // A failed refresh keeps the previous, possibly expired, token.
+              advertisedPrice.isError ||
               !advertisedPrice.token
             }
-            isAvailabilityLoading={availability.isFetching}
+            isAvailabilityLoading={availability.isPending}
             isPriceLoading={
               advertisedPrice.isFetching && !advertisedPrice.token
             }

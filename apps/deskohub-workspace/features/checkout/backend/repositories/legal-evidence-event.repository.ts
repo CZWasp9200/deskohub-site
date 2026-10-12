@@ -13,15 +13,14 @@ const legalEvidenceEventInputSchema = Schema.Struct({
   evidence: legalEvidenceSchema,
 });
 
-export class LegalEvidenceEventInputError extends Data.TaggedError(
+class LegalEvidenceEventInputError extends Data.TaggedError(
   "LegalEvidenceEventInputError"
 )<{
   readonly message: string;
   readonly cause?: unknown;
 }> {}
 
-export type LegalEvidenceEventInput =
-  typeof legalEvidenceEventInputSchema.Encoded;
+type LegalEvidenceEventInput = typeof legalEvidenceEventInputSchema.Encoded;
 
 export interface ILegalEvidenceEventRepository {
   readonly record: (

@@ -1,10 +1,9 @@
 "use client";
 
-import { Camera, Check, UserRound } from "lucide-react";
+import { Check } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { type ReactNode, useId, useState } from "react";
 import { updatePreferredLanguage } from "@/features/account/actions";
-import { FutureFeatureTooltip } from "@/features/account/components/future-feature-tooltip";
 import { AccountSectionPanel } from "@/features/account/components/shell/account-section-panel";
 import { type Locale, locales } from "@/features/i18n";
 import { Button } from "@/shared/components/ui/button";
@@ -25,10 +24,11 @@ import {
 /*
  * Direction: extend the account's quiet Sculpin operate surface with a white
  * profile card. Identity is factual, while unavailable settings stay visibly
- * non-interactive and all editable fields remain caller-owned. The preferred
- * communication language is a Workspace-owned durable preference: it saves
- * through its own server action, never through the surrounding Dotypos
- * profile form.
+ * non-interactive and all editable fields remain caller-owned. The avatar
+ * media and its controls are caller-owned so the profile form owns their
+ * mutation state. The preferred communication language is a Workspace-owned
+ * durable preference: it saves through its own server action, never through
+ * the surrounding Dotypos profile form.
  */
 
 /**
@@ -45,8 +45,6 @@ export interface ProfileScreenCopy {
   readonly verifiedEmail: string;
   readonly emailLabel: string;
   readonly emailVerification: EmailVerificationStatusCopy;
-  readonly avatarUnavailableLabel: string;
-  readonly avatarUnavailableDescription: string;
   readonly languageLabel: string;
   readonly languageSave: string;
   readonly languageSaving: string;
@@ -61,11 +59,11 @@ export interface ProfileScreenProps {
   readonly firstName: string;
   readonly lastName: string | null;
   readonly email: string;
-  readonly locale: Locale;
   readonly copy: ProfileScreenCopy;
   readonly preferredLanguage: PreferredLanguageState;
   readonly children: ReactNode;
   readonly footer?: ReactNode;
+  readonly avatar?: ReactNode;
 }
 
 /**
@@ -97,19 +95,18 @@ const languageOptionLabels: Readonly<Record<Locale, LanguageOptionLabelKey>> = {
 };
 
 export function ProfileScreen({
+  avatar,
   children,
   copy,
   email,
   firstName,
   footer,
   lastName,
-  locale,
   preferredLanguage,
 }: ProfileScreenProps) {
   const router = useRouter();
   const titleId = useId();
   const languageId = useId();
-  const avatarDescriptionId = `${languageId}-avatar-description`;
   const [selectedLanguage, setSelectedLanguage] = useState<Locale | null>(null);
   const [transportFailed, setTransportFailed] = useState(false);
   const {
@@ -130,10 +127,6 @@ export function ProfileScreen({
     .map((name) => name.trim())
     .filter((name) => name.length > 0);
   const displayName = nameParts.join(" ") || copy.memberFallback;
-  const initials = nameParts
-    .map((name) => Array.from(name)[0])
-    .filter((initial): initial is string => initial !== undefined)
-    .join("");
 
   /**
    * The read-failed placeholder is the only missing-selection state: it is
@@ -180,35 +173,8 @@ export function ProfileScreen({
       title={copy.title}
       titleId={titleId}
     >
-      <div className="flex min-w-0 flex-col gap-5 sm:flex-row sm:items-center">
-        <div className="relative size-20 shrink-0">
-          <div
-            aria-hidden="true"
-            className="flex size-20 items-center justify-center rounded-full bg-[linear-gradient(135deg,#cf7253_0%,#00024f_100%)] text-2xl font-bold text-white"
-          >
-            {initials ? (
-              initials
-            ) : (
-              <UserRound className="size-9" strokeWidth={1.8} />
-            )}
-          </div>
-          <span className="absolute -right-1 -bottom-1 inline-flex size-10">
-            <FutureFeatureTooltip locale={locale}>
-              <Button
-                aria-describedby={avatarDescriptionId}
-                aria-label={copy.avatarUnavailableLabel}
-                className="size-10 rounded-full border border-[#dfe4ec] bg-white p-0 text-[#344258] shadow-[0_3px_10px_rgba(0,2,79,0.14)] disabled:cursor-not-allowed"
-                disabled
-                size="icon"
-                type="button"
-                variant="secondary"
-              >
-                <Camera aria-hidden="true" className="size-4" strokeWidth={2} />
-              </Button>
-            </FutureFeatureTooltip>
-          </span>
-        </div>
-
+      <div className="flex min-w-0 flex-col gap-5 @xl:flex-row @xl:items-start">
+        {avatar}
         <div className="min-w-0">
           <p className="break-words text-2xl font-semibold leading-tight text-[#202b3d]">
             {displayName}
@@ -217,21 +183,15 @@ export function ProfileScreen({
             <Check aria-hidden="true" className="size-4 shrink-0" />
             <span className="break-words">{copy.verifiedEmail}</span>
           </span>
-          <p
-            className="mt-2 max-w-prose text-sm leading-5 text-[#52647c]"
-            id={avatarDescriptionId}
-          >
-            {copy.avatarUnavailableDescription}
-          </p>
         </div>
       </div>
 
-      <div className="mt-8 grid min-w-0 gap-x-6 gap-y-5 sm:grid-cols-2 [&>div]:min-w-0 [&>div]:space-y-2 [&_label]:block [&_label]:text-[13px] [&_label]:font-bold [&_label]:uppercase [&_label]:leading-5 [&_label]:tracking-[0.04em] [&_label]:text-[#344258] [&_[data-slot=label]]:block [&_[data-slot=label]]:text-[13px] [&_[data-slot=label]]:font-bold [&_[data-slot=label]]:uppercase [&_[data-slot=label]]:leading-5 [&_[data-slot=label]]:tracking-[0.04em] [&_[data-slot=label]]:text-[#344258] [&_input]:h-11 [&_input]:min-h-11 [&_input]:w-full [&_input]:rounded-2xl [&_input]:px-3 [&_input]:py-2 [&_input]:text-base [&_[data-slot=input]]:h-11 [&_[data-slot=input]]:min-h-11 [&_[data-slot=input]]:w-full [&_[data-slot=input]]:rounded-2xl [&_[data-slot=input]]:px-3 [&_[data-slot=input]]:py-2 [&_[data-slot=input]]:text-base">
+      <div className="mt-8 grid min-w-0 gap-x-6 gap-y-5 @xl:grid-cols-2 [&>div]:min-w-0 [&>div]:space-y-2 [&_label]:block [&_label]:text-[13px] [&_label]:font-bold [&_label]:uppercase [&_label]:leading-5 [&_label]:tracking-[0.04em] [&_label]:text-[#344258] [&_[data-slot=label]]:block [&_[data-slot=label]]:text-[13px] [&_[data-slot=label]]:font-bold [&_[data-slot=label]]:uppercase [&_[data-slot=label]]:leading-5 [&_[data-slot=label]]:tracking-[0.04em] [&_[data-slot=label]]:text-[#344258] [&_input]:h-11 [&_input]:min-h-11 [&_input]:w-full [&_input]:rounded-2xl [&_input]:px-3 [&_input]:py-2 [&_input]:text-base [&_[data-slot=input]]:h-11 [&_[data-slot=input]]:min-h-11 [&_[data-slot=input]]:w-full [&_[data-slot=input]]:rounded-2xl [&_[data-slot=input]]:px-3 [&_[data-slot=input]]:py-2 [&_[data-slot=input]]:text-base">
         {children}
 
         <fieldset
           aria-labelledby={`${languageId}-email-label`}
-          className="m-0 min-w-0 space-y-2 border-0 p-0 sm:col-span-2 lg:col-span-1"
+          className="m-0 min-w-0 space-y-2 border-0 p-0 @xl:col-span-2 @3xl:col-span-1"
         >
           <legend
             className="block text-[13px] font-bold uppercase leading-5 tracking-[0.04em] text-[#344258]"

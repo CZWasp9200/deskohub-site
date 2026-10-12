@@ -73,6 +73,26 @@ description: Workspace customer account, Better Auth, magic link, auth persisten
   `/api/auth/[...all]` with `Cache-Control: private, no-store`, and keep every
   page and Server Action re-checking the authoritative database session; the
   proxy and cookies are not the authorization boundary.
+- The account layout's `@modal` slot owns only the intercepted
+  `(..)reservation/{status,access}/[orderId]` modals. `@modal/page.tsx`
+  renders nothing at `/account`, and `@modal/default.tsx` renders nothing on
+  hard navigation to the other account routes. Do not add a catch-all slot
+  page. Every route into `/account/legal` and `/account/deleted` starts with
+  the modal closed: the dialog makes the background inert, closing it goes
+  back to `/account`, and deletion leaves through a document navigation. If a
+  modal ever links to another account route, add an explicit null slot page
+  for that route.
+- Build account and sign-in URLs with `features/account/routes.ts`. Its
+  helpers pass Next's generated `/[locale]/...` route patterns to
+  `getLocalizedPagePath` so typecheck proves the pages exist; the app does not
+  enable `typedRoutes`. The header account button links straight to sign-in for anonymous visitors and
+  to `/account` for signed-in customers. Its href is an uncached
+  `isCustomerSignedIn` promise that the header resolves with `use()` inside
+  `Suspense`, and the sign-in href is the fallback. The static shell never
+  depends on the session, and a failed session check reads as signed out.
+  Sign-in and sign-out stay document navigations so the header re-reads the
+  session. The `/account` client redirect remains only for direct or stale
+  navigations.
 - Use a single magic-link form for sign-in and implicit sign-up. Configure
   hashed token storage and keep the bearer URL out of logs, traces, and
   provider metadata.
@@ -93,6 +113,12 @@ description: Workspace customer account, Better Auth, magic link, auth persisten
   marker blocks profile, reservation, checkout, and resolver activity but
   permits reauthentication, logout, and delete retry. Never delete retained
   Dotypos reservations, payments, invoices, or legal evidence.
+- The account advisory lock is not reentrant. Code already running under
+  `OptionalAccountActivityGuard` (such as reservation submission) must read
+  the linked contact with `CustomerAccountContactService.current`, which only
+  finds an existing link and never claims, resolves, or locks. Never call
+  `resolveCurrentCustomerAccount` inside the guard; it would wait on the lock
+  the guard already holds.
 
 ## Protected-preview E2E
 
@@ -105,14 +131,32 @@ description: Workspace customer account, Better Auth, magic link, auth persisten
   browser context for PR review; keep magic links, cookies, storage state, HTML,
   and traces out of artifacts, validate fixed page paths and URLs before
   capture, and upload PNGs only.
-- Deliver Preview magic links through the existing Resend team/domain: the
-  preview runtime keeps the existing send-only `EMAIL_API_KEY`, and
-  `WORKSPACE_E2E_RESEND_API_KEY` is a full-access retrieval key on the same
-  team that lives only in the protected `workspace-checkout-e2e` GitHub
-  environment and never enters Vercel or application configuration. Do not
-  provision an isolated synthetic tenant. Use synthetic recipients; keep
-  links and tokens in memory, register them with the E2E redactor, and never
-  expose the production email credential. No tunnels and no webhook capture.
+- Deliver auth magic links through the shared `@deskohub/email`
+  `EmailServiceTag`/provider machinery, which owns sending and retry. Auth
+  owns the recipient-based routing decision, the template, the synthetic
+  recipient pattern, and the gated raw-log envelope. Mark every magic-link
+  message `sensitiveContent` so bearer content stays suppressed in Console
+  output. When the runtime is Vercel Preview and the recipient exactly
+  matches `delivered+<run-id>-<label>@resend.dev` (strict pattern, arbitrary
+  domains rejected), the route forces the shared Console provider and, after
+  a successful send to exactly one synthetic recipient, the app feature emits
+  one gated raw-`console.log` line (outside the Effect/OTel censorship layer)
+  under `account.magic-link.preview-e2e` carrying the rendered TEXT body with
+  its bearer link. This is the single explicitly authorized exception to the
+  no-bearer-material logging rule, and only for non-PII synthetic preview
+  auth link material. Every other recipient — non-synthetic Preview,
+  development, and production — uses the `EmailConfigLayer` configured
+  default provider with the fixed censored delivery codes and no link
+  logging; a missing delivering credential fails closed to the fixed
+  unconfigured code only when the configured provider needs one. The runner
+  retrieves the link through the Vercel runtime log lookup using
+  `WORKSPACE_E2E_VERCEL_TOKEN`, which lives only in the protected
+  `workspace-checkout-e2e` GitHub environment and never enters Vercel or
+  application configuration. Use synthetic recipients, keep links and tokens
+  in memory, and register the synthetic recipient and the retrieved link
+  with the E2E redactor. Never expose the production email credential. Do not
+  provision an isolated synthetic tenant; do not use tunnels or webhook
+  capture.
 - The Playwright lifecycle must cover anonymous protection, invalid and
   replayed links, no-match profile completion, profile updates with immutable
   email, active and expired profile linking, the support state, current and
@@ -144,6 +188,7 @@ description: Workspace customer account, Better Auth, magic link, auth persisten
 - [Magic-link delivery and protected-preview retrieval](references/magic-link-delivery-preview-retrieval.md)
 - [Customer-account data retention contract](references/auth-data-retention-contract.md)
 - [Better Auth data minimization in Neon](references/better-auth-pii-minimization.md)
+- [Avatar media storage implementation](references/avatar-media-storage.md)
 - [Neon preview branches containing authentication PII](references/neon-preview-branch-pii-controls.md)
 - [PostHog identity and privacy boundary](references/posthog-identity-privacy.md) for analytics consent, identity transitions, privacy fields, retention, flags, or connector questions.
 - https://better-auth.com/docs/integrations/next

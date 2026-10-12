@@ -99,12 +99,33 @@ export interface CreateWorkspaceReservationInput {
   readonly reservationHoldExpiresAt?: Temporal.Instant;
 }
 
+/**
+ * Creates the first draft of a checkout attempt. `checkoutSessionKey` and
+ * `checkoutAttemptKey` are the derivations new rows store, used only when the
+ * session and attempt have no row under any accepted derivation.
+ */
+export interface CreateWorkspaceReservationDraftInput
+  extends CreateWorkspaceReservationInput {
+  /** Rotation-independent lock identity of the raw checkout session. */
+  readonly checkoutSessionLockKey: bigint;
+  readonly acceptedCheckoutSessionKeys: readonly CheckoutSessionKey[];
+  readonly acceptedCheckoutAttemptKeys: readonly CheckoutAttemptKey[];
+}
+
 export interface IWorkspaceReservationRepository {
+  /**
+   * Serializes draft creation per checkout session so workers with different
+   * active Pay-state keys or stored lookup-key formats cannot both create a
+   * first row. Returns the attempt's existing row, else the session's current
+   * row, else the draft inserted under the session's already stored key.
+   */
   readonly createDraft: (
-    input: CreateWorkspaceReservationInput
+    input: CreateWorkspaceReservationDraftInput
   ) => Effect.Effect<
     WorkspaceReservation,
-    EffectDrizzleQueryError | WorkspaceReservationDetailsMalformedError
+    | EffectDrizzleQueryError
+    | SqlError.SqlError
+    | WorkspaceReservationDetailsMalformedError
   >;
   readonly findById: (
     id: WorkspaceReservationId
@@ -112,12 +133,21 @@ export interface IWorkspaceReservationRepository {
     WorkspaceReservation | null,
     EffectDrizzleQueryError | WorkspaceReservationDetailsMalformedError
   >;
-  readonly findByAttemptKey: (
-    checkoutAttemptKey: CheckoutAttemptKey
+  /** Finds the reservation stored under any accepted derivation of one attempt. */
+  readonly findByAttemptKeys: (
+    checkoutAttemptKeys: readonly CheckoutAttemptKey[]
   ) => Effect.Effect<
     WorkspaceReservation | null,
     EffectDrizzleQueryError | WorkspaceReservationDetailsMalformedError
   >;
+  /**
+   * Returns the session key stored by the latest reservation under any
+   * accepted derivation of one checkout session, so every reservation in the
+   * session keeps grouping under one key across key rotation.
+   */
+  readonly findStoredCheckoutSessionKey: (
+    checkoutSessionKeys: readonly CheckoutSessionKey[]
+  ) => Effect.Effect<CheckoutSessionKey | null, EffectDrizzleQueryError>;
   readonly findCurrentByCheckoutSessionKey: (
     checkoutSessionKey: CheckoutSessionKey
   ) => Effect.Effect<
@@ -331,6 +361,13 @@ export interface IWorkspaceReservationRepository {
   readonly selectExpiredHoldDotyposReservationIds: (input: {
     readonly now: Temporal.Instant;
   }) => Effect.Effect<readonly DotyposReservationId[], EffectDrizzleQueryError>;
+  readonly selectStalledPaidFulfillments: (input: {
+    readonly updatedBefore: Temporal.Instant;
+    readonly limit: number;
+  }) => Effect.Effect<
+    readonly WorkspaceReservationId[],
+    EffectDrizzleQueryError
+  >;
 }
 
 const ensureUpdated = (
@@ -358,6 +395,30 @@ export class WorkspaceReservationRepository extends Context.Service<
     Effect.gen(function* () {
       const { db } = yield* WorkspaceDatabase;
 
+      // A paid reservation whose active attempt is under late-payment
+      // recovery is fulfilled by that recovery, not by paid fulfillment.
+      const isOutsideLatePaymentRecovery = () =>
+        notExists(
+          db
+            .select({
+              paymentAttemptId: latePaymentRecoveries.paymentAttemptId,
+            })
+            .from(latePaymentRecoveries)
+            .where(
+              and(
+                eq(
+                  latePaymentRecoveries.workspaceReservationId,
+                  workspaceReservations.id
+                ),
+                eq(
+                  latePaymentRecoveries.paymentAttemptId,
+                  workspaceReservations.activePaymentAttemptId
+                ),
+                ne(latePaymentRecoveries.state, "recovered")
+              )
+            )
+        );
+
       const findById = Effect.fn("workspaceReservations.findById")(
         function* (id: WorkspaceReservationId) {
           const [reservation] = yield* db
@@ -374,65 +435,106 @@ export class WorkspaceReservationRepository extends Context.Service<
       return {
         createDraft: Effect.fn("workspaceReservations.createDraft")(
           function* (input) {
-            const row = {
-              id: postgresUuidV7,
-              checkoutSessionKey: input.checkoutSessionKey,
-              checkoutAttemptKey: input.checkoutAttemptKey,
-              correlationId: postgresUuidV7,
-              dotyposCustomerId: input.dotyposCustomerId,
-              reservationPurpose: input.reservationPurpose,
-              reservationState: "draft" as const,
-              paymentState: "not_started" as const,
-              fulfillmentState: "not_started" as const,
-              reservationDetails: input.reservationDetails,
-              locale: input.locale,
-              reservationHoldExpiresAt: input.reservationHoldExpiresAt,
-            };
+            return yield* db.transaction(
+              Effect.fn(function* (tx) {
+                yield* tx.execute(
+                  sql`select pg_advisory_xact_lock(${input.checkoutSessionLockKey.toString()}::bigint)`
+                );
 
-            const [inserted] = yield* db
-              .insert(workspaceReservations)
-              .values(row)
-              .onConflictDoNothing()
-              .returning();
+                const findAttemptRow = () =>
+                  tx
+                    .select()
+                    .from(workspaceReservations)
+                    .where(
+                      inArray(
+                        workspaceReservations.checkoutAttemptKey,
+                        input.acceptedCheckoutAttemptKeys
+                      )
+                    )
+                    .orderBy(desc(workspaceReservations.createdAt))
+                    .limit(1);
 
-            if (inserted) return yield* decodeWorkspaceReservation(inserted);
+                const [existingAttempt] = yield* findAttemptRow();
+                if (existingAttempt) {
+                  return yield* decodeWorkspaceReservation(existingAttempt);
+                }
 
-            const [existingAttempt] = yield* db
-              .select()
-              .from(workspaceReservations)
-              .where(
-                eq(
-                  workspaceReservations.checkoutAttemptKey,
-                  input.checkoutAttemptKey
-                )
-              )
-              .limit(1);
+                const [storedSession] = yield* tx
+                  .select({
+                    checkoutSessionKey:
+                      workspaceReservations.checkoutSessionKey,
+                  })
+                  .from(workspaceReservations)
+                  .where(
+                    inArray(
+                      workspaceReservations.checkoutSessionKey,
+                      input.acceptedCheckoutSessionKeys
+                    )
+                  )
+                  .orderBy(desc(workspaceReservations.createdAt))
+                  .limit(1);
+                const checkoutSessionKey =
+                  storedSession?.checkoutSessionKey ?? input.checkoutSessionKey;
+                const findCurrentSessionRow = () =>
+                  tx
+                    .select()
+                    .from(workspaceReservations)
+                    .where(
+                      and(
+                        eq(
+                          workspaceReservations.checkoutSessionKey,
+                          checkoutSessionKey
+                        ),
+                        sql`${workspaceReservations.reservationState} <> 'cancelled'`
+                      )
+                    )
+                    .orderBy(desc(workspaceReservations.createdAt))
+                    .limit(1);
 
-            if (existingAttempt) {
-              return yield* decodeWorkspaceReservation(existingAttempt);
-            }
+                const [currentSessionRow] = yield* findCurrentSessionRow();
+                if (currentSessionRow) {
+                  return yield* decodeWorkspaceReservation(currentSessionRow);
+                }
 
-            const [currentAttempt] = yield* db
-              .select()
-              .from(workspaceReservations)
-              .where(
-                and(
-                  eq(
-                    workspaceReservations.checkoutSessionKey,
-                    input.checkoutSessionKey
-                  ),
-                  sql`${workspaceReservations.reservationState} <> 'cancelled'`
-                )
-              )
-              .orderBy(desc(workspaceReservations.createdAt))
-              .limit(1);
+                const [inserted] = yield* tx
+                  .insert(workspaceReservations)
+                  .values({
+                    id: postgresUuidV7,
+                    checkoutSessionKey,
+                    checkoutAttemptKey: input.checkoutAttemptKey,
+                    correlationId: postgresUuidV7,
+                    dotyposCustomerId: input.dotyposCustomerId,
+                    reservationPurpose: input.reservationPurpose,
+                    reservationState: "draft",
+                    paymentState: "not_started",
+                    fulfillmentState: "not_started",
+                    reservationDetails: input.reservationDetails,
+                    locale: input.locale,
+                    reservationHoldExpiresAt: input.reservationHoldExpiresAt,
+                  })
+                  .onConflictDoNothing()
+                  .returning();
+                if (inserted) {
+                  return yield* decodeWorkspaceReservation(inserted);
+                }
 
-            if (!currentAttempt) {
-              return yield* Effect.die(
-                "Workspace reservation insert returned no row."
-              );
-            }
-            return yield* decodeWorkspaceReservation(currentAttempt);
+                // Writers that skip this lock can still win a unique index
+                // here: a worker from before the lock may have stored this
+                // attempt, even if it is already cancelled, and supersession
+                // inserts its replacement as the session's current row.
+                const [conflictingAttempt] = yield* findAttemptRow();
+                if (conflictingAttempt) {
+                  return yield* decodeWorkspaceReservation(conflictingAttempt);
+                }
+                const [replacement] = yield* findCurrentSessionRow();
+                if (!replacement) {
+                  return yield* Effect.die(
+                    "Workspace reservation insert returned no row."
+                  );
+                }
+                return yield* decodeWorkspaceReservation(replacement);
+              })
+            );
           },
           (effect, input) =>
             effect.pipe(
@@ -444,19 +546,53 @@ export class WorkspaceReservationRepository extends Context.Service<
             )
         ),
         findById,
-        findByAttemptKey: Effect.fn("workspaceReservations.findByAttemptKey")(
-          function* (checkoutAttemptKey) {
+        findByAttemptKeys: Effect.fn("workspaceReservations.findByAttemptKeys")(
+          function* (checkoutAttemptKeys) {
             const [reservation] = yield* db
               .select()
               .from(workspaceReservations)
               .where(
-                eq(workspaceReservations.checkoutAttemptKey, checkoutAttemptKey)
+                inArray(
+                  workspaceReservations.checkoutAttemptKey,
+                  checkoutAttemptKeys
+                )
               )
+              .orderBy(desc(workspaceReservations.createdAt))
               .limit(1);
             return yield* decodeOptionalWorkspaceReservation(reservation);
           },
-          (effect, checkoutAttemptKey) =>
-            effect.pipe(Effect.annotateLogs({ checkoutAttemptKey }))
+          (effect, checkoutAttemptKeys) =>
+            effect.pipe(
+              Effect.annotateLogs({
+                checkoutAttemptKey: checkoutAttemptKeys[0],
+              })
+            )
+        ),
+        findStoredCheckoutSessionKey: Effect.fn(
+          "workspaceReservations.findStoredCheckoutSessionKey"
+        )(
+          function* (checkoutSessionKeys) {
+            const [reservation] = yield* db
+              .select({
+                checkoutSessionKey: workspaceReservations.checkoutSessionKey,
+              })
+              .from(workspaceReservations)
+              .where(
+                inArray(
+                  workspaceReservations.checkoutSessionKey,
+                  checkoutSessionKeys
+                )
+              )
+              .orderBy(desc(workspaceReservations.createdAt))
+              .limit(1);
+            return reservation?.checkoutSessionKey ?? null;
+          },
+          (effect, checkoutSessionKeys) =>
+            effect.pipe(
+              Effect.annotateLogs({
+                checkoutSessionKey: checkoutSessionKeys[0],
+              })
+            )
         ),
         findCurrentByCheckoutSessionKey: Effect.fn(
           "workspaceReservations.findCurrentByCheckoutSessionKey"
@@ -864,7 +1000,9 @@ export class WorkspaceReservationRepository extends Context.Service<
                   and(
                     eq(paymentAttempts.workspaceReservationId, input.id),
                     eq(paymentAttempts.provider, "nexi"),
-                    eq(paymentAttempts.state, "paid")
+                    eq(paymentAttempts.state, "paid"),
+                    // A refund Nexi already reported stays recorded.
+                    eq(paymentAttempts.refundState, "not_required")
                   )
                 );
             })
@@ -1033,26 +1171,7 @@ export class WorkspaceReservationRepository extends Context.Service<
                   "held",
                   "confirmed",
                 ]),
-                notExists(
-                  db
-                    .select({
-                      paymentAttemptId: latePaymentRecoveries.paymentAttemptId,
-                    })
-                    .from(latePaymentRecoveries)
-                    .where(
-                      and(
-                        eq(
-                          latePaymentRecoveries.workspaceReservationId,
-                          workspaceReservations.id
-                        ),
-                        eq(
-                          latePaymentRecoveries.paymentAttemptId,
-                          workspaceReservations.activePaymentAttemptId
-                        ),
-                        ne(latePaymentRecoveries.state, "recovered")
-                      )
-                    )
-                ),
+                isOutsideLatePaymentRecovery(),
                 or(
                   inArray(workspaceReservations.fulfillmentState, [
                     "not_started",
@@ -1483,6 +1602,38 @@ export class WorkspaceReservationRepository extends Context.Service<
             dotyposReservationId ? [dotyposReservationId] : []
           );
         }),
+        selectStalledPaidFulfillments: Effect.fn(
+          "workspaceReservations.selectStalledPaidFulfillments"
+        )(
+          function* (input) {
+            const rows = yield* db
+              .select({ id: workspaceReservations.id })
+              .from(workspaceReservations)
+              .where(
+                and(
+                  eq(workspaceReservations.paymentState, "paid"),
+                  inArray(workspaceReservations.reservationState, [
+                    "held",
+                    "confirmed",
+                  ]),
+                  inArray(workspaceReservations.fulfillmentState, [
+                    "not_started",
+                    "processing",
+                  ]),
+                  lte(workspaceReservations.updatedAt, input.updatedBefore),
+                  isOutsideLatePaymentRecovery()
+                )
+              )
+              .orderBy(
+                asc(workspaceReservations.updatedAt),
+                asc(workspaceReservations.id)
+              )
+              .limit(input.limit)
+              .pipe(retryDatabaseRead);
+            return rows.map(({ id }) => id as WorkspaceReservationId);
+          },
+          (effect, input) => effect.pipe(Effect.annotateLogs(input))
+        ),
       } satisfies IWorkspaceReservationRepository;
     })
   );

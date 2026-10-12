@@ -270,7 +270,6 @@ const makeReservationLinkCheckoutData = (
     [discountCodeQueryParam]: discountCode,
     duration: getMeetingRoomReservationDurationKey(slot.duration),
     email: base.email,
-    message: base.message,
     name: base.name,
     // URLSearchParams percent-encodes the leading "+" so the signed link
     // survives email clients and copy/paste instead of decoding into a space.
@@ -918,17 +917,14 @@ export const getSelectedDurationZeroPriceCondition = (
   const option = document.querySelector('[data-reservation-type-option="${durationKey}"]');
   if (!(option instanceof HTMLElement)) return false;
   // Semantic discounted-price text plus the visible current amount must both
-  // carry the exact zero; a positive original amount never matches.
+  // carry the exact zero; the struck-through original amount is a <del>, so a
+  // positive original amount never matches.
   const discounted = [...option.querySelectorAll('span')].filter(
     (span) => normalize(span.textContent) === normalize(discountedText)
   );
   if (discounted.length !== 1) return false;
-  const current = option.querySelector(
-    'span.text-aquamarine-ink > span[aria-hidden="true"]'
-  );
-  return (
-    current instanceof HTMLSpanElement &&
-    normalize(current.textContent) === normalize(zeroTotal)
+  return [...option.querySelectorAll('span[aria-hidden="true"]')].some(
+    (span) => normalize(span.textContent) === normalize(zeroTotal)
   );
 })()
 `;
@@ -1027,7 +1023,6 @@ const returnToReservationWithConflictingQuery = ({
         url.searchParams.set(discountCodeQueryParam, unknownLinkCode);
         url.searchParams.set("duration", "hour:4");
         url.searchParams.set("email", "conflicting-link@example.test");
-        url.searchParams.set("message", "Conflicting public link query");
         url.searchParams.set("name", "Conflicting Link Name");
         url.searchParams.set("phone", "+420999999999");
         // A valid different start so the conflict is itself submittable and

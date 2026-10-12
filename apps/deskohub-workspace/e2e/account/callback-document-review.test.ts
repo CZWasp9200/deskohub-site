@@ -148,7 +148,8 @@ const makeSnapshotGlobals = (
       role: string | null;
       ariaBusy: string | null;
       ariaLabel: string | null;
-      text: string;
+      skeletonCount: number;
+      skeletonVisible: boolean;
       hidden: boolean;
       width: number;
       height: number;
@@ -171,9 +172,16 @@ const makeSnapshotGlobals = (
       if (name === "aria-busy") return overrides.card?.ariaBusy ?? "true";
       return overrides.card?.ariaLabel ?? "Loading sign-in…";
     },
-    get textContent() {
-      return overrides.card?.text ?? "  Loading sign-in…  ";
-    },
+    querySelectorAll: (selector: string) =>
+      selector.includes('data-slot="skeleton"')
+        ? Array.from({ length: overrides.card?.skeletonCount ?? 7 }, () => ({
+            getBoundingClientRect: () =>
+              rect(
+                overrides.card?.skeletonVisible === false ? 0 : 100,
+                overrides.card?.skeletonVisible === false ? 0 : 12
+              ),
+          }))
+        : [],
     getBoundingClientRect: () =>
       rect(overrides.card?.width ?? 600, overrides.card?.height ?? 300),
     parentElement: overrides.card?.hidden
@@ -241,6 +249,7 @@ const snapshotConfig = {
     "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
   callbackPath: "/en-US/auth/callback",
   loadingSelector: '[data-slot="auth-callback-loading"]',
+  loadingSkeletonSelector: '[data-slot="skeleton"]',
   loadingAriaLabel: "Loading sign-in…",
   mainSelector: 'main, [role="main"]',
   bannerSelector: '[role="banner"], body > header',
@@ -293,6 +302,8 @@ describe("collectCallbackDocumentSnapshot", () => {
       ["wrong-card-role", { card: { role: "none" } }],
       ["card-not-busy", { card: { ariaBusy: "false" } }],
       ["card-wrong-label", { card: { ariaLabel: "Other" } }],
+      ["card-skeletons-missing", { card: { skeletonCount: 0 } }],
+      ["card-skeletons-invisible", { card: { skeletonVisible: false } }],
       ["card-invisible", { card: { width: 0, height: 0 } }],
       ["card-aria-hidden-ancestor", { card: { hidden: true } }],
       ["main-missing", { main: null }],
@@ -360,21 +371,25 @@ describe("collectCallbackDocumentSnapshot", () => {
     }
   });
 
-  test("nested header and footer do not implicitly count as landmarks", () => {
-    // The selectors only accept exact roles or direct body children, so a
-    // page whose header/footer are nested renders no banner/contentinfo.
-    const restore = makeSnapshotGlobals({
-      banner: null,
-      footer: null,
-    });
-    try {
-      const parsed = JSON.parse(
-        collectCallbackDocumentSnapshot(snapshotConfig)
-      ) as { v: boolean };
-      expect(parsed.v).toBe(false);
-    } finally {
-      restore();
-    }
+  test("checks fonts and the viewport only for a capture", () => {
+    const validationOnlyConfig = { ...snapshotConfig, viewport: null };
+    const collect = (overrides: Parameters<typeof makeSnapshotGlobals>[0]) => {
+      const restore = makeSnapshotGlobals(overrides);
+      try {
+        return (
+          JSON.parse(collectCallbackDocumentSnapshot(validationOnlyConfig)) as {
+            v: boolean;
+          }
+        ).v;
+      } finally {
+        restore();
+      }
+    };
+
+    expect(
+      collect({ fontsStatus: "loading", inner: { width: 1024, height: 768 } })
+    ).toBe(true);
+    expect(collect({ card: { count: 0 } })).toBe(false);
   });
 });
 
@@ -443,6 +458,27 @@ describe("prepareCallbackDocumentReview", () => {
     });
     expect(fakeCdp.calls).toContain("Runtime.removeBinding");
     expect(fakeCdp.calls).toContain("detach");
+  });
+
+  test("validates without a capture viewport, leaving the page viewport alone", async () => {
+    const fake = makeFakePage();
+    const review = await prepareCallbackDocumentReview(
+      fake.page,
+      baseOrigin,
+      null,
+      { deadline: Date.now() + 10_000 }
+    );
+    admitMainContext(fake.fakeCdp);
+    deliverReceipt(fake.fakeCdp);
+
+    review.validate();
+    await expect(
+      review.capture({ deadline: Date.now() + 10_000 })
+    ).rejects.toThrow();
+    await review.dispose();
+
+    expect(fake.viewports).toEqual([{ width: 800, height: 600 }]);
+    expect(fake.fakeCdp.calls).toContain("detach");
   });
 
   test("ignores receipts from unexpected binding names and foreign or subframe contexts", async () => {
@@ -752,8 +788,6 @@ describe("prepareCallbackDocumentReview", () => {
       { width: 800, height: 600 },
       { width: 800, height: 600 },
     ]);
-    const restorationsAfterCleanup = viewports.length - 1;
-    expect(restorationsAfterCleanup).toBe(1);
     // The original write resolves late; the continuation owes and performs a
     // SECOND restoration, so the final viewport is the previous one.
     releaseWrite();
@@ -770,7 +804,6 @@ describe("prepareCallbackDocumentReview", () => {
       { width: 1440, height: 1000 },
       { width: 800, height: 600 },
     ]);
-    expect(restorationsAfterCleanup).toBe(1);
   });
 
   test("session fulfilled and aborted in the same synchronous turn is owned and detached exactly once", async () => {

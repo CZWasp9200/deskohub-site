@@ -1,7 +1,7 @@
 import type { AdministrationActorUsernameType } from "@deskohub/workspace-admin-api";
 import { CheckCircle2, ShieldAlert } from "lucide-react";
 import { Suspense } from "react";
-import { approveCliAuthentication } from "@/features/admin-cli/actions";
+import { ApproveCliAuthenticationForm } from "@/features/admin-cli/approve-cli-authentication-form";
 import { loadCliAuthenticationApproval } from "@/features/admin-cli/page-data.server";
 import {
   AdministrationAlert,
@@ -10,7 +10,6 @@ import {
   formatAdministrationDateTime,
 } from "@/features/administration/components";
 import { AdministrationPanelLoading } from "@/features/administration/loading";
-import { Button } from "@/shared/components/ui/button";
 
 export default function CliAuthenticationApprovalPage({
   searchParams,
@@ -73,6 +72,7 @@ export async function CliAuthenticationRequest({
       <div className="border-t border-navy-blue/10 px-5 py-5 sm:px-6">
         <AuthenticationRequestState
           code={params.code}
+          failed={params.result === "error"}
           request={request}
           username={username}
         />
@@ -83,10 +83,12 @@ export async function CliAuthenticationRequest({
 
 function AuthenticationRequestState({
   code,
+  failed,
   request,
   username,
 }: {
   readonly code?: string;
+  readonly failed: boolean;
   readonly request: NonNullable<
     NonNullable<
       Awaited<ReturnType<typeof loadCliAuthenticationApproval>>
@@ -105,10 +107,15 @@ function AuthenticationRequestState({
             Approving as <strong>{username}</strong>.
           </p>
         </AdministrationAlert>
-        <form action={approveCliAuthentication}>
-          <input name="code" type="hidden" value={code} />
-          <Button type="submit">Approve this CLI</Button>
-        </form>
+        {failed && (
+          <AdministrationAlert className="mb-5" status="error">
+            <p>
+              The CLI could not be approved. Check the session duration and try
+              again.
+            </p>
+          </AdministrationAlert>
+        )}
+        <ApproveCliAuthenticationForm code={code} />
       </>
     );
   }

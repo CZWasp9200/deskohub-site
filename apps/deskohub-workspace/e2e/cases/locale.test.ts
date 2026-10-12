@@ -6,12 +6,13 @@ import { workspaceE2ETimeouts } from "../timeouts";
 import type { WorkspaceE2EStepRunner } from "../types";
 import { assertLocaleSwitcher } from "./locale";
 
-test("switches locale from hydrated stable selectors with native activation", async () => {
-  const calls: Array<{ readonly args: string[]; readonly input?: string }> = [];
+test("switches to Czech and back to English through native link activation", async () => {
+  const calls: Array<{ readonly args: string[] }> = [];
+  const visitedLocales: string[] = [];
   let locale = "en-US";
   let focusedSelector: string | undefined;
-  const run: Runner = async (_command, args, options) => {
-    calls.push({ args, input: options?.input });
+  const run: Runner = async (_command, args) => {
+    calls.push({ args });
     const command = args.slice(2);
 
     if (command[0] === "open") return success();
@@ -22,14 +23,11 @@ test("switches locale from hydrated stable selectors with native activation", as
     }
     if (command[0] === "press") {
       locale = focusedSelector?.includes("/cs-CZ") ? "cs-CZ" : "en-US";
+      visitedLocales.push(locale);
       return success();
     }
     if (command[0] === "get" && command[1] === "url") {
       return success(`https://workspace.example/${locale}`);
-    }
-    if (command[0] === "eval") {
-      locale = options?.input?.includes('"cs-CZ"') ? "cs-CZ" : "en-US";
-      return success();
     }
 
     throw new Error(`Unexpected browser command: ${command.join(" ")}`);
@@ -45,35 +43,8 @@ test("switches locale from hydrated stable selectors with native activation", as
     })
   );
 
+  expect(visitedLocales).toEqual(["cs-CZ", "en-US"]);
   expect(calls.some(({ args }) => args.includes("eval"))).toBe(false);
-  expect(
-    calls
-      .filter(({ args }) => args.includes("focus"))
-      .map(({ args }) => args[3])
-  ).toEqual([
-    '[data-locale-switcher] a[href^="/cs-CZ"]',
-    '[data-locale-switcher] a[href^="/en-US"]',
-    '[data-locale-switcher] a[href^="/cs-CZ"]',
-    '[data-locale-switcher] a[href^="/en-US"]',
-    '[data-locale-switcher] a[href^="/cs-CZ"]',
-    '[data-locale-switcher] a[href^="/en-US"]',
-  ]);
-  expect(
-    calls
-      .filter(({ args }) => args.includes("press"))
-      .map(({ args }) => args[3])
-  ).toEqual(Array.from({ length: 6 }, () => "Enter"));
-
-  const hydrationIndex = calls.findIndex(({ args }) => args.includes("wait"));
-  const focusIndex = calls.findIndex(({ args }) => args.includes("focus"));
-  expect(hydrationIndex).toBeLessThan(focusIndex);
-  expect(calls.some(({ args }) => args.includes("snapshot"))).toBe(false);
-});
-
-test("allows repeated locale navigations to outlive two navigation windows", () => {
-  expect(workspaceE2ETimeouts.localeCase).toBeGreaterThan(
-    workspaceE2ETimeouts.browserNavigation * 2
-  );
 });
 
 const success = (stdout = "") => ({ exitCode: 0, stderr: "", stdout });

@@ -1,13 +1,15 @@
 "use client";
 
-import type {
-  AdministrationStandaloneAccessCodeAttemptIdType,
-  AdministrationStandaloneAccessCodeCleanupTargetType,
-  AdministrationStandaloneAccessCodeCreationOutcome,
+import { effectSchemaResolver } from "@deskohub/effect-schema-resolver";
+import {
+  ADMINISTRATION_STANDALONE_ACCESS_CODE_MAXIMUM_DURATION_HOURS,
+  ADMINISTRATION_STANDALONE_ACCESS_CODE_MINIMUM_DURATION_HOURS,
+  type AdministrationStandaloneAccessCodeAttemptIdType,
+  type AdministrationStandaloneAccessCodeCleanupTargetType,
+  type AdministrationStandaloneAccessCodeCreationOutcome,
 } from "@deskohub/workspace-admin-api";
 import { WORKSPACE_SITE_TIME_ZONE } from "@deskohub/workspace-admin-api/site-time-zone";
-import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
-import { Result } from "effect";
+import { Result, Schema } from "effect";
 import { Plus } from "lucide-react";
 import { useRef, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
@@ -16,6 +18,7 @@ import {
   AccessCodeDigits,
 } from "@/features/access-codes/components/access-code-digits";
 import { AdministrationAlert } from "@/features/administration/notice";
+import { m } from "@/features/i18n";
 import { Button } from "@/shared/components/ui/button";
 import { Checkbox } from "@/shared/components/ui/checkbox";
 import {
@@ -46,8 +49,6 @@ import {
   standaloneAccessCodeEarliestLocalEnd,
   standaloneAccessCodeElapsedHours,
   standaloneAccessCodeFailureNotices,
-  standaloneAccessCodeMaximumDurationHours,
-  standaloneAccessCodeMinimumDurationHours,
 } from "./create-access-code";
 
 type CreatedOutcome = Extract<
@@ -68,6 +69,23 @@ type CreationState =
 const focusOnMount = (node: HTMLDivElement | null) => {
   node?.focus();
 };
+
+const cleanupConfirmationFormSchema = Schema.Struct({
+  providerCredentialRemoved: Schema.Boolean.check(
+    Schema.makeFilter(
+      (confirmed) => confirmed || m.reservationBillingFieldRequired()
+    )
+  ),
+});
+
+type CleanupConfirmationFormInput =
+  typeof cleanupConfirmationFormSchema.Encoded;
+
+type CleanupConfirmationFormValues = typeof cleanupConfirmationFormSchema.Type;
+
+const cleanupConfirmationFormDefaults = {
+  providerCredentialRemoved: false,
+} satisfies CleanupConfirmationFormInput;
 
 export function CreateStandaloneAccessCodeForm() {
   const [creation, setCreation] = useState<CreationState>({ kind: "editing" });
@@ -90,7 +108,7 @@ export function CreateStandaloneAccessCodeForm() {
     defaultValues: createStandaloneAccessCodeFormDefaults,
     mode: "onSubmit",
     reValidateMode: "onChange",
-    resolver: standardSchemaResolver(createStandaloneAccessCodeFormSchema),
+    resolver: effectSchemaResolver(createStandaloneAccessCodeFormSchema),
   });
   const [watchedStartsAt, watchedEndsAt] = useWatch({
     control: form.control,
@@ -159,7 +177,7 @@ export function CreateStandaloneAccessCodeForm() {
   const endMax = isStandaloneAccessCodeLocalDateTime(startsAt)
     ? shiftStandaloneAccessCodeLocalEnd({
         startsAt,
-        hours: standaloneAccessCodeMaximumDurationHours,
+        hours: ADMINISTRATION_STANDALONE_ACCESS_CODE_MAXIMUM_DURATION_HOURS,
       })
     : undefined;
 
@@ -257,7 +275,7 @@ export function CreateStandaloneAccessCodeForm() {
             <dd className="mt-0.5 font-medium">
               {formatStandaloneAccessCodeDuration(
                 standaloneAccessCodeElapsedHours(outcome) ??
-                  standaloneAccessCodeMinimumDurationHours
+                  ADMINISTRATION_STANDALONE_ACCESS_CODE_MINIMUM_DURATION_HOURS
               )}
             </dd>
           </div>
@@ -443,10 +461,15 @@ function CleanupConfirmationForm({
   readonly onConfirmed: () => void;
   readonly onStartOver: () => void;
 }) {
-  const cleanupForm = useForm<{
-    providerCredentialRemoved: boolean;
-  }>({
-    defaultValues: { providerCredentialRemoved: false },
+  const cleanupForm = useForm<
+    CleanupConfirmationFormInput,
+    unknown,
+    CleanupConfirmationFormValues
+  >({
+    defaultValues: cleanupConfirmationFormDefaults,
+    mode: "onSubmit",
+    reValidateMode: "onChange",
+    resolver: effectSchemaResolver(cleanupConfirmationFormSchema),
   });
   const cleanupConfirmed = useWatch({
     control: cleanupForm.control,

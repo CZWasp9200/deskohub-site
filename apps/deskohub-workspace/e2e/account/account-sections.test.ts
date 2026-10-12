@@ -12,7 +12,6 @@ import {
   unregisterWorkspaceComponentTestEnv,
 } from "@/shared/testing/workspace-component-test-env";
 import type { Runner } from "../runtime";
-import { workspaceE2ETimeouts } from "../timeouts";
 import {
   type AccountSectionPage,
   accountSectionLabels,
@@ -128,13 +127,19 @@ function AccountShellHarness({
 
 type FakeLocator = {
   readonly click: (options?: { readonly timeout?: number }) => Promise<void>;
+  readonly elementHandle: () => Promise<FakeElementHandle>;
   readonly isVisible: () => Promise<boolean>;
+};
+
+type FakeElementHandle = {
+  readonly dispose: () => Promise<void>;
+  readonly element: Element;
 };
 
 type FakePageOptions = {
   readonly onClick?: (options?: { readonly timeout?: number }) => void;
   readonly onIsVisible?: () => void;
-  readonly onWait?: () => void;
+  readonly onWait?: (argument: unknown) => void | Promise<void>;
 };
 
 const desktopBreakpoint = 768;
@@ -172,6 +177,10 @@ const fakeLocator = (
     options.onClick?.(clickOptions);
     fireEvent.click(element);
   },
+  elementHandle: async () => ({
+    dispose: async () => {},
+    element,
+  }),
   isVisible: async () => {
     options.onIsVisible?.();
     return elementIsVisible(element, width);
@@ -182,7 +191,7 @@ const makeFakePage = (
   width: number | null,
   pageOptions: FakePageOptions = {}
 ): AccountSectionPage => {
-  const page = {
+  const page = Object.assign({} as AccountSectionPage, {
     getByRole: (role: string, roleOptions?: unknown) => {
       const name =
         typeof roleOptions === "object" &&
@@ -212,12 +221,20 @@ const makeFakePage = (
     waitForFunction: async (pageFunction: unknown, arg: unknown) => {
       if (typeof pageFunction !== "function")
         throw new Error("fake wait predicate was not a function");
-      pageOptions.onWait?.();
-      if (!(pageFunction as (value: unknown) => boolean)(arg)) {
+      const predicateArgument =
+        typeof arg === "object" && arg !== null && "element" in arg
+          ? (arg as FakeElementHandle).element
+          : arg;
+      await pageOptions.onWait?.(predicateArgument);
+      const result = (pageFunction as (value: unknown) => unknown)(
+        predicateArgument
+      );
+      if (!result) {
         throw new Error("fake account section did not settle");
       }
+      return { dispose: async () => {}, jsonValue: async () => result };
     },
-  };
+  });
   return page;
 };
 
@@ -240,20 +257,51 @@ const setResponsiveNavigationVisibility = (
   }
 };
 
-const makeRunner = (desktop: boolean) => {
-  const calls: Array<{
-    readonly args: readonly string[];
-    readonly input: string | undefined;
-  }> = [];
-  const run: Runner = async (_command, args, options) => {
-    calls.push({ args: args.slice(2), input: options?.input });
-    return {
-      exitCode: 0,
-      stderr: "",
-      stdout: args[2] === "eval" ? String(desktop) : "",
-    };
+const playwrightTextSelector = /^(?<base>.+):has-text\((?<text>".*")\)$/;
+
+const queryRunnerClickTarget = (selector: string): HTMLElement => {
+  const groups = playwrightTextSelector.exec(selector)?.groups;
+  const text =
+    groups?.text === undefined ? undefined : String(JSON.parse(groups.text));
+  const target = Array.from(
+    document.querySelectorAll<HTMLElement>(groups?.base ?? selector)
+  ).find(
+    (element) => text === undefined || element.textContent?.includes(text)
+  );
+  if (target === undefined)
+    throw new Error("fake runner click target was not found");
+  return target;
+};
+
+/** Runs browser commands against the rendered AccountShell. */
+const makeDomRunner = (desktop: boolean) => {
+  const commands: string[] = [];
+  const clicked: HTMLElement[] = [];
+  const run: Runner = async (_command, args) => {
+    const [command, target] = args.slice(2);
+    if (command === undefined) throw new Error("fake runner command missing");
+    commands.push(command);
+    if (command === "eval") {
+      return { exitCode: 0, stderr: "", stdout: String(desktop) };
+    }
+    if (command === "click" && target !== undefined) {
+      const element = queryRunnerClickTarget(target);
+      clicked.push(element);
+      fireEvent.click(element);
+      return { exitCode: 0, stderr: "", stdout: "" };
+    }
+    const condition = args[4];
+    if (command === "wait" && condition !== undefined) {
+      const satisfied = new Function(`return ${condition};`)() === true;
+      return {
+        exitCode: satisfied ? 0 : 1,
+        stderr: satisfied ? "" : "fake browser condition was not met",
+        stdout: "",
+      };
+    }
+    throw new Error("fake runner received an unexpected command");
   };
-  return { calls, run };
+  return { clicked, commands, run };
 };
 
 beforeAll(registerWorkspaceComponentTestEnv);
@@ -394,64 +442,140 @@ test("resolves the responsive section variant when viewport size is unavailable"
   }
 });
 
-test("lets the section click own delayed actionability before checking readiness", async () => {
+test("waits for the rendered section button handler before clicking it", async () => {
   const calls: string[] = [];
+  let buttonHandlerAttached = false;
+  let restoreButtonHandler = () => {};
   const page = makeFakePage(1440, {
-    onClick: (options) => {
-      calls.push(`click:${options?.timeout ?? "missing"}`);
+    onClick: () => {
+      calls.push("click");
+      if (!buttonHandlerAttached) {
+        throw new Error("account section button handler was not attached");
+      }
     },
-    onIsVisible: () => {
-      throw new Error("selection must not probe button visibility");
-    },
-    onWait: () => {
-      calls.push("wait");
+    onWait: async (argument) => {
+      if (argument instanceof Element) {
+        calls.push("wait:button-handler");
+        await Promise.resolve();
+        restoreButtonHandler();
+        return;
+      }
+      if (typeof argument === "string") {
+        calls.push(`wait:panel-hydration:${argument}`);
+        return;
+      }
+      calls.push("wait:section-ready");
     },
   });
   render(createElement(AccountShellHarness));
 
-  await selectAccountSection(page, "billing");
+  const billingButton = Array.from(
+    document.querySelectorAll<HTMLButtonElement>("button")
+  ).find((button) =>
+    button.textContent
+      ?.replaceAll(/\s+/g, " ")
+      .trim()
+      .includes("Billing & Invoices")
+  );
+  if (billingButton === undefined)
+    throw new Error("rendered Billing button was not found");
+  const reactPropsKey = Object.keys(billingButton).find((key) =>
+    key.startsWith("__reactProps$")
+  );
+  if (reactPropsKey === undefined)
+    throw new Error("rendered Billing button has no React props");
+  const reactPropsDescriptor = Object.getOwnPropertyDescriptor(
+    billingButton,
+    reactPropsKey
+  );
+  if (reactPropsDescriptor === undefined)
+    throw new Error(
+      "rendered Billing button React props descriptor is missing"
+    );
+
+  if (!Reflect.deleteProperty(billingButton, reactPropsKey))
+    throw new Error("could not defer the rendered Billing button handler");
+  restoreButtonHandler = () => {
+    Object.defineProperty(billingButton, reactPropsKey, reactPropsDescriptor);
+    buttonHandlerAttached = true;
+  };
+
+  await selectAccountSection(page, "billing", (stage) =>
+    calls.push(`stage:${stage}`)
+  );
 
   expect(calls).toEqual([
-    `click:${workspaceE2ETimeouts.browserAction}`,
-    "wait",
+    "stage:button-handler-wait",
+    "wait:button-handler",
+    "stage:panel-hydration-wait",
+    "wait:panel-hydration:[data-screen='profile-screen']",
+    "stage:native-button-click",
+    "click",
+    "stage:selected-landmark-wait",
+    "wait:section-ready",
   ]);
+  expect(billingButton.getAttribute("aria-current")).toBe("page");
 });
 
-test("uses a visible desktop button and waits for its visible landmark in the Runner adapter", async () => {
-  const { calls, run } = makeRunner(true);
+test.each([
+  { desktop: true, navigation: "desktop" },
+  { desktop: false, navigation: "mobile" },
+] as const)(
+  "clicks the $navigation section button after panel hydration in the Runner adapter",
+  async ({ desktop, navigation }) => {
+    const { clicked, commands, run } = makeDomRunner(desktop);
+    render(createElement(AccountShellHarness));
 
-  await Effect.runPromise(
-    selectAccountSectionInRunner(run, "account-sections-test", "billing")
-  );
+    await Effect.runPromise(
+      selectAccountSectionInRunner(run, "account-sections-test", "billing")
+    );
 
-  expect(calls.map(({ args }) => args.slice(0, 2))).toEqual([
-    ["eval", "--stdin"],
-    [
-      "click",
-      'nav[aria-label="Account navigation"] button:not([data-account-section]):has-text("Billing & Invoices")',
-    ],
-    ["wait", "--fn"],
-  ]);
-  expect(calls[2]?.args[2]).toContain("#account-profile-billing-kind");
-  expect(calls[2]?.args[2]).toContain('"desktop":true');
-  expect(calls[2]?.args[2]).not.toContain(".click(");
+    expect(commands).toEqual(["eval", "wait", "click", "wait"]);
+    const [button] = clicked;
+    expect(
+      button?.closest("[data-account-mobile-navigation]") === null
+        ? "desktop"
+        : "mobile"
+    ).toBe(navigation);
+    expect(button?.getAttribute("aria-current")).toBe("page");
+    expect(
+      document
+        .querySelector(accountSectionLandmarks.billing)
+        ?.closest("[hidden]")
+    ).toBeNull();
+  }
+);
+
+test("does not click a section before its streamed panel is hydrated", async () => {
+  const calls: string[] = [];
+  const page = makeFakePage(1440, {
+    onClick: () => {
+      calls.push("click");
+    },
+  });
+  render(createElement(AccountShellHarness));
+  const profileScreen = document.querySelector(accountSectionLandmarks.profile);
+  if (profileScreen === null)
+    throw new Error("profile screen was not rendered");
+  const serverCopy = profileScreen.cloneNode(true);
+  profileScreen.replaceWith(serverCopy);
+
+  await expect(
+    selectAccountSection(page, "profile", (stage) => calls.push(stage))
+  ).rejects.toThrow("fake account section did not settle");
+  expect(calls).toEqual(["button-handler-wait", "panel-hydration-wait"]);
 });
 
-test("uses the visible mobile section button in the Runner adapter", async () => {
-  const { calls, run } = makeRunner(false);
+test("selects legal without waiting for a panel that renders only when active", async () => {
+  const stages: string[] = [];
+  const page = makeFakePage(1440);
+  render(createElement(AccountShellHarness));
 
-  await Effect.runPromise(
-    selectAccountSectionInRunner(run, "account-sections-test", "danger")
-  );
+  await selectAccountSection(page, "legal", (stage) => stages.push(stage));
 
-  expect(calls.map(({ args }) => args.slice(0, 2))).toEqual([
-    ["eval", "--stdin"],
-    [
-      "click",
-      'nav[aria-label="Account navigation"] [data-account-mobile-navigation] button[data-account-section="danger"]',
-    ],
-    ["wait", "--fn"],
+  expect(stages).toEqual([
+    "button-handler-wait",
+    "native-button-click",
+    "selected-landmark-wait",
   ]);
-  expect(calls[2]?.args[2]).toContain('"desktop":false');
-  expect(calls[2]?.args[2]).toContain("#delete-account-trigger");
 });

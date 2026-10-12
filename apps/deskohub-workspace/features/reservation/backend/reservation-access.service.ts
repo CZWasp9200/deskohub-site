@@ -31,6 +31,14 @@ export interface IReservationAccessService {
 
 const invalidLinkAccess: ReservationAccessViewModel = { state: "invalid_link" };
 const unavailableAccess: ReservationAccessViewModel = { state: "unavailable" };
+
+/**
+ * Bounds the live Dotypos lookup, including its retries, well inside the
+ * access route's 30-second `maxDuration`, so a slow Dotypos still lets the
+ * page render its unavailable state. Matches the status page's cap.
+ */
+const providerLookupDeadline = "8 seconds";
+
 const implementation = Effect.gen(function* () {
   const reservations = yield* WorkspaceReservationRepository;
   const authorization = yield* ReservationAuthorizationService;
@@ -67,6 +75,13 @@ const implementation = Effect.gen(function* () {
       const providerReservation = yield* dotypos
         .getReservation(reservation.dotyposReservationId)
         .pipe(
+          Effect.timeoutOrElse({
+            duration: providerLookupDeadline,
+            orElse: () =>
+              Effect.logWarning(
+                "Reservation access provider lookup timed out"
+              ).pipe(Effect.as(undefined)),
+          }),
           Effect.tapError(() =>
             Effect.logWarning("Reservation access provider lookup failed")
           ),

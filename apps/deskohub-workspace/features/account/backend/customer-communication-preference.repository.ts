@@ -9,7 +9,6 @@ import type { Locale } from "@/features/i18n";
 import {
   CustomerAccountAccessError,
   type CustomerAccountId,
-  customerAccountIdSchema,
   mapCustomerAccountFailure,
 } from "../customer-account";
 import { requireAccountActivity } from "./customer-account-activity";
@@ -24,7 +23,7 @@ import {
  * never a successful unset state: the preferred communication language is a
  * required account fact seeded at creation and backfilled by migration.
  */
-export class CustomerCommunicationPreferenceMissingError extends Data.TaggedError(
+class CustomerCommunicationPreferenceMissingError extends Data.TaggedError(
   "CustomerCommunicationPreferenceMissingError"
 )<{
   readonly code: "account-communication-preference.missing";
@@ -34,7 +33,7 @@ export class CustomerCommunicationPreferenceMissingError extends Data.TaggedErro
   }
 }
 
-export type CustomerCommunicationPreferenceReadError =
+type CustomerCommunicationPreferenceReadError =
   | EffectDrizzleQueryError
   | SqlError
   | CustomerAccountAccessError

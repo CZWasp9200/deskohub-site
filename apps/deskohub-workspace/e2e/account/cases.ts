@@ -15,7 +15,7 @@ import {
   readBrowserText,
   readBrowserUrl,
   waitForBrowserCondition,
-  waitForBrowserReactFormAction,
+  waitForBrowserReactFormSubmit,
   waitForBrowserText,
   waitForInteractiveSnapshot,
 } from "../browser";
@@ -54,16 +54,14 @@ import {
   expireSyntheticCustomerProfile,
   readSyntheticCustomerProfile,
 } from "./fixtures";
+import { workspaceE2EAccountProfileFixture } from "./profile-fixture";
 import type { MagicLinkRateBudget } from "./rate-budget";
-import {
-  listSyntheticMessageIds,
-  retrieveWorkspaceE2EMagicLink,
-} from "./resend-retrieval";
 import type {
   WorkspaceE2EAccountCase,
   WorkspaceE2EAccountJournalRef,
   WorkspaceE2EAccountLifecycleHandoff,
 } from "./types";
+import type { WorkspaceE2EPreviewLogs } from "./vercel-log-retrieval";
 
 const acceptedTitle = "Check your inbox";
 const acceptedBody =
@@ -103,8 +101,6 @@ const deleteReauthSendSelector = "#delete-account-reauth-send";
 const deleteConfirmCheckboxSelector = "#confirm-account-deletion";
 const deleteConfirmSelector = "#delete-account-confirm";
 
-/** Submitted as-is; the provider PATCH normalizes it to E.164. */
-const profilePhoneFixture = "+420 555 000 111";
 const billingCompanyFixture = "E2E Draft Company";
 
 const browserTimeout = workspaceE2ETimeouts.browserAction;
@@ -143,6 +139,7 @@ export type WorkspaceE2EAccountCaseInputs = {
    * could never carry the completed lifecycle between the account cases.
    */
   readonly lifecycleHandoff: WorkspaceE2EAccountLifecycleHandoff;
+  readonly previewLogs: WorkspaceE2EPreviewLogs;
   readonly rateBudget: MagicLinkRateBudget;
   readonly run: Runner;
   readonly session: string;
@@ -158,6 +155,7 @@ export const makeWorkspaceE2EAccountCases = ({
   config,
   datasourceConfig,
   lifecycleHandoff,
+  previewLogs,
   rateBudget,
   run,
   session,
@@ -255,9 +253,13 @@ export const makeWorkspaceE2EAccountCases = ({
     readBrowserText(run, session).pipe(Effect.map(normalizeBrowserText));
 
   const waitSignInForm = () =>
-    waitForBrowserReactFormAction(run, session, signInFormSelector, {
-      timeoutMs: browserTimeout,
-    });
+    waitForBrowserReactFormSubmit(
+      run,
+      session,
+      signInFormSelector,
+      [signInEmailSelector],
+      { timeoutMs: browserTimeout }
+    );
 
   const fillAndSubmitEmail = (email: string) =>
     Effect.gen(function* () {
@@ -284,24 +286,25 @@ export const makeWorkspaceE2EAccountCases = ({
     });
 
   /**
-   * Bounded Resend retrieval for one delivered link. The ids observed before
-   * the request exclude every earlier message to the same recipient, so
-   * repeated sign-ins never match a stale message.
+   * The baseline IDs prevent repeated sign-ins from matching a stale link.
    */
   const retrieveSignInLink = (
     email: string,
-    observedMessageIds: readonly string[],
+    observedLogEntryIds: readonly string[],
     startedAt: Date
   ) =>
-    retrieveWorkspaceE2EMagicLink(config, {
+    previewLogs.retrieveMagicLink({
       callbackPath: `/${config.locale}${callbackSuffix}`,
-      excludeMessageIds: observedMessageIds,
+      excludeLogEntryIds: observedLogEntryIds,
       recipient: email,
       startedAt,
     });
 
-  const observeDeliveredMessageIds = (email: string) =>
-    listSyntheticMessageIds(config, email);
+  const observeDeliveredLogEntryIds = (email: string, startedAt: Date) =>
+    previewLogs.listSyntheticLogEntryIds({
+      recipient: email,
+      startedAt,
+    });
 
   const requireAuthUserId = (email: string) =>
     Effect.gen(function* () {
@@ -586,7 +589,7 @@ export const makeWorkspaceE2EAccountCases = ({
                 run,
                 session,
                 profileFirstNameSelector,
-                "E2E",
+                workspaceE2EAccountProfileFixture.firstName,
                 { timeoutMs: browserTimeout }
               );
               yield* clickBrowserElement(run, session, profileSubmitSelector, {
@@ -672,14 +675,14 @@ export const makeWorkspaceE2EAccountCases = ({
                 run,
                 session,
                 profileLastNameSelector,
-                "Lane",
+                workspaceE2EAccountProfileFixture.lastName,
                 { timeoutMs: browserTimeout }
               );
               yield* fillBrowserField(
                 run,
                 session,
                 profilePhoneSelector,
-                profilePhoneFixture,
+                workspaceE2EAccountProfileFixture.phone,
                 { timeoutMs: browserTimeout }
               );
               yield* selectAccountSectionInRunner(run, session, "billing");
@@ -721,9 +724,9 @@ export const makeWorkspaceE2EAccountCases = ({
                         firstName instanceof HTMLInputElement &&
                         lastName instanceof HTMLInputElement &&
                         phone instanceof HTMLInputElement &&
-                        firstName.value === "E2E" &&
-                        lastName.value === "Lane" &&
-                        phone.value === ${JSON.stringify(profilePhoneFixture)},
+                        firstName.value === ${JSON.stringify(workspaceE2EAccountProfileFixture.firstName)} &&
+                        lastName.value === ${JSON.stringify(workspaceE2EAccountProfileFixture.lastName)} &&
+                        phone.value === ${JSON.stringify(workspaceE2EAccountProfileFixture.phone)},
                       billingPreserved:
                         companyName instanceof HTMLInputElement &&
                         companyName.value === ${JSON.stringify(billingCompanyFixture)},
@@ -749,12 +752,13 @@ export const makeWorkspaceE2EAccountCases = ({
               yield* waitText("profile update saved", profileSaved);
               const customer = yield* readProviderProfile(customerId);
               assert(
-                customer.lastName === "Lane",
+                customer.lastName ===
+                  workspaceE2EAccountProfileFixture.lastName,
                 "the optional last name did not reach the provider profile"
               );
               assert(
                 normalizePhoneNumber(customer.phone) ===
-                  normalizePhoneNumber(profilePhoneFixture),
+                  normalizePhoneNumber(workspaceE2EAccountProfileFixture.phone),
                 "the optional phone did not reach the provider profile"
               );
               assert(
@@ -928,10 +932,10 @@ export const makeWorkspaceE2EAccountCases = ({
             })
           )
         );
-        const observedMessageIds = yield* runStep(
+        const observedLogEntryIds = yield* runStep(
           step(
-            "records the delivered message baseline",
-            observeDeliveredMessageIds(recipient),
+            "records the delivered log baseline",
+            observeDeliveredLogEntryIds(recipient, startedAt),
             providerTransition
           )
         );
@@ -958,7 +962,7 @@ export const makeWorkspaceE2EAccountCases = ({
         const reauthenticationLink = yield* runStep(
           step(
             "retrieves the delivered reauthentication link",
-            retrieveSignInLink(recipient, observedMessageIds, startedAt),
+            retrieveSignInLink(recipient, observedLogEntryIds, startedAt),
             authDeliveryTimeout
           )
         );
@@ -1141,10 +1145,10 @@ export const makeWorkspaceE2EAccountCases = ({
           )
         );
         const startedAt = new Date();
-        const observedMessageIds = yield* runStep(
+        const observedLogEntryIds = yield* runStep(
           step(
-            "records the delivered message baseline",
-            observeDeliveredMessageIds(recipient),
+            "records the delivered log baseline",
+            observeDeliveredLogEntryIds(recipient, startedAt),
             providerTransition
           )
         );
@@ -1161,7 +1165,7 @@ export const makeWorkspaceE2EAccountCases = ({
         const link = yield* runStep(
           step(
             "retrieves the reactivation link",
-            retrieveSignInLink(recipient, observedMessageIds, startedAt),
+            retrieveSignInLink(recipient, observedLogEntryIds, startedAt),
             authDeliveryTimeout
           )
         );
@@ -1234,14 +1238,14 @@ export const makeWorkspaceE2EAccountCases = ({
             navigationTimeout
           )
         );
-        const observedMessageIds = yield* runStep(
+        const startedAt = new Date();
+        const observedLogEntryIds = yield* runStep(
           step(
-            "records the delivered message baseline before the fresh sign-in",
-            observeDeliveredMessageIds(recipient),
+            "records the delivered log baseline before the fresh sign-in",
+            observeDeliveredLogEntryIds(recipient, startedAt),
             providerTransition
           )
         );
-        const startedAt = new Date();
         yield* rateBudget.run(
           "send",
           runStep(
@@ -1255,7 +1259,7 @@ export const makeWorkspaceE2EAccountCases = ({
         const link = yield* runStep(
           step(
             "retrieves the fresh sign-in link",
-            retrieveSignInLink(recipient, observedMessageIds, startedAt),
+            retrieveSignInLink(recipient, observedLogEntryIds, startedAt),
             authDeliveryTimeout
           )
         );
@@ -1321,14 +1325,14 @@ export const makeWorkspaceE2EAccountCases = ({
             navigationTimeout
           )
         );
-        const restoreObservedMessageIds = yield* runStep(
+        const restoreStartedAt = new Date();
+        const restoreObservedLogEntryIds = yield* runStep(
           step(
-            "records the delivered message baseline before the restore sign-in",
-            observeDeliveredMessageIds(recipient),
+            "records the delivered log baseline before the restore sign-in",
+            observeDeliveredLogEntryIds(recipient, restoreStartedAt),
             providerTransition
           )
         );
-        const restoreStartedAt = new Date();
         yield* rateBudget.run(
           "send",
           runStep(
@@ -1344,7 +1348,7 @@ export const makeWorkspaceE2EAccountCases = ({
             "retrieves the restore sign-in link",
             retrieveSignInLink(
               recipient,
-              restoreObservedMessageIds,
+              restoreObservedLogEntryIds,
               restoreStartedAt
             ),
             authDeliveryTimeout

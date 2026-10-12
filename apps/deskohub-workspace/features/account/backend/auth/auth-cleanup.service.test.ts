@@ -158,7 +158,9 @@ describe.skipIf(!testDatabase)("AuthCleanupService", () => {
       rateLimitRows: 0,
     });
   });
+});
 
+describe("AuthCleanupService failures", () => {
   test("reports a fixed censored failure without the raw database error", async () => {
     const failure = new Error("sensitive relation and constraint details");
     const failingDb = {

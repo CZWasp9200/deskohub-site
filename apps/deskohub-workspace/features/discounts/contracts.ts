@@ -1,5 +1,5 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { Option, Schema } from "effect";
+import { Schema } from "effect";
 import {
   type WorkspaceProductIdentity,
   workspaceProductIdentitySchema,
@@ -95,7 +95,6 @@ export type ActiveSale = {
 
 export type ActiveSaleDiscoveryInput = {
   readonly locale: Locale;
-  readonly currentDate: Temporal.PlainDate;
 };
 
 export const discountCodec = Schema.Struct({
@@ -126,13 +125,6 @@ export const appliedDiscountCodec = Schema.Struct({
   description:
     "An immutable discount application and its before, applied, and after amounts.",
 });
-
-export const isAppliedDiscount = <T>(value: T): value is T & AppliedDiscount =>
-  Option.isSome(
-    Schema.decodeUnknownOption(appliedDiscountCodec, {
-      onExcessProperty: "error",
-    })(value)
-  );
 
 export type DiscountQuote = {
   readonly product: WorkspaceProductIdentity;
@@ -179,14 +171,26 @@ export type AffirmedDiscountAdvertisementQuote =
 export type DiscountAdvertisementInput = {
   readonly product: WorkspaceProductIdentity;
   readonly discountableSubtotal: WorkspaceMoney;
-  readonly reservationDate: string;
+  /**
+   * Last date the reservation uses the workspace. Calendar sales apply only
+   * when it is on or before the sale's last day.
+   */
+  readonly lastServiceDate: string;
+  /** Moment the booking is made; calendar sales are evaluated at it. */
+  readonly bookedAt: Temporal.Instant;
   readonly locale: Locale;
 };
 
 export type DiscountQuoteInput = {
   readonly product: WorkspaceProductIdentity;
   readonly discountableSubtotal: WorkspaceMoney;
-  readonly reservationDate: string;
+  /**
+   * Last date the reservation uses the workspace. Calendar sales apply only
+   * when it is on or before the sale's last day.
+   */
+  readonly lastServiceDate: string;
+  /** Moment the booking is made; calendar sales are evaluated at it. */
+  readonly bookedAt: Temporal.Instant;
   readonly locale: Locale;
   readonly dotyposCustomerId: DotyposCustomerId;
   readonly submittedCode?: CanonicalPromotionCode;

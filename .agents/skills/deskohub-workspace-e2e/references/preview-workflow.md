@@ -66,14 +66,18 @@ names. Inspect settings and deployment metadata without printing their values.
   stacked-discount and external-payment cases. The runner selects a usable
   group deterministically through the Dotypos API and fails closed when none
   exists.
-- GitHub Actions variables `WORKSPACE_E2E_POSTHOG_PROJECT_TOKEN` and, when
-  using a non-default ingest region, `WORKSPACE_E2E_POSTHOG_HOST` in the
-  `workspace-checkout-e2e` environment. The token is the public project ingest
-  token, never a management API key or secret.
 - `EMAIL_PROVIDER=console` for Preview. Browser cases exercise the complete
   email workflow without making external delivery attempts or consuming the
-  Resend plan. Keep `EMAIL_PROVIDER=resend` and `EMAIL_API_KEY` scoped to
-  Production.
+  Resend plan. Checkout and reservation mail use that configured default.
+  Auth ignores the global selection only for exact synthetic E2E magic-link
+  recipients: they force the shared Console transport (zero Resend sends),
+  and the account app feature then emits the single gated
+  `account.magic-link.preview-e2e` raw console line whose
+  `{code, recipient, message, text}` envelope is the E2E parser's stable wire
+  format. Non-synthetic auth uses the `EmailConfigLayer` configured default
+  provider, which may be Console. Preview keeps a send-only `EMAIL_API_KEY`
+  for Resend webhook verification and for the configured default whenever it
+  is Resend; a missing key fails closed only when that provider needs one.
 - The non-sensitive Preview-only
   `POSTHOG_FEATURE_FLAG_OVERRIDES={"accounts":true,"calendar_sales":true,"customer_discounts":true,"discount_codes":true,"meeting_room_page":true,"office_page":true}`.
   Account navigation E2E requires `accounts:true` even when the production
@@ -84,13 +88,40 @@ names. Inspect settings and deployment metadata without printing their values.
 - `GOOGLE_CALENDAR_SALES_ID` must identify the dedicated Preview E2E sales
   calendar. Its long-lived all-day sale references discount UUID
   `454784dd-380b-43a1-bae7-cc070bf1aec2`. Keep that event immutable so parallel
-  happy-path cases cannot interfere with one another.
+  happy-path cases cannot interfere with one another. Calendar sales apply only
+  to bookings made during the sale whose last service date is no later than
+  its last day. That event must therefore be a single non-recurring occurrence. It must
+  start on or before the run date and last beyond the end of the 14-to-90-day
+  candidate range. A daily recurring sale would only cover same-day service
+  dates.
 - `VERCEL_AUTOMATION_BYPASS_SECRET` for Deployment Protection.
+
+This Vercel list is separate from the GitHub Actions
+`workspace-checkout-e2e` protected-environment contract, which must provide:
+
+- `WORKSPACE_E2E_POSTHOG_PROJECT_TOKEN` and, when using a non-default ingest
+  region, `WORKSPACE_E2E_POSTHOG_HOST` as environment variables. The token is
+  the public project ingest token, never a management API key or secret.
+- `WORKSPACE_E2E_VERCEL_TOKEN` as a protected-environment SECRET and
+  `WORKSPACE_E2E_VERCEL_PROJECT` as its environment variable. Neither enters
+  Vercel or application configuration. The accepted secret is a Workspace
+  team PAT with history-read access; the runner treats it as opaque and does
+  not validate its scope. The user accepts this team access, and no
+  full-account key is required. Prefer narrower project authority if the
+  historical route supports it.
 
 Do not use production Nexi, Dotypos, or database credentials in Preview.
 Do not add callback-origin or BotID test-bypass overrides. Non-production
 callback origins derive from the deployment's `VERCEL_URL`; production derives
 from `VERCEL_PROJECT_PRODUCTION_URL`.
+
+Preview visitor GET/HEAD navigation redirects to that immutable callback origin
+before sign-in and reservation preparation. This keeps host-only account sessions
+and checkout access cookies on the host Nexi returns to, including when a customer
+starts on a branch alias. Keep the existing administration boundary and API/static
+matcher exclusions. When changing this boundary, check direct alias page loads
+and client navigation; the normal immutable-host E2E suite does not cover that
+host transition.
 
 Workspace appends the protection-bypass query parameter to preview Nexi result
 and notification URLs when configured. Browser navigation establishes the
@@ -345,7 +376,8 @@ and deployment lifecycle. Its validated mapping is
 `preview/<internal-head-ref>`. E2E waits for
 the successful Vercel preview event, resolves that exact non-primary Neon
 branch, obtains its direct and pooled connection strings with pinned
-`neonctl@2.30.1`, masks each immediately, and migrates with the direct URL.
+`neonctl@2.30.1` (installed once per lookup rather than resolved by `bunx`
+per call), masks each immediately, and migrates with the direct URL.
 Runtime traffic uses the pooled URL; database assertions and the allowlist use
 the direct URL for the same branch.
 
@@ -356,6 +388,10 @@ branch. The Neon/Vercel integration that creates the branch also owns its
 cleanup. Keep automatic deletion of obsolete preview branches enabled in the
 integration, and do not add repository workflows that delete integration-owned
 branches.
+
+The CI workflow resolves and migrates this branch in the exact-SHA `test-e2e`
+job after its dependency install. Migrate with the direct URL before stale
+reservation cleanup, capacity validation, and browser setup.
 
 The preview becomes Ready before CI runs migrations. That ordering is safe only
 while the Workspace build is database-independent and runtime traffic does not
@@ -488,8 +524,31 @@ and uses it for:
 `DATABASE_URL`, `WORKSPACE_E2E_DATABASE_URL_UNPOOLED`, and
 `WORKSPACE_E2E_DATABASE_ALLOWLIST` must identify the database backing that same
 preview. `NEXI_API_ORIGIN` must be supplied explicitly as the sandbox origin.
-The runner does not deploy, pull Vercel environment files, inspect deployments,
-or mutate aliases/domains.
+The runner reads immutable deployment metadata to validate auth log retrieval.
+It does not deploy, pull Vercel environment files, or mutate aliases/domains.
+
+For auth-dependent cases the runner retrieves verification links through an
+automated account retrieval step. The exact immutable deployment, fixed event
+code, and exact synthetic E2E recipient are required to resolve exactly one
+unambiguous match; an ambiguous or empty lookup is a failure, not a match to
+pick from. The sensitive link is redacted from runner output and artifact
+files; the single Vercel runtime log line is the sole authorized place it
+remains visible.
+
+The account worker resolves the immutable deployment and queries the historical
+`https://vercel.com/api/logs/request-logs` route used by pinned Vercel CLI
+54.9.1, filtering by project, deployment, time, page, marker, baseline row IDs,
+and exact recipient. This is an internal CLI request-log contract rather than
+a documented public history API. The protected GitHub secret
+`WORKSPACE_E2E_VERCEL_TOKEN` is opaque to the runner and is sent only in a
+Bearer header. In the final-440 probe, the configured same-account Workspace
+team PAT returned HTTP 200 after deployment project and commit metadata
+matched. An earlier project PAT returned HTTP 403 on this route; the denial
+reason and general project-token support remain unknown. The probe establishes
+history-read access for the current credential only; it did not test drain
+creation or deletion. Keep the exact project, deployment, time, marker,
+baseline-row, and recipient filters. Require an exact protected-preview E2E
+pass before treating a delivered link as verified.
 
 The runner relies on Bun to load dotenv files before the entry module executes.
 `e2e/e2e-env.ts` is the only E2E boundary that reads `process.env`: it selects,
@@ -643,6 +702,43 @@ In the Workspace PostHog project:
 6. Use `e2e.execution_context` to separate `manual` and `ci` runs, and inspect
    `e2e.outcome` plus `e2e.failure.kind` when a span did not pass.
 
+If the CLI catalog or SQL explorer cannot query native spans, use PostHog's
+`POST /api/projects/204184/tracing/spans/query/` endpoint with the saved-login
+auth helper. Bound the time range and use the exact run-attempt correlation:
+
+```json
+{
+  "query": {
+    "kind": "TraceSpansQuery",
+    "dateRange": { "date_from": "<UTC start>", "date_to": "<UTC end>" },
+    "serviceNames": ["deskohub-workspace-e2e"],
+    "filterGroup": {
+      "type": "AND",
+      "values": [
+        {
+          "type": "AND",
+          "values": [
+            {
+              "key": "e2e.run.id",
+              "value": "<GITHUB_RUN_ID>-<GITHUB_RUN_ATTEMPT>",
+              "operator": "exact",
+              "type": "span_attribute"
+            }
+          ]
+        }
+      ]
+    },
+    "flatSpans": true,
+    "limit": 1000
+  }
+}
+```
+
+This requires `tracing:read` permission; a public ingest token cannot read
+traces. See the
+[Tracing API](https://posthog.com/docs/api/tracing). Keep the response in
+memory and report only the safe fields listed below.
+
 ### Investigating a failed run
 
 For any failure that reached the Workspace E2E runner, start with the exported
@@ -676,7 +772,9 @@ summary for Bun setup, repository dependencies, Neon resolution, aggregate
 Dotypos capacity validation, migration, Playwright, and hosted browser/system
 dependencies. It reports both the post-allocation setup path and
 the complete `test-e2e` job setup path from before the exact-SHA checkout. The
-separate target-resolution job remains visible in native Actions timings. These
+separate target-resolution job remains visible in native Actions timings. The Bun package
+cache is restored by an exact `bun.lock` key without restore keys and saved
+before any exact-SHA test code runs, so a run cannot poison it. These
 operations remain sequential until a supported prepared runner image or cache
 can overlap them without background shell jobs, shared-install locks, or hidden
 failures.

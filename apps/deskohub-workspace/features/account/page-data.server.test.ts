@@ -1,7 +1,7 @@
 import "@/shared/testing/workspace-test-env";
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-import { Context, Effect, Layer } from "effect";
+import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import { Context, Effect, Layer, Predicate } from "effect";
 import type { CustomerAccountId } from "@/features/account/customer-account";
 
 let currentUserEffect: Effect.Effect<
@@ -47,6 +47,7 @@ let resolveEffect: Effect.Effect<
 let resolverCalls = 0;
 let profileLoadCalls = 0;
 let historyLoadCalls = 0;
+let avatarLookupCalls = 0;
 
 const Resolver = Context.Service<
   Resolver,
@@ -175,6 +176,36 @@ mock.module(
     CustomerCommunicationPreferenceRepository: PreferenceRepository,
   })
 );
+
+let avatarLookupEffect: Effect.Effect<
+  { readonly url: string; readonly version?: number } | null,
+  unknown
+>;
+
+const Avatar = Context.Service<
+  Avatar,
+  {
+    readonly lookup: (
+      accountId: CustomerAccountId
+    ) => typeof avatarLookupEffect;
+  }
+>()("@test/AccountAvatar");
+
+const AvatarLayer = Layer.succeed(Avatar, {
+  lookup: () => {
+    avatarLookupCalls += 1;
+    return avatarLookupEffect;
+  },
+});
+Object.assign(Avatar, { Live: AvatarLayer });
+
+mock.module("@/features/account/backend/customer-avatar.service", () => ({
+  CustomerAvatarService: Avatar,
+}));
+const areAccountAvatarsEnabled = mock(() => Promise.resolve(true));
+mock.module("@/features/account/server/account-feature-flag.server", () => ({
+  areAccountAvatarsEnabled,
+}));
 mock.module("@/shared/backend/workspace-effect", () => ({
   runWorkspaceEffect:
     (_operation: string, _options: { readonly boundary: string }) =>
@@ -189,6 +220,10 @@ describe("loadCustomerAccountPage", () => {
     resolverCalls = 0;
     profileLoadCalls = 0;
     historyLoadCalls = 0;
+    avatarLookupCalls = 0;
+    avatarLookupEffect = Effect.succeed(null);
+    areAccountAvatarsEnabled.mockReset();
+    areAccountAvatarsEnabled.mockResolvedValue(true);
     historyEffect = Effect.succeed({
       kind: "available",
       groups: { current: [], past: [], unavailable: [] },
@@ -346,6 +381,7 @@ describe("loadCustomerAccountPage", () => {
       email: "ada@example.test",
       preferredLanguage: "read-failed",
       profile: { firstName: "Ada" },
+      avatar: { kind: "available", avatar: null },
       history: { kind: "available" },
     });
   });
@@ -363,8 +399,108 @@ describe("loadCustomerAccountPage", () => {
         phone: null,
         billing: null,
       },
+      avatar: { kind: "available", avatar: null },
       history: { kind: "unavailable", reason: "provider-unavailable" },
     });
+  });
+
+  test("logs fixed, cause-free warnings when history and avatar degrade", async () => {
+    historyEffect = Effect.fail(new Error("dotypos down"));
+    avatarLookupEffect = Effect.fail(new Error("cloudinary down"));
+    const lines: string[] = [];
+    const capture = (...args: unknown[]) => {
+      lines.push(
+        args
+          .map((arg) => (Predicate.isString(arg) ? arg : JSON.stringify(arg)))
+          .join(" ")
+      );
+    };
+    const spies = [
+      spyOn(console, "log").mockImplementation(capture),
+      spyOn(console, "warn").mockImplementation(capture),
+      spyOn(console, "error").mockImplementation(capture),
+    ];
+
+    try {
+      await expect(loadPageState()).resolves.toMatchObject({
+        kind: "linked",
+        avatar: { kind: "available", avatar: null },
+        history: { kind: "unavailable", reason: "provider-unavailable" },
+      });
+    } finally {
+      for (const spy of spies) spy.mockRestore();
+    }
+
+    const output = lines.filter((line) => line.includes("WARN")).join("\n");
+    expect(output).toContain("account.reservation-history.unavailable");
+    expect(output).toContain("account.avatar.unavailable");
+    expect(output).not.toContain("dotypos down");
+    expect(output).not.toContain("cloudinary down");
+  });
+
+  test("includes the versioned avatar when the account has one", async () => {
+    avatarLookupEffect = Effect.succeed({
+      url: "https://res.cloudinary.test/avatar.webp",
+      version: 1735689600,
+    });
+
+    await expect(loadPageState()).resolves.toMatchObject({
+      kind: "linked",
+      avatar: {
+        kind: "available",
+        avatar: {
+          url: "https://res.cloudinary.test/avatar.webp",
+          version: 1735689600,
+        },
+      },
+    });
+    expect(avatarLookupCalls).toBe(1);
+  });
+
+  test("falls back to no avatar when the avatar read fails", async () => {
+    avatarLookupEffect = Effect.fail(new Error("media outage"));
+
+    await expect(loadPageState()).resolves.toMatchObject({
+      kind: "linked",
+      avatar: { kind: "available", avatar: null },
+    });
+    expect(avatarLookupCalls).toBe(1);
+  });
+
+  test("keeps profile and history available while hiding avatars and skipping lookup when disabled", async () => {
+    areAccountAvatarsEnabled.mockResolvedValue(false);
+
+    await expect(loadPageState()).resolves.toEqual({
+      kind: "linked",
+      email: "ada@example.test",
+      preferredLanguage: "cs-CZ",
+      profile: {
+        firstName: "Ada",
+        lastName: "Lovelace",
+        phone: null,
+        billing: null,
+      },
+      avatar: { kind: "hidden" },
+      history: {
+        kind: "available",
+        groups: { current: [], past: [], unavailable: [] },
+      },
+    });
+    expect(avatarLookupCalls).toBe(0);
+    expect(profileLoadCalls).toBe(1);
+    expect(historyLoadCalls).toBe(1);
+  });
+
+  test("fails closed without avatar lookup when avatar capability evaluation is unavailable", async () => {
+    areAccountAvatarsEnabled.mockRejectedValue(new Error("flag unavailable"));
+
+    await expect(loadPageState()).resolves.toMatchObject({
+      kind: "linked",
+      avatar: { kind: "hidden" },
+      profile: { firstName: "Ada" },
+      history: { kind: "available" },
+    });
+    expect(avatarLookupCalls).toBe(0);
   });
 
   test("renders the authenticated unavailable state when the profile read fails after a successful link", async () => {

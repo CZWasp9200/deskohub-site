@@ -1,6 +1,6 @@
 import { Predicate } from "effect";
 
-export type ConsentStatus = "granted" | "denied";
+type ConsentStatus = "granted" | "denied";
 
 export interface ConsentState {
   ad_storage: ConsentStatus;
@@ -12,7 +12,7 @@ export interface ConsentState {
   security_storage: ConsentStatus;
 }
 
-export const DEFAULT_CONSENT_STATE: ConsentState = {
+const DEFAULT_CONSENT_STATE: ConsentState = {
   ad_storage: "denied",
   ad_user_data: "denied",
   ad_personalization: "denied",
@@ -48,7 +48,7 @@ export function initializeConsentMode(): void {
   gtmQueueWindow.gtag("consent", "default", DEFAULT_CONSENT_STATE);
 }
 
-export function updateConsentMode(consent: Partial<ConsentState>): void {
+function updateConsentMode(consent: Partial<ConsentState>): void {
   const gtmQueueWindow = getGtmQueueWindow();
   if (!gtmQueueWindow) return;
 

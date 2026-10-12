@@ -63,6 +63,13 @@ Import HTTP modules as named namespaces from the `effect/unstable/http` barrel, 
 
 Resolve capabilities while constructing the consuming service and close over them in its implementation so public methods accept domain input only. Let a service's `Default` layer require its dependencies from Context. Provide live dependency layers in the service's `Live` composition and replace them with test layers in tests.
 
+## Call external providers
+
+- Bound every outbound provider request with a timeout that fails with the capability's typed error. Pass the `Effect.tryPromise` abort signal to promise-based SDKs so a timeout or interruption cancels the request.
+- Retry idempotent reads on transient failures. A timeout, transport failure, or 5xx can follow a committed create or send, so retry those only when the provider honors an idempotency key that stays the same across attempts. Otherwise retry only failures that prove nothing was applied, such as 429 or an empty creation response.
+- When a provider rejects a cached credential with 401, invalidate the cached credential.
+- Keep the original error as `cause` unless it carries request bodies, credentials, or personal data. In that case remove those parts, and log only tags, identifiers, status codes, and field names.
+
 ## Name and expose operations
 
 Name public service operations with `Effect.fn("Service.operation")`. Do not wrap the entire named operation in a redundant `Effect.withSpan`; add explicit spans only for meaningful nested trace boundaries.
@@ -73,7 +80,7 @@ Prefer explicit type annotations for constructed service-boundary and public
 projection values. Reserve `satisfies` for configuration and other literals
 whose narrow inferred type is intentionally retained.
 
-Collection combinators such as `Effect.all` and `Effect.forEach` are sequential by default. When all collection items are independent and all results are required, prefer `Effect.all(items.map(operation), { concurrency: "inherit" })`. Use `Effect.forEach` when the workflow is intrinsically iterative. Do not manually fork and join fibers to obtain concurrency. Use a numeric limit only when the operation has a real local concurrency constraint.
+Collection combinators such as `Effect.all` and `Effect.forEach` are sequential by default. When all collection items are independent and all results are required, prefer `Effect.all(items.map(operation), { concurrency: "inherit" })`; `"inherit"` runs unbounded unless a caller narrows it with `Effect.withConcurrency`. Use `Effect.forEach` when the workflow is intrinsically iterative. Do not manually fork and join fibers to obtain concurrency. Use a numeric limit only when the operation has a real local concurrency constraint.
 
 Expose each feature's public service API through explicit named exports in its `index.ts` barrel; do not use wildcard exports. Keep providers, repositories, intermediate candidates, and other implementation modules private. In tests, import the declaration module under test directly rather than through the feature barrel.
 
@@ -84,3 +91,7 @@ For same-app UI operations that do not need an independently addressable HTTP re
 For independently addressable HTTP resources, use `defineWorkspaceRoute` and choose its request-disconnect cancellation policy explicitly. Interrupt pure response generation when the requester disconnects; continue after disconnect only for side effects that must finish independently of the response. Keep status codes and safe public messages out of reusable domain and Layer errors. Before returning the handler Effect, provide all feature capabilities and map the final expected error channel to `WorkspaceRouteFailure`, preserving the original error as `cause`.
 
 Map unexpected internal route errors with `WorkspaceRouteFailure.internal(publicMessage)` so HTTP 500 construction stays on the boundary error class and call sites remain concise.
+
+An Effect HTTP API served through `HttpRouter.toWebHandler` runs in its own runtime, not the route's. Merge `WorkspaceObservabilityLive` into its application Layer so its logs pass through the censoring Workspace logger and tracer, and pass `memoMap: workspaceMemoMap` so it reuses the observability instance the Workspace runtime already built. When a handler maps a failure to a cause-less public error such as service-unavailable, log the original cause first.
+
+`NextEffect.make({ layer })` builds its layer once per process, on the first run, and every Workspace boundary (`runWorkspaceEffect`, routes, actions, pages, tasks) shares that build. Each run still gets its own fork of the runtime's memo map, so providing a runtime layer again reuses the shared build, while other layers a handler provides with `Effect.provide` are built per run and never shared between concurrent requests. Put only process-wide, finalizer-free capabilities in a runtime layer. Never dispose a runtime: serverless processes end without a shutdown hook. Flush telemetry explicitly, through `scheduleWorkspaceTelemetryFlush` (`after()`) at request boundaries and `Effect.ensuring` in tasks, never by closing a layer scope. Keep per-request state (log annotations, request context, headers, abort signals) inside the run.

@@ -1,3 +1,4 @@
+import { getAccountPath } from "@/features/account/routes";
 import type { Locale } from "@/features/i18n";
 import { m } from "@/features/i18n";
 import { Card, CardContent } from "@/shared/components/ui/card";
@@ -16,9 +17,6 @@ export function AuthCallbackLoading({ locale }: { readonly locale: Locale }) {
           role="status"
         >
           <CardContent className="p-8 sm:p-10">
-            <p className="mb-5 font-medium text-navy-blue">
-              {m.accountSignInLoading({}, { locale })}
-            </p>
             <div aria-hidden="true" className="space-y-5">
               <Skeleton className="h-4 w-32 rounded-full" />
               <Skeleton className="h-10 w-4/5 rounded-2xl" />
@@ -33,7 +31,7 @@ export function AuthCallbackLoading({ locale }: { readonly locale: Locale }) {
               <Skeleton className="h-10 w-48 rounded-full bg-burned-orange/18" />
             </div>
             <noscript>
-              <a href={`/${locale}/account`}>
+              <a href={getAccountPath(locale)}>
                 {m.accountTitle({}, { locale })}
               </a>
             </noscript>

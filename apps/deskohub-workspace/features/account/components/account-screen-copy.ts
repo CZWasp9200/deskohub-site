@@ -26,12 +26,6 @@ export function getAccountScreenCopy(locale: Locale) {
         verified: m.accountProfileEmailVerificationVerified({}, { locale }),
         unverified: m.accountProfileEmailVerificationUnverified({}, { locale }),
       },
-      avatarUnavailableLabel: m.accountProfileScreenAvatarUnavailableLabel(
-        {},
-        { locale }
-      ),
-      avatarUnavailableDescription:
-        m.accountProfileScreenAvatarUnavailableDescription({}, { locale }),
       languageLabel: m.accountProfileScreenLanguageLabel({}, { locale }),
       languageSave: m.accountProfileScreenLanguageSave({}, { locale }),
       languageSaving: m.accountProfileScreenLanguageSaving({}, { locale }),
@@ -71,7 +65,6 @@ export function getAccountScreenCopy(locale: Locale) {
       checkIn: m.accountReservationCheckIn({}, { locale }),
       date: m.accountReservationDate({}, { locale }),
       moreCurrent: m.accountReservationMoreCurrent({}, { locale }),
-      nfcAccess: m.accountReservationNfcAccess({}, { locale }),
       product: m.accountReservationProduct({}, { locale }),
       seats: m.accountReservationSeatsLabel({}, { locale }),
       showPinCode: m.accountReservationShowPinCode({}, { locale }),

@@ -63,6 +63,7 @@ const session = {
   buildTarget: "development" as const,
   createdAt: "2026-08-10T10:00:00.000Z",
   lastUsedAt: "2026-08-10T10:00:00.000Z",
+  expiresAt: null,
 };
 const createdAccessCodeOutcome = Schema.decodeUnknownSync(
   AdministrationStandaloneAccessCodeCreationOutcome
@@ -257,6 +258,40 @@ describe("dhw mutation commands", () => {
     expect(clears).toBe(1);
   });
 
+  test("lists session expiry and reports elapsed sessions as expired", async () => {
+    const stdout: Array<string> = [];
+    const { layer } = makeCommandLayer({
+      listSessions: () =>
+        Effect.succeed([
+          { ...session, revokedAt: null },
+          {
+            ...session,
+            expiresAt: "2026-08-11T10:00:00.000Z",
+            revokedAt: null,
+          },
+          {
+            ...session,
+            expiresAt: "2999-01-01T00:00:00.000Z",
+            revokedAt: null,
+          },
+        ]),
+    });
+
+    await runCommand(["sessions", "list"], layer).pipe(
+      Effect.updateService(Console.Console, (service) => ({
+        ...service,
+        log: (...args) => stdout.push(args.join(" ")),
+      })),
+      Effect.runPromise
+    );
+
+    expect(stdout.slice(1).map((line) => line.split("\t").slice(-2))).toEqual([
+      ["Never expires", "Active"],
+      ["2026-08-11T10:00:00.000Z", "Expired"],
+      ["2999-01-01T00:00:00.000Z", "Active"],
+    ]);
+  });
+
   test("requires reauthentication before a legacy session can create access codes", async () => {
     const { accessCodeCreations, layer } = makeCommandLayer();
 
@@ -363,7 +398,7 @@ describe("dhw mutation commands", () => {
     expect(accessCodeCreations).toHaveLength(0);
   });
 
-  test("generates one valid attempt id per invocation and forwards the decoded request", async () => {
+  test("reserves a fresh valid attempt id after each concluded creation and forwards the decoded request", async () => {
     const { accessCodeCreations, layer } = makeCommandLayer({
       authenticatedSession: {
         ...session,
@@ -489,37 +524,6 @@ describe("dhw mutation commands", () => {
 
     expect(attemptIds).toHaveLength(2);
     expect(attemptIds[1]).toBe(attemptIds[0]);
-  });
-
-  test("reserves a fresh attempt id once an access-code creation concludes", async () => {
-    const attemptIds: AdministrationStandaloneAccessCodeAttemptIdType[] = [];
-    const { layer } = makeCommandLayer({
-      authenticatedSession: {
-        ...session,
-        approvedBy: AdministrationActorUsername.make("admin"),
-      },
-      createStandaloneAccessCode: (_accessToken, attemptId) => {
-        attemptIds.push(attemptId);
-        return Effect.succeed(createdAccessCodeOutcome);
-      },
-    });
-    const args = [
-      "--json",
-      "access-codes",
-      "create",
-      "Booth A",
-      "--starts-at",
-      "2026-09-10T10:00",
-      "--ends-at",
-      "2026-09-10T12:00",
-      "--yes",
-    ];
-
-    await runCommand(args, layer).pipe(Effect.runPromise);
-    await runCommand(args, layer).pipe(Effect.runPromise);
-
-    expect(attemptIds).toHaveLength(2);
-    expect(attemptIds[1]).not.toBe(attemptIds[0]);
   });
 
   test("does not reuse a reserved attempt id for a changed access window", async () => {
@@ -1320,6 +1324,7 @@ const makeCommandLayer = ({
   createInvoice = () => Effect.die("not used"),
   createStandaloneAccessCode = () => Effect.die("not used"),
   authenticatedSession = session,
+  listSessions = () => Effect.succeed([]),
   revokeSession = () => Effect.succeed({ changed: false }),
   stateDirectory = `/tmp/dhw-command-test-${crypto.randomUUID()}`,
 }: {
@@ -1328,6 +1333,7 @@ const makeCommandLayer = ({
   readonly createInvoice?: WorkspaceAdminApiClient["Service"]["createInvoice"];
   readonly createStandaloneAccessCode?: WorkspaceAdminApiClient["Service"]["createStandaloneAccessCode"];
   readonly authenticatedSession?: CliSessionType;
+  readonly listSessions?: WorkspaceAdminApiClient["Service"]["listSessions"];
   readonly revokeSession?: WorkspaceAdminApiClient["Service"]["revokeSession"];
   readonly stateDirectory?: string;
 } = {}) => {
@@ -1367,6 +1373,7 @@ const makeCommandLayer = ({
       Effect.succeed({
         accessGrant: { updatedAt: "2026-08-10T10:00:00.000Z" },
       } as never),
+    listSessions,
     mutateDiscounts: (_accessToken, _requestId, mutation) =>
       Effect.sync(() => {
         mutations.push(mutation);

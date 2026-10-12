@@ -28,8 +28,10 @@ mock.module("botid/server", () => ({
 }));
 
 const areAccountsEnabled = mock(() => Promise.resolve(true));
+const areAccountAvatarsEnabled = mock(() => Promise.resolve(true));
 mock.module("@/features/account/server/account-feature-flag.server", () => ({
   areAccountsEnabled,
+  areAccountAvatarsEnabled,
 }));
 
 let deleteUser: (args: { body: object; headers: Headers }) => Promise<unknown>;
@@ -485,6 +487,25 @@ describe("account actions", () => {
     const result = await deleteCustomerAccount({ confirmed: true });
 
     expect(result).toEqual({ data: { status: "reauthentication-required" } });
+    expect(deleteUserCalls).toBe(0);
+  });
+
+  test("reports a retryable failure when the session cannot be read", async () => {
+    const { customerAccountUnavailable } = await import("./customer-account");
+    currentUser = Effect.fail(
+      customerAccountUnavailable("authentication.session")
+    );
+
+    let deleteUserCalls = 0;
+    deleteUser = () => {
+      deleteUserCalls += 1;
+      return Promise.resolve({ success: true });
+    };
+    const { deleteCustomerAccount } = await importActions();
+
+    const result = await deleteCustomerAccount({ confirmed: true });
+
+    expect(result).toEqual({ data: { status: "failed" } });
     expect(deleteUserCalls).toBe(0);
   });
 

@@ -10,12 +10,13 @@ import {
   Schema,
 } from "effect";
 import { FetchHttpClient } from "effect/unstable/http";
-import { ExternalAPIError, type NetworkError } from "../errors";
+import { ExternalAPIError, NetworkError } from "../errors";
 import type {
   CreateHostedPaymentPageRequest,
   Operation,
   OrderStatus,
 } from "../generated/effect.gen";
+import { isNexiRefundOperation } from "../refunds";
 import type {
   CreateHostedPaymentPageInput,
   GetNexiOperationInput,
@@ -169,13 +170,15 @@ const makeNexiService = Effect.gen(function* () {
 
       yield* Effect.logInfo("Nexi hosted payment page request started");
 
+      // Never retried: Nexi documents no idempotency key for POST
+      // /orders/hpp, and a timeout or 5xx can follow a committed creation.
+      // The caller keeps such an attempt unresolved until reconciliation.
       const response = yield* nexiClient
         .createHostedPaymentPage({
           correlationId: input.correlationId,
           payload: request,
         })
         .pipe(
-          Effect.retry(retryPolicy),
           Effect.tapError((error) =>
             Effect.logError("Nexi hosted payment page request failed", {
               error,
@@ -211,17 +214,31 @@ const makeNexiService = Effect.gen(function* () {
     function* (input: VerifyPaymentOutcomeInput) {
       yield* Effect.logInfo("Nexi order lookup started");
 
-      const order = yield* nexiClient
+      const lookup = nexiClient
         .getOrder({
           correlationId: input.correlationId,
           orderId: input.orderId,
         })
-        .pipe(
-          Effect.retry(retryPolicy),
-          Effect.tapError((error) =>
-            Effect.logError("Nexi order lookup failed", { error })
-          )
-        );
+        .pipe(Effect.retry(retryPolicy));
+      const order = yield* (
+        input.deadline === undefined
+          ? lookup
+          : lookup.pipe(
+              Effect.timeoutOrElse({
+                duration: input.deadline,
+                orElse: () =>
+                  Effect.fail(
+                    new NetworkError({
+                      message: "Nexi order lookup exceeded its deadline",
+                    })
+                  ),
+              })
+            )
+      ).pipe(
+        Effect.tapError((error) =>
+          Effect.logError("Nexi order lookup failed", { error })
+        )
+      );
 
       yield* Effect.logDebug("Nexi order lookup result", {
         operationCount: order.operations?.length ?? 0,
@@ -235,8 +252,13 @@ const makeNexiService = Effect.gen(function* () {
           isPaymentOperationType(operation.operationType) &&
           operation.operationResult === EXECUTED_OPERATION_RESULT
       );
-      const failedOperation = operations.find((operation) =>
-        isFailureStatus(operation.operationResult)
+      // A refund's result describes money going back, not the payment
+      // outcome: a back-office refund before settlement reports `VOIDED`,
+      // which must never read as a failed payment.
+      const failedOperation = operations.find(
+        (operation) =>
+          !isNexiRefundOperation(operation) &&
+          isFailureStatus(operation.operationResult)
       );
       const providerAmount =
         getOperationAmount(executedPaymentOperation) ?? providerOrder;

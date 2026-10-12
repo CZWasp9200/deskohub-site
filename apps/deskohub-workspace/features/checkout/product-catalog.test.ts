@@ -1,12 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { getMeetingRoomReservationDurationKey } from "@/features/reservation/meeting-room-reservation-duration";
 import {
-  getWorkspaceMeetingRoomPriceForDuration,
   getWorkspaceOfficePrice,
-  getWorkspaceProductByTier,
   getWorkspaceProductCoffeeLinePriceForTier,
+  isWorkspaceCoworkCurrentProductTier,
   isWorkspaceProductTier,
-  workspaceCoworkProductCatalog,
+  workspaceCoworkCatalog,
+  workspaceCoworkCurrentTiers,
+  workspaceCoworkHistoricalTiers,
+  workspaceCoworkTiers,
   workspaceMeetingRoomCatalog,
   workspaceMeetingRoomProductsByDurationKey,
   workspaceProductCoffeePrice,
@@ -21,12 +23,6 @@ import {
 } from "./product-catalog.i18n";
 
 describe("workspace product catalog", () => {
-  test("exposes static tier-card prices explicitly", () => {
-    expect(getWorkspaceProductByTier("basic").price.value).toBe(35_000);
-    expect(getWorkspaceProductByTier("plus").price.value).toBe(49_000);
-    expect(getWorkspaceProductByTier("profi").price.value).toBe(55_000);
-  });
-
   test("does not advertise post-mix water", () => {
     for (const locale of ["en-US", "cs-CZ"] as const) {
       const basicCopy = [
@@ -44,42 +40,32 @@ describe("workspace product catalog", () => {
   });
 
   test("keeps cowork-only catalog consumers separate from meeting room", () => {
-    expect(
-      workspaceCoworkProductCatalog.map((product) => product.tier)
-    ).toEqual(["basic", "plus", "profi"]);
-    expect(isWorkspaceProductTier("basic")).toBe(true);
+    expect(workspaceCoworkCatalog.map((product) => product.tier)).toEqual([
+      "basic",
+      "plus",
+      "profi",
+      "open-space",
+      "reserved-desk",
+    ]);
     expect(isWorkspaceProductTier("toString")).toBe(false);
   });
 
-  test("exposes approved meeting room duration prices", () => {
-    expect(workspaceMeetingRoomCatalog.map(({ duration }) => duration)).toEqual(
-      [
-        { unit: "hour", amount: 1 },
-        { unit: "hour", amount: 4 },
-        { unit: "day", amount: 1 },
-      ]
-    );
-    expect(
-      getWorkspaceMeetingRoomPriceForDuration({ unit: "hour", amount: 1 })
-    ).toEqual({
-      value: 35_000,
-      exponent: 2,
-      currency: "CZK",
-    });
-    expect(
-      getWorkspaceMeetingRoomPriceForDuration({ unit: "hour", amount: 4 })
-    ).toEqual({
-      value: 98_000,
-      exponent: 2,
-      currency: "CZK",
-    });
-    expect(
-      getWorkspaceMeetingRoomPriceForDuration({ unit: "day", amount: 1 })
-    ).toEqual({
-      value: 182_000,
-      exponent: 2,
-      currency: "CZK",
-    });
+  test("exposes exactly the current two-tier bookable subset", () => {
+    expect([...workspaceCoworkCurrentTiers]).toEqual([
+      "open-space",
+      "reserved-desk",
+    ]);
+    for (const tier of workspaceCoworkCurrentTiers) {
+      expect(isWorkspaceCoworkCurrentProductTier(tier)).toBe(true);
+      expect(isWorkspaceProductTier(tier)).toBe(true);
+    }
+    for (const tier of workspaceCoworkHistoricalTiers) {
+      // Historical tiers stay decodable and present in the full catalog,
+      // but they are not in the bookable/issuable subset.
+      expect(isWorkspaceCoworkCurrentProductTier(tier)).toBe(false);
+      expect(isWorkspaceProductTier(tier)).toBe(true);
+      expect([...workspaceCoworkTiers]).toContain(tier);
+    }
   });
 
   test("prices the office base and every seat per calendar day", () => {
@@ -103,7 +89,7 @@ describe("workspace product catalog", () => {
     );
 
     const prices = [
-      ...workspaceCoworkProductCatalog.map(({ price }) => price),
+      ...workspaceCoworkCatalog.map(({ price }) => price),
       ...workspaceMeetingRoomCatalog.map(({ price }) => price),
       workspaceProductCoffeePrice,
     ];

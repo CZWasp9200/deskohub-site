@@ -11,7 +11,7 @@ import type { Locale } from "@/features/i18n";
  * or the linked account has no required preference row. Both are operational
  * failures the caller must distinguish from an unlinked guest reservation.
  */
-export class CustomerEmailLocaleReadError extends Data.TaggedError(
+class CustomerEmailLocaleReadError extends Data.TaggedError(
   "CustomerEmailLocaleReadError"
 )<{
   readonly code: "customer-email-locale.read" | "customer-email-locale.missing";
@@ -22,7 +22,7 @@ export class CustomerEmailLocaleReadError extends Data.TaggedError(
  * guest keeps the reservation's own locale, while a linked account always
  * uses its required saved communication preference.
  */
-export type CustomerEmailLocale =
+type CustomerEmailLocale =
   | { readonly kind: "guest" }
   | { readonly kind: "account"; readonly locale: Locale };
 

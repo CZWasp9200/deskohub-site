@@ -1,10 +1,12 @@
 "use client";
 
-import type { ColumnDef } from "@tanstack/react-table";
 import { useMemo } from "react";
 import { AdministrationLink as Link } from "@/features/administration/admin-link";
 import type { AdministrationCustomerTransaction } from "@/features/administration/administration.service";
-import { AdministrationDataTable } from "@/features/administration/data-table";
+import {
+  AdministrationDataTable,
+  type AdministrationDataTableColumn,
+} from "@/features/administration/data-table";
 import {
   formatAdministrationDateTime,
   formatAdministrationMoney,
@@ -12,7 +14,7 @@ import {
 import { NexiOrderLink } from "@/features/administration/nexi-order-link";
 import type { DiscountAdjustment } from "@/features/discounts/contracts";
 import { StatusBadge } from "@/shared/components/ui/status-badge";
-import { CustomerCodeAction } from "./customer-admin-client";
+import { CustomerPromotionCodeAction } from "./customer-admin-client";
 import type {
   AdminCustomerProfile,
   AdminDiscountCodeClaim,
@@ -20,70 +22,85 @@ import type {
 
 type Money = AdminDiscountCodeClaim["appliedAmount"];
 
-type CustomerCodeEligibilityItem = {
-  readonly id: AdminCustomerProfile["codes"][number]["id"];
-  readonly audienceSize: number;
-  readonly code: string;
-  readonly discountAdjustment: DiscountAdjustment;
-  readonly discountLabel: string;
-  readonly eligible: boolean;
-  readonly enabled: boolean;
-};
-
-type CustomerVoucherEligibilityItem = {
-  readonly id: AdminCustomerProfile["vouchers"][number]["id"];
-  readonly audienceSize: number;
-  readonly code: string;
-  readonly eligible: boolean;
-  readonly issuedCredit: Money;
-  readonly remainingCredit: Money;
-};
+type CustomerPromotionCodeItem =
+  | {
+      readonly kind: "discount-code";
+      readonly id: AdminCustomerProfile["codes"][number]["id"];
+      readonly audienceSize: number;
+      readonly code: string;
+      readonly discountAdjustment: DiscountAdjustment;
+      readonly discountLabel: string;
+      readonly eligible: boolean;
+      readonly enabled: boolean;
+    }
+  | {
+      readonly kind: "voucher";
+      readonly id: AdminCustomerProfile["vouchers"][number]["id"];
+      readonly audienceSize: number;
+      readonly code: string;
+      readonly eligible: boolean;
+      readonly enabled: boolean;
+      readonly issuedCredit: Money;
+      readonly remainingCredit: Money;
+    };
 
 type ClaimHistoryItem = {
   readonly id: string;
+  readonly kind: CustomerPromotionCodeItem["kind"];
   readonly appliedAmount: Money;
-  readonly codeId?: string;
+  /** The claimed code or voucher; `code` is null when its value is not loaded. */
+  readonly promotion: { readonly id: string; readonly code: string | null };
   readonly dotyposCustomerId: string;
   readonly redeemedAt: string | null;
   readonly releasedAt: string | null;
   readonly releaseReason: string | null;
   readonly reservedAt: string;
   readonly state: AdminDiscountCodeClaim["state"];
-  readonly voucherId?: string;
   readonly workspaceReservationId: string;
 };
 
-const getDiscountLabel = (code: CustomerCodeEligibilityItem) =>
-  `${code.discountLabel} · ${
-    code.discountAdjustment.kind === "percentage"
-      ? `${code.discountAdjustment.basisPoints / 100}%`
-      : formatAdministrationMoney(code.discountAdjustment.amount)
+const promotionCodeKindLabels = {
+  "discount-code": "Discount code",
+  voucher: "Voucher",
+} satisfies Record<CustomerPromotionCodeItem["kind"], string>;
+
+const getPromotionCodeHref = (item: {
+  readonly id: string;
+  readonly kind: CustomerPromotionCodeItem["kind"];
+}) =>
+  item.kind === "voucher"
+    ? `/admin/vouchers/${item.id}`
+    : `/admin/codes/${item.id}`;
+
+const getPromotionCodeBenefit = (item: CustomerPromotionCodeItem) => {
+  if (item.kind === "voucher") {
+    return `${formatAdministrationMoney(item.issuedCredit)} credit`;
+  }
+  return `${item.discountLabel} · ${
+    item.discountAdjustment.kind === "percentage"
+      ? `${item.discountAdjustment.basisPoints / 100}%`
+      : formatAdministrationMoney(item.discountAdjustment.amount)
   }`;
-
-const getCustomerCodeAvailability = (code: CustomerCodeEligibilityItem) => {
-  if (!code.eligible) return "Available to all";
-  if (code.audienceSize === 1) return "Only this customer";
-  return `${code.audienceSize} selected customers`;
 };
 
-const getCustomerVoucherAvailability = (
-  voucher: CustomerVoucherEligibilityItem
-) => {
-  if (voucher.audienceSize === 0) return "Available to all";
-  if (voucher.eligible) return `${voucher.audienceSize} selected customers`;
-  return "Restricted";
+const getPromotionCodeAvailability = (item: CustomerPromotionCodeItem) => {
+  if (item.audienceSize === 0) return "Available to all";
+  if (item.eligible && item.audienceSize === 1) return "Only this customer";
+  return `${item.audienceSize} selected customers`;
 };
 
-export function CustomerCodeEligibilityTable({
-  codes,
+export function CustomerPromotionCodeTable({
   customerId,
   customerName,
+  items,
 }: {
-  readonly codes: readonly CustomerCodeEligibilityItem[];
   readonly customerId: AdminCustomerProfile["customer"]["id"];
   readonly customerName: string;
+  readonly items: readonly CustomerPromotionCodeItem[];
 }) {
-  const columns = useMemo<ColumnDef<CustomerCodeEligibilityItem>[]>(
+  const columns = useMemo<
+    AdministrationDataTableColumn<CustomerPromotionCodeItem>[]
+  >(
     () => [
       {
         accessorKey: "code",
@@ -91,16 +108,34 @@ export function CustomerCodeEligibilityTable({
         cell: ({ row }) => (
           <Link
             className="font-mono font-semibold underline decoration-navy-blue/20 underline-offset-4 before:absolute before:inset-0 before:content-[''] hover:decoration-navy-blue focus-visible:outline-none focus-visible:before:ring-2 focus-visible:before:ring-inset focus-visible:before:ring-navy-blue/40"
-            href={`/admin/codes/${row.original.id}`}
+            href={getPromotionCodeHref(row.original)}
           >
             {row.original.code}
           </Link>
         ),
+        meta: { cellClassName: "whitespace-nowrap" },
       },
       {
-        accessorKey: "discountLabel",
-        header: "Discount",
-        cell: ({ row }) => getDiscountLabel(row.original),
+        accessorFn: (item) => promotionCodeKindLabels[item.kind],
+        id: "type",
+        header: "Type",
+        meta: { cellClassName: "whitespace-nowrap" },
+      },
+      {
+        accessorFn: getPromotionCodeBenefit,
+        id: "benefit",
+        header: "Benefit",
+        cell: ({ row }) => (
+          <>
+            {getPromotionCodeBenefit(row.original)}
+            {row.original.kind === "voucher" && (
+              <span className="mt-0.5 block text-xs text-navy-blue/65">
+                {formatAdministrationMoney(row.original.remainingCredit)}{" "}
+                remaining
+              </span>
+            )}
+          </>
+        ),
         meta: { cellClassName: "break-words" },
       },
       {
@@ -115,20 +150,24 @@ export function CustomerCodeEligibilityTable({
       {
         accessorKey: "audienceSize",
         header: "Availability",
-        cell: ({ row }) => getCustomerCodeAvailability(row.original),
+        cell: ({ row }) => getPromotionCodeAvailability(row.original),
       },
       {
         id: "action",
         header: () => <span className="sr-only">Manage eligibility</span>,
         enableSorting: false,
         cell: ({ row }) => (
-          <CustomerCodeAction
+          <CustomerPromotionCodeAction
             audienceSize={row.original.audienceSize}
             code={row.original.code}
-            codeId={row.original.id}
             customerId={customerId}
             customerName={customerName}
             eligible={row.original.eligible}
+            promotion={
+              row.original.kind === "voucher"
+                ? { kind: "voucher", id: row.original.id }
+                : { kind: "discount-code", id: row.original.id }
+            }
           />
         ),
         meta: { cellClassName: "relative z-10 text-right" },
@@ -139,62 +178,11 @@ export function CustomerCodeEligibilityTable({
 
   return (
     <AdministrationDataTable
-      ariaLabel="Customer code eligibility"
+      ariaLabel="Customer codes and vouchers"
       columns={columns}
-      data={codes}
-      getRowId={(code) => code.id}
-      tableClassName="min-w-[720px]"
-    />
-  );
-}
-
-export function CustomerVoucherEligibilityTable({
-  vouchers,
-}: {
-  readonly vouchers: readonly CustomerVoucherEligibilityItem[];
-}) {
-  const columns = useMemo<ColumnDef<CustomerVoucherEligibilityItem>[]>(
-    () => [
-      {
-        accessorKey: "code",
-        header: "Voucher",
-        cell: ({ row }) => (
-          <Link
-            className="font-mono font-semibold underline underline-offset-4"
-            href={`/admin/vouchers/${row.original.id}`}
-          >
-            {row.original.code}
-          </Link>
-        ),
-      },
-      {
-        accessorFn: (voucher) => voucher.issuedCredit.value,
-        id: "issuedCredit",
-        header: "Issued",
-        cell: ({ row }) => formatAdministrationMoney(row.original.issuedCredit),
-      },
-      {
-        accessorFn: (voucher) => voucher.remainingCredit.value,
-        id: "remainingCredit",
-        header: "Remaining",
-        cell: ({ row }) =>
-          formatAdministrationMoney(row.original.remainingCredit),
-      },
-      {
-        accessorKey: "audienceSize",
-        header: "Availability",
-        cell: ({ row }) => getCustomerVoucherAvailability(row.original),
-      },
-    ],
-    []
-  );
-
-  return (
-    <AdministrationDataTable
-      ariaLabel="Customer voucher eligibility"
-      columns={columns}
-      data={vouchers}
-      getRowId={(voucher) => voucher.id}
+      data={items}
+      getRowId={(item) => `${item.kind}:${item.id}`}
+      tableClassName="min-w-[760px]"
     />
   );
 }
@@ -204,7 +192,9 @@ export function CustomerTransactionHistoryTable({
 }: {
   readonly transactions: readonly AdministrationCustomerTransaction[];
 }) {
-  const columns = useMemo<ColumnDef<AdministrationCustomerTransaction>[]>(
+  const columns = useMemo<
+    AdministrationDataTableColumn<AdministrationCustomerTransaction>[]
+  >(
     () => [
       {
         accessorFn: ({ attempt }) => attempt.updatedAt,
@@ -280,38 +270,64 @@ export function CustomerTransactionHistoryTable({
   );
 }
 
+/**
+ * Claims shown either for one code or voucher, where each row names its
+ * customer, or for one customer, where each row names the claimed code or
+ * voucher and its type.
+ */
 export function ClaimHistoryTable({
+  ariaLabel,
   claims,
-  resource,
+  subject,
 }: {
+  readonly ariaLabel: string;
   readonly claims: readonly ClaimHistoryItem[];
-  readonly resource: "code" | "code-customer" | "voucher" | "voucher-customer";
+  readonly subject: "customer" | "promotion-code";
 }) {
-  const isVoucher = resource.startsWith("voucher");
-  const showsCustomer = resource.endsWith("customer");
-  const subjectLabel = isVoucher ? "Voucher" : "Discount code";
-  const columns = useMemo<ColumnDef<ClaimHistoryItem>[]>(
+  const columns = useMemo<AdministrationDataTableColumn<ClaimHistoryItem>[]>(
     () => [
-      {
-        accessorFn: (claim) =>
-          showsCustomer
-            ? claim.dotyposCustomerId
-            : (claim.codeId ?? claim.voucherId),
-        id: "subject",
-        header: showsCustomer ? "Customer" : subjectLabel,
-        cell: ({ row }) => (
-          <Link
-            className="font-semibold underline underline-offset-4"
-            href={
-              showsCustomer
-                ? `/admin/customers/${row.original.dotyposCustomerId}`
-                : getClaimSubjectHref(row.original)
-            }
-          >
-            View {showsCustomer ? "customer" : resource}
-          </Link>
-        ),
-      },
+      subject === "customer"
+        ? {
+            accessorKey: "dotyposCustomerId",
+            header: "Customer",
+            cell: ({ row }) => (
+              <Link
+                className="font-semibold underline underline-offset-4"
+                href={`/admin/customers/${row.original.dotyposCustomerId}`}
+              >
+                View customer
+              </Link>
+            ),
+          }
+        : {
+            accessorFn: (claim) => claim.promotion.code ?? claim.promotion.id,
+            id: "code",
+            header: "Code",
+            cell: ({ row }) => (
+              <Link
+                className="font-mono font-semibold underline underline-offset-4"
+                href={getPromotionCodeHref({
+                  id: row.original.promotion.id,
+                  kind: row.original.kind,
+                })}
+              >
+                {row.original.promotion.code ??
+                  `View ${promotionCodeKindLabels[row.original.kind].toLowerCase()}`}
+              </Link>
+            ),
+            meta: { cellClassName: "whitespace-nowrap" },
+          },
+      ...(subject === "promotion-code"
+        ? [
+            {
+              accessorFn: (claim: ClaimHistoryItem) =>
+                promotionCodeKindLabels[claim.kind],
+              id: "type",
+              header: "Type",
+              meta: { cellClassName: "whitespace-nowrap" },
+            } satisfies AdministrationDataTableColumn<ClaimHistoryItem>,
+          ]
+        : []),
       {
         accessorKey: "state",
         header: "State",
@@ -371,21 +387,16 @@ export function ClaimHistoryTable({
         ),
       },
     ],
-    [resource, showsCustomer, subjectLabel]
+    [subject]
   );
 
   return (
     <AdministrationDataTable
-      ariaLabel={`${subjectLabel} claim history`}
+      ariaLabel={ariaLabel}
       columns={columns}
       data={claims}
-      getRowId={(claim) => claim.id}
+      getRowId={(claim) => `${claim.kind}:${claim.id}`}
       tableClassName="min-w-[820px]"
     />
   );
 }
-
-const getClaimSubjectHref = (claim: ClaimHistoryItem) =>
-  claim.codeId
-    ? `/admin/codes/${claim.codeId}`
-    : `/admin/vouchers/${claim.voucherId}`;

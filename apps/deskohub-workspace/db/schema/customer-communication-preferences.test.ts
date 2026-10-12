@@ -4,10 +4,9 @@ import { describe, expect, test } from "bun:test";
 import { getTableConfig, PgDialect } from "drizzle-orm/pg-core";
 import type { Pool } from "pg";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
-import { authUser } from "./auth";
 import { customerCommunicationPreferences } from "./customer-communication-preferences";
 
-const MIGRATION_DIR = "20260926095534_sturdy_pete_wisdom";
+const MIGRATION_DIR = "20261012131359_customer_communication_preferences";
 
 const readBackfillStatement = async () => {
   const migration = await Bun.file(

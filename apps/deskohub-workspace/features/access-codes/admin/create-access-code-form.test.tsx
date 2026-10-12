@@ -10,6 +10,7 @@ import {
   mock,
   test,
 } from "bun:test";
+import { ADMINISTRATION_STANDALONE_ACCESS_CODE_MAXIMUM_DURATION_HOURS } from "@deskohub/workspace-admin-api";
 import {
   act,
   cleanup,
@@ -17,6 +18,7 @@ import {
   render,
   waitFor,
 } from "@testing-library/react";
+import { setLocale } from "@/features/i18n";
 import { workspaceUseAction } from "@/shared/testing/workspace-component-module-mocks";
 import {
   registerWorkspaceComponentTestEnv,
@@ -25,7 +27,6 @@ import {
 import {
   shiftStandaloneAccessCodeLocalEnd,
   standaloneAccessCodeCleanupConfirmationLabel,
-  standaloneAccessCodeMaximumDurationHours,
 } from "./create-access-code";
 
 const writeText = mock(() => Promise.resolve());
@@ -88,7 +89,7 @@ afterEach(() => {
 
 afterAll(async () => {
   await new Promise((resolve) => setTimeout(resolve, 0));
-  unregisterWorkspaceComponentTestEnv();
+  await unregisterWorkspaceComponentTestEnv();
 });
 
 const createdOutcome = {
@@ -193,7 +194,7 @@ describe("CreateStandaloneAccessCodeForm", () => {
     expect(endsAt.max).toBe(
       shiftStandaloneAccessCodeLocalEnd({
         startsAt: "2026-03-29T01:00",
-        hours: standaloneAccessCodeMaximumDurationHours,
+        hours: ADMINISTRATION_STANDALONE_ACCESS_CODE_MAXIMUM_DURATION_HOURS,
       })
     );
   });
@@ -555,6 +556,37 @@ describe("CreateStandaloneAccessCodeForm", () => {
     expect(view.queryByText(cleanupTargetNotice("Booth A"))).toBeNull();
   });
 
+  test("rejects an unchecked cleanup confirmation with a localized field error", async () => {
+    await setLocale("cs-CZ", { reload: false });
+    try {
+      withActionOptions();
+      const view = await renderForm();
+      fillForm(view);
+      await submitForm(view);
+
+      act(() => {
+        actionOptions?.onSuccess({
+          data: ambiguousFailure({
+            attemptId: priorAttemptId,
+            name: "Booth A",
+          }),
+        });
+      });
+
+      expect(
+        view
+          .getByRole("button", { name: "Create another access code" })
+          .hasAttribute("disabled")
+      ).toBe(true);
+      await submitCleanupConfirmation(view);
+
+      expect(view.getByText("Toto pole je povinné.")).toBeDefined();
+      expect(execute).toHaveBeenCalledTimes(1);
+    } finally {
+      await setLocale("en-US", { reload: false });
+    }
+  });
+
   test("requires explicit confirmation before recreating an ambiguous window", async () => {
     withActionOptions();
     const view = await renderForm();
@@ -593,6 +625,7 @@ describe("CreateStandaloneAccessCodeForm", () => {
         view.getByRole("form", { name: "Create an access code" })
       ).toBeDefined()
     );
+    expect(execute).toHaveBeenCalledTimes(1);
     fillForm(view);
     await submitForm(view);
 

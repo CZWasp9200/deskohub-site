@@ -1,7 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import {
-  czkCurrency,
-  defaultWorkspaceCurrency,
   findWorkspaceCurrencyDefinition,
   workspaceCurrencyDefinitions,
 } from "./currencies";
@@ -19,18 +17,10 @@ describe("Workspace currency definitions", () => {
     }
   });
 
-  test("exposes the default and finds only catalog currencies", () => {
-    expect(czkCurrency).toEqual({
-      code: "CZK",
-      exponent: 2,
-      name: "Czech koruna",
-    });
-    expect(defaultWorkspaceCurrency.code).toBe("CZK");
-    expect(findWorkspaceCurrencyDefinition("EUR")).toEqual({
-      code: "EUR",
-      exponent: 2,
-      name: "Euro",
-    });
+  test("finds only catalog currencies", () => {
+    for (const currency of workspaceCurrencyDefinitions) {
+      expect(findWorkspaceCurrencyDefinition(currency.code)).toBe(currency);
+    }
     expect(findWorkspaceCurrencyDefinition("USD")).toBeUndefined();
   });
 });

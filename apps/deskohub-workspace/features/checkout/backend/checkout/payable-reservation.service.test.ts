@@ -3,17 +3,36 @@ import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, mock, test } from "bun:test";
 import { DotyposService } from "@deskohub/dotypos";
-import { Effect, Layer } from "effect";
+import { ConfigProvider, Effect, Layer } from "effect";
 import type { WorkspaceReservation } from "@/db/schema";
+import {
+  type CheckoutSessionKey,
+  checkoutSessionIdSchema,
+} from "@/features/checkout/checkout-identifiers";
 import { WorkspaceReservationRepository } from "@/features/reservation/backend/workspace-reservation.repository";
-import { deriveCheckoutSessionKey } from "./checkout-session-key.server";
+import { deriveCheckoutSessionKeys } from "./checkout-lookup-keys.server";
+import { findKeyIdPrefixedLookupKey } from "./checkout-lookup-keys.test-utils";
 import {
   PayableReservationService,
   PayableReservationUnavailableError,
 } from "./payable-reservation.service";
 
-const checkoutSessionId = "checkout-session-id";
-const checkoutSessionKey = deriveCheckoutSessionKey(checkoutSessionId);
+const checkoutSessionId = checkoutSessionIdSchema.make("checkout-session-id");
+const keyRing = `original:${Buffer.alloc(32, 1).toString("base64url")}`;
+
+const withKeyRing = Effect.provideService(
+  ConfigProvider.ConfigProvider,
+  ConfigProvider.fromUnknown({ CHECKOUT_PAY_STATE_KEYS: keyRing })
+);
+
+// New rows store the active key's prefixed derivation.
+const checkoutSessionKey: CheckoutSessionKey = findKeyIdPrefixedLookupKey(
+  deriveCheckoutSessionKeys(checkoutSessionId).pipe(
+    withKeyRing,
+    Effect.runSync
+  ),
+  "original"
+);
 
 const reservation = (overrides: Partial<WorkspaceReservation> = {}) =>
   ({
@@ -61,9 +80,11 @@ const runRequireCurrent = (input: {
       const payable = yield* PayableReservationService;
       return yield* payable.requireCurrent({
         orderId: "reservation-id",
-        checkoutSessionId: input.checkoutSessionId ?? checkoutSessionId,
+        checkoutSessionId: checkoutSessionIdSchema.make(
+          input.checkoutSessionId ?? checkoutSessionId
+        ),
       });
-    }).pipe(Effect.provide(layer), Effect.runPromise),
+    }).pipe(Effect.provide(layer), withKeyRing, Effect.runPromise),
   };
 };
 
@@ -92,6 +113,20 @@ describe("PayableReservationService", () => {
   test("rejects a superseded local reservation without calling Dotypos", async () => {
     const { getReservationStatus, result } = runRequireCurrent({
       current: reservation({ id: "replacement-reservation-id" }),
+    });
+
+    await expect(result).rejects.toEqual(
+      new PayableReservationUnavailableError({
+        orderId: "reservation-id",
+        reason: "not_current",
+      })
+    );
+    expect(getReservationStatus).not.toHaveBeenCalled();
+  });
+
+  test("rejects a reservation from another checkout session", async () => {
+    const { getReservationStatus, result } = runRequireCurrent({
+      checkoutSessionId: "other-checkout-session-id",
     });
 
     await expect(result).rejects.toEqual(

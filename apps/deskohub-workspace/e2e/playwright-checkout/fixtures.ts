@@ -31,8 +31,6 @@ export const test = runtimeTest.extend<
   ],
 });
 
-export { expect } from "@playwright/test";
-
 export const registerWorkspaceE2ECases = (
   caseIds: readonly string[],
   options: { readonly serial?: boolean } = {}

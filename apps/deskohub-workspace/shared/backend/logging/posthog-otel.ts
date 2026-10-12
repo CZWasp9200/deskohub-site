@@ -24,7 +24,7 @@ type PostHogLogsFlushOptions = {
 
 const postHogLogsFlushTimeoutMs = 2_000;
 
-export function getPostHogLogsEndpoint(posthogHost: string) {
+function getPostHogLogsEndpoint(posthogHost: string) {
   return new URL(POSTHOG_LOGS_PATH, posthogHost).toString();
 }
 
@@ -51,8 +51,8 @@ export function createPostHogLoggerProvider({
       "service.version": vercelGitCommitSha,
     }),
     processors: [
-      new BatchLogRecordProcessor(
-        new OTLPLogExporter({
+      new BatchLogRecordProcessor({
+        exporter: new OTLPLogExporter({
           headers: {
             Authorization: `Bearer ${posthogProjectToken}`,
             "Content-Type": "application/json",
@@ -60,10 +60,9 @@ export function createPostHogLoggerProvider({
           timeoutMillis: postHogLogsFlushTimeoutMs,
           url: getPostHogLogsEndpoint(posthogHost),
         }),
-        { exportTimeoutMillis: postHogLogsFlushTimeoutMs }
-      ),
+        exportTimeoutMillis: postHogLogsFlushTimeoutMs,
+      }),
     ],
-    forceFlushTimeoutMillis: postHogLogsFlushTimeoutMs,
   });
 }
 
@@ -74,7 +73,7 @@ export async function flushPostHogLogs(options: PostHogLogsFlushOptions) {
   const timeoutMs = options.timeoutMs ?? postHogLogsFlushTimeoutMs;
   let timeout: ReturnType<typeof setTimeout> | undefined;
   const result = await Promise.race([
-    provider.forceFlush().then(
+    provider.forceFlush({ timeoutMillis: timeoutMs }).then(
       () => "completed" as const,
       () => "failed" as const
     ),

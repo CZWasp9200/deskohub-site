@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { makeE2EEnvironment, makeWorkspaceE2EEnvironment } from "./e2e-env";
+import {
+  makeE2EEnvironment,
+  makeReviewScreenshotEnvironment,
+  makeWorkspaceE2EEnvironment,
+  reviewScreenshotsEnabled,
+  toPlaywrightEnvironment,
+} from "./e2e-env";
 import {
   makeTestE2EEnvironment,
   validE2ERuntimeEnvironment,
@@ -34,6 +40,67 @@ describe("Workspace E2E environment", () => {
     expect(environment.WORKSPACE_E2E_PR_NUMBER).toBe(127);
   });
 
+  test("keeps PATH for commands launched with the selected E2E environment", () => {
+    expect(makeTestE2EEnvironment({ PATH: "/synthetic/e2e/bin" }).PATH).toBe(
+      "/synthetic/e2e/bin"
+    );
+  });
+
+  test("forwards only decoded variables that Playwright decodes back unchanged", () => {
+    const environment = makeTestE2EEnvironment({
+      GITHUB_RUN_ATTEMPT: "2",
+      NEXI_API_KEY: "app-only-key",
+      WORKSPACE_E2E_ALLOCATION_SHARD: "1",
+    });
+    const playwrightEnvironment = toPlaywrightEnvironment(environment);
+
+    expect(playwrightEnvironment.GITHUB_RUN_ATTEMPT).toBe("2");
+    expect(playwrightEnvironment.WORKSPACE_E2E_ALLOCATION_SHARD).toBe("1");
+    expect(playwrightEnvironment).not.toHaveProperty("NEXI_API_KEY");
+    expect(playwrightEnvironment).not.toHaveProperty("WORKSPACE_E2E_PR_NUMBER");
+    expect(makeWorkspaceE2EEnvironment(playwrightEnvironment)).toEqual(
+      environment
+    );
+  });
+
+  test("passes the review screenshot opt-in through to Playwright", () => {
+    expect(
+      makeTestE2EEnvironment({ WORKSPACE_E2E_REVIEW_SCREENSHOTS: "true" })
+        .WORKSPACE_E2E_REVIEW_SCREENSHOTS
+    ).toBe("true");
+    expect(
+      makeTestE2EEnvironment({}).WORKSPACE_E2E_REVIEW_SCREENSHOTS
+    ).toBeUndefined();
+    expect(() =>
+      makeTestE2EEnvironment({ WORKSPACE_E2E_REVIEW_SCREENSHOTS: "yes" })
+    ).toThrow();
+  });
+
+  test("decodes review screenshot capture independently from Playwright configuration", () => {
+    expect(
+      reviewScreenshotsEnabled(
+        makeReviewScreenshotEnvironment({
+          WORKSPACE_E2E_REVIEW_SCREENSHOTS: "true",
+        })
+      )
+    ).toBe(true);
+    expect(reviewScreenshotsEnabled(makeReviewScreenshotEnvironment({}))).toBe(
+      false
+    );
+    expect(
+      reviewScreenshotsEnabled(
+        makeReviewScreenshotEnvironment({
+          WORKSPACE_E2E_REVIEW_SCREENSHOTS: "",
+        })
+      )
+    ).toBe(false);
+    expect(() =>
+      makeReviewScreenshotEnvironment({
+        WORKSPACE_E2E_REVIEW_SCREENSHOTS: "yes",
+      })
+    ).toThrow();
+  });
+
   test("treats empty optional values as absent", () => {
     expect(
       makeTestE2EEnvironment({
@@ -42,20 +109,24 @@ describe("Workspace E2E environment", () => {
     ).toBeUndefined();
   });
 
-  test("decodes the GitHub-only Resend retrieval key when present", () => {
+  test("decodes the GitHub-only Vercel log retrieval variables when present", () => {
     const environment = makeTestE2EEnvironment({
-      WORKSPACE_E2E_RESEND_API_KEY: "re_e2e-retrieval-key",
+      WORKSPACE_E2E_VERCEL_PROJECT: "workspace-preview-project",
+      WORKSPACE_E2E_VERCEL_TOKEN: "vercel-log-read-token",
     });
 
-    expect(environment.WORKSPACE_E2E_RESEND_API_KEY).toBe(
-      "re_e2e-retrieval-key"
+    expect(environment.WORKSPACE_E2E_VERCEL_TOKEN).toBe(
+      "vercel-log-read-token"
+    );
+    expect(environment.WORKSPACE_E2E_VERCEL_PROJECT).toBe(
+      "workspace-preview-project"
     );
   });
 
-  test("treats a missing Resend retrieval key as absent instead of failing checkout cases", () => {
-    expect(
-      makeTestE2EEnvironment().WORKSPACE_E2E_RESEND_API_KEY
-    ).toBeUndefined();
+  test("treats missing Vercel log retrieval variables as absent instead of failing checkout cases", () => {
+    const environment = makeTestE2EEnvironment();
+    expect(environment.WORKSPACE_E2E_VERCEL_TOKEN).toBeUndefined();
+    expect(environment.WORKSPACE_E2E_VERCEL_PROJECT).toBeUndefined();
   });
 
   test("never exposes application mail authority through the E2E boundary", () => {
@@ -90,16 +161,6 @@ describe("Workspace E2E environment", () => {
     );
   });
 
-  test("requires the narrow provider coordination database when rollout is enabled", () => {
-    expect(() =>
-      makeWorkspaceE2EEnvironment({
-        ...validE2ERuntimeEnvironment,
-        WORKSPACE_E2E_PROVIDER_PERMIT_REQUIRED: "true",
-        WORKSPACE_E2E_PROVIDER_PERMIT_DATABASE_URL: undefined,
-      })
-    ).toThrow("Invalid workspace E2E environment variables.");
-  });
-
   test("does not expose the provider permit database to standalone diagnostics", () => {
     expect(
       makeE2EEnvironment({
@@ -110,13 +171,15 @@ describe("Workspace E2E environment", () => {
   });
 
   test("requires cross-worker provider coordination for Playwright", () => {
-    expect(() =>
-      makeWorkspaceE2EEnvironment({
-        ...validE2ERuntimeEnvironment,
-        WORKSPACE_E2E_PROVIDER_PERMIT_DATABASE_URL: undefined,
-        WORKSPACE_E2E_PROVIDER_PERMIT_REQUIRED: undefined,
-      })
-    ).toThrow("Invalid workspace E2E environment variables.");
+    for (const providerPermitRequired of [undefined, "true"]) {
+      expect(() =>
+        makeWorkspaceE2EEnvironment({
+          ...validE2ERuntimeEnvironment,
+          WORKSPACE_E2E_PROVIDER_PERMIT_DATABASE_URL: undefined,
+          WORKSPACE_E2E_PROVIDER_PERMIT_REQUIRED: providerPermitRequired,
+        })
+      ).toThrow("Invalid workspace E2E environment variables.");
+    }
   });
 
   test.each([

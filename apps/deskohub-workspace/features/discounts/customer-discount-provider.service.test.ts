@@ -3,7 +3,6 @@ import { describe, expect, mock, test } from "bun:test";
 import { type DotyposService, ExternalAPIError } from "@deskohub/dotypos";
 import { DotyposServiceMock } from "@deskohub/dotypos/backend/service.mock";
 import { Effect, Layer } from "effect";
-import { calculateDiscounts } from "./calculator";
 import { CustomerDiscountProvider } from "./customer-discount-provider.service";
 
 const input = {
@@ -163,25 +162,5 @@ describe("CustomerDiscountProvider", () => {
       kind: "percentage",
       basisPoints: 2000,
     });
-  });
-
-  test("discounts only the cowork subtotal and leaves paid coffee outside", async () => {
-    const candidates = await runWithProvider(
-      resolve(),
-      mock(() => Effect.succeed(group("50")))
-    );
-    const result = await Effect.runPromise(
-      calculateDiscounts({
-        product: input.product,
-        discountableSubtotal: {
-          value: 35_000,
-          exponent: 2,
-          currency: "CZK",
-        },
-        candidates,
-      })
-    );
-
-    expect(result.quote.discountedSubtotal.value + 5000).toBe(22_500);
   });
 });

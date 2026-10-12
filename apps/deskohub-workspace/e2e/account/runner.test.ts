@@ -260,8 +260,9 @@ test("watchdog interrupts verification after case execution consumes its budget"
   writeWorkspaceE2EAccountJournal.mockClear();
   const observations: E2ETelemetryObservation[] = [];
   const events: string[] = [];
+  // Execution leaves 30 seconds of the case budget; verification needs 60.
   const testCase: WorkspaceE2EAccountCase = {
-    execute: () => Effect.sleep("1050 seconds"),
+    execute: () => Effect.sleep(workspaceE2ETimeouts.accountCase - 30_000),
     id: "account-profile-completion",
     timeoutMs: workspaceE2ETimeouts.accountCase,
   };
@@ -285,12 +286,11 @@ test("watchdog interrupts verification after case execution consumes its budget"
           verifyPages,
         })
       );
-      yield* TestClock.adjust("18 minutes");
+      yield* TestClock.adjust(workspaceE2ETimeouts.accountCase);
       return yield* Fiber.join(fiber);
     }).pipe(Effect.provide(makeRunnerLayer(observations)))
   );
 
-  expect(testCase.timeoutMs).toBe(18 * 60 * 1_000);
   expect(Exit.isFailure(exit)).toBe(true);
   expect(events).toContain("verification-1:start");
   expect(events).toContain("verification-1:cancel-finalizer");

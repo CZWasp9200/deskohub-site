@@ -6,7 +6,7 @@ export type BetterAuthHostEnvironment = {
   readonly branchUrl: string | undefined;
 };
 
-export type BetterAuthHostsMessage =
+type BetterAuthHostsMessage =
   | "The canonical production host is not configured for Better Auth."
   | "Wildcard hosts are not allowed for Better Auth.";
 

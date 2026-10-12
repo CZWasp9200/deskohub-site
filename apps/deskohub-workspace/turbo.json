@@ -3,12 +3,7 @@
   "extends": ["//"],
   "tasks": {
     "lint": {
-      "dependsOn": [
-        "$TURBO_EXTENDS$",
-        "lint:biome",
-        "lint:eslint",
-        "lint:dependencies"
-      ]
+      "dependsOn": ["$TURBO_EXTENDS$", "lint:biome", "lint:eslint", "lint:knip"]
     },
     "lint:biome": {
       "inputs": ["$TURBO_DEFAULT$", "../../biome.json", "../../lint/*.grit"]
@@ -16,7 +11,8 @@
     "lint:eslint": {
       "inputs": ["$TURBO_DEFAULT$"]
     },
-    "lint:dependencies": {
+    "lint:knip": {
+      "dependsOn": ["i18n:compile"],
       "inputs": [
         "$TURBO_DEFAULT$",
         "../../knip.jsonc",
@@ -26,6 +22,7 @@
     },
     "build": {
       "dependsOn": [
+        "$TURBO_EXTENDS$",
         "@deskohub/dotypos#generate",
         "@deskohub/igloohome#generate",
         "@deskohub/nexi#generate",
@@ -102,16 +99,17 @@
       "dependsOn": ["$TURBO_EXTENDS$", "@deskohub/igloohome#generate"]
     },
     "test:admin-cli": {
+      "cache": false,
       "dependsOn": [
         "@deskohub/dotypos#generate",
         "@deskohub/igloohome#generate",
         "@deskohub/nexi#generate",
         "i18n:compile"
-      ],
-      "outputs": []
+      ]
     },
     "typecheck": {
       "dependsOn": [
+        "$TURBO_EXTENDS$",
         "@deskohub/igloohome#generate",
         "@deskohub/nexi#generate",
         "i18n:compile",

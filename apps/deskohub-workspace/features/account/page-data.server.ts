@@ -4,16 +4,21 @@ import { Effect, Result } from "effect";
 import { cache } from "react";
 import { resolveCurrentCustomerAccount } from "@/features/account/backend/customer-account-resolver.service";
 import { CustomerAuthentication } from "@/features/account/backend/customer-authentication.service";
+import { CustomerAvatarService } from "@/features/account/backend/customer-avatar.service";
 import { CustomerCommunicationPreferenceRepository } from "@/features/account/backend/customer-communication-preference.repository";
 import type { CustomerProfile } from "@/features/account/backend/customer-dotypos-adapter.service";
 import { CustomerProfileService } from "@/features/account/backend/customer-profile.service";
 import { CustomerReservationHistoryService } from "@/features/account/backend/customer-reservation-history.service";
-import type { CustomerReservationHistory } from "@/features/account/contracts";
+import type {
+  CustomerAvatarPresentation,
+  CustomerReservationHistory,
+} from "@/features/account/contracts";
 import {
   type CustomerAccountAccessError,
   type CustomerAccountFailureCode,
   mapCustomerAccountFailure,
 } from "@/features/account/customer-account";
+import { areAccountAvatarsEnabled } from "@/features/account/server/account-feature-flag.server";
 import type { Locale } from "@/features/i18n";
 import { runWorkspaceEffect } from "@/shared/backend/workspace-effect";
 
@@ -32,6 +37,7 @@ export type CustomerAccountPageState =
       readonly email: string;
       readonly preferredLanguage: Locale | "read-failed";
       readonly profile: CustomerProfile;
+      readonly avatar: CustomerAvatarPresentation;
       readonly history: CustomerReservationHistory;
     }
   | { readonly kind: "support-required"; readonly email: string }
@@ -96,6 +102,9 @@ export const loadCustomerAccountPage = cache(
         (service) => service.load(account.success)
       ).pipe(
         Effect.provide(CustomerReservationHistoryService.Live),
+        Effect.tapError(() =>
+          logDegradedAccountSection("account.reservation-history.unavailable")
+        ),
         Effect.orElseSucceed(
           () =>
             ({ kind: "unavailable", reason: "provider-unavailable" }) as const
@@ -134,11 +143,30 @@ export const loadCustomerAccountPage = cache(
         })
       );
 
+      let avatar: CustomerAvatarPresentation = { kind: "hidden" };
+      if (await areAccountAvatarsEnabled().catch(() => false)) {
+        // A media outage never blocks the account page: an avatar read failure
+        // degrades to the initials fallback.
+        const availableAvatar = await Effect.flatMap(
+          CustomerAvatarService,
+          (service) => service.lookup(account.success.accountId)
+        ).pipe(
+          Effect.provide(CustomerAvatarService.Live),
+          Effect.tapError(() =>
+            logDegradedAccountSection("account.avatar.unavailable")
+          ),
+          Effect.orElseSucceed(() => null),
+          runWorkspaceEffect("account.avatar", { boundary: "page" })
+        );
+        avatar = { kind: "available", avatar: availableAvatar };
+      }
+
       return {
         kind: "linked",
         email: user.email,
         preferredLanguage,
         profile: profile.success,
+        avatar,
         history,
       };
     }
@@ -162,3 +190,12 @@ export const loadCustomerAccountPage = cache(
     return { kind: "authenticated-unavailable", email: user.email };
   }
 );
+
+/**
+ * Records a degraded, non-blocking account section with a fixed, non-PII
+ * code; the provider or database cause is never attached.
+ */
+const logDegradedAccountSection = (code: string) =>
+  Effect.logWarning("Account page section unavailable").pipe(
+    Effect.annotateLogs({ code })
+  );

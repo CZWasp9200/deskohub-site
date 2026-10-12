@@ -12,7 +12,7 @@ import { workspaceE2EError } from "../errors";
 import { workspaceE2ETimeouts } from "../timeouts";
 import type { WorkspaceE2EReservationHistoryFixture } from "./reservation-history-fixture";
 
-export type WorkspaceE2EReservationStatusReviewStage = "modal" | "details";
+type WorkspaceE2EReservationStatusReviewStage = "modal" | "details";
 
 export type WorkspaceE2EReservationHistorySubstage =
   | "history-load"
@@ -129,7 +129,7 @@ export const runReservationHistoryStage = async <A>(
   }
 };
 
-export const workspaceE2EReservationHistoryFailureDetails = (cause: unknown) =>
+const workspaceE2EReservationHistoryFailureDetails = (cause: unknown) =>
   cause instanceof WorkspaceE2EReservationHistoryNavigationError
     ? {
         message: `verify account reservation history navigation failed at ${cause.stage} (${cause.kind})`,
@@ -257,7 +257,7 @@ const waitForReservationStatusLinkHydration = async (
   );
 };
 
-export const expectWorkspaceE2EReservationNotFound = async (
+const expectWorkspaceE2EReservationNotFound = async (
   page: Page,
   reservationId: WorkspaceReservationId
 ) => {

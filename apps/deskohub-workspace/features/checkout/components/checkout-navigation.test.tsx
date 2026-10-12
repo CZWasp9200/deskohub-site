@@ -54,8 +54,8 @@ afterEach(() => {
   cleanup();
 });
 
-afterAll(() => {
-  unregisterWorkspaceComponentTestEnv();
+afterAll(async () => {
+  await unregisterWorkspaceComponentTestEnv();
 });
 
 test("uses a document navigation to reopen signed reservation state", async () => {
@@ -82,7 +82,7 @@ test("uses a document navigation to reopen signed reservation state", async () =
   expect(capturedLinks).toBeEmpty();
 });
 
-test("starts a new reservation with a fresh document", async () => {
+test("opens failed-delivery support without starting another purchase", async () => {
   const { CheckoutStatusPage } = await import("./checkout-status-page");
 
   const view = render(
@@ -113,6 +113,32 @@ test("starts a new reservation with a fresh document", async () => {
     href: supportHref,
     prefetch: false,
   });
+  expect(
+    view.queryByRole("link", { name: "Start a new reservation" })
+  ).toBeNull();
+  expect(capturedLinks).toContainEqual({
+    href: "/en-US",
+    prefetch: false,
+  });
+});
+
+test("starts a new reservation with a fresh document", async () => {
+  const { CheckoutStatusPage } = await import("./checkout-status-page");
+
+  const view = render(
+    <CheckoutStatusPage
+      locale="en-US"
+      status={{
+        fulfillmentStatus: "not_started",
+        kind: "cowork",
+        orderId: "next-navigation-order",
+        paymentStatus: "failed",
+        returnOutcome: "success",
+        status: "payment_failed",
+      }}
+    />
+  );
+
   expect(
     view
       .getByRole("link", { name: "Start a new reservation" })

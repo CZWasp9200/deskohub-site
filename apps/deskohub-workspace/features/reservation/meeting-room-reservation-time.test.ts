@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import "@/shared/polyfills/temporal";
 import {
+  findMeetingRoomReservationDuration,
   getEarliestMeetingRoomStartDateTime,
-  getMeetingRoomAvailabilityToDate,
+  getMeetingRoomLastServiceDate,
   getMeetingRoomReservationInterval,
 } from "./meeting-room-reservation-time";
 
@@ -44,7 +45,7 @@ describe("meeting room reservation time helpers", () => {
       startsAt: "2026-03-28T23:00:00Z",
       endsAt: "2026-03-29T22:00:00Z",
     });
-    expect(getMeetingRoomAvailabilityToDate(interval!)).toBe("2026-03-29");
+    expect(getMeetingRoomLastServiceDate(interval!)).toBe("2026-03-29");
   });
 
   test("keeps whole-day reservations at Prague midnight across autumn DST", () => {
@@ -75,5 +76,32 @@ describe("meeting room reservation time helpers", () => {
         amount: 1,
       })
     ).toBeNull();
+  });
+});
+
+describe("findMeetingRoomReservationDuration", () => {
+  test("finds the purchasable duration a booked interval used", () => {
+    expect(
+      findMeetingRoomReservationDuration({
+        startsAt: Temporal.Instant.from("2026-07-12T07:00:00Z"),
+        endsAt: Temporal.Instant.from("2026-07-12T11:00:00Z"),
+      })
+    ).toEqual({ unit: "hour", amount: 4 });
+    // A whole Prague day starts at local midnight.
+    expect(
+      findMeetingRoomReservationDuration({
+        startsAt: Temporal.Instant.from("2026-07-11T22:00:00Z"),
+        endsAt: Temporal.Instant.from("2026-07-12T22:00:00Z"),
+      })
+    ).toEqual({ unit: "day", amount: 1 });
+  });
+
+  test("finds nothing for an interval no duration produces", () => {
+    expect(
+      findMeetingRoomReservationDuration({
+        startsAt: Temporal.Instant.from("2026-07-12T07:00:00Z"),
+        endsAt: Temporal.Instant.from("2026-07-12T08:37:00Z"),
+      })
+    ).toBeUndefined();
   });
 });

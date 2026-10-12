@@ -4,6 +4,10 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { connection } from "next/server";
 import { CustomerAuthentication } from "@/features/account/backend/customer-authentication.service";
+import {
+  getAccountPath,
+  getAccountSignInPath,
+} from "@/features/account/routes";
 import { m } from "@/features/i18n";
 import { runWithRequestLocale } from "@/features/i18n/server/request-locale";
 import { runWorkspaceEffect } from "@/shared/backend/workspace-effect";
@@ -34,7 +38,7 @@ export default async function CustomerAccountDeletedPage() {
       runWorkspaceEffect("account.deleted", { boundary: "page" })
     );
     if (Result.isSuccess(session) && session.success) {
-      redirect(`/${locale}/account`);
+      redirect(getAccountPath(locale));
     }
 
     return (
@@ -46,11 +50,8 @@ export default async function CustomerAccountDeletedPage() {
               <h1 className="text-3xl text-navy-blue sm:text-4xl">
                 {m.accountDeletedTitle({}, { locale })}
               </h1>
-              <p className="mt-4 leading-7 text-navy-blue/68">
-                {m.accountDeletedBody({}, { locale })}
-              </p>
               <Button asChild className="mt-8">
-                <Link href={`/${locale}/auth/sign-in`} prefetch={false}>
+                <Link href={getAccountSignInPath(locale)} prefetch={false}>
                   {m.accountDeletedSignInAgain({}, { locale })}
                 </Link>
               </Button>

@@ -13,6 +13,14 @@
     {
       "path": "/api/cron/workspace/auth-cleanup",
       "schedule": "17 3 * * *"
+    },
+    {
+      "path": "/api/cron/workspace/payment-refunds",
+      "schedule": "37 4 * * *"
+    },
+    {
+      "path": "/api/cron/workspace/paid-fulfillment",
+      "schedule": "57 5 * * *"
     }
   ],
   "functions": {
@@ -21,6 +29,16 @@
         {
           "type": "queue/v2beta",
           "topic": "workspace-late-payment-recovery",
+          "retryAfterSeconds": 60,
+          "initialDelaySeconds": 0
+        }
+      ]
+    },
+    "app/api/queues/workspace/paid-fulfillment/route.ts": {
+      "experimentalTriggers": [
+        {
+          "type": "queue/v2beta",
+          "topic": "workspace-paid-fulfillment",
           "retryAfterSeconds": 60,
           "initialDelaySeconds": 0
         }

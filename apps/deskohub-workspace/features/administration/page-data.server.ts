@@ -19,7 +19,7 @@ import {
   getAdministrationOrderDateTimeBounds,
   getAdministrationPaymentDateTimeBounds,
 } from "./payment-administration-filters";
-import { getAdministrationReservationDateRange } from "./reservation-date-range";
+import { getAdministrationReservationListDateRange } from "./reservation-date-range";
 import {
   getDotyposCustomerRouteId,
   requireDotyposCustomerRouteId,
@@ -53,7 +53,10 @@ const parseDate = (value: string | undefined) => {
 const parseStatus = (
   value: string | undefined
 ): AdministrationReservationListInput["status"] =>
-  value === "in_progress" || value === "complete" || value === "cancelled"
+  value === "in_progress" ||
+  value === "complete" ||
+  value === "cancelled" ||
+  value === "needs_refund"
     ? value
     : undefined;
 
@@ -108,6 +111,14 @@ export const loadAdministrationOverview = async () => {
   }).pipe(runAdministration("administration.overview"));
 };
 
+export const loadAdministrationRefundAttention = cache(async () => {
+  await authorizeAdministratorPage();
+  return Effect.gen(function* () {
+    const administration = yield* AdministrationService;
+    return yield* administration.countReservationsNeedingRefund();
+  }).pipe(runAdministration("administration.refund-attention"));
+});
+
 export const loadAdministrationReservationOverview = async () => {
   return getAdministrationReservationOverview(
     await loadAdministrationOverviewSource()
@@ -120,18 +131,22 @@ const getAdministrationReservationListInput = async (
   await authorizeAdministratorPage();
   const params = await searchParams;
   const typeValue = firstParam(params.type);
-  const dateRange = getAdministrationReservationDateRange({
+  const customerId = getDotyposCustomerRouteId(firstParam(params.customerId));
+  const status = parseStatus(firstParam(params.status));
+  const dateRange = getAdministrationReservationListDateRange({
+    customerId,
     date: firstParam(params.date),
     from: firstParam(params.from),
+    status,
     to: firstParam(params.to),
   });
   return {
-    customerId: getDotyposCustomerRouteId(firstParam(params.customerId)),
+    customerId,
     ...dateRange,
     direction: parseSortDirection(firstParam(params.direction)),
     page: parsePage(firstParam(params.page)),
     sort: parseReservationSort(firstParam(params.sort)),
-    status: parseStatus(firstParam(params.status)),
+    status,
     type:
       typeValue === "cowork" ||
       typeValue === "meeting-room" ||
@@ -159,14 +174,6 @@ export const loadAdministrationReservationsPage = (
 ) => {
   const input = getAdministrationReservationListInput(searchParams);
   return { input, result: loadAdministrationReservationList(input) };
-};
-
-export const loadAdministrationReservations = async (
-  searchParams: AdministrationSearchParams
-) => {
-  const page = loadAdministrationReservationsPage(searchParams);
-  const [input, result] = await Promise.all([page.input, page.result]);
-  return { input, result };
 };
 
 export const loadAdministrationReservation = cache(async (id: string) => {
@@ -225,14 +232,6 @@ export const loadAdministrationBookingsPage = (
   return { input, result: loadAdministrationBookingList(input) };
 };
 
-export const loadAdministrationBookings = async (
-  searchParams: AdministrationSearchParams
-) => {
-  const page = loadAdministrationBookingsPage(searchParams);
-  const [input, result] = await Promise.all([page.input, page.result]);
-  return { input, result };
-};
-
 export const loadAdministrationBooking = cache(async (id: string) => {
   await authorizeAdministratorPage();
   const bookingId = requireDotyposReservationRouteId(id);
@@ -288,14 +287,6 @@ export const loadAdministrationCustomersPage = (
 ) => {
   const input = getAdministrationCustomerListInput(searchParams);
   return { input, result: loadAdministrationCustomerList(input) };
-};
-
-export const loadAdministrationCustomers = async (
-  searchParams: AdministrationSearchParams
-) => {
-  const page = loadAdministrationCustomersPage(searchParams);
-  const [input, result] = await Promise.all([page.input, page.result]);
-  return { input, result };
 };
 
 export const loadAdministrationCustomerReservations = async (
@@ -373,14 +364,6 @@ export const loadAdministrationOrdersPage = (
   return { range, result: loadAdministrationOrderList(range) };
 };
 
-export const loadAdministrationOrders = async (
-  searchParams: AdministrationSearchParams
-) => {
-  const page = loadAdministrationOrdersPage(searchParams);
-  const [range, result] = await Promise.all([page.range, page.result]);
-  return { range, result };
-};
-
 export const loadAdministrationOrder = cache(async (orderId: string) => {
   await authorizeAdministratorPage();
   const decodedOrderId = requireNexiOrderRouteId(orderId);
@@ -430,17 +413,6 @@ export const loadAdministrationOperationsPage = (
 ) => {
   const criteria = getAdministrationOperationListInput(searchParams);
   return { criteria, result: loadAdministrationOperationList(criteria) };
-};
-
-export const loadAdministrationOperations = async (
-  searchParams: AdministrationSearchParams
-) => {
-  const page = loadAdministrationOperationsPage(searchParams);
-  const [{ input, range }, result] = await Promise.all([
-    page.criteria,
-    page.result,
-  ]);
-  return { input, range, result };
 };
 
 export const loadAdministrationOperation = cache(

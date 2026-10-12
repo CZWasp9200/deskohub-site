@@ -6,10 +6,11 @@ import {
   type WorkspaceE2EError,
   workspaceE2EError,
 } from "./errors";
+import { isNotFoundPage } from "./not-found-page";
 import { makeUrl } from "./urls";
 
-export const previewTileReferrerPolicy = "strict-origin-when-cross-origin";
-export const previewAuthSessionCacheControl = "private, no-store";
+const previewTileReferrerPolicy = "strict-origin-when-cross-origin";
+const previewAuthSessionCacheControl = "private, no-store";
 
 export const assertPreviewEndpointsReady = (
   config: WorkspaceE2EConfig
@@ -127,9 +128,7 @@ export const isPreviewPageAvailable = (
       )
     );
     if (body.includes(expectedContent)) return true;
-    if (/<h1[^>]*class="next-error-h1"[^>]*>\s*404\s*<\/h1>/.test(body)) {
-      return false;
-    }
+    if (isNotFoundPage(body)) return false;
 
     return yield* workspaceE2EError(
       `${path} preview page did not render its expected content`,
