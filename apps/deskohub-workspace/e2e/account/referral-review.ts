@@ -1,13 +1,10 @@
 import type { Page } from "@playwright/test";
 import type { Locale } from "@/features/i18n";
-import {
-  formatReferralDiscount,
-  parseReferralCode,
-} from "@/features/referrals/client";
-import { formatReferrerDiscountPercentage } from "@/features/referrals/referrer-discount";
+import { parseReferralCode } from "@/features/referrals/client";
 import { workspaceE2EError } from "../errors";
 import { workspaceE2ETimeouts } from "../timeouts";
 import { accountSectionLandmarks } from "./account-sections";
+import { referralStatsCondition } from "./referral-stats";
 import {
   type AccountReviewDestination,
   captureAccountReview,
@@ -16,37 +13,16 @@ import {
 const referralCodeSelector = "#account-referrals-code";
 const referralLinkSelector = "#account-referrals-link";
 const referralEntrySelector = "form, input, textarea, select";
-const eligibleCountSelector = `${accountSectionLandmarks.referrals} #account-referrals-eligible-count`;
-const discountSelector = `${accountSectionLandmarks.referrals} #account-referrals-discount`;
-
-/**
- * Waits until the referrals screen shows the expected eligible count and the
- * discount that count earns.
- */
+/** Waits for {@link referralStatsCondition} in a Playwright page. */
 export const waitForReferralStats = async ({
-  count,
-  locale,
   page,
-}: {
-  readonly count: number;
-  readonly locale: Locale;
+  ...expected
+}: Parameters<typeof referralStatsCondition>[0] & {
   readonly page: Page;
 }) => {
-  await page.waitForFunction(
-    ([selectors, expected]) =>
-      selectors.every(
-        (selector, index) =>
-          document.querySelector(selector)?.textContent === expected[index]
-      ),
-    [
-      [eligibleCountSelector, discountSelector],
-      [
-        String(count),
-        formatReferralDiscount(formatReferrerDiscountPercentage(count), locale),
-      ],
-    ] as const,
-    { timeout: workspaceE2ETimeouts.browserAction }
-  );
+  await page.waitForFunction(referralStatsCondition(expected), undefined, {
+    timeout: workspaceE2ETimeouts.browserAction,
+  });
 };
 
 type ReferralOverviewTargets = {

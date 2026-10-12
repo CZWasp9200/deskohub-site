@@ -82,7 +82,10 @@ export function ReferralScreen({
             >
               {eligible}
             </span>
-            <span className="text-2xl font-semibold tabular-nums text-[#64748b]">
+            <span
+              className="text-2xl font-semibold tabular-nums text-[#64748b]"
+              id="account-referrals-total-count"
+            >
               / {total}
             </span>
           </p>
@@ -116,7 +119,11 @@ export function ReferralScreen({
             {formatReferralDiscount(summary.discount, locale)}
           </p>
           {summary.savings.length > 0 ? (
-            <ul className="m-0 mt-3 flex list-none flex-wrap justify-center gap-2 p-0 @xl:mt-5">
+            <ul
+              className="m-0 mt-3 flex list-none flex-wrap justify-center gap-2 p-0 @xl:mt-5"
+              data-state="saved"
+              id="account-referrals-savings"
+            >
               {summary.savings.map((amount) => (
                 <li
                   className="rounded-full bg-aquamarine-ink px-4 py-1.5 text-sm font-semibold text-white"
@@ -130,7 +137,11 @@ export function ReferralScreen({
               ))}
             </ul>
           ) : (
-            <p className="mt-3 text-sm leading-6 text-[#51627c] @xl:mt-5">
+            <p
+              className="mt-3 text-sm leading-6 text-[#51627c] @xl:mt-5"
+              data-state="empty"
+              id="account-referrals-savings"
+            >
               {m.accountReferralsSavedNothing({}, { locale })}
             </p>
           )}

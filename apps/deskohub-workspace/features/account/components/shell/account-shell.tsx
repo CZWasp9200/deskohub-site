@@ -220,7 +220,7 @@ export function AccountShell({
                     </span>
                     {section.key === "reservations" &&
                       validReservationCount !== undefined && (
-                        <NavigationBadge>
+                        <NavigationBadge section="reservations">
                           {validReservationCount}
                         </NavigationBadge>
                       )}
@@ -228,6 +228,7 @@ export function AccountShell({
                       <NavigationBadge
                         active={isActive}
                         label={referralBadge.label}
+                        section="referrals"
                         tone="positive"
                       >
                         {referralBadge.text}
@@ -253,16 +254,19 @@ function NavigationBadge({
   active = false,
   children,
   label,
+  section,
   tone = "count",
 }: {
   readonly active?: boolean;
   readonly children: ReactNode;
   /** Replaces the visible text for screen readers when set. */
   readonly label?: string;
+  readonly section: AccountSection;
   readonly tone?: "count" | "positive";
 }) {
   return (
     <span
+      data-account-navigation-badge={section}
       className={cn(
         "ml-auto min-w-9 shrink-0 whitespace-nowrap rounded-full px-2.5 py-1 text-center text-sm font-bold leading-none text-white [font-family:var(--font-sculpin,Arial),sans-serif]",
         tone === "positive" ? "bg-aquamarine-ink" : "bg-[#b06147]",
