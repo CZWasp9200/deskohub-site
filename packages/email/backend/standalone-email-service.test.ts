@@ -1,9 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { Effect, Layer } from "effect";
-import {
-  emailTestDomain,
-  testEmailAddress,
-} from "../testing/test-email-address";
+import { testEmailAddress } from "../testing/test-email-address";
 import { EmailConfigTag, EmailServiceTag } from "./service";
 
 const originalEnv = { ...process.env };
@@ -32,7 +29,6 @@ describe("EmailServiceTag.Live", () => {
             Layer.provide(
               Layer.succeed(EmailConfigTag, {
                 defaultFrom: { email: testEmailAddress("deskohub") },
-                testDomain: emailTestDomain(),
               })
             )
           )

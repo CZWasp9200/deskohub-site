@@ -15,7 +15,7 @@ import {
   type EmailSendResult,
 } from "@deskohub/email";
 import type { EmailService } from "@deskohub/email/backend/service";
-import { emailTestDomain, testEmailAddress } from "@deskohub/email/testing";
+import { testEmailAddress } from "@deskohub/email/testing";
 import { Effect, Layer } from "effect";
 import { SeatingMapFeatureFlagServiceMock } from "@/features/feature-flags/backend/seating-map-feature-flag.service.mock";
 import {
@@ -110,7 +110,6 @@ const sendPaidReservationEmail = async (
       email: workspaceDefaultFromAddress,
       name: "Deskohub Workspace",
     },
-    testDomain: emailTestDomain(),
   };
   const { env } = await import("@/env");
   const previousPreviewBypassSecret = env.VERCEL_AUTOMATION_BYPASS_SECRET;
@@ -624,7 +623,6 @@ describe("workspace reservation email details", () => {
         email: workspaceDefaultFromAddress,
         name: "Deskohub Workspace",
       },
-      testDomain: emailTestDomain(),
     };
 
     const { env } = await import("@/env");
@@ -736,7 +734,6 @@ describe("sendPaidReservationEmails idempotency", () => {
         email: workspaceDefaultFromAddress,
         name: "Deskohub Workspace",
       },
-      testDomain: emailTestDomain(),
     };
 
     const { env } = await import("@/env");
@@ -819,7 +816,6 @@ describe("sendPaidReservationEmails idempotent retry stability", () => {
         email: workspaceDefaultFromAddress,
         name: "Deskohub Workspace",
       },
-      testDomain: emailTestDomain(),
     };
 
     const { env } = await import("@/env");
@@ -941,7 +937,6 @@ describe("sendPaidReservationEmails reservation access capability", () => {
         email: workspaceDefaultFromAddress,
         name: "Deskohub Workspace",
       },
-      testDomain: emailTestDomain(),
     };
 
     await Effect.gen(function* () {

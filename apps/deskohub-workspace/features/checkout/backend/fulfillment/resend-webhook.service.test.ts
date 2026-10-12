@@ -8,7 +8,7 @@ import {
   type EmailSendResult,
 } from "@deskohub/email";
 import type { EmailService } from "@deskohub/email/backend/service";
-import { emailTestDomain, testEmailAddress } from "@deskohub/email/testing";
+import { testEmailAddress } from "@deskohub/email/testing";
 import { getQueriesForElement } from "@testing-library/react";
 import { Effect, Layer, Logger } from "effect";
 import { ReservationInvoiceService } from "@/features/accounting/backend/reservation-invoice.service";
@@ -1068,7 +1068,6 @@ describe("ResendWebhookService", () => {
         email: workspaceDefaultFromAddress,
         name: "Deskohub Workspace",
       },
-      testDomain: emailTestDomain(),
     };
     const errorMessages: string[] = [];
     const logger = Logger.make((options) => {
@@ -1470,7 +1469,6 @@ describe("ResendWebhookService", () => {
         email: workspaceDefaultFromAddress,
         name: "Deskohub",
       },
-      testDomain: emailTestDomain(),
     };
 
     const provider = await EmailProviderTag.pipe(

@@ -1,5 +1,4 @@
 import "@/shared/polyfills/temporal";
-import "@deskohub/email/testing/environment";
 
 import { createHash } from "node:crypto";
 

@@ -10,7 +10,7 @@ import { siteConstants } from "@/shared/utils/constants";
 
 /**
  * Email configuration from environment variables. The shared layer adds the
- * Resend key and the required test domain.
+ * Resend key.
  */
 export const EmailConfigLayer = makeEmailConfigLayer(
   Config.all({
@@ -25,7 +25,6 @@ export const EmailConfigLayer = makeEmailConfigLayer(
   })
 );
 
-export const BoardgameEmailLayer = Layer.provideMerge(
-  EmailServiceTag.Live,
-  EmailConfigLayer
+export const BoardgameEmailLayer = EmailServiceTag.Live.pipe(
+  Layer.provide(EmailConfigLayer)
 );

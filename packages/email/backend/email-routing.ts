@@ -6,18 +6,9 @@ import {
   type EmailProvider,
   EmailProviderTag,
 } from "./capabilities";
-import type { EmailTestDomain } from "./email-config";
 import { ConsoleEmailProvider } from "./providers/console-provider";
 import { createResendProvider } from "./providers/resend-provider";
-
-/**
- * A test recipient is any address on the configured test domain. Resend's
- * simulator domain is a real destination and never matches.
- */
-export const isTestEmailRecipient = (
-  email: string,
-  testDomain: EmailTestDomain
-): boolean => email.trim().toLowerCase().endsWith(`@${testDomain}`);
+import { EMAIL_TEST_DOMAIN, isTestEmailRecipient } from "./test-recipients";
 
 export type EmailRoute = "console" | "resend";
 
@@ -31,14 +22,13 @@ const recipientList = (
  * another recipient goes to Resend.
  */
 export const routeEmailMessage = (
-  message: Pick<EmailMessage, "to" | "cc" | "bcc">,
-  testDomain: EmailTestDomain
+  message: Pick<EmailMessage, "to" | "cc" | "bcc">
 ): EmailRoute =>
   [
     ...recipientList(message.to),
     ...recipientList(message.cc),
     ...recipientList(message.bcc),
-  ].every((recipient) => isTestEmailRecipient(recipient.email, testDomain))
+  ].every((recipient) => isTestEmailRecipient(recipient.email))
     ? "console"
     : "resend";
 
@@ -50,12 +40,11 @@ export const routeEmailMessage = (
  */
 export const internalRecipientForOrigin = (
   originEmail: string,
-  testDomain: EmailTestDomain,
   mailbox: { readonly real: EmailRecipient; readonly testLocalPart: string }
 ): EmailRecipient =>
-  isTestEmailRecipient(originEmail, testDomain)
+  isTestEmailRecipient(originEmail)
     ? {
-        email: `${mailbox.testLocalPart}@${testDomain}`,
+        email: `${mailbox.testLocalPart}@${EMAIL_TEST_DOMAIN}`,
         name: mailbox.real.name,
       }
     : mailbox.real;
@@ -88,7 +77,7 @@ export const RoutedEmailProviderLive = Layer.effect(
       send: Effect.fn("routedEmailProvider.send")(function* (
         message: EmailMessage
       ) {
-        if (routeEmailMessage(message, config.testDomain) === "console") {
+        if (routeEmailMessage(message) === "console") {
           return yield* ConsoleEmailProvider.send(message);
         }
         if (!resend) {

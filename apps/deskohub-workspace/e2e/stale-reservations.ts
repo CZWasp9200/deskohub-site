@@ -3,8 +3,10 @@ import {
   DotyposReservationIdSchema,
 } from "@deskohub/dotypos";
 import type { Customer, Reservation } from "@deskohub/dotypos/generated";
-import { resendSimulatorDomain } from "@deskohub/email/backend/email-config";
-import { emailTestDomain } from "@deskohub/email/testing";
+import {
+  EMAIL_TEST_DOMAIN,
+  resendSimulatorDomain,
+} from "@deskohub/email/backend/test-recipients";
 import { Effect, Exit, Option, Schema } from "effect";
 
 export type WorkspaceE2EStaleReservationReport = {
@@ -181,7 +183,7 @@ const getWorkspaceE2ETestCustomerCreatedAt = (customer: Customer) => {
  * simulator domain, and those customers still need cleanup.
  */
 const workspaceE2ECustomerDomains = () => [
-  emailTestDomain(),
+  EMAIL_TEST_DOMAIN,
   resendSimulatorDomain,
 ];
 

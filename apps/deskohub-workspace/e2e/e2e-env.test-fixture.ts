@@ -1,4 +1,3 @@
-import { emailTestDomain } from "@deskohub/email/testing";
 import { makeE2EEnvironment } from "./e2e-env";
 
 export const validE2ERuntimeEnvironment = {
@@ -10,7 +9,6 @@ export const validE2ERuntimeEnvironment = {
   DOTYPOS_CLOUD_ID: "cloud",
   DOTYPOS_EMPLOYEE_ID: "employee",
   DOTYPOS_REFRESH_TOKEN: "refresh-token",
-  EMAIL_TEST_DOMAIN: emailTestDomain(),
   NEXI_API_ORIGIN: "https://xpaysandbox.nexigroup.com/api/phoenix-0.0/psp",
   WORKSPACE_E2E_BASE_URL:
     "https://deskohub-workspace-abc123xyz-deskohub.vercel.app",

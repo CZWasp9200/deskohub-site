@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "lint": "biome check backend testing types index.ts --config-path ../../biome.json --vcs-root ../..",
-    "test": "bun test --preload ./testing/test-environment.ts"
+    "test": "bun test"
   },
   "exports": {
     ".": "./index.ts",
@@ -16,8 +16,8 @@
     "./backend/providers/resend-provider": "./backend/providers/resend-provider.ts",
     "./backend/service": "./backend/service.ts",
     "./backend/standalone-email-service": "./backend/standalone-email-service.ts",
+    "./backend/test-recipients": "./backend/test-recipients.ts",
     "./testing": "./testing/test-email-address.ts",
-    "./testing/environment": "./testing/test-environment.ts",
     "./types/email.types": "./types/email.types.ts"
   },
   "dependencies": {

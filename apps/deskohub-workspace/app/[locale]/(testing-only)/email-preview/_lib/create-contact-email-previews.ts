@@ -11,15 +11,15 @@ import {
   EmailConfigTag,
   EmailServiceTag,
 } from "@deskohub/email/backend/service";
+import { testEmailAddress } from "@deskohub/email/testing";
 import { Effect, Layer } from "effect";
-import { env } from "@/env";
 import { ContactService } from "@/features/contact/backend/contact.service";
 import type { Locale } from "@/features/i18n";
 import { workspaceDefaultFromAddress } from "@/shared/backend/config/email.config";
 
 const previewSubmission = {
   name: "Ada Lovelace",
-  email: `customer@${env.EMAIL_TEST_DOMAIN}`,
+  email: testEmailAddress("customer"),
   phone: "+420 123 456 789",
   message:
     "Hello,\n\nI'd like to confirm that the Profi pass includes both monitors and coffee. Thank you!",
@@ -30,7 +30,6 @@ const emailConfig: EmailConfig = {
     email: workspaceDefaultFromAddress,
     name: "Deskohub Workspace",
   },
-  testDomain: env.EMAIL_TEST_DOMAIN,
 };
 
 export const createContactEmailPreviews = (locale: Locale) => {

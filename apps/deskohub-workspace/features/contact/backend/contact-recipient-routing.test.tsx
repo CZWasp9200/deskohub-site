@@ -2,7 +2,6 @@ import "@/shared/testing/workspace-test-env";
 
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import {
-  emailTestDomain,
   resendSimulatorAddress,
   testEmailAddress,
 } from "@deskohub/email/testing";
@@ -85,7 +84,6 @@ const submit = (email: string) => {
               Layer.succeed(EmailConfigTag, {
                 apiKey: "re_test",
                 defaultFrom: { email: workspaceDefaultFromAddress },
-                testDomain: emailTestDomain(),
               })
             )
           )

@@ -14,7 +14,7 @@ import {
   EmailServiceError,
   EmailServiceTag,
 } from "@deskohub/email/backend/service";
-import { emailTestDomain, testEmailAddress } from "@deskohub/email/testing";
+import { testEmailAddress } from "@deskohub/email/testing";
 import { Effect, Layer, Schema } from "effect";
 import {
   type AccountingDocumentSnapshot,
@@ -84,7 +84,6 @@ const emailConfig: EmailConfig = {
     email: workspaceDefaultFromAddress,
     name: "Deskohub Workspace",
   },
-  testDomain: emailTestDomain(),
 };
 
 const sentResult = (id: string): EmailSendResult => ({

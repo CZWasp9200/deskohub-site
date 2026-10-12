@@ -1,4 +1,3 @@
-import { EmailTestDomainSchema } from "@deskohub/email/backend/email-config";
 import { igloohomeApiTimeoutMaximumMilliseconds } from "@deskohub/igloohome/config";
 import { PostHogProjectId } from "@deskohub/posthog/identifiers";
 import { Effect, Schema } from "effect";
@@ -130,7 +129,6 @@ export const workspaceServerEnvSchema = Schema.Struct({
   DOTYPOS_EMPLOYEE_ID: nonEmptyStringSchema,
   DOTYPOS_REFRESH_TOKEN: nonEmptyStringSchema,
   EMAIL_API_KEY: optionalStringSchema,
-  EMAIL_TEST_DOMAIN: toEnvSchema(EmailTestDomainSchema),
   GOOGLE_CALENDAR_PRIVATE_KEY: nonEmptyStringSchema,
   GOOGLE_CALENDAR_SALES_ID: nonEmptyStringSchema,
   GOOGLE_CALENDAR_SERVICE_ACCOUNT_EMAIL: nonEmptyStringSchema,

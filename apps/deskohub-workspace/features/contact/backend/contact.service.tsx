@@ -140,10 +140,7 @@ export class ContactService extends Context.Service<
             );
             const businessEmailMessage: EmailMessage = {
               from: emailConfig.defaultFrom,
-              to: internalWorkspaceEmailRecipientFor(
-                data.email,
-                emailConfig.testDomain
-              ),
+              to: internalWorkspaceEmailRecipientFor(data.email),
               subject: businessSubject,
               html: businessEmail.html,
               text: businessEmail.text,

@@ -1,6 +1,5 @@
 import {
   type EmailRecipient,
-  type EmailTestDomain,
   internalRecipientForOrigin,
   staffEmailSubject,
 } from "@deskohub/email";
@@ -14,10 +13,9 @@ export const workspaceEmailRecipient: EmailRecipient = {
 
 /** Staff copy of mail triggered by the customer or submitter at `originEmail`. */
 export const internalWorkspaceEmailRecipientFor = (
-  originEmail: string,
-  testDomain: EmailTestDomain
+  originEmail: string
 ): EmailRecipient =>
-  internalRecipientForOrigin(originEmail, testDomain, {
+  internalRecipientForOrigin(originEmail, {
     real: workspaceEmailRecipient,
     testLocalPart: "workspace-internal",
   });

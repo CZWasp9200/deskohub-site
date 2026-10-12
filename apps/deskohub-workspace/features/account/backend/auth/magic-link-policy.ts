@@ -1,4 +1,4 @@
-import type { EmailTestDomain } from "@deskohub/email";
+import { EMAIL_TEST_DOMAIN } from "@deskohub/email/backend/test-recipients";
 
 /**
  * Only `delivered+<run-id>-<label>@<EMAIL_TEST_DOMAIN>` is a synthetic E2E
@@ -8,14 +8,11 @@ import type { EmailTestDomain } from "@deskohub/email";
 export const magicLinkSyntheticLocalPartPattern =
   /^delivered\+[a-z0-9]+(?:-[a-z0-9]+)*-[a-z0-9]+$/i;
 
-export const isSyntheticE2EEmailRecipient = (
-  email: string,
-  testDomain: EmailTestDomain
-): boolean => {
+export const isSyntheticE2EEmailRecipient = (email: string): boolean => {
   const separator = email.lastIndexOf("@");
   return (
     separator > 0 &&
-    email.slice(separator + 1).toLowerCase() === testDomain &&
+    email.slice(separator + 1).toLowerCase() === EMAIL_TEST_DOMAIN &&
     magicLinkSyntheticLocalPartPattern.test(email.slice(0, separator))
   );
 };

@@ -5,14 +5,13 @@
 Email delivery is routed by recipient in `@deskohub/email`; there is no
 provider setting.
 
-- Mail addressed only to recipients on `EMAIL_TEST_DOMAIN` goes to the Console
+- Mail addressed only to recipients on `EMAIL_TEST_DOMAIN` (`deskohub.test`, a
+  code constant in `@deskohub/email`, not configuration) goes to the Console
   provider, which logs it and never sends.
 - All other mail goes to Resend, including `resend.dev`, Resend's simulator
   for delivered, bounced, or complained outcomes. Without `EMAIL_API_KEY` it
   fails with `EmailDeliveryUnconfiguredError` instead of falling back to
   Console.
-- A missing or invalid `EMAIL_TEST_DOMAIN` fails startup and the email config
-  layer; nothing is routed without it.
 - Staff notifications follow the submitter: a test-domain submitter's copy goes
   to `boardgame-staff@<EMAIL_TEST_DOMAIN>` (Console), and every other
   submission reaches the real contact or reservation mailbox in every
@@ -26,19 +25,15 @@ Add to `.env.local` for the Boardgame Bar app, or to the app's deployment env:
 
 ```bash
 EMAIL_API_KEY=re_...
-EMAIL_TEST_DOMAIN=deskohub.test
 ```
 
-`EMAIL_TEST_DOMAIN` must be the same reserved, undeliverable domain in every
-environment and app. For local development without a key, use test-domain
-recipients.
+For local development without a key, use `@deskohub.test` recipients.
 
 ## Tests
 
 Tests build every address with `testEmailAddress` or `resendSimulatorAddress`
 from `@deskohub/email/testing`; the `no-test-email-literals` lint rule rejects
-hand-written addresses. `bunfig.toml` preloads
-`@deskohub/email/testing/environment`, which supplies the test domain.
+hand-written addresses.
 
 ## Sender Addresses
 

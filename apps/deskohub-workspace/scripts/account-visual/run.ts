@@ -16,7 +16,8 @@ import {
   relative,
   resolve,
 } from "node:path";
-import { emailTestDomain, testEmailAddress } from "@deskohub/email/testing";
+import { EMAIL_TEST_DOMAIN } from "@deskohub/email/backend/test-recipients";
+import { testEmailAddress } from "@deskohub/email/testing";
 import {
   type Browser,
   type BrowserContext,
@@ -1340,7 +1341,6 @@ export const buildBundle = async (
   try {
     result = (await Bun.build({
       define: {
-        "process.env.EMAIL_TEST_DOMAIN": JSON.stringify(emailTestDomain()),
         "process.env.NODE_ENV": JSON.stringify("production"),
       },
       entrypoints: [buildEntryPath],
@@ -3401,7 +3401,7 @@ export const readInitialDomProbe = async (
       locale,
       mode,
       emailProbe,
-      emailDomain: emailTestDomain(),
+      emailDomain: EMAIL_TEST_DOMAIN,
       statusTexts: [...verifiedLoginEmailStatusTexts],
       iconStatusTexts: [...verifiedLoginEmailExplanationTexts],
     }

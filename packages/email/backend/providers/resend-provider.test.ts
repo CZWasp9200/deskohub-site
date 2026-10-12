@@ -1,10 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { Effect, Fiber, Layer, Tracer } from "effect";
 import { TestClock } from "effect/testing";
-import {
-  emailTestDomain,
-  testEmailAddress,
-} from "../../testing/test-email-address";
+import { testEmailAddress } from "../../testing/test-email-address";
 import { EmailDeliveryIdSchema } from "../../types/email.types";
 
 type SendResponse =
@@ -51,7 +48,6 @@ beforeEach(() => {
 
 const config = {
   defaultFrom: { email: testEmailAddress("deskohub") },
-  testDomain: emailTestDomain(),
   apiKey: "api-key",
 };
 
@@ -245,7 +241,6 @@ describe("ResendEmailProvider", () => {
             Layer.provide(
               Layer.succeed(EmailConfigTag, {
                 defaultFrom: { email: testEmailAddress("deskohub") },
-                testDomain: emailTestDomain(),
               })
             )
           )

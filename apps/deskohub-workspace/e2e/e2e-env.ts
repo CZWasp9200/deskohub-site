@@ -4,7 +4,6 @@ import {
   DotyposCloudIdSchema,
   DotyposEmployeeIdSchema,
 } from "@deskohub/dotypos";
-import { EmailTestDomainSchema } from "@deskohub/email/backend/email-config";
 import { createEnv } from "@t3-oss/env-core";
 import { Schema } from "effect";
 import { urlStringSchema } from "../shared/utils/url-schema";
@@ -69,8 +68,6 @@ const e2eEnvironmentSchema = Schema.Struct({
   DOTYPOS_CLOUD_ID: toEnvironmentSchema(DotyposCloudIdSchema),
   DOTYPOS_EMPLOYEE_ID: toEnvironmentSchema(DotyposEmployeeIdSchema),
   DOTYPOS_REFRESH_TOKEN: nonEmptyString,
-  // Must equal the deployment's value so runner-built recipients reach Console.
-  EMAIL_TEST_DOMAIN: toEnvironmentSchema(EmailTestDomainSchema),
   GITHUB_ACTIONS: toEnvironmentSchema(
     Schema.optional(Schema.Literals(["false", "true"]))
   ),
@@ -129,7 +126,6 @@ export const makeE2EEnvironment = (
       DOTYPOS_CLOUD_ID: runtimeEnvironment.DOTYPOS_CLOUD_ID,
       DOTYPOS_EMPLOYEE_ID: runtimeEnvironment.DOTYPOS_EMPLOYEE_ID,
       DOTYPOS_REFRESH_TOKEN: runtimeEnvironment.DOTYPOS_REFRESH_TOKEN,
-      EMAIL_TEST_DOMAIN: runtimeEnvironment.EMAIL_TEST_DOMAIN,
       GITHUB_ACTIONS: runtimeEnvironment.GITHUB_ACTIONS,
       GITHUB_EVENT_NAME: runtimeEnvironment.GITHUB_EVENT_NAME,
       GITHUB_RUN_ATTEMPT: runtimeEnvironment.GITHUB_RUN_ATTEMPT,

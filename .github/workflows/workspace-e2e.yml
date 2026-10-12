@@ -227,9 +227,6 @@ jobs:
       release_outcome: ${{ steps.release.outcome }}
       shard: ${{ steps.lease.outputs.shard }}
     env:
-      # Must equal the Preview deployment's EMAIL_TEST_DOMAIN so runner-built
-      # recipients route to Console.
-      EMAIL_TEST_DOMAIN: deskohub.test
       NEXI_API_ORIGIN: https://xpaysandbox.nexigroup.com/api/phoenix-0.0/psp
       NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
       TARGET_SHA: ${{ needs.resolve-target.outputs.sha }}

@@ -1,5 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
-import { emailTestDomain, testEmailAddress } from "@deskohub/email/testing";
+import { EMAIL_TEST_DOMAIN } from "@deskohub/email/backend/test-recipients";
+import { testEmailAddress } from "@deskohub/email/testing";
 import { Effect, Layer, Logger, Predicate, References, Schema } from "effect";
 import { FetchHttpClient } from "effect/unstable/http";
 import {
@@ -1440,10 +1441,10 @@ describe("DotyposService customer lookup", () => {
 
   test.each([
     { input: testEmailAddress("Ada"), stored: adaEmail },
-    { input: adaEmail, stored: `Ada@${emailTestDomain().toUpperCase()}` },
+    { input: adaEmail, stored: `Ada@${EMAIL_TEST_DOMAIN.toUpperCase()}` },
     {
       input: `  ${testEmailAddress("ADA")} `,
-      stored: `ada@${emailTestDomain().toUpperCase()}`,
+      stored: `ada@${EMAIL_TEST_DOMAIN.toUpperCase()}`,
     },
   ])(
     "matches stored email $stored for input $input regardless of case",

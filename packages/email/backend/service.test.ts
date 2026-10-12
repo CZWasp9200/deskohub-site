@@ -1,9 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
 import { Effect, Layer } from "effect";
-import {
-  emailTestDomain,
-  testEmailAddress,
-} from "../testing/test-email-address";
+import { testEmailAddress } from "../testing/test-email-address";
 import {
   type EmailConfig,
   EmailDeliveryIdSchema,
@@ -22,7 +19,6 @@ import {
 
 const config: EmailConfig = {
   defaultFrom: { email: testEmailAddress("deskohub"), name: "Deskohub" },
-  testDomain: emailTestDomain(),
 };
 
 const success = {

@@ -16,7 +16,7 @@
   "scripts": {
     "generate": "bun scripts/generate.ts",
     "lint": "biome check src scripts --config-path ../../biome.json --vcs-root ../..",
-    "test": "bun test --preload @deskohub/email/testing/environment",
+    "test": "bun test",
     "typecheck": "tsc --project tsconfig.json"
   },
   "dependencies": {

@@ -1,9 +1,4 @@
-import {
-  EmailConfigTag,
-  type EmailMessage,
-  EmailServiceTag,
-  type EmailTestDomain,
-} from "@deskohub/email";
+import { type EmailMessage, EmailServiceTag } from "@deskohub/email";
 import { type Config, Data, Effect, Layer, Predicate } from "effect";
 import type { WorkspaceEmailLocale } from "@/emails/_components/workspace-email-layout";
 import {
@@ -71,12 +66,11 @@ export type MagicLinkDeliveryEnvironment = {
 const emitsPreviewE2ELine = (
   environment: MagicLinkDeliveryEnvironment,
   recipient: string,
-  provider: string,
-  testDomain: EmailTestDomain
+  provider: string
 ) =>
   environment.isVercelPreview &&
   provider === "console" &&
-  isSyntheticE2EEmailRecipient(recipient, testDomain);
+  isSyntheticE2EEmailRecipient(recipient);
 
 export const makeMagicLinkEmailDelivery = (
   render: MagicLinkEmailRenderer,
@@ -99,7 +93,6 @@ export const makeMagicLinkEmailDelivery = (
       if (!rendered) return "account.magic-link.delivery-failed" as const;
 
       const email = yield* EmailServiceTag;
-      const { testDomain } = yield* EmailConfigTag;
       const sent = yield* email
         .send(magicLinkEmailMessage(request, rendered))
         .pipe(
@@ -123,14 +116,7 @@ export const makeMagicLinkEmailDelivery = (
       if (Predicate.isString(sent)) return sent;
 
       // The synthetic Preview recipient is the only bearer-log exception.
-      if (
-        emitsPreviewE2ELine(
-          environment,
-          request.email,
-          sent.provider,
-          testDomain
-        )
-      ) {
+      if (emitsPreviewE2ELine(environment, request.email, sent.provider)) {
         emitPreviewE2EConsoleDelivery(request.email, rendered.text);
       }
 
@@ -194,9 +180,8 @@ const unconfiguredDelivery = (): Effect.Effect<
     code: "account.magic-link.delivery-unconfigured",
   }).pipe(Effect.as("account.magic-link.delivery-unconfigured" as const));
 
-const magicLinkEmailServiceLayer = Layer.provideMerge(
-  EmailServiceTag.Live,
-  EmailConfigLayer
+const magicLinkEmailServiceLayer = EmailServiceTag.Live.pipe(
+  Layer.provide(EmailConfigLayer)
 );
 
 /**

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { EmailConfigTag } from "@deskohub/email";
-import { emailTestDomain, testEmailAddress } from "@deskohub/email/testing";
+import { testEmailAddress } from "@deskohub/email/testing";
 import { ConfigProvider, Effect } from "effect";
 import { siteConstants } from "@/shared/utils/constants";
 import { EmailConfigLayer } from "./email.config";
@@ -18,7 +18,7 @@ const readConfig = (env: Record<string, string>) =>
 
 describe("EmailConfigLayer", () => {
   test("missing optional values are undefined", async () => {
-    const config = await readConfig({ EMAIL_TEST_DOMAIN: emailTestDomain() });
+    const config = await readConfig({});
 
     expect(config).toEqual({
       defaultFrom: {
@@ -26,7 +26,6 @@ describe("EmailConfigLayer", () => {
         name: siteConstants.brand.name,
       },
       apiKey: undefined,
-      testDomain: emailTestDomain(),
     });
   });
 
@@ -36,17 +35,11 @@ describe("EmailConfigLayer", () => {
       EMAIL_FROM_ADDRESS: fromAddress,
       EMAIL_FROM_NAME: "From Name",
       EMAIL_API_KEY: "api-key",
-      EMAIL_TEST_DOMAIN: emailTestDomain(),
     });
 
     expect(config).toEqual({
       defaultFrom: { email: fromAddress, name: "From Name" },
       apiKey: "api-key",
-      testDomain: emailTestDomain(),
     });
-  });
-
-  test("fails closed without a test domain", async () => {
-    await expect(readConfig({ EMAIL_API_KEY: "api-key" })).rejects.toThrow();
   });
 });

@@ -1,16 +1,14 @@
 import { describe, expect, mock, test } from "bun:test";
 import {
-  EmailConfigTag,
   EmailDeliveryIdSchema,
   type EmailMessage,
   type EmailSendResult,
   EmailServiceError,
   EmailServiceTag,
 } from "@deskohub/email";
-import { emailTestDomain, testEmailAddress } from "@deskohub/email/testing";
+import { testEmailAddress } from "@deskohub/email/testing";
 import { Effect, Layer } from "effect";
 import { m } from "@/features/i18n/paraglide/messages";
-import { siteConstants } from "@/shared/utils/constants";
 import { ContactService } from "./contact.service";
 
 const input = {
@@ -39,17 +37,11 @@ const runSubmit = (
       Effect.provide(
         ContactService.Default.pipe(
           Layer.provide(
-            Layer.mergeAll(
-              Layer.succeed(EmailServiceTag, {
-                send,
-                sendTemplate: mock(() => Effect.succeed(sent("template"))),
-                verify: Effect.succeed(true),
-              }),
-              Layer.succeed(EmailConfigTag, {
-                defaultFrom: { email: siteConstants.contact.fromEmail },
-                testDomain: emailTestDomain(),
-              })
-            )
+            Layer.succeed(EmailServiceTag, {
+              send,
+              sendTemplate: mock(() => Effect.succeed(sent("template"))),
+              verify: Effect.succeed(true),
+            })
           )
         )
       )

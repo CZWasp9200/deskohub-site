@@ -1,9 +1,5 @@
 export type { EmailProvider } from "./backend/capabilities";
-export {
-  type EmailTestDomain,
-  EmailTestDomainSchema,
-  makeEmailConfigLayer,
-} from "./backend/email-config";
+export { makeEmailConfigLayer } from "./backend/email-config";
 export {
   internalRecipientForOrigin,
   staffEmailSubject,
@@ -23,6 +19,10 @@ export {
   EmailServiceTag,
   EmailTemplateServiceTag,
 } from "./backend/service";
+export {
+  EMAIL_TEST_DOMAIN,
+  isTestEmailRecipient,
+} from "./backend/test-recipients";
 export type {
   EmailAttachment,
   EmailConfig,

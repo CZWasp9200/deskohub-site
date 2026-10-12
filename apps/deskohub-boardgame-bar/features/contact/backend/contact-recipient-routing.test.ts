@@ -1,7 +1,6 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { EmailConfigTag, EmailServiceTag } from "@deskohub/email";
 import {
-  emailTestDomain,
   resendSimulatorAddress,
   testEmailAddress,
 } from "@deskohub/email/testing";
@@ -67,7 +66,6 @@ const submit = async (email: string) => {
               Layer.succeed(EmailConfigTag, {
                 apiKey: "re_test",
                 defaultFrom: { email: siteConstants.contact.fromEmail },
-                testDomain: emailTestDomain(),
               })
             )
           )

@@ -66,10 +66,10 @@ names. Inspect settings and deployment metadata without printing their values.
   stacked-discount and external-payment cases. The runner selects a usable
   group deterministically through the Dotypos API and fails closed when none
   exists.
-- A send-only `EMAIL_API_KEY` and `EMAIL_TEST_DOMAIN=deskohub.test`, the
-  same value the workflow passes to the runner. There is no provider
-  setting: the shared email service sends mail addressed only to test-domain
-  recipients to Console and everything else, including `resend.dev`, to
+- A send-only `EMAIL_API_KEY`. There is no provider setting: the shared
+  email service sends mail addressed only to recipients on the code constant
+  `EMAIL_TEST_DOMAIN` (`deskohub.test`) to Console and everything else,
+  including `resend.dev`, to
   Resend. Browser cases use only test-domain recipients built with
   `testEmailAddress`, so they exercise the complete email workflow
   without external delivery attempts or Resend quota, while a real person
@@ -77,8 +77,7 @@ names. Inspect settings and deployment metadata without printing their values.
   E2E magic-link recipients the account app feature then emits the single
   gated `account.magic-link.preview-e2e` raw console line whose
   `{code, recipient, message, text}` envelope is the E2E parser's stable wire
-  format. Mail for a real recipient fails closed without the key, and the
-  deployment refuses to start without a valid test domain.
+  format. Mail for a real recipient fails closed without the key.
 - The non-sensitive Preview-only
   `POSTHOG_FEATURE_FLAG_OVERRIDES={"accounts":true,"calendar_sales":true,"customer_discounts":true,"discount_codes":true,"meeting_room_page":true,"office_page":true}`.
   Account navigation E2E requires `accounts:true` even when the production

@@ -12,7 +12,7 @@ import {
   EmailConfigTag,
   EmailServiceTag,
 } from "@deskohub/email/backend/service";
-import { emailTestDomain, testEmailAddress } from "@deskohub/email/testing";
+import { testEmailAddress } from "@deskohub/email/testing";
 import { Effect, Layer } from "effect";
 import { m } from "@/features/i18n";
 import { workspaceDefaultFromAddress } from "@/shared/backend/config/email.config";
@@ -43,7 +43,6 @@ describe("ContactService", () => {
         email: workspaceDefaultFromAddress,
         name: "Deskohub Workspace",
       },
-      testDomain: emailTestDomain(),
     };
 
     const ContactServiceTest = ContactService.Default.pipe(

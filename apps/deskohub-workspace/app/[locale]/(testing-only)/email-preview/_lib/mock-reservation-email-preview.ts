@@ -7,7 +7,7 @@ import {
 import type { Customer } from "@deskohub/dotypos/generated";
 import type { WorkspaceReservationDetails } from "@/features/reservation/backend/workspace-reservation.service";
 import "@/shared/polyfills/temporal";
-import { env } from "@/env";
+import { testEmailAddress } from "@deskohub/email/testing";
 import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
 
 const mockDate = Temporal.Instant.from("2026-06-12T09:00:00.000+02:00");
@@ -20,7 +20,7 @@ const workspaceReservationEmailPreviewCustomer: Customer = {
   firstName: "Ada",
   lastName: "Lovelace",
   companyName: "Analytical Engines Ltd.",
-  email: `customer@${env.EMAIL_TEST_DOMAIN}`,
+  email: testEmailAddress("customer"),
   phone: "+420 123 456 789",
   points: null,
   flags: "0",

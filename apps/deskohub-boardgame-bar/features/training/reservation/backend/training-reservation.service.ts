@@ -1,8 +1,4 @@
-import {
-  EmailConfigTag,
-  type EmailMessage,
-  EmailServiceTag,
-} from "@deskohub/email";
+import { type EmailMessage, EmailServiceTag } from "@deskohub/email";
 import { Context, Effect, Layer } from "effect";
 import type { Locale } from "@/features/i18n";
 import { m } from "@/features/i18n/paraglide/messages";
@@ -57,7 +53,6 @@ export class TrainingReservationService extends Context.Service<
 
 const trainingReservationServiceImplementation = Effect.gen(function* () {
   const emailService = yield* EmailServiceTag;
-  const { testDomain } = yield* EmailConfigTag;
 
   return TrainingReservationService.of({
     submit: Effect.fn("trainingReservation.submit")(
@@ -175,7 +170,7 @@ const trainingReservationServiceImplementation = Effect.gen(function* () {
               locale: businessEmailLocale,
             }),
           },
-          to: staffEmailRecipientFor(data.email, testDomain, {
+          to: staffEmailRecipientFor(data.email, {
             email: siteConstants.contact.reservationEmail,
             name: "DeskoHub Rezervace",
           }),
