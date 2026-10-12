@@ -16,13 +16,19 @@
     "./next": "./src/next.ts",
     "./effect": "./src/effect.ts",
     "./action": "./src/action.ts",
-    "./currency": "./src/currency.ts"
+    "./currency": "./src/currency.ts",
+    "./request-locale": "./src/request-locale.ts"
   },
   "dependencies": {
     "effect": "4.0.0-beta.85"
   },
   "peerDependencies": {
     "next": "^16.4.0",
-    "next-safe-action": "^8.0.7"
+    "next-safe-action": "^8.0.7",
+    "react": "^19.2.7"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "react": "19.3.0"
   }
 }
