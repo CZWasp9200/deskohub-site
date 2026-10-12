@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
+import { existsSync } from "node:fs";
 import {
-  mkdir,
+  chmod,
   mkdtemp,
   readFile,
   rm,
@@ -11,14 +12,18 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Deferred, Effect, Exit, Fiber } from "effect";
 import {
+  prepareWorkspaceE2EHostedPaymentPermitQueue,
   type WorkspaceE2EHostedPaymentPermitOptions,
   WorkspaceE2EHostedPaymentPermitService,
 } from "./hosted-payment-permit.service";
 
 let directory: string;
+let permitDirectory: string;
 
 beforeEach(async () => {
   directory = await mkdtemp(join(tmpdir(), "hosted-payment-permit-"));
+  permitDirectory = join(directory, "permit");
+  await prepareWorkspaceE2EHostedPaymentPermitQueue(permitDirectory);
 });
 
 afterEach(async () => {
@@ -29,7 +34,8 @@ const permitLayer = (
   options: Partial<WorkspaceE2EHostedPaymentPermitOptions> = {}
 ) =>
   WorkspaceE2EHostedPaymentPermitService.layer({
-    directory: join(directory, "permit"),
+    directory: permitDirectory,
+    generationCheckIntervalMs: 20,
     pollIntervalMs: 5,
     ...options,
   });
@@ -58,7 +64,7 @@ const spawnHolder = (input: {
       join(import.meta.dir, "hosted-payment-permit.holder-fixture.ts"),
       JSON.stringify({
         ...input,
-        directory: join(directory, "permit"),
+        directory: permitDirectory,
         logPath: join(directory, "holders.jsonl"),
       }),
     ],
@@ -241,33 +247,7 @@ test("reclaims the slot of a holder process that crashed", async () => {
   expect(next).toBe("admitted");
 }, 30_000);
 
-test("expires the lease of a live holder that stopped its heartbeat", async () => {
-  const permitDirectory = join(directory, "permit");
-  await mkdir(permitDirectory, { recursive: true });
-  // A live process other than this one, as after PID reuse.
-  await writeFile(
-    join(permitDirectory, "ticket-000000"),
-    JSON.stringify({ pid: process.ppid, token: "recycled" })
-  );
-  const startedAt = Date.now();
-
-  const next = await runWithPermit(
-    Effect.gen(function* () {
-      const permit = yield* WorkspaceE2EHostedPaymentPermitService;
-      return yield* permit
-        .withPermit("next", Effect.succeed("admitted"))
-        .pipe(Effect.timeout("3 seconds"));
-    }),
-    { capacity: 1, leaseMs: 300 }
-  );
-
-  expect(next).toBe("admitted");
-  expect(Date.now() - startedAt).toBeGreaterThanOrEqual(250);
-});
-
 test("ignores tickets this process leaked without a release", async () => {
-  const permitDirectory = join(directory, "permit");
-  await mkdir(permitDirectory, { recursive: true });
   await writeFile(
     join(permitDirectory, "ticket-000000"),
     JSON.stringify({ pid: process.pid, token: "leaked" })
@@ -286,4 +266,244 @@ test("ignores tickets this process leaked without a release", async () => {
   );
 
   expect(next).toBe("admitted");
+});
+
+// Regressions: a ticket is reclaimed only when its holder process is gone,
+// and a lost queue fails its waiters and holders instead of re-admitting.
+
+const procfsAvailable = existsSync("/proc/self/stat");
+
+const ticketFile = (number: number) =>
+  join(permitDirectory, `ticket-${String(number).padStart(6, "0")}`);
+
+// Ages a ticket as a forward clock jump, a missed heartbeat, or a long
+// freeze would, so only time could make it look abandoned.
+const ageTicket = (number: number) => {
+  const longAgo = new Date(Date.now() - 10 * 60_000);
+  return utimes(ticketFile(number), longAgo, longAgo);
+};
+
+const waitForHolderEvent = async (event: HolderEvent["event"]) => {
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    if ((await readHolderEvents()).some((entry) => entry.event === event))
+      return;
+    await Bun.sleep(5);
+  }
+  throw new Error(`holder never recorded ${event}`);
+};
+
+// Starts a single-slot session and resolves with the time it was admitted.
+const startWaiter = () => {
+  let admittedAt: number | undefined;
+  const done = runWithPermit(
+    Effect.gen(function* () {
+      const permit = yield* WorkspaceE2EHostedPaymentPermitService;
+      yield* permit.withPermit(
+        "waiter",
+        Effect.sync(() => {
+          admittedAt = performance.timeOrigin + performance.now();
+        })
+      );
+    }),
+    { capacity: 1 }
+  );
+  return { admittedAt: () => admittedAt, done };
+};
+
+const holderEnd = async () =>
+  (await readHolderEvents()).find(({ event }) => event === "end")?.at ?? 0;
+
+test("keeps the slot of a frozen holder that resumes after any lease", async () => {
+  const holder = spawnHolder({
+    capacity: 1,
+    holdMs: 200,
+    label: "frozen",
+    sessions: 1,
+  });
+  await waitForHolderEvent("start");
+  process.kill(holder.pid, "SIGSTOP");
+  try {
+    await ageTicket(0);
+    const waiter = startWaiter();
+    await Bun.sleep(300);
+    expect(waiter.admittedAt()).toBeUndefined();
+
+    process.kill(holder.pid, "SIGCONT");
+    expect(await holder.exited).toBe(0);
+    await waiter.done;
+    expect(waiter.admittedAt()).toBeGreaterThan(await holderEnd());
+  } finally {
+    if (holder.exitCode === null) process.kill(holder.pid, "SIGCONT");
+  }
+}, 30_000);
+
+test("keeps exclusion across a forward clock change", async () => {
+  let active = 0;
+  let peak = 0;
+  let started = 0;
+  const session = (holdMs: number) =>
+    runWithPermit(
+      Effect.gen(function* () {
+        const permit = yield* WorkspaceE2EHostedPaymentPermitService;
+        yield* permit.withPermit(
+          "session",
+          Effect.gen(function* () {
+            active += 1;
+            started += 1;
+            peak = Math.max(peak, active);
+            yield* Effect.sleep(`${holdMs} millis`);
+            active -= 1;
+          })
+        );
+      }),
+      { capacity: 3 }
+    );
+  const holders = [session(300), session(300), session(300)];
+  while (started < 3) await Bun.sleep(5);
+  await Promise.all([0, 1, 2].map(ageTicket));
+
+  await session(20);
+  await Promise.all(holders);
+
+  expect(peak).toBe(3);
+});
+
+test("keeps the slot of a running holder whose ticket stops being refreshed", async () => {
+  const holder = spawnHolder({
+    capacity: 1,
+    holdMs: 300,
+    label: "unrefreshed",
+    sessions: 1,
+  });
+  await waitForHolderEvent("start");
+  let refreshing = true;
+  // Keeps the ticket stale for the whole hold, as failing heartbeats would.
+  const staleness = (async () => {
+    while (refreshing) {
+      await ageTicket(0).catch(() => undefined);
+      await Bun.sleep(5);
+    }
+  })();
+  const waiter = startWaiter();
+
+  expect(await holder.exited).toBe(0);
+  await waiter.done;
+  refreshing = false;
+  await staleness;
+  expect(waiter.admittedAt()).toBeGreaterThan(await holderEnd());
+}, 30_000);
+
+test("fails waiting and holding sessions when the queue is deleted", async () => {
+  let active = 0;
+  let peak = 0;
+  const result = await runWithPermit(
+    Effect.gen(function* () {
+      const permit = yield* WorkspaceE2EHostedPaymentPermitService;
+      const session = (holdMs: number) =>
+        Effect.exit(
+          permit.withPermit(
+            "session",
+            Effect.sync(() => {
+              active += 1;
+              peak = Math.max(peak, active);
+            }).pipe(
+              Effect.andThen(Effect.sleep(`${holdMs} millis`)),
+              Effect.ensuring(
+                Effect.sync(() => {
+                  active -= 1;
+                })
+              )
+            )
+          )
+        );
+      const holders = yield* Effect.forEach([0, 1, 2], () =>
+        Effect.forkChild(session(600))
+      );
+      while (active < 3) yield* Effect.sleep("5 millis");
+      yield* Effect.promise(() =>
+        rm(permitDirectory, { force: true, recursive: true })
+      );
+
+      const late = yield* session(20);
+      const holderExits = yield* Effect.forEach(holders, Fiber.join);
+      return { holderExits, late };
+    }),
+    { capacity: 3 }
+  );
+
+  expect(peak).toBe(3);
+  expect(Exit.isFailure(result.late)).toBe(true);
+  for (const exit of result.holderExits) {
+    expect(Exit.isFailure(exit)).toBe(true);
+  }
+});
+
+test.skipIf(!procfsAvailable)(
+  "reclaims a ticket whose PID now belongs to another process",
+  async () => {
+    // The parent process is alive, but it never took this ticket.
+    await writeFile(
+      ticketFile(0),
+      JSON.stringify({ pid: process.ppid, startTime: "1", token: "recycled" })
+    );
+
+    const next = await runWithPermit(
+      Effect.gen(function* () {
+        const permit = yield* WorkspaceE2EHostedPaymentPermitService;
+        return yield* permit
+          .withPermit("next", Effect.succeed("admitted"))
+          .pipe(Effect.timeout("2 seconds"));
+      }),
+      { capacity: 1 }
+    );
+
+    expect(next).toBe("admitted");
+  }
+);
+
+test.skipIf(!procfsAvailable)(
+  "keeps the ticket of a live holder whose start time matches",
+  async () => {
+    const stat = await readFile(`/proc/${process.ppid}/stat`, "utf8");
+    const startTime = stat
+      .slice(stat.lastIndexOf(")") + 2)
+      .trim()
+      .split(" ")[19];
+    await writeFile(
+      ticketFile(0),
+      JSON.stringify({ pid: process.ppid, startTime, token: "live" })
+    );
+
+    const exit = await runWithPermit(
+      Effect.gen(function* () {
+        const permit = yield* WorkspaceE2EHostedPaymentPermitService;
+        return yield* Effect.exit(
+          permit
+            .withPermit("next", Effect.void)
+            .pipe(Effect.timeout("300 millis"))
+        );
+      }),
+      { capacity: 1 }
+    );
+
+    expect(Exit.isFailure(exit)).toBe(true);
+  }
+);
+
+test("fails the session when its release cannot be recorded", async () => {
+  const exit = await runWithPermit(
+    Effect.gen(function* () {
+      const permit = yield* WorkspaceE2EHostedPaymentPermitService;
+      return yield* Effect.exit(
+        permit.withPermit(
+          "unreleasable",
+          Effect.promise(() => chmod(permitDirectory, 0o500))
+        )
+      );
+    }),
+    { capacity: 1 }
+  ).finally(() => chmod(permitDirectory, 0o700));
+
+  expect(Exit.isFailure(exit)).toBe(true);
 });

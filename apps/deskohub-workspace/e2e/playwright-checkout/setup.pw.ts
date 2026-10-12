@@ -4,6 +4,10 @@ import { test } from "@playwright/test";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { FetchHttpClient } from "effect/unstable/http";
 import { assertNexiSandbox, getConfig, getDatasourceConfig } from "../config";
+import {
+  prepareWorkspaceE2EHostedPaymentPermitQueue,
+  workspaceE2EHostedPaymentPermitDirectory,
+} from "../coordination/hosted-payment-permit.service";
 import { makeWorkspaceE2EEnvironment } from "../e2e-env";
 import { assertPreviewEndpointsReady } from "../preview-readiness";
 import { addDatabaseUrlRedactions, assertSafeDatabaseUrl } from "../runtime";
@@ -37,6 +41,9 @@ test("validate workspace preview readiness", async () => {
     environment.WORKSPACE_E2E_PROVIDER_PERMIT_DATABASE_URL
   );
   await writeWorkspaceE2ERunContext(runContext);
+  await prepareWorkspaceE2EHostedPaymentPermitQueue(
+    workspaceE2EHostedPaymentPermitDirectory(runContext.runId)
+  );
 
   const telemetry = makeE2ETelemetryRuntime(environment);
   const layer = Layer.mergeAll(

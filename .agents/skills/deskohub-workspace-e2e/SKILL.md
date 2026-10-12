@@ -159,12 +159,16 @@ Distinguish automated-runner behavior from manual procedures before treating a d
   permit. Playwright workers are separate processes, so the permit is a FIFO
   ticket queue in the run's `e2e-artifacts/checkout/hosted-payment-permit/`
   directory, keyed by run ID and independent of the coordination database, so
-  manual and local runs enforce it too. A finalizer releases the ticket after
-  success, failure, timeout, or interruption, including while waiting. A dead
-  holder process frees its ticket immediately, and a 60-second heartbeat lease
-  covers a frozen holder or a recycled PID. Queue read or write failures fail
-  the case. The wait counts toward the case watchdog but not the hosted steps'
-  semantic timeouts. Every admission logs `HOSTED PAYMENT PERMIT <session>
+  manual and local runs enforce it too. Checkout setup creates the queue and
+  its generation marker; the permit never recreates it, and a missing or
+  replaced marker fails every waiting and holding case. A finalizer releases
+  the ticket after success, failure, timeout, or interruption, including while
+  waiting. Reclaim a ticket only when its holder process is gone: the PID no
+  longer runs, is a zombie, or has a different procfs start time (a recycled
+  PID). Never reclaim on time: a frozen holder keeps its slot until the case
+  watchdog or Playwright ends it. Any queue read or write failure, including
+  the release, fails the case. The wait counts toward the case watchdog but
+  not the hosted steps' semantic timeouts. Every admission logs `HOSTED PAYMENT PERMIT <session>
   admitted after <s>`; read those waits before blaming Nexi or the scheduler.
   Keep `checkout-cases` one below the global worker ceiling so the account
   lane always gets a worker. Register its cases alternating paid and
