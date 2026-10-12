@@ -69,10 +69,12 @@ describe.skipIf(!testDatabase)(
       expect(outcomes.firstClaim).toEqual({
         kind: "linked",
         customerId: dotyposCustomerId,
+        created: true,
       });
       expect(outcomes.secondClaim).toEqual({
         kind: "linked",
         customerId: dotyposCustomerId,
+        created: false,
       });
       expect(outcomes.rivalClaim._tag).toBe("Success");
       if (outcomes.rivalClaim._tag === "Success") {

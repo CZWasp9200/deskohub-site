@@ -248,6 +248,37 @@ const ReferralsLayer = Layer.succeed(Referrals, {
 Object.assign(Referrals, { Live: ReferralsLayer });
 mock.module("@/features/referrals", () => ({ ReferralService: Referrals }));
 
+type StoredSignupIntent = {
+  readonly code: string;
+  readonly promotionCodeId: string;
+  readonly referrerDotyposCustomerId: string;
+};
+let storedSignupIntent: StoredSignupIntent | undefined;
+const SignupIntents = Context.Service<
+  SignupIntents,
+  {
+    readonly find: (
+      accountId: CustomerAccountId
+    ) => Effect.Effect<StoredSignupIntent | undefined>;
+    readonly remove: (
+      accountId: CustomerAccountId,
+      promotionCodeId: string
+    ) => Effect.Effect<void>;
+  }
+>()("@test/AccountSignupIntents");
+Object.assign(SignupIntents, {
+  Live: Layer.succeed(SignupIntents, {
+    find: () => Effect.sync(() => storedSignupIntent),
+    remove: () =>
+      Effect.sync(() => {
+        storedSignupIntent = undefined;
+      }),
+  }),
+});
+mock.module("@/features/referrals/signup-intent.repository", () => ({
+  ReferralSignupIntentRepository: SignupIntents,
+}));
+
 const areAccountAvatarsEnabled = mock(() => Promise.resolve(true));
 mock.module("@/features/account/server/account-feature-flag.server", () => ({
   areAccountAvatarsEnabled,
@@ -274,6 +305,7 @@ describe("loadCustomerAccountPage", () => {
     availableReferralCodeCalls = [];
     acceptReferralEffect = Effect.succeed({ status: "accepted" });
     acceptReferralCalls = [];
+    storedSignupIntent = undefined;
     events = [];
     areAccountAvatarsEnabled.mockReset();
     areAccountAvatarsEnabled.mockResolvedValue(true);
@@ -395,6 +427,27 @@ describe("loadCustomerAccountPage", () => {
       },
     ]);
     expect(events).toEqual(["resolved", "accept", "summary"]);
+  });
+
+  test("retries the code a profile completion could not record yet, after resolution", async () => {
+    storedSignupIntent = {
+      code: "RFLPENDING",
+      promotionCodeId: "@test/promotion-code-id",
+      referrerDotyposCustomerId: "70001",
+    };
+
+    const state = await loadPageState();
+
+    expect(state.kind).toBe("linked");
+    expect(acceptReferralCalls).toEqual([
+      {
+        code: "RFLPENDING",
+        customerAccountId: accountId,
+        dotyposCustomerId: "60111",
+      },
+    ]);
+    expect(events).toEqual(["resolved", "accept", "summary"]);
+    expect(storedSignupIntent).toBeUndefined();
   });
 
   test("records nothing when an auto-linked sign-in carries no shared code", async () => {

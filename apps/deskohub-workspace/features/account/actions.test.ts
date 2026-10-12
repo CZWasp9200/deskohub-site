@@ -106,6 +106,48 @@ mock.module(
   })
 );
 
+type SignupIntent = {
+  readonly promotionCodeId: string;
+  readonly referrerDotyposCustomerId: string;
+};
+const codeTarget: SignupIntent = {
+  promotionCodeId: "@test/promotion-code-id",
+  referrerDotyposCustomerId: "70001",
+};
+let storedIntent: (SignupIntent & { readonly code: string }) | undefined;
+const SignupIntents = Context.Service<
+  SignupIntents,
+  {
+    readonly findCodeTarget: (
+      code: string
+    ) => Effect.Effect<SignupIntent | undefined>;
+    readonly find: (
+      accountId: string
+    ) => Effect.Effect<(SignupIntent & { readonly code: string }) | undefined>;
+    readonly remove: (
+      accountId: string,
+      promotionCodeId: string
+    ) => Effect.Effect<void>;
+    readonly findAttributedCode: (
+      customerId: string
+    ) => Effect.Effect<string | undefined>;
+  }
+>()("@test/ActionsSignupIntents");
+Object.assign(SignupIntents, {
+  Live: Layer.succeed(SignupIntents, {
+    findCodeTarget: () => Effect.succeed(codeTarget),
+    find: () => Effect.sync(() => storedIntent),
+    remove: () =>
+      Effect.sync(() => {
+        storedIntent = undefined;
+      }),
+    findAttributedCode: () => Effect.succeed(undefined),
+  }),
+});
+mock.module("@/features/referrals/signup-intent.repository", () => ({
+  ReferralSignupIntentRepository: SignupIntents,
+}));
+
 const profileCalls: { op: string; args: unknown[] }[] = [];
 const Profile = Context.Service<
   Profile,
@@ -117,8 +159,16 @@ const Profile = Context.Service<
     readonly create: (
       accountId: string,
       email: string,
-      input: ProfileInput
-    ) => Effect.Effect<{ firstName: string }, never>;
+      input: ProfileInput,
+      signupReferral?: SignupIntent
+    ) => Effect.Effect<
+      {
+        readonly account: { accountId: string; dotyposCustomerId: string };
+        readonly profile: { firstName: string };
+        readonly created: boolean;
+      },
+      never
+    >;
   }
 >()("@test/ActionsProfile");
 Object.assign(Profile, {
@@ -127,9 +177,18 @@ Object.assign(Profile, {
       profileCalls.push({ op: "update", args: [account, input] });
       return Effect.succeed({ firstName: "Ada" });
     },
-    create: (accountId, email, input) => {
-      profileCalls.push({ op: "create", args: [accountId, email, input] });
-      return Effect.succeed({ firstName: "Ada" });
+    create: (accountId, email, input, signupReferral) => {
+      profileCalls.push({
+        op: "create",
+        args: [accountId, email, input, signupReferral],
+      });
+      // The real link repository stores the intent with the created link.
+      storedIntent = signupReferral && { ...signupReferral, code: "RFL12345" };
+      return Effect.succeed({
+        account: { accountId, dotyposCustomerId: "60222" },
+        profile: { firstName: "Ada" },
+        created: true,
+      });
     },
   }),
 });
@@ -223,6 +282,7 @@ describe("account actions", () => {
   beforeEach(() => {
     profileCalls.length = 0;
     referralCalls.length = 0;
+    storedIntent = undefined;
     availableReferralCode = Effect.succeed("RFL12345");
     referralAcceptance = Effect.succeed({ kind: "accepted" });
     revalidatePath.mockClear();
@@ -255,6 +315,7 @@ describe("account actions", () => {
       "@test/account-id",
       "ada@example.test",
       { firstName: "Ada" },
+      undefined,
     ]);
     expect(revalidatePath).not.toHaveBeenCalled();
   });
@@ -286,7 +347,7 @@ describe("account actions", () => {
     expect(referralCalls).toEqual([]);
   });
 
-  test("records the entered referral for the newly created customer", async () => {
+  test("stores the entered referral with the new link and records it afterwards", async () => {
     resolveAsNewCustomerUntilCreated();
     const { completeCustomerProfile } = await importActions();
 
@@ -295,11 +356,18 @@ describe("account actions", () => {
       referralCode: " rfl12345 ",
     });
 
-    expect(result).toEqual({ data: { status: "completed" } });
+    expect(result).toEqual({
+      data: { status: "completed", referral: { status: "applied" } },
+    });
     expect(profileCalls).toEqual([
       {
         op: "create",
-        args: ["@test/account-id", "ada@example.test", { firstName: "Ada" }],
+        args: [
+          "@test/account-id",
+          "ada@example.test",
+          { firstName: "Ada" },
+          codeTarget,
+        ],
       },
     ]);
     expect(referralCalls).toEqual([
@@ -313,9 +381,10 @@ describe("account actions", () => {
         },
       },
     ]);
+    expect(storedIntent).toBeUndefined();
   });
 
-  test("reports an unavailable referral code on its field and creates nothing", async () => {
+  test("reports an unavailable typed referral code on its field and creates nothing", async () => {
     resolveAsNewCustomerUntilCreated();
     availableReferralCode = Effect.succeed(undefined);
     const { completeCustomerProfile } = await importActions();
@@ -323,6 +392,7 @@ describe("account actions", () => {
     const result = await completeCustomerProfile({
       firstName: "Ada",
       referralCode: "RFLGONE1",
+      prefilledReferralCode: "RFL12345",
     });
 
     expect(result).toEqual({
@@ -332,7 +402,25 @@ describe("account actions", () => {
     expect(referralCalls.map(({ op }) => op)).toEqual(["findAvailableCode"]);
   });
 
-  test("completes the profile when recording the referral fails after creation", async () => {
+  test("completes without a referral when the shared-link code cannot be checked", async () => {
+    resolveAsNewCustomerUntilCreated();
+    availableReferralCode = Effect.fail(
+      new ReferralError({ reason: "unavailable" })
+    );
+    const { completeCustomerProfile } = await importActions();
+
+    const result = await completeCustomerProfile({
+      firstName: "Ada",
+      referralCode: "rfl12345",
+      prefilledReferralCode: "RFL12345",
+    });
+
+    expect(result).toEqual({ data: { status: "completed" } });
+    expect(profileCalls.map(({ args }) => args[3])).toEqual([undefined]);
+    expect(referralCalls.map(({ op }) => op)).toEqual(["findAvailableCode"]);
+  });
+
+  test("reports the referral as not applied when the account already has one", async () => {
     resolveAsNewCustomerUntilCreated();
     referralAcceptance = Effect.fail(
       new ReferralError({ reason: "already_attributed" })
@@ -344,12 +432,17 @@ describe("account actions", () => {
       referralCode: "RFL12345",
     });
 
-    expect(result).toEqual({ data: { status: "completed" } });
-    expect(profileCalls.map(({ op }) => op)).toEqual(["create"]);
+    expect(result).toEqual({
+      data: {
+        status: "completed",
+        referral: { status: "not-applied", reason: "already-referred" },
+      },
+    });
     expect(referralCalls.map(({ op }) => op)).toEqual([
       "findAvailableCode",
       "acceptReferral",
     ]);
+    expect(storedIntent).toBeUndefined();
   });
 
   test("ignores a referral code when completion finds an already linked customer", async () => {
