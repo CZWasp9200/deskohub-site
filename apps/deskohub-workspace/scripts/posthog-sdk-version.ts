@@ -12,6 +12,15 @@ const appRoot = resolve(import.meta.dir, "..");
 export const expectedPosthogSdkVersion: string =
   workspacePackage.dependencies["posthog-js"];
 
+/**
+ * Whether the capture came only from the pinned SDK: at least one event, and
+ * every event's `$lib_version` equals the pin. An event with no version fails,
+ * so a correctly versioned event can never vouch for one that is unversioned.
+ */
+export const capturedOnlyByPinnedSdk = (libVersions: readonly unknown[]) =>
+  libVersions.length > 0 &&
+  libVersions.every((version) => version === expectedPosthogSdkVersion);
+
 const decodeInstalledPackage = Schema.decodeUnknownSync(
   Schema.Struct({ version: Schema.String })
 );

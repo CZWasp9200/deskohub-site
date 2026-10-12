@@ -13,7 +13,10 @@ import {
   buildPosthogIdentityFixtureBundle,
   posthogProjectToken,
 } from "./posthog-identity-fixture-bundle";
-import { expectedPosthogSdkVersion } from "./posthog-sdk-version";
+import {
+  capturedOnlyByPinnedSdk,
+  expectedPosthogSdkVersion,
+} from "./posthog-sdk-version";
 
 const syntheticEmail = testEmailAddress("posthog.identity.synthetic");
 
@@ -3190,15 +3193,13 @@ const writeReport = async (report: ReturnType<typeof browserReport>) => {
 
 /** Every captured event must come from the pinned SDK the report names. */
 const assertCapturedSdkVersion = (server: LocalPostHogServer) => {
-  const versions = new Set(
-    server
-      .allIngestHistory()
-      .flatMap((record) => record.events)
-      .map((event) => event.properties.$lib_version)
-      .filter((version) => version !== undefined)
-  );
   check(
-    versions.size === 1 && versions.has(expectedPosthogSdkVersion),
+    capturedOnlyByPinnedSdk(
+      server
+        .allIngestHistory()
+        .flatMap((record) => record.events)
+        .map((event) => event.properties.$lib_version)
+    ),
     "posthog-sdk-runtime-version"
   );
 };
