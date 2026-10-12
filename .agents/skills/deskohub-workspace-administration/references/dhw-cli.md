@@ -110,7 +110,9 @@ UI application services.
 ## Administration mutations
 
 Mutation commands use the same validated mutation schema and application
-services as the Admin UI. Representative commands are:
+services as the Admin UI. `--product cowork` targets every cowork tier;
+`cowork:open-space` and `cowork:reserved-desk` target one tier and cannot be
+combined with `cowork`. Representative commands are:
 
 ```bash
 dhw reservations retry-access <reservation-id> --yes
@@ -125,6 +127,9 @@ dhw discounts create fixed \
 dhw discounts update percentage <discount-id> \
   --label-en "Summer sale" --label-cs "Letní sleva" \
   --percentage 15 --product cowork
+dhw discounts create percentage \
+  --label-en "Desk week" --label-cs "Týden u stolu" \
+  --percentage 10 --product cowork:reserved-desk
 dhw discounts delete <discount-id>
 
 dhw codes create existing SUMMER10 <discount-id>
