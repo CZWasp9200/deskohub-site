@@ -38,7 +38,7 @@ Entering a referral code in checkout requires a verified account and the same el
 
 ## Customer account
 
-The account has a referral section showing the customer's share link and code, the current referrer discount, and the number of currently eligible invited people. It explains the first-booking 15% benefit and the trailing 30-day rule. Counts do not disclose other customers' profile details. The section does not accept other customers' codes.
+The account has a referral section showing the customer's share link and code, the current referrer discount, the number of currently eligible invited people out of everyone they have invited, and the amount saved through referrals so far. Savings add up both referral benefits on the customer's own bookings whose payment succeeded and was not refunded or marked for refund, totalled per currency. The section explains the first-booking 15% benefit, the trailing 30-day rule, how the discount compounds, and what the savings include. Counts do not disclose other customers' profile details. The section does not accept other customers' codes.
 
 Referral relationships and prior paid-booking evidence use the existing customer identity. Deleting an authentication account does not erase paid history, reset first-booking eligibility, or rewrite accepted discounts. A referral code cannot be used while its owner's account is unavailable or being deleted.
 
