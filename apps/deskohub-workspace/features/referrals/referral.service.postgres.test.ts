@@ -585,4 +585,122 @@ describe.skipIf(!testDatabase)("ReferralService on disposable Postgres", () => {
       );
     }
   });
+
+  test("finds only currently usable referral codes without issuing codes or attribution", async () => {
+    const uniqueCode = () =>
+      `RFA${crypto.randomUUID().replaceAll("-", "").slice(0, 10).toUpperCase()}`;
+    const promotionCodeIds: string[] = [];
+    const accountIds: CustomerAccountId[] = [];
+    const insertCode = async (input: {
+      readonly owner: "active" | "deletion-requested" | "unlinked";
+      readonly kind?: "referral" | "discount";
+      readonly enabled?: boolean;
+      readonly validFrom?: Temporal.Instant;
+      readonly validUntil?: Temporal.Instant;
+    }) => {
+      const code = uniqueCode();
+      const ownerCustomerId = uniqueDotyposId();
+      const [promotion] = await Effect.runPromise(
+        testDatabase!.db
+          .insert(promotionCodes)
+          .values({
+            kind: input.kind ?? "referral",
+            code: canonicalPromotionCodeSchema.make(code),
+            enabled: input.enabled ?? true,
+            validFrom: input.validFrom,
+            validUntil: input.validUntil,
+          })
+          .returning({ id: promotionCodes.id })
+      );
+      promotionCodeIds.push(promotion!.id);
+      if ((input.kind ?? "referral") === "referral") {
+        await Effect.runPromise(
+          testDatabase!.db.insert(referralCodes).values({
+            promotionCodeId: promotion!.id,
+            referrerDotyposCustomerId: ownerCustomerId,
+          })
+        );
+      }
+      if (input.owner !== "unlinked") {
+        const ownerAccountId = customerAccountIdSchema.make(uniqueId());
+        accountIds.push(ownerAccountId);
+        await insertAuthUser(ownerAccountId);
+        await testDatabase!.pool.query(
+          `insert into customer_account_links (customer_account_id, dotypos_customer_id) values ($1, $2)`,
+          [ownerAccountId, ownerCustomerId]
+        );
+        if (input.owner === "deletion-requested") {
+          await testDatabase!.pool.query(
+            `update auth."user" set deletion_requested_at = now() where id = $1`,
+            [ownerAccountId]
+          );
+        }
+      }
+      return code;
+    };
+
+    try {
+      const now = Temporal.Now.instant();
+      const available = await insertCode({ owner: "active" });
+      const unavailable = await Promise.all([
+        insertCode({ owner: "active", enabled: false }),
+        insertCode({
+          owner: "active",
+          validUntil: now.subtract({ hours: 1 }),
+        }),
+        insertCode({ owner: "active", validFrom: now.add({ hours: 1 }) }),
+        insertCode({ owner: "unlinked" }),
+        insertCode({ owner: "deletion-requested" }),
+        insertCode({ owner: "active", kind: "discount" }),
+      ]);
+      const countRows = async () => {
+        const result = await testDatabase!.pool.query<{
+          readonly codes: string;
+          readonly attributions: string;
+        }>(
+          `select (select count(*) from referral_codes) as codes,
+                  (select count(*) from referral_attributions) as attributions`
+        );
+        return result.rows[0];
+      };
+      const before = await countRows();
+
+      const lookups = await Effect.runPromise(
+        Effect.gen(function* () {
+          const referrals = yield* ReferralService;
+          return yield* Effect.forEach(
+            [` ${available.toLowerCase()} `, ...unavailable, "not a code"],
+            (code) => referrals.findAvailableCode({ code })
+          );
+        }).pipe(
+          Effect.provide(
+            makeReferralLayer({
+              accountId: customerAccountIdSchema.make(uniqueId()),
+              dotyposCustomerId: uniqueDotyposId(),
+            })
+          )
+        )
+      );
+
+      expect(lookups).toEqual([
+        available,
+        ...unavailable.map(() => undefined),
+        undefined,
+      ]);
+      expect(await countRows()).toEqual(before);
+    } finally {
+      await testDatabase!.pool.query(
+        "delete from promotion_codes where id = any($1)",
+        [promotionCodeIds]
+      );
+      await testDatabase!.pool.query(
+        "delete from customer_account_links where customer_account_id = any($1)",
+        [accountIds]
+      );
+      await testDatabase!.pool.query(
+        'delete from auth."user" where id = any($1)',
+        [accountIds]
+      );
+    }
+  });
 });

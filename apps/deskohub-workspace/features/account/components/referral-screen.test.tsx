@@ -2,75 +2,17 @@ import {
   afterAll,
   afterEach,
   beforeAll,
-  beforeEach,
   describe,
   expect,
   mock,
   test,
 } from "bun:test";
-import {
-  act,
-  cleanup,
-  fireEvent,
-  render,
-  waitFor,
-} from "@testing-library/react";
-import { useState } from "react";
-import type { AccountReferralAcceptanceResult } from "@/features/account/referral-acceptance";
-import type { ReferralCode } from "@/features/referrals/client";
+import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { parseReferralCode } from "@/features/referrals/client";
 import {
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
 } from "@/shared/testing/workspace-component-test-env";
-
-type MockActionResult = {
-  readonly data?: AccountReferralAcceptanceResult;
-  readonly serverError?: boolean;
-  readonly validationErrors?: boolean;
-};
-type MockActionInput = { readonly code: ReferralCode };
-
-let actionResult: MockActionResult = { data: { status: "accepted" } };
-const acceptAccountReferral = mock((_input: MockActionInput) =>
-  Promise.resolve(actionResult)
-);
-
-mock.module("@/features/account/referral-actions", () => ({
-  acceptAccountReferral,
-}));
-// Keep the real workspace-action wrapper in the component test. This native
-// hook stand-in leaves result empty on a rejected request and rejects
-// executeAsync, matching the transport path the wrapper translates.
-mock.module("next-safe-action/hooks", () => ({
-  useAction: (
-    action: (input: MockActionInput) => Promise<MockActionResult>
-  ) => {
-    const [result, setResult] = useState<MockActionResult>({});
-    const [isExecuting, setExecuting] = useState(false);
-    const executeAsync = async (input: MockActionInput) => {
-      setExecuting(true);
-      try {
-        const nextResult = await action(input);
-        setResult(nextResult);
-        setExecuting(false);
-        return nextResult;
-      } catch (error) {
-        setExecuting(false);
-        throw error;
-      }
-    };
-
-    return {
-      execute: (input: MockActionInput) => {
-        void executeAsync(input).catch(() => undefined);
-      },
-      executeAsync,
-      isExecuting,
-      result,
-    };
-  },
-}));
 
 const { ReferralScreen } = await import("./referral-screen");
 
@@ -89,13 +31,6 @@ const originalClipboard = Object.getOwnPropertyDescriptor(
 
 describe("ReferralScreen", () => {
   beforeAll(registerWorkspaceComponentTestEnv);
-  beforeEach(() => {
-    actionResult = { data: { status: "accepted" } };
-    acceptAccountReferral.mockClear();
-    acceptAccountReferral.mockImplementation(() =>
-      Promise.resolve(actionResult)
-    );
-  });
   afterEach(() => {
     cleanup();
     if (originalClipboard) {
@@ -130,7 +65,6 @@ describe("ReferralScreen", () => {
         view.getByRole("link", { name: `/${locale}/account?ref=RFL12345` })
       ).toBeTruthy();
       expect(view.queryByText(/@/)).toBeNull();
-      expect(acceptAccountReferral).not.toHaveBeenCalled();
     }
   );
 
@@ -152,178 +86,33 @@ describe("ReferralScreen", () => {
     }
   );
 
-  test("accepts an invitation only after the linked account presses the action", async () => {
-    const view = render(
-      <ReferralScreen invitationCode={code} locale="en-US" summary={summary} />
+  test("offers only the customer's own share code and link, with no way to accept another code", () => {
+    const view = render(<ReferralScreen locale="en-US" summary={summary} />);
+    const screen = view.container.querySelector(
+      '[data-screen="referrals-screen"]'
     );
 
-    expect(view.getByText(/gives you 15% off/)).toBeTruthy();
-    expect(acceptAccountReferral).not.toHaveBeenCalled();
-
-    await act(async () => {
-      fireEvent.click(view.getByRole("button", { name: "Accept invitation" }));
-      await Promise.resolve();
-    });
-
-    expect(acceptAccountReferral).toHaveBeenCalledWith({ code: "RFL12345" });
-    expect(view.getByRole("status").textContent).toContain("Referral accepted");
+    expect(screen?.querySelector("#account-referrals-code")?.textContent).toBe(
+      "RFL12345"
+    );
+    expect(
+      screen?.querySelector("#account-referrals-link")?.getAttribute("href")
+    ).toBe("/en-US/account?ref=RFL12345");
+    expect(view.queryByRole("textbox")).toBeNull();
+    expect(
+      view.getAllByRole("button").map((button) => button.textContent)
+    ).toEqual(["Copy referral link"]);
   });
 
-  test("shows unavailable account summary while preserving an explicit invitation action", async () => {
-    actionResult = { data: { status: "unavailable" } };
-    const view = render(
-      <ReferralScreen invitationCode={code} locale="cs-CZ" />
-    );
+  test("shows the unavailable summary without any acceptance control", () => {
+    const view = render(<ReferralScreen locale="cs-CZ" />);
 
     expect(
       view.getByText("Informace o doporučeních jsou dočasně nedostupné.")
     ).toBeTruthy();
-    await act(async () => {
-      fireEvent.click(
-        view.getByRole("button", { name: "Přijmout doporučení" })
-      );
-      await Promise.resolve();
-    });
-    expect(view.getAllByRole("status").at(-1)?.textContent).toContain(
-      "Toto doporučení není dostupné"
-    );
+    expect(view.queryByRole("button")).toBeNull();
+    expect(view.queryByRole("textbox")).toBeNull();
   });
-
-  test("shows a clear result when an invitation code is unavailable", async () => {
-    actionResult = { data: { status: "unavailable" } };
-    const view = render(
-      <ReferralScreen invitationCode={code} locale="en-US" />
-    );
-
-    await act(async () => {
-      fireEvent.click(view.getByRole("button", { name: "Accept invitation" }));
-      await Promise.resolve();
-    });
-
-    expect(view.getAllByRole("status").at(-1)?.textContent).toContain(
-      "This referral invitation is unavailable"
-    );
-  });
-
-  test.each([
-    [
-      "en-US",
-      "Accept invitation",
-      "This referral invitation is unavailable. Confirm that you are signed in with a linked account, then try again.",
-      "This referral is already linked to your customer account.",
-    ],
-    [
-      "cs-CZ",
-      "Přijmout doporučení",
-      "Toto doporučení není dostupné. Ověřte, že jste přihlášeni k propojenému účtu, a zkuste to znovu.",
-      "Toto doporučení už je propojené s vaším zákaznickým účtem.",
-    ],
-  ] as const)(
-    "shows recoverable transport feedback and an idempotent retry in %s",
-    async (locale, acceptLabel, unavailableMessage, alreadyAcceptedMessage) => {
-      let resolveRetry!: (result: MockActionResult) => void;
-      const retry = new Promise<MockActionResult>((resolve) => {
-        resolveRetry = resolve;
-      });
-      let attempts = 0;
-      acceptAccountReferral.mockImplementation(() => {
-        attempts += 1;
-        if (attempts === 1)
-          return Promise.reject(new Error("synthetic network details"));
-        return retry;
-      });
-
-      const view = render(
-        <ReferralScreen invitationCode={code} locale={locale} />
-      );
-      const button = view.getByRole("button", { name: acceptLabel });
-
-      fireEvent.click(button);
-      await waitFor(() => {
-        expect(view.getAllByRole("status").at(-1)?.textContent).toBe(
-          unavailableMessage
-        );
-        expect(button.disabled).toBe(false);
-      });
-      expect(view.queryByText("synthetic network details")).toBeNull();
-
-      await act(async () => {
-        fireEvent.click(button);
-        await Promise.resolve();
-      });
-      expect(button.disabled).toBe(true);
-      expect(view.queryByText(unavailableMessage)).toBeNull();
-
-      await act(async () => {
-        resolveRetry({ data: { status: "already_accepted" } });
-        await retry;
-      });
-      expect(view.getAllByRole("status").at(-1)?.textContent).toBe(
-        alreadyAcceptedMessage
-      );
-      expect(button.disabled).toBe(true);
-      expect(acceptAccountReferral).toHaveBeenNthCalledWith(1, {
-        code: "RFL12345",
-      });
-      expect(acceptAccountReferral).toHaveBeenNthCalledWith(2, {
-        code: "RFL12345",
-      });
-    }
-  );
-
-  test.each([
-    [
-      "already_accepted",
-      "This referral is already linked to your customer account.",
-    ],
-    ["self_referral", "You can’t accept your own referral code."],
-    ["already_attributed", "Your customer account already has a referrer."],
-  ] as const)("shows the %s invitation result", async (status, message) => {
-    actionResult = { data: { status } };
-    const view = render(
-      <ReferralScreen invitationCode={code} locale="en-US" />
-    );
-
-    await act(async () => {
-      fireEvent.click(view.getByRole("button", { name: "Accept invitation" }));
-      await Promise.resolve();
-    });
-
-    expect(view.getAllByRole("status").at(-1)?.textContent).toContain(message);
-  });
-
-  test.each([
-    [
-      "en-US",
-      "This invitation can’t be used because your account does not meet the first-booking and booking-history eligibility requirements.",
-    ],
-    [
-      "cs-CZ",
-      "Toto doporučení nelze použít, protože váš účet nesplňuje podmínky způsobilosti pro první rezervaci a historii rezervací.",
-    ],
-  ] as const)(
-    "shows neutral first-booking eligibility guidance in %s",
-    async (locale, message) => {
-      actionResult = { data: { status: "ineligible" } };
-      const view = render(
-        <ReferralScreen invitationCode={code} locale={locale} />
-      );
-
-      await act(async () => {
-        fireEvent.click(
-          view.getByRole("button", {
-            name:
-              locale === "en-US" ? "Accept invitation" : "Přijmout doporučení",
-          })
-        );
-        await Promise.resolve();
-      });
-
-      expect(view.getAllByRole("status").at(-1)?.textContent).toContain(
-        message
-      );
-    }
-  );
 
   test("shows copied and failed share-link feedback", async () => {
     window.location.href = "http://localhost/en-US/account";

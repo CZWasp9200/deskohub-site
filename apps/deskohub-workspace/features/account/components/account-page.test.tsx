@@ -96,11 +96,6 @@ mock.module("@/shared/utils/use-workspace-action", () => ({
     };
   },
 }));
-mock.module("@/features/account/referral-actions", () => ({
-  acceptAccountReferral: () =>
-    Promise.resolve({ data: { status: "accepted" } }),
-}));
-
 mock.module("@/features/account/actions", () => ({
   lookupAresBusiness: () =>
     Promise.resolve({ data: { status: "not-found", message: "" } }),
@@ -331,7 +326,7 @@ describe("AccountPage states", () => {
     expect(view.getByText(m.accountProfileSave({}, en))).toBeTruthy();
   });
 
-  test("shows a validated share invitation on the fresh linked account page", async () => {
+  test("ignores a shared referral code on the linked account page", async () => {
     const referralCode = parseReferralCode("RFL12345");
     if (referralCode === undefined) throw new Error("invalid referral code");
     workspaceUseSearchParams.mockReturnValue(
@@ -341,16 +336,20 @@ describe("AccountPage states", () => {
     const view = await renderState(linkedState, "en-US", referralCode);
 
     expect(
-      view.getByRole("heading", {
-        name: m.accountReferralsInvitationTitle({}, en),
-      })
+      view.container.querySelector('[data-screen="referrals-screen"]')
     ).toBeTruthy();
+    expect(view.queryByRole("button", { name: /accept/i })).toBeNull();
+    expect(view.container.querySelector("#profile-referral-code")).toBeNull();
     expect(
-      view.getByRole("button", { name: m.accountReferralsAccept({}, en) })
-    ).toBeTruthy();
+      within(view.getByRole("group", { name: m.accountSectionLabel({}, en) }))
+        .getByRole("button", {
+          name: new RegExp(`^${m.accountSectionReservations({}, en)}`),
+        })
+        .getAttribute("aria-current")
+    ).toBe("page");
   });
 
-  test("shows the referral invitation after profile completion refresh links the account", async () => {
+  test("submits the server-checked referral code with first-time profile completion", async () => {
     const referralCode = parseReferralCode("RFL12345");
     if (referralCode === undefined) throw new Error("invalid referral code");
     workspaceUseSearchParams.mockReturnValue(
@@ -361,6 +360,7 @@ describe("AccountPage states", () => {
       const [state, setState] = useState<CustomerAccountPageState>({
         kind: "completion-required",
         email: "ada@example.test",
+        referralCode,
       });
       refreshLinkedAccount = () => setState(linkedState);
 
@@ -379,34 +379,49 @@ describe("AccountPage states", () => {
     const { AccountPage } = await import("./account-page");
     workspaceRouterRefresh.mockImplementation(() => refreshLinkedAccount());
     const view = render(<ProfileCompletionRefreshJourney />);
-    const main = view.container.querySelector("main");
-    expect(
-      view.getByRole("heading", { name: m.accountCompletionTitle({}, en) })
-    ).toBeTruthy();
-
-    const firstName = view.getByLabelText(
-      m.accountProfileFirstNameLabel({}, en)
+    const field = view.container.querySelector(
+      "#profile-referral-code"
     ) as HTMLInputElement;
-    fireEvent.change(firstName, { target: { value: "Ada" } });
-    expect(firstName.value).toBe("Ada");
+    expect(field.value).toBe("RFL12345");
+
+    fireEvent.change(
+      view.getByLabelText(m.accountProfileFirstNameLabel({}, en)),
+      { target: { value: "Ada" } }
+    );
     await act(async () => {
       fireEvent.submit(view.container.querySelector("#account-profile-form")!);
     });
 
     await waitFor(() => {
-      expect(executedWorkspaceActionNames).toContain("account.profile");
-      expect(completeCustomerProfile).toHaveBeenCalledTimes(1);
+      expect(completeCustomerProfile).toHaveBeenCalledWith({
+        firstName: "Ada",
+        referralCode: "RFL12345",
+      });
       expect(workspaceRouterRefresh).toHaveBeenCalledTimes(1);
     });
-    expect(view.container.querySelector("main")).toBe(main);
+    await waitFor(() => {
+      expect(
+        view.container.querySelector('[data-screen="referrals-screen"]')
+      ).toBeTruthy();
+    });
+    expect(view.container.querySelector("#profile-referral-code")).toBeNull();
+    expect(view.queryByRole("button", { name: /accept/i })).toBeNull();
+  });
+
+  test("leaves the completion referral field empty without a usable code", async () => {
+    const view = await renderState(
+      { kind: "completion-required", email: "ada@example.test" },
+      "en-US",
+      parseReferralCode("RFL12345")
+    );
+
+    const field = view.container.querySelector(
+      "#profile-referral-code"
+    ) as HTMLInputElement;
+    expect(field.value).toBe("");
     expect(
-      await view.findByRole("heading", {
-        name: m.accountReferralsInvitationTitle({}, en),
-      })
-    ).toBeTruthy();
-    expect(
-      view.getByRole("button", { name: m.accountReferralsAccept({}, en) })
-    ).toBeTruthy();
+      view.queryByText(m.accountProfileReferralCodeUnavailable({}, en))
+    ).toBeNull();
   });
 
   test("renders the support state with the contact destination and no profile data", async () => {

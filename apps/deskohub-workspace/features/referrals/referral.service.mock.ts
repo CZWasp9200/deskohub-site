@@ -8,6 +8,7 @@ export const ReferralServiceMock = (
     getAccountSummary: () => Effect.die("getAccountSummary was not mocked"),
     acceptReferral: () => Effect.die("acceptReferral was not mocked"),
     lookupCodeKind: () => Effect.die("lookupCodeKind was not mocked"),
+    findAvailableCode: () => Effect.die("findAvailableCode was not mocked"),
     resolveInvitationCandidate: () => Effect.succeed(undefined),
     resolveReferrerCandidate: () => Effect.succeed(undefined),
     ...overrides,

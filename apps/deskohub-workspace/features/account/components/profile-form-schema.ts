@@ -2,6 +2,7 @@ import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { FieldErrors, Resolver } from "react-hook-form";
 import type { CustomerProfileBilling } from "@/features/account/backend/customer-dotypos-adapter.service";
 import {
+  type CustomerProfileCompletionInput,
   type CustomerProfileInput,
   updateCustomerProfileStandardSchema,
 } from "@/features/account/contracts";
@@ -25,6 +26,8 @@ export type ProfileFormValues = {
   firstName: string;
   lastName: string;
   phone: string;
+  /** Initial completion only; never part of the profile contract. */
+  referralCode: string;
   vatId: string;
   zip: string;
 };
@@ -69,7 +72,8 @@ export const getProfileFormDefaultValues = (
     readonly lastName: string | null;
     readonly phone: string | null;
     readonly billing: CustomerProfileBilling | null;
-  } | null
+  } | null,
+  referralCode?: string
 ): ProfileFormValues => ({
   addressLine1: profile?.billing?.addressLine1 ?? "",
   addressLine2: profile?.billing?.addressLine2 ?? "",
@@ -81,9 +85,21 @@ export const getProfileFormDefaultValues = (
   firstName: profile?.firstName ?? "",
   lastName: profile?.lastName ?? "",
   phone: profile?.phone ?? "",
+  referralCode: referralCode ?? "",
   vatId: profile?.billing?.vatId ?? "",
   zip: profile?.billing?.zip ?? "",
 });
+
+/** The completion payload: the profile plus a referral code when entered. */
+export const toCustomerProfileCompletionInput = (
+  values: ProfileFormValues
+): CustomerProfileCompletionInput => {
+  const referralCode = trimmedToUndefined(values.referralCode);
+  return {
+    ...toCustomerProfileInput(values),
+    ...(referralCode && { referralCode }),
+  };
+};
 
 export const toCustomerProfileInput = (
   values: ProfileFormValues

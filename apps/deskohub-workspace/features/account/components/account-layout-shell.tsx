@@ -17,7 +17,6 @@ import {
 } from "@/features/account/components/shell/account-shell";
 import { SignOutButton } from "@/features/account/components/sign-out-button";
 import { type Locale, m } from "@/features/i18n";
-import { parseReferralCode } from "@/features/referrals/client";
 import { GuardedLink } from "@/shared/components/guarded-link";
 import { useConfirmDiscardChanges } from "@/shared/components/unsaved-changes-guard";
 
@@ -102,19 +101,13 @@ export function AccountLayoutShell({
   const normalizedPathname =
     pathname === null ? null : pathname.replace(/\/+$/, "") || "/";
   const requestedSection = searchParams.get("section");
-  const referralCodes = searchParams.getAll("ref");
-  const requestedReferralCode =
-    referralCodes.length === 1
-      ? parseReferralCode(referralCodes[0])
-      : undefined;
   const isLegalPathname =
     normalizedPathname?.endsWith("/account/legal") ?? false;
   const isDeletedPathname =
     normalizedPathname?.endsWith("/account/deleted") ?? false;
   let routeSection = sectionFromQuery(requestedSection) ?? "reservations";
-  if (requestedReferralCode !== undefined) routeSection = "referrals";
   if (isLegalPathname) routeSection = "legal";
-  const routeKey = `${normalizedPathname ?? ""}|${requestedSection ?? ""}|${requestedReferralCode ?? ""}`;
+  const routeKey = `${normalizedPathname ?? ""}|${requestedSection ?? ""}`;
   const [localNavigation, setLocalNavigation] = useState(() => ({
     activeSection: routeSection,
     routeKey,

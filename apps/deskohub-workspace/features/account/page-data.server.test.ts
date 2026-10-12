@@ -190,11 +190,16 @@ let referralSummaryCalls: Array<{
   readonly customerAccountId: CustomerAccountId;
   readonly dotyposCustomerId: string;
 }> = [];
+let availableReferralCodeEffect: Effect.Effect<string | undefined, unknown>;
+let availableReferralCodeCalls: Array<{ readonly code: unknown }> = [];
 type TestReferralService = {
   readonly getAccountSummary: (input: {
     readonly customerAccountId: CustomerAccountId;
     readonly dotyposCustomerId: string;
   }) => typeof referralSummaryEffect;
+  readonly findAvailableCode: (input: {
+    readonly code: unknown;
+  }) => typeof availableReferralCodeEffect;
 };
 const Referrals = Context.Service<Referrals, TestReferralService>()(
   "@test/AccountReferrals"
@@ -203,6 +208,10 @@ const ReferralsLayer = Layer.succeed(Referrals, {
   getAccountSummary: (input) => {
     referralSummaryCalls.push(input);
     return referralSummaryEffect;
+  },
+  findAvailableCode: (input) => {
+    availableReferralCodeCalls.push(input);
+    return availableReferralCodeEffect;
   },
 });
 Object.assign(Referrals, { Live: ReferralsLayer });
@@ -230,6 +239,8 @@ describe("loadCustomerAccountPage", () => {
     avatarLookupEffect = Effect.succeed(null);
     referralSummaryEffect = Effect.succeed(referralSummary);
     referralSummaryCalls = [];
+    availableReferralCodeEffect = Effect.succeed("RFL12345");
+    availableReferralCodeCalls = [];
     areAccountAvatarsEnabled.mockReset();
     areAccountAvatarsEnabled.mockResolvedValue(true);
     historyEffect = Effect.succeed({
@@ -238,9 +249,10 @@ describe("loadCustomerAccountPage", () => {
     });
   });
 
-  const loadPageState = async () => {
+  const loadPageState = async (referralCode?: string) => {
     const { loadCustomerAccountPage } = await import("./page-data.server");
-    return loadCustomerAccountPage("en-US");
+    const { parseReferralCode } = await import("@/features/referrals/client");
+    return loadCustomerAccountPage("en-US", parseReferralCode(referralCode));
   };
 
   test("returns unauthenticated without customer data or downstream work when no session exists", async () => {
@@ -285,6 +297,49 @@ describe("loadCustomerAccountPage", () => {
       kind: "completion-required",
       email: "ada@example.test",
     });
+  });
+
+  test("prefills a currently usable referral code on the completion state", async () => {
+    resolveEffect = resolverOutcome({
+      kind: "failure",
+      reason: "link-required",
+      linkReason: "not-found",
+    });
+
+    await expect(loadPageState("RFL12345")).resolves.toEqual({
+      kind: "completion-required",
+      email: "ada@example.test",
+      referralCode: "RFL12345",
+    });
+    expect(availableReferralCodeCalls).toEqual([{ code: "RFL12345" }]);
+  });
+
+  test("silently leaves the completion referral empty when the code is not usable", async () => {
+    resolveEffect = resolverOutcome({
+      kind: "failure",
+      reason: "link-required",
+      linkReason: "not-found",
+    });
+
+    availableReferralCodeEffect = Effect.succeed(undefined);
+    await expect(loadPageState("RFLGONE1")).resolves.toEqual({
+      kind: "completion-required",
+      email: "ada@example.test",
+    });
+
+    availableReferralCodeEffect = Effect.fail(new Error("database down"));
+    await expect(loadPageState("RFL12345")).resolves.toEqual({
+      kind: "completion-required",
+      email: "ada@example.test",
+    });
+  });
+
+  test("ignores a referral code once the account is linked", async () => {
+    const state = await loadPageState("RFL12345");
+
+    expect(state.kind).toBe("linked");
+    expect(state).not.toHaveProperty("referralCode");
+    expect(availableReferralCodeCalls).toEqual([]);
   });
 
   test("renders the support state for ambiguous, unusable, claimed, and unverified outcomes", async () => {

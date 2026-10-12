@@ -29,10 +29,12 @@ import {
   type ProfileFormValues,
   profileBillingFieldNames,
   profileFieldPathFromDomName,
+  toCustomerProfileCompletionInput,
   toCustomerProfileInput,
 } from "@/features/account/components/profile-form-schema";
 import type { CustomerAvatarPresentation } from "@/features/account/contracts";
 import { type Locale, m } from "@/features/i18n";
+import type { ReferralCode } from "@/features/referrals/client";
 import { Button } from "@/shared/components/ui/button";
 import {
   Form,
@@ -60,6 +62,8 @@ type ProfileFormProps = {
     readonly billing: CustomerProfileBilling | null;
   };
   readonly avatarPresentation?: CustomerAvatarPresentation;
+  /** Server-checked invitation code that prefills first-time completion. */
+  readonly referralCode?: ReferralCode;
   readonly section?: "profile" | "billing";
 };
 
@@ -107,6 +111,7 @@ export function ProfileForm({
   mode,
   onSectionChange,
   profile,
+  referralCode,
   section = "profile",
 }: ProfileFormProps) {
   const router = useRouter();
@@ -134,7 +139,7 @@ export function ProfileForm({
 
   const form = useForm<ProfileFormValues>({
     resolver: createProfileFormResolver(locale),
-    defaultValues: getProfileFormDefaultValues(profile),
+    defaultValues: getProfileFormDefaultValues(profile, referralCode),
     mode: "onBlur",
     reValidateMode: "onChange",
   });
@@ -144,7 +149,7 @@ export function ProfileForm({
   // values against the saved baseline (no DOM FormData snapshotting). The
   // comparison runs at guard-event time so it never lags the last keystroke.
   const savedBaselineRef = useRef<ProfileFormValues>(
-    getProfileFormDefaultValues(profile)
+    getProfileFormDefaultValues(profile, referralCode)
   );
   const isDirty = () =>
     rhfIsDirty ||
@@ -158,7 +163,17 @@ export function ProfileForm({
 
   const action = (
     isInitialCompletion ? completeCustomerProfile : updateCustomerProfile
-  ) as typeof updateCustomerProfile;
+  ) as typeof completeCustomerProfile;
+
+  const showReferralCodeUnavailable = () =>
+    form.setError(
+      "referralCode",
+      {
+        type: "server",
+        message: m.accountProfileReferralCodeUnavailable({}, { locale }),
+      },
+      { shouldFocus: true }
+    );
 
   const invalidateAresLookup = () => {
     aresGenerationRef.current += 1;
@@ -241,7 +256,11 @@ export function ProfileForm({
     action,
     {
       actionName: "account.profile",
-      onSuccess: () => {
+      onSuccess: ({ data }) => {
+        if (data?.status === "referral-code-unavailable") {
+          showReferralCodeUnavailable();
+          return;
+        }
         const submittedValues = submittedValuesRef.current;
         if (submittedValues !== undefined) {
           // The saved baseline becomes the values as they were at submit time
@@ -297,6 +316,12 @@ export function ProfileForm({
       form.setError("phone", {
         type: "server",
         message: m.accountProfilePhoneInvalid({}, { locale }),
+      });
+    }
+    if (fieldErrors.referralCode?.length) {
+      form.setError("referralCode", {
+        type: "server",
+        message: m.accountProfileReferralCodeUnavailable({}, { locale }),
       });
     }
     if (fieldErrors.lastName?.length) {
@@ -369,8 +394,13 @@ export function ProfileForm({
     submittingRef.current = true;
     // The resolver has already validated this mapping against the contract
     // schema (updateCustomerProfileStandardSchema), so client and server
-    // share trimming and length rules.
-    execute(toCustomerProfileInput(values));
+    // share trimming and length rules. The referral code is checked only on
+    // the server.
+    execute(
+      isInitialCompletion
+        ? toCustomerProfileCompletionInput(values)
+        : toCustomerProfileInput(values)
+    );
   };
 
   const handleInvalid = (errors: FieldErrors<ProfileFormValues>) => {
@@ -788,7 +818,7 @@ export function ProfileForm({
         className="min-h-5 text-sm"
         id="account-profile-feedback"
       >
-        {result.data ? (
+        {result.data && result.data.status !== "referral-code-unavailable" ? (
           <p className="text-emerald-800">
             {isComplete
               ? m.accountCompletionSaved({}, { locale })
@@ -863,6 +893,58 @@ export function ProfileForm({
                   />
                 </div>
               </div>
+
+              {isInitialCompletion && (
+                <FormField
+                  control={form.control}
+                  name="referralCode"
+                  render={({ field, fieldState }) => (
+                    <FormItem>
+                      <Label
+                        htmlFor="profile-referral-code"
+                        id="profile-referral-code-label"
+                      >
+                        {m.accountProfileReferralCodeLabel({}, { locale })}
+                      </Label>
+                      <FormControl>
+                        <Input
+                          {...field}
+                          aria-describedby={[
+                            "profile-referral-code-hint",
+                            fieldState.error
+                              ? "profile-referral-code-error"
+                              : undefined,
+                          ]
+                            .filter(Boolean)
+                            .join(" ")}
+                          aria-invalid={Boolean(fieldState.error) || undefined}
+                          aria-labelledby="profile-referral-code-label"
+                          autoCapitalize="characters"
+                          autoComplete="off"
+                          className="uppercase"
+                          data-ph-mask
+                          id="profile-referral-code"
+                          maxLength={64}
+                          name="referralCode"
+                          spellCheck={false}
+                        />
+                      </FormControl>
+                      <p
+                        className="text-sm text-navy-blue/68"
+                        id="profile-referral-code-hint"
+                      >
+                        {m.accountProfileReferralCodeHint({}, { locale })}
+                      </p>
+                      {fieldState.error ? (
+                        <FormMessage
+                          className="text-sm font-normal text-red-700"
+                          id="profile-referral-code-error"
+                        />
+                      ) : null}
+                    </FormItem>
+                  )}
+                />
+              )}
 
               <details className="rounded-2xl border border-navy-blue/12 p-4">
                 <summary className="cursor-pointer text-sm font-bold text-navy-blue">

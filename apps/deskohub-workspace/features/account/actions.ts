@@ -16,12 +16,17 @@ import { CustomerAuthentication } from "@/features/account/backend/customer-auth
 import { CustomerProfileService } from "@/features/account/backend/customer-profile.service";
 import {
   type CustomerProfileInput,
+  completeCustomerProfileStandardSchema,
   updateCustomerProfileStandardSchema,
 } from "@/features/account/contracts";
-import { CustomerAccountAccessError } from "@/features/account/customer-account";
+import {
+  CustomerAccountAccessError,
+  type CustomerAccountId,
+} from "@/features/account/customer-account";
 import { getAccountPath } from "@/features/account/routes";
 import type { Locale } from "@/features/i18n";
 import { m } from "@/features/i18n";
+import { ReferralService } from "@/features/referrals";
 import { defineWorkspaceAction } from "@/shared/backend/workspace-action";
 
 const deleteCustomerAccountConfirmedSchema = Schema.toStandardSchemaV1(
@@ -35,10 +40,15 @@ const deleteCustomerAccountConfirmedSchema = Schema.toStandardSchemaV1(
  * updates it. Both paths run under the authoritative session, re-check the
  * deletion marker under the account lock, and never accept an email: the
  * profile input has no email field and the verified login email is read only
- * from the session.
+ * from the session. A referral code counts only when this save creates the
+ * customer; an already-linked account ignores it.
  */
 const saveCustomerProfile = Effect.fn(
-  function* (input: CustomerProfileInput, _locale: Locale) {
+  function* (
+    input: CustomerProfileInput,
+    referralCode: string | undefined,
+    _locale: Locale
+  ) {
     const user = yield* requireVerifiedSession;
     const resolution = yield* CustomerAccountResolver.pipe(
       Effect.flatMap((resolver) => resolver.resolve),
@@ -46,9 +56,10 @@ const saveCustomerProfile = Effect.fn(
     );
 
     if (Result.isSuccess(resolution)) {
-      return yield* Effect.flatMap(CustomerProfileService, (profile) =>
+      yield* Effect.flatMap(CustomerProfileService, (profile) =>
         profile.update(resolution.success, input)
       );
+      return "saved" as const;
     }
 
     const failure = resolution.failure;
@@ -56,37 +67,91 @@ const saveCustomerProfile = Effect.fn(
       failure.reason === "link-required" &&
       failure.linkReason === "not-found"
     ) {
-      return yield* Effect.flatMap(CustomerProfileService, (profile) =>
-        profile.create(user.accountId, user.email, input)
-      );
+      return yield* createCustomerProfile(user, input, referralCode);
     }
     return yield* failure;
   },
-  (effect, _input, locale) =>
+  (effect, _input, _referralCode, locale) =>
     effect.pipe(
       Effect.mapError(accountActionError(locale)),
       Effect.provide(
         Layer.mergeAll(
           CustomerAuthentication.Default,
           CustomerAccountResolver.Live,
-          CustomerProfileService.Live
+          CustomerProfileService.Live,
+          ReferralService.Live
         )
       )
     )
 );
 
+/**
+ * First-time completion: an entered referral code must be currently usable
+ * before anything is created. The invitation is recorded only after the new
+ * profile is linked and its account lock released, because acceptance takes
+ * that lock in its own transaction. Recording is best-effort so a referral
+ * race never fails the completed profile.
+ */
+const createCustomerProfile = Effect.fn("account.createCustomerProfile")(
+  function* (
+    user: { readonly accountId: CustomerAccountId; readonly email: string },
+    input: CustomerProfileInput,
+    referralCode: string | undefined
+  ) {
+    const referrals = yield* ReferralService;
+    const availableCode = referralCode
+      ? yield* referrals
+          .findAvailableCode({ code: referralCode })
+          .pipe(Effect.orElseSucceed(() => undefined))
+      : undefined;
+    if (referralCode && !availableCode) {
+      return "referral-code-unavailable" as const;
+    }
+
+    yield* Effect.flatMap(CustomerProfileService, (profile) =>
+      profile.create(user.accountId, user.email, input)
+    );
+
+    if (availableCode) {
+      yield* CustomerAccountResolver.pipe(
+        Effect.flatMap((resolver) => resolver.resolve),
+        Effect.flatMap((account) =>
+          referrals.acceptReferral({
+            code: availableCode,
+            customerAccountId: account.accountId,
+            dotyposCustomerId: account.dotyposCustomerId,
+          })
+        ),
+        Effect.catch((error) =>
+          Effect.logWarning(
+            "Referral was not recorded at profile completion"
+          ).pipe(
+            Effect.annotateLogs({
+              code: "account.complete-profile.referral",
+              reason: error.reason,
+            })
+          )
+        )
+      );
+    }
+    return "saved" as const;
+  }
+);
+
 const completeCustomerProfileAction = defineWorkspaceAction(
   {
     operation: "account.complete-profile",
-    schema: updateCustomerProfileStandardSchema,
+    schema: completeCustomerProfileStandardSchema,
     logInput: false,
   },
-  (input, { locale }) =>
+  ({ referralCode, ...input }, { locale }) =>
     Effect.andThen(
       requireAccountsEnabled(locale),
-      Effect.as(saveCustomerProfile(input, locale), {
-        status: "completed" as const,
-      })
+      Effect.map(saveCustomerProfile(input, referralCode, locale), (outcome) =>
+        outcome === "referral-code-unavailable"
+          ? { status: "referral-code-unavailable" as const }
+          : { status: "completed" as const }
+      )
     )
 );
 
@@ -99,7 +164,7 @@ const updateCustomerProfileAction = defineWorkspaceAction(
   (input, { locale }) =>
     Effect.andThen(
       requireAccountsEnabled(locale),
-      Effect.as(saveCustomerProfile(input, locale), {
+      Effect.as(saveCustomerProfile(input, undefined, locale), {
         status: "updated" as const,
       })
     )
