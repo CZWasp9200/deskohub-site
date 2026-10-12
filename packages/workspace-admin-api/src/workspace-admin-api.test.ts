@@ -826,6 +826,44 @@ describe("administration contract", () => {
       voucher: { credit: { value: 10_000 } },
     });
   });
+  test("accepts cowork tier targets but not mixed or repeated cowork targets", () => {
+    const decodeProducts = (products: unknown) =>
+      Schema.decodeUnknownSync(AdministrationDiscountMutation)({
+        kind: "create-discount",
+        discount: {
+          labels: { "cs-CZ": "Léto", "en-US": "Summer" },
+          adjustment: { kind: "percentage", basisPoints: 1500 },
+          products,
+        },
+      });
+
+    for (const products of [
+      [{ kind: "cowork", tier: "open-space" }],
+      [
+        { kind: "cowork", tier: "open-space" },
+        { kind: "cowork", tier: "reserved-desk" },
+        { kind: "office" },
+      ],
+      [{ kind: "cowork" }, { kind: "meeting-room" }],
+    ]) {
+      expect(decodeProducts(products)).toMatchObject({
+        discount: { products },
+      });
+    }
+
+    for (const products of [
+      [{ kind: "cowork" }, { kind: "cowork", tier: "reserved-desk" }],
+      [
+        { kind: "cowork", tier: "open-space" },
+        { kind: "cowork", tier: "open-space" },
+      ],
+      [{ kind: "cowork", tier: "basic" }],
+      [{ kind: "office", tier: "open-space" }],
+    ]) {
+      expect(() => decodeProducts(products)).toThrow();
+    }
+  });
+
   test("rejects invalid reservation filters before service execution", () => {
     expect(() =>
       Schema.decodeUnknownSync(AdministrationReservationQuery)({ page: 0 })

@@ -1073,12 +1073,14 @@ const discountDefinitionFlags = {
   ),
   products: Flag.choiceWithValue("product", [
     ["cowork", { kind: "cowork" }],
+    ["cowork:open-space", { kind: "cowork", tier: "open-space" }],
+    ["cowork:reserved-desk", { kind: "cowork", tier: "reserved-desk" }],
     ["meeting-room", { kind: "meeting-room" }],
     ["office", { kind: "office" }],
   ] as const).pipe(
     Flag.atLeast(1),
     Flag.withDescription(
-      "Eligible reservation family; repeat for multiple families"
+      "Eligible product: a reservation family, where cowork covers every cowork tier, or a single cowork tier such as cowork:reserved-desk; repeat for multiple products"
     )
   ),
 };
@@ -1265,7 +1267,7 @@ const discountsListCommand = Command.make("list", {}, () =>
             discount.id,
             discount.labels["en-US"],
             formatDiscountAdjustment(discount.adjustment),
-            `${discount.products.length} products`,
+            discount.products.map(formatProductTarget).join(","),
             `${discount.codeCount} codes`,
           ].join("\t")
         );
@@ -2567,7 +2569,7 @@ const executeAndReportDiscountMutation = (
         () =>
           new InvalidMutationInputError({
             message:
-              "The mutation input is invalid. Check date ranges and repeated product options.",
+              "The mutation input is invalid. Check date ranges, repeated product options, and cowork combined with a cowork tier.",
           })
       )
     );
@@ -2658,6 +2660,13 @@ const formatReservationAccessGrant = (
   grant: AdministrationReservationAccessGrantType
 ) =>
   `Access: ${grant.state} · ${grant.startsAt}–${grant.endsAt} · ${grant.accessName}`;
+
+const formatProductTarget = (
+  target: AdministrationWorkspaceProductTargetType
+) =>
+  target.kind === "cowork" && target.tier !== undefined
+    ? `cowork:${target.tier}`
+    : target.kind;
 
 const formatDiscountAdjustment = (
   adjustment: AdministrationDiscountAdjustmentType
