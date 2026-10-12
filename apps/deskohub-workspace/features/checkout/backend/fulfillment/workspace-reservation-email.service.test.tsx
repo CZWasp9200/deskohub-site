@@ -1214,6 +1214,121 @@ describe("sendPaidReservationEmails idempotent retry stability", () => {
 });
 
 describe("sendPaidReservationEmails reservation access capability", () => {
+  test("issues the invoice link in the reservation locale when the email follows a different preference", async () => {
+    const { EmailConfigTag, EmailServiceTag } = await import(
+      "@deskohub/email/backend/service"
+    );
+    const { WorkspaceReservationEmailService } = await import(
+      "./workspace-reservation-email.service"
+    );
+    const { WorkspaceCheckoutNetworkDetailsService } = await import(
+      "./network-details.service"
+    );
+    const { openReservationAccessToken: openSignedReservationAccessToken } =
+      await import("@/features/reservation/backend/reservation-access-token");
+    const { reservationAccessTokenQueryParam, reservationAccessTokenSchema } =
+      await import("@/features/reservation/reservation-access-token");
+    const { workspaceReservationIdSchema } = await import(
+      "@/features/reservation/persistence-contracts"
+    );
+
+    // An English reservation whose owner later saved Czech as their language.
+    const reservation = makeReservation({
+      id: workspaceReservationIdSchema.make("preference-email-1"),
+      locale: "en-US",
+    });
+    const sentMessages: EmailMessage[] = [];
+    const emailService: EmailService = {
+      send: mock((message: EmailMessage) => {
+        sentMessages.push(message);
+        return Effect.succeed(sentResult("preference-email-1"));
+      }),
+      sendTemplate: mock(() => Effect.die("sendTemplate is not used")),
+      verify: Effect.succeed(true),
+    };
+    const emailConfig: EmailProviderConfig = {
+      provider: "console",
+      defaultFrom: {
+        email: "reservations@workspace.deskohub.cz",
+        name: "Deskohub Workspace",
+      },
+    };
+
+    await Effect.gen(function* () {
+      const service = yield* WorkspaceReservationEmailService;
+      yield* service.sendPaidReservationEmails({
+        reservation,
+        customerEmailLocale: "cs-CZ",
+      });
+    }).pipe(
+      Effect.provide(
+        WorkspaceReservationEmailService.Default.pipe(
+          Layer.provide(
+            Layer.mergeAll(
+              Layer.succeed(EmailServiceTag, emailService),
+              Layer.succeed(EmailConfigTag, emailConfig),
+              WorkspaceCheckoutNetworkDetailsService.Default,
+              TestCustomerEmailLocaleService.Default
+            )
+          )
+        )
+      ),
+      Effect.runPromise
+    );
+
+    const customerMessage = sentMessages.find((message) =>
+      message.tags?.includes("workspace-paid-reservation-access")
+    );
+    if (!customerMessage) {
+      throw new Error("captured customer reservation email is missing");
+    }
+    expect(customerMessage.subject).toBe(
+      m.checkoutEmailCustomerAccessSubject({}, { locale: "cs-CZ" })
+    );
+
+    // The invoice page validates its token and the reservation's locale
+    // against the URL locale, so the link is issued in the reservation's.
+    const invoiceUrl = extractReservationEmailUrl(
+      customerMessage,
+      `/en-US/reservation/invoice/${reservation.id}`
+    );
+    const invoiceToken = invoiceUrl.searchParams.get(
+      reservationAccessTokenQueryParam
+    );
+    if (invoiceToken === null) {
+      throw new Error("captured invoice token is missing");
+    }
+    const invoiceClaims = await Effect.runPromise(
+      openSignedReservationAccessToken({
+        token: reservationAccessTokenSchema.make(invoiceToken),
+        orderId: reservation.id,
+        locale: reservation.locale,
+      })
+    );
+    expect(invoiceClaims.locale).toBe("en-US");
+
+    // The access link only needs its token and URL to agree; it follows the
+    // email language and the proxy exchanges it before any locale decision.
+    const accessUrl = extractReservationEmailUrl(
+      customerMessage,
+      `/cs-CZ/reservation/access/${reservation.id}`
+    );
+    const accessToken = accessUrl.searchParams.get(
+      reservationAccessTokenQueryParam
+    );
+    if (accessToken === null) {
+      throw new Error("captured access token is missing");
+    }
+    const accessClaims = await Effect.runPromise(
+      openSignedReservationAccessToken({
+        token: reservationAccessTokenSchema.make(accessToken),
+        orderId: reservation.id,
+        locale: "cs-CZ",
+      })
+    );
+    expect(accessClaims.locale).toBe("cs-CZ");
+  });
+
   test("captures real signed access and invoice links for both locales and exchanges the access link", async () => {
     const { EmailConfigTag, EmailServiceTag } = await import(
       "@deskohub/email/backend/service"

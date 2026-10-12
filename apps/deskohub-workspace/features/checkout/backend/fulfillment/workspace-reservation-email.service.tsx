@@ -522,32 +522,41 @@ export class WorkspaceReservationEmailService extends Context.Service<
       const createCustomerAccessUrls = Effect.fn(
         "WorkspaceReservationEmailService.createCustomerAccessUrls"
       )(function* (reservation: WorkspaceReservationDetails, locale: Locale) {
-        // Idempotent provider retries resend the same key, so the token must be a
-        // pure function of the reservation; anchor issuance at its immutable start.
-        const accessToken = yield* createReservationAccessToken(
-          {
-            orderId: reservation.id,
-            locale,
-          },
-          { now: () => reservation.reservedFrom.epochMilliseconds }
-        );
         const origin = yield* getWorkspaceRuntimeCallbackOrigin;
+        // Idempotent provider retries resend the same key, so each token must
+        // be a pure function of the reservation and its locale; anchor
+        // issuance at the reservation's immutable start.
+        const createLink = Effect.fn(function* (
+          linkLocale: Locale,
+          getPath: typeof getReservationAccessPath
+        ) {
+          const accessToken = yield* createReservationAccessToken(
+            { orderId: reservation.id, locale: linkLocale },
+            { now: () => reservation.reservedFrom.epochMilliseconds }
+          );
+          return new URL(
+            getPath({
+              locale: linkLocale,
+              orderId: reservation.id,
+              accessToken,
+              setBypassCookie: true,
+            }),
+            origin
+          ).toString();
+        });
 
-        const pathInput = {
-          locale,
-          orderId: reservation.id,
-          accessToken,
-          setBypassCookie: true,
-        };
         return {
-          accessUrl: new URL(
-            getReservationAccessPath(pathInput),
-            origin
-          ).toString(),
-          invoiceUrl: new URL(
-            getReservationInvoicePath(pathInput),
-            origin
-          ).toString(),
+          // The access link only needs its token and URL to agree, and the
+          // proxy exchanges it before any locale decision, so it follows the
+          // email language.
+          accessUrl: yield* createLink(locale, getReservationAccessPath),
+          // The invoice page issues the invoice in the reservation's locale
+          // and validates it against the URL, so its link keeps that locale
+          // even when the email follows the customer's saved preference.
+          invoiceUrl: yield* createLink(
+            getReservationLocale(reservation.locale),
+            getReservationInvoicePath
+          ),
         };
       });
 
