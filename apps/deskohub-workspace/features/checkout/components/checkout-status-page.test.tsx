@@ -10,6 +10,7 @@ import {
   mock,
   test,
 } from "bun:test";
+import { testEmailAddress } from "@deskohub/email/testing";
 import { cleanup, render } from "@testing-library/react";
 import type { ComponentProps, ReactNode } from "react";
 import type { CheckoutStatusViewModel } from "@/features/checkout/backend/checkout";
@@ -19,6 +20,8 @@ import {
   unregisterWorkspaceComponentTestEnv,
 } from "@/shared/testing/workspace-component-test-env";
 import { CheckoutStatusPageSkeleton } from "./checkout-status-page-skeleton";
+
+const testEmailAddressForAda = testEmailAddress("ada");
 
 type CapturedLink = {
   readonly href: string;
@@ -757,7 +760,7 @@ describe("CheckoutStatusPage", () => {
             orderId: "operational-order-id",
             supportContactPrefill: {
               name: "Sensitive Customer",
-              email: "sensitive@example.com",
+              email: testEmailAddress("sensitive"),
               phone: "+420777777777",
             },
             providerOrderId: "provider-order-id",
@@ -788,7 +791,9 @@ describe("CheckoutStatusPage", () => {
     expect([...url.searchParams.keys()]).toEqual(["entryTier", "coffee"]);
     expect(href).not.toContain("operational-order-id");
     expect(href).not.toContain("Sensitive");
-    expect(href).not.toContain("sensitive%40example.com");
+    expect(href).not.toContain(
+      encodeURIComponent(testEmailAddress("sensitive"))
+    );
     expect(href).not.toContain("provider-order-id");
     expect(href).not.toContain("payment-attempt-id");
     expect(href).not.toContain("SECRET-DISCOUNT");
@@ -888,7 +893,7 @@ describe("CheckoutStatusPage", () => {
           fulfillmentStatus: "failed",
           supportContactPrefill: {
             name: "Ada Lovelace",
-            email: "ada@example.com",
+            email: testEmailAddressForAda,
             phone: "+420777777777",
           },
           summary: {
@@ -912,7 +917,7 @@ describe("CheckoutStatusPage", () => {
 
     const contactUrl = new URL(href ?? "", "https://deskohub.local");
     expect(contactUrl.searchParams.get("name")).toBe("Ada Lovelace");
-    expect(contactUrl.searchParams.get("email")).toBe("ada@example.com");
+    expect(contactUrl.searchParams.get("email")).toBe(testEmailAddressForAda);
     expect(contactUrl.searchParams.get("phone")).toBe("+420777777777");
     expect(contactUrl.searchParams.get("message")).toBe(
       [
@@ -931,7 +936,7 @@ describe("CheckoutStatusPage", () => {
   describe("a paid reservation awaiting its confirmation email", () => {
     const awaitingDeliveryStatus = (
       status: "paid_awaiting_delivery" | "paid_delivery_delayed",
-      email: string | null = "ada@example.test"
+      email: string | null = testEmailAddress("ada")
     ): CheckoutStatusViewModel => ({
       ...baseStatus,
       kind: "cowork",
@@ -964,7 +969,7 @@ describe("CheckoutStatusPage", () => {
           name: "Your reservation is paid and confirmed.",
         })
       ).toBeTruthy();
-      expect(view.getByText("ada@example.test")).toBeTruthy();
+      expect(view.getByText(testEmailAddress("ada"))).toBeTruthy();
       expect(view.getByText(/You don't need to book again\./)).toBeTruthy();
       expect(
         view.container.querySelector("#checkout-status-reserve-again")
@@ -988,7 +993,7 @@ describe("CheckoutStatusPage", () => {
           name: "Your reservation is confirmed, but the email hasn't arrived yet.",
         })
       ).toBeTruthy();
-      expect(view.getByText("ada@example.test")).toBeTruthy();
+      expect(view.getByText(testEmailAddress("ada"))).toBeTruthy();
       expect(view.getByText(/may contain a typo/)).toBeTruthy();
       expect(view.queryByText(/update/i)).toBeNull();
       expect(
@@ -1001,7 +1006,9 @@ describe("CheckoutStatusPage", () => {
         link.getAttribute("href") ?? "",
         "https://deskohub.local"
       );
-      expect(contactUrl.searchParams.get("email")).toBe("ada@example.test");
+      expect(contactUrl.searchParams.get("email")).toBe(
+        testEmailAddress("ada")
+      );
       expect(contactUrl.searchParams.get("message")).toContain(
         "the reservation confirmation email did not arrive."
       );
@@ -1031,7 +1038,7 @@ describe("CheckoutStatusPage", () => {
       overrides: Partial<CheckoutStatusViewModel> & {
         readonly status: CheckoutStatusViewModel["status"];
       },
-      email: string | null = "ada@example.test"
+      email: string | null = testEmailAddress("ada")
     ) =>
       ({
         ...baseStatus,
@@ -1068,7 +1075,7 @@ describe("CheckoutStatusPage", () => {
         />
       );
 
-      expect(view.getByText("ada@example.test")).toBeTruthy();
+      expect(view.getByText(testEmailAddress("ada"))).toBeTruthy();
       expect(
         view.getByText(
           /Your payment went through and your reservation is saved/
@@ -1158,7 +1165,9 @@ describe("CheckoutStatusPage", () => {
         link.getAttribute("href") ?? "",
         "https://deskohub.local"
       );
-      expect(contactUrl.searchParams.get("email")).toBe("ada@example.test");
+      expect(contactUrl.searchParams.get("email")).toBe(
+        testEmailAddress("ada")
+      );
       expect(contactUrl.searchParams.get("message")).toContain(
         "Please check whether my payment went through."
       );
@@ -1205,7 +1214,7 @@ describe("CheckoutStatusPage", () => {
           link.getAttribute("href") ?? "",
           "https://deskohub.local"
         ).searchParams.get("email")
-      ).toBe("ada@example.test");
+      ).toBe(testEmailAddress("ada"));
       expect(queryRestartActions(view.container)).toEqual({
         reserveAgain: null,
         orderStep: null,
@@ -1225,7 +1234,7 @@ describe("CheckoutStatusPage", () => {
           fulfillmentStatus: "not_started",
           supportContactPrefill: {
             name: "Ada Lovelace",
-            email: "ada@example.com",
+            email: testEmailAddressForAda,
           },
           summary: {
             kind: "cowork",
@@ -1247,7 +1256,7 @@ describe("CheckoutStatusPage", () => {
       "https://deskohub.local"
     );
     expect(contactUrl.pathname).toBe("/en-US/contact");
-    expect(contactUrl.searchParams.get("email")).toBe("ada@example.com");
+    expect(contactUrl.searchParams.get("email")).toBe(testEmailAddressForAda);
     expect(contactUrl.searchParams.get("message")).toBe(
       [
         "Hi Deskohub Workspace,",
