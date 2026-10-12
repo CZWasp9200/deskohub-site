@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import {
   findTestEmailLiterals,
   isTestEmailLiteralPath,
+  scannedExtensions,
+  scannedRoots,
 } from "./test-email-literals";
 
 // Fixture sources are assembled from parts so this module stays clean.
@@ -344,4 +346,30 @@ describe("isTestEmailLiteralPath", () => {
   ])("skips production module %s", (path) => {
     expect(isTestEmailLiteralPath(path)).toBe(false);
   });
+});
+
+describe("Turbo inputs", () => {
+  const turbo = (async () =>
+    (await Bun.file(new URL("../turbo.json", import.meta.url)).json()) as {
+      readonly tasks: Record<string, { readonly inputs?: readonly string[] }>;
+    })();
+  const inputsOf = async (task: string) =>
+    (await turbo).tasks[task]?.inputs ?? [];
+
+  test("hash every module the check scans, so a cached pass cannot miss one", async () => {
+    const expected = scannedRoots.flatMap((root) =>
+      scannedExtensions.map((extension) => `${root}/**/*.${extension}`)
+    );
+    expect(await inputsOf("//#lint:test-email-literals")).toEqual([
+      ...expected,
+      "!**/node_modules/**",
+    ]);
+  });
+
+  test.each(["//#lint:scripts", "//#test:scripts", "//#typecheck:scripts"])(
+    "hash all of root scripts/ for %s",
+    async (task) => {
+      expect(await inputsOf(task)).toContain("scripts/**");
+    }
+  );
 });

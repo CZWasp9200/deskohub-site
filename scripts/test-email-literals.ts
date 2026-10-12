@@ -27,10 +27,30 @@ export type TestEmailLiteral = {
   readonly address: string;
 };
 
+/**
+ * Where and what the check scans. Turbo's `//#lint:test-email-literals`
+ * inputs must cover every root and extension here; a test keeps them aligned.
+ */
+export const scannedRoots = ["apps", "packages", "scripts"] as const;
+export const scannedExtensions = [
+  "ts",
+  "tsx",
+  "js",
+  "jsx",
+  "mjs",
+  "cjs",
+] as const;
+
+const moduleExtension = `\\.(?:${scannedExtensions.join("|")})$`;
+
 const testPathPatterns = [
-  /\.(?:test|test-utils|test-fixture|pw|mock|spec)\.(?:[cm]?js|jsx|ts|tsx)$/,
-  /\/(?:e2e|testing|__tests__|__fixtures__|_fixtures|fixtures|\(testing-only\))\/.*\.(?:[cm]?js|jsx|ts|tsx)$/,
-  /(?:-fixture|\/fixtures?)\.(?:[cm]?js|jsx|ts|tsx)$/,
+  new RegExp(
+    `\\.(?:test|test-utils|test-fixture|pw|mock|spec)${moduleExtension}`
+  ),
+  new RegExp(
+    `/(?:e2e|testing|__tests__|__fixtures__|_fixtures|fixtures|\\(testing-only\\))/.*${moduleExtension}`
+  ),
+  new RegExp(`(?:-fixture|/fixtures?)${moduleExtension}`),
   /apps\/deskohub-workspace\/scripts\/(?:account-visual|account-sticky)\/.*\.(?:ts|tsx)$/,
   /apps\/deskohub-workspace\/scripts\/posthog-identity-browser\.ts$/,
 ];
@@ -233,9 +253,7 @@ const listRepositoryModules = async (repositoryRoot: string) => {
       "--others",
       "--exclude-standard",
       "--",
-      "apps",
-      "packages",
-      "scripts",
+      ...scannedRoots,
     ],
     { cwd: repositoryRoot, stderr: "inherit", stdout: "pipe" }
   );

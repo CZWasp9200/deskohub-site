@@ -136,7 +136,6 @@
     },
     "//#lint:test-email-literals": {
       "inputs": [
-        "scripts/*.ts",
         "apps/**/*.ts",
         "apps/**/*.tsx",
         "apps/**/*.js",
@@ -149,6 +148,12 @@
         "packages/**/*.jsx",
         "packages/**/*.mjs",
         "packages/**/*.cjs",
+        "scripts/**/*.ts",
+        "scripts/**/*.tsx",
+        "scripts/**/*.js",
+        "scripts/**/*.jsx",
+        "scripts/**/*.mjs",
+        "scripts/**/*.cjs",
         "!**/node_modules/**"
       ],
       "outputs": []
