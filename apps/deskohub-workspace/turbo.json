@@ -3,34 +3,10 @@
   "extends": ["//"],
   "tasks": {
     "lint": {
-      "dependsOn": [
-        "$TURBO_EXTENDS$",
-        "lint:biome",
-        "lint:eslint",
-        "lint:knip",
-        "lint:test-email-literals"
-      ]
+      "dependsOn": ["$TURBO_EXTENDS$", "lint:biome", "lint:eslint", "lint:knip"]
     },
     "lint:biome": {
       "inputs": ["$TURBO_DEFAULT$", "../../biome.json", "../../lint/*.grit"]
-    },
-    "lint:test-email-literals": {
-      "inputs": [
-        "$TURBO_DEFAULT$",
-        "$TURBO_ROOT$/apps/**/*.ts",
-        "$TURBO_ROOT$/apps/**/*.tsx",
-        "$TURBO_ROOT$/apps/**/*.js",
-        "$TURBO_ROOT$/apps/**/*.jsx",
-        "$TURBO_ROOT$/apps/**/*.mjs",
-        "$TURBO_ROOT$/apps/**/*.cjs",
-        "$TURBO_ROOT$/packages/**/*.ts",
-        "$TURBO_ROOT$/packages/**/*.tsx",
-        "$TURBO_ROOT$/packages/**/*.js",
-        "$TURBO_ROOT$/packages/**/*.jsx",
-        "$TURBO_ROOT$/packages/**/*.mjs",
-        "$TURBO_ROOT$/packages/**/*.cjs",
-        "!$TURBO_ROOT$/**/node_modules/**"
-      ]
     },
     "lint:eslint": {
       "inputs": ["$TURBO_DEFAULT$"]

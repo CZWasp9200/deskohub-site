@@ -1,20 +1,25 @@
 /**
- * Rejects hand-written email addresses in test code. Tests build addresses
- * with `testEmailAddress` (on the EMAIL_TEST_DOMAIN constant, so mail routes to
- * Console) or `resendSimulatorAddress` from `@deskohub/email/testing`; a
- * hand-written address could reach a real inbox.
+ * Rejects hand-written email addresses in test code across apps/,
+ * packages/, and scripts/. Tests build addresses with `testEmailAddress` (on the
+ * EMAIL_TEST_DOMAIN constant, so mail routes to Console) or
+ * `resendSimulatorAddress` from `@deskohub/email/testing`; a hand-written
+ * address could reach a real inbox.
  *
  * It reads string, template, and JSX literals, folds `+` chains of literals
- * (parentheses included), decodes `\x40`, `@`, `\u{40}` (through the
+ * (parentheses included), decodes `\x40`, `\u0040`, `\u{40}` (through the
  * cooked literal value), `%40`, `&#64;`, `&#x40;`, and `&commat;`, and checks
- * every address-shaped token on its own. URL credentials (`user:secret@host`),
- * hosts followed by a path, and asset names such as `icon@2x.png` are not
- * addresses. It is a guardrail, not a security boundary: it does not evaluate
- * `[...].join("@")`, `String.fromCharCode`, or other computed values.
+ * every address-shaped token on its own, Unicode domains included. Trailing
+ * sentence punctuation ends an address.
+ *
+ * Not addresses: URL authority credentials (`scheme://user:pass@host`), git
+ * SCP remotes (`git@github.com:org/repo.git`), asset names such as
+ * `icon@2x.png`, `@` mentions and scoped packages (no dotted domain), and a
+ * bare `@host` followed by a path or port. It is a guardrail, not a security
+ * boundary: it does not evaluate `[...].join("@")`, `String.fromCharCode`,
+ * or other computed values.
  */
 import { resolve } from "node:path";
 import ts from "typescript";
-import { runCommand } from "./shared/command";
 
 export type TestEmailLiteral = {
   readonly line: number;
@@ -36,8 +41,13 @@ export const isTestEmailLiteralPath = (path: string) =>
 
 const encodedAt = /%40|&#0*64;|&#x0*40;|&commat;/gi;
 
+// A local part, `@`, and a dotted domain whose TLD is letters (any script) or
+// punycode. A trailing `.` ends the address unless a label follows it.
 const addressToken =
-  /(?<![A-Za-z0-9._%+-])([A-Za-z0-9._%+-]*)@([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.([A-Za-z]{2,}))(?![A-Za-z0-9.-])/g;
+  /(?<![\p{L}\p{N}._%+-])([\p{L}\p{N}._%+-]*)@((?:[\p{L}\p{N}-]+\.)+(\p{L}{2,}|xn--[a-z0-9-]+))(?![\p{L}\p{N}-]|\.[\p{L}\p{N}])/giu;
+
+// `scheme://` followed by an authority with no whitespace, path, or `@` yet.
+const urlAuthorityPrefix = /[A-Za-z][A-Za-z0-9+.-]*:\/\/[^\s/?#@]*$/;
 
 const assetExtensions = new Set([
   "avif",
@@ -71,16 +81,17 @@ const assetExtensions = new Set([
 const isAddressToken = (text: string, match: RegExpMatchArray) => {
   const [token, localPart = "", , extension = ""] = match;
   const start = match.index ?? 0;
-  const before = text.slice(0, start);
-  const after = text.charAt(start + token.length);
+  const atIndex = start + localPart.length;
+  const rest = text.slice(start + token.length);
 
   if (assetExtensions.has(extension.toLowerCase())) return false;
-  // A bare `@example.com` hand-writes the domain; after a path or port it is
-  // a URL host following interpolated credentials.
-  if (localPart === "") return !/^[/:?#]/.test(after);
-  if (after === "/") return false;
-  if (before.endsWith("/")) return false;
-  return !before.endsWith(":") || before.toLowerCase().endsWith("mailto:");
+  // Credentials inside a URL authority: `https://user:pass@host`.
+  if (urlAuthorityPrefix.test(text.slice(0, atIndex))) return false;
+  // A bare `@example.com` hand-writes the domain; before a path or port it is
+  // a URL host after interpolated credentials.
+  if (localPart === "") return !/^[/:?#]/.test(rest);
+  // A git SCP remote: `git@github.com:org/repo.git`.
+  return !/^:[^\s:]/.test(rest);
 };
 
 /** Address-shaped tokens in one literal value, after decoding `@`. */
@@ -212,9 +223,8 @@ export const findTestEmailLiterals = (
   return findings;
 };
 
-const main = async () => {
-  const repositoryRoot = resolve(import.meta.dir, "../../..");
-  const listed = await runCommand(
+const listRepositoryModules = async (repositoryRoot: string) => {
+  const child = Bun.spawn(
     [
       "git",
       "ls-files",
@@ -225,15 +235,25 @@ const main = async () => {
       "--",
       "apps",
       "packages",
+      "scripts",
     ],
-    {
-      cwd: repositoryRoot,
-    }
+    { cwd: repositoryRoot, stderr: "inherit", stdout: "pipe" }
   );
-  if (listed.exitCode !== 0) {
+  const [listing, exitCode] = await Promise.all([
+    new Response(child.stdout).text(),
+    child.exited,
+  ]);
+  if (exitCode !== 0) {
     throw new Error("git ls-files failed while listing test modules");
   }
-  const paths = listed.stdout.split("\0").filter(isTestEmailLiteralPath);
+  return listing.split("\0").filter(Boolean);
+};
+
+const main = async () => {
+  const repositoryRoot = resolve(import.meta.dir, "..");
+  const paths = (await listRepositoryModules(repositoryRoot)).filter(
+    isTestEmailLiteralPath
+  );
   let violations = 0;
   for (const path of paths) {
     const sourceText = await Bun.file(resolve(repositoryRoot, path)).text();

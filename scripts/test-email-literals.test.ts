@@ -160,6 +160,133 @@ const permitted: readonly (readonly [string, string])[] = [
   ],
 ];
 
+// Realistic contexts written with `{at}` and `{enc}` placeholders (swapped
+// for `@` and `%40` at run time) so this module stays clean. Each row lists the exact addresses the
+// check must report; an empty list means the context must pass.
+const withAt = (text: string) =>
+  text.replaceAll("{at}", at).replaceAll("{enc}", percent);
+const adversarial: readonly (readonly [string, string, readonly string[]])[] = [
+  [
+    "prose ending in a period",
+    "<p>Contact ada{at}example.com.</p>",
+    ["ada{at}example.com"],
+  ],
+  [
+    "prose with a comma",
+    '"Write to ada{at}example.com, then wait"',
+    ["ada{at}example.com"],
+  ],
+  ["a question", '"Is it ada{at}example.com?"', ["ada{at}example.com"]],
+  ["an exclamation", '"Mail ada{at}example.com!"', ["ada{at}example.com"]],
+  ["parenthesised prose", '"(ada{at}example.com)"', ["ada{at}example.com"]],
+  [
+    "a colon after the address in prose",
+    '"Reach ada{at}example.com: we reply"',
+    ["ada{at}example.com"],
+  ],
+  ["an Email: label", '"Email:ada{at}example.com"', ["ada{at}example.com"]],
+  [
+    "an Email: label in JSX text",
+    "<p>Email:ada{at}example.com</p>",
+    ["ada{at}example.com"],
+  ],
+  ["a To: label", '"To: ada{at}example.com"', ["ada{at}example.com"]],
+  [
+    "an uppercase From: label",
+    '"From:ADA{at}EXAMPLE.COM"',
+    ["ADA{at}EXAMPLE.COM"],
+  ],
+  [
+    "a display name in angle brackets",
+    '"Ada Lovelace <ada{at}example.cz>"',
+    ["ada{at}example.cz"],
+  ],
+  [
+    "a quoted list",
+    `"'ada{at}example.com', 'bob{at}example.org'"`,
+    ["ada{at}example.com", "bob{at}example.org"],
+  ],
+  [
+    "a comma-separated list",
+    '"ada{at}example.com,bob{at}example.org"',
+    ["ada{at}example.com", "bob{at}example.org"],
+  ],
+  [
+    "a semicolon-separated list",
+    '"ada{at}example.com;bob{at}example.org"',
+    ["ada{at}example.com", "bob{at}example.org"],
+  ],
+  ["a JSON string", `'{"email":"ada{at}example.com"}'`, ["ada{at}example.com"]],
+  [
+    "an encoded query parameter",
+    '"https://app.example/?email=ada{enc}example.cz&x=1"',
+    ["ada{at}example.cz"],
+  ],
+  [
+    "mailto with a subject",
+    '"mailto:ada{at}example.com?subject=Hi"',
+    ["ada{at}example.com"],
+  ],
+  [
+    "an encoded mailto in prose",
+    '"Contact mailto:ada{enc}example.com."',
+    ["ada{at}example.com"],
+  ],
+  [
+    "a plus local part",
+    '"delivered+run-1{at}example.com"',
+    ["delivered+run-1{at}example.com"],
+  ],
+  [
+    "a dotted local part and multi-label domain",
+    '"ada.lovelace{at}example.co.uk"',
+    ["ada.lovelace{at}example.co.uk"],
+  ],
+  ["a Unicode domain", '"ada{at}exämple.cz"', ["ada{at}exämple.cz"]],
+  ["a Unicode local part", '"jürgen{at}example.de"', ["jürgen{at}example.de"]],
+  [
+    "a punycode domain",
+    '"ada{at}xn--exmple-cua.cz"',
+    ["ada{at}xn--exmple-cua.cz"],
+  ],
+  [
+    "an address inside a URL path",
+    '"https://app.example/users/ada{at}example.com/profile"',
+    ["ada{at}example.com"],
+  ],
+  ["a bare hand-written domain", '"{at}example.com"', ["{at}example.com"]],
+  [
+    "URL credentials with a password",
+    '"https://user:secret{at}example.com/app"',
+    [],
+  ],
+  [
+    "database URL credentials",
+    '"postgresql://owner:secret{at}ep-preview.eu.neon.tech/neondb"',
+    [],
+  ],
+  ["a URL key as user info", '"https://key{at}posthog.example/1"', []],
+  ["a URL with an empty user", '"redis://:secret{at}cache.example:6379"', []],
+  [
+    "a git SCP remote (deliberately allowed)",
+    '"git{at}github.com:deskohub/site.git"',
+    [],
+  ],
+  ["an ssh URL", '"ssh://git{at}github.com/deskohub/site.git"', []],
+  ["a retina asset", '"icon{at}2x.png"', []],
+  ["a srcset list", '"icon{at}2x.png 2x, icon{at}3x.webp 3x"', []],
+  ["an encoded retina asset URL", '"https://cdn.example/icon%402x.png"', []],
+  ["a scoped npm package", '"@deskohub/email"', []],
+  ["a types package", '"npm i -D @types/node"', []],
+  ["a decorator in text", `"@Component({ selector: 'x' })"`, []],
+  ["an @ mention", '"thanks @ada!"', []],
+  ["a profile path with @", '"https://medium.example/{at}ada/post-1"', []],
+  ["an encoded mention query", '"https://app.example/search?q=%40ada"', []],
+  ["a package version", '"npm i react{at}19.2.0"', []],
+  ["a host without a dotted domain", '"root{at}localhost"', []],
+  ["a numeric TLD", '"ada{at}example.123"', []],
+];
+
 describe("findTestEmailLiterals", () => {
   test.each(rejected)("rejects %s", (_name, source) => {
     expect(findings(source)).not.toEqual([]);
@@ -167,6 +294,12 @@ describe("findTestEmailLiterals", () => {
 
   test.each(permitted)("permits %s", (_name, source) => {
     expect(findings(source)).toEqual([]);
+  });
+
+  test.each(adversarial)("handles %s", (_name, expression, expected) => {
+    expect(findings(statement(withAt(expression)))).toEqual(
+      expected.map(withAt)
+    );
   });
 
   test("checks each token of a literal on its own", () => {

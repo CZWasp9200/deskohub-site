@@ -8,7 +8,11 @@
   ],
   "type": "module",
   "scripts": {
-    "prepare": "effect-tsgo patch --typescript --no-oxlint"
+    "prepare": "effect-tsgo patch --typescript --no-oxlint",
+    "lint:scripts": "biome check scripts --config-path biome.json",
+    "lint:test-email-literals": "bun scripts/test-email-literals.ts",
+    "test:scripts": "bun test ./scripts",
+    "typecheck:scripts": "tsc --noEmit -p scripts/tsconfig.json"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.14",

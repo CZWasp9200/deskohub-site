@@ -130,12 +130,43 @@
         "WORKSPACE_E2E_VERCEL_PROJECT"
       ]
     },
+    "//#lint:scripts": {
+      "inputs": ["scripts/**", "biome.json", "lint/*.grit"],
+      "outputs": []
+    },
+    "//#lint:test-email-literals": {
+      "inputs": [
+        "scripts/*.ts",
+        "apps/**/*.ts",
+        "apps/**/*.tsx",
+        "apps/**/*.js",
+        "apps/**/*.jsx",
+        "apps/**/*.mjs",
+        "apps/**/*.cjs",
+        "packages/**/*.ts",
+        "packages/**/*.tsx",
+        "packages/**/*.js",
+        "packages/**/*.jsx",
+        "packages/**/*.mjs",
+        "packages/**/*.cjs",
+        "!**/node_modules/**"
+      ],
+      "outputs": []
+    },
+    "//#test:scripts": {
+      "inputs": ["scripts/**"],
+      "outputs": []
+    },
+    "//#typecheck:scripts": {
+      "inputs": ["scripts/**", "tsconfig.json"],
+      "outputs": []
+    },
     "lint": {
-      "dependsOn": ["^lint", "deskohub-workspace#lint:test-email-literals"],
+      "dependsOn": ["^lint", "//#lint:scripts", "//#lint:test-email-literals"],
       "outputs": []
     },
     "test": {
-      "dependsOn": ["^test"],
+      "dependsOn": ["^test", "//#test:scripts"],
       "outputs": []
     },
     "start": {
@@ -147,7 +178,7 @@
       "persistent": true
     },
     "typecheck": {
-      "dependsOn": ["^typecheck"],
+      "dependsOn": ["^typecheck", "//#typecheck:scripts"],
       "outputs": []
     },
     "i18n:compile": {
