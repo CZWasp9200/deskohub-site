@@ -244,8 +244,11 @@ const makeFakePage = (options: FakePageOptions = {}): Page => {
         typeof arg === "object" && arg !== null && "element" in arg
           ? arg.element
           : arg;
-      if (!(pageFunction as (value: unknown) => boolean)(predicateArgument))
-        throw new Error("fake account section did not settle");
+      const result = (pageFunction as (value: unknown) => unknown)(
+        predicateArgument
+      );
+      if (!result) throw new Error("fake account section did not settle");
+      return { dispose: async () => {}, jsonValue: async () => result };
     },
   });
 
