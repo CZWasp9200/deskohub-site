@@ -8129,6 +8129,10 @@ var tryPromise = (options) => {
   }, f.length !== 0);
 };
 var withFiberId = (f) => withFiber((fiber) => f(fiber.id));
+var captureAsyncContext = /* @__PURE__ */ (() => {
+  const AsyncLocalStorage = globalThis.process?.getBuiltinModule?.("node:async_hooks")?.AsyncLocalStorage ?? globalThis.AsyncLocalStorage;
+  return typeof AsyncLocalStorage?.snapshot === "function" ? () => AsyncLocalStorage.snapshot() : undefined;
+})();
 var callbackOptions = /* @__PURE__ */ makePrimitive({
   op: "Async",
   single: false,
@@ -8136,13 +8140,18 @@ var callbackOptions = /* @__PURE__ */ makePrimitive({
     const register = internalCall(() => this[args][0].bind(fiber.currentScheduler));
     let resumed = false;
     let yielded = false;
+    let suspendedContext = undefined;
     const controller = this[args][1] ? new AbortController : undefined;
     const onCancel = register((effect) => {
       if (resumed)
         return;
       resumed = true;
       if (yielded) {
-        fiber.evaluate(effect);
+        if (suspendedContext === undefined) {
+          fiber.evaluate(effect);
+        } else {
+          suspendedContext(() => fiber.evaluate(effect));
+        }
       } else {
         yielded = effect;
       }
@@ -8150,6 +8159,7 @@ var callbackOptions = /* @__PURE__ */ makePrimitive({
     if (yielded !== false)
       return yielded;
     yielded = true;
+    suspendedContext = captureAsyncContext?.();
     fiber._yielded = () => {
       resumed = true;
     };
