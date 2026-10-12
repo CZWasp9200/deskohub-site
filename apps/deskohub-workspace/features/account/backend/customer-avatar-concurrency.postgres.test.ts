@@ -2,6 +2,7 @@ import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, mock, test } from "bun:test";
 import type { CloudinaryPublicId } from "@deskohub/cloudinary/schema";
+import { testEmailAddress } from "@deskohub/email/testing";
 import {
   Context,
   Deferred,
@@ -22,6 +23,8 @@ import {
   type CustomerAccountSession,
   CustomerAuthentication,
 } from "./customer-authentication.service";
+
+const avatarAddress = testEmailAddress("avatar");
 
 const testDatabase = await connectWorkspacePostgresTestDatabase();
 
@@ -70,9 +73,7 @@ let currentSession: CustomerAccountSession | null = null;
 
 const makeSession = (account: string): CustomerAccountSession => ({
   accountId: customerAccountIdSchema.make(account),
-  email: Schema.decodeSync(reservationCustomerEmailSchema)(
-    "avatar@example.test"
-  ),
+  email: Schema.decodeSync(reservationCustomerEmailSchema)(avatarAddress),
   deletionRequested: false,
 });
 
@@ -253,7 +254,7 @@ describe.skipIf(!testDatabase)(
       releaseUpload = null;
       const account = customerAccountIdSchema.make(uniqueId());
       currentSession = makeSession(account);
-      await insertAuthUser(account, `race-${account}@deskohub.test`);
+      await insertAuthUser(account, testEmailAddress(`race-${account}`));
       await insertLink(account, uniqueDotyposCustomerId());
       const bytes = await pngBytes();
 
@@ -322,7 +323,7 @@ describe.skipIf(!testDatabase)(
       providerCalls = [];
       const account = customerAccountIdSchema.make(uniqueId());
       currentSession = makeSession(account);
-      await insertAuthUser(account, `race-${account}@deskohub.test`);
+      await insertAuthUser(account, testEmailAddress(`race-${account}`));
       await insertLink(account, uniqueDotyposCustomerId());
       const bytes = await pngBytes();
 
@@ -368,7 +369,7 @@ describe.skipIf(!testDatabase)(
       providerCalls = [];
       const account = customerAccountIdSchema.make(uniqueId());
       currentSession = makeSession(account);
-      await insertAuthUser(account, `race-${account}@deskohub.test`);
+      await insertAuthUser(account, testEmailAddress(`race-${account}`));
       await insertLink(account, uniqueDotyposCustomerId());
       const bytes = await pngBytes();
 

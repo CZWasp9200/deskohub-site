@@ -3,6 +3,7 @@ import { statSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { testEmailAddress } from "@deskohub/email/testing";
 import {
   type Browser,
   type BrowserContext,
@@ -19,6 +20,15 @@ import {
 } from "better-auth";
 import { memoryAdapter } from "better-auth/adapters/memory";
 import { magicLink } from "better-auth/plugins";
+
+const authReturnFirstAddress = testEmailAddress("auth-return-first");
+const authReturnNoAckAddress = testEmailAddress("auth-return-no-ack");
+const authReturnReplayPendingAddress = testEmailAddress(
+  "auth-return-replay-pending"
+);
+const authReturnSecondAddress = testEmailAddress("auth-return-second");
+const authReturnUnverifiedAddress = testEmailAddress("auth-return-unverified");
+const authReturnVerifiedAddress = testEmailAddress("auth-return-verified");
 
 const APP_ROOT = resolve(import.meta.dir, "../../../..");
 const AUTH_RETURN_SOURCE = resolve(import.meta.dir, "../../auth-return.ts");
@@ -96,12 +106,12 @@ declare global {
 }
 
 const fixtureEmail = {
-  isolatedFirst: "auth-return-first@deskohub.test",
-  isolatedSecond: "auth-return-second@deskohub.test",
-  noAck: "auth-return-no-ack@deskohub.test",
-  replayPending: "auth-return-replay-pending@deskohub.test",
-  unverified: "auth-return-unverified@deskohub.test",
-  verified: "auth-return-verified@deskohub.test",
+  isolatedFirst: authReturnFirstAddress,
+  isolatedSecond: authReturnSecondAddress,
+  noAck: authReturnNoAckAddress,
+  replayPending: authReturnReplayPendingAddress,
+  unverified: authReturnUnverifiedAddress,
+  verified: authReturnVerifiedAddress,
 } as const;
 
 let fixtureDirectory: string | undefined;

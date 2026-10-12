@@ -1,9 +1,12 @@
 import { describe, expect, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/email/testing";
 import type { CapturedNetworkRequest } from "posthog-js";
 import {
   createPostHogConfig,
   isPostHogTelemetryHostAllowed,
 } from "./posthog-config";
+
+const syntheticAddress = testEmailAddress("synthetic");
 
 describe("isPostHogTelemetryHostAllowed", () => {
   test.each([
@@ -36,7 +39,7 @@ describe("createPostHogConfig", () => {
     const request: CapturedNetworkRequest = {
       duration: 1,
       entryType: "resource",
-      name: "https://deskohub.test/account?email=synthetic%40example.test#secret",
+      name: `https://deskohub.test/account?email=${encodeURIComponent(syntheticAddress)}#secret`,
       requestBody: "synthetic-request-body",
       requestHeaders: { authorization: "synthetic-token" },
       responseBody: "synthetic-response-body",

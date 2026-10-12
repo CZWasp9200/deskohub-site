@@ -1,6 +1,7 @@
 import "@/shared/testing/workspace-test-env";
 import { describe, expect, mock, test } from "bun:test";
 import { NetworkError } from "@deskohub/dotypos";
+import { testEmailAddress } from "@deskohub/email/testing";
 import { Effect, Layer, Schema } from "effect";
 import {
   buildSignedPayState,
@@ -107,7 +108,7 @@ const replacementToken = await Effect.runPromise(
       date: "2099-06-20",
       coffee: false,
       name: "Ada Lovelace",
-      email: "ada@example.test",
+      email: testEmailAddress("ada"),
       phone: "+420777000111",
     });
     const state = yield* buildSignedPayState({

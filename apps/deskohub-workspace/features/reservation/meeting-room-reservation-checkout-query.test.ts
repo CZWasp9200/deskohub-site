@@ -1,9 +1,12 @@
 import "@/shared/polyfills/temporal";
 
 import { describe, expect, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/email/testing";
 import { workspaceSiteConstants } from "@/shared/utils/site-constants";
 import { getMeetingRoomReservationDefaultValuesFromSearchParams } from "./meeting-room-reservation-checkout-query";
 import { getMeetingRoomReservationInterval } from "./meeting-room-reservation-time";
+
+const adaEmail = testEmailAddress("ada");
 
 const deterministicNow = () => Temporal.Instant.from("2099-07-30T13:01:00Z");
 
@@ -19,7 +22,7 @@ describe("getMeetingRoomReservationDefaultValuesFromSearchParams", () => {
     const values = getMeetingRoomReservationDefaultValuesFromSearchParams(
       {
         duration: "hour:1",
-        email: " ada@example.com ",
+        email: ` ${adaEmail} `,
         name: "Ada Lovelace",
         phone: "+420777777777",
         startDateTime: "2099-08-12T09:00",
@@ -31,7 +34,7 @@ describe("getMeetingRoomReservationDefaultValuesFromSearchParams", () => {
       startDateTime: "2099-08-12T09:00",
       duration: "hour:1",
       name: "Ada Lovelace",
-      email: "ada@example.com",
+      email: adaEmail,
       phone: "+420777777777",
       billing: { purpose: "personal", invoice: "none" },
       marketingConsent: false,
@@ -50,7 +53,9 @@ describe("getMeetingRoomReservationDefaultValuesFromSearchParams", () => {
   test("decodes a plus-encoded phone from a URL query string", () => {
     expect(
       getMeetingRoomReservationDefaultValuesFromSearchParams(
-        new URLSearchParams("email=ada@example.com&phone=%2B420777777777"),
+        new URLSearchParams(
+          `email=${encodeURIComponent(adaEmail)}&phone=%2B420777777777`
+        ),
         deterministicNow()
       ).phone
     ).toBe("+420777777777");
@@ -78,7 +83,7 @@ describe("getMeetingRoomReservationDefaultValuesFromSearchParams", () => {
       getMeetingRoomReservationDefaultValuesFromSearchParams(
         {
           duration: "hour:1",
-          email: "ada@example.com",
+          email: adaEmail,
           name: "Ada Lovelace",
           startDateTime: "2099-07-30T10:00",
         },
@@ -88,7 +93,7 @@ describe("getMeetingRoomReservationDefaultValuesFromSearchParams", () => {
       startDateTime: "2099-07-30T10:00",
       duration: "hour:1",
       name: "Ada Lovelace",
-      email: "ada@example.com",
+      email: adaEmail,
       phone: "",
       billing: { purpose: "personal", invoice: "none" },
       marketingConsent: false,
@@ -178,7 +183,7 @@ describe("getMeetingRoomReservationDefaultValuesFromSearchParams", () => {
       expect(
         getMeetingRoomReservationDefaultValuesFromSearchParams(
           {
-            email: "ada@example.com",
+            email: adaEmail,
             name: "Ada Lovelace",
             startDateTime: `${transition}T${nearbyValid}`,
           },
@@ -187,7 +192,7 @@ describe("getMeetingRoomReservationDefaultValuesFromSearchParams", () => {
       ).toMatchObject({
         startDateTime: `${transition}T${nearbyValid}`,
         name: "Ada Lovelace",
-        email: "ada@example.com",
+        email: adaEmail,
       });
     }
   });

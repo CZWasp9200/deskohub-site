@@ -1154,7 +1154,7 @@ describe("discount administration pages", () => {
           customer: {
             id: "dotypos-customer",
             displayName: "Test Customer",
-            email: "test@example.com",
+            email: testEmailAddressForTest,
             phone: null,
             discountGroupId: null,
           },

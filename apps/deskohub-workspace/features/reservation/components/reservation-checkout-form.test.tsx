@@ -7,6 +7,7 @@ import {
   mock,
   test,
 } from "bun:test";
+import { testEmailAddress } from "@deskohub/email/testing";
 import {
   act,
   cleanup,
@@ -24,6 +25,9 @@ import {
   unregisterWorkspaceComponentTestEnv,
 } from "@/shared/testing/workspace-component-test-env";
 import type { ReservationExistingCustomerForm } from "../reservation-existing-customer";
+
+const adaEmail = testEmailAddress("ada");
+const graceEmail = testEmailAddress("grace");
 
 const startCheckout = mock();
 
@@ -135,14 +139,14 @@ const familySale = {
 const existingCustomer: ReservationExistingCustomerForm = {
   contact: {
     name: "Ada Lovelace",
-    email: "ada@example.com",
+    email: adaEmail,
     phone: "+420777777777",
   },
   hasMarketingConsent: false,
   initialMode: "account",
   otherContact: {
     name: "Grace Hopper",
-    email: "grace@example.com",
+    email: graceEmail,
     phone: "+420606060606",
   },
 };
@@ -289,7 +293,7 @@ describe("ReservationCheckoutForm", () => {
     await waitFor(() => expect(startCheckout).toHaveBeenCalledTimes(1));
     expect(startCheckout.mock.calls[0]?.[0]).toMatchObject({
       customer: "account",
-      reservation: { email: "ada@example.com", name: "Ada Lovelace" },
+      reservation: { email: adaEmail, name: "Ada Lovelace" },
     });
 
     fireEvent.click(

@@ -1,9 +1,12 @@
 import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/email/testing";
 import { m } from "@/features/i18n";
 import {
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
 } from "@/shared/testing/workspace-component-test-env";
+
+const adaAddress = testEmailAddress("ada");
 
 registerWorkspaceComponentTestEnv();
 // @testing-library/react must load after the happy-dom registration, or
@@ -149,7 +152,7 @@ describe("account components", () => {
     fireEvent.change(
       view.getByLabelText(m.accountSignInEmailLabel({}, { locale })),
       {
-        target: { value: " ada@example.test " },
+        target: { value: ` ${adaAddress} ` },
       }
     );
     await act(async () => {
@@ -158,7 +161,7 @@ describe("account components", () => {
 
     expect(signInMagicLink).toHaveBeenCalledWith(
       expect.objectContaining({
-        email: "ada@example.test",
+        email: adaAddress,
         callbackURL: "/en-US/auth/callback",
         metadata: { locale: "en-US" },
       })
@@ -190,7 +193,7 @@ describe("account components", () => {
     fireEvent.change(
       view.getByLabelText(m.accountSignInEmailLabel({}, { locale })),
       {
-        target: { value: "ada@example.test" },
+        target: { value: adaAddress },
       }
     );
     const form = view.container.querySelector("#account-sign-in-form")!;
@@ -230,7 +233,7 @@ describe("account components", () => {
     fireEvent.change(
       view.getByLabelText(m.accountSignInEmailLabel({}, { locale })),
       {
-        target: { value: "ada@example.test" },
+        target: { value: adaAddress },
       }
     );
     const form = view.container.querySelector("#account-sign-in-form")!;
@@ -270,7 +273,7 @@ describe("account components", () => {
     fireEvent.change(
       view.getByLabelText(m.accountSignInEmailLabel({}, { locale })),
       {
-        target: { value: "ada@example.test" },
+        target: { value: adaAddress },
       }
     );
     await act(async () => {
@@ -292,7 +295,7 @@ describe("account components", () => {
     fireEvent.change(
       view.getByLabelText(m.accountSignInEmailLabel({}, { locale })),
       {
-        target: { value: "ada@example.test" },
+        target: { value: adaAddress },
       }
     );
     await act(async () => {
@@ -308,6 +311,6 @@ describe("account components", () => {
           m.accountSignInEmailLabel({}, { locale })
         ) as HTMLInputElement
       ).value
-    ).toBe("ada@example.test");
+    ).toBe(adaAddress);
   });
 });

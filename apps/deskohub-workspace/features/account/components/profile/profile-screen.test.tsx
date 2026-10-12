@@ -6,6 +6,7 @@ import {
   expect,
   test,
 } from "bun:test";
+import { testEmailAddress } from "@deskohub/email/testing";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { Input } from "@/shared/components/ui/input";
@@ -15,6 +16,8 @@ import {
 } from "@/shared/testing/workspace-component-test-env";
 import type { ProfileScreenCopy, ProfileScreenProps } from "./profile-screen";
 import { ProfileScreen } from "./profile-screen";
+
+const adaAddress = testEmailAddress("ada");
 
 const englishCopy: ProfileScreenCopy = {
   emailLabel: "Email",
@@ -75,7 +78,7 @@ function renderProfile(overrides: Partial<ProfileScreenProps> = {}): string {
     <ProfileScreen
       {...overrides}
       copy={overrides.copy ?? englishCopy}
-      email={overrides.email ?? "ada@example.test"}
+      email={overrides.email ?? adaAddress}
       firstName={overrides.firstName ?? "Ada"}
       lastName={
         "lastName" in overrides ? (overrides.lastName ?? null) : "Lovelace"
@@ -140,7 +143,7 @@ describe("ProfileScreen", () => {
   test("keeps the login email visual, verified, and non-editable", () => {
     const markup = renderProfile();
 
-    expect(markup).toContain("ada@example.test");
+    expect(markup).toContain(adaAddress);
     expect(markup).toContain("break-all");
     expect(markup).toContain("Verified login email");
     expect(markup).toContain("<fieldset");
@@ -159,7 +162,9 @@ describe("ProfileScreen", () => {
     expect(emailFieldsetElement).not.toContain("aria-describedby");
     expect(markup).not.toMatch(/<span[^>]*aria-label="Verified login email"/);
     expect(markup).not.toMatch(/name="email"/);
-    expect(markup).not.toMatch(/<input[^>]*ada@example\.test/);
+    expect(markup).not.toMatch(
+      new RegExp(`<input[^>]*${adaAddress.replaceAll(".", "\\.")}`)
+    );
   });
 
   test("renders a provided avatar slot", () => {
@@ -179,7 +184,7 @@ describe("ProfileScreen", () => {
         <form data-testid="profile-form">
           <ProfileScreen
             copy={copy}
-            email="ada@example.test"
+            email={adaAddress}
             firstName="Ada"
             footer={<button type="button">Save profile</button>}
             lastName="Lovelace"

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/email/testing";
 import { Effect } from "effect";
 import type { ReactElement } from "react";
 import { getMeetingRoomDurationAdvertisedPriceRequests } from "@/features/reservation/meeting-room-advertised-price";
@@ -6,6 +7,9 @@ import { normalizedMeetingRoomReservationOrderSchema } from "@/features/reservat
 import { meetingRoomReservationDurations } from "@/features/reservation/meeting-room-reservation-duration";
 import type { WorkspaceAvailabilityQuery } from "@/features/reservation/workspace-availability";
 import type { MeetingRoomReservationForm } from "./meeting-room-reservation-form";
+
+const adaEmail = testEmailAddress("ada");
+const overrideEmail = testEmailAddress("override");
 
 mock.module("next/root-params", () => ({
   locale: () => Promise.resolve("en-US"),
@@ -81,7 +85,7 @@ test("preloads the preserved quote for a restored hourly slot that has started",
     startsAt: "2099-07-30T13:00:00Z",
     endsAt: "2099-07-30T17:00:00Z",
     name: "Ada Lovelace",
-    email: "ada@example.com",
+    email: adaEmail,
     phone: "+420777777777",
   });
 
@@ -123,7 +127,7 @@ test("restores a whole-day reservation after its start and before its end", asyn
     startsAt: "2099-07-29T22:00:00Z",
     endsAt: "2099-07-30T22:00:00Z",
     name: "Ada Lovelace",
-    email: "ada@example.com",
+    email: adaEmail,
     phone: "+420777777777",
   });
 
@@ -141,7 +145,7 @@ test("restores a whole-day reservation after its start and before its end", asyn
       startDateTime: "2099-07-30T00:00",
       duration: "day:1",
       name: "Ada Lovelace",
-      email: "ada@example.com",
+      email: adaEmail,
       phone: "+420777777777",
     });
     expect(loadAdvertisedPrices.mock.calls[0]?.[0]).toHaveLength(
@@ -251,7 +255,7 @@ test("prefills the fresh form from checkout query defaults", async () => {
       locale: "en-US",
       searchParams: {
         duration: "hour:1",
-        email: "ada@example.com",
+        email: adaEmail,
         name: "Ada Lovelace",
         phone: "+420777777777",
         startDateTime: "2099-08-12T09:00",
@@ -262,7 +266,7 @@ test("prefills the fresh form from checkout query defaults", async () => {
       startDateTime: "2099-08-12T09:00",
       duration: "hour:1",
       name: "Ada Lovelace",
-      email: "ada@example.com",
+      email: adaEmail,
       phone: "+420777777777",
       billing: { purpose: "personal", invoice: "none" },
       marketingConsent: false,
@@ -282,7 +286,7 @@ test("keeps restored reservation values over checkout query defaults", async () 
     startsAt: "2099-07-30T15:00:00Z",
     endsAt: "2099-07-30T19:00:00Z",
     name: "Ada Lovelace",
-    email: "ada@example.com",
+    email: adaEmail,
     phone: "+420777777777",
   });
 
@@ -315,7 +319,7 @@ test("falls back to query-free defaults for an ended signed reservation", async 
     startsAt: "2020-07-30T15:00:00Z",
     endsAt: "2020-07-30T19:00:00Z",
     name: "Ada Lovelace",
-    email: "ada@example.com",
+    email: adaEmail,
     phone: "+420777777777",
   });
 
@@ -324,7 +328,7 @@ test("falls back to query-free defaults for an ended signed reservation", async 
     locale: "en-US",
     searchParams: {
       duration: "hour:1",
-      email: "override@example.com",
+      email: overrideEmail,
       name: "Query Override",
       startDateTime: "2099-08-12T09:00",
     },
@@ -350,7 +354,7 @@ describe("remembered meeting-room duration", () => {
   const existingCustomer = {
     contact: {
       name: "Ada Lovelace",
-      email: "ada@example.com",
+      email: adaEmail,
       phone: "+420777777777",
     },
     hasMarketingConsent: false,

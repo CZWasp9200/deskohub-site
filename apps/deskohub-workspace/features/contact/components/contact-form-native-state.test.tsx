@@ -8,6 +8,7 @@ import {
   mock,
   test,
 } from "bun:test";
+import { testEmailAddress } from "@deskohub/email/testing";
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { ContactFormState } from "@/features/contact/actions/contact";
@@ -71,9 +72,11 @@ mock.module("next/navigation", () => ({
   },
 }));
 
+const initialEmail = testEmailAddress("initial");
+
 const initialValues = {
   name: "Initial Person",
-  email: "initial@example.invalid",
+  email: initialEmail,
   phone: "",
   message: "Initial request text.",
 };
@@ -156,7 +159,7 @@ describe("ContactForm native action state", () => {
       message: m.contactValidationReviewMessage({}, { locale }),
       values: {
         name: "Submitted Person",
-        email: "submitted@example.invalid",
+        email: testEmailAddress("submitted"),
         phone: "",
         message: "A submitted request with enough detail.",
       },
@@ -209,7 +212,7 @@ describe("ContactForm native action state", () => {
     );
     for (const [label, value] of [
       ["Name", "Grace Hopper"],
-      ["Email", "grace@example.com"],
+      ["Email", testEmailAddress("grace")],
       ["Message", "Please contact me about a meeting room."],
     ]) {
       const field = view.getByLabelText(label) as HTMLInputElement;
@@ -281,7 +284,7 @@ describe("ContactForm native action state", () => {
     const locale = "cs-CZ";
     const initialValues = {
       name: "Initial Person",
-      email: "initial@example.com",
+      email: initialEmail,
       phone: "",
       message: "Initial request text.",
     };

@@ -1,6 +1,7 @@
 import "@/shared/polyfills/temporal";
 
 import { describe, expect, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/email/testing";
 import { mockWorkspaceActionTelemetry } from "@/shared/testing/workspace-action-logging.test-utils";
 
 const { getOperationLogRecords } = await mockWorkspaceActionTelemetry();
@@ -9,7 +10,7 @@ const { preparePayState } = await import("./prepare-pay-state");
 describe("preparePayState", () => {
   test("keeps the submitted customer contact out of telemetry", async () => {
     const checkoutSessionId = "SYNTHETIC-CHECKOUT-SESSION";
-    const email = "synthetic.customer@example.test";
+    const email = testEmailAddress("synthetic.customer");
 
     await expect(
       preparePayState({

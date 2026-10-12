@@ -1,6 +1,7 @@
 import "@/shared/polyfills/temporal";
 
 import { describe, expect, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/email/testing";
 import { Schema } from "effect";
 import { normalizedCoworkReservationOrderSchema } from "./cowork-reservation";
 import {
@@ -8,13 +9,16 @@ import {
   getReservationDefaultValuesFromSearchParams,
 } from "./cowork-reservation-checkout-query";
 
+const adaEmail = testEmailAddress("ada");
+const quotedLocalEmail = testEmailAddress('"quoted local"');
+
 describe("getReservationDefaultValuesFromSearchParams", () => {
   test("uses the shared email validator for checkout query defaults", () => {
     expect(
       getReservationDefaultValuesFromSearchParams({
-        email: '  "quoted local"@example.com  ',
+        email: `  ${quotedLocalEmail}  `,
       }).email
-    ).toBe('"quoted local"@example.com');
+    ).toBe(quotedLocalEmail);
     expect(
       getReservationDefaultValuesFromSearchParams({ email: "invalid@" }).email
     ).toBe("");
@@ -33,12 +37,12 @@ describe("getReservationDefaultValuesFromSearchParams", () => {
   test("decodes customer fields independently as plain records", () => {
     const values = getReservationDefaultValuesFromSearchParams({
       name: "  ",
-      email: "ada@example.com",
+      email: adaEmail,
       phone: "+420777777777",
     });
 
     expect(values.name).toBe("");
-    expect(values.email).toBe("ada@example.com");
+    expect(values.email).toBe(adaEmail);
     expect(values.phone).toBe("+420777777777");
   });
 });
@@ -54,7 +58,7 @@ describe("getReservationDefaultValuesFromPayState", () => {
       coffee: true,
       monitorOption: "2x27-qhd",
       name: "Ada Lovelace",
-      email: "ada@example.com",
+      email: adaEmail,
       phone: "+420 777 000 111",
     });
 
@@ -64,7 +68,7 @@ describe("getReservationDefaultValuesFromPayState", () => {
       coffee: true,
       monitorOption: "2x27-qhd",
       name: "Ada Lovelace",
-      email: "ada@example.com",
+      email: adaEmail,
       phone: "+420 777 000 111",
       billing: { purpose: "personal", invoice: "none" },
       marketingConsent: false,
@@ -76,12 +80,12 @@ describe("retired reservation customer message", () => {
   test("ignores a message query parameter without harming valid siblings", () => {
     const values = getReservationDefaultValuesFromSearchParams(
       new URLSearchParams(
-        "name=Ada%20Lovelace&email=ada%40example.com&phone=%2B420777777777&message=%20Legacy%20note%20&entryTier=open-space&date=2099-06-10"
+        `name=Ada%20Lovelace&email=${encodeURIComponent(adaEmail)}&phone=%2B420777777777&message=%20Legacy%20note%20&entryTier=open-space&date=2099-06-10`
       )
     );
 
     expect(values.name).toBe("Ada Lovelace");
-    expect(values.email).toBe("ada@example.com");
+    expect(values.email).toBe(adaEmail);
     expect(values.phone).toBe("+420777777777");
     expect(values.entryTier).toBe("open-space");
     expect(values.date).toBe("2099-06-10");
@@ -105,7 +109,7 @@ describe("retired reservation customer message", () => {
       coffee: true,
       monitorOption: "2x27-qhd",
       name: "Ada Lovelace",
-      email: "ada@example.com",
+      email: adaEmail,
       phone: "+420 777 000 111",
       message: "Please prepare the standing desk.",
     });
@@ -117,7 +121,7 @@ describe("retired reservation customer message", () => {
       coffee: true,
       monitorOption: "2x27-qhd",
       name: "Ada Lovelace",
-      email: "ada@example.com",
+      email: adaEmail,
       phone: "+420 777 000 111",
       billing: { purpose: "personal", invoice: "none" },
       marketingConsent: false,

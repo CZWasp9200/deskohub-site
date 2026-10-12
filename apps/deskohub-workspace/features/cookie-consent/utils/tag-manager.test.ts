@@ -8,6 +8,7 @@ import {
   mock,
   test,
 } from "bun:test";
+import { testEmailAddress } from "@deskohub/email/testing";
 import {
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
@@ -17,6 +18,8 @@ import {
   TAG_MANAGER_FALLBACK_IDLE_DELAY_MS,
   TAG_MANAGER_IDLE_TIMEOUT_MS,
 } from "./tag-manager";
+
+const infoAddress = testEmailAddress("info");
 
 const CONTAINER_ID = "GTM-TEST123";
 
@@ -133,8 +136,8 @@ describe("scheduleTagManagerLoad", () => {
   );
 
   test.each([
-    ["pointerover", '<a href="mailto:info@example.test">Email</a>', "a"],
-    ["focusin", '<a href="mailto:info@example.test">Email</a>', "a"],
+    ["pointerover", `<a href="mailto:${infoAddress}">Email</a>`, "a"],
+    ["focusin", `<a href="mailto:${infoAddress}">Email</a>`, "a"],
     ["pointerover", "<form><input name='email'></form>", "input"],
     ["focusin", "<form><button type='submit'>Send</button></form>", "button"],
   ])(
@@ -182,7 +185,7 @@ describe("scheduleTagManagerLoad", () => {
   });
 
   test("cancelling before the page is idle or touched loads nothing", () => {
-    document.body.innerHTML = '<a href="mailto:info@example.test">Email</a>';
+    document.body.innerHTML = `<a href="mailto:${infoAddress}">Email</a>`;
     const cancel = scheduleTagManagerLoad(CONTAINER_ID);
     cancel();
 
