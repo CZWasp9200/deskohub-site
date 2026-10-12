@@ -11,6 +11,7 @@ import {
   useState,
 } from "react";
 import { getAccountScreenCopy } from "@/features/account/components/account-screen-copy";
+import { ProfileCompletionReferralNoticeProvider } from "@/features/account/components/profile-completion-referral-notice";
 import {
   type AccountSection,
   AccountShell,
@@ -187,7 +188,9 @@ export function AccountLayoutShell({
       title={m.accountTitle({}, { locale })}
     >
       <AccountLayoutContext.Provider value={contextValue}>
-        {children}
+        <ProfileCompletionReferralNoticeProvider>
+          {children}
+        </ProfileCompletionReferralNoticeProvider>
       </AccountLayoutContext.Provider>
     </AccountShell>
   );

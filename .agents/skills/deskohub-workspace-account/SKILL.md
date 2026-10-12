@@ -63,6 +63,10 @@ description: Workspace customer account, Better Auth, magic link, auth persisten
   already-claimed profiles return the common support state.
 - Claim links with database uniqueness and conflict rereads so same-account
   races are idempotent and a customer claimed by another account is rejected.
+  A `linked` claim reports `created` only for the call that inserted the link.
+  `CustomerProfileService.create` returns `{ account, profile, created }`.
+  An optional signup referral passed to `claim` is written in the link's
+  transaction (see the referrals skill).
 - Keep authentication-not-configured, unauthenticated, unverified-email,
   link-required, and unavailable as a closed public error contract. Attach only
   fixed, non-PII internal failure codes so Auth, link reads, Dotypos lookup,

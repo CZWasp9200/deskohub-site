@@ -15,8 +15,8 @@ import type {
   PromotionCodeId,
 } from "@/features/discounts/persistence-contracts";
 import { instant } from "../instant";
-import { authUser } from "./auth";
 import { postgresUuidV7 } from "../uuid-v7";
+import { authUser } from "./auth";
 import { discountApplications } from "./discount-applications";
 import { promotionCodes } from "./discounts";
 import { quotedSqlList } from "./sql-list";

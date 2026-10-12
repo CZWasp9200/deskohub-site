@@ -66,6 +66,7 @@ const makeLayers = (fakes: {
               kind: "linked",
               customerId:
                 fakes.claimedCustomerId ?? fakes.createdCustomerId ?? "60111",
+              created: fakes.claimedCustomerId === undefined,
             } as const)
       );
     },
@@ -196,11 +197,15 @@ describe("CustomerProfileService", () => {
   test("creates the Dotypos profile with the verified email and claims the link without a provider read", async () => {
     const layers = makeLayers({ createdCustomerId: "60999" });
 
-    const profile = await runProfile(layers, (service) =>
+    const creation = await runProfile(layers, (service) =>
       service.create(account.accountId, verifiedEmail, { firstName: "Nova" })
     );
 
-    expect(profile).toEqual(createdProfile);
+    expect(creation).toEqual({
+      account: { accountId: account.accountId, dotyposCustomerId: "60999" },
+      profile: createdProfile,
+      created: true,
+    });
     expect(layers.createInputs[0]).toMatchObject({ email: verifiedEmail });
     expect(layers.calls.indexOf("create-profile")).toBeLessThan(
       layers.calls.indexOf("claim")
@@ -235,11 +240,12 @@ describe("CustomerProfileService", () => {
   test("returns the linked profile without provider creation when a link already exists", async () => {
     const layers = makeLayers({ link: "60111" });
 
-    const profile = await runProfile(layers, (service) =>
+    const creation = await runProfile(layers, (service) =>
       service.create(account.accountId, verifiedEmail, { firstName: "Ada" })
     );
 
-    expect(profile.firstName).toBe("Ada");
+    expect(creation.profile.firstName).toBe("Ada");
+    expect(creation.created).toBe(false);
     expect(layers.calls.indexOf("find-link")).toBeGreaterThan(-1);
     expect(layers.calls.indexOf("find-link")).toBeLessThan(
       layers.calls.indexOf("read-profile")
@@ -255,11 +261,15 @@ describe("CustomerProfileService", () => {
       claimedCustomerId: "60111",
     });
 
-    const profile = await runProfile(layers, (service) =>
+    const creation = await runProfile(layers, (service) =>
       service.create(account.accountId, verifiedEmail, { firstName: "Ada" })
     );
 
-    expect(profile).toEqual(linkedProfile);
+    expect(creation).toEqual({
+      account: { accountId: account.accountId, dotyposCustomerId: "60111" },
+      profile: linkedProfile,
+      created: false,
+    });
     expect(layers.calls).toContain("create-profile");
     expect(layers.calls).toContain("read-profile");
     expect(layers.readCustomerIds).toEqual(["60111"]);
