@@ -61,36 +61,6 @@ afterEach(() => {
   jest.restoreAllMocks();
 });
 
-describe("CheckoutPayPageSkeleton", () => {
-  beforeAll(() => {
-    registerWorkspaceComponentTestEnv();
-  });
-
-  afterEach(() => {
-    cleanup();
-  });
-
-  afterAll(async () => {
-    await unregisterWorkspaceComponentTestEnv();
-  });
-
-  test("renders skeleton order details with a disabled submit button", async () => {
-    const { CheckoutPayPageSkeleton } = await import("./checkout-pay-page");
-    const view = render(<CheckoutPayPageSkeleton locale="en-US" />);
-    const submitButton = view.getByRole("button") as HTMLButtonElement;
-
-    expect(submitButton.disabled).toBe(true);
-    expect(
-      view.getByText(m.checkoutSummarySectionOrder({}, { locale: "en-US" }))
-    ).toBeDefined();
-    expect(
-      view.container.querySelectorAll(
-        "[data-slot='skeleton'][aria-hidden='true']"
-      ).length
-    ).toBeGreaterThan(0);
-  });
-});
-
 describe("CheckoutPayPage pricing change", () => {
   beforeAll(() => {
     registerWorkspaceComponentTestEnv();

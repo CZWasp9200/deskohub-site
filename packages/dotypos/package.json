@@ -9,7 +9,9 @@
     "./backend/service.mock": "./src/backend/service.mock.ts",
     "./table-map": "./src/table-map.tsx",
     "./generated": "./src/generated/index.ts",
-    "./generated/*": "./src/generated/*.ts"
+    "./generated/*": "./src/generated/*.ts",
+    "./phone-number": "./src/utils/phone-formatting.ts",
+    "./types": "./src/types.ts"
   },
   "scripts": {
     "generate": "bun ../../scripts/generate-effect-openapi-client.ts --spec ./openapi/dotypos-api.yaml --name DotyposClient --output ./src/generated/effect.gen.ts",

@@ -41,6 +41,7 @@
     "./lint/no-raw-environment-in-e2e-launcher.grit",
     "./lint/no-repeated-computed-conditional-operand.grit",
     "./lint/no-runtime-typeof.grit",
+    "./lint/no-server-env-in-client-modules.grit",
     "./lint/no-shape-in-symbol-names.grit",
     "./lint/no-standalone-capability-layers.grit",
     "./lint/no-synchronous-subprocess.grit",
