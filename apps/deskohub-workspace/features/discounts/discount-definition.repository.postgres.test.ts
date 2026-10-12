@@ -1,6 +1,7 @@
 import "@/shared/testing/workspace-test-env";
 
 import { afterAll, describe, expect, test } from "bun:test";
+import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { discountProductTargets, discounts } from "@/db/schema";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
@@ -115,6 +116,34 @@ describe.skipIf(!testDatabase)(
           },
           products: [{ kind: "meeting-room" }],
         },
+      });
+    });
+
+    test("stores cowork tier targets exactly, without widening them to every tier", async () => {
+      const discountId = await insertDiscount({
+        adjustment: { percentageBasisPoints: 1000 },
+        products: [
+          { kind: "cowork", tier: "open-space" },
+          { kind: "cowork", tier: "reserved-desk" },
+        ],
+      });
+      await Effect.runPromise(
+        testDatabase.db.delete(discountProductTargets).where(
+          and(
+            eq(discountProductTargets.discountId, discountId),
+            eq(discountProductTargets.productTarget, {
+              kind: "cowork",
+              tier: "reserved-desk",
+            })
+          )
+        )
+      );
+
+      const result = await loadById(discountId);
+
+      expect(result).toMatchObject({
+        _tag: "Success",
+        success: { products: [{ kind: "cowork", tier: "open-space" }] },
       });
     });
 

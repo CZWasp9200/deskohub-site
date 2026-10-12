@@ -11,7 +11,11 @@ import { Effect, Schema } from "effect";
 import {
   accountingDocumentSnapshots,
   discountApplications,
+  discountCodes,
+  discountProductTargets,
+  discounts,
   paymentAttempts,
+  promotionCodes,
   workspaceReservations,
 } from "@/db/schema";
 import {
@@ -26,9 +30,13 @@ import {
 } from "@/features/discounts/commitment";
 import { discountIdSchema } from "@/features/discounts/contracts";
 import {
+  canonicalPromotionCodeSchema,
   discountCodeIdSchema,
+  promotionCodeIdSchema,
+  type StoredDiscountId,
   storedDiscountIdSchema,
 } from "@/features/discounts/persistence-contracts";
+import type { WorkspaceProductTarget } from "@/features/discounts/product-target";
 import {
   type WorkspaceReservationId,
   workspaceReservationIdSchema,
@@ -43,6 +51,7 @@ describe.skipIf(!testDatabase)(
   () => {
     if (!testDatabase) return;
     const reservationIds: WorkspaceReservationId[] = [];
+    const discountIds: StoredDiscountId[] = [];
 
     afterAll(async () => {
       // Snapshots may only be deleted once their attempt is terminal.
@@ -52,6 +61,10 @@ describe.skipIf(!testDatabase)(
       );
       await testDatabase.pool.query(
         "delete from accounting_document_snapshots where workspace_reservation_id = any($1)",
+        [reservationIds]
+      );
+      await testDatabase.pool.query(
+        "delete from discount_code_redemptions where application_id in (select id from discount_applications where workspace_reservation_id = any($1))",
         [reservationIds]
       );
       await testDatabase.pool.query(
@@ -65,6 +78,14 @@ describe.skipIf(!testDatabase)(
       await testDatabase.pool.query(
         "delete from workspace_reservations where id = any($1)",
         [reservationIds]
+      );
+      await testDatabase.pool.query(
+        "delete from promotion_codes where id in (select promotion_code_id from discount_codes where discount_id = any($1))",
+        [discountIds]
+      );
+      await testDatabase.pool.query(
+        "delete from discounts where id = any($1)",
+        [discountIds]
       );
     });
 
@@ -195,6 +216,135 @@ describe.skipIf(!testDatabase)(
       );
       return { reservation, attempts, snapshots, applications };
     };
+
+    /** Inserts a synthetic enabled, unrestricted discount code for the products. */
+    const insertDiscountCode = async (
+      products: readonly [WorkspaceProductTarget, ...WorkspaceProductTarget[]]
+    ) => {
+      const storedDiscountId = storedDiscountIdSchema.make(crypto.randomUUID());
+      const codeId = discountCodeIdSchema.make(crypto.randomUUID());
+      const promotionCodeId = promotionCodeIdSchema.make(codeId);
+      const code = canonicalPromotionCodeSchema.make(
+        `TIER-${codeId.slice(0, 8).toUpperCase()}`
+      );
+      discountIds.push(storedDiscountId);
+      await Effect.runPromise(
+        testDatabase.db.transaction((tx) =>
+          Effect.gen(function* () {
+            yield* tx.insert(discounts).values({
+              id: storedDiscountId,
+              labels: { "cs-CZ": "Tarifní sleva", "en-US": "Tier discount" },
+              percentageBasisPoints: 1000,
+            });
+            yield* tx.insert(discountProductTargets).values(
+              products.map((productTarget) => ({
+                discountId: storedDiscountId,
+                productTarget,
+              }))
+            );
+            yield* tx.insert(promotionCodes).values({
+              id: promotionCodeId,
+              kind: "discount",
+              code,
+              enabled: true,
+            });
+            yield* tx.insert(discountCodes).values({
+              id: codeId,
+              code,
+              enabled: true,
+              promotionCodeId,
+              discountId: storedDiscountId,
+            });
+          })
+        )
+      );
+      return { codeId, storedDiscountId };
+    };
+
+    const claimTierDiscountCode = async (input: {
+      readonly products: readonly [
+        WorkspaceProductTarget,
+        ...WorkspaceProductTarget[],
+      ];
+      readonly product: {
+        readonly kind: "cowork";
+        readonly tier: "open-space" | "reserved-desk";
+      };
+    }) => {
+      const reservation = await insertHeldReservation();
+      const { codeId, storedDiscountId } = await insertDiscountCode(
+        input.products
+      );
+      const snapshot = makeSnapshot(reservation);
+      const discount = {
+        id: Schema.decodeUnknownSync(discountIdSchema)(`code-${codeId}`),
+        label: "Tier discount",
+        adjustment: { kind: "percentage" as const, basisPoints: 1000 },
+      };
+      const subtotalBefore = snapshot.quote.payment.expectedPrice;
+      const amount = { ...subtotalBefore, value: subtotalBefore.value / 10 };
+
+      return createPendingNexiAttempt({
+        ...reservation,
+        snapshot,
+        commitment: makeDiscountCommitment({
+          product: input.product,
+          applications: [
+            {
+              application: {
+                discount,
+                subtotalBefore,
+                amount,
+                subtotalAfter: {
+                  ...subtotalBefore,
+                  value: subtotalBefore.value - amount.value,
+                },
+              },
+              candidate: {
+                discount,
+                provenance: {
+                  providerNamespace: "synthetic",
+                  providerReference: "synthetic",
+                },
+                claim: {
+                  kind: "discount_code",
+                  codeId,
+                  storedDiscountId,
+                  dotyposCustomerId: reservation.dotyposCustomerId,
+                  product: input.product,
+                },
+              },
+            },
+          ],
+        }),
+      });
+    };
+
+    test("claims a discount code through a broad or matching cowork tier target", async () => {
+      const broad = await claimTierDiscountCode({
+        products: [{ kind: "cowork" }],
+        product: { kind: "cowork", tier: "open-space" },
+      });
+      const tier = await claimTierDiscountCode({
+        products: [{ kind: "cowork", tier: "reserved-desk" }],
+        product: { kind: "cowork", tier: "reserved-desk" },
+      });
+
+      expect(broad._tag).toBe("Success");
+      expect(tier._tag).toBe("Success");
+    });
+
+    test("refuses a discount code claim for a cowork tier its targets omit", async () => {
+      const result = await claimTierDiscountCode({
+        products: [{ kind: "cowork", tier: "reserved-desk" }],
+        product: { kind: "cowork", tier: "open-space" },
+      });
+
+      expect(result).toMatchObject({
+        _tag: "Failure",
+        failure: { _tag: "DiscountClaimError", reason: "product_ineligible" },
+      });
+    });
 
     test("admits the attempt, its accounting snapshot, and the reservation link together", async () => {
       const reservation = await insertHeldReservation();
