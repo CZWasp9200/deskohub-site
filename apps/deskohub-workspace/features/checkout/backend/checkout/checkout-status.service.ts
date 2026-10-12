@@ -1,7 +1,16 @@
 import { DotyposService } from "@deskohub/dotypos";
 import type { Customer } from "@deskohub/dotypos/generated";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
-import { Context, Effect, Layer, Match, Option, Schema } from "effect";
+import {
+  Clock,
+  Context,
+  Duration,
+  Effect,
+  Layer,
+  Match,
+  Option,
+  Schema,
+} from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import type {
   FulfillmentState,
@@ -37,6 +46,7 @@ import type { StoredOfficeReservationDetails } from "@/features/reservation/offi
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import { dotyposReservationSeatsSchema } from "@/features/reservation/reservation-seats";
 import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
+import { nexiRequestTimeout } from "@/shared/backend/config/nexi.config";
 import { LatePaymentVerificationService } from "../payment/late-payment-verification.service";
 import { ProviderPaymentFinalizationService } from "../payment/provider-payment-finalization.service";
 import { LatePaymentRecoveryRepository } from "../repositories/late-payment-recovery.repository";
@@ -293,13 +303,13 @@ const getEmptyCheckoutStatusReservation = (
 const summaryTimeout = "8 seconds";
 
 /**
- * Bounds each Nexi payment verification in a status refresh, retries
+ * Bounds all Nexi payment verification in one status refresh, retries
  * included. It fits one full sandbox-length Nexi request and leaves time, with
  * the 8-second summary cap, to render the stored status within the status
  * page's 60-second `maxDuration`. Production lookups (5 seconds each) keep
  * their usual retries.
  */
-const refreshVerificationDeadline = "40 seconds";
+const refreshVerificationBudget = Duration.seconds(40);
 
 const implementation = Effect.gen(function* () {
   const reservations = yield* WorkspaceReservationRepository;
@@ -643,23 +653,47 @@ const implementation = Effect.gen(function* () {
     refreshStatus: Effect.fn("CheckoutStatusService.refreshStatus")(
       function* (input) {
         yield* Effect.logInfo("Checkout status refresh started");
+        const verificationStartedAt = yield* Clock.currentTimeMillis;
+        const remainingVerificationBudget = Clock.currentTimeMillis.pipe(
+          Effect.map((now) =>
+            Duration.max(
+              Duration.subtract(
+                refreshVerificationBudget,
+                Duration.millis(now - verificationStartedAt)
+              ),
+              Duration.zero
+            )
+          )
+        );
 
         // Finalization loads the reservation and resolves its active attempt;
         // an order without one returns not_found and renders as stored.
         const result = yield* finalization.finalizePendingProviderPayment({
           orderId: input.orderId,
-          verificationDeadline: refreshVerificationDeadline,
+          verificationDeadline: refreshVerificationBudget,
         });
         yield* Effect.annotateLogsScoped({ result });
         yield* Effect.logInfo("Checkout status refresh finalization completed");
 
         if (result === "not_pending") {
-          const latePayment =
-            yield* latePaymentVerification.startRecoveryIfSettled({
-              orderId: input.orderId,
-              verificationDeadline: refreshVerificationDeadline,
-            });
-          yield* Effect.annotateLogsScoped({ latePayment });
+          // A slow finalization lookup can lose a race with a concurrent
+          // terminal transition. Start the late-payment lookup only when one
+          // full Nexi request still fits the shared budget; otherwise the
+          // success notification or a later refresh verifies it.
+          const remaining = yield* remainingVerificationBudget;
+          if (Duration.isLessThan(remaining, nexiRequestTimeout)) {
+            yield* Effect.logWarning(
+              "Checkout status refresh deferred late-payment verification",
+              { remainingMilliseconds: Duration.toMillis(remaining) }
+            );
+          } else {
+            const latePayment =
+              yield* latePaymentVerification.startRecoveryIfSettled({
+                orderId: input.orderId,
+                verificationDeadline: remaining,
+              });
+            yield* Effect.annotateLogsScoped({ latePayment });
+          }
         }
 
         if (result !== "terminal") {
