@@ -6,6 +6,7 @@ import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace
 import { E2EDatabase } from "./database.service";
 import {
   discountCodeFixtures,
+  discountDefinitionFixtureIds,
   seedDiscountE2EFixtures,
 } from "./discount-fixtures";
 
@@ -32,15 +33,7 @@ describe.skipIf(!testDatabase)(
           )
         )
       );
-    const seededDiscountIds = async () =>
-      (
-        await pool.query<{ discount_id: string }>(
-          "select distinct discount_id from discount_codes where id = any($1)",
-          [discountCodeIds]
-        )
-      ).rows.map(({ discount_id }) => discount_id);
     const snapshot = async () => {
-      const discountIds = await seededDiscountIds();
       const [codes, promotions, customers, targets, issued] = await Promise.all(
         [
           pool.query(
@@ -57,7 +50,7 @@ describe.skipIf(!testDatabase)(
           ),
           pool.query(
             "select discount_id, product_target from discount_targets where discount_id = any($1) order by discount_id, product_target::text",
-            [discountIds]
+            [discountDefinitionFixtureIds]
           ),
           pool.query(
             "select id, issued_amount_value from vouchers where id = any($1) order by id",
@@ -75,7 +68,6 @@ describe.skipIf(!testDatabase)(
     };
 
     afterAll(async () => {
-      const discountIds = await seededDiscountIds();
       // Deleting a discount code also deletes its synced promotion code.
       await pool.query("delete from discount_codes where id = any($1)", [
         discountCodeIds,
@@ -84,7 +76,7 @@ describe.skipIf(!testDatabase)(
         voucherIds,
       ]);
       await pool.query("delete from discounts where id = any($1)", [
-        discountIds,
+        discountDefinitionFixtureIds,
       ]);
     });
 

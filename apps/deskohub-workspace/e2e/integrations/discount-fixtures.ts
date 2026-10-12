@@ -146,6 +146,8 @@ const definitions: readonly DiscountDefinitionFixture[] = [
   },
 ];
 
+export const discountDefinitionFixtureIds = definitions.map(({ id }) => id);
+
 const voucherFixtures: readonly VoucherFixture[] = [
   discountCodeFixtures.voucherReuse,
   discountCodeFixtures.voucherFull,
