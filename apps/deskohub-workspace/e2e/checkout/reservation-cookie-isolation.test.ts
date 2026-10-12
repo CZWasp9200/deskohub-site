@@ -1,6 +1,7 @@
 import "../../shared/polyfills/temporal";
 
 import { expect, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/email/testing";
 import type { Browser } from "@playwright/test";
 import { Effect } from "effect";
 import { browserTextScript } from "../browser-scripts";
@@ -18,7 +19,7 @@ const baseUrl = "https://workspace.test";
 const orderId = "019f70bd-0131-7f30-9f8a-48e768f00292";
 const customerId = "dotypos-customer-paid";
 const targetStatusUrl = `${baseUrl}/en-US/reservation/status/${orderId}`;
-const originalUrl = `${baseUrl}/en-US/contact?email=synthetic%40example.test&message=${orderId}`;
+const originalUrl = `${baseUrl}/en-US/contact?email=${encodeURIComponent(testEmailAddress("synthetic"))}&message=${orderId}`;
 
 const config: WorkspaceE2EConfig = {
   baseUrl,

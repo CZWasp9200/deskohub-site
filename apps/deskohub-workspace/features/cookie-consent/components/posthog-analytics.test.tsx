@@ -8,6 +8,7 @@ import {
   mock,
   test,
 } from "bun:test";
+import { testEmailAddress } from "@deskohub/email/testing";
 import { act, cleanup, render } from "@testing-library/react";
 import type {
   BeforeSendFn,
@@ -1070,7 +1071,7 @@ describe("PostHogAnalytics", () => {
     const request: CapturedNetworkRequest = {
       duration: 1,
       entryType: "resource",
-      name: "https://deskohub.test/account?email=synthetic%40example.test#secret",
+      name: `https://deskohub.test/account?email=${encodeURIComponent(testEmailAddress("synthetic"))}#secret`,
       requestBody: "synthetic-request-body",
       requestHeaders: { authorization: "synthetic-token" },
       responseBody: "synthetic-response-body",

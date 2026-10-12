@@ -1,8 +1,8 @@
 engine biome(1.0)
 language js(typescript, jsx)
 
-// Test code builds addresses with `testEmailAddress` (EMAIL_TEST_DOMAIN, so
-// mail routes to Console) or `resendSimulatorAddress` from
+// Test code builds addresses with `testEmailAddress` (on the EMAIL_TEST_DOMAIN
+// constant, so mail routes to Console) or `resendSimulatorAddress` from
 // `@deskohub/email/testing`; a hand-written address could reach a real inbox.
 // Credentials in URLs (`user:secret@host`) are not addresses and stay allowed.
 file($name, $body) where {
@@ -21,12 +21,26 @@ file($name, $body) where {
         JsxString() as $literal,
         JsxText() as $literal
       } where {
-        $literal <: r"(?s)(?:.*[\s\"'`<>(\[{,;=])?(?:mailto:)?[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}(?:[^A-Za-z0-9.-].*)?"
+        $literal <: or {
+          // A host followed by a path (`secret@host/db`) is a URL, not an address.
+          r"(?s)(?:.*[\s\"'`<>(\[{,;=])?(?:mailto:)?[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}(?:[^A-Za-z0-9.\-/].*)?",
+          // Escaped, entity-encoded, or URL-encoded `@` still spells an address.
+          r"(?s).*[A-Za-z0-9._+-](?:\\x40|\\u0040|\\u\{40\}|&#0*64;|&#[xX]0*40;|&commat;|%40)[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}(?:[^A-Za-z0-9.-].*)?"
+        }
       },
       // `${localPart}@example.com` writes the domain by hand; a URL host after
       // interpolated credentials (`${password}@example.com/app.js`) does not.
       JsTemplateChunkElement() as $literal where {
         $literal <: r"(?s)@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}(?:[^A-Za-z0-9.\-/:?#].*)?"
+      },
+      // `"ada" + "@example.com"` concatenates a hand-written domain.
+      JsStringLiteralExpression() as $literal where {
+        $literal <: r"(?s)[\"']@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}(?:[^A-Za-z0-9.\-/:?#].*)?[\"']"
+      },
+      // `"ada@" + "example.com"` splits the address after the `@`.
+      `$left + $right` as $literal where {
+        $left <: r"(?s)[\"'].*[A-Za-z0-9._%+-]@[\"']",
+        $right <: r"(?s)[\"'][A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}(?:[^A-Za-z0-9.\-/:?#].*)?[\"']"
       }
     } where {
       register_diagnostic(

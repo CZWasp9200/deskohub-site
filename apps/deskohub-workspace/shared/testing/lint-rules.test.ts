@@ -94,6 +94,13 @@ const urlCredentials = `export const url = "postgresql://owner:${["secret", "ep-
 const interpolatedCredentials = `export const url = \`https://user:\${secret}${["", "example.com"].join("@")}/app.js\`;\n`;
 const packageSpecifier =
   'export const specifier = "@deskohub/email/testing";\n';
+// Escaped and encoded `@` spellings, assembled so this module stays clean.
+const encodedAddress = (at: string) =>
+  `export const recipient = "${["ada", at, "example.com"].join("")}";\n`;
+const concatenatedDomain = `export const recipient = "ada" + "${["", "example.com"].join("@")}";\n`;
+const concatenatedAfterAt = `export const recipient = "${["ada", ""].join("@")}" + "example.com";\n`;
+const concatenatedCredentials = `export const url = "postgresql://owner:" + "${["secret", "ep-preview.eu.neon.tech"].join("@")}/db";\n`;
+const percentWithoutDomain = 'export const label = "50%40off";\n';
 const emailTests = "apps/deskohub-workspace/features/contact";
 
 const blockBodiedComposed = `export const deliver = (request: string): Effect.Effect<string> => {
@@ -281,6 +288,17 @@ const rules: { name: string; diagnostic: string; module: string; cases: Row[] }[
       ["permits URL credentials", urlCredentials, false],
       ["permits a URL host after interpolated credentials", interpolatedCredentials, false],
       ["permits package specifiers", packageSpecifier, false],
+      ["rejects a concatenated hand-written domain", concatenatedDomain, true],
+      ["rejects an address split after the @", concatenatedAfterAt, true],
+      ["rejects a hex-escaped @", encodedAddress("\\x40"), true],
+      ["rejects a unicode-escaped @", encodedAddress("\\u0040"), true],
+      ["rejects a code-point-escaped @", encodedAddress("\\u{40}"), true],
+      ["rejects a decimal entity @", encodedAddress("&#64;"), true],
+      ["rejects a hex entity @", encodedAddress("&#x40;"), true],
+      ["rejects a named entity @", encodedAddress("&commat;"), true],
+      ["rejects a URL-encoded @", encodedAddress("%40"), true],
+      ["permits concatenated URL credentials", concatenatedCredentials, false],
+      ["permits an encoded @ without a domain", percentWithoutDomain, false],
       ["permits production modules", addressLiteral, false, `${emailTests}/contact.service.ts`],
     ],
   },
