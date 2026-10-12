@@ -168,7 +168,7 @@ const createInvitedCustomer = async (withAttribution = true) => {
   const invitedDotyposCustomerId = customerId();
   const referrerDotyposCustomerId = customerId();
   const code = canonicalPromotionCodeSchema.make(
-    "RFL" + crypto.randomUUID().replaceAll("-", "").slice(0, 12).toUpperCase()
+    `RFL${crypto.randomUUID().replaceAll("-", "").slice(0, 12).toUpperCase()}`
   );
   const [promotion] = await Effect.runPromise(
     testDatabase!.db
@@ -260,9 +260,9 @@ const createHeldReservation = async (
     testDatabase!.db
       .insert(workspaceReservations)
       .values({
-        checkoutAttemptKey: "referral-payment-" + uniqueId(),
+        checkoutAttemptKey: `referral-payment-${uniqueId()}`,
         dotyposCustomerId,
-        dotyposReservationId: ("dotypos-" + uniqueId()) as DotyposReservationId,
+        dotyposReservationId: `dotypos-${uniqueId()}` as DotyposReservationId,
         reservationState: "held",
         paymentState: "not_started",
         fulfillmentState: "not_started",
@@ -279,7 +279,7 @@ const createOrdinaryDiscountCode = async (
   dotyposCustomerId: DotyposCustomerId
 ) => {
   const code = canonicalPromotionCodeSchema.make(
-    "D" + uniqueId().replaceAll("-", "").slice(0, 12).toUpperCase()
+    `D${uniqueId().replaceAll("-", "").slice(0, 12).toUpperCase()}`
   );
   const labels = {
     "en-US": "Stored campaign",
@@ -363,7 +363,7 @@ const createVoucher = async (
   amount = 2_000
 ) => {
   const code = canonicalPromotionCodeSchema.make(
-    "V" + uniqueId().replaceAll("-", "").slice(0, 12).toUpperCase()
+    `V${uniqueId().replaceAll("-", "").slice(0, 12).toUpperCase()}`
   );
   const [promotion] = await Effect.runPromise(
     testDatabase!.db
@@ -566,7 +566,7 @@ const admit = (
 ) =>
   repository.createPendingNexiAttempt({
     workspaceReservationId: reservation.id,
-    providerOrderId: ("order-" + uniqueId()) as never,
+    providerOrderId: `order-${uniqueId()}` as never,
     amount: input.admission.amount,
     commitment: input.admission.commitment,
     locale: input.locale,
@@ -740,7 +740,7 @@ describe.skipIf(!testDatabase)(
           if (alreadyPaid) {
             await Effect.runPromise(
               testDatabase!.db.insert(workspaceReservations).values({
-                checkoutAttemptKey: "referral-history-" + uniqueId(),
+                checkoutAttemptKey: `referral-history-${uniqueId()}`,
                 dotyposCustomerId: fixture.invitedDotyposCustomerId,
                 dotyposReservationId: ("dotypos-history-" +
                   uniqueId()) as DotyposReservationId,
@@ -1024,7 +1024,7 @@ describe.skipIf(!testDatabase)(
           lateRecoveries.start({
             paymentAttemptId: oldAttempt.id,
             workspaceReservationId: oldReservation.id,
-            webhookEventId: ("webhook-" + uniqueId()) as never,
+            webhookEventId: `webhook-${uniqueId()}` as never,
             verifiedPaidAt: Temporal.Now.instant(),
           })
         );
@@ -1119,7 +1119,7 @@ describe.skipIf(!testDatabase)(
           lateRecoveries.start({
             paymentAttemptId: oldAttempt.id,
             workspaceReservationId: oldReservation.id,
-            webhookEventId: ("webhook-" + uniqueId()) as never,
+            webhookEventId: `webhook-${uniqueId()}` as never,
             verifiedPaidAt: Temporal.Now.instant(),
           })
         );
@@ -1188,7 +1188,7 @@ const createReferralCode = async (
       .values({
         kind: "referral",
         code: canonicalPromotionCodeSchema.make(
-          "RFL" + uniqueId().replaceAll("-", "").slice(0, 12).toUpperCase()
+          `RFL${uniqueId().replaceAll("-", "").slice(0, 12).toUpperCase()}`
         ),
         enabled: true,
       })
@@ -1484,7 +1484,7 @@ describe.skipIf(!testDatabase)(
           lateRecoveries.start({
             paymentAttemptId: attempt.id,
             workspaceReservationId: reservation.id,
-            webhookEventId: ("webhook-" + uniqueId()) as never,
+            webhookEventId: `webhook-${uniqueId()}` as never,
             verifiedPaidAt: Temporal.Now.instant(),
           })
         );

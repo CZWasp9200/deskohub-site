@@ -278,10 +278,10 @@ describe.skipIf(!testDatabase)("ReferralService on disposable Postgres", () => {
     const customerA = uniqueDotyposId();
     const customerB = uniqueDotyposId();
     const codeA = canonicalPromotionCodeSchema.make(
-      "RFL" + uniqueId().replaceAll("-", "").slice(0, 12).toUpperCase()
+      `RFL${uniqueId().replaceAll("-", "").slice(0, 12).toUpperCase()}`
     );
     const codeB = canonicalPromotionCodeSchema.make(
-      "RFL" + uniqueId().replaceAll("-", "").slice(0, 12).toUpperCase()
+      `RFL${uniqueId().replaceAll("-", "").slice(0, 12).toUpperCase()}`
     );
     let promotionA: string | undefined;
     let promotionB: string | undefined;
@@ -418,17 +418,17 @@ describe.skipIf(!testDatabase)("ReferralService on disposable Postgres", () => {
     const unpaidReferral = await insertReferralFixture({
       inviteeCustomerId: unpaidCustomer,
       ownerCustomerId: unpaidOwner,
-      code: "RFL" + uniqueId().replaceAll("-", "").slice(0, 12).toUpperCase(),
+      code: `RFL${uniqueId().replaceAll("-", "").slice(0, 12).toUpperCase()}`,
     });
     const unknownReferral = await insertReferralFixture({
       inviteeCustomerId: unknownCustomer,
       ownerCustomerId: unknownOwner,
-      code: "RFL" + uniqueId().replaceAll("-", "").slice(0, 12).toUpperCase(),
+      code: `RFL${uniqueId().replaceAll("-", "").slice(0, 12).toUpperCase()}`,
     });
     await Effect.runPromise(
       testDatabase!.db.insert(workspaceReservations).values({
         checkoutAttemptKey: checkoutAttemptKeySchema.make(
-          "referral-unpaid-" + uniqueId()
+          `referral-unpaid-${uniqueId()}`
         ),
         dotyposCustomerId: unpaidCustomer,
         dotyposReservationId: unpaidReservationId,
@@ -481,7 +481,7 @@ describe.skipIf(!testDatabase)("ReferralService on disposable Postgres", () => {
               },
               [
                 makeLiveConfirmedReservation(
-                  ("untracked-" + uniqueId()) as DotyposReservationId
+                  `untracked-${uniqueId()}` as DotyposReservationId
                 ),
               ]
             )
@@ -507,11 +507,11 @@ describe.skipIf(!testDatabase)("ReferralService on disposable Postgres", () => {
     const inviteeCustomerId = uniqueDotyposId();
     const ownerCustomerId = uniqueDotyposId();
     const ownerAccountId = customerAccountIdSchema.make(uniqueId());
-    const paidReservationId = ("paid-" + uniqueId()) as DotyposReservationId;
+    const paidReservationId = `paid-${uniqueId()}` as DotyposReservationId;
     const referral = await insertReferralFixture({
       inviteeCustomerId,
       ownerCustomerId,
-      code: "RFL" + uniqueId().replaceAll("-", "").slice(0, 12).toUpperCase(),
+      code: `RFL${uniqueId().replaceAll("-", "").slice(0, 12).toUpperCase()}`,
     });
     await insertAuthUser(oldAccountId);
     await insertAuthUser(newAccountId);
@@ -523,7 +523,7 @@ describe.skipIf(!testDatabase)("ReferralService on disposable Postgres", () => {
     await Effect.runPromise(
       testDatabase!.db.insert(workspaceReservations).values({
         checkoutAttemptKey: checkoutAttemptKeySchema.make(
-          "referral-paid-" + uniqueId()
+          `referral-paid-${uniqueId()}`
         ),
         dotyposCustomerId: inviteeCustomerId,
         dotyposReservationId: paidReservationId,
