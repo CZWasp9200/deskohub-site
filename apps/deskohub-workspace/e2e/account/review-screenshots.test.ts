@@ -808,6 +808,71 @@ describe("account review screenshot capture", () => {
     expect(writeFileSpy?.mock.calls).toHaveLength(0);
   });
 
+  test("requires the destination share code on share-link pages", async () => {
+    const shareReview = { ...review, referralCode: "RFLSYNTHETIC1" };
+    for (const [target, url] of [
+      ["sign-in-desktop", `${baseUrl}/en-US/auth/sign-in?ref=RFLSYNTHETIC1`],
+      [
+        "sign-in-accepted-desktop",
+        `${baseUrl}/en-US/auth/sign-in?ref=RFLSYNTHETIC1`,
+      ],
+      [
+        "completion-mobile375x900",
+        `${baseUrl}/en-US/account?ref=RFLSYNTHETIC1`,
+      ],
+      [
+        "callback-loading-desktop",
+        `${baseUrl}/en-US/auth/callback?attempt=${attemptUuid}&ref=RFLSYNTHETIC1`,
+      ],
+    ] as const) {
+      const fakePage = makeFakePage(url);
+      await captureAccountReview(fakePage.page, shareReview, target);
+      expect(fakePage.screenshotCalls).toHaveLength(1);
+    }
+
+    for (const [destination, url] of [
+      [shareReview, `${baseUrl}/en-US/auth/sign-in`],
+      [shareReview, `${baseUrl}/en-US/auth/sign-in?ref=RFLOTHERCODE`],
+      [
+        shareReview,
+        `${baseUrl}/en-US/auth/sign-in?ref=RFLSYNTHETIC1&ref=RFLSYNTHETIC1`,
+      ],
+      [
+        shareReview,
+        `${baseUrl}/en-US/auth/sign-in?ref=RFLSYNTHETIC1&token=synthetic-secret-token`,
+      ],
+      [review, `${baseUrl}/en-US/auth/sign-in?ref=RFLSYNTHETIC1`],
+    ] as const) {
+      const fakePage = makeFakePage(url);
+      await expect(
+        captureAccountReview(fakePage.page, destination, "sign-in-desktop")
+      ).rejects.toThrow(captureFailureMessage);
+      expect(fakePage.screenshotCalls).toHaveLength(0);
+    }
+
+    const otherCallback = makeFakePage(
+      `${baseUrl}/en-US/auth/callback?attempt=${attemptUuid}&ref=RFLOTHERCODE`
+    );
+    await expect(
+      captureAccountReview(
+        otherCallback.page,
+        shareReview,
+        "callback-loading-desktop"
+      )
+    ).rejects.toThrow(captureFailureMessage);
+    // Linked account pages keep their own closed query grammar.
+    const linkedWithCode = makeFakePage(
+      `${baseUrl}/en-US/account?ref=RFLSYNTHETIC1`
+    );
+    await expect(
+      captureAccountReview(
+        linkedWithCode.page,
+        shareReview,
+        "linked-profile-desktop"
+      )
+    ).rejects.toThrow(captureFailureMessage);
+  });
+
   test("allows the closed invalid-token callback query", async () => {
     const fakePage = makeFakePage(
       `${baseUrl}/en-US/auth/callback?error=INVALID_TOKEN`

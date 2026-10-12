@@ -802,6 +802,59 @@ describe("account callback handoff review", () => {
     expect(fakePage.unrouteCallCount()).toBe(1);
   });
 
+  test("accepts the destination share code beside the attempt parameter", async () => {
+    const fakePage = makeCallbackFakePage();
+
+    await withCallbackHandoffReview(
+      fakePage.page,
+      { ...review, referralCode: "RFLSYNTHETIC1" },
+      async () => {
+        await fakePage.dispatch(accountUrl, {
+          pageUrl: `${callbackUrl}?attempt=${attemptUuid}&ref=RFLSYNTHETIC1`,
+        });
+      }
+    );
+
+    expect(fakePage.screenshotCalls).toHaveLength(1);
+    expect(fakePage.continueCallCount()).toBe(1);
+  });
+
+  for (const [name, destination, pageUrl] of [
+    [
+      "a share code the destination does not expect",
+      review,
+      `${callbackUrl}?attempt=${attemptUuid}&ref=RFLSYNTHETIC1`,
+    ],
+    [
+      "another share code",
+      { ...review, referralCode: "RFLSYNTHETIC1" },
+      `${callbackUrl}?attempt=${attemptUuid}&ref=RFLOTHERCODE`,
+    ],
+    [
+      "a missing expected share code",
+      { ...review, referralCode: "RFLSYNTHETIC1" },
+      `${callbackUrl}?attempt=${attemptUuid}`,
+    ],
+    [
+      "a duplicated share code",
+      { ...review, referralCode: "RFLSYNTHETIC1" },
+      `${callbackUrl}?attempt=${attemptUuid}&ref=RFLSYNTHETIC1&ref=RFLSYNTHETIC1`,
+    ],
+  ] as const) {
+    test(`rejects ${name} before capture`, async () => {
+      const fakePage = makeCallbackFakePage();
+
+      await expect(
+        withCallbackHandoffReview(fakePage.page, destination, async () => {
+          await fakePage.dispatch(accountUrl, { pageUrl });
+        })
+      ).rejects.toThrow(callbackHandoffFailureMessage);
+
+      expect(fakePage.screenshotCalls).toHaveLength(0);
+      expect(fakePage.continueCallCount()).toBe(1);
+    });
+  }
+
   for (const [name, pageUrl] of [
     ["a malformed attempt UUID", `${callbackUrl}?attempt=not-a-uuid`],
     [

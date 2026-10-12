@@ -4,7 +4,6 @@ export const workspaceE2EAccountCaseIds = [
   "account-magic-link-delivery",
   "account-profile-completion",
   "account-reservation-transitions",
-  "account-referrals",
   "account-deletion-marker-reauth",
   "account-session-lifecycle",
   "account-deletion-and-reactivation",

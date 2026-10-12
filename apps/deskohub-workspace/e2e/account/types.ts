@@ -19,16 +19,14 @@ export type WorkspaceE2EAccountRequirement =
  */
 export type WorkspaceE2EAccountLifecycleHandoff = {
   firstAcceptedRequestedAt?: Date;
-  referralCheckoutContact?: {
-    readonly customerId: string;
-    readonly email: string;
-    readonly name: string;
-    readonly phone: string;
+  /**
+   * The synthetic referrer's share code, which the main account follows from
+   * its first anonymous visit through sign-in into profile completion.
+   */
+  referralInvitation?: {
+    readonly code: string;
+    readonly referrerCustomerId: string;
   };
-  /** The share code the main account follows before completing its profile. */
-  referralInvitationCode?: string;
-  /** A usable code from a second referrer, which the attributed account must not switch to. */
-  referralOtherReferrerCode?: string;
   reauthentication?: {
     link: string;
     userId: string;

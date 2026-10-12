@@ -12,7 +12,6 @@ import {
   makeWorkspaceE2EAccountRecipient,
   makeWorkspaceE2EAccountRecipientForRunId,
   workspaceE2EAccountMainRecipientLabel,
-  workspaceE2EReferralInviteeRecipientLabel,
   workspaceE2EReferralOwnerRecipientLabel,
 } from "./config";
 
@@ -111,10 +110,6 @@ describe("workspace account e2e configuration", () => {
       config,
       workspaceE2EReferralOwnerRecipientLabel
     );
-    const referralInvitee = makeWorkspaceE2EAccountRecipient(
-      config,
-      workspaceE2EReferralInviteeRecipientLabel
-    );
 
     expect(recipient).toBe(`delivered+${config.runId}-main@resend.dev`);
     expect(other).toBe(`delivered+${config.runId}-active-linking@resend.dev`);
@@ -123,11 +118,7 @@ describe("workspace account e2e configuration", () => {
     expect(referralOwner).toBe(
       `delivered+${config.runId}-referral-owner@resend.dev`
     );
-    expect(referralInvitee).toBe(
-      `delivered+${config.runId}-referral-invitee@resend.dev`
-    );
     expect(redact(referralOwner)).toBe("[redacted]");
-    expect(redact(referralInvitee)).toBe("[redacted]");
   });
 
   test("rejects run ids that could encode data beyond the run identity", () => {

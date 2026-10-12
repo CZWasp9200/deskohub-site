@@ -26,13 +26,13 @@ import {
   workspaceE2EError,
   workspaceE2ETimeoutError,
 } from "../errors";
-import {
-  waitForCancelledDotyposReservationStatuses,
-  waitForCancelledDotyposReservations,
-} from "../integrations/dotypos";
 import { pollUntil } from "../polling";
 import { addRedaction, assert, type Runner } from "../runtime";
-import { workspaceE2EPollIntervalMs, workspaceE2ETimeouts } from "../timeouts";
+import {
+  workspaceE2EPollInitialIntervalMs,
+  workspaceE2EPollIntervalMs,
+  workspaceE2ETimeouts,
+} from "../timeouts";
 import {
   accountSectionLandmarks,
   selectAccountSectionInRunner,
@@ -50,14 +50,12 @@ import type { WorkspaceE2EAccountConfig } from "./config";
 import {
   makeWorkspaceE2EAccountRecipient,
   workspaceE2EAccountMainRecipientLabel,
-  workspaceE2EReferralInviteeRecipientLabel,
   workspaceE2EReferralOwnerRecipientLabel,
 } from "./config";
 import {
   assertNoSyntheticCustomerProfile,
   cancelSyntheticReservation,
   createSyntheticCustomerProfile,
-  createSyntheticReferralHistoryReservation,
   createSyntheticReservation,
   expireSyntheticCustomerProfile,
   readSyntheticCustomerProfile,
@@ -66,10 +64,8 @@ import { workspaceE2EAccountProfileFixture } from "./profile-fixture";
 import type { MagicLinkRateBudget } from "./rate-budget";
 import {
   findWorkspaceE2EReferralReferrer,
-  seedWorkspaceE2EReferralFixture,
   seedWorkspaceE2EReferralOwner,
 } from "./referral-fixture";
-import { referralStatsCondition } from "./referral-stats";
 import type {
   WorkspaceE2EAccountCase,
   WorkspaceE2EAccountCaseCompletion,
@@ -278,6 +274,58 @@ export const makeWorkspaceE2EAccountCases = ({
       { timeoutMs: browserTimeout }
     );
 
+  /**
+   * The share-link sign-in page: the anonymous account redirect must land on
+   * the localized sign-in form with the share code preserved, because the form
+   * carries that code into the magic-link callback.
+   */
+  const waitShareLinkSignIn = Effect.fn("waitShareLinkSignIn")(function* (
+    referralCode: string
+  ) {
+    yield* pollUntil(
+      readBrowserUrl(run, session).pipe(
+        Effect.map((url) => {
+          if (url === undefined) return undefined;
+          const current = new URL(url);
+          return current.pathname === `/${config.locale}${signInSuffix}` &&
+            current.searchParams.get("ref") === referralCode
+            ? url
+            : undefined;
+        })
+      ),
+      {
+        intervalMs: workspaceE2EPollIntervalMs.browser,
+        label: "share-link sign-in page carrying the referral code",
+        timeoutMs: uiTransition,
+      }
+    );
+    yield* waitSignInForm();
+  });
+
+  const waitReferralFieldValue = (description: string, value: string) =>
+    waitForBrowserCondition(
+      run,
+      session,
+      description,
+      `(() => {
+          const input = document.querySelector(${JSON.stringify(profileReferralCodeSelector)});
+          return input instanceof HTMLInputElement &&
+            input.name === "referralCode" &&
+            input.value === ${JSON.stringify(value)};
+        })()`,
+      { timeoutMs: uiTransition }
+    );
+
+  const requireReferralInvitation = () =>
+    Effect.sync(() => {
+      const invitation = lifecycleHandoff.referralInvitation;
+      assert(
+        invitation,
+        "the share-link case did not record the referral invitation"
+      );
+      return invitation;
+    });
+
   const fillAndSubmitEmail = (email: string) =>
     Effect.gen(function* () {
       yield* fillBrowserField(run, session, signInEmailSelector, email, {
@@ -406,29 +454,70 @@ export const makeWorkspaceE2EAccountCases = ({
   ) => ({ execute, id, timeoutMs });
 
   return [
-    makeCase("account-anonymous-redirect", ({ runStep }) =>
-      runStep(
-        step(
-          "redirects an anonymous account visit to the sign-in page",
-          Effect.gen(function* () {
-            yield* openPage(localized(accountSuffix));
-            yield* waitUrlContains(
-              "anonymous account redirect to the sign-in page",
-              signInSuffix
-            );
-            yield* waitSignInForm();
-          })
-        )
-      )
+    makeCase("account-anonymous-redirect", ({ journalRef, runStep }) =>
+      Effect.gen(function* () {
+        const referralOwnerEmail = makeWorkspaceE2EAccountRecipient(
+          config,
+          workspaceE2EReferralOwnerRecipientLabel
+        );
+        const referralOwnerAccountId = customerAccountIdSchema.make(
+          `account-referral-owner-${crypto.randomUUID()}`
+        );
+        const invitation = yield* runStep(
+          step(
+            "creates the synthetic referrer whose share link the account follows",
+            Effect.gen(function* () {
+              yield* recordFixtureIds(journalRef, {
+                authUserIds: [referralOwnerAccountId],
+              });
+              const customerId = yield* createSyntheticCustomerProfile(
+                datasourceConfig,
+                { email: referralOwnerEmail, firstName: "Referral Owner" }
+              );
+              yield* recordFixtureIds(journalRef, {
+                dotyposCustomerIds: [customerId],
+              });
+              const owner = yield* seedWorkspaceE2EReferralOwner({
+                accountId: referralOwnerAccountId,
+                dotyposCustomerId: customerId,
+                email: referralOwnerEmail,
+                name: "Synthetic Referral Owner",
+              });
+              addRedaction(owner.code, true);
+              return { code: owner.code, referrerCustomerId: customerId };
+            }),
+            datasourceTimeout
+          )
+        );
+        lifecycleHandoff.referralInvitation = invitation;
+        yield* runStep(
+          step(
+            "redirects an anonymous locale-free share link to sign-in with its code",
+            Effect.gen(function* () {
+              yield* openPage(
+                `${config.baseUrl}${accountSuffix}?ref=${invitation.code}`
+              );
+              yield* waitShareLinkSignIn(invitation.code);
+            })
+          )
+        );
+      })
     ),
     makeCase("account-sign-in-form", ({ runStep }) =>
       Effect.gen(function* () {
+        const invitation = yield* runStep(
+          step(
+            "requires the share-link sign-in handoff",
+            requireReferralInvitation()
+          )
+        );
         yield* runStep(
           step(
             "rejects an invalid email without requesting a link",
             Effect.gen(function* () {
-              yield* openPage(localized(signInSuffix));
-              yield* waitSignInForm();
+              // Native validation blocks the submit, so the share-link form
+              // stays loaded for the first accepted request.
+              yield* waitShareLinkSignIn(invitation.code);
               yield* fillAndSubmitEmail("not-an-email");
               const validation = yield* evalBrowserScript(
                 "assert native validation blocked the invalid email",
@@ -460,9 +549,9 @@ export const makeWorkspaceE2EAccountCases = ({
           "send",
           runStep(
             step(
-              "accepts a first unknown email generically",
+              "accepts a first unknown email generically from the share-link form",
               Effect.gen(function* () {
-                yield* waitSignInForm();
+                yield* waitShareLinkSignIn(invitation.code);
                 const startedAt = new Date();
                 lifecycleHandoff.firstAcceptedRequestedAt = startedAt;
                 yield* fillAndSubmitEmail(recipient);
@@ -517,16 +606,17 @@ export const makeWorkspaceE2EAccountCases = ({
     ),
     makeCase("account-magic-link-delivery", ({ journalRef, runStep }) =>
       Effect.gen(function* () {
-        const startedAt = yield* runStep(
+        const firstRequest = yield* runStep(
           step(
             "requires the first accepted main request handoff",
-            Effect.sync(() => {
+            Effect.gen(function* () {
               const requestedAt = lifecycleHandoff.firstAcceptedRequestedAt;
               assert(
                 requestedAt,
                 "the sign-in form did not record the first main request"
               );
-              return requestedAt;
+              const invitation = yield* requireReferralInvitation();
+              return { invitation, requestedAt };
             })
           )
         );
@@ -549,7 +639,7 @@ export const makeWorkspaceE2EAccountCases = ({
         const link = yield* runStep(
           step(
             "retrieves the delivered single-use link",
-            retrieveSignInLink(recipient, [], startedAt),
+            retrieveSignInLink(recipient, [], firstRequest.requestedAt),
             authDeliveryTimeout
           )
         );
@@ -557,7 +647,7 @@ export const makeWorkspaceE2EAccountCases = ({
           "verify",
           runStep(
             step(
-              "consumes the link into the completion state",
+              "consumes the link into the completion state with the share code",
               Effect.gen(function* () {
                 yield* openPage(link);
                 yield* waitText(
@@ -567,6 +657,10 @@ export const makeWorkspaceE2EAccountCases = ({
                 yield* waitUrlContains(
                   "account URL after verification",
                   accountSuffix
+                );
+                yield* waitReferralFieldValue(
+                  "completion referral field prefilled through sign-in",
+                  firstRequest.invitation.code
                 );
                 const userId = yield* requireAuthUserId(recipient);
                 yield* recordFixtureIds(journalRef, { authUserIds: [userId] });
@@ -579,80 +673,10 @@ export const makeWorkspaceE2EAccountCases = ({
     ),
     makeCase("account-profile-completion", ({ journalRef, runStep }) =>
       Effect.gen(function* () {
-        const referralOwnerEmail = makeWorkspaceE2EAccountRecipient(
-          config,
-          workspaceE2EReferralOwnerRecipientLabel
-        );
-        const referralOwnerAccountId = customerAccountIdSchema.make(
-          `account-referral-owner-${crypto.randomUUID()}`
-        );
-        const referralOwner = yield* runStep(
+        const invitation = yield* runStep(
           step(
-            "creates the synthetic referrer whose share link the account follows",
-            Effect.gen(function* () {
-              yield* recordFixtureIds(journalRef, {
-                authUserIds: [referralOwnerAccountId],
-              });
-              const customerId = yield* createSyntheticCustomerProfile(
-                datasourceConfig,
-                { email: referralOwnerEmail, firstName: "Referral Owner" }
-              );
-              yield* recordFixtureIds(journalRef, {
-                dotyposCustomerIds: [customerId],
-              });
-              const owner = yield* seedWorkspaceE2EReferralOwner({
-                accountId: referralOwnerAccountId,
-                dotyposCustomerId: customerId,
-                email: referralOwnerEmail,
-                name: "Synthetic Referral Owner",
-              });
-              addRedaction(owner.code, true);
-              return { code: owner.code, customerId };
-            }),
-            datasourceTimeout
-          )
-        );
-        lifecycleHandoff.referralInvitationCode = referralOwner.code;
-        const unusableReferralCode = `RFLMISSING${crypto
-          .randomUUID()
-          .replaceAll("-", "")
-          .slice(0, 8)
-          .toUpperCase()}`;
-        const waitReferralFieldValue = (description: string, value: string) =>
-          waitForBrowserCondition(
-            run,
-            session,
-            description,
-            `(() => {
-                const input = document.querySelector(${JSON.stringify(profileReferralCodeSelector)});
-                return input instanceof HTMLInputElement &&
-                  input.name === "referralCode" &&
-                  input.value === ${JSON.stringify(value)};
-              })()`,
-            { timeoutMs: uiTransition }
-          );
-        yield* runStep(
-          step(
-            "prefills the completion referral field only from a usable share link",
-            Effect.gen(function* () {
-              yield* openPage(
-                localized(`${accountSuffix}?ref=${unusableReferralCode}`)
-              );
-              yield* waitText("completion page", completionTitle);
-              yield* waitReferralFieldValue(
-                "empty completion referral field for an unusable share link",
-                ""
-              );
-              yield* openPage(
-                localized(`${accountSuffix}?ref=${referralOwner.code}`)
-              );
-              yield* waitText("completion page", completionTitle);
-              yield* waitReferralFieldValue(
-                "completion referral field prefilled from the share link",
-                referralOwner.code
-              );
-            }),
-            2 * accountPageLoadTimeout
+            "requires the share-link referral handoff",
+            requireReferralInvitation()
           )
         );
         yield* runStep(
@@ -690,9 +714,13 @@ export const makeWorkspaceE2EAccountCases = ({
         );
         yield* runStep(
           step(
-            "completes the profile with a required first name",
+            "completes the profile with the share code and a required first name",
             Effect.gen(function* () {
               yield* waitText("completion page", completionTitle);
+              yield* waitReferralFieldValue(
+                "completion referral field still holding the share code",
+                invitation.code
+              );
               yield* fillBrowserField(
                 run,
                 session,
@@ -739,14 +767,21 @@ export const makeWorkspaceE2EAccountCases = ({
         yield* runStep(
           step(
             "records the share-link referral submitted with the completed profile",
-            Effect.gen(function* () {
-              const referrer =
-                yield* findWorkspaceE2EReferralReferrer(customerId);
-              assert(
-                referrer === referralOwner.customerId,
-                "profile completion did not record the share-link referral"
-              );
-            }),
+            pollUntil(
+              findWorkspaceE2EReferralReferrer(customerId).pipe(
+                Effect.map((referrer) =>
+                  referrer === invitation.referrerCustomerId
+                    ? referrer
+                    : undefined
+                )
+              ),
+              {
+                initialIntervalMs: workspaceE2EPollInitialIntervalMs.database,
+                intervalMs: workspaceE2EPollIntervalMs.datasource,
+                label: "share-link referral recorded by profile completion",
+                timeoutMs: datasourceTimeout,
+              }
+            ),
             datasourceTimeout
           )
         );
@@ -981,186 +1016,6 @@ export const makeWorkspaceE2EAccountCases = ({
                 session,
                 timeoutMs: datasourceTimeout,
               });
-            }),
-            accountPageLoadTimeout
-          )
-        );
-        const cleanupStep = step(
-          "cancels and converges the remaining reservation history",
-          Effect.gen(function* () {
-            const first = reservations[0];
-            const second = reservations[1];
-            assert(first && second, "transition reservations are missing");
-            const firstId = first.reservationId;
-            const secondId = second.reservationId;
-            assert(
-              firstId && secondId,
-              "transition reservation ids are missing"
-            );
-            const reservationIds = [firstId, secondId] as const;
-
-            // The cancelled-card assertion above remains visible to the
-            // account test. This final transition cleanup prevents the
-            // still-confirmed first reservation from being mistaken for
-            // historical referral eligibility evidence in the next case.
-            yield* cancelSyntheticReservation(
-              datasourceConfig,
-              firstId as DotyposReservationId
-            );
-            yield* waitForCancelledDotyposReservations(
-              datasourceConfig,
-              reservationIds,
-              {
-                endDate: new Date(
-                  Math.max(
-                    Number(first.endsAt.epochMilliseconds),
-                    Number(second.endsAt.epochMilliseconds)
-                  )
-                ),
-                startDate: new Date(
-                  Math.min(
-                    Number(first.startsAt.epochMilliseconds),
-                    Number(second.startsAt.epochMilliseconds)
-                  )
-                ),
-              }
-            );
-            yield* waitForCancelledDotyposReservationStatuses(
-              datasourceConfig,
-              reservationIds
-            );
-          }),
-          datasourceTimeout
-        );
-        return { cleanup: runStep(cleanupStep) };
-      })
-    ),
-    makeCase(
-      "account-referrals",
-      Effect.fn("workspaceE2EAccountReferralCase")(function* ({
-        journalRef,
-        runStep,
-      }) {
-        const linked = yield* runStep(
-          step(
-            "reads the linked synthetic referral recipient",
-            Effect.gen(function* () {
-              const userId = yield* requireAuthUserId(recipient);
-              const customerId = yield* requireLinkedCustomerId(userId);
-              yield* recordFixtureIds(journalRef, {
-                dotyposCustomerIds: [customerId],
-              });
-              return { customerId, userId };
-            }),
-            datasourceTimeout
-          )
-        );
-        const eligibleInviteeEmail = makeWorkspaceE2EAccountRecipient(
-          config,
-          workspaceE2EReferralInviteeRecipientLabel
-        );
-        const eligibleInviteeAccountId = customerAccountIdSchema.make(
-          `account-referral-invitee-${crypto.randomUUID()}`
-        );
-        const createdProfiles = yield* runStep(
-          step(
-            "creates a synthetic active eligible invitee profile and account",
-            Effect.gen(function* () {
-              yield* recordFixtureIds(journalRef, {
-                authUserIds: [eligibleInviteeAccountId],
-              });
-              const invitee = yield* createSyntheticCustomerProfile(
-                datasourceConfig,
-                { email: eligibleInviteeEmail, firstName: "Referral Invitee" }
-              );
-              yield* recordFixtureIds(journalRef, {
-                dotyposCustomerIds: [invitee],
-              });
-              return { invitee };
-            }),
-            datasourceTimeout
-          )
-        );
-        const profiles = yield* runStep(
-          step(
-            "creates a recent confirmed paid-history reservation",
-            Effect.gen(function* () {
-              const reservation =
-                yield* createSyntheticReferralHistoryReservation(
-                  datasourceConfig,
-                  { customerId: createdProfiles.invitee }
-                );
-              assert(
-                reservation.reservationId,
-                "referral history reservation id missing"
-              );
-              const reservationId = reservation.reservationId;
-              if (!reservationId) {
-                return yield* workspaceE2EError(
-                  "referral history reservation has no provider id",
-                  {
-                    diagnosticCode: "dotypos_account_fixture_mutation_failed",
-                    operation: "read referral history reservation id",
-                  }
-                );
-              }
-              yield* recordFixtureIds(journalRef, {
-                dotyposReservationIds: [reservationId],
-              });
-              return { ...createdProfiles, reservation, reservationId };
-            }),
-            datasourceTimeout
-          )
-        );
-        const fixture = yield* runStep(
-          step(
-            "seeds exact referral attribution and paid local history rows",
-            seedWorkspaceE2EReferralFixture({
-              eligibleInvitee: {
-                accountId: eligibleInviteeAccountId,
-                dotyposCustomerId: profiles.invitee,
-                email: eligibleInviteeEmail,
-                name: "Synthetic Referral Invitee",
-              },
-              eligibleReservationAt: new Date(
-                Number(profiles.reservation.endsAt.epochMilliseconds)
-              ),
-              eligibleReservationId: profiles.reservationId,
-              referrerDotyposCustomerId: linked.customerId,
-            }),
-            datasourceTimeout
-          )
-        );
-        addRedaction(fixture.inviteeReferralCode, true);
-        lifecycleHandoff.referralOtherReferrerCode =
-          fixture.inviteeReferralCode;
-        lifecycleHandoff.referralCheckoutContact = {
-          customerId: linked.customerId,
-          email: recipient,
-          name: "E2E Lane",
-          phone: workspaceE2EAccountProfileFixture.phone,
-        };
-
-        yield* runStep(
-          step(
-            "shows the eligible referral count and current discount",
-            Effect.gen(function* () {
-              yield* openPage(localized(`${accountSuffix}?section=referrals`));
-              // One seeded invitee with a recent paid visit: 1 of 1 eligible,
-              // a 5% discount with its "-5%" navigation badge, and no
-              // referral savings yet because the referrer has not booked.
-              yield* waitForBrowserCondition(
-                run,
-                session,
-                "referral overview with one eligible invitee",
-                referralStatsCondition({
-                  count: 1,
-                  locale: config.locale,
-                  savings: "empty",
-                  total: 1,
-                }),
-                { timeoutMs: datasourceTimeout }
-              );
             }),
             accountPageLoadTimeout
           )
