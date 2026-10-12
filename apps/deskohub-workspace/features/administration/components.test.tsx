@@ -588,9 +588,27 @@ describe("administration reservation components", () => {
       [...view.container.querySelectorAll("del")].map(readableText)
     ).toEqual(["CZK 2,400.00 refunded", "CZK 2,400.00 before refund"]);
 
-    const orderView = render(<OrderTable orders={[refundedOrder]} />);
+    const orderView = render(
+      <OrderTable
+        orders={[
+          refundedOrder,
+          {
+            ...refundedOrder,
+            orderId: NexiOrderIdSchema.make("DADMINFIXTUREPARTIAL"),
+            link: {
+              ...refundedOrder.link,
+              refundedAmount: { ...order.link.amount, value: 100_000 },
+            },
+          },
+        ]}
+      />
+    );
     const table = orderView.getByRole("table", { name: "Nexi orders" });
     expect(within(table).getByText("Refunded")).toBeDefined();
+    expect(
+      within(table).getByText("Partially refunded CZK 1,000.00")
+    ).toBeDefined();
+    expect(within(table).queryByText(/Partially Refunded/)).toBeNull();
     expect(within(table).queryByText("Paid")).toBeNull();
   });
 

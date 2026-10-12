@@ -1,10 +1,11 @@
 import { NexiService, summarizeNexiRefunds } from "@deskohub/nexi";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
-import { Clock, Context, Data, Duration, Effect, Layer } from "effect";
+import { Clock, Context, Data, Duration, Effect, Exit, Layer } from "effect";
 import type { SqlError } from "effect/unstable/sql";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { WorkspaceNexiLayer } from "@/shared/backend/config/nexi.config";
 import {
+  type ClaimedRefundCheck,
   type PaymentRefundRecordResult,
   PaymentRefundRepository,
   type RefundablePaymentAttempt,
@@ -46,11 +47,13 @@ export interface IPaymentRefundService {
   /**
    * Reconciles up to `limit` attempts still awaiting a refund and recent
    * payments Nexi has not fully refunded, least recently checked first,
-   * skipping any checked in the last few hours. It starts a lookup only while
-   * one taking `worstCaseLookupDuration` still ends within `budget`, so the
-   * batch finishes in time even when every lookup exhausts its retries. Each
-   * attempt is claimed just before its lookup, so attempts the batch has no
-   * time for stay unstamped for the next run. One attempt's provider failure
+   * skipping any checked in the last few hours. Each attempt is claimed just
+   * before its lookup, and the lookup starts only while one taking
+   * `worstCaseLookupDuration` still ends within `budget`; a claim that leaves
+   * too little time is released. At `budget` the batch interrupts whatever is
+   * still claiming, looking up, or recording, and releases those claims, each
+   * release waiting at most `claimReleaseTimeout`. Attempts the batch did not
+   * check therefore stay due for the next run. One attempt's provider failure
    * is logged and does not stop the rest of the batch.
    */
   readonly reconcileRefunds: (input: {
@@ -81,6 +84,13 @@ const unrequestedRefundCheckWindow = Temporal.Duration.from({
 const refundRecheckInterval = Temporal.Duration.from({ hours: 6 });
 
 const lookupConcurrency = 4;
+
+/**
+ * How long releasing an unchecked claim may take. A release that has not
+ * finished by then is abandoned, so that attempt waits out the recheck
+ * interval instead of the batch outrunning its function deadline.
+ */
+const claimReleaseTimeout = Duration.seconds(10);
 
 const toRefundedAt = (
   value: string | undefined,
@@ -166,6 +176,10 @@ export class PaymentRefundService extends Context.Service<
           startedAt +
           Duration.toMillis(input.budget) -
           Duration.toMillis(input.worstCaseLookupDuration);
+        const lookupFits = Effect.map(
+          Clock.currentTimeMillis,
+          (now) => now <= lastLookupStart
+        );
         let unclaimed = input.limit;
         let exhausted = false;
         const results: (PaymentRefundReconciliationResult | "failed")[] = [];
@@ -174,7 +188,7 @@ export class PaymentRefundService extends Context.Service<
           const checkedAt = Temporal.Instant.fromEpochMilliseconds(
             Math.floor(yield* Clock.currentTimeMillis)
           );
-          const [candidate] = yield* refunds.claimRefundChecks({
+          const [claimed] = yield* refunds.claimRefundChecks({
             limit: 1,
             checkedAt,
             lastCheckedBefore: checkedAt.subtract(refundRecheckInterval),
@@ -182,39 +196,84 @@ export class PaymentRefundService extends Context.Service<
               unrequestedRefundCheckWindow
             ),
           });
-          return candidate;
+          return claimed;
         });
 
-        const worker = Effect.gen(function* () {
-          while (
-            unclaimed > 0 &&
-            !exhausted &&
-            (yield* Clock.currentTimeMillis) <= lastLookupStart
-          ) {
-            unclaimed -= 1;
-            const candidate = yield* claimNext;
-            if (!candidate) {
-              exhausted = true;
-              return;
-            }
-            results.push(
-              yield* reconcileAttempt(candidate).pipe(
-                Effect.tapError((cause) =>
-                  Effect.logError("Nexi refund reconciliation failed", {
-                    cause,
-                  })
-                ),
-                Effect.orElseSucceed(() => "failed" as const)
+        const releaseClaim = (claimed: ClaimedRefundCheck) =>
+          refunds
+            .releaseRefundCheck({ ...claimed, id: claimed.attempt.id })
+            .pipe(
+              // Release runs as a finalizer; let the timeout cut it short.
+              Effect.interruptible,
+              Effect.timeout(claimReleaseTimeout),
+              Effect.catchCause((cause) =>
+                Effect.logWarning(
+                  "Unchecked refund claim was not released; it waits for the recheck interval",
+                  { cause, paymentAttemptId: claimed.attempt.id }
+                )
               )
             );
+
+        // Claims one attempt and checks it. Unless the check completes, the
+        // claim is released: the budget ran out while claiming, or the batch
+        // deadline interrupted the lookup or the recording of its refund. An
+        // interrupted claim rolls back, so it leaves nothing to release.
+        /** Checks a claimed attempt; `false` when it was not checked. */
+        const checkClaimed = Effect.fn(function* (
+          claimed: ClaimedRefundCheck | undefined
+        ) {
+          if (!claimed) {
+            exhausted = true;
+            return false;
+          }
+          if (!(yield* lookupFits)) return false;
+          results.push(
+            yield* reconcileAttempt(claimed).pipe(
+              Effect.tapError((cause) =>
+                Effect.logError("Nexi refund reconciliation failed", {
+                  cause,
+                })
+              ),
+              Effect.orElseSucceed(() => "failed" as const)
+            )
+          );
+          return true;
+        });
+
+        const checkNext = Effect.acquireUseRelease(
+          Effect.interruptible(claimNext),
+          checkClaimed,
+          (claimed, exit) =>
+            claimed && !(Exit.isSuccess(exit) && exit.value)
+              ? releaseClaim(claimed)
+              : Effect.void
+        );
+
+        const worker = Effect.gen(function* () {
+          while (unclaimed > 0 && !exhausted && (yield* lookupFits)) {
+            unclaimed -= 1;
+            if (!(yield* checkNext) && !exhausted) return;
           }
         });
 
-        yield* Effect.all(
+        const finishedInTime = yield* Effect.all(
           Array.from({ length: lookupConcurrency }, () => worker),
           { concurrency: "unbounded", discard: true }
+        ).pipe(
+          Effect.as(true),
+          Effect.timeoutOrElse({
+            duration: Duration.millis(
+              Math.max(
+                0,
+                startedAt +
+                  Duration.toMillis(input.budget) -
+                  (yield* Clock.currentTimeMillis)
+              )
+            ),
+            orElse: () => Effect.succeed(false),
+          })
         );
-        if (unclaimed > 0 && !exhausted) {
+        if (!finishedInTime || (unclaimed > 0 && !exhausted)) {
           yield* Effect.logWarning(
             "Nexi refund reconciliation stopped at its time budget",
             { unclaimed }

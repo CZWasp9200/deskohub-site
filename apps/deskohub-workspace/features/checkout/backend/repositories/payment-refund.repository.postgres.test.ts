@@ -248,6 +248,41 @@ describe.skipIf(!testDatabase)(
       ).toContain(paymentAttemptId);
     });
 
+    test("gives a released claim back its previous check time without undoing a later claim", async () => {
+      const paymentAttemptId = await insertCheckout({
+        attemptState: "paid",
+        refundState: "required",
+      });
+      const claimOurs = async (checkedAt: Temporal.Instant) => {
+        const claimed = (await claim({ limit: 1_000, checkedAt })).find(
+          ({ attempt }) => attempt.id === paymentAttemptId
+        );
+        if (!claimed) throw new Error("Expected the attempt to be claimed");
+        return claimed;
+      };
+      const release = (claimed: Awaited<ReturnType<typeof claimOurs>>) =>
+        run((repository) =>
+          repository.releaseRefundCheck({ ...claimed, id: paymentAttemptId })
+        );
+      const readCheckedAt = async () =>
+        (await readAttempt(paymentAttemptId))?.refundCheckedAt?.toString() ??
+        null;
+
+      const firstCheck = Temporal.Instant.fromEpochMilliseconds(Date.now());
+      const first = await claimOurs(firstCheck);
+      expect(first.previousCheckedAt).toBeNull();
+      const secondCheck = firstCheck.add({ hours: 7 });
+      const second = await claimOurs(secondCheck);
+      expect(second.previousCheckedAt?.equals(firstCheck)).toBe(true);
+
+      // The first claim is stale: releasing it keeps the later stamp.
+      await release(first);
+      expect(await readCheckedAt()).toBe(secondCheck.toString());
+
+      await release(second);
+      expect(await readCheckedAt()).toBe(firstCheck.toString());
+    });
+
     test("checks a recent unflagged payment while a full batch of refunds stays outstanding", async () => {
       const limit = 50;
       for (let index = 0; index < limit; index += 1) {

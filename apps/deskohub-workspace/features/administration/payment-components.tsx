@@ -44,18 +44,6 @@ export const formatOrderMoney = (order: AdministrationOrder) => {
   return "Not reported";
 };
 
-/**
- * The local attempt's state as a status value, with a recorded refund in
- * place of the paid state.
- */
-export const getOrderLinkStatusValue = (
-  link: NonNullable<AdministrationOrder["link"]>
-) => {
-  const status = getAdministrationPaymentStatus(link);
-  if (!status.refunded) return link.state;
-  return status.retainedAmount ? "PARTIALLY_REFUNDED" : "REFUNDED";
-};
-
 export const formatProviderDateTime = (value: string | undefined) => {
   if (!value) return "Not reported";
   try {
@@ -80,7 +68,6 @@ export function ProviderStatusBadge({ value }: { readonly value: string }) {
     "DENIED",
     "DENIED_BY_RISK",
     "FAILED",
-    "PARTIALLY_REFUNDED",
     "REFUNDED",
     "THREEDS_FAILED",
     "VOIDED",
@@ -89,6 +76,32 @@ export function ProviderStatusBadge({ value }: { readonly value: string }) {
   if (positive) tone = "positive";
   else if (warning) tone = "attention";
   return <StatusBadge tone={tone}>{getProviderValueLabel(value)}</StatusBadge>;
+}
+
+/**
+ * The local payment attempt's status: its state, or the recorded refund with
+ * the same wording as every other payment summary.
+ */
+export const getPaymentAttemptStatusLabel = (
+  link: NonNullable<AdministrationOrder["link"]>
+) => {
+  const status = getAdministrationPaymentStatus(link);
+  return status.refunded ? status.label : getProviderValueLabel(link.state);
+};
+
+export function PaymentAttemptStatusBadge({
+  link,
+}: {
+  readonly link: NonNullable<AdministrationOrder["link"]>;
+}) {
+  if (!getAdministrationPaymentStatus(link).refunded) {
+    return <ProviderStatusBadge value={link.state} />;
+  }
+  return (
+    <StatusBadge tone="attention">
+      {getPaymentAttemptStatusLabel(link)}
+    </StatusBadge>
+  );
 }
 
 export function ReservationOrderList({

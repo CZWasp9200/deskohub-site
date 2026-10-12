@@ -15,7 +15,8 @@ import {
   formatOrderMoney,
   formatProviderDateTime,
   formatProviderMoney,
-  getOrderLinkStatusValue,
+  getPaymentAttemptStatusLabel,
+  PaymentAttemptStatusBadge,
   ProviderStatusBadge,
 } from "./payment-components";
 import { getProviderValueLabel } from "./payment-presentation";
@@ -102,13 +103,16 @@ export function OrderTable({
       {
         accessorFn: (order) =>
           order.provider && order.link
-            ? getOrderLinkStatusValue(order.link)
+            ? getPaymentAttemptStatusLabel(order.link)
             : getReconciliationLabel(order),
         id: "reconciliation",
         header: "Reconciliation",
-        cell: ({ getValue }) => (
-          <ProviderStatusBadge value={getValue<string>()} />
-        ),
+        cell: ({ getValue, row }) =>
+          row.original.provider && row.original.link ? (
+            <PaymentAttemptStatusBadge link={row.original.link} />
+          ) : (
+            <ProviderStatusBadge value={getValue<string>()} />
+          ),
       },
     ],
     []
