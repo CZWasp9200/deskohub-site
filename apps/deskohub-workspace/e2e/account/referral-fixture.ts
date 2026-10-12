@@ -27,29 +27,117 @@ import { workspaceE2EError } from "../errors";
 import { E2EDatabase } from "../integrations/database.service";
 import { runDatabaseOperation } from "../integrations/database-operation";
 
+export type WorkspaceE2EReferralOwnerInput = {
+  readonly accountId: string;
+  readonly dotyposCustomerId: DotyposCustomerId;
+  readonly email: string;
+  readonly name: string;
+};
+
+export type WorkspaceE2EReferralOwner = {
+  readonly code: string;
+  readonly promotionCodeId: string;
+};
+
 export type WorkspaceE2EReferralFixture = {
   readonly eligibleReservationId: string;
-  readonly invitationCode: string;
-  readonly invitationOwnerAccountId: string;
-  readonly invitationOwnerPromotionCodeId: string;
+  /** The eligible invitee's own share code: a usable code from a second referrer. */
+  readonly inviteeReferralCode: string;
   readonly ownPromotionCodeId: string;
 };
 
 export type WorkspaceE2EReferralFixtureInput = {
-  readonly eligibleInviteeDotyposCustomerId: DotyposCustomerId;
+  readonly eligibleInvitee: WorkspaceE2EReferralOwnerInput;
   readonly eligibleReservationAt: Date;
   readonly eligibleReservationId: DotyposReservationId;
-  readonly invitationOwnerAccountId: string;
-  readonly invitationOwnerDotyposCustomerId: DotyposCustomerId;
-  readonly invitationOwnerEmail: string;
-  readonly invitationOwnerName: string;
   readonly referrerDotyposCustomerId: DotyposCustomerId;
 };
+
+type DatabaseTransaction = Parameters<
+  Parameters<DatabaseClient["transaction"]>[0]
+>[0];
 
 const generateReferralCode = () => {
   const value = crypto.randomUUID().replaceAll("-", "").slice(0, 8);
   return `RFL${value.toUpperCase()}`;
 };
+
+const insertReferralCode = Effect.fn("seedWorkspaceE2EReferralCode")(function* (
+  tx: DatabaseTransaction,
+  referrerDotyposCustomerId: DotyposCustomerId
+) {
+  const code = parseReferralCode(generateReferralCode());
+  if (code === undefined) {
+    return yield* workspaceE2EError(
+      "generated referral fixture code is invalid",
+      {
+        diagnosticCode: "postgres_account_fixture_assertion_failed",
+        operation: "validate referral fixture code",
+      }
+    );
+  }
+
+  const [promotion] = yield* tx
+    .insert(promotionCodes)
+    .values({
+      code: canonicalPromotionCodeSchema.make(code),
+      enabled: true,
+      kind: "referral",
+      validFrom: null,
+      validUntil: null,
+    })
+    .returning({ id: promotionCodes.id });
+  if (!promotion) {
+    return yield* workspaceE2EError(
+      "referral promotion insert returned no row",
+      {
+        diagnosticCode: "postgres_account_fixture_assertion_failed",
+        operation: "insert referral promotion",
+      }
+    );
+  }
+
+  const [referral] = yield* tx
+    .insert(referralCodes)
+    .values({
+      promotionCodeId: promotion.id,
+      promotionKind: "referral",
+      referrerDotyposCustomerId,
+    })
+    .returning({ promotionCodeId: referralCodes.promotionCodeId });
+  if (!referral) {
+    return yield* workspaceE2EError("referral code insert returned no row", {
+      diagnosticCode: "postgres_account_fixture_assertion_failed",
+      operation: "insert referral code",
+    });
+  }
+
+  return {
+    code,
+    promotionCodeId: referral.promotionCodeId,
+  } satisfies WorkspaceE2EReferralOwner;
+});
+
+/**
+ * A referral code is usable only while its owner's account link joins an
+ * active auth user, so every seeded owner gets both rows with its code.
+ */
+const insertReferralOwner = Effect.fn("seedWorkspaceE2EReferralOwner")(
+  function* (tx: DatabaseTransaction, owner: WorkspaceE2EReferralOwnerInput) {
+    yield* tx.insert(authUser).values({
+      deletionRequestedAt: null,
+      email: owner.email,
+      emailVerified: true,
+      id: owner.accountId,
+      name: owner.name,
+    });
+    yield* tx.insert(customerAccountLinks).values({
+      customerAccountId: owner.accountId,
+      dotyposCustomerId: owner.dotyposCustomerId,
+    });
+    return yield* insertReferralCode(tx, owner.dotyposCustomerId);
+  }
+);
 
 const seedReferralFixtureRows = (
   db: DatabaseClient,
@@ -57,73 +145,6 @@ const seedReferralFixtureRows = (
 ) =>
   db.transaction(
     Effect.fn(function* (tx) {
-      const insertCode = Effect.fn("seedWorkspaceE2EReferralCode")(function* (
-        referrerDotyposCustomerId: DotyposCustomerId
-      ) {
-        const code = parseReferralCode(generateReferralCode());
-        if (code === undefined) {
-          return yield* workspaceE2EError(
-            "generated referral fixture code is invalid",
-            {
-              diagnosticCode: "postgres_account_fixture_assertion_failed",
-              operation: "validate referral fixture code",
-            }
-          );
-        }
-
-        const [promotion] = yield* tx
-          .insert(promotionCodes)
-          .values({
-            code: canonicalPromotionCodeSchema.make(code),
-            enabled: true,
-            kind: "referral",
-            validFrom: null,
-            validUntil: null,
-          })
-          .returning({ id: promotionCodes.id });
-        if (!promotion) {
-          return yield* workspaceE2EError(
-            "referral promotion insert returned no row",
-            {
-              diagnosticCode: "postgres_account_fixture_assertion_failed",
-              operation: "insert referral promotion",
-            }
-          );
-        }
-
-        const [referral] = yield* tx
-          .insert(referralCodes)
-          .values({
-            promotionCodeId: promotion.id,
-            promotionKind: "referral",
-            referrerDotyposCustomerId,
-          })
-          .returning({ promotionCodeId: referralCodes.promotionCodeId });
-        if (!referral) {
-          return yield* workspaceE2EError(
-            "referral code insert returned no row",
-            {
-              diagnosticCode: "postgres_account_fixture_assertion_failed",
-              operation: "insert referral code",
-            }
-          );
-        }
-
-        return { code, promotionCodeId: referral.promotionCodeId };
-      });
-
-      yield* tx.insert(authUser).values({
-        deletionRequestedAt: null,
-        email: input.invitationOwnerEmail,
-        emailVerified: true,
-        id: input.invitationOwnerAccountId,
-        name: input.invitationOwnerName,
-      });
-      yield* tx.insert(customerAccountLinks).values({
-        customerAccountId: input.invitationOwnerAccountId,
-        dotyposCustomerId: input.invitationOwnerDotyposCustomerId,
-      });
-
       const [existingShareCode] = yield* tx
         .select({
           code: promotionCodes.code,
@@ -156,12 +177,16 @@ const seedReferralFixtureRows = (
         );
       }
       if (ownPromotionCodeId === undefined) {
-        const generated = yield* insertCode(input.referrerDotyposCustomerId);
+        const generated = yield* insertReferralCode(
+          tx,
+          input.referrerDotyposCustomerId
+        );
         ownPromotionCodeId = generated.promotionCodeId;
       }
 
-      const invitation = yield* insertCode(
-        input.invitationOwnerDotyposCustomerId
+      const inviteeReferral = yield* insertReferralOwner(
+        tx,
+        input.eligibleInvitee
       );
       const eligibleReservationId = workspaceReservationIdSchema.make(
         `account-referral-history-${crypto.randomUUID()}`
@@ -170,7 +195,7 @@ const seedReferralFixtureRows = (
         input.eligibleReservationAt.getTime()
       );
       yield* tx.insert(referralAttributions).values({
-        invitedDotyposCustomerId: input.eligibleInviteeDotyposCustomerId,
+        invitedDotyposCustomerId: input.eligibleInvitee.dotyposCustomerId,
         promotionCodeId: ownPromotionCodeId,
         referrerDotyposCustomerId: input.referrerDotyposCustomerId,
       });
@@ -182,7 +207,7 @@ const seedReferralFixtureRows = (
           checkoutSessionKey: checkoutSessionKeySchema.make(
             `account-referral-session-${crypto.randomUUID()}`
           ),
-          dotyposCustomerId: input.eligibleInviteeDotyposCustomerId,
+          dotyposCustomerId: input.eligibleInvitee.dotyposCustomerId,
           dotyposReservationId: input.eligibleReservationId,
           fulfillmentState: "not_started",
           id: eligibleReservationId,
@@ -202,12 +227,33 @@ const seedReferralFixtureRows = (
 
       return {
         eligibleReservationId,
-        invitationCode: invitation.code,
-        invitationOwnerAccountId: input.invitationOwnerAccountId,
-        invitationOwnerPromotionCodeId: invitation.promotionCodeId,
+        inviteeReferralCode: inviteeReferral.code,
         ownPromotionCodeId,
       } satisfies WorkspaceE2EReferralFixture;
     })
+  );
+
+/**
+ * Seeds the referrer whose share link the synthetic main account follows
+ * before completing its profile.
+ */
+export const seedWorkspaceE2EReferralOwner = (
+  input: WorkspaceE2EReferralOwnerInput
+): Effect.Effect<WorkspaceE2EReferralOwner, WorkspaceE2EError, E2EDatabase> =>
+  Effect.gen(function* () {
+    const { db } = yield* E2EDatabase;
+    return yield* runDatabaseOperation(
+      "seed synthetic referral owner",
+      db.transaction((tx) => insertReferralOwner(tx, input))
+    );
+  }).pipe(
+    Effect.mapError((cause) =>
+      workspaceE2EError("Could not seed synthetic referral owner", {
+        cause,
+        diagnosticCode: "postgres_account_fixture_assertion_failed",
+        operation: "seed synthetic referral owner",
+      })
+    )
   );
 
 export const seedWorkspaceE2EReferralFixture = (
@@ -228,6 +274,31 @@ export const seedWorkspaceE2EReferralFixture = (
       })
     )
   );
+
+/** Reads the referrer recorded for one invited customer, if any. */
+export const findWorkspaceE2EReferralReferrer = (
+  invitedDotyposCustomerId: DotyposCustomerId
+): Effect.Effect<string | undefined, WorkspaceE2EError, E2EDatabase> =>
+  Effect.gen(function* () {
+    const { db } = yield* E2EDatabase;
+    const rows = yield* runDatabaseOperation(
+      "read synthetic referral attribution",
+      db
+        .select({
+          referrerDotyposCustomerId:
+            referralAttributions.referrerDotyposCustomerId,
+        })
+        .from(referralAttributions)
+        .where(
+          eq(
+            referralAttributions.invitedDotyposCustomerId,
+            invitedDotyposCustomerId
+          )
+        )
+        .limit(1)
+    );
+    return rows[0]?.referrerDotyposCustomerId;
+  });
 
 export const removeWorkspaceE2EReferralRows = (input: {
   readonly syntheticDotyposCustomerIds: readonly DotyposCustomerId[];

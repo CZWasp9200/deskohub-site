@@ -43,8 +43,8 @@ import { workspaceE2EAccountProfileName } from "./profile-fixture";
 import { verifyProfileNavigation } from "./profile-navigation";
 import { makeMagicLinkRateBudget } from "./rate-budget";
 import {
-  verifyReferralInvitationReview,
   verifyReferralOverview,
+  verifyReferralScreenIgnoresShareLink,
 } from "./referral-review";
 import { verifyReservationExistingCustomer } from "./reservation-existing-customer";
 import { withWorkspaceE2EReservationHistoryFixture } from "./reservation-history-fixture";
@@ -448,7 +448,7 @@ for (const caseId of workspaceE2EAccountCaseIds) {
                 cause instanceof WorkspaceE2EError
                   ? cause
                   : workspaceE2EError(
-                      "capture referral overview and invitation states failed",
+                      "capture referral overview and share-link states failed",
                       { operation: "capture referral review states" }
                     ),
               try: async () => {
@@ -475,29 +475,26 @@ for (const caseId of workspaceE2EAccountCaseIds) {
                   },
                 });
 
-                const invitationCode =
-                  accountLane.lifecycleHandoff.referralInvitationCode;
-                const unavailableCode =
-                  accountLane.lifecycleHandoff.referralUnavailableCode;
-                if (!invitationCode || !unavailableCode) {
+                const shareCode =
+                  accountLane.lifecycleHandoff.referralOtherReferrerCode;
+                if (!shareCode) {
                   throw workspaceE2EError(
-                    "referral invitation fixture is incomplete",
+                    "second referrer fixture is incomplete",
                     {
                       diagnosticCode:
                         "postgres_account_fixture_assertion_failed",
-                      operation: "read referral invitation handoff",
+                      operation: "read second referrer handoff",
                     }
                   );
                 }
-                await verifyReferralInvitationReview({
-                  invitationCode,
+                await verifyReferralScreenIgnoresShareLink({
+                  baseUrl: review.baseUrl,
                   page,
-                  review,
-                  unavailableCode,
+                  shareCode,
                 });
               },
             }),
-            id: "captures eligible accepted and unavailable referral states",
+            id: "captures the referral overview and ignores another share link",
             timeoutMs: workspaceE2ETimeouts.providerTransition,
           },
         ];
@@ -588,7 +585,9 @@ for (const caseId of workspaceE2EAccountCaseIds) {
         const contact = accountLane.lifecycleHandoff.referralCheckoutContact;
         const referralCode =
           accountLane.lifecycleHandoff.referralInvitationCode;
-        if (!contact || !referralCode) {
+        const otherReferrerCode =
+          accountLane.lifecycleHandoff.referralOtherReferrerCode;
+        if (!contact || !referralCode || !otherReferrerCode) {
           throw new Error("account referral checkout handoff is incomplete");
         }
 
@@ -644,6 +643,7 @@ for (const caseId of workspaceE2EAccountCaseIds) {
             customerId: DotyposCustomerIdSchema.make(contact.customerId),
           },
           datasourceConfig,
+          otherReferrerCode,
           referralCode,
           run: accountLane.run,
           testCase: plannedCase,

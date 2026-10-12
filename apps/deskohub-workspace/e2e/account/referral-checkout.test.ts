@@ -38,6 +38,8 @@ import {
   bindWorkspaceE2EAccountReferralCheckout,
   calculateSingleInviteeReferralDiscount,
   isFreshOwnedPayStateUrl,
+  isReferralAppliedPayUrl,
+  isRejectedReferralCodeUrl,
 } from "./referral-checkout";
 import {
   getWorkspaceE2EReferralCheckoutReviewArtifactPath,
@@ -100,6 +102,7 @@ test("binds one planned referral case to two distinct synthetic checkout slots",
     config: {} as WorkspaceE2EConfig,
     contact,
     datasourceConfig: {} as never,
+    otherReferrerCode: "RFL67890",
     referralCode: "RFL12345",
     run: async () => ({ exitCode: 0, stderr: "", stdout: "" }),
     testCase,
@@ -119,6 +122,7 @@ test("binds one planned referral case to two distinct synthetic checkout slots",
     );
   }
   expect(JSON.stringify(bound.checkoutStates)).not.toContain("RFL12345");
+  expect(JSON.stringify(bound.checkoutStates)).not.toContain("RFL67890");
 });
 
 test("accepts only fresh signed pay URLs for the owned order and preview host", () => {
@@ -352,6 +356,63 @@ test("both ownership guards accept and constrain URLs from the real fresh-pay bu
   ).toBe(false);
 });
 
+test("accepts only the owned first pay page that reports the share-link referral", () => {
+  const baseUrl = "https://workspace.example.test";
+  const orderId = "workspace-reservation-123" as WorkspaceReservationId;
+  const payUrl = (query: string) =>
+    `${baseUrl}/en-US/checkout/pay?payState=signed&orderId=${orderId}${query}`;
+  const accepts = (currentUrl: string) =>
+    isReferralAppliedPayUrl({ baseUrl, currentUrl, locale: "en-US", orderId });
+
+  expect(accepts(payUrl("&referralApplied=1"))).toBe(true);
+  for (const rejected of [
+    payUrl(""),
+    payUrl("&referralApplied=0"),
+    payUrl("&referralApplied=1&referralApplied=1"),
+    payUrl("&referralApplied=1&ref=RFL12345"),
+    payUrl("&referralApplied=1&submittedCode=RFL12345"),
+    payUrl("&referralApplied=1&discountCodeError=referral-ineligible"),
+    payUrl("&referralApplied=1").replace(orderId, "workspace-reservation-456"),
+    payUrl("&referralApplied=1").replace("/en-US/", "/cs-CZ/"),
+    payUrl("&referralApplied=1").replace(baseUrl, "https://other.example.test"),
+    `${baseUrl}/en-US/checkout/pay?orderId=${orderId}&referralApplied=1`,
+    "not a url",
+  ]) {
+    expect(accepts(rejected)).toBe(false);
+  }
+});
+
+test("accepts only a rejected referral code that keeps the signed pay state", () => {
+  const baseUrl = "https://workspace.example.test";
+  const orderId = "workspace-reservation-123" as WorkspaceReservationId;
+  const previousUrl = `${baseUrl}/en-US/checkout/pay?payState=signed&orderId=${orderId}`;
+  const accepts = (currentUrl: string) =>
+    isRejectedReferralCodeUrl({
+      baseUrl,
+      currentUrl,
+      error: "referral-already-attributed",
+      locale: "en-US",
+      orderId,
+      previousUrl,
+    });
+  const rejected = `${previousUrl}&discountCodeError=referral-already-attributed&discountCodeErrorId=synthetic`;
+
+  expect(accepts(rejected)).toBe(true);
+  for (const candidate of [
+    previousUrl,
+    rejected.replace("payState=signed", "payState=fresh"),
+    rejected.replace("referral-already-attributed", "referral-ineligible"),
+    `${rejected}&discountCodeError=referral-already-attributed`,
+    `${rejected}&referralApplied=1`,
+    `${rejected}&ref=RFL12345`,
+    `${rejected}&submittedCode=RFL12345`,
+    rejected.replace(orderId, "workspace-reservation-456"),
+    "not a url",
+  ]) {
+    expect(accepts(candidate)).toBe(false);
+  }
+});
+
 test("writes checkout review PNGs into the account-review artifact bundle", () => {
   const artifact = getWorkspaceE2EReferralCheckoutReviewArtifactPath(
     "account-referral-with-voucher"
@@ -519,8 +580,6 @@ const observeOrdinaryCodeSlot = async ({
   });
   const initialPayUrl =
     "https://workspace.example.test/en-US/checkout/pay?payState=initial&orderId=workspace-reservation-123";
-  const freshPayUrl =
-    "https://workspace.example.test/en-US/checkout/pay?payState=fresh&orderId=workspace-reservation-123";
   const testCase = makeReferralCheckoutTestCase();
   const boundCase = bindWorkspaceE2EAccountReferralCheckout({
     captureReview: async () => undefined,
@@ -531,6 +590,7 @@ const observeOrdinaryCodeSlot = async ({
     } as WorkspaceE2EConfig,
     contact,
     datasourceConfig: {} as never,
+    otherReferrerCode: "RFL67890",
     referralCode: "RFL12345",
     run,
     testCase,
@@ -542,8 +602,6 @@ const observeOrdinaryCodeSlot = async ({
     ) => {
       if (step.id === "prepare-ordinary-flow-pay-page")
         return Effect.succeed(initialPayUrl as A);
-      if (step.id === "accept-referral-invitation")
-        return Effect.succeed(freshPayUrl as A);
       if (step.id === "assert-ordinary-code-slot-after-referral")
         return telemetry.traceStep({
           caseId: boundCase.id,

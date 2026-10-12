@@ -25,8 +25,10 @@ export type WorkspaceE2EAccountLifecycleHandoff = {
     readonly name: string;
     readonly phone: string;
   };
+  /** The share code the main account follows before completing its profile. */
   referralInvitationCode?: string;
-  referralUnavailableCode?: string;
+  /** A usable code from a second referrer, which the attributed account must not switch to. */
+  referralOtherReferrerCode?: string;
   reauthentication?: {
     link: string;
     userId: string;

@@ -475,6 +475,11 @@ describe("account review screenshot capture", () => {
       url: `${baseUrl}/en-US/account?section=unknown`,
     },
     {
+      name: "the referrals section with a share-link code",
+      target: "linked-referrals-desktop",
+      url: `${baseUrl}/en-US/account?section=referrals&ref=RFL12345`,
+    },
+    {
       name: "a mobile linked account with a credential query",
       target: "linked-reservations-mobile",
       url: `${baseUrl}/en-US/account?token=synthetic-secret-token`,
@@ -721,16 +726,6 @@ describe("account review screenshot capture", () => {
       "a Czech referral section query",
       "linked-referrals-cs-desktop",
       "/cs-CZ/account?section=referrals",
-    ],
-    [
-      "a referral invitation query",
-      "referral-invitation-eligible-desktop",
-      "/en-US/account?ref=RFL12345",
-    ],
-    [
-      "a referral invitation on the referral section",
-      "referral-invitation-accepted-desktop",
-      "/en-US/account?section=referrals&ref=RFL12345",
     ],
   ] as const satisfies ReadonlyArray<
     readonly [string, AccountReviewTarget, string]
