@@ -10,8 +10,10 @@ import {
 import {
   formatAdministrationDateTime,
   formatAdministrationMoney,
+  getAdministrationPaymentStatus,
 } from "@/features/administration/formatters";
 import { NexiOrderLink } from "@/features/administration/nexi-order-link";
+import { PaymentAmount } from "@/features/administration/payment-status";
 import type { DiscountAdjustment } from "@/features/discounts/contracts";
 import { StatusBadge } from "@/shared/components/ui/status-badge";
 import { CustomerPromotionCodeAction } from "./customer-admin-client";
@@ -210,15 +212,21 @@ export function CustomerTransactionHistoryTable({
         accessorFn: ({ attempt }) => attempt.state,
         id: "status",
         header: "Status",
-        cell: ({ row }) => (
-          <StatusBadge
-            tone={
-              row.original.attempt.state === "paid" ? "positive" : "neutral"
-            }
-          >
-            {row.original.attempt.stateLabel}
-          </StatusBadge>
-        ),
+        cell: ({ row }) => {
+          const { attempt } = row.original;
+          const status = getAdministrationPaymentStatus(attempt);
+          return (
+            <StatusBadge
+              tone={
+                attempt.state === "paid" && !status.refunded
+                  ? "positive"
+                  : "neutral"
+              }
+            >
+              {status.label}
+            </StatusBadge>
+          );
+        },
       },
       {
         accessorFn: ({ reservation }) => reservation.typeLabel,
@@ -237,8 +245,7 @@ export function CustomerTransactionHistoryTable({
         accessorFn: ({ attempt }) => attempt.amount.value,
         id: "amount",
         header: "Amount",
-        cell: ({ row }) =>
-          formatAdministrationMoney(row.original.attempt.amount),
+        cell: ({ row }) => <PaymentAmount payment={row.original.attempt} />,
         meta: { cellClassName: "whitespace-nowrap font-semibold" },
       },
       {

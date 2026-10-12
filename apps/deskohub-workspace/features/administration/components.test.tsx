@@ -52,6 +52,10 @@ import { OperationTable, OrderTable } from "./payment-tables";
 import { ReservationAccessAdministration } from "./reservation-access-administration";
 import { ReservationLifecycleMap } from "./reservation-lifecycle-map";
 
+/** Text content with the formatter's non-breaking spaces as plain spaces. */
+const readableText = (element: Element | null | undefined) =>
+  element?.textContent?.replace(/\s+/g, " ");
+
 mock.module("./actions", () => ({
   getAdministrationReservation: mock(),
   mutateReservationAccess: mock(),
@@ -429,10 +433,94 @@ describe("administration reservation components", () => {
 
     const recordedAt = formatAdministrationDateTime(refundedAt);
     expect(view.queryByText("Needs refund")).toBeNull();
+    expect(view.queryByText(/Paid/)).toBeNull();
     expect(view.getByText(`Refunded · ${recordedAt}`)).toBeDefined();
     expect(
       view.getByText(`Partially refunded CZK 1,000.00 · ${recordedAt}`)
     ).toBeDefined();
+    expect(
+      [...view.container.querySelectorAll("del")].map(readableText)
+    ).toEqual(["CZK 2,400.00 refunded", "CZK 2,400.00 before refund"]);
+    expect(view.getByText("CZK 1,400.00", { exact: false })).toBeDefined();
+  });
+
+  test("crosses out a refunded payment in the reservation list", () => {
+    const { items } = loadFixtureReservations({});
+    const [refunded, partiallyRefunded, paid] = items.filter(
+      ({ latestPayment }) => latestPayment
+    );
+    if (
+      !refunded?.latestPayment ||
+      !partiallyRefunded?.latestPayment ||
+      !paid?.latestPayment
+    ) {
+      throw new Error("Expected three fixture reservations with payments");
+    }
+    const refundedAt = "2026-10-12T09:00:00Z";
+    const view = render(
+      <ReservationTable
+        reservations={[
+          {
+            ...refunded,
+            latestPayment: {
+              ...refunded.latestPayment,
+              refundState: "refunded",
+              refundedAmount: refunded.latestPayment.amount,
+              refundedAt,
+            },
+          },
+          {
+            ...partiallyRefunded,
+            latestPayment: {
+              ...partiallyRefunded.latestPayment,
+              refundState: "refunded",
+              refundedAmount: {
+                ...partiallyRefunded.latestPayment.amount,
+                value: 10_000,
+              },
+              refundedAt,
+            },
+          },
+          paid,
+        ]}
+      />
+    );
+
+    const table = view.getByRole("table", { name: "Reservations" });
+    const [refundedRow, partiallyRefundedRow, paidRow] = within(table)
+      .getAllByRole("row")
+      .slice(1);
+    const recordedAt = formatAdministrationDateTime(refundedAt);
+
+    expect(refundedRow?.textContent).not.toContain("Paid");
+    expect(
+      within(refundedRow as HTMLElement).getByText(`Refunded · ${recordedAt}`)
+    ).toBeDefined();
+    expect(readableText(refundedRow?.querySelector("del"))).toBe(
+      "CZK 275.00 refunded"
+    );
+
+    expect(partiallyRefundedRow?.textContent).not.toContain("Paid");
+    expect(
+      within(partiallyRefundedRow as HTMLElement).getByText(
+        `Partially refunded CZK 100.00 · ${recordedAt}`
+      )
+    ).toBeDefined();
+    expect(readableText(partiallyRefundedRow?.querySelector("del"))).toBe(
+      "CZK 275.00 before refund"
+    );
+    expect(readableText(partiallyRefundedRow)).toContain(
+      "CZK 175.00 after refund"
+    );
+
+    expect(paidRow?.querySelector("del")).toBeNull();
+    expect(
+      within(paidRow as HTMLElement).getByText(
+        `Paid · ${formatAdministrationDateTime(paid.latestPayment.updatedAt)}`
+      )
+    ).toBeDefined();
+    // The mobile list crosses out the same amounts.
+    expect(view.container.querySelectorAll("del")).toHaveLength(4);
   });
 
   test("folds Nexi orders and operations into the reservation", () => {
@@ -455,6 +543,74 @@ describe("administration reservation components", () => {
     expect(
       view.container.querySelector('a[href^="/admin/operations"]')
     ).toBeNull();
+  });
+
+  test("shows a refunded Nexi order as refunded, even when Nexi does not return it", () => {
+    const detail = loadFixtureReservation("0198-admin-fixture-attention");
+    const order = detail?.orders[0];
+    if (!order?.link) throw new Error("Expected a linked fixture order");
+    const refundedAt = "2026-10-12T09:00:00Z";
+    const refundedOrder = {
+      ...order,
+      link: {
+        ...order.link,
+        refundState: "refunded",
+        refundedAmount: order.link.amount,
+        refundedAt,
+      },
+    } as const;
+
+    const view = render(
+      <ReservationOrderList
+        orders={[
+          refundedOrder,
+          {
+            ...refundedOrder,
+            orderId: NexiOrderIdSchema.make("DADMINFIXTUREMISSING"),
+            provider: null,
+            providerAvailable: false,
+            providerStatus: "not_found",
+            link: {
+              ...refundedOrder.link,
+              refundedAmount: { ...order.link.amount, value: 100_000 },
+            },
+          },
+        ]}
+      />
+    );
+
+    const recordedAt = formatAdministrationDateTime(refundedAt);
+    expect(view.queryByText(/Paid/)).toBeNull();
+    expect(view.getByText(`Refunded · ${recordedAt}`)).toBeDefined();
+    expect(
+      view.getByText(`Partially refunded CZK 1,000.00 · ${recordedAt}`)
+    ).toBeDefined();
+    expect(
+      [...view.container.querySelectorAll("del")].map(readableText)
+    ).toEqual(["CZK 2,400.00 refunded", "CZK 2,400.00 before refund"]);
+
+    const orderView = render(
+      <OrderTable
+        orders={[
+          refundedOrder,
+          {
+            ...refundedOrder,
+            orderId: NexiOrderIdSchema.make("DADMINFIXTUREPARTIAL"),
+            link: {
+              ...refundedOrder.link,
+              refundedAmount: { ...order.link.amount, value: 100_000 },
+            },
+          },
+        ]}
+      />
+    );
+    const table = orderView.getByRole("table", { name: "Nexi orders" });
+    expect(within(table).getByText("Refunded")).toBeDefined();
+    expect(
+      within(table).getByText("Partially refunded CZK 1,000.00")
+    ).toBeDefined();
+    expect(within(table).queryByText(/Partially Refunded/)).toBeNull();
+    expect(within(table).queryByText("Paid")).toBeNull();
   });
 
   test("explains pending Nexi orders using the cleanup policy", () => {

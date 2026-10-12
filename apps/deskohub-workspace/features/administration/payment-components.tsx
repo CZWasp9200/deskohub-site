@@ -8,11 +8,15 @@ import {
   type StatusTone,
 } from "@/shared/components/ui/status-badge";
 import { EmptyState } from "./empty-state";
-import { formatAdministrationDateTime } from "./formatters";
+import {
+  formatAdministrationDateTime,
+  getAdministrationPaymentStatus,
+} from "./formatters";
 import { NexiOrderLink } from "./nexi-order-link";
 import { AdministrationAlert } from "./notice";
 import type { AdministrationOrder } from "./payment-administration.service";
 import { getProviderValueLabel } from "./payment-presentation";
+import { PaymentAmount, PaymentStatusLabel } from "./payment-status";
 
 export const formatProviderMoney = (
   amount: string | undefined,
@@ -74,6 +78,32 @@ export function ProviderStatusBadge({ value }: { readonly value: string }) {
   return <StatusBadge tone={tone}>{getProviderValueLabel(value)}</StatusBadge>;
 }
 
+/**
+ * The local payment attempt's status: its state, or the recorded refund with
+ * the same wording as every other payment summary.
+ */
+export const getPaymentAttemptStatusLabel = (
+  link: NonNullable<AdministrationOrder["link"]>
+) => {
+  const status = getAdministrationPaymentStatus(link);
+  return status.refunded ? status.label : getProviderValueLabel(link.state);
+};
+
+export function PaymentAttemptStatusBadge({
+  link,
+}: {
+  readonly link: NonNullable<AdministrationOrder["link"]>;
+}) {
+  if (!getAdministrationPaymentStatus(link).refunded) {
+    return <ProviderStatusBadge value={link.state} />;
+  }
+  return (
+    <StatusBadge tone="attention">
+      {getPaymentAttemptStatusLabel(link)}
+    </StatusBadge>
+  );
+}
+
 export function ReservationOrderList({
   orders,
 }: {
@@ -127,9 +157,19 @@ export function ReservationOrderList({
                 />
               </div>
               <div className="sm:text-right">
-                <p className="font-semibold">{formatOrderMoney(order)}</p>
+                <p className="font-semibold">
+                  {order.link ? (
+                    <PaymentAmount payment={order.link} />
+                  ) : (
+                    formatOrderMoney(order)
+                  )}
+                </p>
                 <p className="mt-1 text-xs text-navy-blue/60">
-                  {order.link?.stateLabel ?? "No local payment attempt"}
+                  {order.link ? (
+                    <PaymentStatusLabel payment={order.link} />
+                  ) : (
+                    "No local payment attempt"
+                  )}
                 </p>
               </div>
             </div>

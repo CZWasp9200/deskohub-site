@@ -1,14 +1,14 @@
 import "@/shared/testing/workspace-test-env";
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
-import { Context, Effect, Layer } from "effect";
+import { Context, Duration, Effect, Layer } from "effect";
 
 process.env.CRON_SECRET = "cron-secret-for-payment-refund-test";
 
 const reconcileCalls: { readonly limit: number }[] = [];
 
 interface IFakePaymentRefunds {
-  readonly reconcileAwaitingRefunds: (input: {
+  readonly reconcileRefunds: (input: {
     readonly limit: number;
   }) => Effect.Effect<
     { checked: number; recorded: number; failed: number },
@@ -24,7 +24,7 @@ const FakePaymentRefundService = Context.Service<
 >()("@test/FakePaymentRefundService");
 
 const fakePaymentRefundLayer = Layer.succeed(FakePaymentRefundService, {
-  reconcileAwaitingRefunds: (input) => {
+  reconcileRefunds: (input) => {
     reconcileCalls.push(input);
     return failReconciliation
       ? Effect.fail(new Error("refund reconciliation unavailable"))
@@ -41,6 +41,7 @@ mock.module(
   "@/features/checkout/backend/payment/payment-refund.service",
   () => ({
     PaymentRefundService: FakePaymentRefundService,
+    refundBatchOverrunWorstCase: Duration.seconds(35),
   })
 );
 
@@ -63,6 +64,32 @@ describe("payment refund reconciliation cron route", () => {
 
     expect(response.status).toBe(401);
     expect(reconcileCalls).toHaveLength(0);
+  });
+
+  test("reconciles one batch sized to re-check recent payments daily", async () => {
+    const { GET } = await loadRoute();
+    const response = await GET(
+      new Request(requestUrl, {
+        headers: {
+          authorization: "Bearer cron-secret-for-payment-refund-test",
+        },
+      })
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      checked: 3,
+      recorded: 1,
+      failed: 0,
+    });
+    expect(reconcileCalls).toEqual([
+      {
+        limit: 150,
+        // 300 s maxDuration - 35 s overrun - 25 s headroom.
+        budget: Duration.millis(240_000),
+        worstCaseLookupDuration: expect.anything(),
+      },
+    ]);
   });
 
   test("returns a 500 response when the batch cannot be read", async () => {

@@ -15,10 +15,10 @@ import {
 import { EmptyState } from "./empty-state";
 import {
   formatAdministrationDateTime,
-  formatAdministrationMoney,
   formatAdministrationReservationDate,
 } from "./formatters";
 import { NexiOrderLink } from "./nexi-order-link";
+import { PaymentAmount, PaymentStatusText } from "./payment-status";
 import type { AdministrationReservationStatus } from "./reservation-status";
 import {
   type AdministrationTableSorting,
@@ -171,10 +171,7 @@ export function ReservationTable({
                   {reservation.latestPayment && (
                     <>
                       {" "}
-                      ·{" "}
-                      {formatAdministrationMoney(
-                        reservation.latestPayment.amount
-                      )}
+                      · <PaymentAmount payment={reservation.latestPayment} />
                     </>
                   )}
                 </p>
@@ -194,7 +191,9 @@ export function ReservationTable({
           ? [{ id: sorting.field, desc: sorting.direction === "desc" }]
           : undefined
       }
-      tableClassName={showCustomer ? "min-w-[1060px]" : "min-w-[880px]"}
+      // Without the customer column the table sits in the customer page's
+      // main column, which is about 630px wide at the xl breakpoint.
+      tableClassName={showCustomer ? "min-w-[1060px]" : "min-w-[620px]"}
     />
   );
 }
@@ -301,9 +300,11 @@ function ReservationPayment({
   }
   return (
     <>
-      <p className="font-medium">{formatAdministrationMoney(payment.amount)}</p>
+      <p className="font-medium">
+        <PaymentAmount payment={payment} />
+      </p>
       <p className="mt-1 text-xs text-navy-blue/65">
-        {payment.stateLabel} · {formatAdministrationDateTime(payment.updatedAt)}
+        <PaymentStatusText payment={payment} />
       </p>
       {payment.providerOrderId && (
         <PaymentLink
