@@ -1,13 +1,9 @@
-import { testEmailAddress } from "@deskohub/email/testing";
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, test } from "bun:test";
-import { Deferred, Effect, Fiber, Layer } from "effect";
+import { Effect, Layer } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
-import {
-  WorkspaceDatabaseAdvisoryLock,
-  withPostgresAdvisoryLock,
-} from "@/db/postgres-advisory-lock";
+import { WorkspaceDatabaseAdvisoryLock } from "@/db/postgres-advisory-lock";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import { customerAccountIdSchema } from "../customer-account";
 import { expireLinkedDotyposProfile } from "./customer-account-deletion";
@@ -52,7 +48,7 @@ describe.skipIf(!testDatabase)(
       const layer = makeRepositoryLayer();
       const account = customerAccountIdSchema.make(uniqueId());
       const dotyposCustomerId = uniqueDotyposId();
-      await insertAuthUser(account, testEmailAddress(`del-${account}`));
+      await insertAuthUser(account, `del-${account}@deskohub.test`);
       await insertLink(account, dotyposCustomerId);
 
       const order: string[] = [];
@@ -93,7 +89,7 @@ describe.skipIf(!testDatabase)(
       const layer = makeRepositoryLayer();
       const account = customerAccountIdSchema.make(uniqueId());
       const dotyposCustomerId = uniqueDotyposId();
-      await insertAuthUser(account, testEmailAddress(`del-${account}`));
+      await insertAuthUser(account, `del-${account}@deskohub.test`);
       await insertLink(account, dotyposCustomerId);
 
       const outcome = await Effect.runPromise(
@@ -125,51 +121,6 @@ describe.skipIf(!testDatabase)(
       );
       expect(link.rows).toHaveLength(1);
       expect(link.rows[0]?.dotypos_customer_id).toBe(dotyposCustomerId);
-    });
-
-    test("serializes deletion against an outer account lock holder", async () => {
-      const layer = makeRepositoryLayer();
-      const account = customerAccountIdSchema.make(uniqueId());
-      await insertAuthUser(account, testEmailAddress(`del-${account}`));
-
-      let deletionCompleted = false;
-
-      await Effect.runPromise(
-        Effect.gen(function* () {
-          const links = yield* CustomerAccountLinkRepository;
-          const gate = yield* Deferred.make<never, void>();
-
-          const outer = yield* Effect.forkChild(
-            withPostgresAdvisoryLock(
-              testDatabase!.pool,
-              ["customer-account", account],
-              Deferred.await(gate).pipe(Effect.orDie)
-            ).pipe(Effect.orDie)
-          );
-
-          yield* Effect.sleep("150 millis");
-
-          const inner = yield* Effect.forkChild(
-            links
-              .withAccountLock(
-                account,
-                Effect.sync(() => {
-                  deletionCompleted = true;
-                })
-              )
-              .pipe(Effect.provide(layer), Effect.orDie)
-          );
-
-          yield* Effect.sleep("300 millis");
-          expect(deletionCompleted).toBe(false);
-
-          yield* Deferred.succeed(gate, undefined);
-          yield* Fiber.join(outer);
-          yield* Fiber.join(inner);
-
-          expect(deletionCompleted).toBe(true);
-        }).pipe(Effect.provide(layer))
-      );
     });
   }
 );

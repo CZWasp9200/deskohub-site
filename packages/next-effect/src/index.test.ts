@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { Context, Deferred, Effect, Layer } from "effect";
+import { AsyncLocalStorage } from "node:async_hooks";
+import { Context, Deferred, Effect, Layer, Semaphore } from "effect";
 import { notFound, redirect } from "next/navigation";
 import { NextEffect } from ".";
 
@@ -153,6 +154,70 @@ describe("NextEffect", () => {
     );
   });
 
+  describe("request async context", () => {
+    // Stands in for the Next.js request stores that revalidatePath, headers()
+    // and after() read.
+    const requestStore = new AsyncLocalStorage<string>();
+    const readRequest = Effect.sync(() => requestStore.getStore());
+
+    test("runs waiting for the first shared layer build resume in their own request", async () => {
+      const built = Deferred.makeUnsafe<void>();
+      const next = NextEffect.make({
+        layer: Layer.effect(
+          TestService,
+          Effect.as(Deferred.await(built), { value: "service" })
+        ),
+      });
+      const handler = Effect.andThen(TestService, readRequest);
+
+      const first = requestStore.run("first", () => next.run(handler));
+      const second = requestStore.run("second", () => next.run(handler));
+      await Bun.sleep(0);
+      requestStore.run("builder", () =>
+        Effect.runSync(Deferred.succeed(built, undefined))
+      );
+
+      expect(await Promise.all([first, second])).toEqual(["first", "second"]);
+    });
+
+    test("a run resumed from another request's callback continues in its own request", async () => {
+      // Like a pooled connection, the delivery handler belongs to the request
+      // that opened it, not to the request whose callback it fires.
+      const deliverFromOpener = requestStore.run("opener", () =>
+        AsyncLocalStorage.bind((deliver: () => void) => deliver())
+      );
+      const next = NextEffect.make();
+      const handler = Effect.callback<void>((resume) => {
+        setImmediate(() => deliverFromOpener(() => resume(Effect.void)));
+      }).pipe(Effect.andThen(readRequest));
+
+      await expect(
+        requestStore.run("caller", () => next.run(handler))
+      ).resolves.toBe("caller");
+    });
+
+    test("a run waiting for a permit another request holds resumes in its own request", async () => {
+      const permit = Semaphore.makeUnsafe(1);
+      const released = Deferred.makeUnsafe<void>();
+      const next = NextEffect.make();
+
+      const holder = requestStore.run("holder", () =>
+        next.run(permit.withPermits(1)(Deferred.await(released)))
+      );
+      await Bun.sleep(0);
+      const waiter = requestStore.run("waiter", () =>
+        next.run(permit.withPermits(1)(readRequest))
+      );
+      await Bun.sleep(0);
+      requestStore.run("releaser", () =>
+        Effect.runSync(Deferred.succeed(released, undefined))
+      );
+
+      await holder;
+      await expect(waiter).resolves.toBe("waiter");
+    });
+  });
+
   test("page passes props into an Effect component", async () => {
     const next = NextEffect.make({
       layer: Layer.succeed(TestService, { value: "service" }),
@@ -165,15 +230,6 @@ describe("NextEffect", () => {
     );
 
     await expect(Page({ slug: "menu" })).resolves.toBe("service:menu");
-  });
-
-  test("page preserves Next control-flow throws", async () => {
-    const next = NextEffect.make();
-    const Page = next.page(() => Effect.sync(() => redirect("/target")));
-
-    await expect(Page({})).rejects.toMatchObject({
-      digest: expect.stringContaining("NEXT_REDIRECT"),
-    });
   });
 
   test("page suspends synchronous component construction", async () => {

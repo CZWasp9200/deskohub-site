@@ -1,22 +1,21 @@
-import { Effect } from "effect";
-import { CheckoutPricingService } from "@/features/checkout/backend/checkout/checkout-pricing.service";
 import type { CheckoutSessionId } from "@/features/checkout/checkout-identifiers";
 import { isWorkspaceCoworkCurrentProductTier } from "@/features/checkout/product-catalog";
 import type { CanonicalPromotionCode } from "@/features/discounts";
 import { type Locale, m } from "@/features/i18n";
-import { loadAdvertisedPrices } from "@/features/reservation/backend/advertised-prices.server";
+import { preloadPageAdvertisedPrices } from "@/features/reservation/backend/advertised-prices.server";
 import { isRememberedCoworkOfferAvailable } from "@/features/reservation/backend/reservation-existing-customer.server";
+import { preloadPageAvailability } from "@/features/reservation/backend/workspace-availability-loader";
 import { createReservationPage } from "@/features/reservation/components/create-reservation-page.server";
-import { getCoworkTierAdvertisedPriceRequests } from "@/features/reservation/cowork-advertised-price";
+import { getCoworkDateAdvertisedPriceRequests } from "@/features/reservation/cowork-advertised-price";
 import type {
   CoworkReservationInput,
   NormalizedCoworkReservationOrder,
 } from "@/features/reservation/cowork-reservation";
 import {
-  getReservationCustomerQueryMode,
   getReservationDefaultValuesFromPayState,
   getReservationDefaultValuesFromSearchParams,
-} from "@/features/reservation/reservation-checkout-query";
+} from "@/features/reservation/cowork-reservation-checkout-query";
+import { getReservationCustomerQueryMode } from "@/features/reservation/reservation-checkout-query";
 import { getCurrentWorkspaceDate } from "@/features/reservation/reservation-date";
 import {
   type CustomerLastReservationForKind,
@@ -27,6 +26,7 @@ import {
   coworkReservationPath,
   getCoworkReservationPath,
 } from "@/features/reservation/routes";
+import { getCoworkAvailabilityQueries } from "@/features/reservation/workspace-availability";
 import { runWorkspaceEffect } from "@/shared/backend/workspace-effect";
 import { Button } from "@/shared/components/ui/button";
 import {
@@ -74,10 +74,8 @@ export function CoworkOfferReplaced({ locale }: { readonly locale: Locale }) {
   );
 }
 
-const withWorkspaceDate = (values: CoworkReservationInput) =>
-  values.date
-    ? values
-    : { ...values, date: getCurrentWorkspaceDate().toString() };
+const withWorkspaceDate = (values: CoworkReservationInput, today: string) =>
+  values.date ? values : { ...values, date: today };
 
 /**
  * Cowork form values from a link, filled from the customer's last cowork
@@ -85,15 +83,18 @@ const withWorkspaceDate = (values: CoworkReservationInput) =>
  */
 const getCoworkQueryValues = async (
   searchParams: SearchParamsRecord,
-  lastReservation: CustomerLastReservationForKind<"cowork"> | undefined
+  lastReservation: CustomerLastReservationForKind<"cowork"> | undefined,
+  today: string
 ) => {
   const queryValues = withWorkspaceDate(
-    getReservationDefaultValuesFromSearchParams(searchParams)
+    getReservationDefaultValuesFromSearchParams(searchParams),
+    today
   );
   if (!lastReservation) return queryValues;
 
   const rememberedValues = withWorkspaceDate(
-    getReservationDefaultValuesFromSearchParams(searchParams, lastReservation)
+    getReservationDefaultValuesFromSearchParams(searchParams, lastReservation),
+    today
   );
   if (
     rememberedValues.entryTier === queryValues.entryTier &&
@@ -132,13 +133,16 @@ export async function renderCoworkReservationContent({
     return <CoworkOfferReplaced locale={locale} />;
   }
 
+  const today = getCurrentWorkspaceDate().toString();
   const restoredOrQueryValues = initialReservation
     ? withWorkspaceDate(
-        getReservationDefaultValuesFromPayState(initialReservation)
+        getReservationDefaultValuesFromPayState(initialReservation),
+        today
       )
     : await getCoworkQueryValues(
         searchParams,
-        existingCustomer?.lastReservation
+        existingCustomer?.lastReservation,
+        today
       );
   const { existingCustomer: existingCustomerForm, initialValues } =
     existingCustomer
@@ -150,44 +154,36 @@ export async function renderCoworkReservationContent({
           values: restoredOrQueryValues,
         })
       : { existingCustomer: undefined, initialValues: restoredOrQueryValues };
-  const initialAdvertisedPrices = await loadAdvertisedPrices(
-    getCoworkTierAdvertisedPriceRequests({
-      date: initialValues.date,
-      locale,
-      offers: [
-        { entryTier: "open-space", coffee: initialValues.coffee },
-        {
-          entryTier: "reserved-desk",
-          coffee: true,
-          ...(initialValues.monitorOption && {
-            monitorOption: initialValues.monitorOption,
-          }),
-        },
-      ],
-      submittedCode,
-    }).filter(
-      ({ reservation }) =>
-        reservation.details.entryTier === initialValues.entryTier &&
-        (reservation.details.entryTier !== "reserved-desk" ||
-          reservation.details.workstation ===
-            (initialValues.monitorOption !== undefined))
-    )
-  ).pipe(
-    Effect.provide(CheckoutPricingService.Live),
-    Effect.scoped,
-    runWorkspaceEffect("reservation.cowork.load-advertised-price")
-  );
+  // Every price and the initial availability render with the content, so no
+  // option streams in later and resizes the form.
+  const [initialAdvertisedPrices, initialAvailability] = await Promise.all([
+    preloadPageAdvertisedPrices(
+      getCoworkDateAdvertisedPriceRequests({
+        date: initialValues.date,
+        locale,
+        submittedCode,
+      })
+    ).pipe(runWorkspaceEffect("reservation.cowork.load-advertised-price")),
+    preloadPageAvailability({
+      queries: Object.values(
+        getCoworkAvailabilityQueries({ ...initialValues, today })
+      ),
+      replacementToken,
+    }).pipe(runWorkspaceEffect("reservation.cowork.preload-availability")),
+  ]);
 
   return (
     <CoworkReservationForm
       checkoutSessionId={checkoutSessionId}
       existingCustomer={existingCustomerForm}
       initialAdvertisedPrices={initialAdvertisedPrices}
+      initialAvailability={initialAvailability}
       initialReservation={initialReservation}
       initialValues={initialValues}
       locale={locale}
       replacementToken={replacementToken}
       submittedCode={submittedCode}
+      today={today}
     />
   );
 }

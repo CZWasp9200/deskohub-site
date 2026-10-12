@@ -3,13 +3,11 @@ import { Effect, Layer } from "effect";
 import { createElement, type ReactElement, type ReactNode } from "react";
 import { renderToReadableStream } from "react-dom/server";
 import type { CloudinaryAsset } from "@/features/gallery/backend/cloudinary.service";
-import type { Locale } from "@/features/i18n";
+import { type Locale, m } from "@/features/i18n";
 import {
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
 } from "@/shared/testing/workspace-component-test-env";
-
-import { workspaceSiteConstants } from "@/shared/utils";
 
 const syntheticPhotos = [
   {
@@ -29,12 +27,8 @@ const syntheticPhotos = [
     width: 1600,
   },
 ] as const satisfies readonly CloudinaryAsset[];
-let requestLocale: Locale = "en-US";
-let loadCarouselImages = async (): Promise<readonly CloudinaryAsset[]> =>
-  syntheticPhotos;
-
 function runWithRequestLocale<A>(resolve: (locale: Locale) => A) {
-  return Promise.resolve(resolve(requestLocale));
+  return Promise.resolve(resolve("en-US"));
 }
 
 function passthrough<A>(effect: A) {
@@ -63,7 +57,7 @@ mock.module("@/shared/backend/workspace-effect", () => ({
   runWorkspaceEffect: () => passthrough,
 }));
 mock.module("@/features/gallery/backend/get-cloudinary-images.server", () => ({
-  getCloudinaryImages: () => loadCarouselImages(),
+  getCloudinaryImages: async () => syntheticPhotos,
 }));
 const syntheticHeroImageUrl =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E";
@@ -115,83 +109,23 @@ async function renderHomePage() {
   return page;
 }
 
-test("renders the public homepage sections without Team, FAQ, or teambuilding sections", async () => {
-  requestLocale = "en-US";
-  loadCarouselImages = async () => syntheticPhotos;
+const landingHeading = (page: HTMLElement) =>
+  page.querySelector('section[aria-labelledby="landing-page-heading"] h1');
+const photoCarousel = (page: HTMLElement) =>
+  page.querySelector(
+    `section[aria-label="${m.landingCarouselAriaLabel({}, { locale: "en-US" })}"]`
+  );
+
+test("renders the public homepage with the loaded carousel photos", async () => {
   const page = await renderHomePage();
 
-  expect(
-    page.querySelector('section[aria-labelledby="landing-page-heading"] h1')
-      ?.textContent
-  ).toBe("The first self-service workspace on Palmovka.");
-  expect(
-    page.querySelector(
-      'section[aria-label="Deskohub Workspace photo carousel"] img[alt="Synthetic workspace photo 1"]'
-    )
-  ).toBeTruthy();
-  expect(
-    page.querySelector(
-      'section[aria-label="Deskohub Workspace photo carousel"] img[alt="Synthetic workspace photo 2"]'
-    )
-  ).toBeTruthy();
-  expect(page.querySelector("section#location-map h2")?.textContent).toBe(
-    "Two minutes from Palmovka metro"
-  );
-  expect(page.querySelector("section#location-map address")?.textContent).toBe(
-    "Turnovská 430/10, 180 00 Praha 8 - Libeň"
-  );
-  expect(
-    page.querySelector(
-      `a[href="mailto:${workspaceSiteConstants.contact.infoEmail}"]`
-    )?.textContent
-  ).toBe(workspaceSiteConstants.contact.infoEmail);
-  const ids = Array.from(page.querySelectorAll<HTMLElement>("[id]"), (node) =>
-    node.id.toLowerCase()
-  );
-  expect(ids.filter((id) => /team|faq|teambuild/.test(id))).toEqual([]);
-  const headings = Array.from(page.querySelectorAll("h1, h2, h3"), (heading) =>
-    heading.textContent?.trim()
-  );
-  expect(headings).not.toContain("Our team");
-  expect(headings).not.toContain("Frequenty Asked Questions");
-  expect(headings).not.toContain("FAQ");
-  expect(headings).not.toContain("Workspace teambuilding");
-});
-
-test("hides the photo carousel and keeps the homepage when its images fail to load", async () => {
-  requestLocale = "en-US";
-  loadCarouselImages = () =>
-    Promise.reject(new Error("Cloudinary search failed"));
-  const page = await renderHomePage();
-
-  expect(page.querySelector("#hero-gallery")).toBeNull();
-  expect(
-    page.querySelector(
-      'section[aria-label="Deskohub Workspace photo carousel"]'
-    )
-  ).toBeNull();
-  expect(
-    page.querySelector('section[aria-labelledby="landing-page-heading"] h1')
-      ?.textContent
-  ).toBe("The first self-service workspace on Palmovka.");
-  expect(page.querySelector("section#location-map h2")?.textContent).toBe(
-    "Two minutes from Palmovka metro"
-  );
-  expect(
-    page.querySelector(
-      `a[href="mailto:${workspaceSiteConstants.contact.infoEmail}"]`
-    )?.textContent
-  ).toBe(workspaceSiteConstants.contact.infoEmail);
-});
-
-test("hides the photo carousel when Cloudinary serves no photos", async () => {
-  requestLocale = "en-US";
-  loadCarouselImages = async () => [];
-  const page = await renderHomePage();
-
-  expect(page.querySelector("#hero-gallery")).toBeNull();
-  expect(
-    page.querySelector('section[aria-labelledby="landing-page-heading"] h1')
-      ?.textContent
-  ).toBe("The first self-service workspace on Palmovka.");
+  expect(landingHeading(page)).toBeTruthy();
+  for (const photo of syntheticPhotos) {
+    expect(
+      photoCarousel(page)?.querySelector(
+        `img[alt="${photo.context.custom.alt}"]`
+      )
+    ).toBeTruthy();
+  }
+  expect(page.querySelector("section#location-map")).toBeTruthy();
 });

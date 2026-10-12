@@ -6,7 +6,7 @@ import type { BetterAuthOptions } from "better-auth";
  * destructive actions. Cookie caching stays disabled so logout, deletion, and
  * server-side revocation act on the next authoritative request.
  */
-export const betterAuthSessionOptions = {
+const betterAuthSessionOptions = {
   expiresIn: 60 * 60 * 24 * 30,
   updateAge: 60 * 60 * 24,
   freshAge: 60 * 10,

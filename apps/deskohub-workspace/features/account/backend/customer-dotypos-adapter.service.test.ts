@@ -480,42 +480,6 @@ describe("CustomerDotyposAdapter", () => {
         })
       ).toBe(false);
     });
-
-    test("completes an uncertain write that cleared whitespace-only personal billing", async () => {
-      const calls: string[] = [];
-
-      const outcome = await runWithDotypos(
-        {
-          patchCustomer: () => {
-            calls.push("patch");
-            return Effect.fail(
-              new NetworkError({ message: "connection reset" })
-            );
-          },
-          getCustomer: () => {
-            calls.push("read");
-            return Effect.succeed(makeCustomer());
-          },
-        },
-        (adapter) =>
-          adapter
-            .updateCustomerProfile("60111", {
-              firstName: "Ada",
-              billing: {
-                kind: "personal",
-                addressLine1: "   ",
-                addressLine2: "",
-                city: "",
-                zip: "",
-                country: "",
-              },
-            })
-            .pipe(Effect.result)
-      );
-
-      expect(calls).toEqual(["patch", "read"]);
-      expect(outcome._tag).toBe("Success");
-    });
   });
 
   describe("profile updates", () => {

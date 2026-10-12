@@ -342,27 +342,6 @@ describe("CheckoutSummary", () => {
     );
   });
 
-  test("highlights the canonical changed product key", () => {
-    const quote = buildCoworkReservationQuote({
-      entryTier: "basic",
-      coffee: false,
-    });
-    const view = render(
-      <CheckoutSummary
-        changedKeys={{
-          sectionKeys: ["order"],
-          itemKeys: ["product:cowork:basic"],
-        }}
-        locale="en-US"
-        summary={quote.summary}
-      />
-    );
-
-    expect(view.getByText("Basic Day Pass").parentElement?.className).toContain(
-      "text-burned-orange"
-    );
-  });
-
   test("renders a discounted product with its original and final prices", async () => {
     const money = (value: number) => ({
       value,

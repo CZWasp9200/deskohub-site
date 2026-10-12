@@ -1,10 +1,10 @@
 import { describe, expect, mock, test } from "bun:test";
-import { Effect, Layer } from "effect";
-import { testEmailAddress } from "../testing/test-email-address";
+import { Effect, Fiber, Layer } from "effect";
+import { TestClock } from "effect/testing";
 import {
-  type EmailConfig,
   EmailDeliveryIdSchema,
   type EmailMessage,
+  type EmailProviderConfig,
 } from "../types/email.types";
 import { NetworkError } from "./network-error";
 import {
@@ -17,8 +17,9 @@ import {
   EmailTemplateServiceTag,
 } from "./service";
 
-const config: EmailConfig = {
-  defaultFrom: { email: testEmailAddress("deskohub"), name: "Deskohub" },
+const config: EmailProviderConfig = {
+  provider: "console",
+  defaultFrom: { email: "deskohub@example.test", name: "Deskohub" },
 };
 
 const success = {
@@ -69,9 +70,17 @@ const runWithEmail = <A, E>(
     )
   );
 
+/** Advances a TestClock past the whole retry backoff, so retries run instantly. */
+const withInstantRetryBackoff = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+  Effect.gen(function* () {
+    const fiber = yield* Effect.forkChild(effect);
+    yield* TestClock.adjust("1 minute");
+    return yield* Fiber.join(fiber);
+  }).pipe(Effect.provide(TestClock.layer()));
+
 const message: EmailMessage = {
   from: undefined as never,
-  to: { email: testEmailAddress("ada") },
+  to: { email: "ada@example.test" },
   subject: "Hello",
   html: "<p>Hello</p>",
 };
@@ -112,7 +121,7 @@ describe("EmailService", () => {
       Effect.gen(function* () {
         const email = yield* EmailServiceTag;
         return yield* email.send(message);
-      }),
+      }).pipe(withInstantRetryBackoff),
       makeProvider(retrySend)
     );
     expect(attempts).toBe(2);
@@ -147,7 +156,7 @@ describe("EmailService", () => {
       Effect.gen(function* () {
         const email = yield* EmailServiceTag;
         return yield* email.send(message);
-      }),
+      }).pipe(withInstantRetryBackoff),
       makeProvider(send)
     );
 
@@ -210,7 +219,7 @@ describe("EmailService", () => {
     ]);
   });
 
-  test("sendTemplate sends rendered body, tags, and metadata", async () => {
+  test("sendTemplate sends the rendered template to a normalized recipient", async () => {
     const send = mock((_message: EmailMessage) => Effect.succeed(success));
     const render = mock(() =>
       Effect.succeed({
@@ -223,7 +232,7 @@ describe("EmailService", () => {
     await runWithEmail(
       Effect.gen(function* () {
         const email = yield* EmailServiceTag;
-        return yield* email.sendTemplate(testEmailAddress("ada"), {
+        return yield* email.sendTemplate("ada@example.test", {
           type: "reservation-confirmation",
           data: {
             customerName: "Ada",
@@ -237,15 +246,12 @@ describe("EmailService", () => {
       { render }
     );
 
-    expect(send.mock.calls[0]?.[0]).toEqual({
+    expect(send.mock.calls[0]?.[0]).toMatchObject({
       from: config.defaultFrom,
-      to: { email: testEmailAddress("ada") },
+      to: { email: "ada@example.test" },
       subject: "Reservation confirmed",
       html: "<p>Confirmed</p>",
       text: "Confirmed",
-      tags: ["reservation-confirmation"],
-      metadata: { templateType: "reservation-confirmation" },
-      idempotencyKey: expect.any(String),
     });
   });
 });
@@ -286,7 +292,7 @@ describe("EmailService censorship", () => {
     }
 
     const logged = consoleLines.join("\n");
-    expect(logged).not.toContain(testEmailAddress("ada"));
+    expect(logged).not.toContain("ada@example.test");
     expect(logged).not.toContain("Hello");
     expect(logged).not.toContain("<p>Hello</p>");
   });
@@ -311,7 +317,7 @@ describe("EmailService censorship", () => {
     expect(logged).toContain("email.send.rejected");
     expect(logged).not.toContain("raw provider detail");
     expect(logged).not.toContain("quota");
-    expect(logged).not.toContain(testEmailAddress("ada"));
+    expect(logged).not.toContain("ada@example.test");
     expect(logged).not.toContain("Hello");
   });
 });

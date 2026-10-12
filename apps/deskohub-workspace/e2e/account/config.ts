@@ -1,11 +1,15 @@
 import { testEmailAddress } from "@deskohub/email/testing";
 import type { WorkspaceE2EConfig } from "../config";
 import { parseWorkspaceE2EBaseUrl } from "../config";
-import type { WorkspaceE2EEnvironment } from "../e2e-env";
+import {
+  reviewScreenshotsEnabled,
+  type WorkspaceE2EEnvironment,
+} from "../e2e-env";
 import { workspaceE2EError } from "../errors";
 import type { WorkspaceE2ERunId } from "../run-identifiers";
 import { addRedaction } from "../runtime";
 import { workspaceE2ETimeouts } from "../timeouts";
+import type { AccountReviewDestination } from "./review-screenshots";
 
 /** The lane's primary synthetic identity, shared with the failure diagnostic. */
 export const workspaceE2EAccountMainRecipientLabel = "main";
@@ -16,6 +20,8 @@ export type WorkspaceE2EAccountConfig = {
   readonly bypassSecret: string | undefined;
   readonly expectedHost: string;
   readonly locale: "en-US";
+  /** Where review screenshots come from and whether this run captures them. */
+  readonly review: AccountReviewDestination;
   /** Validated run-context run id; every synthetic recipient derives from it. */
   readonly runId: WorkspaceE2ERunId;
   readonly timeouts: WorkspaceE2EConfig["timeouts"];
@@ -55,6 +61,7 @@ export const getAccountE2EConfig = (
     bypassSecret,
     expectedHost,
     locale: "en-US",
+    review: { baseUrl, screenshots: reviewScreenshotsEnabled(environment) },
     runId,
     timeouts: workspaceE2ETimeouts,
     vercelProjectId,

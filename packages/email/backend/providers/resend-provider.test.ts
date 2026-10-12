@@ -1,8 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { Effect, Fiber, Layer, Tracer } from "effect";
 import { TestClock } from "effect/testing";
-import { testEmailAddress } from "../../testing/test-email-address";
-import { EmailDeliveryIdSchema } from "../../types/email.types";
 
 type SendResponse =
   | { readonly data: { readonly id: string }; readonly error?: never }
@@ -47,7 +45,8 @@ beforeEach(() => {
 });
 
 const config = {
-  defaultFrom: { email: testEmailAddress("deskohub") },
+  provider: "resend" as const,
+  defaultFrom: { email: "deskohub@example.test" },
   apiKey: "api-key",
 };
 
@@ -65,8 +64,8 @@ const runProvider = <A, E>(
   );
 
 const message = {
-  from: { email: testEmailAddress("deskohub") },
-  to: { email: testEmailAddress("ada") },
+  from: { email: "deskohub@example.test" },
+  to: { email: "ada@example.test" },
   subject: "Hello",
   html: "<p>Hello</p>",
 };
@@ -138,21 +137,6 @@ describe("ResendEmailProvider", () => {
     });
   });
 
-  test("send result includes status", async () => {
-    const result = await runProvider(
-      Effect.gen(function* () {
-        const provider = yield* EmailProviderTag;
-        return yield* provider.send(message);
-      })
-    );
-
-    expect(result).toMatchObject({
-      id: EmailDeliveryIdSchema.make("resend-id"),
-      provider: "resend",
-      status: "sent",
-    });
-  });
-
   test("rejects a Resend response without a valid delivery ID", async () => {
     send = mock<SendImplementation>(async () => ({ data: { id: "" } }));
 
@@ -215,6 +199,42 @@ describe("ResendEmailProvider", () => {
     ]);
   });
 
+  test("drops tags and metadata Resend cannot carry and forwards headers and attachments", async () => {
+    const attachment = {
+      content: Buffer.from("location-map"),
+      contentId: "location-map",
+      contentType: "image/jpeg",
+      filename: "location-map.jpeg",
+    };
+
+    await runProvider(
+      Effect.gen(function* () {
+        const provider = yield* EmailProviderTag;
+        yield* provider.send({
+          ...message,
+          attachments: [attachment],
+          headers: { "X-Entity-Ref-ID": "reservation-id" },
+          tags: ["reservation-access", "unsafe category"],
+          metadata: {
+            reservationId: "reservation-id",
+            ignoredNumber: 42,
+            unsafeValue: "contains spaces",
+            "unsafe name": "value",
+          },
+        });
+      })
+    );
+
+    expect(send.mock.calls[0]?.[0]).toMatchObject({
+      attachments: [attachment],
+      headers: { "X-Entity-Ref-ID": "reservation-id" },
+      tags: [
+        { name: "category", value: "reservation-access" },
+        { name: "reservationId", value: "reservation-id" },
+      ],
+    });
+  });
+
   test("verify fails when Resend returns an error", async () => {
     listDomains = mock<ListDomainsImplementation>(async () => ({
       error: { message: "Invalid API key" },
@@ -240,7 +260,8 @@ describe("ResendEmailProvider", () => {
           ResendEmailProviderLive.pipe(
             Layer.provide(
               Layer.succeed(EmailConfigTag, {
-                defaultFrom: { email: testEmailAddress("deskohub") },
+                provider: "resend" as const,
+                defaultFrom: { email: "deskohub@example.test" },
               })
             )
           )
@@ -348,7 +369,7 @@ describe("ResendEmailProvider span censorship", () => {
     expect(traced).not.toContain(rawProviderDetail);
     expect(traced).not.toContain("quota");
     expect(traced).not.toContain("rk_123");
-    expect(traced).not.toContain(testEmailAddress("ada"));
+    expect(traced).not.toContain("ada@example.test");
     expect(traced).not.toContain("secret-token");
     expect(traced).not.toContain("bearer text");
     if (result._tag === "Failure") {
@@ -372,7 +393,7 @@ describe("ResendEmailProvider span censorship", () => {
     expect(traced).not.toContain(rawTransportDetail);
     expect(traced).not.toContain("getaddrinfo");
     expect(traced).not.toContain("ENOTFOUND");
-    expect(traced).not.toContain(testEmailAddress("ada"));
+    expect(traced).not.toContain("ada@example.test");
     expect(traced).not.toContain("secret-token");
     if (result._tag === "Failure") {
       expect(result.failure._tag).toBe("NetworkError");

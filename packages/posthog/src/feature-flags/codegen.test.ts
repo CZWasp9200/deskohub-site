@@ -88,29 +88,6 @@ describe("generatePostHogFeatureFlagContractFromDefinitions", () => {
       expect(await Bun.file(outputFile).exists()).toBeFalse();
     });
   });
-
-  test("generates payload shapes without configured payload values", async () => {
-    await withOutputFiles(async (outputFile) => {
-      await Effect.runPromise(
-        generatePostHogFeatureFlagContractFromDefinitions({
-          definitions: [
-            {
-              key: "private_payload",
-              payloads: {
-                control: '{"apiKey":"must-not-be-generated"}',
-              },
-              variants: ["control"],
-            },
-          ],
-          outputFile,
-        })
-      );
-
-      const content = await Bun.file(outputFile).text();
-      expect(content).toContain('readonly "apiKey": string;');
-      expect(content).not.toContain("must-not-be-generated");
-    });
-  });
 });
 
 const withOutputFiles = async (

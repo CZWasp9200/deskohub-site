@@ -201,6 +201,28 @@ export const loadDiscountAdminCustomerCodeCreationPageData = async (
   return data;
 };
 
+export const loadDiscountAdminCustomerVoucherCreationPageData = async (
+  customerId: DotyposCustomerId
+) => {
+  await authorizeAdministratorPage();
+
+  const data = await Effect.gen(function* () {
+    const administration = yield* DiscountAdministration;
+    return yield* administration.loadCustomerVoucherCreation({ customerId });
+  }).pipe(
+    Effect.catchTag("DiscountAdminNotFoundError", () => Effect.succeed(null)),
+    Effect.provide(DiscountAdministration.Live),
+    runWorkspaceEffect(
+      "discount-administration.load-customer-voucher-creation",
+      {
+        boundary: "route",
+      }
+    )
+  );
+  if (!data) notFound();
+  return data;
+};
+
 const loadOptionalDiscountAdminCustomerProfile = cache(
   async (customerId: DotyposCustomerId) =>
     loadDiscountAdminCustomerProfile(customerId)

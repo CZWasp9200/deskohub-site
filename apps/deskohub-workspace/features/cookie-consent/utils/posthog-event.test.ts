@@ -204,17 +204,6 @@ describe("preparePostHogEvent", () => {
     const event = createEvent("$exception", {
       $current_url:
         "https://workspace.deskohub.cz/en/checkout?checkoutToken=secret&step=pay",
-      $referrer:
-        "https://workspace.deskohub.cz/reservation/access/order-id?accessToken=secret#synthetic-fragment",
-      $session_entry_url:
-        "https://workspace.deskohub.cz/checkout/pay?payState=secret#synthetic-fragment",
-      $session_entry_referrer:
-        "https://workspace.deskohub.cz/checkout/pay/return/order-id?checkoutToken=secret",
-      $session_entry_pathname:
-        "/reservation/status/session-entry-order-id?statusToken=secret#synthetic-fragment",
-      $initial_utm_source: "legacy-synthetic-campaign",
-      $session_entry_utm_source: "synthetic-session-campaign",
-      $session_entry_gclid: "synthetic-session-click-id",
       $exception_list: [
         {
           type: "TypeError",
@@ -225,11 +214,6 @@ describe("preparePostHogEvent", () => {
 
     expect(preparePostHogEvent(event, "production")?.properties).toEqual({
       $current_url: "https://workspace.deskohub.cz/en/checkout",
-      $referrer: "https://workspace.deskohub.cz/reservation/access/[id]",
-      $session_entry_url: "https://workspace.deskohub.cz/checkout/pay",
-      $session_entry_referrer:
-        "https://workspace.deskohub.cz/checkout/pay/return/[id]",
-      $session_entry_pathname: "/reservation/status/[id]",
       $exception_list: [
         {
           type: "TypeError",

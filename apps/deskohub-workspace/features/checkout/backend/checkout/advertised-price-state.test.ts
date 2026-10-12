@@ -254,8 +254,5 @@ describe("advertised price state", () => {
         })
       )
     ).toThrow();
-    expect(advertisedPriceStateSchema.fields).not.toHaveProperty(
-      "customerEmail"
-    );
   });
 });

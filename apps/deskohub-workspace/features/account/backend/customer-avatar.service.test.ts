@@ -16,6 +16,7 @@ import {
   Option,
   Schema,
 } from "effect";
+import { TestClock } from "effect/testing";
 import sharp from "sharp";
 import { reservationCustomerEmailSchema } from "@/features/reservation/reservation-contact";
 import { customerAccountIdSchema } from "../customer-account";
@@ -55,7 +56,7 @@ let prefixDeleteFails = false;
 let destroyOutcome: "destroyed" | "not-found" | "uncertain" = "destroyed";
 let uncertainDestroyTargets: readonly string[] = [];
 let renameGateMillis = 0;
-let renameStarted = false;
+let renameStartedDeferred: Deferred.Deferred<void> | null = null;
 let renameSettledDeferred: Deferred.Deferred<never, void> | null = null;
 let accountLockGate: {
   readonly entered: Deferred.Deferred<never, void>;
@@ -202,8 +203,11 @@ const CloudinaryLayer = Layer.succeed(Cloudinary, {
         overwrite: options?.overwrite ?? false,
       });
       if (renameGateMillis > 0) {
-        renameStarted = true;
-        return Effect.sleep(`${renameGateMillis} millis`).pipe(
+        const renameStarted = renameStartedDeferred
+          ? Deferred.succeed(renameStartedDeferred, undefined)
+          : Effect.void;
+        return renameStarted.pipe(
+          Effect.andThen(Effect.sleep(`${renameGateMillis} millis`)),
           Effect.andThen(() => renameOutcome(from, to)),
           Effect.tap(() =>
             renameSettledDeferred
@@ -397,7 +401,7 @@ const resetFakes = () => {
   destroyOutcome = "destroyed";
   uncertainDestroyTargets = [];
   renameGateMillis = 0;
-  renameStarted = false;
+  renameStartedDeferred = null;
   renameSettledDeferred = null;
   accountLockGate = null;
   storedAssets = new Set();
@@ -1356,6 +1360,8 @@ describe("CustomerAvatarService", () => {
 
     const deletion = await runWith(
       Effect.gen(function* () {
+        const renameStarted = yield* Deferred.make<void>();
+        renameStartedDeferred = renameStarted;
         const renameSettled = yield* Deferred.make<void>();
         renameSettledDeferred = renameSettled;
 
@@ -1366,11 +1372,7 @@ describe("CustomerAvatarService", () => {
         );
 
         // Wait until the rename request is actually in flight.
-        const waitUntilStarted = (): Effect.Effect<void> =>
-          renameStarted
-            ? Effect.void
-            : Effect.sleep("5 millis").pipe(Effect.andThen(waitUntilStarted));
-        yield* waitUntilStarted();
+        yield* Deferred.await(renameStarted);
 
         // The action runtime times out and deletion starts while the rename
         // is still in flight: the interrupt is only requested (never awaited
@@ -1392,16 +1394,18 @@ describe("CustomerAvatarService", () => {
           )
         );
 
+        // The provider answers the held rename.
+        yield* TestClock.adjust(`${renameGateMillis} millis`);
         const result = yield* Fiber.join(deletionFiber);
         yield* Fiber.join(interruptFiber);
         yield* Fiber.await(uploadFiber);
 
         // No late provider mutation arrived after deletion settled.
         const settledCallCount = calls.length;
-        yield* Effect.sleep("200 millis");
+        yield* TestClock.adjust("1 second");
         expect(calls.length).toBe(settledCallCount);
         return result;
-      })
+      }).pipe(Effect.provide(TestClock.layer()))
     );
 
     // Deletion completed cleanly.

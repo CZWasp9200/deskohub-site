@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
-import { testEmailAddress } from "@deskohub/email/testing";
-import { Effect, Layer } from "effect";
+import { Effect } from "effect";
 import type { ReactElement } from "react";
+import { getMeetingRoomDurationAdvertisedPriceRequests } from "@/features/reservation/meeting-room-advertised-price";
 import { normalizedMeetingRoomReservationOrderSchema } from "@/features/reservation/meeting-room-reservation";
+import { meetingRoomReservationDurations } from "@/features/reservation/meeting-room-reservation-duration";
+import type { WorkspaceAvailabilityQuery } from "@/features/reservation/workspace-availability";
 import type { MeetingRoomReservationForm } from "./meeting-room-reservation-form";
-
-const testEmailAddressForAda = testEmailAddress("ada");
 
 mock.module("next/root-params", () => ({
   locale: () => Promise.resolve("en-US"),
@@ -15,14 +15,9 @@ const loadAdvertisedPrices = mock((requests: ReadonlyArray<unknown>) =>
   Effect.succeed(requests)
 );
 
-mock.module(
-  "@/features/checkout/backend/checkout/checkout-pricing.service",
-  () => ({
-    CheckoutPricingService: { Live: Layer.empty },
-  })
-);
 mock.module("@/features/reservation/backend/advertised-prices.server", () => ({
   loadAdvertisedPrices,
+  preloadPageAdvertisedPrices: loadAdvertisedPrices,
 }));
 let isRememberedDurationAvailable = true;
 const isRememberedMeetingRoomReservationAvailable = mock(() =>
@@ -34,6 +29,37 @@ mock.module(
     isRememberedCoworkOfferAvailable: () => Promise.resolve(false),
     isRememberedMeetingRoomReservationAvailable,
     loadReservationExistingCustomer: () => Promise.resolve(undefined),
+  })
+);
+const preloadAvailability = mock(
+  ({
+    queries,
+  }: {
+    readonly queries: ReadonlyArray<WorkspaceAvailabilityQuery>;
+    readonly replacementToken?: string;
+  }) =>
+    Effect.succeed(
+      queries.map((query) => ({
+        query,
+        availability: {
+          from: query.from,
+          to: query.to,
+          unavailableDates: [],
+          reservedDeskWorkstationRequiredDates: [],
+          unavailableCoworkTiers: [],
+          meetingRoomUnavailable: false,
+          officeUnavailable: false,
+          unavailableMonitorOptions: [],
+          notices: [],
+        },
+        loadedAt: 1,
+      }))
+    )
+);
+mock.module(
+  "@/features/reservation/backend/workspace-availability-loader",
+  () => ({
+    preloadPageAvailability: preloadAvailability,
   })
 );
 const { renderMeetingRoomReservationContent } = await import(
@@ -55,7 +81,7 @@ test("preloads the preserved quote for a restored hourly slot that has started",
     startsAt: "2099-07-30T13:00:00Z",
     endsAt: "2099-07-30T17:00:00Z",
     name: "Ada Lovelace",
-    email: testEmailAddressForAda,
+    email: "ada@example.com",
     phone: "+420777777777",
   });
 
@@ -67,7 +93,9 @@ test("preloads the preserved quote for a restored hourly slot that has started",
     });
 
     expect(loadAdvertisedPrices).toHaveBeenCalledTimes(1);
-    expect(loadAdvertisedPrices.mock.calls[0]?.[0]).toHaveLength(1);
+    expect(loadAdvertisedPrices.mock.calls[0]?.[0]).toHaveLength(
+      meetingRoomReservationDurations.length
+    );
     expect(loadAdvertisedPrices.mock.calls[0]?.[0]).toContainEqual({
       locale: "en-US",
       reservation: {
@@ -95,7 +123,7 @@ test("restores a whole-day reservation after its start and before its end", asyn
     startsAt: "2099-07-29T22:00:00Z",
     endsAt: "2099-07-30T22:00:00Z",
     name: "Ada Lovelace",
-    email: testEmailAddressForAda,
+    email: "ada@example.com",
     phone: "+420777777777",
   });
 
@@ -113,10 +141,26 @@ test("restores a whole-day reservation after its start and before its end", asyn
       startDateTime: "2099-07-30T00:00",
       duration: "day:1",
       name: "Ada Lovelace",
-      email: testEmailAddressForAda,
+      email: "ada@example.com",
       phone: "+420777777777",
     });
-    expect(loadAdvertisedPrices.mock.calls[0]?.[0]).toHaveLength(1);
+    expect(loadAdvertisedPrices.mock.calls[0]?.[0]).toHaveLength(
+      meetingRoomReservationDurations.length
+    );
+    expect(preloadAvailability).toHaveBeenCalledTimes(1);
+    expect(preloadAvailability.mock.calls[0]?.[0]).toEqual({
+      queries: [
+        {
+          kind: "meeting-room",
+          from: "2099-07-30",
+          to: "2099-07-30",
+          startsAt: "2099-07-29T22:00:00Z",
+          endsAt: "2099-07-30T22:00:00Z",
+        },
+      ],
+      replacementToken: "signed-replacement-token",
+    });
+    expect(form.props.initialAvailability).toHaveLength(1);
     expect(loadAdvertisedPrices.mock.calls[0]?.[0]).toContainEqual({
       locale: "en-US",
       reservation: {
@@ -134,30 +178,65 @@ test("restores a whole-day reservation after its start and before its end", asyn
   }
 });
 
-test("preloads only the default selected duration", async () => {
+test("preloads every duration's price and the selected interval's availability", async () => {
   const originalNow = Temporal.Now.instant;
   Temporal.Now.instant = () => Temporal.Instant.from("2099-07-30T13:01:00Z");
 
   try {
-    await renderMeetingRoomReservationContent({
+    const form = (await renderMeetingRoomReservationContent({
       locale: "en-US",
       searchParams: {},
-    });
+    })) as ReactElement<Parameters<typeof MeetingRoomReservationForm>[0]>;
+    const { startDateTime } = form.props.initialValues ?? {};
 
-    expect(loadAdvertisedPrices.mock.calls[0]?.[0]).toEqual([
-      {
+    expect(startDateTime).toBe("2099-07-30T15:00");
+    expect(loadAdvertisedPrices.mock.calls[0]?.[0]).toEqual(
+      getMeetingRoomDurationAdvertisedPriceRequests({
         locale: "en-US",
-        reservation: {
+        startDateTime: "2099-07-30T15:00",
+      })
+    );
+    expect(loadAdvertisedPrices.mock.calls[0]?.[0]).toHaveLength(
+      meetingRoomReservationDurations.length
+    );
+    expect(form.props.initialAdvertisedPrices).toHaveLength(
+      meetingRoomReservationDurations.length
+    );
+    expect(preloadAvailability.mock.calls[0]?.[0]).toEqual({
+      queries: [
+        {
           kind: "meeting-room",
-          details: {
-            kind: "meeting-room",
-            duration: { unit: "hour", amount: 1 },
-            reservationDate: "2099-07-30",
-            lastServiceDate: "2099-07-30",
-          },
+          from: "2099-07-30",
+          to: "2099-07-30",
+          startsAt: "2099-07-30T13:00:00Z",
+          endsAt: "2099-07-30T14:00:00Z",
         },
-      },
-    ]);
+      ],
+      replacementToken: undefined,
+    });
+    expect(form.props.initialAvailability?.map(({ query }) => query)).toEqual(
+      preloadAvailability.mock.calls[0]?.[0].queries
+    );
+  } finally {
+    Temporal.Now.instant = originalNow;
+  }
+});
+
+test("leaves availability to the client when the page could not load it", async () => {
+  const originalNow = Temporal.Now.instant;
+  Temporal.Now.instant = () => Temporal.Instant.from("2099-07-30T13:01:00Z");
+  preloadAvailability.mockImplementationOnce(() => Effect.succeed([]));
+
+  try {
+    const form = (await renderMeetingRoomReservationContent({
+      locale: "en-US",
+      searchParams: {},
+    })) as ReactElement<Parameters<typeof MeetingRoomReservationForm>[0]>;
+
+    expect(form.props.initialAvailability).toEqual([]);
+    expect(form.props.initialAdvertisedPrices).toHaveLength(
+      meetingRoomReservationDurations.length
+    );
   } finally {
     Temporal.Now.instant = originalNow;
   }
@@ -172,7 +251,7 @@ test("prefills the fresh form from checkout query defaults", async () => {
       locale: "en-US",
       searchParams: {
         duration: "hour:1",
-        email: testEmailAddressForAda,
+        email: "ada@example.com",
         name: "Ada Lovelace",
         phone: "+420777777777",
         startDateTime: "2099-08-12T09:00",
@@ -183,7 +262,7 @@ test("prefills the fresh form from checkout query defaults", async () => {
       startDateTime: "2099-08-12T09:00",
       duration: "hour:1",
       name: "Ada Lovelace",
-      email: testEmailAddressForAda,
+      email: "ada@example.com",
       phone: "+420777777777",
       billing: { purpose: "personal", invoice: "none" },
       marketingConsent: false,
@@ -203,7 +282,7 @@ test("keeps restored reservation values over checkout query defaults", async () 
     startsAt: "2099-07-30T15:00:00Z",
     endsAt: "2099-07-30T19:00:00Z",
     name: "Ada Lovelace",
-    email: testEmailAddressForAda,
+    email: "ada@example.com",
     phone: "+420777777777",
   });
 
@@ -236,7 +315,7 @@ test("falls back to query-free defaults for an ended signed reservation", async 
     startsAt: "2020-07-30T15:00:00Z",
     endsAt: "2020-07-30T19:00:00Z",
     name: "Ada Lovelace",
-    email: testEmailAddressForAda,
+    email: "ada@example.com",
     phone: "+420777777777",
   });
 
@@ -245,7 +324,7 @@ test("falls back to query-free defaults for an ended signed reservation", async 
     locale: "en-US",
     searchParams: {
       duration: "hour:1",
-      email: testEmailAddress("override"),
+      email: "override@example.com",
       name: "Query Override",
       startDateTime: "2099-08-12T09:00",
     },
@@ -271,7 +350,7 @@ describe("remembered meeting-room duration", () => {
   const existingCustomer = {
     contact: {
       name: "Ada Lovelace",
-      email: testEmailAddressForAda,
+      email: "ada@example.com",
       phone: "+420777777777",
     },
     hasMarketingConsent: false,

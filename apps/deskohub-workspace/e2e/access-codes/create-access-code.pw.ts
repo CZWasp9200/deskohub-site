@@ -20,6 +20,7 @@ import { E2ETelemetryService, toE2EResult } from "../services/telemetry";
 import type { WorkspaceE2EFailureReporter } from "../suite";
 import {
   workspaceE2EAccessCodeCleanupTimeout,
+  workspaceE2EPollInitialIntervalMs,
   workspaceE2EPollIntervalMs,
   workspaceE2ETimeouts,
 } from "../timeouts";
@@ -163,6 +164,7 @@ const runAccessCodeCreationCase = (input: {
         )
       ),
       {
+        initialIntervalMs: workspaceE2EPollInitialIntervalMs.database,
         intervalMs: workspaceE2EPollIntervalMs.datasource,
         label: "the standalone access code terminal event",
         timeoutMs: workspaceE2ETimeouts.accessCodeStaleBarrier,
@@ -443,6 +445,7 @@ const runAccessCodeCreationCase = (input: {
                     Effect.map((rows) => (rows.length === 2 ? rows : undefined))
                   ),
                   {
+                    initialIntervalMs: workspaceE2EPollInitialIntervalMs.database,
                     intervalMs: workspaceE2EPollIntervalMs.datasource,
                     label: "the standalone access code attempt events",
                     timeoutMs: workspaceE2ETimeouts.datasource,

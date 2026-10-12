@@ -1,0 +1,527 @@
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  test,
+} from "bun:test";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  waitFor,
+  within,
+} from "@testing-library/react";
+import { m } from "@/features/i18n";
+import {
+  registerWorkspaceComponentTestEnv,
+  unregisterWorkspaceComponentTestEnv,
+} from "@/shared/testing/workspace-component-test-env";
+import {
+  BookingsAdministrationFilterForm,
+  OperationsAdministrationFilterForm,
+  OrdersAdministrationFilterForm,
+  ReservationsAdministrationFilterForm,
+} from "./filter-forms";
+
+async function expectNativeGetSubmission(form: HTMLFormElement) {
+  let submitted = false;
+  const nativeSubmit = form.submit;
+  form.submit = () => {
+    submitted = true;
+  };
+  try {
+    fireEvent.submit(form);
+    await waitFor(() => expect(submitted).toBe(true));
+  } finally {
+    form.submit = nativeSubmit;
+  }
+}
+
+const formEntries = (form: HTMLFormElement) =>
+  Array.from(new FormData(form).entries()).map(([name, value]) => [
+    name,
+    String(value),
+  ]);
+
+const getForm = (container: HTMLElement) =>
+  container.querySelector("form") as HTMLFormElement;
+
+const reservationShortcuts = {
+  today: { from: "2026-08-12", to: "2026-08-12" },
+  upcoming: { from: "2026-08-13" },
+  past: { to: "2026-08-11" },
+} as const;
+
+type ReservationFilterInput = Parameters<
+  typeof ReservationsAdministrationFilterForm
+>[0]["input"];
+
+const reservationFilterForm = (input: ReservationFilterInput) => (
+  <ReservationsAdministrationFilterForm
+    defaultFrom="2026-01-01"
+    input={input}
+    shortcuts={reservationShortcuts}
+  />
+);
+
+describe("administration filter forms", () => {
+  beforeAll(() => registerWorkspaceComponentTestEnv());
+  afterEach(() => cleanup());
+  afterAll(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await unregisterWorkspaceComponentTestEnv();
+  });
+
+  describe("orders", () => {
+    test("uses server date defaults and submits the exact date fields as GET", async () => {
+      const view = render(
+        <OrdersAdministrationFilterForm
+          range={{ from: "2026-08-03", to: "2026-08-10" }}
+        />
+      );
+      const form = getForm(view.container);
+
+      expect(form.getAttribute("method")).toBe("get");
+      expect(form.getAttribute("action")).toBe("/admin/orders");
+      expect(view.getByLabelText("From").getAttribute("value")).toBe(
+        "2026-08-03"
+      );
+      expect(view.getByLabelText("To").getAttribute("value")).toBe(
+        "2026-08-10"
+      );
+      expect(formEntries(form)).toEqual([
+        ["from", "2026-08-03"],
+        ["to", "2026-08-10"],
+      ]);
+      await expectNativeGetSubmission(form);
+    });
+
+    test("replaces dirty dates with the new server range before GET", async () => {
+      const view = render(
+        <OrdersAdministrationFilterForm
+          range={{ from: "2026-08-03", to: "2026-08-10" }}
+        />
+      );
+      const from = view.getByLabelText("From") as HTMLInputElement;
+      const to = view.getByLabelText("To") as HTMLInputElement;
+      fireEvent.change(from, { target: { value: "2026-08-04" } });
+      fireEvent.change(to, { target: { value: "2026-08-11" } });
+      view.rerender(
+        <OrdersAdministrationFilterForm
+          range={{ from: "2026-08-03", to: "2026-08-10" }}
+        />
+      );
+      expect(from.value).toBe("2026-08-04");
+      expect(to.value).toBe("2026-08-11");
+
+      view.rerender(
+        <OrdersAdministrationFilterForm
+          range={{ from: "2026-08-05", to: "2026-08-12" }}
+        />
+      );
+
+      expect(from.value).toBe("2026-08-05");
+      expect(to.value).toBe("2026-08-12");
+      const form = getForm(view.container);
+      expect(formEntries(form)).toEqual([
+        ["from", "2026-08-05"],
+        ["to", "2026-08-12"],
+      ]);
+      await expectNativeGetSubmission(form);
+    });
+  });
+
+  describe("bookings", () => {
+    test("requires the server-selected date and retains hidden sorting in GET", async () => {
+      const view = render(
+        <BookingsAdministrationFilterForm
+          input={{ date: "2026-08-10", direction: "desc", sort: "status" }}
+        />
+      );
+      const form = getForm(view.container);
+      const date = view.getByLabelText("Booking date");
+
+      expect(form.getAttribute("method")).toBe("get");
+      expect(form.getAttribute("action")).toBe("/admin/bookings");
+      expect(date.getAttribute("value")).toBe("2026-08-10");
+      expect(date.hasAttribute("required")).toBe(true);
+      expect(formEntries(form)).toEqual([
+        ["date", "2026-08-10"],
+        ["sort", "status"],
+        ["direction", "desc"],
+      ]);
+      await expectNativeGetSubmission(form);
+    });
+
+    test("replaces dirty criteria with the new server selection before GET", async () => {
+      const view = render(
+        <BookingsAdministrationFilterForm
+          input={{ date: "2026-08-10", direction: "desc", sort: "status" }}
+        />
+      );
+      const date = view.getByLabelText("Booking date") as HTMLInputElement;
+      fireEvent.change(date, { target: { value: "2026-08-11" } });
+      view.rerender(
+        <BookingsAdministrationFilterForm
+          input={{ date: "2026-08-10", direction: "desc", sort: "status" }}
+        />
+      );
+      expect(date.value).toBe("2026-08-11");
+
+      view.rerender(
+        <BookingsAdministrationFilterForm
+          input={{ date: "2026-08-14", direction: "asc", sort: "booking" }}
+        />
+      );
+
+      expect(date.value).toBe("2026-08-14");
+      const form = getForm(view.container);
+      expect(formEntries(form)).toEqual([
+        ["date", "2026-08-14"],
+        ["sort", "booking"],
+        ["direction", "asc"],
+      ]);
+      await expectNativeGetSubmission(form);
+    });
+  });
+
+  describe("operations", () => {
+    test("keeps inclusive date and provider filter values in the GET query", async () => {
+      const view = render(
+        <OperationsAdministrationFilterForm
+          input={{ channel: "BACKOFFICE", operationType: "REFUND" }}
+          range={{ from: "2026-07-01", to: "2026-08-01" }}
+        />
+      );
+      const form = getForm(view.container);
+
+      expect(form.getAttribute("method")).toBe("get");
+      expect(form.getAttribute("action")).toBe("/admin/operations");
+      expect(view.getByLabelText("From").getAttribute("value")).toBe(
+        "2026-07-01"
+      );
+      expect(view.getByLabelText("To").getAttribute("value")).toBe(
+        "2026-08-01"
+      );
+      expect((view.getByLabelText("Origin") as HTMLSelectElement).value).toBe(
+        "BACKOFFICE"
+      );
+      expect((view.getByLabelText("Type") as HTMLSelectElement).value).toBe(
+        "REFUND"
+      );
+      expect(formEntries(form)).toEqual([
+        ["from", "2026-07-01"],
+        ["to", "2026-08-01"],
+        ["channel", "BACKOFFICE"],
+        ["operationType", "REFUND"],
+      ]);
+      await expectNativeGetSubmission(form);
+    });
+
+    test("uses changed server dates and provider criteria after navigation", async () => {
+      const view = render(
+        <OperationsAdministrationFilterForm
+          input={{ channel: "BACKOFFICE", operationType: "REFUND" }}
+          range={{ from: "2026-07-01", to: "2026-08-01" }}
+        />
+      );
+      const from = view.getByLabelText("From") as HTMLInputElement;
+      const channel = view.getByLabelText("Origin") as HTMLSelectElement;
+      fireEvent.change(from, { target: { value: "2026-07-02" } });
+      fireEvent.change(channel, { target: { value: "ECOMMERCE" } });
+      view.rerender(
+        <OperationsAdministrationFilterForm
+          input={{ channel: "BACKOFFICE", operationType: "REFUND" }}
+          range={{ from: "2026-07-01", to: "2026-08-01" }}
+        />
+      );
+      expect(from.value).toBe("2026-07-02");
+      expect(channel.value).toBe("ECOMMERCE");
+
+      view.rerender(
+        <OperationsAdministrationFilterForm
+          input={{ channel: "ECOMMERCE", operationType: "CAPTURE" }}
+          range={{ from: "2026-07-03", to: "2026-08-03" }}
+        />
+      );
+
+      expect(from.value).toBe("2026-07-03");
+      expect((view.getByLabelText("To") as HTMLInputElement).value).toBe(
+        "2026-08-03"
+      );
+      expect((view.getByLabelText("Origin") as HTMLSelectElement).value).toBe(
+        "ECOMMERCE"
+      );
+      expect((view.getByLabelText("Type") as HTMLSelectElement).value).toBe(
+        "CAPTURE"
+      );
+      const form = getForm(view.container);
+      expect(formEntries(form)).toEqual([
+        ["from", "2026-07-03"],
+        ["to", "2026-08-03"],
+        ["channel", "ECOMMERCE"],
+        ["operationType", "CAPTURE"],
+      ]);
+      await expectNativeGetSubmission(form);
+    });
+  });
+
+  describe("reservations", () => {
+    test("offers the refund work queue as a status filter", () => {
+      const view = render(reservationFilterForm({ status: "needs_refund" }));
+
+      const status = view.getByRole("combobox", { name: "Deskohub status" });
+      expect(
+        within(status).getByRole("option", { name: "Needs refund" })
+      ).toBeDefined();
+      expect((status as HTMLSelectElement).value).toBe("needs_refund");
+    });
+
+    test("shows the selected inclusive start-date range", () => {
+      const view = render(
+        reservationFilterForm({
+          direction: "asc",
+          from: "2026-08-04",
+          sort: "date",
+          to: "2026-08-10",
+        })
+      );
+
+      expect(view.getByLabelText("Start date from").getAttribute("value")).toBe(
+        "2026-08-04"
+      );
+      expect(view.getByLabelText("Start date to").getAttribute("value")).toBe(
+        "2026-08-10"
+      );
+    });
+
+    test("submits the exact filter fields as GET and preserves customer and sort values", async () => {
+      const view = render(
+        reservationFilterForm({
+          customerId: "customer-one",
+          direction: "asc",
+          from: "2026-08-04",
+          sort: "status",
+          status: "complete",
+          to: "2026-08-10",
+          type: "office",
+        })
+      );
+      const form = getForm(view.container);
+      const type = view.getByLabelText("Reservation type") as HTMLSelectElement;
+
+      expect(form.getAttribute("method")).toBe("get");
+      expect(form.getAttribute("action")).toBe("/admin/reservations");
+      expect(type.value).toBe("office");
+      expect(type.selectedOptions[0]?.textContent).toBe(
+        m.reservationOfficeProductTitle()
+      );
+      expect(formEntries(form)).toEqual([
+        ["status", "complete"],
+        ["type", "office"],
+        ["from", "2026-08-04"],
+        ["to", "2026-08-10"],
+        ["customerId", "customer-one"],
+        ["sort", "status"],
+        ["direction", "asc"],
+      ]);
+      await expectNativeGetSubmission(form);
+    });
+
+    test("submits customer-less reservation criteria through native GET", async () => {
+      const view = render(
+        reservationFilterForm({ direction: "desc", sort: "created" })
+      );
+      const form = getForm(view.container);
+
+      expect(form.querySelector('input[name="customerId"]')).toBeNull();
+      expect(formEntries(form)).toEqual([
+        ["status", ""],
+        ["type", ""],
+        ["from", ""],
+        ["to", ""],
+        ["sort", "created"],
+        ["direction", "desc"],
+      ]);
+      await expectNativeGetSubmission(form);
+    });
+
+    test("replaces dirty values after Clear and date-shortcut navigation", async () => {
+      const filteredInput = {
+        customerId: "customer-one",
+        direction: "asc",
+        from: "2026-08-04",
+        sort: "status",
+        status: "complete",
+        to: "2026-08-10",
+        type: "office",
+      } as const;
+      const view = render(reservationFilterForm(filteredInput));
+      const form = getForm(view.container);
+      fireEvent.change(view.getByLabelText("Deskohub status"), {
+        target: { value: "cancelled" },
+      });
+      fireEvent.change(view.getByLabelText("Start date from"), {
+        target: { value: "2026-08-05" },
+      });
+      view.rerender(reservationFilterForm({ ...filteredInput }));
+      expect(
+        (view.getByLabelText("Deskohub status") as HTMLSelectElement).value
+      ).toBe("cancelled");
+      expect(
+        (view.getByLabelText("Start date from") as HTMLInputElement).value
+      ).toBe("2026-08-05");
+      expect(
+        view.getByRole("link", { name: "Clear" }).getAttribute("href")
+      ).toBe("/admin/reservations");
+
+      view.rerender(
+        reservationFilterForm({ direction: "desc", sort: "created" })
+      );
+
+      expect(
+        (view.getByLabelText("Deskohub status") as HTMLSelectElement).value
+      ).toBe("");
+      expect(
+        (view.getByLabelText("Reservation type") as HTMLSelectElement).value
+      ).toBe("");
+      expect(
+        (view.getByLabelText("Start date from") as HTMLInputElement).value
+      ).toBe("");
+      expect(form.querySelector('input[name="customerId"]')).toBeNull();
+      expect(formEntries(form)).toEqual([
+        ["status", ""],
+        ["type", ""],
+        ["from", ""],
+        ["to", ""],
+        ["sort", "created"],
+        ["direction", "desc"],
+      ]);
+      await expectNativeGetSubmission(form);
+
+      fireEvent.change(view.getByLabelText("Start date from"), {
+        target: { value: "2026-08-02" },
+      });
+      fireEvent.change(view.getByLabelText("Deskohub status"), {
+        target: { value: "complete" },
+      });
+      expect(
+        view.getByRole("link", { name: "Upcoming" }).getAttribute("href")
+      ).toBe("/admin/reservations?direction=desc&from=2026-08-13&sort=created");
+
+      view.rerender(
+        reservationFilterForm({
+          direction: "desc",
+          from: "2026-08-13",
+          sort: "created",
+        })
+      );
+
+      expect(
+        (view.getByLabelText("Start date from") as HTMLInputElement).value
+      ).toBe("2026-08-13");
+      expect(
+        (view.getByLabelText("Deskohub status") as HTMLSelectElement).value
+      ).toBe("");
+      expect(form.querySelector('input[name="customerId"]')).toBeNull();
+      expect(formEntries(form)).toEqual([
+        ["status", ""],
+        ["type", ""],
+        ["from", "2026-08-13"],
+        ["to", ""],
+        ["sort", "created"],
+        ["direction", "desc"],
+      ]);
+      await expectNativeGetSubmission(form);
+    });
+
+    test("keeps the other filters in date shortcuts and offers clear and apply actions", () => {
+      const view = render(
+        reservationFilterForm({
+          direction: "asc",
+          from: "2026-08-04",
+          sort: "date",
+          status: "complete",
+          to: "2026-08-10",
+          type: "cowork",
+        })
+      );
+      const shortcutLinks = within(
+        view.getByRole("navigation", { name: "Reservation date shortcuts" })
+      ).getAllByRole("link");
+
+      expect(shortcutLinks.map((link) => link.textContent)).toEqual([
+        "Today",
+        "Upcoming",
+        "Past",
+      ]);
+      expect(shortcutLinks.map((link) => link.getAttribute("href"))).toEqual([
+        "/admin/reservations?direction=asc&from=2026-08-12&sort=date&status=complete&to=2026-08-12&type=cowork",
+        "/admin/reservations?direction=asc&from=2026-08-13&sort=date&status=complete&type=cowork",
+        "/admin/reservations?direction=asc&sort=date&status=complete&to=2026-08-11&type=cowork",
+      ]);
+
+      const actions = view.getByRole("group", { name: "Filter actions" });
+      expect(
+        within(actions)
+          .getByRole("link", { name: "Clear" })
+          .getAttribute("href")
+      ).toBe("/admin/reservations");
+      expect(
+        within(actions).getByRole("button", { name: "Apply filters" })
+      ).toBeDefined();
+    });
+
+    test("shows the default open-ended range without offering to clear it", () => {
+      const view = render(
+        reservationFilterForm({
+          direction: "desc",
+          from: "2026-01-01",
+          sort: "created",
+        })
+      );
+
+      expect(view.getByLabelText("Start date from").getAttribute("value")).toBe(
+        "2026-01-01"
+      );
+      expect(view.getByLabelText("Start date to").getAttribute("value")).toBe(
+        ""
+      );
+      expect(view.queryByRole("link", { name: "Clear" })).toBeNull();
+    });
+
+    test("offers to clear an end date added to the default range", () => {
+      const view = render(
+        reservationFilterForm({
+          direction: "desc",
+          from: "2026-01-01",
+          sort: "created",
+          to: "2026-08-12",
+        })
+      );
+
+      expect(
+        view.getByRole("link", { name: "Clear" }).getAttribute("href")
+      ).toBe("/admin/reservations");
+    });
+
+    test("shows a customer's complete history without a date range", () => {
+      const view = render(
+        reservationFilterForm({
+          customerId: "customer-one",
+          direction: "desc",
+          sort: "created",
+        })
+      );
+
+      expect(view.getByLabelText("Start date from").getAttribute("value")).toBe(
+        ""
+      );
+      expect(view.getByLabelText("Start date to").getAttribute("value")).toBe(
+        ""
+      );
+    });
+  });
+});

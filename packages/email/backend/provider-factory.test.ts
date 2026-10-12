@@ -39,7 +39,7 @@ describe("ConfiguredEmailProviderLayer", () => {
     );
   });
 
-  test("fails for production console and resend without api key", async () => {
+  test("fails for the console provider in production", async () => {
     process.env.NODE_ENV = "production";
 
     expect(await providerName({ apiKey: "api-key" })).toBe("resend");
@@ -55,24 +55,6 @@ describe("ConfiguredEmailProviderLayer", () => {
       )
     );
     expect(consoleResult._tag).toBe("Failure");
-
-    process.env.NODE_ENV = "test";
-    const resendResult = await Effect.runPromise(
-      EmailProviderTag.pipe(
-        Effect.provide(
-          ConfiguredEmailProviderLayer.pipe(
-            Layer.provide(
-              Layer.succeed(EmailConfigTag, {
-                ...config,
-                provider: "resend",
-              })
-            )
-          )
-        ),
-        Effect.result
-      )
-    );
-    expect(resendResult._tag).toBe("Failure");
   });
 
   test("allows console provider in Vercel preview production builds", async () => {

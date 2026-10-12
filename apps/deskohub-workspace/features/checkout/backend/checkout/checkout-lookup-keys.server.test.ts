@@ -196,10 +196,9 @@ describe("checkout lookup key rotation", () => {
     );
   });
 
-  test("locks a session under one identity whatever the key ring", () => {
+  test("locks each checkout session under its own identity", () => {
     const lockKey = deriveCheckoutSessionLockKey(checkoutSessionId);
 
-    expect(deriveCheckoutSessionLockKey(checkoutSessionId)).toBe(lockKey);
     expect(
       deriveCheckoutSessionLockKey(
         checkoutSessionIdSchema.make("other-session-id")

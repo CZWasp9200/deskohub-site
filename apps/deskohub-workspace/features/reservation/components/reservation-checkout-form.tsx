@@ -4,7 +4,7 @@ import type { FormEvent, ReactNode } from "react";
 import type { FieldValues, UseFormReturn } from "react-hook-form";
 import type { CheckoutSessionId } from "@/features/checkout/checkout-identifiers";
 import type { CheckoutSummaryDiscount } from "@/features/checkout/checkout-summary";
-import { CheckoutPayPageSkeleton } from "@/features/checkout/components/checkout-pay-page";
+import { CheckoutPayPageSkeleton } from "@/features/checkout/components/checkout-pay-page-skeleton";
 import { type Locale, m } from "@/features/i18n";
 import type { ReservationExistingCustomerForm } from "@/features/reservation/reservation-existing-customer";
 import type { ReservationOrderIssuanceData } from "@/features/reservation/reservation-order";

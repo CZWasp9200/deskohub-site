@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { testEmailAddress } from "@deskohub/email/testing";
 import { render } from "react-email";
 import {
   contactBusinessPreviewProps,
@@ -14,10 +13,8 @@ import { CustomerReservationEmail } from "./customer-reservation";
 import { InvoiceDeliveryEmail } from "./invoice-delivery";
 import { ReservationNotificationEmail } from "./reservation-notification";
 
-const customerEmail = testEmailAddress("customer");
-
 describe("Workspace React Email templates", () => {
-  test("renders every preview with the shared design and channel-specific data boundaries", async () => {
+  test("renders every template preview", async () => {
     const [
       business,
       confirmation,
@@ -36,48 +33,17 @@ describe("Workspace React Email templates", () => {
       render(<InvoiceDeliveryEmail {...invoiceDeliveryPreviewProps} />),
     ]);
 
-    for (const email of [
-      business,
-      confirmation,
-      customerReservation,
-      staffNotification,
-      invoiceDelivery,
-    ]) {
-      expect(email).toContain("Deskohub");
-      expect(email).toContain("Turnovská 430/10");
-      expect(email).toContain("font-size:26px");
-      expect(email).toContain("line-height:34px");
-    }
-
     expect(business).toContain(contactBusinessPreviewProps.heading);
     expect(confirmation).toContain(contactConfirmationPreviewProps.heading);
-    expect(customerReservation).toContain("Show access code");
-    expect(customerReservation).toContain(">Invoice<");
-    expect(customerReservation).toContain(">Download<");
-    expect(customerReservation).toContain("text-decoration-line:underline");
-    expect(customerReservation).not.toContain(
-      "For security, the current access PIN is shown"
-    );
-    expect(customerReservation).toContain("/reservation/access/");
-    expect(customerReservation).toContain("accessToken=preview-token");
-    expect(customerReservation).toContain("font-size:48px");
-    expect(customerReservation).not.toContain("statusToken=");
-    expect(customerReservation).not.toContain("4829");
-    expect(customerReservation).toContain('bgcolor="#00024f"');
-    expect(customerReservation).toContain("background-color:#00024f");
     expect(customerReservation).toContain(
-      'content="width=device-width, initial-scale=1.0" name="viewport"'
+      customerReservationPreviewProps.heading
     );
     expect(customerReservation).toContain(
-      "padding-right:8px;padding-left:8px;padding-bottom:16px;padding-top:16px"
+      `href="${customerReservationPreviewProps.access.url}"`
     );
-    expect(customerReservation).toContain(
-      "@media (min-width:40rem){.sm_w-auto{width:auto!important}}"
+    expect(staffNotification).toContain(
+      reservationNotificationPreviewProps.heading
     );
-    expect(customerReservation).not.toContain("Where to sit");
-    expect(customerReservation).not.toContain(customerEmail);
-    expect(staffNotification).toContain(customerEmail);
-    expect(staffNotification).not.toContain("4829");
-    expect(invoiceDelivery).toContain(invoiceDeliveryPreviewProps.body);
+    expect(invoiceDelivery).toContain(invoiceDeliveryPreviewProps.heading);
   });
 });

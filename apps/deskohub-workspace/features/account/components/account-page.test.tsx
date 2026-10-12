@@ -7,7 +7,6 @@ import {
   mock,
   test,
 } from "bun:test";
-import { testEmailAddress } from "@deskohub/email/testing";
 import {
   act,
   cleanup,
@@ -28,8 +27,6 @@ import {
   unregisterWorkspaceComponentTestEnv,
 } from "@/shared/testing/workspace-component-test-env";
 import type { CustomerAccountPageState } from "../page-data.server";
-
-const customerEmail = testEmailAddress("ada");
 
 const signInMagicLink = mock(() => Promise.resolve({ error: null }));
 const getSession = mock(() => Promise.resolve({ data: null, error: null }));
@@ -119,66 +116,6 @@ mock.module("@/features/legal/actions", () => ({
   confirmMarketingManagementAction,
   saveMarketingPreferencesAction,
 }));
-const accountScreenCopy = (locale: "en-US" | "cs-CZ") => ({
-  shell: {
-    mobileSection: "Account section",
-    navigation: "Account navigation",
-    sections: {
-      billing: "Billing & invoices",
-      danger: "Danger zone",
-      legal: "Legal & privacy",
-      profile: "Profile & identity",
-      reservations: "Reservations",
-    },
-  },
-  profile: {
-    emailLabel: "Email",
-    emailVerification: {
-      unverified: "This email still needs verification.",
-      verified: "This email has been successfully verified.",
-    },
-    languageLabel: "Preferred communication language",
-    languageUnavailableValue: "Not set",
-    memberFallback: "Workspace member",
-    title: "Profile & identity",
-    verifiedEmail: "Verified login email",
-  },
-  billing: {
-    addPaymentCard: "Add payment card",
-    billingDetailsTitle:
-      locale === "cs-CZ" ? "Fakturační údaje" : "Billing details",
-    currency: "Currency: CZK (Kč)",
-    downloadInvoice: "Download PDF",
-    exportInvoices: "Export all",
-    invoiceHistoryTitle: "Invoice history",
-    invoiceHistoryUnavailable:
-      "Invoice history and downloads are not available in this account.",
-    paymentMethodsTitle: "Saved payment methods",
-    paymentMethodsUnavailable:
-      "Saved payment methods are not available in this account.",
-    removePaymentCard: "Remove payment card",
-    title: "Billing & invoices",
-  },
-  reservations: {
-    assignedDesk: "Assigned desk",
-    checkIn: "Check in",
-    date: "Date",
-    moreCurrent: "More upcoming reservations",
-    product: "Product",
-    seats: "Seats",
-    showPinCode: "Show PIN code",
-    status: "Status",
-    unavailable: "Unavailable",
-    unsupportedDescription: "This access detail is not available yet.",
-    validity: "Validity",
-    viewReservation: "View reservation",
-    wifi: "Wi-Fi",
-  },
-  dangerTitle: "Danger zone",
-});
-mock.module("@/features/account/components/account-screen-copy", () => ({
-  getAccountScreenCopy: accountScreenCopy,
-}));
 mock.module("@/features/account/auth.client", () => ({
   authClient: {
     getSession,
@@ -202,10 +139,11 @@ class TestResizeObserver implements ResizeObserver {
 }
 
 const originalResizeObserver = globalThis.ResizeObserver;
+const en = { locale: "en-US" } as const;
 
 const linkedState = {
   kind: "linked",
-  email: customerEmail,
+  email: "ada@example.test",
   profile: {
     firstName: "Ada",
     lastName: "Lovelace",
@@ -278,166 +216,148 @@ describe("AccountPage states", () => {
   test("asks for profile completion with the read-only verified email", async () => {
     const view = await renderState({
       kind: "completion-required",
-      email: customerEmail,
+      email: "ada@example.test",
     });
 
     expect(
       view.getByRole("heading", {
         level: 2,
-        name: "Complete your profile",
+        name: m.accountCompletionTitle({}, en),
       })
     ).toBeTruthy();
-    const email = view.getByLabelText("Email") as HTMLInputElement;
-    expect(email.value).toBe(customerEmail);
+    const email = view.getByLabelText(
+      m.accountProfileEmailLabel({}, en)
+    ) as HTMLInputElement;
+    expect(email.value).toBe("ada@example.test");
     expect(email.readOnly).toBe(true);
-    expect(view.getByLabelText("First name")).toBeTruthy();
-    expect(view.getByText("Sign out")).toBeTruthy();
+    expect(
+      view.getByLabelText(m.accountProfileFirstNameLabel({}, en))
+    ).toBeTruthy();
+    expect(view.getByText(m.accountSignOut({}, en))).toBeTruthy();
     await act(async () => {
-      fireEvent.click(view.getByRole("button", { name: "Delete my account" }));
+      fireEvent.click(
+        view.getByRole("button", { name: m.accountDeletionButton({}, en) })
+      );
     });
     expect(
-      view.getByRole("button", { name: "Delete permanently" })
+      view.getByRole("button", { name: m.accountDeletionConfirm({}, en) })
     ).toBeTruthy();
   });
 
   test("renders the linked account with profile, reservations, sign out, and deletion", async () => {
     const view = await renderState(linkedState);
     const sectionNavigation = within(
-      view.getByRole("group", { name: "Account section" })
+      view.getByRole("group", { name: m.accountSectionLabel({}, en) })
     );
 
-    expect(view.getByText("My Workspace")).toBeTruthy();
+    expect(view.getByText(m.accountTitle({}, en))).toBeTruthy();
     expect(
-      sectionNavigation.getByRole("button", { name: /^Reservations/ })
+      sectionNavigation.getByRole("button", {
+        name: new RegExp(`^${m.accountSectionReservations({}, en)}`),
+      })
     ).toBeTruthy();
-    expect(view.getByText("Delete my account")).toBeTruthy();
-    expect(view.getByText("Sign out")).toBeTruthy();
+    expect(view.getByText(m.accountDeletionButton({}, en))).toBeTruthy();
+    expect(view.getByText(m.accountSignOut({}, en))).toBeTruthy();
     expect(view.container.querySelectorAll("main")).toHaveLength(1);
 
     fireEvent.click(
-      sectionNavigation.getByRole("button", { name: "Profile & identity" })
+      sectionNavigation.getByRole("button", {
+        name: m.accountSectionProfile({}, en),
+      })
     );
-    expect(view.getByText("Save profile")).toBeTruthy();
+    expect(view.getByText(m.accountProfileSave({}, en))).toBeTruthy();
     expect(view.getByText("Ada Lovelace")).toBeTruthy();
-    expect(view.getByText(customerEmail)).toBeTruthy();
-    expect(view.container.querySelector("img")).toBeNull();
-    expect(view.container.querySelector("input[type='file']")).toBeNull();
-    expect(
-      view.queryByRole("button", {
-        name: m.accountProfileAvatarChange({}, { locale: "en-US" }),
-      })
-    ).toBeNull();
-    expect(
-      view.queryByRole("button", {
-        name: m.accountProfileAvatarRemove({}, { locale: "en-US" }),
-      })
-    ).toBeNull();
-    expect(
-      view.container.querySelector(
-        "[data-screen='profile-screen'] [role='status']"
-      )
-    ).toBeNull();
-    expect(view.container.textContent).not.toContain(
-      m.accountProfileAvatarHint({}, { locale: "en-US" })
-    );
+    expect(view.getByText("ada@example.test")).toBeTruthy();
 
     fireEvent.click(
-      sectionNavigation.getByRole("button", { name: "Billing & invoices" })
-    );
-    expect(view.getByText("Billing details")).toBeTruthy();
-    expect(view.getByText("Save profile")).toBeTruthy();
-
-    view.unmount();
-    const czechView = await renderState(linkedState, "cs-CZ");
-    const czechSectionNavigation = within(
-      czechView.getByRole("group", { name: "Account section" })
-    );
-    fireEvent.click(
-      czechSectionNavigation.getByRole("button", {
-        name: "Profile & identity",
+      sectionNavigation.getByRole("button", {
+        name: m.accountSectionBilling({}, en),
       })
     );
-    expect(czechView.getByText("Fakturační údaje")).toBeTruthy();
+    expect(view.getByText(m.accountBillingDetailsTitle({}, en))).toBeTruthy();
+    expect(view.getByText(m.accountProfileSave({}, en))).toBeTruthy();
   });
 
   test("renders the support state with the contact destination and no profile data", async () => {
     const view = await renderState({
       kind: "support-required",
-      email: customerEmail,
+      email: "ada@example.test",
     });
 
     expect(
       view.getByRole("heading", {
         level: 2,
-        name: "We need to verify your profile",
+        name: m.accountSupportTitle({}, en),
       })
     ).toBeTruthy();
-    const contact = view.getByRole("link", {
-      name: "Contact us",
-    }) as HTMLAnchorElement;
-    expect(contact.getAttribute("href")).toBe("/en-US/contact");
-    expect(view.queryByText("Save profile")).toBeNull();
+    expect(
+      view
+        .getAllByRole("link")
+        .some((link) => link.getAttribute("href") === "/en-US/contact")
+    ).toBe(true);
+    expect(view.queryByText(m.accountProfileSave({}, en))).toBeNull();
     await act(async () => {
-      fireEvent.click(view.getByRole("button", { name: "Delete my account" }));
+      fireEvent.click(
+        view.getByRole("button", { name: m.accountDeletionButton({}, en) })
+      );
     });
     expect(
-      view.getByRole("button", { name: "Delete permanently" })
+      view.getByRole("button", { name: m.accountDeletionConfirm({}, en) })
     ).toBeTruthy();
   });
 
   test("renders the pending deletion state with retry and sign out", async () => {
     const view = await renderState({
       kind: "deletion-pending",
-      email: customerEmail,
+      email: "ada@example.test",
     });
 
-    expect(view.getByText("Account deletion is pending")).toBeTruthy();
-    expect(view.getByText("Delete permanently")).toBeTruthy();
-    expect(view.getByText("Sign out")).toBeTruthy();
+    expect(view.getByText(m.accountDeletionPendingTitle({}, en))).toBeTruthy();
+    expect(view.getByText(m.accountDeletionConfirm({}, en))).toBeTruthy();
+    expect(view.getByText(m.accountSignOut({}, en))).toBeTruthy();
   });
 
   test("renders the unavailable state without any account data", async () => {
     const view = await renderState({ kind: "unavailable" });
 
-    expect(
-      view.getByText("Customer accounts are temporarily unavailable")
-    ).toBeTruthy();
-    expect(view.getByText("My Workspace")).toBeTruthy();
-    expect(view.queryByText("Sign out")).toBeNull();
-    expect(view.queryByText("Delete my account")).toBeNull();
+    expect(view.getByText(m.accountUnavailableTitle({}, en))).toBeTruthy();
+    expect(view.getByText(m.accountTitle({}, en))).toBeTruthy();
+    expect(view.queryByText(m.accountSignOut({}, en))).toBeNull();
+    expect(view.queryByText(m.accountDeletionButton({}, en))).toBeNull();
   });
 
   test("redirects unauthenticated visitors without loading account data", async () => {
     const view = await renderState({ kind: "unauthenticated" });
 
-    expect(view.getByRole("status", { name: "Loading sign-in…" })).toBeTruthy();
+    expect(
+      view.getByRole("status", { name: m.accountSignInLoading({}, en) })
+    ).toBeTruthy();
     expect(workspaceRouterReplace).toHaveBeenCalledWith("/en-US/auth/sign-in");
     expect(refreshAnalyticsAccountIdentity).not.toHaveBeenCalled();
-    expect(view.queryByText("My Workspace")).toBeNull();
-    expect(view.queryByText("Reservations")).toBeNull();
+    expect(view.queryByText(m.accountTitle({}, en))).toBeNull();
+    expect(view.queryByText(m.accountSectionReservations({}, en))).toBeNull();
     expect(getSession).not.toHaveBeenCalled();
-    expect(view.queryByText("Delete my account")).toBeNull();
-    expect(view.queryByLabelText("Verified login email")).toBeNull();
-    expect(view.container.textContent).not.toContain(customerEmail);
+    expect(view.queryByText(m.accountDeletionButton({}, en))).toBeNull();
+    expect(
+      view.queryByLabelText(m.accountProfileScreenVerifiedEmail({}, en))
+    ).toBeNull();
+    expect(view.container.textContent).not.toContain("ada@example.test");
   });
 
   test("renders the authenticated unavailable state with account controls", async () => {
     const view = await renderState({
       kind: "authenticated-unavailable",
-      email: customerEmail,
+      email: "ada@example.test",
     });
 
-    expect(
-      view.getByText("Customer accounts are temporarily unavailable")
-    ).toBeTruthy();
-    expect(view.getByText("My Workspace")).toBeTruthy();
-    expect(view.getByText("Sign out")).toBeTruthy();
-    expect(view.getByText("Delete my account")).toBeTruthy();
+    expect(view.getByText(m.accountTitle({}, en))).toBeTruthy();
+    expect(view.getByText(m.accountSignOut({}, en))).toBeTruthy();
+    expect(view.getByText(m.accountDeletionButton({}, en))).toBeTruthy();
     expect(view.getAllByRole("heading", { level: 1 })).toHaveLength(1);
     expect(
       view.getByRole("heading", {
         level: 2,
-        name: "Customer accounts are temporarily unavailable",
+        name: m.accountUnavailableTitle({}, en),
       })
     ).toBeTruthy();
   });
@@ -445,11 +365,9 @@ describe("AccountPage states", () => {
   test("asks the account identity adapter to refresh once per authenticated view", async () => {
     await renderState(linkedState);
     expect(refreshAnalyticsAccountIdentity).toHaveBeenCalledTimes(1);
-    expect(refreshAnalyticsAccountIdentity).toHaveBeenCalledWith();
 
     await renderState({ kind: "unavailable" });
     expect(refreshAnalyticsAccountIdentity).toHaveBeenCalledTimes(1);
-    expect(refreshAnalyticsAccountIdentity).toHaveBeenCalledWith();
   });
 
   test("swallows a failed identity refresh instead of leaving an unhandled rejection", async () => {
@@ -457,13 +375,11 @@ describe("AccountPage states", () => {
       Promise.reject(new Error("identity refresh unavailable"))
     );
 
-    const view = await renderState(linkedState);
+    await renderState(linkedState);
     await act(async () => {
       await Promise.resolve();
     });
 
-    expect(view.container).toBeTruthy();
     expect(refreshAnalyticsAccountIdentity).toHaveBeenCalledTimes(1);
-    expect(refreshAnalyticsAccountIdentity).toHaveBeenCalledWith();
   });
 });

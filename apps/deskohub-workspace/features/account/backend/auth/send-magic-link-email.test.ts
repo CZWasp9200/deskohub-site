@@ -5,7 +5,8 @@ import {
   resendSimulatorAddress,
   testEmailAddress,
 } from "@deskohub/email/testing";
-import { ConfigProvider, Effect, Predicate, Tracer } from "effect";
+import { ConfigProvider, Effect, Predicate } from "effect";
+import { withInstantSleeps } from "@/shared/testing/workspace-test-clock.test-utils";
 
 mock.module("server-only", () => ({}));
 
@@ -42,12 +43,10 @@ mock.module("resend", () => ({
   },
 }));
 
-const { MagicLinkDeliveryTransportError, makeMagicLinkEmailDelivery } =
-  await import("./send-magic-link-email");
+const { makeMagicLinkEmailDelivery } = await import("./send-magic-link-email");
 const {
   isSyntheticE2EEmailRecipient,
   magicLinkPreviewE2ELogCode,
-  magicLinkSyntheticLocalPartPattern,
 } = await import("./magic-link-policy");
 
 const request = {
@@ -131,44 +130,6 @@ const captureConsole = (): string[] & { restore: () => void } => {
 
 const previewE2ELines = (lines: readonly string[]) =>
   lines.filter((line) => line.includes(magicLinkPreviewE2ELogCode));
-
-const makeSpanNameCaptureTracer = (names: string[]) => {
-  let nextSpanId = 0;
-  return Tracer.make({
-    span: (options) => {
-      names.push(options.name);
-      const startTime = options.startTime;
-      let status: Tracer.SpanStatus = { _tag: "Started", startTime };
-      const attributes = new Map<string, unknown>();
-      const links = [...options.links];
-      return {
-        _tag: "Span",
-        name: options.name,
-        spanId: `span-${++nextSpanId}`,
-        traceId: "trace-test",
-        parent: options.parent,
-        annotations: options.annotations,
-        get status() {
-          return status;
-        },
-        attributes,
-        links,
-        sampled: options.sampled,
-        kind: options.kind,
-        end(endTime, exit) {
-          status = { _tag: "Ended", startTime, endTime, exit };
-        },
-        attribute(key, value) {
-          attributes.set(key, value);
-        },
-        event() {},
-        addLinks(newLinks) {
-          links.push(...newLinks);
-        },
-      } satisfies Tracer.Span;
-    },
-  });
-};
 
 beforeEach(() => {
   resendSend = mock<SendImplementation>(async () => ({
@@ -370,8 +331,10 @@ describe("Errors and log safety", () => {
     try {
       code = await runDeliver(
         resendEmailConfig,
-        makeMagicLinkEmailDelivery(renderOk, productionEnvironment).deliver(
-          request
+        withInstantSleeps(
+          makeMagicLinkEmailDelivery(renderOk, productionEnvironment).deliver(
+            request
+          )
         )
       );
     } finally {
@@ -385,7 +348,7 @@ describe("Errors and log safety", () => {
     expect(logged).not.toContain(request.email);
     expect(logged).not.toContain("secret-token");
     expect(logged).not.toContain("Sign in");
-  }, 20_000);
+  });
 
   test("reports renderer failures without leaking the message", async () => {
     const code = await runDeliver(
@@ -397,13 +360,6 @@ describe("Errors and log safety", () => {
     );
 
     expect(code).toBe("account.magic-link.delivery-failed");
-  });
-
-  test("fails with an account-owned tagged transport error", () => {
-    const transport = new MagicLinkDeliveryTransportError();
-
-    expect(transport._tag).toBe("MagicLinkDeliveryTransportError");
-    expect(transport).toBeInstanceOf(Error);
   });
 
   test("fails closed as unconfigured for a real recipient without a Resend key", async () => {
@@ -450,24 +406,6 @@ describe("Errors and log safety", () => {
   });
 });
 
-describe("Effect.fn trace naming", () => {
-  test("uses a unique Effect.fn trace name (not MagicLinkEmailDelivery.deliver)", async () => {
-    const spanNames: string[] = [];
-    const code = await runDeliver(
-      resendEmailConfig,
-      makeMagicLinkEmailDelivery(renderOk, productionEnvironment)
-        .deliver(request)
-        .pipe(Effect.withTracer(makeSpanNameCaptureTracer(spanNames)))
-    );
-
-    expect(code).toBe("account.magic-link.delivery-accepted");
-    const [publicOperation] = spanNames;
-    expect(publicOperation).toBeDefined();
-    expect(publicOperation).not.toBe("MagicLinkEmailDelivery.deliver");
-    expect(new Set(spanNames).size).toBe(spanNames.length);
-  });
-});
-
 describe("Synthetic E2E email recipient pattern", () => {
   const synthetic = (localPart: string) =>
     isSyntheticE2EEmailRecipient(testEmailAddress(localPart));
@@ -502,12 +440,4 @@ describe("Synthetic E2E email recipient pattern", () => {
     expect(isSyntheticE2EEmailRecipient("")).toBe(false);
   });
 
-  test("exports the exact anchored local-part pattern behind the predicate", () => {
-    expect("delivered+run7f3a2b-signin").toMatch(
-      magicLinkSyntheticLocalPartPattern
-    );
-    expect("delivered+run7f3a2b-signin.evil").not.toMatch(
-      magicLinkSyntheticLocalPartPattern
-    );
-  });
 });

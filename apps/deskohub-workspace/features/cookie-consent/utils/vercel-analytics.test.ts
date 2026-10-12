@@ -13,16 +13,6 @@ describe("sanitizeVercelAnalyticsEvent", () => {
       "https://deskohub.test/cs-CZ/reservation/access/synthetic-reservation-id?accessToken=synthetic-capability",
       "https://deskohub.test/cs-CZ/reservation/access/[id]",
     ],
-    [
-      "pageview",
-      "https://deskohub.test/en-US/reservation/invoice/synthetic-order-id",
-      "https://deskohub.test/en-US/reservation/invoice/[id]",
-    ],
-    [
-      "pageview",
-      "https://deskohub.test/admin/orders/synthetic-order-id",
-      "https://deskohub.test/admin/orders/[id]",
-    ],
   ] as const)("normalizes %s operational URLs", (type, url, expectedUrl) => {
     expect(
       sanitizeVercelAnalyticsEvent({

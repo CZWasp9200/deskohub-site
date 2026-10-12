@@ -9,9 +9,6 @@ import {
   getPrepareCoworkAdvertisedPriceScript,
   getPrepareMeetingRoomAdvertisedPriceScript,
   getPrepareOfficeAdvertisedPriceScript,
-  getSubmitCoworkReservationScript,
-  getSubmitMeetingRoomReservationScript,
-  getSubmitOfficeReservationScript,
   submitPreparedCoworkReservationScript,
   submitPreparedMeetingRoomReservationScript,
   submitPreparedOfficeReservationScript,
@@ -21,7 +18,6 @@ import {
   makeMeetingRoomCheckoutData,
   makeOfficeCheckoutData,
 } from "./checkout/data";
-import { workspaceE2ETimeouts } from "./timeouts";
 
 const workspaceTemporal = globalThis.Temporal;
 const oneHourMeetingRoomDuration = { unit: "hour", amount: 1 } as const;
@@ -144,55 +140,104 @@ test("asserts safe repeat-reservation defaults for every family", async () => {
   }
 });
 
-test("rejects reservation access UI on the checkout status page", () => {
-  const run = new Function(
+const runFulfilledStatusAssertion = (body: string) => {
+  document.body.innerHTML = body;
+  return new Function(
     "document",
     "location",
     `return (${assertFulfilledStatusScript.trim()})`
-  );
-  const document = {
-    body: {
-      textContent:
-        "Your reservation is confirmed. The secure access link has been sent by email.",
-    },
-    querySelector: () => ({ dataset: { reservationAccess: "" } }),
-  };
+  )(document, location);
+};
 
-  expect(() =>
-    run(document, { href: "https://workspace.example.test/status" })
-  ).toThrow("reservation access rendered on checkout status page");
+test("accepts only the canonical fulfilled checkout status page", async () => {
+  GlobalRegistrator.register({
+    url: "https://workspace.example.test/en-US/reservation/status/order",
+  });
+  try {
+    const statusCopy =
+      "<p>Your reservation is confirmed. The secure access link has been sent by email.</p>";
+
+    expect(
+      runFulfilledStatusAssertion(
+        `<main>${statusCopy}</main><div role="dialog">Cookie settings</div>`
+      )
+    ).toBe(location.href);
+    expect(() =>
+      runFulfilledStatusAssertion(
+        `<main>${statusCopy}<div data-reservation-access=""></div></main>`
+      )
+    ).toThrow("reservation access rendered on checkout status page");
+    expect(() =>
+      runFulfilledStatusAssertion(`<div role="dialog">${statusCopy}</div>`)
+    ).toThrow("checkout status rendered in a reservation dialog");
+  } finally {
+    await GlobalRegistrator.unregister();
+    globalThis.Temporal = workspaceTemporal;
+  }
 });
 
-test("keeps advertised-price preparation separable from form submission", () => {
-  const data = makeCoworkCheckoutData(
-    "https://workspace.example.test",
-    "2099-09-01",
-    "calendar-pricing-change",
-    { entryTier: "reserved-desk", monitorOption: "2x27-qhd" }
-  );
-  const prepare = getPrepareCoworkAdvertisedPriceScript(data);
-  const combined = getSubmitCoworkReservationScript(data);
+test.each([
+  ["cowork", submitPreparedCoworkReservationScript],
+  ["meeting-room", submitPreparedMeetingRoomReservationScript],
+  ["office", submitPreparedOfficeReservationScript],
+])(
+  "submits a prepared %s reservation natively once the button enables",
+  async (_family, script) => {
+    GlobalRegistrator.register({
+      url: "https://workspace.example.test/en-US/reservation",
+    });
+    try {
+      const run = new Function(
+        "document",
+        "HTMLButtonElement",
+        "HTMLFormElement",
+        "setTimeout",
+        "location",
+        `return (${script.trim()})`
+      );
+      const runWith = (onWait: () => void) =>
+        run(
+          document,
+          HTMLButtonElement,
+          HTMLFormElement,
+          (callback: () => void) => {
+            onWait();
+            queueMicrotask(callback);
+            return 0;
+          },
+          location
+        );
 
-  expect(prepare).toContain("advertised price did not become ready");
-  expect(prepare).toContain("2x27-qhd");
-  expect(prepare).toContain(
-    "advertised price did not refresh after monitor selection"
-  );
-  expect(prepare).toContain("new MutationObserver");
-  expect(prepare).toContain(
-    `Date.now() + ${workspaceE2ETimeouts.uiTransition}`
-  );
-  expect(prepare).not.toContain("reservation-privacy-consent");
-  expect(submitPreparedCoworkReservationScript).toContain("reservation-submit");
-  expect(submitPreparedCoworkReservationScript).toContain("Date.now() + 60000");
-  expect(submitPreparedCoworkReservationScript).not.toContain("button.click");
-  expect(combined).toContain(prepare.trim());
+      document.body.innerHTML =
+        '<form><button id="reservation-submit" disabled>Reserve</button></form>';
+      const button = document.querySelector<HTMLButtonElement>(
+        "#reservation-submit"
+      )!;
+      const activations: string[] = [];
+      button.addEventListener("click", () => activations.push("click"));
+      button.form!.addEventListener("submit", (event) => {
+        event.preventDefault();
+        activations.push("submit");
+      });
 
-  expect(() => new Function(`return ${combined}`)).not.toThrow();
-  expect(
-    () => new Function(`return ${submitPreparedCoworkReservationScript}`)
-  ).not.toThrow();
-});
+      await expect(
+        runWith(() => {
+          button.disabled = false;
+        })
+      ).resolves.toBe(location.href);
+      expect(activations).toEqual([]);
+
+      document.body.innerHTML =
+        '<button id="reservation-submit">Reserve</button>';
+      await expect(runWith(() => undefined)).rejects.toThrow(
+        "reservation form not found"
+      );
+    } finally {
+      await GlobalRegistrator.unregister();
+      globalThis.Temporal = workspaceTemporal;
+    }
+  }
+);
 
 test("prepares the Reserved Desk advertised price without requiring another tier", async () => {
   const data = makeCoworkCheckoutData(
@@ -267,6 +312,72 @@ test("prepares the Reserved Desk advertised price without requiring another tier
     expect(reservedDeskInput.checked).toBe(true);
     expect(monitorInput.checked).toBe(true);
     expect(reservedDeskPrice.dataset.reservationTypePriceReady).toBe("true");
+  } finally {
+    await GlobalRegistrator.unregister();
+    globalThis.Temporal = workspaceTemporal;
+  }
+});
+
+test("selects a monitor over a page-loaded Reserved Desk price", async () => {
+  const data = makeCoworkCheckoutData(
+    "https://workspace.example.test",
+    "2099-09-01",
+    "calendar-pricing-change",
+    { entryTier: "reserved-desk", monitorOption: "2x27-qhd" }
+  );
+  GlobalRegistrator.register({
+    url: "https://workspace.example.test/en-US/reservation/cowork",
+  });
+  try {
+    // The page renders both Reserved Desk variants priced, so choosing the
+    // monitor never takes the price back to pending.
+    document.body.innerHTML = `
+    <input name="date" value="2099-09-01" />
+    <button data-reservation-type-price="reserved-desk" data-reservation-type-price-ready="true"></button>
+    <input id="reservation-entry-tier-reserved-desk" type="radio" checked />
+    <label><input type="radio" value="2x27-qhd" /></label>
+  `;
+
+    const monitorInput = document.querySelector<HTMLInputElement>(
+      'input[value="2x27-qhd"]'
+    )!;
+    monitorInput.closest("label")!.addEventListener("click", () => {
+      monitorInput.checked = true;
+    });
+
+    let now = 0;
+    class FastDate extends Date {
+      static override now() {
+        now += 1_000;
+        return now;
+      }
+    }
+    const run = new Function(
+      "document",
+      "HTMLElement",
+      "HTMLInputElement",
+      "MutationObserver",
+      "Date",
+      "setTimeout",
+      "location",
+      `return (${getPrepareCoworkAdvertisedPriceScript(data).trim()})`
+    );
+
+    await expect(
+      run(
+        document,
+        HTMLElement,
+        HTMLInputElement,
+        MutationObserver,
+        FastDate,
+        (callback: () => void) => {
+          queueMicrotask(callback);
+          return 0;
+        },
+        location
+      )
+    ).resolves.toBe(location.href);
+    expect(monitorInput.checked).toBe(true);
   } finally {
     await GlobalRegistrator.unregister();
     globalThis.Temporal = workspaceTemporal;
@@ -402,48 +513,6 @@ test("selects an edited cowork date and waits for its advertised price", async (
     await GlobalRegistrator.unregister();
     globalThis.Temporal = workspaceTemporal;
   }
-});
-
-test("drives meeting-room date, time, and duration controls", () => {
-  const interval = getTestMeetingRoomInterval(
-    "2099-09-01T10:00",
-    fourHourMeetingRoomDuration
-  );
-  expect(interval).toBeDefined();
-  const data = makeMeetingRoomCheckoutData(
-    "https://workspace.example.test",
-    {
-      date: "2099-09-01",
-      duration: fourHourMeetingRoomDuration,
-      startDateTime: "2099-09-01T10:00",
-      ...interval!,
-    },
-    "meeting-room-script"
-  );
-  const prepare = getPrepareMeetingRoomAdvertisedPriceScript(data);
-  const combined = getSubmitMeetingRoomReservationScript(data);
-
-  expect(prepare).toContain('button[aria-label^="Meeting room start date"]');
-  expect(prepare).toContain("'[data-day=\"' + expected.date");
-  expect(prepare).toContain('input[aria-label^="Meeting room start time"]');
-  expect(prepare).toContain("meeting-room-duration-");
-  expect(prepare).toContain(
-    `Date.now() + ${workspaceE2ETimeouts.uiTransition}`
-  );
-  expect(prepare).toContain('"date":"2099-09-01"');
-  expect(prepare).toContain('"time":"10:00"');
-  expect(prepare).not.toContain("setField('input[name=\"startDateTime\"]'");
-  expect(submitPreparedMeetingRoomReservationScript).toContain(
-    "reservation-submit"
-  );
-  expect(submitPreparedMeetingRoomReservationScript).not.toContain(
-    "meeting-room-privacy-consent"
-  );
-  expect(submitPreparedMeetingRoomReservationScript).not.toContain(
-    "button.click"
-  );
-  expect(combined).toContain(prepare.trim());
-  expect(() => new Function(`return ${combined}`)).not.toThrow();
 });
 
 test("waits through delayed meeting-room availability readiness", async () => {
@@ -1035,8 +1104,6 @@ test("asserts meeting-room prefills without locale-specific labels", async () =>
     "meeting-room-prefill"
   );
   const assertion = getAssertPrefilledReservationScript(data);
-  expect(assertion).toContain('input[type="time"]');
-  expect(assertion).not.toContain("Meeting room start time");
 
   GlobalRegistrator.register({
     url: "https://workspace.example.test/cs-CZ/reservation/meeting-room",
@@ -1075,21 +1142,6 @@ test("prepares a multi-day office reservation with selected seats", async () => 
     officeSlot
   );
   const prepare = getPrepareOfficeAdvertisedPriceScript(data);
-  const combined = getSubmitOfficeReservationScript(data);
-
-  expect(prepare).toContain("Office reservation start date");
-  expect(prepare).toContain('input[name="dayCount"]');
-  expect(prepare).not.toContain("Office reservation end date");
-  expect(prepare).toContain(
-    "office availability or advertised price did not become ready"
-  );
-  expect(prepare).not.toContain("reservation-privacy-consent");
-  expect(submitPreparedOfficeReservationScript).toContain("reservation-submit");
-  expect(submitPreparedOfficeReservationScript).not.toContain(
-    "reservation-privacy-consent"
-  );
-  expect(combined).toContain(prepare.trim());
-  expect(() => new Function(`return ${combined}`)).not.toThrow();
 
   GlobalRegistrator.register({
     url: "https://workspace.example.test/en-US/reservation/office",

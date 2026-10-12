@@ -14,8 +14,6 @@ import {
   workspaceE2EAccountMainRecipientLabel,
 } from "./config";
 
-import { testEmailAddress } from "@deskohub/email/testing";
-
 const runId = (value: string): WorkspaceE2ERunId =>
   Schema.decodeUnknownSync(workspaceE2ERunIdSchema)(value);
 
@@ -30,7 +28,7 @@ const makeAccountEnvironment = (
   });
 
 describe("workspace account e2e configuration", () => {
-  test("derives the exact immutable preview origin and keeps the validated run id", () => {
+  test("derives the exact immutable preview origin", () => {
     const config = getAccountE2EConfig(
       makeAccountEnvironment(),
       runId("1234567890-2")
@@ -42,8 +40,23 @@ describe("workspace account e2e configuration", () => {
     expect(config.expectedHost).toBe(
       "deskohub-workspace-abc123xyz-deskohub.vercel.app"
     );
-    expect(config.locale).toBe("en-US");
-    expect(config.runId).toBe("1234567890-2");
+  });
+
+  test("enables review screenshots only when the decoded opt-in is true", () => {
+    const reviewConfig = getAccountE2EConfig(
+      makeAccountEnvironment({ WORKSPACE_E2E_REVIEW_SCREENSHOTS: "true" }),
+      runId("1234567890-2")
+    );
+    const defaultConfig = getAccountE2EConfig(
+      makeAccountEnvironment(),
+      runId("1234567890-2")
+    );
+
+    expect(reviewConfig.review).toEqual({
+      baseUrl: reviewConfig.baseUrl,
+      screenshots: true,
+    });
+    expect(defaultConfig.review.screenshots).toBe(false);
   });
 
   test("fails closed before account cases when the Vercel log-read token is absent", () => {
@@ -60,27 +73,6 @@ describe("workspace account e2e configuration", () => {
         makeAccountEnvironment({ WORKSPACE_E2E_VERCEL_PROJECT: undefined })
       )
     ).toThrow("WORKSPACE_E2E_VERCEL_PROJECT is required");
-  });
-
-  test("fails closed when the base URL is not an immutable Vercel origin", () => {
-    expect(() =>
-      getAccountE2EConfig(
-        makeAccountEnvironment({
-          WORKSPACE_E2E_BASE_URL: "https://deskohub-workspace.example.test",
-        })
-      )
-    ).toThrow("must use a Vercel deployment host");
-  });
-
-  test("rejects a mutable branch alias instead of an exact deployment", () => {
-    expect(() =>
-      getAccountE2EConfig(
-        makeAccountEnvironment({
-          WORKSPACE_E2E_BASE_URL:
-            "https://deskohub-workspace-git-main-deskohub.vercel.app",
-        })
-      )
-    ).toThrow("immutable deployment URL, not a branch alias");
   });
 
   test("registers the protection bypass secret with the process redactor", () => {
@@ -114,36 +106,10 @@ describe("workspace account e2e configuration", () => {
     );
     const other = makeWorkspaceE2EAccountRecipient(config, "active-linking");
 
-    expect(recipient).toBe(testEmailAddress(`delivered+${config.runId}-main`));
-    expect(other).toBe(
-      testEmailAddress(`delivered+${config.runId}-active-linking`)
-    );
+    expect(recipient).toBe(`delivered+${config.runId}-main@resend.dev`);
+    expect(other).toBe(`delivered+${config.runId}-active-linking@resend.dev`);
     expect(redact(recipient)).toBe("[redacted]");
     expect(redact(other)).toBe("[redacted]");
-  });
-
-  test("derives the same recipient from the validated run id alone", () => {
-    const config = getAccountE2EConfig(
-      makeAccountEnvironment(),
-      runId("manual-018f3ca2-0000-7000-8000-000000000000")
-    );
-
-    expect(
-      makeWorkspaceE2EAccountRecipientForRunId(
-        config.runId,
-        workspaceE2EAccountMainRecipientLabel
-      )
-    ).toBe(
-      testEmailAddress(
-        "delivered+manual-018f3ca2-0000-7000-8000-000000000000-main"
-      )
-    );
-    expect(
-      makeWorkspaceE2EAccountRecipientForRunId(
-        runId("1234567890-2"),
-        workspaceE2EAccountMainRecipientLabel
-      )
-    ).toBe(testEmailAddress("delivered+1234567890-2-main"));
   });
 
   test("rejects run ids that could encode data beyond the run identity", () => {

@@ -5,7 +5,7 @@ import { EMAIL_TEST_DOMAIN } from "@deskohub/email/backend/test-recipients";
  * account. Every test-domain recipient is logged by Console, but only this
  * shape may enter the Preview bearer-log route.
  */
-export const magicLinkSyntheticLocalPartPattern =
+const magicLinkSyntheticLocalPartPattern =
   /^delivered\+[a-z0-9]+(?:-[a-z0-9]+)*-[a-z0-9]+$/i;
 
 export const isSyntheticE2EEmailRecipient = (email: string): boolean => {

@@ -1,0 +1,84 @@
+import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import {
+  formatTestTimings,
+  mergeTestTimings,
+  parseTestTimings,
+  predictShardDurations,
+  testTimingsPath,
+} from "./refresh-test-timings";
+
+describe("mergeTestTimings", () => {
+  test("combines shard recordings sorted by path with whole milliseconds", () => {
+    expect(
+      mergeTestTimings([
+        { version: 1, files: { "b.test.ts": 20.4, "a.test.ts": 5 } },
+        { version: 1, files: { "c/d.test.tsx": 7.6 } },
+      ])
+    ).toEqual({
+      version: 1,
+      files: { "a.test.ts": 5, "b.test.ts": 20, "c/d.test.tsx": 8 },
+    });
+  });
+
+  test("rejects a file recorded by two shards", () => {
+    expect(() =>
+      mergeTestTimings([
+        { version: 1, files: { "a.test.ts": 1 } },
+        { version: 1, files: { "a.test.ts": 2 } },
+      ])
+    ).toThrow("a.test.ts was recorded by more than one shard");
+  });
+});
+
+describe("parseTestTimings", () => {
+  test("rejects other formats and invalid durations", () => {
+    for (const text of [
+      '{"a.test.ts":1}',
+      '{"version":1,"files":{"a.test.ts":-1}}',
+      "not json",
+    ]) {
+      expect(() => parseTestTimings(text, "x.json")).toThrow(
+        "x.json is not a valid Bun test timings file"
+      );
+    }
+  });
+});
+
+describe("predictShardDurations", () => {
+  test("cuts path-ordered files at the shard marks like Bun", () => {
+    expect(
+      predictShardDurations(
+        {
+          version: 1,
+          files: {
+            "d.test.ts": 9,
+            "a.test.ts": 4,
+            "c.test.ts": 5,
+            "b.test.ts": 10,
+          },
+        },
+        2
+      )
+    ).toEqual([14, 14]);
+  });
+
+  test("keeps a file crossing a mark on the nearer side", () => {
+    expect(
+      predictShardDurations(
+        {
+          version: 1,
+          files: { a: 10, b: 50, c: 5, d: 25, e: 1, f: 30 },
+        },
+        3
+      )
+    ).toEqual([60, 30, 31]);
+  });
+});
+
+test("keeps the committed timings file valid and formatted", () => {
+  const text = readFileSync(testTimingsPath, "utf8");
+  const timings = parseTestTimings(text, "test-timings.json");
+  expect(Object.keys(timings.files).length).toBeGreaterThan(0);
+  expect(formatTestTimings(mergeTestTimings([timings]))).toBe(text);
+});

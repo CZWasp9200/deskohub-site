@@ -390,3 +390,26 @@ describe("getOfficeReservationSelection", () => {
     ).toBeNull();
   });
 });
+
+describe("office reservation selection", () => {
+  test("rejects an interval a millisecond past Workspace midnight", () => {
+    expect(
+      getOfficeReservationSelection({
+        startsAt: Temporal.Instant.from("2026-06-11T22:00:00.001Z"),
+        endsAt: Temporal.Instant.from("2026-06-14T22:00:00.001Z"),
+        seats: 3,
+      })
+    ).toBeNull();
+  });
+});
+
+describe("office product key", () => {
+  test.each(["office:3", "office:0:2", "office:1.5:2", "office:3:0"])(
+    "rejects the non-canonical key %s",
+    (key) => {
+      expect(() =>
+        Schema.decodeUnknownSync(workspaceOfficeProductKeySchema)(key)
+      ).toThrow();
+    }
+  );
+});

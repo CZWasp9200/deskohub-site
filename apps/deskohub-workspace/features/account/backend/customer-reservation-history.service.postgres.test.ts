@@ -108,7 +108,7 @@ const makeHistoryLayer = (reservations: readonly DotyposReservation[]) =>
 describe.skipIf(!testDatabase)(
   "CustomerReservationHistoryService on disposable Postgres",
   () => {
-    test("blocks reservation activity for a deletion marker or a removed account, never for anonymous flows", async () => {
+    test("blocks reservation history for a deletion marker or a removed account", async () => {
       const account = customerAccountIdSchema.make(uniqueId());
       const dotyposCustomerId = uniqueDotyposId();
       await insertAuthUser(account, testEmailAddress(`h-${account}`));

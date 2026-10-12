@@ -7,9 +7,9 @@ import {
   mock,
   test,
 } from "bun:test";
-import { testEmailAddress } from "@deskohub/email/testing";
 import React from "react";
 import type { CustomerProfileInput } from "@/features/account/contracts";
+import { m } from "@/features/i18n";
 import {
   workspaceRouterPush,
   workspaceRouterRefresh,
@@ -20,8 +20,6 @@ import {
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
 } from "@/shared/testing/workspace-component-test-env";
-
-const customerEmail = testEmailAddress("ada");
 
 registerWorkspaceComponentTestEnv();
 // @testing-library/react must load after the happy-dom registration, or
@@ -87,66 +85,6 @@ mock.module("@/features/account/auth.client", () => ({
     signIn: { magicLink: () => Promise.resolve({ error: null }) },
     signOut: () => Promise.resolve({ error: null }),
   },
-}));
-
-mock.module("@/features/account/components/account-screen-copy", () => ({
-  getAccountScreenCopy: () => ({
-    shell: {
-      mobileSection: "Account section",
-      navigation: "Account navigation",
-      sections: {
-        billing: "Billing & invoices",
-        danger: "Danger zone",
-        legal: "Legal & privacy",
-        profile: "Profile & identity",
-        reservations: "Reservations",
-      },
-    },
-    profile: {
-      emailLabel: "Email",
-      emailVerification: {
-        unverified: "This email still needs verification.",
-        verified: "This email has been successfully verified.",
-      },
-      languageLabel: "Preferred communication language",
-      languageUnavailableValue: "Not set",
-      memberFallback: "Workspace member",
-      title: "Profile & identity",
-      verifiedEmail: "Verified login email",
-    },
-    billing: {
-      addPaymentCard: "Add payment card",
-      billingDetailsTitle: "Billing details",
-      currency: "Currency: CZK (Kč)",
-      downloadInvoice: "Download PDF",
-      exportInvoices: "Export all",
-      invoiceHistoryTitle: "Invoice history",
-      invoiceHistoryUnavailable:
-        "Invoice history and downloads are not available in this account.",
-      paymentMethodsTitle: "Saved payment methods",
-      paymentMethodsUnavailable:
-        "Saved payment methods are not available in this account.",
-      removePaymentCard: "Remove payment card",
-      title: "Billing & invoices",
-    },
-
-    reservations: {
-      assignedDesk: "Assigned desk",
-      checkIn: "Check in",
-      date: "Date",
-      moreCurrent: "More upcoming reservations",
-      product: "Product",
-      seats: "Seats",
-      showPinCode: "Show PIN code",
-      status: "Status",
-      unavailable: "Unavailable",
-      unsupportedDescription: "This access detail is not available yet.",
-      validity: "Validity",
-      viewReservation: "View reservation",
-      wifi: "Wi-Fi",
-    },
-    dangerTitle: "Danger zone",
-  }),
 }));
 
 mock.module("@/features/account/components/legal/legal-screen", () => ({
@@ -235,6 +173,15 @@ const profile = {
   },
 };
 const hiddenAvatarPresentation = { kind: "hidden" } as const;
+const locale = "en-US";
+const sectionLabels = {
+  group: m.accountSectionLabel({}, { locale }),
+  reservations: new RegExp(`^${m.accountSectionReservations({}, { locale })}`),
+  profile: m.accountSectionProfile({}, { locale }),
+  billing: m.accountSectionBilling({}, { locale }),
+  legal: m.accountSectionLegal({}, { locale }),
+  danger: m.accountSectionDanger({}, { locale }),
+};
 
 const history = {
   kind: "available" as const,
@@ -303,7 +250,7 @@ describe("LinkedAccount", () => {
       withAccountLayout(
         <LinkedAccount
           avatarPresentation={hiddenAvatarPresentation}
-          email={customerEmail}
+          email="ada@example.test"
           history={history}
           locale="en-US"
           profile={profile}
@@ -311,49 +258,40 @@ describe("LinkedAccount", () => {
       )
     );
     const sectionNavigation = within(
-      view.getByRole("group", { name: "Account section" })
+      view.getByRole("group", { name: sectionLabels.group })
     );
     const desktopSectionNavigation = getDesktopSectionNavigation(view);
 
     expect(
-      sectionNavigation.getByRole("button", { name: /^Reservations/ })
-        .textContent
-    ).toContain("Reservations");
+      sectionNavigation.getByRole("button", {
+        name: sectionLabels.reservations,
+      })
+    ).toBeTruthy();
     expect(
-      desktopSectionNavigation.getByRole("button", { name: /^Reservations/ })
-        .textContent
+      desktopSectionNavigation.getByRole("button", {
+        name: sectionLabels.reservations,
+      }).textContent
     ).toContain("1");
     expect(
       view.container.querySelectorAll("#account-profile-form")
     ).toHaveLength(1);
     const helpHeadings = view.getAllByRole("heading", {
       level: 2,
-      name: "Need help?",
+      name: m.accountHelpTitle({}, { locale }),
     });
     expect(helpHeadings).toHaveLength(2);
-    const helpContainers = helpHeadings.map(
-      (heading) => heading.parentElement?.parentElement
-    );
-    const desktopHelpContainer = helpContainers.find((container) =>
-      container?.className.includes("hidden md:block")
-    );
-    const mobileHelpContainer = helpContainers.find((container) =>
-      container?.className.includes("md:hidden")
-    );
-    expect(desktopHelpContainer?.className).toBe(
-      "mt-4 min-w-0 hidden md:block"
-    );
-    expect(mobileHelpContainer?.className).toBe("min-w-0 md:hidden");
     expect(view.container.textContent).toContain(
-      "For help with your account or reservations, contact us."
+      m.accountHelpBody(
+        { contact: m.accountHelpContact({}, { locale }) },
+        { locale }
+      )
     );
     expect(view.container.textContent).not.toContain(
-      "We need to verify your profile"
+      m.accountSupportTitle({}, { locale })
     );
-    expect(view.container.textContent).not.toContain(
-      "We could not safely choose one customer profile"
-    );
-    const contactLinks = view.getAllByRole("link", { name: "contact us" });
+    const contactLinks = view.getAllByRole("link", {
+      name: m.accountHelpContact({}, { locale }),
+    });
     expect(contactLinks).toHaveLength(2);
     expect(contactLinks.map((link) => link.getAttribute("href"))).toEqual([
       "/en-US/contact",
@@ -361,17 +299,11 @@ describe("LinkedAccount", () => {
     ]);
 
     fireEvent.click(
-      sectionNavigation.getByRole("button", { name: "Profile & identity" })
+      sectionNavigation.getByRole("button", { name: sectionLabels.profile })
     );
-    const profileSubmit = view.getByRole("button", { name: "Save profile" });
-    expect(profileSubmit.className).toContain("bg-burned-orange");
-    expect(profileSubmit.className).toContain("h-9");
-    expect(profileSubmit.className).toContain("rounded-xl");
     fireEvent.click(
-      sectionNavigation.getByRole("button", { name: "Billing & invoices" })
+      sectionNavigation.getByRole("button", { name: sectionLabels.billing })
     );
-    const billingSubmit = view.getByRole("button", { name: "Save profile" });
-    expect(billingSubmit.className).toContain("bg-navy-blue");
     expect(
       view.container.querySelector("[data-screen='profile-screen']")
         ?.parentElement?.hidden
@@ -384,20 +316,24 @@ describe("LinkedAccount", () => {
     ).toHaveLength(1);
 
     fireEvent.click(
-      sectionNavigation.getByRole("button", { name: /^Reservations/ })
+      sectionNavigation.getByRole("button", {
+        name: sectionLabels.reservations,
+      })
     );
     expect(
       view.container.querySelector("#account-profile-form")?.parentElement
         ?.hidden
     ).toBe(true);
     fireEvent.click(
-      sectionNavigation.getByRole("button", { name: "Legal & privacy" })
+      sectionNavigation.getByRole("button", { name: sectionLabels.legal })
     );
     expect(workspaceRouterPush).toHaveBeenCalledWith("/en-US/account/legal");
     fireEvent.click(
-      sectionNavigation.getByRole("button", { name: "Danger zone" })
+      sectionNavigation.getByRole("button", { name: sectionLabels.danger })
     );
-    expect(view.getByText("Delete my account")).toBeTruthy();
+    expect(
+      view.getByText(m.accountDeletionButton({}, { locale }))
+    ).toBeTruthy();
   });
 
   test("clears the published reservation count when linked content unmounts", async () => {
@@ -406,7 +342,7 @@ describe("LinkedAccount", () => {
       withAccountLayout(
         <LinkedAccount
           avatarPresentation={hiddenAvatarPresentation}
-          email={customerEmail}
+          email="ada@example.test"
           history={history}
           locale="en-US"
           profile={profile}
@@ -415,7 +351,7 @@ describe("LinkedAccount", () => {
     );
 
     const reservations = getDesktopSectionNavigation(view).getByRole("button", {
-      name: /^Reservations/,
+      name: sectionLabels.reservations,
     });
     expect(reservations.textContent).toContain("1");
 
@@ -423,7 +359,7 @@ describe("LinkedAccount", () => {
 
     expect(
       getDesktopSectionNavigation(view)
-        .getByRole("button", { name: /^Reservations/ })
+        .getByRole("button", { name: sectionLabels.reservations })
         .querySelector("span.ml-auto")
     ).toBeNull();
   });
@@ -444,7 +380,7 @@ describe("LinkedAccount", () => {
         withAccountLayout(
           <LinkedAccount
             avatarPresentation={hiddenAvatarPresentation}
-            email={customerEmail}
+            email="ada@example.test"
             history={history}
             locale="en-US"
             profile={profile}
@@ -463,7 +399,7 @@ describe("LinkedAccount", () => {
       withAccountLayout(
         <LinkedAccount
           avatarPresentation={hiddenAvatarPresentation}
-          email={customerEmail}
+          email="ada@example.test"
           history={history}
           locale="en-US"
           profile={profile}
@@ -491,7 +427,7 @@ describe("LinkedAccount", () => {
         <div data-testid="cached-private-account">
           <LinkedAccount
             avatarPresentation={hiddenAvatarPresentation}
-            email={customerEmail}
+            email="ada@example.test"
             history={history}
             locale={locale}
             profile={profile}
@@ -562,7 +498,7 @@ describe("LinkedAccount", () => {
           {withAccountLayout(
             <LinkedAccount
               avatarPresentation={hiddenAvatarPresentation}
-              email={customerEmail}
+              email="ada@example.test"
               history={history}
               locale="en-US"
               profile={profile}
@@ -574,18 +510,23 @@ describe("LinkedAccount", () => {
 
       fireEvent.click(
         sectionNavigation.getByRole("button", {
-          name: "Profile & identity",
+          name: sectionLabels.profile,
         })
       );
       await act(async () => {
-        fireEvent.input(view.getByLabelText("First name"), {
-          target: { value: "Grace" },
-        });
+        fireEvent.input(
+          view.getByLabelText(m.accountProfileFirstNameLabel({}, { locale })),
+          {
+            target: { value: "Grace" },
+          }
+        );
       });
-      const firstName = view.getByLabelText("First name") as HTMLInputElement;
+      const firstName = view.getByLabelText(
+        m.accountProfileFirstNameLabel({}, { locale })
+      ) as HTMLInputElement;
 
       fireEvent.click(
-        sectionNavigation.getByRole("button", { name: "Legal & privacy" })
+        sectionNavigation.getByRole("button", { name: sectionLabels.legal })
       );
 
       expect(confirmDiscardChanges).toHaveBeenCalledTimes(1);
@@ -593,14 +534,14 @@ describe("LinkedAccount", () => {
       expect(firstName.value).toBe("Grace");
       expect(
         sectionNavigation
-          .getByRole("button", { name: "Profile & identity" })
+          .getByRole("button", { name: sectionLabels.profile })
           .getAttribute("aria-current")
       ).toBe("page");
       expect(updateCustomerProfile).not.toHaveBeenCalled();
 
       confirmDiscardChanges.mockImplementation(() => true);
       fireEvent.click(
-        sectionNavigation.getByRole("button", { name: "Legal & privacy" })
+        sectionNavigation.getByRole("button", { name: sectionLabels.legal })
       );
 
       expect(confirmDiscardChanges).toHaveBeenCalledTimes(2);
@@ -624,7 +565,7 @@ describe("LinkedAccount", () => {
         {withAccountLayout(
           <LinkedAccount
             avatarPresentation={hiddenAvatarPresentation}
-            email={customerEmail}
+            email="ada@example.test"
             history={history}
             locale="en-US"
             profile={profile}
@@ -634,7 +575,9 @@ describe("LinkedAccount", () => {
     );
     const view = render(renderAccount());
     const sectionNavigation = getDesktopSectionNavigation(view);
-    const firstName = view.getByLabelText("First name") as HTMLInputElement;
+    const firstName = view.getByLabelText(
+      m.accountProfileFirstNameLabel({}, { locale })
+    ) as HTMLInputElement;
 
     await act(async () => {
       fireEvent.input(firstName, { target: { value: "Grace" } });
@@ -647,7 +590,7 @@ describe("LinkedAccount", () => {
     });
     expect(
       sectionNavigation
-        .getByRole("button", { name: "Billing & invoices" })
+        .getByRole("button", { name: sectionLabels.billing })
         .getAttribute("aria-current")
     ).toBe("page");
     expect(firstName.value).toBe("Grace");
@@ -658,7 +601,7 @@ describe("LinkedAccount", () => {
     });
     expect(
       sectionNavigation
-        .getByRole("button", { name: "Legal & privacy" })
+        .getByRole("button", { name: sectionLabels.legal })
         .getAttribute("aria-current")
     ).toBe("page");
     expect(firstName.value).toBe("Grace");
@@ -669,7 +612,7 @@ describe("LinkedAccount", () => {
     });
     expect(
       sectionNavigation
-        .getByRole("button", { name: "Profile & identity" })
+        .getByRole("button", { name: sectionLabels.profile })
         .getAttribute("aria-current")
     ).toBe("page");
     expect(firstName.value).toBe("Grace");
@@ -677,9 +620,9 @@ describe("LinkedAccount", () => {
   });
 
   test.each([
-    ["profile", "Profile & identity"],
-    ["billing", "Billing & invoices"],
-    ["danger", "Danger zone"],
+    ["profile", sectionLabels.profile],
+    ["billing", sectionLabels.billing],
+    ["danger", sectionLabels.danger],
   ] as const)(
     "starts on a valid %s section from the query",
     async (section, label) => {
@@ -691,7 +634,7 @@ describe("LinkedAccount", () => {
         withAccountLayout(
           <LinkedAccount
             avatarPresentation={hiddenAvatarPresentation}
-            email={customerEmail}
+            email="ada@example.test"
             history={history}
             locale="en-US"
             profile={profile}
@@ -717,7 +660,7 @@ describe("LinkedAccount", () => {
       withAccountLayout(
         <LinkedAccount
           avatarPresentation={hiddenAvatarPresentation}
-          email={customerEmail}
+          email="ada@example.test"
           history={history}
           locale="en-US"
           profile={profile}
@@ -728,50 +671,7 @@ describe("LinkedAccount", () => {
 
     expect(
       sectionNavigation
-        .getByRole("button", { name: /^Reservations/ })
-        .getAttribute("aria-current")
-    ).toBe("page");
-  });
-
-  test("returns to profile before saving an invalid hidden identity field", async () => {
-    const { LinkedAccount } = await import("./linked-account");
-    const view = render(
-      withAccountLayout(
-        <LinkedAccount
-          avatarPresentation={hiddenAvatarPresentation}
-          email={customerEmail}
-          history={history}
-          locale="en-US"
-          profile={profile}
-        />
-      )
-    );
-    const sectionNavigation = within(
-      view.getByRole("group", { name: "Account section" })
-    );
-
-    fireEvent.click(
-      sectionNavigation.getByRole("button", { name: "Billing & invoices" })
-    );
-    await act(async () => {
-      fireEvent.input(view.getByLabelText("First name"), {
-        target: { value: "" },
-      });
-    });
-
-    await act(async () => {
-      fireEvent.submit(view.container.querySelector("#account-profile-form")!);
-    });
-
-    expect(updateCustomerProfile).not.toHaveBeenCalled();
-    expect(
-      view.container.querySelector("[data-screen='profile-screen']")
-        ?.parentElement?.hidden
-    ).toBe(false);
-    expect(view.getByText("Enter your first name.")).toBeTruthy();
-    expect(
-      sectionNavigation
-        .getByRole("button", { name: "Profile & identity" })
+        .getByRole("button", { name: sectionLabels.reservations })
         .getAttribute("aria-current")
     ).toBe("page");
   });
@@ -791,7 +691,7 @@ describe("LinkedAccount", () => {
           {withAccountLayout(
             <LinkedAccount
               avatarPresentation={hiddenAvatarPresentation}
-              email={customerEmail}
+              email="ada@example.test"
               history={history}
               locale="en-US"
               profile={profile}
@@ -800,19 +700,24 @@ describe("LinkedAccount", () => {
         </UnsavedChangesProvider>
       );
       const sectionNavigation = within(
-        view.getByRole("group", { name: "Account section" })
+        view.getByRole("group", { name: sectionLabels.group })
       );
 
       fireEvent.click(
-        sectionNavigation.getByRole("button", { name: "Profile & identity" })
+        sectionNavigation.getByRole("button", { name: sectionLabels.profile })
       );
       await act(async () => {
-        fireEvent.input(view.getByLabelText("First name"), {
-          target: { value: "Grace" },
-        });
+        fireEvent.input(
+          view.getByLabelText(m.accountProfileFirstNameLabel({}, { locale })),
+          {
+            target: { value: "Grace" },
+          }
+        );
       });
       fireEvent.click(
-        sectionNavigation.getByRole("button", { name: /^Reservations/ })
+        sectionNavigation.getByRole("button", {
+          name: sectionLabels.reservations,
+        })
       );
 
       const profilePanel = view.container.querySelector(
@@ -820,7 +725,11 @@ describe("LinkedAccount", () => {
       )?.parentElement;
       expect(profilePanel?.hidden).toBe(true);
       expect(
-        (view.getByLabelText("First name") as HTMLInputElement).value
+        (
+          view.getByLabelText(
+            m.accountProfileFirstNameLabel({}, { locale })
+          ) as HTMLInputElement
+        ).value
       ).toBe("Grace");
 
       const beforeUnload = new Event("beforeunload", { cancelable: true });

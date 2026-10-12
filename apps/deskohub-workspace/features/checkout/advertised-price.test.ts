@@ -3,10 +3,6 @@ import { describe, expect, test } from "bun:test";
 import { testEmailAddress } from "@deskohub/email/testing";
 import { Option, Schema } from "effect";
 import {
-  coworkAdvertisedPriceReservationEquals,
-  getCoworkAdvertisedPriceReservation,
-} from "@/features/reservation/cowork-reservation";
-import {
   advertisedPriceRequestBatchSize,
   advertisedPriceRequestSchema,
   advertisedPriceRequestsSchema,
@@ -161,18 +157,6 @@ describe("advertised price contract", () => {
     expect(Option.isNone(decoded)).toBe(true);
   });
 
-  test("compares every price-affecting reservation input", () => {
-    expect(
-      coworkAdvertisedPriceReservationEquals(reservation, reservation)
-    ).toBe(true);
-    expect(
-      coworkAdvertisedPriceReservationEquals(reservation, {
-        ...reservation,
-        details: { ...reservation.details, coffee: false },
-      })
-    ).toBe(false);
-  });
-
   test("accepts only price-affecting cowork inputs", () => {
     const profiReservation = {
       kind: "cowork" as const,
@@ -206,25 +190,5 @@ describe("advertised price contract", () => {
         })
       )
     ).toBe(true);
-  });
-
-  test("uses the same advertised-price snapshot for every Profi monitor", () => {
-    const reservation = {
-      entryTier: "profi" as const,
-      coffee: true,
-      date: "2026-07-20",
-    };
-
-    expect(
-      getCoworkAdvertisedPriceReservation({
-        ...reservation,
-        monitorOption: "2x27-qhd",
-      })
-    ).toEqual(
-      getCoworkAdvertisedPriceReservation({
-        ...reservation,
-        monitorOption: "2x32-4k",
-      })
-    );
   });
 });

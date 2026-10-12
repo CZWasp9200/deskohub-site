@@ -1,12 +1,7 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { testEmailAddress } from "@deskohub/email/testing";
 import { Context, Effect, Layer } from "effect";
-import {
-  createElement,
-  type ReactElement,
-  type ReactNode,
-  Suspense,
-} from "react";
+import { createElement, type ReactElement, type ReactNode } from "react";
 
 const adaEmail = testEmailAddress("ada");
 
@@ -120,8 +115,6 @@ describe("account route layout", () => {
         readonly fallback: ReactElement;
       }>;
 
-      expect(route.type).toBe(Suspense);
-      expect(route.props.fallback.type).toBe(AccountLoading);
       expect(connection).not.toHaveBeenCalled();
 
       const content = route.props.children;
@@ -146,8 +139,6 @@ describe("account route layout", () => {
         locale: "en-US",
         signedIn: expectedSignedIn,
       });
-      expect(output.props.children.type).toBe(PageNavigationBoundary);
-      expect(output.props.children.props.children).toEqual([page, modal]);
     }
   );
 

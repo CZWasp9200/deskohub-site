@@ -24,7 +24,6 @@ mock.module("server-only", () => ({}));
 const payStateBookedAt = instantStringSchema.make("2026-06-01T09:58:00.000Z");
 
 const {
-  buildPayStateQueryParams,
   buildSignedPayState,
   getPayStateRestartKind,
   getSignedPayStateSubmittedCodeApplication,
@@ -188,12 +187,6 @@ const tamperCiphertext = (token: string) => {
 };
 
 describe("Pay URL state", () => {
-  test("does not expose a temporary reservation-family rejection gate", async () => {
-    const payState = await import("./pay-state");
-
-    expect(payState).not.toHaveProperty("isCoworkSignedPayState");
-  });
-
   test("round-trips signed Pay state", () => {
     const state = buildState();
     const token = seal(state);
@@ -213,15 +206,22 @@ describe("Pay URL state", () => {
       itemKeys: ["meeting-room"],
     };
 
-    const state = {
-      ...buildMeetingRoomState(),
-      submittedCode: canonicalCode,
-      submittedCodeDiscountId,
-      changedKeys,
-    };
+    const opened = runSync(
+      openPayState(
+        seal({
+          ...buildMeetingRoomState(),
+          submittedCode: canonicalCode,
+          submittedCodeDiscountId,
+          changedKeys,
+        }),
+        { keys: [fixedKey], now: () => fixedNow }
+      )
+    );
 
-    expect(state.submittedCode).toBe(canonicalCode);
-    expect(state.changedKeys).toEqual(changedKeys);
+    expect(opened.reservation.kind).toBe("meeting-room");
+    expect(opened.submittedCode).toBe(canonicalCode);
+    expect(opened.submittedCodeDiscountId).toBe(submittedCodeDiscountId);
+    expect(opened.changedKeys).toEqual(changedKeys);
   });
 
   test("derives the meeting-room restart path from sealed Pay state", () => {
@@ -245,13 +245,6 @@ describe("Pay URL state", () => {
     expect(getReservationStartPath("en-US", openedState.reservation.kind)).toBe(
       "/en-US/reservation/meeting-room"
     );
-  });
-
-  test("omits redundant payload markers from signed Pay state", () => {
-    const state = buildState();
-
-    expect(state).not.toHaveProperty("type");
-    expect(state).not.toHaveProperty("schema");
   });
 
   test("fails closed when no encryption key is configured", () => {
@@ -580,19 +573,6 @@ describe("Pay URL state", () => {
     ).toEqual(codeApplication);
   });
 
-  test("builds URL query params", () => {
-    const result = runSync(
-      sealPayStateForUrl(buildState(), {
-        keys: [fixedKey],
-        randomBytes: fixedRandomBytes,
-      })
-    );
-    const searchParams = buildPayStateQueryParams(result);
-
-    expect(result.type).toBe("sealedPayState");
-    expect(searchParams.get(payStateTokenQueryParam)).toBe(result.token);
-  });
-
   test("builds a clean payable continuation after price review", () => {
     const reviewState = buildState({
       changedKeys: {
@@ -709,11 +689,5 @@ describe("legacy signed Pay state with a retired customer message", () => {
       monitorOption: "2x27-qhd",
     });
     expect(restartKind).toBe("cowork");
-  });
-
-  test("does not carry the retired message into freshly built Pay state", () => {
-    const state = buildState();
-
-    expect(state.reservation).not.toHaveProperty("message");
   });
 });

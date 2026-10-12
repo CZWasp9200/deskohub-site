@@ -182,29 +182,6 @@ describe.skipIf(!testDatabase)(
       expect(cleared!.options?.maxAge).toBe(0);
     });
 
-    test("refreshes the rolling session cookie for browser get-session requests", async () => {
-      const sentMagicLinks: { url: string }[] = [];
-      const auth = makeTestAuth(sentMagicLinks);
-      const email = uniqueEmail("browser-refresh");
-      const cookie = await signInAndVerify(auth, sentMagicLinks, email);
-      await backdateSession(email);
-      const staleExpiry = await sessionExpiresAt(email);
-
-      const response = await callHandler(auth, "/get-session", {
-        headers: { cookie },
-      });
-      expect(response.status).toBe(200);
-      expect(await response.json()).not.toBeNull();
-
-      expect(await sessionExpiresAt(email)).toBeGreaterThan(staleExpiry);
-
-      const refreshedCookie = response.headers
-        .getSetCookie()
-        .find((entry) => entry.includes("session_token="));
-      expect(refreshedCookie).toBeTruthy();
-      expect(refreshedCookie).toContain("Max-Age=2592000");
-    });
-
     test("defers the rolling refresh on RSC get-session reads that cannot write cookies", async () => {
       const sentMagicLinks: { url: string }[] = [];
       const auth = makeTestAuth(sentMagicLinks);

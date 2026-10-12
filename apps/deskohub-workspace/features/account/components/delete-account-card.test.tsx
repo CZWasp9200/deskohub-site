@@ -7,7 +7,6 @@ import {
   mock,
   test,
 } from "bun:test";
-import { testEmailAddress } from "@deskohub/email/testing";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import React from "react";
 import { type Locale, m } from "@/features/i18n";
@@ -20,8 +19,6 @@ import {
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
 } from "@/shared/testing/workspace-component-test-env";
-
-const customerEmail = testEmailAddress("ada");
 
 type ActionResult = {
   data?: { status?: string };
@@ -184,7 +181,7 @@ describe("DeleteAccountCard", () => {
     const view = render(
       <DeleteAccountCard
         deletionPending={false}
-        email={customerEmail}
+        email="ada@example.test"
         locale="en-US"
       />
     );
@@ -201,7 +198,7 @@ describe("DeleteAccountCard", () => {
 
     const view = render(
       <DeleteAccountCard
-        email={customerEmail}
+        email="ada@example.test"
         locale="en-US"
         deletionPending={false}
         heading="Synthetic danger heading"
@@ -222,7 +219,7 @@ describe("DeleteAccountCard", () => {
 
     view.rerender(
       <DeleteAccountCard
-        email={customerEmail}
+        email="ada@example.test"
         locale="en-US"
         deletionPending={false}
       />
@@ -242,7 +239,7 @@ describe("DeleteAccountCard", () => {
 
       const view = render(
         <DeleteAccountCard
-          email={customerEmail}
+          email="ada@example.test"
           locale={locale}
           deletionPending={false}
         />
@@ -258,7 +255,7 @@ describe("DeleteAccountCard", () => {
 
     const view = render(
       <DeleteAccountCard
-        email={customerEmail}
+        email="ada@example.test"
         locale="cs-CZ"
         deletionPending={false}
       />
@@ -277,7 +274,7 @@ describe("DeleteAccountCard", () => {
 
     const view = render(
       <DeleteAccountCard
-        email={customerEmail}
+        email="ada@example.test"
         locale="en-US"
         deletionPending={false}
       />
@@ -316,7 +313,7 @@ describe("DeleteAccountCard", () => {
 
     const view = render(
       <DeleteAccountCard
-        email={customerEmail}
+        email="ada@example.test"
         locale="en-US"
         deletionPending={false}
       />
@@ -361,7 +358,7 @@ describe("DeleteAccountCard", () => {
         <UnsavedChangesProvider>
           <DirtyForm />
           <DeleteAccountCard
-            email={customerEmail}
+            email="ada@example.test"
             locale="en-US"
             deletionPending={false}
           />
@@ -396,7 +393,7 @@ describe("DeleteAccountCard", () => {
       <UnsavedChangesProvider>
         <DirtyForm />
         <DeleteAccountCard
-          email={customerEmail}
+          email="ada@example.test"
           locale="en-US"
           deletionPending={false}
         />
@@ -431,7 +428,7 @@ describe("DeleteAccountCard", () => {
       <UnsavedChangesProvider>
         <DirtyForm />
         <DeleteAccountCard
-          email={customerEmail}
+          email="ada@example.test"
           locale="en-US"
           deletionPending={false}
         />
@@ -469,7 +466,7 @@ describe("DeleteAccountCard", () => {
 
     expect(signInMagicLink).toHaveBeenCalledWith(
       expect.objectContaining({
-        email: customerEmail,
+        email: "ada@example.test",
         callbackURL: "/en-US/auth/callback",
       })
     );
@@ -491,7 +488,7 @@ describe("DeleteAccountCard", () => {
       <UnsavedChangesProvider>
         <DirtyForm />
         <DeleteAccountCard
-          email={customerEmail}
+          email="ada@example.test"
           locale="en-US"
           deletionPending={false}
         />
@@ -548,7 +545,7 @@ describe("DeleteAccountCard", () => {
       <UnsavedChangesProvider>
         <DirtyForm />
         <DeleteAccountCard
-          email={customerEmail}
+          email="ada@example.test"
           locale="en-US"
           deletionPending={false}
         />
@@ -609,7 +606,7 @@ describe("DeleteAccountCard", () => {
       <UnsavedChangesProvider>
         <DirtyForm />
         <DeleteAccountCard
-          email={customerEmail}
+          email="ada@example.test"
           locale="en-US"
           deletionPending={false}
         />
@@ -675,7 +672,7 @@ describe("DeleteAccountCard", () => {
       <UnsavedChangesProvider>
         <DirtyForm />
         <DeleteAccountCard
-          email={customerEmail}
+          email="ada@example.test"
           locale="en-US"
           deletionPending={false}
         />
@@ -719,7 +716,7 @@ describe("DeleteAccountCard", () => {
 
     const view = render(
       <DeleteAccountCard
-        email={customerEmail}
+        email="ada@example.test"
         locale="en-US"
         deletionPending={false}
       />
@@ -750,7 +747,7 @@ describe("DeleteAccountCard", () => {
     });
   });
 
-  test("refreshes identity after a transport error without completing sign-out", async () => {
+  test("shows a retryable error and refreshes identity after a transport failure", async () => {
     deleteCustomerAccount.mockImplementationOnce(() =>
       Promise.reject(new Error("synthetic transport failure"))
     );
@@ -758,46 +755,7 @@ describe("DeleteAccountCard", () => {
 
     const view = render(
       <DeleteAccountCard
-        email={customerEmail}
-        locale="en-US"
-        deletionPending={false}
-      />
-    );
-    await openDialog(view);
-    await act(async () => {
-      fireEvent.click(
-        view.getByLabelText(
-          m.accountDeletionConfirmLabel({}, { locale: "en-US" })
-        )
-      );
-    });
-    await act(async () => {
-      fireEvent.click(
-        view.getByRole("button", {
-          name: m.accountDeletionConfirm({}, { locale: "en-US" }),
-        })
-      );
-      await Promise.resolve();
-    });
-
-    expect(beginAnalyticsAccountTransition).toHaveBeenCalledTimes(1);
-    expect(completeAnalyticsAccountSignOut).not.toHaveBeenCalled();
-    expect(refreshAnalyticsAccountIdentity).toHaveBeenCalledTimes(1);
-    expect(refreshAnalyticsAccountIdentity).toHaveBeenCalledWith({
-      settleTransition: true,
-    });
-    expect(view.getByRole("dialog")).toBeTruthy();
-  });
-
-  test("shows a retryable error after a transport failure", async () => {
-    deleteCustomerAccount.mockImplementationOnce(() =>
-      Promise.reject(new Error("synthetic transport failure"))
-    );
-    const { DeleteAccountCard } = await import("./delete-account-card");
-
-    const view = render(
-      <DeleteAccountCard
-        email={customerEmail}
+        email="ada@example.test"
         locale="en-US"
         deletionPending={false}
       />
@@ -830,6 +788,13 @@ describe("DeleteAccountCard", () => {
         }) as HTMLButtonElement
       ).disabled
     ).toBe(false);
+    expect(view.getByRole("dialog")).toBeTruthy();
+    expect(beginAnalyticsAccountTransition).toHaveBeenCalledTimes(1);
+    expect(completeAnalyticsAccountSignOut).not.toHaveBeenCalled();
+    expect(refreshAnalyticsAccountIdentity).toHaveBeenCalledTimes(1);
+    expect(refreshAnalyticsAccountIdentity).toHaveBeenCalledWith({
+      settleTransition: true,
+    });
   });
 
   test("ignores close requests while deletion is in flight and still redirects", async () => {
@@ -849,7 +814,7 @@ describe("DeleteAccountCard", () => {
     try {
       const view = render(
         <DeleteAccountCard
-          email={customerEmail}
+          email="ada@example.test"
           locale="en-US"
           deletionPending={false}
         />
@@ -904,7 +869,7 @@ describe("DeleteAccountCard", () => {
 
     const view = render(
       <DeleteAccountCard
-        email={customerEmail}
+        email="ada@example.test"
         locale="en-US"
         deletionPending={false}
       />
@@ -952,7 +917,7 @@ describe("DeleteAccountCard", () => {
 
     const view = render(
       <DeleteAccountCard
-        email={customerEmail}
+        email="ada@example.test"
         locale="en-US"
         deletionPending={false}
       />
@@ -1000,7 +965,7 @@ describe("DeleteAccountCard", () => {
 
     const view = render(
       <DeleteAccountCard
-        email={customerEmail}
+        email="ada@example.test"
         locale="en-US"
         deletionPending={false}
       />
@@ -1042,7 +1007,11 @@ describe("DeleteAccountCard", () => {
     const { DeleteAccountCard } = await import("./delete-account-card");
 
     const view = render(
-      <DeleteAccountCard email={customerEmail} locale="en-US" deletionPending />
+      <DeleteAccountCard
+        email="ada@example.test"
+        locale="en-US"
+        deletionPending
+      />
     );
     expect(view.getByText("Account deletion is pending")).toBeTruthy();
     expect(

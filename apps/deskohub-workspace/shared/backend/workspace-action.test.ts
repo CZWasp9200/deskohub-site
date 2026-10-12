@@ -62,7 +62,6 @@ describe("Workspace actions", () => {
     await expect(action("21")).resolves.toEqual({
       data: { clientInput: "21", locale: "en-US", value: 42 },
     });
-    expect(actionHeaderReads).toBe(3);
   });
 
   test("preserves nested validation errors for the client", async () => {

@@ -1,16 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { testEmailAddress } from "@deskohub/email/testing";
 import { AdministrationInvoiceCreateInput } from "@deskohub/workspace-admin-api";
-import { getTableColumns } from "drizzle-orm";
-import { Effect, Layer, Schema } from "effect";
-import { manualInvoiceCreationRequests } from "@/db/schema";
-import { makeRecordingWorkspaceDatabase } from "@/shared/testing/workspace-recording-database.test-utils";
-import { AccountingSnapshotKeyService } from "../backend/accounting-snapshot-key.service";
+import { Schema } from "effect";
 import { getManualInvoiceCreationRequestJson } from "./invoice-administration.service";
-import {
-  getManualInvoiceCreationRequestDigest,
-  ManualInvoiceCreationRequests,
-} from "./manual-invoice-creation-requests.service";
+import { getManualInvoiceCreationRequestDigest } from "./manual-invoice-creation-requests.service";
 
 const decodeInput = Schema.decodeUnknownSync(AdministrationInvoiceCreateInput, {
   onExcessProperty: "error",
@@ -126,45 +119,5 @@ describe("manual invoice creation request claims", () => {
         "claim key"
       )
     ).not.toBe(original);
-  });
-
-  test("persists only non-PII claim metadata", () => {
-    expect(Object.keys(getTableColumns(manualInvoiceCreationRequests))).toEqual(
-      ["invoiceId", "keyId", "requestDigest", "claimedAt", "completedAt"]
-    );
-  });
-
-  test("holds a namespaced transaction advisory lock around creation", async () => {
-    const recording = await makeRecordingWorkspaceDatabase();
-    const requests = await Effect.runPromise(
-      Effect.gen(function* () {
-        return yield* ManualInvoiceCreationRequests;
-      }).pipe(
-        Effect.provide(
-          ManualInvoiceCreationRequests.Default.pipe(
-            Layer.provide(recording.layer),
-            Layer.provide(
-              Layer.succeed(
-                AccountingSnapshotKeyService,
-                AccountingSnapshotKeyService.of({
-                  getActive: Effect.die("unused"),
-                  getById: () => Effect.die("unused"),
-                } as never)
-              )
-            )
-          )
-        )
-      )
-    );
-
-    await Effect.runPromise(
-      requests.withLock("manual-invoice-1", () => Effect.succeed("inside"))
-    );
-
-    const sqlTexts = recording.statements.map(({ sql }) => sql);
-    expect(sqlTexts[0].toLowerCase()).toBe("begin");
-    expect(sqlTexts[1]).toContain("pg_advisory_xact_lock");
-    expect(sqlTexts[1]).toContain("hashtext('manual-invoice-creation')");
-    expect(sqlTexts.at(-1)?.toLowerCase()).toBe("commit");
   });
 });

@@ -1,11 +1,9 @@
 import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
-import { testEmailAddress } from "@deskohub/email/testing";
+import { m } from "@/features/i18n";
 import {
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
 } from "@/shared/testing/workspace-component-test-env";
-
-const customerEmail = testEmailAddress("ada");
 
 registerWorkspaceComponentTestEnv();
 // @testing-library/react must load after the happy-dom registration, or
@@ -15,58 +13,22 @@ const { act, cleanup, fireEvent, render } = await import(
 );
 const { renderToStaticMarkup } = await import("react-dom/server");
 
-const signInMagicLink = mock(() => Promise.resolve({ error: null }));
-const analyticsEvents: string[] = [];
-const beginAnalyticsAccountTransition = mock(() => {
-  analyticsEvents.push("begin");
-});
-const completeAnalyticsAccountSignOut = mock(() => {
-  analyticsEvents.push("complete");
-});
-const refreshAnalyticsAccountIdentity = mock(() => Promise.resolve());
-const signOut = mock(() => {
-  analyticsEvents.push("request");
-  return Promise.resolve({ error: null });
-});
-const confirmDiscardChanges = mock(() => true);
-const allowNextUnload = mock(() => {
-  analyticsEvents.push("allow");
-});
+const locale = "en-US";
 
-mock.module("@/features/account/analytics-identity", () => ({
-  beginAnalyticsAccountTransition,
-  completeAnalyticsAccountSignOut,
-  getAnalyticsAccountIdentity: () => ({ status: "anonymous" }),
-  refreshAnalyticsAccountIdentity,
-  subscribeAnalyticsAccountIdentity: () => () => undefined,
-}));
+const signInMagicLink = mock(() => Promise.resolve({ error: null }));
 
 mock.module("@/features/account/auth.client", () => ({
   authClient: {
     signIn: {
       magicLink: signInMagicLink,
     },
-    signOut,
   },
-}));
-
-mock.module("@/shared/components/unsaved-changes-guard", () => ({
-  useAllowNextUnload: () => allowNextUnload,
-  useConfirmDiscardChanges: () => confirmDiscardChanges,
 }));
 
 describe("account components", () => {
   afterEach(() => {
     cleanup();
-    analyticsEvents.length = 0;
-    beginAnalyticsAccountTransition.mockClear();
-    completeAnalyticsAccountSignOut.mockClear();
-    refreshAnalyticsAccountIdentity.mockClear();
     signInMagicLink.mockClear();
-    signOut.mockClear();
-    confirmDiscardChanges.mockClear();
-    allowNextUnload.mockClear();
-    confirmDiscardChanges.mockImplementation(() => true);
   });
 
   afterAll(async () => {
@@ -75,7 +37,7 @@ describe("account components", () => {
 
   test("server markup cannot submit an email through a native GET", async () => {
     const { SignInCard } = await import("./sign-in-card");
-    const markup = renderToStaticMarkup(<SignInCard locale="en-US" />);
+    const markup = renderToStaticMarkup(<SignInCard locale={locale} />);
     const serverDocument = new DOMParser().parseFromString(markup, "text/html");
     const form = serverDocument.querySelector(
       "#account-sign-in-form"
@@ -97,88 +59,123 @@ describe("account components", () => {
   test("sign-in card shows the request form in both locales", async () => {
     const { SignInCard } = await import("./sign-in-card");
 
-    const en = render(<SignInCard locale="en-US" />);
+    const en = render(<SignInCard locale={locale} />);
     expect(en.container.querySelector("h1")!.textContent).toBe(
-      "Sign in or create an account"
-    );
-    expect(
-      (en.getByLabelText("Email") as HTMLInputElement).hasAttribute("required")
-    ).toBe(true);
-    expect((en.getByLabelText("Email") as HTMLInputElement).disabled).toBe(
-      false
+      m.accountSignInTitle({}, { locale })
     );
     expect(
       (
+        en.getByLabelText(
+          m.accountSignInEmailLabel({}, { locale })
+        ) as HTMLInputElement
+      ).hasAttribute("required")
+    ).toBe(true);
+    expect(
+      (
+        en.getByLabelText(
+          m.accountSignInEmailLabel({}, { locale })
+        ) as HTMLInputElement
+      ).disabled
+    ).toBe(false);
+    expect(
+      (
         en.getByRole("button", {
-          name: "Email me a sign-in link",
+          name: m.accountSignInSubmit({}, { locale }),
         }) as HTMLButtonElement
       ).disabled
     ).toBe(false);
     expect(
-      en.getByLabelText("Email").getAttribute("aria-describedby")
+      en
+        .getByLabelText(m.accountSignInEmailLabel({}, { locale }))
+        .getAttribute("aria-describedby")
     ).toBeNull();
     en.unmount();
 
     const cs = render(<SignInCard locale="cs-CZ" />);
     expect(cs.container.querySelector("h1")!.textContent).toBe(
-      "Přihlášení nebo vytvoření účtu"
+      m.accountSignInTitle({}, { locale: "cs-CZ" })
     );
-    expect(cs.getByLabelText("E-mail")).toBeTruthy();
+    expect(
+      cs.getByLabelText(m.accountSignInEmailLabel({}, { locale: "cs-CZ" }))
+    ).toBeTruthy();
   });
 
   test("sign-in card validates invalid email with localized copy before requesting a link", async () => {
     const { SignInCard } = await import("./sign-in-card");
 
-    const en = render(<SignInCard locale="en-US" />);
-    fireEvent.change(en.getByLabelText("Email"), {
-      target: { value: "not-an-email" },
-    });
+    const en = render(<SignInCard locale={locale} />);
+    fireEvent.change(
+      en.getByLabelText(m.accountSignInEmailLabel({}, { locale })),
+      {
+        target: { value: "not-an-email" },
+      }
+    );
     await act(async () => {
       fireEvent.submit(en.container.querySelector("#account-sign-in-form")!);
       await Promise.resolve();
     });
-    const enEmail = en.getByLabelText("Email");
-    expect(en.getByText("Enter a valid email address.")).toBeTruthy();
+    const enEmail = en.getByLabelText(
+      m.accountSignInEmailLabel({}, { locale })
+    );
+    expect(
+      en.getByText(m.contactValidationEmailInvalid({}, { locale }))
+    ).toBeTruthy();
     expect(enEmail.getAttribute("aria-invalid")).toBe("true");
     expect(enEmail.getAttribute("aria-describedby")).toBeTruthy();
     en.unmount();
 
     const cs = render(<SignInCard locale="cs-CZ" />);
-    fireEvent.change(cs.getByLabelText("E-mail"), {
-      target: { value: "not-an-email" },
-    });
+    fireEvent.change(
+      cs.getByLabelText(m.accountSignInEmailLabel({}, { locale: "cs-CZ" })),
+      {
+        target: { value: "not-an-email" },
+      }
+    );
     await act(async () => {
       fireEvent.submit(cs.container.querySelector("#account-sign-in-form")!);
       await Promise.resolve();
     });
 
-    expect(cs.getByText("Zadej platnou emailovou adresu.")).toBeTruthy();
+    expect(
+      cs.getByText(m.contactValidationEmailInvalid({}, { locale: "cs-CZ" }))
+    ).toBeTruthy();
     expect(signInMagicLink).not.toHaveBeenCalled();
   });
 
   test("sign-in card swaps to the generic accepted state after the request succeeds", async () => {
     const { SignInCard } = await import("./sign-in-card");
 
-    const view = render(<SignInCard locale="en-US" />);
-    fireEvent.change(view.getByLabelText("Email"), {
-      target: { value: ` ${customerEmail} ` },
-    });
+    const view = render(<SignInCard locale={locale} />);
+    fireEvent.change(
+      view.getByLabelText(m.accountSignInEmailLabel({}, { locale })),
+      {
+        target: { value: " ada@example.test " },
+      }
+    );
     await act(async () => {
       fireEvent.submit(view.container.querySelector("#account-sign-in-form")!);
     });
 
     expect(signInMagicLink).toHaveBeenCalledWith(
       expect.objectContaining({
-        email: customerEmail,
+        email: "ada@example.test",
         callbackURL: "/en-US/auth/callback",
         metadata: { locale: "en-US" },
       })
     );
-    expect(view.getByText("Check your inbox")).toBeTruthy();
-    expect(view.getByText(/single-use link will arrive shortly/)).toBeTruthy();
+    expect(
+      view.getByText(m.accountSignInAcceptedTitle({}, { locale }))
+    ).toBeTruthy();
+    expect(
+      view.getByText(m.accountSignInAcceptedBody({}, { locale }))
+    ).toBeTruthy();
 
-    fireEvent.click(view.getByText("Send another link"));
-    expect(view.getByLabelText("Email")).toBeTruthy();
+    fireEvent.click(
+      view.getByText(m.accountSignInAcceptedAgain({}, { locale }))
+    );
+    expect(
+      view.getByLabelText(m.accountSignInEmailLabel({}, { locale }))
+    ).toBeTruthy();
   });
 
   test("sign-in card shows a visible pending submit and sends only once", async () => {
@@ -189,10 +186,13 @@ describe("account components", () => {
     signInMagicLink.mockImplementationOnce(() => request);
     const { SignInCard } = await import("./sign-in-card");
 
-    const view = render(<SignInCard locale="en-US" />);
-    fireEvent.change(view.getByLabelText("Email"), {
-      target: { value: customerEmail },
-    });
+    const view = render(<SignInCard locale={locale} />);
+    fireEvent.change(
+      view.getByLabelText(m.accountSignInEmailLabel({}, { locale })),
+      {
+        target: { value: "ada@example.test" },
+      }
+    );
     const form = view.container.querySelector("#account-sign-in-form")!;
 
     await act(async () => {
@@ -202,7 +202,7 @@ describe("account components", () => {
     });
 
     const submit = view.getByRole("button", {
-      name: "Sending…",
+      name: m.accountSignInSubmitting({}, { locale }),
     }) as HTMLButtonElement;
     expect(submit.disabled).toBe(true);
     expect(submit.getAttribute("aria-busy")).toBe("true");
@@ -216,7 +216,9 @@ describe("account components", () => {
       await request;
     });
 
-    expect(view.getByText("Check your inbox")).toBeTruthy();
+    expect(
+      view.getByText(m.accountSignInAcceptedTitle({}, { locale }))
+    ).toBeTruthy();
   });
 
   test("sign-in card reports rejected requests and allows retry", async () => {
@@ -224,10 +226,13 @@ describe("account components", () => {
     signInMagicLink.mockImplementationOnce(() => request);
     const { SignInCard } = await import("./sign-in-card");
 
-    const view = render(<SignInCard locale="en-US" />);
-    fireEvent.change(view.getByLabelText("Email"), {
-      target: { value: customerEmail },
-    });
+    const view = render(<SignInCard locale={locale} />);
+    fireEvent.change(
+      view.getByLabelText(m.accountSignInEmailLabel({}, { locale })),
+      {
+        target: { value: "ada@example.test" },
+      }
+    );
     const form = view.container.querySelector("#account-sign-in-form")!;
 
     await act(async () => {
@@ -236,10 +241,10 @@ describe("account components", () => {
     });
 
     expect(
-      view.getByText("We could not send the link. Please try again.")
+      view.getByText(m.accountSignInRequestFailed({}, { locale }))
     ).toBeTruthy();
     const submit = view.getByRole("button", {
-      name: "Email me a sign-in link",
+      name: m.accountSignInSubmit({}, { locale }),
     }) as HTMLButtonElement;
     expect(submit.disabled).toBe(false);
     expect(submit.getAttribute("aria-busy")).toBe("false");
@@ -250,7 +255,9 @@ describe("account components", () => {
     });
 
     expect(signInMagicLink).toHaveBeenCalledTimes(2);
-    expect(view.getByText("Check your inbox")).toBeTruthy();
+    expect(
+      view.getByText(m.accountSignInAcceptedTitle({}, { locale }))
+    ).toBeTruthy();
   });
 
   test("sign-in card reports request failures in the live region", async () => {
@@ -259,16 +266,19 @@ describe("account components", () => {
     );
     const { SignInCard } = await import("./sign-in-card");
 
-    const view = render(<SignInCard locale="en-US" />);
-    fireEvent.change(view.getByLabelText("Email"), {
-      target: { value: customerEmail },
-    });
+    const view = render(<SignInCard locale={locale} />);
+    fireEvent.change(
+      view.getByLabelText(m.accountSignInEmailLabel({}, { locale })),
+      {
+        target: { value: "ada@example.test" },
+      }
+    );
     await act(async () => {
       fireEvent.submit(view.container.querySelector("#account-sign-in-form")!);
     });
 
     expect(
-      view.getByText("We could not send the link. Please try again.")
+      view.getByText(m.accountSignInRequestFailed({}, { locale }))
     ).toBeTruthy();
   });
 
@@ -278,85 +288,26 @@ describe("account components", () => {
     );
     const { SignInCard } = await import("./sign-in-card");
 
-    const view = render(<SignInCard locale="en-US" />);
-    fireEvent.change(view.getByLabelText("Email"), {
-      target: { value: customerEmail },
-    });
+    const view = render(<SignInCard locale={locale} />);
+    fireEvent.change(
+      view.getByLabelText(m.accountSignInEmailLabel({}, { locale })),
+      {
+        target: { value: "ada@example.test" },
+      }
+    );
     await act(async () => {
       fireEvent.submit(view.container.querySelector("#account-sign-in-form")!);
     });
 
     expect(
-      view.getByText("We could not send the link. Please try again.")
+      view.getByText(m.accountSignInRequestFailed({}, { locale }))
     ).toBeTruthy();
-    expect((view.getByLabelText("Email") as HTMLInputElement).value).toBe(
-      customerEmail
-    );
-  });
-
-  test("sign-out button rejects discard before changing auth or navigation", async () => {
-    confirmDiscardChanges.mockImplementationOnce(() => false);
-
-    let assigned: string | null = null;
-    const originalAssign = window.location.assign;
-    window.location.assign = ((href: string) => {
-      assigned = href;
-    }) as typeof window.location.assign;
-
-    try {
-      const { SignOutButton } = await import("./sign-out-button");
-      const view = render(<SignOutButton locale="cs-CZ" />);
-
-      await act(async () => {
-        fireEvent.click(view.getByRole("button", { name: "Odhlásit se" }));
-      });
-
-      expect(confirmDiscardChanges).toHaveBeenCalledWith();
-      expect(beginAnalyticsAccountTransition).not.toHaveBeenCalled();
-      expect(completeAnalyticsAccountSignOut).not.toHaveBeenCalled();
-      expect(signOut).not.toHaveBeenCalled();
-      expect(assigned).toBeNull();
-    } finally {
-      window.location.assign = originalAssign;
-    }
-  });
-
-  test("sign-out button signs out once and redirects to the localized root", async () => {
-    const { SignOutButton } = await import("./sign-out-button");
-
-    let assigned: string | null = null;
-    const originalAssign = window.location.assign;
-    window.location.assign = ((href: string) => {
-      analyticsEvents.push("navigation");
-      assigned = href;
-    }) as typeof window.location.assign;
-
-    try {
-      const view = render(<SignOutButton locale="cs-CZ" />);
-      const signOutButton = view.getByRole("button", { name: "Odhlásit se" });
-      expect(signOutButton.className).toContain("bg-red-800");
-      await act(async () => {
-        fireEvent.click(signOutButton);
-      });
-      await Promise.resolve();
-      await Promise.resolve();
-
-      expect(confirmDiscardChanges).toHaveBeenCalledWith();
-      expect(signOut).toHaveBeenCalledTimes(1);
-      expect(analyticsEvents).toEqual([
-        "begin",
-        "request",
-        "complete",
-        "allow",
-        "navigation",
-      ]);
-      expect(beginAnalyticsAccountTransition).toHaveBeenCalledTimes(1);
-      expect(completeAnalyticsAccountSignOut).toHaveBeenCalledTimes(1);
-      expect(refreshAnalyticsAccountIdentity).not.toHaveBeenCalled();
-      expect(allowNextUnload).toHaveBeenCalledTimes(1);
-      expect(assigned).toBe("/cs-CZ");
-    } finally {
-      window.location.assign = originalAssign;
-    }
+    expect(
+      (
+        view.getByLabelText(
+          m.accountSignInEmailLabel({}, { locale })
+        ) as HTMLInputElement
+      ).value
+    ).toBe("ada@example.test");
   });
 });

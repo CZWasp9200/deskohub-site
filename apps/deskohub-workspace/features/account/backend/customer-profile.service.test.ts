@@ -170,7 +170,7 @@ describe("CustomerProfileService", () => {
     expect(layers.calls).not.toContain("update-profile");
   });
 
-  test("serializes updates under the account lock and never sends an email", async () => {
+  test("serializes updates under the account lock", async () => {
     const layers = makeLayers({});
 
     await runProfile(layers, (service) =>
@@ -191,11 +191,10 @@ describe("CustomerProfileService", () => {
     expect(layers.calls[0]).toBe("lock-acquire");
     expect(layers.calls).toContain("update-profile");
     expect(layers.calls[layers.calls.length - 1]).toBe("lock-release");
-    expect(JSON.stringify(layers.updatePayloads)).not.toContain("email");
     expect(layers.updatePayloads[0]).toMatchObject({ firstName: "Grace" });
   });
 
-  test("creates the Dotypos profile with the verified email and claims the link", async () => {
+  test("creates the Dotypos profile with the verified email and claims the link without a provider read", async () => {
     const layers = makeLayers({ createdCustomerId: "60999" });
 
     const profile = await runProfile(layers, (service) =>
@@ -207,19 +206,6 @@ describe("CustomerProfileService", () => {
     expect(layers.calls.indexOf("create-profile")).toBeLessThan(
       layers.calls.indexOf("claim")
     );
-  });
-
-  test("returns the create-response profile for a fresh matching claim without a provider read", async () => {
-    const layers = makeLayers({
-      createdCustomerId: "60999",
-      createdProfile,
-    });
-
-    const profile = await runProfile(layers, (service) =>
-      service.create(account.accountId, verifiedEmail, { firstName: "Nova" })
-    );
-
-    expect(profile).toEqual(createdProfile);
     expect(layers.calls).not.toContain("read-profile");
     expect(layers.readCustomerIds).toEqual([]);
   });

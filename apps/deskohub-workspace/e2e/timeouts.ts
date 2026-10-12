@@ -1,3 +1,5 @@
+import { dotyposApiTimeoutDefaultMilliseconds } from "@deskohub/dotypos/api-timeout";
+
 const SECOND = 1_000;
 const MINUTE = 60 * SECOND;
 
@@ -21,7 +23,11 @@ export const workspaceE2ETimeouts = {
   calendarSaleAdvertisementAttempt: 10 * SECOND,
   checkoutCase: 6 * MINUTE,
   checkoutStart: 2 * MINUTE,
-  cleanupAction: 30 * SECOND,
+  // The original 30-second finalizer budget plus one full Dotypos request:
+  // reservation cleanup cancels each reservation with a single unretried
+  // request, so a slow but successful cancellation may use the whole
+  // per-request timeout.
+  cleanupAction: 30 * SECOND + dotyposApiTimeoutDefaultMilliseconds,
   contactCase: 2 * MINUTE,
   datasource: 2 * MINUTE,
   hostedPayment: 3 * MINUTE,
@@ -77,6 +83,13 @@ export const workspaceE2EPollIntervalMs = {
   advertisedPricing: 5 * SECOND,
   browser: SECOND,
   datasource: 5 * SECOND,
+} as const;
+
+// Postgres reads are not rate-limited, so database polls start here and back
+// off to the datasource interval. Dotypos-backed polls keep fixed spacing
+// because Dotypos answers bursts with 429.
+export const workspaceE2EPollInitialIntervalMs = {
+  database: 500,
 } as const;
 
 export const formatWorkspaceE2EDuration = (durationMs: number) => {

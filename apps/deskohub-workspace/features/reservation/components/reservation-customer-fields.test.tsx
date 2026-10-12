@@ -8,6 +8,7 @@ import {
 } from "bun:test";
 import { testEmailAddress } from "@deskohub/email/testing";
 import { type UseFormReturn, useForm } from "react-hook-form";
+import { m } from "@/features/i18n";
 import type {
   ReservationContactValues,
   ReservationExistingCustomerForm,
@@ -178,7 +179,9 @@ describe("ReservationCustomerSection", () => {
     const { getValues, view } = renderSection();
 
     fireEvent.click(
-      view.getByRole("button", { name: "Book for someone else" })
+      view.getByRole("button", {
+        name: m.reservationBookForSomeoneElse({}, { locale: "en-US" }),
+      })
     );
     expect(view.queryByRole("region", { name: "Booking as" })).toBeNull();
     expect(getValues()).toEqual(existingCustomer.otherContact);
@@ -189,7 +192,9 @@ describe("ReservationCustomerSection", () => {
     fireEvent.input(name, { target: { value: "Katherine Johnson" } });
 
     fireEvent.click(
-      view.getByRole("button", { name: "Use my account details" })
+      view.getByRole("button", {
+        name: m.reservationUseAccountDetails({}, { locale: "en-US" }),
+      })
     );
     expect(getValues()).toEqual({
       name: "Ada Lovelace",
@@ -198,7 +203,9 @@ describe("ReservationCustomerSection", () => {
     });
 
     fireEvent.click(
-      view.getByRole("button", { name: "Book for someone else" })
+      view.getByRole("button", {
+        name: m.reservationBookForSomeoneElse({}, { locale: "en-US" }),
+      })
     );
     expect(getValues()).toEqual({
       ...existingCustomer.otherContact,
@@ -208,17 +215,23 @@ describe("ReservationCustomerSection", () => {
 
   test("keeps focus on the toggle across switches", () => {
     const { view } = renderSection();
-    const toggle = view.getByRole("button", { name: "Book for someone else" });
+    const toggle = view.getByRole("button", {
+      name: m.reservationBookForSomeoneElse({}, { locale: "en-US" }),
+    });
 
     toggle.focus();
     fireEvent.click(toggle);
     expect(document.activeElement).toBe(
-      view.getByRole("button", { name: "Use my account details" })
+      view.getByRole("button", {
+        name: m.reservationUseAccountDetails({}, { locale: "en-US" }),
+      })
     );
 
     fireEvent.click(document.activeElement as HTMLElement);
     expect(document.activeElement).toBe(
-      view.getByRole("button", { name: "Book for someone else" })
+      view.getByRole("button", {
+        name: m.reservationBookForSomeoneElse({}, { locale: "en-US" }),
+      })
     );
   });
 
@@ -233,12 +246,16 @@ describe("ReservationCustomerSection", () => {
       { target: { value: "+420111222333" } }
     );
     fireEvent.click(
-      view.getByRole("button", { name: "Book for someone else" })
+      view.getByRole("button", {
+        name: m.reservationBookForSomeoneElse({}, { locale: "en-US" }),
+      })
     );
     expect(getValues().phone).toBe(existingCustomer.otherContact.phone);
 
     fireEvent.click(
-      view.getByRole("button", { name: "Use my account details" })
+      view.getByRole("button", {
+        name: m.reservationUseAccountDetails({}, { locale: "en-US" }),
+      })
     );
     expect(getValues().phone).toBe("+420111222333");
   });
@@ -254,14 +271,18 @@ describe("ReservationCustomerSection", () => {
       { target: { value: "+420111222333" } }
     );
     fireEvent.click(
-      view.getByRole("button", { name: "Book for someone else" })
+      view.getByRole("button", {
+        name: m.reservationBookForSomeoneElse({}, { locale: "en-US" }),
+      })
     );
     fireEvent.input(
       view.container.querySelector('input[name="name"]') as HTMLInputElement,
       { target: { value: "Katherine Johnson" } }
     );
     fireEvent.click(
-      view.getByRole("button", { name: "Use my account details" })
+      view.getByRole("button", {
+        name: m.reservationUseAccountDetails({}, { locale: "en-US" }),
+      })
     );
 
     remountSection();
@@ -269,14 +290,18 @@ describe("ReservationCustomerSection", () => {
     expect(view.getByRole("region", { name: "Booking as" })).not.toBeNull();
     expect(getValues().phone).toBe("+420111222333");
     fireEvent.click(
-      view.getByRole("button", { name: "Book for someone else" })
+      view.getByRole("button", {
+        name: m.reservationBookForSomeoneElse({}, { locale: "en-US" }),
+      })
     );
     expect(getValues()).toEqual({
       ...existingCustomer.otherContact,
       name: "Katherine Johnson",
     });
     fireEvent.click(
-      view.getByRole("button", { name: "Use my account details" })
+      view.getByRole("button", {
+        name: m.reservationUseAccountDetails({}, { locale: "en-US" }),
+      })
     );
     expect(getValues().phone).toBe("+420111222333");
   });

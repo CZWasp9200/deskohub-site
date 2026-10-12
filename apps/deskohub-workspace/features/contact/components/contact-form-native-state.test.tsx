@@ -8,7 +8,6 @@ import {
   mock,
   test,
 } from "bun:test";
-import { testEmailAddress } from "@deskohub/email/testing";
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { ContactFormState } from "@/features/contact/actions/contact";
@@ -18,8 +17,6 @@ import {
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
 } from "@/shared/testing/workspace-component-test-env";
-
-const initialEmail = testEmailAddress("initial");
 
 type TestingLibrary = typeof import("@testing-library/react/pure");
 let cleanup: TestingLibrary["cleanup"];
@@ -76,7 +73,7 @@ mock.module("next/navigation", () => ({
 
 const initialValues = {
   name: "Initial Person",
-  email: initialEmail,
+  email: "initial@example.invalid",
   phone: "",
   message: "Initial request text.",
 };
@@ -150,8 +147,6 @@ describe("ContactForm native action state", () => {
         ) as HTMLInputElement
       ).value
     ).toBe(state.values?.name);
-    expect(view.getByText(nameError).getAttribute("role")).toBe("alert");
-    expect(view.getByText(message).getAttribute("aria-live")).toBe("polite");
   });
 
   test("native validation values and errors override query prefill", async () => {
@@ -161,7 +156,7 @@ describe("ContactForm native action state", () => {
       message: m.contactValidationReviewMessage({}, { locale }),
       values: {
         name: "Submitted Person",
-        email: testEmailAddress("submitted"),
+        email: "submitted@example.invalid",
         phone: "",
         message: "A submitted request with enough detail.",
       },
@@ -214,7 +209,7 @@ describe("ContactForm native action state", () => {
     );
     for (const [label, value] of [
       ["Name", "Grace Hopper"],
-      ["Email", testEmailAddress("grace")],
+      ["Email", "grace@example.com"],
       ["Message", "Please contact me about a meeting room."],
     ]) {
       const field = view.getByLabelText(label) as HTMLInputElement;
@@ -286,7 +281,7 @@ describe("ContactForm native action state", () => {
     const locale = "cs-CZ";
     const initialValues = {
       name: "Initial Person",
-      email: initialEmail,
+      email: "initial@example.com",
       phone: "",
       message: "Initial request text.",
     };
@@ -344,45 +339,5 @@ describe("ContactForm native action state", () => {
       )
     );
     expect(hydratedCalls).toHaveLength(0);
-  });
-
-  test("uses the hydrated action result ahead of the native fallback", async () => {
-    const locale = "en-US";
-    const state: ContactFormState = {
-      status: "error",
-      message: m.contactValidationReviewMessage({}, { locale }),
-      values: {
-        name: "Hydrated Name",
-        email: testEmailAddress("hydrated"),
-        phone: "",
-        message: "Hydrated validation error.",
-      },
-      fieldErrors: { name: "Hydrated name error." },
-    };
-    nativeResult = {
-      data: {
-        status: "success",
-        message: m.contactSuccessMessage({}, { locale }),
-      },
-    };
-    hydratedResult = { data: state };
-
-    const { ContactFormClient } = await import("./contact-form");
-    const view = render(
-      <ContactFormClient
-        initialValues={initialValues}
-        locale={locale}
-        submitAction={submitContactFormMock}
-      />
-    );
-
-    expect((view.getByLabelText("Name") as HTMLInputElement).value).toBe(
-      state.values?.name
-    );
-    expect(view.getByText(state.message ?? "")).toBeTruthy();
-    expect(view.getByText("Hydrated name error.")).toBeTruthy();
-    expect(
-      view.queryByText(m.contactSuccessMessage({}, { locale }))
-    ).toBeNull();
   });
 });

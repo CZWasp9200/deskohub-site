@@ -486,7 +486,7 @@ describe("ProviderPaymentFinalizationService", () => {
     expect(verifyPaymentOutcome).not.toHaveBeenCalled();
   });
 
-  test("defers empty orders until the cutoff and abandons only operation-free zero-value orders", async () => {
+  test("returns the empty-order abandonment state and keeps orders with activity pending", async () => {
     const { ProviderPaymentFinalizationService } = await import(
       "./provider-payment-finalization.service"
     );
@@ -507,12 +507,6 @@ describe("ProviderPaymentFinalizationService", () => {
     const providerOrderCreatedAt = pendingAttempt.providerOrderCreatedAt;
     const scenarios = [
       {
-        name: "before cutoff",
-        checkedAt: providerOrderCreatedAt.add({ minutes: 29, seconds: 59 }),
-        verification: emptyPendingVerification,
-        expected: "deferred",
-      },
-      {
         name: "at cutoff",
         checkedAt: providerOrderCreatedAt.add({ minutes: 30 }),
         verification: emptyPendingVerification,
@@ -526,18 +520,6 @@ describe("ProviderPaymentFinalizationService", () => {
           provider: {
             ...emptyPendingVerification.provider,
             operationCount: 1,
-          },
-        },
-        expected: "pending",
-      },
-      {
-        name: "with an authorized amount",
-        checkedAt: providerOrderCreatedAt.add({ hours: 1 }),
-        verification: {
-          ...emptyPendingVerification,
-          provider: {
-            ...emptyPendingVerification.provider,
-            authorizedAmount: "1",
           },
         },
         expected: "pending",

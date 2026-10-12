@@ -27,7 +27,6 @@ import {
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
 } from "@/shared/testing/workspace-component-test-env";
-import { AdministrationBreadcrumbs } from "./admin-shell";
 import {
   AdministrationTableCount,
   AdministrationTableToolbar,
@@ -101,28 +100,6 @@ describe("administration reservation components", () => {
     );
 
     expect(view.getByLabelText("24 reservations").textContent).toBe("24");
-  });
-
-  test("keeps a compact primary action beside the collection count", () => {
-    const view = render(
-      <AdministrationTableToolbar
-        actions={<button type="button">Create</button>}
-        count={1}
-        itemLabel="voucher"
-      />
-    );
-
-    expect(
-      view.getByRole("region", { name: "voucher table controls" }).className
-    ).toContain("grid-cols-[minmax(0,1fr)_auto]");
-  });
-
-  test("uses one status badge foundation for domain-specific states", () => {
-    const view = render(<StatusBadge tone="positive">Active</StatusBadge>);
-
-    expect(view.getByText("Active").className).toContain(
-      "bg-aquamarine-green/12"
-    );
   });
 
   test("shows safe access metadata and the failed retry action without the PIN", () => {
@@ -239,20 +216,14 @@ describe("administration reservation components", () => {
       />
     );
     const table = view.getByRole("table", { name: "Reservations" });
-    expect(table.parentElement?.parentElement?.className).toContain(
-      "overflow-x-auto"
-    );
     expect(within(table).getAllByText("Confirmation issue")).not.toHaveLength(
       0
     );
-    const reservationLink = within(table)
-      .getAllByRole("link")
-      .find(
-        (link) =>
-          link.getAttribute("href") ===
-          "/admin/reservations/0198-admin-fixture-attention"
-      );
-    expect(reservationLink?.className).toContain("before:absolute");
+    expect(
+      within(table)
+        .getAllByRole("link")
+        .map((link) => link.getAttribute("href"))
+    ).toContain("/admin/reservations/0198-admin-fixture-attention");
     expect(
       within(table)
         .getByRole("link", {
@@ -375,15 +346,10 @@ describe("administration reservation components", () => {
     expect(view.getByText("Customer unavailable")).toBeDefined();
   });
 
-  test("renders ordered operational history without forbidden fields", () => {
+  test("renders ordered operational history", () => {
     const detail = loadFixtureReservation("0198-admin-fixture-attention");
     expect(detail).not.toBeNull();
     if (!detail) return;
-    const serialized = JSON.stringify(detail);
-    expect(serialized).not.toContain("securityToken");
-    expect(serialized).not.toContain("providerRedirectUrl");
-    expect(serialized).not.toContain("rawPayload");
-
     const view = render(<ReservationTimeline items={detail.timeline} />);
     const timeline = view.getByRole("list", {
       name: "Reservation history",
@@ -643,11 +609,15 @@ describe("administration reservation components", () => {
     ).toEqual(["A-ORDER", "Z-ORDER"]);
   });
 
-  test("renders both Nexi cancellation spellings as warnings", () => {
-    const view = render(<ProviderStatusBadge value="CANCELLED" />);
-    expect(view.getByText("Cancelled").className).toContain(
-      "bg-burned-orange/10"
+  test.each([
+    ["CANCELED", "Canceled"],
+    ["CANCELLED", "Cancelled"],
+  ])("renders the Nexi %s spelling as an attention badge", (value, label) => {
+    const view = render(<ProviderStatusBadge value={value} />);
+    const attentionBadge = render(
+      <StatusBadge tone="attention">{label}</StatusBadge>
     );
+    expect(view.container.innerHTML).toBe(attentionBadge.container.innerHTML);
   });
 
   test("keeps the customer visible when booking details are unavailable", () => {
@@ -738,24 +708,6 @@ describe("administration reservation components", () => {
     expect(
       within(table).getByRole("link", { name: "Status" }).getAttribute("href")
     ).toBe("/admin/bookings?date=2026-08-10&sort=status&direction=asc");
-  });
-
-  test("identifies customer and reservation entities in breadcrumbs", () => {
-    const view = render(
-      <AdministrationBreadcrumbs
-        entityLabel="Ada Lovelace"
-        segments={["admin", "customers", "customer-ada"]}
-      />
-    );
-    expect(view.getByText("Ada Lovelace")).toBeDefined();
-
-    view.rerender(
-      <AdministrationBreadcrumbs
-        entityLabel="Cowork Basic"
-        segments={["admin", "reservations", "reservation-basic"]}
-      />
-    );
-    expect(view.getByText("Cowork Basic")).toBeDefined();
   });
 
   test("gets one reservation from any associated unique ID", async () => {

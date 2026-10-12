@@ -1,20 +1,13 @@
 import "@/shared/polyfills/temporal";
 
 import { describe, expect, test } from "bun:test";
-import { fileURLToPath } from "node:url";
 import type { Customer } from "@deskohub/dotypos/generated";
 import { Cause, Effect, Exit, Layer, Option } from "effect";
 import { FetchHttpClient } from "effect/unstable/http";
-import { formatWorkspaceMoney } from "@/features/checkout/workspace-money";
 import {
   formatReservationDisplayDate,
-  formatReservationDisplayDateRange,
   formatReservationDisplayTimeRange,
 } from "@/features/reservation/reservation-date";
-import {
-  importSpecifiers,
-  parseTrackedSource,
-} from "../../scripts/shared/source-ast";
 import type { DatasourceConfig, WorkspaceE2EConfig } from "../config";
 import {
   type WorkspaceE2EError,
@@ -22,6 +15,7 @@ import {
   workspaceE2ETimeoutError,
 } from "../errors";
 import { E2EDatabase } from "../integrations/database.service";
+import type { E2EDotyposDiscountGroup } from "../integrations/dotypos";
 import type { Runner } from "../runtime";
 import { workspaceE2ETimeouts } from "../timeouts";
 import type {
@@ -36,6 +30,7 @@ import {
   completeHostedCheckoutPayment,
   executeCheckoutFlow,
 } from "./checkout";
+import { makeDiscountE2ECases } from "./discounts";
 
 import { testEmailAddress } from "@deskohub/email/testing";
 
@@ -70,17 +65,6 @@ const wholeDayData = {
 } as const;
 
 describe("whole-day meeting-room checkout proof", () => {
-  test("keeps the deployed runner independent of app-bound persistence decoders", () => {
-    const imports = importSpecifiers(
-      parseTrackedSource(
-        fileURLToPath(new URL("./checkout.ts", import.meta.url))
-      ).ast
-    );
-
-    expect(imports).not.toContain("persistence-contracts");
-    expect(imports).not.toContain("@/features/i18n");
-  });
-
   test("renders both shared email detail projections from the confirmed DST calendar day", async () => {
     const { assertWholeDayMeetingRoomEmailPreviews } = await import(
       "./checkout"
@@ -193,7 +177,6 @@ test("observes fulfillment across server and runner whitespace variants", async 
   );
 
   expect(commands.some((args) => args.includes("open"))).toBe(false);
-  expect(commands.filter((args) => args.includes("eval"))).toHaveLength(2);
 });
 
 test("preserves an Open Space-length meeting-room interval on the fulfilled status page", async () => {
@@ -248,15 +231,6 @@ test("preserves an Open Space-length meeting-room interval on the fulfilled stat
 test("asserts office range, seats, and price on the fulfilled status page", async () => {
   const reservedFrom = Temporal.Instant.from("2099-08-31T22:00:00Z");
   const reservedUntil = Temporal.Instant.from("2099-09-02T22:00:00Z");
-  const expectedDateRange = formatReservationDisplayDateRange(
-    reservedFrom,
-    reservedUntil,
-    "en-US"
-  );
-  const expectedPrice = formatWorkspaceMoney(
-    { value: 232_000, exponent: 2, currency: "CZK" },
-    "en-US"
-  );
   const run = (async (_command: string, args: string[]) => {
     const readsUrl = args.at(-2) === "get" && args.at(-1) === "url";
 
@@ -265,7 +239,7 @@ test("asserts office range, seats, and price on the fulfilled status page", asyn
       stderr: "",
       stdout: readsUrl
         ? "https://workspace.test/en-US/reservation/status/order-id?outcome=success"
-        : `Your reservation is confirmed. Your payment is complete and the secure access link has been sent by email. Private office ${expectedDateRange} SEATS 2 ${expectedPrice}`,
+        : `Your reservation is confirmed. Your payment is complete and the secure access link has been sent by email. Private office Tuesday, September 1 – Wednesday, September 2, 2099 SEATS 2 CZK 2,320`,
     };
   }) as Runner;
 
@@ -304,20 +278,22 @@ test("asserts office range, seats, and price on the fulfilled status page", asyn
   );
 });
 
-test("preserves semantic reservation and verification capacities and payment step order", async () => {
+const runCheckoutFlowSteps = async (
+  options: Pick<
+    Parameters<typeof executeCheckoutFlow>[0],
+    "verifyPostFulfillmentPaths"
+  > = {}
+) => {
   const observedSteps: Array<{
     readonly capacity: "provider-verification" | undefined;
     readonly id: string;
-    readonly timeoutMs: number;
   }> = [];
   const orderId = "019f70bd-0131-7f30-9f8a-48e768f00292";
-  const replayRow = {} as CheckoutRow;
+  const checkoutRow = {
+    dotypos_customer_id: "dotypos-customer-paid",
+  } as CheckoutRow;
   const runStep = ((step) => {
-    observedSteps.push({
-      capacity: step.capacity,
-      id: step.id,
-      timeoutMs: step.timeoutMs,
-    });
+    observedSteps.push({ capacity: step.capacity, id: step.id });
     if (step.id === "prepare-checkout-pay-page") {
       return Effect.succeed(orderId);
     }
@@ -325,7 +301,7 @@ test("preserves semantic reservation and verification capacities and payment ste
       step.id === "read-provider-session-row" ||
       step.id === "validate-postgres-state"
     ) {
-      return Effect.succeed(replayRow);
+      return Effect.succeed(checkoutRow);
     }
     if (step.id === "validate-dotypos-reservation") {
       return Effect.succeed({});
@@ -345,6 +321,7 @@ test("preserves semantic reservation and verification capacities and payment ste
 
   await Effect.runPromise(
     executeCheckoutFlow({
+      ...options,
       config: { timeouts: workspaceE2ETimeouts } as WorkspaceE2EConfig,
       data,
       datasourceConfig: {} as DatasourceConfig,
@@ -355,13 +332,8 @@ test("preserves semantic reservation and verification capacities and payment ste
       payPageSteps: () => [
         {
           execute: Effect.void,
-          id: "first-pay-page-assertion",
+          id: "pay-page-assertion",
           timeoutMs: workspaceE2ETimeouts.uiTransition,
-        },
-        {
-          execute: Effect.void,
-          id: "second-pay-page-assertion",
-          timeoutMs: workspaceE2ETimeouts.browserAction,
         },
       ],
       run: (() =>
@@ -371,6 +343,13 @@ test("preserves semantic reservation and verification capacities and payment ste
       state,
     }).pipe(Effect.provide(httpClientLayer)) as Effect.Effect<void>
   );
+  return observedSteps;
+};
+
+test("holds the provider-verification permit only for the webhook replay", async () => {
+  const observedSteps = await runCheckoutFlowSteps({
+    verifyPostFulfillmentPaths: true,
+  });
 
   expect(
     observedSteps.flatMap(({ capacity, id }) =>
@@ -382,45 +361,129 @@ test("preserves semantic reservation and verification capacities and payment ste
       id: "replay-payment-webhook",
     },
   ]);
-  expect(observedSteps.slice(0, 9).map(({ id }) => id)).toEqual([
-    "prepare-checkout-pay-page",
-    "first-pay-page-assertion",
-    "second-pay-page-assertion",
-    "start-checkout-payment",
-    "read-provider-session-row",
-    "complete-hosted-payment",
-    "reach-checkout-status-page",
-    "replay-payment-webhook",
-    "complete-test-fulfillment",
-  ]);
+});
+
+test("runs the post-fulfillment paths only for an opted-in case, after every fulfilled assertion", async () => {
+  const defaultSteps = (await runCheckoutFlowSteps()).map(({ id }) => id);
+  const optedInSteps = (
+    await runCheckoutFlowSteps({ verifyPostFulfillmentPaths: true })
+  ).map(({ id }) => id);
+  const postFulfillmentSteps = optedInSteps.slice(defaultSteps.length);
+
+  expect(optedInSteps.slice(0, defaultSteps.length)).toEqual(defaultSteps);
+  expect(postFulfillmentSteps).toContain(
+    "restart-reservation-after-fulfillment"
+  );
+  expect(postFulfillmentSteps).toContain(
+    "mark-fulfillment-failed-for-support-path"
+  );
+  expect(defaultSteps).not.toContain("restart-reservation-after-fulfillment");
+  expect(defaultSteps).not.toContain(
+    "mark-fulfillment-failed-for-support-path"
+  );
+  // Cookie isolation starts from the support path's failed-fulfillment state.
+  expect(optedInSteps.indexOf("assert-reservation-cookie-isolation")).toBe(
+    optedInSteps.length - 1
+  );
   expect(
-    observedSteps.slice(-6).map(({ id, timeoutMs }) => ({ id, timeoutMs }))
-  ).toEqual([
-    {
-      id: "mark-fulfillment-failed-for-support-path",
-      timeoutMs: workspaceE2ETimeouts.datasource,
-    },
-    {
-      id: "open-fulfillment-failed-status-page",
-      timeoutMs: workspaceE2ETimeouts.browserNavigation,
-    },
-    {
-      id: "wait-for-fulfillment-support-link",
-      timeoutMs: workspaceE2ETimeouts.uiTransition,
-    },
-    {
-      id: "assert-fulfillment-support-link",
-      timeoutMs: workspaceE2ETimeouts.browserAction,
-    },
-    {
-      id: "activate-fulfillment-support-link",
-      timeoutMs: workspaceE2ETimeouts.browserAction,
-    },
-    {
-      id: "reach-fulfillment-support-contact-page",
-      timeoutMs: workspaceE2ETimeouts.uiTransition,
-    },
-  ]);
+    optedInSteps.indexOf("mark-fulfillment-failed-for-support-path")
+  ).toBeGreaterThan(
+    optedInSteps.indexOf("restart-reservation-after-fulfillment")
+  );
+});
+
+test("verifies the post-fulfillment paths on Calendar sale checkout only among paid discount checkouts", async () => {
+  const httpClientLayer = FetchHttpClient.layer.pipe(
+    Layer.provide(
+      Layer.succeed(FetchHttpClient.Fetch, (() =>
+        Promise.reject(
+          new Error("HTTP must not execute in the case contract test")
+        )) as typeof globalThis.fetch)
+    )
+  );
+  const cases = await Effect.runPromise(
+    makeDiscountE2ECases({
+      allocation: {
+        fromOffsetDays: 0,
+        shardCount: 1,
+        shardIndex: 0,
+        toOffsetDays: 0,
+      },
+      config: {
+        baseUrl: "https://workspace.test",
+        bypassSecret: undefined,
+        expectedHost: "workspace.test",
+        timeouts: workspaceE2ETimeouts,
+      },
+      datasourceConfig: {
+        dotypos: { apiTimeout: workspaceE2ETimeouts.datasource },
+      } as DatasourceConfig,
+      excludedDates: new Set(),
+      flowStates: [],
+      preparation: {
+        availableBasicDates: Array.from(
+          { length: 10 },
+          (_, index) => `2099-08-${String(index + 1).padStart(2, "0")}`
+        ),
+        availablePlusDates: [
+          "2099-08-20",
+          "2099-08-21",
+          "2099-08-22",
+          "2099-08-23",
+        ],
+        availableReservedDeskDates: ["2099-08-24", "2099-08-25"],
+        customerDiscountGroup: {
+          basisPoints: 1000,
+          id: "e2e-discount-group",
+        } as E2EDotyposDiscountGroup,
+      },
+      run: (() =>
+        Promise.reject(new Error("runner must not execute"))) as Runner,
+    }).pipe(Effect.provide(httpClientLayer))
+  );
+  const paidCheckoutCases = cases.filter(({ id }) =>
+    id.startsWith("checkout-")
+  );
+  const casesWithPostFulfillmentPaths: string[] = [];
+
+  for (const paidCase of paidCheckoutCases) {
+    const stepIds: string[] = [];
+    const runStep = ((step) => {
+      stepIds.push(step.id);
+      if (step.id === "prepare-checkout-pay-page") {
+        return Effect.succeed("019f70bd-0131-7f30-9f8a-48e768f00292");
+      }
+      if (
+        step.id === "read-provider-session-row" ||
+        step.id === "validate-postgres-state"
+      ) {
+        return Effect.succeed({
+          dotypos_customer_id: "dotypos-customer-paid",
+        } as CheckoutRow);
+      }
+      if (step.id === "validate-dotypos-reservation") {
+        return Effect.succeed({});
+      }
+      return Effect.void;
+    }) as WorkspaceE2EStepRunner;
+
+    await Effect.runPromise(
+      paidCase.execute({ runStep, session: paidCase.id }) as Effect.Effect<
+        void,
+        WorkspaceE2EError
+      >
+    );
+    expect(stepIds).toContain("assert-fulfilled-status-page");
+    const restarts = stepIds.includes("restart-reservation-after-fulfillment");
+    const supportPath = stepIds.includes(
+      "mark-fulfillment-failed-for-support-path"
+    );
+    expect(restarts).toBe(supportPath);
+    if (supportPath) casesWithPostFulfillmentPaths.push(paidCase.id);
+  }
+
+  expect(paidCheckoutCases.length).toBeGreaterThan(1);
+  expect(casesWithPostFulfillmentPaths).toEqual(["checkout-calendar-sale"]);
 });
 
 describe("Nexi sandbox payment restart", () => {

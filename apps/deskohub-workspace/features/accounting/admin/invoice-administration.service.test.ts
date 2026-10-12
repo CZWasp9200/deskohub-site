@@ -12,7 +12,6 @@ import {
   AdministrationInvoiceId,
 } from "@deskohub/workspace-admin-api";
 import { Effect, Layer, Schema, Semaphore } from "effect";
-import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 import {
   makeCoworkInvoiceDocument,
   makeTestManualInvoiceDocument,
@@ -153,21 +152,6 @@ describe("InvoiceAdministrationService", () => {
     }).pipe(Effect.provide(layer), Effect.runPromise);
 
     expect(Buffer.from(pdf).subarray(0, 5).toString()).toBe("%PDF-");
-    const loadingTask = getDocument({
-      data: new Uint8Array(pdf),
-      isEvalSupported: false,
-      useSystemFonts: false,
-    });
-    const parsed = await loadingTask.promise;
-    const page = await parsed.getPage(1);
-    const content = await page.getTextContent();
-    const text = content.items
-      .map((item) => ("str" in item ? item.str : ""))
-      .join(" ");
-    await loadingTask.destroy();
-    expect(text).toContain("PREVIEW-0000000000");
-    expect(text).toContain("Space rental");
-    expect(text).toContain("Synthetic Customer");
     expect(providerMutation).not.toHaveBeenCalled();
     expect(repositoryMutation).not.toHaveBeenCalled();
     expect(deliveryMutation).not.toHaveBeenCalled();

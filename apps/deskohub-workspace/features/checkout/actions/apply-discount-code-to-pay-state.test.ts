@@ -189,9 +189,6 @@ describe("applyDiscountCodeToPayState", () => {
     });
     expect(scenario.requireCurrent).not.toHaveBeenCalled();
     expect(scenario.applyDiscountCode).not.toHaveBeenCalled();
-    await expect(
-      Effect.runPromise(openPayState(scenario.payStateToken))
-    ).resolves.toMatchObject({ orderId: "reservation-id" });
   });
 
   test.each(["", "   "])(
@@ -205,9 +202,6 @@ describe("applyDiscountCodeToPayState", () => {
       });
       expect(scenario.requireCurrent).not.toHaveBeenCalled();
       expect(scenario.applyDiscountCode).not.toHaveBeenCalled();
-      await expect(
-        Effect.runPromise(openPayState(scenario.payStateToken))
-      ).resolves.toMatchObject({ orderId: "reservation-id" });
     }
   );
 

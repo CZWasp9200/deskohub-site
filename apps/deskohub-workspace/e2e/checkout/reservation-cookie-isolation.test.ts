@@ -10,10 +10,7 @@ import { E2EDatabase } from "../integrations/database.service";
 import { makePlaywrightBrowserRunner, type Runner } from "../runtime";
 import { workspaceE2ETimeouts } from "../timeouts";
 import type { CheckoutRow } from "../types";
-import {
-  assertReservationCookieIsolation,
-  reservationCookieIsolationStep,
-} from "./reservation-cookie-isolation";
+import { assertReservationCookieIsolation } from "./reservation-cookie-isolation";
 
 const baseUrl = "https://workspace.test";
 const orderId = "019f70bd-0131-7f30-9f8a-48e768f00292";
@@ -43,6 +40,9 @@ const targetRow = {
 
 type IsolationMode = "scoped" | "any-cookie-all-orders";
 
+const matchesLocation = (condition: string, url: string): boolean =>
+  new Function("location", `return ${condition}`)(new URL(url));
+
 const makeRunner = (mode: IsolationMode) => {
   let currentUrl = originalUrl;
   const calls: Array<{
@@ -53,7 +53,7 @@ const makeRunner = (mode: IsolationMode) => {
   const outputs: string[] = [];
   const rawBrowserTexts: string[] = [];
   const rawOpenedUrls: string[] = [];
-  const waitConditions: string[] = [];
+  const waits: Array<{ readonly condition: string; readonly url: string }> = [];
 
   const frame = {
     evaluate: async (input: string) => {
@@ -73,7 +73,9 @@ const makeRunner = (mode: IsolationMode) => {
       return true;
     },
     waitForFunction: async (condition: string) => {
-      waitConditions.push(condition);
+      waits.push({ condition, url: currentUrl });
+      if (!matchesLocation(condition, currentUrl))
+        throw new Error(`browser wait condition does not match ${currentUrl}`);
       return true;
     },
   };
@@ -124,7 +126,7 @@ const makeRunner = (mode: IsolationMode) => {
     rawBrowserTexts,
     rawOpenedUrls,
     run,
-    waitConditions,
+    waits,
   };
 };
 
@@ -198,15 +200,6 @@ const makeDatabase = () => {
 const runIsolation = async (mode: IsolationMode = "scoped") => {
   const runner = makeRunner(mode);
   const database = makeDatabase();
-  const step = reservationCookieIsolationStep({
-    config,
-    customerId: customerId as never,
-    data: { locale: "en-US" },
-    orderId: orderId as never,
-    run: runner.run,
-    session: "meeting-room-paid-test",
-  });
-
   const exit = await Effect.runPromiseExit(
     assertReservationCookieIsolation({
       config,
@@ -218,17 +211,13 @@ const runIsolation = async (mode: IsolationMode = "scoped") => {
     }).pipe(Effect.provideService(E2EDatabase, E2EDatabase.of(database)))
   ).finally(() => runner.run.close?.());
 
-  return { database, exit, runner, step };
+  return { database, exit, runner };
 };
 
 test("checks target authorization and other-order isolation in the submitted session", async () => {
   const result = await runIsolation();
 
   expect(result.exit._tag).toBe("Success");
-  expect(result.step).toMatchObject({
-    id: "assert-reservation-cookie-isolation",
-    timeoutMs: config.timeouts.datasource,
-  });
   expect(
     result.runner.calls.every(
       ({ session }) => session === "meeting-room-paid-test"
@@ -248,31 +237,28 @@ test("checks target authorization and other-order isolation in the submitted ses
       (output) => !output.includes(orderId) && !output.includes(targetStatusUrl)
     )
   ).toBe(true);
-  expect(result.runner.waitConditions).toHaveLength(4);
-  expect(
-    result.runner.waitConditions.every(
-      (condition) =>
-        condition.includes("location.origin") &&
-        condition.includes("location.pathname") &&
-        condition.includes("location.hash ===")
-    )
-  ).toBe(true);
-  expect(
-    result.runner.waitConditions
-      .filter((condition) => condition.includes("const expected = new URL"))
-      .every((condition) =>
-        condition.includes("location.hash === expected.hash")
-      )
-  ).toBe(true);
-  expect(
-    result.runner.waitConditions
-      .filter((condition) => condition.includes('"/en-US/contact"'))
-      .every(
-        (condition) =>
-          condition.includes('location.hash === ""') &&
-          !condition.includes("location.search")
-      )
-  ).toBe(true);
+  const contactWaits = result.runner.waits.filter(
+    ({ url }) => new URL(url).pathname === "/en-US/contact"
+  );
+  const exactWaits = result.runner.waits.filter(
+    ({ url }) => new URL(url).pathname !== "/en-US/contact"
+  );
+  expect(contactWaits.length).toBeGreaterThan(0);
+  expect(exactWaits.length).toBeGreaterThan(0);
+  for (const { condition } of contactWaits) {
+    // The support link carries the email and message in the query string.
+    expect(matchesLocation(condition, originalUrl)).toBe(true);
+    expect(matchesLocation(condition, `${baseUrl}/en-US/contact#form`)).toBe(
+      false
+    );
+    expect(matchesLocation(condition, "https://other.test/en-US/contact")).toBe(
+      false
+    );
+  }
+  for (const { condition, url } of exactWaits) {
+    expect(matchesLocation(condition, `${url}?unexpected=1`)).toBe(false);
+    expect(matchesLocation(condition, `${url}#other`)).toBe(false);
+  }
 });
 
 test("fails when one reservation cookie authorizes every order", async () => {

@@ -221,7 +221,7 @@ const assertTerminalStatusPage = ({
     log(`Checkout ${scenario.state} status page validated`);
   });
 
-export const activateStatusReserveAgain = (
+const activateStatusReserveAgain = (
   run: Runner,
   session: string,
   reservationPath: string,

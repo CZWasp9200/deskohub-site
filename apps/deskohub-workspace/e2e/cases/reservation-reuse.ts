@@ -170,7 +170,7 @@ export const assertReservationReplacement = ({
     log(`Reservation replacement e2e passed for order ${secondOrderId}`);
   });
 
-export const returnToPrefilledReservation = ({
+const returnToPrefilledReservation = ({
   data,
   reservationPath,
   run,

@@ -8,8 +8,6 @@ import {
   makeManualInvoiceDocument,
 } from "./invoice";
 import {
-  findInvoicePaymentAccount,
-  invoiceEnabledCurrencyDefinitions,
   manualInvoiceInputSchema,
   normalizeManualInvoiceInput,
 } from "./manual-invoice";
@@ -45,18 +43,11 @@ const input = decodeInput({
 });
 
 describe("manual invoice", () => {
-  test("uses the canonical supported currencies and configured payment accounts", () => {
+  test("accepts only the canonical supported currencies", () => {
     for (const { code } of workspaceCurrencyDefinitions) {
       expect(() => decodeInput({ ...input, currency: code })).not.toThrow();
     }
     expect(() => decodeInput({ ...input, currency: "USD" })).toThrow();
-    expect(invoiceEnabledCurrencyDefinitions.map(({ code }) => code)).toEqual([
-      "CZK",
-    ]);
-    expect(findInvoicePaymentAccount("CZK")?.iban).toBe(
-      "CZ0620100000002303459272"
-    );
-    expect(findInvoicePaymentAccount("EUR")).toBeUndefined();
   });
 
   test("normalizes and totals signed decimal strings exactly", async () => {

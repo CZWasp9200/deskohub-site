@@ -3,11 +3,11 @@ import { Cause, Deferred, Effect, Exit, Fiber } from "effect";
 import {
   makeSuiteLocalProviderVerificationPermitLayer,
   WorkspaceE2EProviderVerificationPermitService,
-  workspaceE2EProviderVerificationCooldownMs,
 } from "./provider-verification-permit.service";
 
+const cooldownMs = 30;
+
 test("holds provider verification capacity through the cooldown", async () => {
-  const cooldownMs = 30;
   let firstCompletedAt = 0;
   let secondStartedAt = 0;
 
@@ -87,16 +87,12 @@ test("holds provider verification capacity through the cooldown after failure", 
         firstExit: yield* Fiber.await(first),
       };
     }).pipe(
-      Effect.provide(
-        makeSuiteLocalProviderVerificationPermitLayer(
-          workspaceE2EProviderVerificationCooldownMs
-        )
-      )
+      Effect.provide(makeSuiteLocalProviderVerificationPermitLayer(cooldownMs))
     )
   );
 
   expect(secondStartedAt - firstFailedAt).toBeGreaterThanOrEqual(
-    workspaceE2EProviderVerificationCooldownMs - 50
+    cooldownMs - 5
   );
   expect(Exit.isFailure(result.firstExit)).toBe(true);
   if (Exit.isFailure(result.firstExit)) {
@@ -143,16 +139,12 @@ test("holds provider verification capacity through the cooldown after interrupti
         firstExit: yield* Fiber.await(first),
       };
     }).pipe(
-      Effect.provide(
-        makeSuiteLocalProviderVerificationPermitLayer(
-          workspaceE2EProviderVerificationCooldownMs
-        )
-      )
+      Effect.provide(makeSuiteLocalProviderVerificationPermitLayer(cooldownMs))
     )
   );
 
   expect(secondStartedAt - firstInterruptedAt).toBeGreaterThanOrEqual(
-    workspaceE2EProviderVerificationCooldownMs - 50
+    cooldownMs - 5
   );
   expect(Exit.isFailure(result.firstExit)).toBe(true);
   if (Exit.isFailure(result.firstExit)) {
