@@ -15,7 +15,10 @@ import {
 } from "../browser";
 import { getSubmitCoworkReservationScript } from "../browser-scripts";
 import { assertDisplayedDiscounts } from "../cases/discounts";
-import { applyDiscountCode } from "../checkout/discount-code";
+import {
+  applyDiscountCode,
+  submitDiscountCode,
+} from "../checkout/discount-code";
 import { submitReservationForPayPage } from "../checkout/payment";
 import type { DatasourceConfig, WorkspaceE2EConfig } from "../config";
 import { tryWorkspaceE2ESync, workspaceE2EError } from "../errors";
@@ -82,6 +85,7 @@ export const bindWorkspaceE2EAccountReferralCheckout = ({
   config,
   contact,
   datasourceConfig,
+  otherReferrerCode,
   referralCode,
   run,
   testCase,
@@ -90,6 +94,9 @@ export const bindWorkspaceE2EAccountReferralCheckout = ({
   readonly config: WorkspaceE2EConfig;
   readonly contact: WorkspaceE2EAccountReferralCheckoutContact;
   readonly datasourceConfig: DatasourceConfig;
+  /** A usable code from a referrer other than the one recorded at profile completion. */
+  readonly otherReferrerCode: string;
+  /** The share code recorded as the account's referral at profile completion. */
   readonly referralCode: string;
   readonly run: Runner;
   readonly testCase: WorkspaceE2ECase;
@@ -139,14 +146,15 @@ export const bindWorkspaceE2EAccountReferralCheckout = ({
     checkoutStates: states,
     execute: Effect.fn("WorkspaceE2EAccountReferralCheckout.execute")(
       function* ({ runStep, session }) {
-        const [ordinaryState, voucherState] = states;
-        if (!ordinaryState || !voucherState) {
+        const [ordinaryState, shareLinkState] = states;
+        if (!ordinaryState || !shareLinkState) {
           return yield* workspaceE2EError(
             "planned account referral checkout is missing a flow state",
             { operation: "read account referral checkout states" }
           );
         }
 
+        // The profile-completion referral applies without any code entry.
         let ordinaryPayUrl = yield* startPayPage({
           config,
           contact,
@@ -157,18 +165,6 @@ export const bindWorkspaceE2EAccountReferralCheckout = ({
           session,
           state: ordinaryState,
           stepPrefix: "ordinary-flow",
-        });
-        ordinaryPayUrl = yield* applyCodeAndReadFreshPayUrl({
-          appliedMessage: invitationSuccess,
-          code: referralCode,
-          config,
-          currentPayUrl: ordinaryPayUrl,
-          locale: ordinaryState.data.locale,
-          orderId: ordinaryState.orderId!,
-          run,
-          runStep,
-          session,
-          stepId: "accept-referral-invitation",
         });
         yield* runStep({
           execute: assertOrdinaryCodeSlotAvailable({
@@ -186,7 +182,7 @@ export const bindWorkspaceE2EAccountReferralCheckout = ({
             run,
             session,
           }),
-          id: "assert-referral-invitation-discount",
+          id: "assert-recorded-referral-invitation-discount",
           timeoutMs: config.timeouts.uiTransition,
         });
         yield* runStep({
@@ -204,6 +200,65 @@ export const bindWorkspaceE2EAccountReferralCheckout = ({
           orderId: ordinaryState.orderId!,
           target: "account-referral-invitation-applied",
           runStep,
+        });
+
+        const rejectedPayUrl = yield* runStep({
+          execute: rejectReferralCode({
+            code: otherReferrerCode,
+            config,
+            currentPayUrl: ordinaryPayUrl,
+            error: "referral-already-attributed",
+            locale: ordinaryState.data.locale,
+            message: m.checkoutReferralCodeAlreadyAttributed(
+              {},
+              { locale: ordinaryState.data.locale }
+            ),
+            orderId: ordinaryState.orderId!,
+            run,
+            session,
+          }),
+          id: "reject-other-referrer-code",
+          timeoutMs: config.timeouts.uiTransition,
+        });
+        yield* runStep({
+          execute: assertDisplayedDiscounts({
+            config,
+            discounts: referralDiscounts,
+            run,
+            session,
+          }),
+          id: "assert-referral-kept-after-other-referrer-code",
+          timeoutMs: config.timeouts.uiTransition,
+        });
+        yield* captureReviewStep({
+          captureReview,
+          expectedPayUrl: rejectedPayUrl,
+          orderId: ordinaryState.orderId!,
+          target: "account-referral-change-rejected",
+          runStep,
+        });
+
+        ordinaryPayUrl = yield* applyCodeAndReadFreshPayUrl({
+          appliedMessage: invitationSuccess,
+          code: referralCode,
+          config,
+          currentPayUrl: rejectedPayUrl,
+          locale: ordinaryState.data.locale,
+          orderId: ordinaryState.orderId!,
+          run,
+          runStep,
+          session,
+          stepId: "reenter-recorded-referral-code",
+        });
+        yield* runStep({
+          execute: assertDisplayedDiscounts({
+            config,
+            discounts: referralDiscounts,
+            run,
+            session,
+          }),
+          id: "assert-idempotent-referral-discount",
+          timeoutMs: config.timeouts.uiTransition,
         });
 
         ordinaryPayUrl = yield* applyCodeAndReadFreshPayUrl({
@@ -261,28 +316,31 @@ export const bindWorkspaceE2EAccountReferralCheckout = ({
           runStep,
         });
 
-        let voucherPayUrl = yield* startPayPage({
+        // A reservation started from a share link applies its referral
+        // before the first pay page renders.
+        let shareLinkPayUrl = yield* startPayPage({
           config,
           contact,
-          data: voucherState.data,
+          data: shareLinkState.data,
           datasourceConfig,
+          referralCode,
           run,
           runStep,
           session,
-          state: voucherState,
-          stepPrefix: "voucher-flow",
+          state: shareLinkState,
+          stepPrefix: "share-link-flow",
         });
-        voucherPayUrl = yield* applyCodeAndReadFreshPayUrl({
-          appliedMessage: invitationSuccess,
-          code: referralCode,
-          config,
-          currentPayUrl: voucherPayUrl,
-          locale: voucherState.data.locale,
-          orderId: voucherState.orderId!,
-          run,
-          runStep,
-          session,
-          stepId: "reaccept-referral-invitation",
+        yield* runStep({
+          execute: assertShareLinkReferralApplied({
+            config,
+            locale: shareLinkState.data.locale,
+            orderId: shareLinkState.orderId!,
+            payUrl: shareLinkPayUrl,
+            run,
+            session,
+          }),
+          id: "assert-share-link-referral-applied",
+          timeoutMs: config.timeouts.uiTransition,
         });
         yield* runStep({
           execute: assertOrdinaryCodeSlotAvailable({
@@ -290,7 +348,7 @@ export const bindWorkspaceE2EAccountReferralCheckout = ({
             run,
             session,
           }),
-          id: "assert-ordinary-code-slot-after-idempotent-referral",
+          id: "assert-ordinary-code-slot-after-share-link-referral",
           timeoutMs: config.timeouts.uiTransition,
         });
         yield* runStep({
@@ -300,26 +358,33 @@ export const bindWorkspaceE2EAccountReferralCheckout = ({
             run,
             session,
           }),
-          id: "assert-idempotent-referral-discount",
+          id: "assert-share-link-referral-discount",
           timeoutMs: config.timeouts.uiTransition,
         });
         yield* runStep({
           execute: assertReferrerDiscountMatchesRemainingSubtotal({
-            locale: voucherState.data.locale,
+            locale: shareLinkState.data.locale,
             run,
             session,
           }),
-          id: "assert-referrer-fixed-discount-after-idempotent-referral",
+          id: "assert-referrer-fixed-discount-after-share-link-referral",
           timeoutMs: config.timeouts.uiTransition,
         });
+        yield* captureReviewStep({
+          captureReview,
+          expectedPayUrl: shareLinkPayUrl,
+          orderId: shareLinkState.orderId!,
+          target: "account-referral-link-applied",
+          runStep,
+        });
 
-        voucherPayUrl = yield* applyCodeAndReadFreshPayUrl({
+        shareLinkPayUrl = yield* applyCodeAndReadFreshPayUrl({
           appliedMessage: voucherSuccess,
           code: discountCodeFixtures.accountReferralVoucher.code,
           config,
-          currentPayUrl: voucherPayUrl,
-          locale: voucherState.data.locale,
-          orderId: voucherState.orderId!,
+          currentPayUrl: shareLinkPayUrl,
+          locale: shareLinkState.data.locale,
+          orderId: shareLinkState.orderId!,
           run,
           runStep,
           session,
@@ -328,7 +393,7 @@ export const bindWorkspaceE2EAccountReferralCheckout = ({
         yield* runStep({
           execute: assertReferralConfirmationCleared({
             config,
-            locale: voucherState.data.locale,
+            locale: shareLinkState.data.locale,
             run,
             session,
           }),
@@ -353,7 +418,7 @@ export const bindWorkspaceE2EAccountReferralCheckout = ({
         });
         yield* runStep({
           execute: assertReferrerDiscountMatchesRemainingSubtotal({
-            locale: voucherState.data.locale,
+            locale: shareLinkState.data.locale,
             requireVoucherAfterReferrer: true,
             run,
             session,
@@ -363,8 +428,8 @@ export const bindWorkspaceE2EAccountReferralCheckout = ({
         });
         yield* captureReviewStep({
           captureReview,
-          expectedPayUrl: voucherPayUrl,
-          orderId: voucherState.orderId!,
+          expectedPayUrl: shareLinkPayUrl,
+          orderId: shareLinkState.orderId!,
           target: "account-referral-with-voucher",
           runStep,
         });
@@ -378,6 +443,7 @@ const startPayPage = ({
   contact,
   data,
   datasourceConfig,
+  referralCode,
   run,
   runStep,
   session,
@@ -388,6 +454,8 @@ const startPayPage = ({
   readonly contact: WorkspaceE2EAccountReferralCheckoutContact;
   readonly data: CheckoutData;
   readonly datasourceConfig: DatasourceConfig;
+  /** Starts the reservation from a share link carrying this code. */
+  readonly referralCode?: string;
   readonly run: Runner;
   readonly runStep: Parameters<WorkspaceE2ECase["execute"]>[0]["runStep"];
   readonly session: string;
@@ -397,7 +465,12 @@ const startPayPage = ({
   runStep({
     execute: Effect.gen(function* () {
       state.startedAt = new Date();
-      yield* openBrowserPage(config, run, session, data.checkoutUrl, {
+      const checkoutUrl = new URL(data.checkoutUrl);
+      if (referralCode !== undefined) {
+        addRedaction(referralCode, true);
+        checkoutUrl.searchParams.set("ref", referralCode);
+      }
+      yield* openBrowserPage(config, run, session, checkoutUrl.toString(), {
         timeoutMs: config.timeouts.browserNavigation,
       });
       const orderId = yield* submitReservationForPayPage({
@@ -508,6 +581,109 @@ const waitForFreshPayStateUrl = ({
       timeoutMs: config.timeouts.uiTransition,
     }
   );
+
+const rejectReferralCode = ({
+  code,
+  config,
+  currentPayUrl,
+  error,
+  locale,
+  message,
+  orderId,
+  run,
+  session,
+}: {
+  readonly code: string;
+  readonly config: WorkspaceE2EConfig;
+  readonly currentPayUrl: string;
+  readonly error: string;
+  readonly locale: CheckoutData["locale"];
+  readonly message: string;
+  readonly orderId: WorkspaceReservationId;
+  readonly run: Runner;
+  readonly session: string;
+}) =>
+  Effect.gen(function* () {
+    yield* submitDiscountCode({ code, config, run, session });
+    const rejectedUrl = yield* pollUntil(
+      readBrowserUrl(run, session).pipe(
+        Effect.map((url) =>
+          url &&
+          isRejectedReferralCodeUrl({
+            baseUrl: config.baseUrl,
+            currentUrl: url,
+            error,
+            locale,
+            orderId,
+            previousUrl: currentPayUrl,
+          })
+            ? url
+            : undefined
+        )
+      ),
+      {
+        intervalMs: workspaceE2EPollIntervalMs.browser,
+        label: "rejected referral code on the unchanged pay state",
+        timeoutMs: config.timeouts.uiTransition,
+      }
+    );
+    yield* waitForBrowserCondition(
+      run,
+      session,
+      "rejected referral code alert on the discount code field",
+      `(() => {
+        const alert = document.querySelector("#checkout-discount-code-error");
+        const input = document.querySelector("#checkout-discount-code");
+        return alert?.getAttribute("role") === "alert" &&
+          alert.textContent?.includes(${JSON.stringify(message)}) === true &&
+          input?.getAttribute("aria-invalid") === "true";
+      })()`,
+      { timeoutMs: config.timeouts.uiTransition }
+    );
+    return rejectedUrl;
+  });
+
+const assertShareLinkReferralApplied = ({
+  config,
+  locale,
+  orderId,
+  payUrl,
+  run,
+  session,
+}: {
+  readonly config: WorkspaceE2EConfig;
+  readonly locale: CheckoutData["locale"];
+  readonly orderId: WorkspaceReservationId;
+  readonly payUrl: string;
+  readonly run: Runner;
+  readonly session: string;
+}) =>
+  Effect.gen(function* () {
+    if (
+      !isReferralAppliedPayUrl({
+        baseUrl: config.baseUrl,
+        currentUrl: payUrl,
+        locale,
+        orderId,
+      })
+    ) {
+      return yield* workspaceE2EError(
+        "share-link checkout did not reach a referral-applied pay page",
+        { operation: "verify share-link referral pay page" }
+      );
+    }
+    const message = m.checkoutReferralDiscountApplied({}, { locale });
+    yield* waitForBrowserCondition(
+      run,
+      session,
+      "share-link referral applied notice",
+      `(() => {
+        const notice = document.querySelector("[data-checkout-referral-applied]");
+        return notice?.textContent?.includes(${JSON.stringify(message)}) === true;
+      })()`,
+      { timeoutMs: config.timeouts.uiTransition }
+    );
+  });
 
 const assertOrdinaryCodeSlotAvailable = ({
   config,
@@ -855,6 +1031,85 @@ export const isFreshOwnedPayStateUrl = (
       orderIds[0] === orderId &&
       !current.searchParams.has("ref") &&
       !current.searchParams.has("submittedCode")
+    );
+  } catch {
+    return false;
+  }
+};
+
+const readSinglePayStateUrl = ({
+  baseUrl,
+  currentUrl,
+  locale,
+  orderId,
+}: {
+  readonly baseUrl: string;
+  readonly currentUrl: string;
+  readonly locale: CheckoutData["locale"];
+  readonly orderId: WorkspaceReservationId;
+}) => {
+  const current = new URL(currentUrl);
+  const payStates = current.searchParams.getAll("payState");
+  const orderIds = current.searchParams.getAll("orderId");
+  const payState = payStates.length === 1 ? payStates[0] : undefined;
+  if (
+    !payState ||
+    current.origin !== new URL(baseUrl).origin ||
+    current.pathname !== `/${locale}/checkout/pay` ||
+    orderIds.length !== 1 ||
+    orderIds[0] !== orderId ||
+    current.searchParams.has("ref") ||
+    current.searchParams.has("submittedCode")
+  ) {
+    return undefined;
+  }
+  return { payState, searchParams: current.searchParams };
+};
+
+/** The first pay page of a reservation started from a share link. */
+export const isReferralAppliedPayUrl = (input: {
+  readonly baseUrl: string;
+  readonly currentUrl: string;
+  readonly locale: CheckoutData["locale"];
+  readonly orderId: WorkspaceReservationId;
+}) => {
+  try {
+    const current = readSinglePayStateUrl(input);
+    return (
+      current !== undefined &&
+      current.searchParams.getAll("referralApplied").join() === "1" &&
+      !current.searchParams.has("discountCodeError")
+    );
+  } catch {
+    return false;
+  }
+};
+
+/** A rejected code keeps the signed pay state and reports one error. */
+export const isRejectedReferralCodeUrl = ({
+  error,
+  previousUrl,
+  ...input
+}: {
+  readonly baseUrl: string;
+  readonly currentUrl: string;
+  readonly error: string;
+  readonly locale: CheckoutData["locale"];
+  readonly orderId: WorkspaceReservationId;
+  readonly previousUrl: string;
+}) => {
+  try {
+    const current = readSinglePayStateUrl(input);
+    const previous = readSinglePayStateUrl({
+      ...input,
+      currentUrl: previousUrl,
+    });
+    return (
+      current !== undefined &&
+      previous !== undefined &&
+      current.payState === previous.payState &&
+      current.searchParams.getAll("discountCodeError").join() === error &&
+      !current.searchParams.has("referralApplied")
     );
   } catch {
     return false;

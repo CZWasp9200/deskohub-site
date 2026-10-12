@@ -150,27 +150,34 @@ test("maps the case-level review targets through the shared lane data", () => {
   }
 });
 
-test("runs explicit referral acceptance and captures each visible state", () => {
+test("checks the referral overview and that share links cannot change the referral", () => {
   expect(callsNamed(lane.ast, "verifyReferralOverview")).toHaveLength(3);
+  expect(
+    callsNamed(lane.ast, "verifyReferralScreenIgnoresShareLink")
+  ).toHaveLength(1);
   expect(callsNamed(lane.ast, "verifyReferralInvitationReview")).toHaveLength(
-    1
+    0
   );
 
-  const acceptClicks = methodCallsNamed(referralReview.ast, "click");
-  expect(acceptClicks).toHaveLength(2);
-  expect(
-    stringLiterals(referralReview.ast).map((literal) => literal.value)
-  ).toEqual(
+  // The referrals screen only shows the customer's own code: no review
+  // helper clicks a control to accept someone else's.
+  expect(methodCallsNamed(referralReview.ast, "click")).toHaveLength(0);
+  const literals = stringLiterals(referralReview.ast).map(
+    (literal) => literal.value
+  );
+  expect(literals).toEqual(
     expect.arrayContaining([
       "referral-overview-positive-desktop",
       "referral-overview-positive-mobile",
       "referral-overview-positive-cs-desktop",
       "referral-overview-positive-cs-mobile",
-      "referral-invitation-eligible-desktop",
-      "referral-invitation-accepted-desktop",
-      "referral-invitation-unavailable-desktop",
+      "#account-referrals-code",
+      "#account-referrals-link",
     ])
   );
+  expect(
+    literals.some((value) => value.startsWith("referral-invitation-"))
+  ).toBe(false);
 });
 
 /**

@@ -31,7 +31,7 @@ import {
   waitForCancelledDotyposReservations,
 } from "../integrations/dotypos";
 import { pollUntil } from "../polling";
-import { assert, type Runner } from "../runtime";
+import { addRedaction, assert, type Runner } from "../runtime";
 import { workspaceE2EPollIntervalMs, workspaceE2ETimeouts } from "../timeouts";
 import {
   accountSectionLandmarks,
@@ -64,7 +64,11 @@ import {
 } from "./fixtures";
 import { workspaceE2EAccountProfileFixture } from "./profile-fixture";
 import type { MagicLinkRateBudget } from "./rate-budget";
-import { seedWorkspaceE2EReferralFixture } from "./referral-fixture";
+import {
+  findWorkspaceE2EReferralReferrer,
+  seedWorkspaceE2EReferralFixture,
+  seedWorkspaceE2EReferralOwner,
+} from "./referral-fixture";
 import type {
   WorkspaceE2EAccountCase,
   WorkspaceE2EAccountCaseCompletion,
@@ -104,6 +108,7 @@ const profileLastNameSelector = "#account-profile-last-name";
 const profilePhoneSelector = "#account-profile-phone";
 const profileEmailSelector = "#account-profile-email";
 const profileSubmitSelector = "#account-profile-form button[type=submit]";
+const profileReferralCodeSelector = "#profile-referral-code";
 const billingKindSelector = "#account-profile-billing-kind";
 const billingCompanyNameSelector = "#account-profile-billing-company-name";
 const signOutSelector = "#account-sign-out";
@@ -573,6 +578,82 @@ export const makeWorkspaceE2EAccountCases = ({
     ),
     makeCase("account-profile-completion", ({ journalRef, runStep }) =>
       Effect.gen(function* () {
+        const referralOwnerEmail = makeWorkspaceE2EAccountRecipient(
+          config,
+          workspaceE2EReferralOwnerRecipientLabel
+        );
+        const referralOwnerAccountId = customerAccountIdSchema.make(
+          `account-referral-owner-${crypto.randomUUID()}`
+        );
+        const referralOwner = yield* runStep(
+          step(
+            "creates the synthetic referrer whose share link the account follows",
+            Effect.gen(function* () {
+              yield* recordFixtureIds(journalRef, {
+                authUserIds: [referralOwnerAccountId],
+              });
+              const customerId = yield* createSyntheticCustomerProfile(
+                datasourceConfig,
+                { email: referralOwnerEmail, firstName: "Referral Owner" }
+              );
+              yield* recordFixtureIds(journalRef, {
+                dotyposCustomerIds: [customerId],
+              });
+              const owner = yield* seedWorkspaceE2EReferralOwner({
+                accountId: referralOwnerAccountId,
+                dotyposCustomerId: customerId,
+                email: referralOwnerEmail,
+                name: "Synthetic Referral Owner",
+              });
+              addRedaction(owner.code, true);
+              return { code: owner.code, customerId };
+            }),
+            datasourceTimeout
+          )
+        );
+        lifecycleHandoff.referralInvitationCode = referralOwner.code;
+        const unusableReferralCode = `RFLMISSING${crypto
+          .randomUUID()
+          .replaceAll("-", "")
+          .slice(0, 8)
+          .toUpperCase()}`;
+        const waitReferralFieldValue = (description: string, value: string) =>
+          waitForBrowserCondition(
+            run,
+            session,
+            description,
+            `(() => {
+                const input = document.querySelector(${JSON.stringify(profileReferralCodeSelector)});
+                return input instanceof HTMLInputElement &&
+                  input.name === "referralCode" &&
+                  input.value === ${JSON.stringify(value)};
+              })()`,
+            { timeoutMs: uiTransition }
+          );
+        yield* runStep(
+          step(
+            "prefills the completion referral field only from a usable share link",
+            Effect.gen(function* () {
+              yield* openPage(
+                localized(`${accountSuffix}?ref=${unusableReferralCode}`)
+              );
+              yield* waitText("completion page", completionTitle);
+              yield* waitReferralFieldValue(
+                "empty completion referral field for an unusable share link",
+                ""
+              );
+              yield* openPage(
+                localized(`${accountSuffix}?ref=${referralOwner.code}`)
+              );
+              yield* waitText("completion page", completionTitle);
+              yield* waitReferralFieldValue(
+                "completion referral field prefilled from the share link",
+                referralOwner.code
+              );
+            }),
+            2 * accountPageLoadTimeout
+          )
+        );
         yield* runStep(
           step(
             "keeps the completion login email input read-only",
@@ -650,6 +731,20 @@ export const makeWorkspaceE2EAccountCases = ({
                 dotyposCustomerIds: [linked],
               });
               return linked;
+            }),
+            datasourceTimeout
+          )
+        );
+        yield* runStep(
+          step(
+            "records the share-link referral submitted with the completed profile",
+            Effect.gen(function* () {
+              const referrer =
+                yield* findWorkspaceE2EReferralReferrer(customerId);
+              assert(
+                referrer === referralOwner.customerId,
+                "profile completion did not record the share-link referral"
+              );
             }),
             datasourceTimeout
           )
@@ -959,30 +1054,19 @@ export const makeWorkspaceE2EAccountCases = ({
             datasourceTimeout
           )
         );
-        const ownerEmail = makeWorkspaceE2EAccountRecipient(
-          config,
-          workspaceE2EReferralOwnerRecipientLabel
-        );
         const eligibleInviteeEmail = makeWorkspaceE2EAccountRecipient(
           config,
           workspaceE2EReferralInviteeRecipientLabel
         );
-        const ownerAccountId = customerAccountIdSchema.make(
-          `account-referral-owner-${crypto.randomUUID()}`
+        const eligibleInviteeAccountId = customerAccountIdSchema.make(
+          `account-referral-invitee-${crypto.randomUUID()}`
         );
         const createdProfiles = yield* runStep(
           step(
-            "creates synthetic active referral owner and eligible invitee profiles",
+            "creates a synthetic active eligible invitee profile and account",
             Effect.gen(function* () {
               yield* recordFixtureIds(journalRef, {
-                authUserIds: [ownerAccountId],
-              });
-              const owner = yield* createSyntheticCustomerProfile(
-                datasourceConfig,
-                { email: ownerEmail, firstName: "Referral Owner" }
-              );
-              yield* recordFixtureIds(journalRef, {
-                dotyposCustomerIds: [owner],
+                authUserIds: [eligibleInviteeAccountId],
               });
               const invitee = yield* createSyntheticCustomerProfile(
                 datasourceConfig,
@@ -991,7 +1075,7 @@ export const makeWorkspaceE2EAccountCases = ({
               yield* recordFixtureIds(journalRef, {
                 dotyposCustomerIds: [invitee],
               });
-              return { invitee, owner };
+              return { invitee };
             }),
             datasourceTimeout
           )
@@ -1031,32 +1115,30 @@ export const makeWorkspaceE2EAccountCases = ({
           step(
             "seeds exact referral attribution and paid local history rows",
             seedWorkspaceE2EReferralFixture({
-              eligibleInviteeDotyposCustomerId: profiles.invitee,
+              eligibleInvitee: {
+                accountId: eligibleInviteeAccountId,
+                dotyposCustomerId: profiles.invitee,
+                email: eligibleInviteeEmail,
+                name: "Synthetic Referral Invitee",
+              },
               eligibleReservationAt: new Date(
                 Number(profiles.reservation.endsAt.epochMilliseconds)
               ),
               eligibleReservationId: profiles.reservationId,
-              invitationOwnerAccountId: ownerAccountId,
-              invitationOwnerDotyposCustomerId: profiles.owner,
-              invitationOwnerEmail: ownerEmail,
-              invitationOwnerName: "Synthetic Referral Owner",
               referrerDotyposCustomerId: linked.customerId,
             }),
             datasourceTimeout
           )
         );
-        lifecycleHandoff.referralInvitationCode = fixture.invitationCode;
+        addRedaction(fixture.inviteeReferralCode, true);
+        lifecycleHandoff.referralOtherReferrerCode =
+          fixture.inviteeReferralCode;
         lifecycleHandoff.referralCheckoutContact = {
           customerId: linked.customerId,
           email: recipient,
           name: "E2E Lane",
           phone: workspaceE2EAccountProfileFixture.phone,
         };
-        lifecycleHandoff.referralUnavailableCode = `RFLMISSING${crypto
-          .randomUUID()
-          .replaceAll("-", "")
-          .slice(0, 8)
-          .toUpperCase()}`;
 
         yield* runStep(
           step(

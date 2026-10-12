@@ -1,10 +1,14 @@
 import type { Page } from "@playwright/test";
 import { type Locale, m } from "@/features/i18n";
+import { parseReferralCode } from "@/features/referrals/client";
+import { workspaceE2EError } from "../errors";
 import { workspaceE2ETimeouts } from "../timeouts";
-import {
-  type AccountReviewTarget,
-  captureAccountReview,
-} from "./review-screenshots";
+import { accountSectionLandmarks } from "./account-sections";
+import { captureAccountReview } from "./review-screenshots";
+
+const referralCodeSelector = "#account-referrals-code";
+const referralLinkSelector = "#account-referrals-link";
+const referralEntrySelector = "form, input, textarea, select";
 
 type ReferralOverviewTargets = {
   readonly desktop:
@@ -64,61 +68,66 @@ export const verifyReferralOverview = async ({
   await captureAccountReview(page, baseUrl, targets.mobile);
 };
 
-export const verifyReferralInvitationReview = async ({
+/**
+ * Referrals are set once, so a share link opened by an already attributed
+ * account changes nothing: the screen keeps only the customer's own code and
+ * share link, with no form or field that could accept another code.
+ */
+export const verifyReferralScreenIgnoresShareLink = async ({
   baseUrl,
-  invitationCode,
   page,
-  unavailableCode,
+  shareCode,
 }: {
   readonly baseUrl: string;
-  readonly invitationCode: string;
   readonly page: Page;
-  readonly unavailableCode: string;
+  readonly shareCode: string;
 }) => {
   const locale = "en-US";
-  const visitInvitation = async (code: string) => {
-    const query = new URLSearchParams({ section: "referrals", ref: code });
-    await page.goto(
-      new URL(`/en-US/account?${query.toString()}`, baseUrl).toString(),
-      { timeout: workspaceE2ETimeouts.browserNavigation }
-    );
-    await page
-      .getByRole("heading", {
-        exact: true,
-        level: 3,
-        name: m.accountReferralsInvitationTitle({}, { locale }),
-      })
-      .waitFor({
-        state: "visible",
-        timeout: workspaceE2ETimeouts.browserAction,
-      });
-  };
-  const acceptButton = page.getByRole("button", {
-    exact: true,
-    name: m.accountReferralsAccept({}, { locale }),
-  });
-  const waitForMessage = async (message: string) => {
-    await page.getByText(message, { exact: true }).waitFor({
-      state: "visible",
-      timeout: workspaceE2ETimeouts.browserAction,
+  const failure = (message: string) =>
+    workspaceE2EError(message, {
+      operation: "verify referral screen ignores share links",
     });
-  };
-  const capture = (target: AccountReviewTarget) =>
-    captureAccountReview(page, baseUrl, target);
-
-  await visitInvitation(invitationCode);
-  await capture("referral-invitation-eligible-desktop");
-  await acceptButton.click({ timeout: workspaceE2ETimeouts.browserAction });
-  await waitForMessage(m.accountReferralsAccepted({}, { locale }));
-  await capture("referral-invitation-accepted-desktop");
-
-  await visitInvitation(unavailableCode);
-  await acceptButton.click({ timeout: workspaceE2ETimeouts.browserAction });
-  await waitForMessage(m.accountReferralsUnavailable({}, { locale }));
-  await capture("referral-invitation-unavailable-desktop");
-
+  const query = new URLSearchParams({ section: "referrals", ref: shareCode });
   await page.goto(
-    new URL("/en-US/account?section=referrals", baseUrl).toString(),
+    new URL(`/${locale}/account?${query.toString()}`, baseUrl).toString(),
     { timeout: workspaceE2ETimeouts.browserNavigation }
   );
+  const screen = page.locator(accountSectionLandmarks.referrals);
+  const ownCode = screen.locator(referralCodeSelector);
+  await ownCode.waitFor({
+    state: "visible",
+    timeout: workspaceE2ETimeouts.browserAction,
+  });
+
+  const code = (await ownCode.textContent())?.trim();
+  if (parseReferralCode(code) === undefined || code === shareCode) {
+    throw failure("referrals screen does not show the customer's own code");
+  }
+  const href = await screen
+    .locator(referralLinkSelector)
+    .getAttribute("href", { timeout: workspaceE2ETimeouts.browserAction });
+  const link = href ? new URL(href, baseUrl) : undefined;
+  if (
+    link?.origin !== new URL(baseUrl).origin ||
+    link.pathname !== `/${locale}/account` ||
+    link.searchParams.getAll("ref").join() !== code
+  ) {
+    throw failure("referrals screen does not share the customer's own code");
+  }
+  if ((await screen.locator(referralEntrySelector).count()) > 0) {
+    throw failure("referrals screen still offers referral code entry");
+  }
+  if ((await screen.innerText()).includes(shareCode)) {
+    throw failure("referrals screen shows the ignored share-link code");
+  }
+
+  // The case-level review capture follows on the plain referrals section.
+  await page.goto(
+    new URL(`/${locale}/account?section=referrals`, baseUrl).toString(),
+    { timeout: workspaceE2ETimeouts.browserNavigation }
+  );
+  await ownCode.waitFor({
+    state: "visible",
+    timeout: workspaceE2ETimeouts.browserAction,
+  });
 };

@@ -34,10 +34,6 @@ const privateLinkedAccountQueries = [
   "?section=billing",
   "?section=danger",
 ] as const;
-const referralInvitationQueries = [
-  "?ref=RFL12345",
-  "?section=referrals&ref=RFL12345",
-] as const;
 const marketingReviewTargets = [
   "account-marketing-withdrawn-desktop",
   "account-marketing-active-mobile",
@@ -178,33 +174,6 @@ const validTargets = [
     queries: privateLinkedAccountQueries,
     target: "referral-overview-positive-cs-mobile",
     viewport: { height: 900, width: 375 },
-    fullPage: true,
-  },
-  {
-    filename: "referral-invitation-eligible-desktop.png",
-    path: "/en-US/account",
-    query: "?ref=RFL12345",
-    queries: referralInvitationQueries,
-    target: "referral-invitation-eligible-desktop",
-    viewport: { height: 1000, width: 1440 },
-    fullPage: true,
-  },
-  {
-    filename: "referral-invitation-accepted-desktop.png",
-    path: "/en-US/account",
-    query: "?ref=RFL12345",
-    queries: referralInvitationQueries,
-    target: "referral-invitation-accepted-desktop",
-    viewport: { height: 1000, width: 1440 },
-    fullPage: true,
-  },
-  {
-    filename: "referral-invitation-unavailable-desktop.png",
-    path: "/en-US/account",
-    query: "?ref=RFL12345",
-    queries: referralInvitationQueries,
-    target: "referral-invitation-unavailable-desktop",
-    viewport: { height: 1000, width: 1440 },
     fullPage: true,
   },
   {
@@ -862,6 +831,11 @@ describe("account review screenshot capture", () => {
       name: "linked account with an unknown section query",
       target: "linked-profile-desktop",
       url: `${baseUrl}/en-US/account?section=unknown`,
+    },
+    {
+      name: "the referrals section with a share-link code",
+      target: "linked-referrals-desktop",
+      url: `${baseUrl}/en-US/account?section=referrals&ref=RFL12345`,
     },
     {
       name: "a mobile linked account with a credential query",

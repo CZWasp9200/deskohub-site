@@ -6,7 +6,9 @@ import { workspaceDir } from "../runtime";
 
 const workspaceE2EReferralCheckoutReviewTargets = [
   "account-referral-invitation-applied",
+  "account-referral-change-rejected",
   "account-referral-with-ordinary-code",
+  "account-referral-link-applied",
   "account-referral-with-voucher",
 ] as const;
 
