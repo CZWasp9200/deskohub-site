@@ -1,6 +1,9 @@
 import { describe, expect, mock, test } from "bun:test";
 import { Context, Data, Effect, Layer } from "effect";
 import { z } from "zod";
+import { setBoardgameTestEnv } from "@/shared/testing/boardgame-test-env";
+
+setBoardgameTestEnv();
 
 mock.module("next/headers", () => ({
   cookies: mock(async () => ({ get: () => undefined })),
