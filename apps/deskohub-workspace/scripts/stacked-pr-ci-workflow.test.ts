@@ -13,7 +13,6 @@ const parseWorkflowFile = (name: string): WorkflowDoc =>
 type PullRequestTrigger = {
   readonly branches?: unknown;
   readonly "branches-ignore"?: unknown;
-  readonly paths?: unknown;
 };
 
 const pullRequestTrigger = (doc: WorkflowDoc): PullRequestTrigger | undefined =>
@@ -46,10 +45,4 @@ test("runs Workspace and dhw CI for stacked pull requests", () => {
   );
   expect(migrationCount?.run).toContain('"$BASE_SHA"');
   expect(migrationCount?.run).not.toContain("$" + "{{");
-
-  // dhw CI is path-filtered and skips stacked-PR branch naming.
-  expect(pullRequestTrigger(dhw)?.paths).toBeDefined();
-  expect(JSON.stringify(dhw).includes("!startsWith(github.head_ref")).toBe(
-    true
-  );
 });

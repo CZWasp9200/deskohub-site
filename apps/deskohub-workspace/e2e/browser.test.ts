@@ -8,20 +8,17 @@ import { Cause, Effect, Exit } from "effect";
 import {
   activateHydratedBrowserElement,
   captureBrowserFailureArtifacts,
-  captureBrowserScreenshot,
   findEnabledSnapshotRef,
   getSnapshotRef,
   isFrameSnapshotRef,
   readActiveBrowserTabId,
   readBrowserTabs,
   sanitizeHarArtifact,
-  switchToBrowserTab,
   waitForBrowserCondition,
 } from "./browser";
 import { isWorkspaceE2ETimeout } from "./errors";
 import { pollUntil } from "./polling";
 import { addRedaction, type Runner } from "./runtime";
-import { workspaceE2ETimeouts } from "./timeouts";
 
 test("keeps a sanitized HAR valid JSON when a short value is redacted", () => {
   addRedaction("97531", true);
@@ -149,29 +146,6 @@ test("activates a hydrated element through focus and keyboard input", async () =
   );
 });
 
-test("waits for an application state condition instead of sampling it once", async () => {
-  const calls: Array<{ readonly args: string[] }> = [];
-  const run: Runner = async (_command, args) => {
-    calls.push({ args });
-    return { exitCode: 0, stderr: "", stdout: "" };
-  };
-  const condition = `document.querySelector("input")?.value === "restored"`;
-
-  await Effect.runPromise(
-    waitForBrowserCondition(
-      run,
-      "browser-test",
-      "restored reservation",
-      condition,
-      { timeoutMs: 5000 }
-    )
-  );
-
-  expect(calls.map(({ args }) => args.slice(2))).toEqual([
-    ["wait", "--fn", condition],
-  ]);
-});
-
 // The runner wraps a failed command like the Playwright runtime does.
 const failingWaitRunner = (failures: readonly Error[]) => {
   let calls = 0;
@@ -234,88 +208,31 @@ test("accepts Playwright AI snapshot references from the main page and frames", 
   expect(isFrameSnapshotRef("@f1e4")).toBe(true);
 });
 
-test("captures a screenshot through the session runner with the given path", async () => {
-  const calls: Array<{ readonly args: string[]; readonly timeoutMs?: number }> =
-    [];
-  const run: Runner = async (_command, args, options) => {
-    calls.push({ args, timeoutMs: options?.timeoutMs });
-    return { exitCode: 0, stderr: "", stdout: "" };
-  };
-
-  await Effect.runPromise(
-    captureBrowserScreenshot(
-      run,
-      "browser-test",
-      "/tmp/workspace-e2e/final.png",
-      { timeoutMs: workspaceE2ETimeouts.browserAction }
-    )
-  );
-
-  expect(calls).toEqual([
-    {
-      args: [
-        "--session",
-        "browser-test",
-        "screenshot",
-        "/tmp/workspace-e2e/final.png",
-      ],
-      timeoutMs: workspaceE2ETimeouts.browserAction,
-    },
-  ]);
-});
-
-test("fails screenshot capture through the normal workspace e2e error", async () => {
-  const run: Runner = async () => {
-    throw new Error("screenshot failed");
-  };
-
-  const failure = await Effect.runPromise(
-    captureBrowserScreenshot(
-      run,
-      "browser-test",
-      "/tmp/workspace-e2e/final.png",
-      { timeoutMs: workspaceE2ETimeouts.browserAction }
-    ).pipe(Effect.flip)
-  );
-
-  expect(failure.operation).toBe("capture browser screenshot");
-});
-
-test("reads and switches stable browser tabs", async () => {
-  const calls: string[][] = [];
-  const run: Runner = async (_command, args) => {
-    calls.push(args.slice(2));
-    return {
-      exitCode: 0,
-      stderr: "",
-      stdout: JSON.stringify({
-        data: {
-          tabs: [
-            { active: true, tabId: "t1" },
-            { active: false, tabId: "t2" },
-          ],
-        },
-        success: true,
-      }),
-    };
-  };
+test("reads stable browser tabs and the active tab", async () => {
+  const run: Runner = async () => ({
+    exitCode: 0,
+    stderr: "",
+    stdout: JSON.stringify({
+      data: {
+        tabs: [
+          { active: true, tabId: "t1" },
+          { active: false, tabId: "t2" },
+        ],
+      },
+      success: true,
+    }),
+  });
 
   const tabs = await Effect.runPromise(readBrowserTabs(run, "browser-test"));
   const tabId = await Effect.runPromise(
     readActiveBrowserTabId(run, "browser-test")
   );
-  await Effect.runPromise(switchToBrowserTab(run, "browser-test", tabId));
 
   expect(tabs).toEqual([
     { active: true, tabId: "t1" },
     { active: false, tabId: "t2" },
   ]);
   expect(tabId).toBe("t1");
-  expect(calls).toEqual([
-    ["--json", "tab", "list"],
-    ["--json", "tab", "list"],
-    ["tab", "t1"],
-  ]);
 });
 
 test("captures valid HAR after applying structured privacy redaction", async () => {

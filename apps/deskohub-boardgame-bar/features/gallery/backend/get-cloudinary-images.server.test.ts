@@ -30,13 +30,15 @@ beforeEach(() => {
   listTaggedAssets.mockImplementation(() => Effect.succeed([]));
 });
 
-test("keeps normalized gallery tags and result limits", async () => {
-  const tags = [["Web galerie", "galerie"]] as const;
+test("searches Cloudinary with the normalized gallery tag expression", async () => {
+  await Effect.runPromise(
+    getCloudinaryImagesEffect([["hero", ["Web galerie"]], "galerie"], 7)
+  );
 
-  const assets = await Effect.runPromise(getCloudinaryImagesEffect(tags, 7));
-
-  expect(assets).toEqual([]);
-  expect(listTaggedAssets).toHaveBeenCalledWith(tags, { maxResults: 7 });
+  expect(listTaggedAssets).toHaveBeenCalledWith(
+    [["galerie"], ["Web galerie", "hero"]],
+    { maxResults: 7 }
+  );
 });
 
 test("returns an empty gallery without logging provider error data", async () => {

@@ -39,7 +39,7 @@ import {
   runRetrySafeDatabaseOperation,
 } from "./database-operation";
 
-export const E2E_CALENDAR_SALE_DISCOUNT_ID = storedDiscountIdSchema.make(
+const E2E_CALENDAR_SALE_DISCOUNT_ID = storedDiscountIdSchema.make(
   "454784dd-380b-43a1-bae7-cc070bf1aec2"
 );
 

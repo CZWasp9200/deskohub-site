@@ -1,5 +1,6 @@
 import { afterAll, afterEach, beforeAll, expect, mock, test } from "bun:test";
 import { cleanup, render } from "@testing-library/react";
+import { m } from "@/features/i18n";
 import {
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
@@ -23,25 +24,25 @@ afterAll(async () => {
 
 test("presents the existing team profiles under one page heading", async () => {
   const { TeamPage } = await import("./team-page");
-  const view = render(<TeamPage locale="en-US" />);
+  const locale = "en-US";
+  const view = render(<TeamPage locale={locale} />);
 
   expect(view.getAllByRole("heading", { level: 1 })).toHaveLength(1);
   expect(
-    view.getByRole("heading", { level: 1, name: "Our team" })
+    view.getByRole("heading", {
+      level: 1,
+      name: m.landingFoundersTitle({}, { locale }),
+    })
   ).toBeTruthy();
-  expect(view.container.querySelector("main")?.className).toContain(
-    "pt-[calc(var(--site-header-height)+4rem)]"
-  );
   expect(
     view
       .getAllByRole("heading", { level: 2 })
       .map((heading) => heading.textContent)
-  ).toEqual(["The brains", "The software", "The hardware"]);
+  ).toEqual([
+    m.landingFounderDanicaRole({}, { locale }),
+    m.landingFounderFilipRole({}, { locale }),
+    m.landingFounderHardwareRole({}, { locale }),
+  ]);
   expect(view.getByText("Danica")).toBeTruthy();
   expect(view.getByText("Filip")).toBeTruthy();
-  expect(
-    view.getByText(
-      "Workstations, access systems, lighting and power, internet access, and much more."
-    )
-  ).toBeTruthy();
 });

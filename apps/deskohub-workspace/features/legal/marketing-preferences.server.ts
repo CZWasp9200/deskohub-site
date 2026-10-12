@@ -17,7 +17,10 @@ import {
   MarketingPreferencesAuthorityError,
   resolveMarketingPreferencesAuthority,
 } from "./backend/marketing-preferences-authority";
-import type { MarketingPreferencesState } from "./marketing-preferences";
+import {
+  getMarketingPreferenceStatus,
+  type MarketingPreferencesState,
+} from "./marketing-preferences";
 
 /**
  * Loads the public marketing-preference projection. A management cookie always
@@ -120,10 +123,3 @@ const readMarketingPreferencesEffect = Effect.fn(function* (
         context: authority.context,
       } satisfies MarketingPreferencesState);
 });
-
-const getMarketingPreferenceStatus = (
-  consent: { readonly withdrawnAt: Temporal.Instant | null } | null
-): "absent" | "active" | "withdrawn" => {
-  if (consent === null) return "absent";
-  return consent.withdrawnAt === null ? "active" : "withdrawn";
-};

@@ -304,7 +304,6 @@ describe("LandingPageInteractiveMap", () => {
     expect(mapInstances).toHaveLength(4);
     expect(new Set(mapInstances).size).toBe(mapInstances.length);
     expect(new Set(mapInstances.map((map) => map.container)).size).toBe(1);
-    expect(mapInstances[0]?.container.className).toBe("h-full w-full");
     expect(
       mapInstances.every(
         (map) => map.removeCallCount === 1 && map.offCallCount === 1

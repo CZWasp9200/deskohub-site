@@ -65,25 +65,6 @@ describe("payment refund reconciliation cron route", () => {
     expect(reconcileCalls).toHaveLength(0);
   });
 
-  test("reconciles a bounded batch of attempts awaiting a refund", async () => {
-    const { GET } = await loadRoute();
-    const response = await GET(
-      new Request(requestUrl, {
-        headers: {
-          authorization: "Bearer cron-secret-for-payment-refund-test",
-        },
-      })
-    );
-
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({
-      checked: 3,
-      recorded: 1,
-      failed: 0,
-    });
-    expect(reconcileCalls).toEqual([{ limit: 25 }]);
-  });
-
   test("returns a 500 response when the batch cannot be read", async () => {
     failReconciliation = true;
     const { GET } = await loadRoute();

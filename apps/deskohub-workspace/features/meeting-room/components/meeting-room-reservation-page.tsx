@@ -1,27 +1,24 @@
-import { Effect } from "effect";
-import { CheckoutPricingService } from "@/features/checkout/backend/checkout/checkout-pricing.service";
 import type { CheckoutSessionId } from "@/features/checkout/checkout-identifiers";
 import type { CanonicalPromotionCode } from "@/features/discounts";
 import { type Locale, m } from "@/features/i18n";
-import { loadAdvertisedPrices } from "@/features/reservation/backend/advertised-prices.server";
+import { preloadPageAdvertisedPrices } from "@/features/reservation/backend/advertised-prices.server";
 import { isRememberedMeetingRoomReservationAvailable } from "@/features/reservation/backend/reservation-existing-customer.server";
+import { preloadPageAvailability } from "@/features/reservation/backend/workspace-availability-loader";
 import { createReservationPage } from "@/features/reservation/components/create-reservation-page.server";
 import { getMeetingRoomDurationAdvertisedPriceRequests } from "@/features/reservation/meeting-room-advertised-price";
 import {
   getMeetingRoomReservationDefaultValues,
   type NormalizedMeetingRoomReservationOrder,
 } from "@/features/reservation/meeting-room-reservation";
-import { getMeetingRoomReservationDurationKey } from "@/features/reservation/meeting-room-reservation-duration";
-import {
-  getMeetingRoomReservationDefaultValuesFromSearchParams,
-  getReservationCustomerQueryMode,
-} from "@/features/reservation/reservation-checkout-query";
+import { getMeetingRoomReservationDefaultValuesFromSearchParams } from "@/features/reservation/meeting-room-reservation-checkout-query";
+import { getReservationCustomerQueryMode } from "@/features/reservation/reservation-checkout-query";
 import {
   type CustomerLastReservationForKind,
   getReservationExistingCustomerForm,
   type ReservationExistingCustomer,
 } from "@/features/reservation/reservation-existing-customer";
 import { meetingRoomReservationPath } from "@/features/reservation/routes";
+import { getMeetingRoomSelectionAvailabilityQuery } from "@/features/reservation/workspace-availability";
 import { runWorkspaceEffect } from "@/shared/backend/workspace-effect";
 import type { SearchParamsRecord } from "@/shared/utils";
 import {
@@ -97,6 +94,7 @@ export async function renderMeetingRoomReservationContent({
     existingCustomer
       ? getReservationExistingCustomerForm({
           contact: existingCustomer.contact,
+          hasMarketingConsent: existingCustomer.hasMarketingConsent,
           queryMode: initialReservation
             ? undefined
             : getReservationCustomerQueryMode(searchParams),
@@ -104,27 +102,32 @@ export async function renderMeetingRoomReservationContent({
           values: restoredOrQueryValues,
         })
       : { existingCustomer: undefined, initialValues: restoredOrQueryValues };
-  const initialAdvertisedPrices = await loadAdvertisedPrices(
-    getMeetingRoomDurationAdvertisedPriceRequests({
-      locale,
-      startDateTime: initialValues.startDateTime,
-      submittedCode,
-    }).filter(
-      ({ reservation }) =>
-        getMeetingRoomReservationDurationKey(reservation.details.duration) ===
-        initialValues.duration
-    )
-  ).pipe(
-    Effect.provide(CheckoutPricingService.Live),
-    Effect.scoped,
-    runWorkspaceEffect("reservation.meeting-room.load-advertised-prices")
-  );
+  const initialAvailabilityQuery =
+    getMeetingRoomSelectionAvailabilityQuery(initialValues);
+  const [initialAdvertisedPrices, initialAvailability] = await Promise.all([
+    preloadPageAdvertisedPrices(
+      getMeetingRoomDurationAdvertisedPriceRequests({
+        locale,
+        startDateTime: initialValues.startDateTime,
+        submittedCode,
+      })
+    ).pipe(
+      runWorkspaceEffect("reservation.meeting-room.load-advertised-prices")
+    ),
+    preloadPageAvailability({
+      queries: initialAvailabilityQuery ? [initialAvailabilityQuery] : [],
+      replacementToken,
+    }).pipe(
+      runWorkspaceEffect("reservation.meeting-room.preload-availability")
+    ),
+  ]);
 
   return (
     <MeetingRoomReservationForm
       checkoutSessionId={checkoutSessionId}
       existingCustomer={existingCustomerForm}
       initialAdvertisedPrices={initialAdvertisedPrices}
+      initialAvailability={initialAvailability}
       initialReservation={
         restoredInitialValues ? initialReservation : undefined
       }

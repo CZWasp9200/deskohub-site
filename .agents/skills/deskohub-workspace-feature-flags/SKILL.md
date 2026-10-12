@@ -15,6 +15,16 @@ operators; do not nest a logging pipe inside `catch`. When a release gate
 applies to only one reservation family, dispatch exhaustively by `kind` so
 unrelated families do not even evaluate the gated lookup.
 
+Memoize a page release gate with React `cache` and provide that memoized
+lookup to the page's Effect consumers, so metadata, page content, and nested
+loaders such as advertised prices share one evaluation per render. A gate may
+read the request subject, so on a Cache Components page evaluate it inside the
+Suspense boundary after `connection()`, never in the page component that builds
+the static shell; a shell-level read makes the route dynamic and breaks
+`instant = true`. Keep the gate in `generateMetadata` as well so crawlers and a
+constant-off flag still get a real 404, while browsers receive the streamed
+not-found boundary.
+
 For boolean release gates, only `true` is enabled. Treat explicit `false` as
 the ordinary off state without error logging. An omitted value means PostHog
 did not evaluate the requested flag, such as when the flag is inactive; fail

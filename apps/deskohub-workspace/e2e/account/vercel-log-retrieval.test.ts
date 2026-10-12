@@ -8,6 +8,7 @@ import { Effect, Layer, Schema } from "effect";
 import { FetchHttpClient } from "effect/unstable/http";
 import { createCensoredOtelSpanExporter } from "../../shared/backend/logging/censorship";
 import { createTracingLive } from "../../shared/backend/observability/otel-tracing";
+import { withInstantSleeps } from "../../shared/testing/workspace-test-clock.test-utils";
 import { makeWorkspaceE2EEnvironment } from "../e2e-env";
 import {
   makeTestE2EEnvironment,
@@ -584,7 +585,7 @@ describe("workspace e2e Vercel log retrieval", () => {
             startedAt: new Date("2026-10-01T12:00:00.000Z"),
           });
         })
-      ).pipe(Effect.provide(harness.layer))
+      ).pipe(withInstantSleeps, Effect.provide(harness.layer))
     );
 
     expect(baseline).toEqual(["req-baseline:0"]);

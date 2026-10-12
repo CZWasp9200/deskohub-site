@@ -1,8 +1,14 @@
 "use client";
 
-import { keepPreviousData, skipToken, useQuery } from "@tanstack/react-query";
+import {
+  hashKey,
+  keepPreviousData,
+  skipToken,
+  useQuery,
+} from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import {
+  type PreloadedWorkspaceAvailability,
   type WorkspaceAvailability,
   type WorkspaceAvailabilityQuery,
   workspaceAvailabilityKeys,
@@ -11,6 +17,8 @@ import { loadWorkspaceAvailability } from "@/features/reservation/workspace-avai
 
 type UseReservationAvailabilityOptions = {
   readonly debounceMs?: number;
+  /** Server-loaded availability, used only for a query it was loaded for. */
+  readonly initialAvailability?: ReadonlyArray<PreloadedWorkspaceAvailability>;
   readonly keepPreviousData?: boolean;
   readonly replacementToken?: string;
 };
@@ -36,6 +44,17 @@ const useDebouncedAvailabilityQuery = (
     : { isDebouncing: false, query };
 };
 
+// Matches by the query key hash, the identity TanStack Query caches under.
+const findPreloadedAvailability = (
+  initialAvailability: ReadonlyArray<PreloadedWorkspaceAvailability> = [],
+  query: WorkspaceAvailabilityQuery
+) => {
+  const queryHash = hashKey([query]);
+  return initialAvailability.find(
+    (preloaded) => hashKey([preloaded.query]) === queryHash
+  );
+};
+
 export function useReservationAvailability(
   query: WorkspaceAvailabilityQuery | undefined,
   options: UseReservationAvailabilityOptions = {}
@@ -45,6 +64,9 @@ export function useReservationAvailability(
     options.debounceMs ?? 0
   );
   const availabilityQuery = debounced.query;
+  const preloaded = availabilityQuery
+    ? findPreloadedAvailability(options.initialAvailability, availabilityQuery)
+    : undefined;
   const result = useQuery<WorkspaceAvailability>({
     queryKey: availabilityQuery
       ? [
@@ -60,6 +82,8 @@ export function useReservationAvailability(
             replacementToken: options.replacementToken,
           })
       : skipToken,
+    initialData: preloaded?.availability,
+    initialDataUpdatedAt: preloaded?.loadedAt,
     ...(options.keepPreviousData && { placeholderData: keepPreviousData }),
     retry: (failureCount) => failureCount < 3,
     staleTime: 30_000,

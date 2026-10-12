@@ -4,7 +4,10 @@ import { parseReferralCode } from "@/features/referrals/client";
 import { workspaceE2EError } from "../errors";
 import { workspaceE2ETimeouts } from "../timeouts";
 import { accountSectionLandmarks } from "./account-sections";
-import { captureAccountReview } from "./review-screenshots";
+import {
+  type AccountReviewDestination,
+  captureAccountReview,
+} from "./review-screenshots";
 
 const referralCodeSelector = "#account-referrals-code";
 const referralLinkSelector = "#account-referrals-link";
@@ -24,20 +27,20 @@ type ReferralOverviewTargets = {
 };
 
 export const verifyReferralOverview = async ({
-  baseUrl,
   count,
   locale,
   page,
+  review,
   targets,
 }: {
-  readonly baseUrl: string;
   readonly count: number;
   readonly locale: Locale;
   readonly page: Page;
+  readonly review: AccountReviewDestination;
   readonly targets: ReferralOverviewTargets;
 }) => {
   await page.goto(
-    new URL(`/${locale}/account?section=referrals`, baseUrl).toString(),
+    new URL(`/${locale}/account?section=referrals`, review.baseUrl).toString(),
     { timeout: workspaceE2ETimeouts.browserNavigation }
   );
   await page
@@ -64,8 +67,8 @@ export const verifyReferralOverview = async ({
       });
   }
 
-  await captureAccountReview(page, baseUrl, targets.desktop);
-  await captureAccountReview(page, baseUrl, targets.mobile);
+  await captureAccountReview(page, review, targets.desktop);
+  await captureAccountReview(page, review, targets.mobile);
 };
 
 /**

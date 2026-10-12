@@ -3,6 +3,7 @@ import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, mock, test } from "bun:test";
 import { DotyposService } from "@deskohub/dotypos";
+import { EmailRecipientDomainServiceMock } from "@deskohub/email/backend/recipient-domain.service.mock";
 import { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Effect, Layer, Schema } from "effect";
 import type { WorkspaceReservation } from "@/db/schema";
@@ -330,6 +331,7 @@ const runReusableReservationScenario = async (input: {
   readonly accountAuthority?: Parameters<typeof accountAuthorityFixture>[0];
   readonly customer?: "account";
   readonly accountContact?: CustomerAccountContactService["Service"]["current"];
+  readonly checkContactEmailDomain?: ReturnType<typeof mock>;
 }) => {
   const { prepareWorkspacePayState } = await import("./prepare-pay-state");
   const { PostHogEventService } = await import(
@@ -400,6 +402,9 @@ const runReusableReservationScenario = async (input: {
     mock(() => Effect.succeed({ id: "customer-id" }));
   const updateCustomerBillingDetails =
     input.updateCustomerBillingDetails ?? mock(() => Effect.void);
+  const checkContactEmailDomain =
+    input.checkContactEmailDomain ??
+    mock(() => Effect.succeed("accepts_mail" as const));
   const accountAuthority = await accountAuthorityFixture(
     input.accountAuthority
   );
@@ -417,6 +422,7 @@ const runReusableReservationScenario = async (input: {
       quoteForCustomer: quoteForCustomerResult as never,
     }),
     BotProtectionServiceMock({ verifyHuman }),
+    EmailRecipientDomainServiceMock({ check: checkContactEmailDomain }),
     Layer.mock(WorkspaceAvailabilityService, {
       getAvailability: mock(() => Effect.die("unused")),
       ensureAvailable,
@@ -483,6 +489,7 @@ const runReusableReservationScenario = async (input: {
     updateReservationDetails,
     grantInitialMarketingConsent,
     grantMarketingConsent,
+    withdrawMarketingConsent,
     ensureAvailable,
     createDraft,
     claimHoldCreation,
@@ -499,6 +506,7 @@ const runReusableReservationScenario = async (input: {
     findOrCreateCustomer,
     updateCustomerBillingDetails,
     readAccountContact,
+    checkContactEmailDomain,
   };
 };
 
@@ -611,6 +619,9 @@ const runMeetingRoomNewHoldScenario = async (
       )
     ),
     BotProtectionServiceMock({ verifyHuman: mock(() => Effect.void) }),
+    EmailRecipientDomainServiceMock({
+      check: () => Effect.succeed("accepts_mail" as const),
+    }),
     Layer.mock(WorkspaceAvailabilityService, {
       getAvailability: mock(() => Effect.die("unused")),
       ensureAvailable,
@@ -1025,6 +1036,9 @@ describe("prepareWorkspacePayState", () => {
         quoteForCustomer: quoteForCustomerResult as never,
       }),
       BotProtectionServiceMock({ verifyHuman }),
+      EmailRecipientDomainServiceMock({
+        check: () => Effect.succeed("accepts_mail" as const),
+      }),
       Layer.mock(WorkspaceAvailabilityService, {
         getAvailability: mock(() => Effect.die("unused")),
         ensureAvailable,
@@ -1443,6 +1457,22 @@ describe("prepareWorkspacePayState", () => {
       });
     });
 
+    test("leaves the account's stored marketing consent untouched without an opt-in", async () => {
+      const scenario = await runReusableReservationScenario({
+        findByAttemptKeys: mock(() => Effect.succeed(null)),
+        createDraft: createFreshDraft(),
+        accountAuthority: { session: {}, activityState: "active" },
+        customer: "account",
+        accountContact: accountContact(),
+        marketingConsent: false,
+      });
+
+      expect(scenario.result?.status).toBe("ready");
+      expect(scenario.grantInitialMarketingConsent).not.toHaveBeenCalled();
+      expect(scenario.grantMarketingConsent).not.toHaveBeenCalled();
+      expect(scenario.withdrawMarketingConsent).not.toHaveBeenCalled();
+    });
+
     test("prices the reservation with the account contact instead of the submitted one", async () => {
       const scenario = await runReusableReservationScenario({
         findByAttemptKeys: mock(() => Effect.succeed(null)),
@@ -1577,6 +1607,93 @@ describe("prepareWorkspacePayState", () => {
       expect(
         scenario.quoteForCustomer.mock.calls[0]?.[0].reservation
       ).toMatchObject({ name: reservation.name, email: reservation.email });
+    });
+  });
+
+  describe("contact email deliverability", () => {
+    test("rejects a contact email whose domain cannot receive mail before creating a customer or hold", async () => {
+      const { m } = await import("@/features/i18n");
+      const checkContactEmailDomain = mock(() =>
+        Effect.succeed("rejects_mail" as const)
+      );
+      const scenario = await runReusableReservationScenario({
+        findByAttemptKeys: mock(() => Effect.succeed(null)),
+        createDraft: mock(() => Effect.die("no draft may be created")),
+        checkContactEmailDomain,
+        marketingConsent: true,
+      });
+
+      expect(scenario.error).toMatchObject({
+        _tag: "PublicSafeActionError",
+        message: m.contactValidationEmailUndeliverable({}, { locale: "en-US" }),
+        cause: { _tag: "UndeliverableContactEmailError" },
+      });
+      expect(checkContactEmailDomain).toHaveBeenCalledWith(reservation.email);
+      expect(scenario.findOrCreateCustomer).not.toHaveBeenCalled();
+      expect(scenario.grantInitialMarketingConsent).not.toHaveBeenCalled();
+      expect(scenario.createDraft).not.toHaveBeenCalled();
+      expect(scenario.createReservation).not.toHaveBeenCalled();
+      expect(scenario.enqueueCleanup).not.toHaveBeenCalled();
+    });
+
+    test("continues the booking when the domain lookup is inconclusive", async () => {
+      const scenario = await runReusableReservationScenario({
+        findByAttemptKeys: mock(() => Effect.succeed(null)),
+        createDraft: mock((input) =>
+          Effect.succeed(
+            makeReusableReservation({
+              id: "new-reservation-id",
+              checkoutSessionKey: input.checkoutSessionKey,
+              checkoutAttemptKey: input.checkoutAttemptKey,
+              correlationId: "new-correlation-id",
+              dotyposCustomerId: input.dotyposCustomerId,
+              reservationDetails: input.reservationDetails,
+              locale: input.locale,
+              reservationHoldExpiresAt: input.reservationHoldExpiresAt,
+            })
+          )
+        ),
+        checkContactEmailDomain: mock(() => Effect.succeed("unknown" as const)),
+      });
+
+      expect(scenario.result?.status).toBe("ready");
+      expect(scenario.findOrCreateCustomer).toHaveBeenCalledTimes(1);
+    });
+
+    test("does not check the signed-in account's own email", async () => {
+      const checkContactEmailDomain = mock(() =>
+        Effect.succeed("rejects_mail" as const)
+      );
+      const scenario = await runReusableReservationScenario({
+        findByAttemptKeys: mock(() => Effect.succeed(null)),
+        createDraft: mock((input) =>
+          Effect.succeed(
+            makeReusableReservation({
+              id: "account-reservation-id",
+              checkoutSessionKey: input.checkoutSessionKey,
+              checkoutAttemptKey: input.checkoutAttemptKey,
+              correlationId: "account-correlation-id",
+              dotyposCustomerId: input.dotyposCustomerId,
+              reservationDetails: input.reservationDetails,
+              locale: input.locale,
+              reservationHoldExpiresAt: input.reservationHoldExpiresAt,
+            })
+          )
+        ),
+        accountAuthority: { session: {}, activityState: "active" },
+        customer: "account",
+        accountContact: Effect.succeed({
+          accountId: "5b6f31d0-2c1a-4f0e-9a3d-6c7b8e2f1a01",
+          dotyposCustomerId: "60111",
+          name: "Grace Hopper",
+          email: "grace@example.test",
+          phone: "+420 602 123 456",
+        } as never),
+        checkContactEmailDomain,
+      });
+
+      expect(scenario.result?.status).toBe("ready");
+      expect(checkContactEmailDomain).not.toHaveBeenCalled();
     });
   });
 

@@ -3,7 +3,12 @@ import { m } from "@/features/i18n";
 import { captureAccountReview } from "../account/review-screenshots";
 import { dismissLegalCookieConsent } from "../legal-cookie-consent";
 import { workspaceE2ETimeouts } from "../timeouts";
-import { enablePreviewAccess, requireBaseUrl } from "./navigation-test-helpers";
+import {
+  enablePreviewAccess,
+  requireBaseUrl,
+  reviewDestination,
+  reviewScreenshots,
+} from "./navigation-test-helpers";
 import {
   type CookieCategory,
   expectNoAuthSessionCookie,
@@ -15,10 +20,16 @@ import {
 const locale = "en-US" as const;
 const publicAccountLegalPath = `/${locale}/account/legal`;
 const legacyCookieSettingsPath = `/${locale}/cookie-settings`;
-const viewports = [
-  { height: 1_000, name: "desktop", width: 1_440 },
-  { height: 900, name: "mobile 375", width: 375 },
-] as const;
+const desktopViewport = {
+  height: 1_000,
+  name: "desktop",
+  width: 1_440,
+} as const;
+const mobileViewport = { height: 900, name: "mobile 375", width: 375 } as const;
+const viewports = [desktopViewport, mobileViewport] as const;
+// The anonymous render is one server-gating sentinel; the desktop pass exists
+// only so opted-in review runs still capture both layouts.
+const renderViewports = reviewScreenshots ? viewports : [mobileViewport];
 const publicLegalReviewTargetByViewport = {
   desktop: "public-legal-desktop",
   "mobile 375": "public-legal-mobile",
@@ -35,7 +46,7 @@ test.beforeEach(async ({ baseURL, context }) => {
   await enablePreviewAccess(context, baseURL);
 });
 
-for (const viewport of viewports) {
+for (const viewport of renderViewports) {
   test(`renders anonymous public account legal at ${viewport.name}`, async ({
     baseURL,
     context,
@@ -55,7 +66,7 @@ for (const viewport of viewports) {
     await expectPublicAccountLegal(page);
     await captureAccountReview(
       page,
-      requireBaseUrl(baseURL),
+      reviewDestination(baseURL),
       publicLegalReviewTargetByViewport[viewport.name]
     );
   });
@@ -101,61 +112,60 @@ test("persists and restores the anonymous analytics choice across reload", async
     );
   };
 
-  for (const viewport of viewports) {
-    await page.setViewportSize(viewport);
-    await page.goto(publicAccountLegalPath, {
-      timeout: workspaceE2ETimeouts.browserNavigation,
-      waitUntil: "load",
+  // Consent persistence has no viewport-dependent path, so one pass at the
+  // shared default viewport covers it.
+  await page.goto(publicAccountLegalPath, {
+    timeout: workspaceE2ETimeouts.browserNavigation,
+    waitUntil: "load",
+  });
+  await dismissLegalCookieConsent(page, locale);
+
+  const expectNecessaryCheckedDisabled = async () => {
+    const necessarySwitch = switchForCategory("necessary");
+    await expect(necessarySwitch).toHaveAttribute("aria-checked", "true");
+    await expect(necessarySwitch).toBeDisabled();
+  };
+
+  const toggle = async (
+    category: Exclude<CookieCategory, "necessary">,
+    checked: boolean
+  ) => {
+    const categorySwitch = switchForCategory(category);
+    await waitForCookieSwitchHandler(page, category);
+    await expect(categorySwitch).toBeEnabled();
+    // Playwright's locator activation sends a trusted browser interaction;
+    // no evaluated DOM click or consent-cookie value is used here.
+    await categorySwitch.click({
+      timeout: workspaceE2ETimeouts.browserAction,
     });
-    await dismissLegalCookieConsent(page, locale);
+    await expectSwitchState(category, checked);
+  };
 
-    const expectNecessaryCheckedDisabled = async () => {
-      const necessarySwitch = switchForCategory("necessary");
-      await expect(necessarySwitch).toHaveAttribute("aria-checked", "true");
-      await expect(necessarySwitch).toBeDisabled();
-    };
+  await expectNecessaryCheckedDisabled();
+  await toggle("preferences", true);
 
-    const toggle = async (
-      category: Exclude<CookieCategory, "necessary">,
-      checked: boolean
-    ) => {
-      const categorySwitch = switchForCategory(category);
-      await waitForCookieSwitchHandler(page, category);
-      await expect(categorySwitch).toBeEnabled();
-      // Playwright's locator activation sends a trusted browser interaction;
-      // no evaluated DOM click or consent-cookie value is used here.
-      await categorySwitch.click({
-        timeout: workspaceE2ETimeouts.browserAction,
-      });
-      await expectSwitchState(category, checked);
-    };
+  await toggle("analytics", true);
+  await toggle("marketing", true);
+  await expectNecessaryCheckedDisabled();
 
-    await expectNecessaryCheckedDisabled();
-    await toggle("preferences", true);
+  await page.reload({
+    timeout: workspaceE2ETimeouts.browserNavigation,
+    waitUntil: "load",
+  });
+  await dismissLegalCookieConsent(page, locale);
 
-    await toggle("analytics", true);
-    await toggle("marketing", true);
-    await expectNecessaryCheckedDisabled();
+  await expectSwitchState("analytics", true);
+  await expectSwitchState("marketing", true);
+  await expectSwitchState("preferences", true);
+  await expectNecessaryCheckedDisabled();
 
-    await page.reload({
-      timeout: workspaceE2ETimeouts.browserNavigation,
-      waitUntil: "load",
-    });
-    await dismissLegalCookieConsent(page, locale);
+  await toggle("analytics", false);
+  await expectSwitchState("marketing", true);
+  await expectNecessaryCheckedDisabled();
 
-    await expectSwitchState("analytics", true);
-    await expectSwitchState("marketing", true);
-    await expectSwitchState("preferences", true);
-    await expectNecessaryCheckedDisabled();
+  await toggle("marketing", false);
+  await expectNecessaryCheckedDisabled();
 
-    await toggle("analytics", false);
-    await expectSwitchState("marketing", true);
-    await expectNecessaryCheckedDisabled();
-
-    await toggle("marketing", false);
-    await expectNecessaryCheckedDisabled();
-
-    await toggle("preferences", false);
-    await expectNecessaryCheckedDisabled();
-  }
+  await toggle("preferences", false);
+  await expectNecessaryCheckedDisabled();
 });

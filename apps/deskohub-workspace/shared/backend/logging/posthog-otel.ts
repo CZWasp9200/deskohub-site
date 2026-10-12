@@ -24,7 +24,7 @@ type PostHogLogsFlushOptions = {
 
 const postHogLogsFlushTimeoutMs = 2_000;
 
-export function getPostHogLogsEndpoint(posthogHost: string) {
+function getPostHogLogsEndpoint(posthogHost: string) {
   return new URL(POSTHOG_LOGS_PATH, posthogHost).toString();
 }
 

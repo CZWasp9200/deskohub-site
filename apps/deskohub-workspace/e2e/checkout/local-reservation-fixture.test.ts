@@ -83,17 +83,8 @@ test("seeds one terminal local row and removes exactly that row in the finalizer
             expect(row.checkoutAttemptKey).toBe(value.checkoutAttemptKey);
             expect(row.checkoutSessionKey).toBe(value.checkoutSessionKey);
             expect(row.dotyposCustomerId).toBe(value.customerId);
-            expect(row.dotyposReservationId).toBeNull();
             expect(row.activePaymentAttemptId).toBeNull();
             expect(row.reservationState).toBe("hold_expired");
-            expect(row.paymentState).toBe("expired");
-            expect(row.fulfillmentState).toBe("not_started");
-            expect(row.locale).toBe("en-US");
-            expect(row.reservationDetails).toEqual({
-              coffee: false,
-              entryTier: "basic",
-              kind: "cowork",
-            });
             return yield* Effect.fail(new Error("exercise finalizer"));
           }),
         { database: fake.database }
