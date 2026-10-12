@@ -605,3 +605,42 @@ test("a guest switch before the session check settles navigates without saving",
   await waitFor(() => expect(window.location.pathname).toBe("/cs-CZ"));
   expect(saves).toEqual([]);
 });
+
+// React hands a client component the server's streamed promise as a bare
+// thenable: it has `then` and nothing else, so `catch` and `finally` are absent.
+const bareThenable = <T,>(value: T): PromiseLike<T> => ({
+  // biome-ignore lint/suspicious/noThenProperty: models React's streamed thenable.
+  then: (onFulfilled, onRejected) =>
+    Promise.resolve(value).then(onFulfilled, onRejected),
+});
+
+test("a signed-in switch with a streamed bare thenable saves, then navigates", async () => {
+  const { LocaleSwitcherLinks } = await import("./locale-switcher-links");
+  window.location.href = "http://localhost/en-US";
+  const saves: { locale: string }[] = [];
+  const signedIn = bareThenable(true);
+  const view = render(
+    <LocaleSwitcherLinks
+      currentLocale="en-US"
+      languageLabels={{ "cs-CZ": "Czech", "en-US": "English" }}
+      localePreference={{
+        signedIn,
+        save: (input) => {
+          saves.push(input);
+          return bareThenable(undefined);
+        },
+      }}
+    />
+  );
+  await act(async () => {
+    await signedIn;
+  });
+
+  const notPrevented = fireEvent.click(
+    view.getByRole("link", { name: "Czech" })
+  );
+
+  expect(notPrevented).toBe(false);
+  await waitFor(() => expect(window.location.pathname).toBe("/cs-CZ"));
+  expect(saves).toEqual([{ locale: "cs-CZ" }]);
+});

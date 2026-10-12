@@ -21,9 +21,12 @@ import { cn } from "@/shared/utils";
  * would be redirected straight back.
  */
 export type LocalePreferenceSaving = {
-  /** Resolves `true` for a signed-in customer; streamed after the shell. */
-  readonly signedIn: Promise<boolean>;
-  readonly save: (input: { readonly locale: Locale }) => Promise<unknown>;
+  /**
+   * Resolves `true` for a signed-in customer; streamed after the shell. On the
+   * client React hands it over as a bare thenable, so use only `then`.
+   */
+  readonly signedIn: PromiseLike<boolean>;
+  readonly save: (input: { readonly locale: Locale }) => PromiseLike<unknown>;
 };
 
 type LocaleSwitcherLinksProps = {
@@ -86,7 +89,7 @@ export function LocaleSwitcherLinks({
           if (!isPlainClick(event)) return;
           event.preventDefault();
           const href = event.currentTarget.href;
-          void localePreference.signedIn
+          void Promise.resolve(localePreference.signedIn)
             .catch(() => false)
             .then((isSignedIn) =>
               isSignedIn ? localePreference.save({ locale }) : undefined
