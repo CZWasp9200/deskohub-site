@@ -13,6 +13,7 @@ import {
 import { getAccountScreenCopy } from "@/features/account/components/account-screen-copy";
 import { ProfileCompletionReferralNoticeProvider } from "@/features/account/components/profile-completion-referral-notice";
 import {
+  type AccountNavigationBadge,
   type AccountSection,
   AccountShell,
 } from "@/features/account/components/shell/account-shell";
@@ -33,6 +34,9 @@ export type AccountLayoutContextValue = {
   readonly activeSection: AccountSection;
   readonly changeSection: (section: AccountSection) => void;
   readonly setReservationCount: (count: number | undefined) => void;
+  readonly setReferralBadge: (
+    badge: AccountNavigationBadge | undefined
+  ) => void;
 };
 
 const AccountLayoutContext = createContext<AccountLayoutContextValue | null>(
@@ -116,6 +120,9 @@ export function AccountLayoutShell({
   const [reservationCount, setReservationCountState] = useState<
     number | undefined
   >();
+  const [referralBadge, setReferralBadge] = useState<
+    AccountNavigationBadge | undefined
+  >();
   if (localNavigation.routeKey !== routeKey) {
     setLocalNavigation({ activeSection: routeSection, routeKey });
   }
@@ -164,6 +171,7 @@ export function AccountLayoutShell({
       activeSection,
       changeSection,
       setReservationCount,
+      setReferralBadge,
     }),
     [accountsEnabled, activeSection, changeSection, setReservationCount]
   );
@@ -182,6 +190,7 @@ export function AccountLayoutShell({
       }
       labels={copy.shell}
       onSectionChange={changeSection}
+      referralBadge={referralBadge}
       reservationCount={reservationCount}
       signOut={signedIn ? <SignOutButton locale={locale} /> : null}
       sidebarFooter={<AccountHelp locale={locale} />}

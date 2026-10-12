@@ -13,6 +13,7 @@ import type {
   CustomerProfileInput,
 } from "@/features/account/contracts";
 import { m } from "@/features/i18n";
+import { formatReferralInvitationDiscount } from "@/features/referrals/client";
 import { workspaceRouterRefresh } from "@/shared/testing/workspace-component-module-mocks";
 import {
   registerWorkspaceComponentTestEnv,
@@ -322,7 +323,12 @@ describe("ProfileForm", () => {
     expect(field.required).toBe(false);
     expect(field.className).toContain("uppercase");
     expect(
-      view.getByText(m.accountProfileReferralCodeHint({}, { locale: "en-US" }))
+      view.getByText(
+        m.accountProfileReferralCodeHint(
+          { discount: formatReferralInvitationDiscount("en-US") },
+          { locale: "en-US" }
+        )
+      )
     ).toBeTruthy();
 
     fireEvent.change(view.getByLabelText("First name"), {

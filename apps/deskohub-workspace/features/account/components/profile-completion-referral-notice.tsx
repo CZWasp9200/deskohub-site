@@ -9,6 +9,7 @@ import {
 } from "react";
 import type { ProfileCompletionReferralOutcome } from "@/features/account/contracts";
 import { type Locale, m } from "@/features/i18n";
+import { formatReferralInvitationDiscount } from "@/features/referrals/client";
 
 type ProfileCompletionReferralNoticeState = {
   readonly outcome: ProfileCompletionReferralOutcome | undefined;
@@ -52,7 +53,10 @@ export const getProfileCompletionReferralMessage = (
   locale: Locale
 ) => {
   if (outcome.status === "applied") {
-    return m.accountProfileReferralApplied({}, { locale });
+    return m.accountProfileReferralApplied(
+      { discount: formatReferralInvitationDiscount(locale) },
+      { locale }
+    );
   }
   if (outcome.status === "pending") {
     return m.accountProfileReferralPending({}, { locale });

@@ -16,8 +16,12 @@ import type {
   CustomerReservationHistory,
 } from "@/features/account/contracts";
 import { getAccountPath } from "@/features/account/routes";
-import type { Locale } from "@/features/i18n";
-import type { ReferralAccountSummary } from "@/features/referrals/contracts";
+import { type Locale, m } from "@/features/i18n";
+import {
+  formatReferralDiscount,
+  formatReferralDiscountReduction,
+} from "@/features/referrals/client";
+import type { ReferralAccountOverview } from "@/features/referrals/contracts";
 
 type LinkedAccountProps = {
   readonly email: string;
@@ -25,7 +29,7 @@ type LinkedAccountProps = {
   readonly locale: Locale;
   readonly profile: CustomerProfile;
   readonly avatarPresentation: CustomerAvatarPresentation;
-  readonly referralSummary?: ReferralAccountSummary;
+  readonly referrals?: ReferralAccountOverview;
 };
 
 export function LinkedAccount({
@@ -34,11 +38,15 @@ export function LinkedAccount({
   history,
   locale,
   profile,
-  referralSummary,
+  referrals,
 }: LinkedAccountProps) {
   const pathname = usePathname();
-  const { activeSection, changeSection, setReservationCount } =
-    useAccountLayout();
+  const {
+    activeSection,
+    changeSection,
+    setReferralBadge,
+    setReservationCount,
+  } = useAccountLayout();
   const normalizedPathname =
     pathname === null ? null : pathname.replace(/\/+$/, "") || "/";
   const isPrivateAccountPathname =
@@ -48,10 +56,33 @@ export function LinkedAccount({
   const reservationCount =
     history.kind === "available" ? history.groups.current.length : undefined;
 
+  const referralDiscount = referrals?.summary.discount;
+  const showReferralBadge =
+    referralDiscount !== undefined && referralDiscount !== "0";
+  const referralBadgeText = showReferralBadge
+    ? formatReferralDiscountReduction(referralDiscount, locale)
+    : undefined;
+  const referralBadgeLabel = showReferralBadge
+    ? m.accountReferralsNavigationBadgeLabel(
+        { discount: formatReferralDiscount(referralDiscount, locale) },
+        { locale }
+      )
+    : undefined;
+
   useEffect(() => {
     setReservationCount(reservationCount);
     return () => setReservationCount(undefined);
   }, [reservationCount, setReservationCount]);
+
+  // Depend on the strings, not a badge object, so publishing it cannot loop.
+  useEffect(() => {
+    setReferralBadge(
+      referralBadgeText === undefined || referralBadgeLabel === undefined
+        ? undefined
+        : { text: referralBadgeText, label: referralBadgeLabel }
+    );
+    return () => setReferralBadge(undefined);
+  }, [referralBadgeLabel, referralBadgeText, setReferralBadge]);
 
   return (
     <>
@@ -66,7 +97,7 @@ export function LinkedAccount({
       </div>
 
       <div hidden={activeSection !== "referrals"}>
-        <ReferralScreen locale={locale} summary={referralSummary} />
+        <ReferralScreen locale={locale} referrals={referrals} />
       </div>
 
       <div hidden={activeSection !== "profile" && activeSection !== "billing"}>

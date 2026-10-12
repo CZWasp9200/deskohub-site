@@ -13,6 +13,7 @@ import {
 import { formatDiscountAdjustment } from "@/features/checkout/format-discount-adjustment";
 import type { DiscountAdjustment } from "@/features/discounts/contracts";
 import { type Locale, m } from "@/features/i18n";
+import { formatReferralInvitationDiscount } from "@/features/referrals/client";
 import { Input } from "@/shared/components/ui/input";
 import { Label } from "@/shared/components/ui/label";
 import { CheckoutDiscountCodeSubmitButton } from "./checkout-discount-code-submit-button";
@@ -51,7 +52,10 @@ export function CheckoutDiscountCodeForm({
       className="block rounded-2xl border border-aquamarine-green/40 bg-aquamarine-green/12 px-4 py-3 text-sm font-semibold text-aquamarine-ink ring-1 ring-aquamarine-green/10"
       data-checkout-referral-applied
     >
-      {m.checkoutReferralDiscountApplied({}, { locale })}
+      {m.checkoutReferralDiscountApplied(
+        { discount: formatReferralInvitationDiscount(locale) },
+        { locale }
+      )}
     </output>
   ) : null;
 

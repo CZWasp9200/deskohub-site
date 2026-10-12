@@ -1,4 +1,5 @@
 import type { DotyposCustomerId } from "@deskohub/dotypos";
+import { referralVisitWindowDays } from "./program";
 
 export type ReferralHistoryEvidence = {
   readonly dotyposCustomerId: DotyposCustomerId;
@@ -8,14 +9,12 @@ export type ReferralHistoryEvidence = {
   readonly endsAt: Temporal.Instant;
 };
 
-const referralHistoryWindowMilliseconds = 30 * 24 * 60 * 60 * 1000;
-
 export const countEligibleReferralInvitees = (input: {
   readonly referrals: readonly ReferralHistoryEvidence[];
   readonly now: Temporal.Instant;
 }): number => {
   const cutoff = input.now.subtract({
-    milliseconds: referralHistoryWindowMilliseconds,
+    hours: referralVisitWindowDays * 24,
   });
   const eligible = new Set<DotyposCustomerId>();
 

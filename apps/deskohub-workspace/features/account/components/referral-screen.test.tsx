@@ -7,22 +7,47 @@ import {
   mock,
   test,
 } from "bun:test";
-import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { parseReferralCode } from "@/features/referrals/client";
 import {
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
 } from "@/shared/testing/workspace-component-test-env";
 
-const { ReferralScreen } = await import("./referral-screen");
+// Radix resolves its layout-effect hook on import, so load the screen only
+// after the component test DOM is registered.
+let ReferralScreen: typeof import("./referral-screen").ReferralScreen;
 
 const code = parseReferralCode("RFL12345");
 if (code === undefined) throw new Error("Invalid referral test code");
 
-const summary = {
-  code,
-  eligibleInviteeCount: 3,
-  discount: "14.2625",
+const shareUrl = "https://workspace.example/account?ref=RFL12345";
+const referrals = {
+  summary: {
+    code,
+    inviteeCount: 5,
+    eligibleInviteeCount: 3,
+    discount: "14.2625",
+    savings: [{ value: 9234, exponent: 2, currency: "CZK" }],
+  },
+  shareUrl,
+} as const;
+const emptyReferrals = {
+  summary: {
+    code,
+    inviteeCount: 0,
+    eligibleInviteeCount: 0,
+    discount: "0",
+    savings: [],
+  },
+  shareUrl,
 } as const;
 const originalClipboard = Object.getOwnPropertyDescriptor(
   navigator,
@@ -30,7 +55,10 @@ const originalClipboard = Object.getOwnPropertyDescriptor(
 );
 
 describe("ReferralScreen", () => {
-  beforeAll(registerWorkspaceComponentTestEnv);
+  beforeAll(async () => {
+    registerWorkspaceComponentTestEnv();
+    ({ ReferralScreen } = await import("./referral-screen"));
+  });
   afterEach(() => {
     cleanup();
     if (originalClipboard) {
@@ -42,52 +70,210 @@ describe("ReferralScreen", () => {
   afterAll(unregisterWorkspaceComponentTestEnv);
 
   test.each([
+    {
+      locale: "en-US",
+      headings: [
+        "Referrals",
+        "Global discount",
+        "Your referral code",
+        "Your referral link",
+        "How referrals work",
+      ],
+      countSummary: "Referrals counting toward your discount: 3 of 5.",
+      discount: "15%",
+      saved: "CZK 92.34 saved!",
+    },
+    {
+      locale: "cs-CZ",
+      headings: [
+        "Doporučení",
+        "Globální sleva",
+        "Váš doporučovací kód",
+        "Váš doporučovací odkaz",
+        "Jak doporučení fungují",
+      ],
+      countSummary: "Doporučení započítaná do vaší slevy: 3 z 5.",
+      discount: "15 %",
+      // Text queries collapse the no-break space Intl puts before the symbol.
+      saved: "Ušetřeno 92,34 Kč!",
+    },
+  ] as const)(
+    "shows the referral counts, rounded-up discount, savings, and share details in $locale",
+    ({ countSummary, discount, headings, locale, saved }) => {
+      const view = render(
+        <ReferralScreen locale={locale} referrals={referrals} />
+      );
+
+      expect(
+        view.getAllByRole("heading", { level: 2 }).map((h) => h.textContent)
+      ).toEqual([...headings]);
+      const referralCount = within(
+        view.getByRole("region", { name: headings[0] })
+      );
+      expect(
+        view.container.querySelector("#account-referrals-eligible-count")
+          ?.textContent
+      ).toBe("3");
+      expect(referralCount.getByText("/ 5")).toBeTruthy();
+      expect(referralCount.getByText(countSummary)).toBeTruthy();
+      expect(
+        view.container.querySelector("#account-referrals-discount")?.textContent
+      ).toBe(discount);
+      expect(
+        within(view.getByRole("region", { name: headings[1] })).getByText(saved)
+      ).toBeTruthy();
+      expect(
+        within(view.getByRole("region", { name: headings[2] })).getByText(
+          "RFL12345"
+        )
+      ).toBeTruthy();
+      const link = within(
+        view.getByRole("region", { name: headings[3] })
+      ).getByRole("link");
+      expect(link.getAttribute("href")).toBe(shareUrl);
+      expect(link.textContent).toBe(shareUrl);
+      expect(view.queryByText(/@/)).toBeNull();
+    }
+  );
+
+  test("renders every referral card as a compact account panel", () => {
+    const view = render(
+      <ReferralScreen locale="en-US" referrals={referrals} />
+    );
+
+    expect(
+      Array.from(
+        view.container.querySelectorAll('[data-slot="account-section-panel"]'),
+        (panel) => panel.getAttribute("data-size")
+      )
+    ).toEqual(["compact", "compact", "compact", "compact", "compact"]);
+  });
+
+  test("presents a customer without referrals or savings as an empty starting point", () => {
+    const view = render(
+      <ReferralScreen locale="en-US" referrals={emptyReferrals} />
+    );
+
+    expect(
+      view.container.querySelector("#account-referrals-eligible-count")
+        ?.textContent
+    ).toBe("0");
+    expect(view.getByText("/ 0")).toBeTruthy();
+    expect(
+      view.getByText("No one has joined with your referral yet.")
+    ).toBeTruthy();
+    expect(
+      view.container.querySelector("#account-referrals-discount")?.textContent
+    ).toBe("0%");
+    expect(view.getByText("Nothing saved through referrals yet.")).toBeTruthy();
+    expect(view.queryByText(/saved!/)).toBeNull();
+    expect(view.getByText("RFL12345")).toBeTruthy();
+  });
+
+  test("shows one savings tile per currency the customer paid in", () => {
+    const view = render(
+      <ReferralScreen
+        locale="en-US"
+        referrals={{
+          ...referrals,
+          summary: {
+            ...referrals.summary,
+            savings: [
+              { value: 9234, exponent: 2, currency: "CZK" },
+              { value: 200, exponent: 2, currency: "EUR" },
+            ],
+          },
+        }}
+      />
+    );
+
+    expect(
+      view
+        .getAllByRole("listitem")
+        .slice(0, 2)
+        .map((tile) => tile.textContent)
+    ).toEqual(["CZK\u00a092.34 saved!", "€2 saved!"]);
+  });
+
+  test.each([
     [
       "en-US",
-      "Invite other Workspace customers",
-      "Currently eligible invited customers: 3",
+      "What the referral numbers mean",
+      "The large number shows invited customers who count toward your discount right now. The smaller number shows everyone who has joined with your referral.",
     ],
     [
       "cs-CZ",
-      "Pozvěte další zákazníky Workspace",
-      "Právě způsobilí pozvaní zákazníci: 3",
+      "Co znamenají čísla doporučení",
+      "Velké číslo ukazuje pozvané zákazníky, kteří se právě počítají do vaší slevy. Menší číslo ukazuje všechny, kdo se připojili přes vaše doporučení.",
+    ],
+    [
+      "en-US",
+      "About your global discount",
+      "This discount applies to the base price of any Workspace reservation.",
+    ],
+    [
+      "cs-CZ",
+      "O vaší globální slevě",
+      "Tato sleva platí na základní cenu jakékoli rezervace ve Workspace.",
     ],
   ] as const)(
-    "shows the share code and eligible count in %s",
-    (locale, title, countLabel) => {
-      const view = render(<ReferralScreen locale={locale} summary={summary} />);
+    "explains a stat box in a tooltip in %s: %s",
+    async (locale, label, explanation) => {
+      const view = render(
+        <ReferralScreen locale={locale} referrals={referrals} />
+      );
+      const trigger = view.getByRole("button", { name: label });
 
-      expect(view.getByRole("heading", { name: title })).toBeTruthy();
-      expect(view.getByText("RFL12345")).toBeTruthy();
-      expect(view.getByText(countLabel)).toBeTruthy();
-      expect(view.getByText(/14[,.]2625%/)).toBeTruthy();
-      expect(
-        view.getByRole("link", { name: `/${locale}/account?ref=RFL12345` })
-      ).toBeTruthy();
-      expect(view.queryByText(/@/)).toBeNull();
+      await act(async () => {
+        trigger.focus();
+      });
+
+      const tooltip = await waitFor(() =>
+        within(view.baseElement).getByRole("tooltip")
+      );
+      expect(tooltip.textContent).toBe(explanation);
+      expect(trigger.getAttribute("aria-describedby")).toBe(tooltip.id);
     }
   );
 
   test.each([
     [
       "en-US",
-      "Each invited customer with a confirmed, paid Workspace booking that ended within the past 30 days adds a compounding 5% discount to your reservations.",
+      [
+        "Share your code or link to grant a 15% discount on the first Workspace reservation!",
+        "For each invitee who visited us in the past 30 days, you get a compounding 5% discount!",
+        "That means with just 5 referrals, you get over 20% off!",
+      ],
     ],
     [
       "cs-CZ",
-      "Každý pozvaný zákazník s potvrzenou a zaplacenou rezervací ve Workspace, která skončila během posledních 30 dnů, zvyšuje vaši slevu na rezervace o dalších 5 %. Slevy se skládají.",
+      [
+        "Sdílejte svůj kód nebo odkaz a nový zákazník získá slevu 15 % na svou první rezervaci ve Workspace!",
+        "Za každého pozvaného, který nás navštívil během posledních 30 dnů, získáte další slevu 5 %. Slevy se skládají!",
+        "To znamená, že stačí jen 5 doporučení a máte slevu přes 20 %!",
+      ],
     ],
   ] as const)(
-    "explains the booking-end reward window in %s",
+    "explains the program terms from its configuration in %s",
     (locale, terms) => {
-      const view = render(<ReferralScreen locale={locale} summary={summary} />);
+      const view = render(
+        <ReferralScreen locale={locale} referrals={referrals} />
+      );
+      const howItWorks = within(
+        view.getAllByRole("region").at(-1) as HTMLElement
+      );
 
-      expect(view.getByText(terms)).toBeTruthy();
+      expect(
+        howItWorks.getAllByRole("listitem").map((item) => item.textContent)
+      ).toHaveLength(3);
+      for (const term of terms) expect(howItWorks.getByText(term)).toBeTruthy();
     }
   );
 
   test("offers only the customer's own share code and link, with no way to accept another code", () => {
-    const view = render(<ReferralScreen locale="en-US" summary={summary} />);
+    const view = render(
+      <ReferralScreen locale="en-US" referrals={referrals} />
+    );
     const screen = view.container.querySelector(
       '[data-screen="referrals-screen"]'
     );
@@ -97,11 +283,18 @@ describe("ReferralScreen", () => {
     );
     expect(
       screen?.querySelector("#account-referrals-link")?.getAttribute("href")
-    ).toBe("/en-US/account?ref=RFL12345");
+    ).toBe(shareUrl);
     expect(view.queryByRole("textbox")).toBeNull();
     expect(
-      view.getAllByRole("button").map((button) => button.textContent)
-    ).toEqual(["Copy referral link"]);
+      view
+        .getAllByRole("button")
+        .map((button) => button.getAttribute("aria-label"))
+    ).toEqual([
+      "What the referral numbers mean",
+      "About your global discount",
+      "Copy referral code",
+      "Copy referral link",
+    ]);
   });
 
   test("shows the unavailable summary without any acceptance control", () => {
@@ -114,37 +307,41 @@ describe("ReferralScreen", () => {
     expect(view.queryByRole("textbox")).toBeNull();
   });
 
-  test("shows copied and failed share-link feedback", async () => {
-    window.location.href = "http://localhost/en-US/account";
-    const writeText = mock(() => Promise.resolve());
-    Object.defineProperty(navigator, "clipboard", {
-      configurable: true,
-      value: { writeText },
-    });
-    const view = render(<ReferralScreen locale="en-US" summary={summary} />);
-
-    await act(async () => {
-      fireEvent.click(view.getByRole("button", { name: "Copy referral link" }));
-      await Promise.resolve();
-    });
-    expect(writeText).toHaveBeenCalledWith(
-      new URL("/en-US/account?ref=RFL12345", window.location.origin).href
-    );
-    expect(
-      view.getByRole("button", { name: "Referral link copied." })
-    ).toBeTruthy();
-
-    writeText.mockImplementation(() =>
-      Promise.reject(new Error("clipboard denied"))
-    );
-    await act(async () => {
-      fireEvent.click(
-        view.getByRole("button", { name: "Referral link copied." })
+  test.each([
+    ["Copy referral code", "Referral code copied.", "RFL12345"],
+    ["Copy referral link", "Referral link copied.", shareUrl],
+  ] as const)(
+    "%s copies the exact value and reports success and failure",
+    async (copyLabel, copiedLabel, value) => {
+      const writeText = mock(() => Promise.resolve());
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: { writeText },
+      });
+      const view = render(
+        <ReferralScreen locale="en-US" referrals={referrals} />
       );
-      await Promise.resolve();
-    });
-    expect(view.getByRole("status").textContent).toContain(
-      "Your browser could not copy the link. Select and copy it instead."
-    );
-  });
+      const button = view.getByRole("button", { name: copyLabel });
+      const card = within(button.closest("section") as HTMLElement);
+
+      await act(async () => {
+        fireEvent.click(button);
+        await Promise.resolve();
+      });
+      expect(writeText).toHaveBeenCalledWith(value);
+      expect(view.getByRole("button", { name: copiedLabel })).toBeTruthy();
+      expect(card.getByRole("status").textContent).toBe(copiedLabel);
+
+      writeText.mockImplementation(() =>
+        Promise.reject(new Error("clipboard denied"))
+      );
+      await act(async () => {
+        fireEvent.click(view.getByRole("button", { name: copiedLabel }));
+        await Promise.resolve();
+      });
+      expect(card.getByRole("status").textContent).toBe(
+        "Your browser could not copy it. Select and copy it instead."
+      );
+    }
+  );
 });

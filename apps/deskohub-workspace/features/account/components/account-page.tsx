@@ -37,7 +37,7 @@ export function AccountPage({
           history={state.history}
           locale={locale}
           profile={state.profile}
-          referralSummary={state.referrals}
+          referrals={state.referrals}
         />
       </>
     );

@@ -198,8 +198,10 @@ mock.module("@/features/account/backend/customer-avatar.service", () => ({
 
 const referralSummary = {
   code: "RFL12345",
+  inviteeCount: 0,
   eligibleInviteeCount: 0,
   discount: "0",
+  savings: [],
 } as const;
 let referralSummaryEffect: Effect.Effect<typeof referralSummary, unknown>;
 let referralSummaryCalls: Array<{
@@ -247,6 +249,15 @@ const ReferralsLayer = Layer.succeed(Referrals, {
 });
 Object.assign(Referrals, { Live: ReferralsLayer });
 mock.module("@/features/referrals", () => ({ ReferralService: Referrals }));
+mock.module("@/shared/backend/config/workspace-url.config", () => ({
+  getWorkspaceRuntimeCallbackOrigin: Effect.succeed(
+    new URL("https://workspace.example")
+  ),
+}));
+const accountReferrals = {
+  summary: referralSummary,
+  shareUrl: "https://workspace.example/account?ref=RFL12345",
+};
 
 type StoredSignupIntent = {
   readonly code: string;
@@ -418,7 +429,7 @@ describe("loadCustomerAccountPage", () => {
 
     const state = await loadPageState("RFL12345");
 
-    expect(state).toMatchObject({ kind: "linked", referrals: referralSummary });
+    expect(state).toMatchObject({ kind: "linked", referrals: accountReferrals });
     expect(acceptReferralCalls).toEqual([
       {
         code: "RFL12345",
@@ -492,13 +503,13 @@ describe("loadCustomerAccountPage", () => {
         await expect(loadPageState("RFLSHARE")).resolves.toMatchObject({
           kind: "linked",
           profile: { firstName: "Ada" },
-          referrals: referralSummary,
+          referrals: accountReferrals,
         });
       }
       acceptReferralEffect = Effect.die(new Error("referral store down"));
       await expect(loadPageState("RFLSHARE")).resolves.toMatchObject({
         kind: "linked",
-        referrals: referralSummary,
+        referrals: accountReferrals,
       });
     } finally {
       for (const spy of spies) spy.mockRestore();
@@ -573,7 +584,7 @@ describe("loadCustomerAccountPage", () => {
       profile: { firstName: "Ada" },
       avatar: { kind: "available", avatar: null },
       history: { kind: "available" },
-      referrals: referralSummary,
+      referrals: accountReferrals,
     });
     expect(referralSummaryCalls).toEqual([
       { customerAccountId: accountId, dotyposCustomerId: "60111" },
@@ -594,7 +605,7 @@ describe("loadCustomerAccountPage", () => {
       },
       avatar: { kind: "available", avatar: null },
       history: { kind: "unavailable", reason: "provider-unavailable" },
-      referrals: referralSummary,
+      referrals: accountReferrals,
     });
   });
 
@@ -678,7 +689,7 @@ describe("loadCustomerAccountPage", () => {
         kind: "available",
         groups: { current: [], past: [], unavailable: [] },
       },
-      referrals: referralSummary,
+      referrals: accountReferrals,
     });
     expect(avatarLookupCalls).toBe(0);
     expect(profileLoadCalls).toBe(1);

@@ -39,6 +39,7 @@ import {
 import type { CustomerAvatarPresentation } from "@/features/account/contracts";
 import { type Locale, m } from "@/features/i18n";
 import type { ReferralCode } from "@/features/referrals/client";
+import { formatReferralInvitationDiscount } from "@/features/referrals/client";
 import { Button } from "@/shared/components/ui/button";
 import {
   Form,
@@ -947,7 +948,12 @@ export function ProfileForm({
                         className="text-sm text-navy-blue/68"
                         id="profile-referral-code-hint"
                       >
-                        {m.accountProfileReferralCodeHint({}, { locale })}
+                        {m.accountProfileReferralCodeHint(
+                          {
+                            discount: formatReferralInvitationDiscount(locale),
+                          },
+                          { locale }
+                        )}
                       </p>
                       {fieldState.error ? (
                         <FormMessage

@@ -6,6 +6,7 @@ import {
   type WorkspaceMoney,
 } from "@/features/checkout/workspace-money";
 import { m } from "@/features/i18n";
+import { formatReferralInvitationDiscount } from "@/features/referrals/client";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import {
   evalBrowserScript,
@@ -117,7 +118,7 @@ export const bindWorkspaceE2EAccountReferralCheckout = ({
 
   const referralDiscounts = getReferralDiscountExpectations();
   const invitationSuccess = m.checkoutReferralDiscountApplied(
-    {},
+    { discount: formatReferralInvitationDiscount("en-US") },
     { locale: "en-US" }
   );
   const ordinarySuccess = m.checkoutDiscountCodeApplied(
@@ -675,7 +676,10 @@ const assertShareLinkReferralApplied = ({
         { operation: "verify share-link referral pay page" }
       );
     }
-    const message = m.checkoutReferralDiscountApplied({}, { locale });
+    const message = m.checkoutReferralDiscountApplied(
+      { discount: formatReferralInvitationDiscount(locale) },
+      { locale }
+    );
     yield* waitForBrowserCondition(
       run,
       session,
@@ -852,7 +856,10 @@ const assertReferralConfirmationCleared = ({
   readonly run: Runner;
   readonly session: string;
 }) => {
-  const message = m.checkoutReferralDiscountApplied({}, { locale });
+  const message = m.checkoutReferralDiscountApplied(
+    { discount: formatReferralInvitationDiscount(locale) },
+    { locale }
+  );
   return waitForBrowserCondition(
     run,
     session,

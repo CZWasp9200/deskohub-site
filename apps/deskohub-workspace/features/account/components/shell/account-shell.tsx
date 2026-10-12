@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { type ReactNode, useEffect, useId, useRef } from "react";
 import { Button } from "@/shared/components/ui/button";
+import { cn } from "@/shared/utils";
 import { AccountFrame } from "./account-frame";
 
 /*
@@ -28,6 +29,12 @@ export type AccountSection =
   | "legal"
   | "danger";
 
+export interface AccountNavigationBadge {
+  readonly text: string;
+  /** Spoken in place of the text, such as "15% referral discount". */
+  readonly label: string;
+}
+
 export interface AccountShellProps {
   readonly activeSection: AccountSection;
   readonly onSectionChange: (section: AccountSection) => void;
@@ -40,6 +47,8 @@ export interface AccountShellProps {
     readonly sections: Readonly<Record<AccountSection, string>>;
   };
   readonly reservationCount?: number;
+  /** Badge beside Referrals, such as "-15%"; hidden when absent. */
+  readonly referralBadge?: AccountNavigationBadge;
   readonly sidebarFooter?: ReactNode;
   readonly disabledSections?: readonly AccountSection[];
 }
@@ -50,6 +59,7 @@ export function AccountShell({
   disabledSections = [],
   labels,
   onSectionChange,
+  referralBadge,
   reservationCount,
   sidebarFooter,
   signOut,
@@ -210,10 +220,20 @@ export function AccountShell({
                     </span>
                     {section.key === "reservations" &&
                       validReservationCount !== undefined && (
-                        <span className="ml-auto min-w-9 rounded-full bg-[#b06147] px-2.5 py-1 text-center text-sm font-bold leading-none text-white [font-family:var(--font-sculpin,Arial),sans-serif]">
+                        <NavigationBadge section="reservations">
                           {validReservationCount}
-                        </span>
+                        </NavigationBadge>
                       )}
+                    {section.key === "referrals" && referralBadge && (
+                      <NavigationBadge
+                        active={isActive}
+                        label={referralBadge.label}
+                        section="referrals"
+                        tone="positive"
+                      >
+                        {referralBadge.text}
+                      </NavigationBadge>
+                    )}
                   </Button>
                 );
               })}
@@ -227,5 +247,40 @@ export function AccountShell({
     >
       {children}
     </AccountFrame>
+  );
+}
+
+function NavigationBadge({
+  active = false,
+  children,
+  label,
+  section,
+  tone = "count",
+}: {
+  readonly active?: boolean;
+  readonly children: ReactNode;
+  /** Replaces the visible text for screen readers when set. */
+  readonly label?: string;
+  readonly section: AccountSection;
+  readonly tone?: "count" | "positive";
+}) {
+  return (
+    <span
+      data-account-navigation-badge={section}
+      className={cn(
+        "ml-auto min-w-9 shrink-0 whitespace-nowrap rounded-full px-2.5 py-1 text-center text-sm font-bold leading-none text-white [font-family:var(--font-sculpin,Arial),sans-serif]",
+        tone === "positive" ? "bg-aquamarine-ink" : "bg-[#b06147]",
+        tone === "positive" && active && "ring-1 ring-white/40"
+      )}
+    >
+      {label === undefined ? (
+        children
+      ) : (
+        <>
+          <span aria-hidden="true">{children}</span>
+          <span className="sr-only">{label}</span>
+        </>
+      )}
+    </span>
   );
 }

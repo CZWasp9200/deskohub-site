@@ -10,7 +10,10 @@ import {
 import { useState } from "react";
 import type { CustomerProfileInput } from "@/features/account/contracts";
 import { type Locale, m } from "@/features/i18n";
-import { parseReferralCode } from "@/features/referrals/client";
+import {
+  formatReferralInvitationDiscount,
+  parseReferralCode,
+} from "@/features/referrals/client";
 import {
   workspaceRouterPush,
   workspaceRouterRefresh,
@@ -411,7 +414,12 @@ describe("AccountPage states", () => {
       ).toBeTruthy();
     });
     expect(
-      view.getByText(m.accountProfileReferralApplied({}, en))
+      view.getByText(
+        m.accountProfileReferralApplied(
+          { discount: formatReferralInvitationDiscount(en.locale) },
+          en
+        )
+      )
     ).toBeTruthy();
     expect(view.container.querySelector("#profile-referral-code")).toBeNull();
     expect(view.queryByRole("button", { name: /accept/i })).toBeNull();

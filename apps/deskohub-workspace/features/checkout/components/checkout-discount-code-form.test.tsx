@@ -17,6 +17,7 @@ import {
 } from "@/features/checkout/checkout-quote.test-utils";
 import { hasCheckoutReferralAppliedNotice } from "@/features/checkout/checkout-referral-notice";
 import { m } from "@/features/i18n";
+import { formatReferralInvitationDiscount } from "@/features/referrals/client";
 import { workspaceUseAction } from "@/shared/testing/workspace-component-module-mocks";
 import {
   registerWorkspaceComponentTestEnv,
@@ -213,7 +214,12 @@ describe("CheckoutDiscountCodeForm", () => {
       expect(view.getByRole("textbox")).toHaveProperty("value", "")
     );
     expect(
-      view.getByText(m.checkoutReferralDiscountApplied({}, { locale: "en-US" }))
+      view.getByText(
+        m.checkoutReferralDiscountApplied(
+          { discount: formatReferralInvitationDiscount("en-US") },
+          { locale: "en-US" }
+        )
+      )
     ).toBeDefined();
     expect(
       view.getByRole("button", {
@@ -277,9 +283,17 @@ describe("CheckoutDiscountCodeForm", () => {
         />
       );
 
+      // Compare raw text: cs-CZ percentages contain a no-break space that
+      // getByText's whitespace normalization would collapse.
       expect(
-        view.getByText(m.checkoutReferralDiscountApplied({}, { locale }))
-      ).toBeDefined();
+        view.container.querySelector("[data-checkout-referral-applied]")
+          ?.textContent
+      ).toBe(
+        m.checkoutReferralDiscountApplied(
+          { discount: formatReferralInvitationDiscount(locale) },
+          { locale }
+        )
+      );
       const codeInput = view.getByRole("textbox") as HTMLInputElement;
       expect(codeInput.name).toBe("submittedCode");
       expect(codeInput.disabled).toBe(false);
@@ -319,7 +333,10 @@ describe("CheckoutDiscountCodeForm", () => {
 
       expect(
         view.queryByText(
-          m.checkoutReferralDiscountApplied({}, { locale: "en-US" })
+          m.checkoutReferralDiscountApplied(
+            { discount: formatReferralInvitationDiscount("en-US") },
+            { locale: "en-US" }
+          )
         )
       ).toBeNull();
       expect(view.getByRole("textbox")).toBeDefined();
