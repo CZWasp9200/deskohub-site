@@ -2,12 +2,12 @@ import "@/shared/testing/workspace-test-env";
 
 import { expect, test } from "bun:test";
 import { basename, dirname, resolve } from "node:path";
+import { DotyposCustomerIdSchema } from "@deskohub/dotypos";
 import {
   BasicTracerProvider,
   InMemorySpanExporter,
   SimpleSpanProcessor,
 } from "@opentelemetry/sdk-trace-base";
-import { DotyposCustomerIdSchema } from "@deskohub/dotypos";
 import { Cause, Effect, Exit, Layer } from "effect";
 import { buildFreshCheckoutPayPath } from "@/features/checkout/backend/checkout/checkout-pay-url";
 import { buildCoworkReservationQuote } from "@/features/checkout/checkout-quote.test-utils";
@@ -24,11 +24,11 @@ import { makeTestE2EEnvironment } from "../e2e-env.test-fixture";
 import { isWorkspaceE2ETimeout, workspaceE2ETimeoutError } from "../errors";
 import { E2EDatabase } from "../integrations/database.service";
 import type { Runner } from "../runtime";
+import { workspaceDir } from "../runtime";
 import {
   E2ERunContextService,
   E2ETelemetryService,
 } from "../services/telemetry";
-import { workspaceDir } from "../runtime";
 import type {
   WorkspaceE2ECase,
   WorkspaceE2EStep,
@@ -382,7 +382,7 @@ test("accepts only the owned first pay page that reports the share-link referral
   }
 });
 
-test("accepts only a rejected referral code that keeps the signed pay state", () => {
+test("accepts only a rejected referral code on a re-signed pay state", () => {
   const baseUrl = "https://workspace.example.test";
   const orderId = "workspace-reservation-123" as WorkspaceReservationId;
   const previousUrl = `${baseUrl}/en-US/checkout/pay?payState=signed&orderId=${orderId}`;
@@ -395,12 +395,12 @@ test("accepts only a rejected referral code that keeps the signed pay state", ()
       orderId,
       previousUrl,
     });
-  const rejected = `${previousUrl}&discountCodeError=referral-already-attributed&discountCodeErrorId=synthetic`;
+  const rejected = `${baseUrl}/en-US/checkout/pay?payState=fresh&orderId=${orderId}&discountCodeError=referral-already-attributed&discountCodeErrorId=synthetic`;
 
   expect(accepts(rejected)).toBe(true);
   for (const candidate of [
     previousUrl,
-    rejected.replace("payState=signed", "payState=fresh"),
+    rejected.replace("payState=fresh", "payState=signed"),
     rejected.replace("referral-already-attributed", "referral-ineligible"),
     `${rejected}&discountCodeError=referral-already-attributed`,
     `${rejected}&referralApplied=1`,
@@ -433,13 +433,12 @@ test("exports bounded ordinary-code form state from the referral assertion", asy
     timeoutStep: true,
     waitForAbort: true,
   });
-  const failureSpan = failedObservation.spans
-    .find(
-      (span) =>
-        span.name === "e2e.step" &&
-        span.attributes["e2e.step.id"] ===
-          "assert-ordinary-code-slot-after-referral"
-    );
+  const failureSpan = failedObservation.spans.find(
+    (span) =>
+      span.name === "e2e.step" &&
+      span.attributes["e2e.step.id"] ===
+        "assert-ordinary-code-slot-after-referral"
+  );
 
   expect(failedObservation.exit._tag).toBe("Failure");
   expect(failedObservation.calls.waitSignalAborted).toBe(true);
@@ -477,13 +476,12 @@ test("exports bounded ordinary-code form state from the referral assertion", asy
     inputValue: "",
     namedFieldCount: 1,
   });
-  const successSpan = successfulObservation.spans
-    .find(
-      (span) =>
-        span.name === "e2e.step" &&
-        span.attributes["e2e.step.id"] ===
-          "assert-ordinary-code-slot-after-referral"
-    );
+  const successSpan = successfulObservation.spans.find(
+    (span) =>
+      span.name === "e2e.step" &&
+      span.attributes["e2e.step.id"] ===
+        "assert-ordinary-code-slot-after-referral"
+  );
 
   expect(successfulObservation.exit._tag).toBe("Success");
   expect(successSpan?.attributes).toMatchObject({
@@ -670,7 +668,10 @@ const makeOrdinaryCodeSlotRunner = ({
   readonly namedFieldCount: number;
   readonly observerFailure: boolean;
   readonly waitForAbort: boolean;
-}): { readonly calls: { observationReadCount: number; waitSignalAborted: boolean }; readonly run: Runner } => {
+}): {
+  readonly calls: { observationReadCount: number; waitSignalAborted: boolean };
+  readonly run: Runner;
+} => {
   class SyntheticInput {
     disabled = false;
     value = inputValue;
@@ -691,7 +692,7 @@ const makeOrdinaryCodeSlotRunner = ({
   }));
   const document = {
     querySelector: (selector: string) =>
-      selector === "#checkout-discount-code-form" ? forms[0] ?? null : null,
+      selector === "#checkout-discount-code-form" ? (forms[0] ?? null) : null,
     querySelectorAll: (selector: string) =>
       selector === "#checkout-discount-code-form"
         ? forms
@@ -702,8 +703,7 @@ const makeOrdinaryCodeSlotRunner = ({
   const window = {
     getComputedStyle: (element: unknown) => ({
       display: element === forms[0] && formVisible ? "block" : "none",
-      visibility:
-        element === forms[0] && formVisible ? "visible" : "hidden",
+      visibility: element === forms[0] && formVisible ? "visible" : "hidden",
     }),
   } as Record<string, unknown>;
   const calls = { observationReadCount: 0, waitSignalAborted: false };

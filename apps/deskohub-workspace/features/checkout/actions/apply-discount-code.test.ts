@@ -119,7 +119,6 @@ describe("applyDiscountCodeForm", () => {
   test.each([
     ["already_attributed", "referral-already-attributed"],
     ["ineligible", "referral-ineligible"],
-    ["sign_in_required", "referral-sign-in-required"],
   ] as const)(
     "routes the %s referral rejection to its explained field error",
     async (status, discountCodeError) => {

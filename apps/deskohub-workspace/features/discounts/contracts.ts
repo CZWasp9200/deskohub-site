@@ -194,4 +194,6 @@ export type DiscountQuoteInput = {
   readonly locale: Locale;
   readonly dotyposCustomerId: DotyposCustomerId;
   readonly submittedCode?: CanonicalPromotionCode;
+  /** Referral code the checkout carries for an unattributed customer. */
+  readonly referralCode?: CanonicalPromotionCode;
 };

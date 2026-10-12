@@ -168,14 +168,20 @@ const quotePreparedReservation = Effect.fn(
   readonly dotyposCustomerId: DotyposCustomerId;
   readonly locale: Locale;
   readonly referralCodePrefill: CanonicalPromotionCode | undefined;
+  readonly referralCode: CanonicalPromotionCode | undefined;
 }) {
   const pricing = yield* CheckoutPricingService;
+  const referral =
+    input.referralCode === undefined
+      ? {}
+      : { referralCode: input.referralCode };
 
   const prepared = yield* pricing.quoteForCustomer({
     ...input.advertisement,
     dotyposCustomerId: input.dotyposCustomerId,
     locale: input.locale,
     affirmedAdvertisement: input.advertisement.discountQuote,
+    ...referral,
   });
   const advertisedSummary = Match.value(input.advertisement).pipe(
     Match.discriminatorsExhaustive("kind")({
@@ -209,6 +215,7 @@ const quotePreparedReservation = Effect.fn(
 
   return {
     ...prepared,
+    ...referral,
     requestedDiscountCode:
       input.advertisement.requestedDiscountCode ?? input.referralCodePrefill,
     changedKeys,
@@ -763,41 +770,48 @@ const resolveAccountCustomer = Effect.fn(
 });
 
 /**
- * Accepts a shared referral code for an account booking when possible, so the
- * quote built next already carries the invitation discount. Acceptance takes
- * the account advisory lock in its own transaction, so it must run before the
- * guarded state-creating section. Guests, contact bookings, and every
- * acceptance failure continue checkout unchanged.
+ * Carries a shared referral code in an account booking's first Pay state when
+ * the account can still take it, so the first quote already prices the
+ * invitation. The attribution is recorded only when that order is paid, so an
+ * abandoned checkout leaves nothing behind. Guests, contact bookings, and
+ * every rejection continue checkout without it.
  */
-const acceptReferralCode = Effect.fn("preparePayState.acceptReferralCode")(
-  function* (input: PreparePayStateInput) {
-    if (input.customer !== "account" || input.referralCode === undefined) {
-      return false;
-    }
-
-    const contacts = yield* CustomerAccountContactService;
-    const referrals = yield* ReferralService;
-    const code = input.referralCode;
-    return yield* contacts.currentLinkedAccount.pipe(
-      Effect.flatMap((account) =>
-        account
-          ? referrals
-              .acceptReferral({
-                code,
-                customerAccountId: account.accountId,
-                dotyposCustomerId: account.dotyposCustomerId,
-              })
-              .pipe(Effect.as(true))
-          : Effect.succeed(false)
-      ),
-      Effect.catch((error) =>
-        Effect.logInfo("Checkout referral code was not accepted", {
-          reason: error._tag === "ReferralError" ? error.reason : error._tag,
-        }).pipe(Effect.as(false))
-      )
-    );
+const evaluateAccountReferralCode = Effect.fn(
+  "preparePayState.evaluateAccountReferralCode"
+)(function* (input: PreparePayStateInput) {
+  if (input.customer !== "account" || input.referralCode === undefined) {
+    return undefined;
   }
-);
+
+  const contacts = yield* CustomerAccountContactService;
+  const referrals = yield* ReferralService;
+  const code = input.referralCode;
+  return yield* contacts.currentLinkedAccount.pipe(
+    Effect.flatMap((account) =>
+      account
+        ? referrals.evaluateCheckoutReferral({
+            code,
+            dotyposCustomerId: account.dotyposCustomerId,
+          })
+        : Effect.succeed(undefined)
+    ),
+    Effect.map((evaluation) =>
+      evaluation === undefined
+        ? undefined
+        : {
+            referralCode:
+              evaluation.kind === "eligible"
+                ? canonicalPromotionCodeSchema.make(evaluation.code)
+                : undefined,
+          }
+    ),
+    Effect.catch((error) =>
+      Effect.logInfo("Checkout referral code was not carried", {
+        reason: error._tag === "ReferralError" ? error.reason : error._tag,
+      }).pipe(Effect.as(undefined))
+    )
+  );
+});
 
 /**
  * A booking that is not the signed-in account cannot accept a referral here,
@@ -855,7 +869,7 @@ export const prepareWorkspacePayState = Effect.fn("prepareWorkspacePayState")(
     yield* botProtection.verifyHuman({ verificationFailurePolicy: "allow" });
 
     const accountActivity = yield* OptionalAccountActivityGuard;
-    const referralAccepted = yield* acceptReferralCode(input);
+    const accountReferral = yield* evaluateAccountReferralCode(input);
     const referralCodePrefill = yield* findReferralCodePrefill(input);
 
     // The full state-creating section runs inside the account advisory
@@ -965,6 +979,7 @@ export const prepareWorkspacePayState = Effect.fn("prepareWorkspacePayState")(
           dotyposCustomerId,
           locale: input.locale,
           referralCodePrefill,
+          referralCode: accountReferral?.referralCode,
         });
         yield* Effect.annotateLogsScoped({ quote: prepared.quote });
         yield* Effect.logDebug("Workspace reservation quote built");
@@ -1062,6 +1077,7 @@ export const prepareWorkspacePayState = Effect.fn("prepareWorkspacePayState")(
               ),
               locale: input.locale,
               referralCodePrefill,
+              referralCode: accountReferral?.referralCode,
             });
 
             yield* reservations.updateReservationDetails({
@@ -1239,7 +1255,7 @@ export const prepareWorkspacePayState = Effect.fn("prepareWorkspacePayState")(
       })
     );
 
-    if (!referralAccepted || result.status === "error") return result;
+    if (!accountReferral || result.status === "error") return result;
     return {
       ...result,
       redirectUrl:

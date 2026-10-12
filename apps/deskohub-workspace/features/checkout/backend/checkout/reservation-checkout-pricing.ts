@@ -25,6 +25,11 @@ import {
   type PayStateSubmittedCodeMetadata,
 } from "./pay-state-contract";
 
+const getReferralCode = (input: {
+  readonly referralCode?: CanonicalPromotionCode;
+}) =>
+  input.referralCode === undefined ? {} : { referralCode: input.referralCode };
+
 type ReservationDetails = {
   readonly kind: string;
 };
@@ -64,6 +69,8 @@ export type ReservationCustomerQuoteInput<
   readonly dotyposCustomerId: DotyposCustomerId;
   readonly locale: Locale;
   readonly affirmedAdvertisement: AffirmedDiscountAdvertisementQuote;
+  /** Referral code the checkout carries for an unattributed customer. */
+  readonly referralCode?: CanonicalPromotionCode;
 };
 
 export type ReservationPaymentPriceAffirmationInput<
@@ -77,6 +84,8 @@ export type ReservationPaymentPriceAffirmationInput<
   /** Booking moment stored when the price was locked. */
   readonly bookedAt: Temporal.Instant;
   readonly submittedCode?: CanonicalPromotionCode;
+  /** Referral code the checkout carries for an unattributed customer. */
+  readonly referralCode?: CanonicalPromotionCode;
 };
 
 export type ReservationDiscountCodePriceInput<
@@ -363,6 +372,7 @@ export const reservationCheckoutPricing = <
             dotyposCustomerId: input.dotyposCustomerId,
             locale: input.locale,
             ...getSubmittedCodeMetadata(input),
+            ...getReferralCode(input),
           })
         ),
         Effect.bind("quote", ({ customerQuote, pricing }) =>
@@ -399,6 +409,7 @@ export const reservationCheckoutPricing = <
               dotyposCustomerId: input.dotyposCustomerId,
               locale: input.locale,
               submittedCode: input.submittedCode,
+              ...getReferralCode(input),
               displayedDiscountIds: input.quote.payment.discounts.map(
                 ({ discount }) => discount.id
               ),
@@ -443,6 +454,7 @@ export const reservationCheckoutPricing = <
         locale: input.locale,
         quote: input.quote,
         bookedAt: input.bookedAt,
+        ...getReferralCode(input),
       });
       const displayedSummary = domain.getCheckoutSummary({
         reservation: input.reservation,
@@ -474,6 +486,7 @@ export const reservationCheckoutPricing = <
         dotyposCustomerId: input.dotyposCustomerId,
         locale: input.locale,
         submittedCode: input.submittedCode,
+        ...getReferralCode(input),
       });
       const appliedQuote = yield* domain.buildQuote({
         pricing,

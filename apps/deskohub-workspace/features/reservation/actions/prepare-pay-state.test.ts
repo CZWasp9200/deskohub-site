@@ -341,7 +341,7 @@ const runReusableReservationScenario = async (input: {
   readonly accountContact?: CustomerAccountContactService["Service"]["current"];
   readonly linkedAccount?: CustomerAccountContactService["Service"]["currentLinkedAccount"];
   readonly referralCode?: string;
-  readonly acceptReferral?: ReturnType<typeof mock>;
+  readonly evaluateCheckoutReferral?: ReturnType<typeof mock>;
   readonly findAvailableCode?: ReturnType<typeof mock>;
   readonly checkContactEmailDomain?: ReturnType<typeof mock>;
 }) => {
@@ -428,9 +428,9 @@ const runReusableReservationScenario = async (input: {
     () =>
       input.linkedAccount ?? Effect.die("the linked account must not be read")
   );
-  const acceptReferral =
-    input.acceptReferral ??
-    mock(() => Effect.die("a referral must not be accepted"));
+  const evaluateCheckoutReferral =
+    input.evaluateCheckoutReferral ??
+    mock(() => Effect.die("a referral must not be evaluated"));
   const findAvailableCode =
     input.findAvailableCode ??
     mock(() => Effect.die("a referral code must not be looked up"));
@@ -441,7 +441,7 @@ const runReusableReservationScenario = async (input: {
       currentLinkedAccount: Effect.suspend(() => readLinkedAccount()),
     }),
     ReferralServiceMock({
-      acceptReferral: acceptReferral as never,
+      evaluateCheckoutReferral: evaluateCheckoutReferral as never,
       findAvailableCode: findAvailableCode as never,
     }),
     CheckoutPricingServiceMock({
@@ -535,7 +535,7 @@ const runReusableReservationScenario = async (input: {
     updateCustomerBillingDetails,
     readAccountContact,
     readLinkedAccount,
-    acceptReferral,
+    evaluateCheckoutReferral,
     findAvailableCode,
     checkContactEmailDomain,
   };
@@ -1626,20 +1626,39 @@ describe("prepareWorkspacePayState", () => {
           dotyposCustomerId: accountDotyposCustomerId,
           email: "grace@example.test",
         } as never);
+      const signedStateOf = async (
+        result: { readonly redirectUrl?: string } | object | undefined
+      ) => {
+        const { openPayState, payStateTokenQueryParam } = await import(
+          "@/features/checkout/backend/checkout"
+        );
+        const redirectUrl =
+          result && "redirectUrl" in result ? result.redirectUrl : undefined;
+        const token = new URL(
+          redirectUrl ?? "",
+          "https://deskohub.test"
+        ).searchParams.get(payStateTokenQueryParam);
+        return token ? Effect.runSync(openPayState(token)) : undefined;
+      };
       const referralAppliedOf = (redirectUrl: string | undefined) =>
         new URL(redirectUrl ?? "", "https://deskohub.test").searchParams.get(
           "referralApplied"
         );
 
-      test.each(["accepted", "already_accepted"] as const)(
-        "accepts the referral before the account lock and marks the %s result",
+      test.each(["eligible", "already_accepted"] as const)(
+        "carries an %s referral in the first Pay state without attributing it, and marks it",
         async (kind) => {
           const lockProbe = { held: false };
           const order: string[] = [];
-          const acceptReferral = mock(() =>
+          const quotedReferralCodes: unknown[] = [];
+          const evaluateCheckoutReferral = mock(() =>
             Effect.sync(() => {
-              order.push(lockProbe.held ? "accept:locked" : "accept:unlocked");
-              return { kind };
+              order.push(
+                lockProbe.held ? "evaluate:locked" : "evaluate:unlocked"
+              );
+              return kind === "eligible"
+                ? { kind, code: "RFL12345" }
+                : { kind };
             })
           );
           const scenario = await runReusableReservationScenario({
@@ -1654,23 +1673,30 @@ describe("prepareWorkspacePayState", () => {
             accountContact: accountContact(),
             linkedAccount: linkedAccount(),
             referralCode: "RFL12345",
-            acceptReferral,
-            quoteForCustomer: mock(({ affirmedAdvertisement }) => {
-              order.push("quote");
-              return Effect.succeed(
-                buildQuoteFromAdvertisement(affirmedAdvertisement)
-              );
-            }),
+            evaluateCheckoutReferral,
+            quoteForCustomer: mock(
+              ({ affirmedAdvertisement, referralCode }) => {
+                order.push("quote");
+                quotedReferralCodes.push(referralCode);
+                return Effect.succeed(
+                  buildQuoteFromAdvertisement(affirmedAdvertisement)
+                );
+              }
+            ),
           });
 
           expect(scenario.result?.status).toBe("ready");
-          expect(acceptReferral).toHaveBeenCalledTimes(1);
-          expect(acceptReferral.mock.calls[0]?.[0]).toEqual({
+          expect(evaluateCheckoutReferral).toHaveBeenCalledTimes(1);
+          expect(evaluateCheckoutReferral.mock.calls[0]?.[0]).toEqual({
             code: "RFL12345",
-            customerAccountId: accountId,
             dotyposCustomerId: accountDotyposCustomerId,
           });
-          expect(order).toEqual(["accept:unlocked", "quote"]);
+          expect(order).toEqual(["evaluate:unlocked", "quote"]);
+          const carried = kind === "eligible" ? "RFL12345" : undefined;
+          expect(quotedReferralCodes).toEqual([carried]);
+          expect((await signedStateOf(scenario.result))?.referralCode).toBe(
+            carried
+          );
           expect(
             referralAppliedOf(
               scenario.result && "redirectUrl" in scenario.result
@@ -1689,7 +1715,7 @@ describe("prepareWorkspacePayState", () => {
         "invalid_code",
         "account_unavailable",
       ] as const)(
-        "continues checkout silently when acceptance fails as %s",
+        "continues checkout silently without the code when evaluation fails as %s",
         async (reason) => {
           const scenario = await runReusableReservationScenario({
             findByAttemptKeys: mock(() => Effect.succeed(null)),
@@ -1699,14 +1725,17 @@ describe("prepareWorkspacePayState", () => {
             accountContact: accountContact(),
             linkedAccount: linkedAccount(),
             referralCode: "RFL12345",
-            acceptReferral: mock(() =>
+            evaluateCheckoutReferral: mock(() =>
               Effect.fail(new ReferralError({ reason }))
             ),
           });
 
           expect(scenario.result?.status).toBe("ready");
-          expect(scenario.acceptReferral).toHaveBeenCalledTimes(1);
+          expect(scenario.evaluateCheckoutReferral).toHaveBeenCalledTimes(1);
           expect(scenario.createDraft).toHaveBeenCalledTimes(1);
+          expect(
+            (await signedStateOf(scenario.result))?.referralCode
+          ).toBeUndefined();
           expect(
             referralAppliedOf(
               scenario.result && "redirectUrl" in scenario.result
@@ -1731,7 +1760,7 @@ describe("prepareWorkspacePayState", () => {
         });
 
         expect(scenario.result?.status).toBe("ready");
-        expect(scenario.acceptReferral).not.toHaveBeenCalled();
+        expect(scenario.evaluateCheckoutReferral).not.toHaveBeenCalled();
         expect(scenario.createDraft).toHaveBeenCalledTimes(1);
       });
 
@@ -1747,7 +1776,7 @@ describe("prepareWorkspacePayState", () => {
         });
 
         expect(scenario.result?.status).toBe("ready");
-        expect(scenario.acceptReferral).not.toHaveBeenCalled();
+        expect(scenario.evaluateCheckoutReferral).not.toHaveBeenCalled();
       });
 
       type PreparedResult = Awaited<
@@ -1786,7 +1815,7 @@ describe("prepareWorkspacePayState", () => {
             [{ code: "RFL12345" }],
           ]);
           expect(scenario.readLinkedAccount).not.toHaveBeenCalled();
-          expect(scenario.acceptReferral).not.toHaveBeenCalled();
+          expect(scenario.evaluateCheckoutReferral).not.toHaveBeenCalled();
           expect(await requestedCodeOf(scenario.result)).toBe("RFL12345");
           expect(redirectUrlOf(scenario.result)).not.toContain("RFL12345");
           expect(referralAppliedOf(redirectUrlOf(scenario.result))).toBeNull();
@@ -1811,7 +1840,7 @@ describe("prepareWorkspacePayState", () => {
           });
 
           expect(scenario.result?.status).toBe("ready");
-          expect(scenario.acceptReferral).not.toHaveBeenCalled();
+          expect(scenario.evaluateCheckoutReferral).not.toHaveBeenCalled();
           expect(await requestedCodeOf(scenario.result)).toBeUndefined();
         }
       );
@@ -1844,7 +1873,7 @@ describe("prepareWorkspacePayState", () => {
           accountContact: accountContact(),
           linkedAccount: linkedAccount(),
           referralCode: "RFL12345",
-          acceptReferral: mock(() =>
+          evaluateCheckoutReferral: mock(() =>
             Effect.fail(new ReferralError({ reason: "already_attributed" }))
           ),
         });

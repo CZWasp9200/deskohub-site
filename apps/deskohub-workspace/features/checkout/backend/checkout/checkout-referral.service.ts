@@ -1,5 +1,4 @@
-import { Context, Effect, Layer, Match } from "effect";
-import { CustomerAccountResolver } from "@/features/account/backend/customer-account-resolver.service";
+import { Context, Effect, Layer, Match, Schema } from "effect";
 import {
   type CheckoutSummary,
   getCheckoutSummaryChangedKeys,
@@ -8,9 +7,11 @@ import { getCoworkCheckoutSummary } from "@/features/checkout/checkout-summary-c
 import { getMeetingRoomCheckoutSummary } from "@/features/checkout/checkout-summary-meeting-room";
 import { getOfficeCheckoutSummary } from "@/features/checkout/checkout-summary-office";
 import { workspaceMoneyEquals } from "@/features/checkout/workspace-money";
+import { canonicalPromotionCodeSchema } from "@/features/discounts/contracts";
 import type { Locale } from "@/features/i18n";
 import { ReferralService } from "@/features/referrals";
 import type { ReferralError } from "@/features/referrals/contracts";
+import { dotyposCustomerIdSchema } from "@/features/reservation/dotypos-customer";
 import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
 import { buildFreshCheckoutPayPath } from "./checkout-pay-url";
 import { CheckoutPricingService } from "./checkout-pricing.service";
@@ -33,16 +34,12 @@ export type CheckoutReferralResult =
       readonly freshPayUrl?: string;
     }
   | {
-      /** The account already has a different, permanent referrer. */
+      /** The customer already has a different, permanent referrer. */
       readonly status: "already_attributed";
     }
   | {
-      /** Referral codes apply only to the customer's first booking. */
+      /** Referral codes apply only to the customer's first paid booking. */
       readonly status: "ineligible";
-    }
-  | {
-      /** Only a signed-in customer account can accept a referral code. */
-      readonly status: "sign_in_required";
     };
 
 export interface ICheckoutReferralService {
@@ -54,12 +51,11 @@ export interface ICheckoutReferralService {
 }
 
 const unavailable: CheckoutReferralResult = { status: "unavailable" };
-const signInRequired: CheckoutReferralResult = { status: "sign_in_required" };
 
 /**
- * Only a missing sign-in, an immutable existing attribution, and first-booking
- * ineligibility are explained to the customer; every other failure stays a
- * generic unavailable code so the response cannot probe codes or accounts.
+ * Only an immutable existing attribution and first-booking ineligibility are
+ * explained to the customer; every other failure stays a generic unavailable
+ * code so the response cannot probe codes or accounts.
  */
 const getAcceptanceRejection = (
   error: ReferralError
@@ -78,7 +74,6 @@ export class CheckoutReferralService extends Context.Service<
   static Default = Layer.effect(
     this,
     Effect.gen(function* () {
-      const accounts = yield* CustomerAccountResolver;
       const referrals = yield* ReferralService;
       const pricing = yield* CheckoutPricingService;
       const payableReservations = yield* PayableReservationService;
@@ -95,45 +90,43 @@ export class CheckoutReferralService extends Context.Service<
           });
           if (codeKind.kind !== "referral") return unavailable;
 
-          const resolved = yield* accounts.resolve.pipe(Effect.result);
-          if (resolved._tag === "Failure") {
-            return resolved.failure.reason === "unauthenticated"
-              ? signInRequired
-              : unavailable;
-          }
-          const identity = resolved.success;
+          // The referral belongs to the booked customer, whoever books: a
+          // guest, someone booking for another person, or an account.
           const currentReservation = yield* payableReservations.requireCurrent({
             orderId: opened.orderId,
             checkoutSessionId: opened.checkoutSessionId,
           });
-          if (
-            currentReservation.dotyposCustomerId !== identity.dotyposCustomerId
-          ) {
-            return unavailable;
-          }
+          const dotyposCustomerId = yield* Schema.decodeUnknownEffect(
+            dotyposCustomerIdSchema
+          )(currentReservation.dotyposCustomerId);
 
-          const acceptance = yield* referrals
-            .acceptReferral({
-              code: input.code,
-              customerAccountId: identity.accountId,
-              dotyposCustomerId: identity.dotyposCustomerId,
-            })
+          const evaluation = yield* referrals
+            .evaluateCheckoutReferral({ code: input.code, dotyposCustomerId })
             .pipe(Effect.result);
-          if (acceptance._tag === "Failure") {
+          if (evaluation._tag === "Failure") {
             return (
-              getAcceptanceRejection(acceptance.failure) ??
-              (yield* acceptance.failure)
+              getAcceptanceRejection(evaluation.failure) ??
+              (yield* evaluation.failure)
             );
           }
+          // Only a not-yet-attributed customer carries the code; it prices
+          // the invitation and is attributed when this order is paid.
+          const referralCode =
+            evaluation.success.kind === "eligible"
+              ? canonicalPromotionCodeSchema.make(evaluation.success.code)
+              : opened.referralCode;
+          const referralInput =
+            referralCode === undefined ? {} : { referralCode };
 
           const prepared = yield* Match.value(opened).pipe(
             Match.when({ reservation: { kind: "cowork" } }, (state) =>
               pricing.affirmForPayment({
                 reservation: state.reservation,
-                dotyposCustomerId: identity.dotyposCustomerId,
+                dotyposCustomerId,
                 locale: input.locale,
                 quote: state.quote,
                 bookedAt: getSignedPayStateBookedAt(opened),
+                ...referralInput,
                 // biome-ignore lint/plugin: Preserve exact optional-property typing for the ordinary code slot.
                 ...(state.submittedCode === undefined
                   ? {}
@@ -143,10 +136,11 @@ export class CheckoutReferralService extends Context.Service<
             Match.when({ reservation: { kind: "meeting-room" } }, (state) =>
               pricing.affirmForPayment({
                 reservation: state.reservation,
-                dotyposCustomerId: identity.dotyposCustomerId,
+                dotyposCustomerId,
                 locale: input.locale,
                 quote: state.quote,
                 bookedAt: getSignedPayStateBookedAt(opened),
+                ...referralInput,
                 // biome-ignore lint/plugin: Preserve exact optional-property typing for the ordinary code slot.
                 ...(state.submittedCode === undefined
                   ? {}
@@ -156,10 +150,11 @@ export class CheckoutReferralService extends Context.Service<
             Match.when({ reservation: { kind: "office" } }, (state) =>
               pricing.affirmForPayment({
                 reservation: state.reservation,
-                dotyposCustomerId: identity.dotyposCustomerId,
+                dotyposCustomerId,
                 locale: input.locale,
                 quote: state.quote,
                 bookedAt: getSignedPayStateBookedAt(opened),
+                ...referralInput,
                 // biome-ignore lint/plugin: Preserve exact optional-property typing for the ordinary code slot.
                 ...(state.submittedCode === undefined
                   ? {}
@@ -194,7 +189,7 @@ export class CheckoutReferralService extends Context.Service<
             previous: opened.quote,
             current: prepared.quote,
             commitment: prepared.commitment,
-            dotyposCustomerId: identity.dotyposCustomerId,
+            dotyposCustomerId,
           });
           const changed =
             !signedTotalWasConsistent ||
@@ -209,6 +204,7 @@ export class CheckoutReferralService extends Context.Service<
             orderId: opened.orderId,
             bookedAt: opened.bookedAt,
             checkoutSessionId: opened.checkoutSessionId,
+            ...referralInput,
             ...getSignedPayStateSubmittedCode(
               opened,
               prepared.quote.payment.discounts
@@ -225,7 +221,10 @@ export class CheckoutReferralService extends Context.Service<
           return changed
             ? { status: "pricing_changed" as const, freshPayUrl }
             : {
-                status: acceptance.success.kind,
+                status:
+                  evaluation.success.kind === "eligible"
+                    ? ("accepted" as const)
+                    : ("already_accepted" as const),
                 freshPayUrl,
               };
         },
@@ -239,7 +238,6 @@ export class CheckoutReferralService extends Context.Service<
   static Live = this.Default.pipe(
     Layer.provide(
       Layer.mergeAll(
-        CustomerAccountResolver.Live,
         ReferralService.Live,
         CheckoutPricingService.Live,
         PayableReservationService.Live,

@@ -535,7 +535,6 @@
   "checkoutReferralDiscountApplied": "Referral invitation discount applied: 15% off 🎉",
   "checkoutReferralCodeAlreadyAttributed": "This account already has a referral, and it can’t be changed. You can continue with the current price.",
   "checkoutReferralCodeIneligible": "Referral codes apply only to your first booking. You can continue with the current price.",
-  "checkoutReferralCodeSignInRequired": "To use a referral code, sign in to your Deskohub account with this booking’s email. It applies to your first booking. You can also continue with the current price.",
   "checkoutSummaryOriginalPrice": "Original price: {price}",
   "checkoutSummaryDiscountedPrice": "Discounted price: {price}",
   "checkoutSummaryItemCoffee": "Coffee",

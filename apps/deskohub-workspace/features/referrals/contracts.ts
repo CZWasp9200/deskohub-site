@@ -5,6 +5,16 @@ export type ReferralAcceptance =
   | { readonly kind: "accepted" }
   | { readonly kind: "already_accepted" };
 
+/**
+ * A referral code a checkout may carry for its customer. `eligible` means the
+ * invitation can be priced and attributed when the order is paid;
+ * `already_accepted` means the customer is already attributed to that
+ * referrer, so the code adds nothing to carry.
+ */
+export type CheckoutReferralEvaluation =
+  | { readonly kind: "eligible"; readonly code: ReferralCode }
+  | { readonly kind: "already_accepted" };
+
 export type ReferralCodeKind =
   | { readonly kind: "referral" }
   | { readonly kind: "other" };

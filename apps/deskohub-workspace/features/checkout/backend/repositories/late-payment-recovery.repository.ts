@@ -17,7 +17,9 @@ import type { DiscountClaimError } from "@/features/discounts/errors";
 import { referralFirstBookingLockStatement } from "@/features/referrals/advisory-locks";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import {
+  attemptRecordsReferral,
   ensureReferralFirstPaidTransition,
+  lockReferralFirstBooking,
   redeemCodeClaim,
   redeemReferralInvitationClaim,
 } from "./payment-lifecycle.repository";
@@ -165,11 +167,14 @@ export class LatePaymentRecoveryRepository extends Context.Service<
                   "Late-payment reservation was not found."
                 );
               }
-              yield* tx.execute(
-                referralFirstBookingLockStatement(
-                  reservationIdentity.dotyposCustomerId
-                )
-              );
+              yield* lockReferralFirstBooking({
+                tx,
+                dotyposCustomerId: reservationIdentity.dotyposCustomerId,
+                recordsAttribution: yield* attemptRecordsReferral(
+                  tx,
+                  input.paymentAttemptId
+                ),
+              });
 
               const [recovery] = yield* tx
                 .select()

@@ -10,7 +10,6 @@ describe("parseDiscountCodeRejection", () => {
     "unavailable",
     "referral-already-attributed",
     "referral-ineligible",
-    "referral-sign-in-required",
   ] as const)("accepts the %s Pay-page error value", (value) => {
     expect(parseDiscountCodeRejection(value)).toBe(value);
   });
@@ -28,7 +27,6 @@ describe("getDiscountCodeRejectionMessage", () => {
     ["unavailable", m.checkoutDiscountCodeUnavailable],
     ["referral-already-attributed", m.checkoutReferralCodeAlreadyAttributed],
     ["referral-ineligible", m.checkoutReferralCodeIneligible],
-    ["referral-sign-in-required", m.checkoutReferralCodeSignInRequired],
   ] as const)("localizes the %s rejection", (rejection, message) => {
     expect(getDiscountCodeRejectionMessage(rejection, "cs-CZ")).toBe(
       message({}, { locale: "cs-CZ" })

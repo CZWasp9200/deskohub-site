@@ -5,7 +5,6 @@ const discountCodeRejectionSchema = Schema.Literals([
   "unavailable",
   "referral-already-attributed",
   "referral-ineligible",
-  "referral-sign-in-required",
 ]);
 
 /** Why the Pay page's code box refused a submitted code. */
@@ -30,9 +29,6 @@ export const getDiscountCodeRejectionMessage = (
     ),
     Match.when("referral-ineligible", () =>
       m.checkoutReferralCodeIneligible({}, { locale })
-    ),
-    Match.when("referral-sign-in-required", () =>
-      m.checkoutReferralCodeSignInRequired({}, { locale })
     ),
     Match.exhaustive
   );

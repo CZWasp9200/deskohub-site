@@ -2,11 +2,6 @@ import "@/shared/polyfills/temporal";
 
 import { describe, expect, mock, test } from "bun:test";
 import { Effect, Layer, Schema } from "effect";
-import { CustomerAccountResolver } from "@/features/account/backend/customer-account-resolver.service";
-import {
-  CustomerAccountAccessError,
-  customerAccountIdSchema,
-} from "@/features/account/customer-account";
 import type { WorkspaceProductIdentity } from "@/features/checkout/product-identity";
 import {
   buildCoworkReservationQuote,
@@ -28,7 +23,11 @@ import { discountIdSchema } from "@/features/discounts/contracts";
 import { promotionCodeIdSchema } from "@/features/discounts/persistence-contracts";
 import type { DiscountCandidate } from "@/features/discounts/provider";
 import { ReferralService } from "@/features/referrals";
-import { ReferralError } from "@/features/referrals/contracts";
+import { parseReferralCode } from "@/features/referrals/client";
+import {
+  type CheckoutReferralEvaluation,
+  ReferralError,
+} from "@/features/referrals/contracts";
 import {
   getReferralInvitationDiscountId,
   getReferralReferrerDiscountId,
@@ -68,9 +67,11 @@ const money = (value: number) => ({
   currency: "CZK",
 });
 
-const customerAccountId = customerAccountIdSchema.make(
-  "checkout-referral-service-test-account"
-);
+const referralCode = parseReferralCode("RFL12345")!;
+const eligible: CheckoutReferralEvaluation = {
+  kind: "eligible",
+  code: referralCode,
+};
 const dotyposCustomerId = dotyposCustomerIdSchema.make(
   "checkout-referral-service-test-customer"
 );
@@ -310,29 +311,19 @@ const tokenForOrder = (input: TestPayStateInput, orderId: string) =>
 
 const makeServiceLayer = (input: {
   readonly affirmation: PaymentPriceAffirmation;
-  readonly acceptReferral: () => Effect.Effect<
-    { readonly kind: "accepted" | "already_accepted" },
-    ReferralError
-  >;
+  readonly evaluateCheckoutReferral: (input: {
+    readonly code: unknown;
+    readonly dotyposCustomerId: typeof dotyposCustomerId;
+  }) => Effect.Effect<CheckoutReferralEvaluation, ReferralError>;
   readonly payableReservationCustomerId?: typeof dotyposCustomerId;
   readonly onPricingAffirmation?: (input: PaymentPriceAffirmationInput) => void;
-  readonly accountFailure?: CustomerAccountAccessError;
   readonly codeKind?: "referral" | "discount";
 }) => {
   const dependencies = Layer.mergeAll(
-    Layer.succeed(CustomerAccountResolver, {
-      resolve:
-        input.accountFailure === undefined
-          ? Effect.succeed({
-              accountId: customerAccountId,
-              dotyposCustomerId,
-            })
-          : Effect.fail(input.accountFailure),
-    }),
     Layer.mock(ReferralService, {
       lookupCodeKind: () =>
         Effect.succeed({ kind: input.codeKind ?? ("referral" as const) }),
-      acceptReferral: input.acceptReferral,
+      evaluateCheckoutReferral: input.evaluateCheckoutReferral,
     }),
     Layer.mock(CheckoutPricingService, {
       affirmForPayment: (affirmationInput) =>
@@ -376,15 +367,14 @@ const expectAcceptedThenIdempotentRetry = async (input: {
     affirmation: input.affirmation,
     onPricingAffirmation: (affirmationInput) =>
       affirmationInputs.push(affirmationInput),
-    acceptReferral: () =>
+    // The second application finds the customer already attributed to the
+    // same referrer, as after a paid order.
+    evaluateCheckoutReferral: () =>
       Effect.sync(() => {
         acceptanceCount += 1;
-        return {
-          kind:
-            acceptanceCount === 1
-              ? ("accepted" as const)
-              : ("already_accepted" as const),
-        };
+        return acceptanceCount === 1
+          ? eligible
+          : ({ kind: "already_accepted" } as const);
       }),
   });
 
@@ -404,6 +394,9 @@ const expectAcceptedThenIdempotentRetry = async (input: {
     expect(state.submittedCode).toBeUndefined();
     expect(state.reservation.kind).toBe(input.family);
     expect(state.bookedAt).toBe(payStateBookedAt);
+    expect(state.referralCode).toBe(
+      expectedStatus === "accepted" ? "RFL12345" : undefined
+    );
     expect(getSignedPayStateCheckoutSummary(state).total).toEqual(
       input.affirmation.quote.payment.expectedPrice
     );
@@ -420,6 +413,7 @@ const expectAcceptedThenIdempotentRetry = async (input: {
   expect(affirmationInputs[0]?.bookedAt).toEqual(
     Temporal.Instant.from(payStateBookedAt)
   );
+  expect(affirmationInputs[0]?.referralCode).toBe("RFL12345");
   await checkFreshUrl(firstResult, "accepted");
 
   const retryResult = await Effect.runPromise(
@@ -485,7 +479,7 @@ describe("CheckoutReferralService", () => {
         quote,
         commitment: makeCommitment(coworkProduct, []),
       },
-      acceptReferral: () => Effect.succeed({ kind: "accepted" as const }),
+      evaluateCheckoutReferral: () => Effect.succeed(eligible),
     });
     const payStateToken = tokenForOrder(
       { reservation, quote, bookedAt: payStateBookedAt },
@@ -642,7 +636,7 @@ describe("CheckoutReferralService", () => {
         quote: freshQuote,
         commitment: makeCommitment(coworkProduct, freshApplications),
       },
-      acceptReferral: () => Effect.succeed({ kind: "accepted" as const }),
+      evaluateCheckoutReferral: () => Effect.succeed(eligible),
     });
 
     const result = await Effect.runPromise(
@@ -659,10 +653,9 @@ describe("CheckoutReferralService", () => {
     expect("freshPayUrl" in result && result.freshPayUrl).toBeTruthy();
   });
 
-  test("rejects a verified account when the payable reservation belongs to another customer", async () => {
+  test("evaluates the code for the payable reservation's own customer without an account", async () => {
     const quote = Effect.runSync(buildCoworkReservationQuote(reservation));
-    let acceptanceCount = 0;
-    let pricingAffirmationCount = 0;
+    const evaluatedCustomers: unknown[] = [];
     const layer = makeServiceLayer({
       affirmation: {
         kind: "cowork",
@@ -671,14 +664,11 @@ describe("CheckoutReferralService", () => {
         commitment: makeCommitment(coworkProduct, []),
       },
       payableReservationCustomerId: referrerDotyposCustomerId,
-      acceptReferral: () =>
+      evaluateCheckoutReferral: (evaluation) =>
         Effect.sync(() => {
-          acceptanceCount += 1;
-          return { kind: "accepted" as const };
+          evaluatedCustomers.push(evaluation.dotyposCustomerId);
+          return eligible;
         }),
-      onPricingAffirmation: () => {
-        pricingAffirmationCount += 1;
-      },
     });
 
     const result = await Effect.runPromise(
@@ -687,80 +677,38 @@ describe("CheckoutReferralService", () => {
         tokenFor({ reservation, quote, bookedAt: payStateBookedAt })
       )
     );
-    expect(result.status).toBe("unavailable");
-    expect(acceptanceCount).toBe(0);
-    expect(pricingAffirmationCount).toBe(0);
+
+    expect(result.status).toBe("accepted");
+    expect(evaluatedCustomers).toEqual([referrerDotyposCustomerId]);
   });
 
-  describe("without a usable signed-in account", () => {
-    const runWithoutAccount = async (
-      accountFailure: CustomerAccountAccessError,
-      codeKind: "referral" | "discount" = "referral"
-    ) => {
-      const quote = Effect.runSync(buildCoworkReservationQuote(reservation));
-      let acceptanceCount = 0;
-      let pricingAffirmationCount = 0;
-      const layer = makeServiceLayer({
-        affirmation: {
-          kind: "cowork",
-          reservation,
-          quote,
-          commitment: makeCommitment(coworkProduct, []),
-        },
-        accountFailure,
-        codeKind,
-        acceptReferral: () =>
-          Effect.sync(() => {
-            acceptanceCount += 1;
-            return { kind: "accepted" as const };
-          }),
-        onPricingAffirmation: () => {
-          pricingAffirmationCount += 1;
-        },
-      });
-      const result = await Effect.runPromise(
-        runAcceptCode(
-          layer,
-          tokenFor({ reservation, quote, bookedAt: payStateBookedAt })
-        )
-      );
-      return { result, acceptanceCount, pricingAffirmationCount };
-    };
-
-    test("asks a guest to sign in for a referral code without accepting it", async () => {
-      const outcome = await runWithoutAccount(
-        new CustomerAccountAccessError({ reason: "unauthenticated" })
-      );
-
-      expect(outcome.result).toEqual({ status: "sign_in_required" });
-      expect(outcome.acceptanceCount).toBe(0);
-      expect(outcome.pricingAffirmationCount).toBe(0);
+  test("keeps a non-referral code unavailable", async () => {
+    const quote = Effect.runSync(buildCoworkReservationQuote(reservation));
+    let evaluationCount = 0;
+    const layer = makeServiceLayer({
+      affirmation: {
+        kind: "cowork",
+        reservation,
+        quote,
+        commitment: makeCommitment(coworkProduct, []),
+      },
+      codeKind: "discount",
+      evaluateCheckoutReferral: () =>
+        Effect.sync(() => {
+          evaluationCount += 1;
+          return eligible;
+        }),
     });
 
-    test("keeps a guest's non-referral code unavailable", async () => {
-      const outcome = await runWithoutAccount(
-        new CustomerAccountAccessError({ reason: "unauthenticated" }),
-        "discount"
-      );
-
-      expect(outcome.result).toEqual({ status: "unavailable" });
-    });
-
-    test.each([
-      new CustomerAccountAccessError({ reason: "unavailable" }),
-      new CustomerAccountAccessError({
-        reason: "link-required",
-        linkReason: "deletion-requested",
-      }),
-    ])(
-      "keeps a signed-in account that cannot resolve unavailable",
-      async (failure) => {
-        const outcome = await runWithoutAccount(failure);
-
-        expect(outcome.result).toEqual({ status: "unavailable" });
-        expect(outcome.acceptanceCount).toBe(0);
-      }
+    const result = await Effect.runPromise(
+      runAcceptCode(
+        layer,
+        tokenFor({ reservation, quote, bookedAt: payStateBookedAt })
+      )
     );
+
+    expect(result).toEqual({ status: "unavailable" });
+    expect(evaluationCount).toBe(0);
   });
 
   test.each([
@@ -771,7 +719,7 @@ describe("CheckoutReferralService", () => {
     ["account_unavailable", "unavailable"],
     ["invalid_code", "unavailable"],
   ] as const)(
-    "reports the %s acceptance failure as %s without a refreshed Pay URL",
+    "reports the %s evaluation failure as %s without a refreshed Pay URL",
     async (reason, expectedStatus) => {
       const quote = Effect.runSync(buildCoworkReservationQuote(reservation));
       let pricingAffirmationCount = 0;
@@ -782,7 +730,8 @@ describe("CheckoutReferralService", () => {
           quote,
           commitment: makeCommitment(coworkProduct, []),
         },
-        acceptReferral: () => Effect.fail(new ReferralError({ reason })),
+        evaluateCheckoutReferral: () =>
+          Effect.fail(new ReferralError({ reason })),
         onPricingAffirmation: () => {
           pricingAffirmationCount += 1;
         },

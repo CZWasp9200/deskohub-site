@@ -408,7 +408,6 @@ describe("CheckoutDiscountCodeForm", () => {
   test.each([
     ["referral-already-attributed", m.checkoutReferralCodeAlreadyAttributed],
     ["referral-ineligible", m.checkoutReferralCodeIneligible],
-    ["referral-sign-in-required", m.checkoutReferralCodeSignInRequired],
   ] as const)(
     "explains the %s rejection in the field alert",
     async (rejection, message) => {

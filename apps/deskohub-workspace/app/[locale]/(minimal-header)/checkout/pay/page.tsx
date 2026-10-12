@@ -29,6 +29,7 @@ import {
   getEarlyPerformanceRequestRequiredAt,
   isEarlyPerformanceRequestRequired,
 } from "@/features/legal/early-performance";
+import { referralCodeQueryParam } from "@/features/referrals/client";
 import {
   getCoworkReservationPath,
   getReservationStartPath,
@@ -228,6 +229,10 @@ async function CheckoutPayContent({
     state.reservation.kind,
     new URLSearchParams({
       [payStateTokenQueryParam]: payStateToken,
+      // Editing the order keeps an applied referral on the new submission.
+      ...(state.referralCode !== undefined && {
+        [referralCodeQueryParam]: state.referralCode,
+      }),
     })
   );
   const earlyPerformanceRequestRequired = isEarlyPerformanceRequestRequired({

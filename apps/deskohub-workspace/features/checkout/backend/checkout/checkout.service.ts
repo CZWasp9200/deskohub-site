@@ -1069,6 +1069,7 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
                 orderId: reservation.id,
                 bookedAt: state.bookedAt,
                 checkoutSessionId: state.checkoutSessionId,
+                referralCode: state.referralCode,
                 requestedDiscountCode:
                   state.requestedDiscountCode ?? state.submittedCode,
                 ...getSignedPayStateSubmittedCode(
@@ -1265,6 +1266,7 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
                           orderId: reservation.id,
                           bookedAt: state.bookedAt,
                           checkoutSessionId: state.checkoutSessionId,
+                          referralCode: state.referralCode,
                           requestedDiscountCode:
                             state.requestedDiscountCode ?? state.submittedCode,
                           ...getSignedPayStateSubmittedCode(

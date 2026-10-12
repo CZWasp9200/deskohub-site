@@ -40,6 +40,7 @@ export type PreparedMeetingRoomPayState = PayStateSubmittedCodeMetadata & {
   readonly reservation: NormalizedMeetingRoomReservationOrder;
   readonly quote: MeetingRoomReservationQuote;
   readonly requestedDiscountCode?: CanonicalPromotionCode;
+  readonly referralCode?: CanonicalPromotionCode;
 };
 
 export const prepareMeetingRoomAdvertisement = Effect.fn(

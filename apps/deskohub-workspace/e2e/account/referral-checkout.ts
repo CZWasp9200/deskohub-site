@@ -316,8 +316,8 @@ export const bindWorkspaceE2EAccountReferralCheckout = ({
           runStep,
         });
 
-        // A reservation started from a share link applies its referral
-        // before the first pay page renders.
+        // A reservation started from a share link prices its referral on
+        // the first pay page; nothing is recorded until an order is paid.
         let shareLinkPayUrl = yield* startPayPage({
           config,
           contact,
@@ -491,7 +491,9 @@ const startPayPage = ({
         );
       }
       yield* Effect.sync(() =>
-        addRedaction(parseUrl(payUrl)?.searchParams.get("payState") ?? undefined)
+        addRedaction(
+          parseUrl(payUrl)?.searchParams.get("payState") ?? undefined
+        )
       );
       const row = yield* waitForCheckoutRow(datasourceConfig, orderId);
       if (row.dotypos_customer_id !== contact.customerId) {
@@ -623,20 +625,21 @@ const rejectReferralCode = ({
       ),
       {
         intervalMs: workspaceE2EPollIntervalMs.browser,
-        label: "rejected referral code on the unchanged pay state",
+        label: "rejected referral code on a re-signed pay state",
         timeoutMs: config.timeouts.uiTransition,
       }
     );
     yield* waitForBrowserCondition(
       run,
       session,
-      "rejected referral code alert on the discount code field",
+      "rejected referral code kept in the field with its alert",
       `(() => {
         const alert = document.querySelector("#checkout-discount-code-error");
         const input = document.querySelector("#checkout-discount-code");
         return alert?.getAttribute("role") === "alert" &&
           alert.textContent?.includes(${JSON.stringify(message)}) === true &&
-          input?.getAttribute("aria-invalid") === "true";
+          input?.getAttribute("aria-invalid") === "true" &&
+          input?.value?.toUpperCase() === ${JSON.stringify(code.toUpperCase())};
       })()`,
       { timeoutMs: config.timeouts.uiTransition }
     );
@@ -738,9 +741,7 @@ const assertOrdinaryCodeSlotAvailable = ({
     })()`,
     { timeoutMs: config.timeouts.uiTransition }
   ).pipe(
-    Effect.ensuring(
-      annotateOrdinaryCodeSlotObservation({ run, session })
-    )
+    Effect.ensuring(annotateOrdinaryCodeSlotObservation({ run, session }))
   );
 
 const annotateOrdinaryCodeSlotObservation = ({
@@ -777,8 +778,7 @@ const annotateOrdinaryCodeSlotObservation = ({
         const observation = parseOrdinaryCodeSlotObservation(value);
         return observation
           ? Effect.annotateCurrentSpan({
-              "e2e.account.discount_form.form_count":
-                observation.formCount,
+              "e2e.account.discount_form.form_count": observation.formCount,
               "e2e.account.discount_form.named_field_count":
                 observation.namedFieldCount,
               "e2e.account.discount_form.selected_form_present":
@@ -1085,7 +1085,10 @@ export const isReferralAppliedPayUrl = (input: {
   }
 };
 
-/** A rejected code keeps the signed pay state and reports one error. */
+/**
+ * A rejected code re-signs the pay state so the box keeps the code, and
+ * reports one error.
+ */
 export const isRejectedReferralCodeUrl = ({
   error,
   previousUrl,
@@ -1107,7 +1110,7 @@ export const isRejectedReferralCodeUrl = ({
     return (
       current !== undefined &&
       previous !== undefined &&
-      current.payState === previous.payState &&
+      current.payState !== previous.payState &&
       current.searchParams.getAll("discountCodeError").join() === error &&
       !current.searchParams.has("referralApplied")
     );

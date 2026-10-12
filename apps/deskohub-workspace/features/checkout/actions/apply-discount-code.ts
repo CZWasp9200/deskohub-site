@@ -50,7 +50,6 @@ const getDiscountCodeRejection = (
 ): DiscountCodeRejection => {
   if (status === "already_attributed") return "referral-already-attributed";
   if (status === "ineligible") return "referral-ineligible";
-  if (status === "sign_in_required") return "referral-sign-in-required";
   return "unavailable";
 };
 
