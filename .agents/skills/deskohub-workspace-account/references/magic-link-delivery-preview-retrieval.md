@@ -22,7 +22,8 @@ Research date: 2026-09-02; retrieval contract verified 2026-10-02
 > its final-440 history GET returned HTTP 200 after deployment project and
 > commit metadata matched. An earlier project PAT returned HTTP 403 on that
 > route, for an unknown reason. The runner treats token scope as opaque, and
-> no drain create/delete access was tested. Every real recipient goes to
+> no drain create/delete access was tested. When an email key is configured,
+> every real recipient goes to
 > Resend with fixed, censored result codes and no link logging. Do
 > not cite the tenant-isolation or Resend-retrieval arrangements below as the
 > current plan. Delivery-boundary, redaction, and censorship mechanics remain

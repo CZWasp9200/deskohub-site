@@ -145,7 +145,7 @@ description: Workspace customer account, Better Auth, magic link, auth persisten
   under `account.magic-link.preview-e2e` carrying the rendered TEXT body with
   its bearer link. This is one of two explicitly authorized exceptions to
   the no-bearer-material logging rule (local development below is the
-  other), and only for non-PII synthetic preview auth link material. Every real recipient goes to Resend with the fixed
+  other), and only for non-PII synthetic preview auth link material. When an email key is configured, every real recipient goes to Resend with the fixed
   censored delivery codes and no link logging. Production and Preview env
   validation require `EMAIL_API_KEY`; only development may omit it, and then
   every message, real recipients included, goes to Console with bearer
