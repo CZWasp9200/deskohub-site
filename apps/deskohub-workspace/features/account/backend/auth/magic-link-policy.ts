@@ -22,6 +22,12 @@ export const isSyntheticE2EEmailRecipient = (email: string): boolean => {
  */
 export const magicLinkPreviewE2ELogCode = "account.magic-link.preview-e2e";
 
+/**
+ * Code for the bearer-link log in local `next dev`, where Console delivery
+ * would otherwise leave the developer without a link.
+ */
+export const magicLinkDevelopmentLogCode = "account.magic-link.development";
+
 /** Non-secret correlation identity shared by Workspace magic-link messages. */
 export const accountMagicLinkEmailCategoryTag = "account-magic-link";
 export const accountMagicLinkEmailSurface = "workspace";

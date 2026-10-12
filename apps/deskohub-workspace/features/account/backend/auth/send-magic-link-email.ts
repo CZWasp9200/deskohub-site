@@ -10,6 +10,7 @@ import {
   accountMagicLinkEmailCategoryTag,
   accountMagicLinkEmailSurface,
   isSyntheticE2EEmailRecipient,
+  magicLinkDevelopmentLogCode,
   magicLinkPreviewE2ELogCode,
 } from "./magic-link-policy";
 
@@ -55,21 +56,72 @@ export type MagicLinkEmailRenderer = (
 
 export type MagicLinkDeliveryEnvironment = {
   readonly isVercelPreview: boolean;
+  /** `next dev` on a developer machine; never a Vercel deployment or test. */
+  readonly isLocalDevelopment: boolean;
 };
 
 /**
- * The shared email service picks the provider by recipient. Bearer content
- * reaches logs only for synthetic E2E recipients in Vercel Preview, after
- * Console accepted the message.
+ * Both signals must agree: `next dev` sets `NODE_ENV=development`, while
+ * Vercel builds run with `production` and `bun test` with `test`.
  */
-const emitsPreviewE2ELine = (
+export const magicLinkDeliveryEnvironment = (runtime: {
+  readonly VERCEL_ENV: "production" | "preview" | "development";
+  readonly NODE_ENV: string | undefined;
+}): MagicLinkDeliveryEnvironment => ({
+  isVercelPreview: runtime.VERCEL_ENV === "preview",
+  isLocalDevelopment:
+    runtime.VERCEL_ENV === "development" && runtime.NODE_ENV === "development",
+});
+
+/** The only magic-link lines allowed to carry bearer content. */
+type AuthorizedMagicLinkLine =
+  | {
+      readonly code: typeof magicLinkPreviewE2ELogCode;
+      readonly recipient: string;
+      readonly message: string;
+      readonly text: string;
+    }
+  | {
+      readonly code: typeof magicLinkDevelopmentLogCode;
+      readonly recipient: string;
+      readonly message: string;
+      readonly url: string;
+    };
+
+/**
+ * The shared email service picks the provider by recipient. Bearer content
+ * reaches logs only after Console accepted the message, and then only for
+ * synthetic E2E recipients in Vercel Preview or any recipient in local
+ * development, where nothing else delivers the link.
+ */
+const authorizedMagicLinkLine = (
   environment: MagicLinkDeliveryEnvironment,
-  recipient: string,
+  request: MagicLinkDeliveryRequest,
+  text: string,
   provider: string
-) =>
-  environment.isVercelPreview &&
-  provider === "console" &&
-  isSyntheticE2EEmailRecipient(recipient);
+): AuthorizedMagicLinkLine | undefined => {
+  if (provider !== "console") return undefined;
+  if (
+    environment.isVercelPreview &&
+    isSyntheticE2EEmailRecipient(request.email)
+  ) {
+    return {
+      code: magicLinkPreviewE2ELogCode,
+      recipient: request.email,
+      message: "Synthetic preview magic-link text body for E2E retrieval.",
+      text,
+    };
+  }
+  if (environment.isLocalDevelopment) {
+    return {
+      code: magicLinkDevelopmentLogCode,
+      recipient: request.email,
+      message: "Development magic link; open the url to sign in.",
+      url: request.url,
+    };
+  }
+  return undefined;
+};
 
 export const makeMagicLinkEmailDelivery = (
   render: MagicLinkEmailRenderer,
@@ -110,10 +162,13 @@ export const makeMagicLinkEmailDelivery = (
         );
       if (Predicate.isString(sent)) return sent;
 
-      // The synthetic Preview recipient is the only bearer-log exception.
-      if (emitsPreviewE2ELine(environment, request.email, sent.provider)) {
-        emitPreviewE2EConsoleDelivery(request.email, rendered.text);
-      }
+      const line = authorizedMagicLinkLine(
+        environment,
+        request,
+        rendered.text,
+        sent.provider
+      );
+      if (line) emitAuthorizedMagicLinkLine(line);
 
       yield* Effect.logInfo("Magic-link email accepted for delivery.", {
         code: "account.magic-link.delivery-accepted",
@@ -169,17 +224,10 @@ const magicLinkEmailServiceLayer = EmailServiceTag.RecipientRouted.pipe(
 );
 
 /**
- * Emits the sole approved bearer-link line for synthetic protected Preview
- * runs.
+ * Emits the approved bearer-link lines for synthetic protected Preview runs
+ * and local development.
  */
-const emitPreviewE2EConsoleDelivery = (recipient: string, text: string) => {
-  // biome-ignore lint/suspicious/noConsole: Explicitly authorized preview E2E link delivery channel
-  console.log(
-    JSON.stringify({
-      code: magicLinkPreviewE2ELogCode,
-      recipient,
-      message: "Synthetic preview magic-link text body for E2E retrieval.",
-      text,
-    })
-  );
+const emitAuthorizedMagicLinkLine = (line: AuthorizedMagicLinkLine) => {
+  // biome-ignore lint/suspicious/noConsole: Explicitly authorized Preview E2E and local development link delivery channel
+  console.log(JSON.stringify(line));
 };

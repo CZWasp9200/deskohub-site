@@ -279,13 +279,15 @@ tunnel into the protected deployment.
 - Unit and integration tests inject a fake mail sender or renderer and capture
   the callback argument in process. This is test composition, not a deployed
   route or runtime environment switch.
-- The normal local app must not print magic links: the `sensitiveContent`
-  marker suppresses bearer content in Console output for `EMAIL_TEST_DOMAIN`
-  recipients. Development may omit `EMAIL_API_KEY`; without it real-recipient
-  mail also goes to Console with bearer content suppressed.
-- A developer who needs a complete local browser flow can explicitly supply
-  delivery credentials and retrieve the message using their own separately
-  authorized tooling, or use an immutable preview.
+- The shared Console provider still suppresses bearer content for
+  `sensitiveContent` messages. Development may omit `EMAIL_API_KEY`; without
+  it real-recipient mail also goes to Console.
+- Superseded 2026-10-12 by user decision: under `next dev` (`VERCEL_ENV`
+  and `NODE_ENV` both `development`) the account app feature prints one
+  `account.magic-link.development` line with the recipient and bearer URL
+  for every magic link Console accepts, so local sign-in works without a
+  Resend key. Links delivered through Resend are never printed, and
+  `bun test` (`NODE_ENV=test`) never emits the line.
 
 ## SMTP and dedicated mailbox alternatives
 
