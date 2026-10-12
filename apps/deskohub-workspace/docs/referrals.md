@@ -8,7 +8,7 @@ A customer's referral can come from exactly three sources:
 
 - **Profile completion.** When a customer signs in for the first time, the profile-completion form has an optional referral code field. A code entered there becomes the customer's referral when the profile is saved, and the invitation discount then applies automatically to their first booking. The customer doesn't enter the code again at checkout. An unusable code is reported on the field, so the customer can correct or remove it before saving.
 - **Checkout code field.** A referral code entered in the existing checkout code field, which is shared with ordinary discount codes, applies the referral to the current booking when the customer is eligible.
-- **Share link.** The share link carries the code in the address. On a first-time sign-in, the profile-completion referral field is pre-filled with the code. When a signed-in customer starts a reservation from an address that carries a code, checkout applies it automatically. A link code that can't be used is ignored without blocking sign-up or checkout.
+- **Share link.** The share link carries the code in the address. On a first-time sign-in, the profile-completion referral field is pre-filled with the code. When the first sign-in links the account to an existing Workspace customer record, so that profile completion is skipped, the code becomes the customer's referral automatically if they are eligible. When a signed-in customer starts a reservation from an address that carries a code, checkout applies it automatically. A link code that can't be used is ignored without blocking sign-up or checkout.
 
 There is no separate step for accepting an invitation.
 

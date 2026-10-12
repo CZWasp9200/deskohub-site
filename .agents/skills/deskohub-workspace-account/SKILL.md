@@ -47,9 +47,13 @@ description: Workspace customer account, Better Auth, magic link, auth persisten
 
 - Keep `CustomerAccountResolver` as the public, replaceable
   identity-to-customer capability for authenticated route composition and
-  provider-independent tests. `resolveCurrentCustomerAccount()` is the
-  Live-wired page convenience. Both return only `CustomerAccountId` and
-  `DotyposCustomerId`, without exposing session or profile data.
+  provider-independent tests. `CustomerAccountResolver.resolve` returns only
+  `CustomerAccountId` and `DotyposCustomerId`, without exposing session or
+  profile data. `resolveCurrentCustomerAccount()` is the Live-wired account
+  page convenience: it returns `{ account, autoLinked }`, where `autoLinked`
+  is true only when this resolution claimed the link to an existing
+  exact-email customer. The account page uses that to record a sign-up
+  referral; keep other callers on `resolve`.
 - Require the authoritative current session and verified email. Resolve the
   profile in a fixed order: an existing durable link wins; one unique active
   exact-email profile links; one unique expired profile reactivates first and
