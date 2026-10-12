@@ -10,7 +10,7 @@ import {
 } from "@deskohub/dotypos";
 import { NexiOrderIdSchema } from "@deskohub/nexi";
 import { eq } from "drizzle-orm";
-import { Effect, Layer, Schema } from "effect";
+import { Cause, Effect, Exit, Layer, Predicate, Schema } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { makeDatabaseClient, makeDatabasePool } from "@/db/database-client";
 import { databasePoolTimeouts } from "@/db/database-pool-timeouts";
@@ -1654,6 +1654,146 @@ describe.skipIf(!testDatabase)(
       } finally {
         graphHolder.release();
         await fixture.cleanup();
+      }
+    });
+
+    test("fails a zero-payable internal payment cleanly after the bounded graph-lock wait, then lets it retry", async () => {
+      const repository = await makeRepository();
+      const fixture = await createInvitedCustomer(false);
+      const graphHolder = await testDatabase!.pool.connect();
+      let voucher: Awaited<ReturnType<typeof createVoucher>> | undefined;
+      try {
+        const reservation = await createHeldReservation(
+          fixture.invitedDotyposCustomerId
+        );
+        const referralOnly = makeReferralAdmission({ reservation, ...fixture });
+        voucher = await createVoucher(
+          fixture.invitedDotyposCustomerId,
+          referralOnly.admission.amount.value
+        );
+        const fullyCovered = makeReferralAdmission({
+          reservation,
+          ...fixture,
+          creditCandidates: [voucher.candidate],
+        });
+        const completeInternalPayment = () =>
+          repository.completeInternalPayment({
+            workspaceReservationId: reservation.id,
+            amount: fullyCovered.admission.amount,
+            commitment: fullyCovered.admission.commitment,
+            locale: fullyCovered.locale,
+            accountingSnapshot: fullyCovered.snapshot,
+          });
+        const readPaymentRows = async () => ({
+          reservation: (
+            await testDatabase!.pool.query(
+              "select payment_state, active_payment_attempt_id, paid_at from workspace_reservations where id = $1",
+              [reservation.id]
+            )
+          ).rows,
+          attempts: (
+            await testDatabase!.pool.query(
+              "select state from payment_attempts where workspace_reservation_id = $1",
+              [reservation.id]
+            )
+          ).rows,
+          snapshots: (
+            await testDatabase!.pool.query(
+              "select payment_attempt_id from accounting_document_snapshots where workspace_reservation_id = $1",
+              [reservation.id]
+            )
+          ).rows,
+          applications: (
+            await testDatabase!.pool.query(
+              "select public_discount_id from discount_applications where workspace_reservation_id = $1",
+              [reservation.id]
+            )
+          ).rows,
+          invitationClaims: (
+            await testDatabase!.pool.query(
+              "select state from referral_invitation_claims where invited_dotypos_customer_id = $1",
+              [fixture.invitedDotyposCustomerId]
+            )
+          ).rows,
+          voucherClaims: (
+            await testDatabase!.pool.query(
+              "select state from voucher_redemptions where dotypos_customer_id = $1",
+              [fixture.invitedDotyposCustomerId]
+            )
+          ).rows,
+          attributions: await readAttributions(
+            fixture.invitedDotyposCustomerId
+          ),
+        });
+        const before = await readPaymentRows();
+        expect(before).toEqual({
+          reservation: [
+            {
+              payment_state: "not_started",
+              active_payment_attempt_id: null,
+              paid_at: null,
+            },
+          ],
+          attempts: [],
+          snapshots: [],
+          applications: [],
+          invitationClaims: [],
+          voucherClaims: [],
+          attributions: [],
+        });
+
+        // A concurrent acceptReferral holds the graph lock past the bound.
+        await graphHolder.query("begin");
+        await graphHolder.query(
+          "select pg_advisory_xact_lock(hashtext('referral-attribution'), hashtext('graph'))"
+        );
+        const startedAt = performance.now();
+        const timedOut = await Effect.runPromise(
+          Effect.exit(completeInternalPayment())
+        );
+        const waitedMillis = performance.now() - startedAt;
+        await graphHolder.query("rollback");
+
+        // The graph lock wait gives up at the 5s bound with a lock timeout,
+        // well before the pool's 10s query timeouts would cancel it.
+        expect(waitedMillis).toBeGreaterThanOrEqual(4_900);
+        const failure = Exit.isFailure(timedOut)
+          ? Cause.squash(timedOut.cause)
+          : undefined;
+        expect(failure).toMatchObject({
+          _tag: "EffectDrizzleQueryError",
+          params: ["referral-attribution", "graph"],
+        });
+        const queryCause = Predicate.hasProperty(failure, "cause")
+          ? failure.cause
+          : undefined;
+        expect(
+          Cause.isCause(queryCause) ? Cause.squash(queryCause) : queryCause
+        ).toMatchObject({
+          _tag: "SqlError",
+          reason: { _tag: "LockTimeoutError" },
+        });
+        expect(await readPaymentRows()).toEqual(before);
+
+        const retried = await Effect.runPromise(completeInternalPayment());
+        expect(retried.changed).toBe(true);
+        expect(retried.attempt.state).toBe("paid");
+        const after = await readPaymentRows();
+        expect(after.reservation[0]?.payment_state).toBe("paid");
+        expect(after.attempts).toEqual([{ state: "paid" }]);
+        expect(after.invitationClaims).toEqual([{ state: "redeemed" }]);
+        expect(after.voucherClaims).toEqual([{ state: "redeemed" }]);
+        expect(after.attributions).toEqual([
+          {
+            referrer: fixture.referrerDotyposCustomerId,
+            code: fixture.promotionCodeId,
+          },
+        ]);
+      } finally {
+        await graphHolder.query("rollback").catch(() => {});
+        graphHolder.release();
+        await fixture.cleanup();
+        await voucher?.cleanup();
       }
     });
   }
