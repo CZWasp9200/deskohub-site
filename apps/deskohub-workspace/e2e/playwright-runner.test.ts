@@ -2,7 +2,30 @@ import { expect, test } from "bun:test";
 import {
   runWorkspacePlaywrightSuites,
   runWorkspacePlaywrightWithFailureCleanup,
+  workspacePlaywrightProcessEnvironment,
 } from "./playwright-runner";
+
+const runContextRecorded = async () => true;
+
+test("gives the concurrent checkout and instant navigation processes separate transform caches", () => {
+  const environment = { WORKSPACE_E2E_RUN_CONTEXT: "{}" };
+  const checkout = workspacePlaywrightProcessEnvironment({
+    config: "playwright.e2e.config.ts",
+    environment,
+  });
+  const instantNavigation = workspacePlaywrightProcessEnvironment({
+    config: "playwright.instant-navigation.config.ts",
+    environment,
+  });
+
+  expect(checkout).toMatchObject(environment);
+  expect(instantNavigation).toMatchObject(environment);
+  expect(checkout.PWTEST_CACHE_DIR).toBeString();
+  expect(instantNavigation.PWTEST_CACHE_DIR).toBeString();
+  expect(checkout.PWTEST_CACHE_DIR).not.toBe(
+    instantNavigation.PWTEST_CACHE_DIR
+  );
+});
 
 test("runs the cleanup-only project after a failed suite and preserves its exit", async () => {
   const invocations: string[] = [];
@@ -10,7 +33,8 @@ test("runs the cleanup-only project after a failed suite and preserves its exit"
     async (invocation) => {
       invocations.push(invocation);
       return invocation === "suite" ? 1 : 0;
-    }
+    },
+    runContextRecorded
   );
 
   expect(invocations).toEqual(["suite", "failure-cleanup"]);
@@ -23,7 +47,8 @@ test("does not rerun cleanup after a successful suite", async () => {
     async (invocation) => {
       invocations.push(invocation);
       return 0;
-    }
+    },
+    runContextRecorded
   );
 
   expect(invocations).toEqual(["suite"]);
@@ -36,7 +61,8 @@ test("reports a failed cleanup-only project without losing the suite failure", a
     async (invocation) => {
       invocations.push(invocation);
       return 1;
-    }
+    },
+    runContextRecorded
   );
 
   expect(invocations).toEqual(["suite", "failure-cleanup"]);
@@ -50,13 +76,31 @@ test("keeps the suite failure when the cleanup process cannot start", async () =
       invocations.push(invocation);
       if (invocation === "suite") return 1;
       throw new Error("private process error");
-    }
+    },
+    runContextRecorded
   );
 
   expect(invocations).toEqual(["suite", "failure-cleanup"]);
   expect(result).toEqual({
     suiteExitCode: 1,
     cleanupCouldNotStart: true,
+  });
+});
+
+test("skips the cleanup-only project when the failed suite never recorded a run context", async () => {
+  const invocations: string[] = [];
+  const result = await runWorkspacePlaywrightWithFailureCleanup(
+    async (invocation) => {
+      invocations.push(invocation);
+      return 1;
+    },
+    async () => false
+  );
+
+  expect(invocations).toEqual(["suite"]);
+  expect(result).toEqual({
+    suiteExitCode: 1,
+    cleanupSkippedWithoutRunContext: true,
   });
 });
 
@@ -87,6 +131,7 @@ test("waits for the failed checkout and its cleanup when instant navigation cann
       events.push(`${invocation}:end`);
       return exitCode;
     },
+    hasCheckoutRunContext: runContextRecorded,
     instantNavigation: () => {
       events.push("instant-navigation:launch");
       throw launchFailure;
@@ -129,6 +174,7 @@ test("waits for instant navigation when the checkout run cannot launch", async (
     checkout: () => {
       throw launchFailure;
     },
+    hasCheckoutRunContext: runContextRecorded,
     instantNavigation: () => instantNavigationExit.promise,
   });
   const runner = trackSettlement(running);

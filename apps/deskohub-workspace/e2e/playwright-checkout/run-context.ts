@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { workspaceDir, writeJsonAtomically } from "../runtime";
 import type { E2ERunContext } from "../services/telemetry";
@@ -15,6 +15,15 @@ export const writeWorkspaceE2ERunContext = async (value: E2ERunContext) =>
 
 export const readWorkspaceE2ERunContext = async (): Promise<E2ERunContext> =>
   parseRunContext(await readFile(runContextPath, "utf8"));
+
+// Only a confirmed missing file counts as absent; any other access failure
+// reports the context as present so its cleanup still runs.
+export const hasWorkspaceE2ERunContext = (): Promise<boolean> =>
+  access(runContextPath).then(
+    () => true,
+    (cause: unknown) =>
+      !(cause instanceof Error && "code" in cause && cause.code === "ENOENT")
+  );
 
 const parseRunContext = (serialized: string): E2ERunContext => {
   const value: unknown = JSON.parse(serialized);
