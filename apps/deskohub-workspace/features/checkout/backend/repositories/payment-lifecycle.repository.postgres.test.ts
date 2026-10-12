@@ -73,6 +73,7 @@ import {
   workspaceReservationIdSchema,
 } from "@/features/reservation/persistence-contracts";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
+import { createHeldReservation as createSharedHeldReservation } from "./payment-lifecycle.test-utils";
 
 const testDatabase = await connectWorkspacePostgresTestDatabase();
 const product = { kind: "cowork", tier: "basic" } as const;
@@ -253,27 +254,12 @@ const createInvitedCustomer = async (withAttribution = true) => {
   };
 };
 
-const createHeldReservation = async (
+const createHeldReservation = (
   dotyposCustomerId: DotyposCustomerId
-): Promise<Reservation> => {
-  const [reservation] = await Effect.runPromise(
-    testDatabase!.db
-      .insert(workspaceReservations)
-      .values({
-        checkoutAttemptKey: `referral-payment-${uniqueId()}`,
-        dotyposCustomerId,
-        dotyposReservationId: `dotypos-${uniqueId()}` as DotyposReservationId,
-        reservationState: "held",
-        paymentState: "not_started",
-        fulfillmentState: "not_started",
-        reservationDetails,
-        locale: "en-US",
-        reservationHoldExpiresAt: Temporal.Now.instant().add({ hours: 1 }),
-      })
-      .returning()
+): Promise<Reservation> =>
+  Effect.runPromise(
+    createSharedHeldReservation(testDatabase!.db, dotyposCustomerId)
   );
-  return reservation!;
-};
 
 const createOrdinaryDiscountCode = async (
   dotyposCustomerId: DotyposCustomerId
