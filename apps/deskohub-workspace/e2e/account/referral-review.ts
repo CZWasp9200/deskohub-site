@@ -1,14 +1,9 @@
 import type { Page } from "@playwright/test";
-import type { Locale } from "@/features/i18n";
 import { parseReferralCode } from "@/features/referrals/client";
 import { workspaceE2EError } from "../errors";
 import { workspaceE2ETimeouts } from "../timeouts";
 import { accountSectionLandmarks } from "./account-sections";
 import { referralStatsCondition } from "./referral-stats";
-import {
-  type AccountReviewDestination,
-  captureAccountReview,
-} from "./review-screenshots";
 
 const referralCodeSelector = "#account-referrals-code";
 const referralLinkSelector = "#account-referrals-link";
@@ -23,42 +18,6 @@ export const waitForReferralStats = async ({
   await page.waitForFunction(referralStatsCondition(expected), undefined, {
     timeout: workspaceE2ETimeouts.browserAction,
   });
-};
-
-type ReferralOverviewTargets = {
-  readonly desktop:
-    | "linked-referrals-desktop"
-    | "linked-referrals-cs-desktop"
-    | "referral-overview-positive-desktop"
-    | "referral-overview-positive-cs-desktop";
-  readonly mobile:
-    | "linked-referrals-mobile"
-    | "linked-referrals-cs-mobile"
-    | "referral-overview-positive-mobile"
-    | "referral-overview-positive-cs-mobile";
-};
-
-export const verifyReferralOverview = async ({
-  count,
-  locale,
-  page,
-  review,
-  targets,
-}: {
-  readonly count: number;
-  readonly locale: Locale;
-  readonly page: Page;
-  readonly review: AccountReviewDestination;
-  readonly targets: ReferralOverviewTargets;
-}) => {
-  await page.goto(
-    new URL(`/${locale}/account?section=referrals`, review.baseUrl).toString(),
-    { timeout: workspaceE2ETimeouts.browserNavigation }
-  );
-  await waitForReferralStats({ count, locale, page });
-
-  await captureAccountReview(page, review, targets.desktop);
-  await captureAccountReview(page, review, targets.mobile);
 };
 
 /**

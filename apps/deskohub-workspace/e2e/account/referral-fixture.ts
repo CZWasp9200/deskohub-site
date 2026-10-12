@@ -47,20 +47,6 @@ export type WorkspaceE2EReferralOwner = {
   readonly promotionCodeId: ReferralPromotionCodeId;
 };
 
-export type WorkspaceE2EReferralFixture = {
-  readonly eligibleReservationId: string;
-  /** The eligible invitee's own share code: a usable code from a second referrer. */
-  readonly inviteeReferralCode: string;
-  readonly ownPromotionCodeId: string;
-};
-
-export type WorkspaceE2EReferralFixtureInput = {
-  readonly eligibleInvitee: WorkspaceE2EReferralOwnerInput;
-  readonly eligibleReservationAt: Date;
-  readonly eligibleReservationId: DotyposReservationId;
-  readonly referrerDotyposCustomerId: DotyposCustomerId;
-};
-
 type DatabaseTransaction = Parameters<
   Parameters<DatabaseClient["transaction"]>[0]
 >[0];
@@ -326,100 +312,6 @@ export const findWorkspaceE2EReferralInvitationClaimState = (
     return rows[0]?.state;
   });
 
-const seedReferralFixtureRows = (
-  db: DatabaseClient,
-  input: WorkspaceE2EReferralFixtureInput
-) =>
-  db.transaction(
-    Effect.fn(function* (tx) {
-      const [existingShareCode] = yield* tx
-        .select({
-          code: promotionCodes.code,
-          promotionCodeId: referralCodes.promotionCodeId,
-        })
-        .from(referralCodes)
-        .innerJoin(
-          promotionCodes,
-          eq(promotionCodes.id, referralCodes.promotionCodeId)
-        )
-        .where(
-          eq(
-            referralCodes.referrerDotyposCustomerId,
-            input.referrerDotyposCustomerId
-          )
-        )
-        .limit(1);
-
-      let ownPromotionCodeId = existingShareCode?.promotionCodeId;
-      if (
-        existingShareCode &&
-        parseReferralCode(existingShareCode.code) === undefined
-      ) {
-        return yield* workspaceE2EError(
-          "synthetic account has an invalid referral share code",
-          {
-            diagnosticCode: "postgres_account_fixture_assertion_failed",
-            operation: "validate synthetic referral share code",
-          }
-        );
-      }
-      if (ownPromotionCodeId === undefined) {
-        const generated = yield* insertReferralCode(
-          tx,
-          input.referrerDotyposCustomerId
-        );
-        ownPromotionCodeId = generated.promotionCodeId;
-      }
-
-      const inviteeReferral = yield* insertReferralOwner(
-        tx,
-        input.eligibleInvitee
-      );
-      const eligibleReservationId = workspaceReservationIdSchema.make(
-        `account-referral-history-${crypto.randomUUID()}`
-      );
-      const localReservationAt = Temporal.Instant.fromEpochMilliseconds(
-        input.eligibleReservationAt.getTime()
-      );
-      yield* tx.insert(referralAttributions).values({
-        invitedDotyposCustomerId: input.eligibleInvitee.dotyposCustomerId,
-        promotionCodeId: ownPromotionCodeId,
-        referrerDotyposCustomerId: input.referrerDotyposCustomerId,
-      });
-      const eligibleReservationRow: typeof workspaceReservations.$inferInsert =
-        {
-          checkoutAttemptKey: checkoutAttemptKeySchema.make(
-            `account-referral-attempt-${crypto.randomUUID()}`
-          ),
-          checkoutSessionKey: checkoutSessionKeySchema.make(
-            `account-referral-session-${crypto.randomUUID()}`
-          ),
-          dotyposCustomerId: input.eligibleInvitee.dotyposCustomerId,
-          dotyposReservationId: input.eligibleReservationId,
-          fulfillmentState: "not_started",
-          id: eligibleReservationId,
-          locale: "en-US",
-          paidAt: localReservationAt,
-          paymentState: "paid",
-          reservationConfirmedAt: localReservationAt,
-          reservationCreatedAt: localReservationAt,
-          reservationDetails: {
-            coffee: false,
-            entryTier: "basic",
-            kind: "cowork",
-          },
-          reservationState: "confirmed",
-        };
-      yield* tx.insert(workspaceReservations).values(eligibleReservationRow);
-
-      return {
-        eligibleReservationId,
-        inviteeReferralCode: inviteeReferral.code,
-        ownPromotionCodeId,
-      } satisfies WorkspaceE2EReferralFixture;
-    })
-  );
-
 /**
  * Seeds the referrer whose share link the synthetic main account follows
  * before completing its profile.
@@ -439,25 +331,6 @@ export const seedWorkspaceE2EReferralOwner = (
         cause,
         diagnosticCode: "postgres_account_fixture_assertion_failed",
         operation: "seed synthetic referral owner",
-      })
-    )
-  );
-
-export const seedWorkspaceE2EReferralFixture = (
-  input: WorkspaceE2EReferralFixtureInput
-): Effect.Effect<WorkspaceE2EReferralFixture, WorkspaceE2EError, E2EDatabase> =>
-  Effect.gen(function* () {
-    const { db } = yield* E2EDatabase;
-    return yield* runDatabaseOperation(
-      "seed synthetic account referral fixture",
-      seedReferralFixtureRows(db, input)
-    );
-  }).pipe(
-    Effect.mapError((cause) =>
-      workspaceE2EError("Could not seed synthetic account referral fixture", {
-        cause,
-        diagnosticCode: "postgres_account_fixture_assertion_failed",
-        operation: "seed synthetic account referral fixture",
       })
     )
   );

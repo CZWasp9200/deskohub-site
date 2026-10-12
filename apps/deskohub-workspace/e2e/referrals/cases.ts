@@ -13,8 +13,10 @@ import {
   seedWorkspaceE2EReferralInvitee,
   seedWorkspaceE2EReferrerSavings,
 } from "../account/referral-fixture";
-import { verifyReferralScreenIgnoresShareLink } from "../account/referral-review";
-import { referralStatsCondition } from "../account/referral-stats";
+import {
+  verifyReferralScreenIgnoresShareLink,
+  waitForReferralStats,
+} from "../account/referral-review";
 import {
   type AccountReviewTarget,
   captureAccountReview,
@@ -438,16 +440,13 @@ const referrerScreen: ReferralCaseExecutor = (context) =>
       "shows the zero-invite Referrals screen in Czech",
       config.timeouts.browserAction * 2,
       async (page) => {
-        await page.waitForFunction(
-          referralStatsCondition({
-            count: 0,
-            locale: "cs-CZ",
-            savings: "empty",
-            total: 0,
-          }),
-          undefined,
-          { timeout: config.timeouts.browserAction }
-        );
+        await waitForReferralStats({
+          count: 0,
+          locale: "cs-CZ",
+          savings: "empty",
+          total: 0,
+          page,
+        });
         await captureReviews(context, page, [
           "linked-referrals-cs-desktop",
           "linked-referrals-cs-mobile",
@@ -503,16 +502,13 @@ const referrerScreen: ReferralCaseExecutor = (context) =>
           { timeout: config.timeouts.browserNavigation }
         );
         // Two invitees compound to 9.75%, which the screen rounds up to 10%.
-        await page.waitForFunction(
-          referralStatsCondition({
-            count: 2,
-            locale: "en-US",
-            savings: "saved",
-            total: 3,
-          }),
-          undefined,
-          { timeout: config.timeouts.browserAction }
-        );
+        await waitForReferralStats({
+          count: 2,
+          locale: "en-US",
+          savings: "saved",
+          total: 3,
+          page,
+        });
         const screen = page.locator(accountSectionLandmarks.referrals);
         const saved = m.accountReferralsSaved(
           {
@@ -600,11 +596,12 @@ const referrerScreen: ReferralCaseExecutor = (context) =>
           new URL("/cs-CZ/account?section=referrals", config.baseUrl).href,
           { timeout: config.timeouts.browserNavigation }
         );
-        await page.waitForFunction(
-          referralStatsCondition({ count: 2, locale: "cs-CZ", total: 3 }),
-          undefined,
-          { timeout: config.timeouts.browserAction }
-        );
+        await waitForReferralStats({
+          count: 2,
+          locale: "cs-CZ",
+          total: 3,
+          page,
+        });
         await captureReviews(context, page, [
           "referral-overview-positive-cs-desktop",
           "referral-overview-positive-cs-mobile",
