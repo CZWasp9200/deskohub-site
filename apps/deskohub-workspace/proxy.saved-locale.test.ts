@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { Effect } from "effect";
 import { NextRequest } from "next/server";
+import { payStateTokenQueryParam } from "@/features/checkout/pay-state-token-query";
 import { localeCookieName } from "@/features/i18n/routing";
 import { getReservationAccessCookieName } from "@/features/reservation/backend/reservation-access-cookie";
 import { createReservationAccessToken } from "@/features/reservation/backend/reservation-access-token";
@@ -119,6 +120,43 @@ describe("signed-in customer's saved language preference", () => {
     );
     expect(cleanRequest.headers.get("location")).toBe(
       `https://workspace.example/cs-CZ/reservation/access/${orderId}`
+    );
+  });
+
+  test("keeps an emailed en-US invoice link in its issued locale for a cs-CZ owner", async () => {
+    const response = await proxy(
+      request(
+        `/en-US/reservation/invoice/reservation-id?${reservationAccessTokenQueryParam}=synthetic-token`,
+        { cookie: signedInCookie }
+      )
+    );
+
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+    expect(response.headers.get("location")).toBeNull();
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(preferenceReads).toEqual([]);
+  });
+
+  test("keeps an en-US Pay link in its issued locale for a cs-CZ customer", async () => {
+    for (const path of [
+      `/en-US/checkout/pay?${payStateTokenQueryParam}=synthetic-state`,
+      `/en-US/reservation/cowork?${payStateTokenQueryParam}=synthetic-state`,
+    ]) {
+      const response = await proxy(request(path, { cookie: signedInCookie }));
+
+      expect(response.headers.get("x-middleware-next")).toBe("1");
+      expect(response.headers.get("location")).toBeNull();
+    }
+    expect(preferenceReads).toEqual([]);
+  });
+
+  test("still applies the preference to the same pages without a continuation", async () => {
+    const response = await proxy(
+      request("/en-US/reservation/cowork", { cookie: signedInCookie })
+    );
+
+    expect(response.headers.get("location")).toBe(
+      "https://workspace.example/cs-CZ/reservation/cowork"
     );
   });
 

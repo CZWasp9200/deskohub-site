@@ -3,6 +3,7 @@ import type { CheckoutSummary } from "@/features/checkout/checkout-summary";
 import { getCoworkCheckoutSummary } from "@/features/checkout/checkout-summary-cowork";
 import { getMeetingRoomCheckoutSummary } from "@/features/checkout/checkout-summary-meeting-room";
 import { getOfficeCheckoutSummary } from "@/features/checkout/checkout-summary-office";
+import { payStateTokenQueryParam } from "@/features/checkout/pay-state-token-query";
 import type { AppliedDiscount } from "@/features/discounts";
 import {
   type CheckoutStateCryptoOptions,
@@ -31,7 +32,7 @@ import {
 } from "./office-pay-state";
 import type { PayStateSubmittedCodeMetadata } from "./pay-state-contract";
 
-export const payStateTokenQueryParam = "payState" as const;
+export { payStateTokenQueryParam };
 export const payStateDefaultTtlMilliseconds = 10 * 60 * 1000;
 
 export const signedPayStateSchema = Schema.Union([
