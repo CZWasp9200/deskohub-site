@@ -9,10 +9,12 @@ import {
   type AccountReviewTarget,
   captureAccountReview,
   captureReservationStatusReview,
+  type LanguagePreferenceReviewCapture,
   persistCallbackDocumentReview,
   withLanguagePreferenceReview,
   withSignInPendingReview,
 } from "./review-screenshots";
+import type { LanguagePreferenceReviewStage } from "./review-targets";
 
 const baseUrl = "https://deskohub-workspace-review.example.test";
 const review = { baseUrl, screenshots: true } as const;
@@ -531,6 +533,46 @@ describe("account review screenshot capture", () => {
       url: `${baseUrl}/cs-CZ/account`,
     },
     {
+      name: "the preference redirect capture at the unredirected en-US page",
+      target: "locale-preference-redirect-desktop",
+      url: `${baseUrl}/en-US/faq`,
+    },
+    {
+      name: "the preference redirect capture with a section query",
+      target: "locale-preference-redirect-desktop",
+      url: `${baseUrl}/cs-CZ/faq?section=profile`,
+    },
+    {
+      name: "the preference redirect capture with a credential query",
+      target: "locale-preference-redirect-desktop",
+      url: `${baseUrl}/cs-CZ/faq?token=synthetic-secret-token`,
+    },
+    {
+      name: "the preference redirect capture with a hash",
+      target: "locale-preference-redirect-desktop",
+      url: `${baseUrl}/cs-CZ/faq#review-state`,
+    },
+    {
+      name: "the preference redirect capture at a foreign origin",
+      target: "locale-preference-redirect-desktop",
+      url: "https://other.example.test/cs-CZ/faq",
+    },
+    {
+      name: "the switcher capture at the Czech account it switched away from",
+      target: "locale-switcher-saved-desktop",
+      url: `${baseUrl}/cs-CZ/account`,
+    },
+    {
+      name: "the switcher capture with a credential query",
+      target: "locale-switcher-saved-desktop",
+      url: `${baseUrl}/en-US/account?section=profile&token=synthetic-secret-token`,
+    },
+    {
+      name: "the switcher capture with a hash",
+      target: "locale-switcher-saved-desktop",
+      url: `${baseUrl}/en-US/account#review-state`,
+    },
+    {
       name: "linked account with an extra query parameter",
       target: "linked-profile-desktop",
       url: `${baseUrl}/en-US/account?section=profile&view=private`,
@@ -792,6 +834,21 @@ describe("account review screenshot capture", () => {
       "the sign-in page handoff path",
       "sign-in-handoff-desktop",
       "/en-US/auth/sign-in",
+    ],
+    [
+      "the Czech profile section",
+      "linked-profile-language-desktop-cs",
+      "/cs-CZ/account?section=profile",
+    ],
+    [
+      "the Czech page a preference redirect reached",
+      "locale-preference-redirect-desktop",
+      "/cs-CZ/faq",
+    ],
+    [
+      "the English account after the switcher save",
+      "locale-switcher-saved-desktop",
+      "/en-US/account",
     ],
   ] as const satisfies ReadonlyArray<
     readonly [string, AccountReviewTarget, string]
@@ -1400,6 +1457,8 @@ const makeLanguageReviewFakePage = (
   savedLocaleHistory: LanguageLocale[];
   selectOption: (locale: LanguageLocale) => Promise<void>;
   clickSave: () => Promise<void>;
+  navigate: (url: string) => void;
+  setSavedLocale: (locale: LanguageLocale) => void;
   sendRequest: (
     request: LanguageReviewFakeRouteRequest
   ) => LanguageReviewRouteOutcome[];
@@ -1599,6 +1658,13 @@ const makeLanguageReviewFakePage = (
     chooseOption(locale);
   };
 
+  // A document navigation drops the pending selection and its feedback.
+  const navigate = (url: string) => {
+    currentUrl = url;
+    selectedLocale = null;
+    clearLanguageFeedback();
+  };
+
   const saveLanguage = async (locale: LanguageLocale) => {
     await selectOption("cs-CZ");
     await selectOption(locale);
@@ -1615,10 +1681,55 @@ const makeLanguageReviewFakePage = (
     savedLocaleHistory,
     selectOption,
     clickSave,
+    navigate,
+    setSavedLocale: (locale: LanguageLocale) => {
+      savedLocale = locale;
+    },
     sendRequest,
     settleRouteHandlers,
   };
 };
+
+/**
+ * The language case as the wrapper sees it: the Czech save under the English
+ * account, then each genuine mid-case moment handed to the capture hook, and
+ * the English profile with English (US) saved at the end.
+ */
+const runLanguageCaseMoments = async (
+  fakePage: ReturnType<typeof makeLanguageReviewFakePage>,
+  capture: LanguagePreferenceReviewCapture,
+  options: {
+    readonly skip?: LanguagePreferenceReviewStage;
+    readonly beforeCzechSave?: () => Promise<void> | void;
+  } = {}
+) => {
+  const captureUnlessSkipped = async (stage: LanguagePreferenceReviewStage) => {
+    if (stage !== options.skip) await capture(stage);
+  };
+  fakePage.navigate(`${baseUrl}/en-US/account`);
+  await options.beforeCzechSave?.();
+  await fakePage.saveLanguage("cs-CZ");
+  await fakePage.settleRouteHandlers();
+  fakePage.navigate(`${baseUrl}/cs-CZ/account?section=profile`);
+  await captureUnlessSkipped("czech-profile");
+  fakePage.navigate(`${baseUrl}/cs-CZ/faq`);
+  await captureUnlessSkipped("preference-redirect");
+  // The header switch saves English (US) and the Czech URL redirects back.
+  fakePage.setSavedLocale("en-US");
+  fakePage.navigate(`${baseUrl}/en-US/account`);
+  await captureUnlessSkipped("switcher-saved");
+  fakePage.navigate(`${baseUrl}/en-US/account?section=profile`);
+};
+
+const languageReviewFileNames = [
+  "linked-profile-language-saving-desktop.png",
+  "linked-profile-language-desktop-cs.png",
+  "locale-preference-redirect-desktop.png",
+  "locale-switcher-saved-desktop.png",
+  "linked-profile-language-saved-desktop.png",
+  "linked-profile-language-failed-desktop.png",
+  "linked-profile-language-mobile.png",
+];
 
 describe("language preference review wrapper", () => {
   const createLanguageWriteFileSpy = () =>
@@ -1643,104 +1754,104 @@ describe("language preference review wrapper", () => {
   test("captures the saving state only for the preference save POST", async () => {
     const fakePage = makeLanguageReviewFakePage();
 
-    await withLanguagePreferenceReview(fakePage.page, review, async () => {
-      // The case's sign-out POST leaves the page for /api/auth and must
-      // never reach, wait on, or abort the account route gate.
-      expect(
-        fakePage.sendRequest({
-          headers: () => ({}),
-          method: () => "POST",
-          postData: () => "",
-          url: () => `${baseUrl}/api/auth/sign-out`,
-        })
-      ).toEqual([]);
+    await withLanguagePreferenceReview(
+      fakePage.page,
+      review,
+      async (capture) => {
+        // The case's sign-out POST leaves the page for /api/auth and must
+        // never reach, wait on, or abort the account route gate.
+        expect(
+          fakePage.sendRequest({
+            headers: () => ({}),
+            method: () => "POST",
+            postData: () => "",
+            url: () => `${baseUrl}/api/auth/sign-out`,
+          })
+        ).toEqual([]);
 
-      // The saving route matches the account pathname with its permitted
-      // section query, not an exact URL string.
-      const matcher = fakePage.registeredMatchers[0];
-      expect(typeof matcher).toBe("function");
-      const routeMatcher = matcher as (url: URL) => boolean;
-      expect(routeMatcher(new URL(`${baseUrl}/en-US/account`))).toBe(true);
-      expect(
-        routeMatcher(new URL(`${baseUrl}/en-US/account?section=profile`))
-      ).toBe(true);
-      expect(routeMatcher(new URL(`${baseUrl}/api/auth/sign-out`))).toBe(false);
-      // A foreign origin is never matched, even with the identical path and
-      // permitted query.
-      expect(
-        routeMatcher(
-          new URL("https://attacker.example/en-US/account?section=profile")
-        )
-      ).toBe(false);
+        // The saving route matches the account pathname with its permitted
+        // section query, not an exact URL string.
+        const matcher = fakePage.registeredMatchers[0];
+        expect(typeof matcher).toBe("function");
+        const routeMatcher = matcher as (url: URL) => boolean;
+        expect(routeMatcher(new URL(`${baseUrl}/en-US/account`))).toBe(true);
+        expect(
+          routeMatcher(new URL(`${baseUrl}/en-US/account?section=profile`))
+        ).toBe(true);
+        expect(routeMatcher(new URL(`${baseUrl}/api/auth/sign-out`))).toBe(
+          false
+        );
+        // A foreign origin is never matched, even with the identical path and
+        // permitted query.
+        expect(
+          routeMatcher(
+            new URL("https://attacker.example/en-US/account?section=profile")
+          )
+        ).toBe(false);
 
-      // The case's navigation to the profile section is a document request
-      // at the gated URL; it falls through without consuming the route.
-      expect(
-        fakePage.sendRequest({
-          headers: () => ({}),
-          method: () => "GET",
-          postData: () => null,
-          url: () => `${baseUrl}/en-US/account?section=profile`,
-        })
-      ).toEqual(["fallback"]);
+        // The case's navigation to the profile section is a document request
+        // at the gated URL; it falls through without consuming the route.
+        expect(
+          fakePage.sendRequest({
+            headers: () => ({}),
+            method: () => "GET",
+            postData: () => null,
+            url: () => `${baseUrl}/en-US/account?section=profile`,
+          })
+        ).toEqual(["fallback"]);
 
-      // A Server Action POST without the preference argument shape (account
-      // deletion) is not the intended save either.
-      expect(
-        fakePage.sendRequest({
-          headers: () => ({ "next-action": "synthetic-delete-action" }),
-          method: () => "POST",
-          postData: () => `[{"confirmed":true}]`,
-          url: () => `${baseUrl}/en-US/account?section=profile`,
-        })
-      ).toEqual(["fallback"]);
+        // A Server Action POST without the preference argument shape (account
+        // deletion) is not the intended save either.
+        expect(
+          fakePage.sendRequest({
+            headers: () => ({ "next-action": "synthetic-delete-action" }),
+            method: () => "POST",
+            postData: () => `[{"confirmed":true}]`,
+            url: () => `${baseUrl}/en-US/account?section=profile`,
+          })
+        ).toEqual(["fallback"]);
 
-      // The ordinary profile save serializes name and phone fields without
-      // the locale argument, so it falls through too.
-      expect(
-        fakePage.sendRequest({
-          headers: () => ({ "next-action": "synthetic-profile-action" }),
-          method: () => "POST",
-          postData: () =>
-            `[{"name":"Ada Lovelace","phone":"+420 555 010 203"}]`,
-          url: () => `${baseUrl}/en-US/account?section=profile`,
-        })
-      ).toEqual(["fallback"]);
+        // The ordinary profile save serializes name and phone fields without
+        // the locale argument, so it falls through too.
+        expect(
+          fakePage.sendRequest({
+            headers: () => ({ "next-action": "synthetic-profile-action" }),
+            method: () => "POST",
+            postData: () =>
+              `[{"name":"Ada Lovelace","phone":"+420 555 010 203"}]`,
+            url: () => `${baseUrl}/en-US/account?section=profile`,
+          })
+        ).toEqual(["fallback"]);
 
-      // A foreign origin with the identical pathname, permitted query,
-      // action header, and locale payload never matches the route, so the
-      // handler is not even invoked — the request is neither intercepted
-      // nor aborted.
-      expect(
-        fakePage.sendRequest({
-          headers: () => ({ "next-action": "synthetic-action-id" }),
-          method: () => "POST",
-          postData: () => `[{"locale":"cs-CZ"}]`,
-          url: () => `https://attacker.example/en-US/account?section=profile`,
-        })
-      ).toEqual([]);
+        // A foreign origin with the identical pathname, permitted query,
+        // action header, and locale payload never matches the route, so the
+        // handler is not even invoked — the request is neither intercepted
+        // nor aborted.
+        expect(
+          fakePage.sendRequest({
+            headers: () => ({ "next-action": "synthetic-action-id" }),
+            method: () => "POST",
+            postData: () => `[{"locale":"cs-CZ"}]`,
+            url: () => `https://attacker.example/en-US/account?section=profile`,
+          })
+        ).toEqual([]);
 
-      // The case's own language save is the only captured request.
-      await fakePage.saveLanguage("en-US");
-      await fakePage.settleRouteHandlers();
-    });
+        // The case's own Czech save is the only captured request.
+        await runLanguageCaseMoments(fakePage, capture);
+      }
+    );
 
     expect(fakePage.abortedUrls).toEqual([
       `${baseUrl}/en-US/account?section=profile`,
     ]);
-    // The case's own save plus the wrapper's saved capture and restore.
-    expect(fakePage.savedLocaleHistory).toEqual(["en-US", "en-US", "en-US"]);
+    // The case's Czech save plus the wrapper's same-locale English saved
+    // capture and restore.
+    expect(fakePage.savedLocaleHistory).toEqual(["cs-CZ", "en-US", "en-US"]);
     expect(fakePage.savedLocale()).toBe("en-US");
     // The wrapper's three save-button clicks (saved, failed, restore); the
     // runCase save above bypasses the button locator.
     expect(fakePage.clickedButtonNames).toEqual(["Save", "Save", "Save"]);
-    expect(writeFileNames()).toEqual([
-      "linked-profile-language-saving-desktop.png",
-      "linked-profile-language-saved-desktop.png",
-      "linked-profile-language-failed-desktop.png",
-      "linked-profile-language-desktop-cs.png",
-      "linked-profile-language-mobile.png",
-    ]);
+    expect(writeFileNames()).toEqual(languageReviewFileNames);
   });
 
   test("captures and aborts exactly one matching save request per gate", async () => {
@@ -1748,19 +1859,24 @@ describe("language preference review wrapper", () => {
     const matchingRequest = {
       headers: () => ({ "next-action": "synthetic-action-id" }),
       method: () => "POST",
-      postData: () => `[{"locale":"en-US"}]`,
+      postData: () => `[{"locale":"cs-CZ"}]`,
       url: () => `${baseUrl}/en-US/account?section=profile`,
     };
 
-    await withLanguagePreferenceReview(fakePage.page, review, async () => {
-      // Two overlapping matching requests before the first handler settles:
-      // only the first is captured, the second falls through.
-      const firstOutcomes = fakePage.sendRequest(matchingRequest);
-      expect(fakePage.sendRequest(matchingRequest)).toEqual(["fallback"]);
-      expect(fakePage.abortedUrls).toEqual([]);
-      await fakePage.settleRouteHandlers();
-      expect(firstOutcomes).toEqual(["continue"]);
-    });
+    await withLanguagePreferenceReview(
+      fakePage.page,
+      review,
+      async (capture) => {
+        // Two overlapping matching requests before the first handler settles:
+        // only the first is captured, the second falls through.
+        const firstOutcomes = fakePage.sendRequest(matchingRequest);
+        expect(fakePage.sendRequest(matchingRequest)).toEqual(["fallback"]);
+        expect(fakePage.abortedUrls).toEqual([]);
+        await fakePage.settleRouteHandlers();
+        expect(firstOutcomes).toEqual(["continue"]);
+        await runLanguageCaseMoments(fakePage, capture);
+      }
+    );
 
     // The failure path aborts exactly one matching request, and the saving
     // capture wrote its PNG exactly once despite the overlapping dispatch.
@@ -1772,13 +1888,7 @@ describe("language preference review wrapper", () => {
         (name) => name === "linked-profile-language-saving-desktop.png"
       )
     ).toHaveLength(1);
-    expect(writeFileNames()).toEqual([
-      "linked-profile-language-saving-desktop.png",
-      "linked-profile-language-saved-desktop.png",
-      "linked-profile-language-failed-desktop.png",
-      "linked-profile-language-desktop-cs.png",
-      "linked-profile-language-mobile.png",
-    ]);
+    expect(writeFileNames()).toEqual(languageReviewFileNames);
   });
 
   test("resolves the save locator to the language button only", async () => {
@@ -1806,33 +1916,109 @@ describe("language preference review wrapper", () => {
   test("forces a genuine selection change before the saved-state capture", async () => {
     const fakePage = makeLanguageReviewFakePage({ persistedLocale: "en-US" });
 
-    await withLanguagePreferenceReview(fakePage.page, review, async () => {
-      // A fresh session restores the persisted value without a selection, so
-      // re-picking English (US) fires no onValueChange and Save stays
-      // disabled: no preference POST happens.
-      await fakePage.selectOption("en-US");
-      await fakePage.clickSave();
-      expect(fakePage.savedLocaleHistory).toEqual([]);
-
-      // The case must genuinely change the selection to save; the wrapper's
-      // own saved capture repeats the same Czech-then-English sequence.
-      await fakePage.saveLanguage("en-US");
-      await fakePage.settleRouteHandlers();
-      expect(fakePage.savedLocaleHistory).toEqual(["en-US"]);
-    });
+    await withLanguagePreferenceReview(
+      fakePage.page,
+      review,
+      async (capture) => {
+        await runLanguageCaseMoments(fakePage, capture, {
+          beforeCzechSave: async () => {
+            // A fresh page shows the persisted value without a selection, so
+            // re-picking English (US) fires no onValueChange and Save stays
+            // disabled: no preference POST happens.
+            await fakePage.selectOption("en-US");
+            await fakePage.clickSave();
+            expect(fakePage.savedLocaleHistory).toEqual([]);
+          },
+        });
+        // The case ends on the English profile with English (US) saved and no
+        // pending selection; the wrapper's saved capture must change it first.
+        expect(fakePage.savedLocaleHistory).toEqual(["cs-CZ"]);
+      }
+    );
 
     expect(fakePage.savedLocale()).toBe("en-US");
-    expect(fakePage.savedLocaleHistory).toEqual(["en-US", "en-US", "en-US"]);
+    expect(fakePage.savedLocaleHistory).toEqual(["cs-CZ", "en-US", "en-US"]);
     expect(fakePage.abortedUrls).toEqual([
       `${baseUrl}/en-US/account?section=profile`,
     ]);
+    expect(writeFileNames()).toEqual(languageReviewFileNames);
+  });
+
+  test("fails the review when the case skips a language moment", async () => {
+    const fakePage = makeLanguageReviewFakePage();
+
+    await expect(
+      withLanguagePreferenceReview(fakePage.page, review, (capture) =>
+        runLanguageCaseMoments(fakePage, capture, { skip: "switcher-saved" })
+      )
+    ).rejects.toThrow(captureFailureMessage);
+
+    // Every genuine capture still lands; only the skipped one is missing.
+    expect(writeFileNames()).toEqual(
+      languageReviewFileNames.filter(
+        (name) => name !== "locale-switcher-saved-desktop.png"
+      )
+    );
+  });
+
+  test("fails the review when a moment is captured off its page", async () => {
+    const fakePage = makeLanguageReviewFakePage();
+
+    await expect(
+      withLanguagePreferenceReview(fakePage.page, review, async (capture) => {
+        // The Czech profile capture while the page is still the English
+        // account must never be written.
+        fakePage.navigate(`${baseUrl}/en-US/account`);
+        await capture("czech-profile");
+        await runLanguageCaseMoments(fakePage, capture);
+      })
+    ).rejects.toThrow(captureFailureMessage);
+
+    expect(writeFileNames()).toEqual(
+      languageReviewFileNames.filter(
+        (name) => name !== "linked-profile-language-desktop-cs.png"
+      )
+    );
+  });
+
+  test("fails the review when a moment is captured twice", async () => {
+    const fakePage = makeLanguageReviewFakePage();
+
+    await expect(
+      withLanguagePreferenceReview(fakePage.page, review, async (capture) => {
+        await runLanguageCaseMoments(fakePage, capture);
+        fakePage.navigate(`${baseUrl}/en-US/account`);
+        await capture("switcher-saved");
+      })
+    ).rejects.toThrow(captureFailureMessage);
+
+    expect(
+      writeFileNames().filter(
+        (name) => name === "locale-switcher-saved-desktop.png"
+      )
+    ).toHaveLength(1);
+  });
+
+  test("rethrows the case failure without the post-case captures", async () => {
+    const fakePage = makeLanguageReviewFakePage();
+    const caseFailure = new Error("synthetic language case failure");
+
+    await expect(
+      withLanguagePreferenceReview(fakePage.page, review, async (capture) => {
+        fakePage.navigate(`${baseUrl}/en-US/account`);
+        await fakePage.saveLanguage("cs-CZ");
+        await fakePage.settleRouteHandlers();
+        fakePage.navigate(`${baseUrl}/cs-CZ/account?section=profile`);
+        await capture("czech-profile");
+        throw caseFailure;
+      })
+    ).rejects.toBe(caseFailure);
+
     expect(writeFileNames()).toEqual([
       "linked-profile-language-saving-desktop.png",
-      "linked-profile-language-saved-desktop.png",
-      "linked-profile-language-failed-desktop.png",
       "linked-profile-language-desktop-cs.png",
-      "linked-profile-language-mobile.png",
     ]);
+    expect(fakePage.abortedUrls).toEqual([]);
   });
 });
 
@@ -1926,6 +2112,26 @@ describe("account review screenshots without the opt-in", () => {
     expect(fakePage.routeCalls).toHaveLength(0);
     expect(fakePage.unrouteCallCount()).toBe(0);
     expectUntouched(fakePage);
+  });
+
+  test("runs the language case without holding or capturing anything", async () => {
+    const fakePage = makeLanguageReviewFakePage();
+    let caseRuns = 0;
+
+    await withLanguagePreferenceReview(
+      fakePage.page,
+      reviewWithoutScreenshots,
+      async (capture) => {
+        caseRuns += 1;
+        await runLanguageCaseMoments(fakePage, capture);
+      }
+    );
+
+    expect(caseRuns).toBe(1);
+    expect(fakePage.registeredMatchers).toHaveLength(0);
+    expect(fakePage.savedLocaleHistory).toEqual(["cs-CZ"]);
+    expect(writeFileSpy?.mock.calls).toHaveLength(0);
+    expect(mkdirSpy?.mock.calls).toHaveLength(0);
   });
 
   test("preserves the sign-in case failure", async () => {

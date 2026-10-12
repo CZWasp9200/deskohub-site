@@ -2,6 +2,7 @@ import { Effect } from "effect";
 import {
   activateHydratedBrowserElement,
   openBrowserPage,
+  waitForBrowserCondition,
   waitForBrowserUrl,
 } from "../browser";
 import type { WorkspaceE2EConfig } from "../config";
@@ -49,24 +50,76 @@ export const assertLocaleSwitcher = ({
     log("Locale switch e2e passed");
   });
 
+type SwitchLocale = CheckoutData["locale"] | "cs-CZ";
+
+const localeSwitchLinkSelector = (locale: SwitchLocale) =>
+  `[data-locale-switcher] a[href^="/${locale}"]`;
+
+/**
+ * Whether the switcher link saves the language preference when activated.
+ * The header learns that the visitor is signed in from a promise streamed
+ * after the shell, so the link hydrates before the saving handler exists. An
+ * activation in that window is a guest navigation, and the proxy redirects it
+ * straight back to the saved locale. The links carry no attribute for this
+ * state, so the check reads the committed props of the switcher component
+ * that owns the link: the one that receives `getLocaleHref`.
+ */
+export const localePreferenceSavingReadyCondition = (locale: SwitchLocale) =>
+  `(() => {
+    const link = document.querySelector(${JSON.stringify(localeSwitchLinkSelector(locale))});
+    if (link === null) return false;
+    const fiberKey = Object.keys(link).find((key) => key.startsWith("__reactFiber$"));
+    for (let fiber = fiberKey === undefined ? null : link[fiberKey]; fiber != null; fiber = fiber.return) {
+      const props = fiber.memoizedProps;
+      if (props !== null && typeof props === "object" && "getLocaleHref" in props) {
+        return typeof props.selectLocale === "function";
+      }
+    }
+    return false;
+  })()`;
+
 const activateLocaleSwitchLink = (
   run: Runner,
   session: string,
-  locale: CheckoutData["locale"] | "cs-CZ",
+  locale: SwitchLocale,
   timeouts: WorkspaceE2ETimeouts
 ) =>
   Effect.gen(function* () {
     const timeoutMs = timeouts.browserNavigation;
-    const selector = `[data-locale-switcher] a[href^="/${locale}"]`;
-    yield* activateHydratedBrowserElement(run, session, selector, {
-      timeoutMs,
-    });
+    yield* activateHydratedBrowserElement(
+      run,
+      session,
+      localeSwitchLinkSelector(locale),
+      { timeoutMs }
+    );
+  });
+
+/**
+ * Switches a signed-in visitor's locale through the header, which saves the
+ * language preference before the document navigation. The URL wait proves
+ * the save: without it the proxy would redirect back to the old preference.
+ */
+export const switchSignedInLocale = (
+  run: Runner,
+  session: string,
+  locale: SwitchLocale,
+  timeouts: WorkspaceE2ETimeouts
+): Effect.Effect<void, WorkspaceE2EError> =>
+  Effect.gen(function* () {
+    yield* waitForBrowserCondition(
+      run,
+      session,
+      `${locale} locale switch saving the preference`,
+      localePreferenceSavingReadyCondition(locale),
+      { timeoutMs: timeouts.browserNavigation }
+    );
+    yield* switchLocale(run, session, locale, timeouts);
   });
 
 const switchLocale = (
   run: Runner,
   session: string,
-  locale: CheckoutData["locale"] | "cs-CZ",
+  locale: SwitchLocale,
   timeouts: WorkspaceE2ETimeouts
 ) =>
   Effect.gen(function* () {

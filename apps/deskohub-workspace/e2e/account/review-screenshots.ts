@@ -9,6 +9,10 @@ import {
   isCallbackFailureQuery,
   isExactCallbackUrlString,
 } from "./callback-url";
+import {
+  type LanguagePreferenceReviewStage,
+  languagePreferenceReviewTargetByStage,
+} from "./review-targets";
 
 export type AccountReviewTarget =
   | "completion-mobile375x900"
@@ -24,6 +28,8 @@ export type AccountReviewTarget =
   | "linked-profile-language-saving-desktop"
   | "linked-profile-language-saved-desktop"
   | "linked-profile-language-failed-desktop"
+  | "locale-preference-redirect-desktop"
+  | "locale-switcher-saved-desktop"
   | "linked-billing-desktop"
   | "linked-billing-mobile"
   | "linked-legal-desktop"
@@ -131,6 +137,16 @@ const accountReviewTargetMetadata = {
   },
   "linked-profile-language-failed-desktop": {
     filename: "linked-profile-language-failed-desktop.png",
+    path: "/en-US/account",
+    viewport: { height: 1000, width: 1440 },
+  },
+  "locale-preference-redirect-desktop": {
+    filename: "locale-preference-redirect-desktop.png",
+    path: "/cs-CZ/faq",
+    viewport: { height: 1000, width: 1440 },
+  },
+  "locale-switcher-saved-desktop": {
+    filename: "locale-switcher-saved-desktop.png",
     path: "/en-US/account",
     viewport: { height: 1000, width: 1440 },
   },
@@ -307,6 +323,7 @@ const isPrivateLinkedAccountTarget = (target: ReviewTarget): boolean =>
   target === "linked-profile-language-saving-desktop" ||
   target === "linked-profile-language-saved-desktop" ||
   target === "linked-profile-language-failed-desktop" ||
+  target === "locale-switcher-saved-desktop" ||
   target === "linked-billing-desktop" ||
   target === "linked-billing-mobile" ||
   target === "linked-danger-desktop" ||
@@ -879,28 +896,38 @@ const languageSaveButton = (page: Playwright.Page): Playwright.Locator =>
     .locator(profileScreenSelector)
     .getByRole("button", { name: languageSaveButtonName, exact: true });
 
-const csCzProfileNavButtonSelector =
-  'nav[aria-label="Navigace účtu"] button:not([data-account-section]):has-text("Profil a identita")';
-const enUsProfileNavButtonSelector =
-  'nav[aria-label="Account navigation"] button:not([data-account-section]):has-text("Profile & Identity")';
-
 const browserActionTimeout = () => workspaceE2ETimeouts.browserAction;
 
 /**
+ * Captures the review target of one mid-case language moment. It never
+ * throws: a failed or repeated capture is recorded by the wrapper, which
+ * reports it only after the case has finished.
+ */
+export type LanguagePreferenceReviewCapture = (
+  stage: LanguagePreferenceReviewStage
+) => Promise<void>;
+
+const skipLanguagePreferenceReview: LanguagePreferenceReviewCapture =
+  async () => undefined;
+
+/**
  * Drives the preferred-communication-language feature's own review states
- * around the language case: the mid-flight saving feedback captured while
- * the case's own save request is in flight, the saved feedback, an
- * abort-induced transport failure restored by a real save, the cs-CZ
- * selector view, and the mobile view. Callers own the synthetic context;
- * this helper only captures the allowlisted PNGs and never changes the
- * persisted language preference.
+ * around the language case. The saving feedback is captured while the case's
+ * Czech save request is held under /en-US/account. The case hands the wrapper
+ * its genuine mid-case moments through the capture hook: the Czech profile,
+ * the preference redirect, and the switcher save. After the case ends on the
+ * English profile with English (US) saved, a same-locale save shows its
+ * confirmation without navigating, so the saved feedback, an abort-induced
+ * transport failure restored by a real save, and the mobile view are
+ * captured there. Callers own the synthetic context; this helper only
+ * captures the allowlisted PNGs, and its own saves keep English (US).
  */
 export const withLanguagePreferenceReview = async (
   page: Playwright.Page,
   review: AccountReviewDestination,
-  runCase: () => Promise<void>
+  runCase: (capture: LanguagePreferenceReviewCapture) => Promise<void>
 ): Promise<void> => {
-  if (!review.screenshots) return runCase();
+  if (!review.screenshots) return runCase(skipLanguagePreferenceReview);
   const { baseUrl } = review;
   const savingMetadata =
     accountReviewTargetMetadata["linked-profile-language-saving-desktop"];
@@ -915,6 +942,24 @@ export const withLanguagePreferenceReview = async (
   let runCaseFailure: unknown;
   let wrapperFailed = false;
   let previousViewport: Playwright.ViewportSize | null = null;
+  const capturedStages = new Set<LanguagePreferenceReviewStage>();
+
+  const captureStage: LanguagePreferenceReviewCapture = async (stage) => {
+    if (capturedStages.has(stage)) {
+      reviewFailed = true;
+      return;
+    }
+    capturedStages.add(stage);
+    try {
+      await captureAccountReview(
+        page,
+        review,
+        languagePreferenceReviewTargetByStage[stage]
+      );
+    } catch {
+      reviewFailed = true;
+    }
+  };
 
   /**
    * The saving gate matches the preference save POST by its URL shape plus a
@@ -1035,11 +1080,11 @@ export const withLanguagePreferenceReview = async (
   };
 
   const selectEnglishAndSave = async () => {
-    // A fresh session renders the select without a selection, so re-picking
-    // the already-saved locale fires no onValueChange and Save stays
-    // disabled. Selecting Czech first forces a genuine selection change so
-    // the final English pick enables Save; the intermediate pick is never
-    // saved.
+    // The case leaves the select showing the saved English (US) without a
+    // pending selection, so re-picking it fires no onValueChange and Save
+    // stays disabled. Selecting Czech first forces a genuine selection change
+    // so the final English pick enables Save; the intermediate pick is never
+    // saved, and saving the page locale does not navigate.
     await selectLanguageOption(languageOptionCsSelector);
     await selectLanguageOption(languageOptionEnSelector);
     await languageSaveButton(page).click({
@@ -1086,39 +1131,6 @@ export const withLanguagePreferenceReview = async (
       .waitFor({ state: "visible", timeout: browserActionTimeout() });
   };
 
-  const performCsCzSelectorCapture = async () => {
-    await page.goto(new URL("/cs-CZ/account", baseUrl).toString(), {
-      timeout: browserActionTimeout(),
-    });
-    await page
-      .locator(csCzProfileNavButtonSelector)
-      .first()
-      .click({ timeout: browserActionTimeout() });
-    await page
-      .locator(profileScreenSelector)
-      .first()
-      .waitFor({ state: "visible", timeout: browserActionTimeout() });
-    await captureAccountReview(
-      page,
-      review,
-      "linked-profile-language-desktop-cs"
-    );
-  };
-
-  const returnToEnglishProfile = async () => {
-    await page.goto(new URL("/en-US/account", baseUrl).toString(), {
-      timeout: browserActionTimeout(),
-    });
-    await page
-      .locator(enUsProfileNavButtonSelector)
-      .first()
-      .click({ timeout: browserActionTimeout() });
-    await page
-      .locator(profileScreenSelector)
-      .first()
-      .waitFor({ state: "visible", timeout: browserActionTimeout() });
-  };
-
   try {
     previousViewport = page.viewportSize();
     if (previousViewport === null) throw accountReviewCaptureFailure();
@@ -1131,7 +1143,7 @@ export const withLanguagePreferenceReview = async (
       Date.now() + browserActionTimeout()
     );
     try {
-      await runCase();
+      await runCase(captureStage);
     } catch (cause) {
       runCaseFailed = true;
       runCaseFailure = cause;
@@ -1141,12 +1153,17 @@ export const withLanguagePreferenceReview = async (
   }
 
   if (!runCaseFailed && !wrapperFailed) {
+    if (
+      Object.keys(languagePreferenceReviewTargetByStage).some(
+        (stage) => !capturedStages.has(stage as LanguagePreferenceReviewStage)
+      )
+    ) {
+      reviewFailed = true;
+    }
     try {
       await performSavedFeedbackCapture();
       await performTransportFailureCapture();
       await restoreSavedLanguage();
-      await performCsCzSelectorCapture();
-      await returnToEnglishProfile();
       await captureAccountReview(
         page,
         review,
