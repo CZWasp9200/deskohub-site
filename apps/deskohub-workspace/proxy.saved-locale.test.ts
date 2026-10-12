@@ -141,6 +141,8 @@ describe("signed-in customer's saved language preference", () => {
     for (const path of [
       `/en-US/checkout/pay?${payStateTokenQueryParam}=synthetic-state`,
       `/en-US/reservation/cowork?${payStateTokenQueryParam}=synthetic-state`,
+      `/en-US/reservation/meeting-room?${payStateTokenQueryParam}=synthetic-state`,
+      `/en-US/reservation/office?${payStateTokenQueryParam}=synthetic-state`,
     ]) {
       const response = await proxy(request(path, { cookie: signedInCookie }));
 
@@ -148,6 +150,39 @@ describe("signed-in customer's saved language preference", () => {
       expect(response.headers.get("location")).toBeNull();
     }
     expect(preferenceReads).toEqual([]);
+  });
+
+  test("redirects a continuation parameter on a route it does not belong to", async () => {
+    for (const path of [
+      `/en-US/gallery?${reservationAccessTokenQueryParam}=synthetic-token`,
+      `/en-US/gallery?${payStateTokenQueryParam}=synthetic-state`,
+      `/en-US/reservation/invoice/reservation-id?${payStateTokenQueryParam}=synthetic-state`,
+      `/en-US/checkout/pay?${reservationAccessTokenQueryParam}=synthetic-token`,
+      `/en-US/checkout/pay/return/reservation-id?${payStateTokenQueryParam}=synthetic-state`,
+    ]) {
+      const response = await proxy(request(path, { cookie: signedInCookie }));
+
+      expect(new URL(response.headers.get("location") ?? "").pathname).toBe(
+        new URL(`https://workspace.example${path}`).pathname.replace(
+          "/en-US",
+          "/cs-CZ"
+        )
+      );
+    }
+  });
+
+  test("redirects a supported continuation route whose value is empty", async () => {
+    for (const path of [
+      `/en-US/reservation/invoice/reservation-id?${reservationAccessTokenQueryParam}=`,
+      `/en-US/checkout/pay?${payStateTokenQueryParam}=`,
+      `/en-US/reservation/office?${payStateTokenQueryParam}=%20`,
+    ]) {
+      const response = await proxy(request(path, { cookie: signedInCookie }));
+
+      expect(response.headers.get("location")).toStartWith(
+        "https://workspace.example/cs-CZ/"
+      );
+    }
   });
 
   test("still applies the preference to the same pages without a continuation", async () => {

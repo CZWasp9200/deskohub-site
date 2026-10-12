@@ -31,7 +31,7 @@ export async function resolveActionLocale(): Promise<Locale> {
       cookies: requestCookies,
       headers: requestHeaders,
     },
-    referer && carriesLocaleBoundContinuation(referer.searchParams)
+    referer && carriesLocaleBoundContinuation(referer)
       ? undefined
       : await readSavedLocalePreference(requestHeaders)
   );

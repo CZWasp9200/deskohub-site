@@ -144,16 +144,21 @@ description: Workspace customer account, Better Auth, magic link, auth persisten
   the database. It exchanges a reservation capability in its issuance locale
   before any preference redirect. Email readers fall back to the reservation
   or request locale when an account has no preference.
-- Locale-bound continuations keep their issued locale. A URL carrying a
-  signed Pay state (`payState`) or a reservation access token (`accessToken`,
-  such as an emailed invoice link) is exempt from the preference, in both the
-  proxy and the Server Action locale. The list lives in
+- Locale-bound continuations keep their issued locale. Only these supported
+  route and parameter pairs, with a non-empty value, are exempt from the
+  preference, in both the proxy and the Server Action locale: the Pay page
+  and the cowork, meeting-room, and office restoration pages with `payState`,
+  and the invoice page with `accessToken`. The list lives in
   `features/checkout/locale-bound-continuation.ts`. The Pay state fixes the
   language of the accepted terms and operating rules and of the frozen
   accounting snapshot (the invoice language). The invoice page issues that
-  invoice in the reservation's locale. Moving either URL to another locale
-  would invalidate it. Add any new signed state whose guarantees depend on
-  its locale to that list rather than special-casing a route.
+  invoice in the reservation's locale. Any other URL follows the preference,
+  whatever parameters it carries. Add a new signed state whose guarantees
+  depend on its locale to that list rather than special-casing a route.
+- Emails follow the customer's language, but a link whose target validates
+  a locale is issued in the target's locale. The paid-reservation email's
+  invoice link and token use the reservation's locale. Its access link uses
+  the email locale, because only its token and URL must agree.
 - The profile keeps "no saved preference" distinct (`{ suggested }`, the page
   locale). Save stays enabled, so the suggested value can be stored as is.
 

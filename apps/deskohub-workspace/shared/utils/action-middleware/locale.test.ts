@@ -141,4 +141,35 @@ describe("action locale middleware", () => {
       messageLocale: "en-US",
     });
   });
+
+  test("an action from a page with a continuation parameter it does not support follows the preference", async () => {
+    savedPreference = "cs-CZ";
+    const readLocale = await createLocaleReader();
+
+    const result = await request("en-US", () => readLocale(), {
+      referer: "https://deskohub.test/en-US/gallery?payState=synthetic",
+      signedIn: true,
+    });
+
+    expect(result.data).toEqual({
+      contextLocale: "cs-CZ",
+      messageLocale: "cs-CZ",
+    });
+  });
+
+  test("an action from an invoice page keeps that page's locale", async () => {
+    savedPreference = "cs-CZ";
+    const readLocale = await createLocaleReader();
+
+    const result = await request("cs-CZ", () => readLocale(), {
+      referer:
+        "https://deskohub.test/en-US/reservation/invoice/reservation-id?accessToken=synthetic",
+      signedIn: true,
+    });
+
+    expect(result.data).toEqual({
+      contextLocale: "en-US",
+      messageLocale: "en-US",
+    });
+  });
 });

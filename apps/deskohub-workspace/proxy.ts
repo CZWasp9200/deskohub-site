@@ -121,9 +121,7 @@ export async function proxy(request: NextRequest) {
 
   // A URL continuing a flow bound to its issued locale (a Pay state or an
   // invoice link) keeps that locale; the saved preference applies elsewhere.
-  const savedPreference = carriesLocaleBoundContinuation(
-    request.nextUrl.searchParams
-  )
+  const savedPreference = carriesLocaleBoundContinuation(request.nextUrl)
     ? undefined
     : await readSavedLocalePreference(request);
   const resolvedLocale = resolveWorkspaceLocale(
