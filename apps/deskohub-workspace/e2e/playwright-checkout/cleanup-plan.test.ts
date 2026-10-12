@@ -146,7 +146,7 @@ test("rejects a parsed account candidate owned by another run before checkout cl
 
   await expect(
     runWorkspaceE2ECleanupWithPreparedCandidates({
-      readAccountLaneJournal: async () =>
+      readAccountJournals: async () => [
         validateWorkspaceE2EAccountLaneJournalOwnership({
           journal: parsedJournal,
           recipientEmails: new Set(["delivered+source-run-main@resend.dev"]),
@@ -156,6 +156,7 @@ test("rejects a parsed account candidate owned by another run before checkout cl
           customerOwners: new Map(),
           reservationOwners: new Map(),
         }),
+      ],
       readCheckoutCleanup: async () => emptyCheckoutCleanup(),
       reconcile: async () => {
         checkoutCleanupStarted = true;
@@ -226,9 +227,10 @@ test("rejects a present account profile without email before either cleanup scop
 
   await expect(
     runWorkspaceE2ECleanupWithPreparedCandidates({
-      readAccountLaneJournal: () =>
+      readAccountJournals: () =>
         Effect.runPromise(
           accountPreparation.pipe(
+            Effect.map((prepared) => (prepared ? [prepared] : [])),
             Effect.provideService(
               E2EDatabase,
               E2EDatabase.of({ db: {} as never })
@@ -289,9 +291,10 @@ test("does not treat a present account reservation with a missing customer as ab
 
   await expect(
     runWorkspaceE2ECleanupWithPreparedCandidates({
-      readAccountLaneJournal: () =>
+      readAccountJournals: () =>
         Effect.runPromise(
           accountPreparation.pipe(
+            Effect.map((prepared) => (prepared ? [prepared] : [])),
             Effect.provideService(
               E2EDatabase,
               E2EDatabase.of({ db: {} as never })

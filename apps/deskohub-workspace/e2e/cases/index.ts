@@ -19,6 +19,7 @@ import {
 import { discountCodeFixtures } from "../integrations/discount-fixtures";
 import type { E2EDotyposDiscountGroup } from "../integrations/dotypos";
 import type { Runner } from "../runtime";
+import { planWorkspaceE2EReferralCases } from "../referrals/plan";
 import { log } from "../runtime";
 import { E2ETelemetryService } from "../services/telemetry";
 import type {
@@ -312,55 +313,14 @@ export const makeWorkspaceE2ECases = ({
         });
       }
 
-      const referralCheckoutDates = yield* selectCoworkDates(
-        discountPreparation.availableBasicDates,
-        2,
-        {
-          allocation,
-          excludedDates: new Set(checkoutDates),
-          maximumReservationsPerDate: 1,
-          selectionLabel: "account referral checkout",
-        }
-      );
-      const referralOrdinaryDate = yield* requireCheckoutDate(
-        referralCheckoutDates,
-        0
-      );
-      const referralOrdinaryData = makeCoworkCheckoutData(
-        config.baseUrl,
-        referralOrdinaryDate,
-        "account-referral-ordinary"
-      );
-      const referralOrdinaryState = trackCheckoutState(
-        flowStates,
-        referralOrdinaryData
-      );
-
-      const referralVoucherDate = yield* requireCheckoutDate(
-        referralCheckoutDates,
-        1
-      );
-      const referralVoucherData = makeCoworkCheckoutData(
-        config.baseUrl,
-        referralVoucherDate,
-        "account-referral-voucher"
-      );
-      const referralVoucherState = trackCheckoutState(
-        flowStates,
-        referralVoucherData
-      );
-      cases.push({
-        checkoutStates: [referralOrdinaryState, referralVoucherState],
-        execute: () =>
-          Effect.fail(
-            workspaceE2EError(
-              "Account referral checkout must be bound to the verified account lane",
-              { operation: "bind account referral checkout" }
-            )
-          ),
-        id: "account-referral-checkout",
-        timeoutMs: config.timeouts.checkoutCase,
+      const referralPlan = yield* planWorkspaceE2EReferralCases({
+        allocation,
+        availableBasicDates: discountPreparation.availableBasicDates,
+        config,
+        excludedDates: new Set(checkoutDates),
+        trackCheckoutState: (data) => trackCheckoutState(flowStates, data),
       });
+      cases.push(...referralPlan.cases);
 
       cases.push(
         ...(yield* makeMeetingRoomE2ECases({
@@ -397,7 +357,7 @@ export const makeWorkspaceE2ECases = ({
           allocation,
           config,
           datasourceConfig,
-          excludedDates: new Set([...checkoutDates, ...referralCheckoutDates]),
+          excludedDates: new Set([...checkoutDates, ...referralPlan.dates]),
           flowStates,
           preparation: discountPreparation,
           run,

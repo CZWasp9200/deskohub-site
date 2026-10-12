@@ -29,6 +29,7 @@ import { meetingRoomE2EDurations } from "./cases/meeting-room";
 import { selectCoworkDates } from "./checkout/data";
 import type { DatasourceConfig, WorkspaceE2EConfig } from "./config";
 import type { E2EDotyposDiscountGroup } from "./integrations/dotypos";
+import { workspaceE2EReferralCheckoutCaseIds } from "./referrals/plan";
 import type { Runner } from "./runtime";
 import { workspaceE2ETimeouts } from "./timeouts";
 
@@ -162,15 +163,19 @@ test("wires the case-plan per-date maximums through the real case builders", asy
 
   expect(cases.length).toBeGreaterThan(0);
   expect(cases.some(({ id }) => id === "checkout-discount-code")).toBe(true);
-  const accountReferralCheckout = cases.find(
-    ({ id }) => id === "account-referral-checkout"
+  const referralCheckouts = cases.filter(({ id }) =>
+    (workspaceE2EReferralCheckoutCaseIds as readonly string[]).includes(id)
   );
-  expect(accountReferralCheckout?.checkoutStates).toHaveLength(2);
+  expect(referralCheckouts.map(({ checkoutStates }) => checkoutStates.length)).toEqual(
+    workspaceE2EReferralCheckoutCaseIds.map(() => 1)
+  );
   expect(
     new Set(
-      accountReferralCheckout?.checkoutStates.map(({ data }) => data.date)
+      referralCheckouts.flatMap(({ checkoutStates }) =>
+        checkoutStates.map(({ data }) => data.date)
+      )
     ).size
-  ).toBe(2);
+  ).toBe(workspaceE2EReferralCheckoutCaseIds.length);
   const plannedDates = cases.flatMap(({ checkoutStates }) =>
     checkoutStates.map(({ data }) => data.date)
   );

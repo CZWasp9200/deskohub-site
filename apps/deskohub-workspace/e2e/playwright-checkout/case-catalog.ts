@@ -66,16 +66,10 @@ export const workspaceE2EReferralCaseIds = [
   "referral-profile-completion-unusable-link",
 ] as const;
 
-/** Executed only by the serial account lane with its already-verified browser session. */
-export const workspaceE2EAccountCheckoutCaseIds = [
-  "account-referral-checkout",
-] as const;
-
 export const workspaceE2ECaseIds = [
   ...workspaceE2ENonPaymentCaseIds,
   ...workspaceE2EPaymentCaseLanes.flat(),
   ...workspaceE2ESharedFixtureCaseIds,
-  ...workspaceE2EAccountCheckoutCaseIds,
   ...workspaceE2EReferralCaseIds,
 ] as const;
 

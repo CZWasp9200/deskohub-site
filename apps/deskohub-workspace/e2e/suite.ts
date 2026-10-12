@@ -66,7 +66,6 @@ type WorkspaceE2ECaseRuntime = {
   readonly artifactDir: string;
   browserHarStarted: boolean;
   browserHarStopped: boolean;
-  readonly browserSessionOwned: boolean;
   durationMs?: number;
   failureCause?: Cause.Cause<WorkspaceE2EError>;
   result?: E2EResult;
@@ -81,7 +80,6 @@ export const runWorkspaceE2ECase = ({
   reportFailure,
   run,
   sessionPrefix,
-  browserSession,
   testCase,
   timeouts,
 }: {
@@ -90,10 +88,6 @@ export const runWorkspaceE2ECase = ({
   reportFailure?: WorkspaceE2EFailureReporter;
   run: Runner;
   sessionPrefix: string;
-  browserSession?: {
-    readonly ownership: "borrowed";
-    readonly session: string;
-  };
   testCase: WorkspaceE2ECase;
   timeouts: WorkspaceE2ETimeouts;
 }): Effect.Effect<
@@ -119,9 +113,7 @@ export const runWorkspaceE2ECase = ({
               artifactDir: resolve(artifactRoot, testCase.id),
               browserHarStarted: false,
               browserHarStopped: false,
-              browserSessionOwned: browserSession === undefined,
-              session:
-                browserSession?.session ?? `${sessionPrefix}-${testCase.id}`,
+              session: `${sessionPrefix}-${testCase.id}`,
               testCase,
             };
             caseRuntime = runtime;
@@ -136,7 +128,7 @@ export const runWorkspaceE2ECase = ({
               providerVerificationPermit
             ).pipe(
               Effect.tapCause(() =>
-                runtime.failureCause && runtime.browserSessionOwned
+                runtime.failureCause
                   ? captureFailureArtifacts(runtime, run, timeouts)
                   : Effect.void
               )
@@ -157,7 +149,7 @@ export const runWorkspaceE2ECase = ({
         timeoutMs: testCase.timeoutMs,
       });
 
-      yield* reportFailure && browserSession === undefined
+      yield* reportFailure
         ? tracedCase.pipe(
             Effect.tapCause((cause) =>
               Effect.sync(() => {
@@ -211,23 +203,21 @@ const runCase = (
   return withinWorkspaceE2EDeadline(
     Effect.gen(function* () {
       log(`CASE START ${runtime.testCase.id}`);
-      if (runtime.browserSessionOwned) {
-        runtime.browserHarStarted = yield* startBrowserDiagnostics(
-          run,
-          runtime.session
-        ).pipe(
-          Effect.timeoutOrElse({
-            duration: `${timeouts.browserAction} millis`,
-            orElse: () =>
-              Effect.fail(
-                workspaceE2ETimeoutError(
-                  `Timed out starting browser diagnostics for ${runtime.testCase.id}`,
-                  { operation: `${runtime.testCase.id} browser diagnostics` }
-                )
-              ),
-          })
-        );
-      }
+      runtime.browserHarStarted = yield* startBrowserDiagnostics(
+        run,
+        runtime.session
+      ).pipe(
+        Effect.timeoutOrElse({
+          duration: `${timeouts.browserAction} millis`,
+          orElse: () =>
+            Effect.fail(
+              workspaceE2ETimeoutError(
+                `Timed out starting browser diagnostics for ${runtime.testCase.id}`,
+                { operation: `${runtime.testCase.id} browser diagnostics` }
+              )
+            ),
+        })
+      );
       yield* runtime.testCase.execute({
         runStep,
         session: runtime.session,
@@ -360,7 +350,6 @@ const finalizeCaseRuntime = (
       )
     );
     const browserFinalization = Effect.gen(function* () {
-      if (!runtime.browserSessionOwned) return;
       if (runtime.browserHarStarted && !runtime.browserHarStopped) {
         yield* collectFinalizerFailure(
           failures,
