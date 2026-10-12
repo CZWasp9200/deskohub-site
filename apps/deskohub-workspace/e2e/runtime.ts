@@ -329,6 +329,14 @@ class PlaywrightRuntime {
         throw new Error(
           `Unsupported Playwright network operation: ${commandArgs.join(" ")}`
         );
+      case "cookie": {
+        if (commandArgs[0] !== "set" || commandArgs[1] !== "--stdin")
+          throw new Error("Unsupported Playwright cookie operation");
+        if (input === undefined)
+          throw new Error("Playwright cookie input is required");
+        await session.context.addCookies([parseHttpsOnlyCookie(input)]);
+        return "";
+      }
       case "close":
         await this.closeSession(session);
         if (session.rawHarPath) await rm(session.rawHarPath, { force: true });
@@ -426,6 +434,41 @@ class PlaywrightRuntime {
     });
   }
 }
+
+/**
+ * Decodes one cookie for the session's own context. Cookie values never
+ * travel in command arguments, which the runner logs; only an HTTP-only,
+ * Secure, Lax cookie bound to one HTTPS origin is accepted.
+ */
+export const parseHttpsOnlyCookie = (input: string) => {
+  const value: unknown = JSON.parse(input);
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    !("name" in value) ||
+    !("url" in value) ||
+    !("value" in value) ||
+    typeof value.name !== "string" ||
+    typeof value.url !== "string" ||
+    typeof value.value !== "string" ||
+    value.name === "" ||
+    value.value === ""
+  ) {
+    throw new Error("Playwright cookie input is invalid");
+  }
+  const url = new URL(value.url);
+  if (url.protocol !== "https:" || url.pathname !== "/" || url.search) {
+    throw new Error("Playwright cookies require an HTTPS origin");
+  }
+  return {
+    httpOnly: true,
+    name: value.name,
+    sameSite: "Lax" as const,
+    secure: true,
+    url: url.origin,
+    value: value.value,
+  };
+};
 
 const parseBrowserCommand = (args: string[]) => {
   let cursor = 0;

@@ -281,6 +281,7 @@ describe("workspace E2E workflow", () => {
     expect(environment).toContain("WORKSPACE_E2E_PROVIDER_PERMIT_REQUIRED");
     expect(environment).toContain("WORKSPACE_E2E_VERCEL_TOKEN");
     expect(environment).toContain("WORKSPACE_E2E_VERCEL_PROJECT");
+    expect(environment).toContain("WORKSPACE_E2E_BETTER_AUTH_SECRETS");
     expect(environment).not.toContain("WORKSPACE_E2E_RESEND_API_KEY");
   });
 
@@ -368,6 +369,23 @@ describe("workspace E2E workflow", () => {
     const turboGlobal = turbo.global?.passThroughEnv ?? [];
     expect(turboGlobal).not.toContain("WORKSPACE_E2E_VERCEL_TOKEN");
     expect(turboGlobal).not.toContain("WORKSPACE_E2E_RESEND_API_KEY");
+  });
+
+  test("keeps the preview session-signing secret inside the checkout Playwright execution only", () => {
+    expect(
+      stepByName("Run checkout E2E").env?.WORKSPACE_E2E_BETTER_AUTH_SECRETS
+    ).toBe(`\${{ secrets.WORKSPACE_E2E_BETTER_AUTH_SECRETS }}`);
+    expect(
+      serializedWorkflow.split("WORKSPACE_E2E_BETTER_AUTH_SECRETS").length - 1
+    ).toBe(2);
+    expect(serializedProductionWorkflow.includes("BETTER_AUTH")).toBe(false);
+
+    const turbo = readTrackedJson("../../../turbo.json") as {
+      readonly global?: { readonly passThroughEnv?: string[] };
+    };
+    expect(turbo.global?.passThroughEnv ?? []).not.toContain(
+      "WORKSPACE_E2E_BETTER_AUTH_SECRETS"
+    );
   });
 
   test("runs invoice persistence after the case phase of the exact-SHA Playwright graph", async () => {

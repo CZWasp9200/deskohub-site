@@ -53,6 +53,19 @@ export const workspaceE2ESharedFixtureCaseIds = [
   "calendar-sale-pricing-changes",
 ] as const;
 
+/**
+ * The parallel referral lane. Every case seeds and signs in its own synthetic
+ * identities, so no case spends a magic link or shares an account.
+ */
+export const workspaceE2EReferralCaseIds = [
+  "referral-referrer-screen",
+  "referral-profile-completion-checkout",
+  "referral-checkout-code-entry",
+  "referral-share-link-checkout",
+  "referral-auto-linked-sign-in",
+  "referral-profile-completion-unusable-link",
+] as const;
+
 /** Executed only by the serial account lane with its already-verified browser session. */
 export const workspaceE2EAccountCheckoutCaseIds = [
   "account-referral-checkout",
@@ -63,7 +76,11 @@ export const workspaceE2ECaseIds = [
   ...workspaceE2EPaymentCaseLanes.flat(),
   ...workspaceE2ESharedFixtureCaseIds,
   ...workspaceE2EAccountCheckoutCaseIds,
+  ...workspaceE2EReferralCaseIds,
 ] as const;
+
+export type WorkspaceE2EReferralCaseId =
+  (typeof workspaceE2EReferralCaseIds)[number];
 
 export type WorkspaceE2ECaseId = (typeof workspaceE2ECaseIds)[number];
 
