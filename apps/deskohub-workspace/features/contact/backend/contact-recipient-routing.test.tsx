@@ -80,7 +80,7 @@ const submit = (email: string) => {
         ContactService.Default.pipe(
           Layer.provide(
             Layer.provideMerge(
-              EmailServiceTag.Live,
+              EmailServiceTag.RecipientRouted,
               Layer.succeed(EmailConfigTag, {
                 apiKey: "re_test",
                 defaultFrom: { email: workspaceDefaultFromAddress },

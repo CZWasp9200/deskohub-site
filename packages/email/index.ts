@@ -5,6 +5,7 @@ export {
   staffEmailSubject,
 } from "./backend/email-routing";
 export { NetworkError } from "./backend/network-error";
+export { ConfiguredEmailProviderLayer } from "./backend/provider-factory";
 export {
   ConsoleEmailProviderLive,
   isConsoleEmailDeliveryId,
@@ -28,6 +29,7 @@ export type {
   EmailConfig,
   EmailDeliveryId,
   EmailMessage,
+  EmailProviderConfig,
   EmailRecipient,
   EmailSendResult,
   EmailTemplateData,

@@ -6,14 +6,13 @@ import {
   EmailServiceError,
   EmailServiceTag,
 } from "@deskohub/email";
-import { testEmailAddress } from "@deskohub/email/testing";
 import { Effect, Layer } from "effect";
 import { m } from "@/features/i18n/paraglide/messages";
 import { ContactService } from "./contact.service";
 
 const input = {
   name: "Ada Lovelace",
-  email: testEmailAddress("ada"),
+  email: "ada@example.test",
   phone: "+420777777777",
   message: "Hello",
 };
@@ -73,20 +72,13 @@ describe("ContactService", () => {
   });
 
   test("customer confirmation follows the typed locale; business email stays cs-CZ", async () => {
-    // Production staff copies carry no test tag.
-    const originalVercelEnv = process.env.NEXT_PUBLIC_VERCEL_ENV;
-    process.env.NEXT_PUBLIC_VERCEL_ENV = "production";
     const messages: EmailMessage[] = [];
     const send = mock((message: EmailMessage) => {
       messages.push(message);
       return Effect.succeed(sent(`msg-${messages.length}`));
     });
 
-    const result = await runSubmit(send, "cs-CZ").finally(() => {
-      if (originalVercelEnv === undefined) {
-        delete process.env.NEXT_PUBLIC_VERCEL_ENV;
-      } else process.env.NEXT_PUBLIC_VERCEL_ENV = originalVercelEnv;
-    });
+    const result = await runSubmit(send, "cs-CZ");
 
     expect(result.locale).toBe("cs-CZ");
     const business = messages[0];

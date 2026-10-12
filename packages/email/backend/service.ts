@@ -13,6 +13,7 @@ import {
   isRetryableEmailError,
 } from "./capabilities";
 import { RoutedEmailProviderLive } from "./email-routing";
+import { ConfiguredEmailProviderLayer } from "./provider-factory";
 
 export {
   EmailConfigTag,
@@ -84,7 +85,17 @@ export class EmailServiceTag extends Context.Service<
     Effect.suspend(() => emailServiceImplementation)
   );
 
+  /** Sends through the one provider `EmailConfig.provider` selects. */
   static Live = this.Default.pipe(
+    Layer.provide(EmailTemplateServiceTag.Default),
+    Layer.provide(ConfiguredEmailProviderLayer)
+  );
+
+  /**
+   * Routes each message by recipient: only `EMAIL_TEST_DOMAIN` recipients go
+   * to Console, everything else to Resend. Ignores `provider` and `testMode`.
+   */
+  static RecipientRouted = this.Default.pipe(
     Layer.provide(EmailTemplateServiceTag.Default),
     Layer.provide(RoutedEmailProviderLive)
   );

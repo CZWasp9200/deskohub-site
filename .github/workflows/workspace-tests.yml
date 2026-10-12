@@ -71,9 +71,8 @@ jobs:
       - name: Report TypeScript compiler versions
         run: bun tsc --version && bun tsc6 --version
 
-      # Boardgame Bar shares @deskohub/email and its test-address lint rule.
-      - name: Lint Workspace and Boardgame Bar
-        run: bun turbo lint --filter=deskohub-workspace --filter=deskohub-boardgame-bar
+      - name: Lint Workspace
+        run: bun turbo lint --filter=deskohub-workspace
 
       - name: Validate Workspace schema migration
         env:

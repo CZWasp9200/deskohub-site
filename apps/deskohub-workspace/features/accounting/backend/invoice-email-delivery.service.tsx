@@ -483,7 +483,7 @@ function getInvoiceEmailDeliveryDependencies() {
     InvoiceEmailDeliveryRepository.Default.pipe(
       Layer.provide(WorkspaceDatabase.Default)
     ),
-    Layer.provideMerge(EmailServiceTag.Live, EmailConfigLayer)
+    Layer.provideMerge(EmailServiceTag.RecipientRouted, EmailConfigLayer)
   );
 }
 

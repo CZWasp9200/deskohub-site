@@ -180,7 +180,7 @@ const unconfiguredDelivery = (): Effect.Effect<
     code: "account.magic-link.delivery-unconfigured",
   }).pipe(Effect.as("account.magic-link.delivery-unconfigured" as const));
 
-const magicLinkEmailServiceLayer = EmailServiceTag.Live.pipe(
+const magicLinkEmailServiceLayer = EmailServiceTag.RecipientRouted.pipe(
   Layer.provide(EmailConfigLayer)
 );
 

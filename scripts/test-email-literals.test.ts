@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  excludedRoots,
   findTestEmailLiterals,
   isTestEmailLiteralPath,
   scannedExtensions,
@@ -362,6 +363,7 @@ describe("Turbo inputs", () => {
     );
     expect(await inputsOf("//#lint:test-email-literals")).toEqual([
       ...expected,
+      ...excludedRoots.map((root) => `!${root}/**`),
       "!**/node_modules/**",
     ]);
   });

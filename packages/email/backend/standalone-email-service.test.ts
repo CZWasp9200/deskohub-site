@@ -9,7 +9,7 @@ afterEach(() => {
   process.env = { ...originalEnv };
 });
 
-describe("EmailServiceTag.Live", () => {
+describe("EmailServiceTag.RecipientRouted", () => {
   test("materializes without a Resend key and logs test-recipient mail", async () => {
     process.env.NODE_ENV = "test";
 
@@ -25,7 +25,7 @@ describe("EmailServiceTag.Live", () => {
         return { sent, verified: yield* email.verify };
       }).pipe(
         Effect.provide(
-          EmailServiceTag.Live.pipe(
+          EmailServiceTag.RecipientRouted.pipe(
             Layer.provide(
               Layer.succeed(EmailConfigTag, {
                 defaultFrom: { email: testEmailAddress("deskohub") },
@@ -38,5 +38,32 @@ describe("EmailServiceTag.Live", () => {
 
     expect(result.sent.provider).toBe("console");
     expect(result.verified).toBeFalse();
+  });
+});
+
+describe("EmailServiceTag.Live", () => {
+  test("materializes with config and verifies console provider", async () => {
+    process.env.NODE_ENV = "test";
+    delete process.env.EMAIL_API_KEY;
+
+    const result = await Effect.runPromise(
+      Effect.gen(function* () {
+        const email = yield* EmailServiceTag;
+        return yield* email.verify;
+      }).pipe(
+        Effect.provide(
+          EmailServiceTag.Live.pipe(
+            Layer.provide(
+              Layer.succeed(EmailConfigTag, {
+                provider: "console",
+                defaultFrom: { email: testEmailAddress("deskohub") },
+              })
+            )
+          )
+        )
+      )
+    );
+
+    expect(result).toBeTrue();
   });
 });

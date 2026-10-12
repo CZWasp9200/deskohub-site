@@ -2,22 +2,15 @@
 
 ## Overview
 
-Email delivery is routed by recipient in `@deskohub/email`; there is no
-provider setting.
+Email delivery is selected by provider factory logic in `@deskohub/email`.
 
-- Mail addressed only to recipients on `EMAIL_TEST_DOMAIN` (`deskohub.test`, a
-  code constant in `@deskohub/email`, not configuration) goes to the Console
-  provider, which logs it and never sends.
-- All other mail goes to Resend, including `resend.dev`, Resend's simulator
-  for delivered, bounced, or complained outcomes. Without `EMAIL_API_KEY` it
-  fails with `EmailDeliveryUnconfiguredError` instead of falling back to
-  Console.
-- Staff notifications follow the submitter: a test-domain submitter's copy goes
-  to `boardgame-staff@<EMAIL_TEST_DOMAIN>` (Console), and every other
-  submission reaches the real contact or reservation mailbox in every
-  environment (`shared/backend/email/staff-email-recipients.ts`). Outside
-  production (`NEXT_PUBLIC_VERCEL_ENV` other than `production`) their subject
-  carries the `[TESTING]` tag.
+Default behavior:
+
+- `EMAIL_PROVIDER=resend` forces Resend.
+- `EMAIL_PROVIDER=console` forces console logging provider.
+- If `EMAIL_PROVIDER` is omitted, the app uses Resend when `EMAIL_API_KEY` is
+  present and console otherwise.
+- In production, `console` is disabled unless `EMAIL_TEST_MODE=true`; with an `EMAIL_API_KEY`, production falls back to Resend.
 
 ## Required Configuration
 
@@ -25,15 +18,11 @@ Add to `.env.local` for the Boardgame Bar app, or to the app's deployment env:
 
 ```bash
 EMAIL_API_KEY=re_...
+EMAIL_PROVIDER=resend
 ```
 
-For local development without a key, use `@deskohub.test` recipients.
-
-## Tests
-
-Tests build every address with `testEmailAddress` or `resendSimulatorAddress`
-from `@deskohub/email/testing`; the repository's `lint:test-email-literals` check rejects
-hand-written addresses.
+`EMAIL_PROVIDER` can be omitted for local development; without `EMAIL_API_KEY`
+it defaults to `console`.
 
 ## Sender Addresses
 
@@ -47,9 +36,10 @@ These are not locale-specific sender addresses in the current implementation.
 ## Verification
 
 1. Exercise the current contact or training-room request flow with synthetic data.
-2. Confirm the send result names the Console or Resend provider.
-3. For Resend deliveries, verify them in the Resend dashboard.
+2. Confirm provider logs indicate Console or Resend initialization.
+3. If using Resend, verify deliveries in the Resend dashboard.
 
 ## Production Notes
 
 - Verify your sending domain in Resend.
+- Set `EMAIL_PROVIDER=resend` if you want explicit provider selection in production.

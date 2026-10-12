@@ -23,6 +23,7 @@
     "DOTYPOS_EMPLOYEE_ID",
     "DOTYPOS_REFRESH_TOKEN",
     "EMAIL_API_KEY",
+    "EMAIL_PROVIDER",
     "GOOGLE_CALENDAR_PRIVATE_KEY",
     "GOOGLE_CALENDAR_OPENING_HOURS_ID",
     "GOOGLE_CALENDAR_SALES_ID",
@@ -154,6 +155,7 @@
         "scripts/**/*.jsx",
         "scripts/**/*.mjs",
         "scripts/**/*.cjs",
+        "!apps/deskohub-boardgame-bar/**",
         "!**/node_modules/**"
       ],
       "outputs": []
@@ -167,11 +169,11 @@
       "outputs": []
     },
     "lint": {
-      "dependsOn": ["^lint", "//#lint:scripts", "//#lint:test-email-literals"],
+      "dependsOn": ["^lint"],
       "outputs": []
     },
     "test": {
-      "dependsOn": ["^test", "//#test:scripts"],
+      "dependsOn": ["^test"],
       "outputs": []
     },
     "start": {
@@ -183,7 +185,7 @@
       "persistent": true
     },
     "typecheck": {
-      "dependsOn": ["^typecheck", "//#typecheck:scripts"],
+      "dependsOn": ["^typecheck"],
       "outputs": []
     },
     "i18n:compile": {

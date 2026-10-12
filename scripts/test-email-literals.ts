@@ -1,9 +1,9 @@
 /**
  * Rejects hand-written email addresses in test code across apps/,
- * packages/, and scripts/. Tests build addresses with `testEmailAddress` (on the
- * EMAIL_TEST_DOMAIN constant, so mail routes to Console) or
- * `resendSimulatorAddress` from `@deskohub/email/testing`; a hand-written
- * address could reach a real inbox.
+ * packages/, and scripts/, except Boardgame Bar. Tests build addresses with
+ * `testEmailAddress` (on the EMAIL_TEST_DOMAIN constant, so mail routes to
+ * Console) or `resendSimulatorAddress` from `@deskohub/email/testing`; a
+ * hand-written address could reach a real inbox.
  *
  * It reads string, template, and JSX literals, folds `+` chains of literals
  * (parentheses included), decodes `\x40`, `\u0040`, `\u{40}` (through the
@@ -32,6 +32,8 @@ export type TestEmailLiteral = {
  * inputs must cover every root and extension here; a test keeps them aligned.
  */
 export const scannedRoots = ["apps", "packages", "scripts"] as const;
+/** Boardgame Bar keeps its own email setup and stays outside this check. */
+export const excludedRoots = ["apps/deskohub-boardgame-bar"] as const;
 export const scannedExtensions = [
   "ts",
   "tsx",
@@ -254,6 +256,7 @@ const listRepositoryModules = async (repositoryRoot: string) => {
       "--exclude-standard",
       "--",
       ...scannedRoots,
+      ...excludedRoots.map((root) => `:(exclude)${root}`),
     ],
     { cwd: repositoryRoot, stderr: "inherit", stdout: "pipe" }
   );

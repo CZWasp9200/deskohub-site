@@ -6,7 +6,6 @@ import {
   EmailServiceError,
   EmailServiceTag,
 } from "@deskohub/email";
-import { testEmailAddress } from "@deskohub/email/testing";
 import { Effect, Layer } from "effect";
 import { type Locale, locales } from "@/features/i18n";
 import { formatDurationMinutes } from "@/shared/utils/date-formatting";
@@ -17,7 +16,7 @@ const input = {
   lastName: "Lovelace",
   company: "Analytical Engines",
   role: "Engineer",
-  email: testEmailAddress("ada"),
+  email: "ada@example.test",
   phone: "+420777777777",
   date: new Date("2026-06-20T12:00:00.000Z"),
   time: "18:00",
