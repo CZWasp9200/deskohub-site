@@ -5,7 +5,16 @@ import { type DotyposCustomerId, DotyposService } from "@deskohub/dotypos";
 import { Deferred, Effect, Fiber, Layer } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { WorkspaceDatabaseAdvisoryLock } from "@/db/postgres-advisory-lock";
-import { promotionCodes, referralCodes } from "@/db/schema";
+import {
+  promotionCodes,
+  referralAttributions,
+  referralCodes,
+} from "@/db/schema";
+import { PaymentLifecycleRepository } from "@/features/checkout/backend/repositories/payment-lifecycle.repository";
+import {
+  admitPendingNexiPayment,
+  createHeldReservation,
+} from "@/features/checkout/backend/repositories/payment-lifecycle.test-utils";
 import { canonicalPromotionCodeSchema } from "@/features/discounts/persistence-contracts";
 import { ReferralService } from "@/features/referrals";
 import { ReferralSignupIntentRepository } from "@/features/referrals/signup-intent.repository";
@@ -227,6 +236,86 @@ const complete = (
     { code: referral.code, prefilledCode: referral.prefilledCode }
   );
 
+/**
+ * Completes the profile while acceptance is unavailable, so the code stays
+ * stored as an intent for the linked-load retry.
+ */
+const completeWithStoredIntent = async (code: string) => {
+  const accountId = await newAccount();
+  const outcome = await complete(accountId, { code }).pipe(
+    withinLockBudget,
+    Effect.provide(completionLayer({ accountId, identityUnavailable: true })),
+    Effect.runPromise
+  );
+  expect(outcome).toEqual({
+    status: "completed",
+    referral: { status: "pending" },
+  });
+  const customerId = (await readLinkedCustomer(accountId))!;
+  return { accountId, customerId };
+};
+
+const retrySignupReferral = (account: {
+  readonly accountId: CustomerAccountId;
+  readonly customerId: DotyposCustomerId;
+}) =>
+  recordSignupReferral({
+    accountId: account.accountId,
+    dotyposCustomerId: account.customerId,
+  }).pipe(
+    withinLockBudget,
+    Effect.provide(completionLayer({ accountId: account.accountId })),
+    Effect.runPromise
+  );
+
+const paymentLifecycle = () =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      return yield* PaymentLifecycleRepository;
+    }).pipe(
+      Effect.provide(
+        PaymentLifecycleRepository.Default.pipe(Layer.provide(databaseLayer()))
+      )
+    )
+  );
+
+/**
+ * Starts a Nexi payment for the customer through the real lifecycle,
+ * optionally carrying a checkout referral, and returns its paid transition.
+ */
+const startPayment = async (
+  customerId: DotyposCustomerId,
+  referral?: {
+    readonly customerId: DotyposCustomerId;
+    readonly promotionCodeId: string;
+  }
+) => {
+  const lifecycle = await paymentLifecycle();
+  const reservation = await Effect.runPromise(
+    createHeldReservation(testDatabase!.db, customerId)
+  );
+  const attempt = await Effect.runPromise(
+    admitPendingNexiPayment(
+      lifecycle,
+      reservation,
+      referral && {
+        referrerDotyposCustomerId: referral.customerId,
+        promotionCodeId: referral.promotionCodeId,
+      }
+    )
+  );
+  return {
+    markPaid: () =>
+      Effect.runPromise(
+        lifecycle.markPaid({
+          id: attempt.id,
+          workspaceReservationId: reservation.id,
+          paidAt: Temporal.Now.instant(),
+        })
+      ),
+  };
+};
+
 describe.skipIf(!testDatabase)(
   "Profile completion referral on disposable Postgres",
   () => {
@@ -367,6 +456,112 @@ describe.skipIf(!testDatabase)(
       expect(retried).toEqual({ status: "applied" });
       expect(await readReferrer(customerId!)).toBe(referrer.customerId);
       expect(await readIntentCodes(accountId)).toEqual([]);
+    });
+
+    test("keeps the intent while a payment is pending and settles it as not eligible once that payment is paid", async () => {
+      const referrer = await insertReferrer();
+      const account = await completeWithStoredIntent(referrer.code);
+      const payment = await startPayment(account.customerId);
+
+      expect(await retrySignupReferral(account)).toEqual({ status: "pending" });
+      expect(await readIntentCodes(account.accountId)).toEqual([
+        referrer.promotionCodeId,
+      ]);
+
+      expect((await payment.markPaid()).changed).toBe(true);
+
+      expect(await retrySignupReferral(account)).toEqual({
+        status: "not-applied",
+        reason: "not-eligible",
+      });
+      expect(await readReferrer(account.customerId)).toBeUndefined();
+      expect(await readIntentCodes(account.accountId)).toEqual([]);
+    });
+
+    test.each([
+      ["the stored code", "applied"],
+      ["a different code", "already-referred"],
+    ] as const)(
+      "settles the intent from the attribution recorded when a pending checkout carrying %s is paid",
+      async (carried, expected) => {
+        const referrer = await insertReferrer();
+        const account = await completeWithStoredIntent(referrer.code);
+        const checkoutReferrer =
+          carried === "the stored code" ? referrer : await insertReferrer();
+        const payment = await startPayment(
+          account.customerId,
+          checkoutReferrer
+        );
+
+        expect(await retrySignupReferral(account)).toEqual({
+          status: "pending",
+        });
+        expect(
+          await Effect.flatMap(ReferralService, (referrals) =>
+            referrals.evaluateCheckoutReferral({
+              code: referrer.code,
+              dotyposCustomerId: account.customerId,
+            })
+          ).pipe(
+            Effect.flip,
+            Effect.provide(completionLayer({ accountId: account.accountId })),
+            Effect.runPromise
+          )
+        ).toMatchObject({ reason: "pending_payment" });
+        expect(await readIntentCodes(account.accountId)).toEqual([
+          referrer.promotionCodeId,
+        ]);
+
+        expect((await payment.markPaid()).changed).toBe(true);
+        expect(await readReferrer(account.customerId)).toBe(
+          checkoutReferrer.customerId
+        );
+
+        expect(await retrySignupReferral(account)).toEqual(
+          expected === "applied"
+            ? { status: "applied" }
+            : { status: "not-applied", reason: expected }
+        );
+        expect(await readReferrer(account.customerId)).toBe(
+          checkoutReferrer.customerId
+        );
+        expect(await readIntentCodes(account.accountId)).toEqual([]);
+      }
+    );
+
+    test("settles the intent as not applied when the code's owner was meanwhile invited by this customer", async () => {
+      const referrer = await insertReferrer();
+      const account = await completeWithStoredIntent(referrer.code);
+      const [ownCode] = await Effect.runPromise(
+        testDatabase!.db
+          .insert(promotionCodes)
+          .values({
+            kind: "referral",
+            code: canonicalPromotionCodeSchema.make(uniqueCode()),
+            enabled: true,
+          })
+          .returning({ id: promotionCodes.id })
+      );
+      await Effect.runPromise(
+        testDatabase!.db.insert(referralCodes).values({
+          promotionCodeId: ownCode!.id,
+          referrerDotyposCustomerId: account.customerId,
+        })
+      );
+      await Effect.runPromise(
+        testDatabase!.db.insert(referralAttributions).values({
+          invitedDotyposCustomerId: referrer.customerId,
+          referrerDotyposCustomerId: account.customerId,
+          promotionCodeId: ownCode!.id,
+        })
+      );
+
+      expect(await retrySignupReferral(account)).toEqual({
+        status: "not-applied",
+        reason: "code-unusable",
+      });
+      expect(await readReferrer(account.customerId)).toBeUndefined();
+      expect(await readIntentCodes(account.accountId)).toEqual([]);
     });
 
     test("clears the intent when the code became unusable before recording", async () => {
