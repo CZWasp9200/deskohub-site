@@ -18,8 +18,8 @@ import {
 } from "../errors";
 import { discountCodeFixtures } from "../integrations/discount-fixtures";
 import type { E2EDotyposDiscountGroup } from "../integrations/dotypos";
-import type { Runner } from "../runtime";
 import { planWorkspaceE2EReferralCases } from "../referrals/plan";
+import type { Runner } from "../runtime";
 import { log } from "../runtime";
 import { E2ETelemetryService } from "../services/telemetry";
 import type {
@@ -34,6 +34,7 @@ import {
   type DiscountAvailabilityE2EPreparation,
   makeDiscountE2ECases,
 } from "./discounts";
+import { planGuestReferralPaymentCase } from "./guest-referral-payment";
 import {
   executeLatePaymentRecovery,
   latePaymentRecoveryScenarios,
@@ -362,6 +363,15 @@ export const makeWorkspaceE2ECases = ({
           preparation: discountPreparation,
           run,
         }))
+      );
+
+      cases.push(
+        yield* planGuestReferralPaymentCase({
+          allocation,
+          availableBasicDates: discountPreparation.availableBasicDates,
+          config,
+          flowStates,
+        })
       );
 
       return cases;

@@ -31,6 +31,7 @@ import {
   latePaymentRecoveries,
   legalEvidenceEvents,
   paymentAttempts,
+  referralAttributions,
   referralInvitationClaims,
   voucherRedemptions,
   vouchers,
@@ -764,6 +765,118 @@ export const readCheckoutRow = (
   Effect.gen(function* () {
     const { db } = yield* E2EDatabase;
     return yield* readCheckoutRowFromDatabase(db, orderId);
+  });
+
+/**
+ * The referral facts recorded for one paid order's booked customer: its
+ * attributions, every invitation claim, and the discount applications of the
+ * order's active payment attempt that a claim may point at.
+ */
+export type ReferralInvitationPaymentRecord = {
+  readonly activePaymentAttemptId: string | null;
+  readonly applications: readonly {
+    readonly adjustment: unknown;
+    readonly id: string;
+    readonly label: string;
+    readonly paymentAttemptId: string;
+  }[];
+  readonly attributions: readonly {
+    readonly referrerDotyposCustomerId: string;
+  }[];
+  readonly claims: readonly {
+    readonly applicationId: string;
+    readonly paymentAttemptId: string;
+    readonly state: string;
+  }[];
+  readonly dotyposCustomerId: string | null;
+  readonly paymentState: string;
+};
+
+export const readReferralInvitationPayment = (
+  orderId: WorkspaceReservationId
+): Effect.Effect<
+  ReferralInvitationPaymentRecord | undefined,
+  WorkspaceE2EError,
+  E2EDatabase
+> =>
+  Effect.gen(function* () {
+    const { db } = yield* E2EDatabase;
+    const [reservation] = yield* runRetrySafeDatabaseOperation(
+      "read referral invitation reservation",
+      db
+        .select({
+          activePaymentAttemptId: workspaceReservations.activePaymentAttemptId,
+          dotyposCustomerId: workspaceReservations.dotyposCustomerId,
+          paymentState: workspaceReservations.paymentState,
+        })
+        .from(workspaceReservations)
+        .where(eq(workspaceReservations.id, orderId))
+        .limit(1)
+    );
+    if (!reservation) return undefined;
+    const customerId = reservation.dotyposCustomerId;
+    const attemptId = reservation.activePaymentAttemptId;
+    const [attributions, claims, applications] = yield* Effect.all([
+      customerId === null
+        ? Effect.succeed([])
+        : runRetrySafeDatabaseOperation(
+            "read referral attributions",
+            db
+              .select({
+                referrerDotyposCustomerId:
+                  referralAttributions.referrerDotyposCustomerId,
+              })
+              .from(referralAttributions)
+              .where(
+                eq(referralAttributions.invitedDotyposCustomerId, customerId)
+              )
+          ),
+      customerId === null
+        ? Effect.succeed([])
+        : runRetrySafeDatabaseOperation(
+            "read referral invitation claims",
+            db
+              .select({
+                applicationId: referralInvitationClaims.applicationId,
+                paymentAttemptId: referralInvitationClaims.paymentAttemptId,
+                state: referralInvitationClaims.state,
+              })
+              .from(referralInvitationClaims)
+              .where(
+                eq(
+                  referralInvitationClaims.invitedDotyposCustomerId,
+                  customerId
+                )
+              )
+          ),
+      attemptId === null
+        ? Effect.succeed([])
+        : runRetrySafeDatabaseOperation(
+            "read active attempt discount applications",
+            db
+              .select({
+                adjustment: discountApplications.adjustment,
+                id: discountApplications.id,
+                label: discountApplications.label,
+                paymentAttemptId: discountApplications.paymentAttemptId,
+              })
+              .from(discountApplications)
+              .where(
+                and(
+                  eq(discountApplications.workspaceReservationId, orderId),
+                  eq(discountApplications.paymentAttemptId, attemptId)
+                )
+              )
+          ),
+    ]);
+    return {
+      activePaymentAttemptId: attemptId,
+      applications,
+      attributions,
+      claims,
+      dotyposCustomerId: customerId,
+      paymentState: reservation.paymentState,
+    };
   });
 
 export const waitForCheckoutRow = (

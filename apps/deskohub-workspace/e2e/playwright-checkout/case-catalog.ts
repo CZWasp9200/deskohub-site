@@ -34,11 +34,11 @@ export const workspaceE2EPaymentCaseLanes = [
   ],
   [
     "payment-failed",
-    "payment-cancelled",
     "payment-late-recovery-refund-required",
     "checkout-customer-discount-and-code",
     "checkout-calendar-sale",
     "checkout-customer-discount",
+    "checkout-guest-referral",
   ],
   [
     "checkout-calendar-sale-and-code",
@@ -46,6 +46,7 @@ export const workspaceE2EPaymentCaseLanes = [
     "checkout-calendar-and-customer-discount",
     "checkout-all-discounts",
     "checkout-voucher-full-usage",
+    "payment-cancelled",
   ],
 ] as const;
 

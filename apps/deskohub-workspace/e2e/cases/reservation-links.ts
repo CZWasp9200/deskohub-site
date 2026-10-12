@@ -807,7 +807,7 @@ const assertHeldRowHasNoPaymentOrFulfillment = (row: CheckoutRow) => {
   );
 };
 
-const assertRequestedOnlyDiscountCode = ({
+export const assertRequestedOnlyDiscountCode = ({
   code,
   config,
   run,
