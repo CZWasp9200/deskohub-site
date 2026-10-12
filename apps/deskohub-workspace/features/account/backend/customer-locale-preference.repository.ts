@@ -1,7 +1,6 @@
 import { eq, sql } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Effect, Layer } from "effect";
-import type { SqlError } from "effect/unstable/sql/SqlError";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { customerLocalePreferences } from "@/db/schema";
 import { authUser } from "@/db/schema/auth";
@@ -18,21 +17,12 @@ import {
   CustomerAuthentication,
 } from "./customer-authentication.service";
 
-type CustomerLocalePreferenceReadError =
-  | EffectDrizzleQueryError
-  | SqlError
-  | CustomerAccountAccessError;
-
 /**
- * The durable, Workspace-owned preferred language of one
- * customer account. An account created before preferences existed has none
- * until its next sign-in or an explicit save, so `load` yields `undefined`
- * for it.
+ * The durable, Workspace-owned language preference of one customer account.
+ * It is also the signed-in site locale. An account created before
+ * preferences existed has none until its next sign-in or an explicit save.
  */
 export interface ICustomerLocalePreferenceRepository {
-  readonly load: (
-    accountId: CustomerAccountId
-  ) => Effect.Effect<Locale | undefined, CustomerLocalePreferenceReadError>;
   readonly save: (
     accountId: CustomerAccountId,
     locale: Locale
@@ -83,22 +73,6 @@ export class CustomerLocalePreferenceRepository extends Context.Service<
       const links = yield* CustomerAccountLinkRepository;
       const authentication = yield* CustomerAuthentication;
 
-      const load = Effect.fn("CustomerLocalePreferenceRepository.load")(
-        function* (accountId: CustomerAccountId) {
-          // The read guard mirrors the save's deletion-authority check but
-          // without the advisory lock: a read never needs mutual exclusion,
-          // and its access failure passes through unchanged instead of being
-          // folded into the write-failure mapping.
-          yield* requireAccountActivity(links, accountId);
-          const [row] = yield* db
-            .select({ locale: customerLocalePreferences.locale })
-            .from(customerLocalePreferences)
-            .where(eq(customerLocalePreferences.customerAccountId, accountId))
-            .limit(1);
-          return row?.locale;
-        }
-      );
-
       const save = (accountId: CustomerAccountId, locale: Locale) =>
         links
           .withAccountLock(
@@ -125,10 +99,7 @@ export class CustomerLocalePreferenceRepository extends Context.Service<
           )
           .pipe(Effect.asVoid, Effect.mapError(mapPreferenceSaveFailure));
 
-      return {
-        load,
-        save,
-      } satisfies ICustomerLocalePreferenceRepository;
+      return { save } satisfies ICustomerLocalePreferenceRepository;
     })
   );
 

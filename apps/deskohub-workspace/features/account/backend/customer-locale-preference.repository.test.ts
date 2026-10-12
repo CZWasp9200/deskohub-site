@@ -126,52 +126,6 @@ const makeSession = (accountId: CustomerAccountId): CustomerAccountSession => ({
 const accountId = "pref-account-1" as CustomerAccountId;
 
 describe("CustomerLocalePreferenceRepository with mock layers", () => {
-  test("loads no preference for an account without a row", async () => {
-    const missing = makeTestLayers({
-      state: { kind: "active", deletionRequestedAt: null },
-    });
-    const saved = makeTestLayers({
-      state: { kind: "active", deletionRequestedAt: null },
-      row: { locale: "cs-CZ" },
-    });
-
-    const missingLoad = await Effect.runPromise(
-      Effect.flatMap(CustomerLocalePreferenceRepository, (repository) =>
-        repository.load(accountId)
-      ).pipe(Effect.provide(missing.Repository))
-    );
-    const savedLoad = await Effect.runPromise(
-      Effect.flatMap(CustomerLocalePreferenceRepository, (repository) =>
-        repository.load(accountId)
-      ).pipe(Effect.provide(saved.Repository))
-    );
-
-    expect(missingLoad).toBeUndefined();
-    expect(savedLoad).toBe("cs-CZ");
-  });
-
-  test("fails the load on an operational read failure", async () => {
-    const readFailed = makeTestLayers({
-      state: { kind: "active", deletionRequestedAt: null },
-      readFails: true,
-    });
-
-    const outcome = await Effect.runPromise(
-      Effect.flatMap(CustomerLocalePreferenceRepository, (repository) =>
-        repository.load(accountId)
-      ).pipe(Effect.result, Effect.provide(readFailed.Repository))
-    );
-
-    expect(outcome._tag).toBe("Failure");
-    if (outcome._tag === "Failure") {
-      const failure = outcome.failure as unknown;
-      expect(failure).toBeInstanceOf(Error);
-      expect((failure as Error).message).toContain(
-        "synthetic preference read failure"
-      );
-    }
-  });
-
   test("fails closed with the deletion-pending error and never writes under a deletion marker", async () => {
     const { Repository, upserts } = makeTestLayers({
       state: {
@@ -193,29 +147,6 @@ describe("CustomerLocalePreferenceRepository with mock layers", () => {
       expect(failure.linkReason).toBe("deletion-requested");
     }
     expect(upserts).toHaveLength(0);
-  });
-
-  test("fails the read with the deletion-pending access error and never returns a locale", async () => {
-    const { Repository } = makeTestLayers({
-      state: {
-        kind: "active",
-        deletionRequestedAt: new Date("2026-09-01T00:00:00.000Z"),
-      },
-      row: { locale: "en-US" },
-    });
-
-    const outcome = await Effect.runPromise(
-      Effect.flatMap(CustomerLocalePreferenceRepository, (repository) =>
-        repository.load(accountId)
-      ).pipe(Effect.result, Effect.provide(Repository))
-    );
-
-    expect(outcome._tag).toBe("Failure");
-    if (outcome._tag === "Failure") {
-      const failure = outcome.failure as CustomerAccountAccessErrorLike;
-      expect(failure.reason).toBe("link-required");
-      expect(failure.linkReason).toBe("deletion-requested");
-    }
   });
 
   test("maps a lock failure to the fixed unavailable access error without writing", async () => {

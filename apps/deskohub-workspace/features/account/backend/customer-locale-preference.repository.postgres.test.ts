@@ -90,6 +90,14 @@ const insertAuthUser = async (id: string, email: string) => {
 
 const uniqueId = () => crypto.randomUUID();
 
+const savedLocaleOf = async (accountId: string) =>
+  (
+    await testDatabase!.pool.query<{ locale: string }>(
+      `select locale from customer_locale_preferences where customer_account_id = $1`,
+      [accountId]
+    )
+  ).rows[0]?.locale;
+
 describe.skipIf(!testDatabase)(
   "CustomerLocalePreferenceRepository on disposable Postgres",
   () => {
@@ -99,22 +107,21 @@ describe.skipIf(!testDatabase)(
       await insertAuthUser(account, `pref-${account}@deskohub.test`);
       setSessionAccount(account);
 
-      const outcomes = await Effect.runPromise(
-        Effect.gen(function* () {
-          const preferences = yield* CustomerLocalePreferenceRepository;
-          const missing = yield* preferences.load(account);
-          yield* preferences.save(account, "cs-CZ");
-          const saved = yield* preferences.load(account);
-          yield* preferences.save(account, "en-US");
-          const resaved = yield* preferences.load(account);
-          return { missing, saved, resaved };
-        }).pipe(Effect.provide(layer))
+      const missing = await savedLocaleOf(account);
+      await Effect.runPromise(
+        Effect.flatMap(CustomerLocalePreferenceRepository, (preferences) =>
+          preferences.save(account, "cs-CZ")
+        ).pipe(Effect.provide(layer))
+      );
+      const saved = await savedLocaleOf(account);
+      await Effect.runPromise(
+        Effect.flatMap(CustomerLocalePreferenceRepository, (preferences) =>
+          preferences.save(account, "en-US")
+        ).pipe(Effect.provide(layer))
       );
 
-      expect(outcomes.missing).toBeUndefined();
-      expect(outcomes.saved).toBe("cs-CZ");
-      expect(outcomes.resaved).toBe("en-US");
-
+      expect(missing).toBeUndefined();
+      expect(saved).toBe("cs-CZ");
       const rows = await testDatabase!.pool.query(
         `select locale from customer_locale_preferences where customer_account_id = $1`,
         [account]
@@ -137,15 +144,14 @@ describe.skipIf(!testDatabase)(
         `pref-b-${secondAccount}@deskohub.test`
       );
 
-      const outcomes = await Effect.runPromise(
-        Effect.gen(function* () {
-          const preferences = yield* CustomerLocalePreferenceRepository;
-          yield* preferences.save(firstAccount, "cs-CZ");
-          return yield* preferences.load(secondAccount);
-        }).pipe(Effect.provide(layer))
+      await Effect.runPromise(
+        Effect.flatMap(CustomerLocalePreferenceRepository, (preferences) =>
+          preferences.save(firstAccount, "cs-CZ")
+        ).pipe(Effect.provide(layer))
       );
 
-      expect(outcomes).toBeUndefined();
+      expect(await savedLocaleOf(firstAccount)).toBe("cs-CZ");
+      expect(await savedLocaleOf(secondAccount)).toBeUndefined();
     });
 
     test("rejects a locale outside the inlang locale list with the CHECK constraint", async () => {
@@ -201,7 +207,7 @@ describe.skipIf(!testDatabase)(
       expect(after.rows).toHaveLength(0);
     });
 
-    test("rejects reads and saves for a deletion-marked account under the real lock", async () => {
+    test("rejects saves for a deletion-marked account under the real lock", async () => {
       const { layer, setSessionAccount } = makeRepositoryLayer();
       const account = customerAccountIdSchema.make(uniqueId());
       await insertAuthUser(account, `pref-f-${account}@deskohub.test`);
@@ -211,30 +217,19 @@ describe.skipIf(!testDatabase)(
         [account, new Date("2026-09-01T00:00:00.000Z")]
       );
 
-      const outcomes = await Effect.runPromise(
-        Effect.gen(function* () {
-          const preferences = yield* CustomerLocalePreferenceRepository;
-          const read = yield* Effect.result(preferences.load(account));
-          const write = yield* Effect.result(
-            preferences.save(account, "cs-CZ")
-          );
-          return { read, write };
-        }).pipe(Effect.provide(layer))
+      const write = await Effect.runPromise(
+        Effect.flatMap(CustomerLocalePreferenceRepository, (preferences) =>
+          Effect.result(preferences.save(account, "cs-CZ"))
+        ).pipe(Effect.provide(layer))
       );
 
-      expect(outcomes.read._tag).toBe("Failure");
-      if (outcomes.read._tag === "Failure") {
-        const failure = outcomes.read.failure as CustomerAccountAccessError;
+      expect(write._tag).toBe("Failure");
+      if (write._tag === "Failure") {
+        const failure = write.failure as CustomerAccountAccessError;
         expect(failure.reason).toBe("link-required");
         expect(failure.linkReason).toBe("deletion-requested");
       }
-      expect(outcomes.write._tag).toBe("Failure");
-
-      const rows = await testDatabase!.pool.query(
-        `select locale from customer_locale_preferences where customer_account_id = $1`,
-        [account]
-      );
-      expect(rows.rows).toHaveLength(0);
+      expect(await savedLocaleOf(account)).toBeUndefined();
     });
 
     test("seed and lookup helpers resolve the magic-link delivery locale", async () => {

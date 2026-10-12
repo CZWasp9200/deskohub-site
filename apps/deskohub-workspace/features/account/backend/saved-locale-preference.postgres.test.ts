@@ -51,8 +51,8 @@ describe.skipIf(!testDatabase)(
         sendMagicLink: (data) => {
           sentMagicLinks.push(data.url);
         },
-        beforeDeleteUser: () => Promise.resolve(),
-        createAccountLocalePreference: () => Promise.resolve(),
+        beforeDeleteUser: () => Effect.void,
+        createAccountLocalePreference: () => Effect.void,
       });
 
     const callHandler = (
