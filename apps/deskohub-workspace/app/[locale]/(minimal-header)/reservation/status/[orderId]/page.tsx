@@ -12,9 +12,9 @@ import {
   workspaceSiteConstants,
 } from "@/shared/utils";
 
-// The status refresh verifies the payment with Nexi; leave room for one full
-// sandbox-length Nexi request (see nexi.config.ts) plus the 8-second Dotypos
-// cap outside production.
+// The status refresh bounds its Nexi verification at 40 seconds (one full
+// sandbox-length request; see checkout-status.service.ts) and its Dotypos
+// reads at 8 seconds, leaving time to render the stored status.
 export const maxDuration = 60;
 export const instant = true;
 

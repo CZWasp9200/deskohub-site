@@ -292,6 +292,15 @@ const getEmptyCheckoutStatusReservation = (
 
 const summaryTimeout = "8 seconds";
 
+/**
+ * Bounds each Nexi payment verification in a status refresh, retries
+ * included. It fits one full sandbox-length Nexi request and leaves time, with
+ * the 8-second summary cap, to render the stored status within the status
+ * page's 60-second `maxDuration`. Production lookups (5 seconds each) keep
+ * their usual retries.
+ */
+const refreshVerificationDeadline = "40 seconds";
+
 const implementation = Effect.gen(function* () {
   const reservations = yield* WorkspaceReservationRepository;
   const latePaymentRecoveries = yield* LatePaymentRecoveryRepository;
@@ -639,6 +648,7 @@ const implementation = Effect.gen(function* () {
         // an order without one returns not_found and renders as stored.
         const result = yield* finalization.finalizePendingProviderPayment({
           orderId: input.orderId,
+          verificationDeadline: refreshVerificationDeadline,
         });
         yield* Effect.annotateLogsScoped({ result });
         yield* Effect.logInfo("Checkout status refresh finalization completed");
@@ -647,6 +657,7 @@ const implementation = Effect.gen(function* () {
           const latePayment =
             yield* latePaymentVerification.startRecoveryIfSettled({
               orderId: input.orderId,
+              verificationDeadline: refreshVerificationDeadline,
             });
           yield* Effect.annotateLogsScoped({ latePayment });
         }

@@ -23,6 +23,7 @@ export {
   type CheckoutStatusViewModel,
 } from "./checkout-status.service";
 export { loadCheckoutStatusPage } from "./checkout-status-page.server";
+export { checkoutSubmitDeadline } from "./checkout-submit-deadline";
 export {
   buildSignedPayState,
   getPayStateRestartKind,

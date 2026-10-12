@@ -691,10 +691,27 @@ Every Nexi request has one per-request timeout, chosen from `VERCEL_ENV` by
 5 seconds in production and 30 seconds in preview, development, and tests. The
 Nexi sandbox can take more than 5 seconds to create a hosted page, and every
 such timeout leaves an ambiguous `created` attempt, so test environments wait
-longer instead of retrying. Keep each deadline that wraps a Nexi call (the
-45-second Workspace action deadline around the pay submit, the checkout status
-page `maxDuration`, and E2E provider waits) above one full non-production
-request plus the work around it.
+longer instead of retrying. Keep each deadline that wraps a Nexi call above one
+full request plus the work around it:
+
+| Deadline | Production | Non-production | Covers |
+| --- | --- | --- | --- |
+| Pay submit (`checkoutSubmitDeadline`) | 45 s | 70 s | One full Dotypos request, one full Nexi hosted page request, 10 s of other work |
+| Status refresh Nexi verification | 40 s | 40 s | One full Nexi lookup plus retries, inside the status page's 60-second `maxDuration` with the 8-second Dotypos cap |
+| E2E provider transition | 90 s | 90 s | The pay submit's redirect to the hosted page |
+
+The pay submit derives its deadline from the Dotypos and Nexi request
+timeouts and passes it as the action's `deadline`; other Workspace actions keep
+the 45-second default. Once the pending attempt exists, hosted page creation and
+attachment run uninterruptibly, so the action deadline can only end the submit
+before the attempt exists or after the session is attached; a retried submit
+then reuses that session. The status refresh passes its verification deadline
+to `verifyPaymentOutcome` through finalization and late-payment verification;
+on expiry the refresh reports `provider_verification_failed` and renders the
+stored status. The account modal's status route shares this refresh. Webhook,
+queue, and cron verification keeps unbounded retries inside the 300-second
+function limit; Nexi documents no notification response deadline, and a
+webhook keeps processing after the sender disconnects.
 
 ### Webhook Success And Dotypos Confirmation
 

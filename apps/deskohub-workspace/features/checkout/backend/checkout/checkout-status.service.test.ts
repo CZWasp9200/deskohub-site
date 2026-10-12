@@ -171,7 +171,10 @@ describe("CheckoutStatusService", () => {
       Effect.runPromise
     );
 
-    expect(finalizePendingProviderPayment).toHaveBeenCalledWith({ orderId });
+    expect(finalizePendingProviderPayment).toHaveBeenCalledWith({
+      orderId,
+      verificationDeadline: "40 seconds",
+    });
     expect(status.status).toBe("fulfilled");
   });
 
