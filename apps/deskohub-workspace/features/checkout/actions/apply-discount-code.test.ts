@@ -165,6 +165,29 @@ describe("applyDiscountCodeForm", () => {
     expect(redirectedUrl).toContain("discountCodeErrorId=");
   });
 
+  test.each([
+    ["already_attributed", "referral-already-attributed"],
+    ["ineligible", "referral-ineligible"],
+  ] as const)(
+    "routes the %s referral rejection to its explained field error",
+    async (status, discountCodeError) => {
+      const redirectedUrl = await runForm(
+        { status },
+        { payStateToken: "original-token", submittedCode: "RFL12345" }
+      );
+      const url = new URL(redirectedUrl, "https://deskohub.test");
+
+      expect(url.pathname).toBe("/en-US/checkout/pay");
+      expect(url.searchParams.get(payStateTokenQueryParam)).toBe(
+        "original-token"
+      );
+      expect(url.searchParams.get("discountCodeError")).toBe(discountCodeError);
+      expect(url.searchParams.get("discountCodeErrorId")).toBeTruthy();
+      expect(url.searchParams.has("referralApplied")).toBe(false);
+      expect(redirectedUrl).not.toContain("RFL12345");
+    }
+  );
+
   test("never redirects off-site when the action is invoked with a tampered locale", async () => {
     const redirectedUrl = await runForm(
       { status: "unavailable" },

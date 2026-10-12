@@ -10,11 +10,15 @@ import {
 } from "@/features/checkout/backend/checkout";
 import { CheckoutPricingService } from "@/features/checkout/backend/checkout/checkout-pricing.service";
 import { addCheckoutReferralAppliedMarker } from "@/features/checkout/checkout-referral-notice";
+import type { DiscountCodeRejection } from "@/features/checkout/discount-code-rejection";
 import { defaultLocale, isLocale, type Locale } from "@/features/i18n";
 import { ReferralService } from "@/features/referrals";
 import { defineWorkspaceAction } from "@/shared/backend/workspace-action";
 import { applyDiscountCodeSchema } from "./apply-discount-code-input";
-import { applyDiscountCodeToPayState } from "./apply-discount-code-to-pay-state";
+import {
+  type ApplyDiscountCodeResult,
+  applyDiscountCodeToPayState,
+} from "./apply-discount-code-to-pay-state";
 
 const applyDiscountCodeAction = defineWorkspaceAction(
   {
@@ -41,6 +45,14 @@ const applyDiscountCode: typeof applyDiscountCodeAction = async (
   return await applyDiscountCodeAction(...args);
 };
 
+const getDiscountCodeRejection = (
+  status: ApplyDiscountCodeResult["status"] | undefined
+): DiscountCodeRejection => {
+  if (status === "already_attributed") return "referral-already-attributed";
+  if (status === "ineligible") return "referral-ineligible";
+  return "unavailable";
+};
+
 export async function applyDiscountCodeForm(
   locale: Locale,
   payStateToken: string,
@@ -53,23 +65,21 @@ export async function applyDiscountCodeForm(
     submittedCode: Predicate.isString(submittedCode) ? submittedCode : "",
   });
   const data = result.data;
+  const freshPayUrl =
+    data && "freshPayUrl" in data ? data.freshPayUrl : undefined;
 
   if (
-    data?.freshPayUrl &&
-    (data.status === "accepted" || data.status === "already_accepted")
+    freshPayUrl &&
+    (data?.status === "accepted" || data?.status === "already_accepted")
   ) {
-    const freshPayUrl =
-      addCheckoutReferralAppliedMarker(data.freshPayUrl, locale) ??
-      data.freshPayUrl;
+    redirect(
+      addCheckoutReferralAppliedMarker(freshPayUrl, locale) ?? freshPayUrl,
+      RedirectType.replace
+    );
+  }
+
+  if (freshPayUrl) {
     redirect(freshPayUrl, RedirectType.replace);
-  }
-
-  if (data?.freshPayUrl && data.status !== "unavailable") {
-    redirect(data.freshPayUrl, RedirectType.replace);
-  }
-
-  if (data?.status === "unavailable" && data.freshPayUrl) {
-    redirect(data.freshPayUrl, RedirectType.replace);
   }
 
   // Server Action arguments are client-controlled, so never build a redirect
@@ -79,7 +89,7 @@ export async function applyDiscountCodeForm(
       isLocale(locale) ? locale : defaultLocale,
       payStateToken,
       {
-        discountCodeError: "unavailable",
+        discountCodeError: getDiscountCodeRejection(data?.status),
         discountCodeErrorId: randomUUID(),
       }
     ),

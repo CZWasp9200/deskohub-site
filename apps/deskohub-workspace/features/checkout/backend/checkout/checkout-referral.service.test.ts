@@ -25,6 +25,7 @@ import { discountIdSchema } from "@/features/discounts/contracts";
 import { promotionCodeIdSchema } from "@/features/discounts/persistence-contracts";
 import type { DiscountCandidate } from "@/features/discounts/provider";
 import { ReferralService } from "@/features/referrals";
+import { ReferralError } from "@/features/referrals/contracts";
 import {
   getReferralInvitationDiscountId,
   getReferralReferrerDiscountId,
@@ -306,9 +307,10 @@ const tokenForOrder = (input: TestPayStateInput, orderId: string) =>
 
 const makeServiceLayer = (input: {
   readonly affirmation: PaymentPriceAffirmation;
-  readonly acceptReferral: () => Effect.Effect<{
-    readonly kind: "accepted" | "already_accepted";
-  }>;
+  readonly acceptReferral: () => Effect.Effect<
+    { readonly kind: "accepted" | "already_accepted" },
+    ReferralError
+  >;
   readonly payableReservationCustomerId?: typeof dotyposCustomerId;
   readonly onPricingAffirmation?: (input: PaymentPriceAffirmationInput) => void;
 }) => {
@@ -680,4 +682,40 @@ describe("CheckoutReferralService", () => {
     expect(acceptanceCount).toBe(0);
     expect(pricingAffirmationCount).toBe(0);
   });
+
+  test.each([
+    ["already_attributed", "already_attributed"],
+    ["ineligible", "ineligible"],
+    ["self_referral", "unavailable"],
+    ["unavailable", "unavailable"],
+    ["account_unavailable", "unavailable"],
+    ["invalid_code", "unavailable"],
+  ] as const)(
+    "reports the %s acceptance failure as %s without a refreshed Pay URL",
+    async (reason, expectedStatus) => {
+      const quote = Effect.runSync(buildCoworkReservationQuote(reservation));
+      let pricingAffirmationCount = 0;
+      const layer = makeServiceLayer({
+        affirmation: {
+          kind: "cowork",
+          reservation,
+          quote,
+          commitment: makeCommitment(coworkProduct, []),
+        },
+        acceptReferral: () => Effect.fail(new ReferralError({ reason })),
+        onPricingAffirmation: () => {
+          pricingAffirmationCount += 1;
+        },
+      });
+
+      const result = await Effect.runPromise(
+        runAcceptCode(
+          layer,
+          tokenFor({ reservation, quote, bookedAt: payStateBookedAt })
+        )
+      );
+      expect(result).toEqual({ status: expectedStatus });
+      expect(pricingAffirmationCount).toBe(0);
+    }
+  );
 });

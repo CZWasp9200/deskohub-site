@@ -6,6 +6,10 @@ import { AlertTriangle } from "lucide-react";
 import { type FormEvent, useEffect, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { applyDiscountCodeForm } from "@/features/checkout/actions/apply-discount-code";
+import {
+  type DiscountCodeRejection,
+  getDiscountCodeRejectionMessage,
+} from "@/features/checkout/discount-code-rejection";
 import { formatDiscountAdjustment } from "@/features/checkout/format-discount-adjustment";
 import type { DiscountAdjustment } from "@/features/discounts/contracts";
 import { type Locale, m } from "@/features/i18n";
@@ -25,10 +29,10 @@ type CheckoutDiscountCodeFormProps = {
   readonly appliedAdjustment?: DiscountAdjustment;
   readonly defaultCode?: string;
   readonly enabled: boolean;
-  readonly fieldError: boolean;
   readonly locale: Locale;
   readonly payStateToken: string;
   readonly referralApplied?: boolean;
+  readonly rejection?: DiscountCodeRejection;
   readonly rejectionId?: string;
 };
 
@@ -36,10 +40,10 @@ export function CheckoutDiscountCodeForm({
   appliedAdjustment,
   defaultCode,
   enabled,
-  fieldError,
   locale,
   payStateToken,
   referralApplied = false,
+  rejection,
   rejectionId,
 }: CheckoutDiscountCodeFormProps) {
   const referralAppliedFeedback = referralApplied ? (
@@ -86,7 +90,7 @@ export function CheckoutDiscountCodeForm({
 
   if (!enabled) return referralAppliedFeedback;
 
-  const errorId = fieldError ? "checkout-discount-code-error" : undefined;
+  const errorId = rejection ? "checkout-discount-code-error" : undefined;
   const action = applyDiscountCodeForm.bind(null, locale, payStateToken);
   const submit = (event: FormEvent<HTMLFormElement>) => {
     const formData = new FormData(event.currentTarget);
@@ -112,7 +116,7 @@ export function CheckoutDiscountCodeForm({
             defaultValue={defaultCode ?? ""}
             id="checkout-discount-code"
             aria-describedby={errorId}
-            aria-invalid={fieldError ? true : undefined}
+            aria-invalid={rejection ? true : undefined}
             autoCapitalize="characters"
             autoComplete="off"
             className="h-12 rounded-full px-5 uppercase"
@@ -125,7 +129,7 @@ export function CheckoutDiscountCodeForm({
             pending={isSubmitting}
           />
         </div>
-        {fieldError && (
+        {rejection && (
           <>
             <DiscountRejectionAnalytics key={rejectionId} />
             <p
@@ -138,7 +142,7 @@ export function CheckoutDiscountCodeForm({
                 className="mt-0.5 size-4 shrink-0 text-burned-orange"
               />
               <span className="min-w-0">
-                {m.checkoutDiscountCodeUnavailable({}, { locale })}
+                {getDiscountCodeRejectionMessage(rejection, locale)}
               </span>
             </p>
           </>

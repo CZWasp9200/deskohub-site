@@ -10,6 +10,7 @@ import { getOfficeCheckoutSummary } from "@/features/checkout/checkout-summary-o
 import { workspaceMoneyEquals } from "@/features/checkout/workspace-money";
 import type { Locale } from "@/features/i18n";
 import { ReferralService } from "@/features/referrals";
+import type { ReferralError } from "@/features/referrals/contracts";
 import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
 import { buildFreshCheckoutPayPath } from "./checkout-pay-url";
 import { CheckoutPricingService } from "./checkout-pricing.service";
@@ -30,6 +31,14 @@ export type CheckoutReferralResult =
   | {
       readonly status: "unavailable" | "pricing_changed";
       readonly freshPayUrl?: string;
+    }
+  | {
+      /** The account already has a different, permanent referrer. */
+      readonly status: "already_attributed";
+    }
+  | {
+      /** Referral codes apply only to the customer's first booking. */
+      readonly status: "ineligible";
     };
 
 export interface ICheckoutReferralService {
@@ -41,6 +50,21 @@ export interface ICheckoutReferralService {
 }
 
 const unavailable: CheckoutReferralResult = { status: "unavailable" };
+
+/**
+ * Only an immutable existing attribution and first-booking ineligibility are
+ * explained to the customer; every other failure stays a generic unavailable
+ * code so the response cannot probe codes or accounts.
+ */
+const getAcceptanceRejection = (
+  error: ReferralError
+): CheckoutReferralResult | undefined => {
+  if (error.reason === "already_attributed") {
+    return { status: "already_attributed" };
+  }
+  if (error.reason === "ineligible") return { status: "ineligible" };
+  return undefined;
+};
 
 export class CheckoutReferralService extends Context.Service<
   CheckoutReferralService,
@@ -77,11 +101,19 @@ export class CheckoutReferralService extends Context.Service<
           });
           if (codeKind.kind !== "referral") return unavailable;
 
-          const acceptance = yield* referrals.acceptReferral({
-            code: input.code,
-            customerAccountId: identity.accountId,
-            dotyposCustomerId: identity.dotyposCustomerId,
-          });
+          const acceptance = yield* referrals
+            .acceptReferral({
+              code: input.code,
+              customerAccountId: identity.accountId,
+              dotyposCustomerId: identity.dotyposCustomerId,
+            })
+            .pipe(Effect.result);
+          if (acceptance._tag === "Failure") {
+            return (
+              getAcceptanceRejection(acceptance.failure) ??
+              (yield* acceptance.failure)
+            );
+          }
 
           const prepared = yield* Match.value(opened).pipe(
             Match.when({ reservation: { kind: "cowork" } }, (state) =>
@@ -182,7 +214,7 @@ export class CheckoutReferralService extends Context.Service<
           return changed
             ? { status: "pricing_changed" as const, freshPayUrl }
             : {
-                status: acceptance.kind,
+                status: acceptance.success.kind,
                 freshPayUrl,
               };
         },

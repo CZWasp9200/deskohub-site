@@ -25,6 +25,7 @@ export type ApplyDiscountCodeResult =
       readonly freshPayUrl: string;
     }
   | { readonly status: "pricing_changed"; readonly freshPayUrl: string }
+  | { readonly status: "already_attributed" | "ineligible" }
   | {
       readonly status: "unavailable";
       /**

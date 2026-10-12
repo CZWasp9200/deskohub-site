@@ -546,6 +546,8 @@
   "checkoutVoucherLabel": "Poukaz",
   "checkoutDiscountCodeApplied": "Kód uplatněn: sleva {discount} 🎉",
   "checkoutReferralDiscountApplied": "Doporučovací sleva na první rezervaci uplatněna: 15 % 🎉",
+  "checkoutReferralCodeAlreadyAttributed": "Tento účet už doporučení má a nejde ho změnit. Můžeš pokračovat s aktuální cenou.",
+  "checkoutReferralCodeIneligible": "Doporučovací kód platí jen pro první rezervaci. Můžeš pokračovat s aktuální cenou.",
   "checkoutSummaryOriginalPrice": "Původní cena: {price}",
   "checkoutSummaryDiscountedPrice": "Cena po slevě: {price}",
   "checkoutSummaryItemCoffee": "Káva",

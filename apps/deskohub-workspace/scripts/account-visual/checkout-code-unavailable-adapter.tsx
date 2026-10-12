@@ -19,9 +19,9 @@ function CheckoutCodeUnavailableAdapter({ locale }: AccountVisualAdapterProps) {
           <CheckoutDiscountCodeForm
             defaultCode="RFL12345"
             enabled
-            fieldError
             locale={locale}
             payStateToken="synthetic-renderer-state"
+            rejection="unavailable"
           />
         </div>
       </section>

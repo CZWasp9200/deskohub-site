@@ -49,6 +49,7 @@ import {
   type CheckoutSessionId,
   promoteCheckoutAttemptToSessionId,
 } from "@/features/checkout/checkout-identifiers";
+import { addCheckoutReferralAppliedMarker } from "@/features/checkout/checkout-referral-notice";
 import {
   type CheckoutSummaryChangedKeys,
   getCheckoutSummaryChangedKeys,
@@ -66,6 +67,7 @@ import {
   ensureOfficeReservationsEnabled,
   OfficeReservationFeatureFlagService,
 } from "@/features/office/backend/office-reservation-feature-flag.service";
+import { ReferralService } from "@/features/referrals";
 import { supersedableReservationPaymentStates } from "@/features/reservation/backend/reservation-supersession";
 import { WorkspaceAvailabilityService } from "@/features/reservation/backend/workspace-availability.service";
 import {
@@ -753,19 +755,57 @@ const resolveAccountCustomer = Effect.fn(
   };
 });
 
+/**
+ * Accepts a shared referral code for an account booking when possible, so the
+ * quote built next already carries the invitation discount. Acceptance takes
+ * the account advisory lock in its own transaction, so it must run before the
+ * guarded state-creating section. Guests, contact bookings, and every
+ * acceptance failure continue checkout unchanged.
+ */
+const acceptReferralCode = Effect.fn("preparePayState.acceptReferralCode")(
+  function* (input: PreparePayStateInput) {
+    if (input.customer !== "account" || input.referralCode === undefined) {
+      return false;
+    }
+
+    const contacts = yield* CustomerAccountContactService;
+    const referrals = yield* ReferralService;
+    const code = input.referralCode;
+    return yield* contacts.currentLinkedAccount.pipe(
+      Effect.flatMap((account) =>
+        account
+          ? referrals
+              .acceptReferral({
+                code,
+                customerAccountId: account.accountId,
+                dotyposCustomerId: account.dotyposCustomerId,
+              })
+              .pipe(Effect.as(true))
+          : Effect.succeed(false)
+      ),
+      Effect.catch((error) =>
+        Effect.logInfo("Checkout referral code was not accepted", {
+          reason: error._tag === "ReferralError" ? error.reason : error._tag,
+        }).pipe(Effect.as(false))
+      )
+    );
+  }
+);
+
 export const prepareWorkspacePayState = Effect.fn("prepareWorkspacePayState")(
   function* (input: PreparePayStateInput) {
     const botProtection = yield* BotProtectionService;
     yield* botProtection.verifyHuman({ verificationFailurePolicy: "allow" });
 
     const accountActivity = yield* OptionalAccountActivityGuard;
+    const referralAccepted = yield* acceptReferralCode(input);
 
     // The full state-creating section runs inside the account advisory
     // lock: authority is re-checked under the lock and the same lock is
     // held until the section completes, so deletion cannot interleave
     // between the check and the created state. Anonymous sessions run
     // unchanged; a session-authority failure fails closed.
-    return yield* accountActivity.guardStateCreation(
+    const result = yield* accountActivity.guardStateCreation(
       Effect.gen(function* () {
         yield* Match.value(input.reservation).pipe(
           Match.discriminatorsExhaustive("kind")({
@@ -1134,6 +1174,14 @@ export const prepareWorkspacePayState = Effect.fn("prepareWorkspacePayState")(
         });
       })
     );
+
+    if (!referralAccepted || result.status === "error") return result;
+    return {
+      ...result,
+      redirectUrl:
+        addCheckoutReferralAppliedMarker(result.redirectUrl, input.locale) ??
+        result.redirectUrl,
+    };
   },
   (effect, input) => {
     const captureOutcome = (outcome: ReservationPrePaymentOutcome) =>
@@ -1224,6 +1272,7 @@ const PreparePayStateLive = Layer.mergeAll(
   PostHogEventService.Live,
   WorkspaceDotyposLayer,
   CheckoutPricingService.Live,
+  ReferralService.Live,
   OfficeReservationFeatureFlagService.Default.pipe(
     Layer.provide(WorkspaceFeatureFlagService.Default)
   )

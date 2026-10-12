@@ -229,6 +229,22 @@ describe("applyDiscountCodeToPayState", () => {
     expect(scenario.requireCurrent).not.toHaveBeenCalled();
   });
 
+  test.each(["already_attributed", "ineligible"] as const)(
+    "returns the explained %s referral rejection without promotion pricing",
+    async (status) => {
+      const acceptCode = mock(() => Effect.succeed({ status }));
+      const scenario = await runSubmission({
+        submittedCode: "RFL12345",
+        codeKind: "referral",
+        acceptCode,
+      });
+
+      expect(scenario.result).toEqual({ status });
+      expect(scenario.applyDiscountCode).not.toHaveBeenCalled();
+      expect(scenario.requireCurrent).not.toHaveBeenCalled();
+    }
+  );
+
   test("seals a canonical code privately into a replacement pay state", async () => {
     const scenario = await runSubmission();
 

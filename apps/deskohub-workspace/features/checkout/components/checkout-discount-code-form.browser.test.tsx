@@ -61,7 +61,6 @@ export default async function Page({ searchParams }: PageProps) {
         discountCodeForm={
           <CheckoutDiscountCodeForm
             enabled
-            fieldError={false}
             locale="en-US"
             payStateToken={payState}
             referralApplied={payState === "after-referral"}

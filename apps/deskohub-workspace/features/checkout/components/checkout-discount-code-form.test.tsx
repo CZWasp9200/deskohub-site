@@ -81,7 +81,6 @@ describe("CheckoutDiscountCodeForm", () => {
       <CheckoutDiscountCodeForm
         defaultCode="SUMMER10"
         enabled
-        fieldError={false}
         locale="en-US"
         payStateToken="signed-state"
       />
@@ -104,7 +103,7 @@ describe("CheckoutDiscountCodeForm", () => {
       <CheckoutDiscountCodeForm
         defaultCode={rejectedCode}
         enabled
-        fieldError
+        rejection="unavailable"
         locale="en-US"
         payStateToken="signed-state"
       />
@@ -124,7 +123,6 @@ describe("CheckoutDiscountCodeForm", () => {
       <CheckoutDiscountCodeForm
         defaultCode="SUMMER10"
         enabled
-        fieldError={false}
         locale="en-US"
         payStateToken="signed-state"
       />
@@ -134,7 +132,6 @@ describe("CheckoutDiscountCodeForm", () => {
       <CheckoutDiscountCodeForm
         defaultCode="WINTER20"
         enabled
-        fieldError={false}
         locale="en-US"
         payStateToken="signed-state"
       />
@@ -153,7 +150,6 @@ describe("CheckoutDiscountCodeForm", () => {
       <CheckoutDiscountCodeForm
         defaultCode="SUMMER10"
         enabled
-        fieldError={false}
         locale="en-US"
         payStateToken="signed-state"
       />
@@ -165,7 +161,6 @@ describe("CheckoutDiscountCodeForm", () => {
       <CheckoutDiscountCodeForm
         defaultCode="SUMMER10"
         enabled
-        fieldError={false}
         locale="en-US"
         payStateToken="signed-state"
       />
@@ -181,7 +176,6 @@ describe("CheckoutDiscountCodeForm", () => {
     const view = render(
       <CheckoutDiscountCodeForm
         enabled
-        fieldError={false}
         locale="en-US"
         payStateToken="before-referral"
       />
@@ -205,7 +199,6 @@ describe("CheckoutDiscountCodeForm", () => {
     view.rerender(
       <CheckoutDiscountCodeForm
         enabled
-        fieldError={false}
         locale="en-US"
         payStateToken="after-referral"
         referralApplied
@@ -254,7 +247,6 @@ describe("CheckoutDiscountCodeForm", () => {
         appliedAdjustment={{ kind: "percentage", basisPoints: 2000 }}
         defaultCode="SUMMER10"
         enabled={false}
-        fieldError={false}
         locale="en-US"
         payStateToken="signed-state"
       />
@@ -277,7 +269,6 @@ describe("CheckoutDiscountCodeForm", () => {
       const view = render(
         <CheckoutDiscountCodeForm
           enabled
-          fieldError={false}
           locale={locale}
           payStateToken="signed-state"
           referralApplied
@@ -318,7 +309,6 @@ describe("CheckoutDiscountCodeForm", () => {
       const view = render(
         <CheckoutDiscountCodeForm
           enabled
-          fieldError={false}
           locale="en-US"
           payStateToken="signed-state"
           referralApplied={referralApplied}
@@ -341,7 +331,6 @@ describe("CheckoutDiscountCodeForm", () => {
     const view = render(
       <CheckoutDiscountCodeForm
         enabled={false}
-        fieldError={false}
         locale="en-US"
         payStateToken="signed-state"
       />
@@ -357,7 +346,6 @@ describe("CheckoutDiscountCodeForm", () => {
     const view = render(
       <CheckoutDiscountCodeForm
         enabled
-        fieldError={false}
         locale="en-US"
         payStateToken="signed-state"
       />
@@ -395,7 +383,7 @@ describe("CheckoutDiscountCodeForm", () => {
       <CheckoutDiscountCodeForm
         defaultCode="SAVE20"
         enabled
-        fieldError
+        rejection="unavailable"
         locale="en-US"
         payStateToken="signed-state"
       />
@@ -417,6 +405,39 @@ describe("CheckoutDiscountCodeForm", () => {
     });
   });
 
+  test.each([
+    ["referral-already-attributed", m.checkoutReferralCodeAlreadyAttributed],
+    ["referral-ineligible", m.checkoutReferralCodeIneligible],
+  ] as const)(
+    "explains the %s rejection in the field alert",
+    async (rejection, message) => {
+      const { CheckoutDiscountCodeForm } = await import(
+        "./checkout-discount-code-form"
+      );
+      const view = render(
+        <CheckoutDiscountCodeForm
+          defaultCode="RFL12345"
+          enabled
+          rejection={rejection}
+          locale="cs-CZ"
+          payStateToken="signed-state"
+        />
+      );
+
+      const error = view.getByRole("alert");
+      expect(error.id).toBe("checkout-discount-code-error");
+      expect(error.textContent).toBe(message({}, { locale: "cs-CZ" }));
+      expect(view.getByRole("textbox").getAttribute("aria-invalid")).toBe(
+        "true"
+      );
+      await waitFor(() => {
+        expect(capture).toHaveBeenCalledWith("pre-payment outcome", {
+          outcome: "discount_rejected",
+        });
+      });
+    }
+  );
+
   test("does not capture a rejection that occurred before analytics consent", async () => {
     analyticsAccepted = false;
     const { CheckoutDiscountCodeForm } = await import(
@@ -426,7 +447,7 @@ describe("CheckoutDiscountCodeForm", () => {
       <CheckoutDiscountCodeForm
         defaultCode="SAVE20"
         enabled
-        fieldError
+        rejection="unavailable"
         locale="en-US"
         payStateToken="signed-state"
       />
@@ -439,7 +460,7 @@ describe("CheckoutDiscountCodeForm", () => {
       <CheckoutDiscountCodeForm
         defaultCode="SAVE20"
         enabled
-        fieldError
+        rejection="unavailable"
         locale="en-US"
         payStateToken="signed-state"
       />
@@ -456,7 +477,7 @@ describe("CheckoutDiscountCodeForm", () => {
       <CheckoutDiscountCodeForm
         defaultCode="SAVE20"
         enabled
-        fieldError
+        rejection="unavailable"
         locale="en-US"
         payStateToken="signed-state"
         rejectionId="synthetic-rejection-one"
@@ -469,7 +490,7 @@ describe("CheckoutDiscountCodeForm", () => {
       <CheckoutDiscountCodeForm
         defaultCode="WINTER20"
         enabled
-        fieldError
+        rejection="unavailable"
         locale="en-US"
         payStateToken="signed-state"
         rejectionId="synthetic-rejection-two"
@@ -490,7 +511,6 @@ describe("CheckoutDiscountCodeForm", () => {
       <CheckoutDiscountCodeForm
         appliedAdjustment={{ kind: "percentage", basisPoints: 2000 }}
         enabled={false}
-        fieldError={false}
         locale="en-US"
         payStateToken="signed-state"
       />
@@ -528,7 +548,6 @@ describe("CheckoutDiscountCodeForm", () => {
         discountCodeForm={
           <CheckoutDiscountCodeForm
             enabled
-            fieldError={false}
             locale="en-US"
             payStateToken="signed-state"
           />

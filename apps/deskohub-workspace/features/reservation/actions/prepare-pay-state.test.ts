@@ -33,6 +33,8 @@ import { PromotionCodeUnavailableError } from "@/features/discounts/errors";
 import { WorkspaceFeatureFlagServiceMock } from "@/features/feature-flags/backend/workspace-feature-flag.service.mock";
 import type { ICustomerMarketingConsentRepository } from "@/features/legal/backend/customer-marketing-consent.repository";
 import { OfficeReservationFeatureFlagService } from "@/features/office/backend/office-reservation-feature-flag.service";
+import { ReferralError } from "@/features/referrals/contracts";
+import { ReferralServiceMock } from "@/features/referrals/referral.service.mock";
 import type { IWorkspaceAvailabilityService } from "@/features/reservation/backend/workspace-availability.service";
 import { meetingRoomAdvertisedPriceReservationSchema } from "@/features/reservation/meeting-room-reservation";
 import { workspaceSiteConstants } from "@/shared/utils/site-constants";
@@ -330,6 +332,9 @@ const runReusableReservationScenario = async (input: {
   readonly accountAuthority?: Parameters<typeof accountAuthorityFixture>[0];
   readonly customer?: "account";
   readonly accountContact?: CustomerAccountContactService["Service"]["current"];
+  readonly linkedAccount?: CustomerAccountContactService["Service"]["currentLinkedAccount"];
+  readonly referralCode?: string;
+  readonly acceptReferral?: ReturnType<typeof mock>;
 }) => {
   const { prepareWorkspacePayState } = await import("./prepare-pay-state");
   const { PostHogEventService } = await import(
@@ -407,11 +412,20 @@ const runReusableReservationScenario = async (input: {
     () =>
       input.accountContact ?? Effect.die("the account contact must not be read")
   );
+  const readLinkedAccount = mock(
+    () =>
+      input.linkedAccount ?? Effect.die("the linked account must not be read")
+  );
+  const acceptReferral =
+    input.acceptReferral ??
+    mock(() => Effect.die("a referral must not be accepted"));
   const testLayer = Layer.mergeAll(
     accountAuthority.layer,
     Layer.mock(CustomerAccountContactService, {
       current: Effect.suspend(() => readAccountContact()),
+      currentLinkedAccount: Effect.suspend(() => readLinkedAccount()),
     }),
+    ReferralServiceMock({ acceptReferral: acceptReferral as never }),
     CheckoutPricingServiceMock({
       affirmCoworkAdvertisement: affirmAdvertisement,
       quoteForCustomer: quoteForCustomerResult as never,
@@ -473,6 +487,7 @@ const runReusableReservationScenario = async (input: {
     reservation: input.reservation ?? reservation,
     marketingConsent: input.marketingConsent,
     customer: input.customer,
+    referralCode: input.referralCode,
   }).pipe(Effect.provide(testLayer), Effect.result, Effect.runPromise);
 
   return {
@@ -499,6 +514,8 @@ const runReusableReservationScenario = async (input: {
     findOrCreateCustomer,
     updateCustomerBillingDetails,
     readAccountContact,
+    readLinkedAccount,
+    acceptReferral,
   };
 };
 
@@ -1555,6 +1572,172 @@ describe("prepareWorkspacePayState", () => {
       });
       expect(scenario.findOrCreateCustomer).not.toHaveBeenCalled();
       expect(scenario.createDraft).not.toHaveBeenCalled();
+    });
+
+    describe("with a shared referral code", () => {
+      const accountId = "5b6f31d0-2c1a-4f0e-9a3d-6c7b8e2f1a01";
+      const linkedAccount = () =>
+        Effect.succeed({
+          accountId,
+          dotyposCustomerId: accountDotyposCustomerId,
+          email: "grace@example.test",
+        } as never);
+      const referralAppliedOf = (redirectUrl: string | undefined) =>
+        new URL(redirectUrl ?? "", "https://deskohub.test").searchParams.get(
+          "referralApplied"
+        );
+
+      test.each(["accepted", "already_accepted"] as const)(
+        "accepts the referral before the account lock and marks the %s result",
+        async (kind) => {
+          const lockProbe = { held: false };
+          const order: string[] = [];
+          const acceptReferral = mock(() =>
+            Effect.sync(() => {
+              order.push(lockProbe.held ? "accept:locked" : "accept:unlocked");
+              return { kind };
+            })
+          );
+          const scenario = await runReusableReservationScenario({
+            findByAttemptKeys: mock(() => Effect.succeed(null)),
+            createDraft: createFreshDraft(),
+            accountAuthority: {
+              session: {},
+              activityState: "active",
+              lockProbe,
+            },
+            customer: "account",
+            accountContact: accountContact(),
+            linkedAccount: linkedAccount(),
+            referralCode: "RFL12345",
+            acceptReferral,
+            quoteForCustomer: mock(({ affirmedAdvertisement }) => {
+              order.push("quote");
+              return Effect.succeed(
+                buildQuoteFromAdvertisement(affirmedAdvertisement)
+              );
+            }),
+          });
+
+          expect(scenario.result?.status).toBe("ready");
+          expect(acceptReferral).toHaveBeenCalledTimes(1);
+          expect(acceptReferral.mock.calls[0]?.[0]).toEqual({
+            code: "RFL12345",
+            customerAccountId: accountId,
+            dotyposCustomerId: accountDotyposCustomerId,
+          });
+          expect(order).toEqual(["accept:unlocked", "quote"]);
+          expect(
+            referralAppliedOf(
+              scenario.result && "redirectUrl" in scenario.result
+                ? scenario.result.redirectUrl
+                : undefined
+            )
+          ).toBe("1");
+        }
+      );
+
+      test.each([
+        "already_attributed",
+        "ineligible",
+        "self_referral",
+        "unavailable",
+        "invalid_code",
+        "account_unavailable",
+      ] as const)(
+        "continues checkout silently when acceptance fails as %s",
+        async (reason) => {
+          const scenario = await runReusableReservationScenario({
+            findByAttemptKeys: mock(() => Effect.succeed(null)),
+            createDraft: createFreshDraft(),
+            accountAuthority: { session: {}, activityState: "active" },
+            customer: "account",
+            accountContact: accountContact(),
+            linkedAccount: linkedAccount(),
+            referralCode: "RFL12345",
+            acceptReferral: mock(() =>
+              Effect.fail(new ReferralError({ reason }))
+            ),
+          });
+
+          expect(scenario.result?.status).toBe("ready");
+          expect(scenario.acceptReferral).toHaveBeenCalledTimes(1);
+          expect(scenario.createDraft).toHaveBeenCalledTimes(1);
+          expect(
+            referralAppliedOf(
+              scenario.result && "redirectUrl" in scenario.result
+                ? scenario.result.redirectUrl
+                : undefined
+            )
+          ).toBeNull();
+        }
+      );
+
+      test("continues checkout when the linked account cannot be read", async () => {
+        const scenario = await runReusableReservationScenario({
+          findByAttemptKeys: mock(() => Effect.succeed(null)),
+          createDraft: createFreshDraft(),
+          accountAuthority: { session: {}, activityState: "active" },
+          customer: "account",
+          accountContact: accountContact(),
+          linkedAccount: Effect.fail(
+            new CustomerAccountAccessError({ reason: "unavailable" })
+          ),
+          referralCode: "RFL12345",
+        });
+
+        expect(scenario.result?.status).toBe("ready");
+        expect(scenario.acceptReferral).not.toHaveBeenCalled();
+        expect(scenario.createDraft).toHaveBeenCalledTimes(1);
+      });
+
+      test("skips acceptance for a session without a linked account", async () => {
+        const scenario = await runReusableReservationScenario({
+          findByAttemptKeys: mock(() => Effect.succeed(null)),
+          createDraft: createFreshDraft(),
+          accountAuthority: { session: {}, activityState: "active" },
+          customer: "account",
+          accountContact: accountContact(),
+          linkedAccount: Effect.succeed(null),
+          referralCode: "RFL12345",
+        });
+
+        expect(scenario.result?.status).toBe("ready");
+        expect(scenario.acceptReferral).not.toHaveBeenCalled();
+      });
+
+      test("ignores the referral code for a contact booking", async () => {
+        const scenario = await runReusableReservationScenario({
+          findByAttemptKeys: mock(() => Effect.succeed(null)),
+          createDraft: createFreshDraft(),
+          accountAuthority: { session: {}, activityState: "active" },
+          referralCode: "RFL12345",
+        });
+
+        expect(scenario.result?.status).toBe("ready");
+        expect(scenario.readLinkedAccount).not.toHaveBeenCalled();
+        expect(scenario.acceptReferral).not.toHaveBeenCalled();
+        expect(
+          referralAppliedOf(
+            scenario.result && "redirectUrl" in scenario.result
+              ? scenario.result.redirectUrl
+              : undefined
+          )
+        ).toBeNull();
+      });
+
+      test("ignores the referral code for an anonymous guest", async () => {
+        const scenario = await runReusableReservationScenario({
+          findByAttemptKeys: mock(() => Effect.succeed(null)),
+          createDraft: createFreshDraft(),
+          accountAuthority: { session: null },
+          referralCode: "RFL12345",
+        });
+
+        expect(scenario.result?.status).toBe("ready");
+        expect(scenario.readLinkedAccount).not.toHaveBeenCalled();
+        expect(scenario.acceptReferral).not.toHaveBeenCalled();
+      });
     });
 
     test("resolves the Dotypos customer from the submitted contact without an account booking", async () => {

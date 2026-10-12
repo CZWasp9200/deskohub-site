@@ -23,6 +23,7 @@ import {
   CheckoutPayPage,
   CheckoutPayPageSkeleton,
 } from "@/features/checkout/components/checkout-pay-page";
+import { parseDiscountCodeRejection } from "@/features/checkout/discount-code-rejection";
 import { getDiscountCodeEntryEnabled } from "@/features/discounts/discount-code-entry.server";
 import { type Locale, locales, m } from "@/features/i18n";
 import { runWithRequestLocale } from "@/features/i18n/server/request-locale";
@@ -120,9 +121,9 @@ async function CheckoutPayContent({
     resolvedSearchParams,
     payStateTokenQueryParam
   );
-  const discountCodeError =
-    getSearchParam(resolvedSearchParams, discountCodeErrorQueryParam) ===
-    "unavailable";
+  const discountCodeRejection = parseDiscountCodeRejection(
+    getSearchParam(resolvedSearchParams, discountCodeErrorQueryParam)
+  );
   const discountCodeErrorId = getSearchParam(
     resolvedSearchParams,
     discountCodeErrorIdQueryParam
@@ -266,10 +267,10 @@ async function CheckoutPayContent({
             enabled={
               discountCodeEntryEnabled && state.submittedCode === undefined
             }
-            fieldError={discountCodeError}
             locale={locale}
             payStateToken={payStateToken}
             referralApplied={referralApplied}
+            rejection={discountCodeRejection}
             rejectionId={discountCodeErrorId}
           />
         }
