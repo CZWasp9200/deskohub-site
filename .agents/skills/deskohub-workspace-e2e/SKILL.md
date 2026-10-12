@@ -151,8 +151,9 @@ Distinguish automated-runner behavior from manual procedures before treating a d
   coverage unless exact-run evidence demonstrates a concurrency-specific failure.
 - Playwright dependency phases are barriers: they await every project in a
   topological phase before advancing. Keep the long serial account lane in the
-  same phase as `checkout-non-payment` and `checkout-payment-1` through
-  `checkout-payment-3` by depending on `checkout-plan`; require real scheduler
+  same phase as `checkout-non-payment`, `checkout-payment-1` through
+  `checkout-payment-3`, and `checkout-referrals` by depending on
+  `checkout-plan`; require real scheduler
   regression evidence, not only a graph assertion. Playwright queues the
   account lane behind every `checkout-non-payment` test in that phase, so keep
   the per-project `workers` cap on `checkout-non-payment` that leaves a worker
@@ -265,7 +266,50 @@ Distinguish automated-runner behavior from manual procedures before treating a d
   sequences rather than contiguous date bands so clustered unavailability does
   not starve a run that the full candidate range could support.
 - Let Playwright own one browser per worker. The compatibility runner may create one isolated context for the current Playwright test, but it must never launch or close the worker browser. Capture diagnostics for the genuine failure before closing its context. Playwright flushes HAR when the context closes, so use bounded finalizers to close every failed, completed, or interrupted context before sanitizing or discarding its raw HAR. Keep HAR structured through privacy redaction with `redactJsonValue`, then stringify once and write it without the generic text sanitizer; this preserves valid JSON when a registered numeric secret matches metadata. Keep read-only instant navigation in its own Playwright config (`bun run test:instant-navigation`), launched by the E2E entry point concurrently with the checkout graph and without a lease or dependency on it: as a project in the checkout graph it extended the setup phase barrier. It always targets the remote preview, uses a separate output directory, and its failure fails the run after checkout finishes but does not fail-fast checkout. Within checkout case finalization, let owned-reservation cleanup overlap the browser branch while preserving HAR stop before context close.
-- The planner-owned `account-referral-checkout` case is registered in the checkout catalog for exact slot planning and teardown, but runs once inside the serial `account-auth` lane immediately after `account-referrals`. It borrows that lane's already-verified browser session; pass the explicit borrowed-session option to `WorkspaceE2ECaseService.runCase`. Borrowed runs skip HAR start/stop, failure artifacts, failure annotations, and browser close. They still use the normal `cleanupOwnedCheckoutStates` finalizer and write the exact planned flow states to the existing per-case journal before execution and in `finally`. Keep normal owned-session defaults unchanged. Bind only the synthetic linked account and its referral codes (the referrer's code plus a second referrer's code for the changed-referral rejection) in worker memory; the pay-state URL stays in memory for strict PNG review checks and never enters logs, journals, or artifacts. Use the existing account lane and its one worker browser; do not add a project, runner, browser, or cleanup path.
+- Referral coverage outside the real magic-link flow lives in the parallel
+  `checkout-referrals` project (`e2e/playwright-checkout/referral-lane.pw.ts`,
+  `e2e/referrals/**`). Its cases are in the checkout catalog
+  (`workspaceE2EReferralCaseIds`), so planning, per-case checkout journals,
+  HAR, failure annotations, and teardown work as for any case. The three
+  unpaid referral checkouts share one planned open-space date, each for its
+  own customer. `registerWorkspaceE2ECases`' `bindCase` binds each planned case
+  to its seeded identities. The lane never pays and depends only on
+  `checkout-plan`; it is listed after the account and checkout lanes and
+  uncapped, so its cases backfill workers after the first batch, and the tail
+  projects do not wait for it. The scheduling harness asserts that every
+  account and checkout lane starts before the first referral case.
+- Sign referral-lane identities in by seeding a session, never by sending a
+  magic link: insert a short-lived Better Auth `auth.session` row into the
+  exact preview database and set the matching signed
+  `__Secure-better-auth.session_token` cookie (HTTP-only, Secure, Lax, bound
+  to the immutable preview origin) in the case's own browser context with the
+  runner's `cookie set --stdin` command (`e2e/account/seeded-session.ts`). The
+  cookie value travels on command input, never in logged arguments, and the
+  token and signed value are registered with the redactor. The runner signs
+  with the first entry of `WORKSPACE_E2E_BETTER_AUTH_SECRETS`, a copy of the
+  deskohub-workspace Vercel project's Preview-only `BETTER_AUTH_SECRETS`
+  held only in the protected `workspace-checkout-e2e` environment; never copy
+  the Production value, and rotate the copy with the Preview value. The lane
+  fails closed when it is absent. There is no server-side hook or bypass
+  route; the deployment authenticates the cookie through its normal session
+  lookup, and `seeded-session.test.ts` proves that against Better Auth itself
+  with the shared `authOptions`.
+- Every referral-lane case journals its synthetic identities in its own
+  account identity journal (`emptyWorkspaceE2EAccountJournal(<case id>)`),
+  derived only from the run id and that case's closed recipient labels
+  (`e2e/referrals/journal-owners.ts`). Suite cleanup validates and reconciles
+  the account lane's and every case's journal, including the referral rows,
+  seeded paid-history and savings rows, and Dotypos profiles and visits they
+  own. Auto-link cases create the exact-email Dotypos customer before the
+  unlinked user, and relinking or fresh synthetic customers replace extra
+  sign-ins.
+- Checkout carries a referral in the signed pay state and records the
+  attribution only when the order is paid. Unpaid referral-lane checkouts
+  therefore assert pricing and that no attribution or invitation claim exists
+  yet; the paid guest-referral case asserts attribution, the redeemed claim,
+  and the payment snapshot. Rejected referral codes re-sign the pay state so
+  the typed code stays in the box, so rejection checks require a new URL for
+  the same order, not the same `payState`.
 - Confirm Dotypos cancellation convergence through the same active-overlap read
   model used by capacity validation. Absence from the generic reservation list
   is not sufficient evidence that provider availability has released the seats.

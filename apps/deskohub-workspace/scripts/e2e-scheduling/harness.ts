@@ -266,7 +266,10 @@ const durationFor = (project) =>
       : 40;
 // Non-payment cases are independent and outnumber the free workers, like the
 // deployed suite, so they would queue the account lane without a worker cap.
-const parallelCases = syntheticProject === "checkout-non-payment";
+// The referral lane's cases are just as independent and uncapped.
+const parallelCases =
+  syntheticProject === "checkout-non-payment" ||
+  syntheticProject === "checkout-referrals";
 const testCount =
   syntheticProject === "account-auth"
     ? 9
@@ -676,6 +679,19 @@ function verify(graph: Graph, runs: readonly Run[]) {
     candidateAccount.start < firstCaseEnd,
     "candidate account-auth did not start in the first case batch"
   );
+  // The referral lane only fills workers the first case batch leaves free.
+  const candidateReferrals = requiredRange(
+    candidate.intervals,
+    "checkout-referrals",
+    "candidate"
+  );
+  for (const name of ["account-auth", ...checkoutProjects]) {
+    must(
+      requiredRange(candidate.intervals, name, "candidate").start <=
+        candidateReferrals.start,
+      `candidate checkout-referrals started before ${name}`
+    );
+  }
   const quietStart = requiredEventAt(
     candidate.events,
     ["account-quiet-start"],

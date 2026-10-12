@@ -166,16 +166,9 @@ test("wires the case-plan per-date maximums through the real case builders", asy
   const referralCheckouts = cases.filter(({ id }) =>
     (workspaceE2EReferralCheckoutCaseIds as readonly string[]).includes(id)
   );
-  expect(referralCheckouts.map(({ checkoutStates }) => checkoutStates.length)).toEqual(
-    workspaceE2EReferralCheckoutCaseIds.map(() => 1)
-  );
   expect(
-    new Set(
-      referralCheckouts.flatMap(({ checkoutStates }) =>
-        checkoutStates.map(({ data }) => data.date)
-      )
-    ).size
-  ).toBe(workspaceE2EReferralCheckoutCaseIds.length);
+    referralCheckouts.map(({ checkoutStates }) => checkoutStates.length)
+  ).toEqual(workspaceE2EReferralCheckoutCaseIds.map(() => 1));
   const plannedDates = cases.flatMap(({ checkoutStates }) =>
     checkoutStates.map(({ data }) => data.date)
   );

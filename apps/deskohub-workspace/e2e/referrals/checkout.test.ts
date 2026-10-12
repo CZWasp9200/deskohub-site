@@ -2,12 +2,12 @@ import "@/shared/testing/workspace-test-env";
 
 import { expect, test } from "bun:test";
 import { basename, dirname, resolve } from "node:path";
+import { DotyposCustomerIdSchema } from "@deskohub/dotypos";
 import {
   BasicTracerProvider,
   InMemorySpanExporter,
   SimpleSpanProcessor,
 } from "@opentelemetry/sdk-trace-base";
-import { DotyposCustomerIdSchema } from "@deskohub/dotypos";
 import { Cause, Effect, Exit, Layer } from "effect";
 import { buildFreshCheckoutPayPath } from "@/features/checkout/backend/checkout/checkout-pay-url";
 import { buildCoworkReservationQuote } from "@/features/checkout/checkout-quote.test-utils";
@@ -24,27 +24,28 @@ import { makeTestE2EEnvironment } from "../e2e-env.test-fixture";
 import { isWorkspaceE2ETimeout, workspaceE2ETimeoutError } from "../errors";
 import { E2EDatabase } from "../integrations/database.service";
 import type { Runner } from "../runtime";
+import { workspaceDir } from "../runtime";
 import {
   E2ERunContextService,
   E2ETelemetryService,
 } from "../services/telemetry";
-import { workspaceDir } from "../runtime";
 import type {
   WorkspaceE2ECase,
   WorkspaceE2EStep,
   WorkspaceE2EStepRunner,
 } from "../types";
 import {
-  bindWorkspaceE2EAccountReferralCheckout,
+  assertOrdinaryCodeSlotAvailable,
+  bindCheckoutContact,
   calculateSingleInviteeReferralDiscount,
   isFreshOwnedPayStateUrl,
   isReferralAppliedPayUrl,
   isRejectedReferralCodeUrl,
-} from "./referral-checkout";
+} from "./checkout";
 import {
   getWorkspaceE2EReferralCheckoutReviewArtifactPath,
   isOwnedReferralCheckoutReviewUrl,
-} from "./referral-checkout-review";
+} from "./checkout-review";
 
 const customerId = DotyposCustomerIdSchema.make("workspace-e2e-referral-owner");
 const contact = {
@@ -77,52 +78,22 @@ test("expects a fixed 5% referrer amount after one invitation and an ordinary co
   ).toContain("11.09");
 });
 
-test("binds one planned referral case to two distinct synthetic checkout slots", () => {
-  const testCase: WorkspaceE2ECase = {
-    checkoutStates: [
-      {
-        data: makeCoworkCheckoutData(
-          "https://workspace.example.test",
-          "2099-09-01"
-        ),
-      },
-      {
-        data: makeCoworkCheckoutData(
-          "https://workspace.example.test",
-          "2099-09-02"
-        ),
-      },
-    ],
-    execute: () => Effect.void,
-    id: "account-referral-checkout",
-    timeoutMs: 600_000,
-  };
-  const bound = bindWorkspaceE2EAccountReferralCheckout({
-    captureReview: async () => undefined,
-    config: {} as WorkspaceE2EConfig,
-    contact,
-    datasourceConfig: {} as never,
-    otherReferrerCode: "RFL67890",
-    referralCode: "RFL12345",
-    run: async () => ({ exitCode: 0, stderr: "", stdout: "" }),
-    testCase,
-  });
-
-  expect(bound.id).toBe("account-referral-checkout");
-  expect(bound.checkoutStates).toHaveLength(2);
-  expect(new Set(bound.checkoutStates.map(({ data }) => data.date)).size).toBe(
-    2
+test("binds a planned checkout to the seeded customer's contact without codes", () => {
+  const planned = makeCoworkCheckoutData(
+    "https://workspace.example.test",
+    "2099-09-01"
   );
-  for (const { data } of bound.checkoutStates) {
-    expect(data.email).toBe(contact.email);
-    expect(data.name).toBe(contact.name);
-    expect(data.phone).toBe(contact.phone);
-    expect(new URL(data.checkoutUrl).searchParams.get("email")).toBe(
-      contact.email
-    );
-  }
-  expect(JSON.stringify(bound.checkoutStates)).not.toContain("RFL12345");
-  expect(JSON.stringify(bound.checkoutStates)).not.toContain("RFL67890");
+  const bound = bindCheckoutContact(planned, contact);
+
+  expect(bound.date).toBe(planned.date);
+  expect(bound.email).toBe(contact.email);
+  expect(bound.name).toBe(contact.name);
+  expect(bound.phone).toBe(contact.phone);
+  const url = new URL(bound.checkoutUrl);
+  expect(url.searchParams.get("email")).toBe(contact.email);
+  expect(url.searchParams.get("name")).toBe(contact.name);
+  expect(url.searchParams.get("phone")).toBe(contact.phone);
+  expect(url.searchParams.has("ref")).toBe(false);
 });
 
 test("accepts only fresh signed pay URLs for the owned order and preview host", () => {
@@ -382,7 +353,7 @@ test("accepts only the owned first pay page that reports the share-link referral
   }
 });
 
-test("accepts only a rejected referral code that keeps the signed pay state", () => {
+test("accepts only a newly reported referral rejection on the owned pay page", () => {
   const baseUrl = "https://workspace.example.test";
   const orderId = "workspace-reservation-123" as WorkspaceReservationId;
   const previousUrl = `${baseUrl}/en-US/checkout/pay?payState=signed&orderId=${orderId}`;
@@ -398,9 +369,12 @@ test("accepts only a rejected referral code that keeps the signed pay state", ()
   const rejected = `${previousUrl}&discountCodeError=referral-already-attributed&discountCodeErrorId=synthetic`;
 
   expect(accepts(rejected)).toBe(true);
+  // The rejection re-signs the pay state so the typed code stays in the box.
+  expect(accepts(rejected.replace("payState=signed", "payState=fresh"))).toBe(
+    true
+  );
   for (const candidate of [
     previousUrl,
-    rejected.replace("payState=signed", "payState=fresh"),
     rejected.replace("referral-already-attributed", "referral-ineligible"),
     `${rejected}&discountCodeError=referral-already-attributed`,
     `${rejected}&referralApplied=1`,
@@ -411,6 +385,16 @@ test("accepts only a rejected referral code that keeps the signed pay state", ()
   ]) {
     expect(accepts(candidate)).toBe(false);
   }
+  expect(
+    isRejectedReferralCodeUrl({
+      baseUrl,
+      currentUrl: rejected,
+      error: "referral-already-attributed",
+      locale: "en-US",
+      orderId,
+      previousUrl: rejected,
+    })
+  ).toBe(false);
 });
 
 test("writes checkout review PNGs into the account-review artifact bundle", () => {
@@ -433,13 +417,12 @@ test("exports bounded ordinary-code form state from the referral assertion", asy
     timeoutStep: true,
     waitForAbort: true,
   });
-  const failureSpan = failedObservation.spans
-    .find(
-      (span) =>
-        span.name === "e2e.step" &&
-        span.attributes["e2e.step.id"] ===
-          "assert-ordinary-code-slot-after-referral"
-    );
+  const failureSpan = failedObservation.spans.find(
+    (span) =>
+      span.name === "e2e.step" &&
+      span.attributes["e2e.step.id"] ===
+        "assert-ordinary-code-slot-after-referral"
+  );
 
   expect(failedObservation.exit._tag).toBe("Failure");
   expect(failedObservation.calls.waitSignalAborted).toBe(true);
@@ -477,13 +460,12 @@ test("exports bounded ordinary-code form state from the referral assertion", asy
     inputValue: "",
     namedFieldCount: 1,
   });
-  const successSpan = successfulObservation.spans
-    .find(
-      (span) =>
-        span.name === "e2e.step" &&
-        span.attributes["e2e.step.id"] ===
-          "assert-ordinary-code-slot-after-referral"
-    );
+  const successSpan = successfulObservation.spans.find(
+    (span) =>
+      span.name === "e2e.step" &&
+      span.attributes["e2e.step.id"] ===
+        "assert-ordinary-code-slot-after-referral"
+  );
 
   expect(successfulObservation.exit._tag).toBe("Success");
   expect(successSpan?.attributes).toMatchObject({
@@ -578,51 +560,39 @@ const observeOrdinaryCodeSlot = async ({
     observerFailure,
     waitForAbort,
   });
-  const initialPayUrl =
-    "https://workspace.example.test/en-US/checkout/pay?payState=initial&orderId=workspace-reservation-123";
-  const testCase = makeReferralCheckoutTestCase();
-  const boundCase = bindWorkspaceE2EAccountReferralCheckout({
-    captureReview: async () => undefined,
-    config: {
-      baseUrl: "https://workspace.example.test",
-      locale: "en-US",
-      timeouts: { uiTransition: 50 },
-    } as WorkspaceE2EConfig,
-    contact,
-    datasourceConfig: {} as never,
-    otherReferrerCode: "RFL67890",
-    referralCode: "RFL12345",
-    run,
-    testCase,
-  });
+  const config = {
+    baseUrl: "https://workspace.example.test",
+    locale: "en-US",
+    timeouts: { uiTransition: 50 },
+  } as WorkspaceE2EConfig;
+  const step = {
+    execute: assertOrdinaryCodeSlotAvailable({
+      config,
+      run,
+      session: "synthetic-session",
+    }),
+    id: "assert-ordinary-code-slot-after-referral",
+    timeoutMs: config.timeouts.uiTransition,
+  };
   const execute = Effect.gen(function* () {
     const telemetry = yield* E2ETelemetryService;
-    const runStep: WorkspaceE2EStepRunner = <A, R>(
-      step: WorkspaceE2EStep<A, R>
-    ) => {
-      if (step.id === "prepare-ordinary-flow-pay-page")
-        return Effect.succeed(initialPayUrl as A);
-      if (step.id === "assert-ordinary-code-slot-after-referral")
-        return telemetry.traceStep({
-          caseId: boundCase.id,
-          effect: timeoutStep
-            ? step.execute.pipe(
-                Effect.timeoutOrElse({
-                  duration: `${step.timeoutMs} millis`,
-                  orElse: () =>
-                    workspaceE2ETimeoutError(
-                      "synthetic ordinary-code slot deadline expired",
-                      { operation: "assert ordinary-code slot after referral" }
-                    ),
-                })
-              )
-            : step.execute,
-          stepId: step.id,
-          timeoutMs: step.timeoutMs,
-        });
-      return Effect.succeed(undefined as A);
-    };
-    yield* boundCase.execute({ runStep, session: "synthetic-session" });
+    yield* telemetry.traceStep({
+      caseId: "referral-checkout-code-entry",
+      effect: timeoutStep
+        ? step.execute.pipe(
+            Effect.timeoutOrElse({
+              duration: `${step.timeoutMs} millis`,
+              orElse: () =>
+                workspaceE2ETimeoutError(
+                  "synthetic ordinary-code slot deadline expired",
+                  { operation: "assert ordinary-code slot after referral" }
+                ),
+            })
+          )
+        : step.execute,
+      stepId: step.id,
+      timeoutMs: step.timeoutMs,
+    });
   });
 
   try {
@@ -635,26 +605,6 @@ const observeOrdinaryCodeSlot = async ({
     await provider.shutdown();
   }
 };
-
-const makeReferralCheckoutTestCase = (): WorkspaceE2ECase => ({
-  checkoutStates: [
-    {
-      data: makeCoworkCheckoutData(
-        "https://workspace.example.test",
-        "2099-09-01"
-      ),
-    },
-    {
-      data: makeCoworkCheckoutData(
-        "https://workspace.example.test",
-        "2099-09-02"
-      ),
-    },
-  ],
-  execute: () => Effect.void,
-  id: "account-referral-checkout",
-  timeoutMs: 600_000,
-});
 
 const makeOrdinaryCodeSlotRunner = ({
   formCount,
@@ -670,7 +620,10 @@ const makeOrdinaryCodeSlotRunner = ({
   readonly namedFieldCount: number;
   readonly observerFailure: boolean;
   readonly waitForAbort: boolean;
-}): { readonly calls: { observationReadCount: number; waitSignalAborted: boolean }; readonly run: Runner } => {
+}): {
+  readonly calls: { observationReadCount: number; waitSignalAborted: boolean };
+  readonly run: Runner;
+} => {
   class SyntheticInput {
     disabled = false;
     value = inputValue;
@@ -691,7 +644,7 @@ const makeOrdinaryCodeSlotRunner = ({
   }));
   const document = {
     querySelector: (selector: string) =>
-      selector === "#checkout-discount-code-form" ? forms[0] ?? null : null,
+      selector === "#checkout-discount-code-form" ? (forms[0] ?? null) : null,
     querySelectorAll: (selector: string) =>
       selector === "#checkout-discount-code-form"
         ? forms
@@ -702,8 +655,7 @@ const makeOrdinaryCodeSlotRunner = ({
   const window = {
     getComputedStyle: (element: unknown) => ({
       display: element === forms[0] && formVisible ? "block" : "none",
-      visibility:
-        element === forms[0] && formVisible ? "visible" : "hidden",
+      visibility: element === forms[0] && formVisible ? "visible" : "hidden",
     }),
   } as Record<string, unknown>;
   const calls = { observationReadCount: 0, waitSignalAborted: false };

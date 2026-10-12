@@ -17,20 +17,25 @@ export const workspaceE2EReferralRecipientLabels = {
     "ral-unusable",
     "ral-attributed",
   ],
-  "referral-checkout-code-entry": [
-    "rce-referrer",
-    "rce-other-referrer",
-    "rce-customer",
+  "referral-checkout-code-entry": ["rce-referrer", "rce-customer"],
+  "referral-profile-completion-checkout": [
+    "rpc-referrer",
+    "rpc-other-referrer",
+    "rpc-customer",
   ],
-  "referral-profile-completion-checkout": ["rpc-referrer", "rpc-customer"],
-  "referral-profile-completion-unusable-link": ["rpu-customer"],
+  "referral-profile-completion-unusable-link": ["rpu-referrer", "rpu-customer"],
   "referral-referrer-screen": [
     "rrs-referrer",
     "rrs-invitee-a",
     "rrs-invitee-b",
+    "rrs-invitee-c",
     "rrs-other-referrer",
   ],
-  "referral-share-link-checkout": ["rsl-referrer", "rsl-customer"],
+  "referral-share-link-checkout": [
+    "rsl-referrer",
+    "rsl-customer",
+    "rsl-invitee",
+  ],
 } as const satisfies Record<WorkspaceE2EReferralCaseId, readonly string[]>;
 
 export const workspaceE2EReferralJournalOwners: readonly WorkspaceE2EAccountJournalOwner[] =

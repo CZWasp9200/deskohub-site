@@ -36,6 +36,8 @@ export const test = runtimeTest.extend<
  * run-scoped synthetic identities, before the case runner admits it.
  */
 export type WorkspaceE2ECaseBinder = (input: {
+  /** The worker browser; the case's own session context is its only one. */
+  readonly browser: import("@playwright/test").Browser;
   readonly environment: import("../e2e-env").WorkspaceE2EEnvironment;
   readonly run: Runner;
   readonly runId: import("../run-identifiers").WorkspaceE2ERunId;
@@ -53,7 +55,7 @@ export const registerWorkspaceE2ECases = (
     for (const caseId of caseIds) {
       test(
         caseId,
-        async ({ browserRunner, environment, runEffect, runPlan }) => {
+        async ({ browser, browserRunner, environment, runEffect, runPlan }) => {
           const { getConfig, getDatasourceConfig } = await import("../config");
           const { writeWorkspaceE2EFailureAnnotation } = await import(
             "../github-actions"
@@ -88,6 +90,7 @@ export const registerWorkspaceE2ECases = (
           }
           const selected = options.bindCase
             ? await options.bindCase({
+                browser,
                 environment,
                 run: browserRunner,
                 runId: runPlan.runContext.runId,

@@ -42,6 +42,7 @@ export const createSyntheticCustomerProfile = (
   profile: {
     readonly email: string;
     readonly firstName: string;
+    readonly phone?: string;
   }
 ): Effect.Effect<DotyposCustomerId, WorkspaceE2EError> =>
   Effect.gen(function* () {
@@ -51,6 +52,7 @@ export const createSyntheticCustomerProfile = (
       email: profile.email,
       firstName: profile.firstName,
       lastName: "E2E",
+      ...(profile.phone === undefined ? {} : { phone: profile.phone }),
     });
     assert(customer.id, "created synthetic Dotypos profile has no id");
     log("Synthetic Dotypos profile created");

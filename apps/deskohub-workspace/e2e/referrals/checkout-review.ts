@@ -2,8 +2,8 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import type { Page } from "@playwright/test";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
+import type { AccountReviewDestination } from "../account/review-screenshots";
 import { workspaceDir } from "../runtime";
-import type { AccountReviewDestination } from "./review-screenshots";
 
 const workspaceE2EReferralCheckoutReviewTargets = [
   "account-referral-invitation-applied",

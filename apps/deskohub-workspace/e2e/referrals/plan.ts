@@ -1,5 +1,6 @@
 import { Effect } from "effect";
 import type { WorkspaceE2EDateAllocation } from "../allocation";
+import { workspaceE2EMaximumSameDateCoworkReservations } from "../capacity";
 import {
   makeCoworkCheckoutData,
   requireCheckoutDate,
@@ -27,9 +28,9 @@ const referralCaseIdsWithoutCheckout = [
 ] as const satisfies readonly WorkspaceE2EReferralCaseId[];
 
 /**
- * Plans the referral lane inside the checkout case catalog: each checkout
- * case owns one exclusive cowork date, so slot planning, journals, and
- * teardown treat it like any other case. The lane spec binds every planned
+ * Plans the referral lane inside the checkout case catalog: the checkout
+ * cases share planned cowork dates no other case uses, so slot planning,
+ * journals, and teardown treat them like any other case. The lane spec binds every planned
  * case to its seeded synthetic identities before it runs.
  */
 export const planWorkspaceE2EReferralCases = ({
@@ -54,7 +55,10 @@ export const planWorkspaceE2EReferralCases = ({
       {
         allocation,
         excludedDates,
-        maximumReservationsPerDate: 1,
+        // Each case books for its own customer, so the unpaid checkouts can
+        // share one open-space date.
+        maximumReservationsPerDate:
+          workspaceE2EMaximumSameDateCoworkReservations["open-space"],
         selectionLabel: "referral lane checkout",
       }
     );
@@ -85,5 +89,5 @@ export const planWorkspaceE2EReferralCases = ({
         timeoutMs: config.timeouts.checkoutCase,
       });
     }
-    return { cases, dates };
+    return { cases, dates: [...new Set(dates)] };
   });

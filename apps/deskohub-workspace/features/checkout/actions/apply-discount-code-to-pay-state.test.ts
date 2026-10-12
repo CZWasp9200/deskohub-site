@@ -3,8 +3,8 @@ import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, mock, test } from "bun:test";
 import { Effect, Layer, Schema } from "effect";
-import { isFreshOwnedPayStateUrl } from "@/e2e/account/referral-checkout";
-import { isOwnedReferralCheckoutReviewUrl } from "@/e2e/account/referral-checkout-review";
+import { isFreshOwnedPayStateUrl } from "@/e2e/referrals/checkout";
+import { isOwnedReferralCheckoutReviewUrl } from "@/e2e/referrals/checkout-review";
 import type { WorkspaceE2EConfig } from "@/e2e/config";
 import { buildFreshCheckoutPayPath } from "@/features/checkout/backend/checkout/checkout-pay-url";
 import { CheckoutPricingServiceMock } from "@/features/checkout/backend/checkout/checkout-pricing.service.mock";
