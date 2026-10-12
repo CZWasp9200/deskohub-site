@@ -9,7 +9,9 @@ import {
   NexiOrderIdSchema,
   type NexiService as NexiServiceTag,
 } from "@deskohub/nexi";
-import { Effect, Layer } from "effect";
+import { Duration, Effect, Fiber, Layer } from "effect";
+import { TestClock } from "effect/testing";
+import { FetchHttpClient } from "effect/unstable/http";
 import { paymentAttemptIdSchema } from "@/features/checkout/checkout-identifiers";
 import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
 import type { NexiPaymentAttempt } from "../repositories/payment-attempt.repository";
@@ -147,19 +149,20 @@ describe("PaymentRefundService", () => {
 
   test("keeps reconciling the batch when one provider lookup fails", async () => {
     const recordRefund = mock(() => Effect.succeed("recorded" as const));
+    const queue = [
+      candidate,
+      {
+        ...candidate,
+        attempt: {
+          ...attempt,
+          id: paymentAttemptIdSchema.make("failing-attempt-id"),
+          providerOrderId: NexiOrderIdSchema.make("failing-order-id"),
+        },
+      },
+    ];
     const claimRefundChecks = mock(
-      (_input: Parameters<IPaymentRefundRepository["claimRefundChecks"]>[0]) =>
-        Effect.succeed([
-          candidate,
-          {
-            ...candidate,
-            attempt: {
-              ...attempt,
-              id: paymentAttemptIdSchema.make("failing-attempt-id"),
-              providerOrderId: NexiOrderIdSchema.make("failing-order-id"),
-            },
-          },
-        ])
+      (input: Parameters<IPaymentRefundRepository["claimRefundChecks"]>[0]) =>
+        Effect.sync(() => queue.splice(0, input.limit))
     );
     const run = await buildService({
       claimRefundChecks,
@@ -171,13 +174,21 @@ describe("PaymentRefundService", () => {
     });
 
     const summary = await run((service) =>
-      service.reconcileRefunds({ limit: 25 })
+      service.reconcileRefunds({
+        limit: 25,
+        budget: "240 seconds",
+        worstCaseLookupDuration: "21 seconds",
+      })
     );
 
     expect(summary).toEqual({ checked: 2, recorded: 1, failed: 1 });
     expect(recordRefund).toHaveBeenCalledTimes(1);
+    // Each lookup claims its own attempt; the batch stops once none is left.
+    expect(
+      claimRefundChecks.mock.calls.every(([claim]) => claim.limit === 1)
+    ).toBe(true);
     expect(claimRefundChecks).toHaveBeenCalledWith({
-      limit: 25,
+      limit: 1,
       checkedAt: expect.any(Temporal.Instant),
       lastCheckedBefore: expect.any(Temporal.Instant),
       recentPaymentsSince: expect.any(Temporal.Instant),
@@ -189,5 +200,93 @@ describe("PaymentRefundService", () => {
     expect(claim?.checkedAt.since(claim.lastCheckedBefore).total("hours")).toBe(
       6
     );
+  });
+
+  test("finishes within its budget when every Nexi lookup times out through the retry layer", async () => {
+    const { getNexiRequestWorstCaseDuration, NexiRuntimeConfig, NexiService } =
+      await import("@deskohub/nexi");
+    const { PaymentRefundRepository } = await import(
+      "../repositories/payment-refund.repository"
+    );
+    const { PaymentRefundService } = await import("./payment-refund.service");
+
+    let fetches = 0;
+    const unansweredFetch = ((
+      _input: RequestInfo | URL,
+      init?: RequestInit
+    ) => {
+      fetches += 1;
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener(
+          "abort",
+          () => reject(init.signal?.reason),
+          { once: true }
+        );
+      });
+    }) as typeof globalThis.fetch;
+    const claimed: string[] = [];
+    const claimRefundChecks: IPaymentRefundRepository["claimRefundChecks"] = (
+      input
+    ) =>
+      Effect.sync(() =>
+        Array.from({ length: input.limit }, () => {
+          const id = paymentAttemptIdSchema.make(`attempt-${claimed.length}`);
+          claimed.push(id);
+          return { ...candidate, attempt: { ...attempt, id } };
+        })
+      );
+    const apiTimeout = 5000;
+    const budget = Duration.seconds(240);
+    const layer = PaymentRefundService.Default.pipe(
+      Layer.provide(
+        Layer.mergeAll(
+          NexiService.Live.pipe(
+            Layer.provide(
+              Layer.succeed(NexiRuntimeConfig, {
+                baseUrl: "https://nexi.example.test",
+                apiKey: "synthetic-api-key",
+                apiTimeout,
+              })
+            )
+          ),
+          Layer.mock(PaymentRefundRepository, {
+            claimRefundChecks,
+            recordRefund: unusedRepositoryCall,
+          })
+        )
+      )
+    );
+
+    const { elapsedMilliseconds, summary } = await Effect.runPromise(
+      Effect.gen(function* () {
+        const service = yield* PaymentRefundService;
+        const batch = yield* Effect.forkChild(
+          service.reconcileRefunds({
+            limit: 150,
+            budget,
+            worstCaseLookupDuration:
+              getNexiRequestWorstCaseDuration(apiTimeout),
+          })
+        );
+        let elapsedMilliseconds = 0;
+        while (batch.pollUnsafe() === undefined) {
+          yield* TestClock.adjust("100 millis");
+          elapsedMilliseconds += 100;
+        }
+        return { elapsedMilliseconds, summary: yield* Fiber.join(batch) };
+      }).pipe(
+        Effect.provide(layer),
+        Effect.provideService(FetchHttpClient.Fetch, unansweredFetch),
+        Effect.provide(TestClock.layer())
+      )
+    );
+
+    expect(elapsedMilliseconds).toBeLessThanOrEqual(Duration.toMillis(budget));
+    // Each of the four workers fits 11 lookups of about 21 seconds.
+    expect(summary.checked).toBe(44);
+    expect(summary.failed).toBe(summary.checked);
+    // Only attempts the batch actually looked up were claimed and stamped.
+    expect(claimed).toHaveLength(summary.checked);
+    expect(fetches).toBe(summary.checked * 4);
   });
 });

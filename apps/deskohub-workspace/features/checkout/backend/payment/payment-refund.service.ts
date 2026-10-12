@@ -1,6 +1,6 @@
 import { NexiService, summarizeNexiRefunds } from "@deskohub/nexi";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
-import { Context, Data, Effect, Layer } from "effect";
+import { Clock, Context, Data, Duration, Effect, Layer } from "effect";
 import type { SqlError } from "effect/unstable/sql";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { WorkspaceNexiLayer } from "@/shared/backend/config/nexi.config";
@@ -44,14 +44,19 @@ export interface IPaymentRefundService {
     PaymentRefundReconciliationError
   >;
   /**
-   * Reconciles a batch of attempts still awaiting a refund and recent payments
-   * Nexi has not fully refunded, least recently checked first, skipping any
-   * checked in the last few hours. One attempt's provider failure is logged
-   * and does not stop the rest of the batch; the next run moves on to other
-   * attempts.
+   * Reconciles up to `limit` attempts still awaiting a refund and recent
+   * payments Nexi has not fully refunded, least recently checked first,
+   * skipping any checked in the last few hours. It starts a lookup only while
+   * one taking `worstCaseLookupDuration` still ends within `budget`, so the
+   * batch finishes in time even when every lookup exhausts its retries. Each
+   * attempt is claimed just before its lookup, so attempts the batch has no
+   * time for stay unstamped for the next run. One attempt's provider failure
+   * is logged and does not stop the rest of the batch.
    */
   readonly reconcileRefunds: (input: {
     readonly limit: number;
+    readonly budget: Duration.Input;
+    readonly worstCaseLookupDuration: Duration.Input;
   }) => Effect.Effect<
     PaymentRefundReconciliationSummary,
     EffectDrizzleQueryError | SqlError.SqlError
@@ -61,9 +66,9 @@ export interface IPaymentRefundService {
 /**
  * How long after creating a paid attempt that nobody marked for refund the
  * batch keeps checking Nexi for a back-office refund, including the rest of a
- * partial refund. Nexi sends no notification for back-office refunds, so an
- * older payment's refund is recorded only once an operator cancellation marks
- * it as required.
+ * partial refund. Production has received no Nexi notification for
+ * back-office refunds, so unless one arrives, an older payment's refund is
+ * recorded only once an operator cancellation marks it as required.
  */
 const unrequestedRefundCheckWindow = Temporal.Duration.from({
   hours: 30 * 24,
@@ -74,6 +79,8 @@ const unrequestedRefundCheckWindow = Temporal.Duration.from({
  * quiet period does not re-read every eligible order on every run.
  */
 const refundRecheckInterval = Temporal.Duration.from({ hours: 6 });
+
+const lookupConcurrency = 4;
 
 const toRefundedAt = (
   value: string | undefined,
@@ -148,25 +155,71 @@ export class PaymentRefundService extends Context.Service<
 
       const reconcileRefunds = Effect.fn(
         "PaymentRefundService.reconcileRefunds"
-      )(function* (input: { readonly limit: number }) {
-        const checkedAt = Temporal.Now.instant();
-        const candidates = yield* refunds.claimRefundChecks({
-          limit: input.limit,
-          checkedAt,
-          lastCheckedBefore: checkedAt.subtract(refundRecheckInterval),
-          recentPaymentsSince: checkedAt.subtract(unrequestedRefundCheckWindow),
-        });
-        const results = yield* Effect.forEach(
-          candidates,
-          (candidate) =>
-            reconcileAttempt(candidate).pipe(
-              Effect.tapError((cause) =>
-                Effect.logError("Nexi refund reconciliation failed", { cause })
-              ),
-              Effect.orElseSucceed(() => "failed" as const)
+      )(function* (input: {
+        readonly limit: number;
+        readonly budget: Duration.Input;
+        readonly worstCaseLookupDuration: Duration.Input;
+      }) {
+        const startedAt = yield* Clock.currentTimeMillis;
+        // A lookup started later than this could outlast the budget.
+        const lastLookupStart =
+          startedAt +
+          Duration.toMillis(input.budget) -
+          Duration.toMillis(input.worstCaseLookupDuration);
+        let unclaimed = input.limit;
+        let exhausted = false;
+        const results: (PaymentRefundReconciliationResult | "failed")[] = [];
+
+        const claimNext = Effect.gen(function* () {
+          const checkedAt = Temporal.Instant.fromEpochMilliseconds(
+            Math.floor(yield* Clock.currentTimeMillis)
+          );
+          const [candidate] = yield* refunds.claimRefundChecks({
+            limit: 1,
+            checkedAt,
+            lastCheckedBefore: checkedAt.subtract(refundRecheckInterval),
+            recentPaymentsSince: checkedAt.subtract(
+              unrequestedRefundCheckWindow
             ),
-          { concurrency: 4 }
+          });
+          return candidate;
+        });
+
+        const worker = Effect.gen(function* () {
+          while (
+            unclaimed > 0 &&
+            !exhausted &&
+            (yield* Clock.currentTimeMillis) <= lastLookupStart
+          ) {
+            unclaimed -= 1;
+            const candidate = yield* claimNext;
+            if (!candidate) {
+              exhausted = true;
+              return;
+            }
+            results.push(
+              yield* reconcileAttempt(candidate).pipe(
+                Effect.tapError((cause) =>
+                  Effect.logError("Nexi refund reconciliation failed", {
+                    cause,
+                  })
+                ),
+                Effect.orElseSucceed(() => "failed" as const)
+              )
+            );
+          }
+        });
+
+        yield* Effect.all(
+          Array.from({ length: lookupConcurrency }, () => worker),
+          { concurrency: "unbounded", discard: true }
         );
+        if (unclaimed > 0 && !exhausted) {
+          yield* Effect.logWarning(
+            "Nexi refund reconciliation stopped at its time budget",
+            { unclaimed }
+          );
+        }
         const summary: PaymentRefundReconciliationSummary = {
           checked: results.length,
           recorded: results.filter((result) => result === "recorded").length,

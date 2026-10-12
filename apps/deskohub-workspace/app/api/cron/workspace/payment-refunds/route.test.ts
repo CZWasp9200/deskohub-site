@@ -1,7 +1,7 @@
 import "@/shared/testing/workspace-test-env";
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
-import { Context, Effect, Layer } from "effect";
+import { Context, Duration, Effect, Layer } from "effect";
 
 process.env.CRON_SECRET = "cron-secret-for-payment-refund-test";
 
@@ -81,7 +81,13 @@ describe("payment refund reconciliation cron route", () => {
       recorded: 1,
       failed: 0,
     });
-    expect(reconcileCalls).toEqual([{ limit: 150 }]);
+    expect(reconcileCalls).toEqual([
+      {
+        limit: 150,
+        budget: Duration.seconds(240),
+        worstCaseLookupDuration: expect.anything(),
+      },
+    ]);
   });
 
   test("returns a 500 response when the batch cannot be read", async () => {
