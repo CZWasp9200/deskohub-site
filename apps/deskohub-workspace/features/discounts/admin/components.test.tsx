@@ -1112,6 +1112,141 @@ describe("discount administration pages", () => {
     expect(view.getByText("This customer has no payments.")).toBeDefined();
     expect(view.getByText("Not granted")).toBeDefined();
     expect(view.queryByText(/payment attempts/i)).toBeNull();
+    expect(view.getByRole("heading", { name: "Claim history" })).toBeDefined();
+    expect(view.getAllByText("No claims yet.")).toHaveLength(1);
+    expect(
+      view.queryByText(/No (discount code|voucher) claims yet/)
+    ).toBeNull();
+  });
+
+  test("lists discount code and voucher claims in one customer claim history", async () => {
+    const { CustomerAdministrationDetailPage } = await import(
+      "./customer-admin-components"
+    );
+    const voucherId = "019c91dd-c560-7e55-b9d8-c95065efd55d";
+    const claim = {
+      dotyposCustomerId: "dotypos-customer",
+      paymentAttemptId: "payment-id",
+      reservationExpiresAt: Temporal.Instant.from("2026-08-01T09:00:00Z"),
+      releasedAt: null,
+      releaseReason: null,
+    } as const;
+    const view = render(
+      <CustomerAdministrationDetailPage
+        activity={{
+          reservations: [],
+          reservationHistoryTruncated: false,
+          transactions: [],
+          transactionHistoryTruncated: false,
+          stats: {
+            reservationCount: 0,
+            favoriteProduct: null,
+            revenue: [],
+            discountSavings: [],
+          },
+          marketingConsent: null,
+        }}
+        reservationActivity={emptyReservationActivity}
+        profile={{
+          customer: {
+            id: "dotypos-customer",
+            displayName: "Test Customer",
+            email: "test@example.com",
+            phone: null,
+            discountGroupId: null,
+          },
+          discountGroups: [],
+          codes: [
+            {
+              ...dashboard.codes[0],
+              code: "ONLYME",
+              audienceSize: 1,
+              discountAdjustment: { kind: "percentage", basisPoints: 1000 },
+              discountLabel: "Only me discount",
+              eligible: true,
+            },
+          ],
+          claims: [
+            {
+              ...claim,
+              id: "shared-claim-id",
+              codeId: dashboard.codes[0].id,
+              state: "redeemed",
+              workspaceReservationId: "code-reservation",
+              appliedAmount: { value: 3500, exponent: 2, currency: "CZK" },
+              reservedAt: Temporal.Instant.from("2026-08-01T08:00:00Z"),
+              redeemedAt: Temporal.Instant.from("2026-08-01T08:10:00Z"),
+            },
+          ],
+          vouchers: [
+            {
+              id: voucherId,
+              issuedCredit: { value: 10_000, exponent: 2, currency: "CZK" },
+              remainingCredit: { value: 7500, exponent: 2, currency: "CZK" },
+              code: "GIFT100",
+              enabled: true,
+              validFrom: null,
+              validUntil: null,
+              audienceSize: 1,
+              reservedUses: 1,
+              redeemedUses: 0,
+              releasedUses: 0,
+              createdAt: Temporal.Instant.from("2026-07-01T08:00:00Z"),
+              updatedAt: Temporal.Instant.from("2026-07-02T08:00:00Z"),
+              eligible: true,
+            },
+          ],
+          voucherClaims: [
+            {
+              ...claim,
+              id: "shared-claim-id",
+              voucherId,
+              state: "reserved",
+              workspaceReservationId: "voucher-reservation",
+              appliedAmount: { value: 2500, exponent: 2, currency: "CZK" },
+              reservedAt: Temporal.Instant.from("2026-08-02T08:00:00Z"),
+              redeemedAt: null,
+            },
+          ],
+        }}
+      />
+    );
+
+    expect(view.getByRole("heading", { name: "Claim history" })).toBeDefined();
+    expect(
+      view.queryByRole("heading", { name: "Discount code history" })
+    ).toBeNull();
+    expect(view.queryByRole("heading", { name: "Voucher history" })).toBeNull();
+    const table = view.getByRole("table", { name: "Customer claim history" });
+    const rows = () =>
+      within(table)
+        .getAllByRole("row")
+        .slice(1)
+        .map((row) => row.textContent);
+    expect(rows()).toEqual([
+      expect.stringMatching(/GIFT100.*Voucher.*Reserved.*CZK.?25\.00/),
+      expect.stringMatching(/ONLYME.*Discount code.*Redeemed.*CZK.?35\.00/),
+    ]);
+    expect(
+      within(table).getByRole("link", { name: "GIFT100" }).getAttribute("href")
+    ).toBe(`/admin/vouchers/${voucherId}`);
+    expect(
+      within(table).getByRole("link", { name: "ONLYME" }).getAttribute("href")
+    ).toBe(`/admin/codes/${dashboard.codes[0].id}`);
+    expect(
+      within(table)
+        .getAllByRole("link", { name: "Open reservation" })
+        .map((link) => link.getAttribute("href"))
+    ).toEqual([
+      "/admin/reservations/voucher-reservation",
+      "/admin/reservations/code-reservation",
+    ]);
+
+    fireEvent.click(within(table).getByRole("button", { name: "Type" }));
+    expect(rows()).toEqual([
+      expect.stringContaining("ONLYME"),
+      expect.stringContaining("GIFT100"),
+    ]);
   });
 
   test("distinguishes withdrawn customer marketing consent", async () => {

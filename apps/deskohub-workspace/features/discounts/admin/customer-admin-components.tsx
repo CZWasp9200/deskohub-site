@@ -158,7 +158,12 @@ export function CodeAdministrationDetailPage({
 
       <section className="mt-5">
         <h2 className="mb-3 font-semibold">Claim history</h2>
-        <ClaimHistory claims={detail.claims} resource="code-customer" />
+        <ClaimHistory
+          ariaLabel="Discount code claim history"
+          claims={detail.claims}
+          emptyMessage="No discount code claims yet."
+          subject="customer"
+        />
       </section>
     </AdministrationPage>
   );
@@ -278,7 +283,12 @@ export function VoucherAdministrationDetailPage({
 
       <section className="mt-5">
         <h2 className="mb-3 font-semibold">Claim history</h2>
-        <ClaimHistory claims={detail.claims} resource="voucher-customer" />
+        <ClaimHistory
+          ariaLabel="Voucher claim history"
+          claims={detail.claims}
+          emptyMessage="No voucher claims yet."
+          subject="customer"
+        />
       </section>
     </AdministrationPage>
   );
@@ -483,13 +493,26 @@ export function CustomerAdministrationDetailPage({
           </section>
 
           <section>
-            <h2 className="mb-3 text-xl">Discount code history</h2>
-            <ClaimHistory claims={profile.claims} resource="code" />
-          </section>
-
-          <section>
-            <h2 className="mb-3 text-xl">Voucher history</h2>
-            <ClaimHistory claims={profile.voucherClaims} resource="voucher" />
+            <h2 className="mb-3 text-xl">Claim history</h2>
+            <ClaimHistory
+              ariaLabel="Customer claim history"
+              claims={[...profile.claims, ...profile.voucherClaims].toSorted(
+                (left, right) =>
+                  Temporal.Instant.compare(right.reservedAt, left.reservedAt)
+              )}
+              emptyMessage="No claims yet."
+              promotionCodes={
+                new Map([
+                  ...profile.codes.map(
+                    ({ code, id }) => [`discount-code:${id}`, code] as const
+                  ),
+                  ...profile.vouchers.map(
+                    ({ code, id }) => [`voucher:${id}`, code] as const
+                  ),
+                ])
+              }
+              subject="promotion-code"
+            />
           </section>
         </div>
 
@@ -743,37 +766,50 @@ function SummaryFact({
 }
 
 function ClaimHistory({
+  ariaLabel,
   claims,
-  resource,
+  emptyMessage,
+  promotionCodes,
+  subject,
 }: {
+  readonly ariaLabel: string;
   readonly claims: readonly (AdminDiscountCodeClaim | AdminVoucherClaim)[];
-  readonly resource: "code" | "code-customer" | "voucher" | "voucher-customer";
+  readonly emptyMessage: string;
+  /** Code values keyed by `discount-code:<id>` or `voucher:<id>`. */
+  readonly promotionCodes?: ReadonlyMap<string, string>;
+  readonly subject: "customer" | "promotion-code";
 }) {
-  const isVoucher = resource.startsWith("voucher");
-  const subjectLabel = isVoucher ? "Voucher" : "Discount code";
   if (claims.length === 0) {
-    return (
-      <EmptyState message={`No ${subjectLabel.toLowerCase()} claims yet.`} />
-    );
+    return <EmptyState message={emptyMessage} />;
   }
 
   return (
     <ClaimHistoryTable
-      claims={claims.map((claim) => ({
-        id: claim.id,
-        appliedAmount: claim.appliedAmount,
-        ...("codeId" in claim
-          ? { codeId: claim.codeId }
-          : { voucherId: claim.voucherId }),
-        dotyposCustomerId: claim.dotyposCustomerId,
-        redeemedAt: claim.redeemedAt?.toString() ?? null,
-        releasedAt: claim.releasedAt?.toString() ?? null,
-        releaseReason: claim.releaseReason,
-        reservedAt: claim.reservedAt.toString(),
-        state: claim.state,
-        workspaceReservationId: claim.workspaceReservationId,
-      }))}
-      resource={resource}
+      ariaLabel={ariaLabel}
+      claims={claims.map((claim) => {
+        const promotion =
+          "codeId" in claim
+            ? { kind: "discount-code" as const, id: claim.codeId }
+            : { kind: "voucher" as const, id: claim.voucherId };
+        return {
+          id: claim.id,
+          kind: promotion.kind,
+          appliedAmount: claim.appliedAmount,
+          promotion: {
+            id: promotion.id,
+            code:
+              promotionCodes?.get(`${promotion.kind}:${promotion.id}`) ?? null,
+          },
+          dotyposCustomerId: claim.dotyposCustomerId,
+          redeemedAt: claim.redeemedAt?.toString() ?? null,
+          releasedAt: claim.releasedAt?.toString() ?? null,
+          releaseReason: claim.releaseReason,
+          reservedAt: claim.reservedAt.toString(),
+          state: claim.state,
+          workspaceReservationId: claim.workspaceReservationId,
+        };
+      })}
+      subject={subject}
     />
   );
 }

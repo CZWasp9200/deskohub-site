@@ -46,15 +46,16 @@ type CustomerPromotionCodeItem =
 
 type ClaimHistoryItem = {
   readonly id: string;
+  readonly kind: CustomerPromotionCodeItem["kind"];
   readonly appliedAmount: Money;
-  readonly codeId?: string;
+  /** The claimed code or voucher; `code` is null when its value is not loaded. */
+  readonly promotion: { readonly id: string; readonly code: string | null };
   readonly dotyposCustomerId: string;
   readonly redeemedAt: string | null;
   readonly releasedAt: string | null;
   readonly releaseReason: string | null;
   readonly reservedAt: string;
   readonly state: AdminDiscountCodeClaim["state"];
-  readonly voucherId?: string;
   readonly workspaceReservationId: string;
 };
 
@@ -63,7 +64,10 @@ const promotionCodeKindLabels = {
   voucher: "Voucher",
 } satisfies Record<CustomerPromotionCodeItem["kind"], string>;
 
-const getPromotionCodeHref = (item: CustomerPromotionCodeItem) =>
+const getPromotionCodeHref = (item: {
+  readonly id: string;
+  readonly kind: CustomerPromotionCodeItem["kind"];
+}) =>
   item.kind === "voucher"
     ? `/admin/vouchers/${item.id}`
     : `/admin/codes/${item.id}`;
@@ -266,38 +270,64 @@ export function CustomerTransactionHistoryTable({
   );
 }
 
+/**
+ * Claims shown either for one code or voucher, where each row names its
+ * customer, or for one customer, where each row names the claimed code or
+ * voucher and its type.
+ */
 export function ClaimHistoryTable({
+  ariaLabel,
   claims,
-  resource,
+  subject,
 }: {
+  readonly ariaLabel: string;
   readonly claims: readonly ClaimHistoryItem[];
-  readonly resource: "code" | "code-customer" | "voucher" | "voucher-customer";
+  readonly subject: "customer" | "promotion-code";
 }) {
-  const isVoucher = resource.startsWith("voucher");
-  const showsCustomer = resource.endsWith("customer");
-  const subjectLabel = isVoucher ? "Voucher" : "Discount code";
   const columns = useMemo<AdministrationDataTableColumn<ClaimHistoryItem>[]>(
     () => [
-      {
-        accessorFn: (claim) =>
-          showsCustomer
-            ? claim.dotyposCustomerId
-            : (claim.codeId ?? claim.voucherId),
-        id: "subject",
-        header: showsCustomer ? "Customer" : subjectLabel,
-        cell: ({ row }) => (
-          <Link
-            className="font-semibold underline underline-offset-4"
-            href={
-              showsCustomer
-                ? `/admin/customers/${row.original.dotyposCustomerId}`
-                : getClaimSubjectHref(row.original)
-            }
-          >
-            View {showsCustomer ? "customer" : resource}
-          </Link>
-        ),
-      },
+      subject === "customer"
+        ? {
+            accessorKey: "dotyposCustomerId",
+            header: "Customer",
+            cell: ({ row }) => (
+              <Link
+                className="font-semibold underline underline-offset-4"
+                href={`/admin/customers/${row.original.dotyposCustomerId}`}
+              >
+                View customer
+              </Link>
+            ),
+          }
+        : {
+            accessorFn: (claim) => claim.promotion.code ?? claim.promotion.id,
+            id: "code",
+            header: "Code",
+            cell: ({ row }) => (
+              <Link
+                className="font-mono font-semibold underline underline-offset-4"
+                href={getPromotionCodeHref({
+                  id: row.original.promotion.id,
+                  kind: row.original.kind,
+                })}
+              >
+                {row.original.promotion.code ??
+                  `View ${promotionCodeKindLabels[row.original.kind].toLowerCase()}`}
+              </Link>
+            ),
+            meta: { cellClassName: "whitespace-nowrap" },
+          },
+      ...(subject === "promotion-code"
+        ? [
+            {
+              accessorFn: (claim: ClaimHistoryItem) =>
+                promotionCodeKindLabels[claim.kind],
+              id: "type",
+              header: "Type",
+              meta: { cellClassName: "whitespace-nowrap" },
+            } satisfies AdministrationDataTableColumn<ClaimHistoryItem>,
+          ]
+        : []),
       {
         accessorKey: "state",
         header: "State",
@@ -357,21 +387,16 @@ export function ClaimHistoryTable({
         ),
       },
     ],
-    [resource, showsCustomer, subjectLabel]
+    [subject]
   );
 
   return (
     <AdministrationDataTable
-      ariaLabel={`${subjectLabel} claim history`}
+      ariaLabel={ariaLabel}
       columns={columns}
       data={claims}
-      getRowId={(claim) => claim.id}
+      getRowId={(claim) => `${claim.kind}:${claim.id}`}
       tableClassName="min-w-[820px]"
     />
   );
 }
-
-const getClaimSubjectHref = (claim: ClaimHistoryItem) =>
-  claim.codeId
-    ? `/admin/codes/${claim.codeId}`
-    : `/admin/vouchers/${claim.voucherId}`;
