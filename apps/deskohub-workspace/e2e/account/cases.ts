@@ -4,6 +4,8 @@ import {
   normalizePhoneNumber,
 } from "@deskohub/dotypos";
 import { Effect } from "effect";
+import { type Locale, m } from "@/features/i18n";
+import { localeCookieName } from "@/features/i18n/routing";
 import {
   clickBrowserElement,
   evalBrowserScript,
@@ -16,9 +18,12 @@ import {
   readBrowserUrl,
   waitForBrowserCondition,
   waitForBrowserReactFormSubmit,
+  waitForBrowserReactHandler,
   waitForBrowserText,
+  waitForBrowserUrl,
   waitForInteractiveSnapshot,
 } from "../browser";
+import { switchSignedInLocale } from "../cases/locale";
 import type { DatasourceConfig } from "../config";
 import {
   type WorkspaceE2EError,
@@ -26,7 +31,7 @@ import {
   workspaceE2ETimeoutError,
 } from "../errors";
 import { pollUntil } from "../polling";
-import { assert, type Runner } from "../runtime";
+import { assert, parseUrl, type Runner } from "../runtime";
 import { workspaceE2EPollIntervalMs, workspaceE2ETimeouts } from "../timeouts";
 import {
   accountSectionLandmarks,
@@ -56,6 +61,8 @@ import {
 } from "./fixtures";
 import { workspaceE2EAccountProfileFixture } from "./profile-fixture";
 import type { MagicLinkRateBudget } from "./rate-budget";
+import type { LanguagePreferenceReviewCapture } from "./review-screenshots";
+import type { LanguagePreferenceReviewStage } from "./review-targets";
 import type {
   WorkspaceE2EAccountCase,
   WorkspaceE2EAccountJournalRef,
@@ -84,6 +91,12 @@ const confirmedStatus = "Confirmed";
 const signInSuffix = "/auth/sign-in";
 const accountSuffix = "/account";
 const callbackSuffix = "/auth/callback";
+/**
+ * A static public page for the saved-preference redirect check. Unlike the
+ * gallery it renders without provider calls, so the redirect and its review
+ * capture never touch the shared Cloudinary quota.
+ */
+const publicPreferenceProbeSuffix = "/faq";
 
 const signInFormSelector = "#account-sign-in-form";
 const signInEmailSelector = "#account-sign-in-email";
@@ -131,6 +144,11 @@ const staleSessionAgeMs = 11 * 60_000;
 const invalidEmailSettleMs = 2_000;
 
 export type WorkspaceE2EAccountCaseInputs = {
+  /**
+   * Review capture for the language case's mid-case moments. The lane
+   * supplies the review wrapper's hook; without one nothing is captured.
+   */
+  readonly captureLanguagePreferenceReview?: LanguagePreferenceReviewCapture;
   readonly config: WorkspaceE2EAccountConfig;
   readonly datasourceConfig: DatasourceConfig;
   /**
@@ -152,6 +170,7 @@ export type WorkspaceE2EAccountCaseInputs = {
  * protected preview and its matching migrated Neon branch.
  */
 export const makeWorkspaceE2EAccountCases = ({
+  captureLanguagePreferenceReview,
   config,
   datasourceConfig,
   lifecycleHandoff,
@@ -168,8 +187,8 @@ export const makeWorkspaceE2EAccountCases = ({
     config,
     "accepted-b"
   );
-  const localized = (suffix: string) =>
-    `${config.baseUrl}/${config.locale}${suffix}`;
+  const localized = (suffix: string, locale: Locale = config.locale) =>
+    `${config.baseUrl}/${locale}${suffix}`;
 
   const openPage = (url: string) =>
     openBrowserPage(config, run, session, url, { timeoutMs: browserTimeout });
@@ -199,6 +218,34 @@ export const makeWorkspaceE2EAccountCases = ({
       }
     );
 
+  const previewOrigin = new URL(config.baseUrl).origin;
+  const waitPathname = (
+    description: string,
+    matches: (pathname: string) => boolean
+  ) =>
+    waitForBrowserUrl({
+      description,
+      matches: (url) => {
+        const parsed = parseUrl(url);
+        return parsed?.origin === previewOrigin && matches(parsed.pathname);
+      },
+      run,
+      session,
+      timeoutMs: navigationTimeout,
+    });
+
+  const captureLanguageReview = (stage: LanguagePreferenceReviewStage) =>
+    captureLanguagePreferenceReview === undefined
+      ? Effect.void
+      : Effect.tryPromise({
+          catch: (cause) =>
+            workspaceE2EError("capture language preference review", {
+              cause,
+              operation: "capture language preference review",
+            }),
+          try: () => captureLanguagePreferenceReview(stage),
+        });
+
   const waitDefaultReservations = (description: string) =>
     waitForBrowserCondition(
       run,
@@ -217,12 +264,13 @@ export const makeWorkspaceE2EAccountCases = ({
   /**
    * Signs out on the current device and proves the session is gone. The
    * sign-out button resolves its server request before assigning the bare
-   * locale root, so only an exact root URL proves the logout finished, and a
-   * fresh protected-account visit must then redirect the anonymous browser to
-   * the sign-in form. The account URL itself must never satisfy the landing
-   * wait, which is why the comparison is exact rather than a substring.
+   * root of the page's locale, so only that exact root URL proves the logout
+   * finished, and a fresh protected-account visit must then redirect the
+   * anonymous browser to the sign-in form. The account URL itself must never
+   * satisfy the landing wait, which is why the comparison is exact rather
+   * than a substring.
    */
-  const signOutAndRequireAnonymous = () =>
+  const signOutAndRequireAnonymous = (pageLocale: Locale = config.locale) =>
     Effect.gen(function* () {
       yield* clickBrowserElement(run, session, signOutSelector, {
         timeoutMs: browserTimeout,
@@ -230,7 +278,8 @@ export const makeWorkspaceE2EAccountCases = ({
       yield* pollUntil(
         readBrowserUrl(run, session).pipe(
           Effect.map((url) =>
-            url !== undefined && withoutTrailingSlash(url) === localized("")
+            url !== undefined &&
+            withoutTrailingSlash(url) === localized("", pageLocale)
               ? url
               : undefined
           )
@@ -1228,8 +1277,68 @@ export const makeWorkspaceE2EAccountCases = ({
         const languageTriggerSelector = '[data-slot="select-trigger"]';
         const languageSaveSelector = 'button[type="button"]:has-text("Save")';
         const languageOptionCsSelector = '[role="option"]:has-text("Čeština")';
-        const languageSavedCopy = "Communication language saved.";
-        const languageOptionCs = "Čeština";
+        const czechProfileUrl = localized(
+          `${accountSuffix}?section=profile`,
+          "cs-CZ"
+        );
+        const czechLanguageLabel = m.accountProfileScreenLanguageLabel(
+          {},
+          { locale: "cs-CZ" }
+        );
+        const czechFaqTitle = m.faqPageTitle({}, { locale: "cs-CZ" });
+
+        /**
+         * Waits until the selected option, read from the open listbox, is
+         * the given language. The option labels name each language in its
+         * own language, so the check reads the same on every site locale.
+         */
+        const requireSelectedLanguage = (
+          optionLabel: string,
+          description: string
+        ) =>
+          Effect.gen(function* () {
+            yield* clickBrowserElement(run, session, languageTriggerSelector, {
+              timeoutMs: browserTimeout,
+            });
+            yield* waitForBrowserCondition(
+              run,
+              session,
+              description,
+              `(() => {
+                  const selected = document.querySelector('[role="option"][aria-selected="true"]');
+                  return selected !== null &&
+                    selected.textContent?.includes(${JSON.stringify(optionLabel)}) === true;
+                })()`,
+              { timeoutMs: uiTransition }
+            );
+            yield* pressBrowserKey(run, session, "Escape", {
+              timeoutMs: browserTimeout,
+            });
+          });
+
+        /**
+         * Opens the Czech profile by its section query. The account
+         * navigation labels are English-only fixtures, so the profile is
+         * ready once its hydrated panel is visible and renders the Czech
+         * language label.
+         */
+        const openCzechProfile = (description: string) =>
+          Effect.gen(function* () {
+            yield* openPage(czechProfileUrl);
+            yield* waitForBrowserCondition(
+              run,
+              session,
+              `${description} panel`,
+              `(() => {
+                  const panel = document.querySelector(${JSON.stringify(accountSectionLandmarks.profile)});
+                  return panel !== null &&
+                    panel.closest("[hidden]") === null &&
+                    Object.keys(panel).some((key) => key.startsWith("__reactProps$"));
+                })()`,
+              { timeoutMs: uiTransition }
+            );
+            yield* waitText(description, czechLanguageLabel);
+          });
 
         yield* runStep(
           step(
@@ -1267,9 +1376,15 @@ export const makeWorkspaceE2EAccountCases = ({
           "verify",
           runStep(
             step(
-              "signs in and opens the profile section",
+              "signs in on the English site and opens the profile section",
               Effect.gen(function* () {
                 yield* openPage(link);
+                // The account was created under en-US, so its saved
+                // preference keeps the English account page.
+                yield* waitPathname(
+                  "English account landing after the fresh sign-in",
+                  (pathname) => pathname === `/en-US${accountSuffix}`
+                );
                 yield* waitDefaultReservations("freshly signed-in account");
                 yield* selectAccountSectionInRunner(run, session, "profile");
               }),
@@ -1279,7 +1394,7 @@ export const makeWorkspaceE2EAccountCases = ({
         );
         yield* runStep(
           step(
-            "saves Čeština as the preferred communication language",
+            "saves Čeština and moves the site to Czech",
             Effect.gen(function* () {
               yield* clickBrowserElement(
                 run,
@@ -1298,12 +1413,9 @@ export const makeWorkspaceE2EAccountCases = ({
                   })()`,
                 { timeoutMs: uiTransition }
               );
-              // The runner seeds the account with the site default
-              // preference, so English (US) is the restored value and Save
-              // starts disabled. Commit one genuine selection change to
-              // Čeština — a real write that differs from the backfilled
-              // initial value — so the later restore check proves a
-              // persisted save rather than a no-op.
+              // The account starts with English (US) saved, so Save starts
+              // disabled. Commit one genuine selection change to Čeština:
+              // a real write that differs from the saved value.
               yield* clickBrowserElement(
                 run,
                 session,
@@ -1313,23 +1425,90 @@ export const makeWorkspaceE2EAccountCases = ({
               yield* clickBrowserElement(run, session, languageSaveSelector, {
                 timeoutMs: browserTimeout,
               });
-              yield* waitText("language preference saved", languageSavedCopy);
+              // Saving another locale than the page's moves the document to
+              // the saved locale, so the confirmation is never shown here.
+              yield* waitPathname(
+                "Czech account after saving Čeština",
+                (pathname) => pathname.startsWith(`/cs-CZ${accountSuffix}`)
+              );
             }),
             providerTransition
           )
         );
         yield* runStep(
           step(
-            "signs out before the restore check",
-            signOutAndRequireAnonymous(),
-            navigationTimeout
+            "shows Čeština selected on the Czech profile",
+            Effect.gen(function* () {
+              yield* openCzechProfile("Czech profile after the save");
+              yield* requireSelectedLanguage(
+                "Čeština",
+                "saved Čeština option selected"
+              );
+              yield* captureLanguageReview("czech-profile");
+            }),
+            providerTransition
           )
         );
-        const restoreStartedAt = new Date();
-        const restoreObservedLogEntryIds = yield* runStep(
+        yield* runStep(
           step(
-            "records the delivered log baseline before the restore sign-in",
-            observeDeliveredLogEntryIds(recipient, restoreStartedAt),
+            "redirects a conflicting en-US URL and cookie to the saved Czech locale",
+            Effect.gen(function* () {
+              yield* evalBrowserScript(
+                "overwrite the locale cookie with en-US",
+                run,
+                session,
+                `document.cookie = ${JSON.stringify(`${localeCookieName}=en-US; path=/`)}`,
+                { logOutput: false, timeoutMs: browserTimeout }
+              );
+              yield* openPage(localized(publicPreferenceProbeSuffix));
+              yield* waitPathname(
+                "saved-preference redirect to the Czech page",
+                (pathname) =>
+                  pathname === `/cs-CZ${publicPreferenceProbeSuffix}`
+              );
+              yield* waitText("Czech page after the redirect", czechFaqTitle);
+              const cookie = yield* evalBrowserScript(
+                "read the locale cookie after the redirect",
+                run,
+                session,
+                `JSON.stringify({
+                  czech: document.cookie.split("; ").includes(${JSON.stringify(`${localeCookieName}=cs-CZ`)}),
+                })`,
+                { logOutput: false, timeoutMs: browserTimeout }
+              ).pipe(Effect.map((command) => command.stdout));
+              const parsed = JSON.parse(cookie) as { czech: boolean };
+              assert(
+                parsed.czech,
+                "the preference redirect did not move the locale cookie to cs-CZ"
+              );
+              yield* captureLanguageReview("preference-redirect");
+            }),
+            providerTransition
+          )
+        );
+        yield* runStep(
+          step(
+            "signs out from the Czech site",
+            Effect.gen(function* () {
+              yield* openPage(localized(accountSuffix, "cs-CZ"));
+              yield* waitDefaultReservations("Czech account before sign-out");
+              yield* waitForBrowserReactHandler(
+                run,
+                session,
+                signOutSelector,
+                "onClick",
+                { timeoutMs: uiTransition }
+              );
+              yield* signOutAndRequireAnonymous("cs-CZ");
+            }),
+            providerTransition
+          )
+        );
+        const czechStartedAt = new Date();
+        const czechObservedLogEntryIds = yield* runStep(
+          step(
+            "records the delivered log baseline before the Czech sign-in",
+            observeDeliveredLogEntryIds(recipient, czechStartedAt),
             providerTransition
           )
         );
@@ -1337,19 +1516,19 @@ export const makeWorkspaceE2EAccountCases = ({
           "send",
           runStep(
             step(
-              "requests the restore sign-in link",
+              "requests the sign-in link from the English sign-in page",
               requestSignInLink(recipient),
               navigationTimeout
             )
           )
         );
-        const restoreLink = yield* runStep(
+        const czechLink = yield* runStep(
           step(
-            "retrieves the restore sign-in link",
+            "retrieves the sign-in link with its en-US callback",
             retrieveSignInLink(
               recipient,
-              restoreObservedLogEntryIds,
-              restoreStartedAt
+              czechObservedLogEntryIds,
+              czechStartedAt
             ),
             authDeliveryTimeout
           )
@@ -1358,13 +1537,14 @@ export const makeWorkspaceE2EAccountCases = ({
           "verify",
           runStep(
             step(
-              "signs in again and opens the profile section for the restore check",
+              "signs in from the en-US link onto the Czech site",
               Effect.gen(function* () {
-                yield* openPage(restoreLink);
-                yield* waitDefaultReservations(
-                  "restored-session account reservations"
+                yield* openPage(czechLink);
+                yield* waitPathname(
+                  "Czech account landing after the en-US sign-in link",
+                  (pathname) => pathname === `/cs-CZ${accountSuffix}`
                 );
-                yield* selectAccountSectionInRunner(run, session, "profile");
+                yield* waitDefaultReservations("Czech signed-in account");
               }),
               providerTransition
             )
@@ -1372,30 +1552,54 @@ export const makeWorkspaceE2EAccountCases = ({
         );
         yield* runStep(
           step(
-            "restores Čeština as the saved communication language",
+            "keeps Čeština selected after signing in again",
             Effect.gen(function* () {
-              yield* clickBrowserElement(
-                run,
-                session,
-                languageTriggerSelector,
-                { timeoutMs: browserTimeout }
+              yield* openCzechProfile("Czech profile after signing in again");
+              yield* requireSelectedLanguage(
+                "Čeština",
+                "restored Čeština option selected"
               );
-              yield* waitForBrowserCondition(
-                run,
-                session,
-                "restored Čeština option selected",
-                `(() => {
-                    const selected = document.querySelector('[role="option"][aria-selected="true"]');
-                    return selected !== null &&
-                      selected.textContent?.includes(${JSON.stringify(languageOptionCs)}) === true;
-                  })()`,
-                { timeoutMs: uiTransition }
-              );
-              yield* pressBrowserKey(run, session, "Escape", {
-                timeoutMs: browserTimeout,
-              });
             }),
-            uiTransition
+            providerTransition
+          )
+        );
+        yield* runStep(
+          step(
+            "switches to English through the header language switcher",
+            switchSignedInLocale(run, session, "en-US", config.timeouts),
+            providerTransition
+          )
+        );
+        yield* runStep(
+          step(
+            "redirects a Czech account URL to the switched English preference",
+            Effect.gen(function* () {
+              yield* openPage(localized(accountSuffix, "cs-CZ"));
+              yield* waitPathname(
+                "switched-preference redirect to the English account",
+                (pathname) => pathname === `/en-US${accountSuffix}`
+              );
+              yield* waitDefaultReservations(
+                "English account after the switch"
+              );
+              yield* captureLanguageReview("switcher-saved");
+            }),
+            providerTransition
+          )
+        );
+        // Later serial cases expect the English site, so the case ends on
+        // the English profile with English (US) saved.
+        yield* runStep(
+          step(
+            "shows English (US) as the saved language after the switch",
+            Effect.gen(function* () {
+              yield* selectAccountSectionInRunner(run, session, "profile");
+              yield* requireSelectedLanguage(
+                "English (US)",
+                "switched English (US) option selected"
+              );
+            }),
+            providerTransition
           )
         );
       })

@@ -40,6 +40,21 @@ export const accountReviewTargetByCaseId: Partial<
 };
 
 /**
+ * The language case's mid-case review moments, each captured while the state
+ * it shows is genuine: the Czech profile right after the Czech save, the
+ * Czech page a conflicting en-US URL and cookie were redirected to, and the
+ * English account page the header switch moved the preference to.
+ */
+export const languagePreferenceReviewTargetByStage = {
+  "czech-profile": "linked-profile-language-desktop-cs",
+  "preference-redirect": "locale-preference-redirect-desktop",
+  "switcher-saved": "locale-switcher-saved-desktop",
+} as const satisfies Readonly<Record<string, AccountReviewTarget>>;
+
+export type LanguagePreferenceReviewStage =
+  keyof typeof languagePreferenceReviewTargetByStage;
+
+/**
  * The cowork reservation customer section in each mode: the signed-in
  * account card and the "book for someone else" contact inputs.
  */
