@@ -148,7 +148,7 @@ const assertAuthorizedPaidSupportStatus = ({
         const normalized = normalizeBrowserText(text);
         return (
           normalized.includes("We couldn't deliver your confirmation.") &&
-          normalized.includes("Your payment was received") &&
+          normalized.includes("Your payment went through") &&
           normalized.includes("Send support request")
         );
       },
@@ -168,7 +168,7 @@ const assertAuthorizedPaidSupportStatus = ({
         );
         return exactOrderId &&
           body.includes("We couldn't deliver your confirmation.") &&
-          body.includes("Your payment was received") &&
+          body.includes("Your payment went through") &&
           document.querySelector("#checkout-status-support-contact") instanceof HTMLAnchorElement &&
           document.querySelector("#checkout-status-access") === null;
       })()`,

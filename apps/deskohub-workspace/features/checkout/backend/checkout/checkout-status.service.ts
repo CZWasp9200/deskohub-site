@@ -8,6 +8,7 @@ import type {
   LatePaymentRecovery,
   PaymentState,
 } from "@/db/schema";
+import { getProviderOrderAbandonmentCutoff } from "@/features/checkout/provider-order-abandonment";
 import type { WorkspaceMoney } from "@/features/checkout/workspace-money";
 import {
   getWorkspaceTableMap,
@@ -37,6 +38,7 @@ import type { StoredOfficeReservationDetails } from "@/features/reservation/offi
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import { dotyposReservationSeatsSchema } from "@/features/reservation/reservation-seats";
 import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
+import { currentInstant } from "@/shared/utils/temporal";
 import { LatePaymentVerificationService } from "../payment/late-payment-verification.service";
 import { ProviderPaymentFinalizationService } from "../payment/provider-payment-finalization.service";
 import { LatePaymentRecoveryRepository } from "../repositories/late-payment-recovery.repository";
@@ -52,7 +54,11 @@ export type CheckoutStatusKind =
   | "not_found"
   | "created"
   | "pending"
+  | "payment_pending_delayed"
   | "paid_waiting_fulfillment"
+  | "paid_fulfillment_delayed"
+  | "paid_awaiting_delivery"
+  | "paid_delivery_delayed"
   | "fulfilled"
   | "fulfillment_failed"
   | "payment_failed"
@@ -167,20 +173,45 @@ export interface ICheckoutStatusService {
   }) => Effect.Effect<CheckoutStatusViewModel, CheckoutStatusError>;
 }
 
+/**
+ * Fulfillment and delivery normally finish within seconds. After this long
+ * the status page stops promising automatic completion and offers support
+ * instead, because the work may have stalled or the email may never arrive.
+ */
+const paidFulfillmentGracePeriod = { minutes: 10 };
+
 const toCheckoutStatusKind = (
-  paymentState: PaymentState,
-  fulfillmentState: FulfillmentState
+  reservation: Pick<
+    WorkspaceReservation,
+    "fulfillmentState" | "paidAt" | "paymentState" | "reservationState"
+  >,
+  now: Temporal.Instant
 ): CheckoutReservationStatusKind => {
+  const { paymentState } = reservation;
   if (paymentState === "paid") {
-    switch (fulfillmentState) {
+    const isOverdue =
+      !!reservation.paidAt &&
+      Temporal.Instant.compare(
+        now,
+        reservation.paidAt.add(paidFulfillmentGracePeriod)
+      ) >= 0;
+    switch (reservation.fulfillmentState) {
       case "fulfilled":
         return "fulfilled";
       case "failed":
         return "fulfillment_failed";
       case "awaiting_delivery":
+        if (reservation.reservationState === "confirmed") {
+          return isOverdue ? "paid_delivery_delayed" : "paid_awaiting_delivery";
+        }
+        return isOverdue
+          ? "paid_fulfillment_delayed"
+          : "paid_waiting_fulfillment";
       case "processing":
       case "not_started":
-        return "paid_waiting_fulfillment";
+        return isOverdue
+          ? "paid_fulfillment_delayed"
+          : "paid_waiting_fulfillment";
     }
   }
 
@@ -276,8 +307,17 @@ const getSupportContactPrefill = (
   return prefill.name || prefill.email || prefill.phone ? prefill : undefined;
 };
 
-const offersSupportContact = (statusKind: CheckoutReservationStatusKind) =>
-  statusKind === "fulfillment_failed" || statusKind === "late_payment_review";
+/**
+ * Statuses that show the customer's contact details: the address an
+ * undelivered confirmation went to, and the support request prefill.
+ */
+const showsCustomerContact = (statusKind: CheckoutReservationStatusKind) =>
+  statusKind === "fulfillment_failed" ||
+  statusKind === "late_payment_review" ||
+  statusKind === "payment_pending_delayed" ||
+  statusKind === "paid_fulfillment_delayed" ||
+  statusKind === "paid_awaiting_delivery" ||
+  statusKind === "paid_delivery_delayed";
 
 const getEmptyCheckoutStatusReservation = (
   details: WorkspaceReservation["reservationDetails"]
@@ -492,7 +532,7 @@ const implementation = Effect.gen(function* () {
   );
 
   /**
-   * Loads the support contact prefill for statuses that offer one. Best
+   * Loads the support contact prefill for statuses that show it. Best
    * effort: the status renders without a prefill when Dotypos is slow.
    */
   const loadSupportContactPrefill = Effect.fn(
@@ -501,7 +541,7 @@ const implementation = Effect.gen(function* () {
     reservation: WorkspaceReservation,
     statusKind: CheckoutReservationStatusKind
   ) {
-    if (!offersSupportContact(statusKind)) return undefined;
+    if (!showsCustomerContact(statusKind)) return undefined;
 
     return yield* dotypos.getCustomer(reservation.dotyposCustomerId).pipe(
       Effect.map(getSupportContactPrefill),
@@ -518,6 +558,31 @@ const implementation = Effect.gen(function* () {
     );
   });
 
+  /**
+   * A provider payment unsettled past the abandonment cutoff may never settle,
+   * so the page stops promising confirmation and offers support. Hold
+   * cleanup later expires an empty order, which then allows a new booking.
+   */
+  const isPendingPaymentOverdue = Effect.fn(
+    "CheckoutStatusService.isPendingPaymentOverdue"
+  )(function* (reservation: WorkspaceReservation, now: Temporal.Instant) {
+    if (!reservation.activePaymentAttemptId) return false;
+
+    const attempt = yield* paymentAttempts.findById(
+      reservation.activePaymentAttemptId
+    );
+    if (!attempt) return false;
+
+    return (
+      Temporal.Instant.compare(
+        now,
+        getProviderOrderAbandonmentCutoff(
+          attempt.providerOrderCreatedAt ?? attempt.createdAt
+        )
+      ) >= 0
+    );
+  });
+
   /** Derives the customer status and its support contact prefill. */
   const resolveStatusKind = Effect.fn(
     "CheckoutStatusService.resolveStatusKind"
@@ -530,12 +595,14 @@ const implementation = Effect.gen(function* () {
       reservation,
       latePaymentRecovery
     );
+    const now = yield* currentInstant;
+    const reservationStatusKind = toCheckoutStatusKind(reservation, now);
     const statusKind =
       latePaymentStatusKind ??
-      toCheckoutStatusKind(
-        reservation.paymentState,
-        reservation.fulfillmentState
-      );
+      (reservationStatusKind === "pending" &&
+      (yield* isPendingPaymentOverdue(reservation, now))
+        ? "payment_pending_delayed"
+        : reservationStatusKind);
     const supportContactPrefill = yield* loadSupportContactPrefill(
       reservation,
       statusKind
