@@ -41,6 +41,7 @@ mock.module(
   "@/features/checkout/backend/payment/payment-refund.service",
   () => ({
     PaymentRefundService: FakePaymentRefundService,
+    refundBatchOverrunWorstCase: Duration.seconds(35),
   })
 );
 
@@ -84,7 +85,8 @@ describe("payment refund reconciliation cron route", () => {
     expect(reconcileCalls).toEqual([
       {
         limit: 150,
-        budget: Duration.seconds(240),
+        // 300 s maxDuration - 35 s overrun - 25 s headroom.
+        budget: Duration.millis(240_000),
         worstCaseLookupDuration: expect.anything(),
       },
     ]);
