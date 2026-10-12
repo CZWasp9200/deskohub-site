@@ -1,6 +1,6 @@
 "use server";
 
-import { Effect, Match, Option } from "effect";
+import { Effect, Match } from "effect";
 import { revalidatePath } from "next/cache";
 import { requireAdministratorAuthorization } from "@/shared/administrator/administrator-authorization.server";
 import { defineWorkspaceAction } from "@/shared/backend/workspace-action";
@@ -20,18 +20,6 @@ const executeDiscountAdminActionMutation = Effect.fn(
 )(function* (input: DiscountAdminMutation) {
   const result = yield* executeDiscountAdminMutation(input);
   yield* refreshCalendarDiscountSourceAfterMutation(input);
-  let customerPath: string | null = null;
-  if (input.kind === "create-customer-code") {
-    customerPath = `/admin/customers/${input.customerId}`;
-  } else if (input.kind === "create-customer-voucher") {
-    customerPath = `/admin/customers/${input.voucher.customerId}`;
-  }
-  yield* Option.fromNullOr(customerPath).pipe(
-    Option.match({
-      onNone: () => Effect.void,
-      onSome: (path) => Effect.sync(() => revalidatePath(path)),
-    })
-  );
 
   return {
     ...(result.createdDiscountId && {
@@ -139,11 +127,29 @@ const discountAdminCustomerSearchAction = defineWorkspaceAction(
     )
 );
 
+const getMutatedCustomerPath = (
+  input: Parameters<typeof discountAdminMutationAction>[0]
+) => {
+  if (input.kind === "create-customer-code") {
+    return `/admin/customers/${input.customerId}`;
+  }
+  if (input.kind === "create-customer-voucher") {
+    return `/admin/customers/${input.voucher.customerId}`;
+  }
+  return null;
+};
+
 export const mutateDiscountAdmin: typeof discountAdminMutationAction = async (
   ...args: Parameters<typeof discountAdminMutationAction>
 ) => {
   "use server";
-  return await discountAdminMutationAction(...args);
+  const result = await discountAdminMutationAction(...args);
+  // Revalidate here rather than inside the Effect: a fiber resumed by a
+  // database callback can run under another request's Next.js work store,
+  // where revalidatePath throws because that request is rendering.
+  const customerPath = result?.data ? getMutatedCustomerPath(args[0]) : null;
+  if (customerPath) revalidatePath(customerPath);
+  return result;
 };
 
 export const searchDiscountAdminCustomers: typeof discountAdminCustomerSearchAction =
