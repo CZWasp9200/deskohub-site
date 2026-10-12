@@ -763,6 +763,10 @@ class FakeBrowser {
   private currentUrl = "";
   private localeCookie: FakeLocale | undefined;
   private pageText = "";
+  /** The `textContent` of the profile language control's label. */
+  private languageControlLabel: string | null = null;
+  /** The `textContent` of the page's `h1`. */
+  private heading: string | null = null;
   private emailValue = "";
   private nativeValidationBlocked = false;
   private formReady = false;
@@ -840,6 +844,8 @@ class FakeBrowser {
     this.languageListboxOpen = false;
     this.languagePending = null;
     this.selectedSection = "";
+    this.languageControlLabel = null;
+    this.heading = null;
     const pathLocale = fakeLocalePath.exec(new URL(requested).pathname)?.[1] as
       | FakeLocale
       | undefined;
@@ -871,9 +877,12 @@ class FakeBrowser {
       this.currentUrl = profile
         ? `${destination}${parsed.search}`
         : destination;
+      // Rendered page text applies the label's CSS uppercase, as
+      // `innerText` does; only its `textContent` keeps the message casing.
       this.pageText = profile
-        ? `${result.text} ${this.profileLabel(locale)}`
+        ? `${result.text} ${this.profileLabel(locale).toLocaleUpperCase()}`
         : result.text;
+      this.languageControlLabel = profile ? this.profileLabel(locale) : null;
       if (profile) this.selectedSection = "profile";
       this.formReady = result.destination.endsWith("/auth/sign-in");
       return;
@@ -881,6 +890,7 @@ class FakeBrowser {
     if (locale !== undefined && suffix === "/faq") {
       this.currentUrl = url;
       this.pageText = locale === "cs-CZ" ? czechFaqTitle : englishFaqTitle;
+      this.heading = this.pageText;
       this.formReady = false;
       return;
     }
@@ -1053,7 +1063,8 @@ class FakeBrowser {
         throw new Error("the English account navigation was clicked in Czech");
       }
       this.selectedSection = "profile";
-      this.pageText = `${this.pageText} ${englishLanguageLabel}`;
+      this.pageText = `${this.pageText} ${englishLanguageLabel.toLocaleUpperCase()}`;
+      this.languageControlLabel = englishLanguageLabel;
       return;
     }
     if (selector === languageTriggerSelector) {
@@ -1153,6 +1164,25 @@ class FakeBrowser {
   }
 
   waitForCondition(description: string, condition: string) {
+    if (description.endsWith(" language control label")) {
+      if (
+        this.languageControlLabel === null ||
+        !condition.includes(JSON.stringify(this.languageControlLabel)) ||
+        !condition.includes(".labels")
+      ) {
+        throw new Error("the language control does not carry that label");
+      }
+      return;
+    }
+    if (description.endsWith(" heading")) {
+      if (
+        this.heading === null ||
+        !condition.includes(JSON.stringify(this.heading))
+      ) {
+        throw new Error("the page heading does not match");
+      }
+      return;
+    }
     if (description === "account danger panel hydration") {
       if (!condition.includes("#delete-account-trigger")) {
         throw new Error("the danger panel hydration anchor is wrong");

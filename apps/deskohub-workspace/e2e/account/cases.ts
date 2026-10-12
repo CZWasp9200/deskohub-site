@@ -1288,6 +1288,43 @@ export const makeWorkspaceE2EAccountCases = ({
         const czechFaqTitle = m.faqPageTitle({}, { locale: "cs-CZ" });
 
         /**
+         * Waits until the profile's language control is labelled with the
+         * given text. It reads the label through the control's `labels`
+         * and compares `textContent`, so CSS text-transform on the label
+         * (it renders uppercase) cannot hide the match the way rendered
+         * page text would.
+         */
+        const waitLanguageControlLabel = (description: string, label: string) =>
+          waitForBrowserCondition(
+            run,
+            session,
+            `${description} language control label`,
+            `(() => {
+                const expected = ${JSON.stringify(label)};
+                return Array.from(
+                  document.querySelectorAll(${JSON.stringify(`${accountSectionLandmarks.profile} ${languageTriggerSelector}`)})
+                ).some((control) =>
+                  Array.from(control.labels ?? []).some(
+                    (labelElement) => labelElement.textContent?.trim() === expected
+                  )
+                );
+              })()`,
+            { timeoutMs: uiTransition }
+          );
+
+        /** Waits for the page's main heading by its text content. */
+        const waitPageHeading = (description: string, heading: string) =>
+          waitForBrowserCondition(
+            run,
+            session,
+            `${description} heading`,
+            `Array.from(document.querySelectorAll("h1")).some(
+              (element) => element.textContent?.trim() === ${JSON.stringify(heading)}
+            )`,
+            { timeoutMs: uiTransition }
+          );
+
+        /**
          * Waits until the selected option, read from the open listbox, is
          * the given language. The option labels name each language in its
          * own language, so the check reads the same on every site locale.
@@ -1337,7 +1374,7 @@ export const makeWorkspaceE2EAccountCases = ({
                 })()`,
               { timeoutMs: uiTransition }
             );
-            yield* waitText(description, czechLanguageLabel);
+            yield* waitLanguageControlLabel(description, czechLanguageLabel);
           });
 
         yield* runStep(
@@ -1466,7 +1503,10 @@ export const makeWorkspaceE2EAccountCases = ({
                 (pathname) =>
                   pathname === `/cs-CZ${publicPreferenceProbeSuffix}`
               );
-              yield* waitText("Czech page after the redirect", czechFaqTitle);
+              yield* waitPageHeading(
+                "Czech page after the redirect",
+                czechFaqTitle
+              );
               const cookie = yield* evalBrowserScript(
                 "read the locale cookie after the redirect",
                 run,
