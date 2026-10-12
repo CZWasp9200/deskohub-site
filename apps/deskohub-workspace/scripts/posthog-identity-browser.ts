@@ -16,6 +16,7 @@ import {
   type Page,
 } from "@playwright/test";
 import { Schema } from "effect";
+import { expectedPosthogSdkVersion } from "./posthog-sdk-version";
 
 const syntheticEmail = testEmailAddress("posthog.identity.synthetic");
 
@@ -67,7 +68,6 @@ const legacyInitialReferrerToken = "posthog-identity-legacy-referrer-token";
 const legacyInitialUtmToken = "posthog-identity-legacy-utm-token";
 const syntheticPinCanary = "583104729";
 const posthogProjectToken = "phc_posthog_identity_browser_fixture";
-const posthogSdkVersion = "1.418.1";
 const localCorsHeaders = {
   "Access-Control-Allow-Headers":
     "Authorization, Content-Type, X-PostHog-Session-Id",
@@ -494,7 +494,10 @@ class LocalPostHogServer {
   async start() {
     const packageJson = parseJson(await readFile(posthogPackagePath, "utf8"));
     check(isJsonObject(packageJson), "posthog-sdk-package-json");
-    check(packageJson.version === posthogSdkVersion, "posthog-sdk-version");
+    check(
+      packageJson.version === expectedPosthogSdkVersion,
+      "posthog-sdk-version"
+    );
 
     for (const entry of await readdir(posthogDistPath, {
       withFileTypes: true,
@@ -3075,7 +3078,9 @@ const createBuildPlugin = (posthogHost: string): Bun.BunPlugin => ({
       throw new Error(`missing app module: ${specifier}`);
     };
 
-    build.onResolve({ filter: /^@\/env$/ }, () => ({
+    // The browser has no `process`, so both the server env and the
+    // browser-visible client env resolve to the fixture's PostHog settings.
+    build.onResolve({ filter: /^@\/(?:client-)?env$/ }, () => ({
       namespace: envNamespace,
       path: "env",
     }));
@@ -3084,7 +3089,7 @@ const createBuildPlugin = (posthogHost: string): Bun.BunPlugin => ({
         posthogHost
       )}, NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN: ${JSON.stringify(
         posthogProjectToken
-      )} } as const;`,
+      )} } as const;\nexport const clientEnv = env;`,
       loader: "ts",
     }));
 
@@ -3249,7 +3254,7 @@ const browserReport = (
       sensitivePostHogRequestHits
     ),
     replay,
-    sdk: { package: "posthog-js", version: posthogSdkVersion },
+    sdk: { package: "posthog-js", version: expectedPosthogSdkVersion },
     expiryDiagnostics: expiryDiagnosticsReport(server),
     status,
     passedScenarios,
@@ -3263,6 +3268,21 @@ const writeReport = async (report: ReturnType<typeof browserReport>) => {
     join(artifactRoot, "report.json"),
     `${JSON.stringify(report, null, 2)}\n`,
     "utf8"
+  );
+};
+
+/** Every captured event must come from the pinned SDK the report names. */
+const assertCapturedSdkVersion = (server: LocalPostHogServer) => {
+  const versions = new Set(
+    server
+      .allIngestHistory()
+      .flatMap((record) => record.events)
+      .map((event) => event.properties.$lib_version)
+      .filter((version) => version !== undefined)
+  );
+  check(
+    versions.size === 1 && versions.has(expectedPosthogSdkVersion),
+    "posthog-sdk-runtime-version"
   );
 };
 
@@ -3326,6 +3346,7 @@ const main = async () => {
     assertPositiveIngest(server);
     assertPostHogTransportSecurity(server);
     check(server.report().unreadableIngestCount === 0, "ingest-decode");
+    assertCapturedSdkVersion(server);
     check(
       eventNamed(server.allIngestHistory(), "$snapshot").length === 0,
       "snapshot-captured"
@@ -3385,4 +3406,4 @@ const main = async () => {
   }
 };
 
-await main();
+if (import.meta.main) await main();
