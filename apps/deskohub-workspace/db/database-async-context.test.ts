@@ -1,5 +1,5 @@
-import { AsyncLocalStorage } from "node:async_hooks";
 import { describe, expect, test } from "bun:test";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { sql } from "drizzle-orm";
 import { Effect } from "effect";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
@@ -34,12 +34,8 @@ describe.skipIf(!postgresDatabase)(
             )
           );
 
-        expect(await runRequest("connection-opener")).toBe(
-          "connection-opener"
-        );
-        expect(await runRequest("connection-reuser")).toBe(
-          "connection-reuser"
-        );
+        expect(await runRequest("connection-opener")).toBe("connection-opener");
+        expect(await runRequest("connection-reuser")).toBe("connection-reuser");
         expect(
           await Promise.all([
             runRequest("connection-holder"),
