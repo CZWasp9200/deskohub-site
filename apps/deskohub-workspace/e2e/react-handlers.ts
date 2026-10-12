@@ -45,24 +45,26 @@ export const waitForReactClickHandler = async (
   const deadline = Date.now() + reactClickHandlerTimeoutMs;
   let replacements = 0;
 
+  const remainingBudgetMs = (): number => {
+    const remainingMs = deadline - Date.now();
+    if (remainingMs > 0) return remainingMs;
+    throw new errors.TimeoutError(
+      `React click handler wait timed out after ${replacements} control replacements`
+    );
+  };
+
   for (;;) {
-    const element = await control.elementHandle();
+    const element = await control.elementHandle({
+      timeout: remainingBudgetMs(),
+    });
     if (element === null)
       throw new Error("React click control was not rendered");
-
-    const remainingMs = deadline - Date.now();
-    if (remainingMs <= 0) {
-      await element.dispose();
-      throw new errors.TimeoutError(
-        `React click handler wait timed out after ${replacements} control replacements`
-      );
-    }
 
     try {
       const state = await page.waitForFunction(
         reactClickHandlerState,
         element,
-        { timeout: remainingMs }
+        { timeout: remainingBudgetMs() }
       );
       try {
         if ((await state.jsonValue()) !== "detached") return;

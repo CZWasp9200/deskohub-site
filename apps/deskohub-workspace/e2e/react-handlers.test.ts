@@ -1,12 +1,14 @@
-import { expect, test } from "bun:test";
+import { afterEach, expect, setSystemTime, test } from "bun:test";
 import { createServer } from "node:http";
-import { chromium, type Page } from "@playwright/test";
+import { chromium, errors, type Locator, type Page } from "@playwright/test";
 import { createElement, Suspense, use } from "react";
 import { renderToReadableStream } from "react-dom/server";
 import { playwrightChromiumAvailable } from "../shared/testing/playwright-browser";
 import { waitForReactClickHandler } from "./react-handlers";
 
 const chromiumAvailable = await playwrightChromiumAvailable();
+
+afterEach(() => setSystemTime());
 const controlLabel = "Profile & Identity";
 
 function StreamedControl({ ready }: { readonly ready: Promise<void> }) {
@@ -125,3 +127,46 @@ test.skipIf(!chromiumAvailable)(
     }
   }
 );
+
+test("rejects within its deadline when a detached control is never replaced", async () => {
+  const startedAt = Date.parse("2026-10-11T12:00:00.000Z");
+  let now = startedAt;
+  setSystemTime(new Date(now));
+  const advance = (ms: number) => {
+    now += ms;
+    setSystemTime(new Date(now));
+  };
+  const lookupTimeouts: (number | undefined)[] = [];
+  const handle = {
+    dispose: async () => {},
+    jsonValue: async () => "detached",
+  };
+
+  const control = Object.assign({} as Pick<Locator, "elementHandle">, {
+    elementHandle: async (options?: { readonly timeout?: number }) => {
+      lookupTimeouts.push(options?.timeout);
+      if (lookupTimeouts.length === 1) return handle;
+      // Playwright waits for attachment until the timeout; without one it
+      // would wait forever, which this fake reports at once instead.
+      if (options?.timeout === undefined)
+        throw new Error("replacement lookup had no timeout");
+      advance(options.timeout);
+      throw new errors.TimeoutError("fake replacement never attached");
+    },
+  });
+  const page = Object.assign({} as Pick<Page, "waitForFunction">, {
+    waitForFunction: async () => {
+      advance(4_000);
+      return handle;
+    },
+  });
+
+  const failure = await waitForReactClickHandler(page, control).then(
+    () => undefined,
+    (cause: unknown) => cause
+  );
+
+  expect(failure).toBeInstanceOf(errors.TimeoutError);
+  expect(lookupTimeouts).toEqual([15_000, 11_000]);
+  expect(now - startedAt).toBeLessThanOrEqual(15_000);
+});
