@@ -8,6 +8,7 @@ import {
   mock,
   test,
 } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { Schema } from "effect";
@@ -41,6 +42,8 @@ import {
   unregisterWorkspaceComponentTestEnv,
 } from "@/shared/testing/workspace-component-test-env";
 
+const testEmailAddressForAda = testEmailAddress("ada");
+
 const execute = mock(() => undefined);
 const getAdvertisedPrices = mock(
   (requests: ReadonlyArray<AdvertisedPriceRequest>) =>
@@ -72,7 +75,7 @@ const initialReservation = normalizedMeetingRoomReservationOrderSchema.make({
   startsAt: "2099-07-30T08:00:00Z",
   endsAt: "2099-07-30T09:00:00Z",
   name: "Ada Lovelace",
-  email: "ada@example.com",
+  email: testEmailAddressForAda,
   phone: "+420777777777",
   message: "Workshop",
 });
@@ -420,7 +423,7 @@ describe("MeetingRoomReservationForm", () => {
         startDateTime: "2099-07-30T10:00",
         duration: "day:1",
         name: "Ada Lovelace",
-        email: "ada@example.com",
+        email: testEmailAddressForAda,
         phone: "+420777777777",
       },
     });
@@ -463,7 +466,7 @@ describe("MeetingRoomReservationForm", () => {
         initialReservation: undefined,
         initialValues: {
           ...meetingRoomReservationDefaultValues,
-          email: "ada@example.com",
+          email: testEmailAddressForAda,
           name: "Ada Lovelace",
           phone: "+420777777777",
           startDateTime: "2099-07-30T16:00",

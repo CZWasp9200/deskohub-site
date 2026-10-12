@@ -6,11 +6,14 @@ import {
   FindCustomerResult,
   NetworkError,
 } from "@deskohub/dotypos";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Effect, Layer } from "effect";
 import {
   CustomerDotyposAdapter,
   customerProfileAppliesInput,
 } from "./customer-dotypos-adapter.service";
+
+const customerEmail = testEmailAddress("ada");
 
 const makeCustomer = (
   overrides: Partial<DotyposCustomer> = {}
@@ -70,7 +73,7 @@ describe("CustomerDotyposAdapter", () => {
               })
             ),
         },
-        (adapter) => adapter.classifyExactEmailCustomers("ada@example.test")
+        (adapter) => adapter.classifyExactEmailCustomers(customerEmail)
       );
 
       expect(result).toEqual({
@@ -91,7 +94,7 @@ describe("CustomerDotyposAdapter", () => {
               })
             ),
         },
-        (adapter) => adapter.classifyExactEmailCustomers("ada@example.test")
+        (adapter) => adapter.classifyExactEmailCustomers(customerEmail)
       );
 
       expect(result).toEqual({
@@ -111,7 +114,7 @@ describe("CustomerDotyposAdapter", () => {
               })
             ),
         },
-        (adapter) => adapter.classifyExactEmailCustomers("ada@example.test")
+        (adapter) => adapter.classifyExactEmailCustomers(customerEmail)
       );
       expect(ambiguous).toEqual({ kind: "ambiguous" });
 
@@ -120,7 +123,7 @@ describe("CustomerDotyposAdapter", () => {
           findCustomer: () =>
             Effect.succeed(FindCustomerResult.NotFound({ matches: [] })),
         },
-        (adapter) => adapter.classifyExactEmailCustomers("ada@example.test")
+        (adapter) => adapter.classifyExactEmailCustomers(customerEmail)
       );
       expect(notFound).toEqual({ kind: "not-found" });
     });
@@ -133,7 +136,7 @@ describe("CustomerDotyposAdapter", () => {
           findCustomer: () =>
             Effect.succeed(FindCustomerResult.Deleted({ matches: [deleted] })),
         },
-        (adapter) => adapter.classifyExactEmailCustomers("ada@example.test")
+        (adapter) => adapter.classifyExactEmailCustomers(customerEmail)
       );
 
       expect(result).toEqual({ kind: "unusable" });
@@ -648,7 +651,7 @@ describe("CustomerDotyposAdapter", () => {
         },
         (adapter) =>
           adapter.createCustomerProfile({
-            email: "ada@example.test",
+            email: customerEmail,
             profile: {
               firstName: "Ada",
               lastName: "Lovelace",
@@ -687,7 +690,7 @@ describe("CustomerDotyposAdapter", () => {
       expect(details[0]).toMatchObject({
         firstName: "Ada",
         lastName: "Lovelace",
-        email: "ada@example.test",
+        email: customerEmail,
       });
     });
 
@@ -721,7 +724,7 @@ describe("CustomerDotyposAdapter", () => {
         },
         (adapter) =>
           adapter.createCustomerProfile({
-            email: "ada@example.test",
+            email: customerEmail,
             profile: { firstName: "Ada" },
           })
       );
@@ -748,7 +751,7 @@ describe("CustomerDotyposAdapter", () => {
         (adapter) =>
           adapter
             .createCustomerProfile({
-              email: "ada@example.test",
+              email: customerEmail,
               profile: { firstName: "Ada" },
             })
             .pipe(Effect.result)

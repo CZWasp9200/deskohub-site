@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { createServer } from "node:http";
+import { testEmailAddress } from "@deskohub/test-email";
 import { chromium, type Page } from "@playwright/test";
 import type { ReservationCustomerMode } from "@/features/reservation/reservation-existing-customer";
 import { playwrightChromiumAvailable } from "../../shared/testing/playwright-browser";
@@ -17,7 +18,7 @@ import {
 
 const baseUrl = "https://reservation-customer.example.test";
 const contact = {
-  email: "delivered+synthetic-run-main@resend.dev",
+  email: testEmailAddress("delivered+synthetic-run-main"),
   name: "E2E Lane",
 } as const;
 const privateFailureDetails = "private reservation customer fixture details";

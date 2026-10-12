@@ -4,6 +4,7 @@ import {
   DotyposTableIdSchema,
 } from "@deskohub/dotypos";
 import { NexiOperationIdSchema, NexiOrderIdSchema } from "@deskohub/nexi";
+import { testEmailAddress } from "@deskohub/test-email";
 import { paymentAttemptIdSchema } from "@/features/checkout/checkout-identifiers";
 import { discountApplicationIdSchema } from "@/features/discounts/persistence-contracts";
 import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
@@ -17,6 +18,10 @@ import type {
 } from "./administration.service";
 import { getAdministrationReservationDateRange } from "./reservation-date-range";
 import { getAdministrationReservationLifecycle } from "./reservation-status";
+
+const alexMorganEmail = testEmailAddress("alex.morgan");
+const jordanLeeEmail = testEmailAddress("jordan.lee");
+const samTaylorEmail = testEmailAddress("sam.taylor");
 
 const timeZone = "Europe/Prague";
 
@@ -47,19 +52,19 @@ const fixtureCustomers = {
   "customer-alex": {
     id: fixtureCustomerId("customer-alex"),
     displayName: "Alex Morgan",
-    email: "alex.morgan@example.test",
+    email: alexMorganEmail,
     phone: "+420 700 000 101",
   },
   "customer-jordan": {
     id: fixtureCustomerId("customer-jordan"),
     displayName: "Jordan Lee",
-    email: "jordan.lee@example.test",
+    email: jordanLeeEmail,
     phone: "+420 700 000 202",
   },
   "customer-sam": {
     id: fixtureCustomerId("customer-sam"),
     displayName: "Sam Taylor",
-    email: "sam.taylor@example.test",
+    email: samTaylorEmail,
     phone: null,
   },
 } as const;

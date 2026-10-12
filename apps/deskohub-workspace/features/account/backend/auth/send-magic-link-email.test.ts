@@ -1,6 +1,7 @@
 import "@/shared/testing/workspace-test-environment";
 
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { resendSimulatorAddress, testEmailAddress } from "@deskohub/test-email";
 import { ConfigProvider, Effect, Predicate } from "effect";
 import { withInstantSleeps } from "@/shared/testing/workspace-test-clock.test-utils";
 
@@ -39,21 +40,30 @@ mock.module("resend", () => ({
   },
 }));
 
-const { makeMagicLinkEmailDelivery, routeMagicLinkEmail } = await import(
-  "./send-magic-link-email"
-);
-const { isSyntheticE2EEmailRecipient, magicLinkPreviewE2ELogCode } =
-  await import("./magic-link-policy");
+const { magicLinkDeliveryEnvironment, makeMagicLinkEmailDelivery } =
+  await import("./send-magic-link-email");
+const {
+  isSyntheticE2EEmailRecipient,
+  magicLinkDevelopmentLogCode,
+  magicLinkPreviewE2ELogCode,
+} = await import("./magic-link-policy");
 
 const request = {
-  email: "ada@example.test",
+  // Resend's simulator is a real destination, not a test recipient.
+  email: resendSimulatorAddress("delivered", "ada"),
   url: "https://workspace.example/api/auth/magic-link/verify?token=secret-token",
   locale: "en-US" as const,
 };
 
 const syntheticRequest = {
   ...request,
-  email: "delivered+run7f3a2b-signin@resend.dev",
+  email: testEmailAddress("delivered+run7f3a2b-signin"),
+};
+
+/** A test recipient outside the synthetic E2E account shape. */
+const testRecipientRequest = {
+  ...request,
+  email: testEmailAddress("delivered"),
 };
 
 const renderOk = () =>
@@ -63,22 +73,21 @@ const renderOk = () =>
     text: "Sign in at https://workspace.example/api/auth/magic-link/verify?token=secret-token",
   });
 
-const previewRouting = { isVercelPreview: true } as const;
-const productionRouting = { isVercelPreview: false } as const;
+const previewEnvironment = magicLinkDeliveryEnvironment({
+  VERCEL_ENV: "preview",
+  NODE_ENV: "production",
+});
+const productionEnvironment = magicLinkDeliveryEnvironment({
+  VERCEL_ENV: "production",
+  NODE_ENV: "production",
+});
+const developmentEnvironment = magicLinkDeliveryEnvironment({
+  VERCEL_ENV: "development",
+  NODE_ENV: "development",
+});
 
 const resendEmailConfig = {
-  EMAIL_PROVIDER: "resend",
   EMAIL_API_KEY: "re_test",
-};
-
-const initialEnv = {
-  NODE_ENV: process.env.NODE_ENV,
-  VERCEL_ENV: process.env.VERCEL_ENV,
-};
-
-const setEnv = (key: string, value: string | undefined) => {
-  if (value === undefined) delete process.env[key];
-  else process.env[key] = value;
 };
 
 /**
@@ -131,25 +140,25 @@ const captureConsole = (): string[] & { restore: () => void } => {
 const previewE2ELines = (lines: readonly string[]) =>
   lines.filter((line) => line.includes(magicLinkPreviewE2ELogCode));
 
+const developmentLines = (lines: readonly string[]) =>
+  lines.filter((line) => line.includes(magicLinkDevelopmentLogCode));
+
 beforeEach(() => {
   resendSend = mock<SendImplementation>(async () => ({
     data: { id: "resend-id" },
   }));
 });
 
-afterEach(() => {
-  setEnv("NODE_ENV", initialEnv.NODE_ENV);
-  setEnv("VERCEL_ENV", initialEnv.VERCEL_ENV);
-});
-
-describe("Configured default provider for non-synthetic recipients", () => {
-  test("routes a non-synthetic recipient through the configured default Resend provider", async () => {
+describe("Recipient-based provider routing", () => {
+  test("delivers a real recipient through Resend", async () => {
     const consoleLines = captureConsole();
     let code: string | undefined;
     try {
       code = await runDeliver(
         resendEmailConfig,
-        makeMagicLinkEmailDelivery(renderOk, productionRouting).deliver(request)
+        makeMagicLinkEmailDelivery(renderOk, productionEnvironment).deliver(
+          request
+        )
       );
     } finally {
       consoleLines.restore();
@@ -169,13 +178,15 @@ describe("Configured default provider for non-synthetic recipients", () => {
     expect(previewE2ELines(consoleLines)).toEqual([]);
   });
 
-  test("suppresses bearer content via the sensitiveContent marker on the keyless Console default", async () => {
+  test("suppresses bearer content via the sensitiveContent marker for other test recipients", async () => {
     const consoleLines = captureConsole();
     let code: string | undefined;
     try {
       code = await runDeliver(
-        { EMAIL_PROVIDER: "console" },
-        makeMagicLinkEmailDelivery(renderOk, previewRouting).deliver(request)
+        resendEmailConfig,
+        makeMagicLinkEmailDelivery(renderOk, previewEnvironment).deliver(
+          testRecipientRequest
+        )
       );
     } finally {
       consoleLines.restore();
@@ -185,7 +196,7 @@ describe("Configured default provider for non-synthetic recipients", () => {
     expect(resendSend).not.toHaveBeenCalled();
     const logged = consoleLines.join("\n");
     expect(logged).toContain('"sensitive":true');
-    expect(logged).not.toContain(request.email);
+    expect(logged).not.toContain(testRecipientRequest.email);
     expect(logged).not.toContain("secret-token");
     expect(logged).not.toContain("Sign in");
     expect(logged).not.toContain("EMAIL CONTENT");
@@ -193,14 +204,14 @@ describe("Configured default provider for non-synthetic recipients", () => {
   });
 });
 
-describe("Synthetic Preview routing through the shared Console provider", () => {
+describe("Synthetic Preview delivery through the shared Console provider", () => {
   test("emits exactly one E2E text log line and zero Resend sends without a Resend key", async () => {
     const consoleLines = captureConsole();
     let code: string | undefined;
     try {
       code = await runDeliver(
         {},
-        makeMagicLinkEmailDelivery(renderOk, previewRouting).deliver(
+        makeMagicLinkEmailDelivery(renderOk, previewEnvironment).deliver(
           syntheticRequest
         )
       );
@@ -235,13 +246,34 @@ describe("Synthetic Preview routing through the shared Console provider", () => 
     expect(consoleLines.join("\n")).not.toContain("EMAIL CONTENT");
   });
 
-  test("non-synthetic Preview recipients use the configured default with no E2E line", async () => {
+  test("keeps synthetic recipients on Console when a Resend key exists", async () => {
     const consoleLines = captureConsole();
     let code: string | undefined;
     try {
       code = await runDeliver(
         resendEmailConfig,
-        makeMagicLinkEmailDelivery(renderOk, previewRouting).deliver(request)
+        makeMagicLinkEmailDelivery(renderOk, previewEnvironment).deliver(
+          syntheticRequest
+        )
+      );
+    } finally {
+      consoleLines.restore();
+    }
+
+    expect(code).toBe("account.magic-link.delivery-accepted");
+    expect(resendSend).not.toHaveBeenCalled();
+    expect(previewE2ELines(consoleLines)).toHaveLength(1);
+  });
+
+  test("real Preview recipients go to Resend with no E2E line", async () => {
+    const consoleLines = captureConsole();
+    let code: string | undefined;
+    try {
+      code = await runDeliver(
+        resendEmailConfig,
+        makeMagicLinkEmailDelivery(renderOk, previewEnvironment).deliver(
+          request
+        )
       );
     } finally {
       consoleLines.restore();
@@ -254,13 +286,13 @@ describe("Synthetic Preview routing through the shared Console provider", () => 
     expect(consoleLines.join("\n")).not.toContain(request.email);
   });
 
-  test("synthetic recipients outside Preview use the configured default with no E2E line", async () => {
+  test("synthetic recipients outside Preview stay on Console with no E2E line", async () => {
     const consoleLines = captureConsole();
     let code: string | undefined;
     try {
       code = await runDeliver(
         resendEmailConfig,
-        makeMagicLinkEmailDelivery(renderOk, productionRouting).deliver(
+        makeMagicLinkEmailDelivery(renderOk, productionEnvironment).deliver(
           syntheticRequest
         )
       );
@@ -269,10 +301,119 @@ describe("Synthetic Preview routing through the shared Console provider", () => 
     }
 
     expect(code).toBe("account.magic-link.delivery-accepted");
-    expect(resendSend).toHaveBeenCalledTimes(1);
+    expect(resendSend).not.toHaveBeenCalled();
     expect(previewE2ELines(consoleLines)).toEqual([]);
     expect(consoleLines.join("\n")).not.toContain("secret-token");
     expect(consoleLines.join("\n")).not.toContain(syntheticRequest.email);
+  });
+});
+
+describe("Local development delivery through the shared Console provider", () => {
+  const deliverInDevelopment = async (
+    emailConfig: Record<string, string>,
+    deliveryRequest: typeof request
+  ) => {
+    const consoleLines = captureConsole();
+    try {
+      const code = await runDeliver(
+        emailConfig,
+        makeMagicLinkEmailDelivery(renderOk, developmentEnvironment).deliver(
+          deliveryRequest
+        )
+      );
+      return { code, consoleLines: [...consoleLines] };
+    } finally {
+      consoleLines.restore();
+    }
+  };
+
+  test("emits exactly one sign-in link line for a real recipient without a Resend key", async () => {
+    const { code, consoleLines } = await deliverInDevelopment({}, request);
+
+    expect(code).toBe("account.magic-link.delivery-accepted");
+    expect(resendSend).not.toHaveBeenCalled();
+    const lines = developmentLines(consoleLines);
+    expect(lines).toHaveLength(1);
+    expect(JSON.parse(lines[0]!)).toEqual({
+      code: magicLinkDevelopmentLogCode,
+      recipient: request.email,
+      message: "Development magic link; open the url to sign in.",
+      url: request.url,
+    });
+    expect(previewE2ELines(consoleLines)).toEqual([]);
+    expect(consoleLines.join("\n")).not.toContain("EMAIL CONTENT");
+  });
+
+  test("emits the link for test recipients routed to Console with a Resend key", async () => {
+    const { code, consoleLines } = await deliverInDevelopment(
+      resendEmailConfig,
+      syntheticRequest
+    );
+
+    expect(code).toBe("account.magic-link.delivery-accepted");
+    expect(resendSend).not.toHaveBeenCalled();
+    expect(developmentLines(consoleLines)).toHaveLength(1);
+    expect(previewE2ELines(consoleLines)).toEqual([]);
+  });
+
+  test("never emits the link when Resend delivers it", async () => {
+    const { code, consoleLines } = await deliverInDevelopment(
+      resendEmailConfig,
+      request
+    );
+
+    expect(code).toBe("account.magic-link.delivery-accepted");
+    expect(resendSend).toHaveBeenCalledTimes(1);
+    expect(developmentLines(consoleLines)).toEqual([]);
+    expect(consoleLines.join("\n")).not.toContain("secret-token");
+    expect(consoleLines.join("\n")).not.toContain(request.email);
+  });
+
+  test("Preview and Production never emit the development line", async () => {
+    for (const environment of [previewEnvironment, productionEnvironment]) {
+      for (const deliveryRequest of [request, syntheticRequest]) {
+        const consoleLines = captureConsole();
+        try {
+          await runDeliver(
+            {},
+            makeMagicLinkEmailDelivery(renderOk, environment).deliver(
+              deliveryRequest
+            )
+          );
+        } finally {
+          consoleLines.restore();
+        }
+        expect(developmentLines(consoleLines)).toEqual([]);
+      }
+    }
+  });
+});
+
+describe("Magic-link delivery environment", () => {
+  test("treats only next dev outside Vercel deployments as local development", () => {
+    expect(
+      magicLinkDeliveryEnvironment({
+        VERCEL_ENV: "development",
+        NODE_ENV: "development",
+      })
+    ).toEqual({ isVercelPreview: false, isLocalDevelopment: true });
+    // bun test and production builds run without NODE_ENV=development.
+    for (const NODE_ENV of ["test", "production", undefined]) {
+      expect(
+        magicLinkDeliveryEnvironment({ VERCEL_ENV: "development", NODE_ENV })
+      ).toEqual({ isVercelPreview: false, isLocalDevelopment: false });
+    }
+  });
+
+  test("never treats a Vercel deployment as local development", () => {
+    for (const NODE_ENV of ["development", "production"]) {
+      expect(
+        magicLinkDeliveryEnvironment({ VERCEL_ENV: "preview", NODE_ENV })
+      ).toEqual({ isVercelPreview: true, isLocalDevelopment: false });
+      expect(
+        magicLinkDeliveryEnvironment({ VERCEL_ENV: "production", NODE_ENV })
+      ).toEqual({ isVercelPreview: false, isLocalDevelopment: false });
+    }
   });
 });
 
@@ -286,7 +427,9 @@ describe("Errors and log safety", () => {
     try {
       code = await runDeliver(
         resendEmailConfig,
-        makeMagicLinkEmailDelivery(renderOk, productionRouting).deliver(request)
+        makeMagicLinkEmailDelivery(renderOk, productionEnvironment).deliver(
+          request
+        )
       );
     } finally {
       consoleLines.restore();
@@ -310,7 +453,7 @@ describe("Errors and log safety", () => {
       code = await runDeliver(
         resendEmailConfig,
         withInstantSleeps(
-          makeMagicLinkEmailDelivery(renderOk, productionRouting).deliver(
+          makeMagicLinkEmailDelivery(renderOk, productionEnvironment).deliver(
             request
           )
         )
@@ -333,42 +476,32 @@ describe("Errors and log safety", () => {
       resendEmailConfig,
       makeMagicLinkEmailDelivery(
         () => Effect.fail(new Error("render exploded with secret-token")),
-        productionRouting
+        productionEnvironment
       ).deliver(request)
     );
 
     expect(code).toBe("account.magic-link.delivery-failed");
   });
 
-  test("stays unconfigured without a delivering credential and never renders or sends", async () => {
-    let rendered = false;
-    const code = await runDeliver(
-      { EMAIL_PROVIDER: "resend" },
-      makeMagicLinkEmailDelivery(() => {
-        rendered = true;
-        return renderOk();
-      }, productionRouting).deliver(request)
-    );
+  test("logs a real recipient through Console without a Resend key", async () => {
+    for (const environment of [productionEnvironment, previewEnvironment]) {
+      const consoleLines = captureConsole();
+      let code: string | undefined;
+      try {
+        code = await runDeliver(
+          {},
+          makeMagicLinkEmailDelivery(renderOk, environment).deliver(request)
+        );
+      } finally {
+        consoleLines.restore();
+      }
 
-    expect(code).toBe("account.magic-link.delivery-unconfigured");
-    expect(rendered).toBe(false);
-    expect(resendSend).not.toHaveBeenCalled();
-  });
-
-  test("keeps the production Console guard failing closed without a delivering credential", async () => {
-    setEnv("NODE_ENV", "production");
-    setEnv("VERCEL_ENV", "production");
-    let rendered = false;
-    const code = await runDeliver(
-      { EMAIL_PROVIDER: "console" },
-      makeMagicLinkEmailDelivery(() => {
-        rendered = true;
-        return renderOk();
-      }, productionRouting).deliver(request)
-    );
-
-    expect(code).toBe("account.magic-link.delivery-unconfigured");
-    expect(rendered).toBe(false);
+      expect(code).toBe("account.magic-link.delivery-accepted");
+      const logged = consoleLines.join("\n");
+      expect(logged).not.toContain(request.email);
+      expect(logged).not.toContain("secret-token");
+      expect(previewE2ELines(consoleLines)).toEqual([]);
+    }
     expect(resendSend).not.toHaveBeenCalled();
   });
 
@@ -377,7 +510,9 @@ describe("Errors and log safety", () => {
     try {
       const code = await runDeliver(
         resendEmailConfig,
-        makeMagicLinkEmailDelivery(renderOk, productionRouting).deliver(request)
+        makeMagicLinkEmailDelivery(renderOk, productionEnvironment).deliver(
+          request
+        )
       );
       expect(code).toBe("account.magic-link.delivery-accepted");
     } finally {
@@ -385,72 +520,44 @@ describe("Errors and log safety", () => {
     }
 
     const logged = consoleLines.join("\n");
-    expect(logged).not.toContain("ada@example.test");
+    expect(logged).not.toContain(request.email);
     expect(logged).not.toContain("secret-token");
     expect(logged).not.toContain("verify?token");
     expect(logged).not.toContain("Sign in link");
   });
 });
 
-describe("Recipient-based provider routing", () => {
-  test("synthetic Preview recipients force the shared Console provider", () => {
-    expect(routeMagicLinkEmail(previewRouting, syntheticRequest.email)).toBe(
-      "preview-e2e-console"
-    );
-  });
-
-  test("every other recipient context uses the configured default provider", () => {
-    expect(routeMagicLinkEmail(previewRouting, request.email)).toBe(
-      "configured-default"
-    );
-    expect(routeMagicLinkEmail(productionRouting, syntheticRequest.email)).toBe(
-      "configured-default"
-    );
-    expect(routeMagicLinkEmail(productionRouting, request.email)).toBe(
-      "configured-default"
-    );
-  });
-});
-
 describe("Synthetic E2E email recipient pattern", () => {
-  test("accepts run-id and label segments on the resend.dev test address", () => {
-    expect(
-      isSyntheticE2EEmailRecipient("delivered+run7f3a2b-signin@resend.dev")
-    ).toBe(true);
-    expect(
-      isSyntheticE2EEmailRecipient("delivered+abc123-delete@resend.dev")
-    ).toBe(true);
-    expect(
-      isSyntheticE2EEmailRecipient("delivered+a1b2-c3d4-e5f6-logout@resend.dev")
-    ).toBe(true);
-    expect(
-      isSyntheticE2EEmailRecipient("DELIVERED+run7f3a2b-signin@RESEND.DEV")
-    ).toBe(true);
-  });
+  const synthetic = (localPart: string) =>
+    isSyntheticE2EEmailRecipient(testEmailAddress(localPart));
 
-  test("rejects malformed, bare, and arbitrary-domain addresses", () => {
-    expect(isSyntheticE2EEmailRecipient("delivered@resend.dev")).toBe(false);
-    expect(isSyntheticE2EEmailRecipient("delivered+onlylabel@resend.dev")).toBe(
-      false
-    );
-    expect(isSyntheticE2EEmailRecipient("delivered+run-id-@resend.dev")).toBe(
-      false
-    );
-    expect(
-      isSyntheticE2EEmailRecipient("delivered+run--id-signin@resend.dev")
-    ).toBe(false);
-    expect(
-      isSyntheticE2EEmailRecipient("delivered+run id-signin@resend.dev")
-    ).toBe(false);
+  test("accepts run-id and label segments on the test domain", () => {
+    expect(synthetic("delivered+run7f3a2b-signin")).toBe(true);
+    expect(synthetic("delivered+abc123-delete")).toBe(true);
+    expect(synthetic("delivered+a1b2-c3d4-e5f6-logout")).toBe(true);
     expect(
       isSyntheticE2EEmailRecipient(
-        "delivered+run7f3a2b-signin@resend.dev.evil.test"
+        testEmailAddress("DELIVERED+run7f3a2b-signin").toUpperCase()
+      )
+    ).toBe(true);
+  });
+
+  test("rejects malformed, bare, and other-domain addresses", () => {
+    expect(synthetic("delivered")).toBe(false);
+    expect(synthetic("delivered+onlylabel")).toBe(false);
+    expect(synthetic("delivered+run-id-")).toBe(false);
+    expect(synthetic("delivered+run--id-signin")).toBe(false);
+    expect(synthetic("delivered+run id-signin")).toBe(false);
+    expect(isSyntheticE2EEmailRecipient(`${syntheticRequest.email}.evil`)).toBe(
+      false
+    );
+    // Resend's simulator domain is never the test domain.
+    expect(
+      isSyntheticE2EEmailRecipient(
+        resendSimulatorAddress("delivered", "run7f3a2b-signin")
       )
     ).toBe(false);
-    expect(
-      isSyntheticE2EEmailRecipient("delivered+run7f3a2b-signin@evil.test")
-    ).toBe(false);
-    expect(isSyntheticE2EEmailRecipient("ada@example.test")).toBe(false);
+    expect(isSyntheticE2EEmailRecipient(request.email)).toBe(false);
     expect(isSyntheticE2EEmailRecipient("")).toBe(false);
   });
 });

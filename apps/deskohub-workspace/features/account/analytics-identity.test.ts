@@ -9,8 +9,11 @@ import {
   setSystemTime,
   test,
 } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { customerAccountIdSchema } from "./customer-account";
+
+const customerEmail = testEmailAddress("synthetic");
 
 type SessionQuery = {
   readonly query?: {
@@ -83,7 +86,7 @@ const authenticatedSession = (
       token: "session-token-must-not-leave-adapter",
     },
     user: {
-      email: "synthetic@example.test",
+      email: customerEmail,
       emailVerified: overrides.emailVerified ?? true,
       id: accountId,
       name: "Synthetic User",
@@ -198,7 +201,7 @@ describe("analytics account identity", () => {
     });
     expect(
       JSON.stringify(analyticsIdentity.getAnalyticsAccountIdentity())
-    ).not.toContain("synthetic@example.test");
+    ).not.toContain(customerEmail);
     expect(
       JSON.stringify(analyticsIdentity.getAnalyticsAccountIdentity())
     ).not.toContain("session-token");
@@ -438,7 +441,7 @@ describe("analytics account identity", () => {
     expect(firstMarker === secondMarker).toBe(false);
     for (const marker of [firstMarker, secondMarker]) {
       expect(marker.includes("synthetic-account-a")).toBe(false);
-      expect(marker.includes("synthetic@example.test")).toBe(false);
+      expect(marker.includes(customerEmail)).toBe(false);
       expect(marker.includes("session-token-must-not-leave-adapter")).toBe(
         false
       );

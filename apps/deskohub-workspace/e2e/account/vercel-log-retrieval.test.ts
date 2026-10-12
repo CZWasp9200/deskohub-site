@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import {
   BasicTracerProvider,
   InMemorySpanExporter,
@@ -810,7 +811,7 @@ describe("workspace e2e Vercel log retrieval", () => {
       Response.json(
         page([
           row("req-other", [
-            log(previewE2ELine(magicLink("token"), "other@resend.dev")),
+            log(previewE2ELine(magicLink("token"), testEmailAddress("other"))),
           ]),
         ])
       )

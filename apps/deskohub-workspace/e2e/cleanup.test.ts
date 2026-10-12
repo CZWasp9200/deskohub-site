@@ -1,5 +1,6 @@
 import { expect, mock, test } from "bun:test";
 import { ExternalAPIError } from "@deskohub/dotypos";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Effect } from "effect";
 import {
   cleanupCheckoutFlowStates,
@@ -7,6 +8,8 @@ import {
 } from "./cleanup";
 import type { DatasourceConfig } from "./config";
 import type { CheckoutData, CheckoutFlowState, CheckoutRow } from "./types";
+
+const otherRunEmail = testEmailAddress("delivered+other-run");
 
 test("fallback cleanup cancels every matching reservation exactly once", async () => {
   const firstRow = checkoutRow("dotypos-reservation-1");
@@ -164,7 +167,7 @@ test("does not cancel order or fallback rows outside their journaled recipient",
           Effect.succeed({
             customerId:
               "dotypos-customer-1" as CheckoutRow["dotypos_customer_id"],
-            email: "delivered+other-run@resend.dev",
+            email: otherRunEmail,
           }),
       }
     )
@@ -190,7 +193,7 @@ test("does not cancel order or fallback rows outside their journaled recipient",
           Effect.succeed({
             customerId:
               "dotypos-customer-1" as CheckoutRow["dotypos_customer_id"],
-            email: "delivered+other-run@resend.dev",
+            email: otherRunEmail,
           }),
       }
     )
@@ -224,7 +227,7 @@ test("validates ownership of a captured reservation before checkout cancellation
           Effect.succeed({
             customerId:
               "dotypos-customer-1" as CheckoutRow["dotypos_customer_id"],
-            email: "delivered+other-run@resend.dev",
+            email: otherRunEmail,
           }),
       }
     )
@@ -459,7 +462,7 @@ test("waits for case cancellations to leave active inventory", async () => {
 const checkoutData = () =>
   ({
     date: "2026-08-04",
-    email: "delivered+synthetic-checkout@resend.dev",
+    email: testEmailAddress("delivered+synthetic-checkout"),
     expectedReservationDetails: {
       kind: "cowork",
       entryTier: "basic",

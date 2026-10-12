@@ -44,24 +44,30 @@ const isBlank = (value: string | undefined): boolean =>
   value === undefined || value.trim() === "";
 
 /**
- * Production must never serve a release whose account email delivery or
- * cron authentication is unconfigured: magic links would silently fail to
- * send and cleanup jobs would be publicly invokable. Preview, development,
- * and test environments stay usable without these secrets.
+ * Deployed environments must never serve a release whose account email
+ * delivery is unconfigured: without a Resend key every message, including
+ * magic links, is only logged. Production must also never leave cleanup jobs
+ * publicly invokable without cron authentication. Development and test
+ * environments stay usable without these secrets.
  */
-const accountOperationsProductionEnvironmentCheck = Schema.makeFilter<{
+const accountOperationsEnvironmentCheck = Schema.makeFilter<{
   readonly VERCEL_ENV: "production" | "preview" | "development";
   readonly EMAIL_API_KEY?: string | undefined;
   readonly CRON_SECRET?: string | undefined;
 }>((environment) => {
-  if (environment.VERCEL_ENV !== "production") return undefined;
+  if (environment.VERCEL_ENV === "development") return undefined;
 
-  return (
-    [
-      ["EMAIL_API_KEY", "EMAIL_API_KEY is required in production."],
-      ["CRON_SECRET", "CRON_SECRET is required in production."],
-    ] as const
-  ).flatMap(([key, issue]) =>
+  const requirements: readonly (readonly [
+    "EMAIL_API_KEY" | "CRON_SECRET",
+    string,
+  ])[] = [
+    ["EMAIL_API_KEY", "EMAIL_API_KEY is required in production and preview."],
+    ...(environment.VERCEL_ENV === "production"
+      ? [["CRON_SECRET", "CRON_SECRET is required in production."] as const]
+      : []),
+  ];
+
+  return requirements.flatMap(([key, issue]) =>
     isBlank(environment[key]) ? [{ path: [key], issue }] : []
   );
 });
@@ -119,9 +125,6 @@ export const workspaceServerEnvSchema = Schema.Struct({
   DOTYPOS_EMPLOYEE_ID: nonEmptyStringSchema,
   DOTYPOS_REFRESH_TOKEN: nonEmptyStringSchema,
   EMAIL_API_KEY: optionalStringSchema,
-  EMAIL_PROVIDER: toEnvSchema(
-    Schema.optional(Schema.Literals(["resend", "console"]))
-  ),
   GOOGLE_CALENDAR_PRIVATE_KEY: nonEmptyStringSchema,
   GOOGLE_CALENDAR_SALES_ID: nonEmptyStringSchema,
   GOOGLE_CALENDAR_SERVICE_ACCOUNT_EMAIL: nonEmptyStringSchema,
@@ -192,7 +195,7 @@ export const workspaceServerEnvSchema = Schema.Struct({
 }).check(
   postHogFeatureFlagOverridesEnvironmentCheck,
   igloohomeProductionEnvironmentCheck,
-  accountOperationsProductionEnvironmentCheck,
+  accountOperationsEnvironmentCheck,
   betterAuthSecretsProductionEnvironmentCheck
 );
 
@@ -213,7 +216,7 @@ export const createEnvironmentSchema = (
       ? schema.check(
           postHogFeatureFlagOverridesEnvironmentCheck,
           igloohomeProductionEnvironmentCheck,
-          accountOperationsProductionEnvironmentCheck,
+          accountOperationsEnvironmentCheck,
           betterAuthSecretsProductionEnvironmentCheck
         )
       : schema

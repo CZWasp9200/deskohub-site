@@ -20,7 +20,10 @@ import { defaultLocale, isLocale, type Locale } from "@/features/i18n";
 import { runWorkspaceEffect } from "@/shared/backend/workspace-effect";
 import { authOptions, betterAuthMagicLinkOptions } from "./auth-options";
 import { renderMagicLinkEmail } from "./magic-link-email";
-import { makeMagicLinkEmailDelivery } from "./send-magic-link-email";
+import {
+  magicLinkDeliveryEnvironment,
+  makeMagicLinkEmailDelivery,
+} from "./send-magic-link-email";
 
 export type MagicLinkSendFunction = NonNullable<
   Parameters<typeof magicLink>[0]["sendMagicLink"]
@@ -177,9 +180,13 @@ export const makeWorkspaceAuth = (config: WorkspaceAuthConfig) => {
 };
 
 const makeWorkspaceMagicLinkDelivery = () =>
-  makeMagicLinkEmailDelivery(renderMagicLinkEmail, {
-    isVercelPreview: env.VERCEL_ENV === "preview",
-  });
+  makeMagicLinkEmailDelivery(
+    renderMagicLinkEmail,
+    magicLinkDeliveryEnvironment({
+      VERCEL_ENV: env.VERCEL_ENV,
+      NODE_ENV: process.env.NODE_ENV,
+    })
+  );
 
 export const makeWorkspaceAuthDatabase = () =>
   drizzleAdapter(makeAuthDatabase(workspaceDatabasePool), {

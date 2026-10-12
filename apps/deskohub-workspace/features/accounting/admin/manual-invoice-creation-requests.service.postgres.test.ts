@@ -1,6 +1,7 @@
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import { AdministrationInvoiceCreateInput } from "@deskohub/workspace-admin-api";
 import { Deferred, Effect, Fiber, Layer, Schema } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
@@ -37,7 +38,7 @@ const uniqueInvoiceId = () => invoiceIdSchema.make(crypto.randomUUID());
 
 const customerDetails = {
   kind: "business",
-  email: "billing-claim@example.test",
+  email: testEmailAddress("billing-claim"),
   phone: "+420 111 222 333",
   companyName: "Synthetic Claims s.r.o.",
   companyId: "87654321",

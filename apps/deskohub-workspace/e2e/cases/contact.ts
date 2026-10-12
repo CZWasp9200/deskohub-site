@@ -1,3 +1,4 @@
+import { testEmailAddress } from "@deskohub/test-email";
 import { Effect } from "effect";
 import {
   fillBrowserField,
@@ -29,7 +30,7 @@ export const assertContactForm = ({
   Effect.gen(function* () {
     const runId = new Date().toISOString().replace(/[-:.TZ]/g, "");
     const data = {
-      email: `workspace-e2e-contact-${runId}@example.com`,
+      email: testEmailAddress(`delivered+workspace-e2e-contact-${runId}`),
       message: `Automated workspace contact e2e ${runId}`,
       name: `Workspace Contact E2E ${runId}`,
       phone: `+420736${runId.slice(8, 14)}`,

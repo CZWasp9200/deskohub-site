@@ -2,6 +2,7 @@ import "@/shared/testing/workspace-test-env";
 
 import { afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { DotyposCustomerIdSchema } from "@deskohub/dotypos";
+import { testEmailAddress } from "@deskohub/test-email";
 import { and, desc, eq, inArray, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { ConfigProvider, Effect, Layer, Schema } from "effect";
@@ -170,7 +171,7 @@ describe.skipIf(!postgresDatabase)(
     const reservation = Schema.decodeUnknownSync(reservationOrderSchema)({
       kind: "cowork",
       name: "Ada Lovelace",
-      email: "ada@example.com",
+      email: testEmailAddress("ada"),
       phone: "+420 777 777 777",
       date: "2099-06-10",
       entryTier: "basic",

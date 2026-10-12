@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Effect, Schema } from "effect";
 import {
   formatInvoiceNumber,
@@ -28,7 +29,7 @@ const makeDocument = async (
         country: "CZ",
       },
     },
-    deliveryEmail: "invoice@example.test",
+    deliveryEmail: testEmailAddress("invoice"),
     locale: "cs-CZ",
     serviceDate: "2026-08-18",
     payment,

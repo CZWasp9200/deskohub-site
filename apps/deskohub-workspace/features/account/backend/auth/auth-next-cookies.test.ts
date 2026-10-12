@@ -1,3 +1,4 @@
+import { testEmailAddress } from "@deskohub/test-email";
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, mock, test } from "bun:test";
@@ -71,7 +72,7 @@ const makeTestAuth = (sentMagicLinks: { url: string }[] = []) => {
 };
 
 const uniqueEmail = (label: string) =>
-  `${label}-${crypto.randomUUID()}@deskohub.test`;
+  testEmailAddress(`${label}-${crypto.randomUUID()}`);
 
 const runIpOctet = Math.floor(Math.random() * 200) + 20;
 let ipCounter = 0;

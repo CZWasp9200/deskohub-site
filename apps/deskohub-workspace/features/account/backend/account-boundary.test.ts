@@ -7,7 +7,6 @@ import {
   identifierNames,
   nodesOf,
   parseTrackedSource,
-  stringLiterals,
 } from "@/scripts/shared/source-ast";
 
 // Import and naming boundaries of the account feature are lint rules: see the
@@ -36,13 +35,17 @@ const listBackendSources = async (
 
 describe("Customer-account backend logging", () => {
   test("never logs raw auth or provider values in the account backend", async () => {
-    // Permit only the synthetic Preview bearer-link emitter in the account
-    // backend.
+    // Permit only the bearer-link emitter for synthetic Preview and local
+    // development in the account backend.
     const authorizedEmitterFile = `${backendDirectory}/auth/send-magic-link-email.ts`;
-    const authorizedEmitterName = "emitPreviewE2EConsoleDelivery";
-    const authorizedLogCode = "account.magic-link.preview-e2e";
+    const authorizedEmitterName = "emitAuthorizedMagicLinkLine";
+    const authorizedLineType = "AuthorizedMagicLinkLine";
+    const authorizedLogCodes = [
+      "magicLinkPreviewE2ELogCode",
+      "magicLinkDevelopmentLogCode",
+    ];
 
-    const isAuthorizedPreviewE2EConsoleCall = (
+    const isAuthorizedMagicLinkConsoleCall = (
       file: string,
       member: TSESTree.MemberExpression,
       nodes: readonly TSESTree.Node[]
@@ -58,19 +61,17 @@ describe("Customer-account backend logging", () => {
           node.id.name === authorizedEmitterName
       );
       if (!emitter || !containsNode(emitter, member)) return false;
-      const call = nodes.find(
+      // The emitter accepts only the line type whose codes are the approved
+      // bearer-log codes.
+      const lineType = nodes.find(
         (node) =>
-          node.type === "CallExpression" &&
-          node.callee.type === "MemberExpression" &&
-          node.callee.range[0] === member.range[0] &&
-          node.callee.range[1] === member.range[1]
+          node.type === "TSTypeAliasDeclaration" &&
+          node.id.name === authorizedLineType
       );
-      if (call?.type !== "CallExpression") return false;
       return (
-        identifierNames(call).has("magicLinkPreviewE2ELogCode") ||
-        stringLiterals(call).some(
-          (literal) => literal.value === authorizedLogCode
-        )
+        identifierNames(emitter).has(authorizedLineType) &&
+        lineType !== undefined &&
+        authorizedLogCodes.every((code) => identifierNames(lineType).has(code))
       );
     };
 
@@ -95,7 +96,7 @@ describe("Customer-account backend logging", () => {
         }
         consoleCalls.push({
           method: node.property.name,
-          authorized: isAuthorizedPreviewE2EConsoleCall(file, node, nodes),
+          authorized: isAuthorizedMagicLinkConsoleCall(file, node, nodes),
         });
       }
 

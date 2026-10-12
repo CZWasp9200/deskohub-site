@@ -1,5 +1,6 @@
 import "@/shared/polyfills/temporal";
 import { describe, expect, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Option, Schema } from "effect";
 import {
   advertisedPriceRequestBatchSize,
@@ -149,7 +150,7 @@ describe("advertised price contract", () => {
       locale: "en-US",
       reservation: {
         ...reservation,
-        customerEmail: "ada@example.test",
+        customerEmail: testEmailAddress("ada"),
       },
     });
 

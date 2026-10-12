@@ -4,6 +4,7 @@ import "@/shared/testing/workspace-test-env";
 import { describe, expect, mock, test } from "bun:test";
 import { DotyposService } from "@deskohub/dotypos";
 import { EmailRecipientDomainServiceMock } from "@deskohub/email/backend/recipient-domain.service.mock";
+import { testEmailAddress } from "@deskohub/test-email";
 import { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Effect, Layer, Schema } from "effect";
 import type { WorkspaceReservation } from "@/db/schema";
@@ -37,6 +38,9 @@ import { OfficeReservationFeatureFlagService } from "@/features/office/backend/o
 import type { IWorkspaceAvailabilityService } from "@/features/reservation/backend/workspace-availability.service";
 import { meetingRoomAdvertisedPriceReservationSchema } from "@/features/reservation/meeting-room-reservation";
 import { workspaceSiteConstants } from "@/shared/utils/site-constants";
+
+const testEmailAddressForAda = testEmailAddress("ada");
+const testEmailAddressForGrace = testEmailAddress("grace");
 
 mock.module("server-only", () => ({}));
 
@@ -74,7 +78,7 @@ const reservation = {
   date: "2026-07-01",
   coffee: false,
   name: "Ada Lovelace",
-  email: "ada@example.com",
+  email: testEmailAddressForAda,
   phone: "+420 777 777 777",
   billing: { purpose: "personal" as const, invoice: "none" as const },
 };
@@ -88,7 +92,7 @@ const meetingRoomReservationInput = {
   startsAt: "2099-06-10T08:00:00Z",
   endsAt: "2099-06-10T12:00:00Z",
   name: "Ada Lovelace",
-  email: "ada@example.com",
+  email: testEmailAddressForAda,
   phone: "+420 777 777 777",
 };
 
@@ -518,7 +522,7 @@ const runMeetingRoomNewHoldScenario = async (
     startsAt: "2099-06-10T08:00:00Z",
     endsAt: "2099-06-10T12:00:00Z",
     name: "Ada Lovelace",
-    email: "ada@example.com",
+    email: testEmailAddressForAda,
     phone: "+420 777 777 777",
   },
   advertisedMetadata: {
@@ -754,7 +758,7 @@ describe("prepareWorkspacePayState", () => {
         endsOn: "2099-06-11",
         seats: 3,
         name: "Ada Lovelace",
-        email: "ada@example.com",
+        email: testEmailAddressForAda,
         phone: "+420 777 777 777",
       },
     }).pipe(
@@ -799,7 +803,7 @@ describe("prepareWorkspacePayState", () => {
         startsAt: "2099-06-10T08:00:00Z",
         endsAt: "2099-06-10T12:00:00Z",
         name: "Ada Lovelace",
-        email: "ada@example.com",
+        email: testEmailAddressForAda,
         phone: "+420 777 777 777",
       },
     });
@@ -920,7 +924,7 @@ describe("prepareWorkspacePayState", () => {
       startsAt: startsAt.toString(),
       endsAt: endsAt.toString(),
       name: "Ada Lovelace",
-      email: "ada@example.com",
+      email: testEmailAddressForAda,
       phone: "+420 777 777 777",
     };
     const scenario = await runMeetingRoomNewHoldScenario(wholeDayReservation);
@@ -1410,7 +1414,7 @@ describe("prepareWorkspacePayState", () => {
         accountId: "5b6f31d0-2c1a-4f0e-9a3d-6c7b8e2f1a01",
         dotyposCustomerId: accountDotyposCustomerId,
         name: "Grace Hopper",
-        email: "grace@example.test",
+        email: testEmailAddressForGrace,
         phone: "+420 602 123 456",
         ...overrides,
       } as never);
@@ -1481,7 +1485,7 @@ describe("prepareWorkspacePayState", () => {
         reservation: {
           ...reservation,
           name: "Someone Else",
-          email: "someone.else@example.com",
+          email: testEmailAddress("someone.else"),
           phone: "+420 777 777 777",
         },
         customer: "account",
@@ -1493,7 +1497,7 @@ describe("prepareWorkspacePayState", () => {
         scenario.quoteForCustomer.mock.calls[0]?.[0].reservation
       ).toMatchObject({
         name: "Grace Hopper",
-        email: "grace@example.test",
+        email: testEmailAddressForGrace,
         phone: "+420 602 123 456",
       });
     });
@@ -1512,7 +1516,7 @@ describe("prepareWorkspacePayState", () => {
         scenario.quoteForCustomer.mock.calls[0]?.[0].reservation
       ).toMatchObject({
         name: "Grace Hopper",
-        email: "grace@example.test",
+        email: testEmailAddressForGrace,
         phone: reservation.phone,
       });
     });
@@ -1686,7 +1690,7 @@ describe("prepareWorkspacePayState", () => {
           accountId: "5b6f31d0-2c1a-4f0e-9a3d-6c7b8e2f1a01",
           dotyposCustomerId: "60111",
           name: "Grace Hopper",
-          email: "grace@example.test",
+          email: testEmailAddress("grace"),
           phone: "+420 602 123 456",
         } as never),
         checkContactEmailDomain,

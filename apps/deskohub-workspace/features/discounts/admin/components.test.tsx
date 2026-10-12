@@ -8,6 +8,7 @@ import {
   mock,
   test,
 } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Profiler, StrictMode } from "react";
 import { AdministrationTableToolbar } from "@/features/administration/components";
 import { loadFixtureReservations } from "@/features/administration/fixtures";
@@ -20,6 +21,8 @@ import type {
   AdminCustomerProfile,
   DiscountAdminDashboard,
 } from "./discount-administration.service";
+
+const testEmailAddressForTest = testEmailAddress("test");
 
 // react-dom decides how to synthesize change events while it is evaluated, so
 // the DOM environment must exist before @testing-library/react loads. Static
@@ -705,7 +708,7 @@ describe("discount administration pages", () => {
               customer: {
                 id: "dotypos-customer",
                 displayName: "Test Customer",
-                email: "test@example.com",
+                email: testEmailAddressForTest,
                 phone: null,
                 discountGroupId: null,
               },
@@ -775,7 +778,7 @@ describe("discount administration pages", () => {
               customer: {
                 id: "dotypos-customer",
                 displayName: "Test Customer",
-                email: "test@example.com",
+                email: testEmailAddressForTest,
                 phone: null,
                 discountGroupId: null,
               },
@@ -824,7 +827,7 @@ describe("discount administration pages", () => {
       customer: {
         id: "dotypos-customer",
         displayName: "Test Customer",
-        email: "test@example.com",
+        email: testEmailAddressForTest,
         phone: "+420 123 456 789",
         discountGroupId: null,
       },
@@ -1070,8 +1073,8 @@ describe("discount administration pages", () => {
     expect(view.queryByText("Declined")).toBeNull();
     expect(view.queryByText("Privacy policy")).toBeNull();
     expect(
-      view.container.textContent?.match(/test@example\.com/g)
-    ).toHaveLength(1);
+      view.container.textContent?.split(testEmailAddressForTest)
+    ).toHaveLength(2);
     expect(
       view.container.textContent?.match(/\+420 123 456 789/g)
     ).toHaveLength(1);
@@ -1150,7 +1153,7 @@ describe("discount administration pages", () => {
           customer: {
             id: "dotypos-customer",
             displayName: "Test Customer",
-            email: "test@example.com",
+            email: testEmailAddressForTest,
             phone: null,
             discountGroupId: null,
           },
@@ -1205,7 +1208,7 @@ describe("discount administration pages", () => {
           customer: {
             id: "dotypos-customer",
             displayName: "Test Customer",
-            email: "test@example.com",
+            email: testEmailAddressForTest,
             phone: null,
             discountGroupId: null,
           },
@@ -1335,7 +1338,7 @@ describe("discount administration pages", () => {
           customer: {
             id: "dotypos-customer",
             displayName: "Test Customer",
-            email: "test@example.com",
+            email: testEmailAddressForTest,
             phone: null,
             discountGroupId: null,
           },
@@ -2361,7 +2364,7 @@ describe("discount administration pages", () => {
             {
               id: "dotypos-customer",
               displayName: "Test Customer",
-              email: "test@example.com",
+              email: testEmailAddressForTest,
               phone: null,
               discountGroupId: null,
             },

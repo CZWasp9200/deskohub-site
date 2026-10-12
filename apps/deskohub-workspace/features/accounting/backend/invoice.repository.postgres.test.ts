@@ -7,6 +7,7 @@ import {
   DotyposReservationIdSchema,
 } from "@deskohub/dotypos";
 import { NexiCorrelationIdSchema, NexiOrderIdSchema } from "@deskohub/nexi";
+import { testEmailAddress } from "@deskohub/test-email";
 import { asc, eq, inArray, like, sql } from "drizzle-orm";
 import { Effect, Layer } from "effect";
 import {
@@ -79,7 +80,7 @@ const prepared = {
     ...coworkOrder,
     date: "2099-01-01",
     name: "Synthetic Invoice Customer",
-    email: "invoice-integration@example.test",
+    email: testEmailAddress("invoice-integration"),
     phone: "+420 700 000 000",
   },
   quote: buildCoworkReservationQuote(coworkOrder),

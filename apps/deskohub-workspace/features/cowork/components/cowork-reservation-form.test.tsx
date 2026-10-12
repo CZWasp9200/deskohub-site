@@ -8,6 +8,7 @@ import {
   setSystemTime,
   test,
 } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   act,
@@ -56,6 +57,8 @@ import {
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
 } from "@/shared/testing/workspace-component-test-env";
+
+const testEmailAddressForAda = testEmailAddress("ada");
 
 registerWorkspaceComponentTestEnv();
 
@@ -317,7 +320,7 @@ const reservedDeskFormValues = (
   date,
   monitorOption,
   name: "Ada Lovelace",
-  email: "ada@example.test",
+  email: testEmailAddressForAda,
   phone: "+420777777777",
 });
 
@@ -392,7 +395,7 @@ describe("CoworkReservationForm advertised pricing", () => {
   beforeEach(() => {
     workspaceUseSearchParams.mockReturnValue(
       new URLSearchParams(
-        "entryTier=open-space&date=2099-07-30&coffee=true&name=Ada%20Lovelace&email=ada%40example.test&phone=%2B420777777777"
+        `entryTier=open-space&date=2099-07-30&coffee=true&name=Ada%20Lovelace&email=${encodeURIComponent(testEmailAddressForAda)}&phone=%2B420777777777`
       )
     );
     workspaceUseAction.mockReturnValue({
@@ -1967,7 +1970,7 @@ describe("CoworkReservationForm advertised pricing", () => {
           entryTier: "open-space",
           date: selectedDate,
           name: "Ada Lovelace",
-          email: "ada@example.test",
+          email: testEmailAddressForAda,
           phone: "+420777777777",
         },
       },
@@ -2010,7 +2013,7 @@ describe("CoworkReservationForm advertised pricing", () => {
   test("blocks checkout with an availability error when the selected-date query fails after retries", async () => {
     const selectedDate = dateOffsetFromToday(1);
     const searchParams = new URLSearchParams(
-      `entryTier=open-space&date=${selectedDate}&coffee=true&name=Ada%20Lovelace&email=ada%40example.test&phone=%2B420777777777`
+      `entryTier=open-space&date=${selectedDate}&coffee=true&name=Ada%20Lovelace&email=${encodeURIComponent(testEmailAddressForAda)}&phone=%2B420777777777`
     );
     workspaceUseSearchParams.mockReturnValue(searchParams);
     const selectedDateQuery = selectedDateAvailabilityQuery(
@@ -2059,7 +2062,7 @@ describe("CoworkReservationForm advertised pricing", () => {
           date: selectedDate,
           coffee: true,
           name: "Ada Lovelace",
-          email: "ada@example.test",
+          email: testEmailAddressForAda,
           phone: "+420777777777",
         },
       },
@@ -2586,7 +2589,7 @@ describe("CoworkReservationForm advertised pricing", () => {
         entryTier: "open-space",
         date: initialDate,
         name: "Ada Lovelace",
-        email: "ada@example.test",
+        email: testEmailAddressForAda,
         phone: "+420777777777",
       },
     });
@@ -2707,7 +2710,7 @@ describe("CoworkReservationForm advertised pricing", () => {
           entryTier: "open-space",
           date: selectedDate,
           name: "Ada Lovelace",
-          email: "ada@example.test",
+          email: testEmailAddressForAda,
           phone: "+420777777777",
         },
       },
@@ -2991,7 +2994,7 @@ describe("CoworkReservationForm advertised pricing", () => {
       date: requiredDate,
       monitorOption: "2x32-qhd" as const,
       name: "Ada Lovelace",
-      email: "ada@example.test",
+      email: testEmailAddressForAda,
       phone: "+420777777777",
       billing: coworkReservationDefaultValues.billing,
     };

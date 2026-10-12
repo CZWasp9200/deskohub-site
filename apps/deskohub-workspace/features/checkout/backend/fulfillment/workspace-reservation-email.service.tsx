@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
 import type { Customer } from "@deskohub/dotypos/generated";
 import type { EmailDeliveryId } from "@deskohub/email";
-import type { NetworkError } from "@deskohub/email/backend/network-error";
 import {
   EmailConfigTag,
+  type EmailSendError,
   EmailServiceError,
   EmailServiceTag,
 } from "@deskohub/email/backend/service";
@@ -39,7 +39,8 @@ import {
 import { getWorkspaceRuntimeCallbackOrigin } from "@/shared/backend/config/workspace-url.config";
 import { renderWorkspaceEmail } from "@/shared/backend/email/render-react-email";
 import {
-  internalWorkspaceEmailRecipient,
+  internalWorkspaceEmailRecipientFor,
+  internalWorkspaceEmailSubject,
   workspaceEmailRecipient,
 } from "@/shared/backend/email/workspace-email-recipients";
 import {
@@ -62,10 +63,10 @@ export interface IWorkspaceReservationEmailService {
   readonly sendPaidReservationEmails: (input: {
     readonly reservation: WorkspaceReservationDetails;
     readonly customerEmailIdempotencyKey?: string;
-  }) => Effect.Effect<EmailDeliveryId, EmailServiceError | NetworkError>;
+  }) => Effect.Effect<EmailDeliveryId, EmailSendError>;
   readonly sendCancellationEmail: (input: {
     readonly reservation: WorkspaceReservationDetails;
-  }) => Effect.Effect<void, EmailServiceError | NetworkError>;
+  }) => Effect.Effect<void, EmailSendError>;
 }
 
 const customerAccessCategory = "workspace-paid-reservation-access";
@@ -76,7 +77,6 @@ const workspaceNetworkQrContentId = "workspace-wifi-qr";
 const workspaceLocationMapUrl = getWorkspaceCanonicalUrl(
   workspaceLocationMapImagePath
 );
-const internalTestingSubjectPrefix = "[TESTING]";
 const internalNotificationLocale: Locale = "cs-CZ";
 
 export const createCustomerEmailInitialIdempotencyKey = (
@@ -129,18 +129,13 @@ const createCustomerAccessHeading = (
 
 const createInternalReservationSubject = (
   reservation: WorkspaceReservationDetails
-) => {
-  const subject = m.checkoutEmailInternalPaidReservationSubject(
-    { orderId: reservation.id },
-    { locale: internalNotificationLocale }
+) =>
+  internalWorkspaceEmailSubject(
+    m.checkoutEmailInternalPaidReservationSubject(
+      { orderId: reservation.id },
+      { locale: internalNotificationLocale }
+    )
   );
-
-  if (env.VERCEL_ENV === "production") {
-    return subject;
-  }
-
-  return `${internalTestingSubjectPrefix} ${subject}`;
-};
 
 const createWorkspaceNetworkQrAttachment = (
   networkDetails: WorkspaceCheckoutNetworkDetails
@@ -657,7 +652,7 @@ export class WorkspaceReservationEmailService extends Context.Service<
             );
             const internalMessage: EmailMessage = {
               from: emailConfig.defaultFrom,
-              to: internalWorkspaceEmailRecipient,
+              to: internalWorkspaceEmailRecipientFor(customerEmail),
               replyTo: { email: customerEmail, name: customerName },
               subject: createInternalReservationSubject(reservation),
               html: renderedInternalEmail.html,

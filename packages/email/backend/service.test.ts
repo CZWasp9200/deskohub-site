@@ -1,4 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Effect, Fiber, Layer } from "effect";
 import { TestClock } from "effect/testing";
 import {
@@ -19,7 +20,7 @@ import {
 
 const config: EmailProviderConfig = {
   provider: "console",
-  defaultFrom: { email: "deskohub@example.test", name: "Deskohub" },
+  defaultFrom: { email: testEmailAddress("deskohub"), name: "Deskohub" },
 };
 
 const success = {
@@ -80,7 +81,7 @@ const withInstantRetryBackoff = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
 
 const message: EmailMessage = {
   from: undefined as never,
-  to: { email: "ada@example.test" },
+  to: { email: testEmailAddress("ada") },
   subject: "Hello",
   html: "<p>Hello</p>",
 };
@@ -232,7 +233,7 @@ describe("EmailService", () => {
     await runWithEmail(
       Effect.gen(function* () {
         const email = yield* EmailServiceTag;
-        return yield* email.sendTemplate("ada@example.test", {
+        return yield* email.sendTemplate(testEmailAddress("ada"), {
           type: "reservation-confirmation",
           data: {
             customerName: "Ada",
@@ -248,7 +249,7 @@ describe("EmailService", () => {
 
     expect(send.mock.calls[0]?.[0]).toMatchObject({
       from: config.defaultFrom,
-      to: { email: "ada@example.test" },
+      to: { email: testEmailAddress("ada") },
       subject: "Reservation confirmed",
       html: "<p>Confirmed</p>",
       text: "Confirmed",
@@ -292,7 +293,7 @@ describe("EmailService censorship", () => {
     }
 
     const logged = consoleLines.join("\n");
-    expect(logged).not.toContain("ada@example.test");
+    expect(logged).not.toContain(testEmailAddress("ada"));
     expect(logged).not.toContain("Hello");
     expect(logged).not.toContain("<p>Hello</p>");
   });
@@ -317,7 +318,58 @@ describe("EmailService censorship", () => {
     expect(logged).toContain("email.send.rejected");
     expect(logged).not.toContain("raw provider detail");
     expect(logged).not.toContain("quota");
-    expect(logged).not.toContain("ada@example.test");
+    expect(logged).not.toContain(testEmailAddress("ada"));
     expect(logged).not.toContain("Hello");
+  });
+});
+
+describe("EmailServiceTag layers", () => {
+  const materialize = <A>(
+    layer: typeof EmailServiceTag.Live,
+    effect: Effect.Effect<A, unknown, EmailServiceTag>
+  ) => Effect.runPromise(effect.pipe(Effect.provide(layer)));
+
+  test("Live keeps selecting the configured provider", async () => {
+    const verified = await materialize(
+      EmailServiceTag.Live.pipe(
+        Layer.provide(
+          Layer.succeed(EmailConfigTag, {
+            provider: "console",
+            defaultFrom: { email: testEmailAddress("deskohub") },
+          })
+        )
+      ),
+      Effect.gen(function* () {
+        const email = yield* EmailServiceTag;
+        return yield* email.verify;
+      })
+    );
+
+    expect(verified).toBeTrue();
+  });
+
+  test("RecipientRouted logs test-recipient mail through Console without a Resend key", async () => {
+    const result = await materialize(
+      EmailServiceTag.RecipientRouted.pipe(
+        Layer.provide(
+          Layer.succeed(EmailConfigTag, {
+            defaultFrom: { email: testEmailAddress("deskohub") },
+          })
+        )
+      ),
+      Effect.gen(function* () {
+        const email = yield* EmailServiceTag;
+        const sent = yield* email.send({
+          from: { email: testEmailAddress("deskohub") },
+          to: { email: testEmailAddress("delivered") },
+          subject: "Hello",
+          text: "Hello",
+        });
+        return { sent, verified: yield* email.verify };
+      })
+    );
+
+    expect(result.sent.provider).toBe("console");
+    expect(result.verified).toBeFalse();
   });
 });

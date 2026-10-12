@@ -7,6 +7,7 @@ import {
   mock,
   test,
 } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import React, { Activity, type ComponentPropsWithoutRef } from "react";
 import type {
   CustomerAvatarPresentation,
@@ -18,6 +19,8 @@ import {
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
 } from "@/shared/testing/workspace-component-test-env";
+
+const adaAddress = testEmailAddress("ada");
 
 registerWorkspaceComponentTestEnv();
 const { act, cleanup, fireEvent, render } = await import(
@@ -219,7 +222,7 @@ describe("ProfileForm", () => {
       <ProfileForm
         mode="edit"
         locale="en-US"
-        email="ada@example.test"
+        email={adaAddress}
         profile={editProfile}
       />
     );
@@ -241,7 +244,7 @@ describe("ProfileForm", () => {
       <ProfileForm
         mode="edit"
         locale="cs-CZ"
-        email="ada@example.test"
+        email={adaAddress}
         profile={editProfile}
       />
     );
@@ -266,11 +269,11 @@ describe("ProfileForm", () => {
       <ProfileForm
         mode="edit"
         locale="en-US"
-        email="ada@example.test"
+        email={adaAddress}
         profile={editProfile}
       />
     );
-    expect(view.getByText("ada@example.test")).toBeTruthy();
+    expect(view.getByText(adaAddress)).toBeTruthy();
     expect(view.container.querySelector("#account-profile-email")).toBeNull();
     expect(
       view.queryByText(
@@ -283,7 +286,7 @@ describe("ProfileForm", () => {
     const { ProfileForm } = await import("./profile-form");
 
     const view = render(
-      <ProfileForm mode="complete" locale="en-US" email="ada@example.test" />
+      <ProfileForm mode="complete" locale="en-US" email={adaAddress} />
     );
     fireEvent.change(view.getByLabelText("First name"), {
       target: { value: "Ada" },
@@ -317,7 +320,7 @@ describe("ProfileForm", () => {
             Billing section
           </button>
           <ProfileForm
-            email="ada@example.test"
+            email={adaAddress}
             locale="en-US"
             mode="edit"
             profile={businessProfile}
@@ -428,7 +431,7 @@ describe("ProfileForm", () => {
           </button>
           <output data-testid="active-section">{section}</output>
           <ProfileForm
-            email="ada@example.test"
+            email={adaAddress}
             locale="en-US"
             mode="edit"
             onSectionChange={setSection}
@@ -479,7 +482,7 @@ describe("ProfileForm", () => {
         <>
           <output data-testid="active-section">{section}</output>
           <ProfileForm
-            email="ada@example.test"
+            email={adaAddress}
             locale="en-US"
             mode="edit"
             onSectionChange={setSection}
@@ -527,11 +530,7 @@ describe("ProfileForm", () => {
     try {
       const view = render(
         <UnsavedChangesProvider>
-          <ProfileForm
-            mode="complete"
-            locale="en-US"
-            email="ada@example.test"
-          />
+          <ProfileForm mode="complete" locale="en-US" email={adaAddress} />
           <GuardedLink href="/next">Next</GuardedLink>
         </UnsavedChangesProvider>
       );
@@ -611,11 +610,7 @@ describe("ProfileForm", () => {
         <UnsavedChangesProvider>
           <React.Suspense fallback={<p>Waiting for refresh</p>}>
             <DelayedRefresh requested={requested} />
-            <ProfileForm
-              mode="complete"
-              locale="en-US"
-              email="ada@example.test"
-            />
+            <ProfileForm mode="complete" locale="en-US" email={adaAddress} />
           </React.Suspense>
         </UnsavedChangesProvider>
       );
@@ -658,7 +653,7 @@ describe("ProfileForm", () => {
     const { ProfileForm } = await import("./profile-form");
 
     const view = render(
-      <ProfileForm mode="complete" locale="en-US" email="ada@example.test" />
+      <ProfileForm mode="complete" locale="en-US" email={adaAddress} />
     );
     const form = view.container.querySelector("#account-profile-form")!;
     expect(
@@ -680,7 +675,7 @@ describe("ProfileForm", () => {
       <ProfileForm
         mode="edit"
         locale="en-US"
-        email="ada@example.test"
+        email={adaAddress}
         profile={editProfile}
       />
     );
@@ -706,7 +701,7 @@ describe("ProfileForm", () => {
       <ProfileForm
         mode="edit"
         locale="en-US"
-        email="ada@example.test"
+        email={adaAddress}
         profile={editProfile}
       />
     );
@@ -738,7 +733,7 @@ describe("ProfileForm", () => {
       <ProfileForm
         mode="edit"
         locale="en-US"
-        email="ada@example.test"
+        email={adaAddress}
         profile={editProfile}
       />
     );
@@ -764,7 +759,7 @@ describe("ProfileForm", () => {
       <ProfileForm
         mode="edit"
         locale="en-US"
-        email="ada@example.test"
+        email={adaAddress}
         profile={{ ...editProfile, phone: "555-ALPHA" }}
       />
     );
@@ -780,7 +775,7 @@ describe("ProfileForm", () => {
       <ProfileForm
         mode="edit"
         locale="en-US"
-        email="ada@example.test"
+        email={adaAddress}
         profile={{ ...editProfile, phone: "555-ALPHA" }}
       />
     );
@@ -815,7 +810,7 @@ describe("ProfileForm", () => {
       <ProfileForm
         mode="edit"
         locale="en-US"
-        email="ada@example.test"
+        email={adaAddress}
         profile={editProfile}
       />
     );
@@ -851,7 +846,7 @@ describe("ProfileForm", () => {
           <ProfileForm
             mode="edit"
             locale="en-US"
-            email="ada@example.test"
+            email={adaAddress}
             profile={editProfile}
           />
           <GuardedLink href="/next">Next</GuardedLink>
@@ -913,7 +908,7 @@ describe("ProfileForm", () => {
           <ProfileForm
             mode="edit"
             locale="en-US"
-            email="ada@example.test"
+            email={adaAddress}
             profile={editProfile}
           />
           <GuardedLink href="/next">Next</GuardedLink>
@@ -977,7 +972,7 @@ describe("ProfileForm", () => {
           <ProfileForm
             mode="edit"
             locale="en-US"
-            email="ada@example.test"
+            email={adaAddress}
             profile={editProfile}
           />
           <GuardedLink href="/next">Next</GuardedLink>
@@ -1031,7 +1026,7 @@ describe("ProfileForm", () => {
           <ProfileForm
             mode="edit"
             locale="en-US"
-            email="ada@example.test"
+            email={adaAddress}
             profile={editProfile}
           />
           <GuardedLink href="/next">Next</GuardedLink>
@@ -1079,7 +1074,7 @@ describe("ProfileForm", () => {
           <ProfileForm
             mode="edit"
             locale="en-US"
-            email="ada@example.test"
+            email={adaAddress}
             profile={editProfile}
           />
           <GuardedLink href="/next">Next</GuardedLink>
@@ -1137,7 +1132,7 @@ describe("ProfileForm", () => {
               <ProfileForm
                 mode="edit"
                 locale="en-US"
-                email="ada@example.test"
+                email={adaAddress}
                 profile={editProfile}
               />
             </Activity>
@@ -1192,7 +1187,7 @@ describe("ProfileForm", () => {
       <ProfileForm
         mode="edit"
         locale="en-US"
-        email="ada@example.test"
+        email={adaAddress}
         profile={businessProfile}
       />
     );
@@ -1245,7 +1240,7 @@ describe("ProfileForm", () => {
           <ProfileForm
             mode="edit"
             locale="en-US"
-            email="ada@example.test"
+            email={adaAddress}
             profile={personalProfile}
           />
           <GuardedLink href="/next">Next</GuardedLink>
@@ -1303,7 +1298,7 @@ describe("ProfileForm", () => {
           <ProfileForm
             mode="edit"
             locale="en-US"
-            email="ada@example.test"
+            email={adaAddress}
             profile={businessProfile}
           />
           <GuardedLink href="/next">Next</GuardedLink>
@@ -1368,7 +1363,7 @@ describe("ProfileForm", () => {
       <ProfileForm
         mode="edit"
         locale="en-US"
-        email="ada@example.test"
+        email={adaAddress}
         profile={editProfile}
       />
     );
@@ -1422,7 +1417,7 @@ describe("ProfileForm", () => {
       <ProfileForm
         mode="edit"
         locale="en-US"
-        email="ada@example.test"
+        email={adaAddress}
         profile={businessProfile}
       />
     );
@@ -1512,7 +1507,7 @@ describe("ProfileForm", () => {
           <ProfileForm
             mode="edit"
             locale="en-US"
-            email="ada@example.test"
+            email={adaAddress}
             profile={editProfile}
           />
           <GuardedLink href="/next">Next</GuardedLink>
@@ -1577,7 +1572,7 @@ describe("ProfileForm", () => {
         <>
           <output data-testid="active-section">{section}</output>
           <ProfileForm
-            email="ada@example.test"
+            email={adaAddress}
             locale="en-US"
             mode="edit"
             onSectionChange={setSection}
@@ -1630,7 +1625,7 @@ describe("ProfileForm", () => {
           <ProfileForm
             mode="edit"
             locale="en-US"
-            email="ada@example.test"
+            email={adaAddress}
             profile={editProfile}
           />
           <GuardedLink href="/next">Next</GuardedLink>
@@ -1688,7 +1683,7 @@ describe("ProfileForm", () => {
     const { ProfileForm } = await import("./profile-form");
 
     const view = render(
-      <ProfileForm mode="complete" locale="en-US" email="ada@example.test" />
+      <ProfileForm mode="complete" locale="en-US" email={adaAddress} />
     );
     const firstName = view.getByLabelText("First name") as HTMLInputElement;
 
@@ -1737,7 +1732,7 @@ describe("ProfileForm", () => {
       <ProfileForm
         mode="edit"
         locale="en-US"
-        email="ada@example.test"
+        email={adaAddress}
         profile={emptyCompanyProfile}
         section="billing"
       />
@@ -1782,7 +1777,7 @@ describe("ProfileForm", () => {
       return render(
         <ProfileFormComponent
           avatarPresentation={{ kind: "available", avatar: null }}
-          email="ada@example.test"
+          email={adaAddress}
           locale="en-US"
           mode="edit"
           profile={editProfile}
@@ -1846,7 +1841,7 @@ describe("ProfileForm", () => {
       ];
 
       expect(view.getByText("Ada Lovelace")).toBeTruthy();
-      expect(view.getByText("ada@example.test")).toBeTruthy();
+      expect(view.getByText(adaAddress)).toBeTruthy();
       expect(view.getByLabelText("First name")).toBeTruthy();
       expect(view.container.querySelector("img")).toBeNull();
       expect(view.container.querySelector("input[type='file']")).toBeNull();
@@ -1971,7 +1966,7 @@ describe("ProfileForm", () => {
               Apply server refresh
             </button>
             <ProfileFormComponent
-              email="ada@example.test"
+              email={adaAddress}
               locale="en-US"
               mode="edit"
               profile={profile}

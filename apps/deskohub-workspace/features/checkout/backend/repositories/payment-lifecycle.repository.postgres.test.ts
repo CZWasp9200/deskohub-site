@@ -6,6 +6,7 @@ import {
   DotyposReservationIdSchema,
 } from "@deskohub/dotypos";
 import { NexiOrderIdSchema } from "@deskohub/nexi";
+import { testEmailAddress } from "@deskohub/test-email";
 import { eq } from "drizzle-orm";
 import { Effect, Schema } from "effect";
 import {
@@ -161,7 +162,7 @@ describe.skipIf(!testDatabase)(
         dotyposReservationId: reservation.dotyposReservationId,
         supplier,
         billing: { purpose: "personal", invoice: "none" },
-        delivery: { email: "synthetic@example.test" },
+        delivery: { email: testEmailAddress("synthetic") },
       });
     };
 
