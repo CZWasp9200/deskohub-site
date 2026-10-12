@@ -7,6 +7,7 @@ import {
   getReferralInvitationDiscountId,
   getReferralReferrerDiscountId,
 } from "@/features/referrals/discount-identifiers";
+import { referralInvitationDiscountBasisPoints } from "@/features/referrals/program";
 import { calculateReferrerDiscountAmount } from "@/features/referrals/referrer-discount";
 
 export const isExpectedReferralQuoteAddition = (input: {
@@ -159,7 +160,7 @@ const isExpectedNewInvitationApplication = (input: {
   const adjustment = input.application.discount.adjustment;
   return (
     adjustment.kind === "percentage" &&
-    adjustment.basisPoints === 1_500 &&
+    adjustment.basisPoints === referralInvitationDiscountBasisPoints &&
     hasCurrentInvitationProvenance({
       commitmentApplication,
       application: input.application,
@@ -169,7 +170,10 @@ const isExpectedNewInvitationApplication = (input: {
     input.application.discount.countdownStartsAt === undefined &&
     isApplicationMathValid(input.application) &&
     input.application.amount.value ===
-      applyBasisPoints(input.application.subtotalBefore.value, 1_500)
+      applyBasisPoints(
+        input.application.subtotalBefore.value,
+        referralInvitationDiscountBasisPoints
+      )
   );
 };
 
@@ -181,7 +185,7 @@ const isCurrentInvitationApplication = (input: {
   const adjustment = input.application.discount.adjustment;
   return (
     adjustment.kind === "percentage" &&
-    adjustment.basisPoints === 1_500 &&
+    adjustment.basisPoints === referralInvitationDiscountBasisPoints &&
     hasCurrentInvitationProvenance({
       commitmentApplication: findCommitmentApplication(
         input.commitment,
@@ -192,7 +196,10 @@ const isCurrentInvitationApplication = (input: {
     }) &&
     isApplicationMathValid(input.application) &&
     input.application.amount.value ===
-      applyBasisPoints(input.application.subtotalBefore.value, 1_500)
+      applyBasisPoints(
+        input.application.subtotalBefore.value,
+        referralInvitationDiscountBasisPoints
+      )
   );
 };
 
