@@ -119,7 +119,7 @@ describe.skipIf(!testDatabase)(
       });
     });
 
-    test("admits one of many concurrent claims per audience", async () => {
+    test("delivers both audiences of one invoice independently", async () => {
       const invoiceId = await insertInvoice();
 
       const claims = await Promise.all(
@@ -133,18 +133,68 @@ describe.skipIf(!testDatabase)(
           )
         )
       );
-      const internal = await runRepository((repository) =>
-        repository.claim({
-          invoiceId,
-          audience: "internal",
-          staleProcessingBefore: freshProcessingBefore(),
+      const outcomes = await runRepository((repository) =>
+        Effect.gen(function* () {
+          yield* repository.markAccepted({
+            invoiceId,
+            audience: "customer",
+            attemptNumber: 1,
+            providerDeliveryId: EmailDeliveryIdSchema.make("customer-email"),
+            acceptedAt,
+          });
+          const customerAfterAcceptance = yield* repository.claim({
+            invoiceId,
+            audience: "customer",
+            staleProcessingBefore: freshProcessingBefore(),
+          });
+          const internal = yield* repository.claim({
+            invoiceId,
+            audience: "internal",
+            staleProcessingBefore: freshProcessingBefore(),
+          });
+          yield* repository.markFailed({
+            invoiceId,
+            audience: "internal",
+            attemptNumber: 1,
+            failureCode: "email_send_failed",
+          });
+          const internalRetry = yield* repository.claim({
+            invoiceId,
+            audience: "internal",
+            staleProcessingBefore: freshProcessingBefore(),
+          });
+          yield* repository.markAccepted({
+            invoiceId,
+            audience: "internal",
+            attemptNumber: 2,
+            providerDeliveryId: EmailDeliveryIdSchema.make("internal-email"),
+            acceptedAt,
+          });
+          return { customerAfterAcceptance, internal, internalRetry };
         })
       );
 
       expect(claims.filter((claim) => claim !== null)).toEqual([
         { attemptNumber: 1 },
       ]);
-      expect(internal).toEqual({ attemptNumber: 1 });
+      expect(outcomes).toEqual({
+        customerAfterAcceptance: null,
+        internal: { attemptNumber: 1 },
+        internalRetry: { attemptNumber: 2 },
+      });
+      const rows = await testDatabase!.pool.query<{
+        audience: InvoiceEmailDeliveryAudience;
+        state: string;
+        attempt_count: number;
+      }>(
+        `select audience, state, attempt_count from invoice_email_deliveries
+         where invoice_id = $1 order by audience`,
+        [invoiceId]
+      );
+      expect(rows.rows).toEqual([
+        { audience: "customer", state: "accepted", attempt_count: 1 },
+        { audience: "internal", state: "accepted", attempt_count: 2 },
+      ]);
     });
 
     test("reclaims a stale processing delivery as the next attempt", async () => {
