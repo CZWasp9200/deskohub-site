@@ -33,7 +33,7 @@ const readLinkedProfile = (
  * The profile a completion ended with, the account it is linked to, and
  * whether this completion created that link rather than finding one.
  */
-export type CustomerProfileCreation = {
+type CustomerProfileCreation = {
   readonly account: LinkedCustomerAccount;
   readonly profile: CustomerProfile;
   readonly created: boolean;

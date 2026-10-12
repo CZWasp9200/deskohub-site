@@ -27,11 +27,11 @@ export type ReferralSignupIntent = {
 };
 
 /** A stored intent with the code text that acceptance takes. */
-export type PendingReferralSignupIntent = ReferralSignupIntent & {
+type PendingReferralSignupIntent = ReferralSignupIntent & {
   readonly code: string;
 };
 
-export type ReferralSignupIntentError = EffectDrizzleQueryError | SqlError;
+type ReferralSignupIntentError = EffectDrizzleQueryError | SqlError;
 
 /**
  * Writes the intent through the caller's transaction executor, so it commits

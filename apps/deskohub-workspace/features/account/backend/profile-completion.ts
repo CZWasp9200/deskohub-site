@@ -11,7 +11,7 @@ import {
   recordSignupReferral,
 } from "./signup-referral";
 
-export type NewCustomerProfileCompletion =
+type NewCustomerProfileCompletion =
   | { readonly status: "referral-code-unavailable" }
   | {
       readonly status: "completed";
