@@ -147,9 +147,14 @@ description: Workspace customer account, Better Auth, magic link, auth persisten
 - Locale-bound continuations keep their issued locale, but only when they
   verify. Exempt from the preference: the Pay page with a Pay state, the
   cowork, meeting-room, and office restoration pages with a Pay state of their
-  kind, and the invoice page with its order's access token. The signed value
-  must open with the page's own validator (signature and expiry) and be bound
-  to the URL locale. `findLocaleBoundContinuation` in
+  kind, and the invoice page with its order's access token. The first raw
+  parameter value, exactly as the page reads it (no trimming; an empty value
+  is absent), must open with the page's own validator and be bound to the URL
+  locale. A Pay state is checked for signature and expiry. The invoice access
+  token is checked for signature, order, and locale, and carries no expiry.
+  Any verifier failure, including a failed lazy import, applies the
+  preference and logs `i18n.locale-bound-continuation.verify-failed` without
+  the token. `findLocaleBoundContinuation` in
   `features/checkout/locale-bound-continuation.ts` matches the URL shape
   without secrets. `continuesInIssuedLocale` in
   `features/checkout/backend/locale-bound-continuation.server.ts` verifies it

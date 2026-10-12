@@ -23,11 +23,40 @@ mock.module("@/features/account/server/saved-locale-preference.server", () => ({
   },
 }));
 
+// Keep the real verifier, but let one test make it throw.
+const { continuesInIssuedLocale: verifyContinuation } = await import(
+  "@/features/checkout/backend/locale-bound-continuation.server"
+);
+let verifierThrows = false;
+const reportedVerifyFailures: unknown[] = [];
+mock.module(
+  "@/features/checkout/backend/locale-bound-continuation.server",
+  () => ({
+    continuesInIssuedLocale: (
+      continuation: Parameters<typeof verifyContinuation>[0]
+    ) => {
+      if (verifierThrows) throw new Error("synthetic verifier failure");
+      return verifyContinuation(continuation);
+    },
+  })
+);
+mock.module(
+  "@/features/checkout/backend/locale-bound-continuation-report.server",
+  () => ({
+    reportLocaleBoundContinuationVerifyFailure: () => {
+      reportedVerifyFailures.push("verify-failed");
+      return Promise.resolve();
+    },
+  })
+);
+
 const { proxy } = await import("./proxy");
 
 beforeEach(() => {
   savedPreference = "cs-CZ";
   preferenceReads.length = 0;
+  verifierThrows = false;
+  reportedVerifyFailures.length = 0;
 });
 
 const request = (
@@ -183,6 +212,59 @@ describe("signed-in customer's saved language preference", () => {
         await proxy(request(path, { cookie: signedInCookie }))
       );
     }
+  });
+
+  test("verifies the exact first raw value the page reads", async () => {
+    const valid = await payState({ locale: "en-US" });
+    const expectations = [
+      // The page rejects a leading space: it changes the authenticated header.
+      { query: `${payStateTokenQueryParam}=%20${valid}`, kept: false },
+      // The page accepts a trailing space: base64url decoding ignores it.
+      { query: `${payStateTokenQueryParam}=${valid}%20`, kept: true },
+      // The page reads only the first of repeated parameters.
+      {
+        query: `${payStateTokenQueryParam}=garbage&${payStateTokenQueryParam}=${valid}`,
+        kept: false,
+      },
+      {
+        query: `${payStateTokenQueryParam}=${valid}&${payStateTokenQueryParam}=garbage`,
+        kept: true,
+      },
+    ];
+    for (const { query, kept } of expectations) {
+      for (const route of [
+        "/en-US/checkout/pay",
+        "/en-US/reservation/cowork",
+      ]) {
+        const response = await proxy(
+          request(`${route}?${query}`, { cookie: signedInCookie })
+        );
+        if (kept) expectKeptInEnglish(response);
+        else expectMovedToCzech(response);
+      }
+    }
+    expectMovedToCzech(
+      await proxy(
+        request(
+          `/en-US/reservation/invoice/${invoiceOrderId}?${reservationAccessTokenQueryParam}=%20${invoiceToken("en-US")}`,
+          { cookie: signedInCookie }
+        )
+      )
+    );
+  });
+
+  test("applies the preference and reports once when the verifier throws", async () => {
+    verifierThrows = true;
+    const valid = await payState({ locale: "en-US" });
+
+    expectMovedToCzech(
+      await proxy(
+        request(`/en-US/checkout/pay?${payStateTokenQueryParam}=${valid}`, {
+          cookie: signedInCookie,
+        })
+      )
+    );
+    expect(reportedVerifyFailures).toEqual(["verify-failed"]);
   });
 
   test("redirects an invalid, wrong-order or wrong-locale invoice token to the preference", async () => {

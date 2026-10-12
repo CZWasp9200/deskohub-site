@@ -50,17 +50,17 @@ export type LocaleBoundContinuation =
       readonly token: string;
     };
 
-const nonEmptyParam = (
-  searchParams: Pick<URLSearchParams, "get">,
-  param: string
-) => {
-  const value = searchParams.get(param)?.trim();
-  return value ? value : undefined;
-};
+/**
+ * The value the page reads: the first raw value, exactly as given. Only an
+ * empty value counts as absent; whitespace is kept, so the verifier sees what
+ * the page will validate.
+ */
+const pageParam = (searchParams: Pick<URLSearchParams, "get">, param: string) =>
+  searchParams.get(param) || undefined;
 
 /**
  * The continuation a URL claims to carry: a supported route with a non-empty
- * value of its signed parameter. This only matches the URL's shape and reads
+ * first value of its signed parameter, as the page reads it. This only matches the URL's shape and reads
  * no secret, so callers must verify the candidate before keeping its locale.
  */
 export const findLocaleBoundContinuation = ({
@@ -74,7 +74,7 @@ export const findLocaleBoundContinuation = ({
   if (!locale) return undefined;
   const route = stripLocaleFromPathname(pathname, locales);
 
-  const payState = nonEmptyParam(searchParams, payStateTokenQueryParam);
+  const payState = pageParam(searchParams, payStateTokenQueryParam);
   if (payState && route === checkoutPayPath) {
     return { kind: "pay-state", locale, token: payState };
   }
@@ -83,10 +83,7 @@ export const findLocaleBoundContinuation = ({
     return { kind: "pay-state", locale, reservationKind, token: payState };
   }
 
-  const accessToken = nonEmptyParam(
-    searchParams,
-    reservationAccessTokenQueryParam
-  );
+  const accessToken = pageParam(searchParams, reservationAccessTokenQueryParam);
   const orderId = route.startsWith(`${reservationInvoicePath}/`)
     ? route.slice(reservationInvoicePath.length + 1)
     : undefined;
@@ -100,17 +97,25 @@ export const findLocaleBoundContinuation = ({
  * The saved preference to apply to a page: none for a guest, none when the
  * page is a verified continuation issued in another locale, and the saved
  * preference otherwise. `verify` runs only for a candidate the preference
- * would move, so most requests never load or run it.
+ * would move, so most requests never load or run it. A verifier that fails
+ * for any reason, including a failed lazy import, counts as "does not
+ * verify": the failure is reported and the preference applies.
  */
 export const preferenceApplyingTo = async (
   url: Parameters<typeof findLocaleBoundContinuation>[0],
   savedPreference: Locale | undefined,
-  verify: (continuation: LocaleBoundContinuation) => Promise<boolean>
+  verify: (continuation: LocaleBoundContinuation) => Promise<boolean>,
+  reportVerifyFailure: () => Promise<void>
 ): Promise<Locale | undefined> => {
   if (savedPreference === undefined) return undefined;
   const continuation = findLocaleBoundContinuation(url);
   if (!continuation || continuation.locale === savedPreference) {
     return savedPreference;
   }
-  return (await verify(continuation)) ? undefined : savedPreference;
+  try {
+    return (await verify(continuation)) ? undefined : savedPreference;
+  } catch {
+    await reportVerifyFailure().catch(() => undefined);
+    return savedPreference;
+  }
 };

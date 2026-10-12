@@ -1,6 +1,7 @@
 import { cookies, headers } from "next/headers";
 import { readSavedLocalePreference } from "@/features/account/server/saved-locale-preference.server";
 import { continuesInIssuedLocale } from "@/features/checkout/backend/locale-bound-continuation.server";
+import { reportLocaleBoundContinuationVerifyFailure } from "@/features/checkout/backend/locale-bound-continuation-report.server";
 import { preferenceApplyingTo } from "@/features/checkout/locale-bound-continuation";
 import { resolveWorkspaceLocale } from "../locale-resolution";
 import type { Locale } from "../paraglide/runtime.js";
@@ -36,7 +37,8 @@ export async function resolveActionLocale(): Promise<Locale> {
       ? await preferenceApplyingTo(
           referer,
           await readSavedLocalePreference(requestHeaders),
-          continuesInIssuedLocale
+          continuesInIssuedLocale,
+          reportLocaleBoundContinuationVerifyFailure
         )
       : await readSavedLocalePreference(requestHeaders)
   );

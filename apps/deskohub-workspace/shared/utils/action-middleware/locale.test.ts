@@ -198,4 +198,27 @@ describe("action locale middleware", () => {
       messageLocale: "cs-CZ",
     });
   });
+
+  test("an action from a page whose Pay state the page would not read as is follows the preference", async () => {
+    savedPreference = "cs-CZ";
+    const readLocale = await createLocaleReader();
+    const payState = encodeURIComponent(
+      await sealSyntheticCoworkPayState({ locale: "en-US" })
+    );
+
+    for (const query of [
+      `payState=%20${payState}`,
+      `payState=garbage&payState=${payState}`,
+    ]) {
+      const result = await request("en-US", () => readLocale(), {
+        referer: `https://deskohub.test/en-US/checkout/pay?${query}`,
+        signedIn: true,
+      });
+
+      expect(result.data).toEqual({
+        contextLocale: "cs-CZ",
+        messageLocale: "cs-CZ",
+      });
+    }
+  });
 });

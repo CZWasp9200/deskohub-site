@@ -129,6 +129,12 @@ export async function proxy(request: NextRequest) {
         "./features/checkout/backend/locale-bound-continuation.server"
       );
       return continuesInIssuedLocale(continuation);
+    },
+    async () => {
+      const { reportLocaleBoundContinuationVerifyFailure } = await import(
+        "./features/checkout/backend/locale-bound-continuation-report.server"
+      );
+      await reportLocaleBoundContinuationVerifyFailure();
     }
   );
   const resolvedLocale = resolveWorkspaceLocale(

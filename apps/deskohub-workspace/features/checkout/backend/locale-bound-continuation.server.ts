@@ -14,9 +14,10 @@ import { runWorkspaceEffect } from "@/shared/backend/workspace-effect";
 /**
  * Whether a candidate continuation validates for its page and URL locale with
  * the page's own checks: an authentic, unexpired Pay state for that locale and
- * restoration kind, or an authentic, unexpired invoice access token for that
- * order and locale. Anything else, including a missing secret, is not a
- * continuation, so the saved preference applies.
+ * restoration kind, or an invoice access token with a valid signature for
+ * that order and locale (these tokens carry no expiry). Anything else,
+ * including a missing secret, is not a continuation, so the saved preference
+ * applies. The value is verified exactly as the page reads it.
  */
 const verify = Effect.fn("LocaleBoundContinuation.verify")(function* (
   continuation: LocaleBoundContinuation
