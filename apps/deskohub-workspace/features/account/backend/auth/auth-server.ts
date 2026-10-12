@@ -6,11 +6,13 @@ import { APIError, type BetterAuthOptions, betterAuth } from "better-auth";
 import { createAuthMiddleware, isAPIError } from "better-auth/api";
 import { nextCookies } from "better-auth/next-js";
 import { magicLink } from "better-auth/plugins";
-import { Effect, Option, Schema } from "effect";
+import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
+import { Data, Effect, Match, Option, Predicate, Schema } from "effect";
 import { after } from "next/server";
 import { makeAuthDatabase } from "@/db/auth-database-client";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { workspaceDatabasePool } from "@/db/database-provider.server";
+import { retryDatabaseRead } from "@/db/retry-database-read";
 import { drizzleAuthTables } from "@/db/schema/auth";
 import { env } from "@/env";
 import { CustomerAccountDeletionService } from "@/features/account/backend/customer-account-deletion";
@@ -37,9 +39,12 @@ export type WorkspaceAuthConfig = {
   readonly secrets: NonNullable<BetterAuthOptions["secrets"]>;
   readonly allowedHosts: readonly string[];
   readonly httpsOnly: boolean;
+  /** Request-memoized feature-flag read; a rejection counts as disabled. */
   readonly areAccountsEnabled: () => Promise<boolean>;
   readonly sendMagicLink: MagicLinkSendFunction;
-  readonly beforeDeleteUser: (accountId: CustomerAccountId) => Promise<void>;
+  readonly beforeDeleteUser: (
+    accountId: CustomerAccountId
+  ) => Effect.Effect<void, unknown>;
   /**
    * Inserts the preferred language only when the account has
    * none, never overwriting a saved preference. Account creation seeds it
@@ -51,41 +56,30 @@ export type WorkspaceAuthConfig = {
   readonly createAccountLocalePreference: (
     accountId: CustomerAccountId,
     locale: Locale
-  ) => Promise<void>;
+  ) => Effect.Effect<void, EffectDrizzleQueryError>;
 };
 
 /**
- * Retries the preference seed with the same initiating locale so a transient
- * failure still produces the row. A persistent failure is returned so the
- * activating request reports failure.
+ * Seeds the preference at account creation. The insert is idempotent (it
+ * never overwrites a saved preference), so a transient database failure is
+ * retried under the shared read retry policy with the same initiating
+ * locale. A permanent or exhausted failure is logged with a fixed code and
+ * fails the activating request.
  */
-const seedLocalePreferenceOrFail = async (
+const seedLocalePreference = (
   config: WorkspaceAuthConfig,
   accountId: CustomerAccountId,
   locale: Locale
-): Promise<{ readonly error: unknown } | undefined> => {
-  let lastError: unknown = new Error(
-    "The language preference seed did not run."
-  );
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    try {
-      await config.createAccountLocalePreference(accountId, locale);
-      return undefined;
-    } catch (error) {
-      lastError = error;
-      await new Promise((resolve) => setTimeout(resolve, 25));
-    }
-  }
-  await runWorkspaceEffect("account.magic-link.seed-locale", {
-    boundary: "route",
-  })(
-    Effect.logWarning(
-      "customer language preference seed failed; rejecting account activation.",
-      { code: "account-locale-preference.seed-failed" }
+) =>
+  config.createAccountLocalePreference(accountId, locale).pipe(
+    retryDatabaseRead,
+    Effect.tapError(() =>
+      Effect.logWarning(
+        "Customer language preference seed failed; rejecting account activation.",
+        { code: "account-locale-preference.seed-failed" }
+      )
     )
-  ).catch(() => undefined);
-  return { error: lastError };
-};
+  );
 
 const accountMagicLinkPaths = new Set([
   "/sign-in/magic-link",
@@ -138,14 +132,8 @@ const callbackLocaleFromAuthContext = (
 ): Locale | undefined => {
   const callbackURL = ctx.query?.callbackURL ?? ctx.path;
   if (!callbackURL) return undefined;
-  try {
-    return getLocaleFromPathname(
-      new URL(callbackURL, "https://auth.internal.invalid").pathname,
-      locales
-    );
-  } catch {
-    return undefined;
-  }
+  const parsed = URL.parse(callbackURL, "https://auth.internal.invalid");
+  return parsed ? getLocaleFromPathname(parsed.pathname, locales) : undefined;
 };
 
 /**
@@ -155,26 +143,66 @@ const callbackLocaleFromAuthContext = (
  * never blocks the login: readers fall back without a preference, and the
  * next sign-in retries.
  */
-const captureLocalePreference = async (
+const captureLocalePreference = (
   config: WorkspaceAuthConfig,
   accountId: CustomerAccountId,
-  ctx: ParsedAuthContext
-) => {
-  const locale = callbackLocaleFromAuthContext(ctx);
-  if (!locale) return;
-  try {
-    await config.createAccountLocalePreference(accountId, locale);
-  } catch {
-    await runWorkspaceEffect("account.auth.capture-locale", {
-      boundary: "route",
-    })(
-      Effect.logWarning(
-        "customer language preference capture failed; continuing the sign-in.",
-        { code: "account-locale-preference.capture-failed" }
+  locale: Locale
+) =>
+  config
+    .createAccountLocalePreference(accountId, locale)
+    .pipe(
+      Effect.catch(() =>
+        Effect.logWarning(
+          "Customer language preference capture failed; continuing the sign-in.",
+          { code: "account-locale-preference.capture-failed" }
+        )
       )
-    ).catch(() => undefined);
+    );
+
+/** The deleting session's user id is not a customer account id. */
+class DeletingAccountIdInvalidError extends Data.TaggedError(
+  "DeletingAccountIdInvalidError"
+)<Record<never, never>> {
+  override readonly message =
+    "The deleting session carried an invalid account identifier.";
+}
+
+/** The account id of a Better Auth user or session, when it is one of ours. */
+const decodeAccountId = (userId: string) =>
+  Option.getOrUndefined(Schema.decodeOption(customerAccountIdSchema)(userId));
+
+/** Decodes the auth request context, the hooks' I/O boundary. */
+const decodeAuthContext = Schema.decodeUnknownOption(authContextSchema);
+
+/**
+ * Rejects magic-link requests while accounts are disabled (an unreadable
+ * flag counts as disabled) and any request carrying profile fields.
+ */
+const guardAuthRequest = Effect.fn("WorkspaceAuth.guardRequest")(function* (
+  config: WorkspaceAuthConfig,
+  ctx: { readonly path: string; readonly body?: unknown }
+) {
+  if (accountMagicLinkPaths.has(ctx.path)) {
+    const enabled = yield* Effect.tryPromise(() =>
+      config.areAccountsEnabled()
+    ).pipe(Effect.orElseSucceed(() => false));
+    if (!enabled) return yield* Effect.fail(makeAccountsUnavailableError());
   }
-};
+
+  const body = ctx.body;
+  const hasProfileFields =
+    ctx.path === "/sign-in/magic-link" &&
+    Predicate.isObject(body) &&
+    (Object.hasOwn(body, "name") || Object.hasOwn(body, "image"));
+
+  if (ctx.path === "/update-user" || hasProfileFields) {
+    return yield* Effect.fail(
+      new APIError("BAD_REQUEST", {
+        message: "Profile fields are not accepted.",
+      })
+    );
+  }
+});
 
 /**
  * Picks the magic-link email language. A verified existing account uses its
@@ -241,29 +269,11 @@ export const makeWorkspaceAuth = (config: WorkspaceAuthConfig) => {
     },
     disabledPaths: ["/update-user"],
     hooks: {
-      before: createAuthMiddleware(async (ctx) => {
-        if (accountMagicLinkPaths.has(ctx.path)) {
-          let enabled = false;
-          try {
-            enabled = await config.areAccountsEnabled();
-          } catch {
-            enabled = false;
-          }
-          if (!enabled) return Promise.reject(makeAccountsUnavailableError());
-        }
-
-        const hasProfileFields =
-          ctx.path === "/sign-in/magic-link" &&
-          (Object.hasOwn(ctx.body, "name") || Object.hasOwn(ctx.body, "image"));
-
-        if (ctx.path === "/update-user" || hasProfileFields) {
-          return Promise.reject(
-            new APIError("BAD_REQUEST", {
-              message: "Profile fields are not accepted.",
-            })
-          );
-        }
-      }),
+      before: createAuthMiddleware((ctx) =>
+        runWorkspaceEffect("account.auth.guard", { boundary: "route" })(
+          guardAuthRequest(config, ctx)
+        )
+      ),
     },
     plugins: [
       magicLink({
@@ -278,58 +288,52 @@ export const makeWorkspaceAuth = (config: WorkspaceAuthConfig) => {
     databaseHooks: {
       session: {
         create: {
-          before: async (session, ctx) => {
-            const accountId = Option.getOrUndefined(
-              Schema.decodeOption(customerAccountIdSchema)(session.userId)
-            );
-            if (accountId) {
-              // The auth request context is the I/O boundary: parse it here.
-              const parsedCtx = Option.getOrUndefined(
-                Schema.decodeUnknownOption(authContextSchema)(ctx)
-              );
-              await captureLocalePreference(config, accountId, parsedCtx ?? {});
-            }
-            return {
-              data: {
-                ...session,
-                ipAddress: null,
-                userAgent: null,
-              },
-            };
-          },
+          before: (session, ctx) =>
+            runWorkspaceEffect("account.auth.capture-locale", {
+              boundary: "route",
+            })(
+              Effect.gen(function* () {
+                const accountId = decodeAccountId(session.userId);
+                const locale = callbackLocaleFromAuthContext(
+                  Option.getOrElse(decodeAuthContext(ctx), () => ({}))
+                );
+                if (accountId && locale) {
+                  yield* captureLocalePreference(config, accountId, locale);
+                }
+                return {
+                  data: {
+                    ...session,
+                    ipAddress: null,
+                    userAgent: null,
+                  },
+                };
+              })
+            ),
         },
       },
       user: {
         create: {
-          after: async (user, ctx) => {
-            const accountId = Option.getOrUndefined(
-              Schema.decodeOption(customerAccountIdSchema)(user.id)
-            );
-            if (!accountId) return;
-            // The auth request context is the I/O boundary: parse it here.
-            const parsedCtx = Option.getOrUndefined(
-              Schema.decodeUnknownOption(authContextSchema)(ctx)
-            );
-            // Anything without a callback locale seeds the site default.
-            const locale =
-              callbackLocaleFromAuthContext(parsedCtx ?? {}) ?? defaultLocale;
-            const seedFailure = await seedLocalePreferenceOrFail(
-              config,
-              accountId,
-              locale
-            );
-            if (seedFailure) {
-              // The user row is already committed when this hook runs, but
-              // the preference row is missing, so the activation request
-              // must not report success. A later sign-in captures the
-              // preference from its own callback locale.
-              return Promise.reject(
-                seedFailure.error instanceof Error
-                  ? seedFailure.error
-                  : new Error("The customer language preference seed failed.")
-              );
-            }
-          },
+          after: (user, ctx) =>
+            runWorkspaceEffect("account.locale-preference.seed", {
+              boundary: "route",
+            })(
+              Effect.gen(function* () {
+                const accountId = decodeAccountId(user.id);
+                if (!accountId) return;
+                // The user row is already committed when this hook runs, so a
+                // failed seed must fail the activating request. A later
+                // sign-in captures the preference from its own callback
+                // locale. Anything without a callback locale seeds the site
+                // default.
+                yield* seedLocalePreference(
+                  config,
+                  accountId,
+                  callbackLocaleFromAuthContext(
+                    Option.getOrElse(decodeAuthContext(ctx), () => ({}))
+                  ) ?? defaultLocale
+                );
+              })
+            ),
         },
       },
     },
@@ -338,19 +342,18 @@ export const makeWorkspaceAuth = (config: WorkspaceAuthConfig) => {
       deleteUser: {
         ...authOptions.user?.deleteUser,
         enabled: true,
-        beforeDelete: (user) => {
-          const accountId = Option.getOrUndefined(
-            Schema.decodeOption(customerAccountIdSchema)(user.id)
-          );
-          if (!accountId) {
-            return Promise.reject(
-              new Error(
-                "The deleting session carried an invalid account identifier."
-              )
-            );
-          }
-          return config.beforeDeleteUser(accountId);
-        },
+        beforeDelete: (user) =>
+          runWorkspaceEffect("account.deletion.provider-expiration", {
+            boundary: "task",
+          })(
+            Effect.gen(function* () {
+              const accountId = decodeAccountId(user.id);
+              if (!accountId) {
+                return yield* new DeletingAccountIdInvalidError();
+              }
+              yield* config.beforeDeleteUser(accountId);
+            })
+          ),
       },
     },
   });
@@ -368,44 +371,43 @@ export const makeWorkspaceAuthDatabase = () =>
     schemaName: "auth",
   });
 
-export const workspaceSendMagicLink: MagicLinkSendFunction = async (data) => {
-  const fallbackLocale = decodeMagicLinkLocale(data);
-  const lookup = await runWorkspaceEffect("account.magic-link.locale", {
-    boundary: "route",
-  })(
+export const workspaceSendMagicLink: MagicLinkSendFunction = (data) =>
+  runWorkspaceEffect("account.magic-link.locale", { boundary: "route" })(
     lookupMagicLinkDeliveryLocale(data.email).pipe(
-      Effect.provide(WorkspaceDatabase.Default)
-    )
-  ).catch(() => ({ kind: "read-failed" }) as const);
-  const decision = decideMagicLinkDelivery(lookup, fallbackLocale);
-  if (decision.action === "skip") {
-    await runWorkspaceEffect("account.magic-link.locale", {
-      boundary: "route",
-    })(
-      Effect.logWarning(
-        "Magic-link delivery skipped for an existing account with an unreadable language preference.",
-        { code: decision.code }
+      Effect.provide(WorkspaceDatabase.Default),
+      Effect.orElseSucceed(() => ({ kind: "read-failed" }) as const),
+      Effect.map((lookup) =>
+        decideMagicLinkDelivery(lookup, decodeMagicLinkLocale(data))
+      ),
+      Effect.flatMap((decision) =>
+        Match.value(decision).pipe(
+          Match.discriminatorsExhaustive("action")({
+            skip: ({ code }) =>
+              Effect.logWarning(
+                "Magic-link delivery skipped for an existing account with an unreadable language preference.",
+                { code }
+              ),
+            deliver: ({ locale }) =>
+              Effect.sync(() =>
+                after(() =>
+                  runWorkspaceEffect("account.magic-link.deliver", {
+                    boundary: "task",
+                  })(
+                    makeWorkspaceMagicLinkDelivery().deliver({
+                      email: data.email,
+                      url: data.url,
+                      locale,
+                    })
+                  )
+                )
+              ),
+          })
+        )
       )
-    ).catch(() => undefined);
-    return;
-  }
-  const locale = decision.locale;
-  after(() =>
-    runWorkspaceEffect("account.magic-link.deliver", { boundary: "task" })(
-      makeWorkspaceMagicLinkDelivery().deliver({
-        email: data.email,
-        url: data.url,
-        locale,
-      })
     )
   );
-};
 
 export const workspaceBeforeDeleteUser = (accountId: CustomerAccountId) =>
-  runWorkspaceEffect("account.deletion.provider-expiration", {
-    boundary: "task",
-  })(
-    Effect.flatMap(CustomerAccountDeletionService, (service) =>
-      service.requestDeletion(accountId)
-    ).pipe(Effect.provide(CustomerAccountDeletionService.Live))
-  );
+  Effect.flatMap(CustomerAccountDeletionService, (service) =>
+    service.requestDeletion(accountId)
+  ).pipe(Effect.provide(CustomerAccountDeletionService.Live));

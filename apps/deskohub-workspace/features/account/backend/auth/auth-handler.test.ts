@@ -12,7 +12,9 @@ import type {
 } from "better-auth";
 import { betterAuth } from "better-auth";
 import { memoryAdapter } from "better-auth/adapters/memory";
-import { Deferred, Effect, Fiber, Layer } from "effect";
+import { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
+import { Cause, Deferred, Effect, Fiber, Layer } from "effect";
+import * as SqlError from "effect/unstable/sql/SqlError";
 import { makeAuthDatabase } from "@/db/auth-database-client";
 import { WorkspaceDatabase } from "@/db/database.service";
 import {
@@ -26,7 +28,6 @@ import {
   authUser,
   authVerification,
 } from "@/db/schema/auth";
-import type { Locale } from "@/features/i18n";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import type { CustomerAccountId } from "../../customer-account";
 import { CustomerAccountDeletionService } from "../customer-account-deletion";
@@ -84,9 +85,46 @@ type TestAuthOptions = {
   readonly secrets?: { readonly version: number; readonly value: string }[];
   readonly sentLinks?: CapturedMagicLink[];
   readonly areAccountsEnabled?: WorkspaceAuthConfig["areAccountsEnabled"];
-  readonly beforeDeleteUser?: (accountId: CustomerAccountId) => Promise<void>;
+  readonly beforeDeleteUser?: WorkspaceAuthConfig["beforeDeleteUser"];
   readonly createAccountLocalePreference?: WorkspaceAuthConfig["createAccountLocalePreference"];
 };
+
+/** The real seed against the migrated disposable database. */
+const realSeed: WorkspaceAuthConfig["createAccountLocalePreference"] = (
+  accountId,
+  locale
+) =>
+  seedAccountLocalePreference(accountId, locale).pipe(
+    Effect.provide(
+      Layer.succeed(
+        WorkspaceDatabase,
+        WorkspaceDatabase.of({ db: testDatabase!.db })
+      )
+    )
+  );
+
+/** A database failure the seed sees: a dropped connection or a constraint. */
+const seedFailure = (kind: "transient" | "permanent") =>
+  new EffectDrizzleQueryError({
+    query: "insert into customer_locale_preferences",
+    params: [],
+    cause: Cause.fail(
+      new SqlError.SqlError({
+        reason:
+          kind === "transient"
+            ? new SqlError.ConnectionError({
+                cause: new Error("synthetic connection reset"),
+                message: "synthetic connection reset",
+                operation: "execute",
+              })
+            : new SqlError.ConstraintError({
+                cause: new Error("synthetic constraint violation"),
+                message: "synthetic constraint violation",
+                operation: "execute",
+              }),
+      })
+    ),
+  });
 
 const makeTestAuth = (options: TestAuthOptions = {}) => {
   const sendMagicLink: MagicLinkSendFunction = (data) => {
@@ -98,19 +136,7 @@ const makeTestAuth = (options: TestAuthOptions = {}) => {
     options.createAccountLocalePreference ??
     // The real seed requires the account row in the migrated disposable
     // Postgres, so memory-backed auth instances default to a noop seed.
-    (testDatabase && !options.database
-      ? (accountId, locale) =>
-          Effect.runPromise(
-            seedAccountLocalePreference(accountId, locale).pipe(
-              Effect.provide(
-                Layer.succeed(
-                  WorkspaceDatabase,
-                  WorkspaceDatabase.of({ db: testDatabase!.db })
-                )
-              )
-            )
-          )
-      : async () => undefined);
+    (testDatabase && !options.database ? realSeed : () => Effect.void);
   return makeWorkspaceAuth({
     database: options.database ?? buildDatabaseAdapter(),
     secrets: options.secrets ?? [{ version: 1, value: SECRET_V1 }],
@@ -118,7 +144,7 @@ const makeTestAuth = (options: TestAuthOptions = {}) => {
     httpsOnly: true,
     areAccountsEnabled: options.areAccountsEnabled ?? (async () => true),
     sendMagicLink,
-    beforeDeleteUser: options.beforeDeleteUser ?? (() => Promise.resolve()),
+    beforeDeleteUser: options.beforeDeleteUser ?? (() => Effect.void),
     createAccountLocalePreference,
   });
 };
@@ -297,11 +323,9 @@ const runTestDeletion = (
   layers: Layer.Layer<CustomerAccountDeletionService>,
   accountId: CustomerAccountId
 ) =>
-  Effect.runPromise(
-    Effect.flatMap(CustomerAccountDeletionService, (service) =>
-      service.requestDeletion(accountId)
-    ).pipe(Effect.provide(layers))
-  );
+  Effect.flatMap(CustomerAccountDeletionService, (service) =>
+    service.requestDeletion(accountId)
+  ).pipe(Effect.provide(layers));
 
 test("reports auth handler failures without logging provider data", async () => {
   const email = uniqueEmail("verification-failure");
@@ -626,9 +650,10 @@ test("allows fresh deletion while accounts are disabled", async () => {
   const disabled = makeTestAuth({
     database: memoryAdapter(enabled.store),
     areAccountsEnabled: async () => false,
-    beforeDeleteUser: async () => {
-      beforeDeleteCalls += 1;
-    },
+    beforeDeleteUser: () =>
+      Effect.sync(() => {
+        beforeDeleteCalls += 1;
+      }),
   });
   const deleted = await callHandler(disabled, "/delete-user", {
     method: "POST",
@@ -658,9 +683,8 @@ test("does not issue reauthentication links for stale deletion while accounts ar
   const disabled = makeTestAuth({
     database: memoryAdapter(enabled.store),
     areAccountsEnabled: async () => false,
-    beforeDeleteUser: async () => {
-      throw new Error("deletion hook must not run for a stale session");
-    },
+    beforeDeleteUser: () =>
+      Effect.die(new Error("deletion hook must not run for a stale session")),
   });
   const stale = await callHandler(disabled, "/delete-user", {
     method: "POST",
@@ -775,10 +799,14 @@ describe.skipIf(!testDatabase)(
 
     test("rejects the activating verification when the preference seed keeps failing, while a later link still signs in", async () => {
       const sentLinks: CapturedMagicLink[] = [];
+      let persistentAttempts = 0;
       const auth = makeTestAuth({
         sentLinks,
         createAccountLocalePreference: () =>
-          Promise.reject(new Error("synthetic persistent seed failure")),
+          Effect.suspend(() => {
+            persistentAttempts += 1;
+            return Effect.fail(seedFailure("transient"));
+          }),
       });
       const email = uniqueEmail("seed-persistent-failure");
 
@@ -807,31 +835,48 @@ describe.skipIf(!testDatabase)(
       const loggedCodes = JSON.stringify(emitWorkspaceLog.mock.calls);
       expect(loggedCodes).toContain("account-locale-preference.seed-failed");
       expect(loggedCodes).toContain("account-locale-preference.capture-failed");
+      // Three creation seed attempts (transient errors are retried twice),
+      // then the second link's single sign-in capture attempt.
+      expect(persistentAttempts).toBe(4);
+    });
+
+    test("does not retry a permanent preference seed failure", async () => {
+      const sentLinks: CapturedMagicLink[] = [];
+      let attempts = 0;
+      const auth = makeTestAuth({
+        sentLinks,
+        createAccountLocalePreference: () =>
+          Effect.suspend(() => {
+            attempts += 1;
+            return Effect.fail(seedFailure("permanent"));
+          }),
+      });
+      const email = uniqueEmail("seed-permanent-failure");
+
+      emitWorkspaceLog.mockClear();
+      await signInForMagicLink(auth, email, "/cs-CZ/account");
+      const verified = await verifyMagicLink(auth, sentLinks[0]!);
+
+      expect(verified.status).toBe(500);
+      expect(getSessionCookie(verified)).toBeUndefined();
+      expect(attempts).toBe(1);
+      const loggedCodes = JSON.stringify(emitWorkspaceLog.mock.calls);
+      expect(loggedCodes).toContain("account-locale-preference.seed-failed");
+      expect(loggedCodes).not.toContain("synthetic constraint violation");
     });
 
     test("recovers a transient preference seed failure within the same activation without losing the initiating locale", async () => {
       const sentLinks: CapturedMagicLink[] = [];
       let attempts = 0;
-      const realSeed = (accountId: CustomerAccountId, locale: Locale) =>
-        Effect.runPromise(
-          seedAccountLocalePreference(accountId, locale).pipe(
-            Effect.provide(
-              Layer.succeed(
-                WorkspaceDatabase,
-                WorkspaceDatabase.of({ db: testDatabase!.db })
-              )
-            )
-          )
-        );
       const auth = makeTestAuth({
         sentLinks,
-        createAccountLocalePreference: async (accountId, locale) => {
-          attempts += 1;
-          if (attempts === 1) {
-            throw new Error("synthetic transient seed failure");
-          }
-          await realSeed(accountId, locale);
-        },
+        createAccountLocalePreference: (accountId, locale) =>
+          Effect.suspend(() => {
+            attempts += 1;
+            return attempts === 1
+              ? Effect.fail(seedFailure("transient"))
+              : realSeed(accountId, locale);
+          }),
       });
       const email = uniqueEmail("seed-transient-recovery");
 
@@ -903,7 +948,7 @@ describe.skipIf(!testDatabase)(
       const auth = makeTestAuth({
         sentLinks,
         createAccountLocalePreference: () =>
-          Promise.reject(new Error("synthetic capture failure")),
+          Effect.fail(seedFailure("permanent")),
       });
       const email = uniqueEmail("legacy-capture-failure");
       const accountId = await insertLegacyAccount(email);
@@ -917,7 +962,7 @@ describe.skipIf(!testDatabase)(
       expect(await preferenceRowsFor(accountId)).toEqual([]);
       const logs = JSON.stringify(emitWorkspaceLog.mock.calls);
       expect(logs).toContain("account-locale-preference.capture-failed");
-      expect(logs).not.toContain("synthetic capture failure");
+      expect(logs).not.toContain("synthetic constraint violation");
       expect(logs).not.toContain(email);
     });
 
@@ -1368,10 +1413,10 @@ describe.skipIf(!testDatabase)(
       const sentLinks: CapturedMagicLink[] = [];
       const auth = makeTestAuth({
         sentLinks,
-        beforeDeleteUser: () => {
-          hookCalls += 1;
-          return Promise.resolve();
-        },
+        beforeDeleteUser: () =>
+          Effect.sync(() => {
+            hookCalls += 1;
+          }),
       });
       const email = uniqueEmail("stale");
 

@@ -22,13 +22,11 @@ const seedPreference = (
   accountId: Parameters<typeof seedAccountLocalePreference>[0],
   locale: Parameters<typeof seedAccountLocalePreference>[1]
 ) =>
-  Effect.runPromise(
-    seedAccountLocalePreference(accountId, locale).pipe(
-      Effect.provide(
-        Layer.succeed(
-          WorkspaceDatabase,
-          WorkspaceDatabase.of({ db: testDatabase!.db })
-        )
+  seedAccountLocalePreference(accountId, locale).pipe(
+    Effect.provide(
+      Layer.succeed(
+        WorkspaceDatabase,
+        WorkspaceDatabase.of({ db: testDatabase!.db })
       )
     )
   );
@@ -84,7 +82,7 @@ const makeTestAuth = (sentMagicLinks: { url: string }[] = []) => {
     httpsOnly: true,
     areAccountsEnabled: async () => true,
     sendMagicLink,
-    beforeDeleteUser: () => Promise.resolve(),
+    beforeDeleteUser: () => Effect.void,
     createAccountLocalePreference: seedPreference,
   });
 };

@@ -203,7 +203,7 @@ export const lookupMagicLinkDeliveryLocale = (
 export const seedAccountLocalePreference = (
   accountId: CustomerAccountId,
   locale: Locale
-): Effect.Effect<void, unknown, WorkspaceDatabase> =>
+): Effect.Effect<void, EffectDrizzleQueryError, WorkspaceDatabase> =>
   Effect.flatMap(WorkspaceDatabase, (workspace) =>
     workspace.db
       .insert(customerLocalePreferences)

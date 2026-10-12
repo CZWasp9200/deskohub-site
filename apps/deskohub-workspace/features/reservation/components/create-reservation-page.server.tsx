@@ -191,7 +191,7 @@ async function ReservationPageContent<Kind extends ReservationKind, PageData>({
         discountCodeQueryParam
       ),
     }).pipe(
-      Effect.catch(() => Effect.succeed(Option.none())),
+      Effect.orElseSucceed(() => Option.none()),
       runWorkspaceEffect(`reservation.${definition.kind}.normalize-code`)
     );
     const submittedCode = Option.getOrUndefined(normalizedCode);
