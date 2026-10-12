@@ -1,7 +1,7 @@
 import { Effect, Layer, Predicate } from "effect";
 import { Pool, type QueryResult } from "pg";
 import { WorkspaceDatabase } from "@/db/database.service";
-import { makeDatabaseClient } from "@/db/database-client";
+import { type DatabaseClient, makeDatabaseClient } from "@/db/database-client";
 
 interface RecordedStatement {
   readonly sql: string;
@@ -9,6 +9,7 @@ interface RecordedStatement {
 }
 
 export interface RecordingWorkspaceDatabase {
+  readonly db: DatabaseClient;
   readonly statements: readonly RecordedStatement[];
   readonly layer: Layer.Layer<WorkspaceDatabase>;
   /** Queues one canned result per upcoming statement; the last entry repeats. */
@@ -127,6 +128,7 @@ export const makeRecordingWorkspaceDatabase =
     const db = await Effect.runPromise(makeDatabaseClient(pool));
 
     return {
+      db,
       statements,
       layer: Layer.succeed(WorkspaceDatabase, WorkspaceDatabase.of({ db })),
       setRows: (next) => {

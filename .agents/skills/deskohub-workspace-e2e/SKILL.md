@@ -105,11 +105,17 @@ Distinguish automated-runner behavior from manual procedures before treating a d
 - Let Playwright Test own preparation ordering, case scheduling, worker
   processes, browser processes, fail-fast admission, and the shared-fixture
   tail. Register every case statically in the checked-in catalog and assert the
-  prepared case plan matches it before execution. Use project dependencies for
-  readiness, fixture seeding, plan construction (which runs cowork,
-  meeting-room, and office availability and provider preparation concurrently
-  inside one test so no extra phase barrier precedes it), independent cases,
-  the Calendar mutation case, and final reconciliation. Keep the global worker ceiling at six: it replaces the old
+  prepared case plan matches it before execution. Prepare the run in the one
+  `checkout-setup` test, never in separate dependency projects: every
+  Playwright phase boundary stops all workers and starts new ones, so each
+  extra preparation project delays the case phase. Inside that test, write the
+  run context first, then run preview readiness and fixture seeding
+  concurrently, start cowork, meeting-room, and office availability
+  preparation only after both finish, overlap provider preparation with all
+  of them, and build and verify the plan last, tracing each as its own phase.
+  Use project dependencies to start every case-phase project after
+  `checkout-setup` and to run final reconciliation as its teardown.
+  Keep the global worker ceiling at six: it replaces the old
   reservation-start permit pool with a stricter whole-case bound. Put every
   hosted-payment case in one of exactly three serial Playwright lanes so at most
   three hosted sessions run per suite while non-payment work can use the other
@@ -151,7 +157,7 @@ Distinguish automated-runner behavior from manual procedures before treating a d
 - Playwright dependency phases are barriers: they await every project in a
   topological phase before advancing. Keep the long serial account lane in the
   same phase as `checkout-non-payment` and `checkout-payment-1` through
-  `checkout-payment-3` by depending on `checkout-plan`; require real scheduler
+  `checkout-payment-3` by depending on `checkout-setup`; require real scheduler
   regression evidence, not only a graph assertion. Playwright queues the
   account lane behind every `checkout-non-payment` test in that phase, so keep
   the per-project `workers` cap on `checkout-non-payment` that leaves a worker
@@ -212,7 +218,7 @@ Distinguish automated-runner behavior from manual procedures before treating a d
   cleanup journals. Keep the suite's nonzero exit even if that fallback cleanup
   passes, and never rerun the ordinary cases as part of cleanup recovery.
 - Keep interval-based availability pending while a user is rapidly editing its inputs, and coalesce intermediate queries before they reach the provider-backed route. Parallel meeting-room browsers can otherwise multiply a date, time, and duration change into enough overlapping Dotypos and Calendar inventory loads to strand the final availability request. Preserve the immediate initial query and the final selected interval rather than serializing whole E2E cases or weakening the readiness assertion.
-- Seed source-neutral discount definitions and codes only in the exact preview database before Playwright admits availability preparation or cases. Calendar-backed availability resolves the long-lived event's stored discount definition, so it reads those seeded rows even though provider discovery itself is read-only. After the seed project commits, the plan project runs cowork, meeting-room, and office availability preparation concurrently with provider preparation. Keep the dedicated long-lived Calendar event immutable. When a pricing-change case must mutate its stored definition, isolate it on a product identity unused by happy paths, keep it in the Playwright project that depends on every independent-case project, serialize the related mutations inside that case, and restore the target with an interruption-safe finalizer. Calendar discovery caches resolved definitions under the date the booking is made (today), so a concurrent request for another product can otherwise preserve the transient target state, and an ineligible window keeps being advertised until `advertisedPricingSources` revalidates even after the finalizer restores the row. Fixture writes bypass the admin mutation's tag revalidation, so order the case so every checkout that needs the sale advertised reaches that state (open the advertised checkout, or capture its pay page URL and reopen it later) before the single eligibility removal; never make a step wait to observe a restored row through the cache, which costs a full revalidation cycle. Keep the reload-until-advertised poll only as a safety net for a stale entry left by an earlier run, never as the normal path. Never mutate a target consumed by another parallel case.
+- Seed source-neutral discount definitions and codes only in the exact preview database before Playwright admits availability preparation or cases. Calendar-backed availability resolves the long-lived event's stored discount definition, so it reads those seeded rows even though provider discovery itself is read-only. After the seed transaction commits and preview readiness passes, the setup test runs cowork, meeting-room, and office availability preparation concurrently. Write each fixture table with one multi-row statement inside the seed transaction, parents before children: the promotion-code customer sync triggers read `discount_codes`. Keep the reads of earlier runs' active capacity uses and voucher credit inside that transaction, so every rerun on a reused preview database still gets one capacity use and one run's credit. The colocated recording test pins the statement sequence, and the Postgres functional test pins the rows and rerun drift repair. Keep the dedicated long-lived Calendar event immutable. When a pricing-change case must mutate its stored definition, isolate it on a product identity unused by happy paths, keep it in the Playwright project that depends on every independent-case project, serialize the related mutations inside that case, and restore the target with an interruption-safe finalizer. Calendar discovery caches resolved definitions under the date the booking is made (today), so a concurrent request for another product can otherwise preserve the transient target state, and an ineligible window keeps being advertised until `advertisedPricingSources` revalidates even after the finalizer restores the row. Fixture writes bypass the admin mutation's tag revalidation, so order the case so every checkout that needs the sale advertised reaches that state (open the advertised checkout, or capture its pay page URL and reopen it later) before the single eligibility removal; never make a step wait to observe a restored row through the cache, which costs a full revalidation cycle. Keep the reload-until-advertised poll only as a safety net for a stale entry left by an earlier run, never as the normal path. Never mutate a target consumed by another parallel case.
 - Lease one partition of the fixed 14-to-90-day candidate range before
   constructing cases. Coordinate owners through the dedicated long-lived Neon
   coordination database, never an application production, development, or
@@ -405,7 +411,7 @@ Distinguish automated-runner behavior from manual procedures before treating a d
   span for every semantic step. Phase IDs cover readiness, fixture seeding,
   provider preparation, cowork, meeting-room, and office
   availability preparation (the last four as concurrent phase spans inside the
-  plan project), case construction, per-case finalization, and
+  setup project), case construction, per-case finalization, and
   suite cleanup. Use fixed low-cardinality span names, native span duration,
   the configured timeout as a numeric attribute, closed outcome/failure-kind
   values, and the same shared censoring boundary as normal Workspace logs. Keep
@@ -454,7 +460,13 @@ Distinguish automated-runner behavior from manual procedures before treating a d
   Playwright project outside the checkout case catalog and planner; never add
   its case id to `workspaceE2ECaseIds` or the checkout case machinery. It
   combines Playwright-native `page`/`context` fixtures with the shared
-  `runtimeTest` runner fixtures (`runEffect`, `E2EDatabase`).
+  `runtimeTest` runner fixtures (`runEffect`, `E2EDatabase`). It depends on
+  `checkout-setup` and is the last project in the config, so it shares the case
+  phase as the last-queued group: Playwright queues top-level projects in
+  config order, so access-code takes the first worker that frees up (today the
+  account lane's) rather than a first-batch slot, and the scheduling harness
+  asserts that. Under `maxFailures: 1`, a case failure stops it from being
+  admitted; it keeps its own interruption-safe cleanup.
 - Admin Basic auth for E2E comes from the runner-owned
   `WORKSPACE_E2E_ADMIN_BASIC_AUTH` secret (a `username:password` pair) in the
   `workspace-checkout-e2e` GitHub environment, paired with the Preview-only

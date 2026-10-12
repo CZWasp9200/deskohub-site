@@ -364,9 +364,25 @@ describe("workspace E2E workflow", () => {
     expect(projectByName(playwrightConfig, "checkout-setup")?.teardown).toBe(
       "checkout-cleanup"
     );
-    expect(
-      projectByName(playwrightConfig, "checkout-plan")?.dependencies
-    ).toEqual(["checkout-setup", "checkout-seed"]);
+    // Preparation is one project, so the case phase waits on one barrier.
+    const casePhaseProjects = [
+      "account-auth",
+      "access-code-creation",
+      ...checkoutCaseProjectNames,
+    ];
+    for (const name of casePhaseProjects) {
+      expect(projectByName(playwrightConfig, name)?.dependencies).toEqual([
+        "checkout-setup",
+      ]);
+    }
+    // Queued after every other case-phase project, the access-code case only
+    // takes a worker that frees up during the case phase.
+    const projectNames = playwrightConfig.projects.map(({ name }) => name);
+    for (const name of casePhaseProjects) {
+      expect(projectNames.indexOf(name)).toBeLessThanOrEqual(
+        projectNames.indexOf("access-code-creation")
+      );
+    }
   });
 
   test("preserves discount seeding after the case phase", async () => {

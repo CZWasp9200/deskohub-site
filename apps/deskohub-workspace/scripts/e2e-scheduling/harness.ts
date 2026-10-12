@@ -13,11 +13,8 @@ const checkoutProjects = [
   "checkout-payment-2",
   "checkout-payment-3",
 ] as const;
-const preparationProjects = [
-  "checkout-setup",
-  "checkout-seed",
-  "checkout-plan",
-] as const;
+const preparationProjects = ["checkout-setup"] as const;
+const accessCodeProject = "access-code-creation";
 const scenarios = ["candidate", "candidate-checkout-failure"] as const;
 type Scenario = (typeof scenarios)[number];
 
@@ -614,6 +611,10 @@ function assertInterruptedFailure(run: Run, graph: Graph) {
     `${run.scenario} admitted shared fixture`
   );
   must(!run.summary.cleanupAdmitted, `${run.scenario} admitted cleanup`);
+  must(
+    !range(run.intervals, accessCodeProject),
+    `${run.scenario} admitted the access-code case`
+  );
   assertOnlyFirstBatch(run, graph);
   for (const project of ["account-auth", ...checkoutProjects]) {
     const interval = requiredRange(run.intervals, project, run.scenario);
@@ -661,6 +662,13 @@ function verify(graph: Graph, runs: readonly Run[]) {
       `candidate ${name} started after account`
     );
   }
+  // The access-code case shares the case phase but is queued last, so it
+  // only takes a worker that frees up after the first case batch started.
+  must(
+    requiredRange(candidate.intervals, accessCodeProject, "candidate").start >
+      candidateAccount.start,
+    "candidate access-code case took a first case-batch worker"
+  );
   const firstCaseEnd = Math.min(
     ...candidate.intervals
       .filter((item) =>
