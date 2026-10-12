@@ -1,19 +1,8 @@
 import { cookies, headers } from "next/headers";
-import { readSavedLocalePreference } from "@/features/account/server/saved-locale-preference.server";
-import { continuesInIssuedLocale } from "@/features/checkout/backend/locale-bound-continuation.server";
-import { reportLocaleBoundContinuationVerifyFailure } from "@/features/checkout/backend/locale-bound-continuation-report.server";
-import { preferenceApplyingTo } from "@/features/checkout/locale-bound-continuation";
+import { runWorkspaceEffect } from "@/shared/backend/workspace-effect";
 import { resolveWorkspaceLocale } from "../locale-resolution";
 import type { Locale } from "../paraglide/runtime.js";
-
-const refererUrl = (referer: string | null) => {
-  if (!referer) return undefined;
-  try {
-    return new URL(referer);
-  } catch {
-    return undefined;
-  }
-};
+import { pageLocalePreference } from "./page-locale-preference.server";
 
 /**
  * The locale of a Server Action: the Workspace locale chain applied to the
@@ -25,21 +14,16 @@ export async function resolveActionLocale(): Promise<Locale> {
     headers(),
     cookies(),
   ]);
-  const referer = refererUrl(requestHeaders.get("referer"));
+  const referringPage = URL.parse(requestHeaders.get("referer") ?? "");
 
   return resolveWorkspaceLocale(
     {
-      pathname: referer?.pathname,
+      pathname: referringPage?.pathname,
       cookies: requestCookies,
       headers: requestHeaders,
     },
-    referer
-      ? await preferenceApplyingTo(
-          referer,
-          await readSavedLocalePreference(requestHeaders),
-          continuesInIssuedLocale,
-          reportLocaleBoundContinuationVerifyFailure
-        )
-      : await readSavedLocalePreference(requestHeaders)
+    await pageLocalePreference(requestHeaders, referringPage ?? undefined).pipe(
+      runWorkspaceEffect("i18n.action-locale", { boundary: "action" })
+    )
   );
 }
