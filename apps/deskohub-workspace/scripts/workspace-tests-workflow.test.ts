@@ -128,6 +128,7 @@ test("splits the suite across every matrix shard and keeps test-functional as a 
     "validate-workspace",
     "validate-workspace-migrations",
     "test-functional-shards",
+    "test-boardgame-bar",
   ]);
   expect(gate.if).toContain("always()");
 
