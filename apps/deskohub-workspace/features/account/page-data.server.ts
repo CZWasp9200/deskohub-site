@@ -55,7 +55,7 @@ const preferenceReadFailureCode = (
   error.cause?.code ?? "account-communication-preference.read";
 
 export const loadCustomerAccountPage = cache(
-  async (_locale: Locale): Promise<CustomerAccountPageState> => {
+  async (locale: Locale): Promise<CustomerAccountPageState> => {
     const session = await Effect.flatMap(
       CustomerAuthentication,
       (authentication) => authentication.currentUser
@@ -115,16 +115,16 @@ export const loadCustomerAccountPage = cache(
       );
 
       /**
-       * The durable communication-language preference is required for every
-       * active account, so there is no unset success state: a saved locale
-       * renders, and a missing row or a failed read becomes the explicit
-       * "read-failed" operational failure so it never blocks the rest of the
-       * page and never renders a guessed value.
+       * A saved locale renders as is. An account without a saved preference
+       * preselects the page locale, the language the site already uses for
+       * it. A failed read becomes the explicit "read-failed" state so it
+       * never blocks the rest of the page and never renders a guessed value.
        */
       const preferredLanguage = await Effect.flatMap(
         CustomerCommunicationPreferenceRepository,
         (repository) => repository.load(account.success.accountId)
       ).pipe(
+        Effect.map((saved) => saved ?? locale),
         Effect.provide(CustomerCommunicationPreferenceRepository.Live),
         // The raw repository failure never reaches the log: fold it into the
         // fixed non-PII read-failure cause first, matching the other account

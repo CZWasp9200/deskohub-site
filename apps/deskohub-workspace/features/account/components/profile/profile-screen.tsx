@@ -32,10 +32,9 @@ import {
  */
 
 /**
- * The server-read state of the saved preference: `"read-failed"` when the
- * read could not be completed, and otherwise the persisted locale. The
- * preference is required for every active account, so there is no unset
- * success state.
+ * The server-read state of the preference: `"read-failed"` when the read
+ * could not be completed, and otherwise the locale to preselect (the saved
+ * preference, or the page locale for an account without one).
  */
 export type PreferredLanguageState = Locale | "read-failed";
 
@@ -129,9 +128,8 @@ export function ProfileScreen({
   const displayName = nameParts.join(" ") || copy.memberFallback;
 
   /**
-   * The read-failed placeholder is the only missing-selection state: it is
-   * an explicit read failure, never an unset success, and the preference
-   * being required means no other fallback may render.
+   * The read-failed placeholder is the only missing-selection state: the
+   * server already resolves an unsaved preference to the page locale.
    */
   const languagePlaceholder = copy.languageReadUnavailable;
   const savedLanguage =

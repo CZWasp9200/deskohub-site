@@ -1,6 +1,6 @@
 import { eq, sql } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
-import { Context, Data, Effect, Layer } from "effect";
+import { Context, Effect, Layer } from "effect";
 import type { SqlError } from "effect/unstable/sql/SqlError";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { customerCommunicationPreferences } from "@/db/schema";
@@ -18,36 +18,24 @@ import {
   CustomerAuthentication,
 } from "./customer-authentication.service";
 
-/**
- * A missing preference row for an active account is an operational failure,
- * never a successful unset state: the preferred communication language is a
- * required account fact seeded at creation and backfilled by migration.
- */
-class CustomerCommunicationPreferenceMissingError extends Data.TaggedError(
-  "CustomerCommunicationPreferenceMissingError"
-)<{
-  readonly code: "account-communication-preference.missing";
-}> {
-  constructor() {
-    super({ code: "account-communication-preference.missing" });
-  }
-}
-
 type CustomerCommunicationPreferenceReadError =
   | EffectDrizzleQueryError
   | SqlError
-  | CustomerAccountAccessError
-  | CustomerCommunicationPreferenceMissingError;
+  | CustomerAccountAccessError;
 
 /**
  * The durable, Workspace-owned preferred communication language of one
- * customer account. The row is required for every active account, so a
- * missing row fails the read instead of returning an unset success state.
+ * customer account. An account created before preferences existed has none
+ * until its next sign-in or an explicit save, so `load` yields `undefined`
+ * for it.
  */
 export interface ICustomerCommunicationPreferenceRepository {
   readonly load: (
     accountId: CustomerAccountId
-  ) => Effect.Effect<Locale, CustomerCommunicationPreferenceReadError>;
+  ) => Effect.Effect<
+    Locale | undefined,
+    CustomerCommunicationPreferenceReadError
+  >;
   readonly save: (
     accountId: CustomerAccountId,
     locale: Locale
@@ -112,10 +100,7 @@ export class CustomerCommunicationPreferenceRepository extends Context.Service<
               eq(customerCommunicationPreferences.customerAccountId, accountId)
             )
             .limit(1);
-          if (!row) {
-            return yield* new CustomerCommunicationPreferenceMissingError();
-          }
-          return row.locale;
+          return row?.locale;
         }
       );
 
@@ -166,9 +151,8 @@ export class CustomerCommunicationPreferenceRepository extends Context.Service<
 
 /**
  * The closed outcome of the pre-delivery magic-link locale lookup. Only a
- * verified existing account yields its saved preference; every other shape
- * stays distinguishable so the caller can log a fixed, non-PII code instead
- * of silently guessing a wrong customer preference.
+ * verified existing account with a saved preference yields a locale; every
+ * other shape stays distinguishable so the caller can choose its fallback.
  */
 export type MagicLinkLocaleLookup =
   | { readonly kind: "pre-account" }
@@ -179,7 +163,7 @@ export type MagicLinkLocaleLookup =
 
 /**
  * Resolves the magic-link email locale for one recipient address from the
- * authoritative Better Auth user and the required saved preference. The
+ * authoritative Better Auth user and its saved preference, if any. The
  * lookup never fails: an operational read failure is its own outcome so the
  * delivery path can distinguish it from a recipient without an account.
  */
@@ -219,31 +203,8 @@ export const lookupMagicLinkDeliveryLocale = (
   );
 
 /**
- * Reads the required preference row for one account and fails when the row
- * is missing or the read fails. The session-creation guard uses this so a
- * user row can never start a session without its required preference.
- */
-export const requireAccountCommunicationPreference = (
-  accountId: CustomerAccountId
-): Effect.Effect<void, unknown, WorkspaceDatabase> =>
-  Effect.flatMap(WorkspaceDatabase, (workspace) =>
-    Effect.flatMap(
-      workspace.db
-        .select({ locale: customerCommunicationPreferences.locale })
-        .from(customerCommunicationPreferences)
-        .where(
-          eq(customerCommunicationPreferences.customerAccountId, accountId)
-        )
-        .limit(1),
-      ([row]) =>
-        row ? Effect.void : new CustomerCommunicationPreferenceMissingError()
-    )
-  );
-
-/**
- * Seeds the required preference row from the initiating site locale. The
- * insert is idempotent so a retried or racing creation never overwrites an
- * already-saved preference.
+ * Inserts the preference row only when the account has none, so a retried
+ * or racing creation or sign-in never overwrites a saved preference.
  */
 export const seedAccountCommunicationPreference = (
   accountId: CustomerAccountId,

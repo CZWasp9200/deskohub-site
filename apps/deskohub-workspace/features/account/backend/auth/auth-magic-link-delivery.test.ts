@@ -114,56 +114,20 @@ describe.skipIf(!testDatabase)(
       expect(sentSubjectsFor(email)).toEqual([CS_SUBJECT]);
     });
 
-    test("preserves a missing preference on an existing account without seeding the request locale", async () => {
-      const email = uniqueEmail("missing-preserved");
+    test("delivers in the initiating site locale for an account without a preference, without saving it", async () => {
+      const email = uniqueEmail("missing-preference");
       const accountId = await insertVerifiedUser(email, true);
 
-      emitWorkspaceLog.mockClear();
       const queued = await requestDelivery(email, "cs-CZ");
 
-      expect(queued).toBe(0);
-      expect(sentSubjectsFor(email)).toEqual([]);
+      expect(queued).toBe(1);
+      expect(sentSubjectsFor(email)).toEqual([CS_SUBJECT]);
 
       const rows = await testDatabase!.pool.query(
         `select locale from customer_communication_preferences where customer_account_id = $1`,
         [accountId]
       );
       expect(rows.rows).toEqual([]);
-
-      // The skip log is emitted fire-and-forget; give it a moment to land.
-      await new Promise((resolve) => setTimeout(resolve, 10));
-      const skipLogs = emitWorkspaceLog.mock.calls.filter((call) =>
-        JSON.stringify(call).includes("account.magic-link.locale.missing")
-      );
-      expect(skipLogs.length).toBeGreaterThan(0);
-    });
-
-    test("keeps a failed-activation account undelivered on a later different-locale sign-in", async () => {
-      // A persistent seed failure during a Czech signup leaves a verified
-      // user row without its required preference (proven end-to-end by
-      // auth-handler.test.ts). A later English sign-in request must never
-      // choose or persist the customer's language: no delivery, no insert,
-      // and the fixed skip log code.
-      const email = uniqueEmail("failed-activation");
-      const accountId = await insertVerifiedUser(email, true);
-
-      emitWorkspaceLog.mockClear();
-      const queued = await requestDelivery(email, "en-US");
-
-      expect(queued).toBe(0);
-      expect(sentSubjectsFor(email)).toEqual([]);
-
-      const rows = await testDatabase!.pool.query(
-        `select locale from customer_communication_preferences where customer_account_id = $1`,
-        [accountId]
-      );
-      expect(rows.rows).toEqual([]);
-
-      await new Promise((resolve) => setTimeout(resolve, 10));
-      const skipLogs = emitWorkspaceLog.mock.calls.filter((call) =>
-        JSON.stringify(call).includes("account.magic-link.locale.missing")
-      );
-      expect(skipLogs.length).toBeGreaterThan(0);
     });
 
     test("skips delivery for an existing account when the preference read keeps failing", async () => {

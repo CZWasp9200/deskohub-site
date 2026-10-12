@@ -7,20 +7,21 @@ import { customerAccountLinks } from "@/db/schema/customer-account-links";
 import type { Locale } from "@/features/i18n";
 
 /**
- * A linked account's reservation-email language read could not be completed,
- * or the linked account has no required preference row. Both are operational
- * failures the caller must distinguish from an unlinked guest reservation.
+ * A linked account's reservation-email language read could not be completed.
+ * The caller must distinguish it from a reservation that has no saved
+ * preference.
  */
 class CustomerEmailLocaleReadError extends Data.TaggedError(
   "CustomerEmailLocaleReadError"
 )<{
-  readonly code: "customer-email-locale.read" | "customer-email-locale.missing";
+  readonly code: "customer-email-locale.read";
 }> {}
 
 /**
- * The reservation-email language of one reservation customer: an unlinked
- * guest keeps the reservation's own locale, while a linked account always
- * uses its required saved communication preference.
+ * The reservation-email language of one reservation customer: a linked
+ * account with a saved communication preference uses it, while an unlinked
+ * guest or an account without a preference keeps the reservation's own
+ * locale.
  */
 type CustomerEmailLocale =
   | { readonly kind: "guest" }
@@ -34,7 +35,7 @@ export interface ICustomerEmailLocaleService {
 
 /**
  * Resolves the durable communication-language fact behind reservation
- * customer emails through the durable Dotypos customer link and the required
+ * customer emails through the durable Dotypos customer link and the saved
  * preference row, without exposing account, session, or profile data.
  */
 export class CustomerEmailLocaleService extends Context.Service<
@@ -66,24 +67,12 @@ export class CustomerEmailLocaleService extends Context.Service<
                   code: "customer-email-locale.read",
                 })
             ),
-            Effect.flatMap((rows) => {
-              const row = rows[0];
-              if (!row) {
-                return Effect.succeed({ kind: "guest" } as const);
-              }
-              if (!row.locale) {
-                return new CustomerEmailLocaleReadError({
-                  code: "customer-email-locale.missing",
-                }) as Effect.Effect<
-                  CustomerEmailLocale,
-                  CustomerEmailLocaleReadError
-                >;
-              }
-              return Effect.succeed({
-                kind: "account",
-                locale: row.locale,
-              } as const);
-            })
+            Effect.map(
+              (rows): CustomerEmailLocale =>
+                rows[0]?.locale
+                  ? { kind: "account", locale: rows[0].locale }
+                  : { kind: "guest" }
+            )
           );
 
       return { byDotyposCustomer } satisfies ICustomerEmailLocaleService;
