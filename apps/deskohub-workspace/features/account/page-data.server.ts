@@ -15,6 +15,7 @@ import type {
 import { areAccountAvatarsEnabled } from "@/features/account/server/account-feature-flag.server";
 import type { Locale } from "@/features/i18n";
 import { ReferralService } from "@/features/referrals";
+import type { ReferralCode } from "@/features/referrals/client";
 import type { ReferralAccountSummary } from "@/features/referrals/contracts";
 import { runWorkspaceEffect } from "@/shared/backend/workspace-effect";
 
@@ -27,7 +28,12 @@ export type CustomerAccountPageState =
   | { readonly kind: "unavailable" }
   | { readonly kind: "unauthenticated" }
   | { readonly kind: "authenticated-unavailable"; readonly email: string }
-  | { readonly kind: "completion-required"; readonly email: string }
+  | {
+      readonly kind: "completion-required";
+      readonly email: string;
+      /** Invitation code to prefill, present only when currently usable. */
+      readonly referralCode?: ReferralCode;
+    }
   | {
       readonly kind: "linked";
       readonly email: string;
@@ -41,8 +47,15 @@ export type CustomerAccountPageState =
 
 const unavailable = (): CustomerAccountPageState => ({ kind: "unavailable" });
 
+/**
+ * Loads the account page for the current session. A shared referral code only
+ * matters before first-time profile completion; a linked account ignores it.
+ */
 export const loadCustomerAccountPage = cache(
-  async (_locale: Locale): Promise<CustomerAccountPageState> => {
+  async (
+    _locale: Locale,
+    referralCode?: ReferralCode
+  ): Promise<CustomerAccountPageState> => {
     const session = await Effect.flatMap(
       CustomerAuthentication,
       (authentication) => authentication.currentUser
@@ -148,7 +161,15 @@ export const loadCustomerAccountPage = cache(
       failure.reason === "link-required" &&
       failure.linkReason === "not-found"
     ) {
-      return { kind: "completion-required", email: user.email };
+      const availableReferralCode =
+        referralCode === undefined
+          ? undefined
+          : await findAvailableReferralCode(referralCode);
+      return {
+        kind: "completion-required",
+        email: user.email,
+        ...(availableReferralCode && { referralCode: availableReferralCode }),
+      };
     }
     if (
       failure.reason === "link-required" ||
@@ -159,6 +180,22 @@ export const loadCustomerAccountPage = cache(
     return { kind: "authenticated-unavailable", email: user.email };
   }
 );
+
+/**
+ * Read-only check of a shared code; an unusable code or a failed check leaves
+ * the completion form without a prefill instead of blocking sign-up.
+ */
+const findAvailableReferralCode = (code: ReferralCode) =>
+  Effect.flatMap(ReferralService, (service) =>
+    service.findAvailableCode({ code })
+  ).pipe(
+    Effect.provide(ReferralService.Live),
+    Effect.tapError(() =>
+      logDegradedAccountSection("account.referral-code.unavailable")
+    ),
+    Effect.orElseSucceed(() => undefined),
+    runWorkspaceEffect("account.referral-code", { boundary: "page" })
+  );
 
 /**
  * Records a degraded, non-blocking account section with a fixed, non-PII

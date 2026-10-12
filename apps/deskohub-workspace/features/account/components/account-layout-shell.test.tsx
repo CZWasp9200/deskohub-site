@@ -322,22 +322,20 @@ describe("AccountLayoutShell", () => {
     ).toBe("page");
   });
 
-  test("opens the referrals section only for one valid share code", () => {
+  test("keeps the requested section when a shared referral code is present", () => {
     searchParams = new URLSearchParams("section=profile&ref=RFL12345");
     const view = renderLayout(<p>Account</p>);
     expect(
       getDesktopNavigation(view)
-        .getByRole("button", { name: "Referrals" })
+        .getByRole("button", { name: "Profile & Identity" })
         .getAttribute("aria-current")
     ).toBe("page");
 
-    searchParams = new URLSearchParams(
-      "section=profile&ref=RFL12345&ref=OTHER123"
-    );
-    view.rerender(layoutElement(<p>Account with duplicate share codes</p>));
+    searchParams = new URLSearchParams("ref=RFL12345");
+    view.rerender(layoutElement(<p>Account with only a share code</p>));
     expect(
       getDesktopNavigation(view)
-        .getByRole("button", { name: "Profile & Identity" })
+        .getByRole("button", { name: "Reservations" })
         .getAttribute("aria-current")
     ).toBe("page");
   });

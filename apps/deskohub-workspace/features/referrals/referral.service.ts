@@ -74,6 +74,14 @@ export interface IReferralService {
   readonly lookupCodeKind: (input: {
     readonly code: unknown;
   }) => Effect.Effect<ReferralCodeKind, ReferralError>;
+  /**
+   * Read-only check that a code can currently refer a new customer: an
+   * enabled referral code inside its validity window whose owner has an
+   * active linked account. Never issues a code or writes attribution.
+   */
+  readonly findAvailableCode: (input: {
+    readonly code: unknown;
+  }) => Effect.Effect<ReferralCode | undefined, ReferralError>;
   readonly resolveInvitationCandidate: (input: {
     readonly dotyposCustomerId: DotyposCustomerId;
     readonly locale: Locale;
@@ -99,6 +107,20 @@ const normalizeCode = (value: unknown): ReferralCode | undefined => {
     );
   return parseReferralCode(normalized);
 };
+
+const isReferralCodeActive = (
+  referral: {
+    readonly enabled: boolean;
+    readonly validFrom: Temporal.Instant | null;
+    readonly validUntil: Temporal.Instant | null;
+  },
+  now: Temporal.Instant
+) =>
+  referral.enabled &&
+  (referral.validFrom === null ||
+    Temporal.Instant.compare(now, referral.validFrom) >= 0) &&
+  (referral.validUntil === null ||
+    Temporal.Instant.compare(now, referral.validUntil) < 0);
 
 const isReservationCancelled = (input: {
   readonly dotyposStatus: string;
@@ -534,6 +556,55 @@ export class ReferralService extends Context.Service<
         }
       );
 
+      const findAvailableCode = Effect.fn("ReferralService.findAvailableCode")(
+        (input: { readonly code: unknown }) => {
+          const code = normalizeCode(input.code);
+          if (!code) return Effect.succeed(undefined);
+          return db
+            .select({
+              enabled: promotionCodes.enabled,
+              validFrom: promotionCodes.validFrom,
+              validUntil: promotionCodes.validUntil,
+            })
+            .from(referralCodes)
+            .innerJoin(
+              promotionCodes,
+              eq(promotionCodes.id, referralCodes.promotionCodeId)
+            )
+            .innerJoin(
+              customerAccountLinks,
+              eq(
+                customerAccountLinks.dotyposCustomerId,
+                referralCodes.referrerDotyposCustomerId
+              )
+            )
+            .innerJoin(
+              authUser,
+              eq(authUser.id, customerAccountLinks.customerAccountId)
+            )
+            .where(
+              and(
+                eq(
+                  promotionCodes.code,
+                  canonicalPromotionCodeSchema.make(code)
+                ),
+                eq(promotionCodes.kind, "referral"),
+                isNull(authUser.deletionRequestedAt)
+              )
+            )
+            .limit(1)
+            .pipe(
+              Effect.map(([referral]) =>
+                referral &&
+                isReferralCodeActive(referral, Temporal.Now.instant())
+                  ? code
+                  : undefined
+              ),
+              Effect.mapError(() => fail("unavailable"))
+            );
+        }
+      );
+
       const getAccountSummary = Effect.fn("ReferralService.getAccountSummary")(
         (input: {
           readonly customerAccountId: CustomerAccountId;
@@ -666,20 +737,14 @@ export class ReferralService extends Context.Service<
                         const referral = yield* findReferralCode(code, tx).pipe(
                           Effect.mapError(() => fail("unavailable"))
                         );
-                        const now = Temporal.Now.instant();
                         if (
                           !referral ||
                           referral.referrerDotyposCustomerId !==
                             referralTarget.referrerDotyposCustomerId ||
-                          !referral.enabled ||
-                          (referral.validFrom !== null &&
-                            Temporal.Instant.compare(now, referral.validFrom) <
-                              0) ||
-                          (referral.validUntil !== null &&
-                            Temporal.Instant.compare(
-                              now,
-                              referral.validUntil
-                            ) >= 0)
+                          !isReferralCodeActive(
+                            referral,
+                            Temporal.Now.instant()
+                          )
                         ) {
                           return yield* Effect.fail(fail("unavailable"));
                         }
@@ -827,6 +892,7 @@ export class ReferralService extends Context.Service<
         getAccountSummary,
         acceptReferral,
         lookupCodeKind,
+        findAvailableCode,
         resolveInvitationCandidate,
         resolveReferrerCandidate,
       } satisfies IReferralService;

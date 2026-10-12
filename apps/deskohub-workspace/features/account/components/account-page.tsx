@@ -37,7 +37,6 @@ export function AccountPage({
           history={state.history}
           locale={locale}
           profile={state.profile}
-          referralCode={referralCode}
           referralSummary={state.referrals}
         />
       </>
@@ -74,7 +73,13 @@ function renderState(
         </div>
       );
     case "completion-required":
-      return <CompletionCard email={state.email} locale={locale} />;
+      return (
+        <CompletionCard
+          email={state.email}
+          locale={locale}
+          referralCode={state.referralCode}
+        />
+      );
     case "support-required":
       return <SupportRequiredCard email={state.email} locale={locale} />;
     case "deletion-pending":
@@ -106,9 +111,11 @@ function UnavailableCard({ locale }: { readonly locale: Locale }) {
 function CompletionCard({
   email,
   locale,
+  referralCode,
 }: {
   readonly email: string;
   readonly locale: Locale;
+  readonly referralCode?: ReferralCode;
 }) {
   return (
     <div className="grid items-start gap-6">
@@ -121,7 +128,12 @@ function CompletionCard({
             {m.accountCompletionBody({}, { locale })}
           </p>
           <div className="mt-8">
-            <ProfileForm mode="complete" locale={locale} email={email} />
+            <ProfileForm
+              email={email}
+              locale={locale}
+              mode="complete"
+              referralCode={referralCode}
+            />
           </div>
         </CardContent>
       </Card>

@@ -82,6 +82,24 @@ export const updateCustomerProfileStandardSchema = Schema.toStandardSchemaV1(
 
 export type CustomerProfileInput = typeof updateCustomerProfileSchema.Type;
 
+/**
+ * First-time completion may also carry the referral code the new customer was
+ * invited with. Profile updates keep the plain profile contract, so an
+ * established account can never submit one.
+ */
+const completeCustomerProfileSchema = Schema.Struct({
+  ...updateCustomerProfileSchema.fields,
+  referralCode: trimmedOptionalText(64),
+});
+
+export const completeCustomerProfileStandardSchema = Schema.toStandardSchemaV1(
+  completeCustomerProfileSchema,
+  { parseOptions: { errors: "all", onExcessProperty: "error" } }
+);
+
+export type CustomerProfileCompletionInput =
+  typeof completeCustomerProfileSchema.Type;
+
 export type CustomerReservationStatus =
   | "cancelled"
   | "confirmed"

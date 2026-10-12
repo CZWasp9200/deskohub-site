@@ -16,7 +16,6 @@ import type {
 } from "@/features/account/contracts";
 import { getAccountPath } from "@/features/account/routes";
 import type { Locale } from "@/features/i18n";
-import type { ReferralCode } from "@/features/referrals/client";
 import type { ReferralAccountSummary } from "@/features/referrals/contracts";
 
 type LinkedAccountProps = {
@@ -25,7 +24,6 @@ type LinkedAccountProps = {
   readonly locale: Locale;
   readonly profile: CustomerProfile;
   readonly avatarPresentation: CustomerAvatarPresentation;
-  readonly referralCode?: ReferralCode;
   readonly referralSummary?: ReferralAccountSummary;
 };
 
@@ -35,7 +33,6 @@ export function LinkedAccount({
   history,
   locale,
   profile,
-  referralCode,
   referralSummary,
 }: LinkedAccountProps) {
   const pathname = usePathname();
@@ -66,11 +63,7 @@ export function LinkedAccount({
       </div>
 
       <div hidden={activeSection !== "referrals"}>
-        <ReferralScreen
-          invitationCode={referralCode}
-          locale={locale}
-          summary={referralSummary}
-        />
+        <ReferralScreen locale={locale} summary={referralSummary} />
       </div>
 
       <div hidden={activeSection !== "profile" && activeSection !== "billing"}>
