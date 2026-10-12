@@ -34,15 +34,19 @@ type LocaleSwitcherLinksProps = {
   readonly localePreference?: LocalePreferenceSaving;
 };
 
+type SignedInState = "pending" | boolean;
+
 const useSignedIn = (localePreference?: LocalePreferenceSaving) => {
-  const [signedIn, setSignedIn] = useState(false);
+  const [signedIn, setSignedIn] = useState<SignedInState>("pending");
   useEffect(() => {
     let current = true;
     localePreference?.signedIn.then(
       (value) => {
         if (current) setSignedIn(value);
       },
-      () => undefined
+      () => {
+        if (current) setSignedIn(false);
+      }
     );
     return () => {
       current = false;
@@ -73,15 +77,20 @@ export function LocaleSwitcherLinks({
     withLocalePrefixAndSearch(pathname, locale, searchParams);
 
   // Guests keep plain document navigation. A signed-in switch saves the
-  // preference first, then navigates whether or not the save succeeded.
+  // preference first, then navigates whether or not the save succeeded. A
+  // click before the session check settles waits for it, so an early
+  // signed-in switch is not redirected back to the old preference.
   const selectLocale =
-    signedIn && localePreference
+    localePreference && signedIn !== false
       ? (locale: Locale, event: MouseEvent<HTMLAnchorElement>) => {
           if (!isPlainClick(event)) return;
           event.preventDefault();
           const href = event.currentTarget.href;
-          void localePreference
-            .save({ locale })
+          void localePreference.signedIn
+            .catch(() => false)
+            .then((isSignedIn) =>
+              isSignedIn ? localePreference.save({ locale }) : undefined
+            )
             .catch(() => undefined)
             .then(() => window.location.assign(href));
         }

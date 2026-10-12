@@ -23,7 +23,7 @@ import {
   waitForBrowserUrl,
   waitForInteractiveSnapshot,
 } from "../browser";
-import { switchSignedInLocale } from "../cases/locale";
+import { switchLocale } from "../cases/locale";
 import type { DatasourceConfig } from "../config";
 import {
   type WorkspaceE2EError,
@@ -1566,7 +1566,7 @@ export const makeWorkspaceE2EAccountCases = ({
         yield* runStep(
           step(
             "switches to English through the header language switcher",
-            switchSignedInLocale(run, session, "en-US", config.timeouts),
+            switchLocale(run, session, "en-US", config.timeouts),
             providerTransition
           )
         );

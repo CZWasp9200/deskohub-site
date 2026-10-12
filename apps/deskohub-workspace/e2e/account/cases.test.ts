@@ -1219,12 +1219,6 @@ class FakeBrowser {
       }
       return;
     }
-    if (description === "en-US locale switch saving the preference") {
-      if (!this.signedIn()) {
-        throw new Error("a guest switcher never saves the preference");
-      }
-      return;
-    }
     if (condition.includes("account-reservations-past-title")) {
       const userId = this.external.currentAuthUserId;
       const customerId = userId

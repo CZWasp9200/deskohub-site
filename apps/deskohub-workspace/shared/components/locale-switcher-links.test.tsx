@@ -13,6 +13,7 @@ import {
   fireEvent,
   type RenderResult,
   render,
+  waitFor,
 } from "@testing-library/react";
 import type { ComponentProps, ReactNode } from "react";
 import type { SiteHeaderAccountEntry } from "@/shared/components/site-header-config";
@@ -511,7 +512,7 @@ test("a signed-in switch saves the preference before navigating to the new local
 
   fireEvent.click(view.getByRole("link", { name: "Czech" }));
 
-  expect(saves).toEqual([{ locale: "cs-CZ" }]);
+  await waitFor(() => expect(saves).toEqual([{ locale: "cs-CZ" }]));
   expect(window.location.pathname).toBe("/en-US");
 
   await act(async () => {
@@ -539,5 +540,68 @@ test("a guest switch stays a plain link without saving", async () => {
 
   expect(notPrevented).toBe(true);
   expect(link.getAttribute("href")).toBe("/cs-CZ");
+  expect(saves).toEqual([]);
+});
+
+test("a switch before the session check settles waits for it, then saves when signed in", async () => {
+  const { LocaleSwitcherLinks } = await import("./locale-switcher-links");
+  window.location.href = "http://localhost/en-US";
+  const signedIn = Promise.withResolvers<boolean>();
+  const saves: { locale: string }[] = [];
+  const view = render(
+    <LocaleSwitcherLinks
+      currentLocale="en-US"
+      languageLabels={{ "cs-CZ": "Czech", "en-US": "English" }}
+      localePreference={{
+        signedIn: signedIn.promise,
+        save: (input) => {
+          saves.push(input);
+          return Promise.resolve();
+        },
+      }}
+    />
+  );
+
+  const notPrevented = fireEvent.click(
+    view.getByRole("link", { name: "Czech" })
+  );
+  expect(notPrevented).toBe(false);
+  expect(saves).toEqual([]);
+
+  await act(async () => {
+    signedIn.resolve(true);
+    await signedIn.promise;
+  });
+
+  await waitFor(() => expect(window.location.pathname).toBe("/cs-CZ"));
+  expect(saves).toEqual([{ locale: "cs-CZ" }]);
+});
+
+test("a guest switch before the session check settles navigates without saving", async () => {
+  const { LocaleSwitcherLinks } = await import("./locale-switcher-links");
+  window.location.href = "http://localhost/en-US";
+  const signedIn = Promise.withResolvers<boolean>();
+  const saves: { locale: string }[] = [];
+  const view = render(
+    <LocaleSwitcherLinks
+      currentLocale="en-US"
+      languageLabels={{ "cs-CZ": "Czech", "en-US": "English" }}
+      localePreference={{
+        signedIn: signedIn.promise,
+        save: (input) => {
+          saves.push(input);
+          return Promise.resolve();
+        },
+      }}
+    />
+  );
+
+  fireEvent.click(view.getByRole("link", { name: "Czech" }));
+  await act(async () => {
+    signedIn.resolve(false);
+    await signedIn.promise;
+  });
+
+  await waitFor(() => expect(window.location.pathname).toBe("/cs-CZ"));
   expect(saves).toEqual([]);
 });
