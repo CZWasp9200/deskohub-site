@@ -597,7 +597,7 @@
   "checkoutStatusPendingTitle": "Your payment is still being processed.",
   "checkoutStatusPendingLead": "We're waiting for the payment provider to confirm it, and this page updates by itself. You don't need to book again.",
   "checkoutStatusPaymentPendingDelayedTitle": "We still can't confirm your payment.",
-  "checkoutStatusPaymentPendingDelayedLead": "If your payment went through, the reservation stays yours. You don't need to book again. If it didn't, we'll release the reservation, and you can book again after that. Send us a support request if you need help.",
+  "checkoutStatusPaymentPendingDelayedLead": "If your payment went through, the reservation is yours. Don't book again until we confirm your payment or you hear from us, or you might pay twice. Send us a support request and we'll check it.",
   "checkoutStatusPaidWaitingFulfillmentTitle": "Payment received. We're finishing your reservation.",
   "checkoutStatusPaidWaitingFulfillmentLead": "This page updates by itself once we email your confirmation and access link. You don't need to book again.",
   "checkoutStatusPaidFulfillmentDelayedTitle": "Your payment went through, but finishing your reservation is taking longer.",

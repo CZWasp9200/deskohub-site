@@ -603,7 +603,7 @@
   "checkoutStatusPendingTitle": "Platba se ještě zpracovává.",
   "checkoutStatusPendingLead": "Čekáme, až ji platební brána potvrdí, a tahle stránka se sama obnoví. Znovu rezervovat nemusíš.",
   "checkoutStatusPaymentPendingDelayedTitle": "Platbu zatím nemůžeme potvrdit.",
-  "checkoutStatusPaymentPendingDelayedLead": "Pokud platba proběhla, rezervace zůstává tvoje. Znovu rezervovat nemusíš. Pokud neproběhla, rezervaci uvolníme a pak můžeš rezervovat znovu. Když budeš potřebovat pomoct, pošli nám žádost o podporu.",
+  "checkoutStatusPaymentPendingDelayedLead": "Pokud platba proběhla, rezervace je tvoje. Znovu nerezervuj, dokud platbu nepotvrdíme nebo se ti neozveme, jinak hrozí, že zaplatíš dvakrát. Pošli nám žádost o podporu a platbu ověříme.",
   "checkoutStatusPaidWaitingFulfillmentTitle": "Platba prošla. Dokončujeme tvoji rezervaci.",
   "checkoutStatusPaidWaitingFulfillmentLead": "Jakmile ti pošleme potvrzení s přístupovým odkazem, tahle stránka se sama obnoví. Znovu rezervovat nemusíš.",
   "checkoutStatusPaidFulfillmentDelayedTitle": "Platba prošla, ale dokončení rezervace trvá déle.",

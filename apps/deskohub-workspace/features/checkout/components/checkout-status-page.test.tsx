@@ -1146,7 +1146,13 @@ describe("CheckoutStatusPage", () => {
         />
       );
 
-      expect(view.getByText(/You don't need to book again\./)).toBeTruthy();
+      // A local release cannot stop the provider payment from settling later.
+      expect(
+        view.getByText(
+          /Don't book again until we confirm your payment or you hear from us/
+        )
+      ).toBeTruthy();
+      expect(view.queryByText(/release/i)).toBeNull();
       const link = view.getByRole("link", { name: "Send support request" });
       const contactUrl = new URL(
         link.getAttribute("href") ?? "",
