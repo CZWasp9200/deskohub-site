@@ -421,7 +421,7 @@ for (const caseId of workspaceE2EAccountCaseIds) {
           accountLane.config.review,
           runCase
         );
-      } else if (caseId === "account-communication-language") {
+      } else if (caseId === "account-locale-preference") {
         await withLanguagePreferenceReview(
           getOwnedPage(),
           accountLane.config.review,

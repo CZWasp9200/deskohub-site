@@ -1272,7 +1272,7 @@ export const makeWorkspaceE2EAccountCases = ({
         );
       })
     ),
-    makeCase("account-communication-language", ({ runStep }) =>
+    makeCase("account-locale-preference", ({ runStep }) =>
       Effect.gen(function* () {
         const languageTriggerSelector = '[data-slot="select-trigger"]';
         const languageOptionCsSelector = '[role="option"]:has-text("Čeština")';

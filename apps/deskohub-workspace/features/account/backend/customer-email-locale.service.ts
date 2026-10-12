@@ -34,7 +34,7 @@ export interface ICustomerEmailLocaleService {
 }
 
 /**
- * Resolves the durable communication-language fact behind reservation
+ * Resolves the customer's saved locale preference behind reservation
  * customer emails through the durable Dotypos customer link and the saved
  * preference row, without exposing account, session, or profile data.
  */

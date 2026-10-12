@@ -7,7 +7,7 @@ export const workspaceE2EAccountCaseIds = [
   "account-deletion-marker-reauth",
   "account-session-lifecycle",
   "account-deletion-and-reactivation",
-  "account-communication-language",
+  "account-locale-preference",
   "account-linking-variants",
 ] as const;
 

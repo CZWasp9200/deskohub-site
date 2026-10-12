@@ -49,7 +49,7 @@ export type WorkspaceAuthConfig = {
     accountId: CustomerAccountId
   ) => Effect.Effect<void, unknown>;
   /**
-   * Inserts the preferred language only when the account has
+   * Inserts the locale preference only when the account has
    * none, never overwriting a saved preference. Account creation seeds it
    * from the initiating site locale, retrying and rejecting the hook on a
    * persistent failure. Every sign-in captures it from the callback locale

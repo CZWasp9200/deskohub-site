@@ -226,7 +226,7 @@ class FakeAccountExternalState {
    * locale, so the synthetic account restores English (US) on every sign-in
    * until a save changes it.
    */
-  preferredLanguage: "cs-CZ" | "en-US" = "en-US";
+  localePreference: "cs-CZ" | "en-US" = "en-US";
 
   currentAuthUserId: string | undefined;
   historyReady = false;
@@ -435,9 +435,9 @@ class FakeAccountExternalState {
     this.events.push({ customerId, type: "unlink", userId: accountId });
   }
 
-  savePreferredLanguage(locale: "cs-CZ" | "en-US") {
+  saveLocalePreference(locale: "cs-CZ" | "en-US") {
     this.languageSaves.push(locale);
-    this.preferredLanguage = locale;
+    this.localePreference = locale;
   }
 
   sendMessage(email: string, kind: "sign-in" | "reauthentication") {
@@ -803,7 +803,7 @@ class FakeBrowser {
   private resolveLocale(pathLocale: FakeLocale): FakeLocale {
     const resolved =
       this.signedIn() && this.external.preferenceRedirects
-        ? this.external.preferredLanguage
+        ? this.external.localePreference
         : pathLocale;
     this.localeCookie = resolved;
     return resolved;
@@ -931,7 +931,7 @@ class FakeBrowser {
     });
     if (this.signedIn() && this.external.switcherSavesPreference) {
       this.external.switcherSaves.push(locale);
-      this.external.savePreferredLanguage(locale);
+      this.external.saveLocalePreference(locale);
     }
     this.navigate(this.withLocale(this.currentUrl, locale));
   }
@@ -1084,7 +1084,7 @@ class FakeBrowser {
       if (chosen === this.languageValue) return;
       // The shared locale switch saves the preference, then moves the
       // document to the same URL under the chosen locale either way.
-      this.external.savePreferredLanguage(chosen);
+      this.external.saveLocalePreference(chosen);
       this.navigate(this.withLocale(this.currentUrl, chosen));
       return;
     }
@@ -1916,7 +1916,7 @@ const runLanguageCase = async (
   configure(scenario.external);
   const selected = await buildCase(
     makeWorkspaceE2EAccountCases,
-    "account-communication-language",
+    "account-locale-preference",
     scenario,
     options
   );
@@ -1969,7 +1969,7 @@ test("makes the saved language preference the site locale and switches it back f
   // saved English (US) back.
   expect(external.languageSaves).toEqual(["cs-CZ", "en-US"]);
   expect(external.switcherSaves).toEqual(["en-US"]);
-  expect(external.preferredLanguage).toBe("en-US");
+  expect(external.localePreference).toBe("en-US");
   expect(stepIds).toEqual(languageCaseStepIds);
   // The en-US probes were requested and redirected by the preference.
   const opened = external.browserActions
@@ -2011,7 +2011,7 @@ test("rejects a proxy that lets the URL locale outrank the saved preference", as
   expect(stepIds.at(-1)).toBe(
     "redirects a conflicting en-US URL and cookie to the saved Czech locale"
   );
-  expect(scenario.external.preferredLanguage).toBe("cs-CZ");
+  expect(scenario.external.localePreference).toBe("cs-CZ");
 });
 
 test("rejects a header switch that does not save the preference", async () => {
@@ -2025,15 +2025,15 @@ test("rejects a header switch that does not save the preference", async () => {
     "switches to English through the header language switcher"
   );
   expect(scenario.external.switcherSaves).toEqual([]);
-  expect(scenario.external.preferredLanguage).toBe("cs-CZ");
+  expect(scenario.external.localePreference).toBe("cs-CZ");
 });
 
 test("rejects a Czech save that the saved preference does not keep", async () => {
   const { exit, stepIds } = await runLanguageCase((external) => {
-    const save = external.savePreferredLanguage.bind(external);
+    const save = external.saveLocalePreference.bind(external);
     // The profile save reports success but persists nothing, so the
     // proxy sends the Czech navigation straight back to English (US).
-    external.savePreferredLanguage = (locale) => {
+    external.saveLocalePreference = (locale) => {
       external.languageSaves.push(locale);
       if (external.languageSaves.length > 1) save(locale);
     };
