@@ -61,7 +61,7 @@ const updateCustomerProfile = mock((input: CustomerProfileInput) => {
 let legalScreenMountCount = 0;
 
 mock.module("@/features/account/actions", () => ({
-  updatePreferredLanguage: () => Promise.resolve({ data: { status: "saved" } }),
+  updateLocalePreference: () => Promise.resolve({ data: { status: "saved" } }),
   lookupAresBusiness: () =>
     Promise.resolve({ data: { status: "not-found", message: "" } }),
   completeCustomerProfile: () =>
@@ -252,7 +252,6 @@ describe("LinkedAccount", () => {
         <LinkedAccount
           avatarPresentation={hiddenAvatarPresentation}
           email="ada@example.test"
-          preferredLanguage="en-US"
           history={history}
           locale="en-US"
           profile={profile}
@@ -345,7 +344,6 @@ describe("LinkedAccount", () => {
         <LinkedAccount
           avatarPresentation={hiddenAvatarPresentation}
           email="ada@example.test"
-          preferredLanguage="en-US"
           history={history}
           locale="en-US"
           profile={profile}
@@ -384,7 +382,6 @@ describe("LinkedAccount", () => {
           <LinkedAccount
             avatarPresentation={hiddenAvatarPresentation}
             email="ada@example.test"
-            preferredLanguage="en-US"
             history={history}
             locale="en-US"
             profile={profile}
@@ -404,7 +401,6 @@ describe("LinkedAccount", () => {
         <LinkedAccount
           avatarPresentation={hiddenAvatarPresentation}
           email="ada@example.test"
-          preferredLanguage="en-US"
           history={history}
           locale="en-US"
           profile={profile}
@@ -433,7 +429,6 @@ describe("LinkedAccount", () => {
           <LinkedAccount
             avatarPresentation={hiddenAvatarPresentation}
             email="ada@example.test"
-            preferredLanguage="en-US"
             history={history}
             locale={locale}
             profile={profile}
@@ -505,7 +500,6 @@ describe("LinkedAccount", () => {
             <LinkedAccount
               avatarPresentation={hiddenAvatarPresentation}
               email="ada@example.test"
-              preferredLanguage="en-US"
               history={history}
               locale="en-US"
               profile={profile}
@@ -573,7 +567,6 @@ describe("LinkedAccount", () => {
           <LinkedAccount
             avatarPresentation={hiddenAvatarPresentation}
             email="ada@example.test"
-            preferredLanguage="en-US"
             history={history}
             locale="en-US"
             profile={profile}
@@ -643,7 +636,6 @@ describe("LinkedAccount", () => {
           <LinkedAccount
             avatarPresentation={hiddenAvatarPresentation}
             email="ada@example.test"
-            preferredLanguage="en-US"
             history={history}
             locale="en-US"
             profile={profile}
@@ -670,7 +662,6 @@ describe("LinkedAccount", () => {
         <LinkedAccount
           avatarPresentation={hiddenAvatarPresentation}
           email="ada@example.test"
-          preferredLanguage="en-US"
           history={history}
           locale="en-US"
           profile={profile}
@@ -702,7 +693,6 @@ describe("LinkedAccount", () => {
             <LinkedAccount
               avatarPresentation={hiddenAvatarPresentation}
               email="ada@example.test"
-              preferredLanguage="en-US"
               history={history}
               locale="en-US"
               profile={profile}

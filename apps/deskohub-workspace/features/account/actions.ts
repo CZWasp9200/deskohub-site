@@ -35,11 +35,11 @@ const deleteCustomerAccountConfirmedSchema = Schema.toStandardSchemaV1(
 );
 
 /**
- * The selectable preferred languages, derived from the Inlang
- * `locales` tuple so a locale list change is authoritative here too; the
- * database CHECK derives from the same list.
+ * The selectable locale preferences, derived from the Inlang `locales` tuple
+ * so a locale list change is authoritative here too; the database CHECK
+ * derives from the same list.
  */
-const preferredLanguageSchema = Schema.toStandardSchemaV1(
+const localePreferenceSchema = Schema.toStandardSchemaV1(
   Schema.Struct({ locale: Schema.Literals(locales) }),
   { parseOptions: { errors: "all", onExcessProperty: "error" } }
 );
@@ -91,12 +91,12 @@ const saveCustomerProfile = Effect.fn(
 );
 
 /**
- * Saves the Workspace-owned preferred language for the verified account under
+ * Saves the Workspace-owned locale preference for the verified account under
  * the account lock, then moves the locale cookie to it. The preference is
  * also the site locale for the signed-in customer, so the caller navigates to
  * the page under the saved locale; the Dotypos profile is never touched.
  */
-const savePreferredLanguage = (accountId: CustomerAccountId, locale: Locale) =>
+const saveLocalePreference = (accountId: CustomerAccountId, locale: Locale) =>
   Effect.flatMap(CustomerLocalePreferenceRepository, (repository) =>
     repository.save(accountId, locale)
   ).pipe(
@@ -140,17 +140,17 @@ const updateCustomerProfileAction = defineWorkspaceAction(
     )
 );
 
-const updatePreferredLanguageAction = defineWorkspaceAction(
+const updateLocalePreferenceAction = defineWorkspaceAction(
   {
-    operation: "account.update-language",
-    schema: preferredLanguageSchema,
+    operation: "account.update-locale-preference",
+    schema: localePreferenceSchema,
     logInput: false,
   },
   (input, { locale }) =>
     Effect.andThen(
       requireAccountsEnabled(locale),
       Effect.flatMap(requireVerifiedSession, (user) =>
-        savePreferredLanguage(user.accountId, input.locale)
+        saveLocalePreference(user.accountId, input.locale)
       ).pipe(
         Effect.mapError(accountActionError(locale)),
         Effect.provide(CustomerAuthentication.Default),
@@ -278,12 +278,10 @@ const lookupAresBusinessWorkflow = Effect.fn(function* (
     // provider write, and it rejects accounts whose profile link is not
     // settled. The durable deletion marker on the verified session is the
     // same authority the activity guard consults, checked here explicitly.
-    return yield* Effect.fail(
-      new CustomerAccountAccessError({
-        reason: "link-required",
-        linkReason: "deletion-requested",
-      })
-    );
+    return yield* new CustomerAccountAccessError({
+      reason: "link-required",
+      linkReason: "deletion-requested",
+    });
   }
 
   const ares = yield* AresLookupService;
@@ -343,10 +341,10 @@ export const updateCustomerProfile: typeof updateCustomerProfileAction = async (
   return await updateCustomerProfileAction(...args);
 };
 
-export const updatePreferredLanguage: typeof updatePreferredLanguageAction =
-  async (...args: Parameters<typeof updatePreferredLanguageAction>) => {
+export const updateLocalePreference: typeof updateLocalePreferenceAction =
+  async (...args: Parameters<typeof updateLocalePreferenceAction>) => {
     "use server";
-    return await updatePreferredLanguageAction(...args);
+    return await updateLocalePreferenceAction(...args);
   };
 
 export const deleteCustomerAccount: typeof deleteCustomerAccountAction = async (

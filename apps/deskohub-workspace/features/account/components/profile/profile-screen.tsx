@@ -1,17 +1,14 @@
 "use client";
 
 import { Check } from "lucide-react";
-import { useRouter } from "next/navigation";
 import { type ReactNode, useId, useState } from "react";
-import { updatePreferredLanguage } from "@/features/account/actions";
+import { updateLocalePreference } from "@/features/account/actions";
 import { AccountSectionPanel } from "@/features/account/components/shell/account-section-panel";
 import {
-  isLocale,
-  type Locale,
-  locales,
-  withLocalePrefixAndSearch,
-} from "@/features/i18n";
-import { Button } from "@/shared/components/ui/button";
+  type LocalePreferenceSaving,
+  switchLocale,
+} from "@/features/account/switch-locale";
+import { isLocale, type Locale, locales } from "@/features/i18n";
 import { Label } from "@/shared/components/ui/label";
 import {
   Select,
@@ -20,7 +17,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/shared/components/ui/select";
-import { useWorkspaceAction } from "@/shared/utils/use-workspace-action";
 import {
   EmailVerificationStatus,
   type EmailVerificationStatusCopy,
@@ -31,21 +27,11 @@ import {
  * profile card. Identity is factual, while unavailable settings stay visibly
  * non-interactive and all editable fields remain caller-owned. The avatar
  * media and its controls are caller-owned so the profile form owns their
- * mutation state. The preferred language is a Workspace-owned
- * durable preference: it saves through its own server action, never through
- * the surrounding Dotypos profile form.
+ * mutation state. The preferred language is the page locale, which on the
+ * account page is the signed-in customer's saved locale preference: choosing
+ * another one switches the site exactly like the header switcher, never
+ * through the surrounding Dotypos profile form.
  */
-
-/**
- * The server-read state of the preference: the saved locale,
- * `{ suggested }` for an account that has none yet (it preselects the page
- * locale and can be saved as is), or `"read-failed"` when the read could not
- * be completed.
- */
-export type PreferredLanguageState =
-  | Locale
-  | { readonly suggested: Locale }
-  | "read-failed";
 
 export interface ProfileScreenCopy {
   readonly title: string;
@@ -54,11 +40,6 @@ export interface ProfileScreenCopy {
   readonly emailLabel: string;
   readonly emailVerification: EmailVerificationStatusCopy;
   readonly languageLabel: string;
-  readonly languageSave: string;
-  readonly languageSaving: string;
-  readonly languageSaved: string;
-  readonly languageSaveFailed: string;
-  readonly languageReadUnavailable: string;
   readonly languageOptionCs: string;
   readonly languageOptionEn: string;
 }
@@ -68,27 +49,11 @@ export interface ProfileScreenProps {
   readonly lastName: string | null;
   readonly email: string;
   readonly copy: ProfileScreenCopy;
-  readonly preferredLanguage: PreferredLanguageState;
+  readonly locale: Locale;
   readonly children: ReactNode;
   readonly footer?: ReactNode;
   readonly avatar?: ReactNode;
 }
-
-/**
- * Resolves the announced save-status copy for the current action state:
- * saving wins while executing, then the saved result, then the failure.
- */
-const languageStatusCopy = (input: {
-  readonly copy: ProfileScreenCopy;
-  readonly isSaving: boolean;
-  readonly saved: boolean;
-  readonly failed: boolean;
-}): string | null => {
-  if (input.isSaving) return input.copy.languageSaving;
-  if (input.saved) return input.copy.languageSaved;
-  if (input.failed) return input.copy.languageSaveFailed;
-  return null;
-};
 
 /**
  * Every Inlang locale must have a translated label key, so adding a locale
@@ -102,6 +67,13 @@ const languageOptionLabels: Readonly<Record<Locale, LanguageOptionLabelKey>> = {
   "en-US": "languageOptionEn",
 };
 
+// The profile renders only for a signed-in customer, so a choice always saves
+// the preference before the document moves to the chosen locale.
+const signedInLocalePreference: LocalePreferenceSaving = {
+  signedIn: Promise.resolve(true),
+  save: updateLocalePreference,
+};
+
 export function ProfileScreen({
   avatar,
   children,
@@ -110,79 +82,20 @@ export function ProfileScreen({
   firstName,
   footer,
   lastName,
-  preferredLanguage,
+  locale,
 }: ProfileScreenProps) {
-  const router = useRouter();
   const titleId = useId();
   const languageId = useId();
-  const [selectedLanguage, setSelectedLanguage] = useState<Locale | null>(null);
-  const [transportFailed, setTransportFailed] = useState(false);
-  const {
-    execute: saveLanguage,
-    isExecuting: isSaving,
-    result,
-    reset: resetLanguageResult,
-  } = useWorkspaceAction(updatePreferredLanguage, {
-    actionName: "account.update-language",
-    onSuccess: ({ input }) => {
-      // The saved preference is the signed-in site locale, so a changed
-      // language moves the page to it with a document navigation.
-      const { pathname, search } = window.location;
-      const href = withLocalePrefixAndSearch(pathname, input.locale, search);
-      if (href !== `${pathname}${search}`) {
-        window.location.assign(href);
-        return;
-      }
-      void router.refresh();
-    },
-    onTransportError: () => {
-      setTransportFailed(true);
-    },
-  });
+  const [switchingLocale, setSwitchingLocale] = useState<Locale | null>(null);
   const nameParts = [firstName, lastName ?? ""]
     .map((name) => name.trim())
     .filter((name) => name.length > 0);
   const displayName = nameParts.join(" ") || copy.memberFallback;
 
-  /**
-   * The read-failed placeholder is the only missing-selection state. An
-   * account without a saved preference preselects the suggested page locale,
-   * and Save stays enabled so it can store that value without a change.
-   */
-  const languagePlaceholder = copy.languageReadUnavailable;
-  const savedLanguage = isLocale(preferredLanguage) ? preferredLanguage : null;
-  const suggestedLanguage =
-    preferredLanguage !== "read-failed" && !isLocale(preferredLanguage)
-      ? preferredLanguage.suggested
-      : null;
-  const languageToSave = selectedLanguage ?? suggestedLanguage;
-  const languageValue = selectedLanguage ?? savedLanguage ?? suggestedLanguage;
-  const saveFailed = transportFailed || result.serverError != null;
-  const languageStatus = languageStatusCopy({
-    copy,
-    isSaving,
-    saved: result.data != null,
-    failed: saveFailed,
-  });
-
-  /**
-   * Clears the announced save outcome so a stale "saved" or failure message
-   * never survives next to a different, not-yet-saved selection.
-   */
-  const clearLanguageFeedback = () => {
-    resetLanguageResult();
-    setTransportFailed(false);
-  };
-
   const handleLanguageChange = (value: string) => {
-    setSelectedLanguage(value as Locale);
-    clearLanguageFeedback();
-  };
-
-  const handleSaveLanguage = () => {
-    if (!languageToSave || isSaving) return;
-    clearLanguageFeedback();
-    saveLanguage({ locale: languageToSave });
+    if (!isLocale(value) || switchingLocale !== null) return;
+    setSwitchingLocale(value);
+    void switchLocale(value, signedInLocalePreference);
   };
 
   return (
@@ -237,15 +150,15 @@ export function ProfileScreen({
           {copy.languageLabel}
         </Label>
         <Select
-          disabled={isSaving}
+          disabled={switchingLocale !== null}
           onValueChange={handleLanguageChange}
-          value={languageValue ?? undefined}
+          value={switchingLocale ?? locale}
         >
           <SelectTrigger
             id={languageId}
             className="mt-2 min-h-11 w-full rounded-2xl border border-[#cad3df] bg-[#f8fafc] px-3 py-2 text-base text-[#52647c] outline-none focus-visible:ring-2 focus-visible:ring-burned-orange"
           >
-            <SelectValue placeholder={languagePlaceholder} />
+            <SelectValue />
           </SelectTrigger>
           <SelectContent>
             {locales.map((optionLocale) => (
@@ -255,24 +168,6 @@ export function ProfileScreen({
             ))}
           </SelectContent>
         </Select>
-        <div className="mt-3 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
-          <Button
-            className="rounded-xl bg-burned-orange px-4 text-xs uppercase tracking-[0.08em] hover:bg-burned-orange/90"
-            disabled={isSaving || languageToSave === null}
-            onClick={handleSaveLanguage}
-            size="sm"
-            type="button"
-          >
-            {isSaving ? copy.languageSaving : copy.languageSave}
-          </Button>
-          <div aria-live="polite" className="min-h-5 text-sm">
-            {languageStatus !== null ? (
-              <p className={saveFailed ? "text-red-700" : "text-emerald-800"}>
-                {languageStatus}
-              </p>
-            ) : null}
-          </div>
-        </div>
       </div>
     </AccountSectionPanel>
   );

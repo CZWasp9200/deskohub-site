@@ -41,9 +41,10 @@ export const accountReviewTargetByCaseId: Partial<
 
 /**
  * The language case's mid-case review moments, each captured while the state
- * it shows is genuine: the Czech profile right after the Czech save, the
- * Czech page a conflicting en-US URL and cookie were redirected to, and the
- * English account page the header switch moved the preference to.
+ * it shows is genuine: the Czech profile after the profile control moved the
+ * site to Czech, the Czech page a conflicting en-US URL and cookie were
+ * redirected to, and the English account page the header switch moved the
+ * preference to.
  */
 export const languagePreferenceReviewTargetByStage = {
   "czech-profile": "linked-profile-language-desktop-cs",

@@ -523,6 +523,32 @@ test("a signed-in switch saves the preference before navigating to the new local
   expect(window.location.pathname).toBe("/cs-CZ");
 });
 
+test("a signed-in switch still navigates when the save fails", async () => {
+  const { LocaleSwitcherLinks } = await import("./locale-switcher-links");
+  window.location.href = "http://localhost/en-US";
+  const saves: { locale: string }[] = [];
+  const signedIn = Promise.resolve(true);
+  const view = render(
+    <LocaleSwitcherLinks
+      currentLocale="en-US"
+      languageLabels={{ "cs-CZ": "Czech", "en-US": "English" }}
+      localePreference={{
+        signedIn,
+        save: (input) => {
+          saves.push(input);
+          return Promise.reject(new Error("network unreachable"));
+        },
+      }}
+    />
+  );
+  await act(() => signedIn);
+
+  fireEvent.click(view.getByRole("link", { name: "Czech" }));
+
+  await waitFor(() => expect(window.location.pathname).toBe("/cs-CZ"));
+  expect(saves).toEqual([{ locale: "cs-CZ" }]);
+});
+
 test("a guest switch stays a plain link without saving", async () => {
   const { LocaleSwitcherLinks } = await import("./locale-switcher-links");
   const { saves, preference } = localePreference(false);

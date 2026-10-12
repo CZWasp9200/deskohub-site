@@ -54,7 +54,7 @@ const removeCustomerAvatar = mock(() =>
 );
 
 mock.module("@/features/account/actions", () => ({
-  updatePreferredLanguage: () => Promise.resolve({ data: { status: "saved" } }),
+  updateLocalePreference: () => Promise.resolve({ data: { status: "saved" } }),
   lookupAresBusiness: () =>
     Promise.resolve({ data: { status: "not-found", message: "" } }),
   completeCustomerProfile,
@@ -219,7 +219,6 @@ describe("ProfileForm", () => {
     const en = render(
       <ProfileForm
         mode="edit"
-        preferredLanguage="read-failed"
         locale="en-US"
         email="ada@example.test"
         profile={editProfile}
@@ -242,7 +241,6 @@ describe("ProfileForm", () => {
     const cs = render(
       <ProfileForm
         mode="edit"
-        preferredLanguage="read-failed"
         locale="cs-CZ"
         email="ada@example.test"
         profile={editProfile}
@@ -268,7 +266,6 @@ describe("ProfileForm", () => {
     const view = render(
       <ProfileForm
         mode="edit"
-        preferredLanguage="read-failed"
         locale="en-US"
         email="ada@example.test"
         profile={editProfile}
@@ -324,7 +321,6 @@ describe("ProfileForm", () => {
             email="ada@example.test"
             locale="en-US"
             mode="edit"
-            preferredLanguage="read-failed"
             profile={businessProfile}
             section={section}
           />
@@ -436,7 +432,6 @@ describe("ProfileForm", () => {
             email="ada@example.test"
             locale="en-US"
             mode="edit"
-            preferredLanguage="read-failed"
             onSectionChange={setSection}
             profile={businessProfile}
             section={section}
@@ -488,7 +483,6 @@ describe("ProfileForm", () => {
             email="ada@example.test"
             locale="en-US"
             mode="edit"
-            preferredLanguage="read-failed"
             onSectionChange={setSection}
             profile={businessProfile}
             section={section}
@@ -686,7 +680,6 @@ describe("ProfileForm", () => {
     const view = render(
       <ProfileForm
         mode="edit"
-        preferredLanguage="read-failed"
         locale="en-US"
         email="ada@example.test"
         profile={editProfile}
@@ -713,7 +706,6 @@ describe("ProfileForm", () => {
     const view = render(
       <ProfileForm
         mode="edit"
-        preferredLanguage="read-failed"
         locale="en-US"
         email="ada@example.test"
         profile={editProfile}
@@ -746,7 +738,6 @@ describe("ProfileForm", () => {
     const view = render(
       <ProfileForm
         mode="edit"
-        preferredLanguage="read-failed"
         locale="en-US"
         email="ada@example.test"
         profile={editProfile}
@@ -773,7 +764,6 @@ describe("ProfileForm", () => {
     const view = render(
       <ProfileForm
         mode="edit"
-        preferredLanguage="read-failed"
         locale="en-US"
         email="ada@example.test"
         profile={{ ...editProfile, phone: "555-ALPHA" }}
@@ -790,7 +780,6 @@ describe("ProfileForm", () => {
     const view = render(
       <ProfileForm
         mode="edit"
-        preferredLanguage="read-failed"
         locale="en-US"
         email="ada@example.test"
         profile={{ ...editProfile, phone: "555-ALPHA" }}
@@ -826,7 +815,6 @@ describe("ProfileForm", () => {
     const view = render(
       <ProfileForm
         mode="edit"
-        preferredLanguage="read-failed"
         locale="en-US"
         email="ada@example.test"
         profile={editProfile}
@@ -863,7 +851,6 @@ describe("ProfileForm", () => {
         <UnsavedChangesProvider>
           <ProfileForm
             mode="edit"
-            preferredLanguage="read-failed"
             locale="en-US"
             email="ada@example.test"
             profile={editProfile}
@@ -926,7 +913,6 @@ describe("ProfileForm", () => {
         <UnsavedChangesProvider>
           <ProfileForm
             mode="edit"
-            preferredLanguage="read-failed"
             locale="en-US"
             email="ada@example.test"
             profile={editProfile}
@@ -991,7 +977,6 @@ describe("ProfileForm", () => {
         <UnsavedChangesProvider>
           <ProfileForm
             mode="edit"
-            preferredLanguage="read-failed"
             locale="en-US"
             email="ada@example.test"
             profile={editProfile}
@@ -1046,7 +1031,6 @@ describe("ProfileForm", () => {
         <UnsavedChangesProvider>
           <ProfileForm
             mode="edit"
-            preferredLanguage="read-failed"
             locale="en-US"
             email="ada@example.test"
             profile={editProfile}
@@ -1095,7 +1079,6 @@ describe("ProfileForm", () => {
         <UnsavedChangesProvider>
           <ProfileForm
             mode="edit"
-            preferredLanguage="read-failed"
             locale="en-US"
             email="ada@example.test"
             profile={editProfile}
@@ -1154,7 +1137,6 @@ describe("ProfileForm", () => {
             <Activity mode={mode}>
               <ProfileForm
                 mode="edit"
-                preferredLanguage="read-failed"
                 locale="en-US"
                 email="ada@example.test"
                 profile={editProfile}
@@ -1210,7 +1192,6 @@ describe("ProfileForm", () => {
     const view = render(
       <ProfileForm
         mode="edit"
-        preferredLanguage="read-failed"
         locale="en-US"
         email="ada@example.test"
         profile={businessProfile}
@@ -1264,7 +1245,6 @@ describe("ProfileForm", () => {
         <UnsavedChangesProvider>
           <ProfileForm
             mode="edit"
-            preferredLanguage="read-failed"
             locale="en-US"
             email="ada@example.test"
             profile={personalProfile}
@@ -1323,7 +1303,6 @@ describe("ProfileForm", () => {
         <UnsavedChangesProvider>
           <ProfileForm
             mode="edit"
-            preferredLanguage="read-failed"
             locale="en-US"
             email="ada@example.test"
             profile={businessProfile}
@@ -1389,7 +1368,6 @@ describe("ProfileForm", () => {
     const view = render(
       <ProfileForm
         mode="edit"
-        preferredLanguage="read-failed"
         locale="en-US"
         email="ada@example.test"
         profile={editProfile}
@@ -1444,7 +1422,6 @@ describe("ProfileForm", () => {
     const view = render(
       <ProfileForm
         mode="edit"
-        preferredLanguage="read-failed"
         locale="en-US"
         email="ada@example.test"
         profile={businessProfile}
@@ -1535,7 +1512,6 @@ describe("ProfileForm", () => {
         <UnsavedChangesProvider>
           <ProfileForm
             mode="edit"
-            preferredLanguage="read-failed"
             locale="en-US"
             email="ada@example.test"
             profile={editProfile}
@@ -1605,7 +1581,6 @@ describe("ProfileForm", () => {
             email="ada@example.test"
             locale="en-US"
             mode="edit"
-            preferredLanguage="en-US"
             onSectionChange={setSection}
             profile={businessProfile}
             section={section}
@@ -1655,7 +1630,6 @@ describe("ProfileForm", () => {
         <UnsavedChangesProvider>
           <ProfileForm
             mode="edit"
-            preferredLanguage="en-US"
             locale="en-US"
             email="ada@example.test"
             profile={editProfile}
@@ -1763,7 +1737,6 @@ describe("ProfileForm", () => {
     const view = render(
       <ProfileForm
         mode="edit"
-        preferredLanguage="en-US"
         locale="en-US"
         email="ada@example.test"
         profile={emptyCompanyProfile}
@@ -1813,7 +1786,6 @@ describe("ProfileForm", () => {
           email="ada@example.test"
           locale="en-US"
           mode="edit"
-          preferredLanguage="en-US"
           profile={editProfile}
           {...props}
         />
@@ -2003,7 +1975,6 @@ describe("ProfileForm", () => {
               email="ada@example.test"
               locale="en-US"
               mode="edit"
-              preferredLanguage="en-US"
               profile={profile}
               avatarPresentation={avatarPresentation}
               section={section}

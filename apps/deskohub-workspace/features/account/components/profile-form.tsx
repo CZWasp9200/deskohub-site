@@ -21,10 +21,7 @@ import type { CustomerProfileBilling } from "@/features/account/backend/customer
 import { getAccountScreenCopy } from "@/features/account/components/account-screen-copy";
 import { BillingScreen } from "@/features/account/components/billing/billing-screen";
 import { AvatarControl } from "@/features/account/components/profile/avatar-control";
-import {
-  type PreferredLanguageState,
-  ProfileScreen,
-} from "@/features/account/components/profile/profile-screen";
+import { ProfileScreen } from "@/features/account/components/profile/profile-screen";
 import {
   createProfileFormResolver,
   getProfileFormDefaultValues,
@@ -51,9 +48,10 @@ import { useWorkspaceAction } from "@/shared/utils/use-workspace-action";
 
 export type CustomerProfileFormMode = "complete" | "edit";
 
-type ProfileFormBaseProps = {
+type ProfileFormProps = {
   readonly email: string;
   readonly locale: Locale;
+  readonly mode: CustomerProfileFormMode;
   readonly onSectionChange?: (section: "profile" | "billing") => void;
   readonly profile?: {
     readonly firstName: string;
@@ -64,25 +62,6 @@ type ProfileFormBaseProps = {
   readonly avatarPresentation?: CustomerAvatarPresentation;
   readonly section?: "profile" | "billing";
 };
-
-/**
- * The preferred language is discriminated by mode: edit mode
- * renders the profile screen and must carry the server-read state, while
- * completion mode never renders the language control and must not accept a
- * preference at all — there is no unset-success representation.
- */
-export type ProfileFormProps = ProfileFormBaseProps &
-  (
-    | {
-        readonly mode: "complete";
-        /** Completion never renders the language control; passing one is a compile error. */
-        readonly preferredLanguage?: never;
-      }
-    | {
-        readonly mode: "edit";
-        readonly preferredLanguage: PreferredLanguageState;
-      }
-  );
 
 type AresLookupStatus =
   | "idle"
@@ -127,7 +106,6 @@ export function ProfileForm({
   locale,
   mode,
   onSectionChange,
-  preferredLanguage,
   profile,
   section = "profile",
 }: ProfileFormProps) {
@@ -916,7 +894,7 @@ export function ProfileForm({
                   firstName={savedIdentity.firstName}
                   footer={section === "profile" ? formFooter : undefined}
                   lastName={savedIdentity.lastName}
-                  preferredLanguage={preferredLanguage}
+                  locale={locale}
                 >
                   {identityFields}
                 </ProfileScreen>

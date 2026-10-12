@@ -25,9 +25,6 @@ export type AccountReviewTarget =
   | "linked-profile-language-desktop"
   | "linked-profile-language-desktop-cs"
   | "linked-profile-language-mobile"
-  | "linked-profile-language-saving-desktop"
-  | "linked-profile-language-saved-desktop"
-  | "linked-profile-language-failed-desktop"
   | "locale-preference-redirect-desktop"
   | "locale-switcher-saved-desktop"
   | "linked-billing-desktop"
@@ -124,21 +121,6 @@ const accountReviewTargetMetadata = {
     filename: "linked-profile-language-mobile.png",
     path: "/en-US/account",
     viewport: { height: 900, width: 375 },
-  },
-  "linked-profile-language-saving-desktop": {
-    filename: "linked-profile-language-saving-desktop.png",
-    path: "/en-US/account",
-    viewport: { height: 1000, width: 1440 },
-  },
-  "linked-profile-language-saved-desktop": {
-    filename: "linked-profile-language-saved-desktop.png",
-    path: "/en-US/account",
-    viewport: { height: 1000, width: 1440 },
-  },
-  "linked-profile-language-failed-desktop": {
-    filename: "linked-profile-language-failed-desktop.png",
-    path: "/en-US/account",
-    viewport: { height: 1000, width: 1440 },
   },
   "locale-preference-redirect-desktop": {
     filename: "locale-preference-redirect-desktop.png",
@@ -320,9 +302,6 @@ const isPrivateLinkedAccountTarget = (target: ReviewTarget): boolean =>
   target === "linked-profile-language-desktop" ||
   target === "linked-profile-language-desktop-cs" ||
   target === "linked-profile-language-mobile" ||
-  target === "linked-profile-language-saving-desktop" ||
-  target === "linked-profile-language-saved-desktop" ||
-  target === "linked-profile-language-failed-desktop" ||
   target === "locale-switcher-saved-desktop" ||
   target === "linked-billing-desktop" ||
   target === "linked-billing-mobile" ||
@@ -872,32 +851,6 @@ export const withSignInPendingReview = async (
 };
 
 /**
- * Deployed copy of the language feedback states the wrapper waits for; the
- * keys behind these strings (accountProfileScreenLanguageSaving/Saved/
- * SaveFailed) are pinned by the shared message catalogs.
- */
-const languageSavingButtonSelector = 'button:has-text("Saving…")';
-const languageTriggerSelector =
-  "[data-screen='profile-screen'] [data-slot='select-trigger']";
-// The profile screen also renders the "Save profile" submit control, so a
-// substring selector like button:has-text("Save") resolves to two buttons
-// and fails strict mode. The exact accessible name leaves only the language
-// Save button.
-const languageSaveButtonName = "Save";
-const languageOptionCsSelector = '[role="option"]:has-text("Čeština")';
-const languageOptionEnSelector = '[role="option"]:has-text("English (US)")';
-const languageSavedCopy = "Language saved.";
-const languageFailedCopy = "Saving the language failed. Try again.";
-const profileScreenSelector = "[data-screen='profile-screen']";
-
-const languageSaveButton = (page: Playwright.Page): Playwright.Locator =>
-  page
-    .locator(profileScreenSelector)
-    .getByRole("button", { name: languageSaveButtonName, exact: true });
-
-const browserActionTimeout = () => workspaceE2ETimeouts.browserAction;
-
-/**
  * Captures the review target of one mid-case language moment. It never
  * throws: a failed or repeated capture is recorded by the wrapper, which
  * reports it only after the case has finished.
@@ -910,16 +863,15 @@ const skipLanguagePreferenceReview: LanguagePreferenceReviewCapture =
   async () => undefined;
 
 /**
- * Drives the preferred-communication-language feature's own review states
- * around the language case. The saving feedback is captured while the case's
- * Czech save request is held under /en-US/account. The case hands the wrapper
- * its genuine mid-case moments through the capture hook: the Czech profile,
- * the preference redirect, and the switcher save. After the case ends on the
- * English profile with English (US) saved, a same-locale save shows its
- * confirmation without navigating, so the saved feedback, an abort-induced
- * transport failure restored by a real save, and the mobile view are
- * captured there. Callers own the synthetic context; this helper only
- * captures the allowlisted PNGs, and its own saves keep English (US).
+ * Hands the language case its review capture hook. The case photographs its
+ * genuine mid-case moments: the Czech profile after the profile control moved
+ * the site to Czech, the Czech page a conflicting en-US URL and cookie were
+ * redirected to, and the English account page the header switch moved the
+ * preference to. After the case ends on the English profile, the mobile
+ * language view is captured. Choosing a language saves it and navigates at
+ * once, so there is no separate saving, saved, or failed state to hold or
+ * photograph. Callers own the synthetic context; this helper only captures
+ * the allowlisted PNGs.
  */
 export const withLanguagePreferenceReview = async (
   page: Playwright.Page,
@@ -927,20 +879,8 @@ export const withLanguagePreferenceReview = async (
   runCase: (capture: LanguagePreferenceReviewCapture) => Promise<void>
 ): Promise<void> => {
   if (!review.screenshots) return runCase(skipLanguagePreferenceReview);
-  const { baseUrl } = review;
-  const savingMetadata =
-    accountReviewTargetMetadata["linked-profile-language-saving-desktop"];
-  if (!savingMetadata) throw accountReviewCaptureFailure();
 
-  let savingHandlerPromise: Promise<void> | undefined;
-  let savingRouteMatched = false;
-  let abortRouteConsumed = false;
-  let abortRouteCleanupOwed = false;
   let reviewFailed = false;
-  let runCaseFailed = false;
-  let runCaseFailure: unknown;
-  let wrapperFailed = false;
-  let previousViewport: Playwright.ViewportSize | null = null;
   const capturedStages = new Set<LanguagePreferenceReviewStage>();
 
   const captureStage: LanguagePreferenceReviewCapture = async (stage) => {
@@ -960,264 +900,21 @@ export const withLanguagePreferenceReview = async (
     }
   };
 
-  /**
-   * The saving gate matches the preference save POST by its URL shape plus a
-   * validated action-argument discriminator instead of an exact URL string:
-   * the profile section is reached at /en-US/account?section=profile, so a
-   * Server Action POST always carries that query and an exact /en-US/account
-   * match never fires. The Next-Action id itself is a build-time hash that
-   * changes on every deploy, so the deterministic discriminator is the
-   * serialized argument: the action schema locks the single input to
-   * { locale: "cs-CZ" | "en-US" } (features/account/actions.ts) and React's
-   * Flight serialization embeds that object verbatim in the postdata. The
-   * other account POSTs never carry this pair: sign-out is a Better Auth
-   * request without a Next-Action header, the profile save serializes name
-   * and phone fields, and account deletion serializes { confirmed: true }.
-   * The matcher also requires the preview origin so a cross-origin request
-   * with an identical path, query, header, and payload is never intercepted.
-   */
-  const languagePreferenceLocales = ["cs-CZ", "en-US"] as const;
-  const languagePreferencePayloadPattern = new RegExp(
-    `"locale"\\s*:\\s*"(?:${languagePreferenceLocales.join("|")})"`
-  );
-  const previewOrigin = new URL(baseUrl).origin;
-  const languageSaveRouteMatcher = (url: URL): boolean =>
-    url.origin === previewOrigin &&
-    url.pathname === "/en-US/account" &&
-    isAllowedPrivateLinkedAccountQuery(url.search);
-  const isLanguagePreferenceSaveRequest = (
-    request: Playwright.Request
-  ): boolean =>
-    request.method() === "POST" &&
-    request.headers()["next-action"] !== undefined &&
-    languagePreferencePayloadPattern.test(request.postData() ?? "");
+  // A case failure propagates as is and skips the post-case capture.
+  await runCase(captureStage);
 
-  const handleSavingRoute: Parameters<Playwright.Page["route"]>[1] = (
-    route,
-    request
-  ) => {
-    // Consume exactly one matching preference save: the flag is checked and
-    // set synchronously before any await, so a second matching request
-    // during the capture window falls through instead of overwriting the
-    // in-flight capture or the saved handler promise.
-    if (savingRouteMatched || !isLanguagePreferenceSaveRequest(request)) {
-      // Leave every unrelated request and every later matching request
-      // untouched.
-      void route.fallback().catch(() => {
-        reviewFailed = true;
-      });
-      return;
-    }
-    savingRouteMatched = true;
-    const deadline = Date.now() + browserActionTimeout();
-    const handlerPromise = (async () => {
-      try {
-        await page.locator(languageSavingButtonSelector).waitFor({
-          state: "visible",
-          timeout: remainingAccountReviewBudget(deadline),
-        });
-        remainingAccountReviewBudget(deadline);
-        const screenshot = await captureAccountReviewPixels(
-          page,
-          baseUrl,
-          "linked-profile-language-saving-desktop",
-          savingMetadata,
-          deadline
-        );
-        await persistAccountReview(
-          page,
-          baseUrl,
-          "linked-profile-language-saving-desktop",
-          savingMetadata,
-          screenshot,
-          deadline
-        );
-      } catch {
-        reviewFailed = true;
-      } finally {
-        try {
-          await route.continue();
-        } catch {
-          reviewFailed = true;
-        }
-        // The intended request is handled, so the interception is unwound
-        // here; the cleanup unroute below stays as an idempotent backstop.
-        try {
-          await page.unroute(languageSaveRouteMatcher, handleSavingRoute);
-        } catch {}
-      }
-    })();
-    savingHandlerPromise = handlerPromise;
-    return handlerPromise;
-  };
-
-  const handleAbortRoute: Parameters<Playwright.Page["route"]>[1] = (
-    route,
-    request
-  ) => {
-    // Abort exactly one matching preference save; any further matching
-    // request while this gate is still registered falls through untouched.
-    if (abortRouteConsumed || !isLanguagePreferenceSaveRequest(request)) {
-      void route.fallback().catch(() => {
-        reviewFailed = true;
-      });
-      return;
-    }
-    abortRouteConsumed = true;
-    void route.abort().catch(() => {
-      reviewFailed = true;
-    });
-  };
-
-  const selectLanguageOption = async (optionSelector: string) => {
-    await page
-      .locator(languageTriggerSelector)
-      .click({ timeout: browserActionTimeout() });
-    await page
-      .locator(optionSelector)
-      .click({ timeout: browserActionTimeout() });
-  };
-
-  const selectEnglishAndSave = async () => {
-    // The case leaves the select showing the saved English (US) without a
-    // pending selection, so re-picking it fires no onValueChange and Save
-    // stays disabled. Selecting Czech first forces a genuine selection change
-    // so the final English pick enables Save; the intermediate pick is never
-    // saved, and saving the page locale does not navigate.
-    await selectLanguageOption(languageOptionCsSelector);
-    await selectLanguageOption(languageOptionEnSelector);
-    await languageSaveButton(page).click({
-      timeout: browserActionTimeout(),
-    });
-  };
-
-  const performSavedFeedbackCapture = async () => {
-    await selectEnglishAndSave();
-    await page
-      .getByText(languageSavedCopy, { exact: true })
-      .waitFor({ state: "visible", timeout: browserActionTimeout() });
-    await captureAccountReview(
-      page,
-      review,
-      "linked-profile-language-saved-desktop"
-    );
-  };
-
-  const performTransportFailureCapture = async () => {
-    await page.route(languageSaveRouteMatcher, handleAbortRoute);
-    abortRouteCleanupOwed = true;
-    await languageSaveButton(page).click({
-      timeout: browserActionTimeout(),
-    });
-    await page
-      .getByText(languageFailedCopy, { exact: true })
-      .waitFor({ state: "visible", timeout: browserActionTimeout() });
-    await captureAccountReview(
-      page,
-      review,
-      "linked-profile-language-failed-desktop"
-    );
-  };
-
-  const restoreSavedLanguage = async () => {
-    await page.unroute(languageSaveRouteMatcher, handleAbortRoute);
-    abortRouteCleanupOwed = false;
-    await languageSaveButton(page).click({
-      timeout: browserActionTimeout(),
-    });
-    await page
-      .getByText(languageSavedCopy, { exact: true })
-      .waitFor({ state: "visible", timeout: browserActionTimeout() });
-  };
-
-  try {
-    previousViewport = page.viewportSize();
-    if (previousViewport === null) throw accountReviewCaptureFailure();
-    await waitForAccountReviewOperation(
-      () => page.setViewportSize(savingMetadata.viewport),
-      Date.now() + browserActionTimeout()
-    );
-    await waitForAccountReviewOperation(
-      () => page.route(languageSaveRouteMatcher, handleSavingRoute),
-      Date.now() + browserActionTimeout()
-    );
-    try {
-      await runCase(captureStage);
-    } catch (cause) {
-      runCaseFailed = true;
-      runCaseFailure = cause;
-    }
-  } catch {
-    wrapperFailed = true;
-  }
-
-  if (!runCaseFailed && !wrapperFailed) {
-    if (
-      Object.keys(languagePreferenceReviewTargetByStage).some(
-        (stage) => !capturedStages.has(stage as LanguagePreferenceReviewStage)
-      )
-    ) {
-      reviewFailed = true;
-    }
-    try {
-      await performSavedFeedbackCapture();
-      await performTransportFailureCapture();
-      await restoreSavedLanguage();
-      await captureAccountReview(
-        page,
-        review,
-        "linked-profile-language-mobile"
-      );
-    } catch {
-      reviewFailed = true;
-    }
-  }
-
-  const cleanupDeadline = Date.now() + workspaceE2ETimeouts.cleanupAction;
-  try {
-    await waitForAccountReviewOperation(
-      () => page.unroute(languageSaveRouteMatcher, handleSavingRoute),
-      cleanupDeadline
-    );
-  } catch {
-    wrapperFailed = true;
-  }
-  if (abortRouteCleanupOwed) {
-    try {
-      await waitForAccountReviewOperation(
-        () => page.unroute(languageSaveRouteMatcher, handleAbortRoute),
-        cleanupDeadline
-      );
-    } catch {
-      wrapperFailed = true;
-    }
-  }
-  if (savingHandlerPromise) {
-    try {
-      await waitForAccountReviewOperation(
-        () => savingHandlerPromise as Promise<void>,
-        cleanupDeadline
-      );
-    } catch {
-      wrapperFailed = true;
-    }
-  } else {
+  if (
+    Object.keys(languagePreferenceReviewTargetByStage).some(
+      (stage) => !capturedStages.has(stage as LanguagePreferenceReviewStage)
+    )
+  ) {
     reviewFailed = true;
   }
-  if (!runCaseFailed && !savingRouteMatched) reviewFailed = true;
-  if (previousViewport !== null) {
-    const viewportToRestore = previousViewport;
-    try {
-      await waitForAccountReviewOperation(
-        () => page.setViewportSize(viewportToRestore),
-        cleanupDeadline
-      );
-    } catch {
-      wrapperFailed = true;
-    }
+  try {
+    await captureAccountReview(page, review, "linked-profile-language-mobile");
+  } catch {
+    reviewFailed = true;
   }
 
-  if (runCaseFailed) throw runCaseFailure;
-  if (wrapperFailed || reviewFailed || !savingHandlerPromise)
-    throw accountReviewCaptureFailure();
+  if (reviewFailed) throw accountReviewCaptureFailure();
 };

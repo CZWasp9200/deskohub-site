@@ -49,7 +49,7 @@ mock.module("next/navigation", () => ({
 }));
 
 mock.module("@/features/account/actions", () => ({
-  updatePreferredLanguage: () => Promise.resolve({ data: { status: "saved" } }),
+  updateLocalePreference: () => Promise.resolve({ data: { status: "saved" } }),
   lookupAresBusiness: () =>
     Promise.resolve({ data: { status: "not-found", message: "" } }),
   completeCustomerProfile,
@@ -114,7 +114,6 @@ function ProfileFixture({
           email="ada@example.test"
           locale="en-US"
           mode="edit"
-          preferredLanguage="read-failed"
           onSectionChange={setSection}
           profile={businessProfile}
           section={section}

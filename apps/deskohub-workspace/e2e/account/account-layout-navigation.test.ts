@@ -25,7 +25,7 @@ mock.module("next/navigation", () => ({
 }));
 
 mock.module("@/features/account/actions", () => ({
-  updatePreferredLanguage: () => Promise.resolve({ data: { status: "saved" } }),
+  updateLocalePreference: () => Promise.resolve({ data: { status: "saved" } }),
 }));
 
 mock.module("@/shared/utils/use-workspace-action", () => ({
@@ -74,7 +74,6 @@ const sectionPanel = (section: AccountSection) => {
         email: "synthetic@example.test",
         firstName: "E2E",
         lastName: null,
-        preferredLanguage: "en-US",
       });
     case "billing":
       return createElement(

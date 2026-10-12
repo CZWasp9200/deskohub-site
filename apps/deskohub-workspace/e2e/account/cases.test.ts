@@ -50,7 +50,6 @@ const signInEmailSelector = "#account-sign-in-email";
 const signInSubmitSelector = "#account-sign-in-submit";
 const signOutSelector = "#account-sign-out";
 const languageTriggerSelector = '[data-slot="select-trigger"]';
-const languageSaveSelector = 'button[type="button"]:has-text("Save")';
 const languageOptionCsSelector = '[role="option"]:has-text("Čeština")';
 const languageOptionEnSelector = '[role="option"]:has-text("English (US)")';
 const englishLanguageLabel = "Preferred language";
@@ -772,18 +771,15 @@ class FakeBrowser {
   private formReady = false;
   private selectedSection = "";
   private languageListboxOpen = false;
-  private languagePending: "cs-CZ" | "en-US" | null = null;
 
   constructor(readonly external: FakeAccountExternalState) {}
 
   /**
-   * The committed select value: a genuinely changed selection wins until the
-   * save lands, otherwise the persisted preference is what Radix restored.
-   * Re-picking this restored value fires no onValueChange, exactly as the
-   * real Radix Select behaves.
+   * The select value is the page locale. Re-picking it fires no
+   * onValueChange, exactly as the real Radix Select behaves.
    */
   private get languageValue(): "cs-CZ" | "en-US" {
-    return this.languagePending ?? this.external.preferredLanguage;
+    return this.pageLocale();
   }
 
   private signedIn(): boolean {
@@ -842,7 +838,6 @@ class FakeBrowser {
   /** A document navigation through the proxy. */
   private navigate(requested: string) {
     this.languageListboxOpen = false;
-    this.languagePending = null;
     this.selectedSection = "";
     this.languageControlLabel = null;
     this.heading = null;
@@ -942,6 +937,12 @@ class FakeBrowser {
   }
 
   waitForHandler(selector: string, handler: string) {
+    if (selector.endsWith(languageTriggerSelector)) {
+      if (handler !== "onPointerDown" || this.selectedSection !== "profile") {
+        throw new Error("the language trigger is not on the profile section");
+      }
+      return;
+    }
     if (
       selector !== signOutSelector ||
       handler !== "onClick" ||
@@ -1071,37 +1072,20 @@ class FakeBrowser {
       this.languageListboxOpen = true;
       return;
     }
-    if (selector === languageOptionCsSelector) {
+    if (
+      selector === languageOptionCsSelector ||
+      selector === languageOptionEnSelector
+    ) {
       if (!this.languageListboxOpen) {
         throw new Error("the language option was clicked without a listbox");
       }
-      if (this.languageValue !== "cs-CZ") this.languagePending = "cs-CZ";
       this.languageListboxOpen = false;
-      return;
-    }
-    if (selector === languageOptionEnSelector) {
-      if (!this.languageListboxOpen) {
-        throw new Error("the language option was clicked without a listbox");
-      }
-      if (this.languageValue !== "en-US") this.languagePending = "en-US";
-      this.languageListboxOpen = false;
-      return;
-    }
-    if (selector === languageSaveSelector) {
-      if (this.languagePending === null) {
-        throw new Error("the language Save stayed disabled");
-      }
-      const saved = this.languagePending;
-      this.external.savePreferredLanguage(saved);
-      this.languagePending = null;
-      this.languageListboxOpen = false;
-      if (saved !== this.pageLocale()) {
-        // Saving another locale moves the document to the same URL under
-        // the saved locale, so no confirmation is ever shown.
-        this.navigate(this.withLocale(this.currentUrl, saved));
-        return;
-      }
-      this.pageText = `${this.pageText} Language saved.`;
+      const chosen = selector === languageOptionCsSelector ? "cs-CZ" : "en-US";
+      if (chosen === this.languageValue) return;
+      // The shared locale switch saves the preference, then moves the
+      // document to the same URL under the chosen locale either way.
+      this.external.savePreferredLanguage(chosen);
+      this.navigate(this.withLocale(this.currentUrl, chosen));
       return;
     }
     throw new Error("the synthetic browser clicked an unexpected control");
@@ -1216,16 +1200,6 @@ class FakeBrowser {
     if (description === "account profile section") {
       if (this.selectedSection !== "profile") {
         throw new Error("the profile section is not selected");
-      }
-      return;
-    }
-    if (
-      description === "language Save stays disabled before any selection change"
-    ) {
-      // The save gate stays closed until a genuine selection change sets a
-      // pending value; the restored preference alone never enables it.
-      if (this.languagePending !== null) {
-        throw new Error("the language Save was enabled without a change");
       }
       return;
     }
@@ -1969,7 +1943,7 @@ const languageCaseStepIds = [
   "requests the fresh sign-in link",
   "retrieves the fresh sign-in link",
   "signs in on the English site and opens the profile section",
-  "saves Čeština and moves the site to Czech",
+  "chooses Čeština, which saves it and moves the site to Czech",
   "shows Čeština selected on the Czech profile",
   "redirects a conflicting en-US URL and cookie to the saved Czech locale",
   "signs out from the Czech site",
@@ -1991,8 +1965,8 @@ test("makes the saved language preference the site locale and switches it back f
   // Both sign-ins budgeted their send and verification, with no extra link.
   expect(scenario.operations).toEqual(["send", "verify", "send", "verify"]);
   expect(scenario.retries).toEqual([]);
-  // The profile saved Čeština once through a genuine selection change, and
-  // the header switch saved English (US) back.
+  // Choosing Čeština in the profile saved it once, and the header switch
+  // saved English (US) back.
   expect(external.languageSaves).toEqual(["cs-CZ", "en-US"]);
   expect(external.switcherSaves).toEqual(["en-US"]);
   expect(external.preferredLanguage).toBe("en-US");
@@ -2066,5 +2040,7 @@ test("rejects a Czech save that the saved preference does not keep", async () =>
   });
 
   expect(Exit.isFailure(exit)).toBe(true);
-  expect(stepIds.at(-1)).toBe("saves Čeština and moves the site to Czech");
+  expect(stepIds.at(-1)).toBe(
+    "chooses Čeština, which saves it and moves the site to Czech"
+  );
 });

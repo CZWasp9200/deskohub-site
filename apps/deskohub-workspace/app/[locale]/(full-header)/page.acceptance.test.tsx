@@ -57,7 +57,7 @@ mock.module("@/shared/backend/workspace-effect", () => ({
   runWorkspaceEffect: () => passthrough,
 }));
 mock.module("@/features/account/actions", () => ({
-  updatePreferredLanguage: async () => undefined,
+  updateLocalePreference: async () => undefined,
 }));
 mock.module("@/features/gallery/backend/get-cloudinary-images.server", () => ({
   getCloudinaryImages: async () => syntheticPhotos,
