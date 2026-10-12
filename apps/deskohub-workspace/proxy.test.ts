@@ -169,6 +169,7 @@ const administrationPaths = [
   "/admin/customers",
   "/admin/customers/customer-id",
   "/admin/customers/customer-id/create-code",
+  "/admin/customers/customer-id/create-voucher",
   "/admin/discounts",
   "/admin/codes",
   "/admin/codes/code-id",
