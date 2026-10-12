@@ -191,9 +191,11 @@ test("runs four serial Bun test shards and keeps test-functional as a fail-close
   }
 
   const validationSteps = workflowSteps(doc, "validate-workspace");
-  expect(validationSteps.some((step) => step.name === "Lint Workspace")).toBe(
-    true
+  const lintStep = validationSteps.find(
+    (step) => step.name === "Lint Workspace and Boardgame Bar"
   );
+  expect(lintStep?.run).toContain("--filter=deskohub-workspace");
+  expect(lintStep?.run).toContain("--filter=deskohub-boardgame-bar");
   expect(
     validationSteps.some(
       (step) => step.name === "Validate Workspace schema migration"
@@ -209,7 +211,7 @@ test("runs four serial Bun test shards and keeps test-functional as a fail-close
   ).toBe(true);
   expect(
     workflowSteps(doc, "test-functional-shards").some(
-      (step) => step.name === "Lint Workspace"
+      (step) => step.name === "Lint Workspace and Boardgame Bar"
     )
   ).toBe(false);
 });
