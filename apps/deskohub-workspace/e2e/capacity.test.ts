@@ -111,7 +111,7 @@ test("wires the case-plan per-date maximums through the real case builders", asy
   const reservedDeskMaximum =
     workspaceE2EMaximumSameDateCoworkReservations["reserved-desk"];
   const openSpaceDates = Array.from(
-    { length: 10 },
+    { length: 11 },
     (_, index) => `2099-08-${String(index + 1).padStart(2, "0")}`
   );
   const openSpaceDateSet = new Set(openSpaceDates);

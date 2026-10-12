@@ -3,6 +3,7 @@ import {
   reconcileWorkspaceE2EAccountJournals,
   workspaceE2EAccountLaneJournalOwner,
 } from "../account/reconcile";
+import { guestReferralPaymentJournalOwner } from "../cases/guest-referral-payment";
 import {
   cleanupPreparedCheckoutFlowStates,
   prepareCheckoutFlowCleanup,
@@ -32,6 +33,7 @@ test("reconcile workspace checkout reservations", async ({
           [
             workspaceE2EAccountLaneJournalOwner,
             ...workspaceE2EReferralJournalOwners,
+            guestReferralPaymentJournalOwner,
           ]
         )
       ),

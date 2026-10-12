@@ -3,6 +3,8 @@ import { sql } from "drizzle-orm";
 import { Cause, Effect, Exit, Fiber, Layer } from "effect";
 import { TestClock } from "effect/testing";
 import { FetchHttpClient } from "effect/unstable/http";
+import { makeDatabaseClient, makeDatabasePool } from "@/db/database-client";
+import type { PaymentAttemptId } from "@/features/checkout/checkout-identifiers";
 import type { DatasourceConfig, WorkspaceE2EConfig } from "../config";
 import { workspaceE2ETimeouts } from "../timeouts";
 import type { CheckoutRow } from "../types";
@@ -13,6 +15,7 @@ import {
   assertLegalEvidenceRows,
   getPreviewFulfillmentMarkerDiagnosticCode,
   getProviderSessionRowDiagnosticCode,
+  releaseRejectedAttemptClaims,
   replayNexiWebhook,
   waitForProviderSessionRowAfterRedirect,
 } from "./database";
@@ -502,3 +505,40 @@ const makeCheckoutRow = () =>
     reservation_id: "reservation-1",
     security_token: "test-security-token",
   }) as CheckoutRow;
+
+test("releases the rejected attempt's reserved referral invitation claim", async () => {
+  const pool = makeDatabasePool({
+    connectionString: "postgres://e2e:e2e@127.0.0.1:1/workspace",
+  });
+  try {
+    const db = await Effect.runPromise(makeDatabaseClient(pool));
+    const releasedAt = Temporal.Instant.from("2026-10-12T12:00:00Z");
+    const statements = releaseRejectedAttemptClaims(
+      db,
+      "attempt-1" as PaymentAttemptId,
+      "nexi_sandbox_rejected",
+      releasedAt
+    ).map((release) => release.toSQL());
+
+    const referral = statements.find(({ sql: text }) =>
+      text.startsWith('update "referral_invitation_claims"')
+    );
+    expect(statements).toHaveLength(3);
+    expect(referral?.sql).toContain(
+      '"state" = $1, "released_at" = $2, "release_reason" = $3, "updated_at" = $4'
+    );
+    expect(referral?.sql).toContain(
+      'where (("referral_invitation_claims"."payment_attempt_id" = $5) and ("referral_invitation_claims"."state" = $6))'
+    );
+    expect(referral?.params).toEqual([
+      "released",
+      "2026-10-12T12:00:00.000000Z",
+      "nexi_sandbox_rejected",
+      "2026-10-12T12:00:00.000000Z",
+      "attempt-1",
+      "reserved",
+    ]);
+  } finally {
+    await pool.end();
+  }
+});

@@ -11,6 +11,7 @@ import {
 } from "@/features/discounts/persistence-contracts";
 import { discountCodeQueryParam } from "@/features/discounts/promotion-code";
 import { type Locale, m } from "@/features/i18n";
+import { referralCodeQueryParam } from "@/features/referrals/client";
 import { getMeetingRoomReservationDurationKey } from "@/features/reservation/meeting-room-reservation-duration";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import {
@@ -70,6 +71,13 @@ const _reservationLinkSlotCount = 4;
 // Syntactically canonical but never seeded, so the checkout can only treat it
 // as customer intent and never as an applied discount.
 const unknownLinkCode = canonicalPromotionCodeSchema.make("E2E_LINK_UNKNOWN");
+
+/**
+ * A well-formed referral code that no run ever seeds, so a reservation link
+ * carrying it as `ref` must book exactly as if the parameter were absent.
+ */
+export const makeUnusableReferralCode = () =>
+  `RFL${crypto.randomUUID().replaceAll("-", "").slice(0, 12).toUpperCase()}`;
 
 // Code-owned screenshot artifact directory and fixed PNG names, relative to
 // the apps/deskohub-workspace cwd; uploaded by the workspace E2E workflow.
@@ -142,6 +150,8 @@ export const makeReservationLinkE2ECases = ({
     const zeroTotalCode = discountCodeFixtures.zeroTotal.code;
     addRedaction(zeroTotalCode, true);
     addRedaction(unknownLinkCode, true);
+    const unusableReferralCode = makeUnusableReferralCode();
+    addRedaction(unusableReferralCode, true);
 
     const enZeroTotalData = makeReservationLinkCheckoutData(
       config.baseUrl,
@@ -162,7 +172,8 @@ export const makeReservationLinkE2ECases = ({
       unknownCodeSlot,
       "meeting-room-link-unknown-code-en-US",
       "en-US",
-      unknownLinkCode
+      unknownLinkCode,
+      unusableReferralCode
     );
     // The replacement resubmission must target a different free interval,
     // like the existing reservation-replacement flows, because the first
@@ -262,7 +273,8 @@ const makeReservationLinkCheckoutData = (
   slot: MeetingRoomCheckoutSlot,
   flowId: string,
   locale: LinkLocale,
-  discountCode: CanonicalPromotionCode
+  discountCode: CanonicalPromotionCode,
+  referralCode?: string
 ): CheckoutData => {
   const base = makeMeetingRoomCheckoutData(checkoutBaseUrl, slot, flowId);
   assert(base.meetingRoom, "reservation-link checkout interval missing");
@@ -276,6 +288,9 @@ const makeReservationLinkCheckoutData = (
     phone: base.phone,
     startDateTime: slot.startDateTime,
   });
+  if (referralCode !== undefined) {
+    params.set(referralCodeQueryParam, referralCode);
+  }
   return {
     ...base,
     checkoutUrl: `${checkoutBaseUrl}/${locale}/reservation/meeting-room?${params}`,
@@ -520,6 +535,8 @@ const runReservationLinkUnknownCodeCase = ({
       id: "assert-signed-unknown-code-pay-url",
       timeoutMs: config.timeouts.browserAction,
     });
+    // The link's unusable referral code neither blocks the booking nor
+    // replaces the requested discount code in the code box.
     yield* runStep({
       execute: assertRequestedOnlyDiscountCode({
         code: unknownLinkCode,
@@ -733,6 +750,7 @@ export const validateSignedPayUrl = ({
     "message",
     "name",
     "phone",
+    referralCodeQueryParam,
     "startDateTime",
   ]) {
     assert(
@@ -789,7 +807,7 @@ const assertHeldRowHasNoPaymentOrFulfillment = (row: CheckoutRow) => {
   );
 };
 
-const assertRequestedOnlyDiscountCode = ({
+export const assertRequestedOnlyDiscountCode = ({
   code,
   config,
   run,

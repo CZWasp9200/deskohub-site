@@ -34,6 +34,7 @@ import {
   type DiscountAvailabilityE2EPreparation,
   makeDiscountE2ECases,
 } from "./discounts";
+import { planGuestReferralPaymentCase } from "./guest-referral-payment";
 import {
   executeLatePaymentRecovery,
   latePaymentRecoveryScenarios,
@@ -362,6 +363,15 @@ export const makeWorkspaceE2ECases = ({
           preparation: discountPreparation,
           run,
         }))
+      );
+
+      cases.push(
+        yield* planGuestReferralPaymentCase({
+          allocation,
+          availableBasicDates: discountPreparation.availableBasicDates,
+          config,
+          flowStates,
+        })
       );
 
       return cases;
