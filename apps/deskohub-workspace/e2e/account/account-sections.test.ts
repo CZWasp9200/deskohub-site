@@ -226,9 +226,13 @@ const makeFakePage = (
           ? (arg as FakeElementHandle).element
           : arg;
       await pageOptions.onWait?.(predicateArgument);
-      if (!(pageFunction as (value: unknown) => boolean)(predicateArgument)) {
+      const result = (pageFunction as (value: unknown) => unknown)(
+        predicateArgument
+      );
+      if (!result) {
         throw new Error("fake account section did not settle");
       }
+      return { dispose: async () => {}, jsonValue: async () => result };
     },
   });
   return page;

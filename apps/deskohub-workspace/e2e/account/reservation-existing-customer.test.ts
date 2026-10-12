@@ -141,7 +141,10 @@ const makeFakePage = (failurePhase?: FailurePhase) => {
         handle.key === "button:Book for someone else"
       )
         fail();
-      return {} as never;
+      return {
+        dispose: async () => {},
+        jsonValue: async () => "ready",
+      } as never;
     },
   });
 
