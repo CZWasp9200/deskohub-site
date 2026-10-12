@@ -2,6 +2,7 @@ import {
   getLocaleFromPathname,
   stripLocaleFromPathname,
 } from "@deskohub/i18n/pathname";
+import { Effect } from "effect";
 import { payStateTokenQueryParam } from "@/features/checkout/pay-state-token-query";
 import type { Locale } from "@/features/i18n";
 import { locales } from "@/features/i18n/routing";
@@ -96,26 +97,34 @@ export const findLocaleBoundContinuation = ({
 /**
  * The saved preference to apply to a page: none for a guest, none when the
  * page is a verified continuation issued in another locale, and the saved
- * preference otherwise. `verify` runs only for a candidate the preference
- * would move, so most requests never load or run it. A verifier that fails
- * for any reason, including a failed lazy import, counts as "does not
- * verify": the failure is reported and the preference applies.
+ * preference otherwise. A request without a known page (a Server Action sent
+ * without a referrer) has no continuation to check. `verify` runs only for a
+ * candidate the preference would move, so most requests never load or run
+ * it. A verifier that fails for any reason, including a failed lazy import or
+ * a throw, counts as "does not verify": the failure is logged once and the
+ * preference applies.
  */
-export const preferenceApplyingTo = async (
-  url: Parameters<typeof findLocaleBoundContinuation>[0],
+export const preferenceApplyingTo = Effect.fn(
+  "LocaleBoundContinuation.preferenceApplyingTo"
+)(function* <E>(
+  page: Parameters<typeof findLocaleBoundContinuation>[0] | undefined,
   savedPreference: Locale | undefined,
-  verify: (continuation: LocaleBoundContinuation) => Promise<boolean>,
-  reportVerifyFailure: () => Promise<void>
-): Promise<Locale | undefined> => {
+  verify: (continuation: LocaleBoundContinuation) => Effect.Effect<boolean, E>
+) {
   if (savedPreference === undefined) return undefined;
-  const continuation = findLocaleBoundContinuation(url);
+  const continuation = page && findLocaleBoundContinuation(page);
   if (!continuation || continuation.locale === savedPreference) {
     return savedPreference;
   }
-  try {
-    return (await verify(continuation)) ? undefined : savedPreference;
-  } catch {
-    await reportVerifyFailure().catch(() => undefined);
-    return savedPreference;
-  }
-};
+  // Catching the whole cause keeps defects in the verifier from ever
+  // blocking the preference.
+  return yield* Effect.suspend(() => verify(continuation)).pipe(
+    Effect.map((verified) => (verified ? undefined : savedPreference)),
+    Effect.catchCause(() =>
+      Effect.logWarning(
+        "Locale-bound continuation could not be verified; the saved preference applies.",
+        { code: "i18n.locale-bound-continuation.verify-failed" }
+      ).pipe(Effect.as(savedPreference))
+    )
+  );
+});

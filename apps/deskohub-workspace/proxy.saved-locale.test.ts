@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import type { LogRecord } from "@opentelemetry/api-logs";
 import { Effect } from "effect";
 import { NextRequest } from "next/server";
+import { CustomerAccountAccessError } from "@/features/account/customer-account";
 import { sealSyntheticCoworkPayState } from "@/features/checkout/backend/checkout/pay-state.test-utils";
 import { payStateTokenQueryParam } from "@/features/checkout/pay-state-token-query";
 import { localeCookieName } from "@/features/i18n/routing";
@@ -9,18 +11,17 @@ import { createReservationAccessToken } from "@/features/reservation/backend/res
 import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
 import { reservationAccessTokenQueryParam } from "@/features/reservation/reservation-access-token";
 
-const signedInCookie = "better-auth.session_token=synthetic-token.signature";
-let savedPreference: "cs-CZ" | "en-US" | undefined;
-const preferenceReads: string[] = [];
-
+// The saved preference goes through the real reader over a fake session read
+// that answers from the request headers the proxy provides.
+const {
+  makeFakeSavedLocalePreference,
+  syntheticSessionCookie: signedInCookie,
+} = await import(
+  "@/features/account/backend/saved-locale-preference.test-utils"
+);
+const reader = makeFakeSavedLocalePreference();
 mock.module("@/features/account/server/saved-locale-preference.server", () => ({
-  readSavedLocalePreference: (headers: Pick<Headers, "get">) => {
-    const cookie = headers.get("cookie") ?? "";
-    preferenceReads.push(cookie);
-    return Promise.resolve(
-      cookie.includes("session_token=") ? savedPreference : undefined
-    );
-  },
+  savedLocalePreference: reader.savedLocalePreference,
 }));
 
 // Keep the real verifier, but let one test make it throw.
@@ -28,7 +29,6 @@ const { continuesInIssuedLocale: verifyContinuation } = await import(
   "@/features/checkout/backend/locale-bound-continuation.server"
 );
 let verifierThrows = false;
-const reportedVerifyFailures: unknown[] = [];
 mock.module(
   "@/features/checkout/backend/locale-bound-continuation.server",
   () => ({
@@ -40,23 +40,33 @@ mock.module(
     },
   })
 );
-mock.module(
-  "@/features/checkout/backend/locale-bound-continuation-report.server",
-  () => ({
-    reportLocaleBoundContinuationVerifyFailure: () => {
-      reportedVerifyFailures.push("verify-failed");
-      return Promise.resolve();
-    },
-  })
-);
+
+const emittedLogRecords: LogRecord[] = [];
+mock.module("@/instrumentation", () => ({
+  postHogLoggerProvider: {
+    forceFlush: () => Promise.resolve(),
+    getLogger: () => ({
+      emit: (record: LogRecord) => {
+        emittedLogRecords.push(record);
+      },
+    }),
+  },
+}));
+const reportedVerifyFailures = () =>
+  emittedLogRecords.filter((record) =>
+    JSON.stringify(record).includes(
+      "i18n.locale-bound-continuation.verify-failed"
+    )
+  );
 
 const { proxy } = await import("./proxy");
 
 beforeEach(() => {
-  savedPreference = "cs-CZ";
-  preferenceReads.length = 0;
+  reader.fake.savedPreference = "cs-CZ";
+  reader.fake.sessionReadFailure = undefined;
+  reader.fake.sessionReads.length = 0;
   verifierThrows = false;
-  reportedVerifyFailures.length = 0;
+  emittedLogRecords.length = 0;
 });
 
 const request = (
@@ -111,7 +121,7 @@ describe("signed-in customer's saved language preference", () => {
   });
 
   test("leaves a signed-in account without a saved preference on the guest chain", async () => {
-    savedPreference = undefined;
+    reader.fake.savedPreference = undefined;
 
     const response = await proxy(
       request("/en-US/gallery", {
@@ -264,7 +274,7 @@ describe("signed-in customer's saved language preference", () => {
         })
       )
     );
-    expect(reportedVerifyFailures).toEqual(["verify-failed"]);
+    expect(reportedVerifyFailures()).toHaveLength(1);
   });
 
   test("redirects an invalid, wrong-order or wrong-locale invoice token to the preference", async () => {
@@ -336,7 +346,56 @@ describe("signed-in customer's saved language preference", () => {
       })
     );
 
-    expect(preferenceReads).toEqual([]);
+    expect(reader.fake.sessionReads).toEqual([]);
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+  });
+  test("resolves the account from the proxied request's own headers", async () => {
+    await proxy(
+      request("/en-US/gallery", {
+        cookie: `${signedInCookie}; ${localeCookieName}=en-US`,
+      })
+    );
+
+    expect(reader.fake.sessionReads).toEqual([
+      `${signedInCookie}; ${localeCookieName}=en-US`,
+    ]);
+  });
+
+  test("does not read the preference for requests other than GET and HEAD", async () => {
+    const response = await proxy(
+      new NextRequest("https://workspace.example/en-US/gallery", {
+        method: "POST",
+        headers: { cookie: signedInCookie },
+      })
+    );
+
+    expect(reader.fake.sessionReads).toEqual([]);
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+  });
+
+  test("falls back to the guest chain when the session read fails", async () => {
+    reader.fake.sessionReadFailure = new CustomerAccountAccessError({
+      reason: "unavailable",
+    });
+
+    const response = await proxy(
+      request("/en-US/gallery", {
+        cookie: `${signedInCookie}; ${localeCookieName}=cs-CZ`,
+      })
+    );
+
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+    expect(response.cookies.get(localeCookieName)?.value).toBe("en-US");
+  });
+
+  test("keeps a session cookie without a live session on the guest chain", async () => {
+    const response = await proxy(
+      request("/en-US/gallery", {
+        cookie: "better-auth.session_token=revoked-token.signature",
+      })
+    );
+
+    expect(reader.fake.sessionReads).toHaveLength(1);
     expect(response.headers.get("x-middleware-next")).toBe("1");
   });
 });
@@ -347,7 +406,7 @@ describe("guest locale chain", () => {
       request("/en-US/gallery", { cookie: `${localeCookieName}=cs-CZ` })
     );
 
-    expect(preferenceReads).toEqual([]);
+    expect(reader.fake.sessionReads).toEqual([]);
     expect(response.headers.get("x-middleware-next")).toBe("1");
     expect(response.cookies.get(localeCookieName)?.value).toBe("en-US");
   });

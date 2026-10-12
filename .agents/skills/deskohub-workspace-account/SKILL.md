@@ -130,19 +130,38 @@ description: Workspace customer account, Better Auth, magic link, auth persisten
   creation captures the callback locale when the row is missing. Both use
   insert-on-conflict-do-nothing, so sign-in never overwrites a saved
   preference, and a capture failure never blocks login. The profile control
-  and the header switcher save through `updatePreferredLanguage`, under the
-  account lock with the deletion-marker recheck. The save also moves the
-  locale cookie, and the client then navigates to the page under the new
-  locale with a document navigation.
+  and the header switcher share `switchLocale` in
+  `features/account/switch-locale.ts`. It saves through
+  `updateLocalePreference`, under the account lock with the deletion-marker
+  recheck, then navigates to the current URL under the new locale with a
+  document navigation, even when the save fails.
 - Reads: `resolveWorkspaceLocale` (`features/i18n/locale-resolution.ts`) is
   the only locale chain: saved preference, then URL path, cookie,
   Accept-Language, default. The proxy applies it to page requests and
   redirects a mismatching URL. Server Actions apply it to the referring page.
-  Rendering trusts the URL segment the proxy normalized. The proxy reads the
-  preference with one indexed session-token query, and only for GET/HEAD
-  non-prefetch requests that carry a session cookie, so guests never touch
-  the database. It exchanges a reservation capability in its issuance locale
-  before any preference redirect. Email readers fall back to the reservation
+  Rendering trusts the URL segment the proxy normalized. The signed-in
+  account comes only from the authoritative `CustomerAuthentication` read
+  (Better Auth `getSession` with `disableRefresh`). Never parse the session
+  cookie or query `auth.session` yourself. `findSavedLocalePreference`
+  (`features/account/backend/saved-locale-preference.ts`) then reads the row
+  by account ID. It deliberately skips the repository's deletion-marker
+  check, so a deletion-pending account keeps its preference. Only an
+  unavailable session read or a failed row read logs
+  `account.locale-preference.read`. Every failure resolves to no preference,
+  so the guest chain serves the page. `pageLocalePreference`
+  (`features/i18n/server/page-locale-preference.server.ts`) composes that
+  read with the continuation check below into one Effect, which the proxy and
+  the action locale each run once at their runtime edge. The proxy reads only
+  for GET/HEAD non-prefetch requests that pass Better Auth's optimistic
+  `getSessionCookie` presence check, so guests never load the reader or touch
+  the database. A reader that fails to load counts as no preference. Cookie
+  caching stays disabled, so a signed-in page request costs three sequential
+  queries: session, user, and preference. A stale session cookie (expired or
+  revoked) makes Better Auth delete the expired row and expire the cookie
+  through `nextCookies`. In the proxy, Next then replaces that response's
+  `Set-Cookie` with the expiry, so the locale cookie is not refreshed on that
+  one response. The proxy exchanges a reservation capability in its issuance
+  locale before any preference redirect. Email readers fall back to the reservation
   or request locale when an account has no preference.
 - Locale-bound continuations keep their issued locale, but only when they
   verify. Exempt from the preference: the Pay page with a Pay state, the
@@ -152,15 +171,17 @@ description: Workspace customer account, Better Auth, magic link, auth persisten
   is absent), must open with the page's own validator and be bound to the URL
   locale. A Pay state is checked for signature and expiry. The invoice access
   token is checked for signature, order, and locale, and carries no expiry.
-  Any verifier failure, including a failed lazy import, applies the
-  preference and logs `i18n.locale-bound-continuation.verify-failed` without
-  the token. `findLocaleBoundContinuation` in
+  Any verifier failure, including a failed lazy import, a typed failure, or
+  a defect, applies the preference and logs
+  `i18n.locale-bound-continuation.verify-failed` once, without the token.
+  `preferenceApplyingTo` does this inside its Effect, so no separate report
+  module or runtime run exists. `findLocaleBoundContinuation` in
   `features/checkout/locale-bound-continuation.ts` matches the URL shape
   without secrets. `continuesInIssuedLocale` in
   `features/checkout/backend/locale-bound-continuation.server.ts` verifies it
   with `openPayState` and `payStateContinuesOn`, which the pages also use, or
-  with `openReservationAccessToken`. The proxy loads that verifier lazily, and
-  only when the preference would move a candidate URL. The Pay state fixes the
+  with `openReservationAccessToken`. `pageLocalePreference` loads that
+  verifier lazily, and only when the preference would move a candidate URL. The Pay state fixes the
   language of the accepted terms and operating rules and of the frozen
   accounting snapshot (the invoice language). The invoice page issues that
   invoice in the reservation's locale. Any other URL, including an invalid,
@@ -173,8 +194,9 @@ description: Workspace customer account, Better Auth, magic link, auth persisten
   a locale is issued in the target's locale. The paid-reservation email's
   invoice link and token use the reservation's locale. Its access link uses
   the email locale, because only its token and URL must agree.
-- The profile keeps "no saved preference" distinct (`{ suggested }`, the page
-  locale). Save stays enabled, so the suggested value can be stored as is.
+- The profile's language control shows the page locale. An account with no
+  saved preference gets one when it chooses a language, or at its next
+  sign-in.
 
 ## Protected-preview E2E
 

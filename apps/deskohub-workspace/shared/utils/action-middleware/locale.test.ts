@@ -7,7 +7,6 @@ import { workspaceReservationIdSchema } from "@/features/reservation/persistence
 
 const requestHeaders = new AsyncLocalStorage<Headers>();
 const currentHeaders = () => requestHeaders.getStore() ?? new Headers();
-let savedPreference: "cs-CZ" | "en-US" | undefined;
 
 mock.module("next/headers", () => ({
   headers: async () => currentHeaders(),
@@ -23,17 +22,18 @@ mock.module("next/headers", () => ({
   }),
 }));
 
+// The saved preference goes through the real reader over a fake session read
+// that answers from the action request's headers.
+const { makeFakeSavedLocalePreference, syntheticSessionCookie } = await import(
+  "@/features/account/backend/saved-locale-preference.test-utils"
+);
+const reader = makeFakeSavedLocalePreference();
 mock.module("@/features/account/server/saved-locale-preference.server", () => ({
-  readSavedLocalePreference: (headers: Pick<Headers, "get">) =>
-    Promise.resolve(
-      headers.get("cookie")?.includes("session_token=")
-        ? savedPreference
-        : undefined
-    ),
+  savedLocalePreference: reader.savedLocalePreference,
 }));
 
 beforeEach(() => {
-  savedPreference = undefined;
+  reader.fake.savedPreference = undefined;
 });
 
 function request<T>(
@@ -47,7 +47,7 @@ function request<T>(
   const headers = new Headers({ referer });
   const cookies = [
     localeCookie && `PARAGLIDE_LOCALE=${localeCookie}`,
-    signedIn && "better-auth.session_token=synthetic-token.signature",
+    signedIn && syntheticSessionCookie,
   ].filter(Boolean);
   if (cookies.length > 0) headers.set("cookie", cookies.join("; "));
 
@@ -117,7 +117,7 @@ describe("action locale middleware", () => {
   });
 
   test("a signed-in customer's saved preference outranks the referring page and cookie", async () => {
-    savedPreference = "cs-CZ";
+    reader.fake.savedPreference = "cs-CZ";
     const readLocale = await createLocaleReader();
 
     const result = await request("en-US", () => readLocale(), {
@@ -131,8 +131,23 @@ describe("action locale middleware", () => {
     });
   });
 
+  test("a signed-in action sent without a referrer follows the saved preference", async () => {
+    reader.fake.savedPreference = "cs-CZ";
+    const readLocale = await createLocaleReader();
+
+    const result = await request("en-US", () => readLocale(), {
+      referer: "",
+      signedIn: true,
+    });
+
+    expect(result.data).toEqual({
+      contextLocale: "cs-CZ",
+      messageLocale: "cs-CZ",
+    });
+  });
+
   test("an action from a page carrying a validly signed Pay state keeps that page's locale", async () => {
-    savedPreference = "cs-CZ";
+    reader.fake.savedPreference = "cs-CZ";
     const readLocale = await createLocaleReader();
     const payState = encodeURIComponent(
       await sealSyntheticCoworkPayState({ locale: "en-US" })
@@ -150,7 +165,7 @@ describe("action locale middleware", () => {
   });
 
   test("an action from a page with a continuation parameter it does not support follows the preference", async () => {
-    savedPreference = "cs-CZ";
+    reader.fake.savedPreference = "cs-CZ";
     const readLocale = await createLocaleReader();
 
     const result = await request("en-US", () => readLocale(), {
@@ -165,7 +180,7 @@ describe("action locale middleware", () => {
   });
 
   test("an action from a validly signed invoice page keeps that page's locale", async () => {
-    savedPreference = "cs-CZ";
+    reader.fake.savedPreference = "cs-CZ";
     const readLocale = await createLocaleReader();
     const orderId = workspaceReservationIdSchema.make("reservation-id");
     const accessToken = encodeURIComponent(
@@ -184,7 +199,7 @@ describe("action locale middleware", () => {
   });
 
   test("an action from a page with an invalid Pay state follows the preference", async () => {
-    savedPreference = "cs-CZ";
+    reader.fake.savedPreference = "cs-CZ";
     const readLocale = await createLocaleReader();
 
     const result = await request("en-US", () => readLocale(), {
@@ -200,7 +215,7 @@ describe("action locale middleware", () => {
   });
 
   test("an action from a page whose Pay state the page would not read as is follows the preference", async () => {
-    savedPreference = "cs-CZ";
+    reader.fake.savedPreference = "cs-CZ";
     const readLocale = await createLocaleReader();
     const payState = encodeURIComponent(
       await sealSyntheticCoworkPayState({ locale: "en-US" })

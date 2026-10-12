@@ -1,61 +1,73 @@
 import { describe, expect, test } from "bun:test";
-import { preferenceApplyingTo } from "./locale-bound-continuation";
+import { Effect, Logger } from "effect";
+import {
+  type LocaleBoundContinuation,
+  preferenceApplyingTo,
+} from "./locale-bound-continuation";
 
 const payUrl = new URL(
   "https://workspace.example/en-US/checkout/pay?payState=x"
 );
 
+const apply = async (
+  ...args: Parameters<typeof preferenceApplyingTo<unknown>>
+) => {
+  const warnings: unknown[] = [];
+  const captureLogger = Logger.make((options) => {
+    if (options.logLevel === "Warn") warnings.push(options.message);
+  });
+  const applied = await preferenceApplyingTo(...args).pipe(
+    Effect.provide(Logger.layer([captureLogger])),
+    Effect.runPromise
+  );
+  return { applied, warnings };
+};
+
 describe("preferenceApplyingTo", () => {
   test.each([
     {
       name: "throws",
-      verify: (): Promise<boolean> => {
+      verify: (): Effect.Effect<boolean> => {
         throw new Error("synthetic import failure");
       },
     },
     {
-      name: "rejects",
-      verify: () => Promise.reject(new Error("synthetic runtime failure")),
+      name: "fails",
+      verify: () => Effect.fail(new Error("synthetic runtime failure")),
+    },
+    {
+      name: "dies",
+      verify: () => Effect.die(new Error("synthetic verifier defect")),
     },
   ])(
-    "applies the preference and reports once when the verifier $name",
+    "applies the preference and logs once when the verifier $name",
     async ({ verify }) => {
-      const reports: string[] = [];
-
-      const applied = await preferenceApplyingTo(
-        payUrl,
-        "cs-CZ",
-        verify,
-        () => {
-          reports.push("verify-failed");
-          return Promise.resolve();
-        }
-      );
+      const { applied, warnings } = await apply(payUrl, "cs-CZ", verify);
 
       expect(applied).toBe("cs-CZ");
-      expect(reports).toEqual(["verify-failed"]);
+      expect(warnings).toHaveLength(1);
     }
   );
 
-  test("still applies the preference when reporting the failure fails too", async () => {
-    const applied = await preferenceApplyingTo(
-      payUrl,
-      "cs-CZ",
-      () => Promise.reject(new Error("synthetic verifier failure")),
-      () => Promise.reject(new Error("synthetic logger failure"))
-    );
-
-    expect(applied).toBe("cs-CZ");
-  });
-
   test("keeps the issued locale only for a verified continuation", async () => {
-    const report = () => Promise.resolve();
-
     expect(
-      await preferenceApplyingTo(payUrl, "cs-CZ", async () => true, report)
+      (await apply(payUrl, "cs-CZ", () => Effect.succeed(true))).applied
     ).toBeUndefined();
     expect(
-      await preferenceApplyingTo(payUrl, "cs-CZ", async () => false, report)
+      (await apply(payUrl, "cs-CZ", () => Effect.succeed(false))).applied
     ).toBe("cs-CZ");
+  });
+
+  test("never verifies for a guest, a matching locale, or an unknown page", async () => {
+    const verified: LocaleBoundContinuation[] = [];
+    const verify = (continuation: LocaleBoundContinuation) => {
+      verified.push(continuation);
+      return Effect.succeed(true);
+    };
+
+    expect((await apply(payUrl, undefined, verify)).applied).toBeUndefined();
+    expect((await apply(payUrl, "en-US", verify)).applied).toBe("en-US");
+    expect((await apply(undefined, "cs-CZ", verify)).applied).toBe("cs-CZ");
+    expect(verified).toEqual([]);
   });
 });

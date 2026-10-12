@@ -9,7 +9,6 @@ import type { LocaleBoundContinuation } from "@/features/checkout/locale-bound-c
 import { openReservationAccessToken } from "@/features/reservation/backend/reservation-access-token";
 import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
 import { reservationAccessTokenSchema } from "@/features/reservation/reservation-access-token";
-import { runWorkspaceEffect } from "@/shared/backend/workspace-effect";
 
 /**
  * Whether a candidate continuation validates for its page and URL locale with
@@ -19,9 +18,9 @@ import { runWorkspaceEffect } from "@/shared/backend/workspace-effect";
  * including a missing secret, is not a continuation, so the saved preference
  * applies. The value is verified exactly as the page reads it.
  */
-const verify = Effect.fn("LocaleBoundContinuation.verify")(function* (
-  continuation: LocaleBoundContinuation
-) {
+export const continuesInIssuedLocale = Effect.fn(
+  "LocaleBoundContinuation.verify"
+)(function* (continuation: LocaleBoundContinuation) {
   if (continuation.kind === "pay-state") {
     const state = yield* openPayState(continuation.token).pipe(Effect.option);
     return Option.match(state, {
@@ -48,10 +47,3 @@ const verify = Effect.fn("LocaleBoundContinuation.verify")(function* (
   }).pipe(Effect.option);
   return Option.isSome(opened);
 });
-
-export const continuesInIssuedLocale = (
-  continuation: LocaleBoundContinuation
-): Promise<boolean> =>
-  verify(continuation).pipe(
-    runWorkspaceEffect("i18n.locale-bound-continuation", { boundary: "route" })
-  );
