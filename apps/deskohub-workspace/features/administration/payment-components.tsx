@@ -8,11 +8,15 @@ import {
   type StatusTone,
 } from "@/shared/components/ui/status-badge";
 import { EmptyState } from "./empty-state";
-import { formatAdministrationDateTime } from "./formatters";
+import {
+  formatAdministrationDateTime,
+  getAdministrationPaymentStatus,
+} from "./formatters";
 import { NexiOrderLink } from "./nexi-order-link";
 import { AdministrationAlert } from "./notice";
 import type { AdministrationOrder } from "./payment-administration.service";
 import { getProviderValueLabel } from "./payment-presentation";
+import { PaymentAmount, PaymentStatusLabel } from "./payment-status";
 
 export const formatProviderMoney = (
   amount: string | undefined,
@@ -40,6 +44,18 @@ export const formatOrderMoney = (order: AdministrationOrder) => {
   return "Not reported";
 };
 
+/**
+ * The local attempt's state as a status value, with a recorded refund in
+ * place of the paid state.
+ */
+export const getOrderLinkStatusValue = (
+  link: NonNullable<AdministrationOrder["link"]>
+) => {
+  const status = getAdministrationPaymentStatus(link);
+  if (!status.refunded) return link.state;
+  return status.retainedAmount ? "PARTIALLY_REFUNDED" : "REFUNDED";
+};
+
 export const formatProviderDateTime = (value: string | undefined) => {
   if (!value) return "Not reported";
   try {
@@ -64,6 +80,7 @@ export function ProviderStatusBadge({ value }: { readonly value: string }) {
     "DENIED",
     "DENIED_BY_RISK",
     "FAILED",
+    "PARTIALLY_REFUNDED",
     "REFUNDED",
     "THREEDS_FAILED",
     "VOIDED",
@@ -127,9 +144,19 @@ export function ReservationOrderList({
                 />
               </div>
               <div className="sm:text-right">
-                <p className="font-semibold">{formatOrderMoney(order)}</p>
+                <p className="font-semibold">
+                  {order.link ? (
+                    <PaymentAmount payment={order.link} />
+                  ) : (
+                    formatOrderMoney(order)
+                  )}
+                </p>
                 <p className="mt-1 text-xs text-navy-blue/60">
-                  {order.link?.stateLabel ?? "No local payment attempt"}
+                  {order.link ? (
+                    <PaymentStatusLabel payment={order.link} />
+                  ) : (
+                    "No local payment attempt"
+                  )}
                 </p>
               </div>
             </div>

@@ -191,7 +191,9 @@ export function ReservationTable({
           ? [{ id: sorting.field, desc: sorting.direction === "desc" }]
           : undefined
       }
-      tableClassName={showCustomer ? "min-w-[1060px]" : "min-w-[880px]"}
+      // Without the customer column the table sits in the customer page's
+      // main column, which is about 630px wide at the xl breakpoint.
+      tableClassName={showCustomer ? "min-w-[1060px]" : "min-w-[620px]"}
     />
   );
 }

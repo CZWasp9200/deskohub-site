@@ -92,21 +92,44 @@ const isRetryableNexiError = (error: ExternalAPIError | NetworkError) =>
     Match.orElse(() => false)
   );
 
+const retryBaseDelayMilliseconds = 100;
+const maxRetries = 3;
+/** `Schedule.jittered` scales each delay by a random factor of at most 1.2. */
+const maxRetryJitterFactor = 1.2;
+
 const retryPolicy = {
-  schedule: Schedule.exponential("100 millis").pipe(
+  schedule: Schedule.exponential(
+    Duration.millis(retryBaseDelayMilliseconds)
+  ).pipe(
     Schedule.jittered,
     Schedule.while<ExternalAPIError | NetworkError, Duration.Duration>(
       ({ input }) => isRetryableNexiError(input)
     ),
-    Schedule.both(Schedule.recurs(3)),
+    Schedule.both(Schedule.recurs(maxRetries)),
     Schedule.tapOutput(([delay, attempt]) =>
       Effect.logWarning(`Nexi retry attempt #${attempt + 1}`, {
         attemptNumber: attempt + 1,
         delayMs: Duration.toMillis(delay),
-        maxRetries: 3,
+        maxRetries,
       })
     )
   ),
+};
+
+/**
+ * The longest a retried Nexi request without its own deadline can take when
+ * every attempt times out: the first attempt and each retry wait up to
+ * `apiTimeout`, with the jittered exponential backoff between them.
+ */
+export const getNexiRequestWorstCaseDuration = (apiTimeout: Duration.Input) => {
+  let backoffMilliseconds = 0;
+  for (let retry = 0; retry < maxRetries; retry += 1) {
+    backoffMilliseconds +=
+      retryBaseDelayMilliseconds * 2 ** retry * maxRetryJitterFactor;
+  }
+  return Duration.millis(
+    Duration.toMillis(apiTimeout) * (maxRetries + 1) + backoffMilliseconds
+  );
 };
 
 const getPaymentOutcomeLogAnnotations = (input: VerifyPaymentOutcomeInput) => ({

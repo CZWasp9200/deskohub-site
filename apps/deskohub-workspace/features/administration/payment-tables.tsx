@@ -15,6 +15,7 @@ import {
   formatOrderMoney,
   formatProviderDateTime,
   formatProviderMoney,
+  getOrderLinkStatusValue,
   ProviderStatusBadge,
 } from "./payment-components";
 import { getProviderValueLabel } from "./payment-presentation";
@@ -101,7 +102,7 @@ export function OrderTable({
       {
         accessorFn: (order) =>
           order.provider && order.link
-            ? order.link.state
+            ? getOrderLinkStatusValue(order.link)
             : getReconciliationLabel(order),
         id: "reconciliation",
         header: "Reconciliation",

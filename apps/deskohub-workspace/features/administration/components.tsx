@@ -17,10 +17,13 @@ import type {
 import {
   formatAdministrationDateTime,
   formatAdministrationReservationDate,
-  getAdministrationPaymentStatus,
 } from "./formatters";
 import { NexiOrderLink } from "./nexi-order-link";
-import { PaymentAmount, PaymentRefundRequiredLabel } from "./payment-status";
+import {
+  PaymentAmount,
+  PaymentRefundRequiredLabel,
+  PaymentStatusLabel,
+} from "./payment-status";
 
 export { BookingStatusBadge, BookingTable } from "./booking-table";
 export { CustomerReservationActivity } from "./customer-reservation-activity";
@@ -155,7 +158,7 @@ export function PaymentAttemptList({
               <PaymentAmount payment={attempt} />
             </p>
             <p className="mt-1 text-sm text-navy-blue/65">
-              <PaymentAttemptStatus attempt={attempt} />
+              <PaymentStatusLabel payment={attempt} />
               <PaymentRefundRequiredLabel payment={attempt} />
             </p>
           </div>
@@ -163,17 +166,6 @@ export function PaymentAttemptList({
       ))}
     </ul>
   );
-}
-
-function PaymentAttemptStatus({
-  attempt,
-}: {
-  readonly attempt: AdministrationPaymentAttempt;
-}) {
-  const status = getAdministrationPaymentStatus(attempt);
-  return status.refunded
-    ? `${status.label} · ${formatAdministrationDateTime(status.at)}`
-    : status.label;
 }
 
 export function ReservationTimeline({

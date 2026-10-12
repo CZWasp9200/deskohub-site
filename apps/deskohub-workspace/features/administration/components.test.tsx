@@ -544,6 +544,56 @@ describe("administration reservation components", () => {
     ).toBeNull();
   });
 
+  test("shows a refunded Nexi order as refunded, even when Nexi does not return it", () => {
+    const detail = loadFixtureReservation("0198-admin-fixture-attention");
+    const order = detail?.orders[0];
+    if (!order?.link) throw new Error("Expected a linked fixture order");
+    const refundedAt = "2026-10-12T09:00:00Z";
+    const refundedOrder = {
+      ...order,
+      link: {
+        ...order.link,
+        refundState: "refunded",
+        refundedAmount: order.link.amount,
+        refundedAt,
+      },
+    } as const;
+
+    const view = render(
+      <ReservationOrderList
+        orders={[
+          refundedOrder,
+          {
+            ...refundedOrder,
+            orderId: NexiOrderIdSchema.make("DADMINFIXTUREMISSING"),
+            provider: null,
+            providerAvailable: false,
+            providerStatus: "not_found",
+            link: {
+              ...refundedOrder.link,
+              refundedAmount: { ...order.link.amount, value: 100_000 },
+            },
+          },
+        ]}
+      />
+    );
+
+    const recordedAt = formatAdministrationDateTime(refundedAt);
+    expect(view.queryByText(/Paid/)).toBeNull();
+    expect(view.getByText(`Refunded · ${recordedAt}`)).toBeDefined();
+    expect(
+      view.getByText(`Partially refunded CZK 1,000.00 · ${recordedAt}`)
+    ).toBeDefined();
+    expect(
+      [...view.container.querySelectorAll("del")].map(readableText)
+    ).toEqual(["CZK 2,400.00 refunded", "CZK 2,400.00 before refund"]);
+
+    const orderView = render(<OrderTable orders={[refundedOrder]} />);
+    const table = orderView.getByRole("table", { name: "Nexi orders" });
+    expect(within(table).getByText("Refunded")).toBeDefined();
+    expect(within(table).queryByText("Paid")).toBeNull();
+  });
+
   test("explains pending Nexi orders using the cleanup policy", () => {
     const detail = loadFixtureReservation("0198-admin-fixture-attention");
     expect(detail).not.toBeNull();
