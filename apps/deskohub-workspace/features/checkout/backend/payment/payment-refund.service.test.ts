@@ -179,11 +179,15 @@ describe("PaymentRefundService", () => {
     expect(claimRefundChecks).toHaveBeenCalledWith({
       limit: 25,
       checkedAt: expect.any(Temporal.Instant),
+      lastCheckedBefore: expect.any(Temporal.Instant),
       recentPaymentsSince: expect.any(Temporal.Instant),
     });
     const claim = claimRefundChecks.mock.calls[0]?.[0];
     expect(
       claim?.checkedAt.since(claim.recentPaymentsSince).total("hours")
-    ).toBe(90 * 24);
+    ).toBe(30 * 24);
+    expect(claim?.checkedAt.since(claim.lastCheckedBefore).total("hours")).toBe(
+      6
+    );
   });
 });

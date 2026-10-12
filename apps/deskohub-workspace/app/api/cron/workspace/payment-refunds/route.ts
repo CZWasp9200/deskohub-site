@@ -4,13 +4,21 @@ import { PaymentRefundService } from "@/features/checkout/backend/payment";
 import { isAuthorizedCronRequest } from "@/shared/backend/cron-request";
 import { defineWorkspaceRoute } from "@/shared/backend/workspace-route";
 
-const cronBatchLimit = 50;
+export const maxDuration = 300;
 
 /**
- * Fallback for refund notifications Nexi does not deliver: re-reads the Nexi
- * orders of paid attempts awaiting a refund, then of recent payments nobody
- * marked for refund, checked longest ago first, and records any refund an
- * operator already made in the Nexi back office.
+ * Runs hourly. At about 100 paid attempts a day, the 30-day window holds about
+ * 3,000 recent payments; 150 checks an hour (3,600 a day) re-check each of
+ * them within a day. At four concurrent lookups, even a batch of 5-second
+ * Nexi timeouts finishes well inside `maxDuration`.
+ */
+const cronBatchLimit = 150;
+
+/**
+ * Nexi sends no notification for refunds made in its back office, so this
+ * re-reads the Nexi orders of paid attempts awaiting a refund and of recent
+ * payments not yet fully refunded, checked longest ago first, and records any
+ * refund an operator already made there.
  */
 const reconcileRefunds = Effect.fn("reconcileRefunds")(function* () {
   const refunds = yield* PaymentRefundService;

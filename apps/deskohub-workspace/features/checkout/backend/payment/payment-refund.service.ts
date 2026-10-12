@@ -44,10 +44,11 @@ export interface IPaymentRefundService {
     PaymentRefundReconciliationError
   >;
   /**
-   * Reconciles a batch of paid attempts: those still awaiting a refund first,
-   * then recent payments nobody marked for refund, least recently checked
-   * first. One attempt's provider failure is logged and does not stop the rest
-   * of the batch; the next run moves on to other attempts.
+   * Reconciles a batch of attempts still awaiting a refund and recent payments
+   * Nexi has not fully refunded, least recently checked first, skipping any
+   * checked in the last few hours. One attempt's provider failure is logged
+   * and does not stop the rest of the batch; the next run moves on to other
+   * attempts.
    */
   readonly reconcileRefunds: (input: {
     readonly limit: number;
@@ -59,13 +60,20 @@ export interface IPaymentRefundService {
 
 /**
  * How long after creating a paid attempt that nobody marked for refund the
- * batch keeps checking Nexi for a back-office refund. Older payments rely on
- * the Nexi refund notification, or on an operator cancellation marking the
- * refund as required.
+ * batch keeps checking Nexi for a back-office refund, including the rest of a
+ * partial refund. Nexi sends no notification for back-office refunds, so an
+ * older payment's refund is recorded only once an operator cancellation marks
+ * it as required.
  */
 const unrequestedRefundCheckWindow = Temporal.Duration.from({
-  hours: 90 * 24,
+  hours: 30 * 24,
 });
+
+/**
+ * How long the batch waits before checking the same attempt again, so a
+ * quiet period does not re-read every eligible order on every run.
+ */
+const refundRecheckInterval = Temporal.Duration.from({ hours: 6 });
 
 const toRefundedAt = (
   value: string | undefined,
@@ -145,6 +153,7 @@ export class PaymentRefundService extends Context.Service<
         const candidates = yield* refunds.claimRefundChecks({
           limit: input.limit,
           checkedAt,
+          lastCheckedBefore: checkedAt.subtract(refundRecheckInterval),
           recentPaymentsSince: checkedAt.subtract(unrequestedRefundCheckWindow),
         });
         const results = yield* Effect.forEach(

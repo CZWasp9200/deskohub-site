@@ -137,10 +137,39 @@ describe.skipIf(!testDatabase)(
       );
 
     const recentPaymentsSince = Temporal.Now.instant().subtract({
-      hours: 90 * 24,
+      hours: 30 * 24,
     });
 
-    test("lists paid attempts awaiting a refund and recent paid attempts without a recorded refund", async () => {
+    /** Claims a batch in which every eligible attempt is due for a check. */
+    const claim = (input: {
+      readonly limit: number;
+      readonly checkedAt?: Temporal.Instant;
+      readonly lastCheckedBefore?: Temporal.Instant;
+    }) => {
+      const checkedAt = input.checkedAt ?? Temporal.Now.instant();
+      return run((repository) =>
+        repository.claimRefundChecks({
+          limit: input.limit,
+          checkedAt,
+          lastCheckedBefore: input.lastCheckedBefore ?? checkedAt,
+          recentPaymentsSince,
+        })
+      );
+    };
+
+    const claimedIds = async (input: Parameters<typeof claim>[0]) =>
+      (await claim(input)).map(({ attempt }) => attempt.id);
+
+    const countPaymentAttempts = async () => {
+      const {
+        rows: [{ attempts }],
+      } = await testDatabase.pool.query<{ attempts: number }>(
+        "select count(*)::int as attempts from payment_attempts"
+      );
+      return attempts;
+    };
+
+    test("lists paid attempts awaiting a refund and recent paid attempts without a full refund", async () => {
       const awaiting = await insertCheckout({
         attemptState: "paid",
         refundState: "required",
@@ -164,13 +193,7 @@ describe.skipIf(!testDatabase)(
       });
       expect(await record(refunded, 29_000)).toBe("recorded");
 
-      const candidates = await run((repository) =>
-        repository.claimRefundChecks({
-          limit: 1_000,
-          checkedAt: Temporal.Now.instant(),
-          recentPaymentsSince,
-        })
-      );
+      const candidates = await claim({ limit: 1_000 });
       const ids = candidates.map(({ attempt }) => attempt.id);
 
       expect(ids).toContain(awaiting);
@@ -183,31 +206,71 @@ describe.skipIf(!testDatabase)(
       ).toBeString();
     });
 
-    test("claims attempts awaiting a refund before recent paid attempts", async () => {
-      await insertCheckout({
+    test("keeps checking a recent partially refunded payment until it is fully refunded", async () => {
+      const paymentAttemptId = await insertCheckout({
         attemptState: "paid",
         refundState: "not_required",
       });
-      const awaiting = await insertCheckout({
+
+      expect(await record(paymentAttemptId, 10_000)).toBe("recorded");
+      expect(await claimedIds({ limit: 1_000 })).toContain(paymentAttemptId);
+
+      expect(await record(paymentAttemptId, 29_000)).toBe("recorded");
+      expect(await claimedIds({ limit: 1_000 })).not.toContain(
+        paymentAttemptId
+      );
+    });
+
+    test("leaves an attempt alone until its last check is old enough", async () => {
+      const paymentAttemptId = await insertCheckout({
         attemptState: "paid",
         refundState: "required",
       });
-      const { rows: outstanding } = await testDatabase.pool.query<{
-        id: PaymentAttemptId;
-      }>("select id from payment_attempts where refund_state = 'required'");
+      const firstCheck = Temporal.Now.instant();
+      expect(
+        await claimedIds({ limit: 1_000, checkedAt: firstCheck })
+      ).toContain(paymentAttemptId);
 
-      const batch = await run((repository) =>
-        repository.claimRefundChecks({
-          limit: outstanding.length,
-          checkedAt: Temporal.Now.instant(),
-          recentPaymentsSince,
+      const nextRun = firstCheck.add({ hours: 1 });
+      expect(
+        await claimedIds({
+          limit: 1_000,
+          checkedAt: nextRun,
+          lastCheckedBefore: nextRun.subtract({ hours: 6 }),
         })
-      );
+      ).not.toContain(paymentAttemptId);
+      expect(
+        await claimedIds({
+          limit: 1_000,
+          checkedAt: firstCheck.add({ hours: 6 }),
+          lastCheckedBefore: firstCheck,
+        })
+      ).toContain(paymentAttemptId);
+    });
 
-      expect(batch.map(({ attempt }) => attempt.id).sort()).toEqual(
-        outstanding.map(({ id }) => id).sort()
-      );
-      expect(batch.map(({ attempt }) => attempt.id)).toContain(awaiting);
+    test("checks a recent unflagged payment while a full batch of refunds stays outstanding", async () => {
+      const limit = 50;
+      for (let index = 0; index < limit; index += 1) {
+        await insertCheckout({ attemptState: "paid", refundState: "required" });
+      }
+      const unflagged = await insertCheckout({
+        attemptState: "paid",
+        refundState: "not_required",
+      });
+
+      // Nobody refunds the outstanding attempts between runs, so they stay
+      // eligible. Fair scheduling must still reach the unflagged payment.
+      const runs = Math.ceil((await countPaymentAttempts()) / limit) + 1;
+      const claimed = new Set<PaymentAttemptId>();
+      let checkedAt = Temporal.Now.instant();
+      for (let index = 0; index < runs; index += 1) {
+        checkedAt = checkedAt.add({ seconds: 1 });
+        for (const id of await claimedIds({ limit, checkedAt })) {
+          claimed.add(id);
+        }
+      }
+
+      expect(claimed).toContain(unflagged);
     });
 
     test("claims every outstanding refund across runs instead of rechecking the oldest", async () => {
@@ -220,13 +283,8 @@ describe.skipIf(!testDatabase)(
           })
         );
       }
-      const {
-        rows: [{ outstanding }],
-      } = await testDatabase.pool.query<{ outstanding: number }>(
-        "select count(*)::int as outstanding from payment_attempts where refund_state = 'required'"
-      );
       const limit = 25;
-      const runs = Math.ceil(outstanding / limit);
+      const runs = Math.ceil((await countPaymentAttempts()) / limit);
 
       // Nothing gets refunded between runs, like a back office that has not
       // refunded yet or a Nexi outage, so no claimed attempt leaves the queue.
@@ -235,15 +293,9 @@ describe.skipIf(!testDatabase)(
       let checkedAt = Temporal.Now.instant();
       for (let index = 0; index < runs; index += 1) {
         checkedAt = checkedAt.add({ seconds: 1 });
-        const batch = await run((repository) =>
-          repository.claimRefundChecks({
-            limit,
-            checkedAt,
-            recentPaymentsSince,
-          })
-        );
+        const batch = await claimedIds({ limit, checkedAt });
         expect(batch.length).toBeLessThanOrEqual(limit);
-        for (const { attempt } of batch) claimed.add(attempt.id);
+        for (const id of batch) claimed.add(id);
       }
 
       expect(runs).toBeGreaterThan(1);
@@ -275,9 +327,11 @@ describe.skipIf(!testDatabase)(
         const batch = await Effect.runPromise(
           Effect.gen(function* () {
             const repository = yield* PaymentRefundRepository;
+            const checkedAt = Temporal.Now.instant();
             return yield* repository.claimRefundChecks({
               limit,
-              checkedAt: Temporal.Now.instant(),
+              checkedAt,
+              lastCheckedBefore: checkedAt,
               recentPaymentsSince,
             });
           }).pipe(

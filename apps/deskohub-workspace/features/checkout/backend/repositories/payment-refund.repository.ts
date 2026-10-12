@@ -1,5 +1,17 @@
 import type { NexiCorrelationId } from "@deskohub/nexi";
-import { and, asc, eq, gte, inArray, lt, ne, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  eq,
+  gte,
+  inArray,
+  isNull,
+  lt,
+  lte,
+  ne,
+  or,
+  sql,
+} from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Effect, Layer } from "effect";
 import type { SqlError } from "effect/unstable/sql";
@@ -30,17 +42,20 @@ export interface RefundablePaymentAttempt {
 export interface IPaymentRefundRepository {
   /**
    * Claims up to `limit` paid Nexi attempts to check for a refund and stamps
-   * them as checked at `checkedAt`. Attempts whose refund is still outstanding
-   * come first. The rest of the batch takes paid attempts created since
-   * `recentPaymentsSince` that nobody marked for refund, because operators can
-   * refund in the Nexi back office without cancelling in Workspace. Within each
-   * group, never-checked attempts come first, then the least recently checked,
-   * so every run moves past the attempts it took whatever Nexi reports and no
+   * them as checked at `checkedAt`. Eligible attempts are those whose refund
+   * is still outstanding, and paid attempts created since
+   * `recentPaymentsSince` that Nexi has not fully refunded, because operators
+   * can refund in the Nexi back office without cancelling in Workspace and can
+   * refund the rest of a partial refund later. An attempt is due once its last
+   * check is at or before `lastCheckedBefore`. Due attempts are taken
+   * never-checked first, then least recently checked, whatever their group, so
+   * every run moves past the attempts it took whatever Nexi reports and no
    * attempt starves the others. Concurrent runs skip each other's claims.
    */
   readonly claimRefundChecks: (input: {
     readonly limit: number;
     readonly checkedAt: Temporal.Instant;
+    readonly lastCheckedBefore: Temporal.Instant;
     readonly recentPaymentsSince: Temporal.Instant;
   }) => Effect.Effect<
     readonly RefundablePaymentAttempt[],
@@ -72,6 +87,7 @@ export class PaymentRefundRepository extends Context.Service<
       )(function* (input: {
         readonly limit: number;
         readonly checkedAt: Temporal.Instant;
+        readonly lastCheckedBefore: Temporal.Instant;
         readonly recentPaymentsSince: Temporal.Instant;
       }) {
         // Lock the batch in its own statement. As an `in (...)` subquery of the
@@ -83,18 +99,35 @@ export class PaymentRefundRepository extends Context.Service<
               .select({ id: paymentAttempts.id })
               .from(paymentAttempts)
               .where(
-                or(
-                  eq(paymentAttempts.refundState, "required"),
-                  and(
-                    eq(paymentAttempts.refundState, "not_required"),
-                    eq(paymentAttempts.provider, "nexi"),
-                    eq(paymentAttempts.state, "paid"),
-                    gte(paymentAttempts.createdAt, input.recentPaymentsSince)
+                and(
+                  or(
+                    eq(paymentAttempts.refundState, "required"),
+                    and(
+                      eq(paymentAttempts.provider, "nexi"),
+                      eq(paymentAttempts.state, "paid"),
+                      gte(paymentAttempts.createdAt, input.recentPaymentsSince),
+                      or(
+                        eq(paymentAttempts.refundState, "not_required"),
+                        and(
+                          eq(paymentAttempts.refundState, "refunded"),
+                          lt(
+                            paymentAttempts.refundedAmountValue,
+                            paymentAttempts.amountValue
+                          )
+                        )
+                      )
+                    )
+                  ),
+                  or(
+                    isNull(paymentAttempts.refundCheckedAt),
+                    lte(
+                      paymentAttempts.refundCheckedAt,
+                      input.lastCheckedBefore
+                    )
                   )
                 )
               )
               .orderBy(
-                sql`${paymentAttempts.refundState} = 'required' desc`,
                 sql`${paymentAttempts.refundCheckedAt} asc nulls first`,
                 asc(paymentAttempts.updatedAt),
                 asc(paymentAttempts.id)
