@@ -3,7 +3,8 @@ import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, mock, test } from "bun:test";
 import { DotyposService } from "@deskohub/dotypos";
-import { Effect, Layer } from "effect";
+import { Duration, Effect, Layer } from "effect";
+import { TestClock } from "effect/testing";
 import { SeatingMapFeatureFlagServiceMock } from "@/features/feature-flags/backend/seating-map-feature-flag.service.mock";
 import { AdvisoryAvailabilityInventory } from "@/features/reservation/backend/availability-inventory";
 import { LatePaymentVerificationService } from "../payment/late-payment-verification.service";
@@ -171,7 +172,10 @@ describe("CheckoutStatusService", () => {
       Effect.runPromise
     );
 
-    expect(finalizePendingProviderPayment).toHaveBeenCalledWith({ orderId });
+    expect(finalizePendingProviderPayment).toHaveBeenCalledWith({
+      orderId,
+      verificationDeadline: Duration.seconds(40),
+    });
     expect(status.status).toBe("fulfilled");
   });
 
@@ -201,6 +205,15 @@ describe("CheckoutStatusService", () => {
     };
     const paymentAttempts = {
       findDisplayableForReservation: mock(() => Effect.succeed(null)),
+      // A just-created provider order is inside its abandonment window.
+      findById: mock(() =>
+        Effect.succeed(
+          makePaymentAttempt({
+            state: "pending",
+            providerOrderCreatedAt: Temporal.Now.instant(),
+          })
+        )
+      ),
     };
 
     const status = await Effect.gen(function* () {
@@ -871,6 +884,188 @@ describe("CheckoutStatusService", () => {
         email: "ada@example.com",
         phone: "+420777777777",
       },
+    });
+  });
+
+  describe("a paid reservation whose fulfillment has not completed", () => {
+    const paidAt = testInstant("2026-06-01T10:00:00.000Z");
+
+    const getPaidStatus = async (
+      now: Temporal.Instant,
+      overrides: Partial<ReturnType<typeof makeReservation>> = {}
+    ) => {
+      const { CheckoutStatusService } = await import(
+        "./checkout-status.service"
+      );
+      const { ProviderPaymentFinalizationService } = await import(
+        "../payment/provider-payment-finalization.service"
+      );
+      const { WorkspaceReservationRepository } = await import(
+        "@/features/reservation/backend/workspace-reservation.repository"
+      );
+      const { PaymentAttemptRepository } = await import(
+        "../repositories/payment-attempt.repository"
+      );
+
+      return Effect.gen(function* () {
+        yield* TestClock.setTime(now.epochMilliseconds);
+        const service = yield* CheckoutStatusService;
+        return yield* service.getStatus({
+          orderId: "reservation-provider-return",
+          returnOutcome: "success",
+        });
+      }).pipe(
+        Effect.provide(
+          CheckoutStatusService.Default.pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.mock(ProviderPaymentFinalizationService, {
+                  finalizePendingProviderPayment: mock(() =>
+                    Effect.die("not used")
+                  ),
+                }),
+                Layer.mock(WorkspaceReservationRepository, {
+                  findById: mock(() =>
+                    Effect.succeed(
+                      makeReservation({
+                        reservationState: "confirmed",
+                        reservationConfirmedAt: paidAt,
+                        paymentState: "paid",
+                        paidAt,
+                        fulfillmentState: "awaiting_delivery",
+                        activeCustomerEmailDeliveryId: "delivery-id",
+                        ...overrides,
+                      })
+                    )
+                  ),
+                }),
+                Layer.mock(PaymentAttemptRepository, {
+                  findDisplayableForReservation: mock(() =>
+                    Effect.succeed(makePaymentAttempt())
+                  ),
+                  findById: mock(() =>
+                    Effect.succeed(
+                      makePaymentAttempt({
+                        state: "pending",
+                        providerOrderCreatedAt: paidAt,
+                      })
+                    )
+                  ),
+                }),
+                dotyposLayer(
+                  makeDotypos({
+                    getCustomer: mock(() =>
+                      Effect.succeed({
+                        id: "customer-id",
+                        firstName: "Ada",
+                        lastName: "Lovelace",
+                        email: "ada@example.test",
+                      })
+                    ),
+                  })
+                ),
+                noLatePaymentLayer(),
+                SeatingMapFeatureFlagServiceMock({
+                  isEnabled: Effect.succeed(false),
+                })
+              )
+            )
+          )
+        ),
+        Effect.provide(TestClock.layer()),
+        Effect.runPromise
+      );
+    };
+
+    test("tells the customer where the confirmation went while delivery is recent", async () => {
+      const status = await getPaidStatus(paidAt.add({ minutes: 2 }));
+
+      expect(status).toMatchObject({
+        status: "paid_awaiting_delivery",
+        supportContactPrefill: { email: "ada@example.test" },
+      });
+    });
+
+    test("does not call a reservation confirmed before Dotypos confirms it", async () => {
+      const status = await getPaidStatus(paidAt.add({ minutes: 2 }), {
+        reservationState: "confirming",
+        reservationConfirmedAt: null,
+        fulfillmentState: "processing",
+        activeCustomerEmailDeliveryId: null,
+      });
+
+      expect(status).toMatchObject({ status: "paid_waiting_fulfillment" });
+    });
+
+    test("reports a fulfillment retry that outlasts the wait as delayed, with a support contact", async () => {
+      // A retry after a failed send keeps that send as its generation marker.
+      const status = await getPaidStatus(paidAt.add({ minutes: 30 }), {
+        fulfillmentState: "processing",
+        activeCustomerEmailDeliveryId: "failed-delivery-id",
+      });
+
+      expect(status).toMatchObject({
+        status: "paid_fulfillment_delayed",
+        supportContactPrefill: { email: "ada@example.test" },
+      });
+    });
+
+    const pendingPayment = {
+      paymentState: "pending",
+      paidAt: null,
+      reservationState: "held",
+      reservationConfirmedAt: null,
+      fulfillmentState: "not_started",
+      activeCustomerEmailDeliveryId: null,
+    } as const;
+
+    test("keeps a payment inside the provider abandonment window pending", async () => {
+      const status = await getPaidStatus(
+        paidAt.add({ minutes: 5 }),
+        pendingPayment
+      );
+
+      expect(status).toMatchObject({ status: "pending" });
+    });
+
+    test("offers support for a payment still unconfirmed after the abandonment cutoff", async () => {
+      const status = await getPaidStatus(
+        paidAt.add({ minutes: 45 }),
+        pendingPayment
+      );
+
+      expect(status).toMatchObject({
+        status: "payment_pending_delayed",
+        supportContactPrefill: { email: "ada@example.test" },
+      });
+    });
+
+    test("keeps a bounced confirmation as a failed fulfillment with its address", async () => {
+      const status = await getPaidStatus(paidAt.add({ minutes: 2 }), {
+        fulfillmentState: "failed",
+        fulfillmentFailedAt: paidAt.add({ minutes: 1 }),
+        fulfillmentFailureCode: "fulfillment_email_failed",
+      });
+
+      expect(status).toMatchObject({
+        status: "fulfillment_failed",
+        supportContactPrefill: { email: "ada@example.test" },
+      });
+    });
+
+    // A confirmation that never reports delivery, such as one sent to an
+    // address whose domain check was inconclusive, must not keep promising
+    // automatic completion.
+    test("reports a delivery that never arrived as delayed, with a support contact", async () => {
+      const status = await getPaidStatus(paidAt.add({ minutes: 45 }));
+
+      expect(status).toMatchObject({
+        status: "paid_delivery_delayed",
+        supportContactPrefill: {
+          name: "Ada Lovelace",
+          email: "ada@example.test",
+        },
+      });
     });
   });
 

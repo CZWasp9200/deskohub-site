@@ -3,7 +3,7 @@ import {
   NexiCurrencySchema,
   NexiService,
 } from "@deskohub/nexi";
-import { Context, Effect, Layer, Schema } from "effect";
+import { Context, type Duration, Effect, Layer, Schema } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { WorkspaceReservationRepository } from "@/features/reservation/backend/workspace-reservation.repository";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
@@ -42,6 +42,8 @@ export interface ILatePaymentVerificationService {
    */
   readonly startRecoveryIfSettled: (input: {
     readonly orderId: WorkspaceReservationId;
+    /** Bounds the Nexi payment verification, retries included. */
+    readonly verificationDeadline?: Duration.Input;
   }) => Effect.Effect<LatePaymentVerificationResult>;
 }
 
@@ -61,7 +63,11 @@ export class LatePaymentVerificationService extends Context.Service<
       const startRecoveryIfSettled = Effect.fn(
         "latePaymentVerification.startRecoveryIfSettled"
       )(
-        function* (input: { readonly orderId: WorkspaceReservationId }) {
+        function* (
+          input: Parameters<
+            ILatePaymentVerificationService["startRecoveryIfSettled"]
+          >[0]
+        ) {
           const reservation = yield* reservations.findById(input.orderId);
           const paymentAttemptId = reservation?.activePaymentAttemptId;
           if (
@@ -106,6 +112,7 @@ export class LatePaymentVerificationService extends Context.Service<
               amount: String(attempt.amount.value),
               currency: getNexiCurrencyOverride() ?? currency,
               securityToken: attempt.securityToken,
+              deadline: input.verificationDeadline,
             })
             .pipe(
               Effect.tapError((cause) =>

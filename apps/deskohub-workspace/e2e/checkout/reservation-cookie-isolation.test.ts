@@ -59,7 +59,7 @@ const makeRunner = (mode: IsolationMode) => {
       if (input === browserTextScript) {
         const text = currentUrl.includes("local-reservation-")
           ? "We could not find this order. Please check the link or start a new reservation."
-          : `We couldn't deliver your confirmation. Your payment was received, but the confirmation email could not be delivered. Send support request. Order reference ${orderId}.`;
+          : `We couldn't deliver your confirmation. Your payment went through and your reservation is saved, but your confirmation and access link didn't reach your email. Send support request. Order reference ${orderId}.`;
         rawBrowserTexts.push(text);
         return text;
       }

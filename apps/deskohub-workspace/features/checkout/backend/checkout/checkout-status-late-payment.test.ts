@@ -243,6 +243,7 @@ describe("CheckoutStatusService for late payments", () => {
 
     expect(harness.startRecoveryIfSettled).toHaveBeenCalledWith({
       orderId: "late-reservation",
+      verificationDeadline: expect.anything(),
     });
   });
 
