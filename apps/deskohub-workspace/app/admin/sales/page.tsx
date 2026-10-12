@@ -41,7 +41,7 @@ export default function SalesAdminPage({
         itemLabel="sale"
       />
       <Suspense
-        fallback={<AdministrationCollectionLoading columns={5} label="sales" />}
+        fallback={<AdministrationCollectionLoading columns={6} label="sales" />}
       >
         <SalesCollection data={data} />
       </Suspense>
