@@ -7,7 +7,16 @@ describe("shouldAutoRefreshCheckoutStatus", () => {
     expect(shouldAutoRefreshCheckoutStatus("paid_waiting_fulfillment")).toBe(
       true
     );
+    expect(shouldAutoRefreshCheckoutStatus("paid_awaiting_delivery")).toBe(
+      true
+    );
     expect(shouldAutoRefreshCheckoutStatus("late_payment_checking")).toBe(true);
+  });
+
+  test("stops refreshing once confirmation delivery is overdue", () => {
+    expect(shouldAutoRefreshCheckoutStatus("paid_delivery_delayed")).toBe(
+      false
+    );
   });
 
   test("stops refreshing once a late payment needs a refund or review", () => {

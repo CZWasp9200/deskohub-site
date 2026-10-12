@@ -905,6 +905,102 @@ describe("CheckoutStatusPage", () => {
     );
   });
 
+  describe("a paid reservation awaiting its confirmation email", () => {
+    const awaitingDeliveryStatus = (
+      status: "paid_awaiting_delivery" | "paid_delivery_delayed",
+      email: string | undefined = "ada@example.test"
+    ): CheckoutStatusViewModel => ({
+      ...baseStatus,
+      kind: "cowork",
+      status,
+      fulfillmentStatus: "awaiting_delivery",
+      supportContactPrefill: { name: "Ada Lovelace", email },
+      summary: {
+        kind: "cowork",
+        entryTier: "basic",
+        coffee: false,
+        reservedFrom: Temporal.Instant.from("2026-06-19T22:00:00.000Z"),
+        reservedUntil: Temporal.Instant.from("2026-06-20T22:00:00.000Z"),
+        price: { value: 35_000, exponent: 2, currency: "CZK" },
+      },
+    });
+
+    test("shows the recipient address and does not invite another booking while delivery is recent", () => {
+      const view = render(
+        <CheckoutStatusPage
+          locale="en-US"
+          status={awaitingDeliveryStatus("paid_awaiting_delivery")}
+        />
+      );
+
+      expect(
+        view.getByRole("heading", {
+          name: "Your reservation is paid and confirmed.",
+        })
+      ).toBeTruthy();
+      expect(view.getByText("ada@example.test")).toBeTruthy();
+      expect(view.getByText(/You don't need to book again\./)).toBeTruthy();
+      expect(
+        view.container.querySelector("#checkout-status-reserve-again")
+      ).toBeNull();
+      expect(
+        view.container.querySelector("#checkout-status-support-contact")
+      ).toBeNull();
+      expect(view.getByRole("link", { name: "Back home" })).toBeTruthy();
+    });
+
+    test("replaces rebooking with a support request once delivery is overdue", () => {
+      const view = render(
+        <CheckoutStatusPage
+          locale="en-US"
+          status={awaitingDeliveryStatus("paid_delivery_delayed")}
+        />
+      );
+
+      expect(
+        view.getByRole("heading", {
+          name: "Your reservation is confirmed, but the email hasn't arrived yet.",
+        })
+      ).toBeTruthy();
+      expect(view.getByText("ada@example.test")).toBeTruthy();
+      expect(view.getByText(/may contain a typo/)).toBeTruthy();
+      expect(view.queryByText(/update/i)).toBeNull();
+      expect(
+        view.container.querySelector("#checkout-status-reserve-again")
+      ).toBeNull();
+
+      const link = view.getByRole("link", { name: "Send support request" });
+      expect(link.id).toBe("checkout-status-support-contact");
+      const contactUrl = new URL(
+        link.getAttribute("href") ?? "",
+        "https://deskohub.local"
+      );
+      expect(contactUrl.searchParams.get("email")).toBe("ada@example.test");
+      expect(contactUrl.searchParams.get("message")).toContain(
+        "the reservation confirmation email did not arrive."
+      );
+    });
+
+    test("keeps the overdue guidance when the recipient address is unavailable", () => {
+      const view = render(
+        <CheckoutStatusPage
+          locale="cs-CZ"
+          status={awaitingDeliveryStatus("paid_delivery_delayed", undefined)}
+        />
+      );
+
+      expect(
+        view.getByText(/Znovu rezervovat nemusíš\./, { exact: false })
+      ).toBeTruthy();
+      expect(
+        view.getByRole("link", { name: "Zaslat žádost o podporu" })
+      ).toBeTruthy();
+      expect(
+        view.container.querySelector("#checkout-status-reserve-again")
+      ).toBeNull();
+    });
+  });
+
   test("asks the customer to contact us about a late payment under review", () => {
     const view = render(
       <CheckoutStatusPage
