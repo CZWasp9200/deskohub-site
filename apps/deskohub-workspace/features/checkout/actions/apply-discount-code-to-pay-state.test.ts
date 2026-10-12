@@ -229,7 +229,7 @@ describe("applyDiscountCodeToPayState", () => {
     expect(scenario.requireCurrent).not.toHaveBeenCalled();
   });
 
-  test.each(["already_attributed", "ineligible"] as const)(
+  test.each(["already_attributed", "ineligible", "sign_in_required"] as const)(
     "returns the explained %s referral rejection without promotion pricing",
     async (status) => {
       const acceptCode = mock(() => Effect.succeed({ status }));

@@ -92,6 +92,10 @@ describe("CheckoutDiscountCodeForm", () => {
       name: m.checkoutDiscountCodeApply({}, { locale: "en-US" }),
     });
     expect(applyButton).toHaveProperty("disabled", false);
+    expect(view.queryByRole("alert")).toBeNull();
+    expect(codeInput.getAttribute("aria-invalid")).toBeNull();
+    expect(applyDiscountCodeForm).not.toHaveBeenCalled();
+    expect(capture).not.toHaveBeenCalled();
   });
 
   test("renders the rejected code in server markup before hydration", async () => {
@@ -404,6 +408,7 @@ describe("CheckoutDiscountCodeForm", () => {
   test.each([
     ["referral-already-attributed", m.checkoutReferralCodeAlreadyAttributed],
     ["referral-ineligible", m.checkoutReferralCodeIneligible],
+    ["referral-sign-in-required", m.checkoutReferralCodeSignInRequired],
   ] as const)(
     "explains the %s rejection in the field alert",
     async (rejection, message) => {

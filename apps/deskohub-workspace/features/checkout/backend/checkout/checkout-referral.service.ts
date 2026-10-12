@@ -39,6 +39,10 @@ export type CheckoutReferralResult =
   | {
       /** Referral codes apply only to the customer's first booking. */
       readonly status: "ineligible";
+    }
+  | {
+      /** Only a signed-in customer account can accept a referral code. */
+      readonly status: "sign_in_required";
     };
 
 export interface ICheckoutReferralService {
@@ -50,11 +54,12 @@ export interface ICheckoutReferralService {
 }
 
 const unavailable: CheckoutReferralResult = { status: "unavailable" };
+const signInRequired: CheckoutReferralResult = { status: "sign_in_required" };
 
 /**
- * Only an immutable existing attribution and first-booking ineligibility are
- * explained to the customer; every other failure stays a generic unavailable
- * code so the response cannot probe codes or accounts.
+ * Only a missing sign-in, an immutable existing attribution, and first-booking
+ * ineligibility are explained to the customer; every other failure stays a
+ * generic unavailable code so the response cannot probe codes or accounts.
  */
 const getAcceptanceRejection = (
   error: ReferralError
@@ -85,7 +90,18 @@ export class CheckoutReferralService extends Context.Service<
           const opened = yield* openPayState(input.payStateToken);
           if (opened.locale !== input.locale) return unavailable;
 
-          const identity = yield* accounts.resolve;
+          const codeKind = yield* referrals.lookupCodeKind({
+            code: input.code,
+          });
+          if (codeKind.kind !== "referral") return unavailable;
+
+          const resolved = yield* accounts.resolve.pipe(Effect.result);
+          if (resolved._tag === "Failure") {
+            return resolved.failure.reason === "unauthenticated"
+              ? signInRequired
+              : unavailable;
+          }
+          const identity = resolved.success;
           const currentReservation = yield* payableReservations.requireCurrent({
             orderId: opened.orderId,
             checkoutSessionId: opened.checkoutSessionId,
@@ -95,11 +111,6 @@ export class CheckoutReferralService extends Context.Service<
           ) {
             return unavailable;
           }
-
-          const codeKind = yield* referrals.lookupCodeKind({
-            code: input.code,
-          });
-          if (codeKind.kind !== "referral") return unavailable;
 
           const acceptance = yield* referrals
             .acceptReferral({

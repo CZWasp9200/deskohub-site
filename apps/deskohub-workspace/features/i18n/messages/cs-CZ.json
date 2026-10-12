@@ -538,6 +538,7 @@
   "checkoutReferralDiscountApplied": "Doporučovací sleva na první rezervaci uplatněna: 15 % 🎉",
   "checkoutReferralCodeAlreadyAttributed": "Tento účet už doporučení má a nejde ho změnit. Můžeš pokračovat s aktuální cenou.",
   "checkoutReferralCodeIneligible": "Doporučovací kód platí jen pro první rezervaci. Můžeš pokračovat s aktuální cenou.",
+  "checkoutReferralCodeSignInRequired": "Pro použití doporučovacího kódu se přihlas ke svému účtu Deskohub e-mailem z této rezervace. Kód platí pro první rezervaci. Můžeš také pokračovat s aktuální cenou.",
   "checkoutSummaryOriginalPrice": "Původní cena: {price}",
   "checkoutSummaryDiscountedPrice": "Cena po slevě: {price}",
   "checkoutSummaryItemCoffee": "Káva",
