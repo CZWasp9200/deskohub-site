@@ -389,9 +389,9 @@ describe("workspace E2E workflow", () => {
       )
     ).toEqual([]);
     expect(casePool?.workers).toBe((playwrightConfig.workers as number) - 1);
-    expect(projectByName(playwrightConfig, "account-auth")?.dependencies).toEqual(
-      casePool?.dependencies
-    );
+    expect(
+      projectByName(playwrightConfig, "account-auth")?.dependencies
+    ).toEqual(casePool?.dependencies);
   });
 
   test("preserves discount seeding after the case phase", async () => {
