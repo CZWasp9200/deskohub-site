@@ -31,9 +31,23 @@ export const test = runtimeTest.extend<
   ],
 });
 
+/**
+ * Binds a planned case to state only its own test may create, such as seeded
+ * run-scoped synthetic identities, before the case runner admits it.
+ */
+export type WorkspaceE2ECaseBinder = (input: {
+  readonly environment: import("../e2e-env").WorkspaceE2EEnvironment;
+  readonly run: Runner;
+  readonly runId: import("../run-identifiers").WorkspaceE2ERunId;
+  readonly testCase: import("../types").WorkspaceE2ECase;
+}) => Promise<import("../types").WorkspaceE2ECase>;
+
 export const registerWorkspaceE2ECases = (
   caseIds: readonly string[],
-  options: { readonly serial?: boolean } = {}
+  options: {
+    readonly bindCase?: WorkspaceE2ECaseBinder;
+    readonly serial?: boolean;
+  } = {}
 ) => {
   const register = () => {
     for (const caseId of caseIds) {
@@ -49,7 +63,7 @@ export const registerWorkspaceE2ECases = (
           const config = getConfig(environment);
           const datasourceConfig = getDatasourceConfig(environment);
 
-          const selected = await runEffect(
+          const planned = await runEffect(
             Effect.gen(function* () {
               const caseService = yield* WorkspaceE2ECaseService;
               const flowStates: import("../types").CheckoutFlowState[] = [];
@@ -65,13 +79,21 @@ export const registerWorkspaceE2ECases = (
               return selected;
             })
           );
-          if (!selected) {
+          if (!planned) {
             test.skip(
               caseId === "checkout-office-paid-multi-day",
               "Office checkout is disabled in this preview"
             );
             throw new Error(`Workspace E2E case ${caseId} was not constructed`);
           }
+          const selected = options.bindCase
+            ? await options.bindCase({
+                environment,
+                run: browserRunner,
+                runId: runPlan.runContext.runId,
+                testCase: planned,
+              })
+            : planned;
 
           const journalStartedAt = new Date();
           await writeWorkspaceE2ECaseJournal(
