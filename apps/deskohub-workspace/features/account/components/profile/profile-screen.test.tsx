@@ -1,4 +1,12 @@
-import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 import {
   act,
   cleanup,
@@ -41,7 +49,10 @@ mock.module("@/shared/utils/use-workspace-action", () => ({
   useWorkspaceAction: (
     action: (input: { locale: string }) => Promise<LanguageActionResult>,
     options?: {
-      readonly onSuccess?: (args: { readonly data?: unknown }) => void;
+      readonly onSuccess?: (args: {
+        readonly data?: unknown;
+        readonly input: { locale: string };
+      }) => void;
       readonly onTransportError?: (args: {
         readonly error: unknown;
         readonly input: { locale: string };
@@ -58,7 +69,7 @@ mock.module("@/shared/utils/use-workspace-action", () => ({
           setResult(nextResult);
           setIsExecuting(false);
           if (nextResult.data) {
-            options?.onSuccess?.({ data: nextResult.data });
+            options?.onSuccess?.({ data: nextResult.data, input });
           }
         })
         .catch((error) => {
@@ -510,6 +521,77 @@ describe("ProfileScreen", () => {
     await waitFor(() =>
       expect(updatePreferredLanguage).toHaveBeenCalledWith({ locale: "en-US" })
     );
+    cleanup();
+  });
+
+  const chooseAndSaveLanguage = async (
+    view: ReturnType<typeof render>,
+    optionNames: readonly string[]
+  ) => {
+    const trigger = view.getByRole("combobox", {
+      name: englishCopy.languageLabel,
+    });
+    for (const name of optionNames) {
+      await act(async () => {
+        fireEvent.keyDown(trigger, { key: "Enter" });
+      });
+      await view.findByRole("listbox");
+      const option = view.getByRole("option", { name });
+      await act(async () => {
+        option.focus();
+      });
+      await act(async () => {
+        fireEvent.keyDown(option, { key: "Enter" });
+      });
+    }
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Save" }));
+    });
+  };
+
+  test("moves the page to the saved locale when the save changes the language", async () => {
+    window.location.href = "http://localhost/en-US/account?section=profile";
+    const view = render(
+      <ProfileScreen
+        copy={englishCopy}
+        email="ada@example.test"
+        firstName="Ada"
+        lastName="Lovelace"
+        preferredLanguage="en-US"
+      >
+        {profileFields}
+      </ProfileScreen>
+    );
+
+    await chooseAndSaveLanguage(view, ["Čeština"]);
+
+    await waitFor(() =>
+      expect(window.location.pathname).toBe("/cs-CZ/account")
+    );
+    expect(window.location.search).toBe("?section=profile");
+    cleanup();
+  });
+
+  test("stays on the page when the saved language is already the page locale", async () => {
+    window.location.href = "http://localhost/en-US/account?section=profile";
+    const view = render(
+      <ProfileScreen
+        copy={englishCopy}
+        email="ada@example.test"
+        firstName="Ada"
+        lastName="Lovelace"
+        preferredLanguage="en-US"
+      >
+        {profileFields}
+      </ProfileScreen>
+    );
+
+    await chooseAndSaveLanguage(view, ["Čeština", "English (US)"]);
+
+    await waitFor(() =>
+      expect(view.getByText(languageCatalogCopy["en-US"].saved)).toBeTruthy()
+    );
+    expect(window.location.pathname).toBe("/en-US/account");
     cleanup();
   });
 

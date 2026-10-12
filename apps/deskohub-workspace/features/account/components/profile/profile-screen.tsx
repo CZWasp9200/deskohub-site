@@ -5,7 +5,11 @@ import { useRouter } from "next/navigation";
 import { type ReactNode, useId, useState } from "react";
 import { updatePreferredLanguage } from "@/features/account/actions";
 import { AccountSectionPanel } from "@/features/account/components/shell/account-section-panel";
-import { type Locale, locales } from "@/features/i18n";
+import {
+  type Locale,
+  locales,
+  withLocalePrefixAndSearch,
+} from "@/features/i18n";
 import { Button } from "@/shared/components/ui/button";
 import { Label } from "@/shared/components/ui/label";
 import {
@@ -116,7 +120,15 @@ export function ProfileScreen({
     reset: resetLanguageResult,
   } = useWorkspaceAction(updatePreferredLanguage, {
     actionName: "account.update-language",
-    onSuccess: () => {
+    onSuccess: ({ input }) => {
+      // The saved preference is the signed-in site locale, so a changed
+      // language moves the page to it with a document navigation.
+      const { pathname, search } = window.location;
+      const href = withLocalePrefixAndSearch(pathname, input.locale, search);
+      if (href !== `${pathname}${search}`) {
+        window.location.assign(href);
+        return;
+      }
       void router.refresh();
     },
     onTransportError: () => {
