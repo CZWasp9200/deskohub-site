@@ -32,7 +32,7 @@ For local development without a key, use `@deskohub.test` recipients.
 ## Tests
 
 Tests build every address with `testEmailAddress` or `resendSimulatorAddress`
-from `@deskohub/email/testing`; the `no-test-email-literals` lint rule rejects
+from `@deskohub/email/testing`; the repository's `lint:test-email-literals` check rejects
 hand-written addresses.
 
 ## Sender Addresses

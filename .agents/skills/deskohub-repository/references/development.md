@@ -65,7 +65,7 @@ Workspace has additional database and E2E tasks. Read the Workspace operations o
 
 ## Test email addresses
 
-Tests, fixtures, E2E code, and visual scripts never write an email address. Build test recipients with `testEmailAddress(localPart)` from `@deskohub/email/testing`, which uses the `EMAIL_TEST_DOMAIN` code constant (`deskohub.test`), so mail goes to the Console provider. Use `resendSimulatorAddress(outcome)` only when a test needs a real Resend destination. The `no-test-email-literals` GritQL rule (`lint/no-test-email-literals.grit`) enforces this through each package's Biome lint, and Workspace `e2e/` through `lint:test-email-literals`. The rule also catches concatenated literals and escaped, entity-encoded, or URL-encoded `@`.
+Tests, fixtures, E2E code, and visual scripts never write an email address. Build test recipients with `testEmailAddress(localPart)` from `@deskohub/email/testing`, which uses the `EMAIL_TEST_DOMAIN` code constant (`deskohub.test`), so mail goes to the Console provider. Use `resendSimulatorAddress(outcome)` only when a test needs a real Resend destination. The AST check `apps/deskohub-workspace/scripts/test-email-literals.ts` enforces this for test, fixture, E2E, and visual-script modules across `apps/` and `packages/`. It runs as `deskohub-workspace#lint:test-email-literals`, which every package's `lint` depends on, so any CI lint graph runs it. It folds `+` chains of literals (parentheses included), decodes escaped, entity-encoded, and URL-encoded `@`, and checks each address token separately. Rule cases live in `scripts/test-email-literals.test.ts`.
 
 ## Environment files
 
