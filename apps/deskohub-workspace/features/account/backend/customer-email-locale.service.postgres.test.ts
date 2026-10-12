@@ -1,3 +1,4 @@
+import { testEmailAddress } from "@deskohub/test-email";
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, test } from "bun:test";
@@ -24,7 +25,7 @@ describe.skipIf(!testDatabase)(
       const accountId = uniqueId();
       await testDatabase!.pool.query(
         `insert into auth."user" (id, name, email) values ($1, '', $2)`,
-        [accountId, `locale-${accountId}@deskohub.test`]
+        [accountId, testEmailAddress(`locale-${accountId}`)]
       );
       await testDatabase!.pool.query(
         `insert into customer_account_links (customer_account_id, dotypos_customer_id) values ($1, $2)`,

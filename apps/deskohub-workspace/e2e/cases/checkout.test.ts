@@ -2,6 +2,7 @@ import "@/shared/polyfills/temporal";
 
 import { describe, expect, test } from "bun:test";
 import type { Customer } from "@deskohub/dotypos/generated";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Cause, Effect, Exit, Layer, Option } from "effect";
 import { FetchHttpClient } from "effect/unstable/http";
 import {
@@ -37,7 +38,7 @@ const customer: Customer = {
   firstName: "Ada",
   lastName: "Lovelace",
   companyName: null,
-  email: "customer@example.com",
+  email: testEmailAddress("customer"),
   phone: null,
   points: null,
   flags: "0",

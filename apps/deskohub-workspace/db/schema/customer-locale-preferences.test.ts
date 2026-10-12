@@ -1,3 +1,4 @@
+import { testEmailAddress } from "@deskohub/test-email";
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, test } from "bun:test";
@@ -83,7 +84,7 @@ describe("customer locale preferences", () => {
           for (const id of legacyAccountIds) {
             await pool.query(
               `insert into auth."user" (id, name, email, email_verified) values ($1, '', $2, true)`,
-              [id, `legacy-${id}@deskohub.test`]
+              [id, testEmailAddress(`legacy-${id}`)]
             );
           }
 

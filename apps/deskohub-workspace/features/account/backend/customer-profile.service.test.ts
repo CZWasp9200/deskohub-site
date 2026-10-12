@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Effect, Layer } from "effect";
 import {
   type CustomerAccountAccessError,
@@ -14,7 +15,7 @@ const account = {
   dotyposCustomerId: "60111",
 };
 
-const verifiedEmail = "ada@example.test";
+const verifiedEmail = testEmailAddress("ada");
 
 const linkedProfile = {
   firstName: "Ada",

@@ -5,6 +5,7 @@ import {
   PostHogDistinctId,
   PostHogEventId,
 } from "@deskohub/posthog/identifiers";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Effect } from "effect";
 import type { EventMessage } from "posthog-node";
 
@@ -49,7 +50,7 @@ describe("PostHogEventService", () => {
         .pipe(
           Effect.annotateLogs({
             correlationId: "correlation-id",
-            customerInput: { email: "synthetic@example.test" },
+            customerInput: { email: testEmailAddress("synthetic") },
             error: new Error("provider payload"),
             result: { internal: "serialized-result" },
             sessionId: "session-id",

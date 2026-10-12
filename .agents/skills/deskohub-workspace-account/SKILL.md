@@ -210,23 +210,38 @@ description: Workspace customer account, Better Auth, magic link, auth persisten
   and traces out of artifacts, validate fixed page paths and URLs before
   capture, and upload PNGs only.
 - Deliver auth magic links through the shared `@deskohub/email`
-  `EmailServiceTag`/provider machinery, which owns sending and retry. Auth
-  owns the recipient-based routing decision, the template, the synthetic
-  recipient pattern, and the gated raw-log envelope. Mark every magic-link
-  message `sensitiveContent` so bearer content stays suppressed in Console
-  output. When the runtime is Vercel Preview and the recipient exactly
-  matches `delivered+<run-id>-<label>@resend.dev` (strict pattern, arbitrary
-  domains rejected), the route forces the shared Console provider and, after
-  a successful send to exactly one synthetic recipient, the app feature emits
+  `EmailServiceTag.RecipientRouted` machinery, which owns sending, retry, and the
+  recipient-based provider routing used by every Workspace email: mail
+  addressed only to `EMAIL_TEST_DOMAIN` test recipients goes to Console, and
+  all other mail, including Resend's `resend.dev` simulator, goes to Resend. Auth owns the template, the synthetic recipient
+  pattern, and the gated raw-log envelope. Mark every magic-link message
+  `sensitiveContent` so bearer content stays suppressed in Console output.
+  When the runtime is Vercel Preview, the recipient exactly matches
+  `delivered+<run-id>-<label>@<EMAIL_TEST_DOMAIN>` (strict local-part
+  pattern, other domains rejected), and Console accepted the send, the app feature emits
   one gated raw-`console.log` line (outside the Effect/OTel censorship layer)
   under `account.magic-link.preview-e2e` carrying the rendered TEXT body with
-  its bearer link. This is the single explicitly authorized exception to the
-  no-bearer-material logging rule, and only for non-PII synthetic preview
-  auth link material. Every other recipient — non-synthetic Preview,
-  development, and production — uses the `EmailConfigLayer` configured
-  default provider with the fixed censored delivery codes and no link
-  logging; a missing delivering credential fails closed to the fixed
-  unconfigured code only when the configured provider needs one. The runner
+  its bearer link. This is one of two explicitly authorized exceptions to
+  the no-bearer-material logging rule (local development below is the
+  other), and only for non-PII synthetic preview auth link material. When an email key is configured, every real recipient goes to Resend with the fixed
+  censored delivery codes and no link logging. Production and Preview env
+  validation require `EMAIL_API_KEY`; only development may omit it, and then
+  every message, real recipients included, goes to Console with bearer
+  content suppressed by the shared provider. There is no provider selection
+  setting.
+- Local development is the second, user-authorized exception: when
+  `VERCEL_ENV` is `development` and `NODE_ENV` is `development` (only
+  `next dev`; Vercel builds run `production` and `bun test` runs `test`),
+  and Console accepted the send, the same emitter prints one
+  `account.magic-link.development` line with the recipient and bearer URL
+  so a developer can sign in without a Resend key. Any recipient qualifies
+  because the link only reaches Console on the developer's own machine;
+  Resend-delivered links are never printed. `magicLinkDeliveryEnvironment`
+  in `send-magic-link-email.ts` derives both flags, and
+  `emitAuthorizedMagicLinkLine` is the only account-backend `console.log`
+  (`account-boundary.test.ts` enforces this). Never extend either line to
+  Preview real recipients or Production, and do not loosen the shared
+  Console provider, which Boardgame Bar also uses. The runner
   retrieves the link through the Vercel runtime log lookup using
   `WORKSPACE_E2E_VERCEL_TOKEN`, which lives only in the protected
   `workspace-checkout-e2e` GitHub environment and never enters Vercel or

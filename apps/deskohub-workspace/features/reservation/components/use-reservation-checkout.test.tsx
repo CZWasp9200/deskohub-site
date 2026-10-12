@@ -8,6 +8,7 @@ import {
   mock,
   test,
 } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { m } from "@/features/i18n";
 import { normalizedMeetingRoomReservationOrderSchema } from "@/features/reservation/meeting-room-reservation";
@@ -53,7 +54,7 @@ const reservationFor = (startHour: number) =>
     startsAt: `2099-07-30T0${startHour}:00:00Z`,
     endsAt: `2099-07-30T0${startHour + 1}:00:00Z`,
     name: "Ada Lovelace",
-    email: "ada@example.test",
+    email: testEmailAddress("ada"),
     phone: "+420777777777",
   });
 

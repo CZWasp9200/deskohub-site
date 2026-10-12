@@ -15,6 +15,7 @@ import {
   type EmailSendResult,
 } from "@deskohub/email";
 import type { EmailService } from "@deskohub/email/backend/service";
+import { testEmailAddress } from "@deskohub/test-email";
 import { getQueriesForElement } from "@testing-library/react";
 import { Context, Effect, Layer, Logger } from "effect";
 import { SeatingMapFeatureFlagServiceMock } from "@/features/feature-flags/backend/seating-map-feature-flag.service.mock";
@@ -27,11 +28,14 @@ import {
   type WorkspaceReservationDetails,
   WorkspaceReservationService,
 } from "@/features/reservation/backend/workspace-reservation.service";
+import { workspaceDefaultFromAddress } from "@/shared/backend/config/email.config";
 import {
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
 } from "@/shared/testing/workspace-component-test-env";
 import { workspaceSiteConstants } from "@/shared/utils";
+
+const customerAddress = testEmailAddress("customer");
 
 mock.module("server-only", () => ({}));
 
@@ -100,7 +104,7 @@ const customer: Customer = {
   firstName: "Ada",
   lastName: "Lovelace",
   companyName: null,
-  email: "customer@example.com",
+  email: customerAddress,
   phone: null,
   points: null,
   flags: "0",
@@ -158,7 +162,7 @@ const sendPaidReservationEmail = async (
   const emailConfig: EmailProviderConfig = {
     provider: "console",
     defaultFrom: {
-      email: "reservations@workspace.deskohub.cz",
+      email: workspaceDefaultFromAddress,
       name: "Deskohub Workspace",
     },
   };
@@ -680,7 +684,7 @@ describe("workspace reservation email details", () => {
     const emailConfig: EmailProviderConfig = {
       provider: "console",
       defaultFrom: {
-        email: "reservations@workspace.deskohub.cz",
+        email: workspaceDefaultFromAddress,
         name: "Deskohub Workspace",
       },
     };
@@ -819,7 +823,7 @@ describe("sendPaidReservationEmails internal notification failure", () => {
     const emailConfig: EmailProviderConfig = {
       provider: "console",
       defaultFrom: {
-        email: "reservations@workspace.deskohub.cz",
+        email: workspaceDefaultFromAddress,
         name: "Deskohub Workspace",
       },
     };
@@ -884,16 +888,11 @@ describe("sendPaidReservationEmails internal notification failure", () => {
 
     const customerHtml = customerEmail.html ?? "";
     const customerText = customerEmail.text ?? "";
-    expect(customerEmail.to).toEqual({ email: "customer@example.com" });
+    expect(customerEmail.to).toEqual({ email: customerAddress });
     expect(Object.hasOwn(customerEmail.metadata ?? {}, "customerEmail")).toBe(
       false
     );
-    for (const pii of [
-      "Ada",
-      "Lovelace",
-      "customer@example.com",
-      "123456789",
-    ]) {
+    for (const pii of ["Ada", "Lovelace", customerAddress, "123456789"]) {
       expect(customerHtml).not.toContain(pii);
       expect(customerText).not.toContain(pii);
     }
@@ -1000,7 +999,7 @@ describe("sendPaidReservationEmails internal notification failure", () => {
     const internalHtml = internalEmail.html ?? "";
     const internalText = internalEmail.text ?? "";
     expect(internalEmail.to).toEqual({
-      email: "delivered+workspace-internal@resend.dev",
+      email: testEmailAddress("workspace-internal"),
       name: workspaceSiteConstants.brand.name,
     });
     expect(internalEmail.subject).toBe(
@@ -1015,8 +1014,8 @@ describe("sendPaidReservationEmails internal notification failure", () => {
     );
     expect(internalHtml).toContain(internalHeading);
     expect(internalText).toContain(internalHeading.toUpperCase());
-    expect(internalHtml).toContain("customer@example.com");
-    expect(internalText).toContain("customer@example.com");
+    expect(internalHtml).toContain(customerAddress);
+    expect(internalText).toContain(customerAddress);
     for (const accessFragment of ["/reservation/access/", "accessToken="]) {
       expect(internalHtml).not.toContain(accessFragment);
       expect(internalText).not.toContain(accessFragment);
@@ -1049,7 +1048,7 @@ describe("sendPaidReservationEmails idempotency", () => {
     const emailConfig: EmailProviderConfig = {
       provider: "console",
       defaultFrom: {
-        email: "reservations@workspace.deskohub.cz",
+        email: workspaceDefaultFromAddress,
         name: "Deskohub Workspace",
       },
     };
@@ -1134,7 +1133,7 @@ describe("sendPaidReservationEmails idempotent retry stability", () => {
     const emailConfig: EmailProviderConfig = {
       provider: "console",
       defaultFrom: {
-        email: "reservations@workspace.deskohub.cz",
+        email: workspaceDefaultFromAddress,
         name: "Deskohub Workspace",
       },
     };
@@ -1249,7 +1248,7 @@ describe("sendPaidReservationEmails reservation access capability", () => {
     const emailConfig: EmailProviderConfig = {
       provider: "console",
       defaultFrom: {
-        email: "reservations@workspace.deskohub.cz",
+        email: workspaceDefaultFromAddress,
         name: "Deskohub Workspace",
       },
     };
@@ -1373,7 +1372,7 @@ describe("sendPaidReservationEmails reservation access capability", () => {
     const emailConfig: EmailProviderConfig = {
       provider: "console",
       defaultFrom: {
-        email: "reservations@workspace.deskohub.cz",
+        email: workspaceDefaultFromAddress,
         name: "Deskohub Workspace",
       },
     };
@@ -1567,7 +1566,7 @@ describe("reservation customer email language", () => {
     const emailConfig: EmailProviderConfig = {
       provider: "console",
       defaultFrom: {
-        email: "reservations@workspace.deskohub.cz",
+        email: workspaceDefaultFromAddress,
         name: "Deskohub Workspace",
       },
     };

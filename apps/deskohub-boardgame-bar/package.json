@@ -12,7 +12,8 @@
     "i18n:compile": "bunx @inlang/paraglide-js compile --project ./project.inlang --outdir ./features/i18n/paraglide",
     "lint": "biome check . --config-path ../../biome.json --vcs-root ../../",
     "typecheck": "tsc --noEmit",
-    "start": "next start"
+    "start": "next start",
+    "test": "bun test"
   },
   "dependencies": {
     "@deskohub/cloudinary": "workspace:*",

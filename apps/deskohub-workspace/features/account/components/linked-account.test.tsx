@@ -7,6 +7,7 @@ import {
   mock,
   test,
 } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import React from "react";
 import type { CustomerProfileInput } from "@/features/account/contracts";
 import { m } from "@/features/i18n";
@@ -20,6 +21,8 @@ import {
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
 } from "@/shared/testing/workspace-component-test-env";
+
+const adaAddress = testEmailAddress("ada");
 
 registerWorkspaceComponentTestEnv();
 // @testing-library/react must load after the happy-dom registration, or
@@ -251,7 +254,7 @@ describe("LinkedAccount", () => {
       withAccountLayout(
         <LinkedAccount
           avatarPresentation={hiddenAvatarPresentation}
-          email="ada@example.test"
+          email={adaAddress}
           history={history}
           locale="en-US"
           profile={profile}
@@ -343,7 +346,7 @@ describe("LinkedAccount", () => {
       withAccountLayout(
         <LinkedAccount
           avatarPresentation={hiddenAvatarPresentation}
-          email="ada@example.test"
+          email={adaAddress}
           history={history}
           locale="en-US"
           profile={profile}
@@ -381,7 +384,7 @@ describe("LinkedAccount", () => {
         withAccountLayout(
           <LinkedAccount
             avatarPresentation={hiddenAvatarPresentation}
-            email="ada@example.test"
+            email={adaAddress}
             history={history}
             locale="en-US"
             profile={profile}
@@ -400,7 +403,7 @@ describe("LinkedAccount", () => {
       withAccountLayout(
         <LinkedAccount
           avatarPresentation={hiddenAvatarPresentation}
-          email="ada@example.test"
+          email={adaAddress}
           history={history}
           locale="en-US"
           profile={profile}
@@ -428,7 +431,7 @@ describe("LinkedAccount", () => {
         <div data-testid="cached-private-account">
           <LinkedAccount
             avatarPresentation={hiddenAvatarPresentation}
-            email="ada@example.test"
+            email={adaAddress}
             history={history}
             locale={locale}
             profile={profile}
@@ -499,7 +502,7 @@ describe("LinkedAccount", () => {
           {withAccountLayout(
             <LinkedAccount
               avatarPresentation={hiddenAvatarPresentation}
-              email="ada@example.test"
+              email={adaAddress}
               history={history}
               locale="en-US"
               profile={profile}
@@ -566,7 +569,7 @@ describe("LinkedAccount", () => {
         {withAccountLayout(
           <LinkedAccount
             avatarPresentation={hiddenAvatarPresentation}
-            email="ada@example.test"
+            email={adaAddress}
             history={history}
             locale="en-US"
             profile={profile}
@@ -635,7 +638,7 @@ describe("LinkedAccount", () => {
         withAccountLayout(
           <LinkedAccount
             avatarPresentation={hiddenAvatarPresentation}
-            email="ada@example.test"
+            email={adaAddress}
             history={history}
             locale="en-US"
             profile={profile}
@@ -661,7 +664,7 @@ describe("LinkedAccount", () => {
       withAccountLayout(
         <LinkedAccount
           avatarPresentation={hiddenAvatarPresentation}
-          email="ada@example.test"
+          email={adaAddress}
           history={history}
           locale="en-US"
           profile={profile}
@@ -692,7 +695,7 @@ describe("LinkedAccount", () => {
           {withAccountLayout(
             <LinkedAccount
               avatarPresentation={hiddenAvatarPresentation}
-              email="ada@example.test"
+              email={adaAddress}
               history={history}
               locale="en-US"
               profile={profile}

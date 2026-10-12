@@ -1,4 +1,5 @@
 import { expect, mock, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Cause, Effect, Exit } from "effect";
 import { browserDiagnosticsScript } from "../browser-scripts";
 import type { WorkspaceE2EConfig } from "../config";
@@ -426,7 +427,7 @@ const makeConfig = (): WorkspaceE2EConfig => ({
 const makeCheckoutData = (): CheckoutData => ({
   checkoutUrl,
   date: "2099-08-04",
-  email: "workspace-e2e@example.com",
+  email: testEmailAddress("workspace-e2e"),
   expectedReservationDetails: {
     kind: "cowork",
     entryTier: "basic",

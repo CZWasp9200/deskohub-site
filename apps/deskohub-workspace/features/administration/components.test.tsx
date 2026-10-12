@@ -9,6 +9,7 @@ import {
   test,
 } from "bun:test";
 import { NexiOrderIdSchema } from "@deskohub/nexi";
+import { testEmailAddress } from "@deskohub/test-email";
 import {
   act,
   cleanup,
@@ -331,7 +332,7 @@ describe("administration reservation components", () => {
     expect(view.getByText("Cancelled in Dotypos")).toBeDefined();
     expect(view.getByText("Deskohub: Awaiting payment")).toBeDefined();
     expect(view.getByText("Alex Morgan")).toBeDefined();
-    expect(view.getByText("alex.morgan@example.test")).toBeDefined();
+    expect(view.getByText(testEmailAddress("alex.morgan"))).toBeDefined();
   });
 
   test("keeps related reservations useful when customer details are unavailable", () => {

@@ -1,3 +1,4 @@
+import { testEmailAddress } from "@deskohub/test-email";
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, mock, spyOn, test } from "bun:test";
@@ -201,7 +202,7 @@ const uniqueDotyposCustomerId = () => {
 };
 
 const uniqueEmail = (label: string) =>
-  `${label}-${crypto.randomUUID()}@deskohub.test`;
+  testEmailAddress(`${label}-${crypto.randomUUID()}`);
 
 const makeFailingVerificationDatabase = (
   email: string,

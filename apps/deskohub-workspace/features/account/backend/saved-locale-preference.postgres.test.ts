@@ -1,3 +1,4 @@
+import { testEmailAddress } from "@deskohub/test-email";
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, test } from "bun:test";
@@ -76,7 +77,7 @@ describe.skipIf(!testDatabase)(
     const signIn = async (options: { readonly locale?: "cs-CZ" | "en-US" }) => {
       const sentMagicLinks: string[] = [];
       const auth = makeAuth(sentMagicLinks);
-      const email = `saved-locale-${crypto.randomUUID()}@deskohub.test`;
+      const email = testEmailAddress(`saved-locale-${crypto.randomUUID()}`);
       await callHandler(auth, "/sign-in/magic-link", {
         method: "POST",
         headers: { "content-type": "application/json" },

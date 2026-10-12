@@ -1,4 +1,5 @@
 import { DotyposService } from "@deskohub/dotypos";
+import { isConsoleEmailDeliveryId } from "@deskohub/email";
 import { EmailServiceTag } from "@deskohub/email/backend/service";
 import { Context, Data, Effect, Layer, Match, Predicate } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
@@ -478,14 +479,21 @@ export class WorkspacePaidFulfillmentService extends Context.Service<
               );
             yield* Effect.logInfo("Paid reservation email flow succeeded");
 
-            if (env.VERCEL_ENV !== "production") {
+            // Console never reports delivery, and protected Previews cannot
+            // receive Resend callbacks, so acceptance is final for both.
+            const acceptedByConsole = isConsoleEmailDeliveryId(
+              customerEmailDeliveryId
+            );
+            if (env.VERCEL_ENV !== "production" || acceptedByConsole) {
               yield* reservations.markFulfilled({
                 id: claimed.id,
                 fulfilledAt: Temporal.Now.instant(),
+                customerEmailDeliveryId,
               });
               yield* processReservationInvoice(claimed);
               yield* Effect.logInfo(
-                "Non-production paid fulfillment completed after email provider acceptance"
+                "Paid fulfillment completed after email provider acceptance",
+                { acceptedByConsole }
               );
               return;
             }
@@ -543,7 +551,10 @@ export class WorkspacePaidFulfillmentService extends Context.Service<
         WorkspaceReservationEmailService.Default,
         Layer.provideMerge(
           Layer.provideMerge(
-            Layer.provideMerge(EmailServiceTag.Live, EmailConfigLayer),
+            Layer.provideMerge(
+              EmailServiceTag.RecipientRouted,
+              EmailConfigLayer
+            ),
             WorkspaceCheckoutNetworkDetailsService.Default
           ),
           CustomerEmailLocaleService.Live

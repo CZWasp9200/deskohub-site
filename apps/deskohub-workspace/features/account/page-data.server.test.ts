@@ -1,8 +1,11 @@
+import { testEmailAddress } from "@deskohub/test-email";
 import "@/shared/testing/workspace-test-env";
 
 import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { Context, Effect, Layer, Predicate } from "effect";
 import type { CustomerAccountId } from "@/features/account/customer-account";
+
+const customerEmail = testEmailAddress("ada");
 
 let currentUserEffect: Effect.Effect<
   {
@@ -36,7 +39,7 @@ Object.assign(Authentication, {
 const accountId = "auth-account-1" as CustomerAccountId;
 const activeSession = {
   accountId,
-  email: "ada@example.test",
+  email: customerEmail,
   deletionRequested: false,
 };
 
@@ -256,7 +259,7 @@ describe("loadCustomerAccountPage", () => {
 
     await expect(loadPageState()).resolves.toEqual({
       kind: "completion-required",
-      email: "ada@example.test",
+      email: customerEmail,
     });
   });
 
@@ -268,7 +271,7 @@ describe("loadCustomerAccountPage", () => {
     });
     await expect(loadPageState()).resolves.toEqual({
       kind: "support-required",
-      email: "ada@example.test",
+      email: customerEmail,
     });
 
     resolveEffect = resolverOutcome({
@@ -278,7 +281,7 @@ describe("loadCustomerAccountPage", () => {
     });
     await expect(loadPageState()).resolves.toEqual({
       kind: "support-required",
-      email: "ada@example.test",
+      email: customerEmail,
     });
 
     resolveEffect = resolverOutcome({
@@ -288,7 +291,7 @@ describe("loadCustomerAccountPage", () => {
     });
     await expect(loadPageState()).resolves.toEqual({
       kind: "support-required",
-      email: "ada@example.test",
+      email: customerEmail,
     });
 
     resolveEffect = resolverOutcome({
@@ -297,7 +300,7 @@ describe("loadCustomerAccountPage", () => {
     });
     await expect(loadPageState()).resolves.toEqual({
       kind: "support-required",
-      email: "ada@example.test",
+      email: customerEmail,
     });
   });
 
@@ -309,14 +312,14 @@ describe("loadCustomerAccountPage", () => {
 
     await expect(loadPageState()).resolves.toEqual({
       kind: "deletion-pending",
-      email: "ada@example.test",
+      email: customerEmail,
     });
   });
 
   test("renders the linked account with profile and grouped history, in one page-boundary run", async () => {
     await expect(loadPageState()).resolves.toEqual({
       kind: "linked",
-      email: "ada@example.test",
+      email: customerEmail,
       profile: {
         firstName: "Ada",
         lastName: "Lovelace",
@@ -339,7 +342,7 @@ describe("loadCustomerAccountPage", () => {
 
     await expect(loadPageState()).resolves.toEqual({
       kind: "linked",
-      email: "ada@example.test",
+      email: customerEmail,
       profile: {
         firstName: "Ada",
         lastName: "Lovelace",
@@ -419,7 +422,7 @@ describe("loadCustomerAccountPage", () => {
 
     await expect(loadPageState()).resolves.toEqual({
       kind: "linked",
-      email: "ada@example.test",
+      email: customerEmail,
       profile: {
         firstName: "Ada",
         lastName: "Lovelace",
@@ -457,7 +460,7 @@ describe("loadCustomerAccountPage", () => {
 
     await expect(loadPageState()).resolves.toEqual({
       kind: "authenticated-unavailable",
-      email: "ada@example.test",
+      email: customerEmail,
     });
 
     Object.assign(Profile, { Live: ProfileLayer });
@@ -471,7 +474,7 @@ describe("loadCustomerAccountPage", () => {
 
     await expect(loadPageState()).resolves.toEqual({
       kind: "authenticated-unavailable",
-      email: "ada@example.test",
+      email: customerEmail,
     });
   });
 });

@@ -1,3 +1,4 @@
+import { testEmailAddress } from "@deskohub/test-email";
 import { Data, Effect, Layer } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import type { Locale } from "@/features/i18n";
@@ -52,7 +53,7 @@ export const makeFakeSavedLocalePreference = () => {
         if (!cookie.includes(syntheticSessionCookie)) return null;
         return {
           accountId: syntheticAccountId,
-          email: "synthetic-account@deskohub.test",
+          email: testEmailAddress("synthetic-account"),
           deletionRequested: fake.deletionRequested,
         } as CustomerAccountSession;
       }),

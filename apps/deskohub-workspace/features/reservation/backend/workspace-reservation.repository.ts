@@ -314,9 +314,14 @@ export interface IWorkspaceReservationRepository {
     WorkspaceReservation | null,
     EffectDrizzleQueryError | WorkspaceReservationDetailsMalformedError
   >;
+  /**
+   * Completes fulfillment on provider acceptance. The accepted send replaces
+   * any earlier delivery ID, so webhooks for a superseded send cannot match.
+   */
   readonly markFulfilled: (input: {
     readonly id: WorkspaceReservationId;
     readonly fulfilledAt: Temporal.Instant;
+    readonly customerEmailDeliveryId: EmailDeliveryId;
   }) => Effect.Effect<
     void,
     EffectDrizzleQueryError | WorkspaceReservationStateError
@@ -1410,6 +1415,10 @@ export class WorkspaceReservationRepository extends Context.Service<
               .set({
                 fulfillmentState: "fulfilled",
                 fulfilledAt: input.fulfilledAt,
+                activeCustomerEmailDeliveryId: input.customerEmailDeliveryId,
+                // Recording the accepted send closes its idempotency generation,
+                // so a later recovery resolves the current preference again.
+                activeCustomerEmailDeliveryLocale: null,
                 updatedAt: Temporal.Now.instant(),
               })
               .where(

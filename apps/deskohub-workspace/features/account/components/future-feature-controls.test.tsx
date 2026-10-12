@@ -1,4 +1,5 @@
 import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import { type ComponentPropsWithoutRef, useState } from "react";
 import { type Locale, m } from "@/features/i18n";
 import {
@@ -9,6 +10,8 @@ import type {
   CustomerReservationHistory,
   CustomerReservationSummary,
 } from "../contracts";
+
+const adaAddress = testEmailAddress("ada");
 
 type NavigateEvent = {
   readonly preventDefault: () => void;
@@ -340,7 +343,7 @@ describe("account future-feature controls", () => {
 
     const profileView = render(
       <ProfileForm
-        email="ada@example.test"
+        email={adaAddress}
         locale={locale}
         mode="edit"
         profile={{
@@ -393,7 +396,7 @@ describe("account future-feature controls", () => {
     const signInView = render(<SignInCard locale={locale} />);
     fireEvent.change(
       signInView.getByLabelText(m.accountSignInEmailLabel({}, { locale })),
-      { target: { value: "ada@example.test" } }
+      { target: { value: adaAddress } }
     );
     await act(async () => {
       fireEvent.submit(
@@ -433,7 +436,7 @@ describe("account future-feature controls", () => {
     const deletionView = render(
       <DeleteAccountCard
         deletionPending={false}
-        email="ada@example.test"
+        email={adaAddress}
         locale={locale}
       />
     );

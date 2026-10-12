@@ -1,4 +1,4 @@
-import { Context, Duration, Effect, Layer, Schedule } from "effect";
+import { Context, Duration, Effect, Layer, Match, Schedule } from "effect";
 import type {
   EmailMessage,
   EmailSendResult,
@@ -7,17 +7,19 @@ import type {
 import {
   EmailConfigTag,
   EmailProviderTag,
+  type EmailSendError,
   type EmailServiceError,
   type EmailTemplateError,
   isRetryableEmailError,
 } from "./capabilities";
-import type { NetworkError } from "./network-error";
+import { RoutedEmailProviderLive } from "./email-routing";
 import { ConfiguredEmailProviderLayer } from "./provider-factory";
 
 export {
   EmailConfigTag,
   type EmailProvider,
   EmailProviderTag,
+  type EmailSendError,
   EmailServiceError,
   EmailTemplateError,
   isRetryableEmailError,
@@ -65,14 +67,11 @@ export class EmailTemplateServiceTag extends Context.Service<
 export interface EmailService {
   readonly send: (
     message: EmailMessage
-  ) => Effect.Effect<EmailSendResult, EmailServiceError | NetworkError>;
+  ) => Effect.Effect<EmailSendResult, EmailSendError>;
   readonly sendTemplate: (
     recipient: string | { email: string; name?: string },
     template: EmailTemplateData
-  ) => Effect.Effect<
-    EmailSendResult,
-    EmailServiceError | NetworkError | EmailTemplateError
-  >;
+  ) => Effect.Effect<EmailSendResult, EmailSendError | EmailTemplateError>;
   readonly verify: Effect.Effect<boolean, EmailServiceError>;
 }
 
@@ -85,15 +84,24 @@ export class EmailServiceTag extends Context.Service<
     Effect.suspend(() => emailServiceImplementation)
   );
 
+  /** Sends through the one provider `EmailConfig.provider` selects. */
   static Live = this.Default.pipe(
     Layer.provide(EmailTemplateServiceTag.Default),
     Layer.provide(ConfiguredEmailProviderLayer)
   );
+
+  /**
+   * Routes each message by recipient: only `EMAIL_TEST_DOMAIN` recipients go
+   * to Console, everything else to Resend; without a Resend key every message
+   * goes to Console. Ignores `provider` and `testMode`.
+   */
+  static RecipientRouted = this.Default.pipe(
+    Layer.provide(EmailTemplateServiceTag.Default),
+    Layer.provide(RoutedEmailProviderLive)
+  );
 }
 
-const getEmailRetryPolicyDescription = (
-  error: EmailServiceError | NetworkError
-) =>
+const getEmailRetryPolicyDescription = (error: EmailSendError) =>
   isRetryableEmailError(error)
     ? "exponential backoff (1s base, jittered, max 3 retries)"
     : "no retry - not a network error";
@@ -110,17 +118,18 @@ const emailSendLogFacts = (message: {
 });
 
 /** Provider logs receive fixed codes and tags, never raw error messages. */
-const emailFailureLogFacts = (error: EmailServiceError | NetworkError) => ({
-  code: isRetryableEmailError(error)
-    ? "email.send.transport-retryable"
-    : "email.send.rejected",
+const emailFailureLogFacts = (error: EmailSendError) => ({
+  code: Match.value(error).pipe(
+    Match.tag("NetworkError", () => "email.send.transport-retryable"),
+    Match.orElse(() => "email.send.rejected")
+  ),
   errorType: error._tag,
 });
 
 const emailRetryPolicy = Schedule.exponential("1 second").pipe(
   Schedule.jittered,
-  Schedule.while<EmailServiceError | NetworkError, Duration.Duration>(
-    ({ input }) => isRetryableEmailError(input)
+  Schedule.while<EmailSendError, Duration.Duration>(({ input }) =>
+    isRetryableEmailError(input)
   ),
   Schedule.both(Schedule.recurs(3)),
   Schedule.tapOutput(([duration, attempt]) =>

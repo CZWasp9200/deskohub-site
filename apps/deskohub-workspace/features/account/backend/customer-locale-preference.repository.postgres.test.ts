@@ -1,3 +1,4 @@
+import { testEmailAddress } from "@deskohub/test-email";
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, test } from "bun:test";
@@ -62,7 +63,7 @@ const makeRepositoryLayer = () => {
   const setSessionAccount = (accountId: string) => {
     currentTestSession = {
       accountId: customerAccountIdSchema.make(accountId),
-      email: `pref-${accountId}@deskohub.test`,
+      email: testEmailAddress(`pref-${accountId}`),
       deletionRequested: false,
     };
   };
@@ -104,7 +105,7 @@ describe.skipIf(!testDatabase)(
     test("round-trips a saved preference and upserts on re-save", async () => {
       const { layer, setSessionAccount } = makeRepositoryLayer();
       const account = customerAccountIdSchema.make(uniqueId());
-      await insertAuthUser(account, `pref-${account}@deskohub.test`);
+      await insertAuthUser(account, testEmailAddress(`pref-${account}`));
       setSessionAccount(account);
 
       const missing = await savedLocaleOf(account);
@@ -136,12 +137,12 @@ describe.skipIf(!testDatabase)(
       const secondAccount = customerAccountIdSchema.make(uniqueId());
       await insertAuthUser(
         firstAccount,
-        `pref-a-${firstAccount}@deskohub.test`
+        testEmailAddress(`pref-a-${firstAccount}`)
       );
       setSessionAccount(firstAccount);
       await insertAuthUser(
         secondAccount,
-        `pref-b-${secondAccount}@deskohub.test`
+        testEmailAddress(`pref-b-${secondAccount}`)
       );
 
       await Effect.runPromise(
@@ -156,7 +157,7 @@ describe.skipIf(!testDatabase)(
 
     test("rejects a locale outside the inlang locale list with the CHECK constraint", async () => {
       const account = customerAccountIdSchema.make(uniqueId());
-      await insertAuthUser(account, `pref-c-${account}@deskohub.test`);
+      await insertAuthUser(account, testEmailAddress(`pref-c-${account}`));
 
       const outcome = await Effect.runPromise(
         Effect.tryPromise({
@@ -180,7 +181,7 @@ describe.skipIf(!testDatabase)(
     test("cascades the preference row away with the auth user", async () => {
       const { layer, setSessionAccount } = makeRepositoryLayer();
       const account = customerAccountIdSchema.make(uniqueId());
-      await insertAuthUser(account, `pref-d-${account}@deskohub.test`);
+      await insertAuthUser(account, testEmailAddress(`pref-d-${account}`));
       setSessionAccount(account);
 
       await Effect.runPromise(
@@ -210,7 +211,7 @@ describe.skipIf(!testDatabase)(
     test("rejects saves for a deletion-marked account under the real lock", async () => {
       const { layer, setSessionAccount } = makeRepositoryLayer();
       const account = customerAccountIdSchema.make(uniqueId());
-      await insertAuthUser(account, `pref-f-${account}@deskohub.test`);
+      await insertAuthUser(account, testEmailAddress(`pref-f-${account}`));
       setSessionAccount(account);
       await testDatabase!.pool.query(
         `update auth."user" set deletion_requested_at = $2 where id = $1`,
@@ -237,8 +238,10 @@ describe.skipIf(!testDatabase)(
         WorkspaceDatabase,
         WorkspaceDatabase.of({ db: testDatabase!.db })
       );
-      const verifiedEmail = `lookup-${crypto.randomUUID()}@deskohub.test`;
-      const unverifiedEmail = `unverified-${crypto.randomUUID()}@deskohub.test`;
+      const verifiedEmail = testEmailAddress(`lookup-${crypto.randomUUID()}`);
+      const unverifiedEmail = testEmailAddress(
+        `unverified-${crypto.randomUUID()}`
+      );
       const seedAccount = customerAccountIdSchema.make(uniqueId());
       await insertAuthUser(seedAccount, verifiedEmail);
       await testDatabase!.pool.query(
@@ -263,7 +266,7 @@ describe.skipIf(!testDatabase)(
           const unverified =
             yield* lookupMagicLinkDeliveryLocale(unverifiedEmail);
           const unknown = yield* lookupMagicLinkDeliveryLocale(
-            `nobody-${crypto.randomUUID()}@deskohub.test`
+            testEmailAddress(`nobody-${crypto.randomUUID()}`)
           );
           return {
             beforeAccount,
@@ -292,7 +295,7 @@ describe.skipIf(!testDatabase)(
       const { Deferred } = await import("effect");
       const { layer, setSessionAccount } = makeRepositoryLayer();
       const account = customerAccountIdSchema.make(uniqueId());
-      await insertAuthUser(account, `pref-e-${account}@deskohub.test`);
+      await insertAuthUser(account, testEmailAddress(`pref-e-${account}`));
       setSessionAccount(account);
 
       let innerCompleted = false;

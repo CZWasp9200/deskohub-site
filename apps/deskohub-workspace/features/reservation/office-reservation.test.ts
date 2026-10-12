@@ -1,6 +1,7 @@
 import "@/shared/polyfills/temporal";
 
 import { describe, expect, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Result, Schema } from "effect";
 import {
   getOfficeReservationDayCount,
@@ -24,6 +25,8 @@ import {
 } from "./office-reservation";
 import { getCurrentWorkspaceDate } from "./reservation-date";
 
+const testEmailAddressForAda = testEmailAddress("ada");
+
 const safeParseForm = Schema.decodeUnknownResult(officeReservationSchema);
 const safeParseOrder = Schema.decodeUnknownResult(officeReservationOrderSchema);
 const safeParseDetails = Schema.decodeUnknownResult(
@@ -35,7 +38,7 @@ const safeParseStoredDetails = Schema.decodeUnknownResult(
 );
 const validCustomer = {
   name: "Ada Lovelace",
-  email: "ada@example.com",
+  email: testEmailAddressForAda,
   phone: "+420777777777",
   marketingConsent: false,
 };
@@ -336,7 +339,7 @@ describe("retired reservation customer message", () => {
     )({
       kind: "office",
       name: "Ada Lovelace",
-      email: "ada@example.com",
+      email: testEmailAddressForAda,
       phone: "+420777777777",
       message: "Legacy office note.",
       startsOn: startsOn.toString(),

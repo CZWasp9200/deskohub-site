@@ -65,6 +65,8 @@ const inspectCheckoutEntry = (
       env: {
         ...process.env,
         VERCEL_ENV: deploymentEnvironment,
+        // Deployed environments require a Resend key; the test env omits it.
+        EMAIL_API_KEY: "re_test",
         VERCEL_URL: "immutable-preview.vercel.app",
         VERCEL_PROJECT_PRODUCTION_URL: "workspace.example",
         VERCEL_AUTOMATION_BYPASS_SECRET: "synthetic-preview-bypass",

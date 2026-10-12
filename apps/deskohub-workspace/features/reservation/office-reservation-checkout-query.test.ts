@@ -1,6 +1,7 @@
 import "@/shared/polyfills/temporal";
 
 import { describe, expect, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import { getOfficeReservationDefaultValuesFromSearchParams } from "./office-reservation-checkout-query";
 
 describe("getOfficeReservationDefaultValuesFromSearchParams", () => {
@@ -12,7 +13,7 @@ describe("getOfficeReservationDefaultValuesFromSearchParams", () => {
           seats: "4",
           startsOn: "2000-01-01",
           name: "Sensitive Customer",
-          email: "sensitive@example.com",
+          email: testEmailAddress("sensitive"),
           discountCode: "SECRET-DISCOUNT",
           price: "442500",
           providerOrderId: "provider-order-id",

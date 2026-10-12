@@ -3,6 +3,7 @@ import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, mock, test } from "bun:test";
 import { DotyposService } from "@deskohub/dotypos";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Effect, Layer } from "effect";
 import type { LatePaymentRecoveryState } from "@/db/schema";
 import { SeatingMapFeatureFlagServiceMock } from "@/features/feature-flags/backend/seating-map-feature-flag.service.mock";
@@ -13,6 +14,8 @@ import { ProviderPaymentFinalizationService } from "../payment/provider-payment-
 import { LatePaymentRecoveryRepository } from "../repositories/late-payment-recovery.repository";
 import { PaymentAttemptRepository } from "../repositories/payment-attempt.repository";
 import { CheckoutStatusService } from "./checkout-status.service";
+
+const testEmailAddressForLate = testEmailAddress("late");
 
 const instant = (value: string) => Temporal.Instant.from(value);
 
@@ -121,7 +124,7 @@ const makeHarness = (options: {
           getCustomer: mock(() =>
             Effect.succeed({
               id: "customer-id",
-              email: "late@example.test",
+              email: testEmailAddressForLate,
             } as never)
           ),
         }),
@@ -188,7 +191,7 @@ describe("CheckoutStatusService for late payments", () => {
 
     expect(status.status).toBe("late_payment_review");
     expect(status).toMatchObject({
-      supportContactPrefill: { email: "late@example.test" },
+      supportContactPrefill: { email: testEmailAddressForLate },
     });
   });
 

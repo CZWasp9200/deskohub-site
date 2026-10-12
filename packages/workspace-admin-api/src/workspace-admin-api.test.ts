@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Schema } from "effect";
 import {
   AdministrationBookingQuery,
@@ -43,6 +44,8 @@ import {
   isStandaloneAccessCodeWindowWithinContractDuration,
   StartCliAuthentication,
 } from "./workspace-admin-api";
+
+const syntheticAddress = testEmailAddress("synthetic");
 
 describe("CliClientName", () => {
   test("trims a client label", () => {
@@ -423,7 +426,7 @@ describe("administration contract", () => {
         kind: "new",
         details: {
           kind: "person",
-          email: "synthetic@example.test",
+          email: syntheticAddress,
           firstName: "Synthetic",
           lastName: "Customer",
           address: {

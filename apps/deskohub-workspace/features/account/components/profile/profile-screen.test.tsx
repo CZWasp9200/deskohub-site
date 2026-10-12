@@ -8,6 +8,7 @@ import {
   mock,
   test,
 } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import {
   act,
   cleanup,
@@ -45,6 +46,8 @@ mock.module("@/features/account/actions", () => ({
 
 registerWorkspaceComponentTestEnv();
 ({ ProfileScreen } = await import("./profile-screen"));
+
+const adaAddress = testEmailAddress("ada");
 
 const englishCopy: ProfileScreenCopy = {
   emailLabel: "Email",
@@ -119,7 +122,7 @@ function renderProfile(overrides: Partial<ProfileScreenProps> = {}): string {
     <ProfileScreen
       {...overrides}
       copy={overrides.copy ?? englishCopy}
-      email={overrides.email ?? "ada@example.test"}
+      email={overrides.email ?? adaAddress}
       firstName={overrides.firstName ?? "Ada"}
       lastName={
         "lastName" in overrides ? (overrides.lastName ?? null) : "Lovelace"
@@ -184,7 +187,7 @@ describe("ProfileScreen", () => {
   test("keeps the login email visual, verified, and non-editable", () => {
     const markup = renderProfile();
 
-    expect(markup).toContain("ada@example.test");
+    expect(markup).toContain(adaAddress);
     expect(markup).toContain("break-all");
     expect(markup).toContain("Verified login email");
     expect(markup).toContain("<fieldset");
@@ -203,7 +206,9 @@ describe("ProfileScreen", () => {
     expect(emailFieldsetElement).not.toContain("aria-describedby");
     expect(markup).not.toMatch(/<span[^>]*aria-label="Verified login email"/);
     expect(markup).not.toMatch(/name="email"/);
-    expect(markup).not.toMatch(/<input[^>]*ada@example\.test/);
+    expect(markup).not.toMatch(
+      new RegExp(`<input[^>]*${adaAddress.replaceAll(".", "\\.")}`)
+    );
   });
 
   test("renders a provided avatar slot", () => {
@@ -221,7 +226,7 @@ describe("ProfileScreen", () => {
     render(
       <ProfileScreen
         copy={copy}
-        email="ada@example.test"
+        email={adaAddress}
         firstName="Ada"
         lastName="Lovelace"
         locale={locale}
@@ -377,7 +382,7 @@ describe("ProfileScreen", () => {
       >
         <ProfileScreen
           copy={englishCopy}
-          email="ada@example.test"
+          email={adaAddress}
           firstName="Ada"
           lastName="Lovelace"
           locale="en-US"

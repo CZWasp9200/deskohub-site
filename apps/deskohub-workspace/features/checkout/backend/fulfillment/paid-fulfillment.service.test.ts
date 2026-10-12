@@ -6,12 +6,15 @@ import {
   DotyposService,
 } from "@deskohub/dotypos";
 import { EmailDeliveryIdSchema } from "@deskohub/email";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Effect, Layer } from "effect";
 import { env, getAccountingDocumentSnapshotSecret } from "@/env";
 import { ReservationInvoiceService } from "@/features/accounting/backend/reservation-invoice.service";
 import type { IWorkspaceReservationRepository } from "@/features/reservation/backend/workspace-reservation.repository";
 import type { IWorkspaceReservationService } from "@/features/reservation/backend/workspace-reservation.service";
 import type { IWorkspaceReservationEmailService } from "./workspace-reservation-email.service";
+
+const testEmailAddressForCustomer = testEmailAddress("customer");
 
 mock.module("server-only", () => ({}));
 
@@ -77,7 +80,7 @@ describe("WorkspacePaidFulfillmentService", () => {
         entryTier: "basic",
         coffee: false,
       },
-      customer: { email: "customer@example.com" },
+      customer: { email: testEmailAddressForCustomer },
       reservedFrom: Temporal.Instant.from("2026-07-01T08:00:00.000Z"),
       reservedUntil: Temporal.Instant.from("2026-07-02T08:00:00.000Z"),
       tableName: "12",
@@ -211,7 +214,7 @@ describe("WorkspacePaidFulfillmentService", () => {
         entryTier: "basic",
         coffee: false,
       },
-      customer: { email: "customer@example.com" },
+      customer: { email: testEmailAddressForCustomer },
       reservedFrom: Temporal.Instant.from("2026-07-01T08:00:00.000Z"),
       reservedUntil: Temporal.Instant.from("2026-07-02T08:00:00.000Z"),
       tableName: "12",
@@ -326,7 +329,7 @@ describe("WorkspacePaidFulfillmentService", () => {
         entryTier: "basic",
         coffee: false,
       },
-      customer: { email: "customer@example.com" },
+      customer: { email: testEmailAddressForCustomer },
       reservedFrom: Temporal.Instant.from("2026-07-01T08:00:00.000Z"),
       reservedUntil: Temporal.Instant.from("2026-07-02T08:00:00.000Z"),
       tableName: "12",
@@ -436,8 +439,13 @@ describe("WorkspacePaidFulfillmentService", () => {
         "workspace-paid-reservation-access-reservation-id",
     });
     expect(runs.second._tag).toBe("Success");
+    // The recovered send supersedes the bounced one, so a stale webhook for
+    // the prior delivery can no longer match the fulfilled reservation.
     expect(markFulfilled).toHaveBeenCalledWith(
-      expect.objectContaining({ id: "reservation-id" })
+      expect.objectContaining({
+        id: "reservation-id",
+        customerEmailDeliveryId: "recovered-delivery",
+      })
     );
   });
 
@@ -464,7 +472,7 @@ describe("WorkspacePaidFulfillmentService", () => {
         entryTier: "basic",
         coffee: false,
       },
-      customer: { email: "customer@example.com" },
+      customer: { email: testEmailAddressForCustomer },
       reservedFrom: Temporal.Instant.from("2026-07-01T08:00:00.000Z"),
       reservedUntil: Temporal.Instant.from("2026-07-02T08:00:00.000Z"),
       tableName: "12",
@@ -798,7 +806,7 @@ describe("WorkspacePaidFulfillmentService", () => {
         entryTier: "basic",
         coffee: false,
       },
-      customer: { email: "customer@example.com" },
+      customer: { email: testEmailAddressForCustomer },
       reservedFrom: Temporal.Instant.from("2026-07-01T08:00:00.000Z"),
       reservedUntil: Temporal.Instant.from("2026-07-02T08:00:00.000Z"),
       tableName: "12",
@@ -929,7 +937,7 @@ describe("WorkspacePaidFulfillmentService", () => {
         entryTier: "basic",
         coffee: false,
       },
-      customer: { email: "customer@example.com" },
+      customer: { email: testEmailAddressForCustomer },
       reservedFrom: Temporal.Instant.from("2026-07-01T08:00:00.000Z"),
       reservedUntil: Temporal.Instant.from("2026-07-02T08:00:00.000Z"),
       tableName: "12",
@@ -1043,7 +1051,7 @@ describe("WorkspacePaidFulfillmentService", () => {
         entryTier: "basic",
         coffee: false,
       },
-      customer: { email: "customer@example.com" },
+      customer: { email: testEmailAddressForCustomer },
       reservedFrom: Temporal.Instant.from("2026-07-01T08:00:00.000Z"),
       reservedUntil: Temporal.Instant.from("2026-07-02T08:00:00.000Z"),
       tableName: "12",

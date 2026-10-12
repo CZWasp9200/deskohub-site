@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.13.0](https://github.com/totalolage/deskohub-site/compare/dhw-v1.12.0...dhw-v1.13.0) (2026-10-12)
+
+
+### Features
+
+* **email:** route test mail by EMAIL_TEST_DOMAIN ([34353e6](https://github.com/totalolage/deskohub-site/commit/34353e6d5639abe04146d97982584762197aba27))
+
+
+### Bug Fixes
+
+* **dhw:** build test addresses without an env preload ([671cc6c](https://github.com/totalolage/deskohub-site/commit/671cc6cdd7d3861e91586c7ac0dd491a28a8a185))
+* **email:** route Workspace mail by test domain instead of EMAIL_PROVIDER ([1a813b8](https://github.com/totalolage/deskohub-site/commit/1a813b8292e0389b9916c4e86c620c7afe7f2d40))
+
+
+### Performance Improvements
+
+* **ci:** shorten Workspace CI and E2E, audit test layering, fix refund claim limit ([157db66](https://github.com/totalolage/deskohub-site/commit/157db662aa075377dd1df95995bc488f92523028))
+
 ## [1.12.0](https://github.com/totalolage/deskohub-site/compare/dhw-v1.11.1...dhw-v1.12.0) (2026-10-10)
 
 

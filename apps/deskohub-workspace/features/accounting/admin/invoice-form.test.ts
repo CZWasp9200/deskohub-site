@@ -8,6 +8,7 @@ import {
   spyOn,
   test,
 } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import { AdministrationInvoiceCreateInput } from "@deskohub/workspace-admin-api";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { Schema } from "effect";
@@ -18,6 +19,8 @@ import {
   unregisterWorkspaceComponentTestEnv,
 } from "@/shared/testing/workspace-component-test-env";
 import type { InvoiceFormOutput } from "./invoice-form";
+
+const billingEmail = testEmailAddress("billing");
 
 mock.module("./actions", () => ({
   createAdministrationInvoice: async () => ({}),
@@ -63,7 +66,7 @@ const formValues = ({
 } & Partial<Omit<InvoiceFormOutput, "customer">> = {}): InvoiceFormOutput => ({
   customer: {
     customerType: "person",
-    email: "billing@example.test",
+    email: billingEmail,
     firstName: "Synthetic",
     lastName: "Customer",
     companyName: "",
@@ -151,7 +154,7 @@ test("rejects values beyond the server-mirrored boundary lengths", async () => {
     '"phone"'
   );
   await expectRejectedAtPath(
-    formValues({ customer: { email: `${"a".repeat(250)}@example.test` } }),
+    formValues({ customer: { email: testEmailAddress("a".repeat(250)) } }),
     '"email"'
   );
   await expectRejectedAtPath(
@@ -244,7 +247,7 @@ const fillInput = (
 };
 
 const fillPersonRequiredFields = (view: InvoiceFormView) => {
-  fillInput(view, "Invoice email", "billing@example.test");
+  fillInput(view, "Invoice email", billingEmail);
   fillInput(view, "First name", "Synthetic");
   fillInput(view, "Last name", "Customer");
   fillInput(view, "Address", "Synthetic 1");

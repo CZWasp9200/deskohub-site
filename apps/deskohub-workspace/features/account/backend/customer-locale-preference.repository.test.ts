@@ -1,3 +1,4 @@
+import { testEmailAddress } from "@deskohub/test-email";
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, test } from "bun:test";
@@ -119,7 +120,7 @@ const makeTestLayers = (options: {
 
 const makeSession = (accountId: CustomerAccountId): CustomerAccountSession => ({
   accountId,
-  email: `pref-${accountId}@deskohub.test`,
+  email: testEmailAddress(`pref-${accountId}`),
   deletionRequested: false,
 });
 

@@ -1,3 +1,4 @@
+import { testEmailAddress } from "@deskohub/test-email";
 import { Effect, Schema } from "effect";
 import { checkoutSessionIdSchema } from "@/features/checkout/checkout-identifiers";
 import { buildCoworkReservationQuote } from "@/features/checkout/reservation-quote-cowork";
@@ -28,7 +29,7 @@ export const sealSyntheticCoworkPayState = ({
         date: "2099-06-20",
         coffee: false,
         name: "Ada Lovelace",
-        email: "ada@example.test",
+        email: testEmailAddress("ada"),
         phone: "+420777000111",
       });
       const quote = yield* buildCoworkReservationQuote({

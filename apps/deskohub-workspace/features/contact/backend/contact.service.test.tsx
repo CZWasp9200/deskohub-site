@@ -2,9 +2,9 @@ import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, mock, test } from "bun:test";
 import {
+  type EmailConfig,
   EmailDeliveryIdSchema,
   type EmailMessage,
-  type EmailProviderConfig,
   type EmailSendResult,
 } from "@deskohub/email";
 import type { EmailService } from "@deskohub/email/backend/service";
@@ -12,8 +12,10 @@ import {
   EmailConfigTag,
   EmailServiceTag,
 } from "@deskohub/email/backend/service";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Effect, Layer } from "effect";
 import { m } from "@/features/i18n";
+import { workspaceDefaultFromAddress } from "@/shared/backend/config/email.config";
 import { ContactService } from "./contact.service";
 
 const sentResult = (id: string): EmailSendResult => ({
@@ -36,10 +38,9 @@ describe("ContactService", () => {
       sendTemplate: mock(() => Effect.die("sendTemplate is not used")),
       verify: Effect.succeed(true),
     };
-    const emailConfig: EmailProviderConfig = {
-      provider: "console",
+    const emailConfig: EmailConfig = {
       defaultFrom: {
-        email: "reservations@workspace.deskohub.cz",
+        email: workspaceDefaultFromAddress,
         name: "Deskohub Workspace",
       },
     };
@@ -58,7 +59,7 @@ describe("ContactService", () => {
       return yield* service.submit(
         {
           name: "Ada Lovelace",
-          email: "ada@example.com",
+          email: testEmailAddress("ada"),
           phone: "+420 123 456 789",
           message: "Please help with a workspace reservation.",
         },
@@ -74,6 +75,10 @@ describe("ContactService", () => {
       throw new Error("Contact emails were not sent.");
     }
 
+    expect(businessEmail.to).toEqual({
+      email: testEmailAddress("workspace-internal"),
+      name: "Deskohub Workspace",
+    });
     expect(businessEmail.subject).toBe(
       `[TESTING] ${m.contactEmailBusinessSubject(
         { name: "Ada Lovelace" },

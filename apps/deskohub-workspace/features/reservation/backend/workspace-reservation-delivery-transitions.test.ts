@@ -209,6 +209,30 @@ describe.skipIf(!postgresDatabase)(
       expect(stored?.activeCustomerEmailDeliveryLocale).toBeNull();
     });
 
+    test("clears the retained email locale when fulfillment records the accepted delivery", async () => {
+      const id = await Effect.runPromise(
+        insertPaidReservationFixture({
+          fulfillmentState: "processing",
+          activeCustomerEmailDeliveryLocale: "cs-CZ",
+        })
+      );
+      const customerEmailDeliveryId = newEmailDeliveryId();
+
+      await Effect.runPromise(
+        reservations.markFulfilled({
+          id,
+          fulfilledAt: deliveryEventAt(1),
+          customerEmailDeliveryId,
+        })
+      );
+
+      const stored = await Effect.runPromise(reservations.findById(id));
+      expect(stored?.activeCustomerEmailDeliveryId).toEqual(
+        customerEmailDeliveryId
+      );
+      expect(stored?.activeCustomerEmailDeliveryLocale).toBeNull();
+    });
+
     test("returns the authoritative retained locale to a losing retain writer", async () => {
       const id = await Effect.runPromise(
         insertPaidReservationFixture({ fulfillmentState: "processing" })

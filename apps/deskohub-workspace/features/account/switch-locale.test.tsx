@@ -1,4 +1,5 @@
 import { afterAll, afterEach, beforeAll, expect, mock, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import type { LocalePreferenceSaving } from "@/features/account/switch-locale";
 import type { Locale } from "@/features/i18n";
@@ -64,7 +65,7 @@ test("the header switcher and the profile language control switch through the sa
           title: "Member profile and settings",
           verifiedEmail: "Verified login email",
         }}
-        email="ada@example.test"
+        email={testEmailAddress("ada")}
         firstName="Ada"
         lastName={null}
         locale="en-US"

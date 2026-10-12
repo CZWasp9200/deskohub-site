@@ -16,6 +16,7 @@ import {
   reservationOrderSchema,
 } from "@/features/reservation/reservation-order";
 import "@/shared/polyfills/temporal";
+import { testEmailAddress } from "@deskohub/test-email";
 import { buildReservationQuote } from "./reservation-quote";
 
 const buildQuote = (...args: Parameters<typeof buildReservationQuote>) =>
@@ -25,7 +26,7 @@ const decodeReservation = Schema.decodeUnknownSync(reservationOrderSchema);
 const discountId = Schema.decodeUnknownSync(discountIdSchema);
 const defaultCustomer = {
   name: "Ada Lovelace",
-  email: "ada@example.com",
+  email: testEmailAddress("ada"),
   phone: "+420777777777",
 } as const;
 
@@ -242,7 +243,7 @@ describe("reservation quotes", () => {
         { entryTier: "reserved-desk", coffee: true },
         {
           name: "Grace Hopper",
-          email: "grace@example.com",
+          email: testEmailAddress("grace"),
           phone: "+420606111111",
         }
       )

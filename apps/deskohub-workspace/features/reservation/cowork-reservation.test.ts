@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Result, Schema } from "effect";
 import "@/shared/polyfills/temporal";
 import {
@@ -58,7 +59,7 @@ describe("cowork reservation schema", () => {
       coffee: false,
       monitorOption: undefined,
       name: "Ada Lovelace",
-      email: "ada@example.com",
+      email: testEmailAddress("ada"),
       phone: "+420777777777",
       marketingConsent: false,
     });
@@ -94,7 +95,7 @@ describe("cowork reservation schema", () => {
       date: "2099-06-10",
       coffee: false,
       name: "Ada Lovelace",
-      email: "ada@example.com",
+      email: testEmailAddress("ada"),
       phone: "+420777777777",
     });
 
@@ -115,7 +116,7 @@ describe("cowork reservation schema", () => {
       coffee: false,
       monitorOption: "2x27-qhd",
       name: "Ada Lovelace",
-      email: "ada@example.com",
+      email: testEmailAddress("ada"),
       phone: "+420777777777",
       marketingConsent: false,
     });
@@ -137,7 +138,7 @@ describe("cowork reservation schema", () => {
             coffee: true,
             monitorOption: entryTier === "profi" ? "2x27-4k" : undefined,
             name: "Ada Lovelace",
-            email: "ada@example.com",
+            email: testEmailAddress("ada"),
             phone: "+420777777777",
           })
         )
@@ -155,7 +156,7 @@ describe("cowork reservation schema", () => {
             coffee: true,
             monitorOption: entryTier === "profi" ? "2x27-4k" : undefined,
             name: "Ada Lovelace",
-            email: "ada@example.com",
+            email: testEmailAddress("ada"),
             phone: "+420777777777",
             marketingConsent: false,
           })
@@ -249,7 +250,7 @@ describe("retired reservation customer message", () => {
       coffee: false,
       monitorOption: undefined,
       name: "Ada Lovelace",
-      email: "ada@example.com",
+      email: testEmailAddress("ada"),
       phone: "+420777777777",
       marketingConsent: false,
     });
@@ -270,7 +271,7 @@ describe("retired reservation customer message", () => {
       date: "2099-06-10",
       coffee: false,
       name: "Ada Lovelace",
-      email: "ada@example.com",
+      email: testEmailAddress("ada"),
       phone: "+420777777777",
       message: "Legacy setup note.",
     });

@@ -5,10 +5,26 @@ import { createHmac } from "node:crypto";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 import { EmailDeliveryIdSchema } from "@deskohub/email";
-import { env } from "@/env";
+import {
+  createWorkspaceEnv,
+  env,
+  getAccountingDocumentSnapshotSecret,
+} from "@/env";
 import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
-import { POST } from "./route";
+
+// Resend webhooks verify through a Resend client, which needs an API key the
+// test environment deliberately omits; stub one before the route reads env.
+mock.module("@/env", () => ({
+  createWorkspaceEnv,
+  env: new Proxy(env, {
+    get: (target, key) =>
+      key === "EMAIL_API_KEY" ? "re_test" : Reflect.get(target, key),
+  }),
+  getAccountingDocumentSnapshotSecret,
+}));
+
+const { POST } = await import("./route");
 
 const realResendModule = await import(
   pathToFileURL(createRequire(import.meta.url).resolve("resend")).href

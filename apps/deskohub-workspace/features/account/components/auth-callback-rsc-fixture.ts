@@ -1,5 +1,6 @@
 /// <reference path="./auth-callback-rsc-fixture.d.ts" />
 
+import { testEmailAddress } from "@deskohub/test-email";
 import "@/shared/testing/workspace-test-env";
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
@@ -172,7 +173,7 @@ const configurePendingSession = (nextLocale: Locale) => {
 const activeSession = {
   accountId: "auth-account-callback" as CustomerAccountId,
   deletionRequested: false,
-  email: "ada@example.test",
+  email: testEmailAddress("ada"),
 } satisfies CustomerSession;
 
 const FixtureShell = ({ children }: { readonly children: React.ReactNode }) =>

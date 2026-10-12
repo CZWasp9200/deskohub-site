@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Effect, Logger } from "effect";
 import type { CustomerAccountAccessError } from "../customer-account";
 import {
@@ -7,6 +8,8 @@ import {
   decodeCustomerAccountSession,
   makeAuthoritySessionRead,
 } from "./customer-authentication.service";
+
+const customerEmail = testEmailAddress("ada");
 
 type TestUserFields = {
   readonly id?: string;
@@ -29,7 +32,7 @@ const sessionFor = (user: TestUserFields) => ({
   user: {
     id: "auth-user-1",
     name: "",
-    email: "ada@example.test",
+    email: customerEmail,
     emailVerified: true,
     image: null,
     createdAt: new Date(),
@@ -56,7 +59,7 @@ describe("CustomerAuthentication session adapter", () => {
       const session = outcome.success;
       expect(session).not.toBeNull();
       expect(session!.accountId).toBe("auth-user-1");
-      expect(session!.email).toBe("ada@example.test");
+      expect(session!.email).toBe(customerEmail);
       expect(session!.deletionRequested).toBe(false);
     }
   });
@@ -651,7 +654,7 @@ describe("CustomerAuthentication authority-read phase diagnostics", () => {
                 user: {
                   id: "auth-user-1",
                   name: "",
-                  email: "ada@example.test",
+                  email: customerEmail,
                   emailVerified: true,
                   image: null,
                   createdAt: new Date(),
