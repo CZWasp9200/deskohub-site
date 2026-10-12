@@ -250,6 +250,43 @@ describe("ReservationHoldCleanupScheduleService", () => {
     }
   });
 
+  test("cancels a due hold whose deadline came from the nanosecond clock", async () => {
+    const { getReservationHoldCleanupScheduleMessage } = await import(
+      "./reservation-hold-cleanup-queue.service"
+    );
+    const { toStoredInstant } = await import("@/db/instant");
+    // Temporal.Now has nanoseconds; the reservation row keeps microseconds.
+    const clockExpiresAt = Temporal.Instant.from(
+      "2026-06-01T10:10:00.123456789Z"
+    );
+    const storedReservation = makeReservation({
+      reservationHoldExpiresAt: toStoredInstant(clockExpiresAt),
+    });
+    const message = getReservationHoldCleanupScheduleMessage(
+      { orderId: "order-id", reservationHoldExpiresAt: clockExpiresAt },
+      now
+    );
+    expect(message.payload.reservationHoldExpiresAtIso).toBe(
+      "2026-06-01T10:10:00.123456Z"
+    );
+
+    for (const payload of [
+      message.payload,
+      // Messages enqueued before the payload was stored-precision.
+      { ...duePayload, reservationHoldExpiresAtIso: clockExpiresAt.toString() },
+    ]) {
+      const cancelOrderHold = mock(() => Effect.succeed("cancelled" as const));
+      const result = await runProcessMessage(payload, {
+        cancelOrderHold,
+        findById: mock(() => Effect.succeed(storedReservation)),
+        now: dueNow.add({ seconds: 1 }),
+      });
+
+      expect(result.result).toBe("cancelled");
+      expect(cancelOrderHold).toHaveBeenCalledTimes(1);
+    }
+  });
+
   test("acks skipped cleanup while the reservation is still due", async () => {
     const cancelOrderHold = mock(() => Effect.succeed("skipped" as const));
     const findById = mock(() => Effect.succeed(makeReservation()));
