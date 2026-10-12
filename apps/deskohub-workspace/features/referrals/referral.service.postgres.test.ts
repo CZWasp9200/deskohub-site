@@ -150,13 +150,15 @@ const insertLinkedAccount = async (dotyposCustomerId: DotyposCustomerId) => {
 };
 
 /**
- * Seeds one synthetic booking for a customer with a single payment attempt
- * and the given discount applications, applied in sequence.
+ * Seeds one synthetic booking for a customer with a single 1,000.00 payment
+ * attempt and the given discount applications, applied in sequence.
  */
 const insertDiscountedBooking = async (input: {
   readonly dotyposCustomerId: DotyposCustomerId;
-  readonly attempt: "paid" | "expired" | "refunded";
-  readonly currency?: "CZK" | "EUR";
+  readonly attempt: "paid" | "expired" | "refunded" | "refund_required";
+  /** Refunded minor units when the attempt is refunded; the full payment by default. */
+  readonly refundedAmountValue?: number;
+  readonly currency?: "CZK" | "EUR" | "USD";
   readonly applications: readonly {
     readonly publicDiscountId: string;
     readonly amountValue: number;
@@ -187,8 +189,12 @@ const insertDiscountedBooking = async (input: {
       `order-${uniqueId()}`,
       paid ? "paid" : "expired",
       paid ? null : "payment_abandoned_after_provider_cutoff",
-      input.attempt === "refunded" ? "refunded" : "not_required",
-      input.attempt === "refunded" ? 100000 : null,
+      { refunded: "refunded", refund_required: "required" }[
+        input.attempt as "refunded" | "refund_required"
+      ] ?? "not_required",
+      input.attempt === "refunded"
+        ? (input.refundedAmountValue ?? 100000)
+        : null,
       input.attempt === "refunded" ? new Date().toISOString() : null,
       input.currency ?? "CZK",
     ]
@@ -886,11 +892,29 @@ describe.skipIf(!testDatabase)("ReferralService on disposable Postgres", () => {
         { publicDiscountId: referrerDiscountId, amountValue: 9900 },
       ],
     });
+    // A quarter of this payment was refunded, so a quarter of its referral
+    // discount no longer counts as saved.
     await insertDiscountedBooking({
       dotyposCustomerId: referrerCustomerId,
       attempt: "refunded",
+      refundedAmountValue: 25000,
       applications: [
         { publicDiscountId: referrerDiscountId, amountValue: 4000 },
+      ],
+    });
+    await insertDiscountedBooking({
+      dotyposCustomerId: referrerCustomerId,
+      attempt: "refunded",
+      currency: "USD",
+      applications: [
+        { publicDiscountId: referrerDiscountId, amountValue: 500 },
+      ],
+    });
+    await insertDiscountedBooking({
+      dotyposCustomerId: referrerCustomerId,
+      attempt: "refund_required",
+      applications: [
+        { publicDiscountId: referrerDiscountId, amountValue: 700 },
       ],
     });
     await insertDiscountedBooking({
@@ -929,7 +953,7 @@ describe.skipIf(!testDatabase)("ReferralService on disposable Postgres", () => {
         eligibleInviteeCount: 1,
         discount: "5",
         savings: [
-          { value: 9234, exponent: 2, currency: "CZK" },
+          { value: 12234, exponent: 2, currency: "CZK" },
           { value: 200, exponent: 2, currency: "EUR" },
         ],
       });

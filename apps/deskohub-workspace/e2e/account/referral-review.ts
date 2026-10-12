@@ -123,10 +123,12 @@ export const verifyReferralScreenIgnoresShareLink = async ({
   const href = await screen
     .locator(referralLinkSelector)
     .getAttribute("href", { timeout: workspaceE2ETimeouts.browserAction });
-  const link = href ? new URL(href, baseUrl) : undefined;
+  // Share links are absolute and carry no locale, so the recipient's
+  // language decides which localized page opens.
+  const link = href && URL.canParse(href) ? new URL(href) : undefined;
   if (
     link?.origin !== new URL(baseUrl).origin ||
-    link.pathname !== `/${locale}/account` ||
+    link.pathname !== "/account" ||
     link.searchParams.getAll("ref").join() !== code
   ) {
     throw failure("referrals screen does not share the customer's own code");

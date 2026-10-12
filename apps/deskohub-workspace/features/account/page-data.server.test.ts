@@ -218,6 +218,15 @@ const ReferralsLayer = Layer.succeed(Referrals, {
 });
 Object.assign(Referrals, { Live: ReferralsLayer });
 mock.module("@/features/referrals", () => ({ ReferralService: Referrals }));
+mock.module("@/shared/backend/config/workspace-url.config", () => ({
+  getWorkspaceRuntimeCallbackOrigin: Effect.succeed(
+    new URL("https://workspace.example")
+  ),
+}));
+const accountReferrals = {
+  summary: referralSummary,
+  shareUrl: "https://workspace.example/account?ref=RFL12345",
+};
 
 const areAccountAvatarsEnabled = mock(() => Promise.resolve(true));
 mock.module("@/features/account/server/account-feature-flag.server", () => ({
@@ -404,7 +413,7 @@ describe("loadCustomerAccountPage", () => {
       profile: { firstName: "Ada" },
       avatar: { kind: "available", avatar: null },
       history: { kind: "available" },
-      referrals: referralSummary,
+      referrals: accountReferrals,
     });
     expect(referralSummaryCalls).toEqual([
       { customerAccountId: accountId, dotyposCustomerId: "60111" },
@@ -425,7 +434,7 @@ describe("loadCustomerAccountPage", () => {
       },
       avatar: { kind: "available", avatar: null },
       history: { kind: "unavailable", reason: "provider-unavailable" },
-      referrals: referralSummary,
+      referrals: accountReferrals,
     });
   });
 
@@ -509,7 +518,7 @@ describe("loadCustomerAccountPage", () => {
         kind: "available",
         groups: { current: [], past: [], unavailable: [] },
       },
-      referrals: referralSummary,
+      referrals: accountReferrals,
     });
     expect(avatarLookupCalls).toBe(0);
     expect(profileLoadCalls).toBe(1);

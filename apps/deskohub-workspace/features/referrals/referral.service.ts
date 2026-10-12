@@ -1,5 +1,5 @@
 import { type DotyposCustomerId, DotyposService } from "@deskohub/dotypos";
-import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, isNull, sql } from "drizzle-orm";
 import { Context, Effect, Layer, Schema } from "effect";
 import {
   WorkspaceDatabase,
@@ -58,6 +58,7 @@ import {
   hasPriorConfirmedDotyposBooking,
   type ReferralHistoryEvidence,
 } from "./eligibility";
+import { referralInvitationDiscountBasisPoints } from "./program";
 import {
   calculateReferrerDiscountAmount,
   formatReferrerDiscountPercentage,
@@ -338,16 +339,26 @@ export class ReferralService extends Context.Service<
 
       /**
        * Sums both referral benefits (the first-booking invitation and the
-       * referrer discount) on the customer's own bookings whose payment
-       * succeeded and was not refunded or marked for refund.
+       * referrer discount) on the customer's own successfully paid bookings.
+       * A refunded payment keeps only the unrefunded share of each discount,
+       * rounded to the minor unit; a payment marked for refund keeps none.
        */
       const findSavings = Effect.fn("ReferralService.findSavings")(
-        (dotyposCustomerId: DotyposCustomerId) =>
-          db
+        (dotyposCustomerId: DotyposCustomerId) => {
+          const saved = sql<number>`coalesce(sum(case
+            when ${paymentAttempts.refundState} = 'refunded'
+              then round(
+                ${discountApplications.appliedAmountValue}::numeric
+                  * greatest(${paymentAttempts.amountValue} - ${paymentAttempts.refundedAmountValue}, 0)
+                  / ${paymentAttempts.amountValue}
+              )
+            else ${discountApplications.appliedAmountValue}
+          end), 0)::integer`;
+          return db
             .select({
               currency: discountApplications.appliedAmountCurrency,
               exponent: discountApplications.appliedAmountExponent,
-              value: sql<number>`coalesce(sum(${discountApplications.appliedAmountValue}), 0)::integer`,
+              value: saved,
             })
             .from(discountApplications)
             .innerJoin(
@@ -369,14 +380,19 @@ export class ReferralService extends Context.Service<
                   getReferralReferrerDiscountId(dotyposCustomerId),
                 ]),
                 eq(paymentAttempts.state, "paid"),
-                eq(paymentAttempts.refundState, "not_required")
+                inArray(paymentAttempts.refundState, [
+                  "not_required",
+                  "refunded",
+                ])
               )
             )
             .groupBy(
               discountApplications.appliedAmountCurrency,
               discountApplications.appliedAmountExponent
             )
-            .orderBy(asc(discountApplications.appliedAmountCurrency))
+            .having(gt(saved, 0))
+            .orderBy(asc(discountApplications.appliedAmountCurrency));
+        }
       );
 
       const resolveInvitationCandidate = Effect.fn(
@@ -444,7 +460,7 @@ export class ReferralService extends Context.Service<
                         ),
                         adjustment: {
                           kind: "percentage" as const,
-                          basisPoints: 1_500,
+                          basisPoints: referralInvitationDiscountBasisPoints,
                         },
                       },
                       provenance: {

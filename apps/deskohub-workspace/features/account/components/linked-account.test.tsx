@@ -368,6 +368,51 @@ describe("LinkedAccount", () => {
     ).toBeNull();
   });
 
+  test("publishes the rounded-up referral discount as a navigation badge, hidden at 0%", async () => {
+    const { LinkedAccount } = await import("./linked-account");
+    const { parseReferralCode } = await import("@/features/referrals/client");
+    const code = parseReferralCode("RFL12345");
+    if (code === undefined) throw new Error("Invalid referral test code");
+    const referralsWith = (discount: string) => ({
+      summary: {
+        code,
+        inviteeCount: 5,
+        eligibleInviteeCount: discount === "0" ? 0 : 3,
+        discount,
+        savings: [],
+      },
+      shareUrl: "https://workspace.example/account?ref=RFL12345",
+    });
+    const renderLinked = (discount: string) =>
+      withAccountLayout(
+        <LinkedAccount
+          avatarPresentation={hiddenAvatarPresentation}
+          email="ada@example.test"
+          history={history}
+          locale="en-US"
+          profile={profile}
+          referrals={referralsWith(discount)}
+        />
+      );
+    const referralBadge = () =>
+      getDesktopSectionNavigation(view)
+        .getByRole("button", {
+          name: new RegExp(`^${m.accountSectionReferrals({}, { locale })}`),
+        })
+        .querySelector("span.ml-auto");
+    const view = render(renderLinked("14.2625"));
+
+    expect(referralBadge()?.textContent).toBe("-15%15% referral discount");
+
+    view.rerender(renderLinked("0"));
+    expect(referralBadge()).toBeNull();
+
+    view.rerender(renderLinked("5"));
+    expect(referralBadge()?.textContent).toBe("-5%5% referral discount");
+    view.rerender(withAccountLayout(<p>Legal content</p>));
+    expect(referralBadge()).toBeNull();
+  });
+
   test("mounts legal only for the active section, including the legacy query", async () => {
     const { LinkedAccount } = await import("./linked-account");
 
