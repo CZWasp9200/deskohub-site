@@ -3,6 +3,7 @@ import "@/shared/testing/workspace-test-env";
 import { describe, expect, test } from "bun:test";
 import { Schema } from "effect";
 import { discountIdSchema } from "@/features/discounts/contracts";
+import { workspaceSiteConstants } from "@/shared/utils";
 import type { InvoiceDocument } from "./invoice";
 import {
   makeCoworkInvoiceDocument,
@@ -139,7 +140,7 @@ describe("invoice presentation", () => {
         "Česko",
         "IČO: 24531596",
         "Obchodní rejstřík: C 442830, Městský soud v Praze",
-        "workspace@deskohub.cz",
+        workspaceSiteConstants.contact.infoEmail,
       ],
     });
     expect(presentation.buyer).toEqual({

@@ -385,11 +385,21 @@ describe.skipIf(!testDatabase)(
           fulfillmentFailureCode: "provider_unavailable",
         });
 
+        const customerEmailDeliveryId =
+          EmailDeliveryIdSchema.make("accepted-delivery");
         await run((repository) =>
-          repository.markFulfilled({ id: processing, fulfilledAt: at(2) })
+          repository.markFulfilled({
+            id: processing,
+            fulfilledAt: at(2),
+            customerEmailDeliveryId,
+          })
         );
         const error = await runFailure((repository) =>
-          repository.markFulfilled({ id: failed, fulfilledAt: at(2) })
+          repository.markFulfilled({
+            id: failed,
+            fulfilledAt: at(2),
+            customerEmailDeliveryId,
+          })
         );
 
         expect(await readReservation(processing)).toMatchObject({
@@ -401,6 +411,45 @@ describe.skipIf(!testDatabase)(
           fulfillmentState: "failed",
           fulfillmentFailureCode: "provider_unavailable",
         });
+      });
+
+      test("replaces a superseded delivery so its stale webhook finds nothing", async () => {
+        const superseded = EmailDeliveryIdSchema.make(
+          `superseded-${crypto.randomUUID()}`
+        );
+        const recovered = EmailDeliveryIdSchema.make(
+          `console-recovered-${crypto.randomUUID()}`
+        );
+        const id = await insertReservation({
+          ...paid,
+          fulfillmentState: "processing",
+          activeCustomerEmailDeliveryId: superseded,
+        });
+
+        await run((repository) =>
+          repository.markFulfilled({
+            id,
+            fulfilledAt: at(2),
+            customerEmailDeliveryId: recovered,
+          })
+        );
+
+        expect(await readReservation(id)).toMatchObject({
+          fulfillmentState: "fulfilled",
+          activeCustomerEmailDeliveryId: recovered,
+        });
+        expect(
+          await run((repository) =>
+            repository.findByActiveCustomerEmailDeliveryId(superseded)
+          )
+        ).toBeNull();
+        expect(
+          (
+            await run((repository) =>
+              repository.findByActiveCustomerEmailDeliveryId(recovered)
+            )
+          )?.id
+        ).toBe(id);
       });
     });
 

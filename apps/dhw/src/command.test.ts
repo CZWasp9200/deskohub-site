@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import {
   AdministrationActorUsername,
   AdministrationDiscountCodeId,
@@ -32,6 +33,8 @@ import {
   formatStandaloneAccessCodeOutcome,
 } from "./command";
 import { DhwConfig } from "./config/dhw-config.service";
+
+const syntheticEmail = testEmailAddress("synthetic");
 
 const accessToken = Schema.decodeUnknownSync(CliAccessToken)("a".repeat(43));
 const sessionId = Schema.decodeUnknownSync(CliSessionId)(
@@ -143,7 +146,7 @@ describe("dhw mutation commands", () => {
           kind: "new",
           details: {
             kind: "person",
-            email: "synthetic@example.test",
+            email: syntheticEmail,
             firstName: "Synthetic",
             lastName: "Customer",
             address: {

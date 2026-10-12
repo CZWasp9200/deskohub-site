@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import * as fsPromises from "node:fs/promises";
 import { resolve } from "node:path";
+import { testEmailAddress } from "@deskohub/test-email";
 import type * as Playwright from "@playwright/test";
 import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
 import { reservationStatusPath } from "@/features/reservation/routes";
@@ -593,7 +594,7 @@ describe("account review screenshot capture", () => {
       {
         name: `${target} with a prefilled contact query`,
         target,
-        url: `${baseUrl}/en-US/reservation/cowork?email=synthetic%40example.test`,
+        url: `${baseUrl}/en-US/reservation/cowork?email=${encodeURIComponent(testEmailAddress("synthetic"))}`,
       },
       {
         name: `${target} with a token query`,

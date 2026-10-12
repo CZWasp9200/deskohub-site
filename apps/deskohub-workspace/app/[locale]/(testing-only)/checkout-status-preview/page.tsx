@@ -1,3 +1,4 @@
+import { testEmailAddress } from "@deskohub/test-email";
 import { Option, Schema } from "effect";
 import { connection } from "next/server";
 import type { CheckoutStatusViewModel } from "@/features/checkout/backend/checkout";
@@ -63,7 +64,7 @@ export default async function CheckoutStatusPreviewPage({
     )[previewState],
     supportContactPrefill: {
       name: "Ada Lovelace",
-      ...(email !== "hidden" && { email: "ada@example.test" }),
+      ...(email !== "hidden" && { email: testEmailAddress("ada") }),
     },
     summary: {
       kind: "cowork",

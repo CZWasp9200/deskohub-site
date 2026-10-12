@@ -1,9 +1,13 @@
+import { testEmailAddress } from "@deskohub/test-email";
 import "@/shared/testing/workspace-test-env";
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { AresLookupFailure } from "@deskohub/ares";
 import { Context, Effect, Layer } from "effect";
 import { CustomerAccountAccessError } from "./customer-account";
+
+const customerEmail = testEmailAddress("ada");
+const sneakyEmail = testEmailAddress("sneaky");
 
 const revalidatePath = mock((_path: string) => undefined);
 mock.module("next/cache", () => ({ revalidatePath }));
@@ -178,7 +182,7 @@ const syntheticAresCompany = {
 
 const activeSession = {
   accountId: "@test/account-id" as const,
-  email: "ada@example.test",
+  email: customerEmail,
   deletionRequested: false,
 };
 
@@ -213,7 +217,7 @@ describe("account actions", () => {
     expect(profileCalls.map(({ op }) => op)).toEqual(["create"]);
     expect(profileCalls[0]!.args).toEqual([
       "@test/account-id",
-      "ada@example.test",
+      customerEmail,
       { firstName: "Ada" },
     ]);
     expect(revalidatePath).not.toHaveBeenCalled();
@@ -234,12 +238,12 @@ describe("account actions", () => {
 
     const result = await updateCustomerProfile({
       firstName: "Ada",
-      email: "sneaky@example.test",
+      email: sneakyEmail,
     } as never);
 
     expect(result.validationErrors).toBeTruthy();
     expect(profileCalls).toHaveLength(0);
-    expect(JSON.stringify(profileCalls)).not.toContain("sneaky@example.test");
+    expect(JSON.stringify(profileCalls)).not.toContain(sneakyEmail);
   });
 
   test("returns the localized profile error when the resolver blocks the edit", async () => {

@@ -8,6 +8,8 @@
   },
   "exports": {
     ".": "./index.ts",
+    "./backend/email-config": "./backend/email-config.ts",
+    "./backend/email-routing": "./backend/email-routing.ts",
     "./backend/escaping": "./backend/escaping.ts",
     "./backend/network-error": "./backend/network-error.ts",
     "./backend/provider-factory": "./backend/provider-factory.ts",
@@ -17,9 +19,11 @@
     "./backend/recipient-domain.service.mock": "./backend/recipient-domain.service.mock.ts",
     "./backend/service": "./backend/service.ts",
     "./backend/standalone-email-service": "./backend/standalone-email-service.ts",
+    "./backend/test-recipients": "./backend/test-recipients.ts",
     "./types/email.types": "./types/email.types.ts"
   },
   "dependencies": {
+    "@deskohub/test-email": "workspace:*",
     "effect": "4.0.0-beta.85",
     "resend": "^6.32.1"
   }

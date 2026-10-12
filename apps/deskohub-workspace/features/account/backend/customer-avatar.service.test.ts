@@ -1,3 +1,4 @@
+import { testEmailAddress } from "@deskohub/test-email";
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, mock, test } from "bun:test";
@@ -71,7 +72,7 @@ let currentSession: CustomerAccountSession | null = null;
 const makeSession = (account: string): CustomerAccountSession => ({
   accountId: customerAccountIdSchema.make(account),
   email: Schema.decodeSync(reservationCustomerEmailSchema)(
-    "avatar@example.test"
+    testEmailAddress("avatar")
   ),
   deletionRequested: false,
 });

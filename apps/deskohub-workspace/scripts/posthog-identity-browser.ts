@@ -1,13 +1,7 @@
-import {
-  access,
-  mkdir,
-  readdir,
-  readFile,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { basename, isAbsolute, join, resolve } from "node:path";
 import { brotliDecompressSync, gunzipSync, inflateSync } from "node:zlib";
+import { testEmailAddress } from "@deskohub/test-email";
 import {
   type Browser,
   type BrowserContext,
@@ -15,6 +9,13 @@ import {
   type Page,
 } from "@playwright/test";
 import { Schema } from "effect";
+import { buildPosthogIdentityFixtureBundle } from "./posthog-identity-fixture-bundle";
+import {
+  capturedOnlyByPinnedSdk,
+  expectedPosthogSdkVersion,
+} from "./posthog-sdk-version";
+
+const syntheticEmail = testEmailAddress("posthog.identity.synthetic");
 
 const port = 3211;
 const fixtureBaseUrl = `http://127.0.0.1:${port}`;
@@ -24,10 +25,6 @@ const appRoot = resolve(import.meta.dir, "..");
 const repositoryRoot = resolve(appRoot, "../..");
 const artifactRoot = join(repositoryRoot, ".artifacts/posthog-identity");
 const bundleRoot = join(artifactRoot, "bundle");
-const fixturePath = join(
-  appRoot,
-  "shared/testing/posthog-identity-browser-fixture.tsx"
-);
 const posthogPackagePath = join(
   appRoot,
   "node_modules/posthog-js/package.json"
@@ -63,8 +60,6 @@ const legacyInitialRawQueryToken = "posthog-identity-legacy-raw-query-token";
 const legacyInitialReferrerToken = "posthog-identity-legacy-referrer-token";
 const legacyInitialUtmToken = "posthog-identity-legacy-utm-token";
 const syntheticPinCanary = "583104729";
-const posthogProjectToken = "phc_posthog_identity_browser_fixture";
-const posthogSdkVersion = "1.418.1";
 const localCorsHeaders = {
   "Access-Control-Allow-Headers":
     "Authorization, Content-Type, X-PostHog-Session-Id",
@@ -76,7 +71,7 @@ const localCorsHeaders = {
 const sensitivePayloadMarkers = [
   {
     code: "synthetic-email",
-    value: "posthog.identity.synthetic@example.test",
+    value: syntheticEmail,
   },
   { code: "synthetic-name", value: "PostHog Identity Synthetic Name" },
   { code: "synthetic-billing", value: "Synthetic Billing Street, Test City" },
@@ -491,7 +486,10 @@ class LocalPostHogServer {
   async start() {
     const packageJson = parseJson(await readFile(posthogPackagePath, "utf8"));
     check(isJsonObject(packageJson), "posthog-sdk-package-json");
-    check(packageJson.version === posthogSdkVersion, "posthog-sdk-version");
+    check(
+      packageJson.version === expectedPosthogSdkVersion,
+      "posthog-sdk-version"
+    );
 
     for (const entry of await readdir(posthogDistPath, {
       withFileTypes: true,
@@ -715,7 +713,7 @@ class LocalPostHogServer {
         userId,
       },
       user: {
-        email: "posthog.identity.synthetic@example.test",
+        email: syntheticEmail,
         emailVerified: true,
         id: userId,
         name: "PostHog Identity Synthetic Name",
@@ -3043,89 +3041,16 @@ const runConsentWithdrawalScenario = async (
   assertBrowserProblems(fixture);
 };
 
-const createBuildPlugin = (posthogHost: string): Bun.BunPlugin => ({
-  name: "posthog-identity-browser-build",
-  setup(build) {
-    const envNamespace = "posthog-identity-fixture-env";
-    const navigationNamespace = "posthog-identity-fixture-navigation";
-    const sourceExtensions = ["", ".ts", ".tsx", ".js", ".jsx", ".mjs"];
-
-    const fileExists = async (path: string) => {
-      try {
-        await access(path);
-        return true;
-      } catch {
-        return false;
-      }
-    };
-
-    const resolveAppModule = async (specifier: string) => {
-      const candidate = join(appRoot, specifier);
-      for (const extension of sourceExtensions) {
-        const path = `${candidate}${extension}`;
-        if (await fileExists(path)) return path;
-      }
-      for (const extension of sourceExtensions.slice(1)) {
-        const path = join(candidate, `index${extension}`);
-        if (await fileExists(path)) return path;
-      }
-      throw new Error(`missing app module: ${specifier}`);
-    };
-
-    build.onResolve({ filter: /^@\/env$/ }, () => ({
-      namespace: envNamespace,
-      path: "env",
-    }));
-    build.onLoad({ filter: /^env$/, namespace: envNamespace }, () => ({
-      contents: `export const env = { NEXT_PUBLIC_POSTHOG_HOST: ${JSON.stringify(
-        posthogHost
-      )}, NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN: ${JSON.stringify(
-        posthogProjectToken
-      )} } as const;`,
-      loader: "ts",
-    }));
-
-    build.onResolve({ filter: /^@\// }, async (args) => ({
-      path: await resolveAppModule(args.path.slice(2)),
-    }));
-
-    build.onResolve({ filter: /^next\/navigation$/ }, () => ({
-      namespace: navigationNamespace,
-      path: "navigation",
-    }));
-    build.onLoad(
-      { filter: /^navigation$/, namespace: navigationNamespace },
-      () => ({
-        contents: `
-          export const usePathname = () => globalThis.location.pathname;
-          export const useSearchParams = () => new URLSearchParams(globalThis.location.search);
-          export const useParams = () => ({});
-          export const useRouter = () => ({ push() {}, replace() {}, refresh() {}, back() {} });
-          export const redirect = () => {};
-          export const notFound = () => {};
-        `,
-        loader: "js",
-      })
-    );
-  },
-});
-
 const buildFixtureBundle = async () => {
   await rm(artifactRoot, { force: true, recursive: true });
   await mkdir(bundleRoot, { recursive: true });
   for (const mode of fixtureModes) {
     let result: Awaited<ReturnType<typeof Bun.build>>;
     try {
-      result = await Bun.build({
-        define: { "process.env.NODE_ENV": JSON.stringify("development") },
-        entrypoints: [fixturePath],
-        format: "esm",
-        minify: false,
-        outdir: join(bundleRoot, mode),
-        plugins: [createBuildPlugin(posthogHostByFixtureMode[mode])],
-        sourcemap: "none",
-        target: "browser",
-      });
+      result = await buildPosthogIdentityFixtureBundle(
+        posthogHostByFixtureMode[mode],
+        join(bundleRoot, mode)
+      );
     } catch {
       throw new CheckFailure("fixture-bundle-build");
     }
@@ -3246,7 +3171,7 @@ const browserReport = (
       sensitivePostHogRequestHits
     ),
     replay,
-    sdk: { package: "posthog-js", version: posthogSdkVersion },
+    sdk: { package: "posthog-js", version: expectedPosthogSdkVersion },
     expiryDiagnostics: expiryDiagnosticsReport(server),
     status,
     passedScenarios,
@@ -3260,6 +3185,19 @@ const writeReport = async (report: ReturnType<typeof browserReport>) => {
     join(artifactRoot, "report.json"),
     `${JSON.stringify(report, null, 2)}\n`,
     "utf8"
+  );
+};
+
+/** Every captured event must come from the pinned SDK the report names. */
+const assertCapturedSdkVersion = (server: LocalPostHogServer) => {
+  check(
+    capturedOnlyByPinnedSdk(
+      server
+        .allIngestHistory()
+        .flatMap((record) => record.events)
+        .map((event) => event.properties.$lib_version)
+    ),
+    "posthog-sdk-runtime-version"
   );
 };
 
@@ -3323,6 +3261,7 @@ const main = async () => {
     assertPositiveIngest(server);
     assertPostHogTransportSecurity(server);
     check(server.report().unreadableIngestCount === 0, "ingest-decode");
+    assertCapturedSdkVersion(server);
     check(
       eventNamed(server.allIngestHistory(), "$snapshot").length === 0,
       "snapshot-captured"
@@ -3382,4 +3321,4 @@ const main = async () => {
   }
 };
 
-await main();
+if (import.meta.main) await main();

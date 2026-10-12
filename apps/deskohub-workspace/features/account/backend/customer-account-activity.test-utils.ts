@@ -1,3 +1,4 @@
+import { testEmailAddress } from "@deskohub/test-email";
 import { Effect, Layer } from "effect";
 import { reservationCustomerEmailSchema } from "@/features/reservation/reservation-contact";
 import {
@@ -44,7 +45,7 @@ export const makeOptionalAccountActivityGuard = (
           accountId: customerAccountIdSchema.make(
             "5b6f31d0-2c1a-4f0e-9a3d-6c7b8e2f1a01"
           ),
-          email: reservationCustomerEmailSchema.make("ada@example.test"),
+          email: reservationCustomerEmailSchema.make(testEmailAddress("ada")),
           deletionRequested: fixture.session.deletionRequested ?? false,
         } as const);
   const deletionRequestedAt = new Date("2026-09-01T10:00:00.000Z");

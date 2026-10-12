@@ -1,3 +1,4 @@
+import { testEmailAddress } from "@deskohub/test-email";
 import type { WorkspaceE2EConfig } from "../config";
 import { parseWorkspaceE2EBaseUrl } from "../config";
 import {
@@ -9,9 +10,6 @@ import type { WorkspaceE2ERunId } from "../run-identifiers";
 import { addRedaction } from "../runtime";
 import { workspaceE2ETimeouts } from "../timeouts";
 import type { AccountReviewDestination } from "./review-screenshots";
-
-/** Resend synthetic test recipients ignore local parts; this host stays fixed. */
-const resendSyntheticRecipientHost = "resend.dev";
 
 /** The lane's primary synthetic identity, shared with the failure diagnostic. */
 export const workspaceE2EAccountMainRecipientLabel = "main";
@@ -84,7 +82,7 @@ export const makeWorkspaceE2EAccountRecipientForRunId = (
 ) => {
   const localPart = `${runId}-${label}`;
   assertSyntheticRecipientLabel(localPart);
-  const recipient = `delivered+${localPart}@${resendSyntheticRecipientHost}`;
+  const recipient = testEmailAddress(`delivered+${localPart}`);
   addRedaction(recipient);
   return recipient;
 };

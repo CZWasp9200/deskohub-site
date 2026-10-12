@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Effect, Layer } from "effect";
 import type { EmailProviderConfig } from "../types/email.types";
 import { ConfiguredEmailProviderLayer } from "./provider-factory";
@@ -12,7 +13,7 @@ afterEach(() => {
 
 const config: EmailProviderConfig = {
   provider: "console" as const,
-  defaultFrom: { email: "deskohub@example.test" },
+  defaultFrom: { email: testEmailAddress("deskohub") },
 };
 
 const providerName = (overrides: Partial<EmailProviderConfig> = {}) =>

@@ -53,7 +53,7 @@ const getResendErrorStatusCode = (error: unknown) => {
   return typeof error.statusCode === "number" ? error.statusCode : undefined;
 };
 
-const createResendProvider = (apiKey: string): EmailProvider => {
+export const createResendProvider = (apiKey: string): EmailProvider => {
   const resend = new Resend(apiKey);
 
   return {

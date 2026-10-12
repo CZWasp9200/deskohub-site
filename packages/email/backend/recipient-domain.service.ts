@@ -11,6 +11,7 @@ import {
   Result,
   Schema,
 } from "effect";
+import { isTestEmailRecipient } from "./test-recipients";
 
 /**
  * Whether a recipient address's domain can receive mail. `rejects_mail` is
@@ -67,6 +68,10 @@ export class EmailRecipientDomainService extends Context.Service<
         check: Effect.fn("EmailRecipientDomainService.check")(function* (
           address: string
         ) {
+          // Test recipients are logged by Console and never sent, so their
+          // reserved domain needs no mail server.
+          if (isTestEmailRecipient(address)) return "accepts_mail" as const;
+
           const domain = getAsciiDomain(address);
           if (!domain) return "unknown" as const;
 

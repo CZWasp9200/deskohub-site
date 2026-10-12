@@ -15,14 +15,16 @@ const environmentFields = {
   ...workspaceClientEnvSchema.fields,
 };
 
-// The preloaded test environment is a valid baseline; each case overrides
-// only the variables it is about.
+// The preloaded test environment plus a synthetic Resend key, which deployed
+// environments require but the test process runs without, is a valid
+// baseline; each case overrides only the variables it is about.
 const workspaceRuntimeEnv = (
   overrides: Partial<Record<keyof WorkspaceRuntimeEnv, string | undefined>>
 ): WorkspaceRuntimeEnv => ({
   ...(Object.fromEntries(
     Object.keys(environmentFields).map((key) => [key, process.env[key]])
   ) as WorkspaceRuntimeEnv),
+  EMAIL_API_KEY: "re_test",
   ...overrides,
 });
 
@@ -142,19 +144,35 @@ describe("workspace environment schemas", () => {
     ).toEqual(["CRON_SECRET"]);
   });
 
-  test.each(["development", "preview"] as const)(
-    "keeps %s usable without delivery, cron, or Better Auth secrets",
-    (vercelEnvironment) => {
-      expect(
-        invalidVariables({
-          BETTER_AUTH_SECRETS: undefined,
-          CRON_SECRET: undefined,
-          EMAIL_API_KEY: undefined,
-          VERCEL_ENV: vercelEnvironment,
-        })
-      ).toEqual([]);
-    }
-  );
+  test("fails preview closed when email delivery is unconfigured", () => {
+    expect(
+      invalidVariables({ EMAIL_API_KEY: undefined, VERCEL_ENV: "preview" })
+    ).toEqual(["EMAIL_API_KEY"]);
+    expect(
+      invalidVariables({ EMAIL_API_KEY: "   ", VERCEL_ENV: "preview" })
+    ).toEqual(["EMAIL_API_KEY"]);
+  });
+
+  test("keeps preview usable without cron or Better Auth secrets", () => {
+    expect(
+      invalidVariables({
+        BETTER_AUTH_SECRETS: undefined,
+        CRON_SECRET: undefined,
+        VERCEL_ENV: "preview",
+      })
+    ).toEqual([]);
+  });
+
+  test("keeps development usable without delivery, cron, or Better Auth secrets", () => {
+    expect(
+      invalidVariables({
+        BETTER_AUTH_SECRETS: undefined,
+        CRON_SECRET: undefined,
+        EMAIL_API_KEY: undefined,
+        VERCEL_ENV: "development",
+      })
+    ).toEqual([]);
+  });
 
   test("requires valid Better Auth secrets in production and accepts rotation", () => {
     expect(
@@ -247,7 +265,7 @@ describe("workspace environment schemas", () => {
       },
       {
         overrides: { EMAIL_API_KEY: "", VERCEL_ENV: "production" },
-        expected: "Invalid production email delivery configuration.",
+        expected: "Invalid email delivery configuration.",
       },
       {
         overrides: { CRON_SECRET: "", VERCEL_ENV: "production" },

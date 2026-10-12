@@ -1,6 +1,7 @@
 import "@/shared/polyfills/temporal";
 import "@/shared/testing/workspace-test-env";
 import { describe, expect, mock, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Effect, Schema } from "effect";
 import { getWorkspaceMeetingRoomPriceForDuration } from "@/features/checkout/product-catalog";
 import { calendarSaleDiscountServiceLayer } from "@/features/discounts/calendar-sale.test-utils";
@@ -17,6 +18,8 @@ import {
 } from "@/features/reservation/meeting-room-reservation";
 import { getCurrentWorkspaceDate } from "@/features/reservation/reservation-date";
 import { meetingRoomCheckoutPricing } from "./meeting-room-checkout-pricing";
+
+const testEmailAddressForAda = testEmailAddress("ada");
 
 const meetingRoomDuration = { unit: "hour", amount: 4 } as const;
 const meetingRoomProduct = {
@@ -55,7 +58,7 @@ const reservation = await normalizeMeetingRoomReservationOrder({
   startsAt: "2099-06-10T10:00",
   endsAt: "2099-06-10T14:00",
   name: "Ada Lovelace",
-  email: "ada@example.com",
+  email: testEmailAddressForAda,
   phone: "+420 777 777 777",
 }).pipe(Effect.runPromise);
 const advertisedReservation =
@@ -119,7 +122,7 @@ describe("meeting-room checkout pricing", () => {
         startsAt: `${saleLastDay}T${startTime}`,
         endsAt: `${nextDay}T${endTime}`,
         name: "Ada Lovelace",
-        email: "ada@example.com",
+        email: testEmailAddressForAda,
         phone: "+420 777 777 777",
       }).pipe(Effect.runPromise);
 

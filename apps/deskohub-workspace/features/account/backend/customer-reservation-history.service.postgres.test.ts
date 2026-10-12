@@ -1,3 +1,4 @@
+import { testEmailAddress } from "@deskohub/test-email";
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, test } from "bun:test";
@@ -110,7 +111,7 @@ describe.skipIf(!testDatabase)(
     test("blocks reservation history for a deletion marker or a removed account", async () => {
       const account = customerAccountIdSchema.make(uniqueId());
       const dotyposCustomerId = uniqueDotyposId();
-      await insertAuthUser(account, `h-${account}@deskohub.test`);
+      await insertAuthUser(account, testEmailAddress(`h-${account}`));
       await testDatabase!.pool.query(
         `insert into customer_account_links (customer_account_id, dotypos_customer_id) values ($1, $2)`,
         [account, dotyposCustomerId]
@@ -178,7 +179,7 @@ describe.skipIf(!testDatabase)(
         `dotypos-${uniqueId()}`
       );
 
-      await insertAuthUser(account, `h-${account}@deskohub.test`);
+      await insertAuthUser(account, testEmailAddress(`h-${account}`));
       await testDatabase!.pool.query(
         `insert into customer_account_links (customer_account_id, dotypos_customer_id) values ($1, $2)`,
         [account, dotyposCustomerId]

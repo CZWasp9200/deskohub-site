@@ -411,8 +411,14 @@ matching delivered event completes `awaiting_delivery` or repairs only `failed`
 with failure code `fulfillment_email_failed`; a strictly newer failure or
 bounce event fails `awaiting_delivery` and may also downgrade `fulfilled ->
 failed` so an undelivered confirmation surfaces for recovery. Outside production,
-fulfillment reaches `fulfilled` when the configured email provider accepts the
-required customer send; the internal notification remains best effort.
+and in every environment when Console accepted the customer send (a
+`EMAIL_TEST_DOMAIN` customer; Console never reports delivery), fulfillment
+reaches `fulfilled` when the email provider accepts the required customer
+send, recording the accepted delivery ID; the internal notification
+remains best effort. The internal notification follows the customer's
+provenance: a test-recipient customer's copy goes to the synthetic internal
+mailbox, and every other copy reaches the real mailbox. Outside production
+its subject carries the `[TESTING]` tag.
 Protected Preview deployments cannot receive provider callbacks reliably.
 
 Retrying a delivery failure preserves the stored delivery ID while fulfillment

@@ -3,6 +3,7 @@ import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, mock, test } from "bun:test";
 import { DotyposService } from "@deskohub/dotypos";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Duration, Effect, Layer } from "effect";
 import { TestClock } from "effect/testing";
 import { SeatingMapFeatureFlagServiceMock } from "@/features/feature-flags/backend/seating-map-feature-flag.service.mock";
@@ -10,6 +11,8 @@ import { AdvisoryAvailabilityInventory } from "@/features/reservation/backend/av
 import { LatePaymentVerificationService } from "../payment/late-payment-verification.service";
 import type { ProviderPaymentFinalizationService as ProviderPaymentFinalizationServiceType } from "../payment/provider-payment-finalization.service";
 import { LatePaymentRecoveryRepository } from "../repositories/late-payment-recovery.repository";
+
+const testEmailAddressForAda = testEmailAddress("ada");
 
 /** These checkouts never received a late payment. */
 const noLatePaymentLayer = () =>
@@ -860,7 +863,7 @@ describe("CheckoutStatusService", () => {
                       id: "customer-id",
                       firstName: "Ada",
                       lastName: "Lovelace",
-                      email: "ada@example.com",
+                      email: testEmailAddressForAda,
                       phone: "+420777777777",
                     })
                   ),
@@ -881,7 +884,7 @@ describe("CheckoutStatusService", () => {
       status: "fulfillment_failed",
       supportContactPrefill: {
         name: "Ada Lovelace",
-        email: "ada@example.com",
+        email: testEmailAddressForAda,
         phone: "+420777777777",
       },
     });
@@ -959,7 +962,7 @@ describe("CheckoutStatusService", () => {
                         id: "customer-id",
                         firstName: "Ada",
                         lastName: "Lovelace",
-                        email: "ada@example.test",
+                        email: testEmailAddress("ada"),
                       })
                     ),
                   })
@@ -982,7 +985,7 @@ describe("CheckoutStatusService", () => {
 
       expect(status).toMatchObject({
         status: "paid_awaiting_delivery",
-        supportContactPrefill: { email: "ada@example.test" },
+        supportContactPrefill: { email: testEmailAddress("ada") },
       });
     });
 
@@ -1006,7 +1009,7 @@ describe("CheckoutStatusService", () => {
 
       expect(status).toMatchObject({
         status: "paid_fulfillment_delayed",
-        supportContactPrefill: { email: "ada@example.test" },
+        supportContactPrefill: { email: testEmailAddress("ada") },
       });
     });
 
@@ -1036,7 +1039,7 @@ describe("CheckoutStatusService", () => {
 
       expect(status).toMatchObject({
         status: "payment_pending_delayed",
-        supportContactPrefill: { email: "ada@example.test" },
+        supportContactPrefill: { email: testEmailAddress("ada") },
       });
     });
 
@@ -1049,7 +1052,7 @@ describe("CheckoutStatusService", () => {
 
       expect(status).toMatchObject({
         status: "fulfillment_failed",
-        supportContactPrefill: { email: "ada@example.test" },
+        supportContactPrefill: { email: testEmailAddress("ada") },
       });
     });
 
@@ -1063,7 +1066,7 @@ describe("CheckoutStatusService", () => {
         status: "paid_delivery_delayed",
         supportContactPrefill: {
           name: "Ada Lovelace",
-          email: "ada@example.test",
+          email: testEmailAddress("ada"),
         },
       });
     });

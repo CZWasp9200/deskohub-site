@@ -17,7 +17,8 @@ import { m } from "@/features/i18n";
 import { EmailConfigLayer } from "@/shared/backend/config/email.config";
 import { renderWorkspaceEmail } from "@/shared/backend/email/render-react-email";
 import {
-  internalWorkspaceEmailRecipient,
+  internalWorkspaceEmailRecipientFor,
+  internalWorkspaceEmailSubject,
   workspaceEmailRecipient,
 } from "@/shared/backend/email/workspace-email-recipients";
 import { censorLogValue } from "@/shared/backend/logging/censorship";
@@ -33,7 +34,6 @@ import { type InvoicePdfRenderingError, renderInvoicePdf } from "./invoice-pdf";
 
 const invoiceCustomerEmailCategory = "workspace-invoice-customer";
 const invoiceInternalEmailCategory = "workspace-invoice-internal";
-const internalTestingSubjectPrefix = "[TESTING]";
 const internalInvoiceLocale = "cs-CZ" as const;
 const INVOICE_EMAIL_PROCESSING_RETRY_AFTER_MS = 60 * 1000;
 
@@ -155,14 +155,10 @@ export class InvoiceEmailDeliveryService extends Context.Service<
               category: invoiceCustomerEmailCategory,
               heading: m.invoiceEmailHeading({}, { locale }),
               locale,
-              subjectPrefix: "",
+              formatSubject: (subject: string) => subject,
             };
           }),
           Match.when("internal", () => {
-            let subjectPrefix = "";
-            if (env.VERCEL_ENV !== "production") {
-              subjectPrefix = `${internalTestingSubjectPrefix} `;
-            }
             return {
               body: manualDocument
                 ? m.invoiceManualEmailInternalBody(
@@ -182,7 +178,7 @@ export class InvoiceEmailDeliveryService extends Context.Service<
                 { locale: internalInvoiceLocale }
               ),
               locale: internalInvoiceLocale,
-              subjectPrefix,
+              formatSubject: internalWorkspaceEmailSubject,
             };
           }),
           Match.exhaustive
@@ -235,7 +231,7 @@ export class InvoiceEmailDeliveryService extends Context.Service<
           from: emailConfig.defaultFrom,
           to: input.recipient,
           replyTo: workspaceEmailRecipient,
-          subject: `${content.subjectPrefix}${preview}`,
+          subject: content.formatSubject(preview),
           html: rendered.html,
           text: rendered.text,
           idempotencyKey: input.resend
@@ -389,7 +385,7 @@ export class InvoiceEmailDeliveryService extends Context.Service<
         const internal = yield* deliverAudience({
           invoice: delivery.invoice,
           audience: "internal",
-          recipient: internalWorkspaceEmailRecipient,
+          recipient: internalWorkspaceEmailRecipientFor(delivery.recipient),
           renderPdf: delivery.renderPdf,
         }).pipe(settleDelivery);
 
@@ -487,7 +483,7 @@ function getInvoiceEmailDeliveryDependencies() {
     InvoiceEmailDeliveryRepository.Default.pipe(
       Layer.provide(WorkspaceDatabase.Default)
     ),
-    Layer.provideMerge(EmailServiceTag.Live, EmailConfigLayer)
+    Layer.provideMerge(EmailServiceTag.RecipientRouted, EmailConfigLayer)
   );
 }
 
