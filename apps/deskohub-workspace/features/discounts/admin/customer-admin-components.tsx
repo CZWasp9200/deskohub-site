@@ -468,7 +468,7 @@ export function CustomerAdministrationDetailPage({
                     href={`/admin/customers/${profile.customer.id}/create-code`}
                   >
                     <Plus aria-hidden className="size-4" />
-                    Create code
+                    Create discount code
                   </Link>
                 </Button>
                 <Button asChild size="sm">

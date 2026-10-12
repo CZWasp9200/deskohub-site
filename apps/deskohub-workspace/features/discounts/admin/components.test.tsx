@@ -899,7 +899,7 @@ describe("discount administration pages", () => {
     expect(view.queryByRole("heading", { name: "Vouchers" })).toBeNull();
 
     const createCodeLink = view.getByRole("link", {
-      name: "Create code",
+      name: "Create discount code",
     });
     expect(createCodeLink.getAttribute("href")).toBe(
       "/admin/customers/dotypos-customer/create-code"
