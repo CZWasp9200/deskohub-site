@@ -13,6 +13,7 @@ import { recordSignupReferral } from "@/features/account/backend/signup-referral
 import type {
   CustomerAvatarPresentation,
   CustomerReservationHistory,
+  ProfileCompletionReferralOutcome,
 } from "@/features/account/contracts";
 import { areAccountAvatarsEnabled } from "@/features/account/server/account-feature-flag.server";
 import type { Locale } from "@/features/i18n";
@@ -48,6 +49,12 @@ export type CustomerAccountPageState =
       readonly avatar: CustomerAvatarPresentation;
       readonly history: CustomerReservationHistory;
       readonly referrals?: ReferralAccountOverview;
+      /**
+       * Outcome of retrying the code a profile completion could not record
+       * yet, present only on the visit that ran the retry. A definitive
+       * outcome removes the stored code, so it appears exactly once.
+       */
+      readonly signupReferral?: ProfileCompletionReferralOutcome;
     }
   | { readonly kind: "support-required"; readonly email: string }
   | { readonly kind: "deletion-pending"; readonly email: string };
@@ -102,21 +109,6 @@ export const loadCustomerAccountPage = cache(
         ),
         runWorkspaceEffect("account.auto-link.referral", { boundary: "page" })
       );
-      // Retries a profile-completion referral whose recording failed
-      // transiently; outside any account lock, like the auto-link above.
-      await recordSignupReferral(account).pipe(
-        Effect.provide(
-          Layer.mergeAll(
-            ReferralService.Live,
-            ReferralSignupIntentRepository.Live
-          )
-        ),
-        Effect.catchCause(() =>
-          logDegradedAccountSection("account.signup-referral.unavailable")
-        ),
-        runWorkspaceEffect("account.signup-referral", { boundary: "page" })
-      );
-
       const profile = await Effect.flatMap(CustomerProfileService, (service) =>
         service.load(account)
       ).pipe(
@@ -130,6 +122,25 @@ export const loadCustomerAccountPage = cache(
       if (Result.isFailure(profile)) {
         return { kind: "authenticated-unavailable", email: user.email };
       }
+
+      // Retries a profile-completion referral that is still waiting, outside
+      // any account lock like the auto-link above. It runs only once the
+      // linked page is certain to render, so the visit that settles the code
+      // is the one that shows its outcome.
+      const signupReferral = await recordSignupReferral(account).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            ReferralService.Live,
+            ReferralSignupIntentRepository.Live
+          )
+        ),
+        Effect.catchCause(() =>
+          logDegradedAccountSection("account.signup-referral.unavailable").pipe(
+            Effect.as(undefined)
+          )
+        ),
+        runWorkspaceEffect("account.signup-referral", { boundary: "page" })
+      );
 
       const history = await Effect.flatMap(
         CustomerReservationHistoryService,
@@ -197,6 +208,7 @@ export const loadCustomerAccountPage = cache(
         avatar,
         history,
         referrals,
+        ...(signupReferral && { signupReferral }),
       };
     }
 

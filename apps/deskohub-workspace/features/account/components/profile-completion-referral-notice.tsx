@@ -73,11 +73,16 @@ export const getProfileCompletionReferralMessage = (
 /**
  * Shows the completion's referral outcome once on the linked account: the
  * notice takes the outcome from the layout, so a later visit starts clean.
+ * `settledOutcome` comes from the page load that retried the stored code. It
+ * is the account's current state, so it supersedes the completion's own
+ * feedback; the load that settles the code is the only one that reports it.
  */
 export function ProfileCompletionReferralNotice({
   locale,
+  settledOutcome,
 }: {
   readonly locale: Locale;
+  readonly settledOutcome?: ProfileCompletionReferralOutcome;
 }) {
   const context = useContext(ProfileCompletionReferralNoticeContext);
   const [outcome, setOutcome] = useState(context?.outcome);
@@ -90,18 +95,19 @@ export function ProfileCompletionReferralNotice({
   if (context?.outcome !== undefined && context.outcome !== outcome) {
     setOutcome(context.outcome);
   }
+  const shown = settledOutcome ?? outcome;
 
   return (
     <div role="status">
-      {outcome && (
+      {shown && (
         <p
           className={`mb-6 rounded-2xl border px-4 py-3 text-sm leading-6 ${
-            outcome.status === "applied"
+            shown.status === "applied"
               ? "border-emerald-200 bg-emerald-50 text-emerald-900"
               : "border-navy-blue/12 bg-white/92 text-navy-blue"
           }`}
         >
-          {getProfileCompletionReferralMessage(outcome, locale)}
+          {getProfileCompletionReferralMessage(shown, locale)}
         </p>
       )}
     </div>

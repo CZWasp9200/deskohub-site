@@ -14,6 +14,7 @@ import { ReservationHistory } from "@/features/account/components/reservation-hi
 import type {
   CustomerAvatarPresentation,
   CustomerReservationHistory,
+  ProfileCompletionReferralOutcome,
 } from "@/features/account/contracts";
 import { getAccountPath } from "@/features/account/routes";
 import { type Locale, m } from "@/features/i18n";
@@ -30,6 +31,7 @@ type LinkedAccountProps = {
   readonly profile: CustomerProfile;
   readonly avatarPresentation: CustomerAvatarPresentation;
   readonly referrals?: ReferralAccountOverview;
+  readonly signupReferral?: ProfileCompletionReferralOutcome;
 };
 
 export function LinkedAccount({
@@ -39,6 +41,7 @@ export function LinkedAccount({
   locale,
   profile,
   referrals,
+  signupReferral,
 }: LinkedAccountProps) {
   const pathname = usePathname();
   const {
@@ -86,7 +89,10 @@ export function LinkedAccount({
 
   return (
     <>
-      <ProfileCompletionReferralNotice locale={locale} />
+      <ProfileCompletionReferralNotice
+        locale={locale}
+        settledOutcome={signupReferral}
+      />
 
       <div hidden={activeSection !== "reservations"}>
         <ReservationHistory

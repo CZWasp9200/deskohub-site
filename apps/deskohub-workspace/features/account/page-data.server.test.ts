@@ -464,6 +464,73 @@ describe("loadCustomerAccountPage", () => {
     expect(storedSignupIntent).toBeUndefined();
   });
 
+  test("shows a stored code that settles as applied on that visit, and not on a fresh one", async () => {
+    storedSignupIntent = {
+      code: "RFLPENDING",
+      promotionCodeId: "@test/promotion-code-id",
+      referrerDotyposCustomerId: "70001",
+    };
+    acceptReferralEffect = Effect.fail({ reason: "pending_payment" });
+
+    await expect(loadPageState()).resolves.toMatchObject({
+      kind: "linked",
+      signupReferral: { status: "pending" },
+    });
+    expect(storedSignupIntent).toBeDefined();
+
+    acceptReferralEffect = Effect.succeed({ status: "accepted" });
+    await expect(loadPageState()).resolves.toMatchObject({
+      kind: "linked",
+      signupReferral: { status: "applied" },
+    });
+    expect(storedSignupIntent).toBeUndefined();
+
+    const freshVisit = await loadPageState();
+    expect(freshVisit.kind).toBe("linked");
+    expect(freshVisit).not.toHaveProperty("signupReferral");
+  });
+
+  test("shows a stored code that settles as rejected once, after the first booking is paid", async () => {
+    storedSignupIntent = {
+      code: "RFLPENDING",
+      promotionCodeId: "@test/promotion-code-id",
+      referrerDotyposCustomerId: "70001",
+    };
+    acceptReferralEffect = Effect.fail({ reason: "ineligible" });
+
+    await expect(loadPageState()).resolves.toMatchObject({
+      kind: "linked",
+      signupReferral: { status: "not-applied", reason: "not-eligible" },
+    });
+    expect(storedSignupIntent).toBeUndefined();
+
+    const freshVisit = await loadPageState();
+    expect(freshVisit).not.toHaveProperty("signupReferral");
+    expect(acceptReferralCalls).toHaveLength(1);
+  });
+
+  test("leaves a stored code unsettled when the linked page cannot render", async () => {
+    storedSignupIntent = {
+      code: "RFLPENDING",
+      promotionCodeId: "@test/promotion-code-id",
+      referrerDotyposCustomerId: "70001",
+    };
+    Object.assign(Profile, {
+      Live: Layer.succeed(Profile, {
+        load: () => Effect.fail(new Error("provider down")),
+      }),
+    });
+    try {
+      await expect(loadPageState()).resolves.toMatchObject({
+        kind: "authenticated-unavailable",
+      });
+      expect(acceptReferralCalls).toEqual([]);
+      expect(storedSignupIntent).toBeDefined();
+    } finally {
+      Object.assign(Profile, { Live: ProfileLayer });
+    }
+  });
+
   test("records nothing when an auto-linked sign-in carries no shared code", async () => {
     resolveEffect = resolverOutcome({
       kind: "success",

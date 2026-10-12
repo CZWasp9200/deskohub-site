@@ -38,6 +38,7 @@ export function AccountPage({
           locale={locale}
           profile={state.profile}
           referrals={state.referrals}
+          signupReferral={state.signupReferral}
         />
       </>
     );
