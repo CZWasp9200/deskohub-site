@@ -132,7 +132,7 @@ description: Workspace customer account, Better Auth, magic link, auth persisten
   and traces out of artifacts, validate fixed page paths and URLs before
   capture, and upload PNGs only.
 - Deliver auth magic links through the shared `@deskohub/email`
-  `EmailServiceTag`/provider machinery, which owns sending, retry, and the
+  `EmailServiceTag.RecipientRouted` machinery, which owns sending, retry, and the
   recipient-based provider routing used by every Workspace email: mail
   addressed only to `EMAIL_TEST_DOMAIN` test recipients goes to Console, and
   all other mail, including Resend's `resend.dev` simulator, goes to Resend. Auth owns the template, the synthetic recipient
