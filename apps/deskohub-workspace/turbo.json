@@ -98,7 +98,8 @@
         "@deskohub/dotypos#generate",
         "@deskohub/igloohome#generate",
         "@deskohub/nexi#generate",
-        "i18n:compile"
+        "i18n:compile",
+        "//#test:scripts"
       ],
       "passThroughEnv": ["WORKSPACE_TEST_DATABASE_URL"]
     },
