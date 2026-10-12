@@ -1,6 +1,6 @@
 import "server-only";
 
-import { Effect, Result } from "effect";
+import { Effect, Layer, Result } from "effect";
 import { cache } from "react";
 import { acceptAutoLinkedReferral } from "@/features/account/backend/auto-linked-referral";
 import { resolveCurrentCustomerAccount } from "@/features/account/backend/customer-account-resolver.service";
@@ -9,6 +9,7 @@ import { CustomerAvatarService } from "@/features/account/backend/customer-avata
 import type { CustomerProfile } from "@/features/account/backend/customer-dotypos-adapter.service";
 import { CustomerProfileService } from "@/features/account/backend/customer-profile.service";
 import { CustomerReservationHistoryService } from "@/features/account/backend/customer-reservation-history.service";
+import { recordSignupReferral } from "@/features/account/backend/signup-referral";
 import type {
   CustomerAvatarPresentation,
   CustomerReservationHistory,
@@ -18,6 +19,7 @@ import type { Locale } from "@/features/i18n";
 import { ReferralService } from "@/features/referrals";
 import type { ReferralCode } from "@/features/referrals/client";
 import type { ReferralAccountSummary } from "@/features/referrals/contracts";
+import { ReferralSignupIntentRepository } from "@/features/referrals/signup-intent.repository";
 import { runWorkspaceEffect } from "@/shared/backend/workspace-effect";
 
 /**
@@ -52,7 +54,8 @@ const unavailable = (): CustomerAccountPageState => ({ kind: "unavailable" });
  * Loads the account page for the current session. A shared referral code only
  * matters at sign-up: it prefills first-time profile completion, and it is
  * recorded when this visit links the account to an existing Dotypos customer.
- * An account that was already linked ignores it.
+ * An account that was already linked ignores it. A linked visit also retries
+ * the code its profile completion could not record yet.
  */
 export const loadCustomerAccountPage = cache(
   async (
@@ -94,6 +97,20 @@ export const loadCustomerAccountPage = cache(
           logDegradedAccountSection("account.auto-link.referral.unavailable")
         ),
         runWorkspaceEffect("account.auto-link.referral", { boundary: "page" })
+      );
+      // Retries a profile-completion referral whose recording failed
+      // transiently; outside any account lock, like the auto-link above.
+      await recordSignupReferral(account).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            ReferralService.Live,
+            ReferralSignupIntentRepository.Live
+          )
+        ),
+        Effect.catchCause(() =>
+          logDegradedAccountSection("account.signup-referral.unavailable")
+        ),
+        runWorkspaceEffect("account.signup-referral", { boundary: "page" })
       );
 
       const profile = await Effect.flatMap(CustomerProfileService, (service) =>

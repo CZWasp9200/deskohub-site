@@ -85,11 +85,14 @@ export type CustomerProfileInput = typeof updateCustomerProfileSchema.Type;
 /**
  * First-time completion may also carry the referral code the new customer was
  * invited with. Profile updates keep the plain profile contract, so an
- * established account can never submit one.
+ * established account can never submit one. `prefilledReferralCode` is the
+ * code the form was prefilled with from the shared link; a submitted code
+ * equal to it came from the link rather than from typing.
  */
 const completeCustomerProfileSchema = Schema.Struct({
   ...updateCustomerProfileSchema.fields,
   referralCode: trimmedOptionalText(64),
+  prefilledReferralCode: trimmedOptionalText(64),
 });
 
 export const completeCustomerProfileStandardSchema = Schema.toStandardSchemaV1(
@@ -99,6 +102,22 @@ export const completeCustomerProfileStandardSchema = Schema.toStandardSchemaV1(
 
 export type CustomerProfileCompletionInput =
   typeof completeCustomerProfileSchema.Type;
+
+/**
+ * What happened to the referral code entered at first-time completion. A
+ * pending code is retried on a later account visit.
+ */
+export type ProfileCompletionReferralOutcome =
+  | { readonly status: "applied" }
+  | { readonly status: "pending" }
+  | {
+      readonly status: "not-applied";
+      readonly reason:
+        | "already-referred"
+        | "not-eligible"
+        | "code-unusable"
+        | "profile-already-completed";
+    };
 
 export type CustomerReservationStatus =
   | "cancelled"

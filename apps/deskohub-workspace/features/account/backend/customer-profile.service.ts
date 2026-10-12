@@ -1,5 +1,6 @@
 import type { DotyposCustomerId } from "@deskohub/dotypos";
 import { Context, Effect, Layer } from "effect";
+import type { ReferralSignupIntent } from "@/features/referrals/signup-intent.repository";
 import type { CustomerProfileInput } from "../contracts";
 import {
   CustomerAccountAccessError,
@@ -28,6 +29,16 @@ const readLinkedProfile = (
     )
   );
 
+/**
+ * The profile a completion ended with, the account it is linked to, and
+ * whether this completion created that link rather than finding one.
+ */
+export type CustomerProfileCreation = {
+  readonly account: LinkedCustomerAccount;
+  readonly profile: CustomerProfile;
+  readonly created: boolean;
+};
+
 interface ICustomerProfileService {
   readonly load: (
     account: LinkedCustomerAccount
@@ -36,11 +47,16 @@ interface ICustomerProfileService {
     account: LinkedCustomerAccount,
     input: CustomerProfileInput
   ) => Effect.Effect<CustomerProfile, CustomerAccountAccessError>;
+  /**
+   * The signup referral is stored with the link only when this call creates
+   * it; recording it is left to the caller once the account lock is released.
+   */
   readonly create: (
     accountId: CustomerAccountId,
     verifiedEmail: string,
-    input: CustomerProfileInput
-  ) => Effect.Effect<CustomerProfile, CustomerAccountAccessError>;
+    input: CustomerProfileInput,
+    signupReferral?: ReferralSignupIntent
+  ) => Effect.Effect<CustomerProfileCreation, CustomerAccountAccessError>;
 }
 
 export class CustomerProfileService extends Context.Service<
@@ -91,7 +107,8 @@ export class CustomerProfileService extends Context.Service<
         (
           accountId: CustomerAccountId,
           verifiedEmail: string,
-          input: CustomerProfileInput
+          input: CustomerProfileInput,
+          signupReferral?: ReferralSignupIntent
         ) =>
           links
             .withAccountLock(
@@ -110,7 +127,15 @@ export class CustomerProfileService extends Context.Service<
                     )
                   );
                 if (linkedCustomerId) {
-                  return yield* readLinkedProfile(dotypos, linkedCustomerId);
+                  const profile = yield* readLinkedProfile(
+                    dotypos,
+                    linkedCustomerId
+                  );
+                  return {
+                    account: { accountId, dotyposCustomerId: linkedCustomerId },
+                    profile,
+                    created: false,
+                  } satisfies CustomerProfileCreation;
                 }
 
                 const created = yield* dotypos
@@ -125,7 +150,7 @@ export class CustomerProfileService extends Context.Service<
                   );
 
                 const claimed = yield* links
-                  .claim(accountId, created.customerId)
+                  .claim(accountId, created.customerId, signupReferral)
                   .pipe(
                     Effect.mapError(
                       mapCustomerAccountFailure("account-link.claim")
@@ -138,11 +163,27 @@ export class CustomerProfileService extends Context.Service<
                   });
                 }
 
+                const account = {
+                  accountId,
+                  dotyposCustomerId: claimed.customerId,
+                };
                 if (claimed.customerId === created.customerId) {
-                  return created.profile;
+                  return {
+                    account,
+                    profile: created.profile,
+                    created: claimed.created,
+                  } satisfies CustomerProfileCreation;
                 }
 
-                return yield* readLinkedProfile(dotypos, claimed.customerId);
+                const profile = yield* readLinkedProfile(
+                  dotypos,
+                  claimed.customerId
+                );
+                return {
+                  account,
+                  profile,
+                  created: claimed.created,
+                } satisfies CustomerProfileCreation;
               })
             )
             .pipe(

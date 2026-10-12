@@ -86,6 +86,8 @@ const callbackFailedTitle = "This link cannot be used";
 const completionTitle = "Complete your profile";
 const profileSaved = "Profile updated.";
 const linkedEditSubmitLabel = "Save profile";
+const completionReferralApplied =
+  "Your referral code was applied. You’ll get 15% off your first paid booking.";
 const supportTitle = "We need to verify your profile";
 const deletionPendingTitle = "Account deletion is pending";
 const deletionReauthLinkSent =
@@ -717,6 +719,12 @@ export const makeWorkspaceE2EAccountCases = ({
                       button.textContent?.trim() === ${JSON.stringify(linkedEditSubmitLabel)};
                   })()`,
                 { timeoutMs: uiTransition }
+              );
+              // The referral outcome survives that refresh as a one-time
+              // notice on the linked account.
+              yield* waitText(
+                "applied share-link referral notice on the linked account",
+                completionReferralApplied
               );
             })
           )

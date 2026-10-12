@@ -23,6 +23,10 @@ import { BillingScreen } from "@/features/account/components/billing/billing-scr
 import { AvatarControl } from "@/features/account/components/profile/avatar-control";
 import { ProfileScreen } from "@/features/account/components/profile/profile-screen";
 import {
+  getProfileCompletionReferralMessage,
+  useShowProfileCompletionReferralNotice,
+} from "@/features/account/components/profile-completion-referral-notice";
+import {
   createProfileFormResolver,
   getProfileFormDefaultValues,
   type ProfileBillingKind,
@@ -165,6 +169,8 @@ export function ProfileForm({
     isInitialCompletion ? completeCustomerProfile : updateCustomerProfile
   ) as typeof completeCustomerProfile;
 
+  const showCompletionReferralNotice = useShowProfileCompletionReferralNotice();
+
   const showReferralCodeUnavailable = () =>
     form.setError(
       "referralCode",
@@ -277,6 +283,9 @@ export function ProfileForm({
         }
         if (isInitialCompletion) {
           setHasCompletedInitialProfile(true);
+          if (data?.status === "completed" && data.referral) {
+            showCompletionReferralNotice?.(data.referral);
+          }
         }
         const hasNoEditsSinceSubmit =
           submittedValues !== undefined &&
@@ -398,7 +407,7 @@ export function ProfileForm({
     // the server.
     execute(
       isInitialCompletion
-        ? toCustomerProfileCompletionInput(values)
+        ? toCustomerProfileCompletionInput(values, referralCode)
         : toCustomerProfileInput(values)
     );
   };
@@ -825,6 +834,11 @@ export function ProfileForm({
               : m.accountProfileSaved({}, { locale })}
           </p>
         ) : null}
+        {result.data?.status === "completed" && result.data.referral && (
+          <p className="text-navy-blue">
+            {getProfileCompletionReferralMessage(result.data.referral, locale)}
+          </p>
+        )}
         {result.serverError ? (
           <p className="text-red-700">{result.serverError}</p>
         ) : null}
