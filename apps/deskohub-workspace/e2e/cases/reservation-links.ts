@@ -14,6 +14,7 @@ import { type Locale, m } from "@/features/i18n";
 import { referralCodeQueryParam } from "@/features/referrals/client";
 import { getMeetingRoomReservationDurationKey } from "@/features/reservation/meeting-room-reservation-duration";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
+import { makeUnusableReferralCode } from "../account/referral-fixture";
 import {
   activateHydratedBrowserElement,
   captureBrowserScreenshot,
@@ -36,7 +37,10 @@ import {
   makeMeetingRoomCheckoutData,
   reuseMeetingRoomCheckoutContact,
 } from "../checkout/data";
-import { submitDiscountCode } from "../checkout/discount-code";
+import {
+  assertRequestedOnlyDiscountCode,
+  submitDiscountCode,
+} from "../checkout/discount-code";
 import { submitReservationForPayPage } from "../checkout/payment";
 import type { DatasourceConfig, WorkspaceE2EConfig } from "../config";
 import {
@@ -71,13 +75,6 @@ const _reservationLinkSlotCount = 4;
 // Syntactically canonical but never seeded, so the checkout can only treat it
 // as customer intent and never as an applied discount.
 const unknownLinkCode = canonicalPromotionCodeSchema.make("E2E_LINK_UNKNOWN");
-
-/**
- * A well-formed referral code that no run ever seeds, so a reservation link
- * carrying it as `ref` must book exactly as if the parameter were absent.
- */
-export const makeUnusableReferralCode = () =>
-  `RFL${crypto.randomUUID().replaceAll("-", "").slice(0, 12).toUpperCase()}`;
 
 // Code-owned screenshot artifact directory and fixed PNG names, relative to
 // the apps/deskohub-workspace cwd; uploaded by the workspace E2E workflow.
@@ -806,33 +803,6 @@ const assertHeldRowHasNoPaymentOrFulfillment = (row: CheckoutRow) => {
     "held reservation has a fulfilled timestamp"
   );
 };
-
-export const assertRequestedOnlyDiscountCode = ({
-  code,
-  config,
-  run,
-  session,
-}: {
-  readonly code: CanonicalPromotionCode;
-  readonly config: WorkspaceE2EConfig;
-  readonly run: Runner;
-  readonly session: string;
-}) =>
-  waitForBrowserCondition(
-    run,
-    session,
-    "requested-only discount code input",
-    `
-(() => {
-  const form = document.querySelector('#checkout-discount-code-form');
-  if (!(form instanceof HTMLFormElement)) return false;
-  if (form.querySelector('output')) return false;
-  const input = form.querySelector('#checkout-discount-code');
-  return input instanceof HTMLInputElement && input.value === ${JSON.stringify(code)};
-})()
-`,
-    { timeoutMs: config.timeouts.uiTransition }
-  );
 
 const appliedDiscountMessage = (locale: Locale) =>
   m.checkoutDiscountCodeApplied(

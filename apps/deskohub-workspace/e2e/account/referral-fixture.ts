@@ -30,6 +30,7 @@ import type { WorkspaceE2EError } from "../errors";
 import { workspaceE2EError } from "../errors";
 import { E2EDatabase } from "../integrations/database.service";
 import { runDatabaseOperation } from "../integrations/database-operation";
+import { addRedaction } from "../runtime";
 
 export type WorkspaceE2EReferralOwnerInput = {
   readonly accountId: string;
@@ -602,3 +603,17 @@ export const disableWorkspaceE2EReferralCode = (
         .where(eq(promotionCodes.id, promotionCodeId))
     );
   });
+
+/**
+ * A well-formed referral code that no run ever seeds, registered with the
+ * redactor. Pages and checkouts carrying it must behave as if it were absent.
+ */
+export const makeUnusableReferralCode = () => {
+  const code = `RFL${crypto
+    .randomUUID()
+    .replaceAll("-", "")
+    .slice(0, 12)
+    .toUpperCase()}`;
+  addRedaction(code, true);
+  return code;
+};

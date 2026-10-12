@@ -71,6 +71,46 @@ export const writeWorkspaceE2EAccountJournal = async (
   await rename(temporaryPath, path);
 };
 
+type WorkspaceE2EAccountJournalIds = Pick<
+  WorkspaceE2EAccountJournal,
+  "authUserIds" | "dotyposCustomerIds" | "dotyposReservationIds"
+>;
+
+/**
+ * Accumulates one owner's exact IDs and persists the whole journal after every
+ * addition, so an interrupted case still leaves every row it created behind
+ * for suite cleanup.
+ */
+export const makeWorkspaceE2EAccountJournalRecorder = (
+  ownerId: WorkspaceE2EAccountJournalOwnerId
+) => {
+  let journal = emptyWorkspaceE2EAccountJournal(ownerId);
+  const merge = (
+    existing: readonly string[],
+    added: readonly string[] = []
+  ) => [...new Set([...existing, ...added])];
+  return {
+    get journal(): WorkspaceE2EAccountJournal {
+      return journal;
+    },
+    record: async (update: Partial<WorkspaceE2EAccountJournalIds>) => {
+      journal = {
+        ...journal,
+        authUserIds: merge(journal.authUserIds, update.authUserIds),
+        dotyposCustomerIds: merge(
+          journal.dotyposCustomerIds,
+          update.dotyposCustomerIds
+        ),
+        dotyposReservationIds: merge(
+          journal.dotyposReservationIds,
+          update.dotyposReservationIds
+        ),
+      };
+      await writeWorkspaceE2EAccountJournal(journal);
+    },
+  };
+};
+
 export const readWorkspaceE2EAccountJournal = async (
   ownerId: WorkspaceE2EAccountJournalOwnerId = workspaceE2EAccountLaneId
 ): Promise<WorkspaceE2EAccountJournal | undefined> => {

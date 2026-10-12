@@ -14,7 +14,6 @@ import {
   waitForBrowserCondition,
 } from "../browser";
 import { getSubmitCoworkReservationScript } from "../browser-scripts";
-import { assertDisplayedDiscounts } from "../cases/discounts";
 import {
   applyDiscountCode,
   submitDiscountCode,
@@ -26,7 +25,6 @@ import {
   type ExpectedDiscountApplication,
   waitForCheckoutRow,
 } from "../integrations/database";
-import { discountCodeFixtures } from "../integrations/discount-fixtures";
 import { pollUntil } from "../polling";
 import { addRedaction, assert, parseUrl, type Runner } from "../runtime";
 import { workspaceE2EPollIntervalMs } from "../timeouts";

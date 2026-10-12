@@ -12,12 +12,12 @@ import {
   referralCodeQueryParam,
 } from "@/features/referrals/client";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
+import { makeUnusableReferralCode } from "../account/referral-fixture";
 import type { CheckoutData } from "../types";
 import {
   getAppliedZeroTotalPaySummaryCondition,
   getDiscountListedOnceCondition,
   getSelectedDurationZeroPriceCondition,
-  makeUnusableReferralCode,
   validateSignedPayUrl,
 } from "./reservation-links";
 

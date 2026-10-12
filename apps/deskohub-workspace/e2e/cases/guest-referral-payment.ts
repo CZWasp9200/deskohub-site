@@ -7,13 +7,8 @@ import { m } from "@/features/i18n";
 import { referralCodeQueryParam } from "@/features/referrals/client";
 import { makeWorkspaceE2EAccountRecipientForRunId } from "../account/config";
 import { createSyntheticCustomerProfile } from "../account/fixtures";
-import {
-  emptyWorkspaceE2EAccountJournal,
-  type WorkspaceE2EAccountJournal,
-  writeWorkspaceE2EAccountJournal,
-} from "../account/journal";
+import { makeWorkspaceE2EAccountJournalRecorder } from "../account/journal";
 import type { WorkspaceE2EAccountJournalOwner } from "../account/reconcile";
-import { isReferralAppliedPayUrl } from "../account/referral-checkout";
 import { seedWorkspaceE2EReferralOwner } from "../account/referral-fixture";
 import type { WorkspaceE2EDateAllocation } from "../allocation";
 import { waitForBrowserUrl } from "../browser";
@@ -23,7 +18,10 @@ import {
   requireCheckoutDate,
   selectCoworkDates,
 } from "../checkout/data";
-import { applyDiscountCode } from "../checkout/discount-code";
+import {
+  applyDiscountCode,
+  assertRequestedOnlyDiscountCode,
+} from "../checkout/discount-code";
 import {
   type DatasourceConfig,
   getConfig,
@@ -44,6 +42,7 @@ import {
 } from "../integrations/database";
 import { E2EDatabase } from "../integrations/database.service";
 import type { WorkspaceE2ECaseBinder } from "../playwright-checkout/fixtures";
+import { isReferralAppliedPayUrl } from "../referrals/checkout";
 import type { WorkspaceE2ERunId } from "../run-identifiers";
 import { addRedaction, assert, type Runner } from "../runtime";
 import type {
@@ -55,7 +54,6 @@ import type {
 } from "../types";
 import { executeCheckoutFlow } from "./checkout";
 import { assertDisplayedDiscounts } from "./discounts";
-import { assertRequestedOnlyDiscountCode } from "./reservation-links";
 
 export const guestReferralPaymentCaseId = "checkout-guest-referral";
 
@@ -367,39 +365,18 @@ type IdentityJournal = ReturnType<typeof makeIdentityJournal>;
 
 /** Writes every identity the case creates to its journal as it appears. */
 const makeIdentityJournal = () => {
-  let journal: WorkspaceE2EAccountJournal = emptyWorkspaceE2EAccountJournal(
+  const recorder = makeWorkspaceE2EAccountJournalRecorder(
     guestReferralPaymentCaseId
   );
   return {
-    record: (
-      update: Partial<
-        Pick<WorkspaceE2EAccountJournal, "authUserIds" | "dotyposCustomerIds">
-      >
-    ) =>
+    record: (update: Parameters<typeof recorder.record>[0]) =>
       Effect.tryPromise({
         catch: (cause) =>
           workspaceE2EError("record guest referral identity", {
             cause,
             operation: "record guest referral identity",
           }),
-        try: () => {
-          journal = {
-            ...journal,
-            authUserIds: [
-              ...new Set([
-                ...journal.authUserIds,
-                ...(update.authUserIds ?? []),
-              ]),
-            ],
-            dotyposCustomerIds: [
-              ...new Set([
-                ...journal.dotyposCustomerIds,
-                ...(update.dotyposCustomerIds ?? []),
-              ]),
-            ],
-          };
-          return writeWorkspaceE2EAccountJournal(journal);
-        },
+        try: () => recorder.record(update),
       }),
   };
 };

@@ -9,11 +9,7 @@ import {
   createSyntheticCustomerProfile,
   createSyntheticReferralHistoryReservation,
 } from "../account/fixtures";
-import {
-  emptyWorkspaceE2EAccountJournal,
-  type WorkspaceE2EAccountJournal,
-  writeWorkspaceE2EAccountJournal,
-} from "../account/journal";
+import { makeWorkspaceE2EAccountJournalRecorder } from "../account/journal";
 import { workspaceE2EAccountProfileFixture } from "../account/profile-fixture";
 import {
   seedWorkspaceE2EReferralOwner,
@@ -72,42 +68,17 @@ export const makeWorkspaceE2EReferralIdentities = <
   readonly runId: WorkspaceE2ERunId;
   readonly secret: WorkspaceE2ESessionSigningSecret;
 }) => {
-  let journal: WorkspaceE2EAccountJournal =
-    emptyWorkspaceE2EAccountJournal(caseId);
-
-  const record = (update: {
-    readonly authUserIds?: readonly string[];
-    readonly dotyposCustomerIds?: readonly string[];
-    readonly dotyposReservationIds?: readonly string[];
-  }) =>
+  const recorder = makeWorkspaceE2EAccountJournalRecorder(caseId);
+  const record = (
+    update: Parameters<typeof recorder.record>[0]
+  ): Effect.Effect<void, WorkspaceE2EError> =>
     Effect.tryPromise({
       catch: (cause) =>
         workspaceE2EError("record referral case identity", {
           cause,
           operation: "record referral case identity",
         }),
-      try: () => {
-        const merge = (
-          existing: readonly string[],
-          added: readonly string[] = []
-        ) => [
-          ...existing,
-          ...added.filter((value) => !existing.includes(value)),
-        ];
-        journal = {
-          ...journal,
-          authUserIds: merge(journal.authUserIds, update.authUserIds),
-          dotyposCustomerIds: merge(
-            journal.dotyposCustomerIds,
-            update.dotyposCustomerIds
-          ),
-          dotyposReservationIds: merge(
-            journal.dotyposReservationIds,
-            update.dotyposReservationIds
-          ),
-        };
-        return writeWorkspaceE2EAccountJournal(journal);
-      },
+      try: () => recorder.record(update),
     });
 
   const describe = (label: ReferralRecipientLabel<Id>) => {
@@ -246,14 +217,3 @@ export const makeWorkspaceE2EReferralIdentities = <
 export type WorkspaceE2EReferralIdentities = ReturnType<
   typeof makeWorkspaceE2EReferralIdentities
 >;
-
-/** A well-formed referral code that no referrer owns. */
-export const makeUnusableReferralCode = () => {
-  const code = `RFL${crypto
-    .randomUUID()
-    .replaceAll("-", "")
-    .slice(0, 8)
-    .toUpperCase()}`;
-  addRedaction(code, true);
-  return code;
-};

@@ -9,6 +9,7 @@ import {
   disableWorkspaceE2EReferralCode,
   findWorkspaceE2EReferralInvitationClaimState,
   findWorkspaceE2EReferralReferrer,
+  makeUnusableReferralCode,
   seedWorkspaceE2EReferralInvitee,
   seedWorkspaceE2EReferrerSavings,
 } from "../account/referral-fixture";
@@ -63,7 +64,6 @@ import {
 } from "./checkout";
 import { captureReferralCheckoutReview } from "./checkout-review";
 import {
-  makeUnusableReferralCode,
   makeWorkspaceE2EReferralIdentities,
   type WorkspaceE2EReferralAccount,
   type WorkspaceE2EReferralIdentities,

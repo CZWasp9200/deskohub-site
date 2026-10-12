@@ -29,11 +29,6 @@ import {
   E2ERunContextService,
   E2ETelemetryService,
 } from "../services/telemetry";
-import type {
-  WorkspaceE2ECase,
-  WorkspaceE2EStep,
-  WorkspaceE2EStepRunner,
-} from "../types";
 import {
   assertOrdinaryCodeSlotAvailable,
   bindCheckoutContact,

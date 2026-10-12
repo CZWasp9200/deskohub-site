@@ -18,8 +18,7 @@ import {
 import { workspaceE2EReferralCheckoutCaseIds } from "./plan";
 
 const runId = workspaceE2ERunIdSchema.make("38258478033-1");
-const signingSecrets =
-  "2:synthetic-current-session-signing-secret-0123456789";
+const signingSecrets = "2:synthetic-current-session-signing-secret-0123456789";
 const environment = (secrets: string | undefined) =>
   ({
     ...makeTestE2EEnvironment({ WORKSPACE_E2E_BETTER_AUTH_SECRETS: secrets }),
