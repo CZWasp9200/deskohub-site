@@ -469,7 +469,7 @@ export function CustomerPromotionCodeAction({
   });
 
   const mutations = customerPromotionCodeMutations(promotion, customerId);
-  const noun = promotion.kind === "voucher" ? "voucher" : "code";
+  const noun = { "discount-code": "code", voucher: "voucher" }[promotion.kind];
   const label = eligible
     ? `Remove ${customerName} from ${code}`
     : `Add ${customerName} to ${code}`;
