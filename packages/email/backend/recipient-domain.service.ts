@@ -130,10 +130,7 @@ const checkDomainAddress = Effect.fn(
   "EmailRecipientDomainService.checkDomainAddress"
 )(function* (dns: IMailDomainDns, domain: string) {
   const statuses = (yield* Effect.all(
-    [
-      lookupRecords(dns, domain, "A", isAddress),
-      lookupRecords(dns, domain, "AAAA", isAddress),
-    ],
+    [lookupRecords(dns, domain, "A"), lookupRecords(dns, domain, "AAAA")],
     { concurrency: "inherit" }
   )).map(toAddressStatus);
 
@@ -147,24 +144,28 @@ const lookupRecords = (
   dns: IMailDomainDns,
   domain: string,
   type: MailDomainRecordType,
-  isUsable: (record: string) => boolean
+  /** Narrows which records count; without it, any returned record does. */
+  isUsable?: (record: string) => boolean
 ): Effect.Effect<RecordLookup> =>
   dns.resolve(domain, type).pipe(
     Effect.result,
     Effect.map(
       Result.match({
         onSuccess: (records): RecordLookup =>
-          records.some(isUsable) ? "found" : "empty",
+          (isUsable ? records.some(isUsable) : records.length > 0)
+            ? "found"
+            : "empty",
         onFailure: (error): RecordLookup =>
-          Option.match(decodeNegativeAnswer(error), {
-            onNone: () => "unknown",
-            onSome: ({ code }) =>
+          decodeNegativeAnswer(error).pipe(
+            Option.map(({ code }) =>
               Match.value(code).pipe(
                 Match.when("ENOTFOUND", () => "no_domain" as const),
                 Match.when("ENODATA", () => "no_records" as const),
                 Match.exhaustive
-              ),
-          }),
+              )
+            ),
+            Option.getOrElse(() => "unknown" as const)
+          ),
       })
     )
   );
@@ -180,8 +181,6 @@ const toAddressStatus = Match.type<RecordLookup>().pipe(
   Match.when("unknown", () => "unknown" as const),
   Match.exhaustive
 );
-
-const isAddress = () => true;
 
 const isMailExchange = (exchange: string) =>
   exchange !== "" && exchange !== ".";
