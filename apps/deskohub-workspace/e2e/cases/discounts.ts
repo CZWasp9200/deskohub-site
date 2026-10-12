@@ -38,6 +38,7 @@ import {
   submitReservationForPayPage,
 } from "../checkout/payment";
 import type { DatasourceConfig, WorkspaceE2EConfig } from "../config";
+import type { WorkspaceE2EHostedPaymentPermitService } from "../coordination/hosted-payment-permit.service";
 import {
   isWorkspaceE2ETimeout,
   toWorkspaceE2EError,
@@ -1187,7 +1188,7 @@ const executeFullyConsumedVoucherCheckout = ({
 }): Effect.Effect<
   void,
   WorkspaceE2EError,
-  E2EDatabase | HttpClient.HttpClient
+  E2EDatabase | HttpClient.HttpClient | WorkspaceE2EHostedPaymentPermitService
 > =>
   Effect.gen(function* () {
     const fixture = discountCodeFixtures.voucherFull;
@@ -1268,7 +1269,7 @@ const executeDiscountCheckout = ({
 }): Effect.Effect<
   void,
   WorkspaceE2EError,
-  E2EDatabase | HttpClient.HttpClient
+  E2EDatabase | HttpClient.HttpClient | WorkspaceE2EHostedPaymentPermitService
 > =>
   executeCheckoutFlow({
     beforeReservationSubmit: reservationPageDiscounts

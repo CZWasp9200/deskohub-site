@@ -91,12 +91,7 @@ const projectByName = (config: PlaywrightCheckoutConfig, name: string) =>
 
 // Checkout case projects; the account lane never pays, so tail projects do
 // not wait for it.
-const checkoutCaseProjectNames = [
-  "checkout-non-payment",
-  "checkout-payment-1",
-  "checkout-payment-2",
-  "checkout-payment-3",
-];
+const checkoutCaseProjectNames = ["checkout-cases"];
 
 const jobHasConcurrencyLock = (
   job: WorkflowJob & { readonly concurrency?: unknown }
@@ -381,6 +376,22 @@ describe("workspace E2E workflow", () => {
     expect(
       projectByName(playwrightConfig, "checkout-plan")?.dependencies
     ).toEqual(["checkout-setup", "checkout-seed"]);
+  });
+
+  test("leaves the account lane a worker beside the parallel case pool", async () => {
+    const playwrightConfig = await playwrightConfigStructure();
+    const casePool = projectByName(playwrightConfig, "checkout-cases");
+
+    // Paid cases share the pool; the hosted-payment permit bounds Nexi.
+    expect(
+      playwrightConfig.projects.filter((project) =>
+        project.name?.startsWith("checkout-payment")
+      )
+    ).toEqual([]);
+    expect(casePool?.workers).toBe((playwrightConfig.workers as number) - 1);
+    expect(projectByName(playwrightConfig, "account-auth")?.dependencies).toEqual(
+      casePool?.dependencies
+    );
   });
 
   test("preserves discount seeding after the case phase", async () => {

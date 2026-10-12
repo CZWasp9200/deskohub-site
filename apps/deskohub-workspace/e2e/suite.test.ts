@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { Cause, Effect, Exit, Layer } from "effect";
 import type { DatasourceConfig } from "./config";
+import { WorkspaceE2EHostedPaymentPermitServiceMock } from "./coordination/hosted-payment-permit.service.mock";
 import { WorkspaceE2EProviderVerificationPermitServiceMock } from "./coordination/provider-verification-permit.service.mock";
 import { withinWorkspaceE2EDeadline } from "./polling";
 import type { Runner } from "./runtime";
@@ -203,6 +204,7 @@ test("overlaps reservation cleanup with browser finalization", async () => {
         Layer.mergeAll(
           makeE2ETelemetryMock([]),
           cleanupLayer,
+          WorkspaceE2EHostedPaymentPermitServiceMock,
           WorkspaceE2EProviderVerificationPermitServiceMock
         )
       )
@@ -287,5 +289,6 @@ const makeTestSuiteLayer = (telemetryEvents: E2ETelemetryObservation[] = []) =>
   Layer.mergeAll(
     makeE2ETelemetryMock(telemetryEvents),
     WorkspaceE2ECleanupService.Default,
+    WorkspaceE2EHostedPaymentPermitServiceMock,
     WorkspaceE2EProviderVerificationPermitServiceMock
   );
