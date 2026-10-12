@@ -1,21 +1,33 @@
 import { Duration, Effect } from "effect";
 import { NextResponse } from "next/server";
-import { PaymentRefundService } from "@/features/checkout/backend/payment";
+import {
+  PaymentRefundService,
+  refundBatchOverrunWorstCase,
+} from "@/features/checkout/backend/payment";
 import { nexiRequestWorstCaseDuration } from "@/shared/backend/config/nexi.config";
 import { isAuthorizedCronRequest } from "@/shared/backend/cron-request";
 import { defineWorkspaceRoute } from "@/shared/backend/workspace-route";
 
 export const maxDuration = 300;
 
+/** Time `maxDuration` keeps for the cold start and the response. */
+const startupAndResponseHeadroom = Duration.seconds(25);
+
 /**
  * Time the batch may spend claiming, looking up, and recording. It starts a
  * lookup only while one exhausting every Nexi retry still ends within it, and
  * at the budget it interrupts whatever is still running and releases those
- * claims, each release waiting at most `claimReleaseTimeout` (10 seconds).
- * The batch therefore ends within 250 seconds, leaving the rest of
- * `maxDuration` for the cold start and the response.
+ * claims. Uninterruptible transaction phases and releases can still run for
+ * up to `refundBatchOverrunWorstCase` (35 seconds with the database pool's
+ * 15-second connection and 10-second query timeouts), so the budget leaves
+ * that and the headroom: 300 - 35 - 25 = 240 seconds, and the batch returns
+ * within 275 seconds.
  */
-const lookupBudget = Duration.seconds(240);
+const lookupBudget = Duration.millis(
+  Duration.toMillis(Duration.seconds(maxDuration)) -
+    Duration.toMillis(refundBatchOverrunWorstCase) -
+    Duration.toMillis(startupAndResponseHeadroom)
+);
 
 /**
  * Runs hourly. At about 100 paid attempts a day, the 30-day window holds about

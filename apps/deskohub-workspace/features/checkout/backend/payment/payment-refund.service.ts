@@ -3,6 +3,7 @@ import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Clock, Context, Data, Duration, Effect, Exit, Layer } from "effect";
 import type { SqlError } from "effect/unstable/sql";
 import { WorkspaceDatabase } from "@/db/database.service";
+import { databasePoolTimeouts } from "@/db/database-pool-timeouts";
 import { WorkspaceNexiLayer } from "@/shared/backend/config/nexi.config";
 import {
   type ClaimedRefundCheck,
@@ -53,8 +54,11 @@ export interface IPaymentRefundService {
    * too little time is released. At `budget` the batch interrupts whatever is
    * still claiming, looking up, or recording, and releases those claims, each
    * release waiting at most `claimReleaseTimeout`. Attempts the batch did not
-   * check therefore stay due for the next run. One attempt's provider failure
-   * is logged and does not stop the rest of the batch.
+   * check therefore stay due for the next run, except a claim whose COMMIT is
+   * in flight at the budget: it stays stamped until the recheck interval
+   * passes. The batch returns within `budget` plus
+   * `refundBatchOverrunWorstCase`. One attempt's provider failure is logged
+   * and does not stop the rest of the batch.
    */
   readonly reconcileRefunds: (input: {
     readonly limit: number;
@@ -91,6 +95,24 @@ const lookupConcurrency = 4;
  * interval instead of the batch outrunning its function deadline.
  */
 const claimReleaseTimeout = Duration.seconds(10);
+
+/**
+ * The longest `reconcileRefunds` can run past its budget. At the budget it
+ * interrupts every worker, but Effect SQL acquires a transaction's
+ * connection, runs BEGIN, and commits or rolls back uninterruptibly, each
+ * bounded by the pool's timeouts. A claim interrupted while acquiring its
+ * connection therefore still acquires it, begins, and rolls back. Every
+ * other tail is shorter: an in-flight COMMIT or the rollback of an
+ * interrupted statement takes one query timeout, and releasing an
+ * interrupted claim takes at most `claimReleaseTimeout`.
+ */
+export const refundBatchOverrunWorstCase = Duration.millis(
+  Math.max(
+    databasePoolTimeouts.connectionTimeoutMillis +
+      2 * databasePoolTimeouts.query_timeout,
+    Duration.toMillis(claimReleaseTimeout)
+  )
+);
 
 const toRefundedAt = (
   value: string | undefined,

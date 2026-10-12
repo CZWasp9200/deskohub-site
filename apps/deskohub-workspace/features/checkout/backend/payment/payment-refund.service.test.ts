@@ -9,7 +9,7 @@ import {
   NexiOrderIdSchema,
   type NexiService as NexiServiceTag,
 } from "@deskohub/nexi";
-import { Clock, Duration, Effect, Fiber, Layer } from "effect";
+import { Clock, Context, Duration, Effect, Fiber, Layer } from "effect";
 import { TestClock } from "effect/testing";
 import { FetchHttpClient } from "effect/unstable/http";
 import { paymentAttemptIdSchema } from "@/features/checkout/checkout-identifiers";
@@ -454,6 +454,164 @@ describe("PaymentRefundService", () => {
         Duration.toMillis(budget) + 10_000
       );
       expect(result.released).toEqual([]);
+    });
+  });
+
+  describe("with uninterruptible transaction phases", () => {
+    const budget = Duration.seconds(240);
+    const lookupMilliseconds = 20_840;
+
+    /**
+     * Runs a batch whose claims after the first 40 go through Effect SQL's
+     * real transaction wrapper, which acquires its connection, runs BEGIN,
+     * and commits or rolls back uninterruptibly, each phase taking as long as
+     * given.
+     */
+    const runTransactionalBatch = async (phases: {
+      readonly acquire: Duration.Input;
+      readonly begin: Duration.Input;
+      readonly commit: Duration.Input;
+      readonly rollback: Duration.Input;
+      readonly release: Duration.Input;
+      /** Delay inside the transaction, where Effect SQL can interrupt it. */
+      readonly statements?: Duration.Input;
+    }) => {
+      const { NexiService } = await import("@deskohub/nexi");
+      const { makeWithTransaction } = await import(
+        "effect/unstable/sql/SqlClient"
+      );
+      const { PaymentRefundRepository } = await import(
+        "../repositories/payment-refund.repository"
+      );
+      const { PaymentRefundService, refundBatchOverrunWorstCase } =
+        await import("./payment-refund.service");
+      const withTransaction = makeWithTransaction({
+        transactionService: Context.Service<never, readonly [object, number]>(
+          "@test/RefundClaimTransaction"
+        ),
+        spanAttributes: [],
+        acquireConnection: Effect.sleep(phases.acquire).pipe(
+          Effect.as([undefined, {}] as const)
+        ),
+        begin: () => Effect.sleep(phases.begin),
+        commit: () => Effect.sleep(phases.commit),
+        rollback: () => Effect.sleep(phases.rollback),
+        savepoint: () => Effect.void,
+        rollbackSavepoint: () => Effect.void,
+      });
+      let claims = 0;
+
+      const layer = PaymentRefundService.Default.pipe(
+        Layer.provide(
+          Layer.mergeAll(
+            Layer.mock(NexiService, {
+              getOrder: () =>
+                Effect.sleep(Duration.millis(lookupMilliseconds)).pipe(
+                  Effect.as({ ...refundedOrder, operations: [] })
+                ),
+            }),
+            Layer.mock(PaymentRefundRepository, {
+              claimRefundChecks: (input) => {
+                const index = claims;
+                claims += 1;
+                const claimed = [
+                  {
+                    ...candidate,
+                    attempt: {
+                      ...attempt,
+                      id: paymentAttemptIdSchema.make(`attempt-${index}`),
+                    },
+                    checkedAt: input.checkedAt,
+                    previousCheckedAt: null,
+                  },
+                ];
+                // Delaying the first claims makes the last ones start at
+                // 218.9 s, just before the 219.16 s lookup cutoff.
+                if (index < 4) {
+                  return Effect.sleep("10500 millis").pipe(Effect.as(claimed));
+                }
+                return index < 40
+                  ? Effect.succeed(claimed)
+                  : withTransaction(
+                      Effect.sleep(phases.statements ?? 0).pipe(
+                        Effect.as(claimed)
+                      )
+                    ).pipe(Effect.orDie);
+              },
+              releaseRefundCheck: () => Effect.sleep(phases.release),
+            })
+          )
+        )
+      );
+
+      const elapsedMilliseconds = await Effect.runPromise(
+        Effect.gen(function* () {
+          const service = yield* PaymentRefundService;
+          const batch = yield* Effect.forkChild(
+            service.reconcileRefunds({
+              limit: 150,
+              budget,
+              worstCaseLookupDuration: Duration.millis(lookupMilliseconds),
+            })
+          );
+          let elapsedMilliseconds = 0;
+          while (batch.pollUnsafe() === undefined) {
+            yield* TestClock.adjust("100 millis");
+            elapsedMilliseconds += 100;
+          }
+          yield* Fiber.join(batch);
+          return elapsedMilliseconds;
+        }).pipe(Effect.provide(layer), Effect.provide(TestClock.layer()))
+      );
+      return {
+        bound:
+          Duration.toMillis(budget) +
+          Duration.toMillis(refundBatchOverrunWorstCase),
+        elapsedMilliseconds,
+      };
+    };
+
+    test("derives the documented 35-second overrun from the database pool timeouts", async () => {
+      const { refundBatchOverrunWorstCase } = await import(
+        "./payment-refund.service"
+      );
+      // 15 s connection acquisition + 10 s BEGIN + 10 s ROLLBACK.
+      expect(Duration.toMillis(refundBatchOverrunWorstCase)).toBe(35_000);
+    });
+
+    test("stays within the documented bound when the deadline interrupts a claim before BEGIN finishes", async () => {
+      // The reviewer's case: the last claims start just before the cutoff
+      // and spend the pool's full timeouts acquiring, beginning, and rolling
+      // back after the deadline interrupts them.
+      const result = await runTransactionalBatch({
+        acquire: "15 seconds",
+        begin: "10 seconds",
+        commit: "10 seconds",
+        rollback: "10 seconds",
+        release: 0,
+      });
+
+      expect(result.elapsedMilliseconds).toBeGreaterThan(
+        Duration.toMillis(budget)
+      );
+      expect(result.elapsedMilliseconds).toBeLessThanOrEqual(result.bound);
+    });
+
+    test("stays within the documented bound when a claim commits at the deadline", async () => {
+      // The COMMIT starting at 233.9 s runs past the deadline uninterruptibly.
+      const result = await runTransactionalBatch({
+        acquire: 0,
+        begin: 0,
+        statements: "15 seconds",
+        commit: "10 seconds",
+        rollback: "10 seconds",
+        release: "1 hour",
+      });
+
+      expect(result.elapsedMilliseconds).toBeGreaterThan(
+        Duration.toMillis(budget)
+      );
+      expect(result.elapsedMilliseconds).toBeLessThanOrEqual(result.bound);
     });
   });
 });
