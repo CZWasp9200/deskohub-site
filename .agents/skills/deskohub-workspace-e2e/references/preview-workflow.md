@@ -66,16 +66,19 @@ names. Inspect settings and deployment metadata without printing their values.
   stacked-discount and external-payment cases. The runner selects a usable
   group deterministically through the Dotypos API and fails closed when none
   exists.
-- A send-only `EMAIL_API_KEY`. There is no provider setting: the shared
-  email service sends mail addressed only to `@resend.dev` test recipients
-  to Console and everything else to Resend. Browser cases use only
-  `@resend.dev` recipients, so they exercise the complete email workflow
+- A send-only `EMAIL_API_KEY` and `EMAIL_TEST_DOMAIN=deskohub.test`, the
+  same value the workflow passes to the runner. There is no provider
+  setting: the shared email service sends mail addressed only to test-domain
+  recipients to Console and everything else, including `resend.dev`, to
+  Resend. Browser cases use only test-domain recipients built with
+  `testEmailAddress`, so they exercise the complete email workflow
   without external delivery attempts or Resend quota, while a real person
   signing in or booking on a Preview receives real mail. For exact synthetic
   E2E magic-link recipients the account app feature then emits the single
   gated `account.magic-link.preview-e2e` raw console line whose
   `{code, recipient, message, text}` envelope is the E2E parser's stable wire
-  format. Mail for a real recipient fails closed without the key.
+  format. Mail for a real recipient fails closed without the key, and the
+  deployment refuses to start without a valid test domain.
 - The non-sensitive Preview-only
   `POSTHOG_FEATURE_FLAG_OVERRIDES={"accounts":true,"calendar_sales":true,"customer_discounts":true,"discount_codes":true,"meeting_room_page":true,"office_page":true}`.
   Account navigation E2E requires `accounts:true` even when the production
@@ -302,8 +305,9 @@ bun --cwd apps/deskohub-workspace e2e:capacity
 Stale reservation reconciliation is available only through a manual protected
 workflow dispatch. The script boundary is dry-run by default and applies
 cancellations only when every active candidate can be inspected and both the
-`Workspace E2E ` customer-name prefix and the `delivered+…@resend.dev` email
-shape match. The timestamp embedded in that customer name must also be at least
+`Workspace E2E ` customer-name prefix and the `delivered+…` email shape on the
+test domain (or legacy `resend.dev`, for customers created before the test
+domain) match. The timestamp embedded in that customer name must also be at least
 two hours old, beyond the workflow's 50-minute job timeout, so an active healthy
 run cannot be swept. It reports aggregate counts only, collects every
 detail-read and cancellation result, distinguishes active fresh and stale E2E

@@ -5,12 +5,12 @@ Research date: 2026-09-02; retrieval contract verified 2026-10-02
 > **Decision status (2026-09-03, updated 2026-10-02).** This is a restored
 > historical research note. Both of its Resend-based Preview options are
 > **superseded**: protected-preview E2E magic-link delivery for synthetic
-> recipients (`delivered+<run-id>-<label>@resend.dev`) makes **zero Resend
+> recipients (`delivered+<run-id>-<label>@<EMAIL_TEST_DOMAIN>`) makes **zero Resend
 > calls**. `@deskohub/email` is provider-generic and carries no account or
 > E2E logic: magic-link messages set the `sensitiveContent` marker, and the
 > account app feature owns the synthetic-recipient pattern and the gated
 > raw-log envelope. The shared email service routes mail addressed only to
-> `@resend.dev` test recipients to its Console provider and everything else to
+> `EMAIL_TEST_DOMAIN` test recipients to its Console provider and everything else to
 > Resend. After Console accepts a synthetic Preview magic link, the app
 > feature emits one gated
 > raw-`console.log` line under `account.magic-link.preview-e2e` carrying the
@@ -87,7 +87,7 @@ band.
 At research time, Workspace selected one global provider from
 [`email.config.ts`](../../../../../apps/deskohub-workspace/shared/backend/config/email.config.ts):
 Resend or console. Today there is no provider selection: the shared email
-service routes each message by recipient, sending `@resend.dev` test mail to
+service routes each message by recipient, sending `EMAIL_TEST_DOMAIN` test mail to
 Console and all other mail to Resend (see the decision status above).
 The shared message type includes recipients, content, tags, metadata, and the
 `sensitiveContent` marker that suppresses bearer content in provider output in
@@ -139,6 +139,9 @@ changed accidentally as a side effect of auth.
 
 ### Synthetic addresses
 
+Historical note: E2E originally used Resend's simulator recipients; they now
+use `EMAIL_TEST_DOMAIN`, and `resend.dev` is a real Resend destination that
+tests use only to simulate delivered, bounced, or complained outcomes.
 Resend supplies test recipients that work without delivering to a real inbox.
 `delivered@resend.dev` simulates successful delivery, and plus-address labels such
 as `delivered+user1@resend.dev` are supported for distinct test cases. See
@@ -209,13 +212,13 @@ domain.
 ### Preview and exact-SHA E2E
 
 - Synthetic-recipient Preview delivery is console-only: auth renders the
-  message, the shared `@deskohub/email` service routes the `@resend.dev`
+  message, the shared `@deskohub/email` service routes the `EMAIL_TEST_DOMAIN`
   recipient to its Console provider, and the account app feature emits one gated raw-`console.log` line with the TEXT
   body and bearer link under `account.magic-link.preview-e2e`, and never
   calls Resend. This works with or without `EMAIL_API_KEY`, since no send
   occurs.
 - The runner correlates the log line by the unique
-  `delivered+<opaque-run-id>-<label>@resend.dev` recipient it generated for
+  `delivered+<opaque-run-id>-<label>@<EMAIL_TEST_DOMAIN>` recipient it generated for
   the lifecycle, reading Vercel runtime logs for the exact immutable preview
   deployment with `WORKSPACE_E2E_VERCEL_TOKEN`. That token lives only in the
   protected Workspace E2E GitHub environment; it never enters Vercel or
@@ -259,7 +262,7 @@ domain.
   `testUtils`, toggle a browser-controlled delivery mode, or add a Cloudflare
   tunnel/webhook.
 - Real recipients in every environment go to Resend with fixed, censored
-  result codes and no link logging. Other `@resend.dev` recipients, and
+  result codes and no link logging. Other `EMAIL_TEST_DOMAIN` recipients, and
   synthetic recipients outside Preview, go to Console without the gated line.
 - Clean up only records created by the run where the provider API and retention
   policy support that safely. Cleanup failure must not trigger broad deletion.
@@ -277,7 +280,7 @@ tunnel into the protected deployment.
   the callback argument in process. This is test composition, not a deployed
   route or runtime environment switch.
 - The normal local app must not print magic links: the `sensitiveContent`
-  marker suppresses bearer content in Console output for `@resend.dev`
+  marker suppresses bearer content in Console output for `EMAIL_TEST_DOMAIN`
   recipients. A real recipient without `EMAIL_API_KEY` fails closed to the
   fixed unconfigured code.
 - A developer who needs a complete local browser flow can explicitly supply

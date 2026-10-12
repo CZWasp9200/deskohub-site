@@ -411,9 +411,10 @@ matching delivered event completes `awaiting_delivery` or repairs only `failed`
 with failure code `fulfillment_email_failed`; a strictly newer failure or
 bounce event fails `awaiting_delivery` and may also downgrade `fulfilled ->
 failed` so an undelivered confirmation surfaces for recovery. Outside production,
-and in every environment when the customer is a `resend.dev` test recipient
-(Console never reports delivery), fulfillment reaches `fulfilled` when the
-email provider accepts the required customer send; the internal notification
+and in every environment when Console accepted the customer send (a
+`EMAIL_TEST_DOMAIN` customer; Console never reports delivery), fulfillment
+reaches `fulfilled` when the email provider accepts the required customer
+send, recording the accepted delivery ID; the internal notification
 remains best effort. The internal notification follows the customer's
 provenance: a test-recipient customer's copy goes to the synthetic internal
 mailbox, and every other copy reaches the real mailbox. Outside production

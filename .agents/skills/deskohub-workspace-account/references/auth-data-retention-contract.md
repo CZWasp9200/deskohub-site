@@ -141,8 +141,9 @@ event, scheduling fields, and tags
   location, operating-system, browser, device, and email-client data.
 - Treat the URL in the message as a bearer credential and keep it out of logs
   and analytics.
-- Protected-preview E2E uses only Resend's synthetic test recipient, retrieves
-  the message transiently, and stores neither message nor link after the run.
+- Protected-preview E2E uses only synthetic recipients on `EMAIL_TEST_DOMAIN`,
+  which Console logs instead of sending; it retrieves the message transiently
+  and stores neither message nor link after the run.
 - Privacy copy must name Resend as the email processor and disclose the
   recipient address, message content including the magic link, delivery
   metadata, United States storage, the applicable 30-day active-account

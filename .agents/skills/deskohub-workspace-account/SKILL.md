@@ -134,13 +134,13 @@ description: Workspace customer account, Better Auth, magic link, auth persisten
 - Deliver auth magic links through the shared `@deskohub/email`
   `EmailServiceTag`/provider machinery, which owns sending, retry, and the
   recipient-based provider routing used by every Workspace email: mail
-  addressed only to `@resend.dev` test recipients goes to Console, and all
-  other mail goes to Resend. Auth owns the template, the synthetic recipient
+  addressed only to `EMAIL_TEST_DOMAIN` test recipients goes to Console, and
+  all other mail, including Resend's `resend.dev` simulator, goes to Resend. Auth owns the template, the synthetic recipient
   pattern, and the gated raw-log envelope. Mark every magic-link message
   `sensitiveContent` so bearer content stays suppressed in Console output.
   When the runtime is Vercel Preview, the recipient exactly matches
-  `delivered+<run-id>-<label>@resend.dev` (strict pattern, arbitrary domains
-  rejected), and Console accepted the send, the app feature emits
+  `delivered+<run-id>-<label>@<EMAIL_TEST_DOMAIN>` (strict local-part
+  pattern, other domains rejected), and Console accepted the send, the app feature emits
   one gated raw-`console.log` line (outside the Effect/OTel censorship layer)
   under `account.magic-link.preview-e2e` carrying the rendered TEXT body with
   its bearer link. This is the single explicitly authorized exception to the

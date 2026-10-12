@@ -5,12 +5,16 @@
 Email delivery is routed by recipient in `@deskohub/email`; there is no
 provider setting.
 
-- Mail addressed only to `@resend.dev` test recipients goes to the Console
+- Mail addressed only to recipients on `EMAIL_TEST_DOMAIN` goes to the Console
   provider, which logs it and never sends.
-- All other mail goes to Resend. Without `EMAIL_API_KEY` it fails with
-  `EmailDeliveryUnconfiguredError` instead of falling back to Console.
-- Staff notifications follow the submitter: a `resend.dev` submitter's copy
-  goes to `delivered+boardgame-staff@resend.dev` (Console), and every other
+- All other mail goes to Resend, including `resend.dev`, Resend's simulator
+  for delivered, bounced, or complained outcomes. Without `EMAIL_API_KEY` it
+  fails with `EmailDeliveryUnconfiguredError` instead of falling back to
+  Console.
+- A missing or invalid `EMAIL_TEST_DOMAIN` fails startup and the email config
+  layer; nothing is routed without it.
+- Staff notifications follow the submitter: a test-domain submitter's copy goes
+  to `boardgame-staff@<EMAIL_TEST_DOMAIN>` (Console), and every other
   submission reaches the real contact or reservation mailbox in every
   environment (`shared/backend/email/staff-email-recipients.ts`). Outside
   production (`NEXT_PUBLIC_VERCEL_ENV` other than `production`) their subject
@@ -22,10 +26,19 @@ Add to `.env.local` for the Boardgame Bar app, or to the app's deployment env:
 
 ```bash
 EMAIL_API_KEY=re_...
+EMAIL_TEST_DOMAIN=deskohub.test
 ```
 
-For local development without a key, use `@resend.dev` recipients such as
-`delivered@resend.dev`.
+`EMAIL_TEST_DOMAIN` must be the same reserved, undeliverable domain in every
+environment and app. For local development without a key, use test-domain
+recipients.
+
+## Tests
+
+Tests build every address with `testEmailAddress` or `resendSimulatorAddress`
+from `@deskohub/email/testing`; the `no-test-email-literals` lint rule rejects
+hand-written addresses. `bunfig.toml` preloads
+`@deskohub/email/testing/environment`, which supplies the test domain.
 
 ## Sender Addresses
 
