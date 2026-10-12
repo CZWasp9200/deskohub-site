@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
 import { formatWorkspaceE2EFailureAnnotation } from "./github-actions";
 
+import { testEmailAddress } from "@deskohub/email/testing";
+
 test("formats only closed Workspace E2E failure fields", () => {
   expect(
     formatWorkspaceE2EFailureAnnotation({
@@ -31,7 +33,7 @@ test("formats a fixed code-owned diagnostic code", () => {
 test("does not interpolate unexpected identifiers", () => {
   expect(
     formatWorkspaceE2EFailureAnnotation({
-      caseId: "customer@example.com",
+      caseId: testEmailAddress("customer"),
       failureKind: "error",
       outcome: "failed",
       stepId: "https://provider.invalid/reservation/123",

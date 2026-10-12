@@ -8,6 +8,7 @@ import {
 } from "node:fs/promises";
 import { basename, isAbsolute, join, resolve } from "node:path";
 import { brotliDecompressSync, gunzipSync, inflateSync } from "node:zlib";
+import { testEmailAddress } from "@deskohub/email/testing";
 import {
   type Browser,
   type BrowserContext,
@@ -15,6 +16,8 @@ import {
   type Page,
 } from "@playwright/test";
 import { Schema } from "effect";
+
+const syntheticEmail = testEmailAddress("posthog.identity.synthetic");
 
 const port = 3211;
 const fixtureBaseUrl = `http://127.0.0.1:${port}`;
@@ -76,7 +79,7 @@ const localCorsHeaders = {
 const sensitivePayloadMarkers = [
   {
     code: "synthetic-email",
-    value: "posthog.identity.synthetic@example.test",
+    value: syntheticEmail,
   },
   { code: "synthetic-name", value: "PostHog Identity Synthetic Name" },
   { code: "synthetic-billing", value: "Synthetic Billing Street, Test City" },
@@ -715,7 +718,7 @@ class LocalPostHogServer {
         userId,
       },
       user: {
-        email: "posthog.identity.synthetic@example.test",
+        email: syntheticEmail,
         emailVerified: true,
         id: userId,
         name: "PostHog Identity Synthetic Name",

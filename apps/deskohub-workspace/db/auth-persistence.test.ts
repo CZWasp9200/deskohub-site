@@ -1,6 +1,7 @@
 import "@/shared/testing/workspace-test-env";
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/email/testing";
 import { sql } from "drizzle-orm";
 import { Effect } from "effect";
 import { Pool } from "pg";
@@ -63,7 +64,7 @@ describe.skipIf(!postgresDatabase)(
 
     test("decodes timestamps as Date through the shared-pool facade", async () => {
       const instant = new Date("2026-09-03T10:30:00.123Z");
-      const rawEmail = `raw-${uniqueId()}@deskohub.test`;
+      const rawEmail = testEmailAddress(`raw-${uniqueId()}`);
       await pool.query(
         `INSERT INTO auth."user" (id, name, email, created_at) VALUES ($1, '', $2, $3)`,
         [uniqueId(), rawEmail, instant]
@@ -72,7 +73,7 @@ describe.skipIf(!postgresDatabase)(
       const inserted = await insertAuthUser(
         db,
         uniqueId(),
-        `facade-${uniqueId()}@deskohub.test`
+        testEmailAddress(`facade-${uniqueId()}`)
       );
 
       const [rawRow] = await db
@@ -94,12 +95,12 @@ describe.skipIf(!postgresDatabase)(
       await insertAuthUser(
         db,
         firstUserId,
-        `link-a-${uniqueId()}@deskohub.test`
+        testEmailAddress(`link-a-${uniqueId()}`)
       );
       await insertAuthUser(
         db,
         secondUserId,
-        `link-b-${uniqueId()}@deskohub.test`
+        testEmailAddress(`link-b-${uniqueId()}`)
       );
       await db
         .insert(customerAccountLinks)
@@ -124,7 +125,11 @@ describe.skipIf(!postgresDatabase)(
 
     test("cascades link removal from the auth user and enforces the foreign key", async () => {
       const userId = uniqueId();
-      await insertAuthUser(db, userId, `cascade-${uniqueId()}@deskohub.test`);
+      await insertAuthUser(
+        db,
+        userId,
+        testEmailAddress(`cascade-${uniqueId()}`)
+      );
       await db.insert(customerAccountLinks).values({
         customerAccountId: userId,
         dotyposCustomerId: `61${Math.floor(Math.random() * 1_000_000)}`,
@@ -156,7 +161,7 @@ describe.skipIf(!postgresDatabase)(
           await tx.insert(authUser).values({
             id: userId,
             name: "",
-            email: `rollback-${uniqueId()}@deskohub.test`,
+            email: testEmailAddress(`rollback-${uniqueId()}`),
           });
           await tx.insert(customerAccountLinks).values({
             customerAccountId: userId,
@@ -189,7 +194,7 @@ describe.skipIf(!postgresDatabase)(
 
     test("resolves user→sessions/accounts joins through the auth-only graph", async () => {
       const userId = uniqueId();
-      await insertAuthUser(db, userId, `graph-${uniqueId()}@deskohub.test`);
+      await insertAuthUser(db, userId, testEmailAddress(`graph-${uniqueId()}`));
       await db.insert(authSession).values({
         id: uniqueId(),
         expiresAt: new Date(Date.now() + 3_600_000),

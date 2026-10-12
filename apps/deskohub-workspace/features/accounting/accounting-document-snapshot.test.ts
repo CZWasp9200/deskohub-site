@@ -1,6 +1,7 @@
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/email/testing";
 import { PgDialect } from "drizzle-orm/pg-core";
 import { Effect, Schema } from "effect";
 import { accountingDocumentSnapshots } from "@/db/schema";
@@ -26,6 +27,8 @@ import {
   encryptAccountingSnapshot,
 } from "./backend/accounting-snapshot-sql";
 
+const adaEmail = testEmailAddress("ada");
+
 const coworkOrder = {
   entryTier: "basic",
   coffee: true,
@@ -38,7 +41,7 @@ const prepared = {
     ...coworkOrder,
     date: "2099-01-01",
     name: "Ada Lovelace",
-    email: "ada@example.com",
+    email: adaEmail,
     phone: "+420 777 777 777",
   },
   quote: buildCoworkReservationQuote(coworkOrder),
@@ -59,7 +62,7 @@ const officeReservation = normalizedOfficeReservationOrderSchema.make({
   endsOn: "2099-06-21",
   seats: 3,
   name: "Ada Lovelace",
-  email: "ada@example.com",
+  email: adaEmail,
   phone: "+420 777 777 777",
 });
 
@@ -86,7 +89,7 @@ describe("accounting document snapshot", () => {
         legalName: "Ada Lovelace",
       },
       delivery: {
-        email: "ada@example.com",
+        email: adaEmail,
       },
       reservation: {
         kind: "cowork",
@@ -99,7 +102,7 @@ describe("accounting document snapshot", () => {
   test("freezes only the reservation email needed for invoice delivery", () => {
     const serialized = JSON.stringify(makeSnapshot());
 
-    expect(serialized).toContain("ada@example.com");
+    expect(serialized).toContain(adaEmail);
     expect(serialized).not.toContain("+420 777 777 777");
     expect(serialized).not.toContain('"message"');
   });
@@ -131,7 +134,7 @@ describe("accounting document snapshot", () => {
     ).resolves.toEqual(snapshot);
 
     const serialized = JSON.stringify(snapshot);
-    expect(serialized).toContain("ada@example.com");
+    expect(serialized).toContain(adaEmail);
     expect(serialized).not.toContain("+420 777 777 777");
   });
 

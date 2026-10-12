@@ -9,6 +9,8 @@ import {
   unregisterWorkspaceComponentTestEnv,
 } from "@/shared/testing/workspace-component-test-env";
 
+import { workspaceSiteConstants } from "@/shared/utils";
+
 const syntheticPhotos = [
   {
     context: { custom: { alt: "Synthetic workspace photo 1" } },
@@ -139,8 +141,10 @@ test("renders the public homepage sections without Team, FAQ, or teambuilding se
     "Turnovská 430/10, 180 00 Praha 8 - Libeň"
   );
   expect(
-    page.querySelector('a[href="mailto:workspace@deskohub.cz"]')?.textContent
-  ).toBe("workspace@deskohub.cz");
+    page.querySelector(
+      `a[href="mailto:${workspaceSiteConstants.contact.infoEmail}"]`
+    )?.textContent
+  ).toBe(workspaceSiteConstants.contact.infoEmail);
   const ids = Array.from(page.querySelectorAll<HTMLElement>("[id]"), (node) =>
     node.id.toLowerCase()
   );
@@ -174,8 +178,10 @@ test("hides the photo carousel and keeps the homepage when its images fail to lo
     "Two minutes from Palmovka metro"
   );
   expect(
-    page.querySelector('a[href="mailto:workspace@deskohub.cz"]')?.textContent
-  ).toBe("workspace@deskohub.cz");
+    page.querySelector(
+      `a[href="mailto:${workspaceSiteConstants.contact.infoEmail}"]`
+    )?.textContent
+  ).toBe(workspaceSiteConstants.contact.infoEmail);
 });
 
 test("hides the photo carousel when Cloudinary serves no photos", async () => {

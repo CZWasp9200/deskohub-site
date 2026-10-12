@@ -1,5 +1,6 @@
 import "@/shared/testing/workspace-test-env";
 import { describe, expect, mock, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/email/testing";
 import { Effect, Schema } from "effect";
 import { buildCoworkReservationQuote } from "@/features/checkout/reservation-quote-cowork";
 import type { WorkspaceMoney } from "@/features/checkout/workspace-money";
@@ -16,6 +17,8 @@ import { DiscountServiceMock } from "@/features/discounts/discount.service.mock"
 import { getCoworkAdvertisedPriceReservation } from "@/features/reservation/cowork-reservation";
 import { dotyposCustomerIdSchema } from "@/features/reservation/dotypos-customer";
 import { coworkCheckoutPricing } from "./cowork-checkout-pricing";
+
+const testEmailAddressForAda = testEmailAddress("ada");
 
 const money = (value: number): WorkspaceMoney => ({
   value,
@@ -65,7 +68,7 @@ const reservation = {
   coffee: true,
   date: "2099-07-30",
   name: "Ada Lovelace",
-  email: "ada@example.com",
+  email: testEmailAddressForAda,
   phone: "+420 777 777 777",
 };
 
@@ -427,7 +430,7 @@ describe("cowork checkout pricing", () => {
       monitorOption: "2x27-qhd" as const,
       date: "2099-07-30",
       name: "Ada Lovelace",
-      email: "ada@example.com",
+      email: testEmailAddressForAda,
       phone: "+420 777 777 777",
     };
     const profiQuote = discountQuoteCodec.make({

@@ -2,6 +2,7 @@ import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, mock, test } from "bun:test";
 import { drizzleAdapter } from "@better-auth/drizzle-adapter/relations-v2";
+import { testEmailAddress } from "@deskohub/email/testing";
 import type {
   Account,
   RateLimit,
@@ -156,7 +157,7 @@ describe("Better Auth route wrapper", () => {
 });
 
 const uniqueEmail = (label: string) =>
-  `${label}-${crypto.randomUUID()}@deskohub.test`;
+  testEmailAddress(`${label}-${crypto.randomUUID()}`);
 
 const makeDisposableAuth = (
   sentLinks: { email: string; url: string; token: string }[]

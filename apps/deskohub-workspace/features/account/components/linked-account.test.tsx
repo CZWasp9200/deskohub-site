@@ -7,6 +7,7 @@ import {
   mock,
   test,
 } from "bun:test";
+import { testEmailAddress } from "@deskohub/email/testing";
 import React from "react";
 import type { CustomerProfileInput } from "@/features/account/contracts";
 import {
@@ -19,6 +20,8 @@ import {
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
 } from "@/shared/testing/workspace-component-test-env";
+
+const customerEmail = testEmailAddress("ada");
 
 registerWorkspaceComponentTestEnv();
 // @testing-library/react must load after the happy-dom registration, or
@@ -300,7 +303,7 @@ describe("LinkedAccount", () => {
       withAccountLayout(
         <LinkedAccount
           avatarPresentation={hiddenAvatarPresentation}
-          email="ada@example.test"
+          email={customerEmail}
           history={history}
           locale="en-US"
           profile={profile}
@@ -403,7 +406,7 @@ describe("LinkedAccount", () => {
       withAccountLayout(
         <LinkedAccount
           avatarPresentation={hiddenAvatarPresentation}
-          email="ada@example.test"
+          email={customerEmail}
           history={history}
           locale="en-US"
           profile={profile}
@@ -441,7 +444,7 @@ describe("LinkedAccount", () => {
         withAccountLayout(
           <LinkedAccount
             avatarPresentation={hiddenAvatarPresentation}
-            email="ada@example.test"
+            email={customerEmail}
             history={history}
             locale="en-US"
             profile={profile}
@@ -460,7 +463,7 @@ describe("LinkedAccount", () => {
       withAccountLayout(
         <LinkedAccount
           avatarPresentation={hiddenAvatarPresentation}
-          email="ada@example.test"
+          email={customerEmail}
           history={history}
           locale="en-US"
           profile={profile}
@@ -488,7 +491,7 @@ describe("LinkedAccount", () => {
         <div data-testid="cached-private-account">
           <LinkedAccount
             avatarPresentation={hiddenAvatarPresentation}
-            email="ada@example.test"
+            email={customerEmail}
             history={history}
             locale={locale}
             profile={profile}
@@ -559,7 +562,7 @@ describe("LinkedAccount", () => {
           {withAccountLayout(
             <LinkedAccount
               avatarPresentation={hiddenAvatarPresentation}
-              email="ada@example.test"
+              email={customerEmail}
               history={history}
               locale="en-US"
               profile={profile}
@@ -621,7 +624,7 @@ describe("LinkedAccount", () => {
         {withAccountLayout(
           <LinkedAccount
             avatarPresentation={hiddenAvatarPresentation}
-            email="ada@example.test"
+            email={customerEmail}
             history={history}
             locale="en-US"
             profile={profile}
@@ -688,7 +691,7 @@ describe("LinkedAccount", () => {
         withAccountLayout(
           <LinkedAccount
             avatarPresentation={hiddenAvatarPresentation}
-            email="ada@example.test"
+            email={customerEmail}
             history={history}
             locale="en-US"
             profile={profile}
@@ -714,7 +717,7 @@ describe("LinkedAccount", () => {
       withAccountLayout(
         <LinkedAccount
           avatarPresentation={hiddenAvatarPresentation}
-          email="ada@example.test"
+          email={customerEmail}
           history={history}
           locale="en-US"
           profile={profile}
@@ -736,7 +739,7 @@ describe("LinkedAccount", () => {
       withAccountLayout(
         <LinkedAccount
           avatarPresentation={hiddenAvatarPresentation}
-          email="ada@example.test"
+          email={customerEmail}
           history={history}
           locale="en-US"
           profile={profile}
@@ -788,7 +791,7 @@ describe("LinkedAccount", () => {
           {withAccountLayout(
             <LinkedAccount
               avatarPresentation={hiddenAvatarPresentation}
-              email="ada@example.test"
+              email={customerEmail}
               history={history}
               locale="en-US"
               profile={profile}

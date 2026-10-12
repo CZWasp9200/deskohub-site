@@ -1,6 +1,7 @@
 import "@/shared/polyfills/temporal";
 
 import { describe, expect, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/email/testing";
 import { Effect, Schema } from "effect";
 import type { WorkspaceProductMonitorOption } from "@/features/checkout/product-catalog";
 import { workspaceProductMonitorOptions } from "@/features/checkout/product-catalog";
@@ -391,7 +392,7 @@ describe("cowork reservation quotes", () => {
       coffee: false,
       marketingConsent: true,
       name: "Ada Lovelace",
-      email: "ada@example.com",
+      email: testEmailAddress("ada"),
       phone: "+420 777 777 777",
       message: "Please keep this private.",
     } as const;
@@ -418,7 +419,7 @@ describe("cowork reservation quotes", () => {
       coffee: false,
       marketingConsent: true,
       name: "Grace Hopper",
-      email: "grace@example.com",
+      email: testEmailAddress("grace"),
       phone: "+420 111 111 111",
       message: "Do not fingerprint this.",
     } as const;

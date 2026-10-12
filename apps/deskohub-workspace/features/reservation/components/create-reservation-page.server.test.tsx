@@ -1,8 +1,11 @@
 import { expect, mock, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/email/testing";
 import { Effect } from "effect";
 import { isValidElement, type ReactElement, type ReactNode } from "react";
 import { buildCoworkReservationQuote } from "@/features/checkout/reservation-quote-cowork";
 import { instantStringSchema } from "@/shared/utils/temporal";
+
+const testEmailAddressForAda = testEmailAddress("ada");
 
 const nextServer = await import("next/server");
 
@@ -32,7 +35,7 @@ const { createReservationPage } = await import(
 const existingCustomer = {
   contact: {
     name: "Ada Lovelace",
-    email: "ada@example.test",
+    email: testEmailAddressForAda,
     phone: "+420 777 777 777",
   },
   hasMarketingConsent: false,
@@ -168,7 +171,7 @@ test("prefers the signed requested discount code over a fresh public query code"
     date: "2099-06-20",
     coffee: false,
     name: "Ada Lovelace",
-    email: "ada@example.test",
+    email: testEmailAddressForAda,
     phone: "+420777000111",
   });
   const quote = Effect.runSync(

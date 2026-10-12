@@ -8,18 +8,22 @@ import {
   type EmailSendResult,
 } from "@deskohub/email";
 import type { EmailService } from "@deskohub/email/backend/service";
+import { emailTestDomain, testEmailAddress } from "@deskohub/email/testing";
 import { getQueriesForElement } from "@testing-library/react";
 import { Effect, Layer, Logger } from "effect";
 import { ReservationInvoiceService } from "@/features/accounting/backend/reservation-invoice.service";
 import { m } from "@/features/i18n";
 import type { IWorkspaceReservationRepository as WorkspaceReservationRepositoryType } from "@/features/reservation/backend/workspace-reservation.repository";
 import type { CapturePostHogEventInput } from "@/shared/backend/analytics/posthog-event.service";
+import { workspaceDefaultFromAddress } from "@/shared/backend/config/email.config";
 import {
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
 } from "@/shared/testing/workspace-component-test-env";
 import { workspaceSiteConstants } from "@/shared/utils";
 import type { ResendWebhookRuntimeConfigObj } from "./resend-webhook.config";
+
+const testEmailAddressForCustomer = testEmailAddress("customer");
 
 let verifiedPayload: unknown;
 
@@ -1061,9 +1065,10 @@ describe("ResendWebhookService", () => {
     };
     const emailConfig: EmailConfig = {
       defaultFrom: {
-        email: "reservations@workspace.deskohub.cz",
+        email: workspaceDefaultFromAddress,
         name: "Deskohub Workspace",
       },
+      testDomain: emailTestDomain(),
     };
     const errorMessages: string[] = [];
     const logger = Logger.make((options) => {
@@ -1093,7 +1098,7 @@ describe("ResendWebhookService", () => {
           dotyposCustomerId: "dotypos-customer-id",
           customer: {
             _cloudId: "customer-id",
-            email: "customer@example.com",
+            email: testEmailAddressForCustomer,
             firstName: "Ada",
             lastName: "Lovelace",
             companyName: null,
@@ -1165,17 +1170,17 @@ describe("ResendWebhookService", () => {
     const customerHtml = customerEmail.html ?? "";
     const customerText = customerEmail.text ?? "";
 
-    expect(customerEmail.to).toEqual({ email: "customer@example.com" });
+    expect(customerEmail.to).toEqual({ email: testEmailAddressForCustomer });
     expect(Object.hasOwn(customerEmail.metadata ?? {}, "customerEmail")).toBe(
       false
     );
     expect(customerHtml).not.toContain("Ada");
     expect(customerHtml).not.toContain("Lovelace");
-    expect(customerHtml).not.toContain("customer@example.com");
+    expect(customerHtml).not.toContain(testEmailAddressForCustomer);
     expect(customerHtml).not.toContain("123456789");
     expect(customerText).not.toContain("Ada");
     expect(customerText).not.toContain("Lovelace");
-    expect(customerText).not.toContain("customer@example.com");
+    expect(customerText).not.toContain(testEmailAddressForCustomer);
     expect(customerText).not.toContain("123456789");
 
     registerWorkspaceComponentTestEnv();
@@ -1304,7 +1309,7 @@ describe("ResendWebhookService", () => {
     }
     const internalLocale = "cs-CZ";
     expect(internalEmail.to).toEqual({
-      email: workspaceSiteConstants.contact.infoEmail,
+      email: testEmailAddress("workspace-internal"),
       name: workspaceSiteConstants.brand.name,
     });
     expect(internalEmail.subject).toBe(
@@ -1327,8 +1332,8 @@ describe("ResendWebhookService", () => {
         )
         .toUpperCase()
     );
-    expect(internalEmail.html).toContain("customer@example.com");
-    expect(internalEmail.text).toContain("customer@example.com");
+    expect(internalEmail.html).toContain(testEmailAddressForCustomer);
+    expect(internalEmail.text).toContain(testEmailAddressForCustomer);
     expect(internalEmail.html).not.toContain("ACCESS-123");
     expect(internalEmail.text).not.toContain("ACCESS-123");
     expect(internalEmail.html).not.toContain("/reservation/access/");
@@ -1370,7 +1375,9 @@ describe("ResendWebhookService", () => {
       dotyposReservationId: "dotypos-reservation-id",
       dotyposCustomerId: "dotypos-customer-id",
     };
-    const sendPaidReservationEmails = mock(() => Effect.void);
+    const sendPaidReservationEmails = mock(() =>
+      Effect.succeed(EmailDeliveryIdSchema.make("accepted-preview-delivery"))
+    );
     const resolveCustomerAccessCode = mock(() => Effect.succeed("access-code"));
     const emailReservation = {
       ...claimedReservation,
@@ -1379,7 +1386,7 @@ describe("ResendWebhookService", () => {
         entryTier: "basic",
         coffee: false,
       },
-      customer: { email: "customer@example.com" },
+      customer: { email: testEmailAddressForCustomer },
       reservedFrom: Temporal.Instant.from("2026-06-15T22:00:00.000Z"),
       reservedUntil: Temporal.Instant.from("2026-06-16T22:00:00.000Z"),
       tableName: "12",
@@ -1460,9 +1467,10 @@ describe("ResendWebhookService", () => {
     const emailConfig: EmailConfig = {
       apiKey: "api-key",
       defaultFrom: {
-        email: "reservations@workspace.deskohub.cz",
+        email: workspaceDefaultFromAddress,
         name: "Deskohub",
       },
+      testDomain: emailTestDomain(),
     };
 
     const provider = await EmailProviderTag.pipe(
@@ -1476,8 +1484,8 @@ describe("ResendWebhookService", () => {
 
     await Effect.runPromise(
       provider.send({
-        from: { email: "reservations@workspace.deskohub.cz", name: "Deskohub" },
-        to: { email: "customer@example.com" },
+        from: { email: workspaceDefaultFromAddress, name: "Deskohub" },
+        to: { email: testEmailAddressForCustomer },
         subject: "Reservation access",
         html: "<p>Access code</p>",
         text: "Access code",

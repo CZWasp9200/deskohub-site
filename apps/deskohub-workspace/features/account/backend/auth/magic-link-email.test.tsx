@@ -1,9 +1,12 @@
 import { describe, expect, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/email/testing";
 import { Effect } from "effect";
 import { renderMagicLinkEmail } from "./magic-link-email";
 
+const customerEmail = testEmailAddress("ada");
+
 const requestFor = (locale: "en-US" | "cs-CZ") => ({
-  email: "ada@example.test",
+  email: customerEmail,
   url: "https://workspace.example/api/auth/magic-link/verify?token=preview-token",
   locale,
 });
@@ -38,6 +41,6 @@ describe("Magic-link email renderer", () => {
 
     expect(rendered.html).toContain("token=preview-token");
     expect(rendered.subject).not.toContain("token=");
-    expect(rendered.subject).not.toContain("ada@example.test");
+    expect(rendered.subject).not.toContain(customerEmail);
   });
 });

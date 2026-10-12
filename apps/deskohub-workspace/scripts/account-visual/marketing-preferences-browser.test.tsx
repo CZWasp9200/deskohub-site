@@ -24,6 +24,8 @@ import {
   verifyMarketingPreferencesBrowserFixture,
 } from "./marketing-preferences-fixture";
 
+const exampleHost = "example.test";
+
 const repoRoot = resolve(import.meta.dir, "../../../..");
 const appRoot = resolve(import.meta.dir, "../..");
 const artifactRoot = join(repoRoot, ".artifacts/marketing-preferences-browser");
@@ -485,7 +487,7 @@ test.serial("sanitizes a structured fixture-child error response", async () => {
   ];
   try {
     const structuredMessage =
-      `https://synthetic-user:${rawValues[0]}@example.test/?token=${rawValues[1]}\n` +
+      `https://synthetic-user:${rawValues[0]}@${exampleHost}/?token=${rawValues[1]}\n` +
       `DATABASE_URL=${rawValues[2]}`;
     await withMockedFixtureChild(
       fixtureChildScript(

@@ -14,6 +14,8 @@ import {
   workspaceE2EAccountMainRecipientLabel,
 } from "./config";
 
+import { testEmailAddress } from "@deskohub/email/testing";
+
 const runId = (value: string): WorkspaceE2ERunId =>
   Schema.decodeUnknownSync(workspaceE2ERunIdSchema)(value);
 
@@ -112,8 +114,10 @@ describe("workspace account e2e configuration", () => {
     );
     const other = makeWorkspaceE2EAccountRecipient(config, "active-linking");
 
-    expect(recipient).toBe(`delivered+${config.runId}-main@resend.dev`);
-    expect(other).toBe(`delivered+${config.runId}-active-linking@resend.dev`);
+    expect(recipient).toBe(testEmailAddress(`delivered+${config.runId}-main`));
+    expect(other).toBe(
+      testEmailAddress(`delivered+${config.runId}-active-linking`)
+    );
     expect(redact(recipient)).toBe("[redacted]");
     expect(redact(other)).toBe("[redacted]");
   });
@@ -130,14 +134,16 @@ describe("workspace account e2e configuration", () => {
         workspaceE2EAccountMainRecipientLabel
       )
     ).toBe(
-      "delivered+manual-018f3ca2-0000-7000-8000-000000000000-main@resend.dev"
+      testEmailAddress(
+        "delivered+manual-018f3ca2-0000-7000-8000-000000000000-main"
+      )
     );
     expect(
       makeWorkspaceE2EAccountRecipientForRunId(
         runId("1234567890-2"),
         workspaceE2EAccountMainRecipientLabel
       )
-    ).toBe("delivered+1234567890-2-main@resend.dev");
+    ).toBe(testEmailAddress("delivered+1234567890-2-main"));
   });
 
   test("rejects run ids that could encode data beyond the run identity", () => {

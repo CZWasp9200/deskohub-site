@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, setSystemTime, test } from "bun:test";
 import { Result, Schema } from "effect";
 import "@/shared/polyfills/temporal";
+import { testEmailAddress } from "@deskohub/email/testing";
 import { reservationOrderSchema } from "./reservation-order";
+
+const testEmailAddressForAda = testEmailAddress("ada");
 
 const safeParseReservationOrder = Schema.decodeUnknownResult(
   reservationOrderSchema
@@ -14,7 +17,7 @@ const validMeetingRoomReservation = {
   startsAt: "2099-06-10T07:00:00Z",
   endsAt: "2099-06-10T08:00:00Z",
   name: "Ada Lovelace",
-  email: "ada@example.com",
+  email: testEmailAddressForAda,
   phone: "+420777777777",
 } as const;
 
@@ -23,7 +26,7 @@ describe("reservation schema", () => {
     const result = safeParseReservationOrder({
       kind: "meeting-room",
       name: "Ada Lovelace",
-      email: "ada@example.com",
+      email: testEmailAddressForAda,
       phone: "+420 777 777 777",
     });
 
@@ -64,7 +67,7 @@ describe("reservation schema", () => {
       date: "2099-06-10",
       coffee: false,
       name: "Ada Lovelace",
-      email: "ada@example.com",
+      email: testEmailAddressForAda,
       phone: "+420777777777",
     });
 

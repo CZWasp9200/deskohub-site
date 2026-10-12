@@ -16,6 +16,7 @@ import {
   relative,
   resolve,
 } from "node:path";
+import { emailTestDomain, testEmailAddress } from "@deskohub/email/testing";
 import {
   type Browser,
   type BrowserContext,
@@ -102,7 +103,7 @@ const actionControlIds = [
 ] as const;
 const defaultFixtureReport = {
   kind: "linked",
-  email: "ada@example.test",
+  email: testEmailAddress("ada"),
   profile: {
     firstName: "Ada",
     lastName: "Example",
@@ -1338,7 +1339,10 @@ export const buildBundle = async (
   let result: BuildResult;
   try {
     result = (await Bun.build({
-      define: { "process.env.NODE_ENV": JSON.stringify("production") },
+      define: {
+        "process.env.EMAIL_TEST_DOMAIN": JSON.stringify(emailTestDomain()),
+        "process.env.NODE_ENV": JSON.stringify("production"),
+      },
       entrypoints: [buildEntryPath],
       format: "esm",
       metafile: true,
@@ -2572,6 +2576,7 @@ export const readInitialDomProbe = async (
       locale,
       mode,
       emailProbe,
+      emailDomain,
       statusTexts,
       iconStatusTexts,
     }) => {
@@ -3088,7 +3093,10 @@ export const readInitialDomProbe = async (
       const profile = shouldProbeSelectedProfile
         ? document.querySelector(profileSelector)
         : null;
-      const emailPattern = /^[^@\s]+@example\.test$/i;
+      const emailPattern = new RegExp(
+        `^[^@\\s]+@${emailDomain.replaceAll(".", "\\.")}$`,
+        "i"
+      );
       const normalizedStatusTexts = new Set(
         statusTexts.map((text) => normalizeText(text).toLowerCase())
       );
@@ -3241,7 +3249,7 @@ export const readInitialDomProbe = async (
           email: null,
           statusText: null,
           reason:
-            "selected profile did not render the expected synthetic example.test login email",
+            "selected profile did not render the expected synthetic test-domain login email",
           failures: [
             "selected profile email probe missing expected login email coverage",
           ],
@@ -3393,6 +3401,7 @@ export const readInitialDomProbe = async (
       locale,
       mode,
       emailProbe,
+      emailDomain: emailTestDomain(),
       statusTexts: [...verifiedLoginEmailStatusTexts],
       iconStatusTexts: [...verifiedLoginEmailExplanationTexts],
     }

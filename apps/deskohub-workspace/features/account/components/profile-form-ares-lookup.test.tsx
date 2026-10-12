@@ -1,4 +1,5 @@
 import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/email/testing";
 import React, { type ComponentPropsWithoutRef } from "react";
 import type { AresBusinessLookupResult } from "@/features/account/actions";
 import { workspaceRouterRefresh } from "@/shared/testing/workspace-component-module-mocks";
@@ -224,7 +225,7 @@ const renderForm = (
 ) =>
   render(
     <ProfileForm
-      email="ada@example.test"
+      email={testEmailAddress("ada")}
       locale="en-US"
       mode="edit"
       profile={businessProfile}

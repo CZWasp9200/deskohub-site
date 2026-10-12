@@ -7,6 +7,7 @@ import {
   mock,
   test,
 } from "bun:test";
+import { testEmailAddress } from "@deskohub/email/testing";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { useForm } from "react-hook-form";
 import {
@@ -14,6 +15,8 @@ import {
   unregisterWorkspaceComponentTestEnv,
 } from "@/shared/testing/workspace-component-test-env";
 import type { ReservationExistingCustomerForm } from "../reservation-existing-customer";
+
+const testEmailAddressForAda = testEmailAddress("ada");
 
 const startCheckout = mock();
 
@@ -89,14 +92,14 @@ const getSubmitButton = (view: ReturnType<typeof render>) =>
 const existingCustomer: ReservationExistingCustomerForm = {
   contact: {
     name: "Ada Lovelace",
-    email: "ada@example.com",
+    email: testEmailAddressForAda,
     phone: "+420777777777",
   },
   hasMarketingConsent: false,
   initialMode: "account",
   otherContact: {
     name: "Grace Hopper",
-    email: "grace@example.com",
+    email: testEmailAddress("grace"),
     phone: "+420606060606",
   },
 };
@@ -148,7 +151,7 @@ describe("ReservationCheckoutForm", () => {
     await waitFor(() => expect(startCheckout).toHaveBeenCalledTimes(1));
     expect(startCheckout.mock.calls[0]?.[0]).toMatchObject({
       customer: "account",
-      reservation: { email: "ada@example.com", name: "Ada Lovelace" },
+      reservation: { email: testEmailAddressForAda, name: "Ada Lovelace" },
     });
 
     fireEvent.click(

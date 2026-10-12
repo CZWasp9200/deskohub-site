@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/email/testing";
 import { Schema, SchemaAST } from "effect";
 import { WORKSPACE_SITE_TIME_ZONE } from "./site-time-zone";
 import {
@@ -558,7 +559,7 @@ describe("administration contract", () => {
         kind: "new",
         details: {
           kind: "person",
-          email: "synthetic@example.test",
+          email: testEmailAddress("synthetic"),
           firstName: "Synthetic",
           lastName: "Customer",
           address: {

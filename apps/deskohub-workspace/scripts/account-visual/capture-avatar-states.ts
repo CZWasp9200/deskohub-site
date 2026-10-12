@@ -36,6 +36,8 @@ import { type AccountVisualLocale, isAccountVisualLocale } from "./types";
  *   WORKSPACE_ACCOUNT_VISUAL_PORT=3999 bun apps/deskohub-workspace/scripts/account-visual/capture-avatar-states.ts --label avatar-evidence
  */
 
+import { testEmailAddress } from "@deskohub/email/testing";
+
 const captureViewports = [
   { name: "desktop", width: 1280, height: 2400, deviceScaleFactor: 2 },
   { name: "tablet", width: 768, height: 1024, deviceScaleFactor: 1 },
@@ -301,7 +303,7 @@ const runLocale = async ({
 
           if (fixture === "hidden") {
             await expect(profile).toContainText("Ada Example");
-            await expect(profile).toContainText("ada@example.test");
+            await expect(profile).toContainText(testEmailAddress("ada"));
             await expect(profile.locator("img")).toHaveCount(0);
             await expect(profile.getByText("AE")).toHaveCount(0);
             await expect(profile.locator("input[type='file']")).toHaveCount(0);

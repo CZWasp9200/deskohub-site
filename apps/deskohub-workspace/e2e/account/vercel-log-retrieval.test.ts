@@ -28,6 +28,8 @@ import {
   type WorkspaceE2EMagicLinkRequest,
 } from "./vercel-log-retrieval";
 
+import { testEmailAddress } from "@deskohub/email/testing";
+
 const config = getAccountE2EConfig(
   makeWorkspaceE2EEnvironment({
     ...validE2ERuntimeEnvironment,
@@ -809,7 +811,7 @@ describe("workspace e2e Vercel log retrieval", () => {
       Response.json(
         page([
           row("req-other", [
-            log(previewE2ELine(magicLink("token"), "other@resend.dev")),
+            log(previewE2ELine(magicLink("token"), testEmailAddress("other"))),
           ]),
         ])
       )

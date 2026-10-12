@@ -60,6 +60,8 @@ import { temporalInstantToIsoString } from "@/shared/utils/temporal";
 import { toWorkspaceE2EError } from "../errors";
 import { E2EDatabase } from "./database.service";
 
+import { testEmailAddress } from "@deskohub/email/testing";
+
 const testKey: AccountingSnapshotKey = {
   id: accountingSnapshotKeyIdSchema.make("K202608"),
   secret: "synthetic accounting snapshot secret!",
@@ -75,7 +77,7 @@ const prepared = {
     ...coworkOrder,
     date: "2099-01-01",
     name: "Synthetic Invoice Customer",
-    email: "invoice-integration@example.test",
+    email: testEmailAddress("invoice-integration"),
     phone: "+420 700 000 000",
   },
   quote: buildCoworkReservationQuote(coworkOrder),

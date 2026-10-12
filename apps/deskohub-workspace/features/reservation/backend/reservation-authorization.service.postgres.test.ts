@@ -6,6 +6,7 @@ import {
   DotyposCustomerIdSchema,
   DotyposReservationIdSchema,
 } from "@deskohub/dotypos";
+import { testEmailAddress } from "@deskohub/email/testing";
 import { Effect, Layer } from "effect";
 import { WorkspaceDatabaseAdvisoryLock } from "@/db/postgres-advisory-lock";
 import { workspaceReservations } from "@/db/schema";
@@ -50,7 +51,7 @@ const makeFixture = (): Fixture => {
   const id = crypto.randomUUID();
   return {
     accountId: customerAccountIdSchema.make(id),
-    accountEmail: `reservation-authorization-${id}@deskohub.test`,
+    accountEmail: testEmailAddress(`reservation-authorization-${id}`),
     customerId: DotyposCustomerIdSchema.make(`customer-${id}`),
     reservationId: workspaceReservationIdSchema.make(`reservation-${id}`),
     dotyposReservationId: `dotypos-reservation-${id}`,

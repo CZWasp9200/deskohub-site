@@ -8,6 +8,7 @@ import {
   mock,
   test,
 } from "bun:test";
+import { testEmailAddress } from "@deskohub/email/testing";
 import type { ContactFormState } from "@/features/contact/actions/contact";
 import type { submitContactForm } from "@/features/contact/actions/submit-contact";
 import { m } from "@/features/i18n";
@@ -16,6 +17,9 @@ import {
   unregisterWorkspaceComponentTestEnv,
 } from "@/shared/testing/workspace-component-test-env";
 import { resolveContactFormState } from "./contact-form-state";
+
+const adaEmail = testEmailAddress("ada");
+const graceEmail = testEmailAddress("grace");
 
 type TestingLibrary = typeof import("@testing-library/react/pure");
 let cleanup: TestingLibrary["cleanup"];
@@ -77,7 +81,7 @@ describe("ContactForm", () => {
         locale="en-US"
         initialValues={{
           name: "Ada Lovelace",
-          email: "ada@example.com",
+          email: adaEmail,
           phone: "+420777777777",
           message: "Please help with a reservation.",
         }}
@@ -85,7 +89,7 @@ describe("ContactForm", () => {
     );
     for (const [label, value] of [
       ["Name", "Ada Lovelace"],
-      ["Email", "ada@example.com"],
+      ["Email", adaEmail],
       ["Phone", "+420777777777"],
       ["Message", "Please help with a reservation."],
     ]) {
@@ -109,7 +113,7 @@ describe("ContactForm", () => {
 
     for (const [label, value] of [
       ["Name", "Grace Hopper"],
-      ["Email", "grace@example.com"],
+      ["Email", graceEmail],
       ["Message", "Please contact me about a meeting room."],
     ]) {
       const field = view.getByLabelText(label) as HTMLInputElement;
@@ -121,7 +125,7 @@ describe("ContactForm", () => {
     expect(form.getAttribute("data-rhf-ready")).toBe("true");
     const submittedValues = new FormData(form);
     expect(submittedValues.get("name")).toBe("Grace Hopper");
-    expect(submittedValues.get("email")).toBe("grace@example.com");
+    expect(submittedValues.get("email")).toBe(graceEmail);
     expect(submittedValues.get("message")).toBe(
       "Please contact me about a meeting room."
     );
@@ -141,7 +145,7 @@ describe("ContactForm", () => {
     expect(view.queryByText(clientValidationMessage)).toBeNull();
     expect(calls).toHaveLength(1);
     expect(calls[0]?.get("name")).toBe("Grace Hopper");
-    expect(calls[0]?.get("email")).toBe("grace@example.com");
+    expect(calls[0]?.get("email")).toBe(graceEmail);
     expect(calls[0]?.get("message")).toBe(
       "Please contact me about a meeting room."
     );
@@ -207,7 +211,7 @@ describe("ContactForm", () => {
         locale="en-US"
         initialValues={{
           name: "Ada Lovelace",
-          email: "ada@example.com",
+          email: adaEmail,
           phone: "",
           message: "Please help with a reservation.",
         }}
@@ -240,7 +244,7 @@ describe("ContactForm", () => {
 
     for (const [label, value] of [
       ["Name", "Ada Lovelace"],
-      ["Email", "ada@example.com"],
+      ["Email", adaEmail],
       ["Message", "Please help with a reservation."],
     ]) {
       fireEvent.change(view.getByLabelText(label), { target: { value } });
@@ -276,7 +280,7 @@ describe("ContactForm", () => {
         locale={locale}
         initialValues={{
           name: "Ada Lovelace",
-          email: "ada@example.com",
+          email: adaEmail,
           phone: "",
           message: "Please help with a reservation.",
         }}
@@ -317,7 +321,7 @@ describe("ContactForm", () => {
         locale="en-US"
         initialValues={{
           name: "Ada Lovelace",
-          email: "ada@example.com",
+          email: adaEmail,
           phone: "",
           message: "Please help with a reservation.",
         }}

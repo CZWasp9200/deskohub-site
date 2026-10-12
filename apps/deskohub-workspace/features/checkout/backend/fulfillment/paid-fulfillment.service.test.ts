@@ -6,10 +6,13 @@ import {
   DotyposService,
 } from "@deskohub/dotypos";
 import { EmailDeliveryIdSchema } from "@deskohub/email";
+import { testEmailAddress } from "@deskohub/email/testing";
 import { Effect, Layer } from "effect";
 import { ReservationInvoiceService } from "@/features/accounting/backend/reservation-invoice.service";
 import type { IWorkspaceReservationService } from "@/features/reservation/backend/workspace-reservation.service";
 import type { IWorkspaceReservationEmailService } from "./workspace-reservation-email.service";
+
+const testEmailAddressForCustomer = testEmailAddress("customer");
 
 mock.module("server-only", () => ({}));
 
@@ -60,7 +63,7 @@ describe("WorkspacePaidFulfillmentService", () => {
         entryTier: "basic",
         coffee: false,
       },
-      customer: { email: "customer@example.com" },
+      customer: { email: testEmailAddressForCustomer },
       reservedFrom: Temporal.Instant.from("2026-07-01T08:00:00.000Z"),
       reservedUntil: Temporal.Instant.from("2026-07-02T08:00:00.000Z"),
       tableName: "12",
@@ -182,7 +185,7 @@ describe("WorkspacePaidFulfillmentService", () => {
         entryTier: "basic",
         coffee: false,
       },
-      customer: { email: "customer@example.com" },
+      customer: { email: testEmailAddressForCustomer },
       reservedFrom: Temporal.Instant.from("2026-07-01T08:00:00.000Z"),
       reservedUntil: Temporal.Instant.from("2026-07-02T08:00:00.000Z"),
       tableName: "12",
@@ -285,7 +288,7 @@ describe("WorkspacePaidFulfillmentService", () => {
         entryTier: "basic",
         coffee: false,
       },
-      customer: { email: "customer@example.com" },
+      customer: { email: testEmailAddressForCustomer },
       reservedFrom: Temporal.Instant.from("2026-07-01T08:00:00.000Z"),
       reservedUntil: Temporal.Instant.from("2026-07-02T08:00:00.000Z"),
       tableName: "12",
@@ -415,7 +418,7 @@ describe("WorkspacePaidFulfillmentService", () => {
         entryTier: "basic",
         coffee: false,
       },
-      customer: { email: "customer@example.com" },
+      customer: { email: testEmailAddressForCustomer },
       reservedFrom: Temporal.Instant.from("2026-07-01T08:00:00.000Z"),
       reservedUntil: Temporal.Instant.from("2026-07-02T08:00:00.000Z"),
       tableName: "12",

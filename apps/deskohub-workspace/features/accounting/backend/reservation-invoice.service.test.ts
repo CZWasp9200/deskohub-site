@@ -2,6 +2,7 @@ import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, mock, test } from "bun:test";
 import { DotyposService, ExternalAPIError } from "@deskohub/dotypos";
+import { testEmailAddress } from "@deskohub/email/testing";
 import { Effect, Layer, Schema } from "effect";
 import {
   type AccountingDocumentSnapshot,
@@ -458,6 +459,6 @@ const makeSource = (
     ...identity,
     supplier,
     billing,
-    delivery: { email: "synthetic@example.test" },
+    delivery: { email: testEmailAddress("synthetic") },
   });
 };

@@ -1,4 +1,5 @@
 import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/email/testing";
 import { type ComponentPropsWithoutRef, useState } from "react";
 import { type Locale, m } from "@/features/i18n";
 import {
@@ -12,6 +13,8 @@ import type {
 import type { BillingScreenCopy } from "./billing/billing-screen";
 import type { ProfileScreenCopy } from "./profile/profile-screen";
 import type { ReservationHistoryCopy } from "./reservation-history";
+
+const customerEmail = testEmailAddress("ada");
 
 type NavigateEvent = {
   readonly preventDefault: () => void;
@@ -350,7 +353,7 @@ function renderProfileScreen(locale: Locale): ScreenView {
   return render(
     <ProfileScreen
       copy={profileCopy[locale]}
-      email="ada@example.test"
+      email={customerEmail}
       firstName="Ada"
       lastName="Lovelace"
       locale={locale}
@@ -525,7 +528,7 @@ describe("account future-feature controls", () => {
 
     const profileView = render(
       <ProfileForm
-        email="ada@example.test"
+        email={customerEmail}
         locale="en-US"
         mode="edit"
         profile={{
@@ -584,7 +587,7 @@ describe("account future-feature controls", () => {
     signInMagicLink.mockImplementationOnce(() => pendingMagicLink);
     const signInView = render(<SignInCard locale="en-US" />);
     fireEvent.change(signInView.getByLabelText("Email"), {
-      target: { value: "ada@example.test" },
+      target: { value: customerEmail },
     });
     await act(async () => {
       fireEvent.submit(
@@ -594,7 +597,7 @@ describe("account future-feature controls", () => {
     });
     expect(signInMagicLink).toHaveBeenCalledTimes(1);
     expect(signInMagicLink).toHaveBeenCalledWith(
-      expect.objectContaining({ email: "ada@example.test" })
+      expect.objectContaining({ email: customerEmail })
     );
     const signInButton = signInView.getByRole("button", { name: "Sending…" });
     expect((signInButton as HTMLButtonElement).disabled).toBe(true);
@@ -621,7 +624,7 @@ describe("account future-feature controls", () => {
     const deletionView = render(
       <DeleteAccountCard
         deletionPending={false}
-        email="ada@example.test"
+        email={customerEmail}
         locale="en-US"
       />
     );

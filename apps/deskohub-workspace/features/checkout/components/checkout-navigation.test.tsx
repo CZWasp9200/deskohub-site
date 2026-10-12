@@ -7,6 +7,7 @@ import {
   mock,
   test,
 } from "bun:test";
+import { testEmailAddress } from "@deskohub/email/testing";
 import { cleanup, render } from "@testing-library/react";
 import type { ComponentProps, ReactNode } from "react";
 import {
@@ -96,7 +97,7 @@ test("starts a new reservation with a fresh document", async () => {
         returnOutcome: "success",
         status: "fulfillment_failed",
         supportContactPrefill: {
-          email: "ada@example.com",
+          email: testEmailAddress("ada"),
           name: "Ada Lovelace",
           phone: "+420777777777",
         },

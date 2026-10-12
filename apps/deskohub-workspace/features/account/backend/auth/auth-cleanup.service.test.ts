@@ -1,3 +1,4 @@
+import { testEmailAddress } from "@deskohub/email/testing";
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, test } from "bun:test";
@@ -15,7 +16,7 @@ const insertUser = (id: string) =>
   testDatabase!.pool.query(
     `insert into auth."user" (id, name, email, email_verified, created_at, updated_at)
      values ($1, 'Cleanup Fixture', $2, true, now(), now())`,
-    [id, `${id}@deskohub.test`]
+    [id, testEmailAddress(`${id}`)]
   );
 
 const insertSession = (id: string, userId: string, expiresAt: string) =>

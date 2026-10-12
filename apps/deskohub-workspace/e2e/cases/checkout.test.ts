@@ -37,12 +37,14 @@ import {
   executeCheckoutFlow,
 } from "./checkout";
 
+import { testEmailAddress } from "@deskohub/email/testing";
+
 const customer: Customer = {
   _cloudId: "customer-id",
   firstName: "Ada",
   lastName: "Lovelace",
   companyName: null,
-  email: "customer@example.com",
+  email: testEmailAddress("customer"),
   phone: null,
   points: null,
   flags: "0",

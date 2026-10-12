@@ -10,6 +10,7 @@ import {
   mock,
   test,
 } from "bun:test";
+import { testEmailAddress } from "@deskohub/email/testing";
 import { cleanup, render } from "@testing-library/react";
 import type { ComponentProps, ReactNode } from "react";
 import type { CheckoutStatusViewModel } from "@/features/checkout/backend/checkout";
@@ -23,6 +24,8 @@ import {
   unregisterWorkspaceComponentTestEnv,
 } from "@/shared/testing/workspace-component-test-env";
 import { CheckoutStatusPageSkeleton } from "./checkout-status-page-skeleton";
+
+const testEmailAddressForAda = testEmailAddress("ada");
 
 type CapturedLink = {
   readonly href: string;
@@ -833,7 +836,7 @@ describe("CheckoutStatusPage", () => {
             orderId: "operational-order-id",
             supportContactPrefill: {
               name: "Sensitive Customer",
-              email: "sensitive@example.com",
+              email: testEmailAddress("sensitive"),
               phone: "+420777777777",
             },
             providerOrderId: "provider-order-id",
@@ -864,7 +867,9 @@ describe("CheckoutStatusPage", () => {
     expect([...url.searchParams.keys()]).toEqual(["entryTier", "coffee"]);
     expect(href).not.toContain("operational-order-id");
     expect(href).not.toContain("Sensitive");
-    expect(href).not.toContain("sensitive%40example.com");
+    expect(href).not.toContain(
+      encodeURIComponent(testEmailAddress("sensitive"))
+    );
     expect(href).not.toContain("provider-order-id");
     expect(href).not.toContain("payment-attempt-id");
     expect(href).not.toContain("SECRET-DISCOUNT");
@@ -1014,7 +1019,7 @@ describe("CheckoutStatusPage", () => {
           fulfillmentStatus: "failed",
           supportContactPrefill: {
             name: "Ada Lovelace",
-            email: "ada@example.com",
+            email: testEmailAddressForAda,
             phone: "+420777777777",
           },
           summary: {
@@ -1038,7 +1043,7 @@ describe("CheckoutStatusPage", () => {
 
     const contactUrl = new URL(href ?? "", "https://deskohub.local");
     expect(contactUrl.searchParams.get("name")).toBe("Ada Lovelace");
-    expect(contactUrl.searchParams.get("email")).toBe("ada@example.com");
+    expect(contactUrl.searchParams.get("email")).toBe(testEmailAddressForAda);
     expect(contactUrl.searchParams.get("phone")).toBe("+420777777777");
     expect(contactUrl.searchParams.get("message")).toBe(
       [
@@ -1066,7 +1071,7 @@ describe("CheckoutStatusPage", () => {
           fulfillmentStatus: "not_started",
           supportContactPrefill: {
             name: "Ada Lovelace",
-            email: "ada@example.com",
+            email: testEmailAddressForAda,
           },
           summary: {
             kind: "cowork",
@@ -1088,7 +1093,7 @@ describe("CheckoutStatusPage", () => {
       "https://deskohub.local"
     );
     expect(contactUrl.pathname).toBe("/en-US/contact");
-    expect(contactUrl.searchParams.get("email")).toBe("ada@example.com");
+    expect(contactUrl.searchParams.get("email")).toBe(testEmailAddressForAda);
     expect(contactUrl.searchParams.get("message")).toBe(
       [
         "Hi Deskohub Workspace,",

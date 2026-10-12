@@ -1,3 +1,4 @@
+import { testEmailAddress } from "@deskohub/email/testing";
 import { AccountLayoutShell } from "@/features/account/components/account-layout-shell";
 import type { CustomerAccountPageState } from "@/features/account/page-data.server";
 import { AccountVisualRoute } from "./account-route";
@@ -5,7 +6,7 @@ import type { AccountVisualAdapterProps } from "./types";
 
 const linkedFixture = {
   kind: "linked",
-  email: "ada@example.test",
+  email: testEmailAddress("ada"),
   profile: {
     firstName: "Ada",
     lastName: "Example",

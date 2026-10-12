@@ -14,6 +14,7 @@ import {
   EmailServiceError,
   EmailServiceTag,
 } from "@deskohub/email/backend/service";
+import { emailTestDomain, testEmailAddress } from "@deskohub/email/testing";
 import { Effect, Layer, Schema } from "effect";
 import {
   type AccountingDocumentSnapshot,
@@ -25,6 +26,7 @@ import {
   makeTestManualInvoiceDocument,
 } from "@/features/accounting/invoice.test-utils";
 import type { InvoiceEmailDeliveryAudience } from "@/features/accounting/invoice-email-delivery";
+import { workspaceDefaultFromAddress } from "@/shared/backend/config/email.config";
 import * as emailRendering from "@/shared/backend/email/render-react-email";
 import { workspaceSiteConstants } from "@/shared/utils";
 import { AccountingDocumentSnapshotRepository } from "./accounting-document-snapshot.repository";
@@ -40,6 +42,8 @@ import {
 } from "./invoice-email-delivery.repository";
 import { InvoiceEmailDeliveryService } from "./invoice-email-delivery.service";
 import * as invoicePdf from "./invoice-pdf";
+
+const frozenRecipientEmail = testEmailAddress("frozen-recipient");
 
 mock.module("server-only", () => ({}));
 
@@ -73,13 +77,14 @@ const invoice = {
   issuedAt: Temporal.Instant.from(document.issuedAt),
   document,
 };
-const source = makeSourceSnapshot("frozen-recipient@example.test");
+const source = makeSourceSnapshot(frozenRecipientEmail);
 
 const emailConfig: EmailConfig = {
   defaultFrom: {
-    email: "reservations@workspace.deskohub.cz",
+    email: workspaceDefaultFromAddress,
     name: "Deskohub Workspace",
   },
+  testDomain: emailTestDomain(),
 };
 
 const sentResult = (id: string): EmailSendResult => ({
@@ -110,7 +115,7 @@ describe("invoice email delivery", () => {
     expect(result).toEqual({ status: "delivered", changed: true });
     expect(sentMessages).toHaveLength(2);
     expect(sentMessages[0]).toMatchObject({
-      to: { email: "frozen-recipient@example.test" },
+      to: { email: frozenRecipientEmail },
       subject: `Invoice ${document.invoiceNumber}`,
       tags: ["workspace-invoice-customer"],
       idempotencyKey: `workspace-invoice-customer-${invoice.id}`,
@@ -122,8 +127,11 @@ describe("invoice email delivery", () => {
       ],
     });
     expect(sentMessages[1]).toMatchObject({
-      // A real customer's internal copy reaches the real mailbox.
-      to: { email: workspaceSiteConstants.contact.infoEmail },
+      // A test customer's internal copy stays on the test domain.
+      to: {
+        email: testEmailAddress("workspace-internal"),
+        name: workspaceSiteConstants.brand.name,
+      },
       subject: `[TESTING] Faktura ${document.invoiceNumber}`,
       tags: ["workspace-invoice-internal"],
       idempotencyKey: `workspace-invoice-internal-${invoice.id}`,
@@ -293,7 +301,7 @@ describe("invoice email delivery", () => {
     expect(result).toEqual({ status: "delivered", changed: true });
     expect(sentMessages).toHaveLength(3);
     expect(sentMessages[2]).toMatchObject({
-      to: { email: "frozen-recipient@example.test" },
+      to: { email: frozenRecipientEmail },
       tags: ["workspace-invoice-customer"],
       idempotencyKey: "workspace-invoice-customer-resend-invoice-id-2",
     });
@@ -347,7 +355,7 @@ describe("invoice email delivery", () => {
 
     expect(result).toEqual({ status: "delivered", changed: true });
     expect(sentMessages[0]?.to).toEqual({
-      email: "manual-invoice@example.test",
+      email: testEmailAddress("manual-invoice"),
     });
     expect(sentMessages[0]?.idempotencyKey).toBe(
       `${sentMessages[0]?.tags?.[0]}-${manualInvoice.id}`

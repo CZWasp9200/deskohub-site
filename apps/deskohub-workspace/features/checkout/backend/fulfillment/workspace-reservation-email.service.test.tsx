@@ -15,6 +15,7 @@ import {
   type EmailSendResult,
 } from "@deskohub/email";
 import type { EmailService } from "@deskohub/email/backend/service";
+import { emailTestDomain, testEmailAddress } from "@deskohub/email/testing";
 import { Effect, Layer } from "effect";
 import { SeatingMapFeatureFlagServiceMock } from "@/features/feature-flags/backend/seating-map-feature-flag.service.mock";
 import {
@@ -25,6 +26,7 @@ import {
   type WorkspaceReservationDetails,
   WorkspaceReservationService,
 } from "@/features/reservation/backend/workspace-reservation.service";
+import { workspaceDefaultFromAddress } from "@/shared/backend/config/email.config";
 
 mock.module("server-only", () => ({}));
 
@@ -48,7 +50,7 @@ const customer: Customer = {
   firstName: "Ada",
   lastName: "Lovelace",
   companyName: null,
-  email: "customer@example.com",
+  email: testEmailAddress("customer"),
   phone: null,
   points: null,
   flags: "0",
@@ -105,9 +107,10 @@ const sendPaidReservationEmail = async (
   };
   const emailConfig: EmailConfig = {
     defaultFrom: {
-      email: "reservations@workspace.deskohub.cz",
+      email: workspaceDefaultFromAddress,
       name: "Deskohub Workspace",
     },
+    testDomain: emailTestDomain(),
   };
   const { env } = await import("@/env");
   const previousPreviewBypassSecret = env.VERCEL_AUTOMATION_BYPASS_SECRET;
@@ -618,9 +621,10 @@ describe("workspace reservation email details", () => {
     };
     const emailConfig: EmailConfig = {
       defaultFrom: {
-        email: "reservations@workspace.deskohub.cz",
+        email: workspaceDefaultFromAddress,
         name: "Deskohub Workspace",
       },
+      testDomain: emailTestDomain(),
     };
 
     const { env } = await import("@/env");
@@ -729,9 +733,10 @@ describe("sendPaidReservationEmails idempotency", () => {
     };
     const emailConfig: EmailConfig = {
       defaultFrom: {
-        email: "reservations@workspace.deskohub.cz",
+        email: workspaceDefaultFromAddress,
         name: "Deskohub Workspace",
       },
+      testDomain: emailTestDomain(),
     };
 
     const { env } = await import("@/env");
@@ -811,9 +816,10 @@ describe("sendPaidReservationEmails idempotent retry stability", () => {
     };
     const emailConfig: EmailConfig = {
       defaultFrom: {
-        email: "reservations@workspace.deskohub.cz",
+        email: workspaceDefaultFromAddress,
         name: "Deskohub Workspace",
       },
+      testDomain: emailTestDomain(),
     };
 
     const { env } = await import("@/env");
@@ -932,9 +938,10 @@ describe("sendPaidReservationEmails reservation access capability", () => {
     };
     const emailConfig: EmailConfig = {
       defaultFrom: {
-        email: "reservations@workspace.deskohub.cz",
+        email: workspaceDefaultFromAddress,
         name: "Deskohub Workspace",
       },
+      testDomain: emailTestDomain(),
     };
 
     await Effect.gen(function* () {

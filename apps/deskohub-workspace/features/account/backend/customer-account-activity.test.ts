@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/email/testing";
 import { Deferred, Effect, Fiber, Semaphore } from "effect";
 import { SqlError } from "effect/unstable/sql";
 import { reservationCustomerEmailSchema } from "@/features/reservation/reservation-contact";
@@ -12,6 +13,8 @@ import {
   CustomerAuthentication,
   type CustomerAuthenticationEnvironment,
 } from "./customer-authentication.service";
+
+const customerEmail = testEmailAddress("ada");
 
 const accountId = customerAccountIdSchema.make(
   "5b6f31d0-2c1a-4f0e-9a3d-6c7b8e2f1a01"
@@ -42,7 +45,7 @@ const makeBackend = (options: {
     ? Effect.fail(new CustomerAccountAccessError({ reason: "unavailable" }))
     : Effect.succeed({
         accountId,
-        email: reservationCustomerEmailSchema.make("ada@example.test"),
+        email: reservationCustomerEmailSchema.make(customerEmail),
         deletionRequested: false,
       }).pipe(
         Effect.tap(() =>
@@ -356,7 +359,7 @@ describe("optional account activity guard", () => {
     const backend: GuardBackend = {
       currentUser: Effect.succeed({
         accountId,
-        email: reservationCustomerEmailSchema.make("ada@example.test"),
+        email: reservationCustomerEmailSchema.make(customerEmail),
         deletionRequested: false,
       }),
       findActivityState: () => Effect.succeed(activeState()),

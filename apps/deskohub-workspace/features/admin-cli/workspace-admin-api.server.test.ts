@@ -1,6 +1,7 @@
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/email/testing";
 import { IgloohomeService } from "@deskohub/igloohome";
 import {
   AdministrationActorUsername,
@@ -232,7 +233,7 @@ describe("Workspace Admin API", () => {
         kind: "new" as const,
         details: {
           kind: "person" as const,
-          email: "synthetic@example.test",
+          email: testEmailAddress("synthetic"),
           firstName: "Synthetic",
           lastName: "Customer",
           address: {

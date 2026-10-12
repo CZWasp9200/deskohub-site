@@ -1,5 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
 import type { DotyposCustomerId } from "@deskohub/dotypos";
+import { testEmailAddress } from "@deskohub/email/testing";
 import { Deferred, Effect, Layer } from "effect";
 import type { CustomerMarketingConsent } from "@/db/schema/customer-marketing-consents";
 import {
@@ -15,6 +16,8 @@ import { reservationCustomerEmailSchema } from "@/features/reservation/reservati
 import type { CustomerLastReservation } from "@/features/reservation/reservation-existing-customer";
 import { CustomerLastReservationService } from "./customer-last-reservation.service";
 
+const testEmailAddressForAda = testEmailAddress("ada");
+
 mock.module("server-only", () => ({}));
 
 const { loadLinkedExistingCustomer } = await import(
@@ -24,7 +27,7 @@ const { loadLinkedExistingCustomer } = await import(
 const account: CurrentLinkedAccount = {
   accountId: customerAccountIdSchema.make("auth-user-1"),
   dotyposCustomerId: "60111" as DotyposCustomerId,
-  email: reservationCustomerEmailSchema.make("ada@example.test"),
+  email: reservationCustomerEmailSchema.make(testEmailAddressForAda),
 };
 
 const contact = {
@@ -118,7 +121,7 @@ describe("loadLinkedExistingCustomer", () => {
       success: {
         contact: {
           name: "Ada Lovelace",
-          email: "ada@example.test",
+          email: testEmailAddressForAda,
           phone: "+420 777 777 777",
         },
         hasMarketingConsent: false,
@@ -140,7 +143,7 @@ describe("loadLinkedExistingCustomer", () => {
     expect(outcome.success).toEqual({
       contact: {
         name: "Ada Lovelace",
-        email: "ada@example.test",
+        email: testEmailAddressForAda,
         phone: "+420 777 777 777",
       },
       hasMarketingConsent: false,

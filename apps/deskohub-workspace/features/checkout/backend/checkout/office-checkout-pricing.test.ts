@@ -2,6 +2,7 @@ import "@/shared/polyfills/temporal";
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, mock, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/email/testing";
 import { Effect, Schema } from "effect";
 import { getWorkspaceOfficePrice } from "@/features/checkout/product-catalog";
 import { calendarSaleDiscountServiceLayer } from "@/features/discounts/calendar-sale.test-utils";
@@ -22,7 +23,7 @@ const reservation = Schema.decodeUnknownSync(officeReservationOrderSchema)({
   endsOn: startsOn.add({ days: 1 }).toString(),
   seats: 3,
   name: "Ada Lovelace",
-  email: "ada@example.com",
+  email: testEmailAddress("ada"),
   phone: "+420 777 777 777",
 });
 const advertisedReservation = getOfficeAdvertisedPriceReservation(reservation);

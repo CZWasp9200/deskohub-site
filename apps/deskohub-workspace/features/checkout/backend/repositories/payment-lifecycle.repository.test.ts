@@ -1,6 +1,7 @@
 import "@/shared/polyfills/temporal";
 
 import { describe, expect, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/email/testing";
 import { getTableColumns } from "drizzle-orm";
 import { Effect, Layer, Schema } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
@@ -44,7 +45,7 @@ const makeSource = (): AccountingDocumentSnapshot => {
       purpose: "personal",
       invoice: "none",
     },
-    delivery: { email: "synthetic@example.test" },
+    delivery: { email: testEmailAddress("synthetic") },
   });
 };
 

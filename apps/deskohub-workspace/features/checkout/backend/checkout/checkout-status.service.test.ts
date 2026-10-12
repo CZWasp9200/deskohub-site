@@ -3,6 +3,7 @@ import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, mock, test } from "bun:test";
 import { DotyposService } from "@deskohub/dotypos";
+import { testEmailAddress } from "@deskohub/email/testing";
 import { Effect, Layer } from "effect";
 import { SeatingMapFeatureFlagServiceMock } from "@/features/feature-flags/backend/seating-map-feature-flag.service.mock";
 import { AdvisoryAvailabilityInventory } from "@/features/reservation/backend/availability-inventory";
@@ -10,6 +11,8 @@ import type { ReservationHoldCleanupService as ReservationHoldCleanupServiceType
 import { LatePaymentVerificationService } from "../payment/late-payment-verification.service";
 import type { ProviderPaymentFinalizationService as ProviderPaymentFinalizationServiceType } from "../payment/provider-payment-finalization.service";
 import { LatePaymentRecoveryRepository } from "../repositories/late-payment-recovery.repository";
+
+const testEmailAddressForAda = testEmailAddress("ada");
 
 /** These checkouts never received a late payment. */
 const noLatePaymentLayer = () =>
@@ -897,7 +900,7 @@ describe("CheckoutStatusService", () => {
                       id: "customer-id",
                       firstName: "Ada",
                       lastName: "Lovelace",
-                      email: "ada@example.com",
+                      email: testEmailAddressForAda,
                       phone: "+420777777777",
                     })
                   ),
@@ -919,7 +922,7 @@ describe("CheckoutStatusService", () => {
       status: "fulfillment_failed",
       supportContactPrefill: {
         name: "Ada Lovelace",
-        email: "ada@example.com",
+        email: testEmailAddressForAda,
         phone: "+420777777777",
       },
     });

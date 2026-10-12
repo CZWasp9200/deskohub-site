@@ -1,3 +1,4 @@
+import { testEmailAddress } from "@deskohub/email/testing";
 import "@/shared/testing/workspace-test-env";
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -162,7 +163,7 @@ Object.assign(Avatar, { Live: AvatarLayer });
 
 const activeSession = {
   accountId: "@test/account-id" as const,
-  email: "ada@example.test",
+  email: testEmailAddress("ada"),
   deletionRequested: false,
 };
 

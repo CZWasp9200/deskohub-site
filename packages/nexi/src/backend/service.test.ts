@@ -1,4 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/email/testing";
 import { Effect, Layer, Predicate, Schema } from "effect";
 import { FetchHttpClient } from "effect/unstable/http";
 import { NexiRuntimeConfig } from "../config";
@@ -14,6 +15,9 @@ import {
 } from "../types";
 import { mapNexiClientError, NexiGeneratedClient } from "./api";
 import { NexiService } from "./service";
+
+const adaEmail = testEmailAddress("ada");
+const mustNotLeakEmail = testEmailAddress("must-not-leak");
 
 const config = {
   baseUrl: "https://nexi.example.test",
@@ -126,7 +130,7 @@ describe("NexiService hosted payment pages", () => {
           customer: {
             id: nexiCustomerReference("customer-id"),
             name: "Ada Lovelace",
-            email: "ada@example.test",
+            email: adaEmail,
             mobilePhone: {
               countryCallingCode: "420",
               nationalNumber: "777777777",
@@ -159,7 +163,7 @@ describe("NexiService hosted payment pages", () => {
         customerId: "customer-id",
         customerInfo: {
           cardHolderName: "Ada Lovelace",
-          cardHolderEmail: "ada@example.test",
+          cardHolderEmail: adaEmail,
           mobilePhoneCountryCode: "420",
           mobilePhone: "777777777",
         },
@@ -593,7 +597,7 @@ describe("NexiService administration reads", () => {
             orderId: nexiOrderId("order#id"),
             amount: "5000",
             currency: "CZK",
-            customerInfo: { cardHolderEmail: "must-not-leak@example.test" },
+            customerInfo: { cardHolderEmail: mustNotLeakEmail },
           },
         },
         operations: [

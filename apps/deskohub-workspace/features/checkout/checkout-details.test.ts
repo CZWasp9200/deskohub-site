@@ -1,6 +1,7 @@
 import "@/shared/polyfills/temporal";
 
 import { describe, expect, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/email/testing";
 import { Schema } from "effect";
 import {
   buildCoworkCheckoutSummary,
@@ -152,7 +153,7 @@ describe("checkout details persistence", () => {
       paymentSubmitLegalEvidenceSource
     );
     expect(serialized).not.toContain("Ada Lovelace");
-    expect(serialized).not.toContain("ada@example.com");
+    expect(serialized).not.toContain(testEmailAddress("ada"));
     expect(serialized).not.toContain("+420777123456");
     expect(serialized).not.toContain("Please keep this private.");
     expect(() =>

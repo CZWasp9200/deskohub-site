@@ -1,8 +1,12 @@
+import { testEmailAddress } from "@deskohub/email/testing";
+import { workspaceSiteConstants } from "@/shared/utils";
 import type { ContactBusinessEmailProps } from "../contact-business";
 import type { ContactConfirmationEmailProps } from "../contact-confirmation";
 import type { CustomerReservationEmailProps } from "../customer-reservation";
 import type { InvoiceDeliveryEmailProps } from "../invoice-delivery";
 import type { ReservationNotificationEmailProps } from "../reservation-notification";
+
+const customerEmail = testEmailAddress("customer");
 
 const customerMessage =
   "Hello,\n\nI'd like to confirm that the Profi pass includes both monitors and coffee. Thank you!";
@@ -17,7 +21,7 @@ export const contactBusinessPreviewProps = {
   messageHeading: "Zpráva",
   details: [
     { label: "Jméno", value: "Ada Lovelace" },
-    { label: "Email", value: "customer@example.com" },
+    { label: "Email", value: customerEmail },
     { label: "Telefon", value: "+420 123 456 789" },
     { label: "Datum a čas", value: "pátek 12. června 2026 v 9:00" },
   ],
@@ -30,8 +34,7 @@ export const contactConfirmationPreviewProps = {
   heading: "Your message is in",
   body: "Thanks for reaching out. We will get back to you as soon as possible with next steps or an answer.",
   message: customerMessage,
-  followUp:
-    "If you want to add anything, reply or write to workspace@deskohub.cz.",
+  followUp: `If you want to add anything, reply or write to ${workspaceSiteConstants.contact.infoEmail}.`,
 } satisfies ContactConfirmationEmailProps;
 
 export const customerReservationPreviewProps = {
@@ -83,8 +86,7 @@ export const customerReservationPreviewProps = {
       value: "workspace_01JY4J8R6Z9Q2N8K7M5P3A1B0C",
     },
   ],
-  followUp:
-    "If you want to add anything, reply or write to workspace@deskohub.cz.",
+  followUp: `If you want to add anything, reply or write to ${workspaceSiteConstants.contact.infoEmail}.`,
 } satisfies CustomerReservationEmailProps;
 
 export const reservationNotificationPreviewProps = {
@@ -93,7 +95,7 @@ export const reservationNotificationPreviewProps = {
   body: "Zaplacená Workspace rezervace je připravená ke kontrole týmem.",
   details: [
     { label: "Jméno", value: "Ada Lovelace" },
-    { label: "Email", value: "customer@example.com" },
+    { label: "Email", value: customerEmail },
     { label: "Telefon", value: "+420 123 456 789" },
     { label: "Vstup", value: "Profi Workstation" },
     { label: "Datum rezervace", value: "pátek 12. června 2026" },

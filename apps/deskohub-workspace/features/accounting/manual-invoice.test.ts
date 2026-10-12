@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/email/testing";
 import { Effect, Schema } from "effect";
 import { workspaceCurrencyDefinitions } from "@/shared/money/currencies";
 import {
@@ -30,7 +31,7 @@ const input = decodeInput({
       country: "CZ",
     },
   },
-  deliveryEmail: "invoice@example.test",
+  deliveryEmail: testEmailAddress("invoice"),
   locale: "cs-CZ",
   serviceDate: "2026-08-18",
   payment: { status: "due", date: "2026-09-01" },

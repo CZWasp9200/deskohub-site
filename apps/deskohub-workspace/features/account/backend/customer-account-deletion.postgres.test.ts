@@ -1,3 +1,4 @@
+import { testEmailAddress } from "@deskohub/email/testing";
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, test } from "bun:test";
@@ -51,7 +52,7 @@ describe.skipIf(!testDatabase)(
       const layer = makeRepositoryLayer();
       const account = customerAccountIdSchema.make(uniqueId());
       const dotyposCustomerId = uniqueDotyposId();
-      await insertAuthUser(account, `del-${account}@deskohub.test`);
+      await insertAuthUser(account, testEmailAddress(`del-${account}`));
       await insertLink(account, dotyposCustomerId);
 
       const order: string[] = [];
@@ -92,7 +93,7 @@ describe.skipIf(!testDatabase)(
       const layer = makeRepositoryLayer();
       const account = customerAccountIdSchema.make(uniqueId());
       const dotyposCustomerId = uniqueDotyposId();
-      await insertAuthUser(account, `del-${account}@deskohub.test`);
+      await insertAuthUser(account, testEmailAddress(`del-${account}`));
       await insertLink(account, dotyposCustomerId);
 
       const outcome = await Effect.runPromise(
@@ -129,7 +130,7 @@ describe.skipIf(!testDatabase)(
     test("serializes deletion against an outer account lock holder", async () => {
       const layer = makeRepositoryLayer();
       const account = customerAccountIdSchema.make(uniqueId());
-      await insertAuthUser(account, `del-${account}@deskohub.test`);
+      await insertAuthUser(account, testEmailAddress(`del-${account}`));
 
       let deletionCompleted = false;
 

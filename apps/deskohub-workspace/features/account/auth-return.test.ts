@@ -8,7 +8,10 @@ import {
   mock,
   test,
 } from "bun:test";
+import { testEmailAddress } from "@deskohub/email/testing";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
+
+const customerEmail = testEmailAddress("ada");
 
 const VALID_ATTEMPT_ID = "550e8400-e29b-41d4-a716-446655440000";
 
@@ -156,12 +159,12 @@ describe("account auth return lifecycle", () => {
       locale: "en-US",
     });
 
-    await lifecycle.sendMagicLink("ada@example.test");
+    await lifecycle.sendMagicLink(customerEmail);
 
     expect(events.slice(0, 2)).toEqual(["listen", "send"]);
     expect(listener?.attemptId).toBe(VALID_ATTEMPT_ID);
     expect(magicLink).toHaveBeenCalledWith({
-      email: "ada@example.test",
+      email: customerEmail,
       callbackURL: `/en-US/auth/callback?attempt=${VALID_ATTEMPT_ID}`,
       metadata: { locale: "en-US" },
     });
@@ -177,20 +180,20 @@ describe("account auth return lifecycle", () => {
     magicLink.mockImplementationOnce(() =>
       Promise.resolve({ error: { message: "rate limited" } })
     );
-    await lifecycle.sendMagicLink("ada@example.test");
+    await lifecycle.sendMagicLink(customerEmail);
     expect(listenerCleanups[0]).toHaveBeenCalledTimes(1);
 
     magicLink.mockImplementationOnce(() =>
       Promise.reject(new Error("synthetic failure"))
     );
-    await expect(lifecycle.sendMagicLink("ada@example.test")).rejects.toThrow(
+    await expect(lifecycle.sendMagicLink(customerEmail)).rejects.toThrow(
       "synthetic failure"
     );
     expect(listenerCleanups[1]).toHaveBeenCalledTimes(1);
 
-    await lifecycle.sendMagicLink("ada@example.test");
+    await lifecycle.sendMagicLink(customerEmail);
     expect(listenerCleanups[2]).not.toHaveBeenCalled();
-    await lifecycle.sendMagicLink("ada@example.test");
+    await lifecycle.sendMagicLink(customerEmail);
     expect(listenerCleanups[2]).toHaveBeenCalledTimes(1);
     lifecycle.cancel();
     expect(listenerCleanups[3]).toHaveBeenCalledTimes(1);
@@ -206,11 +209,11 @@ describe("account auth return lifecycle", () => {
       locale: "cs-CZ",
     });
 
-    await lifecycle.sendMagicLink("ada@example.test");
+    await lifecycle.sendMagicLink(customerEmail);
 
     expect(listenForReturn).not.toHaveBeenCalled();
     expect(magicLink).toHaveBeenCalledWith({
-      email: "ada@example.test",
+      email: customerEmail,
       callbackURL: "/cs-CZ/auth/callback",
       metadata: { locale: "cs-CZ" },
     });
@@ -227,7 +230,7 @@ describe("account auth return lifecycle", () => {
       locale: "en-US",
       requireFreshSession: true,
     });
-    await lifecycle.sendMagicLink("ada@example.test");
+    await lifecycle.sendMagicLink(customerEmail);
 
     expect(await listener?.onReturn(new AbortController().signal)).toBe(false);
     expect(events).not.toContain("replace:/en-US/account");
@@ -249,7 +252,7 @@ describe("account auth return lifecycle", () => {
     const lifecycle = authReturn.createAuthReturnLifecycle({
       locale: "en-US",
     });
-    await lifecycle.sendMagicLink("ada@example.test");
+    await lifecycle.sendMagicLink(customerEmail);
 
     expect(await listener?.onReturn(new AbortController().signal)).toBe(false);
     expect(events).not.toContain("replace:/en-US/account");
@@ -264,7 +267,7 @@ describe("account auth return lifecycle", () => {
     const lifecycle = authReturn.createAuthReturnLifecycle({
       locale: "en-US",
     });
-    await lifecycle.sendMagicLink("ada@example.test");
+    await lifecycle.sendMagicLink(customerEmail);
 
     expect(await listener?.onReturn(new AbortController().signal)).toBe(true);
     expect(events.slice(-2)).toEqual(["replace:/en-US/account", "focus"]);
@@ -282,7 +285,7 @@ describe("account auth return lifecycle", () => {
     const lifecycle = authReturn.createAuthReturnLifecycle({
       locale: "en-US",
     });
-    await lifecycle.sendMagicLink("ada@example.test");
+    await lifecycle.sendMagicLink(customerEmail);
 
     expect(await listener?.onReturn(new AbortController().signal)).toBe(false);
     expect(events).not.toContain("focus");
@@ -303,7 +306,7 @@ describe("account auth return lifecycle", () => {
     const lifecycle = authReturn.createAuthReturnLifecycle({
       locale: "en-US",
     });
-    await lifecycle.sendMagicLink("ada@example.test");
+    await lifecycle.sendMagicLink(customerEmail);
 
     const controller = new AbortController();
     const returnResult = listener?.onReturn(controller.signal);

@@ -8,6 +8,7 @@ import {
   mock,
   test,
 } from "bun:test";
+import { testEmailAddress } from "@deskohub/email/testing";
 import { NexiOrderIdSchema } from "@deskohub/nexi";
 import {
   act,
@@ -356,7 +357,7 @@ describe("administration reservation components", () => {
     expect(view.getByText("Cancelled in Dotypos")).toBeDefined();
     expect(view.getByText("Deskohub: Awaiting payment")).toBeDefined();
     expect(view.getByText("Alex Morgan")).toBeDefined();
-    expect(view.getByText("alex.morgan@example.test")).toBeDefined();
+    expect(view.getByText(testEmailAddress("alex.morgan"))).toBeDefined();
   });
 
   test("keeps related reservations useful when customer details are unavailable", () => {

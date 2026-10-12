@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/email/testing";
 import {
   getAccountContactValues,
   getReservationExistingCustomerForm,
@@ -6,13 +7,13 @@ import {
 
 const contact = {
   name: "Ada Lovelace",
-  email: "ada@example.com",
+  email: testEmailAddress("ada"),
   phone: "+420777777777",
 };
 
 const values = {
   name: "Grace Hopper",
-  email: "grace@example.com",
+  email: testEmailAddress("grace"),
   phone: "+420606060606",
   coffee: true,
 };
@@ -113,7 +114,11 @@ describe("getReservationExistingCustomerForm", () => {
       hasMarketingConsent: false,
       queryMode: undefined,
       restored: true,
-      values: { ...values, ...contact, email: "ADA@example.com" },
+      values: {
+        ...values,
+        ...contact,
+        email: testEmailAddress("ada").toUpperCase(),
+      },
     });
     expect(restoredAccount.existingCustomer).toMatchObject({
       initialMode: "account",

@@ -1,6 +1,9 @@
 import "@/shared/polyfills/temporal";
+import "@deskohub/email/testing/environment";
 
 import { createHash } from "node:crypto";
+
+import { testEmailAddress } from "@deskohub/email/testing";
 
 const checkoutKey = Buffer.alloc(32, 7).toString("base64url");
 const accountingSnapshotKey = "synthetic accounting snapshot secret!";
@@ -56,7 +59,8 @@ process.env.EMAIL_API_KEY ??= "re_test";
 process.env.CRON_SECRET ??= "synthetic-cron-secret";
 process.env.GOOGLE_CALENDAR_PRIVATE_KEY ??= "test-private-key";
 process.env.GOOGLE_CALENDAR_SALES_ID ??= "sales-calendar";
-process.env.GOOGLE_CALENDAR_SERVICE_ACCOUNT_EMAIL ??= "calendar@example.test";
+process.env.GOOGLE_CALENDAR_SERVICE_ACCOUNT_EMAIL ??=
+  testEmailAddress("calendar");
 process.env.GOOGLE_CALENDAR_WORKSPACE_LIMITATIONS_ID ??=
   "workspace-limitations-calendar";
 process.env.IGLOOHOME_CLIENT_ID ??= "synthetic-client";

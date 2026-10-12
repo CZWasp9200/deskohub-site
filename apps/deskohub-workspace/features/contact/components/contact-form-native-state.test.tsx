@@ -8,6 +8,7 @@ import {
   mock,
   test,
 } from "bun:test";
+import { testEmailAddress } from "@deskohub/email/testing";
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { ContactFormState } from "@/features/contact/actions/contact";
@@ -17,6 +18,8 @@ import {
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
 } from "@/shared/testing/workspace-component-test-env";
+
+const initialEmail = testEmailAddress("initial");
 
 type TestingLibrary = typeof import("@testing-library/react/pure");
 let cleanup: TestingLibrary["cleanup"];
@@ -73,7 +76,7 @@ mock.module("next/navigation", () => ({
 
 const initialValues = {
   name: "Initial Person",
-  email: "initial@example.invalid",
+  email: initialEmail,
   phone: "",
   message: "Initial request text.",
 };
@@ -158,7 +161,7 @@ describe("ContactForm native action state", () => {
       message: m.contactValidationReviewMessage({}, { locale }),
       values: {
         name: "Submitted Person",
-        email: "submitted@example.invalid",
+        email: testEmailAddress("submitted"),
         phone: "",
         message: "A submitted request with enough detail.",
       },
@@ -211,7 +214,7 @@ describe("ContactForm native action state", () => {
     );
     for (const [label, value] of [
       ["Name", "Grace Hopper"],
-      ["Email", "grace@example.com"],
+      ["Email", testEmailAddress("grace")],
       ["Message", "Please contact me about a meeting room."],
     ]) {
       const field = view.getByLabelText(label) as HTMLInputElement;
@@ -283,7 +286,7 @@ describe("ContactForm native action state", () => {
     const locale = "cs-CZ";
     const initialValues = {
       name: "Initial Person",
-      email: "initial@example.com",
+      email: initialEmail,
       phone: "",
       message: "Initial request text.",
     };
@@ -350,7 +353,7 @@ describe("ContactForm native action state", () => {
       message: m.contactValidationReviewMessage({}, { locale }),
       values: {
         name: "Hydrated Name",
-        email: "hydrated@example.invalid",
+        email: testEmailAddress("hydrated"),
         phone: "",
         message: "Hydrated validation error.",
       },

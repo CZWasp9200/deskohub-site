@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, setSystemTime, test } from "bun:test";
 import { Effect, Result, Schema } from "effect";
 import "@/shared/polyfills/temporal";
+import { testEmailAddress } from "@deskohub/email/testing";
 import {
   getMeetingRoomReservationDefaultValues,
   getMeetingRoomReservationIssues,
@@ -14,6 +15,8 @@ import {
   workspaceMeetingRoomProductKeySchema,
 } from "./meeting-room-reservation";
 
+const testEmailAddressForAda = testEmailAddress("ada");
+
 const safeParseForm = Schema.decodeUnknownResult(meetingRoomReservationSchema);
 const decodeOrder = Schema.decodeUnknownSync(
   meetingRoomReservationOrderInputSchema
@@ -24,7 +27,7 @@ const safeParseStoredDetails = Schema.decodeUnknownResult(
 );
 const customer = {
   name: "Ada Lovelace",
-  email: "ada@example.com",
+  email: testEmailAddressForAda,
   phone: "+420777777777",
 };
 
@@ -74,7 +77,7 @@ describe("meetingRoomReservationSchema", () => {
       startDateTime: "2099-06-10T10:00",
       duration: "hour:4",
       name: "  Ada Lovelace  ",
-      email: "  ada@example.com  ",
+      email: `  ${testEmailAddressForAda}  `,
       phone: customer.phone,
       marketingConsent: true,
     });
@@ -83,7 +86,7 @@ describe("meetingRoomReservationSchema", () => {
     if (Result.isSuccess(result)) {
       expect(result.success).toMatchObject({
         name: "Ada Lovelace",
-        email: "ada@example.com",
+        email: testEmailAddressForAda,
         marketingConsent: true,
       });
     }

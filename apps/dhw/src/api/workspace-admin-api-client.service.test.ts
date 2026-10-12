@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/email/testing";
 import {
   AdministrationBookingSummary,
   AdministrationCanonicalPromotionCode,
@@ -31,6 +32,8 @@ import {
   CliApiRequestError,
   WorkspaceAdminApiClient,
 } from "./workspace-admin-api-client.service";
+
+const syntheticEmail = testEmailAddress("synthetic");
 
 const accessCodeAttemptId = Schema.decodeUnknownSync(
   AdministrationStandaloneAccessCodeAttemptId
@@ -135,7 +138,7 @@ describe("WorkspaceAdminApiClient", () => {
         kind: "new" as const,
         details: {
           kind: "person" as const,
-          email: "synthetic@example.test",
+          email: syntheticEmail,
           firstName: "Synthetic",
           lastName: "Customer",
           address: {
@@ -281,7 +284,7 @@ describe("WorkspaceAdminApiClient", () => {
         kind: "new" as const,
         details: {
           kind: "person" as const,
-          email: "synthetic@example.test",
+          email: syntheticEmail,
           firstName: "Synthetic",
           lastName: "Customer",
           address: {
@@ -414,7 +417,7 @@ describe("WorkspaceAdminApiClient", () => {
       customer: {
         id: "customer-1",
         displayName: "Ada Lovelace",
-        email: "ada@example.com",
+        email: testEmailAddress("ada"),
         phone: null,
       },
       startsAt: expiresAt,

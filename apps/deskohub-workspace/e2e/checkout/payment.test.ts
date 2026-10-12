@@ -12,6 +12,8 @@ import {
   submitReservationForPayPage,
 } from "./payment";
 
+import { testEmailAddress } from "@deskohub/email/testing";
+
 const orderId = "019f7082-1bec-7ab4-8fcd-2f0fdfd9dd71";
 const checkoutUrl =
   "https://deskohub-workspace-a1b2c3d4e-deskohub-bar.vercel.app/en-US/reservation/cowork";
@@ -426,7 +428,7 @@ const makeConfig = (): WorkspaceE2EConfig => ({
 const makeCheckoutData = (): CheckoutData => ({
   checkoutUrl,
   date: "2099-08-04",
-  email: "workspace-e2e@example.com",
+  email: testEmailAddress("workspace-e2e"),
   expectedReservationDetails: {
     kind: "cowork",
     entryTier: "basic",

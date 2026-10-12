@@ -1,4 +1,5 @@
 import { describe, expect, mock, spyOn, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/email/testing";
 import { Effect, Schema } from "effect";
 
 let actionHeaderReads = 0;
@@ -99,7 +100,7 @@ describe("Workspace actions", () => {
 
   test("does not log validation paths when input logging is disabled", async () => {
     const { defineWorkspaceAction } = await import("./workspace-action");
-    const sensitiveKey = "person@example.test";
+    const sensitiveKey = testEmailAddress("person");
     const action = defineWorkspaceAction(
       {
         logInput: false,

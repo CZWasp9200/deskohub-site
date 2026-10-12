@@ -1,8 +1,11 @@
 import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/email/testing";
 import {
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
 } from "@/shared/testing/workspace-component-test-env";
+
+const customerEmail = testEmailAddress("ada");
 
 registerWorkspaceComponentTestEnv();
 // @testing-library/react must load after the happy-dom registration, or
@@ -158,7 +161,7 @@ describe("account components", () => {
 
     const view = render(<SignInCard locale="en-US" />);
     fireEvent.change(view.getByLabelText("Email"), {
-      target: { value: " ada@example.test " },
+      target: { value: ` ${customerEmail} ` },
     });
     await act(async () => {
       fireEvent.submit(view.container.querySelector("#account-sign-in-form")!);
@@ -166,7 +169,7 @@ describe("account components", () => {
 
     expect(signInMagicLink).toHaveBeenCalledWith(
       expect.objectContaining({
-        email: "ada@example.test",
+        email: customerEmail,
         callbackURL: "/en-US/auth/callback",
         metadata: { locale: "en-US" },
       })
@@ -188,7 +191,7 @@ describe("account components", () => {
 
     const view = render(<SignInCard locale="en-US" />);
     fireEvent.change(view.getByLabelText("Email"), {
-      target: { value: "ada@example.test" },
+      target: { value: customerEmail },
     });
     const form = view.container.querySelector("#account-sign-in-form")!;
 
@@ -223,7 +226,7 @@ describe("account components", () => {
 
     const view = render(<SignInCard locale="en-US" />);
     fireEvent.change(view.getByLabelText("Email"), {
-      target: { value: "ada@example.test" },
+      target: { value: customerEmail },
     });
     const form = view.container.querySelector("#account-sign-in-form")!;
 
@@ -258,7 +261,7 @@ describe("account components", () => {
 
     const view = render(<SignInCard locale="en-US" />);
     fireEvent.change(view.getByLabelText("Email"), {
-      target: { value: "ada@example.test" },
+      target: { value: customerEmail },
     });
     await act(async () => {
       fireEvent.submit(view.container.querySelector("#account-sign-in-form")!);
@@ -277,7 +280,7 @@ describe("account components", () => {
 
     const view = render(<SignInCard locale="en-US" />);
     fireEvent.change(view.getByLabelText("Email"), {
-      target: { value: "ada@example.test" },
+      target: { value: customerEmail },
     });
     await act(async () => {
       fireEvent.submit(view.container.querySelector("#account-sign-in-form")!);
@@ -287,7 +290,7 @@ describe("account components", () => {
       view.getByText("We could not send the link. Please try again.")
     ).toBeTruthy();
     expect((view.getByLabelText("Email") as HTMLInputElement).value).toBe(
-      "ada@example.test"
+      customerEmail
     );
   });
 

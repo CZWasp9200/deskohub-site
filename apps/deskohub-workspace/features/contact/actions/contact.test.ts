@@ -1,5 +1,6 @@
 import "@/shared/testing/workspace-test-env";
 import { describe, expect, mock, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/email/testing";
 import { Effect, Layer, Schema } from "effect";
 import {
   type ContactFormValues,
@@ -7,11 +8,13 @@ import {
 } from "@/features/contact/schemas/contact";
 import { type Locale, m } from "@/features/i18n";
 
+const adaEmail = testEmailAddress("ada");
+
 mock.module("server-only", () => ({}));
 
 const data: ContactFormValues = {
   name: "Ada Lovelace",
-  email: "ada@example.com",
+  email: adaEmail,
   phone: "+420 777 777 777",
   message: "Please contact me about a workspace reservation.",
 };
@@ -66,7 +69,7 @@ describe("processContactSubmission", () => {
     const values = {
       ...data,
       name: " Ada Lovelace ",
-      email: " ada@example.com ",
+      email: ` ${adaEmail} `,
       phone: ` ${data.phone} `,
       message: ` ${data.message} `,
     };

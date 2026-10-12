@@ -1,4 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
+import { emailTestDomain, testEmailAddress } from "@deskohub/email/testing";
 import { Effect, Layer, Logger, Predicate, References, Schema } from "effect";
 import { FetchHttpClient } from "effect/unstable/http";
 import {
@@ -24,6 +25,15 @@ import {
 } from "../types";
 import { DotyposAccessToken, DotyposGeneratedClient } from "./api";
 import { DotyposService } from "./service";
+
+const adaEmail = testEmailAddress("ada");
+const teamEmail = testEmailAddress("team");
+const notAdaEmail = testEmailAddress("not-ada");
+const adaSecretEmail = testEmailAddress("ada.secret");
+const billingEmail = testEmailAddress("billing");
+const adaPrivateEmail = testEmailAddress("ada.private");
+const gracePrivateEmail = testEmailAddress("grace.private");
+const graceAdaEmail = testEmailAddress("grace.ada");
 
 const config = Schema.decodeUnknownSync(DotyposRuntimeConfigSchema)({
   clientId: "client-id",
@@ -235,12 +245,12 @@ describe("DotyposService customer lookup", () => {
       id: "ada",
       firstName: "Ada",
       lastName: "Lovelace",
-      email: "ada@example.com",
+      email: adaEmail,
     });
     const company = customer({
       id: "analytical-engines",
       companyName: "Analytical Engines",
-      email: "team@analytical.example",
+      email: teamEmail,
     });
     const fetchMock = mockDotyposFetch((request) => {
       const url = new URL(request.url);
@@ -320,16 +330,13 @@ describe("DotyposService customer lookup", () => {
   });
 
   test("requests a token once, searches by exact email, and sends bearer auth", async () => {
-    const matched = customer({ id: "email-match", email: "ada@example.com" });
+    const matched = customer({ id: "email-match", email: adaEmail });
     const fetchMock = mockDotyposFetch((request) => {
       const url = new URL(request.url);
       if (url.pathname === "/signin/token") return tokenResponse();
       if (url.pathname === "/clouds/cloud-id/customers") {
         return Response.json({
-          data: [
-            customer({ id: "partial", email: "not-ada@example.com" }),
-            matched,
-          ],
+          data: [customer({ id: "partial", email: notAdaEmail }), matched],
         });
       }
       return new Response("Not found", { status: 404 });
@@ -341,14 +348,14 @@ describe("DotyposService customer lookup", () => {
         const first = yield* dotypos.findCustomer(
           {
             firstName: "Ada",
-            email: "ada@example.com",
+            email: adaEmail,
           },
           undefined
         );
         yield* dotypos.findCustomer(
           {
             firstName: "Ada",
-            email: "ada@example.com",
+            email: adaEmail,
           },
           undefined
         );
@@ -377,7 +384,7 @@ describe("DotyposService customer lookup", () => {
     ) as FetchCall;
     const searchUrl = new URL(getUrl(searchCall));
     expect(searchUrl.searchParams.get("filter")).toBe(
-      "email|like|ada@example.com;deleted|in|0,1"
+      `email|like|${adaEmail};deleted|in|0,1`
     );
     expect(searchUrl.searchParams.get("limit")).toBe("100");
     expect(getHeader(searchCall, "Authorization")).toBe("Bearer access-token");
@@ -464,7 +471,7 @@ describe("DotyposService customer lookup", () => {
   test("accepts nullable customer tags", async () => {
     const matched = customer({
       id: "email-match",
-      email: "ada@example.com",
+      email: adaEmail,
       tags: null,
     });
     const fetchMock = mockDotyposFetch((request) => {
@@ -482,7 +489,7 @@ describe("DotyposService customer lookup", () => {
         return yield* dotypos.findCustomer(
           {
             firstName: "Ada",
-            email: "ada@example.com",
+            email: adaEmail,
           },
           undefined
         );
@@ -498,7 +505,7 @@ describe("DotyposService customer lookup", () => {
   });
 
   test("does not cache failed token fetches", async () => {
-    const matched = customer({ id: "email-match", email: "ada@example.com" });
+    const matched = customer({ id: "email-match", email: adaEmail });
     let tokenAttempts = 0;
     const fetchMock = mockDotyposFetch((request) => {
       const url = new URL(request.url);
@@ -524,7 +531,7 @@ describe("DotyposService customer lookup", () => {
         return yield* dotypos.findCustomer(
           {
             firstName: "Ada",
-            email: "ada@example.com",
+            email: adaEmail,
           },
           undefined
         );
@@ -559,7 +566,7 @@ describe("DotyposService customer lookup", () => {
         return yield* dotypos.findCustomer(
           {
             firstName: "Ada",
-            email: "ada@example.com",
+            email: adaEmail,
           },
           undefined
         );
@@ -573,7 +580,7 @@ describe("DotyposService customer lookup", () => {
   test("reports deleted-only exact-email matches as Deleted and requests deleted customers in the filter", async () => {
     const deleted = customer({
       id: "deleted-match",
-      email: "ada@example.com",
+      email: adaEmail,
       deleted: true,
     });
     const filters: (string | null)[] = [];
@@ -591,24 +598,24 @@ describe("DotyposService customer lookup", () => {
       Effect.gen(function* () {
         const dotypos = yield* DotyposService;
         return yield* dotypos.findCustomer(
-          { firstName: "Ada", email: "ada@example.com" },
+          { firstName: "Ada", email: adaEmail },
           { lookupFields: ["email"] }
         );
       }),
       fetchMock
     );
 
-    expect(filters).toEqual(["email|like|ada@example.com;deleted|in|0,1"]);
+    expect(filters).toEqual([`email|like|${adaEmail};deleted|in|0,1`]);
     expect(result).toEqual({ _tag: "Deleted", matches: [deleted] });
   });
 
   test("prefers the active exact-email match among deleted candidates", async () => {
     const deleted = customer({
       id: "deleted-match",
-      email: "ada@example.com",
+      email: adaEmail,
       deleted: true,
     });
-    const active = customer({ id: "active-match", email: "ada@example.com" });
+    const active = customer({ id: "active-match", email: adaEmail });
     const fetchMock = mockDotyposFetch((request) => {
       const url = new URL(request.url);
       if (url.pathname === "/signin/token") return tokenResponse();
@@ -622,7 +629,7 @@ describe("DotyposService customer lookup", () => {
       Effect.gen(function* () {
         const dotypos = yield* DotyposService;
         return yield* dotypos.findCustomer(
-          { firstName: "Ada", email: "ada@example.com" },
+          { firstName: "Ada", email: adaEmail },
           { lookupFields: ["email"] }
         );
       }),
@@ -637,11 +644,11 @@ describe("DotyposService customer lookup", () => {
   });
 
   test("finds an active exact-email match on a later page behind a full first page of deleted customers", async () => {
-    const active = customer({ id: "active-match", email: "ada@example.com" });
+    const active = customer({ id: "active-match", email: adaEmail });
     const firstPageDeleted = Array.from({ length: 100 }, (_, index) =>
       customer({
         id: `deleted-${index}`,
-        email: "ada@example.com",
+        email: adaEmail,
         deleted: true,
       })
     );
@@ -663,7 +670,7 @@ describe("DotyposService customer lookup", () => {
       Effect.gen(function* () {
         const dotypos = yield* DotyposService;
         return yield* dotypos.findCustomer(
-          { firstName: "Ada", email: "ada@example.com" },
+          { firstName: "Ada", email: adaEmail },
           { lookupFields: ["email"] }
         );
       }),
@@ -681,11 +688,11 @@ describe("DotyposService customer lookup", () => {
   test("reports ambiguity when exact-email matches span two pages", async () => {
     const first = customer({
       id: "first-page-match",
-      email: "ada@example.com",
+      email: adaEmail,
     });
     const second = customer({
       id: "second-page-match",
-      email: "ada@example.com",
+      email: adaEmail,
     });
     const requestedPages: (string | null)[] = [];
     const fetchMock = mockDotyposFetch((request) => {
@@ -705,7 +712,7 @@ describe("DotyposService customer lookup", () => {
       Effect.gen(function* () {
         const dotypos = yield* DotyposService;
         return yield* dotypos.findCustomer(
-          { firstName: "Ada", email: "ada@example.com" },
+          { firstName: "Ada", email: adaEmail },
           { lookupFields: ["email"] }
         );
       }),
@@ -722,7 +729,7 @@ describe("DotyposService customer lookup", () => {
   test("fails closed when a later customer lookup page errors", async () => {
     const first = customer({
       id: "first-page-match",
-      email: "ada@example.com",
+      email: adaEmail,
     });
     const fetchMock = mockDotyposFetch((request) => {
       const url = new URL(request.url);
@@ -743,7 +750,7 @@ describe("DotyposService customer lookup", () => {
         const dotypos = yield* DotyposService;
         return yield* dotypos
           .findCustomer(
-            { firstName: "Ada", email: "ada@example.com" },
+            { firstName: "Ada", email: adaEmail },
             { lookupFields: ["email"] }
           )
           .pipe(Effect.flip);
@@ -761,12 +768,12 @@ describe("DotyposService customer lookup", () => {
   test("keeps findOrCreateCustomer creating a fresh customer when only deleted exact-email matches exist", async () => {
     const deleted = customer({
       id: "deleted-match",
-      email: "ada@example.com",
+      email: adaEmail,
       deleted: true,
     });
     const created = customer({
       id: "freshly-created",
-      email: "ada@example.com",
+      email: adaEmail,
     });
     const fetchMock = mockDotyposFetch((request) => {
       const url = new URL(request.url);
@@ -786,7 +793,7 @@ describe("DotyposService customer lookup", () => {
         return yield* dotypos.findOrCreateCustomer(
           {
             firstName: "Ada",
-            email: "ada@example.com",
+            email: adaEmail,
             phone: "+420 601 111 222",
           },
           { lookupFields: ["email"] }
@@ -802,7 +809,7 @@ describe("DotyposService customer lookup", () => {
     const matched = customer({
       id: "customer-id",
       firstName: "Ada",
-      email: "ada@example.com",
+      email: adaEmail,
       lastName: undefined,
     });
     let updateAttempts = 0;
@@ -831,7 +838,7 @@ describe("DotyposService customer lookup", () => {
           {
             firstName: "Ada",
             lastName: "Lovelace",
-            email: "ada@example.com",
+            email: adaEmail,
           },
           undefined
         );
@@ -845,7 +852,7 @@ describe("DotyposService customer lookup", () => {
 
   test("logs createCustomer failures with provider details", async () => {
     const logs: CapturedLog[] = [];
-    const providerDescription = `firstName=Ada; lastName=Lovelace; email=ada.secret@example.com; phone=+420 777 123 456; ${"x".repeat(700)}`;
+    const providerDescription = `firstName=Ada; lastName=Lovelace; email=${adaSecretEmail}; phone=+420 777 123 456; ${"x".repeat(700)}`;
     const fetchMock = mockDotyposFetch((request) => {
       const url = new URL(request.url);
       if (url.pathname === "/signin/token") return tokenResponse();
@@ -872,7 +879,7 @@ describe("DotyposService customer lookup", () => {
           {
             firstName: "Ada",
             lastName: "Lovelace",
-            email: "ada.secret@example.com",
+            email: adaSecretEmail,
             phone: "+420 777 123 456",
           },
           undefined
@@ -970,7 +977,7 @@ describe("DotyposService customer lookup", () => {
     });
 
     const annotations = logText(failureLog.annotations);
-    expect(annotations).not.toContain("ada.secret@example.com");
+    expect(annotations).not.toContain(adaSecretEmail);
     expect(annotations).not.toContain("+420 777 123 456");
     expect(annotations).not.toContain("Ada");
     expect(annotations).not.toContain("Lovelace");
@@ -982,7 +989,7 @@ describe("DotyposService customer lookup", () => {
       id: "created-customer",
       firstName: "Ada",
       lastName: "Lovelace",
-      email: "ada@example.com",
+      email: adaEmail,
       phone: "+420777123456",
     });
     const fetchMock = mockDotyposFetch(async (request) => {
@@ -1002,7 +1009,7 @@ describe("DotyposService customer lookup", () => {
           {
             firstName: "Ada",
             lastName: "Lovelace",
-            email: "ada@example.com",
+            email: adaEmail,
             phone: "+420 777 123 456",
           },
           undefined
@@ -1033,7 +1040,7 @@ describe("DotyposService customer lookup", () => {
         hexColor: "#000000",
         internalNote: "",
         lastName: "Lovelace",
-        email: "ada@example.com",
+        email: adaEmail,
         phone: "+420777123456",
         points: "0",
         tags: [],
@@ -1049,7 +1056,7 @@ describe("DotyposService customer lookup", () => {
       id: "invoice-customer",
       firstName: "",
       companyName: "Analytical Engines",
-      email: "billing@example.com",
+      email: billingEmail,
     });
     const updated = customer({
       ...created,
@@ -1082,7 +1089,7 @@ describe("DotyposService customer lookup", () => {
     const details = {
       firstName: "",
       lastName: "",
-      email: "billing@example.com",
+      email: billingEmail,
       addressLine1: "42 Engine Street",
       addressLine2: "",
       city: "London",
@@ -1112,7 +1119,7 @@ describe("DotyposService customer lookup", () => {
         getUrl(call as FetchCall).endsWith("/customers")
     ) as FetchCall;
     expect((await readJsonBody(createCall))[0]).toMatchObject({
-      email: "billing@example.com",
+      email: billingEmail,
       phone: "",
       addressLine1: "42 Engine Street",
       companyName: "Analytical Engines",
@@ -1122,7 +1129,7 @@ describe("DotyposService customer lookup", () => {
     ) as FetchCall;
     const updateBody = await readJsonBody(updateCall);
     expect(updateBody).toMatchObject({
-      email: "billing@example.com",
+      email: billingEmail,
       addressLine1: "42 Engine Street",
       companyName: "Analytical Engines",
     });
@@ -1138,7 +1145,7 @@ describe("DotyposService customer lookup", () => {
     async ({ phone, expectedPhone }) => {
       const stored = customer({
         id: "invoice-customer",
-        email: "billing@example.test",
+        email: billingEmail,
         phone: "+420777000111",
       });
       const fetchMock = mockDotyposFetch((request) => {
@@ -1163,7 +1170,7 @@ describe("DotyposService customer lookup", () => {
             {
               firstName: "Ada",
               lastName: "Lovelace",
-              email: "billing@example.test",
+              email: billingEmail,
               phone,
               addressLine1: "42 Engine Street",
               addressLine2: "",
@@ -1216,7 +1223,7 @@ describe("DotyposService customer lookup", () => {
           .createCustomer({
             firstName: "Ada",
             lastName: "Lovelace",
-            email: "billing@example.com",
+            email: billingEmail,
             addressLine1: "42 Engine Street",
             addressLine2: "",
             city: "London",
@@ -1261,7 +1268,7 @@ describe("DotyposService customer lookup", () => {
             {
               firstName: "Ada",
               lastName: "Lovelace",
-              email: "ada@example.com",
+              email: adaEmail,
               phone: "+420 777 123 456",
             },
             undefined
@@ -1281,7 +1288,7 @@ describe("DotyposService customer lookup", () => {
       id: "customer-id",
       firstName: "Ada",
       lastName: "Lovelace",
-      email: "ada.private@example.com",
+      email: adaPrivateEmail,
       phone: undefined,
     });
     const fetchMock = mockDotyposFetch((request) => {
@@ -1301,7 +1308,7 @@ describe("DotyposService customer lookup", () => {
               id: "created-id",
               firstName: "Grace",
               lastName: "Hopper",
-              email: "grace.private@example.com",
+              email: gracePrivateEmail,
               phone: "+420777987654",
             }),
           ]);
@@ -1323,7 +1330,7 @@ describe("DotyposService customer lookup", () => {
           {
             firstName: "Ada",
             lastName: "Lovelace",
-            email: "ada.private@example.com",
+            email: adaPrivateEmail,
             phone: "+420 777 123 456",
           },
           undefined
@@ -1332,7 +1339,7 @@ describe("DotyposService customer lookup", () => {
           {
             firstName: "Grace",
             lastName: "Hopper",
-            email: "grace.private@example.com",
+            email: gracePrivateEmail,
             phone: "+420 777 987 654",
           },
           undefined
@@ -1349,8 +1356,8 @@ describe("DotyposService customer lookup", () => {
     );
     expect(logs.length).toBeGreaterThan(0);
     for (const personalDetail of [
-      "ada.private@example.com",
-      "grace.private@example.com",
+      adaPrivateEmail,
+      gracePrivateEmail,
       "777123456",
       "777987654",
       "Lovelace",
@@ -1368,8 +1375,8 @@ describe("DotyposService customer lookup", () => {
         if (request.method === "GET") {
           return Response.json({
             data: [
-              customer({ id: "first", email: "ada@example.com" }),
-              customer({ id: "second", email: "ada@example.com" }),
+              customer({ id: "first", email: adaEmail }),
+              customer({ id: "second", email: adaEmail }),
             ],
           });
         }
@@ -1384,7 +1391,7 @@ describe("DotyposService customer lookup", () => {
         return yield* dotypos.findOrCreateCustomer(
           {
             firstName: "Ada",
-            email: "ada@example.com",
+            email: adaEmail,
           },
           undefined
         );
@@ -1396,11 +1403,11 @@ describe("DotyposService customer lookup", () => {
   });
 
   test("ignores deleted customers when checking lookup ambiguity", async () => {
-    const active = customer({ id: "active", email: "ada@example.com" });
+    const active = customer({ id: "active", email: adaEmail });
     const deleted = customer({
       deleted: true,
       id: "deleted",
-      email: "ada@example.com",
+      email: adaEmail,
     });
     const fetchMock = mockDotyposFetch((request) => {
       const url = new URL(request.url);
@@ -1420,7 +1427,7 @@ describe("DotyposService customer lookup", () => {
         return yield* dotypos.findOrCreateCustomer(
           {
             firstName: "Ada",
-            email: "ada@example.com",
+            email: adaEmail,
           },
           undefined
         );
@@ -1432,9 +1439,12 @@ describe("DotyposService customer lookup", () => {
   });
 
   test.each([
-    { input: "Ada@Example.test", stored: "ada@example.test" },
-    { input: "ada@example.test", stored: "Ada@Example.TEST" },
-    { input: "  ADA@example.test ", stored: "ada@EXAMPLE.test" },
+    { input: testEmailAddress("Ada"), stored: adaEmail },
+    { input: adaEmail, stored: `Ada@${emailTestDomain().toUpperCase()}` },
+    {
+      input: `  ${testEmailAddress("ADA")} `,
+      stored: `ada@${emailTestDomain().toUpperCase()}`,
+    },
   ])(
     "matches stored email $stored for input $input regardless of case",
     async ({ input, stored }) => {
@@ -1444,10 +1454,7 @@ describe("DotyposService customer lookup", () => {
         if (url.pathname === "/signin/token") return tokenResponse();
         if (url.pathname === "/clouds/cloud-id/customers") {
           return Response.json({
-            data: [
-              customer({ id: "longer", email: "grace.ada@example.test" }),
-              matched,
-            ],
+            data: [customer({ id: "longer", email: graceAdaEmail }), matched],
           });
         }
         return new Response("Not found", { status: 404 });
@@ -1479,8 +1486,8 @@ describe("DotyposService customer lookup", () => {
   );
 
   test("reports ambiguity when active customers differ only by email case", async () => {
-    const lower = customer({ id: "lower", email: "ada@example.test" });
-    const mixed = customer({ id: "mixed", email: "Ada@Example.test" });
+    const lower = customer({ id: "lower", email: adaEmail });
+    const mixed = customer({ id: "mixed", email: testEmailAddress("Ada") });
     const fetchMock = mockDotyposFetch((request) => {
       const url = new URL(request.url);
       if (url.pathname === "/signin/token") return tokenResponse();
@@ -1494,7 +1501,7 @@ describe("DotyposService customer lookup", () => {
       Effect.gen(function* () {
         const dotypos = yield* DotyposService;
         return yield* dotypos.findCustomer(
-          { firstName: "Ada", email: "ADA@example.test" },
+          { firstName: "Ada", email: testEmailAddress("ADA") },
           { lookupFields: ["email"] }
         );
       }),
@@ -1507,7 +1514,7 @@ describe("DotyposService customer lookup", () => {
   test("reuses the existing customer when the checkout email differs only by case", async () => {
     const existing = customer({
       id: "existing",
-      email: "ada@example.test",
+      email: adaEmail,
       phone: "+420777123456",
       lastName: "Lovelace",
     });
@@ -1530,7 +1537,7 @@ describe("DotyposService customer lookup", () => {
           {
             firstName: "Ada",
             lastName: "Lovelace",
-            email: "Ada@Example.test",
+            email: testEmailAddress("Ada"),
             phone: "+420777123456",
           },
           { lookupFields: ["email"] }

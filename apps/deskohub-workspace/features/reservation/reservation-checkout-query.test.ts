@@ -1,6 +1,7 @@
 import "@/shared/polyfills/temporal";
 
 import { describe, expect, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/email/testing";
 import { Schema } from "effect";
 import { workspaceSiteConstants } from "@/shared/utils/site-constants";
 import { normalizedCoworkReservationOrderSchema } from "./cowork-reservation";
@@ -13,6 +14,12 @@ import {
   getReservationDefaultValuesFromSearchParams,
   getWorkspaceAvailabilityQueryFromReservationSearchParams,
 } from "./reservation-checkout-query";
+
+const testEmailAddressForAda = testEmailAddress("ada");
+const quotedLocalEmail = testEmailAddress("quoted-local").replace(
+  "quoted-local@",
+  '"quoted local"@'
+);
 
 const deterministicNow = () => Temporal.Instant.from("2099-07-30T13:01:00Z");
 
@@ -103,9 +110,9 @@ describe("getReservationDefaultValuesFromSearchParams", () => {
   test("uses the shared email validator for checkout query defaults", () => {
     expect(
       getReservationDefaultValuesFromSearchParams({
-        email: '  "quoted local"@example.com  ',
+        email: `  ${quotedLocalEmail}  `,
       }).email
-    ).toBe('"quoted local"@example.com');
+    ).toBe(quotedLocalEmail);
     expect(
       getReservationDefaultValuesFromSearchParams({ email: "invalid@" }).email
     ).toBe("");
@@ -124,12 +131,12 @@ describe("getReservationDefaultValuesFromSearchParams", () => {
   test("decodes customer fields independently as plain records", () => {
     const values = getReservationDefaultValuesFromSearchParams({
       name: "  ",
-      email: "ada@example.com",
+      email: testEmailAddressForAda,
       phone: "+420777777777",
     });
 
     expect(values.name).toBe("");
-    expect(values.email).toBe("ada@example.com");
+    expect(values.email).toBe(testEmailAddressForAda);
     expect(values.phone).toBe("+420777777777");
   });
 });
@@ -139,7 +146,7 @@ describe("getMeetingRoomReservationDefaultValuesFromSearchParams", () => {
     const values = getMeetingRoomReservationDefaultValuesFromSearchParams(
       {
         duration: "hour:1",
-        email: " ada@example.com ",
+        email: ` ${testEmailAddressForAda} `,
         name: "Ada Lovelace",
         phone: "+420777777777",
         startDateTime: "2099-08-12T09:00",
@@ -151,7 +158,7 @@ describe("getMeetingRoomReservationDefaultValuesFromSearchParams", () => {
       startDateTime: "2099-08-12T09:00",
       duration: "hour:1",
       name: "Ada Lovelace",
-      email: "ada@example.com",
+      email: testEmailAddressForAda,
       phone: "+420777777777",
       billing: { purpose: "personal", invoice: "none" },
       marketingConsent: false,
@@ -170,7 +177,9 @@ describe("getMeetingRoomReservationDefaultValuesFromSearchParams", () => {
   test("decodes a plus-encoded phone from a URL query string", () => {
     expect(
       getMeetingRoomReservationDefaultValuesFromSearchParams(
-        new URLSearchParams("email=ada@example.com&phone=%2B420777777777"),
+        new URLSearchParams(
+          "email=" + testEmailAddressForAda + "&phone=%2B420777777777"
+        ),
         deterministicNow()
       ).phone
     ).toBe("+420777777777");
@@ -198,7 +207,7 @@ describe("getMeetingRoomReservationDefaultValuesFromSearchParams", () => {
       getMeetingRoomReservationDefaultValuesFromSearchParams(
         {
           duration: "hour:1",
-          email: "ada@example.com",
+          email: testEmailAddressForAda,
           name: "Ada Lovelace",
           startDateTime: "2099-07-30T10:00",
         },
@@ -208,7 +217,7 @@ describe("getMeetingRoomReservationDefaultValuesFromSearchParams", () => {
       startDateTime: "2099-07-30T10:00",
       duration: "hour:1",
       name: "Ada Lovelace",
-      email: "ada@example.com",
+      email: testEmailAddressForAda,
       phone: "",
       billing: { purpose: "personal", invoice: "none" },
       marketingConsent: false,
@@ -298,7 +307,7 @@ describe("getMeetingRoomReservationDefaultValuesFromSearchParams", () => {
       expect(
         getMeetingRoomReservationDefaultValuesFromSearchParams(
           {
-            email: "ada@example.com",
+            email: testEmailAddressForAda,
             name: "Ada Lovelace",
             startDateTime: `${transition}T${nearbyValid}`,
           },
@@ -307,7 +316,7 @@ describe("getMeetingRoomReservationDefaultValuesFromSearchParams", () => {
       ).toMatchObject({
         startDateTime: `${transition}T${nearbyValid}`,
         name: "Ada Lovelace",
-        email: "ada@example.com",
+        email: testEmailAddressForAda,
       });
     }
   });
@@ -322,7 +331,7 @@ describe("getOfficeReservationDefaultValuesFromSearchParams", () => {
           seats: "4",
           startsOn: "2000-01-01",
           name: "Sensitive Customer",
-          email: "sensitive@example.com",
+          email: testEmailAddress("sensitive"),
           discountCode: "SECRET-DISCOUNT",
           price: "442500",
           providerOrderId: "provider-order-id",
@@ -372,7 +381,7 @@ describe("getReservationDefaultValuesFromPayState", () => {
       coffee: true,
       monitorOption: "2x27-qhd",
       name: "Ada Lovelace",
-      email: "ada@example.com",
+      email: testEmailAddressForAda,
       phone: "+420 777 000 111",
     });
 
@@ -382,7 +391,7 @@ describe("getReservationDefaultValuesFromPayState", () => {
       coffee: true,
       monitorOption: "2x27-qhd",
       name: "Ada Lovelace",
-      email: "ada@example.com",
+      email: testEmailAddressForAda,
       phone: "+420 777 000 111",
       billing: { purpose: "personal", invoice: "none" },
       marketingConsent: false,
@@ -394,12 +403,12 @@ describe("retired reservation customer message", () => {
   test("ignores a message query parameter without harming valid siblings", () => {
     const values = getReservationDefaultValuesFromSearchParams(
       new URLSearchParams(
-        "name=Ada%20Lovelace&email=ada%40example.com&phone=%2B420777777777&message=%20Legacy%20note%20&entryTier=open-space&date=2099-06-10"
+        `name=Ada%20Lovelace&email=${encodeURIComponent(testEmailAddressForAda)}&phone=%2B420777777777&message=%20Legacy%20note%20&entryTier=open-space&date=2099-06-10`
       )
     );
 
     expect(values.name).toBe("Ada Lovelace");
-    expect(values.email).toBe("ada@example.com");
+    expect(values.email).toBe(testEmailAddressForAda);
     expect(values.phone).toBe("+420777777777");
     expect(values.entryTier).toBe("open-space");
     expect(values.date).toBe("2099-06-10");
@@ -429,7 +438,7 @@ describe("retired reservation customer message", () => {
       coffee: true,
       monitorOption: "2x27-qhd",
       name: "Ada Lovelace",
-      email: "ada@example.com",
+      email: testEmailAddressForAda,
       phone: "+420 777 000 111",
       message: "Please prepare the standing desk.",
     });
@@ -441,7 +450,7 @@ describe("retired reservation customer message", () => {
       coffee: true,
       monitorOption: "2x27-qhd",
       name: "Ada Lovelace",
-      email: "ada@example.com",
+      email: testEmailAddressForAda,
       phone: "+420 777 000 111",
       billing: { purpose: "personal", invoice: "none" },
       marketingConsent: false,

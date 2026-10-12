@@ -1,5 +1,6 @@
 import "@/shared/polyfills/temporal";
 import { describe, expect, mock, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/email/testing";
 import { Effect, Predicate, Schema } from "effect";
 import type { JsonObject } from "type-fest";
 import { buildCoworkReservationQuote } from "@/features/checkout/checkout-quote.test-utils";
@@ -15,6 +16,8 @@ import { reservationOrderSchema } from "@/features/reservation/reservation-order
 import { getReservationStartPath } from "@/features/reservation/routes";
 import { instantStringSchema } from "@/shared/utils/temporal";
 import type { PayStateKey, SignedPayState } from "./pay-state";
+
+const testEmailAddressForAda = testEmailAddress("ada");
 
 mock.module("server-only", () => ({}));
 
@@ -70,7 +73,7 @@ const baseReservation = Schema.decodeUnknownSync(
   coffee: true,
   monitorOption: "2x27-qhd",
   name: "Ada Lovelace",
-  email: "ada@example.com",
+  email: testEmailAddressForAda,
   phone: "+420 777 777 777",
 });
 
@@ -100,7 +103,7 @@ const buildMeetingRoomState = () => {
     startsAt: "2099-06-10T08:00:00Z",
     endsAt: "2099-06-10T12:00:00Z",
     name: "Ada Lovelace",
-    email: "ada@example.com",
+    email: testEmailAddressForAda,
     phone: "+420 777 777 777",
   });
   if (reservation.kind !== "meeting-room") {
@@ -128,7 +131,7 @@ const buildOfficeState = () => {
     endsOn: "2099-06-21",
     seats: 3,
     name: "Ada Lovelace",
-    email: "ada@example.com",
+    email: testEmailAddressForAda,
     phone: "+420 777 777 777",
   });
 

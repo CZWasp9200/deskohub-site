@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { runInNewContext } from "node:vm";
+import { testEmailAddress } from "@deskohub/email/testing";
 import { resourceFromAttributes } from "@opentelemetry/resources";
 import {
   InMemoryLogRecordExporter,
@@ -16,6 +17,11 @@ import { EffectLogger } from "drizzle-orm/effect-postgres";
 import { Cause, type Context, Effect, Layer, Logger, References } from "effect";
 import { SqlError } from "effect/unstable/sql";
 import { createTracingLive } from "../observability/otel-tracing";
+
+const syntheticEmail = testEmailAddress("synthetic");
+const adaEmail = testEmailAddress("ada");
+const privateEmail = testEmailAddress("private");
+const exampleHost = "example.com";
 
 type LogAnnotations = Context.Service.Shape<
   typeof References.CurrentLogAnnotations
@@ -200,7 +206,7 @@ describe("censorLogValue", () => {
           content: Buffer.from("private invoice bytes"),
         },
       ],
-      recipient: "synthetic@example.test",
+      recipient: syntheticEmail,
       subject: "Invoice for Synthetic Customer",
       invoiceId: "safe-invoice-id",
     });
@@ -237,7 +243,7 @@ describe("censorLogValue", () => {
         message: "private form message",
         errorDescription: "provider echoed private payload",
         visible: "safe",
-        email: "ada@example.com",
+        email: adaEmail,
         phone: "+420777123456",
         firstName: "Ada",
         lastName: "Lovelace",
@@ -317,10 +323,7 @@ describe("censorLogValue", () => {
 
   test("redacts sensitive fields inside query params without hiding safe values", () => {
     const input = {
-      params: [
-        "visible",
-        { email: "private@example.com", sessionDuration: 123 },
-      ],
+      params: ["visible", { email: privateEmail, sessionDuration: 123 }],
     };
 
     expect(censorLogValue(input)).toEqual({
@@ -351,11 +354,8 @@ describe("censorLogValue", () => {
     const error = new EffectDrizzleQueryError({
       query:
         "select * from customers where id = $1 and email = /* deskohub:sensitive */ $2",
-      params: [
-        "visible",
-        { email: "private@example.com", sessionDuration: 123 },
-      ],
-      cause: new Error("driver echoed private@example.com"),
+      params: ["visible", { email: privateEmail, sessionDuration: 123 }],
+      cause: new Error(`driver echoed ${privateEmail}`),
     });
 
     const censored = censorLogValue({ cause: error });
@@ -373,12 +373,12 @@ describe("censorLogValue", () => {
         },
       },
     });
-    expect(serialized).not.toContain("private@example.com");
+    expect(serialized).not.toContain(privateEmail);
     expect(serialized).not.toContain("Failed query");
   });
 
   test("retains recursively censored Effect SQL causes", () => {
-    const privateValue = "private@example.com";
+    const privateValue = testEmailAddress("private");
     const driverCause = Object.assign(
       new Error(`driver echoed ${privateValue}`, {
         cause: Object.assign(new Error(`socket echoed ${privateValue}`), {
@@ -483,7 +483,7 @@ describe("censorLogValue", () => {
   });
 
   test("retains stack frames while redacting recursive error messages", () => {
-    const privateValue = "private@example.com";
+    const privateValue = testEmailAddress("private");
     const multilineMessage = `${privateValue}\n    at /${privateValue}:8:9`;
     const nested = new Error(privateValue);
     nested.stack = `Error: ${privateValue}\n    at nestedFailure (/app/nested.ts:2:3)`;
@@ -503,7 +503,7 @@ describe("censorLogValue", () => {
     expect(
       censorLogValue({
         "exception.message": multilineMessage,
-        "exception.stacktrace": `Error: ${multilineMessage}\n    at tracedFailure (https://${privateValue}:${privateValue}@example.com/app.js?code=${privateValue}#${privateValue}:6:7)\n    at relativeFailure (/admin/cli/authenticate?code=${privateValue}#${privateValue}:8:9)\n    at fileFailure (file:///app/file.js?token=${privateValue}:10:11)\n    at mappedFailure (turbopack:///[project]/app/page.ts?token=${privateValue}:12:13)\n    at malformedUrl (https://user:${privateValue}@exa mple.com/app.js:14:15)\n    at malformedRelativeUrl (//user:${privateValue}@exa mple.com/app.js:16:17)`,
+        "exception.stacktrace": `Error: ${multilineMessage}\n    at tracedFailure (https://${privateValue}:${privateValue}@${exampleHost}/app.js?code=${privateValue}#${privateValue}:6:7)\n    at relativeFailure (/admin/cli/authenticate?code=${privateValue}#${privateValue}:8:9)\n    at fileFailure (file:///app/file.js?token=${privateValue}:10:11)\n    at mappedFailure (turbopack:///[project]/app/page.ts?token=${privateValue}:12:13)\n    at malformedUrl (https://user:${privateValue}@exa mple.com/app.js:14:15)\n    at malformedRelativeUrl (//user:${privateValue}@exa mple.com/app.js:16:17)`,
       })
     ).toEqual({
       "exception.message": CENSORED_LOG_VALUE,
@@ -535,7 +535,7 @@ describe("censorLogValue", () => {
   });
 
   test("retains only safe error classification fields", () => {
-    const privateValue = "private@example.com";
+    const privateValue = testEmailAddress("private");
     const error = Object.assign(new Error(privateValue), {
       _tag: "CalendarSaleConfigurationError",
       reason: "invalid_event",
@@ -704,7 +704,7 @@ describe("censorLogValue", () => {
       ["payState", "dhp1.secret"],
       ["PayStateRef", "opaque-secret"],
       ["checkoutToken", "checkout-secret"],
-      ["filter", "email|like|customer@example.com"],
+      ["filter", `email|like|${testEmailAddress("customer")}`],
       ["sessionDuration", "123"],
     ]);
     const input = {
@@ -815,7 +815,7 @@ describe("censorLoggerOptions", () => {
         const logger = yield* EffectLogger;
         yield* logger.logQuery("select $1, $2, $3", [
           "visible",
-          { email: "private@example.com", sessionDuration: 123 },
+          { email: privateEmail, sessionDuration: 123 },
           42,
         ]);
       }).pipe(
@@ -835,13 +835,11 @@ describe("censorLoggerOptions", () => {
       query: "select $1, $2, $3",
     });
     expect(JSON.stringify(capturedAnnotations)).toContain("visible");
-    expect(JSON.stringify(capturedAnnotations)).not.toContain(
-      "private@example.com"
-    );
+    expect(JSON.stringify(capturedAnnotations)).not.toContain(privateEmail);
   });
 
   test("censors Drizzle failures stored in the logger cause", () => {
-    const privateValue = "private@example.com";
+    const privateValue = testEmailAddress("private");
     const error = new EffectDrizzleQueryError({
       query:
         "select * from customers where id = $1 and email = /* deskohub:sensitive */ $2",
@@ -939,8 +937,8 @@ describe("createCensoredOtelLogger", () => {
     const error = new EffectDrizzleQueryError({
       query:
         "select * from customers where id = $1 and email = /* deskohub:sensitive */ $2",
-      params: ["safe-customer-id", "private@example.com"],
-      cause: new Error("driver echoed private@example.com"),
+      params: ["safe-customer-id", privateEmail],
+      cause: new Error(`driver echoed ${privateEmail}`),
     });
 
     await Effect.runPromise(
@@ -953,7 +951,7 @@ describe("createCensoredOtelLogger", () => {
     const serialized = JSON.stringify(exporter.getFinishedLogRecords()[0]);
     expect(serialized).toContain("safe-customer-id");
     expect(serialized).toContain(CENSORED_LOG_VALUE);
-    expect(serialized).not.toContain("private@example.com");
+    expect(serialized).not.toContain(privateEmail);
     expect(serialized).not.toContain("Failed query");
     await provider.shutdown();
   });
@@ -962,7 +960,7 @@ describe("createCensoredOtelLogger", () => {
 describe("createCensoredOtelSpanExporter", () => {
   test("applies the shared telemetry censorship policy to span data", async () => {
     const exporter = new InMemorySpanExporter();
-    const privateValue = "private@example.com";
+    const privateValue = testEmailAddress("private");
     const provider = new BasicTracerProvider({
       resource: resourceFromAttributes({
         email: privateValue,

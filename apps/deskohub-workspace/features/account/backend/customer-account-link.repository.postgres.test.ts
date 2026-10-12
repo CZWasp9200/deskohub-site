@@ -1,3 +1,4 @@
+import { testEmailAddress } from "@deskohub/email/testing";
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, test } from "bun:test";
@@ -44,8 +45,11 @@ describe.skipIf(!testDatabase)(
       const secondAccount = customerAccountIdSchema.make(uniqueId());
       const dotyposCustomerId = uniqueDotyposId();
 
-      await insertAuthUser(firstAccount, `a-${firstAccount}@deskohub.test`);
-      await insertAuthUser(secondAccount, `b-${secondAccount}@deskohub.test`);
+      await insertAuthUser(firstAccount, testEmailAddress(`a-${firstAccount}`));
+      await insertAuthUser(
+        secondAccount,
+        testEmailAddress(`b-${secondAccount}`)
+      );
 
       const outcomes = await Effect.runPromise(
         Effect.gen(function* () {
@@ -83,7 +87,7 @@ describe.skipIf(!testDatabase)(
       const layer = makeRepositoryLayer();
       const account = customerAccountIdSchema.make(uniqueId());
       const dotyposCustomerId = uniqueDotyposId();
-      await insertAuthUser(account, `c-${account}@deskohub.test`);
+      await insertAuthUser(account, testEmailAddress(`c-${account}`));
 
       const claims = await Effect.runPromise(
         Effect.gen(function* () {
@@ -113,7 +117,7 @@ describe.skipIf(!testDatabase)(
     test("exposes the activity state and stops it once the auth account row is gone", async () => {
       const layer = makeRepositoryLayer();
       const account = customerAccountIdSchema.make(uniqueId());
-      await insertAuthUser(account, `d-${account}@deskohub.test`);
+      await insertAuthUser(account, testEmailAddress(`d-${account}`));
       await linkRow(account, uniqueDotyposId());
 
       const marker = new Date("2026-09-02T10:00:00.000Z");
@@ -160,7 +164,7 @@ describe.skipIf(!testDatabase)(
     test("serializes resolution against an outer account lock holder", async () => {
       const layer = makeRepositoryLayer();
       const account = customerAccountIdSchema.make(uniqueId());
-      await insertAuthUser(account, `e-${account}@deskohub.test`);
+      await insertAuthUser(account, testEmailAddress(`e-${account}`));
 
       let innerCompleted = false;
 

@@ -1,3 +1,4 @@
+import { testEmailAddress } from "@deskohub/email/testing";
 import type { ComponentType } from "react";
 
 export const accountVisualScreens = [
@@ -48,8 +49,7 @@ export type AccountVisualComparisonMetadata = {
 
 export const defaultAccountVisualAdapterMetadata = {
   owner: "account-visual default adapter",
-  fixture:
-    "linked synthetic customer account with avatar enabled and no image: ada@example.test",
+  fixture: `linked synthetic customer account with avatar enabled and no image: ${testEmailAddress("ada")}`,
 } as const satisfies AccountVisualAdapterMetadata;
 
 /**

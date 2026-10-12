@@ -1,3 +1,5 @@
+import { testEmailAddress } from "@deskohub/email/testing";
+
 const unavailableError = {
   message: "Unavailable in component renderer",
   status: 503,
@@ -7,7 +9,7 @@ export const authClient = {
   getSession: async () => ({
     data: {
       session: { id: "synthetic-session" },
-      user: { id: "synthetic-user", email: "ada@example.test" },
+      user: { id: "synthetic-user", email: testEmailAddress("ada") },
     },
     error: null,
   }),

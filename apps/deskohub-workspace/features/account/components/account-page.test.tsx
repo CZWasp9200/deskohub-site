@@ -7,6 +7,7 @@ import {
   mock,
   test,
 } from "bun:test";
+import { testEmailAddress } from "@deskohub/email/testing";
 import {
   act,
   cleanup,
@@ -27,6 +28,8 @@ import {
   unregisterWorkspaceComponentTestEnv,
 } from "@/shared/testing/workspace-component-test-env";
 import type { CustomerAccountPageState } from "../page-data.server";
+
+const customerEmail = testEmailAddress("ada");
 
 const signInMagicLink = mock(() => Promise.resolve({ error: null }));
 const getSession = mock(() => Promise.resolve({ data: null, error: null }));
@@ -202,7 +205,7 @@ const originalResizeObserver = globalThis.ResizeObserver;
 
 const linkedState = {
   kind: "linked",
-  email: "ada@example.test",
+  email: customerEmail,
   profile: {
     firstName: "Ada",
     lastName: "Lovelace",
@@ -275,7 +278,7 @@ describe("AccountPage states", () => {
   test("asks for profile completion with the read-only verified email", async () => {
     const view = await renderState({
       kind: "completion-required",
-      email: "ada@example.test",
+      email: customerEmail,
     });
 
     expect(
@@ -285,7 +288,7 @@ describe("AccountPage states", () => {
       })
     ).toBeTruthy();
     const email = view.getByLabelText("Email") as HTMLInputElement;
-    expect(email.value).toBe("ada@example.test");
+    expect(email.value).toBe(customerEmail);
     expect(email.readOnly).toBe(true);
     expect(view.getByLabelText("First name")).toBeTruthy();
     expect(view.getByText("Sign out")).toBeTruthy();
@@ -316,7 +319,7 @@ describe("AccountPage states", () => {
     );
     expect(view.getByText("Save profile")).toBeTruthy();
     expect(view.getByText("Ada Lovelace")).toBeTruthy();
-    expect(view.getByText("ada@example.test")).toBeTruthy();
+    expect(view.getByText(customerEmail)).toBeTruthy();
     expect(view.container.querySelector("img")).toBeNull();
     expect(view.container.querySelector("input[type='file']")).toBeNull();
     expect(
@@ -360,7 +363,7 @@ describe("AccountPage states", () => {
   test("renders the support state with the contact destination and no profile data", async () => {
     const view = await renderState({
       kind: "support-required",
-      email: "ada@example.test",
+      email: customerEmail,
     });
 
     expect(
@@ -385,7 +388,7 @@ describe("AccountPage states", () => {
   test("renders the pending deletion state with retry and sign out", async () => {
     const view = await renderState({
       kind: "deletion-pending",
-      email: "ada@example.test",
+      email: customerEmail,
     });
 
     expect(view.getByText("Account deletion is pending")).toBeTruthy();
@@ -415,13 +418,13 @@ describe("AccountPage states", () => {
     expect(getSession).not.toHaveBeenCalled();
     expect(view.queryByText("Delete my account")).toBeNull();
     expect(view.queryByLabelText("Verified login email")).toBeNull();
-    expect(view.container.textContent).not.toContain("ada@example.test");
+    expect(view.container.textContent).not.toContain(customerEmail);
   });
 
   test("renders the authenticated unavailable state with account controls", async () => {
     const view = await renderState({
       kind: "authenticated-unavailable",
-      email: "ada@example.test",
+      email: customerEmail,
     });
 
     expect(

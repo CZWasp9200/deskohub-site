@@ -16,9 +16,11 @@ import {
   verifyReservationExistingCustomer,
 } from "./reservation-existing-customer";
 
+import { testEmailAddress } from "@deskohub/email/testing";
+
 const baseUrl = "https://reservation-customer.example.test";
 const contact = {
-  email: "delivered+synthetic-run-main@resend.dev",
+  email: testEmailAddress("delivered+synthetic-run-main"),
   name: "E2E Lane",
 } as const;
 const privateFailureDetails = "private reservation customer fixture details";

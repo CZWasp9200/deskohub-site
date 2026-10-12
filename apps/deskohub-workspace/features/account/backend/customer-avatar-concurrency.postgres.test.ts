@@ -1,3 +1,4 @@
+import { testEmailAddress } from "@deskohub/email/testing";
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, mock, test } from "bun:test";
@@ -70,7 +71,7 @@ let currentSession: CustomerAccountSession | null = null;
 const makeSession = (account: string): CustomerAccountSession => ({
   accountId: customerAccountIdSchema.make(account),
   email: Schema.decodeSync(reservationCustomerEmailSchema)(
-    "avatar@example.test"
+    testEmailAddress("avatar")
   ),
   deletionRequested: false,
 });
@@ -273,7 +274,7 @@ describe.skipIf(!testDatabase)(
       releaseUpload = null;
       const account = customerAccountIdSchema.make(uniqueId());
       currentSession = makeSession(account);
-      await insertAuthUser(account, `race-${account}@deskohub.test`);
+      await insertAuthUser(account, testEmailAddress(`race-${account}`));
       await insertLink(account, uniqueDotyposCustomerId());
       const bytes = await pngBytes();
 
@@ -340,7 +341,7 @@ describe.skipIf(!testDatabase)(
       providerCalls = [];
       const account = customerAccountIdSchema.make(uniqueId());
       currentSession = makeSession(account);
-      await insertAuthUser(account, `race-${account}@deskohub.test`);
+      await insertAuthUser(account, testEmailAddress(`race-${account}`));
       await insertLink(account, uniqueDotyposCustomerId());
       const bytes = await pngBytes();
 
@@ -396,7 +397,7 @@ describe.skipIf(!testDatabase)(
       providerCalls = [];
       const account = customerAccountIdSchema.make(uniqueId());
       currentSession = makeSession(account);
-      await insertAuthUser(account, `race-${account}@deskohub.test`);
+      await insertAuthUser(account, testEmailAddress(`race-${account}`));
       await insertLink(account, uniqueDotyposCustomerId());
       stored.set(`avatars/test/${account}`, "asset-before-remove");
 
@@ -447,7 +448,7 @@ describe.skipIf(!testDatabase)(
       providerCalls = [];
       const account = customerAccountIdSchema.make(uniqueId());
       currentSession = makeSession(account);
-      await insertAuthUser(account, `race-${account}@deskohub.test`);
+      await insertAuthUser(account, testEmailAddress(`race-${account}`));
       await insertLink(account, uniqueDotyposCustomerId());
       const bytes = await pngBytes();
 
@@ -494,7 +495,7 @@ describe.skipIf(!testDatabase)(
       providerCalls = [];
       const account = customerAccountIdSchema.make(uniqueId());
       currentSession = makeSession(account);
-      await insertAuthUser(account, `race-${account}@deskohub.test`);
+      await insertAuthUser(account, testEmailAddress(`race-${account}`));
       await insertLink(account, uniqueDotyposCustomerId());
       const bytes = await pngBytes();
 

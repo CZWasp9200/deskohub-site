@@ -7,6 +7,7 @@ import {
   mock,
   test,
 } from "bun:test";
+import { testEmailAddress } from "@deskohub/email/testing";
 import React, { Activity } from "react";
 import type { CustomerProfileInput } from "@/features/account/contracts";
 import { m } from "@/features/i18n";
@@ -110,7 +111,7 @@ function ProfileFixture({
       <output data-testid="active-section">{section}</output>
       <Activity mode={activityMode}>
         <ProfileFormForTest
-          email="ada@example.test"
+          email={testEmailAddress("ada")}
           locale="en-US"
           mode="edit"
           onSectionChange={setSection}

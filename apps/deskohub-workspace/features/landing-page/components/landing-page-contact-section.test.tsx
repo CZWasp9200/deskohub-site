@@ -4,6 +4,7 @@ import {
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
 } from "@/shared/testing/workspace-component-test-env";
+import { workspaceSiteConstants } from "@/shared/utils";
 import { LandingPageContactSection } from "./landing-page-contact-section";
 
 beforeAll(() => {
@@ -41,8 +42,8 @@ test("keeps contact actions on the homepage without rendering FAQ content", () =
   ).toBe("/en-US#overview");
   expect(
     view
-      .getByRole("link", { name: "workspace@deskohub.cz" })
+      .getByRole("link", { name: workspaceSiteConstants.contact.infoEmail })
       .getAttribute("href")
-  ).toBe("mailto:workspace@deskohub.cz");
+  ).toBe(`mailto:${workspaceSiteConstants.contact.infoEmail}`);
   expect(view.queryByText("How does it work?")).toBeNull();
 });

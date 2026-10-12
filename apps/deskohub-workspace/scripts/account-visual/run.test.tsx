@@ -11,6 +11,7 @@ import {
 } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { join, relative, resolve } from "node:path";
+import { testEmailAddress } from "@deskohub/email/testing";
 import {
   type Browser,
   type BrowserContext,
@@ -47,6 +48,8 @@ import {
   readSelectedEmailProbe,
 } from "./run";
 import { usePathname, useSearchParams } from "./stubs/next-navigation";
+
+const adaEmail = testEmailAddress("ada");
 
 const chromiumAvailable = await access(
   chromium.executablePath(),
@@ -674,7 +677,6 @@ test.serial.skipIf(!chromiumAvailable)(
   }
 );
 
-const productionProfileEmail = "ada@example.test";
 const productionProfileEmailFieldSelector =
   "[data-screen='profile-screen'] fieldset[aria-labelledby$='-email-label'] > div";
 const productionProfileEmailStatusSelector = `${productionProfileEmailFieldSelector} > button`;
@@ -730,7 +732,7 @@ const productionProfileEmailHtml = (locale: "en-US" | "cs-CZ"): string =>
   `<style>${productionProfileEmailProbeCss}</style>${renderToStaticMarkup(
     <ProfileScreen
       copy={getAccountScreenCopy(locale).profile}
-      email={productionProfileEmail}
+      email={adaEmail}
       firstName="Ada"
       lastName="Lovelace"
       locale={locale}
@@ -901,7 +903,7 @@ const controlledEmailFixture = ({
       <div data-fixture-field="login-email">
         <div>Verified login email</div>
         <div data-fixture-value style="position:relative; display:flex; gap:8px; width:100%; overflow:hidden; font-size:8px; line-height:19px;">
-          <span>ada@example.test</span>
+          <span>${adaEmail}</span>
           ${
             missingStatus
               ? ""
@@ -2690,7 +2692,7 @@ test.serial.skipIf(!chromiumAvailable)(
           cssWidth: width,
           cssHeight: 360,
         });
-        expect(probe.emailContainment.email?.text).toBe("ada@example.test");
+        expect(probe.emailContainment.email?.text).toBe(adaEmail);
         expect(probe.emailContainment.statusText?.text).toBe(
           locale === "cs-CZ"
             ? "Ověřený přihlašovací e-mail"
@@ -2954,9 +2956,7 @@ test.serial.skipIf(!chromiumAvailable)(
             });
 
             expect(probe.emailContainment.status).toBe("passed");
-            expect(probe.emailContainment.email?.text).toBe(
-              productionProfileEmail
-            );
+            expect(probe.emailContainment.email?.text).toBe(adaEmail);
             const statusText = probe.emailContainment.statusText;
             expect(statusText).not.toBeNull();
             if (!statusText)

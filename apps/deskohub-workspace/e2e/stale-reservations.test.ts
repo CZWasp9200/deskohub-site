@@ -7,6 +7,13 @@ import {
   reconcileStaleWorkspaceE2EReservations,
 } from "./stale-reservations";
 
+import {
+  resendSimulatorAddress,
+  testEmailAddress,
+} from "@deskohub/email/testing";
+
+const nonTestEmail = testEmailAddress("person").replace("@", "@not");
+
 const interval = {
   endDate: new Date("2099-09-01T00:00:00.000Z"),
   startDate: new Date("2099-08-01T00:00:00.000Z"),
@@ -16,11 +23,11 @@ test("requires both Workspace E2E customer markers", () => {
   expect(isWorkspaceE2ETestCustomer(customer())).toBe(true);
   expect(isStaleWorkspaceE2ETestCustomer(customer())).toBe(true);
   expect(
-    isStaleWorkspaceE2ETestCustomer(customer({ email: "person@example.com" }))
+    isStaleWorkspaceE2ETestCustomer(customer({ email: nonTestEmail }))
   ).toBe(false);
-  expect(
-    isWorkspaceE2ETestCustomer(customer({ email: "person@example.com" }))
-  ).toBe(false);
+  expect(isWorkspaceE2ETestCustomer(customer({ email: nonTestEmail }))).toBe(
+    false
+  );
   expect(
     isStaleWorkspaceE2ETestCustomer(
       customer({ firstName: "Ordinary customer" })
@@ -28,9 +35,14 @@ test("requires both Workspace E2E customer markers", () => {
   ).toBe(false);
   expect(
     isStaleWorkspaceE2ETestCustomer(
-      customer({ email: "delivered+case@example.com" })
+      customer({ email: testEmailAddress("delivered+case") })
     )
-  ).toBe(false);
+  ).toBe(true);
+  expect(
+    isStaleWorkspaceE2ETestCustomer(
+      customer({ email: resendSimulatorAddress("delivered", "case") })
+    )
+  ).toBe(true);
 });
 
 test("does not classify a currently healthy E2E customer as stale", () => {
@@ -194,7 +206,10 @@ const customer = (overrides: Partial<Customer> = {}): Customer => ({
   _cloudId: "testing-cloud",
   deleted: false,
   display: true,
-  email: "DELIVERED+case@resend.dev",
+  email: resendSimulatorAddress("delivered", "case").replace(
+    "delivered",
+    "DELIVERED"
+  ),
   firstName: "Workspace E2E checkout",
   flags: "0",
   lastName: "20250101000000 01",

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/email/testing";
 import { Effect } from "effect";
 import {
   type CustomerAccountAccessError,
@@ -12,7 +13,7 @@ import type { CustomerAccountSession } from "./customer-authentication.service";
 
 const accountId = customerAccountIdSchema.make("auth-user-1");
 const otherAccountId = customerAccountIdSchema.make("auth-user-2");
-const verifiedEmail = "ada@example.test";
+const verifiedEmail = testEmailAddress("ada");
 
 const session = (
   overrides: Partial<CustomerAccountSession> = {}

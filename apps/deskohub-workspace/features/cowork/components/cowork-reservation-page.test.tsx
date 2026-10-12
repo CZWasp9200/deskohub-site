@@ -1,4 +1,5 @@
 import { beforeEach, expect, mock, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/email/testing";
 import { Effect, Layer, Schema } from "effect";
 import Link from "next/link";
 import { isValidElement, type ReactElement, type ReactNode } from "react";
@@ -12,6 +13,8 @@ import {
 import { defaultReservationBillingSelection } from "@/features/reservation/reservation-billing";
 import { Button } from "@/shared/components/ui/button";
 import type { CoworkReservationForm } from "./cowork-reservation-form";
+
+const testEmailAddressForJan = testEmailAddress("jan");
 
 mock.module("next/root-params", () => ({
   locale: () => Promise.resolve("en-US"),
@@ -196,7 +199,7 @@ test("offers the restart state for a legacy basic reservation in en-US", async (
   const legacyBasicReservation = decodeLegacyBasicReservation({
     kind: "cowork",
     name: "Jan Novák",
-    email: "jan@example.cz",
+    email: testEmailAddressForJan,
     phone: "+420712345678",
     billing: defaultReservationBillingSelection,
     entryTier: "basic",
@@ -228,7 +231,7 @@ test("offers the restart state for a legacy basic reservation in cs-CZ", async (
   const legacyBasicReservation = decodeLegacyBasicReservation({
     kind: "cowork",
     name: "Jan Novák",
-    email: "jan@example.cz",
+    email: testEmailAddressForJan,
     phone: "+420712345678",
     billing: defaultReservationBillingSelection,
     entryTier: "basic",
@@ -274,7 +277,7 @@ test("restores a signed current-tier open-space reservation into the form", asyn
   const restoredOpenSpaceReservation = decodeOpenSpaceReservation({
     kind: "cowork",
     name: "Jan Novák",
-    email: "jan@example.cz",
+    email: testEmailAddressForJan,
     phone: "+420712345678",
     billing: defaultReservationBillingSelection,
     entryTier: "open-space",
@@ -293,7 +296,7 @@ test("restores a signed current-tier open-space reservation into the form", asyn
     coffee: true,
     date: "2099-08-01",
     name: "Jan Novák",
-    email: "jan@example.cz",
+    email: testEmailAddressForJan,
   });
   expect(loadAdvertisedPrices).toHaveBeenCalledTimes(1);
   expect(loadAdvertisedPrices.mock.calls[0]?.[0]).toEqual([
@@ -316,7 +319,7 @@ test("restores a signed current-tier reserved-desk reservation into the form", a
   const restoredReservedDeskReservation = decodeReservedDeskReservation({
     kind: "cowork",
     name: "Jan Novák",
-    email: "jan@example.cz",
+    email: testEmailAddressForJan,
     phone: "+420712345678",
     billing: defaultReservationBillingSelection,
     entryTier: "reserved-desk",

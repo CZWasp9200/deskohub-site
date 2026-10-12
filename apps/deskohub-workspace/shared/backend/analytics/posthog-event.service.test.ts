@@ -1,6 +1,7 @@
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/email/testing";
 import {
   PostHogDistinctId,
   PostHogEventId,
@@ -49,7 +50,7 @@ describe("PostHogEventService", () => {
         .pipe(
           Effect.annotateLogs({
             correlationId: "correlation-id",
-            customerInput: { email: "synthetic@example.test" },
+            customerInput: { email: testEmailAddress("synthetic") },
             error: new Error("provider payload"),
             result: { internal: "serialized-result" },
             sessionId: "session-id",

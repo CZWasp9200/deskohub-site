@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/email/testing";
 import { preparePostHogEvent } from "./posthog-event";
 
 const createEvent = (
@@ -242,8 +243,7 @@ describe("preparePostHogEvent", () => {
   test("sanitizes documented initial URLs in top-level person-property bags", () => {
     const event = {
       ...createEvent("workspace page viewed", {
-        $current_url:
-          "https://workspace.deskohub.cz/account?email=synthetic%40example.test#name",
+        $current_url: `https://workspace.deskohub.cz/account?email=${encodeURIComponent(testEmailAddress("synthetic"))}#name`,
         $referrer: "$direct",
       }),
       $set_once: {
@@ -271,7 +271,7 @@ describe("preparePostHogEvent", () => {
       $initial_pathname: "/reservation/invoice/[id]",
     });
     for (const privateValue of [
-      "synthetic@example.test",
+      testEmailAddress("synthetic"),
       "synthetic-token",
       "billing",
       "123456",

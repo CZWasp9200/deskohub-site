@@ -33,6 +33,10 @@ import {
   traceWorkspaceE2ESuiteCleanup,
 } from "./cleanup-plan";
 
+import { testEmailAddress } from "@deskohub/email/testing";
+
+const sourceRunRecipientEmail = testEmailAddress("delivered+source-run-main");
+
 test("records a failed suite-cleanup phase after reconciling the account lane", async () => {
   const observations: E2ETelemetryObservation[] = [];
   const checkoutError = workspaceE2EError(
@@ -131,9 +135,9 @@ test("rejects a parsed account candidate owned by another run before checkout cl
       readAccountLaneJournal: async () =>
         validateWorkspaceE2EAccountLaneJournalOwnership({
           journal: parsedJournal,
-          recipientEmails: new Set(["delivered+source-run-main@resend.dev"]),
+          recipientEmails: new Set([sourceRunRecipientEmail]),
           authUserOwners: new Map([
-            ["synthetic-user", "delivered+other-run-main@resend.dev"],
+            ["synthetic-user", testEmailAddress("delivered+other-run-main")],
           ]),
           customerOwners: new Map(),
           reservationOwners: new Map(),
@@ -159,7 +163,7 @@ test("drops already-absent account candidates before idempotent reconciliation",
 
   const prepared = validateWorkspaceE2EAccountLaneJournalOwnership({
     journal,
-    recipientEmails: new Set(["delivered+source-run-main@resend.dev"]),
+    recipientEmails: new Set([sourceRunRecipientEmail]),
     authUserOwners: new Map([["removed-user", undefined]]),
     customerOwners: new Map([["expired-customer", undefined]]),
     reservationOwners: new Map(),
@@ -316,7 +320,7 @@ test("does not mutate either cleanup scope when checkout ownership preparation f
 test("rejects an unrelated fallback owner before checkout or account mutation", async () => {
   const exactOrderData = {
     date: "2026-08-04",
-    email: "delivered+source-checkout@resend.dev",
+    email: testEmailAddress("delivered+source-checkout"),
     expectedReservationDetails: {
       kind: "cowork",
       entryTier: "basic",
@@ -326,7 +330,7 @@ test("rejects an unrelated fallback owner before checkout or account mutation", 
   } as CheckoutData;
   const fallbackData = {
     ...exactOrderData,
-    email: "delivered+fallback-checkout@resend.dev",
+    email: testEmailAddress("delivered+fallback-checkout"),
   };
   const exactOrderState: CheckoutFlowState = {
     data: exactOrderData,
@@ -371,7 +375,7 @@ test("rejects an unrelated fallback owner before checkout or account mutation", 
               }
             : {
                 customerId: "foreign-customer" as DotyposCustomerId,
-                email: "delivered+other-run@resend.dev",
+                email: testEmailAddress("delivered+other-run"),
               }
         ),
     }

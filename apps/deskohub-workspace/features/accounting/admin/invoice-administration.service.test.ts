@@ -4,6 +4,7 @@ import {
   DotyposService,
   FindCustomerResult,
 } from "@deskohub/dotypos";
+import { testEmailAddress } from "@deskohub/email/testing";
 import {
   AdministrationDotyposCustomerId,
   AdministrationInvoiceCreateInput,
@@ -43,7 +44,7 @@ const input = Schema.decodeUnknownSync(AdministrationInvoiceCreateInput)({
     kind: "new",
     details: {
       kind: "person",
-      email: "synthetic@example.test",
+      email: testEmailAddress("synthetic"),
       firstName: "Synthetic",
       lastName: "Customer",
       address: {

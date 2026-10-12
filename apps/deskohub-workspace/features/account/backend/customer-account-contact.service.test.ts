@@ -1,4 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/email/testing";
 import { Effect, Layer } from "effect";
 import { reservationCustomerEmailSchema } from "@/features/reservation/reservation-contact";
 import {
@@ -14,6 +15,8 @@ import {
 import type { CustomerProfile } from "./customer-dotypos-adapter.service";
 import { CustomerProfileService } from "./customer-profile.service";
 
+const customerEmail = testEmailAddress("ada");
+
 const accountId = customerAccountIdSchema.make("auth-user-1");
 const dotyposCustomerId = "60111";
 
@@ -21,7 +24,7 @@ const session = (
   overrides: Partial<CustomerAccountSession> = {}
 ): CustomerAccountSession => ({
   accountId,
-  email: reservationCustomerEmailSchema.make("ada@example.test"),
+  email: reservationCustomerEmailSchema.make(customerEmail),
   deletionRequested: false,
   ...overrides,
 });
@@ -143,7 +146,7 @@ describe("CustomerAccountContactService.current", () => {
       accountId,
       dotyposCustomerId,
       name: "Ada Lovelace",
-      email: "ada@example.test",
+      email: customerEmail,
       phone: "+420 777 777 777",
     });
     expect(find).toHaveBeenCalledTimes(1);
@@ -243,7 +246,7 @@ describe("CustomerAccountContactService.currentLinkedAccount", () => {
 
     expect(outcome).toMatchObject({
       _tag: "Success",
-      success: { accountId, dotyposCustomerId, email: "ada@example.test" },
+      success: { accountId, dotyposCustomerId, email: customerEmail },
     });
     expect(find).toHaveBeenCalledWith(accountId);
     expect(load).not.toHaveBeenCalled();
@@ -265,7 +268,7 @@ describe("CustomerAccountContactService.linkedContact", () => {
     const account = {
       accountId,
       dotyposCustomerId: dotyposCustomerId as never,
-      email: reservationCustomerEmailSchema.make("ada@example.test"),
+      email: reservationCustomerEmailSchema.make(customerEmail),
     };
     const { outcome, find, load } = await runCurrent({}, (contacts) =>
       contacts.linkedContact(account)

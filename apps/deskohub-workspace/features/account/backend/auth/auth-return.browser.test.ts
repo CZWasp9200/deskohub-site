@@ -3,6 +3,7 @@ import { statSync } from "node:fs";
 import { copyFile, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { testEmailAddress } from "@deskohub/email/testing";
 import {
   type Browser,
   type BrowserContext,
@@ -108,14 +109,14 @@ declare global {
 }
 
 const fixtureEmail = {
-  invalid: "auth-return-invalid@deskohub.test",
-  isolatedFirst: "auth-return-first@deskohub.test",
-  isolatedSecond: "auth-return-second@deskohub.test",
-  noAck: "auth-return-no-ack@deskohub.test",
-  replayPending: "auth-return-replay-pending@deskohub.test",
-  review: "auth-return-review@deskohub.test",
-  unverified: "auth-return-unverified@deskohub.test",
-  verified: "auth-return-verified@deskohub.test",
+  invalid: testEmailAddress("auth-return-invalid"),
+  isolatedFirst: testEmailAddress("auth-return-first"),
+  isolatedSecond: testEmailAddress("auth-return-second"),
+  noAck: testEmailAddress("auth-return-no-ack"),
+  replayPending: testEmailAddress("auth-return-replay-pending"),
+  review: testEmailAddress("auth-return-review"),
+  unverified: testEmailAddress("auth-return-unverified"),
+  verified: testEmailAddress("auth-return-verified"),
 } as const;
 
 let fixtureDirectory: string | undefined;

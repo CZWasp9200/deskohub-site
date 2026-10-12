@@ -24,6 +24,8 @@ import {
   accountSectionLandmarks,
 } from "./account-sections";
 
+import { testEmailAddress } from "@deskohub/email/testing";
+
 const sections = [
   "reservations",
   "profile",
@@ -54,7 +56,7 @@ const sectionPanel = (section: AccountSection) => {
         // ProfileScreen's typed createElement overload requires children in props.
         // biome-ignore lint/correctness/noChildrenProp: the required child must be present in the props object.
         children: createElement("input", { id: "account-profile-first-name" }),
-        email: "synthetic@example.test",
+        email: testEmailAddress("synthetic"),
         firstName: "E2E",
         lastName: null,
       });
@@ -346,8 +348,7 @@ test("navigates every rendered account section across desktop and mobile layouts
   }
 });
 
-const accountLayoutFailureMarker =
-  "https://private.example.test/account?email=secret@example.test&token=secret-token";
+const accountLayoutFailureMarker = `https://private.example.test/account?email=${testEmailAddress("secret")}&token=secret-token`;
 const accountLayoutFailure = new Error(accountLayoutFailureMarker, {
   cause: accountLayoutFailureMarker,
 });
@@ -472,10 +473,8 @@ test("uses a fixed generic diagnostic when final viewport reset fails", async ()
 
 test("preserves the phase diagnostic when final viewport reset also fails", async () => {
   let setViewportCalls = 0;
-  const captureFailureMarker =
-    "https://private.example.test/account/capture?email=secretA@example.test&token=secretA";
-  const restoreFailureMarker =
-    "https://private.example.test/account/restore?email=secretB@example.test&token=secretB";
+  const captureFailureMarker = `https://private.example.test/account/capture?email=${testEmailAddress("secretA")}&token=secretA`;
+  const restoreFailureMarker = `https://private.example.test/account/restore?email=${testEmailAddress("secretB")}&token=secretB`;
   const failure = await runLayoutVerificationFailure(
     {
       onSetViewport: () => {

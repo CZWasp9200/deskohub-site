@@ -1,4 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/email/testing";
 import type { TSESTree } from "@typescript-eslint/types";
 import { isString } from "effect/Predicate";
 import {
@@ -320,7 +321,7 @@ describe("Customer-account boundary", () => {
   test("profile input refuses an email field entirely", () => {
     const result = updateCustomerProfileStandardSchema["~standard"].validate({
       firstName: "Ada",
-      email: "ada@example.test",
+      email: testEmailAddress("ada"),
     });
 
     expect(result).not.toBeInstanceOf(Promise);

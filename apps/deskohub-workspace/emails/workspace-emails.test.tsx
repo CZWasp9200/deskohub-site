@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/email/testing";
 import { render } from "react-email";
 import {
   contactBusinessPreviewProps,
@@ -12,6 +13,8 @@ import { ContactConfirmationEmail } from "./contact-confirmation";
 import { CustomerReservationEmail } from "./customer-reservation";
 import { InvoiceDeliveryEmail } from "./invoice-delivery";
 import { ReservationNotificationEmail } from "./reservation-notification";
+
+const customerEmail = testEmailAddress("customer");
 
 describe("Workspace React Email templates", () => {
   test("renders every preview with the shared design and channel-specific data boundaries", async () => {
@@ -72,8 +75,8 @@ describe("Workspace React Email templates", () => {
       "@media (min-width:40rem){.sm_w-auto{width:auto!important}}"
     );
     expect(customerReservation).not.toContain("Where to sit");
-    expect(customerReservation).not.toContain("customer@example.com");
-    expect(staffNotification).toContain("customer@example.com");
+    expect(customerReservation).not.toContain(customerEmail);
+    expect(staffNotification).toContain(customerEmail);
     expect(staffNotification).not.toContain("4829");
     expect(invoiceDelivery).toContain(invoiceDeliveryPreviewProps.body);
   });

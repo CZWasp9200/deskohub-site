@@ -6,6 +6,10 @@ import { workspaceE2ETimeouts } from "../timeouts";
 import type { CheckoutData } from "../types";
 import { completeNexiHostedPayment } from "./nexi-hosted-payment";
 
+import { testEmailAddress } from "@deskohub/email/testing";
+
+const workspaceE2EEmail = testEmailAddress("workspace-e2e");
+
 const hostedPageUrl = "https://xpaysandbox.nexigroup.com/hpp/nexi/session/card";
 const statusUrl =
   "https://deskohub-workspace-a1b2c3d4e-deskohub-bar.vercel.app/en-US/reservation/status/order-id";
@@ -213,7 +217,7 @@ const makeHostedPage = ({
 };
 
 const checkoutData = {
-  email: "workspace-e2e@example.com",
+  email: workspaceE2EEmail,
   name: "Workspace E2E",
 } as CheckoutData;
 
@@ -256,7 +260,7 @@ test("fills each card field inside its own iframe and completes the payment once
   expect(page.values.get("@e42")).toBe("1028");
   expect(page.values.get("@e53")).toBe("298");
   expect(page.values.get("@e56")).toBe("Workspace E2E");
-  expect(page.values.get("@e59")).toBe("workspace-e2e@example.com");
+  expect(page.values.get("@e59")).toBe(workspaceE2EEmail);
   expect(
     page.calls
       .filter(({ args }) => args[0] === "frame" && args[1] !== "main")
