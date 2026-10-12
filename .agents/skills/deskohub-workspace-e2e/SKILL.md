@@ -29,7 +29,11 @@ Distinguish automated-runner behavior from manual procedures before treating a d
   scoped `E2EDatabase` service, which connects to the workflow-injected direct
   preview URL. Do not add a dedicated package script, Turbo task, test-file
   naming convention, environment switch, or case-specific database allowlist
-  for those assertions.
+  for those assertions. Repository-level proofs that need no deployed app,
+  such as invoice issuance, numbering, and immutability, belong in the owning
+  repository's colocated `*.postgres.test.ts` instead: they need an exclusive
+  database, and the shared preview branch cannot give them one without
+  serializing them after every paid case.
 - Treat email-provider secrets that exist only in Vercel as intentionally unavailable to local E2E. Validate delivery through Vercel runtime or webhook evidence, and validate email body content with the fake transport renderer. Preview magic links for synthetic E2E recipients are console-logged by the account app feature, not the shared email package (zero Resend calls). The account worker uses the historical request-log route from pinned Vercel CLI 54.9.1, scoped to the immutable deployment, project, time window, marker, baseline row IDs, and exact recipient. The route is an internal CLI contract, not a documented public history API. `WORKSPACE_E2E_VERCEL_TOKEN` is an opaque secret held only in the protected `workspace-checkout-e2e` GitHub environment; the runner does not validate its scope, and it never enters Vercel or application configuration. The currently accepted same-account Workspace team PAT returned HTTP 200 for a history GET after the final-440 deployment's project and commit metadata matched. An earlier project PAT returned HTTP 403 on the same route. This confirms read access for the configured credential only; the denial reason and general project-token support remain unknown, and no drain create/delete access was tested. A narrower project credential remains preferred if the history route supports it; do not require a full-account key. Require an exact-preview E2E pass before treating a delivered link as verified.
 - Treat exact immutable-preview runtime transport evidence as the authority for provider isolation: reservation checkout may use the Console email provider, and auth forces the shared Console provider only for synthetic E2E Preview recipients, after which the app feature emits the single `account.magic-link.preview-e2e` log line; every other auth recipient uses the `EmailConfigLayer` configured default provider, which may be Console. A configured `EMAIL_PROVIDER` default, including Resend when `EMAIL_API_KEY` exists, is not evidence that checkout used Console; `.env.example` documents the current checkout and auth-mail policy. The historic replay quiet cooldown justified by Resend cases remains a safeguard, not an assertion that the current target uses Resend.
 - Run full E2E only against the ordinary protected Vercel Git preview for the exact committed and pushed SHA. Use the immutable deployment URL from `vercel.deployment.success` or an explicitly supplied workflow-dispatch input; never scrape the PR comment or substitute a mutable branch/custom-domain alias. For manual dispatch, fail before the test job unless GitHub deployment metadata records that origin as a successful Workspace deployment for the exact target SHA.
@@ -105,11 +109,7 @@ Distinguish automated-runner behavior from manual procedures before treating a d
   readiness, fixture seeding, plan construction (which runs cowork,
   meeting-room, and office availability and provider preparation concurrently
   inside one test so no extra phase barrier precedes it), independent cases,
-  the Calendar mutation case, invoice persistence, and final reconciliation.
-  Invoice persistence takes an `ACCESS EXCLUSIVE` lock and disables the
-  `invoices_immutable` trigger, so it depends on every checkout case project
-  like the shared-fixture tail and must never overlap a paid case; do not make
-  the plan wait for it. Keep the global worker ceiling at six: it replaces the old
+  the Calendar mutation case, and final reconciliation. Keep the global worker ceiling at six: it replaces the old
   reservation-start permit pool with a stricter whole-case bound. Put every
   hosted-payment case in one of exactly three serial Playwright lanes so at most
   three hosted sessions run per suite while non-payment work can use the other
@@ -403,7 +403,7 @@ Distinguish automated-runner behavior from manual procedures before treating a d
 - Preserve the E2E OTLP trace contract when changing orchestration. Emit one
   root run span, fixed phase spans, one child span for every case, and one child
   span for every semantic step. Phase IDs cover readiness, fixture seeding,
-  invoice persistence, provider preparation, cowork, meeting-room, and office
+  provider preparation, cowork, meeting-room, and office
   availability preparation (the last four as concurrent phase spans inside the
   plan project), case construction, per-case finalization, and
   suite cleanup. Use fixed low-cardinality span names, native span duration,

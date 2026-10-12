@@ -85,13 +85,6 @@ export default defineConfig({
       testMatch: "shared-fixture.pw.ts",
     },
     {
-      // Locks the invoices table and disables its immutability trigger, so it
-      // must never overlap a paid case.
-      dependencies: [...checkoutCaseProjects],
-      name: "checkout-invoice-persistence",
-      testMatch: "invoice-persistence.pw.ts",
-    },
-    {
       name: "checkout-cleanup",
       testMatch: "cleanup.pw.ts",
     },
