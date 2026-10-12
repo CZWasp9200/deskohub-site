@@ -41,10 +41,17 @@ const activeSession = {
 };
 
 let resolveEffect: Effect.Effect<
-  { readonly accountId: CustomerAccountId; readonly dotyposCustomerId: string },
+  {
+    readonly account: {
+      readonly accountId: CustomerAccountId;
+      readonly dotyposCustomerId: string;
+    };
+    readonly autoLinked: boolean;
+  },
   { readonly reason: string; readonly linkReason?: string }
 >;
 let resolverCalls = 0;
+let events: string[] = [];
 let profileLoadCalls = 0;
 let historyLoadCalls = 0;
 let avatarLookupCalls = 0;
@@ -61,7 +68,11 @@ Object.assign(Resolver, { Live: ResolverLayer });
 
 const resolverOutcome = (
   outcome:
-    | { readonly kind: "success"; readonly customerId: string }
+    | {
+        readonly kind: "success";
+        readonly customerId: string;
+        readonly autoLinked?: boolean;
+      }
     | {
         readonly kind: "failure";
         readonly reason: string;
@@ -69,7 +80,10 @@ const resolverOutcome = (
       }
 ) =>
   outcome.kind === "success"
-    ? Effect.succeed({ accountId, dotyposCustomerId: outcome.customerId })
+    ? Effect.succeed({
+        account: { accountId, dotyposCustomerId: outcome.customerId },
+        autoLinked: outcome.autoLinked ?? false,
+      })
     : Effect.fail({ reason: outcome.reason, linkReason: outcome.linkReason });
 
 const Profile = Context.Service<
@@ -139,7 +153,9 @@ mock.module(
   () => ({
     resolveCurrentCustomerAccount: Effect.suspend(() => {
       resolverCalls += 1;
-      return resolveEffect;
+      return resolveEffect.pipe(
+        Effect.ensuring(Effect.sync(() => events.push("resolved")))
+      );
     }),
     CustomerAccountResolver: Resolver,
   })
@@ -192,6 +208,12 @@ let referralSummaryCalls: Array<{
 }> = [];
 let availableReferralCodeEffect: Effect.Effect<string | undefined, unknown>;
 let availableReferralCodeCalls: Array<{ readonly code: unknown }> = [];
+let acceptReferralEffect: Effect.Effect<unknown, { readonly reason: string }>;
+let acceptReferralCalls: Array<{
+  readonly code: unknown;
+  readonly customerAccountId: CustomerAccountId;
+  readonly dotyposCustomerId: string;
+}> = [];
 type TestReferralService = {
   readonly getAccountSummary: (input: {
     readonly customerAccountId: CustomerAccountId;
@@ -200,6 +222,9 @@ type TestReferralService = {
   readonly findAvailableCode: (input: {
     readonly code: unknown;
   }) => typeof availableReferralCodeEffect;
+  readonly acceptReferral: (
+    input: (typeof acceptReferralCalls)[number]
+  ) => typeof acceptReferralEffect;
 };
 const Referrals = Context.Service<Referrals, TestReferralService>()(
   "@test/AccountReferrals"
@@ -207,7 +232,13 @@ const Referrals = Context.Service<Referrals, TestReferralService>()(
 const ReferralsLayer = Layer.succeed(Referrals, {
   getAccountSummary: (input) => {
     referralSummaryCalls.push(input);
+    events.push("summary");
     return referralSummaryEffect;
+  },
+  acceptReferral: (input) => {
+    acceptReferralCalls.push(input);
+    events.push("accept");
+    return acceptReferralEffect;
   },
   findAvailableCode: (input) => {
     availableReferralCodeCalls.push(input);
@@ -241,6 +272,9 @@ describe("loadCustomerAccountPage", () => {
     referralSummaryCalls = [];
     availableReferralCodeEffect = Effect.succeed("RFL12345");
     availableReferralCodeCalls = [];
+    acceptReferralEffect = Effect.succeed({ status: "accepted" });
+    acceptReferralCalls = [];
+    events = [];
     areAccountAvatarsEnabled.mockReset();
     areAccountAvatarsEnabled.mockResolvedValue(true);
     historyEffect = Effect.succeed({
@@ -340,6 +374,90 @@ describe("loadCustomerAccountPage", () => {
     expect(state.kind).toBe("linked");
     expect(state).not.toHaveProperty("referralCode");
     expect(availableReferralCodeCalls).toEqual([]);
+    expect(acceptReferralCalls).toEqual([]);
+  });
+
+  test("records the shared invitation after this sign-in linked an existing customer", async () => {
+    resolveEffect = resolverOutcome({
+      kind: "success",
+      customerId: "60111",
+      autoLinked: true,
+    });
+
+    const state = await loadPageState("RFL12345");
+
+    expect(state).toMatchObject({ kind: "linked", referrals: referralSummary });
+    expect(acceptReferralCalls).toEqual([
+      {
+        code: "RFL12345",
+        customerAccountId: accountId,
+        dotyposCustomerId: "60111",
+      },
+    ]);
+    expect(events).toEqual(["resolved", "accept", "summary"]);
+  });
+
+  test("records nothing when an auto-linked sign-in carries no shared code", async () => {
+    resolveEffect = resolverOutcome({
+      kind: "success",
+      customerId: "60111",
+      autoLinked: true,
+    });
+
+    await expect(loadPageState()).resolves.toMatchObject({ kind: "linked" });
+    expect(acceptReferralCalls).toEqual([]);
+  });
+
+  test("keeps the linked page and logs only a fixed reason when the invitation is not recorded", async () => {
+    resolveEffect = resolverOutcome({
+      kind: "success",
+      customerId: "60111",
+      autoLinked: true,
+    });
+    const lines: string[] = [];
+    const capture = (...args: unknown[]) => {
+      lines.push(
+        args
+          .map((arg) => (Predicate.isString(arg) ? arg : JSON.stringify(arg)))
+          .join(" ")
+      );
+    };
+    const spies = [
+      spyOn(console, "log").mockImplementation(capture),
+      spyOn(console, "warn").mockImplementation(capture),
+      spyOn(console, "error").mockImplementation(capture),
+    ];
+
+    try {
+      for (const reason of [
+        "unavailable",
+        "self_referral",
+        "ineligible",
+        "already_attributed",
+      ]) {
+        acceptReferralEffect = Effect.fail({ reason });
+        await expect(loadPageState("RFLSHARE")).resolves.toMatchObject({
+          kind: "linked",
+          profile: { firstName: "Ada" },
+          referrals: referralSummary,
+        });
+      }
+      acceptReferralEffect = Effect.die(new Error("referral store down"));
+      await expect(loadPageState("RFLSHARE")).resolves.toMatchObject({
+        kind: "linked",
+        referrals: referralSummary,
+      });
+    } finally {
+      for (const spy of spies) spy.mockRestore();
+    }
+
+    const output = lines.filter((line) => line.includes("WARN")).join("\n");
+    expect(output).toContain("account.auto-link.referral");
+    expect(output).toContain("self_referral");
+    expect(output).toContain("ineligible");
+    expect(output).toContain("already_attributed");
+    expect(output).not.toContain("RFLSHARE");
+    expect(output).not.toContain("referral store down");
   });
 
   test("renders the support state for ambiguous, unusable, claimed, and unverified outcomes", async () => {
