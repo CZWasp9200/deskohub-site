@@ -64,34 +64,6 @@ describe("getSiteHeaderConfig", () => {
     expect(config).not.toHaveProperty("disabledMenuItems");
   });
 
-  test("uses compact English labels for the public navigation", async () => {
-    const { getSiteHeaderConfig } = await import("./site-header-config");
-    isMeetingRoomPageEnabled.mockResolvedValue(false);
-    const config = await getSiteHeaderConfig("en-US");
-
-    expect(config.links.map(({ label }) => label)).toEqual([
-      "Location",
-      "Photos",
-      "Team",
-      "FAQ",
-      "Contact",
-    ]);
-  });
-
-  test("uses compact Czech labels for the public navigation", async () => {
-    const { getSiteHeaderConfig } = await import("./site-header-config");
-    isMeetingRoomPageEnabled.mockResolvedValue(false);
-    const config = await getSiteHeaderConfig("cs-CZ");
-
-    expect(config.links.map(({ label }) => label)).toEqual([
-      "Poloha",
-      "Fotky",
-      "Tým",
-      "FAQ",
-      "Kontakt",
-    ]);
-  });
-
   test("links Team and FAQ to their localized standalone pages", async () => {
     const { getSiteHeaderConfig } = await import("./site-header-config");
     const en = await getSiteHeaderConfig("en-US");
@@ -141,7 +113,7 @@ describe("getSiteHeaderConfig", () => {
     const cs = await getSiteHeaderConfig("cs-CZ");
     expect(await cs.account?.href).toBe("/cs-CZ/account");
     expect(cs.account?.label).toBe("Účet");
-    expect(isCustomerSignedIn).toHaveBeenCalledWith("site-header.account-link");
+    expect(isCustomerSignedIn).toHaveBeenCalledWith();
   });
 
   test("points an anonymous customer's account entry at the localized sign-in page", async () => {

@@ -68,7 +68,7 @@ export function AccountFrame({
             )}
           </aside>
 
-          <div className="min-w-0">{children}</div>
+          <div className="@container min-w-0">{children}</div>
 
           {sidebarFooter && (
             <div className="min-w-0 md:hidden">{sidebarFooter}</div>

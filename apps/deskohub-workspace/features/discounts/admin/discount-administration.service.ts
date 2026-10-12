@@ -204,6 +204,10 @@ type AdminCustomerCodeCreation = {
   readonly discounts: readonly Pick<AdminDiscount, "id" | "labels">[];
 };
 
+type AdminCustomerVoucherCreation = {
+  readonly customer: AdminDotyposCustomer;
+};
+
 export type AdminCustomerSearchResult = {
   readonly kind: "matched" | "not-found" | "ambiguous";
   readonly customers: readonly AdminDotyposCustomer[];
@@ -413,6 +417,15 @@ export interface IDiscountAdministration {
     AdminCustomerCodeCreation,
     | EffectDrizzleQueryError
     | SqlError
+    | ExternalAPIError
+    | NetworkError
+    | ValidationError
+    | DiscountAdminNotFoundError
+  >;
+  readonly loadCustomerVoucherCreation: (input: {
+    readonly customerId: DotyposCustomerId;
+  }) => Effect.Effect<
+    AdminCustomerVoucherCreation,
     | ExternalAPIError
     | NetworkError
     | ValidationError
@@ -1297,6 +1310,16 @@ export class DiscountAdministration extends Context.Service<
         )
       );
 
+      const loadCustomerVoucherCreation = Effect.fn(
+        "DiscountAdministration.loadCustomerVoucherCreation"
+      )((input: { readonly customerId: DotyposCustomerId }) =>
+        loadActiveCustomer(input.customerId).pipe(
+          Effect.map((customer) => ({
+            customer: toAdminDotyposCustomer(customer),
+          }))
+        )
+      );
+
       const addCodeCustomer = Effect.fn(
         "DiscountAdministration.addCodeCustomer"
       )(function* (input: {
@@ -1594,6 +1617,7 @@ export class DiscountAdministration extends Context.Service<
         loadCustomerCodeCreation,
         loadCustomerBreadcrumbLabel,
         loadCustomerProfile,
+        loadCustomerVoucherCreation,
         loadDashboard,
         loadSalesPage,
         loadVoucherDetail,

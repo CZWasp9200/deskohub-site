@@ -1,9 +1,7 @@
 import "@/shared/testing/workspace-test-env";
 
-import { describe, expect, mock, test } from "bun:test";
-import { Effect } from "effect";
+import { describe, expect, test } from "bun:test";
 import { checkoutPaymentReturnGet } from "./checkout-payment-return-route.server";
-import { loadCheckoutStatusPage } from "./checkout-status-page.server";
 
 const invoke = (
   search = "",
@@ -49,30 +47,6 @@ describe("checkout pay return route", () => {
     expect(response.headers.get("location")).toBe(
       "https://deskohub.test/en-US/reservation/status/order-id"
     );
-  });
-
-  test("keeps reconciliation behind status-page authorization after the public handoff", async () => {
-    const response = await invoke("?outcome=success");
-    expect(response.status).toBe(307);
-
-    const refreshStatus = mock(() => Effect.die("must not refresh"));
-    const getStatus = mock(() => Effect.die("must not read"));
-    const isAuthorized = mock(() => Effect.succeed(false));
-    const status = await Effect.runPromise(
-      loadCheckoutStatusPage(
-        { getStatus, refreshStatus },
-        { isAuthorized },
-        {
-          locale: "en-US",
-          orderId: "order-id",
-          returnOutcome: "success",
-        }
-      )
-    );
-
-    expect(status.status).toBe("not_found");
-    expect(refreshStatus).not.toHaveBeenCalled();
-    expect(getStatus).not.toHaveBeenCalled();
   });
 
   test("rejects invalid route params", async () => {

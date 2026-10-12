@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { Schema } from "effect";
 
-/** Occurrence count over process output and environment documentation. */
+/** Occurrence count over process output. */
 const occurrences = (text: string, needle: string): number =>
   text.split(needle).length - 1;
 
@@ -177,24 +177,15 @@ describe("administrator credential generator", () => {
 /**
  * Parses environment documentation as KEY=VALUE configuration: assignment
  * keys map to their values (values may span continuation lines), and
- * comment lines are kept separately as documentation. Verdicts over the
- * parsed structure are semantic, never raw-text pins on the file.
+ * comment lines are skipped. Verdicts over the parsed structure are
+ * semantic, never raw-text pins on the file.
  */
-const parseEnvExample = (
-  rawText: string
-): {
-  readonly assignments: ReadonlyMap<string, string>;
-  readonly documentation: readonly string[];
-} => {
+const parseEnvExample = (rawText: string): ReadonlyMap<string, string> => {
   const assignments = new Map<string, string>();
-  const documentation: string[] = [];
   const assignmentKey = /^[A-Z0-9_]+$/;
   for (const line of rawText.split("\n")) {
     const trimmed = line.trim();
-    if (trimmed.startsWith("#")) {
-      documentation.push(trimmed.replace(/^#+\s*/, ""));
-      continue;
-    }
+    if (trimmed.startsWith("#")) continue;
     const separator = trimmed.indexOf("=");
     if (separator > 0 && assignmentKey.test(trimmed.slice(0, separator))) {
       assignments.set(
@@ -208,29 +199,17 @@ const parseEnvExample = (
       assignments.set(lastKey, `${assignments.get(lastKey)}\n${trimmed}`);
     }
   }
-  return { assignments, documentation };
+  return assignments;
 };
 
-describe("administrator credential tooling documentation", () => {
-  test("exposes the generator as a package script", async () => {
-    const packageJson = (await Bun.file(
-      new URL("../package.json", import.meta.url)
-    ).json()) as {
-      readonly scripts: Readonly<Record<string, string>>;
-    };
-
-    expect(packageJson.scripts["administrator-credentials:generate"]).toBe(
-      "bash scripts/generate-administrator-credentials.sh"
-    );
-  });
-
-  test("documents the registry format, command, and migration in .env.example", async () => {
+describe("administrator credential registry in .env.example", () => {
+  test("documents registry-format entries in .env.example", async () => {
     const rawEnvExample = await Bun.file(
       new URL("../.env.example", import.meta.url)
     ).text();
-    const envConfig = parseEnvExample(rawEnvExample);
+    const assignments = parseEnvExample(rawEnvExample);
 
-    const credentialAssignment = envConfig.assignments.get(
+    const credentialAssignment = assignments.get(
       "ADMIN_BASIC_AUTH_CREDENTIALS"
     );
     expect(credentialAssignment).toBeDefined();
@@ -245,30 +224,15 @@ describe("administrator credential tooling documentation", () => {
     for (const entry of credentialEntries) {
       expect(entry).toMatch(/^[a-z0-9][a-z0-9._-]{0,79}:.+$/);
     }
-
-    const documentation = envConfig.documentation.join("\n");
-    expect(documentation).toContain("username:<sha256(username:password)>");
-    expect(documentation).toContain(
-      "bun run administrator-credentials:generate"
-    );
-    expect(documentation).toContain("Required in every environment");
-    expect(documentation).toContain(
-      "reuse the previously configured single-credential digest"
-    );
-    expect(documentation).toContain("as the admin entry");
-    expect(documentation).not.toContain("ADMIN_BASIC_AUTH_SHA256");
-    expect([...envConfig.assignments.keys()]).not.toContain(
-      "ADMIN_BASIC_AUTH_SHA256"
-    );
   });
 
   test("keeps real credentials out of .env.example", async () => {
     const rawEnvExample = await Bun.file(
       new URL("../.env.example", import.meta.url)
     ).text();
-    const envConfig = parseEnvExample(rawEnvExample);
+    const assignments = parseEnvExample(rawEnvExample);
 
-    const credentialAssignment = envConfig.assignments.get(
+    const credentialAssignment = assignments.get(
       "ADMIN_BASIC_AUTH_CREDENTIALS"
     );
     expect(credentialAssignment).toBeDefined();

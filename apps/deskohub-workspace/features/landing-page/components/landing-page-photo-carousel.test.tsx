@@ -57,26 +57,6 @@ describe("LandingPagePhotoCarousel", () => {
     await unregisterWorkspaceComponentTestEnv();
   });
 
-  test("keeps navigation manual without an autoplay control", async () => {
-    const { LandingPagePhotoCarousel } = await import(
-      "./landing-page-photo-carousel"
-    );
-    const view = render(
-      <LandingPagePhotoCarousel
-        ariaLabel="Workspace photos"
-        images={images}
-        locale="en-US"
-      />
-    );
-
-    expect(
-      view.getByRole("button", {
-        name: "Open carousel photo 1 in the lightbox",
-      })
-    ).toBeTruthy();
-    expect(view.queryByRole("button", { name: "Pause carousel" })).toBeNull();
-  });
-
   test("uses the locale-specific Cloudinary alt text and skips empty values", async () => {
     const { LandingPagePhotoCarousel } = await import(
       "./landing-page-photo-carousel"

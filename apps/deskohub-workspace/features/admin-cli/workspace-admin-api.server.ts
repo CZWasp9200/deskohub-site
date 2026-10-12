@@ -69,7 +69,10 @@ import {
   type ReservationAccessGrant,
   reservationAccessProvisioningStaleAfterMilliseconds,
 } from "@/features/reservation-access";
-import { WorkspaceObservabilityLive } from "@/shared/backend/workspace-effect";
+import {
+  WorkspaceObservabilityLive,
+  workspaceMemoMap,
+} from "@/shared/backend/workspace-effect";
 import { CliAuthentication } from "./cli-authentication.service";
 import { CliAuthenticationAdmission } from "./cli-authentication-admission.service";
 import { CliMutationIdempotency } from "./cli-mutation-idempotency.service";
@@ -953,11 +956,12 @@ const WorkspaceAdminApiLive = Layer.mergeAll(
   ),
   noStore,
   // This handler runs outside the route's Effect runtime, so it needs the
-  // censoring Workspace logger and tracer of its own.
+  // censoring Workspace logger and tracer. Building with the Workspace memo
+  // map reuses the instance the route runtime already built.
   WorkspaceObservabilityLive
 ).pipe(Layer.provide(NodeHttpServer.layerHttpServices));
 
 export const handleWorkspaceAdminApiRequest = HttpRouter.toWebHandler(
   WorkspaceAdminApiLive,
-  { disableLogger: true }
+  { disableLogger: true, memoMap: workspaceMemoMap }
 ).handler;

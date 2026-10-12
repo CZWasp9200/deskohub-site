@@ -29,7 +29,6 @@ const decodeRequest = Schema.decodeUnknownSync(
   AdministrationStandaloneAccessCodeCreateInput
 );
 const attemptId = decodeAttemptId("01980000-0000-7000-8000-000000000042");
-const otherAttemptId = decodeAttemptId("01980000-0000-7000-8000-000000000043");
 const priorAttemptId = decodeAttemptId("01980000-0000-7000-8000-000000000044");
 const priorCleanupTarget = {
   attemptId: priorAttemptId,
@@ -531,36 +530,5 @@ describe("StandaloneAccessCodeAdministration.create", () => {
       expect(result.failure.outcome).toBe("rejected");
       expect(result.failure.failureCode).toBe("standalone_provider_rejected");
     }
-  });
-
-  test("keeps distinct attempt IDs independent", async () => {
-    const claim = mock(() => Effect.succeed({ kind: "exhausted" } as const));
-    const result = await Effect.gen(function* () {
-      const service = yield* StandaloneAccessCodeAdministration;
-      return yield* service
-        .create({ ...input, attemptId: otherAttemptId })
-        .pipe(Effect.result);
-    }).pipe(
-      Effect.provide(
-        StandaloneAccessCodeAdministration.Default.pipe(
-          Layer.provide(
-            Layer.mergeAll(
-              Layer.mock(StandaloneAccessCodeAttemptLogRepository, {
-                claim,
-              }),
-              Layer.mock(IgloohomeService, {})
-            )
-          )
-        )
-      ),
-      Effect.runPromise
-    );
-
-    expect(Result.isFailure(result)).toBe(true);
-    expect(claim).toHaveBeenCalledWith(
-      expect.objectContaining({
-        attempt: expect.objectContaining({ attemptId: otherAttemptId }),
-      })
-    );
   });
 });

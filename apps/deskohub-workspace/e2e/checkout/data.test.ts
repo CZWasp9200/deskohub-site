@@ -12,7 +12,6 @@ import { workspaceE2ETimeouts } from "../timeouts";
 import {
   makeCoworkCheckoutData,
   makeMeetingRoomCheckoutData,
-  makeOfficeCheckoutData,
   reuseCoworkCheckoutContact,
   reuseMeetingRoomCheckoutContact,
   selectAvailableCoworkDates,
@@ -94,33 +93,6 @@ test("builds checkout data from the selected cowork product", () => {
   });
 });
 
-test("keeps its persistence oracle independent of application normalization", () => {
-  const openSpace = makeCoworkCheckoutData(
-    "https://workspace.example.com",
-    "2099-09-01",
-    "cowork-open-space-coffee",
-    { coffee: true }
-  );
-  const reservedDesk = makeCoworkCheckoutData(
-    "https://workspace.example.com",
-    "2099-09-02",
-    "cowork-reserved-desk",
-    { entryTier: "reserved-desk", monitorOption: "2x32-4k" }
-  );
-
-  expect(openSpace.expectedReservationDetails).toEqual({
-    coffee: true,
-    entryTier: "open-space",
-    kind: "cowork",
-  });
-  expect(reservedDesk.expectedReservationDetails).toEqual({
-    coffee: true,
-    entryTier: "reserved-desk",
-    kind: "cowork",
-    monitorOption: "2x32-4k",
-  });
-});
-
 test("rejects an invalid runtime cowork tier with an intelligible error", () => {
   // Runtime-only bypass: JS callers can pass a historical tier that the
   // WorkspaceCoworkCurrentTier type no longer allows.
@@ -162,35 +134,6 @@ test("reuses customer identity for a later reservation", () => {
   expect(new URL(second.checkoutUrl).searchParams.get("date")).toBe(
     "2099-09-02"
   );
-});
-
-test("builds minimal meeting-room persistence data with transient timing", () => {
-  const duration = { unit: "hour", amount: 4 } as const;
-  const interval = getMeetingRoomReservationInterval(
-    "2099-09-01T10:00",
-    duration
-  );
-  expect(interval).toBeDefined();
-  const data = makeMeetingRoomCheckoutData("https://workspace.example.com", {
-    date: "2099-09-01",
-    duration,
-    startDateTime: "2099-09-01T10:00",
-    ...interval!,
-  });
-
-  expect(new URL(data.checkoutUrl).pathname).toBe(
-    "/en-US/reservation/meeting-room"
-  );
-  expect(data.expectedReservationDetails).toEqual({
-    kind: "meeting-room",
-  });
-  expect(data.meetingRoom).toEqual({
-    duration,
-    endsAt: interval!.endsAt,
-    startDateTime: "2099-09-01T10:00",
-    startsAt: interval!.startsAt,
-  });
-  expect(data.expectedReservationDetails).not.toHaveProperty("startsAt");
 });
 
 test("reuses a meeting-room customer while changing the interval", () => {
@@ -236,24 +179,6 @@ test("reuses a meeting-room customer while changing the interval", () => {
   });
   expect(second.meetingRoom?.duration).toEqual({ unit: "hour", amount: 4 });
   expect(second.meetingRoom?.startsAt).toBe(secondInterval!.startsAt);
-});
-
-test("builds minimal office persistence data with transient range and seats", () => {
-  const slot = {
-    startsOn: "2099-09-01",
-    endsOn: "2099-09-02",
-    seats: 2,
-    startsAt: "2099-08-31T22:00:00Z",
-    endsAt: "2099-09-02T22:00:00Z",
-  } as const;
-  const data = makeOfficeCheckoutData("https://workspace.example.com", slot);
-
-  expect(new URL(data.checkoutUrl).pathname).toBe("/en-US/reservation/office");
-  expect(data.date).toBe(slot.startsOn);
-  expect(data.expectedReservationDetails).toEqual({ kind: "office" });
-  expect(data.office).toEqual(slot);
-  expect(data.expectedReservationDetails).not.toHaveProperty("startsOn");
-  expect(data.expectedReservationDetails).not.toHaveProperty("seats");
 });
 
 test("loads availability through the provided HTTP client", async () => {

@@ -67,7 +67,6 @@ export type WorkspaceE2EProfileNavigationDiagnosticCode =
 const accountLayoutNavigationPhases = [
   "select",
   "landmark",
-  "geometry",
   "capture",
 ] as const;
 const accountLayoutSections = [
@@ -94,10 +93,7 @@ const workspaceE2EReservationExistingCustomerDiagnosticCodes = [
   "account_reservation_existing_customer_card_failed",
   "account_reservation_existing_customer_card_review_failed",
   "account_reservation_existing_customer_contact_switch_failed",
-  "account_reservation_existing_customer_contact_inputs_failed",
   "account_reservation_existing_customer_contact_review_failed",
-  "account_reservation_existing_customer_account_switch_failed",
-  "account_reservation_existing_customer_card_restore_failed",
 ] as const;
 
 export type WorkspaceE2EReservationExistingCustomerDiagnosticCode =
@@ -122,7 +118,7 @@ const workspaceE2EAccountDiagnosticCodes = [
 
 // The Nexi hosted payment page step that failed, paired with the provider page
 // state observed when it failed. Both halves are closed code-owned sets.
-export const nexiHostedPaymentSteps = [
+const nexiHostedPaymentSteps = [
   "card_entry",
   "continue",
   "pay",
@@ -130,7 +126,7 @@ export const nexiHostedPaymentSteps = [
   "return",
 ] as const;
 
-export const nexiHostedPaymentPageStates = [
+const nexiHostedPaymentPageStates = [
   "card_entry_incomplete",
   "card_entry_ready",
   "card_submission_rejected",

@@ -1,4 +1,6 @@
-export { m } from "./paraglide/messages.js";
+// Re-export the message modules directly; Turbopack drops unused messages only
+// when `m` is a namespace re-export, not a re-exported binding.
+export * as m from "./paraglide/messages/_index.js";
 export {
   baseLocale,
   isLocale,

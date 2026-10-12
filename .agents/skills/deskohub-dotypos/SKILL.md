@@ -21,6 +21,11 @@ For a Dotypos resource or item operation:
 
 Do not add a parallel hand-written response decoder when the contract can be generated.
 
+## Request timeouts
+
+- Prefer waiting for a slow Dotypos answer over failing the flow. The per-request timeout defaults to `dotyposApiTimeoutDefaultMilliseconds` (30 seconds, `@deskohub/dotypos/api-timeout`), and E2E uses the same value. A budget that wraps a Dotypos call, such as an E2E finalizer, must leave room for at least one full per-request timeout.
+- A page whose route `maxDuration` is shorter than the per-request timeout plus retries caps its own Dotypos reads with `Effect.timeoutOrElse` and renders a degraded state instead. The checkout status page (`maxDuration = 60`, sized for one non-production Nexi request) and the reservation access page (`maxDuration = 30`) cap theirs at 8 seconds. The cap bounds only the Dotypos work, not the page's total execution time; later steps such as Igloohome issuance can still run past `maxDuration`. Keep the shared default unchanged for these pages.
+
 ## Customer records
 
 - Dotypos filters customer `email` only through the STRING group: `email|like|value` is a case-insensitive substring match (`ILIKE '%value%'`, see the official filter and Customer entity references). Treat its results as candidates and identify a customer only by a whole-address, case-insensitive email comparison. Customers that differ only by email case are ambiguous, never silently merged.

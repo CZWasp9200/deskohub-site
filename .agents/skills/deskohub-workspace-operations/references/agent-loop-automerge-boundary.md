@@ -1,25 +1,25 @@
 # Autonomous PR auto-merge boundary
 
-> **Status: risk research, not an MVP blocker.** The MVP uses the existing GitHub identity and checks, and the worker prompt decides whether a small stable PR may use GitHub auto-merge. The stronger independent enforcement below is deferred until the MVP demonstrates that it is useful. See [the Wayfinder map](https://github.com/totalolage/deskohub-site/issues/288).
+> **Status: risk research, not an MVP blocker.** The MVP uses the existing GitHub identity and checks, and the [worker's auto-merge policy](posthog-agent-worker.md#auto-merge-policy) decides whether a small stable PR may use GitHub auto-merge. The stronger independent enforcement below is deferred until the MVP demonstrates that it is useful. See [the Wayfinder map](https://github.com/totalolage/deskohub-site/issues/288).
 
 Research date: 2026-08-28. Repository: `totalolage/deskohub-site`. The live settings below can change, so rerun the audit before using this note to change merge policy.
 
-## Decision
+## Research recommendation
 
-T3 Code must not enable or perform auto-merge for its own pull requests in v1.
+The incident agent must not enable or perform auto-merge for its own pull requests in v1.
 
 The deterministic policy is deliberately dull:
 
 ```text
-if pull_request.created_by == t3code_agent:
+if pull_request.created_by == incident_agent:
     auto_merge = denied
 ```
 
-T3 Code may open a draft PR, update it, run checks, address review feedback, and mark it ready. It must stop there. A human may merge it or explicitly enable GitHub auto-merge after reviewing the current head commit. The existing Release Please auto-merge is a separate release workflow and should remain outside the agent loop.
+The incident agent may open a draft PR, update it, run checks, address review feedback, and mark it ready. It must stop there. A human may merge it or explicitly enable GitHub auto-merge after reviewing the current head commit. The existing Release Please auto-merge is a separate release workflow and should remain outside the agent loop.
 
 There is no useful production-code allowlist that current enforcement proves safe. A Markdown-only or test-only allowlist would be low risk, but it would not fix PostHog incidents. Calling that a self-driving fix path would be misleading.
 
-## The fact this decision depends on
+## The fact this recommendation depends on
 
 GitHub does not currently enforce a human or independent policy decision between an internally authored PR and `main`.
 
@@ -38,7 +38,7 @@ gh api repos/totalolage/deskohub-site/rulesets
 find . -type f -name CODEOWNERS -not -path './node_modules/*'
 ```
 
-The current devbox GitHub identity reports repository `admin: true`. I did not test a bypass because that would mutate the repository. The bypass conclusion therefore stops at level 2: the live protection response says `enforce_admins.enabled: false`, and GitHub documents that branch protection does not apply to administrators by default. [GitHub protected branch behavior](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches#do-not-allow-bypassing-the-above-settings)
+The local GitHub identity the incident agent uses reports repository `admin: true`. I did not test a bypass because that would mutate the repository. The bypass conclusion therefore stops at level 2: the live protection response says `enforce_admins.enabled: false`, and GitHub documents that branch protection does not apply to administrators by default. [GitHub protected branch behavior](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches#do-not-allow-bypassing-the-above-settings)
 
 GitHub auto-merge only waits for configured merge requirements. It does not add review or test requirements of its own. [GitHub auto-merge documentation](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/incorporating-changes-from-a-pull-request/automatically-merging-a-pull-request)
 
@@ -119,7 +119,7 @@ The latest explicit revert commits are older. [The homepage map PR](https://gith
 - No live bypass attempt was made. Admin bypass is supported by GitHub's documented behavior and current settings, but was not exercised.
 - No check demonstrates that an agent fix preserves business behavior outside the Workspace E2E catalog.
 - No deterministic rule connects a PostHog error to a semantically low-risk source path. A one-line change in payment or authentication code can be more dangerous than a large component refactor.
-- No independent actor verifies that the current PR head matches the revision T3 Code reviewed and tested.
+- No independent actor verifies that the current PR head matches the revision the incident agent reviewed and tested.
 - No policy prevents alert text, logs, issue comments, or changed repository files from steering the agent toward workflow, credential, or policy changes.
 - No required check evaluates migration compatibility across the old deployment and new deployment. Generation and preview migration test a different fact.
 - No recovery evidence establishes a maximum time to detect and revert a bad autonomous merge.
@@ -130,7 +130,7 @@ GitHub warns that workflow code and PR metadata are untrusted inputs, and that w
 
 Do not build a path classifier first. Make the existing human decision enforceable:
 
-1. Run T3 Code through a distinct GitHub App that has no administrator role and no branch-protection bypass. Do not use the current admin user's token.
+1. Run the incident agent through a distinct GitHub App that has no administrator role and no branch-protection bypass. Do not use the current admin user's token.
 2. Require one approval from someone other than the App after the latest push. Turn on stale-review dismissal or last-push approval.
 3. Apply branch protection to administrators and bypass-capable roles.
 4. Let the human enable GitHub auto-merge after approving the current head. GitHub can then wait for the existing required checks.

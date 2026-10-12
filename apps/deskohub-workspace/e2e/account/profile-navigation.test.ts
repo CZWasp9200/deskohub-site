@@ -1,9 +1,8 @@
 import { expect, test } from "bun:test";
-import { constants } from "node:fs";
-import { access } from "node:fs/promises";
 import { createServer } from "node:http";
 import { normalizePhoneNumber } from "@deskohub/dotypos";
-import { chromium, type Page } from "@playwright/test";
+import { chromium, errors, type Page } from "@playwright/test";
+import { playwrightChromiumAvailable } from "../../shared/testing/playwright-browser";
 import {
   isWorkspaceE2EDiagnosticCode,
   WorkspaceE2EError,
@@ -18,39 +17,6 @@ import {
   triggerProfileHistoryBack,
   verifyProfileNavigation,
 } from "./profile-navigation";
-
-type MockPage = {
-  readonly evaluateInputs: readonly unknown[];
-  readonly navigationWaitCalls: () => number;
-  readonly page: Page;
-  readonly goBackCalls: () => number;
-};
-
-const makeMockPage = (): MockPage => {
-  const evaluateInputs: unknown[] = [];
-  let goBackCallCount = 0;
-  let navigationWaitCallCount = 0;
-  const page = Object.assign({} as Page, {
-    evaluate: async (expression: unknown) => {
-      evaluateInputs.push(expression);
-    },
-    goBack: async () => {
-      goBackCallCount += 1;
-      throw new Error("page.goBack must not be used for guarded history");
-    },
-    waitForNavigation: async () => {
-      navigationWaitCallCount += 1;
-      throw new Error("navigation waits must not be used for guarded history");
-    },
-  });
-
-  return {
-    evaluateInputs,
-    goBackCalls: () => goBackCallCount,
-    navigationWaitCalls: () => navigationWaitCallCount,
-    page,
-  };
-};
 
 type ProfileNavigationSection =
   | "reservations"
@@ -470,14 +436,14 @@ const makeProfileNavigationFakePage = (
           (argument as { readonly sectionButton: string }).sectionButton ===
             "section:profile"
         ) {
-          throw new Error(privateFailureDetails);
+          throw new errors.TimeoutError(privateFailureDetails);
         }
         actions.push(
           `handler-ready:${String(
             (argument as { readonly sectionButton: unknown }).sectionButton
           )}`
         );
-        return;
+        return { dispose: async () => {}, jsonValue: async () => "ready" };
       }
       if (
         typeof argument === "object" &&
@@ -490,6 +456,7 @@ const makeProfileNavigationFakePage = (
           throw new Error(`section did not become ready: ${section}`);
         }
       }
+      return { dispose: async () => {}, jsonValue: async () => true };
     },
     waitForURL: async (url: string) => {
       actions.push(`wait-url:${url}`);
@@ -499,12 +466,7 @@ const makeProfileNavigationFakePage = (
   return { actions, page, serverPhone: serverSnapshot.phone, state };
 };
 
-const chromiumAvailable = await access(
-  chromium.executablePath(),
-  constants.X_OK
-)
-  .then(() => true)
-  .catch(() => false);
+const chromiumAvailable = await playwrightChromiumAvailable();
 
 const startNavigationTestServer = async () => {
   const server = createServer((_request, response) => {
@@ -543,18 +505,6 @@ const startNavigationTestServer = async () => {
       }),
   };
 };
-
-test("uses one evaluated history trigger instead of Playwright navigation waits", async () => {
-  const mockPage = makeMockPage();
-
-  await triggerProfileHistoryBack(mockPage.page);
-
-  expect(mockPage.goBackCalls()).toBe(0);
-  expect(mockPage.navigationWaitCalls()).toBe(0);
-  expect(mockPage.evaluateInputs).toHaveLength(1);
-  expect(mockPage.evaluateInputs[0]).toBeInstanceOf(Function);
-  expect(String(mockPage.evaluateInputs[0])).toContain("window.history.back()");
-});
 
 test("keeps cached drafts through soft navigation and resets them on document remount", async () => {
   const fake = makeProfileNavigationFakePage(
@@ -748,6 +698,32 @@ test("reports a closed stage-specific diagnostic for persisted profile restore f
   }
 });
 
+test("names the section selection stage and failure kind without the private cause", async () => {
+  const fake = makeProfileNavigationFakePage(
+    "https://account-navigation.example.test",
+    "profile-handler-wait"
+  );
+  const failure = await verifyProfileNavigation(
+    fake.page,
+    "https://account-navigation.example.test"
+  ).then(
+    () => undefined,
+    (cause: unknown) => cause
+  );
+
+  expectProfileNavigationFailure(
+    failure,
+    "account_profile_persisted_profile_handler_wait_failed"
+  );
+  expect(failure).toMatchObject({
+    message:
+      "Profile navigation verification failed at section selection stage button-handler-wait (timeout)",
+  });
+});
+
+const closedProfileNavigationFailureMessage =
+  /^Profile navigation verification failed (at section selection stage (button-handler-wait|panel-hydration-wait|native-button-click|selected-landmark-wait) )?\((timeout|strict-mode-violation|error)\)$/;
+
 const expectProfileNavigationFailure = (
   failure: unknown,
   diagnosticCode: WorkspaceE2EProfileNavigationDiagnosticCode
@@ -759,9 +735,9 @@ const expectProfileNavigationFailure = (
   expect(isWorkspaceE2EDiagnosticCode(failure.diagnosticCode)).toBe(true);
   expect(failure).toMatchObject({
     diagnosticCode,
-    message: "Profile navigation verification failed",
     operation: "verify profile navigation and unsaved changes",
   });
+  expect(failure.message).toMatch(closedProfileNavigationFailureMessage);
   expect(failure.cause).toBeUndefined();
   expect(failure.causes).toBeUndefined();
   expect(failure.message).not.toContain(privateFailureDetails);

@@ -40,6 +40,12 @@ type WorkspaceActionValidationIssue = {
 
 export interface WorkspaceActionOptions<S extends StandardSchemaV1> {
   /**
+   * How long the whole action may run before the customer is told to try
+   * again. Defaults to `workspaceActionDeadline`; raise it only for an action
+   * whose provider requests cannot fit.
+   */
+  readonly deadline?: Duration.Input;
+  /**
    * Set to false for inputs containing data that must not be persisted in
    * telemetry, such as customer contact details.
    */
@@ -53,6 +59,24 @@ export interface WorkspaceActionContext<S extends StandardSchemaV1> {
   readonly clientInput: StandardSchemaV1.InferInput<S>;
   readonly locale: Locale;
 }
+
+const workspaceActionDeadline = Duration.seconds(45);
+
+/** Fails an action that outlives `deadline` with a retryable public error. */
+export const withActionDeadline =
+  (deadline: Duration.Input) =>
+  <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+    effect.pipe(
+      Effect.timeoutOrElse({
+        duration: deadline,
+        orElse: () =>
+          Effect.fail(
+            new PublicSafeActionError({
+              message: "Request timed out. Please try again.",
+            })
+          ),
+      })
+    );
 
 export const defineWorkspaceAction = <
   S extends StandardSchemaV1,
@@ -117,7 +141,7 @@ const prepareWorkspaceAction = <
   E extends SafeActionFailure,
 >(
   args: WorkspaceActionArgs<S>,
-  options: Pick<WorkspaceActionOptions<S>, "logInput">,
+  options: Pick<WorkspaceActionOptions<S>, "deadline" | "logInput">,
   handler: () => Effect.Effect<A, E, BotProtectionService>
 ) => {
   const logged = Effect.gen(function* () {
@@ -144,15 +168,7 @@ const prepareWorkspaceAction = <
       logged.pipe(withWorkspaceRequestContext(requestHeaders))
     ),
     Effect.provideService(References.MinimumLogLevel, "All"),
-    Effect.timeoutOrElse({
-      duration: Duration.seconds(45),
-      orElse: () =>
-        Effect.fail(
-          new PublicSafeActionError({
-            message: "Request timed out. Please try again.",
-          })
-        ),
-    })
+    withActionDeadline(options.deadline ?? workspaceActionDeadline)
   );
 
   return Effect.andThen(scheduleWorkspaceTelemetryFlush(), invocation);

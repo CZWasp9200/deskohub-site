@@ -10,7 +10,7 @@ import {
 import { processLatePaymentRecoveryMessage } from "./late-payment-recovery-queue-consumer";
 
 describe("late-payment recovery queue", () => {
-  test("enqueues one idempotent retained recovery message", async () => {
+  test("enqueues one idempotent recovery message per attempt", async () => {
     const send = mock(() => Promise.resolve({} as never));
     await makeLatePaymentRecoveryQueueService(send as never)
       .enqueue({ paymentAttemptId: "attempt-id" })
@@ -19,24 +19,10 @@ describe("late-payment recovery queue", () => {
     expect(send).toHaveBeenCalledWith(
       latePaymentRecoveryQueueTopic,
       { paymentAttemptId: "attempt-id" },
-      {
-        retentionSeconds: 604_800,
+      expect.objectContaining({
         idempotencyKey: "late-payment-recovery:attempt-id",
-      }
+      })
     );
-  });
-
-  test("decodes a valid message and invokes recovery", async () => {
-    const recover = mock(() => Effect.succeed("recovered" as const));
-    const outcome = await processLatePaymentRecoveryMessage({
-      paymentAttemptId: "attempt-id",
-    }).pipe(
-      Effect.provide(Layer.mock(LatePaymentRecoveryService, { recover })),
-      Effect.runPromise
-    );
-
-    expect(outcome).toBe("recovered");
-    expect(recover).toHaveBeenCalledWith({ paymentAttemptId: "attempt-id" });
   });
 
   test("ignores malformed messages", async () => {

@@ -20,7 +20,7 @@ type PostHogTracerProviderOptions = {
   readonly serviceVersion?: string;
 };
 
-export function getPostHogTracesEndpoint(posthogHost: string) {
+function getPostHogTracesEndpoint(posthogHost: string) {
   return new URL(POSTHOG_TRACES_PATH, posthogHost).toString();
 }
 

@@ -1,6 +1,7 @@
 import { afterAll, afterEach, beforeEach, expect, mock, test } from "bun:test";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { useState } from "react";
+import { m } from "@/features/i18n";
 import {
   UnsavedChangesProvider,
   useUnsavedChanges,
@@ -153,7 +154,11 @@ test("rejects a dirty sign-out before auth mutation or navigation", async () => 
   );
 
   await act(async () => {
-    fireEvent.click(view.getByRole("button", { name: "Odhlásit se" }));
+    fireEvent.click(
+      view.getByRole("button", {
+        name: m.accountSignOut({}, { locale: "cs-CZ" }),
+      })
+    );
   });
 
   expect(confirm).toHaveBeenCalledTimes(1);
@@ -186,7 +191,9 @@ test("allows one unload after deferred sign-out succeeds", async () => {
       <SignOutButton locale="cs-CZ" />
     </UnsavedChangesProvider>
   );
-  const button = view.getByRole("button", { name: "Odhlásit se" });
+  const button = view.getByRole("button", {
+    name: m.accountSignOut({}, { locale: "cs-CZ" }),
+  });
 
   await act(async () => {
     fireEvent.click(button);
@@ -240,7 +247,9 @@ test("does not navigate when sign-out resolves with a 503 error", async () => {
       <SignOutButton locale="en-US" />
     </UnsavedChangesProvider>
   );
-  const button = view.getByRole("button", { name: "Sign out" });
+  const button = view.getByRole("button", {
+    name: m.accountSignOut({}, { locale: "en-US" }),
+  });
 
   await act(async () => {
     fireEvent.click(button);
@@ -257,7 +266,7 @@ test("does not navigate when sign-out resolves with a 503 error", async () => {
   expect(assigned).toBeNull();
   expect((button as HTMLButtonElement).disabled).toBe(false);
   expect(view.getByRole("alert").textContent).toBe(
-    "We could not sign you out. Please try again."
+    m.accountSignOutFailed({}, { locale: "en-US" })
   );
   // role="alert" already implies assertive announcement; a conflicting
   // aria-live would downgrade it.
@@ -302,7 +311,9 @@ test("restores the button after a rejected sign-out without exposing the error",
       <SignOutButton locale="cs-CZ" />
     </UnsavedChangesProvider>
   );
-  const button = view.getByRole("button", { name: "Odhlásit se" });
+  const button = view.getByRole("button", {
+    name: m.accountSignOut({}, { locale: "cs-CZ" }),
+  });
 
   await act(async () => {
     fireEvent.click(button);
@@ -320,7 +331,7 @@ test("restores the button after a rejected sign-out without exposing the error",
   expect(assigned).toBeNull();
   expect((button as HTMLButtonElement).disabled).toBe(false);
   expect(view.getByRole("alert").textContent).toBe(
-    "Odhlášení se nepodařilo. Zkuste to prosím znovu."
+    m.accountSignOutFailed({}, { locale: "cs-CZ" })
   );
   expect(view.getByRole("alert").textContent).not.toContain(
     "raw provider failure"
@@ -364,7 +375,9 @@ test("retries a failed sign-out and navigates after the next success", async () 
       <SignOutButton locale="en-US" />
     </UnsavedChangesProvider>
   );
-  const button = view.getByRole("button", { name: "Sign out" });
+  const button = view.getByRole("button", {
+    name: m.accountSignOut({}, { locale: "en-US" }),
+  });
 
   await act(async () => {
     fireEvent.click(button);

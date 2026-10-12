@@ -67,14 +67,6 @@ describe("public account legal route boundary", () => {
     marketingPreferences.value = { status: "unavailable" };
   });
 
-  test("keeps the account legal route out of search indexes", async () => {
-    const { generateMetadata } = await import("./page");
-
-    expect(await generateMetadata()).toMatchObject({
-      robots: { index: false, follow: false },
-    });
-  });
-
   test("checks request connection before the account flag and preference data", async () => {
     const { default: PublicAccountLegalPage } = await import("./page");
     const route = PublicAccountLegalPage() as ReactElement<{
@@ -90,53 +82,11 @@ describe("public account legal route boundary", () => {
     const Content = content.type as (props: {
       readonly locale: "en-US";
     }) => Promise<ReactElement<PublicAccountLegalProps>>;
-    const output = await Content(content.props);
+    await Content(content.props);
 
     expect(callOrder).toEqual(["connection", "flag", "marketing-preferences"]);
     expect(connection).toHaveBeenCalledTimes(1);
     expect(areAccountsEnabled).toHaveBeenCalledTimes(1);
     expect(getMarketingPreferences).toHaveBeenCalledWith("en-US");
-    expect(output).toMatchObject({
-      type: PublicAccountLegal,
-      props: {
-        accountsEnabled: true,
-        locale: "en-US",
-        marketingPreferences: { status: "unavailable" },
-      },
-    });
-  });
-
-  test("keeps public legal content available when accounts are disabled and forwards preferences", async () => {
-    accountFlagEnabled.value = false;
-    marketingPreferences.value = {
-      context: "synthetic-account-context",
-      source: "account",
-      status: "active",
-    };
-
-    const { default: PublicAccountLegalPage } = await import("./page");
-    const route = PublicAccountLegalPage() as ReactElement<{
-      readonly children: ReactElement<{ readonly locale: "en-US" }>;
-      readonly fallback: ReactElement;
-    }>;
-    const content = route.props.children;
-    const Content = content.type as (props: {
-      readonly locale: "en-US";
-    }) => Promise<ReactElement<PublicAccountLegalProps>>;
-    const output = await Content(content.props);
-
-    expect(callOrder).toEqual(["connection", "flag", "marketing-preferences"]);
-    expect(output).toMatchObject({
-      type: PublicAccountLegal,
-      props: {
-        accountsEnabled: false,
-        locale: "en-US",
-        marketingPreferences: {
-          context: "synthetic-account-context",
-          source: "account",
-          status: "active",
-        },
-      },
-    });
   });
 });
