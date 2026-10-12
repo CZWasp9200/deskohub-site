@@ -37,8 +37,8 @@ import {
   CustomerAvatarService,
   type CustomerAvatarUnavailableError,
 } from "../customer-avatar.service";
-import { seedAccountCommunicationPreference } from "../customer-communication-preference.repository";
 import { CustomerDotyposAdapter } from "../customer-dotypos-adapter.service";
+import { seedAccountLocalePreference } from "../customer-locale-preference.repository";
 import type { MagicLinkSendFunction, WorkspaceAuthConfig } from "./auth-server";
 
 const emitWorkspaceLog = mock(() => undefined);
@@ -85,23 +85,23 @@ type TestAuthOptions = {
   readonly sentLinks?: CapturedMagicLink[];
   readonly areAccountsEnabled?: WorkspaceAuthConfig["areAccountsEnabled"];
   readonly beforeDeleteUser?: (accountId: CustomerAccountId) => Promise<void>;
-  readonly createAccountCommunicationPreference?: WorkspaceAuthConfig["createAccountCommunicationPreference"];
+  readonly createAccountLocalePreference?: WorkspaceAuthConfig["createAccountLocalePreference"];
 };
 
 const makeTestAuth = (options: TestAuthOptions = {}) => {
   const sendMagicLink: MagicLinkSendFunction = (data) => {
     options.sentLinks?.push(data);
   };
-  const createAccountCommunicationPreference:
-    | WorkspaceAuthConfig["createAccountCommunicationPreference"]
+  const createAccountLocalePreference:
+    | WorkspaceAuthConfig["createAccountLocalePreference"]
     | undefined =
-    options.createAccountCommunicationPreference ??
+    options.createAccountLocalePreference ??
     // The real seed requires the account row in the migrated disposable
     // Postgres, so memory-backed auth instances default to a noop seed.
     (testDatabase && !options.database
       ? (accountId, locale) =>
           Effect.runPromise(
-            seedAccountCommunicationPreference(accountId, locale).pipe(
+            seedAccountLocalePreference(accountId, locale).pipe(
               Effect.provide(
                 Layer.succeed(
                   WorkspaceDatabase,
@@ -119,7 +119,7 @@ const makeTestAuth = (options: TestAuthOptions = {}) => {
     areAccountsEnabled: options.areAccountsEnabled ?? (async () => true),
     sendMagicLink,
     beforeDeleteUser: options.beforeDeleteUser ?? (() => Promise.resolve()),
-    createAccountCommunicationPreference,
+    createAccountLocalePreference,
   });
 };
 
@@ -739,7 +739,7 @@ describe.skipIf(!testDatabase)(
       expect(user.rows).toHaveLength(0);
     });
 
-    test("seeds the communication preference from the initiating site locale at account creation", async () => {
+    test("seeds the language preference from the initiating site locale at account creation", async () => {
       const sentLinks: CapturedMagicLink[] = [];
       const auth = makeTestAuth({ sentLinks });
 
@@ -748,7 +748,7 @@ describe.skipIf(!testDatabase)(
         expect(userId).toBeTruthy();
         for (let attempt = 0; attempt < 20; attempt += 1) {
           const rows = await testDatabase!.pool.query(
-            `select locale from customer_communication_preferences where customer_account_id = $1`,
+            `select locale from customer_locale_preferences where customer_account_id = $1`,
             [userId]
           );
           if (rows.rows.length > 0) return rows.rows[0]!.locale as string;
@@ -777,7 +777,7 @@ describe.skipIf(!testDatabase)(
       const sentLinks: CapturedMagicLink[] = [];
       const auth = makeTestAuth({
         sentLinks,
-        createAccountCommunicationPreference: () =>
+        createAccountLocalePreference: () =>
           Promise.reject(new Error("synthetic persistent seed failure")),
       });
       const email = uniqueEmail("seed-persistent-failure");
@@ -799,18 +799,14 @@ describe.skipIf(!testDatabase)(
       const userId = await userIdForEmail(email);
       expect(userId).toBeTruthy();
       const preference = await testDatabase!.pool.query(
-        `select locale from customer_communication_preferences where customer_account_id = $1`,
+        `select locale from customer_locale_preferences where customer_account_id = $1`,
         [userId]
       );
       expect(preference.rows).toHaveLength(0);
 
       const loggedCodes = JSON.stringify(emitWorkspaceLog.mock.calls);
-      expect(loggedCodes).toContain(
-        "account-communication-preference.seed-failed"
-      );
-      expect(loggedCodes).toContain(
-        "account-communication-preference.capture-failed"
-      );
+      expect(loggedCodes).toContain("account-locale-preference.seed-failed");
+      expect(loggedCodes).toContain("account-locale-preference.capture-failed");
     });
 
     test("recovers a transient preference seed failure within the same activation without losing the initiating locale", async () => {
@@ -818,7 +814,7 @@ describe.skipIf(!testDatabase)(
       let attempts = 0;
       const realSeed = (accountId: CustomerAccountId, locale: Locale) =>
         Effect.runPromise(
-          seedAccountCommunicationPreference(accountId, locale).pipe(
+          seedAccountLocalePreference(accountId, locale).pipe(
             Effect.provide(
               Layer.succeed(
                 WorkspaceDatabase,
@@ -829,7 +825,7 @@ describe.skipIf(!testDatabase)(
         );
       const auth = makeTestAuth({
         sentLinks,
-        createAccountCommunicationPreference: async (accountId, locale) => {
+        createAccountLocalePreference: async (accountId, locale) => {
           attempts += 1;
           if (attempts === 1) {
             throw new Error("synthetic transient seed failure");
@@ -849,7 +845,7 @@ describe.skipIf(!testDatabase)(
       const userId = await userIdForEmail(email);
       expect(userId).toBeTruthy();
       const preference = await testDatabase!.pool.query(
-        `select locale from customer_communication_preferences where customer_account_id = $1`,
+        `select locale from customer_locale_preferences where customer_account_id = $1`,
         [userId]
       );
       expect(preference.rows).toEqual([{ locale: "cs-CZ" }]);
@@ -867,7 +863,7 @@ describe.skipIf(!testDatabase)(
     const preferenceRowsFor = async (accountId: string) =>
       (
         await testDatabase!.pool.query(
-          `select locale from customer_communication_preferences where customer_account_id = $1`,
+          `select locale from customer_locale_preferences where customer_account_id = $1`,
           [accountId]
         )
       ).rows;
@@ -906,7 +902,7 @@ describe.skipIf(!testDatabase)(
       const sentLinks: CapturedMagicLink[] = [];
       const auth = makeTestAuth({
         sentLinks,
-        createAccountCommunicationPreference: () =>
+        createAccountLocalePreference: () =>
           Promise.reject(new Error("synthetic capture failure")),
       });
       const email = uniqueEmail("legacy-capture-failure");
@@ -920,7 +916,7 @@ describe.skipIf(!testDatabase)(
       expect(getSessionCookie(verified)).toBeTruthy();
       expect(await preferenceRowsFor(accountId)).toEqual([]);
       const logs = JSON.stringify(emitWorkspaceLog.mock.calls);
-      expect(logs).toContain("account-communication-preference.capture-failed");
+      expect(logs).toContain("account-locale-preference.capture-failed");
       expect(logs).not.toContain("synthetic capture failure");
       expect(logs).not.toContain(email);
     });

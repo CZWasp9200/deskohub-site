@@ -6,7 +6,7 @@ import { WorkspaceDatabase } from "@/db/database.service";
 import type { Locale } from "@/features/i18n";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import { customerAccountIdSchema } from "../../customer-account";
-import { seedAccountCommunicationPreference } from "../customer-communication-preference.repository";
+import { seedAccountLocalePreference } from "../customer-locale-preference.repository";
 
 const afterCallbacks: (() => unknown)[] = [];
 const resendSends: {
@@ -59,7 +59,7 @@ const insertVerifiedUser = async (email: string, verified: boolean) => {
 
 const seedPreference = async (accountId: string, locale: Locale) => {
   await Effect.runPromise(
-    seedAccountCommunicationPreference(
+    seedAccountLocalePreference(
       customerAccountIdSchema.make(accountId),
       locale
     ).pipe(
@@ -124,7 +124,7 @@ describe.skipIf(!testDatabase)(
       expect(sentSubjectsFor(email)).toEqual([CS_SUBJECT]);
 
       const rows = await testDatabase!.pool.query(
-        `select locale from customer_communication_preferences where customer_account_id = $1`,
+        `select locale from customer_locale_preferences where customer_account_id = $1`,
         [accountId]
       );
       expect(rows.rows).toEqual([]);
@@ -136,14 +136,14 @@ describe.skipIf(!testDatabase)(
       await seedPreference(accountId, "cs-CZ");
 
       await testDatabase!.pool.query(
-        `alter table customer_communication_preferences rename to customer_communication_preferences_moved`
+        `alter table customer_locale_preferences rename to customer_locale_preferences_moved`
       );
       try {
         const queued = await requestDelivery(email, "en-US");
         expect(queued).toBe(0);
       } finally {
         await testDatabase!.pool.query(
-          `alter table customer_communication_preferences_moved rename to customer_communication_preferences`
+          `alter table customer_locale_preferences_moved rename to customer_locale_preferences`
         );
       }
 

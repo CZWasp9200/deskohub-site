@@ -23,7 +23,7 @@ import { runWorkspaceEffect } from "@/shared/backend/workspace-effect";
 import {
   lookupMagicLinkDeliveryLocale,
   type MagicLinkLocaleLookup,
-} from "../customer-communication-preference.repository";
+} from "../customer-locale-preference.repository";
 import { authOptions, betterAuthMagicLinkOptions } from "./auth-options";
 import { renderMagicLinkEmail } from "./magic-link-email";
 import { makeMagicLinkEmailDelivery } from "./send-magic-link-email";
@@ -41,14 +41,14 @@ export type WorkspaceAuthConfig = {
   readonly sendMagicLink: MagicLinkSendFunction;
   readonly beforeDeleteUser: (accountId: CustomerAccountId) => Promise<void>;
   /**
-   * Inserts the preferred communication language only when the account has
+   * Inserts the preferred language only when the account has
    * none, never overwriting a saved preference. Account creation seeds it
    * from the initiating site locale, retrying and rejecting the hook on a
    * persistent failure. Every sign-in captures it from the callback locale
    * for accounts that predate the preference, and a capture failure never
    * blocks the login.
    */
-  readonly createAccountCommunicationPreference: (
+  readonly createAccountLocalePreference: (
     accountId: CustomerAccountId,
     locale: Locale
   ) => Promise<void>;
@@ -59,17 +59,17 @@ export type WorkspaceAuthConfig = {
  * failure still produces the row. A persistent failure is returned so the
  * activating request reports failure.
  */
-const seedCommunicationPreferenceOrFail = async (
+const seedLocalePreferenceOrFail = async (
   config: WorkspaceAuthConfig,
   accountId: CustomerAccountId,
   locale: Locale
 ): Promise<{ readonly error: unknown } | undefined> => {
   let lastError: unknown = new Error(
-    "The communication preference seed did not run."
+    "The language preference seed did not run."
   );
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
-      await config.createAccountCommunicationPreference(accountId, locale);
+      await config.createAccountLocalePreference(accountId, locale);
       return undefined;
     } catch (error) {
       lastError = error;
@@ -80,8 +80,8 @@ const seedCommunicationPreferenceOrFail = async (
     boundary: "route",
   })(
     Effect.logWarning(
-      "Customer communication preference seed failed; rejecting account activation.",
-      { code: "account-communication-preference.seed-failed" }
+      "customer language preference seed failed; rejecting account activation.",
+      { code: "account-locale-preference.seed-failed" }
     )
   ).catch(() => undefined);
   return { error: lastError };
@@ -155,7 +155,7 @@ const callbackLocaleFromAuthContext = (
  * never blocks the login: readers fall back without a preference, and the
  * next sign-in retries.
  */
-const captureCommunicationPreference = async (
+const captureLocalePreference = async (
   config: WorkspaceAuthConfig,
   accountId: CustomerAccountId,
   ctx: ParsedAuthContext
@@ -163,14 +163,14 @@ const captureCommunicationPreference = async (
   const locale = callbackLocaleFromAuthContext(ctx);
   if (!locale) return;
   try {
-    await config.createAccountCommunicationPreference(accountId, locale);
+    await config.createAccountLocalePreference(accountId, locale);
   } catch {
     await runWorkspaceEffect("account.auth.capture-locale", {
       boundary: "route",
     })(
       Effect.logWarning(
-        "Customer communication preference capture failed; continuing the sign-in.",
-        { code: "account-communication-preference.capture-failed" }
+        "customer language preference capture failed; continuing the sign-in.",
+        { code: "account-locale-preference.capture-failed" }
       )
     ).catch(() => undefined);
   }
@@ -287,11 +287,7 @@ export const makeWorkspaceAuth = (config: WorkspaceAuthConfig) => {
               const parsedCtx = Option.getOrUndefined(
                 Schema.decodeUnknownOption(authContextSchema)(ctx)
               );
-              await captureCommunicationPreference(
-                config,
-                accountId,
-                parsedCtx ?? {}
-              );
+              await captureLocalePreference(config, accountId, parsedCtx ?? {});
             }
             return {
               data: {
@@ -317,7 +313,7 @@ export const makeWorkspaceAuth = (config: WorkspaceAuthConfig) => {
             // Anything without a callback locale seeds the site default.
             const locale =
               callbackLocaleFromAuthContext(parsedCtx ?? {}) ?? defaultLocale;
-            const seedFailure = await seedCommunicationPreferenceOrFail(
+            const seedFailure = await seedLocalePreferenceOrFail(
               config,
               accountId,
               locale
@@ -330,9 +326,7 @@ export const makeWorkspaceAuth = (config: WorkspaceAuthConfig) => {
               return Promise.reject(
                 seedFailure.error instanceof Error
                   ? seedFailure.error
-                  : new Error(
-                      "The customer communication preference seed failed."
-                    )
+                  : new Error("The customer language preference seed failed.")
               );
             }
           },

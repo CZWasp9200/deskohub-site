@@ -125,11 +125,11 @@ const englishCopy: ProfileScreenCopy = {
     unverified: "This email still needs verification.",
     verified: "This email has been successfully verified.",
   },
-  languageLabel: "Preferred communication language",
+  languageLabel: "Preferred language",
   languageSave: "Save",
   languageSaving: "Saving…",
-  languageSaved: "Communication language saved.",
-  languageSaveFailed: "Saving the communication language failed. Try again.",
+  languageSaved: "Language saved.",
+  languageSaveFailed: "Saving the language failed. Try again.",
   languageReadUnavailable: "Not available right now",
   languageOptionCs: "Čeština",
   languageOptionEn: "English (US)",
@@ -146,12 +146,11 @@ const czechCopy: ProfileScreenCopy = {
     unverified: "Tento e-mail stále vyžaduje ověření.",
     verified: "Tento e-mail byl úspěšně ověřen.",
   },
-  languageLabel: "Preferovaný komunikační jazyk",
+  languageLabel: "Preferovaný jazyk",
   languageSave: "Uložit",
   languageSaving: "Ukládání…",
-  languageSaved: "Komunikační jazyk byl uložen.",
-  languageSaveFailed:
-    "Ukládání komunikačního jazyka se nepodařilo. Zkuste to znovu.",
+  languageSaved: "Jazyk byl uložen.",
+  languageSaveFailed: "Ukládání jazyka se nepodařilo. Zkuste to znovu.",
   languageReadUnavailable: "Zrovna teď není k dispozici",
   languageOptionCs: "Čeština",
   languageOptionEn: "English (US)",
@@ -772,9 +771,7 @@ describe("ProfileScreen", () => {
       await Promise.resolve();
     });
 
-    const announced = view.getByText(
-      "Saving the communication language failed. Try again."
-    );
+    const announced = view.getByText("Saving the language failed. Try again.");
     expect(announced.className).toContain("text-red-700");
     expect(announced.className).not.toContain("text-emerald-800");
     cleanup();

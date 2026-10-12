@@ -15,7 +15,7 @@ import { toAresBusinessBillingDraft } from "@/features/account/backend/ares-busi
 import { deleteCurrentAccountThroughAuthEndpoint } from "@/features/account/backend/auth/delete-account-endpoint";
 import { CustomerAccountResolver } from "@/features/account/backend/customer-account-resolver.service";
 import { CustomerAuthentication } from "@/features/account/backend/customer-authentication.service";
-import { CustomerCommunicationPreferenceRepository } from "@/features/account/backend/customer-communication-preference.repository";
+import { CustomerLocalePreferenceRepository } from "@/features/account/backend/customer-locale-preference.repository";
 import { CustomerProfileService } from "@/features/account/backend/customer-profile.service";
 import {
   type CustomerProfileInput,
@@ -35,7 +35,7 @@ const deleteCustomerAccountConfirmedSchema = Schema.toStandardSchemaV1(
 );
 
 /**
- * The selectable preferred communication languages, derived from the Inlang
+ * The selectable preferred languages, derived from the Inlang
  * `locales` tuple so a locale list change is authoritative here too; the
  * database CHECK derives from the same list.
  */
@@ -97,7 +97,7 @@ const saveCustomerProfile = Effect.fn(
  * the page under the saved locale; the Dotypos profile is never touched.
  */
 const savePreferredLanguage = (accountId: CustomerAccountId, locale: Locale) =>
-  Effect.flatMap(CustomerCommunicationPreferenceRepository, (repository) =>
+  Effect.flatMap(CustomerLocalePreferenceRepository, (repository) =>
     repository.save(accountId, locale)
   ).pipe(
     Effect.andThen(
@@ -107,7 +107,7 @@ const savePreferredLanguage = (accountId: CustomerAccountId, locale: Locale) =>
         )
       )
     ),
-    Effect.provide(CustomerCommunicationPreferenceRepository.Live)
+    Effect.provide(CustomerLocalePreferenceRepository.Live)
   );
 
 const completeCustomerProfileAction = defineWorkspaceAction(

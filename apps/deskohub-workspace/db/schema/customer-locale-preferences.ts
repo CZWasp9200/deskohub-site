@@ -8,8 +8,8 @@ import { instant } from "../instant";
 import { authUser } from "./auth";
 import { quotedSqlList } from "./sql-list";
 
-export const customerCommunicationPreferences = pgTable(
-  "customer_communication_preferences",
+export const customerLocalePreferences = pgTable(
+  "customer_locale_preferences",
   {
     customerAccountId: text("customer_account_id")
       .primaryKey()
@@ -19,11 +19,11 @@ export const customerCommunicationPreferences = pgTable(
   },
   (t) => [
     check(
-      "customer_communication_preferences_locale_check",
+      "customer_locale_preferences_locale_check",
       sql`${t.locale} in (${quotedSqlList(inlangSettings.locales)})`
     ),
   ]
 );
 
-export type CustomerCommunicationPreference =
-  typeof customerCommunicationPreferences.$inferSelect;
+export type CustomerLocalePreference =
+  typeof customerLocalePreferences.$inferSelect;

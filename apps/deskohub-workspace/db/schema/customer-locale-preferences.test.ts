@@ -9,9 +9,9 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { getTableConfig, PgDialect } from "drizzle-orm/pg-core";
 import { Pool } from "pg";
-import { customerCommunicationPreferences } from "./customer-communication-preferences";
+import { customerLocalePreferences } from "./customer-locale-preferences";
 
-const MIGRATION_DIR = "20261012131359_customer_communication_preferences";
+const MIGRATION_DIR = "20261012213118_customer_locale_preferences";
 const migrationsFolder = fileURLToPath(
   new URL("../migrations", import.meta.url)
 );
@@ -55,10 +55,10 @@ const withScratchDatabase = async (
   }
 };
 
-describe("customer communication preferences", () => {
+describe("customer locale preferences", () => {
   test("shapes the preference table", () => {
-    const config = getTableConfig(customerCommunicationPreferences);
-    expect(config.name).toBe("customer_communication_preferences");
+    const config = getTableConfig(customerLocalePreferences);
+    expect(config.name).toBe("customer_locale_preferences");
     const columns = Object.fromEntries(
       config.columns.map((column) => [column.name, column])
     );
@@ -90,7 +90,7 @@ describe("customer communication preferences", () => {
           await migrate(drizzle({ client: pool }), { migrationsFolder });
 
           const preferences = await pool.query(
-            `select customer_account_id from customer_communication_preferences`
+            `select customer_account_id from customer_locale_preferences`
           );
           expect(preferences.rows).toEqual([]);
           const users = await pool.query(

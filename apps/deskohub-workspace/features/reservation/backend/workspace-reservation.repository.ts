@@ -284,7 +284,7 @@ export interface IWorkspaceReservationRepository {
     WorkspaceReservation | null,
     EffectDrizzleQueryError | WorkspaceReservationDetailsMalformedError
   >;
-  readonly retainCustomerEmailDeliveryLocale: (input: {
+  readonly retainActiveCustomerEmailDeliveryLocale: (input: {
     readonly id: WorkspaceReservationId;
     readonly locale: Locale;
     readonly expectedActiveCustomerEmailDeliveryId: EmailDeliveryId | null;
@@ -1209,8 +1209,8 @@ export class WorkspaceReservationRepository extends Context.Service<
           (effect, customerEmailDeliveryId) =>
             effect.pipe(Effect.annotateLogs({ customerEmailDeliveryId }))
         ),
-        retainCustomerEmailDeliveryLocale: Effect.fn(
-          "workspaceReservations.retainCustomerEmailDeliveryLocale"
+        retainActiveCustomerEmailDeliveryLocale: Effect.fn(
+          "workspaceReservations.retainActiveCustomerEmailDeliveryLocale"
         )(function* (input) {
           // Both statements are bound to the claimed delivery generation via
           // its active-delivery marker, so a writer whose generation was
@@ -1230,23 +1230,23 @@ export class WorkspaceReservationRepository extends Context.Service<
           const [seeded] = yield* db
             .update(workspaceReservations)
             .set({
-              customerEmailDeliveryLocale: input.locale,
+              activeCustomerEmailDeliveryLocale: input.locale,
               updatedAt: Temporal.Now.instant(),
             })
             .where(
               and(
                 eq(workspaceReservations.id, input.id),
-                isNull(workspaceReservations.customerEmailDeliveryLocale),
+                isNull(workspaceReservations.activeCustomerEmailDeliveryLocale),
                 generationStillActive
               )
             )
             .returning({
-              locale: workspaceReservations.customerEmailDeliveryLocale,
+              locale: workspaceReservations.activeCustomerEmailDeliveryLocale,
             });
           if (seeded) return seeded.locale;
           const [retained] = yield* db
             .select({
-              locale: workspaceReservations.customerEmailDeliveryLocale,
+              locale: workspaceReservations.activeCustomerEmailDeliveryLocale,
             })
             .from(workspaceReservations)
             .where(
@@ -1271,7 +1271,7 @@ export class WorkspaceReservationRepository extends Context.Service<
               activeCustomerEmailDeliveryId: input.customerEmailDeliveryId,
               // Recording the accepted send closes its idempotency generation,
               // so the next generation resolves the current preference again.
-              customerEmailDeliveryLocale: null,
+              activeCustomerEmailDeliveryLocale: null,
               updatedAt: Temporal.Now.instant(),
             })
             .where(

@@ -115,8 +115,8 @@ export const workspaceReservations = pgTable(
     activeCustomerEmailDeliveryId: text(
       "active_customer_email_delivery_id"
     ).$type<EmailDeliveryId>(),
-    customerEmailDeliveryLocale: text(
-      "customer_email_delivery_locale"
+    activeCustomerEmailDeliveryLocale: text(
+      "active_customer_email_delivery_locale"
     ).$type<Locale>(),
     reservationDetails: jsonb("reservation_details")
       .$type<StoredWorkspaceReservationDetails>()

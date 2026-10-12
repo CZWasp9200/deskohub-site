@@ -46,7 +46,7 @@ describe.skipIf(!postgresDatabase)(
     const insertPaidReservationFixture = (input: {
       readonly fulfillmentState: FulfillmentState;
       readonly activeCustomerEmailDeliveryId?: EmailDeliveryId;
-      readonly customerEmailDeliveryLocale?: "en-US" | "cs-CZ";
+      readonly activeCustomerEmailDeliveryLocale?: "en-US" | "cs-CZ";
     }) =>
       Effect.gen(function* () {
         const id = workspaceReservationIdSchema.make(
@@ -69,7 +69,8 @@ describe.skipIf(!postgresDatabase)(
           reservationConfirmedAt: deliveryEventAt(0),
           fulfillmentState: input.fulfillmentState,
           activeCustomerEmailDeliveryId: input.activeCustomerEmailDeliveryId,
-          customerEmailDeliveryLocale: input.customerEmailDeliveryLocale,
+          activeCustomerEmailDeliveryLocale:
+            input.activeCustomerEmailDeliveryLocale,
           reservationDetails: {
             kind: "cowork",
             entryTier: "basic",
@@ -143,7 +144,7 @@ describe.skipIf(!postgresDatabase)(
       );
 
       const authoritativeLocale = await Effect.runPromise(
-        reservations.retainCustomerEmailDeliveryLocale({
+        reservations.retainActiveCustomerEmailDeliveryLocale({
           id,
           locale: "cs-CZ",
           expectedActiveCustomerEmailDeliveryId: null,
@@ -155,7 +156,7 @@ describe.skipIf(!postgresDatabase)(
       expect(authoritativeLocale).toBeNull();
       const stored = await Effect.runPromise(reservations.findById(id));
       expect(stored?.activeCustomerEmailDeliveryId).toEqual(recordedDeliveryId);
-      expect(stored?.customerEmailDeliveryLocale).toBeNull();
+      expect(stored?.activeCustomerEmailDeliveryLocale).toBeNull();
     });
 
     test("does not return a newer generation's locale from the fallback read after advancement", async () => {
@@ -165,14 +166,14 @@ describe.skipIf(!postgresDatabase)(
         insertPaidReservationFixture({
           fulfillmentState: "processing",
           activeCustomerEmailDeliveryId: newerGenerationMarker,
-          customerEmailDeliveryLocale: "cs-CZ",
+          activeCustomerEmailDeliveryLocale: "cs-CZ",
         })
       );
 
       // The slot is already seeded, so the conditional update cannot apply;
       // the fallback read must still be bound to the claimed generation.
       const authoritativeLocale = await Effect.runPromise(
-        reservations.retainCustomerEmailDeliveryLocale({
+        reservations.retainActiveCustomerEmailDeliveryLocale({
           id,
           locale: "en-US",
           expectedActiveCustomerEmailDeliveryId: staleExpectedMarker,
@@ -181,14 +182,14 @@ describe.skipIf(!postgresDatabase)(
 
       expect(authoritativeLocale).toBeNull();
       const stored = await Effect.runPromise(reservations.findById(id));
-      expect(stored?.customerEmailDeliveryLocale).toBe("cs-CZ");
+      expect(stored?.activeCustomerEmailDeliveryLocale).toBe("cs-CZ");
     });
 
     test("clears the retained email locale when recording the accepted delivery", async () => {
       const id = await Effect.runPromise(
         insertPaidReservationFixture({
           fulfillmentState: "processing",
-          customerEmailDeliveryLocale: "cs-CZ",
+          activeCustomerEmailDeliveryLocale: "cs-CZ",
         })
       );
       const customerEmailDeliveryId = newEmailDeliveryId();
@@ -205,7 +206,7 @@ describe.skipIf(!postgresDatabase)(
       expect(stored?.activeCustomerEmailDeliveryId).toEqual(
         customerEmailDeliveryId
       );
-      expect(stored?.customerEmailDeliveryLocale).toBeNull();
+      expect(stored?.activeCustomerEmailDeliveryLocale).toBeNull();
     });
 
     test("returns the authoritative retained locale to a losing retain writer", async () => {
@@ -214,7 +215,7 @@ describe.skipIf(!postgresDatabase)(
       );
 
       const winnerLocale = await Effect.runPromise(
-        reservations.retainCustomerEmailDeliveryLocale({
+        reservations.retainActiveCustomerEmailDeliveryLocale({
           id,
           locale: "cs-CZ",
           expectedActiveCustomerEmailDeliveryId: null,
@@ -223,7 +224,7 @@ describe.skipIf(!postgresDatabase)(
       // The second writer loses the null-slot race and must learn the
       // already-retained locale so its send matches the idempotency generation.
       const loserAuthoritativeLocale = await Effect.runPromise(
-        reservations.retainCustomerEmailDeliveryLocale({
+        reservations.retainActiveCustomerEmailDeliveryLocale({
           id,
           locale: "en-US",
           expectedActiveCustomerEmailDeliveryId: null,
@@ -233,7 +234,7 @@ describe.skipIf(!postgresDatabase)(
       expect(winnerLocale).toBe("cs-CZ");
       expect(loserAuthoritativeLocale).toBe("cs-CZ");
       const stored = await Effect.runPromise(reservations.findById(id));
-      expect(stored?.customerEmailDeliveryLocale).toBe("cs-CZ");
+      expect(stored?.activeCustomerEmailDeliveryLocale).toBe("cs-CZ");
     });
 
     test("rejects an old-generation recording arriving after a newer recovery generation began", async () => {
@@ -243,7 +244,7 @@ describe.skipIf(!postgresDatabase)(
         insertPaidReservationFixture({
           fulfillmentState: "processing",
           activeCustomerEmailDeliveryId: newerGenerationMarker,
-          customerEmailDeliveryLocale: "cs-CZ",
+          activeCustomerEmailDeliveryLocale: "cs-CZ",
         })
       );
 
@@ -264,7 +265,7 @@ describe.skipIf(!postgresDatabase)(
       expect(stored?.activeCustomerEmailDeliveryId).toEqual(
         newerGenerationMarker
       );
-      expect(stored?.customerEmailDeliveryLocale).toBe("cs-CZ");
+      expect(stored?.activeCustomerEmailDeliveryLocale).toBe("cs-CZ");
     });
 
     test("refuses to attach a reservation whose fulfillment is not processing", async () => {

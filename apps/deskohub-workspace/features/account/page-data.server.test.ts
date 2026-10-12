@@ -162,7 +162,7 @@ let preferenceLoadEffect: Effect.Effect<
 const PreferenceRepository = Context.Service<
   PreferenceRepository,
   { readonly load: () => typeof preferenceLoadEffect }
->()("@test/AccountCommunicationPreference");
+>()("@test/AccountLocalePreference");
 
 const PreferenceRepositoryLayer = Layer.succeed(PreferenceRepository, {
   load: () => preferenceLoadEffect,
@@ -173,9 +173,9 @@ Object.assign(PreferenceRepository, {
 });
 
 mock.module(
-  "@/features/account/backend/customer-communication-preference.repository",
+  "@/features/account/backend/customer-locale-preference.repository",
   () => ({
-    CustomerCommunicationPreferenceRepository: PreferenceRepository,
+    CustomerLocalePreferenceRepository: PreferenceRepository,
   })
 );
 
@@ -356,7 +356,7 @@ describe("loadCustomerAccountPage", () => {
     });
   });
 
-  test("restores the saved communication preference in the linked state", async () => {
+  test("restores the saved language preference in the linked state", async () => {
     preferenceLoadEffect = Effect.succeed("cs-CZ");
 
     await expect(loadPageState()).resolves.toMatchObject({

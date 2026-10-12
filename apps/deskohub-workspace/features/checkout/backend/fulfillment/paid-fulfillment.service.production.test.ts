@@ -67,7 +67,7 @@ describe("WorkspacePaidFulfillmentService production email acceptance", () => {
       fulfillmentState: "processing",
       dotyposReservationId: "dotypos-reservation-id",
       dotyposCustomerId: "dotypos-customer-id",
-      customerEmailDeliveryLocale: null,
+      activeCustomerEmailDeliveryLocale: null,
       locale: "en-US",
     };
     const emailReservation = {
@@ -108,7 +108,7 @@ describe("WorkspacePaidFulfillmentService production email acceptance", () => {
             Layer.mergeAll(
               Layer.mock(WorkspaceReservationRepository, {
                 findById: mock(() => Effect.succeed(order as never)),
-                retainCustomerEmailDeliveryLocale: mock(
+                retainActiveCustomerEmailDeliveryLocale: mock(
                   (input: { readonly locale: "en-US" | "cs-CZ" }) =>
                     Effect.succeed(input.locale)
                 ),
@@ -188,7 +188,7 @@ describe("WorkspacePaidFulfillmentService production email acceptance", () => {
       fulfillmentState: "processing",
       dotyposReservationId: "dotypos-reservation-id",
       dotyposCustomerId: "dotypos-customer-id",
-      customerEmailDeliveryLocale: null,
+      activeCustomerEmailDeliveryLocale: null,
       locale: "en-US",
     };
     const emailReservation = {
@@ -227,7 +227,7 @@ describe("WorkspacePaidFulfillmentService production email acceptance", () => {
             Layer.mergeAll(
               Layer.mock(WorkspaceReservationRepository, {
                 findById: mock(() => Effect.succeed(order as never)),
-                retainCustomerEmailDeliveryLocale: mock(
+                retainActiveCustomerEmailDeliveryLocale: mock(
                   (input: { readonly locale: "en-US" | "cs-CZ" }) =>
                     Effect.succeed(input.locale)
                 ),
@@ -304,7 +304,7 @@ describe("WorkspacePaidFulfillmentService production email acceptance", () => {
       fulfillmentState: "processing",
       dotyposReservationId: "dotypos-reservation-id",
       dotyposCustomerId: "dotypos-customer-id",
-      customerEmailDeliveryLocale: null,
+      activeCustomerEmailDeliveryLocale: null,
       locale: "en-US",
     };
     const emailReservation = {
@@ -359,7 +359,7 @@ describe("WorkspacePaidFulfillmentService production email acceptance", () => {
             Layer.mergeAll(
               Layer.mock(WorkspaceReservationRepository, {
                 findById: mock(() => Effect.succeed(order as never)),
-                retainCustomerEmailDeliveryLocale: mock(
+                retainActiveCustomerEmailDeliveryLocale: mock(
                   (input: { readonly locale: "en-US" | "cs-CZ" }) =>
                     Effect.succeed(input.locale)
                 ),
@@ -453,13 +453,13 @@ describe("WorkspacePaidFulfillmentService production email acceptance", () => {
       fulfillmentState: "processing",
       dotyposReservationId: "dotypos-reservation-id",
       dotyposCustomerId: "dotypos-customer-id",
-      customerEmailDeliveryLocale: null,
+      activeCustomerEmailDeliveryLocale: null,
     };
     // The first accepted send recorded its delivery attachment failure, so the
     // generation stays open with its retained locale.
     const retainedClaimed = {
       ...initialClaimed,
-      customerEmailDeliveryLocale: "cs-CZ" as const,
+      activeCustomerEmailDeliveryLocale: "cs-CZ" as const,
     };
     const emailReservation = {
       ...retainedClaimed,
@@ -484,12 +484,12 @@ describe("WorkspacePaidFulfillmentService production email acceptance", () => {
       return Effect.succeed({ kind: "account", locale } as never);
     });
     const retainInputs: Parameters<
-      IWorkspaceReservationRepository["retainCustomerEmailDeliveryLocale"]
+      IWorkspaceReservationRepository["retainActiveCustomerEmailDeliveryLocale"]
     >[0][] = [];
-    const retainCustomerEmailDeliveryLocale = mock(
+    const retainActiveCustomerEmailDeliveryLocale = mock(
       (
         input: Parameters<
-          IWorkspaceReservationRepository["retainCustomerEmailDeliveryLocale"]
+          IWorkspaceReservationRepository["retainActiveCustomerEmailDeliveryLocale"]
         >[0]
       ) => {
         retainInputs.push(input);
@@ -538,7 +538,7 @@ describe("WorkspacePaidFulfillmentService production email acceptance", () => {
               Layer.mock(WorkspaceReservationRepository, {
                 findById: mock(() => Effect.succeed(order as never)),
                 claimPaidFulfillment,
-                retainCustomerEmailDeliveryLocale,
+                retainActiveCustomerEmailDeliveryLocale,
                 markAwaitingCustomerEmailDelivery,
                 markFulfilled: mock(() =>
                   Effect.die(
@@ -618,7 +618,7 @@ describe("WorkspacePaidFulfillmentService production email acceptance", () => {
       fulfillmentState: "processing",
       dotyposReservationId: "dotypos-reservation-id",
       dotyposCustomerId: "dotypos-customer-id",
-      customerEmailDeliveryLocale: null,
+      activeCustomerEmailDeliveryLocale: null,
       locale: "en-US",
     };
     const emailReservation = {
@@ -665,7 +665,7 @@ describe("WorkspacePaidFulfillmentService production email acceptance", () => {
             Layer.mergeAll(
               Layer.mock(WorkspaceReservationRepository, {
                 findById: mock(() => Effect.succeed(order as never)),
-                retainCustomerEmailDeliveryLocale: mock(
+                retainActiveCustomerEmailDeliveryLocale: mock(
                   (input: { readonly locale: "en-US" | "cs-CZ" }) =>
                     Effect.succeed(input.locale)
                 ),
@@ -732,7 +732,7 @@ describe("WorkspacePaidFulfillmentService production email acceptance", () => {
       fulfillmentState: "processing",
       dotyposReservationId: "dotypos-reservation-id",
       dotyposCustomerId: "dotypos-customer-id",
-      customerEmailDeliveryLocale: null,
+      activeCustomerEmailDeliveryLocale: null,
       locale: "en-US",
     };
     const emailReservation = {
@@ -774,7 +774,7 @@ describe("WorkspacePaidFulfillmentService production email acceptance", () => {
             Layer.mergeAll(
               Layer.mock(WorkspaceReservationRepository, {
                 findById: mock(() => Effect.succeed(order as never)),
-                retainCustomerEmailDeliveryLocale: mock(
+                retainActiveCustomerEmailDeliveryLocale: mock(
                   (input: { readonly locale: "en-US" | "cs-CZ" }) =>
                     Effect.succeed(input.locale)
                 ),

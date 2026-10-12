@@ -3,7 +3,7 @@ import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Effect, Layer } from "effect";
 import type { SqlError } from "effect/unstable/sql/SqlError";
 import { WorkspaceDatabase } from "@/db/database.service";
-import { customerCommunicationPreferences } from "@/db/schema";
+import { customerLocalePreferences } from "@/db/schema";
 import { authUser } from "@/db/schema/auth";
 import type { Locale } from "@/features/i18n";
 import {
@@ -18,24 +18,21 @@ import {
   CustomerAuthentication,
 } from "./customer-authentication.service";
 
-type CustomerCommunicationPreferenceReadError =
+type CustomerLocalePreferenceReadError =
   | EffectDrizzleQueryError
   | SqlError
   | CustomerAccountAccessError;
 
 /**
- * The durable, Workspace-owned preferred communication language of one
+ * The durable, Workspace-owned preferred language of one
  * customer account. An account created before preferences existed has none
  * until its next sign-in or an explicit save, so `load` yields `undefined`
  * for it.
  */
-export interface ICustomerCommunicationPreferenceRepository {
+export interface ICustomerLocalePreferenceRepository {
   readonly load: (
     accountId: CustomerAccountId
-  ) => Effect.Effect<
-    Locale | undefined,
-    CustomerCommunicationPreferenceReadError
-  >;
+  ) => Effect.Effect<Locale | undefined, CustomerLocalePreferenceReadError>;
   readonly save: (
     accountId: CustomerAccountId,
     locale: Locale
@@ -49,7 +46,7 @@ export interface ICustomerCommunicationPreferenceRepository {
  * deletion-authority recheck pass through unchanged.
  */
 const mapPreferenceSaveFailure = mapCustomerAccountFailure(
-  "account-communication-preference.write"
+  "account-locale-preference.write"
 );
 
 /**
@@ -75,10 +72,10 @@ const requireSessionForAccount = (
         )
   );
 
-export class CustomerCommunicationPreferenceRepository extends Context.Service<
-  CustomerCommunicationPreferenceRepository,
-  ICustomerCommunicationPreferenceRepository
->()("@deskohub-workspace/account/CustomerCommunicationPreferenceRepository") {
+export class CustomerLocalePreferenceRepository extends Context.Service<
+  CustomerLocalePreferenceRepository,
+  ICustomerLocalePreferenceRepository
+>()("@deskohub-workspace/account/CustomerLocalePreferenceRepository") {
   static Default = Layer.effect(
     this,
     Effect.gen(function* () {
@@ -86,7 +83,7 @@ export class CustomerCommunicationPreferenceRepository extends Context.Service<
       const links = yield* CustomerAccountLinkRepository;
       const authentication = yield* CustomerAuthentication;
 
-      const load = Effect.fn("CustomerCommunicationPreferenceRepository.load")(
+      const load = Effect.fn("CustomerLocalePreferenceRepository.load")(
         function* (accountId: CustomerAccountId) {
           // The read guard mirrors the save's deletion-authority check but
           // without the advisory lock: a read never needs mutual exclusion,
@@ -94,11 +91,9 @@ export class CustomerCommunicationPreferenceRepository extends Context.Service<
           // folded into the write-failure mapping.
           yield* requireAccountActivity(links, accountId);
           const [row] = yield* db
-            .select({ locale: customerCommunicationPreferences.locale })
-            .from(customerCommunicationPreferences)
-            .where(
-              eq(customerCommunicationPreferences.customerAccountId, accountId)
-            )
+            .select({ locale: customerLocalePreferences.locale })
+            .from(customerLocalePreferences)
+            .where(eq(customerLocalePreferences.customerAccountId, accountId))
             .limit(1);
           return row?.locale;
         }
@@ -117,11 +112,10 @@ export class CustomerCommunicationPreferenceRepository extends Context.Service<
                 requireAccountActivity(links, accountId).pipe(
                   Effect.andThen(
                     db
-                      .insert(customerCommunicationPreferences)
+                      .insert(customerLocalePreferences)
                       .values({ customerAccountId: accountId, locale })
                       .onConflictDoUpdate({
-                        target:
-                          customerCommunicationPreferences.customerAccountId,
+                        target: customerLocalePreferences.customerAccountId,
                         set: { locale, updatedAt: sql`now()` },
                       })
                   )
@@ -134,7 +128,7 @@ export class CustomerCommunicationPreferenceRepository extends Context.Service<
       return {
         load,
         save,
-      } satisfies ICustomerCommunicationPreferenceRepository;
+      } satisfies ICustomerLocalePreferenceRepository;
     })
   );
 
@@ -168,19 +162,19 @@ export type MagicLinkLocaleLookup =
  * delivery path can distinguish it from a recipient without an account.
  */
 const lookupMagicLinkDeliveryLocaleEffect = Effect.fn(
-  "CustomerCommunicationPreferenceRepository.lookupMagicLinkDeliveryLocale"
+  "CustomerLocalePreferenceRepository.lookupMagicLinkDeliveryLocale"
 )(function* (email: string) {
   const workspace = yield* WorkspaceDatabase;
   const rows = yield* workspace.db
     .select({
       id: authUser.id,
       emailVerified: authUser.emailVerified,
-      locale: customerCommunicationPreferences.locale,
+      locale: customerLocalePreferences.locale,
     })
     .from(authUser)
     .leftJoin(
-      customerCommunicationPreferences,
-      eq(customerCommunicationPreferences.customerAccountId, authUser.id)
+      customerLocalePreferences,
+      eq(customerLocalePreferences.customerAccountId, authUser.id)
     )
     .where(eq(authUser.email, email))
     .limit(1);
@@ -206,13 +200,13 @@ export const lookupMagicLinkDeliveryLocale = (
  * Inserts the preference row only when the account has none, so a retried
  * or racing creation or sign-in never overwrites a saved preference.
  */
-export const seedAccountCommunicationPreference = (
+export const seedAccountLocalePreference = (
   accountId: CustomerAccountId,
   locale: Locale
 ): Effect.Effect<void, unknown, WorkspaceDatabase> =>
   Effect.flatMap(WorkspaceDatabase, (workspace) =>
     workspace.db
-      .insert(customerCommunicationPreferences)
+      .insert(customerLocalePreferences)
       .values({ customerAccountId: accountId, locale })
       .onConflictDoNothing()
       .pipe(Effect.asVoid)

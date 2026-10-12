@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "d3656a96-8b5f-4f25-95d9-7eb28121b904",
+  "id": "1f3a1940-3a3e-4deb-80ce-3626116f0d1b",
   "prevIds": [
     "a55af6a7-82a3-466c-be4f-febdfa0bfe49",
     "e5bbe96c-f234-48c2-aa4c-c032006272d6"
@@ -43,7 +43,7 @@
     },
     {
       "isRlsEnabled": false,
-      "name": "customer_communication_preferences",
+      "name": "customer_locale_preferences",
       "entityType": "tables",
       "schema": "public"
     },
@@ -720,7 +720,7 @@
       "name": "customer_account_id",
       "entityType": "columns",
       "schema": "public",
-      "table": "customer_communication_preferences"
+      "table": "customer_locale_preferences"
     },
     {
       "type": "text",
@@ -733,7 +733,7 @@
       "name": "locale",
       "entityType": "columns",
       "schema": "public",
-      "table": "customer_communication_preferences"
+      "table": "customer_locale_preferences"
     },
     {
       "type": "timestamp with time zone",
@@ -746,7 +746,7 @@
       "name": "updated_at",
       "entityType": "columns",
       "schema": "public",
-      "table": "customer_communication_preferences"
+      "table": "customer_locale_preferences"
     },
     {
       "type": "text",
@@ -3733,7 +3733,7 @@
       "default": null,
       "generated": null,
       "identity": null,
-      "name": "customer_email_delivery_locale",
+      "name": "active_customer_email_delivery_locale",
       "entityType": "columns",
       "schema": "public",
       "table": "workspace_reservations"
@@ -6035,10 +6035,10 @@
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
-      "name": "customer_communication_preferences_7xsxw1o58AkR_fkey",
+      "name": "customer_locale_preferences_customer_account_id_user_id_fkey",
       "entityType": "fks",
       "schema": "public",
-      "table": "customer_communication_preferences"
+      "table": "customer_locale_preferences"
     },
     {
       "nameExplicit": false,
@@ -6558,9 +6558,9 @@
         "customer_account_id"
       ],
       "nameExplicit": false,
-      "name": "customer_communication_preferences_pkey",
+      "name": "customer_locale_preferences_pkey",
       "schema": "public",
-      "table": "customer_communication_preferences",
+      "table": "customer_locale_preferences",
       "entityType": "pks"
     },
     {
@@ -6999,10 +6999,10 @@
     },
     {
       "value": "\"locale\" in ('en-US', 'cs-CZ')",
-      "name": "customer_communication_preferences_locale_check",
+      "name": "customer_locale_preferences_locale_check",
       "entityType": "checks",
       "schema": "public",
-      "table": "customer_communication_preferences"
+      "table": "customer_locale_preferences"
     },
     {
       "value": "btrim(\"dotypos_customer_id\") <> ''",

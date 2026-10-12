@@ -122,7 +122,7 @@ description: Workspace customer account, Better Auth, magic link, auth persisten
 
 ## Language preference
 
-- `customer_communication_preferences` holds one saved language per account.
+- `customer_locale_preferences` holds one saved language per account.
   It is both the email language and the signed-in site locale. An absent row
   means no preference: accounts that predate the table have none until their
   next sign-in. Never backfill or invent a default.

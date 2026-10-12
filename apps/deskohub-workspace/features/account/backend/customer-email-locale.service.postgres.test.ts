@@ -32,7 +32,7 @@ describe.skipIf(!testDatabase)(
       );
       if (options.locale) {
         await testDatabase!.pool.query(
-          `insert into customer_communication_preferences (customer_account_id, locale) values ($1, $2)`,
+          `insert into customer_locale_preferences (customer_account_id, locale) values ($1, $2)`,
           [accountId, options.locale]
         );
       }

@@ -5,8 +5,8 @@ import { cache } from "react";
 import { resolveCurrentCustomerAccount } from "@/features/account/backend/customer-account-resolver.service";
 import { CustomerAuthentication } from "@/features/account/backend/customer-authentication.service";
 import { CustomerAvatarService } from "@/features/account/backend/customer-avatar.service";
-import { CustomerCommunicationPreferenceRepository } from "@/features/account/backend/customer-communication-preference.repository";
 import type { CustomerProfile } from "@/features/account/backend/customer-dotypos-adapter.service";
+import { CustomerLocalePreferenceRepository } from "@/features/account/backend/customer-locale-preference.repository";
 import { CustomerProfileService } from "@/features/account/backend/customer-profile.service";
 import { CustomerReservationHistoryService } from "@/features/account/backend/customer-reservation-history.service";
 import type { PreferredLanguageState } from "@/features/account/components/profile/profile-screen";
@@ -53,7 +53,7 @@ const unavailable = (): CustomerAccountPageState => ({ kind: "unavailable" });
 const preferenceReadFailureCode = (
   error: CustomerAccountAccessError
 ): CustomerAccountFailureCode =>
-  error.cause?.code ?? "account-communication-preference.read";
+  error.cause?.code ?? "account-locale-preference.read";
 
 export const loadCustomerAccountPage = cache(
   async (locale: Locale): Promise<CustomerAccountPageState> => {
@@ -123,21 +123,21 @@ export const loadCustomerAccountPage = cache(
        * guessed value.
        */
       const preferredLanguage: PreferredLanguageState = await Effect.flatMap(
-        CustomerCommunicationPreferenceRepository,
+        CustomerLocalePreferenceRepository,
         (repository) => repository.load(account.success.accountId)
       ).pipe(
         Effect.map(
           (saved): PreferredLanguageState => saved ?? { suggested: locale }
         ),
-        Effect.provide(CustomerCommunicationPreferenceRepository.Live),
+        Effect.provide(CustomerLocalePreferenceRepository.Live),
         // The raw repository failure never reaches the log: fold it into the
         // fixed non-PII read-failure cause first, matching the other account
         // page reads.
         Effect.mapError(
-          mapCustomerAccountFailure("account-communication-preference.read")
+          mapCustomerAccountFailure("account-locale-preference.read")
         ),
         Effect.tapError((error) =>
-          Effect.logError("Account communication preference read failed", {
+          Effect.logError("Account language preference read failed", {
             code: preferenceReadFailureCode(error),
           })
         ),

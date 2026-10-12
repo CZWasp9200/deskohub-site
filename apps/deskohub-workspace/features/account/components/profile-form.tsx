@@ -66,7 +66,7 @@ type ProfileFormBaseProps = {
 };
 
 /**
- * The preferred communication language is discriminated by mode: edit mode
+ * The preferred language is discriminated by mode: edit mode
  * renders the profile screen and must carry the server-read state, while
  * completion mode never renders the language control and must not accept a
  * preference at all — there is no unset-success representation.

@@ -3,7 +3,7 @@ import type { ProfileScreenProps } from "./profile/profile-screen";
 import type { ProfileForm } from "./profile-form";
 
 /**
- * The preferred communication language is required for every active
+ * The preferred language is required for every active
  * account, so the loaded state (a saved locale or the explicit read
  * failure) must be structurally mandatory wherever the profile screen
  * renders: an omitted prop must not compile into an unset-success state.

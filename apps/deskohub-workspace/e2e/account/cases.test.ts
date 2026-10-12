@@ -53,8 +53,8 @@ const languageTriggerSelector = '[data-slot="select-trigger"]';
 const languageSaveSelector = 'button[type="button"]:has-text("Save")';
 const languageOptionCsSelector = '[role="option"]:has-text("Čeština")';
 const languageOptionEnSelector = '[role="option"]:has-text("English (US)")';
-const englishLanguageLabel = "Preferred communication language";
-const czechLanguageLabel = "Preferovaný komunikační jazyk";
+const englishLanguageLabel = "Preferred language";
+const czechLanguageLabel = "Preferovaný jazyk";
 const englishFaqTitle = "Frequently Asked Questions";
 const czechFaqTitle = "Často kladené otázky";
 const deleteTriggerSelector = "#delete-account-trigger";
@@ -1101,7 +1101,7 @@ class FakeBrowser {
         this.navigate(this.withLocale(this.currentUrl, saved));
         return;
       }
-      this.pageText = `${this.pageText} Communication language saved.`;
+      this.pageText = `${this.pageText} Language saved.`;
       return;
     }
     throw new Error("the synthetic browser clicked an unexpected control");

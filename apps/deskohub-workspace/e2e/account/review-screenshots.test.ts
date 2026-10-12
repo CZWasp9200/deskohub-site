@@ -1432,9 +1432,8 @@ type LanguageReviewFakeRouteRequest = {
 
 type LanguageReviewRouteOutcome = "fallback" | "continue" | "abort";
 
-const languageReviewSavedCopy = "Communication language saved.";
-const languageReviewFailedCopy =
-  "Saving the communication language failed. Try again.";
+const languageReviewSavedCopy = "Language saved.";
+const languageReviewFailedCopy = "Saving the language failed. Try again.";
 
 /**
  * Synthetic page for the language preference review wrapper. It models the

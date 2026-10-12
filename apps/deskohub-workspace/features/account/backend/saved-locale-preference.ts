@@ -1,7 +1,7 @@
 import { and, eq, gt, sql } from "drizzle-orm";
 import { Effect } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
-import { customerCommunicationPreferences } from "@/db/schema";
+import { customerLocalePreferences } from "@/db/schema";
 import { authSession, authUser } from "@/db/schema/auth";
 
 /**
@@ -14,12 +14,12 @@ export const findSavedLocalePreference = Effect.fn(
 )(function* (sessionToken: string) {
   const { db } = yield* WorkspaceDatabase;
   const [row] = yield* db
-    .select({ locale: customerCommunicationPreferences.locale })
+    .select({ locale: customerLocalePreferences.locale })
     .from(authSession)
     .innerJoin(authUser, eq(authUser.id, authSession.userId))
     .innerJoin(
-      customerCommunicationPreferences,
-      eq(customerCommunicationPreferences.customerAccountId, authUser.id)
+      customerLocalePreferences,
+      eq(customerLocalePreferences.customerAccountId, authUser.id)
     )
     .where(
       and(

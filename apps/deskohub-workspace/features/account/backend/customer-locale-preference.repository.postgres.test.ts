@@ -18,10 +18,10 @@ import {
   CustomerAuthentication,
 } from "./customer-authentication.service";
 import {
-  CustomerCommunicationPreferenceRepository,
+  CustomerLocalePreferenceRepository,
   lookupMagicLinkDeliveryLocale,
-  seedAccountCommunicationPreference,
-} from "./customer-communication-preference.repository";
+  seedAccountLocalePreference,
+} from "./customer-locale-preference.repository";
 
 const testDatabase = await connectWorkspacePostgresTestDatabase();
 
@@ -68,7 +68,7 @@ const makeRepositoryLayer = () => {
   };
 
   return {
-    layer: CustomerCommunicationPreferenceRepository.Default.pipe(
+    layer: CustomerLocalePreferenceRepository.Default.pipe(
       Layer.provide(
         Layer.mergeAll(
           testDatabaseLayer,
@@ -91,7 +91,7 @@ const insertAuthUser = async (id: string, email: string) => {
 const uniqueId = () => crypto.randomUUID();
 
 describe.skipIf(!testDatabase)(
-  "CustomerCommunicationPreferenceRepository on disposable Postgres",
+  "CustomerLocalePreferenceRepository on disposable Postgres",
   () => {
     test("round-trips a saved preference and upserts on re-save", async () => {
       const { layer, setSessionAccount } = makeRepositoryLayer();
@@ -101,7 +101,7 @@ describe.skipIf(!testDatabase)(
 
       const outcomes = await Effect.runPromise(
         Effect.gen(function* () {
-          const preferences = yield* CustomerCommunicationPreferenceRepository;
+          const preferences = yield* CustomerLocalePreferenceRepository;
           const missing = yield* preferences.load(account);
           yield* preferences.save(account, "cs-CZ");
           const saved = yield* preferences.load(account);
@@ -116,7 +116,7 @@ describe.skipIf(!testDatabase)(
       expect(outcomes.resaved).toBe("en-US");
 
       const rows = await testDatabase!.pool.query(
-        `select locale from customer_communication_preferences where customer_account_id = $1`,
+        `select locale from customer_locale_preferences where customer_account_id = $1`,
         [account]
       );
       expect(rows.rows).toHaveLength(1);
@@ -139,7 +139,7 @@ describe.skipIf(!testDatabase)(
 
       const outcomes = await Effect.runPromise(
         Effect.gen(function* () {
-          const preferences = yield* CustomerCommunicationPreferenceRepository;
+          const preferences = yield* CustomerLocalePreferenceRepository;
           yield* preferences.save(firstAccount, "cs-CZ");
           return yield* preferences.load(secondAccount);
         }).pipe(Effect.provide(layer))
@@ -157,7 +157,7 @@ describe.skipIf(!testDatabase)(
           catch: (cause) => cause,
           try: () =>
             testDatabase!.pool.query(
-              `insert into customer_communication_preferences (customer_account_id, locale) values ($1, $2)`,
+              `insert into customer_locale_preferences (customer_account_id, locale) values ($1, $2)`,
               [account, "de-DE"]
             ),
         }).pipe(Effect.result)
@@ -165,7 +165,7 @@ describe.skipIf(!testDatabase)(
 
       expect(outcome._tag).toBe("Failure");
       const rows = await testDatabase!.pool.query(
-        `select locale from customer_communication_preferences where customer_account_id = $1`,
+        `select locale from customer_locale_preferences where customer_account_id = $1`,
         [account]
       );
       expect(rows.rows).toHaveLength(0);
@@ -179,13 +179,13 @@ describe.skipIf(!testDatabase)(
 
       await Effect.runPromise(
         Effect.gen(function* () {
-          const preferences = yield* CustomerCommunicationPreferenceRepository;
+          const preferences = yield* CustomerLocalePreferenceRepository;
           yield* preferences.save(account, "en-US");
         }).pipe(Effect.provide(layer))
       );
 
       const before = await testDatabase!.pool.query(
-        `select locale from customer_communication_preferences where customer_account_id = $1`,
+        `select locale from customer_locale_preferences where customer_account_id = $1`,
         [account]
       );
       expect(before.rows).toHaveLength(1);
@@ -195,7 +195,7 @@ describe.skipIf(!testDatabase)(
       ]);
 
       const after = await testDatabase!.pool.query(
-        `select locale from customer_communication_preferences where customer_account_id = $1`,
+        `select locale from customer_locale_preferences where customer_account_id = $1`,
         [account]
       );
       expect(after.rows).toHaveLength(0);
@@ -213,7 +213,7 @@ describe.skipIf(!testDatabase)(
 
       const outcomes = await Effect.runPromise(
         Effect.gen(function* () {
-          const preferences = yield* CustomerCommunicationPreferenceRepository;
+          const preferences = yield* CustomerLocalePreferenceRepository;
           const read = yield* Effect.result(preferences.load(account));
           const write = yield* Effect.result(
             preferences.save(account, "cs-CZ")
@@ -231,7 +231,7 @@ describe.skipIf(!testDatabase)(
       expect(outcomes.write._tag).toBe("Failure");
 
       const rows = await testDatabase!.pool.query(
-        `select locale from customer_communication_preferences where customer_account_id = $1`,
+        `select locale from customer_locale_preferences where customer_account_id = $1`,
         [account]
       );
       expect(rows.rows).toHaveLength(0);
@@ -259,10 +259,10 @@ describe.skipIf(!testDatabase)(
         Effect.gen(function* () {
           const beforeAccount =
             yield* lookupMagicLinkDeliveryLocale(verifiedEmail);
-          yield* seedAccountCommunicationPreference(seedAccount, "cs-CZ");
+          yield* seedAccountLocalePreference(seedAccount, "cs-CZ");
           const seeded = yield* lookupMagicLinkDeliveryLocale(verifiedEmail);
           // Re-seeding never overwrites the saved preference.
-          yield* seedAccountCommunicationPreference(seedAccount, "en-US");
+          yield* seedAccountLocalePreference(seedAccount, "en-US");
           const afterReseed =
             yield* lookupMagicLinkDeliveryLocale(verifiedEmail);
           const unverified =
@@ -304,7 +304,7 @@ describe.skipIf(!testDatabase)(
 
       await Effect.runPromise(
         Effect.gen(function* () {
-          const preferences = yield* CustomerCommunicationPreferenceRepository;
+          const preferences = yield* CustomerLocalePreferenceRepository;
           const gate = yield* Deferred.make<never, void>();
 
           const outer = yield* Effect.forkChild(

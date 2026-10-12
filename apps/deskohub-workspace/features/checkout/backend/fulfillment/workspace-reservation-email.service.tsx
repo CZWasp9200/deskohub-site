@@ -104,7 +104,7 @@ const getReservationLocale = (locale: string): Locale =>
 
 /**
  * Resolves the customer email language for one reservation: a linked account
- * with a saved communication preference uses it, while an unlinked guest or
+ * with a saved language preference uses it, while an unlinked guest or
  * an account without a preference keeps the reservation locale. A preference
  * read failure fails the email send instead of silently guessing a wrong
  * customer preference.

@@ -31,7 +31,7 @@ import {
  * profile card. Identity is factual, while unavailable settings stay visibly
  * non-interactive and all editable fields remain caller-owned. The avatar
  * media and its controls are caller-owned so the profile form owns their
- * mutation state. The preferred communication language is a Workspace-owned
+ * mutation state. The preferred language is a Workspace-owned
  * durable preference: it saves through its own server action, never through
  * the surrounding Dotypos profile form.
  */

@@ -9,7 +9,7 @@ import {
   type CustomerAccountSession,
   CustomerAuthentication,
 } from "./customer-authentication.service";
-import { CustomerCommunicationPreferenceRepository } from "./customer-communication-preference.repository";
+import { CustomerLocalePreferenceRepository } from "./customer-locale-preference.repository";
 
 type ActivityState =
   | { readonly kind: "missing" }
@@ -103,7 +103,7 @@ const makeTestLayers = (options: {
     WorkspaceDatabase.of({ db: fakeDb as never })
   );
 
-  const Repository = CustomerCommunicationPreferenceRepository.Default.pipe(
+  const Repository = CustomerLocalePreferenceRepository.Default.pipe(
     Layer.provide(Layer.mergeAll(DbLayer, LinksLayer, AuthenticationLayer))
   );
 
@@ -125,7 +125,7 @@ const makeSession = (accountId: CustomerAccountId): CustomerAccountSession => ({
 
 const accountId = "pref-account-1" as CustomerAccountId;
 
-describe("CustomerCommunicationPreferenceRepository with mock layers", () => {
+describe("CustomerLocalePreferenceRepository with mock layers", () => {
   test("loads no preference for an account without a row", async () => {
     const missing = makeTestLayers({
       state: { kind: "active", deletionRequestedAt: null },
@@ -136,12 +136,12 @@ describe("CustomerCommunicationPreferenceRepository with mock layers", () => {
     });
 
     const missingLoad = await Effect.runPromise(
-      Effect.flatMap(CustomerCommunicationPreferenceRepository, (repository) =>
+      Effect.flatMap(CustomerLocalePreferenceRepository, (repository) =>
         repository.load(accountId)
       ).pipe(Effect.provide(missing.Repository))
     );
     const savedLoad = await Effect.runPromise(
-      Effect.flatMap(CustomerCommunicationPreferenceRepository, (repository) =>
+      Effect.flatMap(CustomerLocalePreferenceRepository, (repository) =>
         repository.load(accountId)
       ).pipe(Effect.provide(saved.Repository))
     );
@@ -157,7 +157,7 @@ describe("CustomerCommunicationPreferenceRepository with mock layers", () => {
     });
 
     const outcome = await Effect.runPromise(
-      Effect.flatMap(CustomerCommunicationPreferenceRepository, (repository) =>
+      Effect.flatMap(CustomerLocalePreferenceRepository, (repository) =>
         repository.load(accountId)
       ).pipe(Effect.result, Effect.provide(readFailed.Repository))
     );
@@ -181,7 +181,7 @@ describe("CustomerCommunicationPreferenceRepository with mock layers", () => {
     });
 
     const outcome = await Effect.runPromise(
-      Effect.flatMap(CustomerCommunicationPreferenceRepository, (repository) =>
+      Effect.flatMap(CustomerLocalePreferenceRepository, (repository) =>
         repository.save(accountId, "cs-CZ")
       ).pipe(Effect.result, Effect.provide(Repository))
     );
@@ -205,7 +205,7 @@ describe("CustomerCommunicationPreferenceRepository with mock layers", () => {
     });
 
     const outcome = await Effect.runPromise(
-      Effect.flatMap(CustomerCommunicationPreferenceRepository, (repository) =>
+      Effect.flatMap(CustomerLocalePreferenceRepository, (repository) =>
         repository.load(accountId)
       ).pipe(Effect.result, Effect.provide(Repository))
     );
@@ -225,7 +225,7 @@ describe("CustomerCommunicationPreferenceRepository with mock layers", () => {
     });
 
     const outcome = await Effect.runPromise(
-      Effect.flatMap(CustomerCommunicationPreferenceRepository, (repository) =>
+      Effect.flatMap(CustomerLocalePreferenceRepository, (repository) =>
         repository.save(accountId, "en-US")
       ).pipe(Effect.result, Effect.provide(Repository))
     );
@@ -244,7 +244,7 @@ describe("CustomerCommunicationPreferenceRepository with mock layers", () => {
     });
 
     await Effect.runPromise(
-      Effect.flatMap(CustomerCommunicationPreferenceRepository, (repository) =>
+      Effect.flatMap(CustomerLocalePreferenceRepository, (repository) =>
         repository.save(accountId, "en-US")
       ).pipe(Effect.provide(Repository))
     );
@@ -263,7 +263,7 @@ describe("CustomerCommunicationPreferenceRepository with mock layers", () => {
     });
 
     const pendingSave = Effect.runPromise(
-      Effect.flatMap(CustomerCommunicationPreferenceRepository, (repository) =>
+      Effect.flatMap(CustomerLocalePreferenceRepository, (repository) =>
         repository.save(accountId, "en-US")
       ).pipe(Effect.result, Effect.provide(Repository))
     );

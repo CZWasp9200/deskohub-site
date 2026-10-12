@@ -2,7 +2,7 @@ import type { DotyposCustomerId } from "@deskohub/dotypos";
 import { eq } from "drizzle-orm";
 import { Context, Data, Effect, Layer } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
-import { customerCommunicationPreferences } from "@/db/schema";
+import { customerLocalePreferences } from "@/db/schema";
 import { customerAccountLinks } from "@/db/schema/customer-account-links";
 import type { Locale } from "@/features/i18n";
 
@@ -19,7 +19,7 @@ class CustomerEmailLocaleReadError extends Data.TaggedError(
 
 /**
  * The reservation-email language of one reservation customer: a linked
- * account with a saved communication preference uses it, while an unlinked
+ * account with a saved language preference uses it, while an unlinked
  * guest or an account without a preference keeps the reservation's own
  * locale.
  */
@@ -49,12 +49,12 @@ export class CustomerEmailLocaleService extends Context.Service<
 
       const byDotyposCustomer = (dotyposCustomerId: DotyposCustomerId) =>
         db
-          .select({ locale: customerCommunicationPreferences.locale })
+          .select({ locale: customerLocalePreferences.locale })
           .from(customerAccountLinks)
           .leftJoin(
-            customerCommunicationPreferences,
+            customerLocalePreferences,
             eq(
-              customerCommunicationPreferences.customerAccountId,
+              customerLocalePreferences.customerAccountId,
               customerAccountLinks.customerAccountId
             )
           )

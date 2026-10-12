@@ -886,9 +886,8 @@ const languageTriggerSelector =
 const languageSaveButtonName = "Save";
 const languageOptionCsSelector = '[role="option"]:has-text("Čeština")';
 const languageOptionEnSelector = '[role="option"]:has-text("English (US)")';
-const languageSavedCopy = "Communication language saved.";
-const languageFailedCopy =
-  "Saving the communication language failed. Try again.";
+const languageSavedCopy = "Language saved.";
+const languageFailedCopy = "Saving the language failed. Try again.";
 const profileScreenSelector = "[data-screen='profile-screen']";
 
 const languageSaveButton = (page: Playwright.Page): Playwright.Locator =>

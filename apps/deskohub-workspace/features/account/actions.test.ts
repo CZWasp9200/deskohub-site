@@ -162,7 +162,7 @@ const PreferenceRepository = Context.Service<
       locale: string
     ) => typeof preferenceSaveEffect;
   }
->()("@test/ActionsCommunicationPreference");
+>()("@test/ActionsLocalePreference");
 
 const PreferenceRepositoryLayer = Layer.succeed(PreferenceRepository, {
   load: () => Effect.succeed(undefined),
@@ -179,9 +179,9 @@ Object.assign(PreferenceRepository, {
   Live: PreferenceRepositoryLayer,
 });
 mock.module(
-  "@/features/account/backend/customer-communication-preference.repository",
+  "@/features/account/backend/customer-locale-preference.repository",
   () => ({
-    CustomerCommunicationPreferenceRepository: PreferenceRepository,
+    CustomerLocalePreferenceRepository: PreferenceRepository,
   })
 );
 
@@ -362,7 +362,7 @@ describe("account actions", () => {
     expect(areAccountsEnabled).toHaveBeenCalledTimes(1);
   });
 
-  test("saves the preferred communication language for the verified account", async () => {
+  test("saves the preferred language for the verified account", async () => {
     const { updatePreferredLanguage } = await importActions();
 
     const result = await updatePreferredLanguage({ locale: "cs-CZ" });

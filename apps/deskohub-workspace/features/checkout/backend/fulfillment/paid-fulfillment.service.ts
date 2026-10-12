@@ -423,11 +423,11 @@ export class WorkspacePaidFulfillmentService extends Context.Service<
             // clears the slot, so the next generation resolves the current
             // preference again.
             const customerEmailLocale = yield* (
-              claimed.customerEmailDeliveryLocale
-                ? Effect.succeed(claimed.customerEmailDeliveryLocale)
+              claimed.activeCustomerEmailDeliveryLocale
+                ? Effect.succeed(claimed.activeCustomerEmailDeliveryLocale)
                 : resolveCustomerEmailLocale(reservationForDelivery).pipe(
                     Effect.flatMap((locale) =>
-                      reservations.retainCustomerEmailDeliveryLocale({
+                      reservations.retainActiveCustomerEmailDeliveryLocale({
                         id: claimed.id,
                         locale,
                         expectedActiveCustomerEmailDeliveryId:
