@@ -60,6 +60,10 @@ import { getMeetingRoomCheckoutSummary } from "@/features/checkout/checkout-summ
 import { getOfficeCheckoutSummary } from "@/features/checkout/checkout-summary-office";
 import { legalEvidenceMapSchema } from "@/features/checkout/legal-evidence";
 import type { CheckoutDetails } from "@/features/checkout/schemas/checkout-details";
+import {
+  type CanonicalPromotionCode,
+  canonicalPromotionCodeSchema,
+} from "@/features/discounts/contracts";
 import { WorkspaceFeatureFlagService } from "@/features/feature-flags/backend";
 import { type Locale, m } from "@/features/i18n";
 import { getLegalAcceptanceSnapshot } from "@/features/legal/acceptance-snapshot";
@@ -163,6 +167,7 @@ const quotePreparedReservation = Effect.fn(
   readonly advertisement: PreparedAdvertisement;
   readonly dotyposCustomerId: DotyposCustomerId;
   readonly locale: Locale;
+  readonly referralCodePrefill: CanonicalPromotionCode | undefined;
 }) {
   const pricing = yield* CheckoutPricingService;
 
@@ -204,7 +209,8 @@ const quotePreparedReservation = Effect.fn(
 
   return {
     ...prepared,
-    requestedDiscountCode: input.advertisement.requestedDiscountCode,
+    requestedDiscountCode:
+      input.advertisement.requestedDiscountCode ?? input.referralCodePrefill,
     changedKeys,
   };
 });
@@ -793,6 +799,34 @@ const acceptReferralCode = Effect.fn("preparePayState.acceptReferralCode")(
   }
 );
 
+/**
+ * A booking that is not the signed-in account cannot accept a referral here,
+ * so a usable shared code becomes the Pay page code box's prefill instead.
+ * The customer still applies it there. An unknown or unusable code is dropped
+ * without a message.
+ */
+const findReferralCodePrefill = Effect.fn(
+  "preparePayState.findReferralCodePrefill"
+)(function* (input: PreparePayStateInput) {
+  if (input.customer === "account" || input.referralCode === undefined) {
+    return undefined;
+  }
+
+  const referrals = yield* ReferralService;
+  const code = yield* referrals
+    .findAvailableCode({ code: input.referralCode })
+    .pipe(
+      Effect.catch((error) =>
+        Effect.logInfo("Checkout referral code prefill was skipped", {
+          reason: error.reason,
+        }).pipe(Effect.as(undefined))
+      )
+    );
+  return code === undefined
+    ? undefined
+    : canonicalPromotionCodeSchema.make(code);
+});
+
 class UndeliverableContactEmailError extends Data.TaggedError(
   "UndeliverableContactEmailError"
 )<Record<string, never>> {}
@@ -822,6 +856,7 @@ export const prepareWorkspacePayState = Effect.fn("prepareWorkspacePayState")(
 
     const accountActivity = yield* OptionalAccountActivityGuard;
     const referralAccepted = yield* acceptReferralCode(input);
+    const referralCodePrefill = yield* findReferralCodePrefill(input);
 
     // The full state-creating section runs inside the account advisory
     // lock: authority is re-checked under the lock and the same lock is
@@ -929,6 +964,7 @@ export const prepareWorkspacePayState = Effect.fn("prepareWorkspacePayState")(
           advertisement,
           dotyposCustomerId,
           locale: input.locale,
+          referralCodePrefill,
         });
         yield* Effect.annotateLogsScoped({ quote: prepared.quote });
         yield* Effect.logDebug("Workspace reservation quote built");
@@ -1025,6 +1061,7 @@ export const prepareWorkspacePayState = Effect.fn("prepareWorkspacePayState")(
                 claimConflictReservation.dotyposCustomerId
               ),
               locale: input.locale,
+              referralCodePrefill,
             });
 
             yield* reservations.updateReservationDetails({

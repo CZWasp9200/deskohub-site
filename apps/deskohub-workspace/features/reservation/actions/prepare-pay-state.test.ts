@@ -97,7 +97,8 @@ const meetingRoomReservationInput = {
 const buildAdvertisedPriceToken = async (
   quote: CoworkReservationQuote = buildCoworkReservationQuote(reservation),
   ttlMilliseconds?: number,
-  locale: "en-US" | "cs-CZ" = "en-US"
+  locale: "en-US" | "cs-CZ" = "en-US",
+  requestedDiscountCode?: string
 ) => {
   const { buildAdvertisedPriceState, sealAdvertisedPriceState } = await import(
     "@/features/checkout/backend/checkout"
@@ -117,6 +118,11 @@ const buildAdvertisedPriceToken = async (
       },
       quote,
       ttlMilliseconds,
+      ...(requestedDiscountCode !== undefined && {
+        requestedDiscountCode: Schema.decodeUnknownSync(
+          canonicalPromotionCodeSchema
+        )(requestedDiscountCode),
+      }),
     });
     return yield* sealAdvertisedPriceState(state);
   }).pipe(Effect.runPromise);
@@ -336,6 +342,7 @@ const runReusableReservationScenario = async (input: {
   readonly linkedAccount?: CustomerAccountContactService["Service"]["currentLinkedAccount"];
   readonly referralCode?: string;
   readonly acceptReferral?: ReturnType<typeof mock>;
+  readonly findAvailableCode?: ReturnType<typeof mock>;
   readonly checkContactEmailDomain?: ReturnType<typeof mock>;
 }) => {
   const { prepareWorkspacePayState } = await import("./prepare-pay-state");
@@ -424,13 +431,19 @@ const runReusableReservationScenario = async (input: {
   const acceptReferral =
     input.acceptReferral ??
     mock(() => Effect.die("a referral must not be accepted"));
+  const findAvailableCode =
+    input.findAvailableCode ??
+    mock(() => Effect.die("a referral code must not be looked up"));
   const testLayer = Layer.mergeAll(
     accountAuthority.layer,
     Layer.mock(CustomerAccountContactService, {
       current: Effect.suspend(() => readAccountContact()),
       currentLinkedAccount: Effect.suspend(() => readLinkedAccount()),
     }),
-    ReferralServiceMock({ acceptReferral: acceptReferral as never }),
+    ReferralServiceMock({
+      acceptReferral: acceptReferral as never,
+      findAvailableCode: findAvailableCode as never,
+    }),
     CheckoutPricingServiceMock({
       affirmCoworkAdvertisement: affirmAdvertisement,
       quoteForCustomer: quoteForCustomerResult as never,
@@ -523,6 +536,7 @@ const runReusableReservationScenario = async (input: {
     readAccountContact,
     readLinkedAccount,
     acceptReferral,
+    findAvailableCode,
     checkContactEmailDomain,
   };
 };
@@ -1736,37 +1750,108 @@ describe("prepareWorkspacePayState", () => {
         expect(scenario.acceptReferral).not.toHaveBeenCalled();
       });
 
-      test("ignores the referral code for a contact booking", async () => {
-        const scenario = await runReusableReservationScenario({
-          findByAttemptKeys: mock(() => Effect.succeed(null)),
-          createDraft: createFreshDraft(),
-          accountAuthority: { session: {}, activityState: "active" },
-          referralCode: "RFL12345",
-        });
+      type PreparedResult = Awaited<
+        ReturnType<typeof runReusableReservationScenario>
+      >["result"];
+      const redirectUrlOf = (result: PreparedResult) =>
+        result && "redirectUrl" in result ? result.redirectUrl : undefined;
+      const requestedCodeOf = async (result: PreparedResult) => {
+        const { openPayState, payStateTokenQueryParam } = await import(
+          "@/features/checkout/backend/checkout"
+        );
+        const token = new URL(
+          redirectUrlOf(result) ?? "",
+          "https://deskohub.test"
+        ).searchParams.get(payStateTokenQueryParam);
+        return Effect.runSync(openPayState(token ?? "")).requestedDiscountCode;
+      };
 
-        expect(scenario.result?.status).toBe("ready");
-        expect(scenario.readLinkedAccount).not.toHaveBeenCalled();
-        expect(scenario.acceptReferral).not.toHaveBeenCalled();
-        expect(
-          referralAppliedOf(
-            scenario.result && "redirectUrl" in scenario.result
-              ? scenario.result.redirectUrl
-              : undefined
-          )
-        ).toBeNull();
-      });
+      test.each([
+        ["an anonymous guest", { session: null }],
+        ["a contact booking", { session: {}, activityState: "active" }],
+      ] as const)(
+        "prefills a usable code for %s without accepting it",
+        async (_label, accountAuthority) => {
+          const findAvailableCode = mock(() => Effect.succeed("RFL12345"));
+          const scenario = await runReusableReservationScenario({
+            findByAttemptKeys: mock(() => Effect.succeed(null)),
+            createDraft: createFreshDraft(),
+            accountAuthority,
+            referralCode: "RFL12345",
+            findAvailableCode,
+          });
 
-      test("ignores the referral code for an anonymous guest", async () => {
+          expect(scenario.result?.status).toBe("ready");
+          expect(findAvailableCode.mock.calls).toEqual([
+            [{ code: "RFL12345" }],
+          ]);
+          expect(scenario.readLinkedAccount).not.toHaveBeenCalled();
+          expect(scenario.acceptReferral).not.toHaveBeenCalled();
+          expect(await requestedCodeOf(scenario.result)).toBe("RFL12345");
+          expect(redirectUrlOf(scenario.result)).not.toContain("RFL12345");
+          expect(referralAppliedOf(redirectUrlOf(scenario.result))).toBeNull();
+        }
+      );
+
+      test.each([
+        ["unusable", () => Effect.succeed(undefined)],
+        [
+          "unreadable",
+          () => Effect.fail(new ReferralError({ reason: "unavailable" })),
+        ],
+      ] as const)(
+        "continues a guest checkout without a prefill for an %s code",
+        async (_label, lookup) => {
+          const scenario = await runReusableReservationScenario({
+            findByAttemptKeys: mock(() => Effect.succeed(null)),
+            createDraft: createFreshDraft(),
+            accountAuthority: { session: null },
+            referralCode: "RFL12345",
+            findAvailableCode: mock(lookup),
+          });
+
+          expect(scenario.result?.status).toBe("ready");
+          expect(scenario.acceptReferral).not.toHaveBeenCalled();
+          expect(await requestedCodeOf(scenario.result)).toBeUndefined();
+        }
+      );
+
+      test("keeps an explicitly requested discount code over the referral prefill", async () => {
         const scenario = await runReusableReservationScenario({
           findByAttemptKeys: mock(() => Effect.succeed(null)),
           createDraft: createFreshDraft(),
           accountAuthority: { session: null },
+          advertisedPriceToken: await buildAdvertisedPriceToken(
+            undefined,
+            undefined,
+            undefined,
+            "CAMPAIGN10"
+          ),
           referralCode: "RFL12345",
+          findAvailableCode: mock(() => Effect.succeed("RFL12345")),
         });
 
         expect(scenario.result?.status).toBe("ready");
-        expect(scenario.readLinkedAccount).not.toHaveBeenCalled();
-        expect(scenario.acceptReferral).not.toHaveBeenCalled();
+        expect(await requestedCodeOf(scenario.result)).toBe("CAMPAIGN10");
+      });
+
+      test("does not prefill an account booking's referral code", async () => {
+        const scenario = await runReusableReservationScenario({
+          findByAttemptKeys: mock(() => Effect.succeed(null)),
+          createDraft: createFreshDraft(),
+          accountAuthority: { session: {}, activityState: "active" },
+          customer: "account",
+          accountContact: accountContact(),
+          linkedAccount: linkedAccount(),
+          referralCode: "RFL12345",
+          acceptReferral: mock(() =>
+            Effect.fail(new ReferralError({ reason: "already_attributed" }))
+          ),
+        });
+
+        expect(scenario.result?.status).toBe("ready");
+        expect(scenario.findAvailableCode).not.toHaveBeenCalled();
+        expect(await requestedCodeOf(scenario.result)).toBeUndefined();
       });
     });
 

@@ -3,7 +3,10 @@ import "@/shared/polyfills/temporal";
 import { describe, expect, mock, test } from "bun:test";
 import { Effect, Layer, Schema } from "effect";
 import { CustomerAccountResolver } from "@/features/account/backend/customer-account-resolver.service";
-import { customerAccountIdSchema } from "@/features/account/customer-account";
+import {
+  CustomerAccountAccessError,
+  customerAccountIdSchema,
+} from "@/features/account/customer-account";
 import type { WorkspaceProductIdentity } from "@/features/checkout/product-identity";
 import {
   buildCoworkReservationQuote,
@@ -313,16 +316,22 @@ const makeServiceLayer = (input: {
   >;
   readonly payableReservationCustomerId?: typeof dotyposCustomerId;
   readonly onPricingAffirmation?: (input: PaymentPriceAffirmationInput) => void;
+  readonly accountFailure?: CustomerAccountAccessError;
+  readonly codeKind?: "referral" | "discount";
 }) => {
   const dependencies = Layer.mergeAll(
     Layer.succeed(CustomerAccountResolver, {
-      resolve: Effect.succeed({
-        accountId: customerAccountId,
-        dotyposCustomerId,
-      }),
+      resolve:
+        input.accountFailure === undefined
+          ? Effect.succeed({
+              accountId: customerAccountId,
+              dotyposCustomerId,
+            })
+          : Effect.fail(input.accountFailure),
     }),
     Layer.mock(ReferralService, {
-      lookupCodeKind: () => Effect.succeed({ kind: "referral" as const }),
+      lookupCodeKind: () =>
+        Effect.succeed({ kind: input.codeKind ?? ("referral" as const) }),
       acceptReferral: input.acceptReferral,
     }),
     Layer.mock(CheckoutPricingService, {
@@ -681,6 +690,77 @@ describe("CheckoutReferralService", () => {
     expect(result.status).toBe("unavailable");
     expect(acceptanceCount).toBe(0);
     expect(pricingAffirmationCount).toBe(0);
+  });
+
+  describe("without a usable signed-in account", () => {
+    const runWithoutAccount = async (
+      accountFailure: CustomerAccountAccessError,
+      codeKind: "referral" | "discount" = "referral"
+    ) => {
+      const quote = Effect.runSync(buildCoworkReservationQuote(reservation));
+      let acceptanceCount = 0;
+      let pricingAffirmationCount = 0;
+      const layer = makeServiceLayer({
+        affirmation: {
+          kind: "cowork",
+          reservation,
+          quote,
+          commitment: makeCommitment(coworkProduct, []),
+        },
+        accountFailure,
+        codeKind,
+        acceptReferral: () =>
+          Effect.sync(() => {
+            acceptanceCount += 1;
+            return { kind: "accepted" as const };
+          }),
+        onPricingAffirmation: () => {
+          pricingAffirmationCount += 1;
+        },
+      });
+      const result = await Effect.runPromise(
+        runAcceptCode(
+          layer,
+          tokenFor({ reservation, quote, bookedAt: payStateBookedAt })
+        )
+      );
+      return { result, acceptanceCount, pricingAffirmationCount };
+    };
+
+    test("asks a guest to sign in for a referral code without accepting it", async () => {
+      const outcome = await runWithoutAccount(
+        new CustomerAccountAccessError({ reason: "unauthenticated" })
+      );
+
+      expect(outcome.result).toEqual({ status: "sign_in_required" });
+      expect(outcome.acceptanceCount).toBe(0);
+      expect(outcome.pricingAffirmationCount).toBe(0);
+    });
+
+    test("keeps a guest's non-referral code unavailable", async () => {
+      const outcome = await runWithoutAccount(
+        new CustomerAccountAccessError({ reason: "unauthenticated" }),
+        "discount"
+      );
+
+      expect(outcome.result).toEqual({ status: "unavailable" });
+    });
+
+    test.each([
+      new CustomerAccountAccessError({ reason: "unavailable" }),
+      new CustomerAccountAccessError({
+        reason: "link-required",
+        linkReason: "deletion-requested",
+      }),
+    ])(
+      "keeps a signed-in account that cannot resolve unavailable",
+      async (failure) => {
+        const outcome = await runWithoutAccount(failure);
+
+        expect(outcome.result).toEqual({ status: "unavailable" });
+        expect(outcome.acceptanceCount).toBe(0);
+      }
+    );
   });
 
   test.each([
