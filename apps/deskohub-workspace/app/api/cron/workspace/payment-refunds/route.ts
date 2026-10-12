@@ -8,9 +8,12 @@ import { defineWorkspaceRoute } from "@/shared/backend/workspace-route";
 export const maxDuration = 300;
 
 /**
- * Time the batch may spend on lookups, leaving the rest of `maxDuration` for
- * the cold start, database claims, and the response. The batch starts a
- * lookup only while one exhausting every Nexi retry still ends within it.
+ * Time the batch may spend claiming, looking up, and recording. It starts a
+ * lookup only while one exhausting every Nexi retry still ends within it, and
+ * at the budget it interrupts whatever is still running and releases those
+ * claims, each release waiting at most `claimReleaseTimeout` (10 seconds).
+ * The batch therefore ends within 250 seconds, leaving the rest of
+ * `maxDuration` for the cold start and the response.
  */
 const lookupBudget = Duration.seconds(240);
 

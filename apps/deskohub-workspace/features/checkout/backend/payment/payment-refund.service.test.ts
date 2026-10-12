@@ -9,7 +9,7 @@ import {
   NexiOrderIdSchema,
   type NexiService as NexiServiceTag,
 } from "@deskohub/nexi";
-import { Duration, Effect, Fiber, Layer } from "effect";
+import { Clock, Duration, Effect, Fiber, Layer } from "effect";
 import { TestClock } from "effect/testing";
 import { FetchHttpClient } from "effect/unstable/http";
 import { paymentAttemptIdSchema } from "@/features/checkout/checkout-identifiers";
@@ -162,7 +162,13 @@ describe("PaymentRefundService", () => {
     ];
     const claimRefundChecks = mock(
       (input: Parameters<IPaymentRefundRepository["claimRefundChecks"]>[0]) =>
-        Effect.sync(() => queue.splice(0, input.limit))
+        Effect.sync(() =>
+          queue.splice(0, input.limit).map((claimed) => ({
+            ...claimed,
+            checkedAt: input.checkedAt,
+            previousCheckedAt: null,
+          }))
+        )
     );
     const run = await buildService({
       claimRefundChecks,
@@ -232,7 +238,12 @@ describe("PaymentRefundService", () => {
         Array.from({ length: input.limit }, () => {
           const id = paymentAttemptIdSchema.make(`attempt-${claimed.length}`);
           claimed.push(id);
-          return { ...candidate, attempt: { ...attempt, id } };
+          return {
+            ...candidate,
+            attempt: { ...attempt, id },
+            checkedAt: input.checkedAt,
+            previousCheckedAt: null,
+          };
         })
       );
     const apiTimeout = 5000;
@@ -288,5 +299,161 @@ describe("PaymentRefundService", () => {
     // Only attempts the batch actually looked up were claimed and stamped.
     expect(claimed).toHaveLength(summary.checked);
     expect(fetches).toBe(summary.checked * 4);
+  });
+
+  describe("with slow database calls", () => {
+    const budget = Duration.seconds(240);
+    const lookupMilliseconds = 20_840;
+
+    /**
+     * Runs a batch on a TestClock against a Nexi stub that answers after
+     * `lookupMilliseconds` and a repository whose calls take as long as the
+     * given delays, recording what the batch committed, looked up, and
+     * released.
+     */
+    const runSlowBatch = async (delays: {
+      readonly claim?: (index: number) => Duration.Input;
+      readonly record?: (index: number) => Duration.Input;
+      readonly release?: Duration.Input;
+    }) => {
+      const { NexiService } = await import("@deskohub/nexi");
+      const { PaymentRefundRepository } = await import(
+        "../repositories/payment-refund.repository"
+      );
+      const { PaymentRefundService } = await import("./payment-refund.service");
+      const committed: string[] = [];
+      const lookupStarts: number[] = [];
+      const released: string[] = [];
+      let claims = 0;
+      const indexOf = (id: string) => Number(id.replace("attempt-", ""));
+
+      const layer = PaymentRefundService.Default.pipe(
+        Layer.provide(
+          Layer.mergeAll(
+            Layer.mock(NexiService, {
+              getOrder: () =>
+                Effect.gen(function* () {
+                  lookupStarts.push(yield* Clock.currentTimeMillis);
+                  yield* Effect.sleep(Duration.millis(lookupMilliseconds));
+                  return refundedOrder;
+                }),
+            }),
+            Layer.mock(PaymentRefundRepository, {
+              claimRefundChecks: (input) =>
+                Effect.gen(function* () {
+                  const index = claims;
+                  claims += 1;
+                  yield* Effect.sleep(delays.claim?.(index) ?? 0);
+                  const id = paymentAttemptIdSchema.make(`attempt-${index}`);
+                  committed.push(id);
+                  return [
+                    {
+                      ...candidate,
+                      attempt: { ...attempt, id },
+                      checkedAt: input.checkedAt,
+                      previousCheckedAt: null,
+                    },
+                  ];
+                }),
+              recordRefund: (input) =>
+                Effect.gen(function* () {
+                  yield* Effect.sleep(delays.record?.(indexOf(input.id)) ?? 0);
+                  return "recorded" as const;
+                }),
+              releaseRefundCheck: (input) =>
+                Effect.gen(function* () {
+                  yield* Effect.sleep(delays.release ?? 0);
+                  released.push(input.id);
+                }),
+            })
+          )
+        )
+      );
+
+      const { elapsedMilliseconds, summary } = await Effect.runPromise(
+        Effect.gen(function* () {
+          const service = yield* PaymentRefundService;
+          const batch = yield* Effect.forkChild(
+            service.reconcileRefunds({
+              limit: 150,
+              budget,
+              worstCaseLookupDuration: Duration.millis(lookupMilliseconds),
+            })
+          );
+          let elapsedMilliseconds = 0;
+          while (batch.pollUnsafe() === undefined) {
+            yield* TestClock.adjust("100 millis");
+            elapsedMilliseconds += 100;
+          }
+          return { elapsedMilliseconds, summary: yield* Fiber.join(batch) };
+        }).pipe(Effect.provide(layer), Effect.provide(TestClock.layer()))
+      );
+      return {
+        committed,
+        elapsedMilliseconds,
+        lookupStarts,
+        released,
+        summary,
+      };
+    };
+
+    test("releases a claim that leaves too little time for its lookup", async () => {
+      const result = await runSlowBatch({
+        claim: (index) => (index >= 40 ? "12 seconds" : 0),
+      });
+
+      expect(result.elapsedMilliseconds).toBeLessThanOrEqual(
+        Duration.toMillis(budget)
+      );
+      for (const start of result.lookupStarts) {
+        expect(start).toBeLessThanOrEqual(
+          Duration.toMillis(budget) - lookupMilliseconds
+        );
+      }
+      expect(result.released.length).toBeGreaterThan(0);
+      // Every attempt the batch stamped was either checked or released.
+      expect(result.committed).toHaveLength(
+        result.summary.checked + result.released.length
+      );
+    });
+
+    test("stops a claim that runs into the budget without stamping its attempt", async () => {
+      const result = await runSlowBatch({
+        claim: (index) => (index >= 40 ? "75 seconds" : 0),
+      });
+
+      expect(result.elapsedMilliseconds).toBeLessThanOrEqual(
+        Duration.toMillis(budget)
+      );
+      expect(result.committed).toHaveLength(result.summary.checked);
+      expect(result.released).toEqual([]);
+    });
+
+    test("releases attempts whose refund recording runs past the budget", async () => {
+      const result = await runSlowBatch({
+        record: (index) => (index >= 36 ? "60 seconds" : 0),
+      });
+
+      expect(result.elapsedMilliseconds).toBeLessThanOrEqual(
+        Duration.toMillis(budget)
+      );
+      expect(result.released.length).toBeGreaterThan(0);
+      expect(result.committed).toHaveLength(
+        result.summary.checked + result.released.length
+      );
+      expect(result.summary.recorded).toBe(result.summary.checked);
+    });
+
+    test("gives up on a release that hangs after a bounded wait", async () => {
+      const result = await runSlowBatch({
+        record: (index) => (index >= 36 ? "60 seconds" : 0),
+        release: "1 hour",
+      });
+
+      expect(result.elapsedMilliseconds).toBeLessThanOrEqual(
+        Duration.toMillis(budget) + 10_000
+      );
+      expect(result.released).toEqual([]);
+    });
   });
 });

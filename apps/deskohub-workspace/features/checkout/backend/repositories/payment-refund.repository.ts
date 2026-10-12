@@ -18,6 +18,7 @@ import type { SqlError } from "effect/unstable/sql";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { paymentAttempts, workspaceReservations } from "@/db/schema";
 import type { PaymentAttemptId } from "@/features/checkout/checkout-identifiers";
+import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import {
   isNexiPaymentAttempt,
   type NexiPaymentAttempt,
@@ -39,6 +40,12 @@ export interface RefundablePaymentAttempt {
   readonly correlationId: NexiCorrelationId;
 }
 
+/** An attempt `claimRefundChecks` stamped, with the stamp it replaced. */
+export interface ClaimedRefundCheck extends RefundablePaymentAttempt {
+  readonly checkedAt: Temporal.Instant;
+  readonly previousCheckedAt: Temporal.Instant | null;
+}
+
 export interface IPaymentRefundRepository {
   /**
    * Claims up to `limit` paid Nexi attempts to check for a refund and stamps
@@ -58,9 +65,19 @@ export interface IPaymentRefundRepository {
     readonly lastCheckedBefore: Temporal.Instant;
     readonly recentPaymentsSince: Temporal.Instant;
   }) => Effect.Effect<
-    readonly RefundablePaymentAttempt[],
+    readonly ClaimedRefundCheck[],
     EffectDrizzleQueryError | SqlError.SqlError
   >;
+  /**
+   * Gives back a claim the batch did not check: restores the attempt's
+   * previous last-checked time, so the attempt stays due. Only the stamp this
+   * claim wrote at `checkedAt` is replaced; a later claim's stamp is kept.
+   */
+  readonly releaseRefundCheck: (
+    claim: Pick<ClaimedRefundCheck, "checkedAt" | "previousCheckedAt"> & {
+      readonly id: PaymentAttemptId;
+    }
+  ) => Effect.Effect<void, EffectDrizzleQueryError>;
   /**
    * Records Nexi's successful refund total for a paid Nexi attempt. The total
    * only grows, so a stale or replayed provider read never lowers it.
@@ -93,10 +110,15 @@ export class PaymentRefundRepository extends Context.Service<
         // Lock the batch in its own statement. As an `in (...)` subquery of the
         // update, Postgres may re-run it for every updated row, and each re-run
         // skips the rows already updated, so the claim would exceed `limit`.
-        const claimed = yield* db.transaction(
+        // Every read happens before the commit, so a caller interrupted while
+        // claiming either gets the claim back or leaves nothing stamped.
+        const { batch, claimed, correlationIds } = yield* db.transaction(
           Effect.fn(function* (tx) {
             const batch = yield* tx
-              .select({ id: paymentAttempts.id })
+              .select({
+                id: paymentAttempts.id,
+                previousCheckedAt: paymentAttempts.refundCheckedAt,
+              })
               .from(paymentAttempts)
               .where(
                 and(
@@ -134,8 +156,17 @@ export class PaymentRefundRepository extends Context.Service<
               )
               .limit(input.limit)
               .for("update", { skipLocked: true });
-            if (batch.length === 0) return [];
-            return yield* tx
+            if (batch.length === 0) {
+              return {
+                batch,
+                claimed: [],
+                correlationIds: new Map<
+                  WorkspaceReservationId,
+                  NexiCorrelationId
+                >(),
+              };
+            }
+            const claimed = yield* tx
               .update(paymentAttempts)
               .set({ refundCheckedAt: input.checkedAt })
               .where(
@@ -145,35 +176,65 @@ export class PaymentRefundRepository extends Context.Service<
                 )
               )
               .returning();
+            const reservations = yield* tx
+              .select({
+                id: workspaceReservations.id,
+                correlationId: workspaceReservations.correlationId,
+              })
+              .from(workspaceReservations)
+              .where(
+                inArray(
+                  workspaceReservations.id,
+                  claimed.map(
+                    ({ workspaceReservationId }) => workspaceReservationId
+                  )
+                )
+              );
+            return {
+              batch,
+              claimed,
+              correlationIds: new Map(
+                reservations.map(({ id, correlationId }) => [id, correlationId])
+              ),
+            };
           })
         );
-        if (claimed.length === 0) return [];
-
-        const reservations = yield* db
-          .select({
-            id: workspaceReservations.id,
-            correlationId: workspaceReservations.correlationId,
-          })
-          .from(workspaceReservations)
-          .where(
-            inArray(
-              workspaceReservations.id,
-              claimed.map(
-                ({ workspaceReservationId }) => workspaceReservationId
-              )
-            )
-          );
-        const correlationIds = new Map(
-          reservations.map(({ id, correlationId }) => [id, correlationId])
+        const previousCheckedAt = new Map(
+          batch.map(({ id, previousCheckedAt }) => [id, previousCheckedAt])
         );
 
-        return claimed.flatMap((row) => {
+        return claimed.flatMap((row): ClaimedRefundCheck[] => {
           const attempt = toPaymentAttempt(row);
           const correlationId = correlationIds.get(row.workspaceReservationId);
           return correlationId && isNexiPaymentAttempt(attempt)
-            ? [{ attempt, correlationId }]
+            ? [
+                {
+                  attempt,
+                  correlationId,
+                  checkedAt: input.checkedAt,
+                  previousCheckedAt: previousCheckedAt.get(row.id) ?? null,
+                },
+              ]
             : [];
         });
+      });
+
+      const releaseRefundCheck = Effect.fn(
+        "PaymentRefundRepository.releaseRefundCheck"
+      )(function* (
+        claim: Pick<ClaimedRefundCheck, "checkedAt" | "previousCheckedAt"> & {
+          readonly id: PaymentAttemptId;
+        }
+      ) {
+        yield* db
+          .update(paymentAttempts)
+          .set({ refundCheckedAt: claim.previousCheckedAt })
+          .where(
+            and(
+              eq(paymentAttempts.id, claim.id),
+              eq(paymentAttempts.refundCheckedAt, claim.checkedAt)
+            )
+          );
       });
 
       const recordRefund = Effect.fn("PaymentRefundRepository.recordRefund")(
@@ -220,7 +281,7 @@ export class PaymentRefundRepository extends Context.Service<
         (effect, input) => effect.pipe(Effect.annotateLogs({ ...input }))
       );
 
-      return { claimRefundChecks, recordRefund };
+      return { claimRefundChecks, recordRefund, releaseRefundCheck };
     })
   );
 }
