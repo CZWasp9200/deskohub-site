@@ -2,10 +2,13 @@ import "@/shared/polyfills/temporal";
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, mock, test } from "bun:test";
-import { DotyposService } from "@deskohub/dotypos";
+import {
+  DotyposService,
+  dotyposApiTimeoutDefaultMilliseconds,
+} from "@deskohub/dotypos";
 import { testEmailAddress } from "@deskohub/email/testing";
 import { ExternalAPIError, NexiService } from "@deskohub/nexi";
-import { Data, Effect, Layer, Schema } from "effect";
+import { Data, Duration, Effect, Layer, Schema } from "effect";
 import { env } from "@/env";
 import type { OptionalAccountActivityFixture } from "@/features/account/backend/customer-account-activity.test-utils";
 import { makeOptionalAccountActivityGuard } from "@/features/account/backend/customer-account-activity.test-utils";
@@ -33,11 +36,14 @@ import {
 import { normalizedMeetingRoomReservationOrderSchema } from "@/features/reservation/meeting-room-reservation";
 import { normalizedOfficeReservationOrderSchema } from "@/features/reservation/office-reservation";
 import { reservationOrderSchema } from "@/features/reservation/reservation-order";
+import { getNexiRequestTimeoutMilliseconds } from "@/shared/backend/config/nexi.config";
+import { withInstantSleeps } from "@/shared/testing/workspace-test-clock.test-utils";
 import { workspaceSiteConstants } from "@/shared/utils/site-constants";
 import { instantStringSchema } from "@/shared/utils/temporal";
 import type { PaymentAttemptRepository as PaymentAttemptRepositoryType } from "../repositories/payment-attempt.repository";
 import type { IPaymentLifecycleRepository } from "../repositories/payment-lifecycle.repository";
 import { CheckoutPricingServiceMock } from "./checkout-pricing.service.mock";
+import { getCheckoutSubmitDeadline } from "./checkout-submit-deadline";
 import {
   buildSignedPayState,
   openPayState,
@@ -838,6 +844,88 @@ describe("CheckoutService", () => {
       redirectUrl: "https://payments.example/hosted",
     });
     expect(events).toEqual(["attempt-created", "provider-created"]);
+  });
+
+  describe("within the pay submit deadline", () => {
+    const createSlowProviderHarness = async (orderId: string) => {
+      const harness = await createCheckoutHarness({
+        orderId,
+        createHostedPaymentPage: mock(() =>
+          Effect.sleep("26 seconds").pipe(
+            Effect.as({
+              securityToken: "provider-security-token",
+              hostedPage: "https://payments.example/hosted",
+            })
+          )
+        ),
+      });
+      harness.updateReservation.mockImplementation(() =>
+        Effect.sleep("20 seconds")
+      );
+      return harness;
+    };
+
+    const submitWithinDeadline = async <A, E>(
+      effect: Effect.Effect<A, E>,
+      deploymentEnvironment: "preview" | "production"
+    ) => {
+      const { withActionDeadline } = await import(
+        "@/shared/backend/workspace-action"
+      );
+      const deadline = getCheckoutSubmitDeadline({
+        dotypos: Duration.millis(dotyposApiTimeoutDefaultMilliseconds),
+        nexi: Duration.millis(
+          getNexiRequestTimeoutMilliseconds(deploymentEnvironment)
+        ),
+      });
+      return await effect.pipe(
+        withActionDeadline(deadline),
+        Effect.exit,
+        withInstantSleeps,
+        Effect.runPromise
+      );
+    };
+
+    test("completes a slow Dotypos update followed by a slow sandbox hosted page", async () => {
+      const harness = await createSlowProviderHarness(
+        "reservation-slow-sandbox-providers"
+      );
+
+      const exit = await submitWithinDeadline(harness.effect, "preview");
+
+      expect(exit).toMatchObject({
+        _tag: "Success",
+        value: {
+          status: "redirect",
+          redirectUrl: "https://payments.example/hosted",
+        },
+      });
+      expect(harness.attachHostedPaymentPage).toHaveBeenCalled();
+      expect(harness.markTerminalForReservation).not.toHaveBeenCalled();
+    });
+
+    test("attaches a hosted page that finishes after the deadline passes", async () => {
+      const harness = await createSlowProviderHarness(
+        "reservation-hosted-page-past-deadline"
+      );
+
+      const exit = await submitWithinDeadline(harness.effect, "production");
+
+      expect(exit).toMatchObject({
+        _tag: "Failure",
+        cause: {
+          reasons: [
+            { error: { message: "Request timed out. Please try again." } },
+          ],
+        },
+      });
+      expect(harness.attachHostedPaymentPage).toHaveBeenCalledWith({
+        id: "attempt-reservation-hosted-page-past-deadline",
+        securityToken: "provider-security-token",
+        providerRedirectUrl: "https://payments.example/hosted",
+      });
+      expect(harness.markTerminalForReservation).not.toHaveBeenCalled();
+    });
   });
 
   test("redirects a reusable active attempt before discount affirmation and note refresh", async () => {

@@ -1,6 +1,7 @@
 import { describe, expect, mock, test } from "bun:test";
 import { testEmailAddress } from "@deskohub/email/testing";
-import { Effect, Layer, Predicate, Schema } from "effect";
+import { Effect, Fiber, Layer, Predicate, Schema } from "effect";
+import { TestClock } from "effect/testing";
 import { FetchHttpClient } from "effect/unstable/http";
 import { NexiRuntimeConfig } from "../config";
 import type { OrderResponse } from "../generated/effect.gen";
@@ -537,6 +538,55 @@ describe("NexiService verifyPaymentOutcome", () => {
         cause: [{ description: "Invalid amount" }],
       });
     }
+  });
+
+  test("stops retrying an unanswered order lookup at its deadline", async () => {
+    const fetchMock = mock(
+      (_input: RequestInfo | URL, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () =>
+            reject(init.signal?.reason)
+          );
+        })
+    );
+    const { finished, result } = await runWithService(
+      Effect.gen(function* () {
+        const nexi = yield* NexiService;
+        const lookup = yield* Effect.forkChild(
+          nexi
+            .verifyPaymentOutcome({
+              orderId: nexiOrderId("order-id"),
+              correlationId: nexiCorrelationId("correlation-id"),
+              amount: "5000",
+              currency: "CZK",
+              securityToken: "security-token",
+              deadline: "2500 millis",
+            })
+            .pipe(Effect.result)
+        );
+        for (let step = 0; step < 25; step += 1) {
+          yield* TestClock.adjust("100 millis");
+        }
+        const finished = lookup.pollUnsafe() !== undefined;
+        if (!finished) yield* Fiber.interrupt(lookup);
+        return {
+          finished,
+          result: finished ? yield* Fiber.join(lookup) : undefined,
+        };
+      }).pipe(Effect.provide(TestClock.layer())),
+      fetchMock as unknown as typeof globalThis.fetch
+    );
+
+    expect(finished).toBe(true);
+    expect(result).toMatchObject({
+      failure: {
+        _tag: "NetworkError",
+        message: "Nexi order lookup exceeded its deadline",
+      },
+    });
+    // The 1-second request timeout fired and the lookup was retried before
+    // the deadline stopped it.
+    expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 });
 
