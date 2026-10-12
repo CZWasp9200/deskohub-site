@@ -45,7 +45,7 @@ A checkout case restarts a sandbox-rejected payment once, through a fresh paymen
 The `restart-sandbox-rejected-payment` step works in this order:
 
 1. Logs the diagnostic code and the code-only Nexi failure lines.
-2. Retires the rejected attempt with `retireRejectedPaymentAttemptForE2E`. This marks the attempt and reservation payment state `failed`, releases its reserved discount-code and voucher claims, and keeps the hold, so cleanup is unchanged.
+2. Retires the rejected attempt with `retireRejectedPaymentAttemptForE2E`. This marks the attempt and reservation payment state `failed`, releases its reserved discount-code, voucher, and referral invitation claims, and keeps the hold, so cleanup is unchanged.
 3. Closes the hosted tab and waits `nexiSandboxRetryDelayMs`.
 4. Reopens the saved checkout pay page URL. Its `payState` value is registered for redaction.
 
