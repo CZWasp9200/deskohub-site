@@ -131,7 +131,7 @@
       ]
     },
     "lint": {
-      "dependsOn": ["^lint"],
+      "dependsOn": ["^lint", "deskohub-workspace#lint:test-email-literals"],
       "outputs": []
     },
     "test": {
