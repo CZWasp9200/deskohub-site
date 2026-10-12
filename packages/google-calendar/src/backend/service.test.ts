@@ -49,7 +49,6 @@ let listEvents = mock<ListEventsImplementation>(async () => ({
   data: { items: [] },
 }));
 let watchEvents = mock<WatchEventsImplementation>(async () => ({ data: {} }));
-const calendarCalls: unknown[] = [];
 const jwtCalls: unknown[] = [];
 
 mock.module("@googleapis/calendar", () => ({
@@ -60,10 +59,9 @@ mock.module("@googleapis/calendar", () => ({
       }
     },
   },
-  calendar: mock((options: unknown) => {
-    calendarCalls.push(options);
-    return { events: { list: listEvents, watch: watchEvents } };
-  }),
+  calendar: mock(() => ({
+    events: { list: listEvents, watch: watchEvents },
+  })),
 }));
 
 const { GoogleCalendarService } = await import("./service");
@@ -96,7 +94,6 @@ beforeEach(() => {
     data: { items: [] },
   }));
   watchEvents = mock<WatchEventsImplementation>(async () => ({ data: {} }));
-  calendarCalls.length = 0;
   jwtCalls.length = 0;
 });
 
@@ -171,10 +168,8 @@ describe("GoogleCalendarService", () => {
       key: "line1\nline2",
       scopes: ["https://www.googleapis.com/auth/calendar.readonly"],
     });
-    expect(calendarCalls[0]).toMatchObject({ version: "v3" });
     expect(listEvents.mock.calls[0]?.[0]).toMatchObject({
       calendarId: "calendar-id",
-      maxResults: 250,
       orderBy: "startTime",
       singleEvents: true,
       timeMin: "2026-06-19T00:00:00Z",

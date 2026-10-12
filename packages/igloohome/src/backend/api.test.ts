@@ -101,7 +101,7 @@ describe("IgloohomeService", () => {
       const service = yield* IgloohomeService;
       return yield* service.issueHourlyAlgoPin({
         deviceId,
-        variance: 1,
+        variance: 3,
         startsAt: "2026-08-13T09:00:00+02:00",
         endsAt: "2026-08-13T17:00:00+02:00",
         accessName: "Deskohub reservation-id",
@@ -133,43 +133,11 @@ describe("IgloohomeService", () => {
       "Bearer access-token"
     );
     expect(await issueRequest.json()).toEqual({
-      variance: 1,
+      variance: 3,
       startDate: "2026-08-13T09:00:00+02:00",
       endDate: "2026-08-13T17:00:00+02:00",
       accessName: "Deskohub reservation-id",
     });
-  });
-
-  test("forwards the caller's variance policy to the provider request", async () => {
-    const requests: Request[] = [];
-    const result = await Effect.gen(function* () {
-      const service = yield* IgloohomeService;
-      return yield* service.issueHourlyAlgoPin({
-        deviceId,
-        variance: 3,
-        startsAt: "2026-08-13T09:00:00+02:00",
-        endsAt: "2026-08-13T17:00:00+02:00",
-        accessName: "Deskohub standalone",
-      });
-    }).pipe(
-      Effect.provide(buildServiceLayer(recordRequests(requests))),
-      Effect.runPromise
-    );
-
-    expect(String(result.pin)).toBe("7654321");
-    const issueRequest = requests[1] as Request;
-    expect(await issueRequest.json()).toMatchObject({ variance: 3 });
-
-    const outsideVariance = {
-      deviceId,
-      variance: 4,
-      startsAt: "2026-08-13T09:00:00+02:00",
-      endsAt: "2026-08-13T17:00:00+02:00",
-      accessName: "Deskohub standalone",
-    };
-    // @ts-expect-error the provider interface only accepts variance 1, 2, or 3.
-    const rejected: IssueHourlyAlgoPinInput = outsideVariance;
-    void rejected;
   });
 
   test("re-authenticates after the provider rejects a cached access token", async () => {

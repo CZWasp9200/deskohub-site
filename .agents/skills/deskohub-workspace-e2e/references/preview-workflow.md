@@ -376,7 +376,8 @@ and deployment lifecycle. Its validated mapping is
 `preview/<internal-head-ref>`. E2E waits for
 the successful Vercel preview event, resolves that exact non-primary Neon
 branch, obtains its direct and pooled connection strings with pinned
-`neonctl@2.30.1`, masks each immediately, and migrates with the direct URL.
+`neonctl@2.30.1` (installed once per lookup rather than resolved by `bunx`
+per call), masks each immediately, and migrates with the direct URL.
 Runtime traffic uses the pooled URL; database assertions and the allowlist use
 the direct URL for the same branch.
 
@@ -771,7 +772,9 @@ summary for Bun setup, repository dependencies, Neon resolution, aggregate
 Dotypos capacity validation, migration, Playwright, and hosted browser/system
 dependencies. It reports both the post-allocation setup path and
 the complete `test-e2e` job setup path from before the exact-SHA checkout. The
-separate target-resolution job remains visible in native Actions timings. These
+separate target-resolution job remains visible in native Actions timings. The Bun package
+cache is restored by an exact `bun.lock` key without restore keys and saved
+before any exact-SHA test code runs, so a run cannot poison it. These
 operations remain sequential until a supported prepared runner image or cache
 can overlap them without background shell jobs, shared-install locks, or hidden
 failures.

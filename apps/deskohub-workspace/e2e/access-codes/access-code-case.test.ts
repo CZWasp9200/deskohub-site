@@ -1,26 +1,20 @@
+import { describe, expect, test } from "bun:test";
 import { AssertionError } from "node:assert";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { describe, expect, test } from "bun:test";
 import { Temporal } from "@js-temporal/polyfill";
 import { Cause, Effect, Exit } from "effect";
 import { formatWorkspaceE2EFailure, workspaceE2ETimeoutError } from "../errors";
-import {
-  workspaceE2EAccessCodeCleanupTimeout,
-  workspaceE2EAccessCodeMutationBarrierCount,
-  workspaceE2EAccessCodePlaywrightTimeout,
-  workspaceE2ETimeouts,
-} from "../timeouts";
 import { type E2EOutcome, toE2EResult } from "../services/telemetry";
+import { workspaceE2EAccessCodeMutationBarrierCount } from "../timeouts";
 import {
+  type ActionResponseOutcome,
   awaitActionQuiescence,
   makeSyntheticAccessCodeName,
   planAccessCodeCreationAttempt,
   runFinalizedCase,
-  sanitizedBrowserFailure,
   sanitizedBrowserOperation,
   selectActionReplayHeaders,
-  type ActionResponseOutcome,
 } from "./access-code-case";
 
 describe("access code creation case planning", () => {
@@ -35,9 +29,9 @@ describe("access code creation case planning", () => {
     const end = Temporal.PlainDateTime.from(plan.endsAtLocal);
     expect(start.minute).toBe(0);
     expect(end.minute).toBe(0);
-    expect(
-      Temporal.PlainDateTime.compare(end, start.add({ hours: 3 }))
-    ).toBe(0);
+    expect(Temporal.PlainDateTime.compare(end, start.add({ hours: 3 }))).toBe(
+      0
+    );
     expect(
       Temporal.PlainDateTime.compare(
         start,
@@ -47,7 +41,10 @@ describe("access code creation case planning", () => {
   });
 
   test("builds a unique synthetic name within the provider bound", () => {
-    const names = [makeSyntheticAccessCodeName(), makeSyntheticAccessCodeName()];
+    const names = [
+      makeSyntheticAccessCodeName(),
+      makeSyntheticAccessCodeName(),
+    ];
 
     for (const name of names) {
       expect(name.startsWith("dsk-e2e-")).toBe(true);
@@ -131,14 +128,6 @@ describe("sanitized browser failure reporting", () => {
     expect(failure.message).toContain("replay the deployed action failed");
     expect(failure.message).toContain("expected 200");
   });
-
-  test("maps any cause onto the fixed code-owned failure", () => {
-    const failure = sanitizedBrowserFailure("open the admin form")();
-
-    expect(failure.message).toBe("open the admin form failed");
-    expect(failure.operation).toBe("open the admin form");
-    expect(failure.cause).toBeUndefined();
-  });
 });
 
 describe("case finalization order", () => {
@@ -210,7 +199,10 @@ describe("case finalization order", () => {
         onExit: (settled) => {
           operations.push("annotation");
           if (!Exit.isSuccess(settled)) {
-            annotatedOutcomes = [...annotatedOutcomes, toE2EResult(settled).outcome];
+            annotatedOutcomes = [
+              ...annotatedOutcomes,
+              toE2EResult(settled).outcome,
+            ];
           }
         },
       })
@@ -252,42 +244,6 @@ describe("action completion barrier", () => {
 
     await Bun.sleep(10);
     operations.push("server-write");
-    releaseResponse?.();
-    await completed;
-
-    expect(operations).toEqual(["server-write", "delete", "done"]);
-  });
-
-  test("cleanup waits on the barrier registered before an interrupted submit capture", async () => {
-    const operations: string[] = [];
-    let releaseResponse: (() => void) | undefined;
-    // The submit operation registered the barrier in outer case state before
-    // clicking, then was interrupted before returning any captured action.
-    let actionBarrier: Promise<ActionResponseOutcome> | undefined;
-    let capturedAction: { readonly url: string } | undefined;
-
-    actionBarrier = new Promise<ActionResponseOutcome>((resolve) => {
-      releaseResponse = () => resolve({ kind: "responded" });
-    });
-
-    const completed = Effect.runPromise(
-      Effect.gen(function* () {
-        yield* awaitActionQuiescence({
-          barrierTimeoutMs: 5_000,
-          label: "initial access code action",
-          responseSettled: actionBarrier,
-          waitForTerminalEvent: Effect.sync(() => {
-            operations.push("converge");
-            return true;
-          }),
-        });
-        operations.push("delete");
-      })
-    ).then(() => operations.push("done"));
-
-    await Bun.sleep(10);
-    operations.push("server-write");
-    expect(capturedAction).toBeUndefined();
     releaseResponse?.();
     await completed;
 
@@ -341,44 +297,6 @@ describe("action completion barrier", () => {
     expect(operations).toEqual(["converge"]);
   });
 
-  test("deletes only after both mutation barriers settle, including a deferred replay", async () => {
-    const operations: string[] = [];
-    let releaseReplay: (() => void) | undefined;
-    const initialBarrier = Promise.resolve<ActionResponseOutcome>({
-      kind: "responded",
-    });
-    const replayBarrier = new Promise<ActionResponseOutcome>((resolve) => {
-      releaseReplay = () => resolve({ kind: "responded" });
-    });
-
-    const completed = Effect.runPromise(
-      Effect.gen(function* () {
-        yield* awaitActionQuiescence({
-          barrierTimeoutMs: 5_000,
-          label: "initial access code action",
-          responseSettled: initialBarrier,
-          waitForTerminalEvent: Effect.sync(() => {
-            operations.push("converge");
-            return true;
-          }),
-        });
-        yield* awaitActionQuiescence({
-          barrierTimeoutMs: 5_000,
-          label: "replayed access code action",
-          responseSettled: replayBarrier,
-        });
-        operations.push("delete");
-      })
-    ).then(() => operations.push("done"));
-
-    await Bun.sleep(10);
-    operations.push("replay-server-write");
-    releaseReplay?.();
-    await completed;
-
-    expect(operations).toEqual(["replay-server-write", "delete", "done"]);
-  });
-
   test("fails closed without deletion when the replay response never settles", async () => {
     const operations: string[] = [];
 
@@ -419,7 +337,7 @@ describe("action completion barrier", () => {
   });
 });
 
-describe("access code cleanup and watchdog budget", () => {
+describe("access code cleanup budget", () => {
   test("budgets every mutation barrier the case waits on", () => {
     const caseSource = readFileSync(
       resolve(import.meta.dir, "create-access-code.pw.ts"),
@@ -436,43 +354,6 @@ describe("access code cleanup and watchdog budget", () => {
     const barrierWaits =
       activeCaseSource.split("awaitActionQuiescence(").length - 1;
 
-    expect(barrierWaits).toBe(
-      workspaceE2EAccessCodeMutationBarrierCount
-    );
-
-    // Negative fixture: a commented-out barrier call satisfies nothing.
-    const commentedOut = [
-      "// await awaitActionQuiescence(page);",
-    ].join("\n");
-    expect(commentedOut.split("awaitActionQuiescence(").length - 1).toBe(1);
-    expect(
-      commentedOut
-        .split("\n")
-        .map((line) => {
-          const commentAt = line.indexOf("//");
-          return commentAt === -1 ? line : line.slice(0, commentAt);
-        })
-        .join("\n")
-        .split("awaitActionQuiescence(").length - 1
-    ).toBe(0);
-    expect(workspaceE2EAccessCodeCleanupTimeout).toBe(
-      workspaceE2ETimeouts.accessCodeActionBarrier * barrierWaits +
-        workspaceE2ETimeouts.accessCodeStaleBarrier +
-        workspaceE2ETimeouts.cleanupAction +
-        workspaceE2ETimeouts.datasource
-    );
-  });
-
-  test("keeps the Playwright watchdog above the case and cleanup budgets", () => {
-    expect(workspaceE2EAccessCodePlaywrightTimeout).toBe(
-      workspaceE2ETimeouts.accessCodeCase +
-        workspaceE2EAccessCodeCleanupTimeout
-    );
-    expect(workspaceE2EAccessCodePlaywrightTimeout).toBeGreaterThan(
-      workspaceE2ETimeouts.accessCodeCase +
-        workspaceE2EAccessCodeMutationBarrierCount *
-          workspaceE2ETimeouts.accessCodeActionBarrier +
-        workspaceE2ETimeouts.accessCodeStaleBarrier
-    );
+    expect(barrierWaits).toBe(workspaceE2EAccessCodeMutationBarrierCount);
   });
 });

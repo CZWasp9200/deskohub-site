@@ -6,6 +6,7 @@ import { DotyposService } from "@deskohub/dotypos";
 import { Effect, Layer } from "effect";
 import type { LatePaymentRecoveryState } from "@/db/schema";
 import { SeatingMapFeatureFlagServiceMock } from "@/features/feature-flags/backend/seating-map-feature-flag.service.mock";
+import { AdvisoryAvailabilityInventory } from "@/features/reservation/backend/availability-inventory";
 import { WorkspaceReservationRepository } from "@/features/reservation/backend/workspace-reservation.repository";
 import { LatePaymentVerificationService } from "../payment/late-payment-verification.service";
 import { ProviderPaymentFinalizationService } from "../payment/provider-payment-finalization.service";
@@ -106,21 +107,26 @@ const makeHarness = (options: {
         }),
         Layer.mock(LatePaymentVerificationService, { startRecoveryIfSettled }),
         Layer.mock(DotyposService, {
-          getReservation: mock(() =>
+          getReservationWithoutCustomer: mock(() =>
             Effect.succeed({
-              reservation: {
-                id: "dotypos-original",
-                _customerId: "customer-id",
-                _tableId: "open-table",
-                startDate: "2026-06-20T00:00:00.000+02:00",
-                endDate: "2026-06-20T17:00:00.000+02:00",
-                seats: "1",
-                status: "CANCELLED",
-              },
-              customer: { id: "customer-id", email: "late@example.test" },
+              id: "dotypos-original",
+              _customerId: "customer-id",
+              _tableId: "open-table",
+              startDate: "2026-06-20T00:00:00.000+02:00",
+              endDate: "2026-06-20T17:00:00.000+02:00",
+              seats: "1",
+              status: "CANCELLED",
             } as never)
           ),
-          getTables: mock(() => Effect.succeed(tables as never)),
+          getCustomer: mock(() =>
+            Effect.succeed({
+              id: "customer-id",
+              email: "late@example.test",
+            } as never)
+          ),
+        }),
+        Layer.mock(AdvisoryAvailabilityInventory, {
+          tables: Effect.succeed(tables as never),
         }),
         SeatingMapFeatureFlagServiceMock({ isEnabled: Effect.succeed(true) })
       )
@@ -159,7 +165,6 @@ describe("CheckoutStatusService for late payments", () => {
     }).getStatus();
 
     expect(status.status).toBe("late_payment_refund");
-    expect(status.status).not.toBe("paid_waiting_fulfillment");
     expect(status).not.toHaveProperty("table");
     expect(status).not.toHaveProperty("tableMap");
   });
@@ -238,6 +243,7 @@ describe("CheckoutStatusService for late payments", () => {
 
     expect(harness.startRecoveryIfSettled).toHaveBeenCalledWith({
       orderId: "late-reservation",
+      verificationDeadline: expect.anything(),
     });
   });
 

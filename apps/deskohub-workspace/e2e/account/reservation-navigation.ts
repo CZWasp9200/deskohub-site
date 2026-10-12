@@ -257,7 +257,7 @@ const waitForReservationStatusLinkHydration = async (
   );
 };
 
-export const expectWorkspaceE2EReservationNotFound = async (
+const expectWorkspaceE2EReservationNotFound = async (
   page: Page,
   reservationId: WorkspaceReservationId
 ) => {

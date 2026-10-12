@@ -658,63 +658,83 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
 
           yield* ensureReservationHasNotEnded(input.reservation);
 
-          const attempt = yield* paymentLifecycle.createPendingNexiAttempt({
-            workspaceReservationId: input.workspaceReservationId,
-            providerOrderId,
-            amount: input.total,
-            commitment: input.commitment,
-            locale: input.locale,
-            accountingSnapshot: input.accountingSnapshot,
-          });
-          if (!isNexiPaymentAttempt(attempt)) {
-            return yield* new CheckoutError({
-              code: "checkout_failed",
-              message: "Nexi payment attempt configuration is invalid.",
-            });
-          }
-          yield* Effect.annotateLogsScoped({ attempt });
-          yield* Effect.logInfo("Checkout payment attempt created");
+          // Once the attempt exists, finish creating and attaching its hosted
+          // page even when the action deadline passes. Nexi has no idempotency
+          // key, so cutting the request off would leave an ambiguous `created`
+          // attempt; the Nexi request timeout still bounds this section.
+          const { attachedAttempt, hostedPaymentPage } =
+            yield* Effect.uninterruptible(
+              Effect.gen(function* () {
+                const attempt =
+                  yield* paymentLifecycle.createPendingNexiAttempt({
+                    workspaceReservationId: input.workspaceReservationId,
+                    providerOrderId,
+                    amount: input.total,
+                    commitment: input.commitment,
+                    locale: input.locale,
+                    accountingSnapshot: input.accountingSnapshot,
+                  });
+                if (!isNexiPaymentAttempt(attempt)) {
+                  return yield* new CheckoutError({
+                    code: "checkout_failed",
+                    message: "Nexi payment attempt configuration is invalid.",
+                  });
+                }
+                yield* Effect.annotateLogsScoped({ attempt });
+                yield* Effect.logInfo("Checkout payment attempt created");
 
-          yield* Effect.logInfo("Nexi hosted payment page creation started");
-          const hostedPaymentPage = yield* nexi
-            .createHostedPaymentPage({
-              orderId: attempt.providerOrderId,
-              correlationId: input.correlationId,
-              amount: nexiAmount.amount,
-              currency: nexiAmount.currency,
-              locale: input.locale,
-              notificationUrl,
-              resultUrl,
-              cancelUrl,
-              customer: input.customer,
-            })
-            .pipe(
-              Effect.tapError((cause) =>
-                handleHostedPaymentPageCreationFailure({
-                  cause,
-                  attempt,
-                  workspaceReservationId: input.workspaceReservationId,
-                })
-              )
-            );
-          yield* Effect.annotateLogsScoped({ hostedPaymentPage });
-          yield* Effect.logInfo("Nexi hosted payment page creation completed");
+                yield* Effect.logInfo(
+                  "Nexi hosted payment page creation started"
+                );
+                const hostedPaymentPage = yield* nexi
+                  .createHostedPaymentPage({
+                    orderId: attempt.providerOrderId,
+                    correlationId: input.correlationId,
+                    amount: nexiAmount.amount,
+                    currency: nexiAmount.currency,
+                    locale: input.locale,
+                    notificationUrl,
+                    resultUrl,
+                    cancelUrl,
+                    customer: input.customer,
+                  })
+                  .pipe(
+                    Effect.tapError((cause) =>
+                      handleHostedPaymentPageCreationFailure({
+                        cause,
+                        attempt,
+                        workspaceReservationId: input.workspaceReservationId,
+                      })
+                    )
+                  );
+                yield* Effect.annotateLogsScoped({ hostedPaymentPage });
+                yield* Effect.logInfo(
+                  "Nexi hosted payment page creation completed"
+                );
 
-          yield* Effect.logInfo("Checkout hosted payment page attach started");
-          const attachedAttempt = yield* paymentLifecycle
-            .attachProviderSession({
-              id: attempt.id,
-              securityToken: hostedPaymentPage.securityToken,
-              providerRedirectUrl: hostedPaymentPage.hostedPage,
-            })
-            .pipe(
-              Effect.tapError((cause) =>
-                Effect.logError("Checkout hosted payment page attach failed", {
-                  attempt,
-                  hostedPaymentPage,
-                  cause,
-                })
-              )
+                yield* Effect.logInfo(
+                  "Checkout hosted payment page attach started"
+                );
+                const attachedAttempt = yield* paymentLifecycle
+                  .attachProviderSession({
+                    id: attempt.id,
+                    securityToken: hostedPaymentPage.securityToken,
+                    providerRedirectUrl: hostedPaymentPage.hostedPage,
+                  })
+                  .pipe(
+                    Effect.tapError((cause) =>
+                      Effect.logError(
+                        "Checkout hosted payment page attach failed",
+                        {
+                          attempt,
+                          hostedPaymentPage,
+                          cause,
+                        }
+                      )
+                    )
+                  );
+                return { attachedAttempt, hostedPaymentPage };
+              })
             );
           yield* capturePaymentStarted({
             attempt: attachedAttempt,

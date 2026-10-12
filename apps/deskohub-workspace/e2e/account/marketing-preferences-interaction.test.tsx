@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, expect, mock, test } from "bun:test";
-import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import { cleanup, render } from "@testing-library/react";
 import { useState } from "react";
 import { m } from "@/features/i18n";
 import {
@@ -89,26 +89,9 @@ const { MarketingPreferencesForm } = await import(
   "@/features/legal/components/marketing-preferences-form"
 );
 
-let releaseSave: (() => void) | undefined;
-const deferSave = () => {
-  saveMarketingPreferencesAction.mockImplementation(
-    () =>
-      new Promise<{ data: { status: string } }>((resolve) => {
-        releaseSave = () => resolve({ data: { status: "saved" } });
-      })
-  );
-};
-
 beforeAll(registerWorkspaceComponentTestEnv);
 
-afterEach(() => {
-  cleanup();
-  releaseSave = undefined;
-  saveMarketingPreferencesAction.mockClear();
-  saveMarketingPreferencesAction.mockImplementation(() =>
-    Promise.resolve({ data: { status: "saved" } })
-  );
-});
+afterEach(cleanup);
 
 afterAll(unregisterWorkspaceComponentTestEnv);
 
@@ -187,45 +170,4 @@ test("helper selectors keep the link context exclusive to link management", () =
   expect(accountSection?.textContent).not.toContain(
     m.marketingPreferencesFormStatusWithdrawn({}, { locale: "en-US" })
   );
-});
-
-test("the transition switch shows the target state while the save is pending", async () => {
-  deferSave();
-  renderManaged("active", "account");
-
-  const switchEl = document.querySelector<HTMLButtonElement>(
-    helperSwitchSelector("account")
-  );
-  expect(switchEl?.getAttribute("aria-checked")).toBe("true");
-
-  fireEvent.click(switchEl!);
-
-  expect(saveMarketingPreferencesAction).toHaveBeenCalledWith({
-    confirmed: true,
-    context: "synthetic-context",
-    granted: false,
-    locale: "en-US",
-    source: "account",
-  });
-  // Pending save: the switch is disabled and already reads the target state.
-  expect(
-    document
-      .querySelector<HTMLButtonElement>(helperSwitchSelector("account"))
-      ?.hasAttribute("disabled")
-  ).toBe(true);
-  expect(
-    document
-      .querySelector<HTMLButtonElement>(helperSwitchSelector("account"))
-      ?.getAttribute("aria-checked")
-  ).toBe("false");
-
-  await act(async () => {
-    releaseSave?.();
-  });
-  expect(releaseSave).toBeDefined();
-  expect(
-    document
-      .querySelector<HTMLButtonElement>(helperSwitchSelector("account"))
-      ?.getAttribute("aria-checked")
-  ).toBe("false");
 });

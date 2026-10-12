@@ -1,8 +1,8 @@
 import { beforeEach, expect, mock, test } from "bun:test";
-import { Effect, Layer, Schema } from "effect";
-import Link from "next/link";
+import { Effect, Schema } from "effect";
 import { isValidElement, type ReactElement, type ReactNode } from "react";
 import { renderToString } from "react-dom/server";
+import { m } from "@/features/i18n";
 import {
   type NormalizedCoworkReservationOrder,
   normalizedBasicCoworkReservationOrderSchema,
@@ -10,6 +10,10 @@ import {
   normalizedReservedDeskCoworkReservationOrderSchema,
 } from "@/features/reservation/cowork-reservation";
 import { defaultReservationBillingSelection } from "@/features/reservation/reservation-billing";
+import {
+  getCoworkAvailabilityQueries,
+  type WorkspaceAvailabilityQuery,
+} from "@/features/reservation/workspace-availability";
 import { Button } from "@/shared/components/ui/button";
 import type { CoworkReservationForm } from "./cowork-reservation-form";
 
@@ -21,25 +25,60 @@ const loadAdvertisedPrices = mock((requests: ReadonlyArray<unknown>) =>
   Effect.succeed(requests)
 );
 
-mock.module(
-  "@/features/checkout/backend/checkout/checkout-pricing.service",
-  () => ({
-    CheckoutPricingService: { Live: Layer.empty },
-  })
-);
 mock.module("@/features/reservation/backend/advertised-prices.server", () => ({
   loadAdvertisedPrices,
+  preloadPageAdvertisedPrices: loadAdvertisedPrices,
 }));
+
+const preloadAvailability = mock(
+  ({
+    queries,
+  }: {
+    readonly queries: ReadonlyArray<WorkspaceAvailabilityQuery>;
+    readonly replacementToken?: string;
+  }) =>
+    Effect.succeed(
+      queries.map((query) => ({
+        query,
+        availability: {
+          from: query.from,
+          to: query.to,
+          unavailableDates: [],
+          reservedDeskWorkstationRequiredDates: [],
+          unavailableCoworkTiers: [],
+          meetingRoomUnavailable: false,
+          officeUnavailable: false,
+          unavailableMonitorOptions: [],
+          notices: [],
+        },
+        loadedAt: 1,
+      }))
+    )
+);
+
+mock.module(
+  "@/features/reservation/backend/workspace-availability-loader",
+  () => ({
+    preloadPageAvailability: preloadAvailability,
+  })
+);
 
 const { CoworkOfferReplaced, renderCoworkReservationContent } = await import(
   "./cowork-reservation-page"
 );
 
+const { CoworkReservationFormFallback } = await import(
+  "./cowork-reservation-form"
+);
+
 beforeEach(() => mock.clearAllMocks());
 
-const stubWorkspaceInstant = (run: () => Promise<void>): Promise<void> => {
+const stubWorkspaceInstant = (
+  run: () => Promise<void>,
+  instant = "2099-07-30T13:01:00Z"
+): Promise<void> => {
   const originalNow = Temporal.Now.instant;
-  Temporal.Now.instant = () => Temporal.Instant.from("2099-07-30T13:01:00Z");
+  Temporal.Now.instant = () => Temporal.Instant.from(instant);
 
   return run().finally(() => {
     Temporal.Now.instant = originalNow;
@@ -57,6 +96,52 @@ const decodeOpenSpaceReservation = Schema.decodeUnknownSync(
 const decodeReservedDeskReservation = Schema.decodeUnknownSync(
   normalizedReservedDeskCoworkReservationOrderSchema
 );
+
+type CoworkFormElement = ReactElement<
+  Parameters<typeof CoworkReservationForm>[0]
+>;
+
+const coworkPriceRequest = (
+  locale: string,
+  date: string,
+  details:
+    | { readonly entryTier: "open-space"; readonly coffee: boolean }
+    | { readonly entryTier: "reserved-desk"; readonly workstation: boolean }
+) => ({
+  locale,
+  reservation: {
+    kind: "cowork",
+    details: { kind: "cowork", ...details, date },
+  },
+});
+
+// Every tier card, coffee choice, and the workstation addon for the date.
+const everyCoworkPriceRequest = (locale: string, date: string) => [
+  coworkPriceRequest(locale, date, { entryTier: "open-space", coffee: false }),
+  coworkPriceRequest(locale, date, { entryTier: "open-space", coffee: true }),
+  coworkPriceRequest(locale, date, {
+    entryTier: "reserved-desk",
+    workstation: false,
+  }),
+  coworkPriceRequest(locale, date, {
+    entryTier: "reserved-desk",
+    workstation: true,
+  }),
+];
+
+/** The page preloads exactly the availability its form reads first. */
+const expectPreloadedFormAvailability = (form: CoworkFormElement) => {
+  const { initialValues, today } = form.props;
+  const queries = Object.values(
+    getCoworkAvailabilityQueries({ ...initialValues, today })
+  );
+
+  expect(preloadAvailability).toHaveBeenCalledTimes(1);
+  expect(preloadAvailability.mock.calls[0]?.[0].queries).toEqual(queries);
+  expect(form.props.initialAvailability?.map(({ query }) => query)).toEqual(
+    queries
+  );
+};
 
 /**
  * Locates the restart Button and returns its direct-child anchor's href.
@@ -94,34 +179,87 @@ const getRestartButtonDirectChildAnchorHref = (
   return getRestartButtonDirectChildAnchorHref(node.props.children);
 };
 
-test("preloads only the default selected cowork offer", async () =>
+test("preloads every cowork price and the default selection's availability", async () =>
   stubWorkspaceInstant(async () => {
     const form = (await renderCoworkReservationContent({
       locale: "en-US",
       searchParams: {},
-    })) as ReactElement<Parameters<typeof CoworkReservationForm>[0]>;
+    })) as CoworkFormElement;
 
     expect(form.props.initialValues).toMatchObject({
       entryTier: "open-space",
       coffee: false,
       date: "2099-07-30",
     });
+    expect(form.props.today).toBe("2099-07-30");
 
     expect(loadAdvertisedPrices).toHaveBeenCalledTimes(1);
-    expect(loadAdvertisedPrices.mock.calls[0]?.[0]).toEqual([
+    expect(loadAdvertisedPrices.mock.calls[0]?.[0]).toEqual(
+      everyCoworkPriceRequest("en-US", "2099-07-30")
+    );
+    expect(form.props.initialAdvertisedPrices).toHaveLength(4);
+    expectPreloadedFormAvailability(form);
+    expect(preloadAvailability.mock.calls[0]?.[0].queries).toEqual([
       {
-        locale: "en-US",
-        reservation: {
-          kind: "cowork",
-          details: {
-            kind: "cowork",
-            entryTier: "open-space",
-            coffee: false,
-            date: "2099-07-30",
-          },
-        },
+        kind: "cowork",
+        from: "2099-07-30",
+        to: "2100-01-30",
+        entryTier: "open-space",
+      },
+      {
+        kind: "cowork",
+        from: "2099-07-30",
+        to: "2099-07-30",
+        entryTier: "open-space",
+        date: "2099-07-30",
       },
     ]);
+  }));
+
+test("preloads the Prague workspace date's range just before UTC midnight", async () =>
+  stubWorkspaceInstant(async () => {
+    const form = (await renderCoworkReservationContent({
+      locale: "en-US",
+      searchParams: {},
+    })) as CoworkFormElement;
+
+    // 22:30 UTC is already the next day in Prague (CEST, UTC+2).
+    expect(form.props.today).toBe("2099-07-31");
+    expect(form.props.initialValues?.date).toBe("2099-07-31");
+    expect(preloadAvailability.mock.calls[0]?.[0].queries[0]).toEqual({
+      kind: "cowork",
+      from: "2099-07-31",
+      to: "2100-01-31",
+      entryTier: "open-space",
+    });
+    expectPreloadedFormAvailability(form);
+  }, "2099-07-30T22:30:00Z"));
+
+test("passes the replacement to availability preloading", async () =>
+  stubWorkspaceInstant(async () => {
+    await renderCoworkReservationContent({
+      locale: "en-US",
+      replacementToken: "sealed-replacement",
+      searchParams: {},
+    });
+
+    expect(preloadAvailability.mock.calls[0]?.[0].replacementToken).toBe(
+      "sealed-replacement"
+    );
+  }));
+
+test("leaves the form to load prices and availability the server could not", async () =>
+  stubWorkspaceInstant(async () => {
+    loadAdvertisedPrices.mockImplementationOnce(() => Effect.succeed([]));
+    preloadAvailability.mockImplementationOnce(() => Effect.succeed([]));
+
+    const form = (await renderCoworkReservationContent({
+      locale: "en-US",
+      searchParams: {},
+    })) as CoworkFormElement;
+
+    expect(form.props.initialAdvertisedPrices).toEqual([]);
+    expect(form.props.initialAvailability).toEqual([]);
   }));
 
 test("preloads the selection resolved from reservation query values", async () => {
@@ -133,7 +271,7 @@ test("preloads the selection resolved from reservation query values", async () =
       date: "2099-08-01",
       monitorOption: "2x27-qhd",
     },
-  })) as ReactElement<Parameters<typeof CoworkReservationForm>[0]>;
+  })) as CoworkFormElement;
 
   expect(form.props.initialValues).toMatchObject({
     entryTier: "reserved-desk",
@@ -145,18 +283,25 @@ test("preloads the selection resolved from reservation query values", async () =
     phone: "",
   });
 
-  expect(loadAdvertisedPrices.mock.calls[0]?.[0]).toEqual([
+  expect(loadAdvertisedPrices.mock.calls[0]?.[0]).toEqual(
+    everyCoworkPriceRequest("cs-CZ", "2099-08-01")
+  );
+  expectPreloadedFormAvailability(form);
+  expect(preloadAvailability.mock.calls[0]?.[0].queries.slice(1)).toEqual([
     {
-      locale: "cs-CZ",
-      reservation: {
-        kind: "cowork",
-        details: {
-          kind: "cowork",
-          entryTier: "reserved-desk",
-          workstation: true,
-          date: "2099-08-01",
-        },
-      },
+      kind: "cowork",
+      from: "2099-08-01",
+      to: "2099-08-01",
+      entryTier: "reserved-desk",
+      date: "2099-08-01",
+      monitorOption: "2x27-qhd",
+    },
+    {
+      kind: "cowork",
+      from: "2099-08-01",
+      to: "2099-08-01",
+      entryTier: "reserved-desk",
+      date: "2099-08-01",
     },
   ]);
 });
@@ -168,7 +313,7 @@ test("preloads the bare reserved-desk query selection without a workstation", as
       entryTier: "reserved-desk",
       date: "2099-08-01",
     },
-  })) as ReactElement<Parameters<typeof CoworkReservationForm>[0]>;
+  })) as CoworkFormElement;
 
   expect(form.props.initialValues).toMatchObject({
     entryTier: "reserved-desk",
@@ -176,20 +321,25 @@ test("preloads the bare reserved-desk query selection without a workstation", as
     date: "2099-08-01",
   });
 
-  expect(loadAdvertisedPrices.mock.calls[0]?.[0]).toEqual([
-    {
-      locale: "en-US",
-      reservation: {
-        kind: "cowork",
-        details: {
-          kind: "cowork",
-          entryTier: "reserved-desk",
-          workstation: false,
-          date: "2099-08-01",
-        },
-      },
-    },
-  ]);
+  expect(loadAdvertisedPrices.mock.calls[0]?.[0]).toEqual(
+    everyCoworkPriceRequest("en-US", "2099-08-01")
+  );
+  expectPreloadedFormAvailability(form);
+});
+
+test("preloads the default tier artwork at high priority from the loading fallback", () => {
+  const markup = renderToString(
+    <CoworkReservationFormFallback locale="en-US" />
+  );
+  const preloadLink = markup.match(/<link[^>]*rel="preload"[^>]*>/)?.[0];
+
+  expect(preloadLink).toContain('as="image"');
+  expect(preloadLink).toContain('fetchPriority="high"');
+  expect(preloadLink).toContain("open-space");
+  expect(preloadLink).toContain(
+    'imageSizes="(min-width: 768px) 340px, min(440px, calc(112vw - 128px))"'
+  );
+  expect(preloadLink).toContain("imageSrcSet=");
 });
 
 test("offers the restart state for a legacy basic reservation in en-US", async () => {
@@ -214,7 +364,7 @@ test("offers the restart state for a legacy basic reservation in en-US", async (
 
   expect(loadAdvertisedPrices).not.toHaveBeenCalled();
   expect(markup).toContain(
-    "This cowork offer is no longer available. Please start a new reservation with the current offers."
+    m.reservationValidationCoworkOfferReplaced({}, { locale: "en-US" })
   );
   expect(markup).toContain(`<a href="/en-US/reservation/cowork"`);
   expect(
@@ -222,52 +372,6 @@ test("offers the restart state for a legacy basic reservation in en-US", async (
       CoworkOfferReplaced({ locale: "en-US" })
     )
   ).toBe("/en-US/reservation/cowork");
-});
-
-test("offers the restart state for a legacy basic reservation in cs-CZ", async () => {
-  const legacyBasicReservation = decodeLegacyBasicReservation({
-    kind: "cowork",
-    name: "Jan Novák",
-    email: "jan@example.cz",
-    phone: "+420712345678",
-    billing: defaultReservationBillingSelection,
-    entryTier: "basic",
-    coffee: false,
-    date: "2099-08-01",
-  }) as NormalizedCoworkReservationOrder;
-
-  const markup = renderToString(
-    await renderCoworkReservationContent({
-      locale: "cs-CZ",
-      initialReservation: legacyBasicReservation,
-      searchParams: {},
-    })
-  );
-
-  expect(loadAdvertisedPrices).not.toHaveBeenCalled();
-  expect(markup).toContain(
-    "Tato cowork nabídka už není dostupná. Začněte prosím novou rezervaci s aktuální nabídkou."
-  );
-  expect(markup).toContain(`<a href="/cs-CZ/reservation/cowork"`);
-  expect(
-    getRestartButtonDirectChildAnchorHref(
-      CoworkOfferReplaced({ locale: "cs-CZ" })
-    )
-  ).toBe("/cs-CZ/reservation/cowork");
-});
-
-test("rejects a Link legacyBehavior wrapped anchor as restart navigation", () => {
-  const linkWrappedRestartButton = (
-    <Button asChild>
-      <Link legacyBehavior href="/en-US/reservation/cowork">
-        <a href="/en-US/reservation/cowork">Restart</a>
-      </Link>
-    </Button>
-  );
-
-  expect(
-    getRestartButtonDirectChildAnchorHref(linkWrappedRestartButton)
-  ).toBeUndefined();
 });
 
 test("restores a signed current-tier open-space reservation into the form", async () => {
@@ -286,7 +390,7 @@ test("restores a signed current-tier open-space reservation into the form", asyn
     locale: "en-US",
     initialReservation: restoredOpenSpaceReservation,
     searchParams: {},
-  })) as ReactElement<Parameters<typeof CoworkReservationForm>[0]>;
+  })) as CoworkFormElement;
 
   expect(form.props.initialValues).toMatchObject({
     entryTier: "open-space",
@@ -296,20 +400,10 @@ test("restores a signed current-tier open-space reservation into the form", asyn
     email: "jan@example.cz",
   });
   expect(loadAdvertisedPrices).toHaveBeenCalledTimes(1);
-  expect(loadAdvertisedPrices.mock.calls[0]?.[0]).toEqual([
-    {
-      locale: "en-US",
-      reservation: {
-        kind: "cowork",
-        details: {
-          kind: "cowork",
-          entryTier: "open-space",
-          coffee: true,
-          date: "2099-08-01",
-        },
-      },
-    },
-  ]);
+  expect(loadAdvertisedPrices.mock.calls[0]?.[0]).toEqual(
+    everyCoworkPriceRequest("en-US", "2099-08-01")
+  );
+  expectPreloadedFormAvailability(form);
 });
 
 test("restores a signed current-tier reserved-desk reservation into the form", async () => {
@@ -329,7 +423,7 @@ test("restores a signed current-tier reserved-desk reservation into the form", a
     locale: "en-US",
     initialReservation: restoredReservedDeskReservation,
     searchParams: {},
-  })) as ReactElement<Parameters<typeof CoworkReservationForm>[0]>;
+  })) as CoworkFormElement;
 
   expect(form.props.initialValues).toMatchObject({
     entryTier: "reserved-desk",
@@ -338,18 +432,8 @@ test("restores a signed current-tier reserved-desk reservation into the form", a
     date: "2099-08-01",
   });
   expect(loadAdvertisedPrices).toHaveBeenCalledTimes(1);
-  expect(loadAdvertisedPrices.mock.calls[0]?.[0]).toEqual([
-    {
-      locale: "en-US",
-      reservation: {
-        kind: "cowork",
-        details: {
-          kind: "cowork",
-          entryTier: "reserved-desk",
-          workstation: true,
-          date: "2099-08-01",
-        },
-      },
-    },
-  ]);
+  expect(loadAdvertisedPrices.mock.calls[0]?.[0]).toEqual(
+    everyCoworkPriceRequest("en-US", "2099-08-01")
+  );
+  expectPreloadedFormAvailability(form);
 });

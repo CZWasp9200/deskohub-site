@@ -40,7 +40,7 @@ async function CustomerDiscountCodeCreationContent({
       <AdministrationPageHeader
         description="Create a code restricted to this customer and choose the discount it applies."
         eyebrow="Discount code"
-        title={`Create a code for ${customer.displayName}`}
+        title={`Create a discount code for ${customer.displayName}`}
       />
       <div className="rounded-xl border border-navy-blue/10 bg-white p-5 sm:p-6">
         <CustomerDiscountCodeCreationForm

@@ -24,6 +24,8 @@ export const pollUntil = <A, E, R>(
   effect: Effect.Effect<A | undefined, E, R>,
   options: {
     readonly describePending?: () => string | undefined;
+    /** First delay of an exponential backoff that is capped at `intervalMs`. */
+    readonly initialIntervalMs?: number;
     readonly intervalMs: number;
     readonly label: string;
     readonly timeoutMs: number;
@@ -44,7 +46,7 @@ export const pollUntil = <A, E, R>(
       return effect;
     }).pipe(
       Effect.repeat({
-        schedule: Schedule.spaced(`${options.intervalMs} millis`),
+        schedule: pollSchedule(options),
         while: (value) => value === undefined,
       }),
       Effect.timeoutOrElse({
@@ -57,3 +59,19 @@ export const pollUntil = <A, E, R>(
       ? Effect.fail(timeoutError())
       : Effect.succeed(result);
   });
+
+const pollSchedule = ({
+  initialIntervalMs,
+  intervalMs,
+}: {
+  readonly initialIntervalMs?: number;
+  readonly intervalMs: number;
+}) => {
+  const spaced = Schedule.spaced(`${intervalMs} millis`);
+  return initialIntervalMs === undefined || initialIntervalMs >= intervalMs
+    ? spaced
+    : Schedule.either(
+        Schedule.exponential(`${initialIntervalMs} millis`),
+        spaced
+      );
+};

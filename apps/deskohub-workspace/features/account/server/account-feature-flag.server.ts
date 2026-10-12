@@ -1,6 +1,7 @@
 import "server-only";
 
 import { Effect } from "effect";
+import { cache } from "react";
 import { runWorkspaceEffect } from "@/shared/backend/workspace-effect";
 import { AccountFeatureFlagService } from "../backend/account-feature-flag.service";
 
@@ -15,13 +16,15 @@ export const accountAvatarsEnabled = AccountFeatureFlagService.pipe(
   )
 );
 
-export async function areAccountsEnabled(): Promise<boolean> {
-  return AccountFeatureFlagService.pipe(
-    Effect.flatMap((featureFlag) => featureFlag.isEnabled),
-    Effect.provide(AccountFeatureFlagService.Live),
-    runWorkspaceEffect("account.accounts-enabled")
-  );
-}
+/** Memoized per request: the header, account layout, and page all ask. */
+export const areAccountsEnabled = cache(
+  async (): Promise<boolean> =>
+    AccountFeatureFlagService.pipe(
+      Effect.flatMap((featureFlag) => featureFlag.isEnabled),
+      Effect.provide(AccountFeatureFlagService.Live),
+      runWorkspaceEffect("account.accounts-enabled")
+    )
+);
 
 export async function areAccountAvatarsEnabled(): Promise<boolean> {
   return accountAvatarsEnabled.pipe(

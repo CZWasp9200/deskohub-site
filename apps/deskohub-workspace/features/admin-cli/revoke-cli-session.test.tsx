@@ -70,6 +70,7 @@ test("requires confirmation and submits only the session ID to the server action
   let dialog = await openDialog(view);
 
   expect(dialog.textContent).toContain("Revoke CLI session?");
+  expect(dialog.textContent).toContain("“Office Mac”");
   expect(revokeCliSessionAction).not.toHaveBeenCalled();
 
   await act(async () => {

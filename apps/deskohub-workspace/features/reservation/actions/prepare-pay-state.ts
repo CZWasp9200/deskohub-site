@@ -5,6 +5,7 @@ import {
   DotyposService,
   ValidationError as DotyposValidationError,
 } from "@deskohub/dotypos";
+import { EmailRecipientDomainService } from "@deskohub/email/backend/recipient-domain.service";
 import {
   Data,
   Duration,
@@ -792,6 +793,28 @@ const acceptReferralCode = Effect.fn("preparePayState.acceptReferralCode")(
   }
 );
 
+class UndeliverableContactEmailError extends Data.TaggedError(
+  "UndeliverableContactEmailError"
+)<Record<string, never>> {}
+
+/**
+ * The confirmation and access link go to the contact email, so a domain that
+ * cannot receive mail would leave a paid customer without them. Rejects only a
+ * definitive DNS answer; an inconclusive lookup lets the booking continue.
+ */
+const ensureContactEmailAcceptsMail = Effect.fn(
+  "preparePayState.ensureContactEmailAcceptsMail"
+)(function* (email: string) {
+  const domains = yield* EmailRecipientDomainService;
+  const status = yield* domains.check(email);
+  if (status !== "rejects_mail") return;
+
+  yield* Effect.logWarning(
+    "Workspace reservation contact email cannot receive mail"
+  );
+  return yield* new UndeliverableContactEmailError({});
+});
+
 export const prepareWorkspacePayState = Effect.fn("prepareWorkspacePayState")(
   function* (input: PreparePayStateInput) {
     const botProtection = yield* BotProtectionService;
@@ -857,6 +880,10 @@ export const prepareWorkspacePayState = Effect.fn("prepareWorkspacePayState")(
             ),
             Effect.ignore
           );
+
+        if (!accountCustomer) {
+          yield* ensureContactEmailAcceptsMail(reservation.email);
+        }
 
         const dotyposCustomerId =
           accountCustomer?.dotyposCustomerId ??
@@ -1210,6 +1237,9 @@ export const prepareWorkspacePayState = Effect.fn("prepareWorkspacePayState")(
           Match.tag("AdvertisedPriceMismatchError", () =>
             captureOutcome("validation")
           ),
+          Match.tag("UndeliverableContactEmailError", () =>
+            captureOutcome("validation")
+          ),
           Match.tag("CheckoutAttemptUnavailableError", () =>
             captureOutcome("reservation_conflict")
           ),
@@ -1227,6 +1257,12 @@ export const prepareWorkspacePayState = Effect.fn("prepareWorkspacePayState")(
             message: Match.value(error).pipe(
               Match.tag("BotDetectedError", () =>
                 m.reservationRateLimitMessage({}, { locale: input.locale })
+              ),
+              Match.tag("UndeliverableContactEmailError", () =>
+                m.contactValidationEmailUndeliverable(
+                  {},
+                  { locale: input.locale }
+                )
               ),
               Match.tag("CustomerAccountAccessError", (cause) => {
                 if (
@@ -1264,6 +1300,7 @@ const PreparePayStateLive = Layer.mergeAll(
   ).pipe(Layer.provide(WorkspaceDatabase.Default)),
   WorkspaceAvailabilityService.Live,
   CustomerAccountContactService.Live,
+  EmailRecipientDomainService.Live,
   WorkspaceTableAssignmentService.Default.pipe(
     Layer.provide(WorkspaceReservationRepository.Live),
     Layer.provide(WorkspaceDotyposLayer)

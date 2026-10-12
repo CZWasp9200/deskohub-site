@@ -1,6 +1,6 @@
 # PostHog incident worker
 
-Own the supplied GitHub issue in one T3 thread. Continue through semantic triage, research, the smallest root-cause fix, tests, pull request follow-up, and merge disposition.
+Own the supplied GitHub issue in one agent thread. Continue through semantic triage, research, the smallest root-cause fix, tests, pull request follow-up, and merge disposition.
 
 ## Sign GitHub comments
 
@@ -26,7 +26,7 @@ When a material choice or unavailable fact blocks the fix, comment the exact que
 <!-- posthog-agent:human-needed -->
 ```
 
-Then end the T3 turn. Use GitHub for the question, not a T3 input or approval request. The dispatcher accepts the first newer response from `totalolage` and resumes this same thread. The response needs no codeword.
+Then end the turn. Ask through GitHub, not through an interactive input or approval request in the agent runtime. The dispatcher accepts the first newer response from `totalolage` and resumes this same thread. The response needs no codeword.
 
 ## Implement and prove the fix
 
@@ -43,7 +43,7 @@ You may enable merge auto-merge only when every condition below holds:
 - the change does not touch migrations, data schemas, authentication, authorization, access codes, checkout, pricing, payments, accounting, external API contracts, dependencies, build or deployment configuration, CI workflows, or feature-flag policy;
 - every required check passes on the current head, no review is unresolved, and the change needs no product judgment.
 
-Use `gh pr merge --auto --merge`. Otherwise leave the pull request ready for human merge and explain which condition prevented auto-merge.
+Use `gh pr merge --auto --merge`. Otherwise leave the pull request ready for human merge and explain which condition prevented auto-merge. [agent-loop-automerge-boundary.md](agent-loop-automerge-boundary.md) records the GitHub protection gaps behind these limits.
 
 After every required check and review is resolved on the exact current head, comment this marker on the issue whether you enabled auto-merge or left the pull request ready for human merge:
 

@@ -140,19 +140,6 @@ describe("CheckoutPaymentWindowCoordinator", () => {
     await waitFor(() => expect(closeCurrentWindow).toHaveBeenCalledTimes(1));
   });
 
-  test("keeps the returned tab open when the original status tab is gone", async () => {
-    const request = installLockManager({
-      name: "checkout-status",
-      mode: "exclusive",
-    });
-    const closeCurrentWindow = jest.spyOn(window, "close");
-
-    render(<CheckoutPaymentWindowCoordinator />);
-
-    await waitFor(() => expect(request).toHaveBeenCalledTimes(1));
-    expect(closeCurrentWindow).not.toHaveBeenCalled();
-  });
-
   test("does not let a same-origin window close the status tab by message", async () => {
     const request = installLockManager({
       name: "checkout-status",

@@ -56,7 +56,10 @@ import {
 } from "../errors";
 import { pollUntil } from "../polling";
 import { assert, log } from "../runtime";
-import { workspaceE2EPollIntervalMs } from "../timeouts";
+import {
+  workspaceE2EPollInitialIntervalMs,
+  workspaceE2EPollIntervalMs,
+} from "../timeouts";
 import type {
   CheckoutData,
   CheckoutRow,
@@ -86,6 +89,7 @@ export const requireProviderSessionRowAfterRedirect = (
       ),
       {
         ...options,
+        initialIntervalMs: workspaceE2EPollInitialIntervalMs.database,
         intervalMs: workspaceE2EPollIntervalMs.datasource,
       }
     );
@@ -94,6 +98,7 @@ export const requireProviderSessionRowAfterRedirect = (
 export const waitForProviderSessionRowAfterRedirect = (
   readRow: Effect.Effect<CheckoutRow | undefined, WorkspaceE2EError>,
   options: {
+    readonly initialIntervalMs?: number;
     readonly intervalMs: number;
     readonly onRow?: (row: CheckoutRow) => void;
     readonly timeoutMs: number;
@@ -113,6 +118,7 @@ export const waitForProviderSessionRowAfterRedirect = (
       Effect.map((row) => (isProviderSessionRow(row) ? row : undefined))
     ),
     {
+      initialIntervalMs: options.initialIntervalMs,
       intervalMs: options.intervalMs,
       label: "provider session row after hosted redirect",
       timeoutMs: options.timeoutMs,
@@ -262,6 +268,7 @@ export const validatePostgres = (
         )
       ),
       {
+        initialIntervalMs: workspaceE2EPollInitialIntervalMs.database,
         intervalMs: workspaceE2EPollIntervalMs.datasource,
         label: `Postgres checkout rows for ${orderId}`,
         timeoutMs: config.timeouts.datasource,
@@ -663,6 +670,7 @@ export const validateInternalPostgres = (
         )
       ),
       {
+        initialIntervalMs: workspaceE2EPollInitialIntervalMs.database,
         intervalMs: workspaceE2EPollIntervalMs.datasource,
         label: `internal Postgres checkout rows for ${orderId}`,
         timeoutMs: config.timeouts.datasource,
@@ -764,6 +772,7 @@ export const waitForCheckoutRow = (
   Effect.gen(function* () {
     const { db } = yield* E2EDatabase;
     return yield* pollUntil(readCheckoutRowFromDatabase(db, orderId), {
+      initialIntervalMs: workspaceE2EPollInitialIntervalMs.database,
       intervalMs: workspaceE2EPollIntervalMs.datasource,
       label: "checkout row",
       timeoutMs: config.timeouts.datasource,
@@ -1143,6 +1152,7 @@ export const waitForLatePaymentRecoveryOutcome = (
         return { checkoutRow, recovery };
       }),
       {
+        initialIntervalMs: workspaceE2EPollInitialIntervalMs.database,
         intervalMs: workspaceE2EPollIntervalMs.datasource,
         label: `late payment recovery for ${orderId}`,
         timeoutMs: config.timeouts.datasource,
@@ -1336,6 +1346,7 @@ export const markPreviewFulfillmentDeliveredForE2E = (
         return yield* readCheckoutRowFromDatabase(db, orderId);
       }),
       {
+        initialIntervalMs: workspaceE2EPollInitialIntervalMs.database,
         intervalMs: workspaceE2EPollIntervalMs.datasource,
         label: `preview fulfillment marker for ${orderId}`,
         timeoutMs: config.timeouts.datasource,

@@ -1,5 +1,5 @@
 import { describe, expect, mock, spyOn, test } from "bun:test";
-import { Effect } from "effect";
+import { Effect, References } from "effect";
 import { CENSORED_LOG_VALUE } from "./logging/censorship";
 
 const emitPostHogLog = mock(() => undefined);
@@ -40,6 +40,21 @@ describe("Workspace Effect execution", () => {
     );
 
     expect(emitPostHogLog).toHaveBeenCalledTimes(1);
+  });
+
+  test("builds the observability layer once across runs", async () => {
+    const readLoggers = Effect.map(References.CurrentLoggers, (loggers) => [
+      ...loggers,
+    ]);
+
+    const first = await readLoggers.pipe(runWorkspaceEffect("test.first"));
+    const second = await readLoggers.pipe(runWorkspaceEffect("test.second"));
+
+    expect(first.length).toBeGreaterThan(1);
+    expect(second).toEqual(first);
+    for (const [index, logger] of second.entries()) {
+      expect(logger).toBe(first[index]);
+    }
   });
 
   test("tasks preserve success and failure results", async () => {

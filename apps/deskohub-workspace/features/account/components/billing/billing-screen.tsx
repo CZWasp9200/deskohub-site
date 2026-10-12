@@ -66,7 +66,7 @@ export function BillingScreen({
         >
           {copy.paymentMethodsTitle}
         </h3>
-        <div className="mt-4 grid min-w-0 gap-4 sm:grid-cols-2">
+        <div className="mt-4 grid min-w-0 gap-4 @xl:grid-cols-2">
           <FutureFeatureTooltip locale={locale}>
             <Button
               className="flex h-auto min-h-[9rem] min-w-0 w-full flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-[#cbd7e5] bg-[#fbfcfd] px-4 py-6 text-center text-[#53657f] whitespace-normal hover:bg-[#fbfcfd] disabled:pointer-events-none disabled:opacity-100 disabled:text-[#53657f]"
@@ -108,7 +108,7 @@ export function BillingScreen({
           >
             {copy.invoiceHistoryTitle}
           </h3>
-          <div className="flex w-full min-w-0 flex-wrap gap-2 sm:w-auto">
+          <div className="flex w-full min-w-0 flex-wrap gap-2 @xl:w-auto">
             <FutureFeatureTooltip locale={locale}>
               <Button
                 aria-describedby={invoiceHistoryUnavailableId}

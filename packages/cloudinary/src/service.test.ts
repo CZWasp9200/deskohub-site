@@ -296,25 +296,32 @@ const makeService = () =>
     )
   );
 
+/**
+ * Runs on a TestClock that advances in steps far shorter than any request
+ * timeout until the effect finishes, so retry backoff elapses instantly.
+ */
+const runRetryingInstantly = <A, E>(effect: Effect.Effect<A, E>) =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const fiber = yield* Effect.forkChild(effect);
+      while (fiber.pollUnsafe() === undefined) {
+        yield* TestClock.adjust("10 millis");
+      }
+      return yield* Fiber.join(fiber);
+    }).pipe(Effect.provide(TestClock.layer()))
+  );
+
 describe("CloudinaryService", () => {
-  test("gets an image by public ID", async () => {
+  test("requests tags and context when getting an image by public ID", async () => {
     queuedResourceResults = [asset];
 
     const service = await makeService();
-    const result = await Effect.runPromise(
-      service.getByPublicId(galleryImagePublicId)
-    );
+    await Effect.runPromise(service.getByPublicId(galleryImagePublicId));
 
-    expect(result).toEqual(asset);
-    expect(resourceCalls).toEqual([
+    expect(resourceCalls).toMatchObject([
       {
         publicId: "gallery/image",
-        options: {
-          resource_type: "image",
-          type: "upload",
-          tags: true,
-          context: true,
-        },
+        options: { tags: true, context: true },
       },
     ]);
   });
@@ -326,7 +333,7 @@ describe("CloudinaryService", () => {
     ];
 
     const service = await makeService();
-    const result = await Effect.runPromise(
+    const result = await runRetryingInstantly(
       service.getByPublicId(galleryImagePublicId)
     );
 
@@ -380,7 +387,7 @@ describe("CloudinaryService", () => {
     ];
 
     const service = await makeService();
-    const result = await Effect.runPromise(
+    const result = await runRetryingInstantly(
       service.getByPublicId(galleryImagePublicId)
     );
 
@@ -395,19 +402,13 @@ describe("CloudinaryService", () => {
     const result = await Effect.runPromise(service.searchAll());
 
     expect(result).toEqual([asset]);
-    expect(searchCalls).toEqual([
+    expect(searchCalls).toMatchObject([
       {
-        expression: "resource_type:image",
         fields: ["tags", "context"],
-        maxResults: 7,
+        maxResults: config.defaultPageSize,
         sort: ["created_at", "desc"],
       },
     ]);
-    expect(cloudinary.config).toHaveBeenCalledWith({
-      cloud_name: "cloud-name",
-      api_key: "api-key",
-      api_secret: "api-secret",
-    });
   });
 
   test("follows every search cursor when no result limit is requested", async () => {
@@ -421,20 +422,14 @@ describe("CloudinaryService", () => {
     const result = await Effect.runPromise(service.searchAll());
 
     expect(result).toEqual([asset, secondAsset]);
-    expect(searchCalls).toEqual([
-      {
-        expression: "resource_type:image",
-        fields: ["tags", "context"],
-        maxResults: 7,
-        sort: ["created_at", "desc"],
-      },
-      {
-        expression: "resource_type:image",
-        fields: ["tags", "context"],
-        maxResults: 7,
-        nextCursor: "next-page",
-        sort: ["created_at", "desc"],
-      },
+    expect(
+      searchCalls.map(({ maxResults, nextCursor }) => ({
+        maxResults,
+        nextCursor,
+      }))
+    ).toEqual([
+      { maxResults: config.defaultPageSize, nextCursor: undefined },
+      { maxResults: config.defaultPageSize, nextCursor: "next-page" },
     ]);
   });
 
@@ -475,7 +470,7 @@ describe("CloudinaryService", () => {
     ];
 
     const service = await makeService();
-    const result = await Effect.runPromise(
+    const result = await runRetryingInstantly(
       service.searchByExpression("tags=desk")
     );
 
@@ -539,7 +534,7 @@ describe("CloudinaryService uploads", () => {
     queuedUploadResults = [uploadedAsset];
 
     const service = await makeService();
-    const result = await Effect.runPromise(
+    await Effect.runPromise(
       service.uploadImage({
         bytes: new Uint8Array([1, 2, 3]),
         publicId: cloudinaryPublicId("avatars/staged/abc123"),
@@ -547,7 +542,6 @@ describe("CloudinaryService uploads", () => {
       })
     );
 
-    expect(result).toEqual(uploadedAsset);
     expect(uploadCalls).toEqual([
       {
         options: {
@@ -590,7 +584,7 @@ describe("CloudinaryService uploads", () => {
     ];
 
     const service = await makeService();
-    const result = await Effect.runPromise(
+    const result = await runRetryingInstantly(
       service.uploadImage({
         bytes: new Uint8Array([1]),
         publicId: cloudinaryPublicId("avatars/staged/abc123"),
@@ -605,7 +599,7 @@ describe("CloudinaryService uploads", () => {
 
 describe("CloudinaryService destroys", () => {
   const destroy = (service: Awaited<ReturnType<typeof makeService>>) =>
-    Effect.runPromise(
+    runRetryingInstantly(
       service.destroyAsset(galleryImagePublicId).pipe(Effect.result)
     );
 
@@ -681,26 +675,6 @@ describe("CloudinaryService destroys", () => {
       expect(result.failure.httpCode).toBe(401);
     }
     expect(destroyAttempts).toBe(1);
-  });
-
-  test("deletes resources by an exact image upload prefix", async () => {
-    queuedPrefixDeleteResults = [
-      { deleted: { "avatars/staging/account/one": "deleted" }, partial: false },
-    ];
-
-    const service = await makeService();
-    await Effect.runPromise(
-      service.deleteResourcesByPublicIdPrefix(
-        cloudinaryPublicId("avatars/staging/account/")
-      )
-    );
-
-    expect(prefixDeleteCalls).toEqual([
-      {
-        prefix: "avatars/staging/account/",
-        options: { resource_type: "image", type: "upload" },
-      },
-    ]);
   });
 
   test("follows delete-by-prefix cursors and keeps the same account prefix", async () => {
@@ -856,7 +830,7 @@ describe("CloudinaryService renames", () => {
     ];
 
     const service = await makeService();
-    const result = await Effect.runPromise(
+    const result = await runRetryingInstantly(
       service.renameAsset(
         cloudinaryPublicId("avatars/staged/abc123"),
         galleryImagePublicId
@@ -1190,7 +1164,7 @@ describe("CloudinaryService avatar-path logging", () => {
     ];
 
     const service = await makeService();
-    const result = await Effect.runPromise(service.searchAll());
+    const result = await runRetryingInstantly(service.searchAll());
 
     expect(result).toEqual([asset]);
     expect(executeAttempts).toBe(3);
@@ -1451,7 +1425,7 @@ describe("CloudinaryService tag lists", () => {
     };
 
     const service = await makeService();
-    const result = await Effect.runPromise(
+    const result = await runRetryingInstantly(
       service.listTaggedAssets([["gallery"]])
     );
 

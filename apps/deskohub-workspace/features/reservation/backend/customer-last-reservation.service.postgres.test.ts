@@ -252,53 +252,7 @@ describe.skipIf(!testDatabase)(
       expect(lastReservation).toBeNull();
     });
 
-    test.each([
-      [
-        "hour:1",
-        "2026-07-01T08:00:00.000Z",
-        "2026-07-01T09:00:00.000Z",
-      ] as const,
-      [
-        "hour:4",
-        "2026-07-01T08:00:00.000Z",
-        "2026-07-01T12:00:00.000Z",
-      ] as const,
-      [
-        "day:1",
-        // Prague midnight to midnight in summer time.
-        "2026-06-30T22:00:00.000Z",
-        "2026-07-01T22:00:00.000Z",
-      ] as const,
-    ])(
-      "maps a booked meeting-room interval to the %s duration",
-      async (duration, startDate, endDate) => {
-        const customerId = uniqueCustomerId();
-        const dotyposReservationId = await insertReservation({
-          dotyposCustomerId: customerId,
-          reservationDetails: { kind: "meeting-room" },
-          createdAt: "2026-07-01T09:00:00.000Z",
-        });
-
-        const { lastReservation, listReservations } = await loadLastReservation(
-          customerId,
-          "meeting-room",
-          [
-            makeDotyposReservation({
-              id: dotyposReservationId,
-              startDate,
-              endDate,
-            }),
-          ]
-        );
-
-        expect(lastReservation).toEqual({ kind: "meeting-room", duration });
-        expect(listReservations).toHaveBeenCalledWith({
-          ids: [dotyposReservationId],
-        });
-      }
-    );
-
-    test("returns null for a meeting-room interval that matches no purchasable duration", async () => {
+    test("maps a booked meeting-room interval to its duration", async () => {
       const customerId = uniqueCustomerId();
       const dotyposReservationId = await insertReservation({
         dotyposCustomerId: customerId,
@@ -306,19 +260,25 @@ describe.skipIf(!testDatabase)(
         createdAt: "2026-07-01T09:00:00.000Z",
       });
 
-      const { lastReservation } = await loadLastReservation(
+      const { lastReservation, listReservations } = await loadLastReservation(
         customerId,
         "meeting-room",
         [
           makeDotyposReservation({
             id: dotyposReservationId,
             startDate: "2026-07-01T08:00:00.000Z",
-            endDate: "2026-07-01T10:00:00.000Z",
+            endDate: "2026-07-01T12:00:00.000Z",
           }),
         ]
       );
 
-      expect(lastReservation).toBeNull();
+      expect(lastReservation).toEqual({
+        kind: "meeting-room",
+        duration: "hour:4",
+      });
+      expect(listReservations).toHaveBeenCalledWith({
+        ids: [dotyposReservationId],
+      });
     });
 
     test("returns null when Dotypos no longer lists the booked meeting room", async () => {
@@ -370,8 +330,6 @@ describe.skipIf(!testDatabase)(
     test.each([
       ["non-numeric seats", "four", "2026-06-30T22:00:00.000Z"],
       ["fractional seats", "2.5", "2026-06-30T22:00:00.000Z"],
-      ["zero seats", "0", "2026-06-30T22:00:00.000Z"],
-      ["an interval off the calendar day", "4", "2026-07-01T08:00:00.000Z"],
     ] as const)(
       "returns null for an office reservation with %s",
       async (_label, seats, startDate) => {

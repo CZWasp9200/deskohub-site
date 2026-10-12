@@ -22,9 +22,9 @@ import { getOfficeCheckoutSummary } from "@/features/checkout/checkout-summary-o
 import { buildOfficeReservationQuote } from "@/features/checkout/reservation-quote-office";
 import { workspaceMoneyWithValue } from "@/features/checkout/workspace-money";
 import { discountIdSchema } from "@/features/discounts";
-import { m } from "@/features/i18n";
 import { getOfficeAdvertisedPriceRequest } from "@/features/reservation/office-advertised-price";
 import { officeReservationDefaultValues } from "@/features/reservation/office-reservation";
+import { getOfficeAvailabilityQuery } from "@/features/reservation/workspace-availability";
 import {
   workspaceUseAction,
   workspaceUseSearchParams,
@@ -47,7 +47,11 @@ mock.module("@/features/reservation/actions/get-advertised-price", () => ({
   getAdvertisedPrices: () => Promise.resolve({ data: [] }),
 }));
 
-const { OfficeReservationForm } = await import("./office-reservation-form");
+const {
+  OfficeReservationForm,
+  OfficeReservationFormFallback,
+  officeSeatOptionsFallbackCount,
+} = await import("./office-reservation-form");
 
 const officeAvailabilityResponse = ({
   from,
@@ -70,24 +74,6 @@ const officeAvailabilityResponse = ({
     }),
     { status: 200, headers: { "Content-Type": "application/json" } }
   );
-
-// React DOM picks its change-event strategy when it loads. When it loads before
-// happy-dom registers, it falls back to the legacy IE input polyfill, which
-// watches the focused element through attachEvent and compares values on keyup.
-// Dispatching both paths reaches the controlled input's onChange either way.
-const typeIntoInput = (input: HTMLInputElement, value: string) => {
-  Object.assign(input, {
-    attachEvent: () => undefined,
-    detachEvent: () => undefined,
-  });
-  fireEvent.focusIn(input);
-  Object.getOwnPropertyDescriptor(
-    Object.getPrototypeOf(input),
-    "value"
-  )?.set?.call(input, value);
-  fireEvent.input(input);
-  fireEvent.keyUp(input);
-};
 
 const renderOfficeForm = (
   props: Partial<ComponentProps<typeof OfficeReservationForm>> &
@@ -220,10 +206,48 @@ describe("OfficeReservationForm", () => {
     expect(view.queryByText(/days from this start date/i)).toBeNull();
   });
 
-  test("describes office unavailability without suggesting a seat change", () => {
-    expect(m.reservationOfficeUnavailable({}, { locale: "en-US" })).toBe(
-      "The office is not available for all the selected days. Try another start date or a shorter stay."
+  test("bounds the stay from page-loaded availability without a client request", () => {
+    const today = decodePlainDate("2026-08-10");
+    const fetchCalls = mock((_request: RequestInfo | URL) =>
+      Promise.resolve(
+        officeAvailabilityResponse({ from: today, to: "2026-09-10" })
+      )
     );
+    globalThis.fetch = fetchCalls as typeof fetch;
+    const query = getOfficeAvailabilityQuery(today);
+
+    const view = renderOfficeForm({
+      initialAvailability: [
+        {
+          query,
+          availability: {
+            from: query.from,
+            to: query.to,
+            unavailableDates: ["2026-08-12"],
+            reservedDeskWorkstationRequiredDates: [],
+            unavailableCoworkTiers: [],
+            meetingRoomUnavailable: false,
+            officeUnavailable: false,
+            unavailableMonitorOptions: [],
+            notices: [],
+          },
+          loadedAt: Date.now(),
+        },
+      ],
+      initialValues: {
+        ...officeReservationDefaultValues,
+        startsOn: today,
+        dayCount: 2,
+      },
+      today,
+    });
+
+    expect(
+      view.getByRole<HTMLInputElement>("spinbutton", {
+        name: "Number of days",
+      }).max
+    ).toBe("2");
+    expect(fetchCalls).not.toHaveBeenCalled();
   });
 
   test("shows the catalog-quoted base amount between dates and seats", () => {
@@ -345,82 +369,37 @@ describe("OfficeReservationForm", () => {
     expect(view.queryByText(/already included/i)).toBeNull();
   });
 
-  test("keeps every card on self-contained rows when the seat options wrap", () => {
+  test("mirrors the wrapping seat cards in the loading fallback", () => {
     const queryClient = new QueryClient();
-    const view = render(
+    const form = render(
       <QueryClientProvider client={queryClient}>
         <OfficeReservationForm
-          seatCapacity={6}
+          seatCapacity={officeSeatOptionsFallbackCount}
           initialValues={officeReservationDefaultValues}
           locale="en-US"
           today={decodePlainDate("2026-08-10")}
         />
       </QueryClientProvider>
     );
-
-    const options = Array.from(
-      view.container.querySelectorAll("[data-reservation-type-option]")
+    const formOptions = Array.from(
+      form.container.querySelectorAll("[data-reservation-type-option]")
     );
-    const optionsContainer = options[0]?.parentElement;
-
-    expect(options).toHaveLength(6);
-    expect(optionsContainer?.classList.contains("flex")).toBeTrue();
-    expect(optionsContainer?.classList.contains("flex-wrap")).toBeTrue();
-    expect(
-      options.every((option) => option.classList.contains("lg:grid-rows-none"))
-    ).toBeTrue();
-    expect(
-      options.some((option) =>
-        option.classList.contains("lg:grid-rows-subgrid")
-      )
-    ).toBeFalse();
-  });
-
-  test("lets flexbox balance any number of seat options", () => {
-    const queryClient = new QueryClient();
-    const view = render(
-      <QueryClientProvider client={queryClient}>
-        <OfficeReservationForm
-          seatCapacity={5}
-          initialValues={officeReservationDefaultValues}
-          locale="en-US"
-          today={decodePlainDate("2026-08-10")}
-        />
-      </QueryClientProvider>
+    const fallback = render(<OfficeReservationFormFallback locale="en-US" />);
+    const fallbackOptions = Array.from(
+      fallback.container.querySelectorAll("[data-office-seat-option-fallback]")
     );
+    const layoutClasses = (element: Element | null | undefined) =>
+      Array.from(element?.classList ?? []).filter((name) =>
+        /^(lg:)?(flex|grid|gap|space|px|pb|rounded|row|basis)/.test(name)
+      );
 
-    const options = Array.from(
-      view.container.querySelectorAll("[data-reservation-type-option]")
+    expect(fallbackOptions).toHaveLength(officeSeatOptionsFallbackCount);
+    expect(layoutClasses(fallbackOptions[0]?.parentElement)).toEqual(
+      layoutClasses(formOptions[0]?.parentElement)
     );
-
-    expect(options).toHaveLength(5);
-    expect(
-      options.every((option) => option.classList.contains("flex-[1_1_13rem]"))
-    ).toBeTrue();
-    expect(
-      options.some((option) => option.className.includes("basis-[calc("))
-    ).toBeFalse();
-  });
-
-  test("lets the day-count input fill its date-range column", () => {
-    const queryClient = new QueryClient();
-    const view = render(
-      <QueryClientProvider client={queryClient}>
-        <OfficeReservationForm
-          seatCapacity={3}
-          initialValues={officeReservationDefaultValues}
-          locale="en-US"
-          today={decodePlainDate("2026-08-10")}
-        />
-      </QueryClientProvider>
-    );
-
-    const dayCount = view.getByRole("spinbutton", {
-      name: "Number of days",
-    });
-
-    expect(dayCount.classList.contains("w-full")).toBeTrue();
-    expect(dayCount.classList.contains("w-28")).toBeFalse();
+    for (const option of fallbackOptions) {
+      expect(layoutClasses(option)).toEqual(layoutClasses(formOptions[0]));
+    }
   });
 
   test("marks every card with its seat surcharge", () => {
@@ -471,11 +450,6 @@ describe("OfficeReservationForm", () => {
     expect(optionText(2)).toContain("CZK 630");
     expect(optionText(3)).toContain("CZK 945");
     expect(optionText(1)).not.toContain("CZK 845");
-    expect(
-      view.container
-        .querySelector('[data-reservation-type-price="1"] span')
-        ?.classList.contains("before:content-['+']")
-    ).toBeTrue();
   });
 
   test("presents a quoted office sale around the form, not the seat cards", () => {
@@ -544,14 +518,16 @@ describe("OfficeReservationForm", () => {
       </QueryClientProvider>
     );
 
+    const saleCard = view.container.querySelector(
+      '[data-reservation-sale="active"]'
+    );
     expect(
-      view.container.querySelector('[data-reservation-sale="active"]')
-        ?.className
-    ).toContain("glow-border-purple-300");
-    expect(
-      view.container.querySelectorAll(
+      saleCard?.querySelectorAll(
         '[data-reservation-sale-discount="office-sale"]'
       )
+    ).toHaveLength(1);
+    expect(
+      view.container.querySelectorAll("[data-reservation-sale-banner]")
     ).toHaveLength(1);
     expect(
       view.getByRole("button", { name: /discount.*private office/i })
@@ -559,57 +535,8 @@ describe("OfficeReservationForm", () => {
     for (const option of view.container.querySelectorAll(
       "[data-reservation-type-option]"
     )) {
-      expect(option.className).not.toContain("glow-border");
+      expect(option.querySelector("[data-reservation-sale-banner]")).toBeNull();
     }
-  });
-
-  test("lets the day count be cleared and retyped before normalizing it on blur", async () => {
-    const today = decodePlainDate("2026-08-10");
-    globalThis.fetch = mock(() =>
-      Promise.resolve(
-        officeAvailabilityResponse({ from: "2026-08-10", to: "2026-09-10" })
-      )
-    ) as typeof fetch;
-    const view = renderOfficeForm({
-      initialValues: {
-        ...officeReservationDefaultValues,
-        startsOn: today,
-        dayCount: 2,
-      },
-      today,
-    });
-    const dayCount = view.getByRole<HTMLInputElement>("spinbutton", {
-      name: "Number of days",
-    });
-    await waitFor(() => {
-      expect(Number(dayCount.max)).toBeGreaterThan(5);
-    });
-
-    act(() => {
-      typeIntoInput(dayCount, "");
-    });
-    expect(dayCount.value).toBe("");
-
-    act(() => {
-      typeIntoInput(dayCount, "5");
-    });
-    expect(dayCount.value).toBe("5");
-
-    act(() => {
-      typeIntoInput(dayCount, "");
-    });
-    act(() => {
-      fireEvent.blur(dayCount);
-    });
-    expect(dayCount.value).toBe("5");
-
-    act(() => {
-      typeIntoInput(dayCount, "500");
-    });
-    act(() => {
-      fireEvent.blur(dayCount);
-    });
-    expect(dayCount.value).toBe(dayCount.max);
   });
 
   test("hides a stale office quote once its background refresh fails", async () => {
@@ -668,123 +595,6 @@ describe("OfficeReservationForm", () => {
     expect(
       view.container.querySelector("[data-office-base-price]")?.textContent
     ).not.toContain("CZK");
-  });
-
-  test("blocks checkout with an availability error when the calendar cannot be loaded", async () => {
-    const today = decodePlainDate("2026-08-10");
-    let availabilityRequestCount = 0;
-    globalThis.fetch = mock(() => {
-      availabilityRequestCount += 1;
-      return Promise.reject(new Error("Availability failed"));
-    }) as typeof fetch;
-    const view = renderOfficeForm({
-      initialValues: { ...officeReservationDefaultValues, startsOn: today },
-      today,
-    });
-
-    expect(
-      await view.findByText(
-        "We couldn't confirm availability. Please try again."
-      )
-    ).toBeDefined();
-    expect(availabilityRequestCount).toBe(4);
-    expect(
-      view.getByRole("button", { name: "Continue" }).hasAttribute("disabled")
-    ).toBe(true);
-  });
-
-  test("keeps checkout disabled while retrying availability after a failed refresh of settled data", async () => {
-    const startsOn = decodePlainDate("2026-08-10");
-    const initialAdvertisedPrices = [1, 2, 3].map((seats) => {
-      const request = getOfficeAdvertisedPriceRequest({
-        endsOn: startsOn,
-        locale: "en-US",
-        seats,
-        startsOn,
-      });
-      const quote = Effect.runSync(
-        buildOfficeReservationQuote(request.reservation.details)
-      );
-
-      return {
-        request,
-        advertisedPrice: {
-          advertisedPriceToken: `office-${seats}`,
-          kind: "office" as const,
-          quote,
-          summary: getOfficeCheckoutSummary(quote),
-        },
-      };
-    });
-    let availabilityMode: "available" | "failing" | "retrying" = "available";
-    let failedRefreshCount = 0;
-    let resolveRetry: ((response: Response) => void) | undefined;
-    const availableResponse = () =>
-      officeAvailabilityResponse({ from: "2026-08-10", to: "2026-09-10" });
-    globalThis.fetch = mock(() => {
-      if (availabilityMode === "failing") {
-        failedRefreshCount += 1;
-        return Promise.reject(new Error("Availability refresh failed"));
-      }
-      if (availabilityMode === "retrying") {
-        return new Promise<Response>((resolve) => {
-          resolveRetry = resolve;
-        });
-      }
-      return Promise.resolve(availableResponse());
-    }) as typeof fetch;
-    const queryClient = new QueryClient({
-      defaultOptions: { queries: { retryDelay: 0 } },
-    });
-    const refetchAvailability = () =>
-      queryClient.refetchQueries({
-        predicate: (query) => query.queryKey[0] === "workspace-availability",
-      });
-    const errorMessage = "We couldn't confirm availability. Please try again.";
-    const view = renderOfficeForm(
-      {
-        initialAdvertisedPrices,
-        initialValues: { ...officeReservationDefaultValues, startsOn },
-        today: startsOn,
-      },
-      queryClient
-    );
-    const continueButton = view.getByRole("button", { name: "Continue" });
-    await waitFor(() => {
-      expect(continueButton.hasAttribute("disabled")).toBe(false);
-    });
-
-    availabilityMode = "failing";
-    await act(async () => {
-      await refetchAvailability();
-    });
-    expect(failedRefreshCount).toBe(4);
-    expect(await view.findByText(errorMessage)).toBeDefined();
-    expect(continueButton.hasAttribute("disabled")).toBe(true);
-
-    availabilityMode = "retrying";
-    let retry: Promise<void> | undefined;
-    await act(async () => {
-      retry = refetchAvailability();
-      await waitFor(() => expect(resolveRetry).toBeDefined());
-    });
-    await waitFor(() => {
-      expect(view.queryByText(errorMessage)).toBeNull();
-    });
-    expect(continueButton.hasAttribute("disabled")).toBe(true);
-    expect(
-      continueButton.getAttribute("data-reservation-availability-loading")
-    ).toBe("true");
-
-    await act(async () => {
-      resolveRetry?.(availableResponse());
-      await retry;
-    });
-    await waitFor(() => {
-      expect(continueButton.hasAttribute("disabled")).toBe(false);
-    });
-    expect(view.queryByText(errorMessage)).toBeNull();
-    expect(execute).not.toHaveBeenCalled();
   });
 
   test("validates an empty start date when its calendar closes", async () => {

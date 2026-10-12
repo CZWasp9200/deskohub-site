@@ -4,7 +4,7 @@ import type { FormEvent, ReactNode } from "react";
 import type { FieldValues, UseFormReturn } from "react-hook-form";
 import type { CheckoutSessionId } from "@/features/checkout/checkout-identifiers";
 import type { CheckoutSummaryDiscount } from "@/features/checkout/checkout-summary";
-import { CheckoutPayPageSkeleton } from "@/features/checkout/components/checkout-pay-page";
+import { CheckoutPayPageSkeleton } from "@/features/checkout/components/checkout-pay-page-skeleton";
 import { type Locale, m } from "@/features/i18n";
 import type { ReservationExistingCustomerForm } from "@/features/reservation/reservation-existing-customer";
 import type { ReservationOrderIssuanceData } from "@/features/reservation/reservation-order";
@@ -71,6 +71,11 @@ export function ReservationCheckoutForm<
   locale,
 }: ReservationCheckoutFormProps<Input, Data>) {
   const customer = useReservationCustomer(existingCustomer);
+  // Consent belongs to the Dotypos customer being booked, so only the account
+  // card knows it is already given; another contact is always asked.
+  const asksMarketingConsent = !(
+    existingCustomer?.hasMarketingConsent && customer.mode === "account"
+  );
   const {
     capturePrePaymentOutcome,
     clearSubmissionError,
@@ -106,7 +111,7 @@ export function ReservationCheckoutForm<
           advertisedPriceToken: advertisedPrice.token,
           ...(existingCustomer &&
             customer.mode === "account" && { customer: "account" }),
-          marketingConsent: data.marketingConsent,
+          marketingConsent: asksMarketingConsent && data.marketingConsent,
           reservation: getReservation(data),
         });
       },
@@ -140,7 +145,9 @@ export function ReservationCheckoutForm<
           />
           <ReservationBillingFields locale={locale} />
           <ReservationPrivacyNotice locale={locale} />
-          <ReservationMarketingConsentField locale={locale} />
+          {asksMarketingConsent && (
+            <ReservationMarketingConsentField locale={locale} />
+          )}
           <ReservationSubmitSection
             disabled={
               form.formState.isSubmitting ||
