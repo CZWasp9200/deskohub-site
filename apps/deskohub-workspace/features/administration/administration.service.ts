@@ -2562,7 +2562,11 @@ export class AdministrationService extends Context.Service<
               ),
             revenueRows: db
               .select({
-                value: sum(paymentAttempts.amountValue),
+                // Revenue is what Deskohub keeps: a recorded Nexi refund,
+                // full or partial, comes off the paid amount.
+                value: sum(
+                  sql`${paymentAttempts.amountValue} - coalesce(${paymentAttempts.refundedAmountValue}, 0)`
+                ),
                 exponent: paymentAttempts.amountExponent,
                 currency: paymentAttempts.currency,
               })

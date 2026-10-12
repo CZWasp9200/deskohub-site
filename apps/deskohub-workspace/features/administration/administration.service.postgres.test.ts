@@ -304,6 +304,51 @@ describe.skipIf(!testDatabase)(
       });
     });
 
+    test("counts only the amount kept after refunds as customer revenue", async () => {
+      const customerId = makeCustomerId("revenue");
+      const payments = [
+        { label: "refunded", amountValue: 39_000, refundedAmountValue: 39_000 },
+        { label: "partial", amountValue: 45_000, refundedAmountValue: 15_000 },
+        { label: "kept", amountValue: 35_000, refundedAmountValue: null },
+      ] as const;
+      for (const { label, amountValue, refundedAmountValue } of payments) {
+        const reservationId = await insertReservation({
+          customerId,
+          label: `revenue-${label}`,
+          reservationState: "confirmed",
+          fulfillmentState: "fulfilled",
+        });
+        const id = `revenue-${label}-${runId}`;
+        await Effect.runPromise(
+          testDatabase.db.insert(paymentAttempts).values({
+            id: paymentAttemptIdSchema.make(`attempt-${id}`),
+            workspaceReservationId: reservationId,
+            provider: "nexi",
+            providerOrderId: NexiOrderIdSchema.make(`order-${id}`),
+            state: "paid",
+            amountValue,
+            amountExponent: 2,
+            currency: "CZK",
+            ...(refundedAmountValue === null
+              ? { refundState: "not_required" }
+              : {
+                  refundState: "refunded",
+                  refundedAmountValue,
+                  refundedAt: Temporal.Instant.from("2026-10-11T12:00:00Z"),
+                }),
+          })
+        );
+      }
+
+      const activity = await run((administration) =>
+        administration.loadCustomerActivity(customerId)
+      );
+
+      expect(activity.stats.revenue).toEqual([
+        { value: 65_000, exponent: 2, currency: "CZK" },
+      ]);
+    });
+
     describe("refund attention", () => {
       const customerId = makeCustomerId("refund");
 

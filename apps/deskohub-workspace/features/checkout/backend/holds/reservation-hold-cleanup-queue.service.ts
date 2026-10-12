@@ -1,5 +1,6 @@
 import { DuplicateMessageError, send } from "@vercel/queue";
 import { Context, Data, Effect, Layer, Option, Schema } from "effect";
+import { toStoredInstant } from "@/db/instant";
 import type { WorkspaceReservation } from "@/db/schema";
 import { WorkspaceReservationRepository } from "@/features/reservation/backend/workspace-reservation.repository";
 import {
@@ -93,7 +94,9 @@ export const getReservationHoldCleanupScheduleMessage = (
   },
   now = Temporal.Now.instant()
 ): ReservationHoldCleanupScheduleMessage => {
-  const reservationHoldExpiresAtIso = input.reservationHoldExpiresAt.toString();
+  const reservationHoldExpiresAtIso = toStoredInstant(
+    input.reservationHoldExpiresAt
+  ).toString();
   const delaySeconds = clamp(
     Math.ceil(
       (input.reservationHoldExpiresAt.epochMilliseconds -
@@ -192,7 +195,10 @@ const isDueReservation = (
   reservation !== null &&
   dueReservationStates.includes(reservation?.reservationState ?? "") &&
   reservation.paymentState !== "paid" &&
-  reservation.reservationHoldExpiresAt?.equals(reservationHoldExpiresAt) &&
+  reservation.reservationHoldExpiresAt !== null &&
+  toStoredInstant(reservation.reservationHoldExpiresAt).equals(
+    toStoredInstant(reservationHoldExpiresAt)
+  ) &&
   Temporal.Instant.compare(reservation.reservationHoldExpiresAt, now) <= 0;
 
 export const processReservationHoldCleanupScheduleMessage = Effect.fn(

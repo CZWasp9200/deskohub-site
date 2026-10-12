@@ -1,4 +1,8 @@
-import { NexiRuntimeConfig, NexiService } from "@deskohub/nexi";
+import {
+  getNexiRequestWorstCaseDuration,
+  NexiRuntimeConfig,
+  NexiService,
+} from "@deskohub/nexi";
 import { Duration, Layer } from "effect";
 import { env } from "@/env";
 
@@ -18,6 +22,13 @@ export const getNexiRequestTimeoutMilliseconds = (
 export const nexiRequestTimeout = Duration.millis(
   getNexiRequestTimeoutMilliseconds(env.VERCEL_ENV)
 );
+
+/**
+ * The longest a retried Nexi request of this deployment can take when every
+ * attempt times out.
+ */
+export const nexiRequestWorstCaseDuration =
+  getNexiRequestWorstCaseDuration(nexiRequestTimeout);
 
 export const makeWorkspaceNexiLayer = (
   deploymentEnvironment: DeploymentEnvironment
