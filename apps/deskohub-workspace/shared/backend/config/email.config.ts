@@ -1,21 +1,12 @@
-import type { EmailConfig } from "@deskohub/email";
-import { EmailConfigTag } from "@deskohub/email";
-import { Config, Layer, Option } from "effect";
+import { makeEmailConfigLayer } from "@deskohub/email";
+import { Config } from "effect";
 import { workspaceSiteConstants } from "@/shared/utils";
 
-const defaultFromEmail = "reservations@workspace.deskohub.cz";
+export const workspaceDefaultFromAddress = "reservations@workspace.deskohub.cz";
 
-export const EmailConfigLayer = Layer.effect(
-  EmailConfigTag,
-  Config.option(Config.string("EMAIL_API_KEY")).pipe(
-    Config.map(
-      (apiKey): EmailConfig => ({
-        defaultFrom: {
-          email: defaultFromEmail,
-          name: workspaceSiteConstants.brand.name,
-        },
-        apiKey: Option.getOrUndefined(apiKey),
-      })
-    )
-  )
+export const EmailConfigLayer = makeEmailConfigLayer(
+  Config.succeed({
+    email: workspaceDefaultFromAddress,
+    name: workspaceSiteConstants.brand.name,
+  })
 );

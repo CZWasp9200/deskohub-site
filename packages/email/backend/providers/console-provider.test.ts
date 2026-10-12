@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { Effect, Logger, References } from "effect";
+import { testEmailAddress } from "../../testing/test-email-address";
 import type { EmailMessage } from "../../types/email.types";
 import { EmailProviderTag } from "../capabilities";
 import { ConsoleEmailProviderLive } from "./console-provider";
@@ -9,12 +10,12 @@ const bearerText =
 const bearerHtml =
   '<a href="https://preview.example/verify?token=secret-token">Sign in</a>';
 const sensitiveSubject = "Sign in to Deskohub Workspace";
-const sensitiveRecipient = "ada@example.test";
+const sensitiveRecipient = testEmailAddress("ada");
 
 const sensitiveMessage = (
   overrides: Partial<EmailMessage> = {}
 ): EmailMessage => ({
-  from: { email: "reservations@workspace.deskohub.cz", name: "Deskohub" },
+  from: { email: testEmailAddress("reservations"), name: "Deskohub" },
   to: { email: sensitiveRecipient },
   subject: sensitiveSubject,
   html: bearerHtml,
@@ -28,8 +29,8 @@ const sensitiveMessage = (
 const ordinaryMessage = (
   overrides: Partial<EmailMessage> = {}
 ): EmailMessage => ({
-  from: { email: "reservations@workspace.deskohub.cz", name: "Deskohub" },
-  to: { email: "ada@example.test" },
+  from: { email: testEmailAddress("reservations"), name: "Deskohub" },
+  to: { email: testEmailAddress("ada") },
   subject: "Reservation confirmed",
   html: "<p>Reservation confirmed</p>",
   text: "Reservation confirmed",
@@ -244,7 +245,7 @@ describe("Console email provider ordinary behavior", () => {
     expect(result).toMatchObject({ status: "sent", provider: "console" });
 
     const logged = recordText(consoleRecords);
-    expect(logged).toContain("ada@example.test");
+    expect(logged).toContain(testEmailAddress("ada"));
     expect(logged).toContain("Reservation confirmed");
     expect(logged).toContain("EMAIL CONTENT");
 
@@ -252,7 +253,7 @@ describe("Console email provider ordinary behavior", () => {
       String(entry.message).includes("Sending Email")
     );
     expect(sendEntry?.annotations).toMatchObject({
-      to: ["ada@example.test"],
+      to: [testEmailAddress("ada")],
       subject: "Reservation confirmed",
       hasHtml: true,
       hasText: true,
@@ -269,7 +270,7 @@ describe("Console email provider ordinary behavior", () => {
       String(entry.message).includes("Sending Email")
     );
     expect(sendEntry?.annotations).toMatchObject({
-      to: ["ada@example.test"],
+      to: [testEmailAddress("ada")],
       subject: "Reservation confirmed",
     });
   });
@@ -281,7 +282,7 @@ describe("Console email provider ordinary behavior", () => {
     );
 
     const logged = recordText(consoleRecords);
-    expect(logged).toContain("ada@example.test");
+    expect(logged).toContain(testEmailAddress("ada"));
     expect(logged).toContain("EMAIL CONTENT");
   });
 });

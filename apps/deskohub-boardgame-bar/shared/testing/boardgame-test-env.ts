@@ -1,4 +1,5 @@
 import "@/shared/polyfills/temporal";
+import { testEmailAddress } from "@deskohub/email/testing";
 
 const webhookSecret = "00000000-0000-4000-8000-000000000000";
 
@@ -22,7 +23,8 @@ export const setBoardgameTestEnv = () => {
   process.env.DOTYPOS_WEBHOOK_SECRET = webhookSecret;
   process.env.GOOGLE_CALENDAR_OPENING_HOURS_ID = "opening-hours-calendar";
   process.env.GOOGLE_CALENDAR_PRIVATE_KEY = "test-private-key";
-  process.env.GOOGLE_CALENDAR_SERVICE_ACCOUNT_EMAIL = "calendar@example.test";
+  process.env.GOOGLE_CALENDAR_SERVICE_ACCOUNT_EMAIL =
+    testEmailAddress("calendar");
   process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME = "cloud";
   process.env.NEXT_PUBLIC_VERCEL_ENV = "production";
   process.env.NEXT_PUBLIC_VERCEL_URL = "https://bar.example.test";

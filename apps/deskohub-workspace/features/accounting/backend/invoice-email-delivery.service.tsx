@@ -385,7 +385,10 @@ export class InvoiceEmailDeliveryService extends Context.Service<
         const internal = yield* deliverAudience({
           invoice: delivery.invoice,
           audience: "internal",
-          recipient: internalWorkspaceEmailRecipientFor(delivery.recipient),
+          recipient: internalWorkspaceEmailRecipientFor(
+            delivery.recipient,
+            emailConfig.testDomain
+          ),
           renderPdf: delivery.renderPdf,
         }).pipe(settleDelivery);
 

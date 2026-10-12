@@ -1,13 +1,24 @@
-/**
- * Only `delivered+<run-id>-<label>@resend.dev` is a synthetic E2E account.
- * Every `resend.dev` recipient is logged by Console, but only this shape may
- * enter the Preview bearer-log route.
- */
-export const magicLinkSyntheticRecipientPattern =
-  /^delivered\+[a-z0-9]+(?:-[a-z0-9]+)*-[a-z0-9]+@resend\.dev$/i;
+import type { EmailTestDomain } from "@deskohub/email";
 
-export const isSyntheticE2EEmailRecipient = (email: string): boolean =>
-  magicLinkSyntheticRecipientPattern.test(email);
+/**
+ * Only `delivered+<run-id>-<label>@<EMAIL_TEST_DOMAIN>` is a synthetic E2E
+ * account. Every test-domain recipient is logged by Console, but only this
+ * shape may enter the Preview bearer-log route.
+ */
+export const magicLinkSyntheticLocalPartPattern =
+  /^delivered\+[a-z0-9]+(?:-[a-z0-9]+)*-[a-z0-9]+$/i;
+
+export const isSyntheticE2EEmailRecipient = (
+  email: string,
+  testDomain: EmailTestDomain
+): boolean => {
+  const separator = email.lastIndexOf("@");
+  return (
+    separator > 0 &&
+    email.slice(separator + 1).toLowerCase() === testDomain &&
+    magicLinkSyntheticLocalPartPattern.test(email.slice(0, separator))
+  );
+};
 
 /**
  * Code for the sole authorized bearer-link log in synthetic protected Preview.

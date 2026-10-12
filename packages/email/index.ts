@@ -1,11 +1,18 @@
 export type { EmailProvider } from "./backend/capabilities";
 export {
+  type EmailTestDomain,
+  EmailTestDomainSchema,
+  makeEmailConfigLayer,
+} from "./backend/email-config";
+export {
   internalRecipientForOrigin,
-  routeEmailMessage,
   staffEmailSubject,
 } from "./backend/email-routing";
 export { NetworkError } from "./backend/network-error";
-export { ConsoleEmailProviderLive } from "./backend/providers/console-provider";
+export {
+  ConsoleEmailProviderLive,
+  isConsoleEmailDeliveryId,
+} from "./backend/providers/console-provider";
 export { ResendEmailProviderLive } from "./backend/providers/resend-provider";
 export {
   EmailConfigTag,

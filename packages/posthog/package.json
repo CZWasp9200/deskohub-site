@@ -16,7 +16,7 @@
   "scripts": {
     "generate": "bun scripts/generate.ts",
     "lint": "biome check src scripts --config-path ../../biome.json --vcs-root ../..",
-    "test": "bun test",
+    "test": "bun test --preload @deskohub/email/testing/environment",
     "typecheck": "tsc --project tsconfig.json"
   },
   "dependencies": {
@@ -30,6 +30,7 @@
     "react": ">=16.8.0"
   },
   "devDependencies": {
+    "@deskohub/email": "workspace:*",
     "@effect/openapi-generator": "4.0.0-beta.85",
     "@types/mustache": "^4.2.6",
     "@types/react": "^19.3.0",

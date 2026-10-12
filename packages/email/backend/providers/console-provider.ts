@@ -1,5 +1,6 @@
 import { Effect, Layer } from "effect";
 import {
+  type EmailDeliveryId,
   EmailDeliveryIdSchema,
   type EmailMessage,
   type EmailSendResult,
@@ -10,6 +11,15 @@ const recipientAddresses = (message: EmailMessage): readonly string[] =>
   Array.isArray(message.to)
     ? message.to.map((r) => (typeof r === "string" ? r : r.email))
     : [typeof message.to === "string" ? message.to : message.to.email];
+
+const consoleDeliveryIdPrefix = "console-";
+
+/**
+ * Console never reports delivery, so callers treat its acceptance as final
+ * instead of waiting for a provider webhook.
+ */
+export const isConsoleEmailDeliveryId = (id: EmailDeliveryId): boolean =>
+  id.startsWith(consoleDeliveryIdPrefix);
 
 export const ConsoleEmailProvider: EmailProvider = {
   name: "console",
@@ -77,7 +87,7 @@ export const ConsoleEmailProvider: EmailProvider = {
 
     const result: EmailSendResult = {
       id: EmailDeliveryIdSchema.make(
-        `console-${Date.now()}-${Math.random().toString(36).substring(7)}`
+        `${consoleDeliveryIdPrefix}${Date.now()}-${Math.random().toString(36).substring(7)}`
       ),
       status: "sent",
       provider: "console",

@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { Effect, Layer } from "effect";
+import {
+  emailTestDomain,
+  testEmailAddress,
+} from "../testing/test-email-address";
 import { EmailConfigTag, EmailServiceTag } from "./service";
 
 const originalEnv = { ...process.env };
@@ -16,8 +20,8 @@ describe("EmailServiceTag.Live", () => {
       Effect.gen(function* () {
         const email = yield* EmailServiceTag;
         const sent = yield* email.send({
-          from: { email: "deskohub@example.test" },
-          to: { email: "delivered@resend.dev" },
+          from: { email: testEmailAddress("deskohub") },
+          to: { email: testEmailAddress("delivered") },
           subject: "Hello",
           text: "Hello",
         });
@@ -27,7 +31,8 @@ describe("EmailServiceTag.Live", () => {
           EmailServiceTag.Live.pipe(
             Layer.provide(
               Layer.succeed(EmailConfigTag, {
-                defaultFrom: { email: "deskohub@example.test" },
+                defaultFrom: { email: testEmailAddress("deskohub") },
+                testDomain: emailTestDomain(),
               })
             )
           )

@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { Effect, Fiber, Layer, Tracer } from "effect";
 import { TestClock } from "effect/testing";
+import {
+  emailTestDomain,
+  testEmailAddress,
+} from "../../testing/test-email-address";
 import { EmailDeliveryIdSchema } from "../../types/email.types";
 
 type SendResponse =
@@ -46,7 +50,8 @@ beforeEach(() => {
 });
 
 const config = {
-  defaultFrom: { email: "deskohub@example.test" },
+  defaultFrom: { email: testEmailAddress("deskohub") },
+  testDomain: emailTestDomain(),
   apiKey: "api-key",
 };
 
@@ -64,8 +69,8 @@ const runProvider = <A, E>(
   );
 
 const message = {
-  from: { email: "deskohub@example.test" },
-  to: { email: "ada@example.test" },
+  from: { email: testEmailAddress("deskohub") },
+  to: { email: testEmailAddress("ada") },
   subject: "Hello",
   html: "<p>Hello</p>",
 };
@@ -239,7 +244,8 @@ describe("ResendEmailProvider", () => {
           ResendEmailProviderLive.pipe(
             Layer.provide(
               Layer.succeed(EmailConfigTag, {
-                defaultFrom: { email: "deskohub@example.test" },
+                defaultFrom: { email: testEmailAddress("deskohub") },
+                testDomain: emailTestDomain(),
               })
             )
           )
@@ -347,7 +353,7 @@ describe("ResendEmailProvider span censorship", () => {
     expect(traced).not.toContain(rawProviderDetail);
     expect(traced).not.toContain("quota");
     expect(traced).not.toContain("rk_123");
-    expect(traced).not.toContain("ada@example.test");
+    expect(traced).not.toContain(testEmailAddress("ada"));
     expect(traced).not.toContain("secret-token");
     expect(traced).not.toContain("bearer text");
     if (result._tag === "Failure") {
@@ -371,7 +377,7 @@ describe("ResendEmailProvider span censorship", () => {
     expect(traced).not.toContain(rawTransportDetail);
     expect(traced).not.toContain("getaddrinfo");
     expect(traced).not.toContain("ENOTFOUND");
-    expect(traced).not.toContain("ada@example.test");
+    expect(traced).not.toContain(testEmailAddress("ada"));
     expect(traced).not.toContain("secret-token");
     if (result._tag === "Failure") {
       expect(result.failure._tag).toBe("NetworkError");

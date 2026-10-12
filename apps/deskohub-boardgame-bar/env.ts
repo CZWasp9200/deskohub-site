@@ -4,6 +4,7 @@ import {
   DotyposCloudIdSchema,
   DotyposEmployeeIdSchema,
 } from "@deskohub/dotypos";
+import { EmailTestDomainSchema } from "@deskohub/email/backend/email-config";
 import { GoogleCalendarIdSchema } from "@deskohub/google-calendar/types";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { createEnv } from "@t3-oss/env-nextjs";
@@ -37,6 +38,7 @@ export const boardgameBarServerSchema = {
   DOTYPOS_API_TIMEOUT: z.coerce.number().int().positive().default(30000),
   DOTYPOS_WEBHOOK_SECRET: z.uuid(),
   EMAIL_API_KEY: z.string().optional(),
+  EMAIL_TEST_DOMAIN: Schema.toStandardSchemaV1(EmailTestDomainSchema),
   GOOGLE_CALENDAR_OPENING_HOURS_ID: toEnvironmentSchema(GoogleCalendarIdSchema),
   GOOGLE_CALENDAR_PRIVATE_KEY: nonEmptyStringSchema,
   GOOGLE_CALENDAR_SERVICE_ACCOUNT_EMAIL: nonEmptyStringSchema,
@@ -74,6 +76,7 @@ export const env = createEnv({
     DOTYPOS_API_TIMEOUT: process.env.DOTYPOS_API_TIMEOUT,
     DOTYPOS_WEBHOOK_SECRET: process.env.DOTYPOS_WEBHOOK_SECRET,
     EMAIL_API_KEY: process.env.EMAIL_API_KEY,
+    EMAIL_TEST_DOMAIN: process.env.EMAIL_TEST_DOMAIN,
     GOOGLE_CALENDAR_OPENING_HOURS_ID:
       process.env.GOOGLE_CALENDAR_OPENING_HOURS_ID,
     GOOGLE_CALENDAR_PRIVATE_KEY: process.env.GOOGLE_CALENDAR_PRIVATE_KEY,

@@ -1,4 +1,8 @@
-import { type EmailMessage, EmailServiceTag } from "@deskohub/email";
+import {
+  EmailConfigTag,
+  type EmailMessage,
+  EmailServiceTag,
+} from "@deskohub/email";
 import { Context, Effect, Layer } from "effect";
 import type { Locale } from "@/features/i18n";
 import { m } from "@/features/i18n/paraglide/messages";
@@ -47,6 +51,7 @@ export class ContactService extends Context.Service<
 
 const contactServiceImplementation = Effect.gen(function* () {
   const emailService = yield* EmailServiceTag;
+  const { testDomain } = yield* EmailConfigTag;
 
   return ContactService.of({
     submit: Effect.fn("contact.submit")(
@@ -117,7 +122,7 @@ const contactServiceImplementation = Effect.gen(function* () {
               locale: businessEmailLocale,
             }),
           },
-          to: staffEmailRecipientFor(data.email, {
+          to: staffEmailRecipientFor(data.email, testDomain, {
             email: siteConstants.contact.contactEmail,
             name: "DeskoHub Kontakt",
           }),

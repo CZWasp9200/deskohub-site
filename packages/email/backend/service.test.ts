@@ -1,6 +1,10 @@
 import { describe, expect, mock, test } from "bun:test";
 import { Effect, Layer } from "effect";
 import {
+  emailTestDomain,
+  testEmailAddress,
+} from "../testing/test-email-address";
+import {
   type EmailConfig,
   EmailDeliveryIdSchema,
   type EmailMessage,
@@ -17,7 +21,8 @@ import {
 } from "./service";
 
 const config: EmailConfig = {
-  defaultFrom: { email: "deskohub@example.test", name: "Deskohub" },
+  defaultFrom: { email: testEmailAddress("deskohub"), name: "Deskohub" },
+  testDomain: emailTestDomain(),
 };
 
 const success = {
@@ -70,7 +75,7 @@ const runWithEmail = <A, E>(
 
 const message: EmailMessage = {
   from: undefined as never,
-  to: { email: "ada@example.test" },
+  to: { email: testEmailAddress("ada") },
   subject: "Hello",
   html: "<p>Hello</p>",
 };
@@ -222,7 +227,7 @@ describe("EmailService", () => {
     await runWithEmail(
       Effect.gen(function* () {
         const email = yield* EmailServiceTag;
-        return yield* email.sendTemplate("ada@example.test", {
+        return yield* email.sendTemplate(testEmailAddress("ada"), {
           type: "reservation-confirmation",
           data: {
             customerName: "Ada",
@@ -238,7 +243,7 @@ describe("EmailService", () => {
 
     expect(send.mock.calls[0]?.[0]).toEqual({
       from: config.defaultFrom,
-      to: { email: "ada@example.test" },
+      to: { email: testEmailAddress("ada") },
       subject: "Reservation confirmed",
       html: "<p>Confirmed</p>",
       text: "Confirmed",
@@ -285,7 +290,7 @@ describe("EmailService censorship", () => {
     }
 
     const logged = consoleLines.join("\n");
-    expect(logged).not.toContain("ada@example.test");
+    expect(logged).not.toContain(testEmailAddress("ada"));
     expect(logged).not.toContain("Hello");
     expect(logged).not.toContain("<p>Hello</p>");
   });
@@ -310,7 +315,7 @@ describe("EmailService censorship", () => {
     expect(logged).toContain("email.send.rejected");
     expect(logged).not.toContain("raw provider detail");
     expect(logged).not.toContain("quota");
-    expect(logged).not.toContain("ada@example.test");
+    expect(logged).not.toContain(testEmailAddress("ada"));
     expect(logged).not.toContain("Hello");
   });
 });

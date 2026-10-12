@@ -1,9 +1,15 @@
 import "@/shared/testing/workspace-test-env";
 
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  emailTestDomain,
+  resendSimulatorAddress,
+  testEmailAddress,
+} from "@deskohub/email/testing";
 import { Effect, Layer, Logger } from "effect";
 import * as envModule from "@/env";
 import { m } from "@/features/i18n";
+import { workspaceDefaultFromAddress } from "@/shared/backend/config/email.config";
 import { workspaceSiteConstants } from "@/shared/utils";
 
 type ResendPayload = {
@@ -78,7 +84,8 @@ const submit = (email: string) => {
               EmailServiceTag.Live,
               Layer.succeed(EmailConfigTag, {
                 apiKey: "re_test",
-                defaultFrom: { email: "reservations@workspace.deskohub.cz" },
+                defaultFrom: { email: workspaceDefaultFromAddress },
+                testDomain: emailTestDomain(),
               })
             )
           )
@@ -107,11 +114,13 @@ describe.each([
     });
 
     test("a real submitter reaches the real mailbox through Resend", async () => {
-      const consoleSends = await submit("ada@example.com");
+      // Resend's simulator is a real destination, not a test recipient.
+      const submitter = resendSimulatorAddress("delivered", "ada");
+      const consoleSends = await submit(submitter);
 
       expect(resendPayloads.map((payload) => payload.to)).toEqual([
         [workspaceSiteConstants.contact.infoEmail],
-        ["ada@example.com"],
+        [submitter],
       ]);
       // Only Production staff copies are untagged.
       expect(resendPayloads[0]?.subject).toBe(
@@ -124,12 +133,12 @@ describe.each([
     });
 
     test("a synthetic submitter reaches only the synthetic mailbox through Console", async () => {
-      const submitter = "delivered+workspace-e2e-contact-1@resend.dev";
+      const submitter = testEmailAddress("workspace-e2e-contact-1");
       const consoleSends = await submit(submitter);
 
       expect(resendPayloads).toEqual([]);
       expect(consoleSends).toEqual([
-        ["delivered+workspace-internal@resend.dev"],
+        [testEmailAddress("workspace-internal")],
         [submitter],
       ]);
     });

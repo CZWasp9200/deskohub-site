@@ -1,13 +1,16 @@
 import { describe, expect, mock, test } from "bun:test";
 import {
+  EmailConfigTag,
   EmailDeliveryIdSchema,
   type EmailMessage,
   type EmailSendResult,
   EmailServiceError,
   EmailServiceTag,
 } from "@deskohub/email";
+import { emailTestDomain, testEmailAddress } from "@deskohub/email/testing";
 import { Effect, Layer } from "effect";
 import { type Locale, locales } from "@/features/i18n";
+import { siteConstants } from "@/shared/utils/constants";
 import { formatDurationMinutes } from "@/shared/utils/date-formatting";
 import { TrainingReservationService } from "./training-reservation.service";
 
@@ -16,7 +19,7 @@ const input = {
   lastName: "Lovelace",
   company: "Analytical Engines",
   role: "Engineer",
-  email: "ada@example.test",
+  email: testEmailAddress("ada"),
   phone: "+420777777777",
   date: new Date("2026-06-20T12:00:00.000Z"),
   time: "18:00",
@@ -44,11 +47,17 @@ const runSubmit = (
       Effect.provide(
         TrainingReservationService.Default.pipe(
           Layer.provide(
-            Layer.succeed(EmailServiceTag, {
-              send,
-              sendTemplate: mock(() => Effect.succeed(sent("template"))),
-              verify: Effect.succeed(true),
-            })
+            Layer.mergeAll(
+              Layer.succeed(EmailServiceTag, {
+                send,
+                sendTemplate: mock(() => Effect.succeed(sent("template"))),
+                verify: Effect.succeed(true),
+              }),
+              Layer.succeed(EmailConfigTag, {
+                defaultFrom: { email: siteConstants.contact.fromEmail },
+                testDomain: emailTestDomain(),
+              })
+            )
           )
         )
       )

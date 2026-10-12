@@ -6,18 +6,18 @@ import {
   type EmailProvider,
   EmailProviderTag,
 } from "./capabilities";
+import type { EmailTestDomain } from "./email-config";
 import { ConsoleEmailProvider } from "./providers/console-provider";
 import { createResendProvider } from "./providers/resend-provider";
 
 /**
- * Resend reserves this domain for test sends, so no real inbox exists there.
- * Every automated Deskohub recipient (E2E customers, magic-link accounts, and
- * the non-production internal mailbox) uses it.
+ * A test recipient is any address on the configured test domain. Resend's
+ * simulator domain is a real destination and never matches.
  */
-const testRecipientDomain = "@resend.dev";
-
-export const isTestEmailRecipient = (email: string): boolean =>
-  email.trim().toLowerCase().endsWith(testRecipientDomain);
+export const isTestEmailRecipient = (
+  email: string,
+  testDomain: EmailTestDomain
+): boolean => email.trim().toLowerCase().endsWith(`@${testDomain}`);
 
 export type EmailRoute = "console" | "resend";
 
@@ -27,31 +27,38 @@ const recipientList = (
 
 /**
  * The single provider decision for every message: mail addressed only to test
- * recipients is logged by Console and never sent; anything that reaches a
- * real recipient goes to Resend.
+ * recipients is logged by Console and never sent; anything that reaches
+ * another recipient goes to Resend.
  */
 export const routeEmailMessage = (
-  message: Pick<EmailMessage, "to" | "cc" | "bcc">
+  message: Pick<EmailMessage, "to" | "cc" | "bcc">,
+  testDomain: EmailTestDomain
 ): EmailRoute =>
   [
     ...recipientList(message.to),
     ...recipientList(message.cc),
     ...recipientList(message.bcc),
-  ].every((recipient) => isTestEmailRecipient(recipient.email))
+  ].every((recipient) => isTestEmailRecipient(recipient.email, testDomain))
     ? "console"
     : "resend";
 
 /**
  * Staff copies follow the provenance of the request that triggered them: a
- * test-recipient origin addresses the test mailbox, so automated runs never
- * reach staff, and every other origin reaches the real mailbox in every
- * environment.
+ * test-recipient origin addresses the staff mailbox's test twin on the test
+ * domain, so automated runs never reach staff, and every other origin reaches
+ * the real mailbox in every environment.
  */
 export const internalRecipientForOrigin = (
   originEmail: string,
-  mailboxes: { readonly real: EmailRecipient; readonly test: EmailRecipient }
+  testDomain: EmailTestDomain,
+  mailbox: { readonly real: EmailRecipient; readonly testLocalPart: string }
 ): EmailRecipient =>
-  isTestEmailRecipient(originEmail) ? mailboxes.test : mailboxes.real;
+  isTestEmailRecipient(originEmail, testDomain)
+    ? {
+        email: `${mailbox.testLocalPart}@${testDomain}`,
+        name: mailbox.real.name,
+      }
+    : mailbox.real;
 
 const testEmailSubjectPrefix = "[TESTING]";
 
@@ -81,7 +88,7 @@ export const RoutedEmailProviderLive = Layer.effect(
       send: Effect.fn("routedEmailProvider.send")(function* (
         message: EmailMessage
       ) {
-        if (routeEmailMessage(message) === "console") {
+        if (routeEmailMessage(message, config.testDomain) === "console") {
           return yield* ConsoleEmailProvider.send(message);
         }
         if (!resend) {

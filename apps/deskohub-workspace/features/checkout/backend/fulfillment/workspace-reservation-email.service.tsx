@@ -652,7 +652,10 @@ export class WorkspaceReservationEmailService extends Context.Service<
             );
             const internalMessage: EmailMessage = {
               from: emailConfig.defaultFrom,
-              to: internalWorkspaceEmailRecipientFor(customerEmail),
+              to: internalWorkspaceEmailRecipientFor(
+                customerEmail,
+                emailConfig.testDomain
+              ),
               replyTo: { email: customerEmail, name: customerName },
               subject: createInternalReservationSubject(reservation),
               html: renderedInternalEmail.html,

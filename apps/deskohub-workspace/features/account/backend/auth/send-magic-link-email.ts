@@ -1,7 +1,15 @@
-import { type EmailMessage, EmailServiceTag } from "@deskohub/email";
+import {
+  EmailConfigTag,
+  type EmailMessage,
+  EmailServiceTag,
+  type EmailTestDomain,
+} from "@deskohub/email";
 import { type Config, Data, Effect, Layer, Predicate } from "effect";
 import type { WorkspaceEmailLocale } from "@/emails/_components/workspace-email-layout";
-import { EmailConfigLayer } from "@/shared/backend/config/email.config";
+import {
+  EmailConfigLayer,
+  workspaceDefaultFromAddress,
+} from "@/shared/backend/config/email.config";
 import { workspaceSiteConstants } from "@/shared/utils";
 import {
   accountMagicLinkEmailCategoryTag,
@@ -63,11 +71,12 @@ export type MagicLinkDeliveryEnvironment = {
 const emitsPreviewE2ELine = (
   environment: MagicLinkDeliveryEnvironment,
   recipient: string,
-  provider: string
+  provider: string,
+  testDomain: EmailTestDomain
 ) =>
   environment.isVercelPreview &&
   provider === "console" &&
-  isSyntheticE2EEmailRecipient(recipient);
+  isSyntheticE2EEmailRecipient(recipient, testDomain);
 
 export const makeMagicLinkEmailDelivery = (
   render: MagicLinkEmailRenderer,
@@ -90,6 +99,7 @@ export const makeMagicLinkEmailDelivery = (
       if (!rendered) return "account.magic-link.delivery-failed" as const;
 
       const email = yield* EmailServiceTag;
+      const { testDomain } = yield* EmailConfigTag;
       const sent = yield* email
         .send(magicLinkEmailMessage(request, rendered))
         .pipe(
@@ -113,7 +123,14 @@ export const makeMagicLinkEmailDelivery = (
       if (Predicate.isString(sent)) return sent;
 
       // The synthetic Preview recipient is the only bearer-log exception.
-      if (emitsPreviewE2ELine(environment, request.email, sent.provider)) {
+      if (
+        emitsPreviewE2ELine(
+          environment,
+          request.email,
+          sent.provider,
+          testDomain
+        )
+      ) {
         emitPreviewE2EConsoleDelivery(request.email, rendered.text);
       }
 
@@ -146,7 +163,7 @@ export const makeMagicLinkEmailDelivery = (
 };
 
 const magicLinkSender = {
-  email: "reservations@workspace.deskohub.cz",
+  email: workspaceDefaultFromAddress,
   name: workspaceSiteConstants.brand.name,
 } as const;
 
@@ -177,8 +194,9 @@ const unconfiguredDelivery = (): Effect.Effect<
     code: "account.magic-link.delivery-unconfigured",
   }).pipe(Effect.as("account.magic-link.delivery-unconfigured" as const));
 
-const magicLinkEmailServiceLayer = EmailServiceTag.Live.pipe(
-  Layer.provide(EmailConfigLayer)
+const magicLinkEmailServiceLayer = Layer.provideMerge(
+  EmailServiceTag.Live,
+  EmailConfigLayer
 );
 
 /**

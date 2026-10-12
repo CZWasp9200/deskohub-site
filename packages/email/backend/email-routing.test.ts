@@ -22,6 +22,10 @@ const {
   staffEmailSubject,
 } = await import("./email-routing");
 const { EmailConfigTag, EmailProviderTag } = await import("./capabilities");
+const { emailTestDomain, resendSimulatorAddress, testEmailAddress } =
+  await import("../testing/test-email-address");
+
+const testDomain = emailTestDomain();
 
 beforeEach(() => {
   resendSend = mock<SendImplementation>(async () => ({
@@ -29,11 +33,13 @@ beforeEach(() => {
   }));
 });
 
-const testRecipient = { email: "delivered+run7f3a2b-signin@resend.dev" };
-const realRecipient = { email: "ada@example.test" };
+const testRecipient = { email: testEmailAddress("ada") };
+// Resend's simulator is a real destination, never a test recipient.
+const realRecipient = { email: resendSimulatorAddress("delivered", "ada") };
+const sender = { email: testEmailAddress("deskohub") };
 
 const message = (to: { email: string } | { email: string }[]) => ({
-  from: { email: "deskohub@example.test" },
+  from: sender,
   to,
   subject: "Hello",
   text: "Hello",
@@ -53,7 +59,8 @@ const sendRouted = (
           Layer.provide(
             Layer.succeed(EmailConfigTag, {
               apiKey,
-              defaultFrom: { email: "deskohub@example.test" },
+              defaultFrom: sender,
+              testDomain,
             })
           )
         )
@@ -63,61 +70,78 @@ const sendRouted = (
   );
 
 describe("isTestEmailRecipient", () => {
-  test("accepts any address on the Resend test domain", () => {
-    expect(isTestEmailRecipient("delivered@resend.dev")).toBe(true);
-    expect(isTestEmailRecipient(testRecipient.email)).toBe(true);
-    expect(isTestEmailRecipient(" Delivered+Workspace@RESEND.DEV ")).toBe(true);
+  test("accepts any address on the test domain", () => {
+    expect(isTestEmailRecipient(testRecipient.email, testDomain)).toBe(true);
+    expect(
+      isTestEmailRecipient(
+        ` ${testEmailAddress("Workspace").toUpperCase()} `,
+        testDomain
+      )
+    ).toBe(true);
   });
 
-  test("rejects real and look-alike domains", () => {
-    expect(isTestEmailRecipient("ada@example.test")).toBe(false);
-    expect(isTestEmailRecipient("ada@gmail.com")).toBe(false);
-    expect(isTestEmailRecipient("ada@resend.dev.evil.test")).toBe(false);
-    expect(isTestEmailRecipient("ada@notresend.dev")).toBe(false);
-    expect(isTestEmailRecipient("")).toBe(false);
+  test("rejects Resend simulator, look-alike, and empty addresses", () => {
+    for (const outcome of ["delivered", "bounced", "complained"] as const) {
+      expect(
+        isTestEmailRecipient(resendSimulatorAddress(outcome), testDomain)
+      ).toBe(false);
+    }
+    expect(
+      isTestEmailRecipient(`${testRecipient.email}.evil`, testDomain)
+    ).toBe(false);
+    expect(
+      isTestEmailRecipient(testRecipient.email.replace("@", "@not"), testDomain)
+    ).toBe(false);
+    expect(isTestEmailRecipient("", testDomain)).toBe(false);
   });
 });
 
 describe("routeEmailMessage", () => {
   test("routes mail for test recipients only to Console", () => {
-    expect(routeEmailMessage({ to: testRecipient })).toBe("console");
+    expect(routeEmailMessage({ to: testRecipient }, testDomain)).toBe(
+      "console"
+    );
     expect(
-      routeEmailMessage({
-        to: [testRecipient, { email: "delivered+internal@resend.dev" }],
-      })
+      routeEmailMessage(
+        { to: [testRecipient, { email: testEmailAddress("internal") }] },
+        testDomain
+      )
     ).toBe("console");
   });
 
-  test("routes mail reaching any real recipient to Resend", () => {
-    expect(routeEmailMessage({ to: realRecipient })).toBe("resend");
-    expect(routeEmailMessage({ to: [testRecipient, realRecipient] })).toBe(
-      "resend"
-    );
-    expect(routeEmailMessage({ to: testRecipient, cc: realRecipient })).toBe(
-      "resend"
-    );
-    expect(routeEmailMessage({ to: testRecipient, bcc: [realRecipient] })).toBe(
-      "resend"
-    );
+  test("routes mail reaching any other recipient to Resend", () => {
+    expect(routeEmailMessage({ to: realRecipient }, testDomain)).toBe("resend");
+    expect(
+      routeEmailMessage({ to: [testRecipient, realRecipient] }, testDomain)
+    ).toBe("resend");
+    expect(
+      routeEmailMessage({ to: testRecipient, cc: realRecipient }, testDomain)
+    ).toBe("resend");
+    expect(
+      routeEmailMessage({ to: testRecipient, bcc: [realRecipient] }, testDomain)
+    ).toBe("resend");
   });
 });
 
 describe("internalRecipientForOrigin", () => {
-  const mailboxes = {
-    real: { email: "info@example.test", name: "Staff" },
-    test: { email: "delivered+staff@resend.dev", name: "Staff" },
+  const mailbox = {
+    real: {
+      email: resendSimulatorAddress("delivered", "staff"),
+      name: "Staff",
+    },
+    testLocalPart: "staff",
   };
 
-  test("keeps staff copies of test-recipient requests on the test mailbox", () => {
-    expect(internalRecipientForOrigin(testRecipient.email, mailboxes)).toBe(
-      mailboxes.test
-    );
+  test("keeps staff copies of test-recipient requests on the test domain", () => {
+    expect(
+      internalRecipientForOrigin(testRecipient.email, testDomain, mailbox)
+    ).toEqual({ email: testEmailAddress("staff"), name: "Staff" });
   });
 
-  test("sends staff copies of real requests to the real mailbox", () => {
-    expect(internalRecipientForOrigin(realRecipient.email, mailboxes)).toBe(
-      mailboxes.real
-    );
+  test("sends staff copies of other requests to the real mailbox", () => {
+    expect(
+      internalRecipientForOrigin(realRecipient.email, testDomain, mailbox)
+    ).toBe(mailbox.real);
   });
 });
 

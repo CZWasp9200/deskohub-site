@@ -1,6 +1,11 @@
 import "@/shared/testing/workspace-test-environment";
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  emailTestDomain,
+  resendSimulatorAddress,
+  testEmailAddress,
+} from "@deskohub/email/testing";
 import { ConfigProvider, Effect, Predicate, Tracer } from "effect";
 
 mock.module("server-only", () => ({}));
@@ -43,24 +48,25 @@ const { MagicLinkDeliveryTransportError, makeMagicLinkEmailDelivery } =
 const {
   isSyntheticE2EEmailRecipient,
   magicLinkPreviewE2ELogCode,
-  magicLinkSyntheticRecipientPattern,
+  magicLinkSyntheticLocalPartPattern,
 } = await import("./magic-link-policy");
 
 const request = {
-  email: "ada@example.test",
+  // Resend's simulator is a real destination, not a test recipient.
+  email: resendSimulatorAddress("delivered", "ada"),
   url: "https://workspace.example/api/auth/magic-link/verify?token=secret-token",
   locale: "en-US" as const,
 };
 
 const syntheticRequest = {
   ...request,
-  email: "delivered+run7f3a2b-signin@resend.dev",
+  email: testEmailAddress("delivered+run7f3a2b-signin"),
 };
 
 /** A test recipient outside the synthetic E2E account shape. */
 const testRecipientRequest = {
   ...request,
-  email: "delivered@resend.dev",
+  email: testEmailAddress("delivered"),
 };
 
 const renderOk = () =>
@@ -75,6 +81,7 @@ const productionEnvironment = { isVercelPreview: false } as const;
 
 const resendEmailConfig = {
   EMAIL_API_KEY: "re_test",
+  EMAIL_TEST_DOMAIN: emailTestDomain(),
 };
 
 /**
@@ -232,7 +239,7 @@ describe("Synthetic Preview delivery through the shared Console provider", () =>
     let code: string | undefined;
     try {
       code = await runDeliver(
-        {},
+        { EMAIL_TEST_DOMAIN: emailTestDomain() },
         makeMagicLinkEmailDelivery(renderOk, previewEnvironment).deliver(
           syntheticRequest
         )
@@ -401,13 +408,32 @@ describe("Errors and log safety", () => {
     expect(transport).toBeInstanceOf(Error);
   });
 
+  test("fails closed as unconfigured without a test domain, even for a test recipient", async () => {
+    const consoleLines = captureConsole();
+    let code: string | undefined;
+    try {
+      code = await runDeliver(
+        { EMAIL_API_KEY: "re_test" },
+        makeMagicLinkEmailDelivery(renderOk, previewEnvironment).deliver(
+          syntheticRequest
+        )
+      );
+    } finally {
+      consoleLines.restore();
+    }
+
+    expect(code).toBe("account.magic-link.delivery-unconfigured");
+    expect(resendSend).not.toHaveBeenCalled();
+    expect(previewE2ELines(consoleLines)).toEqual([]);
+  });
+
   test("fails closed as unconfigured for a real recipient without a Resend key", async () => {
     for (const environment of [productionEnvironment, previewEnvironment]) {
       const consoleLines = captureConsole();
       let code: string | undefined;
       try {
         code = await runDeliver(
-          {},
+          { EMAIL_TEST_DOMAIN: emailTestDomain() },
           makeMagicLinkEmailDelivery(renderOk, environment).deliver(request)
         );
       } finally {
@@ -438,7 +464,7 @@ describe("Errors and log safety", () => {
     }
 
     const logged = consoleLines.join("\n");
-    expect(logged).not.toContain("ada@example.test");
+    expect(logged).not.toContain(request.email);
     expect(logged).not.toContain("secret-token");
     expect(logged).not.toContain("verify?token");
     expect(logged).not.toContain("Sign in link");
@@ -464,53 +490,48 @@ describe("Effect.fn trace naming", () => {
 });
 
 describe("Synthetic E2E email recipient pattern", () => {
-  test("accepts run-id and label segments on the resend.dev test address", () => {
-    expect(
-      isSyntheticE2EEmailRecipient("delivered+run7f3a2b-signin@resend.dev")
-    ).toBe(true);
-    expect(
-      isSyntheticE2EEmailRecipient("delivered+abc123-delete@resend.dev")
-    ).toBe(true);
-    expect(
-      isSyntheticE2EEmailRecipient("delivered+a1b2-c3d4-e5f6-logout@resend.dev")
-    ).toBe(true);
-    expect(
-      isSyntheticE2EEmailRecipient("DELIVERED+run7f3a2b-signin@RESEND.DEV")
-    ).toBe(true);
-  });
+  const testDomain = emailTestDomain();
+  const synthetic = (localPart: string) =>
+    isSyntheticE2EEmailRecipient(testEmailAddress(localPart), testDomain);
 
-  test("rejects malformed, bare, and arbitrary-domain addresses", () => {
-    expect(isSyntheticE2EEmailRecipient("delivered@resend.dev")).toBe(false);
-    expect(isSyntheticE2EEmailRecipient("delivered+onlylabel@resend.dev")).toBe(
-      false
-    );
-    expect(isSyntheticE2EEmailRecipient("delivered+run-id-@resend.dev")).toBe(
-      false
-    );
-    expect(
-      isSyntheticE2EEmailRecipient("delivered+run--id-signin@resend.dev")
-    ).toBe(false);
-    expect(
-      isSyntheticE2EEmailRecipient("delivered+run id-signin@resend.dev")
-    ).toBe(false);
+  test("accepts run-id and label segments on the test domain", () => {
+    expect(synthetic("delivered+run7f3a2b-signin")).toBe(true);
+    expect(synthetic("delivered+abc123-delete")).toBe(true);
+    expect(synthetic("delivered+a1b2-c3d4-e5f6-logout")).toBe(true);
     expect(
       isSyntheticE2EEmailRecipient(
-        "delivered+run7f3a2b-signin@resend.dev.evil.test"
+        testEmailAddress("DELIVERED+run7f3a2b-signin").toUpperCase(),
+        testDomain
       )
-    ).toBe(false);
-    expect(
-      isSyntheticE2EEmailRecipient("delivered+run7f3a2b-signin@evil.test")
-    ).toBe(false);
-    expect(isSyntheticE2EEmailRecipient("ada@example.test")).toBe(false);
-    expect(isSyntheticE2EEmailRecipient("")).toBe(false);
+    ).toBe(true);
   });
 
-  test("exports the exact anchored pattern behind the predicate", () => {
-    expect("delivered+run7f3a2b-signin@resend.dev").toMatch(
-      magicLinkSyntheticRecipientPattern
+  test("rejects malformed, bare, and other-domain addresses", () => {
+    expect(synthetic("delivered")).toBe(false);
+    expect(synthetic("delivered+onlylabel")).toBe(false);
+    expect(synthetic("delivered+run-id-")).toBe(false);
+    expect(synthetic("delivered+run--id-signin")).toBe(false);
+    expect(synthetic("delivered+run id-signin")).toBe(false);
+    expect(
+      isSyntheticE2EEmailRecipient(`${syntheticRequest.email}.evil`, testDomain)
+    ).toBe(false);
+    // Resend's simulator domain is never the test domain.
+    expect(
+      isSyntheticE2EEmailRecipient(
+        resendSimulatorAddress("delivered", "run7f3a2b-signin"),
+        testDomain
+      )
+    ).toBe(false);
+    expect(isSyntheticE2EEmailRecipient(request.email, testDomain)).toBe(false);
+    expect(isSyntheticE2EEmailRecipient("", testDomain)).toBe(false);
+  });
+
+  test("exports the exact anchored local-part pattern behind the predicate", () => {
+    expect("delivered+run7f3a2b-signin").toMatch(
+      magicLinkSyntheticLocalPartPattern
     );
-    expect("delivered+run7f3a2b-signin@resend.dev.evil.test").not.toMatch(
-      magicLinkSyntheticRecipientPattern
+    expect("delivered+run7f3a2b-signin.evil").not.toMatch(
+      magicLinkSyntheticLocalPartPattern
     );
   });
 });

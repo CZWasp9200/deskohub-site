@@ -1,5 +1,10 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { EmailConfigTag, EmailServiceTag } from "@deskohub/email";
+import {
+  emailTestDomain,
+  resendSimulatorAddress,
+  testEmailAddress,
+} from "@deskohub/email/testing";
 import { Effect, Layer, Logger } from "effect";
 import { m } from "@/features/i18n/paraglide/messages";
 import { siteConstants } from "@/shared/utils/constants";
@@ -57,13 +62,13 @@ const submit = async (email: string) => {
       Layer.mergeAll(
         ContactService.Default.pipe(
           Layer.provide(
-            EmailServiceTag.Live.pipe(
-              Layer.provide(
-                Layer.succeed(EmailConfigTag, {
-                  apiKey: "re_test",
-                  defaultFrom: { email: siteConstants.contact.fromEmail },
-                })
-              )
+            Layer.provideMerge(
+              EmailServiceTag.Live,
+              Layer.succeed(EmailConfigTag, {
+                apiKey: "re_test",
+                defaultFrom: { email: siteConstants.contact.fromEmail },
+                testDomain: emailTestDomain(),
+              })
             )
           )
         ),
@@ -95,11 +100,13 @@ describe.each([
     });
 
     test("a real submitter reaches the real mailbox through Resend", async () => {
-      const consoleSends = await submit("ada@example.com");
+      // Resend's simulator is a real destination, not a test recipient.
+      const submitter = resendSimulatorAddress("delivered", "ada");
+      const consoleSends = await submit(submitter);
 
       expect(resendPayloads.map((payload) => payload.to)).toEqual([
         [siteConstants.contact.contactEmail],
-        ["ada@example.com"],
+        [submitter],
       ]);
       // Only Production staff copies are untagged.
       expect(resendPayloads[0]?.subject).toBe(
@@ -112,12 +119,12 @@ describe.each([
     });
 
     test("a synthetic submitter reaches only the synthetic mailbox through Console", async () => {
-      const submitter = "delivered+boardgame-contact-1@resend.dev";
+      const submitter = testEmailAddress("boardgame-contact-1");
       const consoleSends = await submit(submitter);
 
       expect(resendPayloads).toEqual([]);
       expect(consoleSends).toEqual([
-        ["delivered+boardgame-staff@resend.dev"],
+        [testEmailAddress("boardgame-staff")],
         [submitter],
       ]);
     });

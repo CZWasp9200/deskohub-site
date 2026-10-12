@@ -5,6 +5,7 @@
  */
 
 import { Schema } from "effect";
+import type { EmailTestDomain } from "../backend/email-config";
 
 export const EmailDeliveryIdSchema = Schema.NonEmptyString.pipe(
   Schema.brand("EmailDeliveryId")
@@ -95,10 +96,11 @@ export type EmailTemplateData = {
 };
 
 /**
- * Email delivery configuration. Recipients, not configuration, choose the
- * provider; the API key only enables Resend delivery to real recipients.
+ * Email delivery configuration. Recipients on `testDomain` go to Console; the
+ * API key enables Resend delivery to everyone else.
  */
 export interface EmailConfig {
   apiKey?: string;
   defaultFrom: EmailRecipient;
+  testDomain: EmailTestDomain;
 }
