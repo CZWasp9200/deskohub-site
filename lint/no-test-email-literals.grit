@@ -1,0 +1,39 @@
+engine biome(1.0)
+language js(typescript, jsx)
+
+// Test code builds addresses with `testEmailAddress` (EMAIL_TEST_DOMAIN, so
+// mail routes to Console) or `resendSimulatorAddress` from
+// `@deskohub/email/testing`; a hand-written address could reach a real inbox.
+// Credentials in URLs (`user:secret@host`) are not addresses and stay allowed.
+file($name, $body) where {
+  $name <: or {
+    r".*\.(?:test|test-utils|test-fixture|pw|mock|spec)\.(?:ts|tsx)$",
+    r".*/(?:e2e|testing|__tests__|__fixtures__|_fixtures|fixtures|\(testing-only\))/.*\.(?:ts|tsx)$",
+    r".*(?:-fixture|/fixtures?)\.(?:ts|tsx)$",
+    r".*apps/deskohub-workspace/scripts/(?:account-visual|account-sticky)/.*\.(?:ts|tsx)$",
+    r".*apps/deskohub-workspace/scripts/posthog-identity-browser\.ts$"
+  },
+  $body <: contains bubble {
+    or {
+      or {
+        JsStringLiteralExpression() as $literal,
+        JsTemplateChunkElement() as $literal,
+        JsxString() as $literal,
+        JsxText() as $literal
+      } where {
+        $literal <: r"(?s)(?:.*[\s\"'`<>(\[{,;=])?(?:mailto:)?[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}(?:[^A-Za-z0-9.-].*)?"
+      },
+      // `${localPart}@example.com` writes the domain by hand; a URL host after
+      // interpolated credentials (`${password}@example.com/app.js`) does not.
+      JsTemplateChunkElement() as $literal where {
+        $literal <: r"(?s)@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}(?:[^A-Za-z0-9.\-/:?#].*)?"
+      }
+    } where {
+      register_diagnostic(
+        span = $literal,
+        message = "Build test email addresses with testEmailAddress or resendSimulatorAddress from @deskohub/email/testing instead of writing them.",
+        severity = "error"
+      )
+    }
+  }
+}

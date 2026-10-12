@@ -26,6 +26,7 @@
     "lint:biome": "biome check app db emails features scripts shared *.ts --config-path \"$(git rev-parse --show-toplevel)/biome.json\"",
     "lint:eslint": "eslint --ext .ts,.tsx app db emails features scripts shared proxy.ts",
     "lint:knip": "knip --directory ../.. --workspace apps/deskohub-workspace",
+    "lint:test-email-literals": "biome lint e2e --config-path \"$(git rev-parse --show-toplevel)/lint/test-email-literals/biome.json\" --vcs-root \"$(git rev-parse --show-toplevel)\"",
     "test": "bun test --preload ./shared/testing/workspace-test-env.ts --parallel=1 --timeout 30000",
     "test:admin-cli": "bun test --preload ./shared/testing/workspace-test-env.ts --parallel=1 features/admin-cli/workspace-admin-api.server.test.ts 'app/api/v1/cli/[...path]/route.test.ts'",
     "test:instant-navigation": "playwright test --config playwright.e2e.config.ts --project=instant-navigation",

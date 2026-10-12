@@ -3,10 +3,23 @@
   "extends": ["//"],
   "tasks": {
     "lint": {
-      "dependsOn": ["$TURBO_EXTENDS$", "lint:biome", "lint:eslint", "lint:knip"]
+      "dependsOn": [
+        "$TURBO_EXTENDS$",
+        "lint:biome",
+        "lint:eslint",
+        "lint:knip",
+        "lint:test-email-literals"
+      ]
     },
     "lint:biome": {
       "inputs": ["$TURBO_DEFAULT$", "../../biome.json", "../../lint/*.grit"]
+    },
+    "lint:test-email-literals": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "../../lint/no-test-email-literals.grit",
+        "../../lint/test-email-literals/biome.json"
+      ]
     },
     "lint:eslint": {
       "inputs": ["$TURBO_DEFAULT$"]

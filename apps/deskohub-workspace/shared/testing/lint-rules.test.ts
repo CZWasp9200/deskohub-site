@@ -15,6 +15,7 @@ writeFileSync(config, JSON.stringify({
   linter: { enabled: true },
   plugins: [
     join(repositoryRoot, "lint", "no-synchronous-subprocess.grit"),
+    join(repositoryRoot, "lint", "no-test-email-literals.grit"),
     join(repositoryRoot, "lint", "no-wildcard-reexport.grit"),
     join(repositoryRoot, "lint", "prefer-effect-fn.grit"),
     join(repositoryRoot, "lint", "prefer-effect-value.grit"),
@@ -73,6 +74,27 @@ const directGenValue =
 
 const tracedLazyValue = (effectConstructor: string, suffix = "") =>
   `export const loadValue = Effect.fn("Workspace.loadValue")(() => Effect.${effectConstructor}${suffix});\n`;
+
+// Fixture sources assemble addresses so this test module stays literal-free.
+const handWrittenAddress = ["ada", "example.com"].join("@");
+const handWrittenDomain = ["", "resend.dev"].join("@");
+const addressLiteral = `export const recipient = "${handWrittenAddress}";\n`;
+const domainChunk = `export const recipient = \`delivered+\${runId}${handWrittenDomain}\`;\n`;
+const mailtoLiteral = `export const href = "mailto:${handWrittenAddress}";\n`;
+const displayNameLiteral = `export const from = "Ada <${handWrittenAddress}>";\n`;
+const jsxAddress = `export const card = <p>${handWrittenAddress}</p>;\n`;
+const helperAddress =
+  'import { testEmailAddress } from "@deskohub/email/testing";\nexport const recipient = testEmailAddress("ada");\n';
+const builtAddress = [
+  "export const recipient = `$",
+  "{localPart}@$",
+  "{domain}`;\n",
+].join("");
+const urlCredentials = `export const url = "postgresql://owner:${["secret", "ep-preview.eu.neon.tech"].join("@")}/neondb";\n`;
+const interpolatedCredentials = `export const url = \`https://user:\${secret}${["", "example.com"].join("@")}/app.js\`;\n`;
+const packageSpecifier =
+  'export const specifier = "@deskohub/email/testing";\n';
+const emailTests = "apps/deskohub-workspace/features/contact";
 
 const blockBodiedComposed = `export const deliver = (request: string): Effect.Effect<string> => {
   const routed = Effect.succeed(request);
@@ -239,6 +261,27 @@ const rules: { name: string; diagnostic: string; module: string; cases: Row[] }[
       ["permits test modules", tracedLazyValue("sync(() => headers())"), false, "apps/deskohub-workspace/features/reservation/load-value.test.ts"],
       ["permits generated modules", tracedLazyValue("sync(() => headers())"), false, generated],
       ["permits modules outside Workspace", tracedLazyValue("sync(() => headers())"), false, "apps/dhw/src/load-value.ts"],
+    ],
+  },
+  {
+    name: "no-test-email-literals", diagnostic: "Build test email addresses with testEmailAddress",
+    module: `${emailTests}/contact.test.ts`,
+    cases: [
+      ["rejects an address literal", addressLiteral, true],
+      ["rejects a hand-written domain after a template expression", domainChunk, true],
+      ["rejects a mailto literal", mailtoLiteral, true],
+      ["rejects a display-name address", displayNameLiteral, true],
+      ["rejects a JSX text address", jsxAddress, true, `${emailTests}/contact.test.tsx`],
+      ["rejects E2E modules", addressLiteral, true, "apps/deskohub-workspace/e2e/cases/contact.ts"],
+      ["rejects test fixtures", addressLiteral, true, "apps/deskohub-workspace/emails/_fixtures/preview-props.ts"],
+      ["rejects shared testing modules", addressLiteral, true, "apps/deskohub-workspace/shared/testing/fixture.ts"],
+      ["rejects package tests", addressLiteral, true, "packages/dotypos/src/backend/service.test.ts"],
+      ["permits the shared helper", helperAddress, false],
+      ["permits addresses built from expressions", builtAddress, false],
+      ["permits URL credentials", urlCredentials, false],
+      ["permits a URL host after interpolated credentials", interpolatedCredentials, false],
+      ["permits package specifiers", packageSpecifier, false],
+      ["permits production modules", addressLiteral, false, `${emailTests}/contact.service.ts`],
     ],
   },
   {

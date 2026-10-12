@@ -63,6 +63,10 @@ Workspace `lint` includes `lint:knip`, the full Knip analysis of `apps/deskohub-
 
 Workspace has additional database and E2E tasks. Read the Workspace operations or E2E skill before running them against any shared or hosted environment.
 
+## Test email addresses
+
+Tests, fixtures, E2E code, and visual scripts never write an email address. Build test recipients with `testEmailAddress(localPart)` from `@deskohub/email/testing`, which uses `EMAIL_TEST_DOMAIN`, so mail goes to the Console provider. Use `resendSimulatorAddress(outcome)` only when a test needs a real Resend destination. The `no-test-email-literals` GritQL rule (`lint/no-test-email-literals.grit`) enforces this through each package's Biome lint, and Workspace `e2e/` through `lint:test-email-literals`. Test runners get the domain from the `@deskohub/email/testing/environment` preload: through Workspace's test environment, through each affected package's `test` script, and through `bunfig.toml` where a package has no script.
+
 ## Environment files
 
 Each application owns its `.env.example`. Copy it to the app-local ignored environment file and keep developer-only values in app-local ignored overrides.
