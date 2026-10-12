@@ -4,6 +4,7 @@ import {
   workspaceSiteConstants,
 } from "@/shared/utils";
 import type {
+  AdministrationMoney,
   AdministrationPaymentAttempt,
   AdministrationReservationSummary,
 } from "./administration.service";
@@ -62,32 +63,56 @@ export const formatAdministrationMoney = ({
     style: "currency",
   }).format(value / 10 ** exponent);
 
+export type AdministrationPaymentStatus = {
+  /** "Paid", "Refunded", or "Partially refunded" with the refunded amount. */
+  readonly label: string;
+  /** When the payment reached this status: the refund time once refunded. */
+  readonly at: string;
+  readonly refunded: boolean;
+  /** The amount Deskohub keeps after a partial refund. */
+  readonly retainedAmount: AdministrationMoney | null;
+  /** The payment still has to be refunded in the Nexi back office. */
+  readonly needsRefund: boolean;
+};
+
 /**
- * Describes the refund work of a payment attempt. A recorded refund clears the
- * refund requirement whatever its amount; a partial refund shows the amount.
+ * The payment status operators see. A recorded Nexi refund, full or partial,
+ * replaces the attempt state, because the money is no longer held.
  */
-export const formatAdministrationRefund = (
+export const getAdministrationPaymentStatus = (
   attempt: Pick<
     AdministrationPaymentAttempt,
-    "amount" | "refundState" | "refundedAmount" | "refundedAt"
+    | "amount"
+    | "refundState"
+    | "refundedAmount"
+    | "refundedAt"
+    | "stateLabel"
+    | "updatedAt"
   >
-): { readonly label: string; readonly needsAction: boolean } | null => {
-  if (attempt.refundState === "required") {
-    return { label: "Needs refund", needsAction: true };
+): AdministrationPaymentStatus => {
+  const { refundedAmount, refundedAt } = attempt;
+  if (attempt.refundState !== "refunded" || !refundedAmount || !refundedAt) {
+    return {
+      label: attempt.stateLabel,
+      at: attempt.updatedAt,
+      refunded: false,
+      retainedAmount: null,
+      needsRefund: attempt.refundState === "required",
+    };
   }
-  if (
-    attempt.refundState !== "refunded" ||
-    !attempt.refundedAmount ||
-    !attempt.refundedAt
-  ) {
-    return null;
-  }
-  const refundedAt = formatAdministrationDateTime(attempt.refundedAt);
+  const partial = refundedAmount.value < attempt.amount.value;
   return {
-    label:
-      attempt.refundedAmount.value < attempt.amount.value
-        ? `Partially refunded ${formatAdministrationMoney(attempt.refundedAmount)} · ${refundedAt}`
-        : `Refunded · ${refundedAt}`,
-    needsAction: false,
+    label: partial
+      ? `Partially refunded ${formatAdministrationMoney(refundedAmount)}`
+      : "Refunded",
+    at: refundedAt,
+    refunded: true,
+    retainedAmount: partial
+      ? {
+          ...attempt.amount,
+          value: attempt.amount.value - refundedAmount.value,
+        }
+      : null,
+    needsRefund: false,
   };
 };

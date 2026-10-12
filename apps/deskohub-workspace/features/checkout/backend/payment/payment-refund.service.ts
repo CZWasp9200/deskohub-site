@@ -44,17 +44,28 @@ export interface IPaymentRefundService {
     PaymentRefundReconciliationError
   >;
   /**
-   * Reconciles a batch of attempts still awaiting a refund, least recently
-   * checked first. One attempt's provider failure is logged and does not stop
-   * the rest of the batch; the next run moves on to other attempts.
+   * Reconciles a batch of paid attempts: those still awaiting a refund first,
+   * then recent payments nobody marked for refund, least recently checked
+   * first. One attempt's provider failure is logged and does not stop the rest
+   * of the batch; the next run moves on to other attempts.
    */
-  readonly reconcileAwaitingRefunds: (input: {
+  readonly reconcileRefunds: (input: {
     readonly limit: number;
   }) => Effect.Effect<
     PaymentRefundReconciliationSummary,
     EffectDrizzleQueryError | SqlError.SqlError
   >;
 }
+
+/**
+ * How long after creating a paid attempt that nobody marked for refund the
+ * batch keeps checking Nexi for a back-office refund. Older payments rely on
+ * the Nexi refund notification, or on an operator cancellation marking the
+ * refund as required.
+ */
+const unrequestedRefundCheckWindow = Temporal.Duration.from({
+  hours: 90 * 24,
+});
 
 const toRefundedAt = (
   value: string | undefined,
@@ -127,15 +138,17 @@ export class PaymentRefundService extends Context.Service<
           )
       );
 
-      const reconcileAwaitingRefunds = Effect.fn(
-        "PaymentRefundService.reconcileAwaitingRefunds"
+      const reconcileRefunds = Effect.fn(
+        "PaymentRefundService.reconcileRefunds"
       )(function* (input: { readonly limit: number }) {
-        const awaiting = yield* refunds.claimAwaitingRefund({
+        const checkedAt = Temporal.Now.instant();
+        const candidates = yield* refunds.claimRefundChecks({
           limit: input.limit,
-          checkedAt: Temporal.Now.instant(),
+          checkedAt,
+          recentPaymentsSince: checkedAt.subtract(unrequestedRefundCheckWindow),
         });
         const results = yield* Effect.forEach(
-          awaiting,
+          candidates,
           (candidate) =>
             reconcileAttempt(candidate).pipe(
               Effect.tapError((cause) =>
@@ -158,7 +171,7 @@ export class PaymentRefundService extends Context.Service<
 
       return PaymentRefundService.of({
         reconcileAttempt,
-        reconcileAwaitingRefunds,
+        reconcileRefunds,
       });
     })
   );

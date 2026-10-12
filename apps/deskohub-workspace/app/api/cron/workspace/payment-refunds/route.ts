@@ -4,28 +4,26 @@ import { PaymentRefundService } from "@/features/checkout/backend/payment";
 import { isAuthorizedCronRequest } from "@/shared/backend/cron-request";
 import { defineWorkspaceRoute } from "@/shared/backend/workspace-route";
 
-const cronBatchLimit = 25;
+const cronBatchLimit = 50;
 
 /**
  * Fallback for refund notifications Nexi does not deliver: re-reads the Nexi
- * orders of the paid attempts awaiting a refund that were checked longest ago
- * and records any refund an operator already made in the Nexi back office.
+ * orders of paid attempts awaiting a refund, then of recent payments nobody
+ * marked for refund, checked longest ago first, and records any refund an
+ * operator already made in the Nexi back office.
  */
-const reconcileAwaitingRefunds = Effect.fn("reconcileAwaitingRefunds")(
-  function* () {
-    const refunds = yield* PaymentRefundService;
-    const input = { limit: cronBatchLimit };
-    yield* Effect.annotateLogsScoped({ input });
-    yield* Effect.logInfo("Payment refund reconciliation started");
+const reconcileRefunds = Effect.fn("reconcileRefunds")(function* () {
+  const refunds = yield* PaymentRefundService;
+  const input = { limit: cronBatchLimit };
+  yield* Effect.annotateLogsScoped({ input });
+  yield* Effect.logInfo("Payment refund reconciliation started");
 
-    const result = yield* refunds.reconcileAwaitingRefunds(input);
-    yield* Effect.annotateLogsScoped({ result });
-    yield* Effect.logInfo("Payment refund reconciliation completed");
+  const result = yield* refunds.reconcileRefunds(input);
+  yield* Effect.annotateLogsScoped({ result });
+  yield* Effect.logInfo("Payment refund reconciliation completed");
 
-    return NextResponse.json(result);
-  },
-  Effect.scoped
-);
+  return NextResponse.json(result);
+}, Effect.scoped);
 
 const handlePaymentRefundCronError = Effect.fn("handlePaymentRefundCronError")(
   function* (cause: unknown) {
@@ -54,7 +52,7 @@ export const GET = defineWorkspaceRoute(
       );
     }
 
-    return reconcileAwaitingRefunds().pipe(
+    return reconcileRefunds().pipe(
       Effect.provide(PaymentRefundService.Live),
       Effect.catch(handlePaymentRefundCronError)
     );
