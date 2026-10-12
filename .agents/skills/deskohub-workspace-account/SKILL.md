@@ -1,6 +1,6 @@
 ---
 name: deskohub-workspace-account
-description: Workspace customer account, Better Auth, magic link, auth persistence, profile, account deletion, and reservation history handling.
+description: Workspace customer account, Better Auth, magic link, auth persistence, profile, saved language preference, signed-in locale resolution, account deletion, and reservation history handling.
 ---
 
 # Workspace customer accounts
@@ -119,6 +119,31 @@ description: Workspace customer account, Better Auth, magic link, auth persisten
   finds an existing link and never claims, resolves, or locks. Never call
   `resolveCurrentCustomerAccount` inside the guard; it would wait on the lock
   the guard already holds.
+
+## Language preference
+
+- `customer_communication_preferences` holds one saved language per account.
+  It is both the email language and the signed-in site locale. An absent row
+  means no preference: accounts that predate the table have none until their
+  next sign-in. Never backfill or invent a default.
+- Writes: account creation seeds the callback locale, and every session
+  creation captures the callback locale when the row is missing. Both use
+  insert-on-conflict-do-nothing, so sign-in never overwrites a saved
+  preference, and a capture failure never blocks login. The profile control
+  and the header switcher save through `updatePreferredLanguage`, under the
+  account lock with the deletion-marker recheck. The save also moves the
+  locale cookie, and the client then navigates to the page under the new
+  locale with a document navigation.
+- Reads: `resolveWorkspaceLocale` (`features/i18n/locale-resolution.ts`) is
+  the only locale chain: saved preference, then URL path, cookie,
+  Accept-Language, default. The proxy applies it to page requests and
+  redirects a mismatching URL. Server Actions apply it to the referring page.
+  Rendering trusts the URL segment the proxy normalized. The proxy reads the
+  preference with one indexed session-token query, and only for GET/HEAD
+  non-prefetch requests that carry a session cookie, so guests never touch
+  the database. It exchanges a reservation capability in its issuance locale
+  before any preference redirect. Email readers fall back to the reservation
+  or request locale when an account has no preference.
 
 ## Protected-preview E2E
 
