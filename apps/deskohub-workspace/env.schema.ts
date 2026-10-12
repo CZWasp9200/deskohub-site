@@ -2,6 +2,13 @@ import { dotyposApiTimeoutDefaultMilliseconds } from "@deskohub/dotypos/api-time
 import { igloohomeApiTimeoutMaximumMilliseconds } from "@deskohub/igloohome/config";
 import { PostHogProjectId } from "@deskohub/posthog/identifiers";
 import { Effect, Schema } from "effect";
+import {
+  optionalStringSchema,
+  optionalUrlEnvSchema,
+  postHogBrowserEnvironmentCheck,
+  toEnvSchema,
+  type workspaceClientEnvSchema,
+} from "./client-env.schema";
 import { parseBetterAuthSecrets } from "./features/account/backend/auth/auth-secrets";
 import {
   postHogFeatureFlagOverridesEnvironmentCheck,
@@ -11,33 +18,11 @@ import {
 import { administratorCredentialRegistrySchema } from "./shared/administrator/administrator-credentials";
 import { urlStringSchema } from "./shared/utils/url-schema";
 
-const toEnvSchema = <S extends Schema.Decoder<unknown>>(schema: S) =>
-  Schema.toStandardSchemaV1(schema);
-
-const stringSchema = toEnvSchema(Schema.String);
 const nonEmptyStringSchema = toEnvSchema(Schema.NonEmptyString);
 const urlEnvSchema = toEnvSchema(urlStringSchema);
 
-const optionalStringSchema = toEnvSchema(Schema.optional(Schema.String));
 const optionalNonEmptyStringSchema = toEnvSchema(
   Schema.optional(Schema.NonEmptyString)
-);
-const optionalUrlEnvSchema = toEnvSchema(Schema.optional(urlStringSchema));
-
-const postHogBrowserEnvironmentCheck = Schema.makeFilter<{
-  readonly NEXT_PUBLIC_POSTHOG_HOST?: string | undefined;
-  readonly NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN?: string | undefined;
-}>((environment) =>
-  environment.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN !== undefined &&
-  environment.NEXT_PUBLIC_POSTHOG_HOST === undefined
-    ? [
-        {
-          path: ["NEXT_PUBLIC_POSTHOG_HOST"],
-          issue:
-            "NEXT_PUBLIC_POSTHOG_HOST is required when browser PostHog is enabled.",
-        },
-      ]
-    : undefined
 );
 
 const igloohomeProductionEnvironmentCheck = Schema.makeFilter<{
@@ -210,18 +195,6 @@ export const workspaceServerEnvSchema = Schema.Struct({
   accountOperationsProductionEnvironmentCheck,
   betterAuthSecretsProductionEnvironmentCheck
 );
-
-export const workspaceClientEnvSchema = Schema.Struct({
-  NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME: stringSchema,
-  NEXT_PUBLIC_GTM_ID: optionalStringSchema,
-  NEXT_PUBLIC_POSTHOG_HOST: optionalUrlEnvSchema,
-  NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN: toEnvSchema(
-    Schema.optional(Schema.NonEmptyString)
-  ),
-  NEXT_PUBLIC_VERCEL_ENV: toEnvSchema(
-    Schema.optional(Schema.Literals(["production", "preview", "development"]))
-  ),
-}).check(postHogBrowserEnvironmentCheck);
 
 /**
  * T3 Env normally validates the field dictionary, which cannot retain checks

@@ -1,8 +1,8 @@
 import { createEnv } from "@t3-oss/env-nextjs";
 import { Predicate } from "effect";
+import { workspaceClientEnvSchema } from "./client-env.schema";
 import {
   createEnvironmentSchema,
-  workspaceClientEnvSchema,
   workspaceServerEnvSchema,
 } from "./env.schema";
 

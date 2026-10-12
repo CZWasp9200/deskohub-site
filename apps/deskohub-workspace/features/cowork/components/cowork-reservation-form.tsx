@@ -67,11 +67,11 @@ import {
   getCoworkCurrentReservationOrder,
   type NormalizedCoworkReservationOrder,
 } from "@/features/reservation/cowork-reservation";
-import { getReservationAvailabilityUnavailableMessage } from "@/features/reservation/reservation.i18n";
 import {
   getReservationDefaultValuesFromPayState,
   getReservationDefaultValuesFromSearchParams,
-} from "@/features/reservation/reservation-checkout-query";
+} from "@/features/reservation/cowork-reservation-checkout-query";
+import { getReservationAvailabilityUnavailableMessage } from "@/features/reservation/reservation.i18n";
 import {
   formatReservationInputDate,
   getCurrentWorkspaceDate,
