@@ -1,4 +1,4 @@
-import { BigDecimal, Match } from "effect";
+import { BigDecimal, Match, Option } from "effect";
 import {
   getManualInvoicePayment,
   type InvoiceDocument,
@@ -364,15 +364,17 @@ const formatWorkspaceInstantDate = (value: string, locale: Locale) =>
     timeZone: workspaceSiteConstants.location.timeZone,
   });
 
-const formatCountry = (country: string, locale: Locale) => {
-  try {
-    return (
-      new Intl.DisplayNames([locale], { type: "region" }).of(country) ?? country
-    );
-  } catch {
-    return country;
-  }
-};
+const displayRegionName = Option.liftThrowable(
+  (country: string, locale: Locale) =>
+    new Intl.DisplayNames([locale], { type: "region" }).of(country)
+);
+
+/** The localized region name, or the stored code when Intl has no name. */
+const formatCountry = (country: string, locale: Locale) =>
+  displayRegionName(country, locale).pipe(
+    Option.flatMap(Option.fromNullishOr),
+    Option.getOrElse(() => country)
+  );
 
 const formatPlainDate = (value: string, locale: Locale) =>
   new Intl.DateTimeFormat(locale, {

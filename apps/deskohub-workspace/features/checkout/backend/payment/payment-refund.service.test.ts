@@ -124,6 +124,43 @@ describe("PaymentRefundService", () => {
     );
   });
 
+  for (const [label, operationTime] of [
+    ["omits", undefined],
+    // Date.parse accepts an offset-less time, so Nexi summarizes it, but it
+    // names no instant.
+    ["sends an offset-less", "2026-10-05T08:30:00"],
+  ] as const) {
+    test(`records the refund at the recording time when Nexi ${label} refund time`, async () => {
+      const recordRefund = mock<IPaymentRefundRepository["recordRefund"]>(() =>
+        Effect.succeed("recorded" as const)
+      );
+      const run = await buildService({
+        getOrder: () =>
+          Effect.succeed({
+            ...refundedOrder,
+            operations: [
+              {
+                operationType: "REFUND",
+                operationResult: "VOIDED",
+                ...(operationTime !== undefined && { operationTime }),
+                amount: "35000",
+              },
+            ],
+          }),
+        recordRefund,
+      });
+
+      const result = await run((service) =>
+        service.reconcileAttempt(candidate)
+      );
+
+      expect(result).toBe("recorded");
+      const [recorded] = recordRefund.mock.calls[0] ?? [];
+      expect(recorded?.refundedAmountValue).toBe(35_000);
+      expect(recorded?.refundedAt).toEqual(recorded?.recordedAt);
+    });
+  }
+
   test("leaves the attempt untouched while Nexi shows no successful refund", async () => {
     const recordRefund = mock(() => Effect.die("not used"));
     const run = await buildService({

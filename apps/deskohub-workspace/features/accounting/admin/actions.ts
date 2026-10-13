@@ -5,16 +5,12 @@ import {
   AdministrationInvoiceCreateInput,
   AdministrationInvoiceId,
 } from "@deskohub/workspace-admin-api";
-import { Effect, Schema } from "effect";
+import { Effect, Match, Schema } from "effect";
 import { revalidatePath } from "next/cache";
 import { requireAdministratorAuthorization } from "@/shared/administrator/administrator-authorization.server";
 import { defineWorkspaceAction } from "@/shared/backend/workspace-action";
 import { PublicSafeActionError } from "@/shared/utils/safe-action-client";
-import {
-  InvoiceAdministrationCustomerError,
-  InvoiceAdministrationInProgressError,
-  InvoiceAdministrationService,
-} from "./invoice-administration.service";
+import { InvoiceAdministrationService } from "./invoice-administration.service";
 
 const strict = { errors: "all", onExcessProperty: "error" } as const;
 
@@ -45,7 +41,20 @@ const createInvoiceAction = defineWorkspaceAction(
         Effect.provide(InvoiceAdministrationService.Live),
         Effect.mapError(
           (cause) =>
-            new PublicSafeActionError({ message: getCreateError(cause), cause })
+            new PublicSafeActionError({
+              message: Match.value(cause).pipe(
+                Match.tag(
+                  "InvoiceAdministrationCustomerError",
+                  "InvoiceAdministrationInProgressError",
+                  ({ message }) => message
+                ),
+                Match.orElse(
+                  () =>
+                    "The invoice could not be created. Check the customer and invoice details, then try again."
+                )
+              ),
+              cause,
+            })
         )
       )
   )
@@ -169,14 +178,4 @@ export const retryAdministrationInvoice: typeof retryInvoiceAction = async (
 ) => {
   "use server";
   return await retryInvoiceAction(...args);
-};
-
-const getCreateError = (cause: unknown) => {
-  if (
-    cause instanceof InvoiceAdministrationCustomerError ||
-    cause instanceof InvoiceAdministrationInProgressError
-  ) {
-    return cause.message;
-  }
-  return "The invoice could not be created. Check the customer and invoice details, then try again.";
 };

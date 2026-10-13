@@ -1,7 +1,7 @@
 import "server-only";
 
 import { GoogleCalendarService } from "@deskohub/google-calendar";
-import { Effect, Layer, Option } from "effect";
+import { Effect, Exit, Layer, Option } from "effect";
 import { cacheLife, cacheTag } from "next/cache";
 import { WorkspaceDatabase } from "@/db/database.service";
 import {
@@ -130,28 +130,26 @@ export async function loadCalendarDiscountSource(
 ): Promise<CalendarSalesSourceResult> {
   "use cache: remote";
 
-  try {
-    const source = await Effect.gen(function* () {
-      const { salesCalendarId } = yield* CalendarResourceConfig;
-      return yield* loadCalendarSalesSource({
-        calendarId: salesCalendarId,
-        bookingDate,
-      });
-    }).pipe(
-      Effect.provide(CalendarDiscountSourceLive),
-      runWorkspaceEffect("discounts.calendar-source.load")
-    );
-
-    if (source.complete) {
-      cacheLife("advertisedPricingSources");
-      cacheTag(calendarDiscountSourceTag);
-    } else {
-      cacheLife({ expire: 0 });
-    }
-
-    return source;
-  } catch (cause) {
-    cacheLife({ expire: 0 });
-    throw cause;
-  }
+  return await Effect.gen(function* () {
+    const { salesCalendarId } = yield* CalendarResourceConfig;
+    return yield* loadCalendarSalesSource({
+      calendarId: salesCalendarId,
+      bookingDate,
+    });
+  }).pipe(
+    Effect.provide(CalendarDiscountSourceLive),
+    // Only a complete source is shared; a partial or failed load is never
+    // cached, so the next request retries it.
+    Effect.onExit((exit) =>
+      Effect.sync(() => {
+        if (Exit.isSuccess(exit) && exit.value.complete) {
+          cacheLife("advertisedPricingSources");
+          cacheTag(calendarDiscountSourceTag);
+        } else {
+          cacheLife({ expire: 0 });
+        }
+      })
+    ),
+    runWorkspaceEffect("discounts.calendar-source.load")
+  );
 }
