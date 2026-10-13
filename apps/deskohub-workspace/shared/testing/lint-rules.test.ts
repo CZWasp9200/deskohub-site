@@ -151,6 +151,8 @@ const generated =
   "apps/deskohub-workspace/shared/backend/generated/dotypos-client.ts";
 
 const account = "apps/deskohub-workspace/features/account";
+const browserRunner =
+  "apps/deskohub-workspace/shared/browser/workspace-browser-effect.ts";
 const accountBackend = `${account}/backend`;
 const authServer = `${accountBackend}/auth/auth-server.ts`;
 const authOptions = `${accountBackend}/auth/auth-options.ts`;
@@ -497,6 +499,30 @@ const rules: { name: string; diagnostic: string; module: string; cases: Row[] }[
       ["permits the shared EmptyState", 'import { EmptyState } from "./empty-state";\nexport const table = EmptyState;\n', false],
       ["permits the EmptyState foundation", "export function EmptyState() { return null; }\n", false, "apps/deskohub-workspace/features/administration/empty-state.tsx"],
       ["permits chrome outside administration", "function EmptyState() { return null; }\nexport const list = EmptyState;\n", false, "apps/deskohub-workspace/features/account/components/history.tsx"],
+    ],
+  },
+  {
+    name: "no-direct-effect-runs", diagnostic: "Use the matching Workspace Effect runner or boundary",
+    module: `${account}/refresh-identity.ts`,
+    cases: [
+      ["rejects a raw run in a feature module", 'export const refresh = () => Effect.runPromise(Effect.void);\n', true],
+      ["rejects a raw run in a client module", '"use client";\nexport const refresh = () => Effect.runFork(Effect.void);\n', true],
+      ["rejects a raw run in the browser runner module", 'export const run = () => Effect.runPromiseExit(Effect.void);\n', true, browserRunner],
+      ["permits the browser runner", 'export const refresh = () => Effect.void.pipe(runWorkspaceBrowserEffect("account.refresh"));\n', false],
+      ["permits the server runner", 'export const refresh = () => Effect.void.pipe(runWorkspaceEffect("account.refresh"));\n', false],
+      ["permits test modules", 'export const refresh = () => Effect.runPromise(Effect.void);\n', false, `${account}/refresh-identity.test.ts`],
+    ],
+  },
+  {
+    name: "no-direct-next-effect-imports", diagnostic: "Use the app-owned Workspace Effect runner or action boundary",
+    module: `${account}/refresh-identity.ts`,
+    cases: [
+      ["rejects a feature import", 'import { NextEffect } from "@deskohub/next-effect";\n', true],
+      ["rejects another browser module", 'import { NextEffect } from "@deskohub/next-effect";\n', true, "apps/deskohub-workspace/shared/browser/workspace-browser-logs.ts"],
+      ["permits the browser runner", 'import { NextEffect } from "@deskohub/next-effect";\n', false, browserRunner],
+      ["permits the server runner", 'import { NextEffect } from "@deskohub/next-effect";\n', false, "apps/deskohub-workspace/shared/backend/workspace-effect.ts"],
+      ["permits the standalone runner", 'import { NextEffect } from "@deskohub/next-effect";\n', false, "apps/deskohub-workspace/shared/backend/standalone-workspace-effect.ts"],
+      ["permits the action boundary", 'import { EffectAction } from "@deskohub/next-effect/effect-action";\n', false, "apps/deskohub-workspace/shared/backend/workspace-action.ts"],
     ],
   },
 ];
