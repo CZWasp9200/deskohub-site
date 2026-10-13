@@ -314,7 +314,9 @@ Distinguish automated-runner behavior from manual procedures before treating a d
   (`workspaceE2EReferralCaseIds`), so planning, per-case checkout journals,
   HAR, failure annotations, and teardown work as for any case. The three
   unpaid referral checkouts share one planned open-space date, each for its
-  own customer. `registerWorkspaceE2ECases`' `bindCase` binds each planned case
+  own customer. `bindCheckoutContact` adds `customer=account` to the
+  planned link: its contact fields alone open a signed-in page in "book for
+  someone else" mode, where a remembered code only prefills the box. `registerWorkspaceE2ECases`' `bindCase` binds each planned case
   to its seeded identities. The lane never pays and depends only on
   `checkout-plan`; it is listed after the account and checkout lanes and
   uncapped, so its cases backfill workers after the first batch, and the tail
@@ -339,7 +341,10 @@ Distinguish automated-runner behavior from manual procedures before treating a d
 - Every referral-lane case journals its synthetic identities in its own
   account identity journal (`emptyWorkspaceE2EAccountJournal(<case id>)`),
   derived only from the run id and that case's closed recipient labels
-  (`e2e/referrals/journal-owners.ts`). Suite cleanup validates and reconciles
+  (`e2e/referrals/journal-owners.ts`). These journals live in
+  `e2e-artifacts/checkout/account-journals`, apart from the checkout case
+  journals in `cleanup-journals`: the owners reuse case IDs, and a shared
+  `<case id>.json` let each kind overwrite the other. Suite cleanup validates and reconciles
   the account lane's and every case's journal, including the referral rows,
   seeded paid-history and savings rows, and Dotypos profiles and visits they
   own. Auto-link cases create the exact-email Dotypos customer before the

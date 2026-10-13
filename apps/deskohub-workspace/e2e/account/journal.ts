@@ -2,11 +2,14 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { workspaceDir } from "../runtime";
 
+// Referral-lane owners are checkout case IDs, so these journals keep their own
+// directory: sharing the checkout case journals' `<case id>.json` names let
+// each kind overwrite the other.
 const journalRoot = resolve(
   workspaceDir,
   "e2e-artifacts",
   "checkout",
-  "cleanup-journals"
+  "account-journals"
 );
 const formatVersion = 1;
 export const workspaceE2EAccountLaneId = "account-lane";
