@@ -962,7 +962,7 @@ const legalDocuments = {
     "cookie-policy": {
       title: "Cookie Policy",
       lead: "This page explains how the Deskohub Workspace website uses cookies and how you can manage your preferences.",
-      updatedAt: "12 August 2026",
+      updatedAt: "13 October 2026",
       sections: [
         {
           heading: "1. What cookies are",
@@ -988,6 +988,15 @@ const legalDocuments = {
               session cookie keeps you signed in for up to 30 days. It is set
               only after you sign in and is removed when you sign out or delete
               your account.
+            </>,
+            <>
+              When you open a referral link shared by another customer, a
+              strictly necessary cookie remembers its referral code for up to 30
+              days so the invitation discount you asked for can be applied when
+              you complete your profile or book. Only the first referral link
+              you open is remembered. The cookie is removed once the referral is
+              recorded or your first booking is paid, and it is not used for
+              tracking.
             </>,
           ],
         },
@@ -1396,7 +1405,7 @@ const legalDocuments = {
     "cookie-policy": {
       title: "Zásady používání cookies",
       lead: "Na této stránce vysvětlujeme, jak web Deskohub Workspace používá cookies a jak můžete spravovat své preference.",
-      updatedAt: "12. srpna 2026",
+      updatedAt: "13. října 2026",
       sections: [
         {
           heading: "1. Co jsou cookies",
@@ -1421,6 +1430,15 @@ const legalDocuments = {
               Po přihlášení k zákaznickému účtu vás nezbytná cookie relace
               udržuje přihlášené nejvýše 30 dní. Nastaví se až po přihlášení a
               odstraní se při odhlášení nebo smazání účtu.
+            </>,
+            <>
+              Když otevřete doporučovací odkaz od jiného zákazníka, nezbytná
+              cookie si nejvýše 30 dní pamatuje jeho doporučovací kód, aby šlo
+              uplatnit slevu, o kterou jste požádali, při dokončení profilu nebo
+              rezervaci. Zapamatuje se jen první doporučovací odkaz, který
+              otevřete. Cookie se odstraní, jakmile je doporučení zaznamenáno
+              nebo je zaplacena vaše první rezervace, a nepoužívá se ke
+              sledování.
             </>,
           ],
         },

@@ -38,6 +38,9 @@ const lookupAresBusiness = mock(
 );
 
 mock.module("@/features/account/actions", () => ({
+  acknowledgeSignupReferralNotice: mock(() =>
+    Promise.resolve({ data: { status: "acknowledged" } })
+  ),
   completeCustomerProfile,
   lookupAresBusiness,
   updateCustomerProfile,

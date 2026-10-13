@@ -30,7 +30,10 @@ import { CustomerAccountResolver } from "./customer-account-resolver.service";
 import { CustomerDotyposAdapter } from "./customer-dotypos-adapter.service";
 import { CustomerProfileService } from "./customer-profile.service";
 import { completeNewCustomerProfile } from "./profile-completion";
-import { recordSignupReferral } from "./signup-referral";
+import {
+  acknowledgeSignupReferral,
+  recordSignupReferral,
+} from "./signup-referral";
 
 const testDatabase = await connectWorkspacePostgresTestDatabase();
 const uniqueId = () => crypto.randomUUID();
@@ -110,14 +113,35 @@ const readReferrer = async (invitedCustomerId: DotyposCustomerId) => {
   return result.rows[0]?.referrer_dotypos_customer_id;
 };
 
+/** Codes still waiting to be recorded; a settled intent no longer counts. */
 const readIntentCodes = async (accountId: CustomerAccountId) => {
   const result = await testDatabase!.pool.query<{
     promotion_code_id: string;
   }>(
-    "select promotion_code_id from referral_signup_intents where customer_account_id = $1",
+    "select promotion_code_id from referral_signup_intents where customer_account_id = $1 and settled_at is null",
     [accountId]
   );
   return result.rows.map((row) => row.promotion_code_id);
+};
+
+const readStoredOutcome = async (accountId: CustomerAccountId) => {
+  const result = await testDatabase!.pool.query<{
+    outcome: string | null;
+    settled_at: Date | null;
+    acknowledged_at: Date | null;
+  }>(
+    "select outcome, settled_at, acknowledged_at from referral_signup_intents where customer_account_id = $1",
+    [accountId]
+  );
+  return result.rows[0];
+};
+
+const countAttributions = async (invitedCustomerId: DotyposCustomerId) => {
+  const result = await testDatabase!.pool.query<{ count: string }>(
+    "select count(*) from referral_attributions where invited_dotypos_customer_id = $1",
+    [invitedCustomerId]
+  );
+  return Number(result.rows[0]?.count);
 };
 
 type Gate = {
@@ -247,7 +271,7 @@ const completeWithStoredIntent = async (code: string) => {
     Effect.provide(completionLayer({ accountId, identityUnavailable: true })),
     Effect.runPromise
   );
-  expect(outcome).toEqual({
+  expect(outcome).toMatchObject({
     status: "completed",
     referral: { status: "pending" },
   });
@@ -331,7 +355,7 @@ describe.skipIf(!testDatabase)(
         Effect.runPromise
       );
 
-      expect(outcome).toEqual({
+      expect(outcome).toMatchObject({
         status: "completed",
         referral: { status: "applied" },
       });
@@ -369,11 +393,11 @@ describe.skipIf(!testDatabase)(
         return [yield* Fiber.join(first), yield* Fiber.join(second)] as const;
       }).pipe(withinLockBudget, Effect.runPromise);
 
-      expect(winner).toEqual({
+      expect(winner).toMatchObject({
         status: "completed",
         referral: { status: "applied" },
       });
-      expect(loser).toEqual({
+      expect(loser).toMatchObject({
         status: "completed",
         referral: { status: "not-applied", reason: "already-referred" },
       });
@@ -413,7 +437,7 @@ describe.skipIf(!testDatabase)(
       }).pipe(withinLockBudget, Effect.runPromise);
 
       expect(checkout).toEqual({ kind: "accepted" });
-      expect(outcome).toEqual({
+      expect(outcome).toMatchObject({
         status: "completed",
         referral: { status: "not-applied", reason: "already-referred" },
       });
@@ -434,7 +458,7 @@ describe.skipIf(!testDatabase)(
         Effect.runPromise
       );
 
-      expect(outcome).toEqual({
+      expect(outcome).toMatchObject({
         status: "completed",
         referral: { status: "pending" },
       });
@@ -456,6 +480,104 @@ describe.skipIf(!testDatabase)(
       expect(retried).toEqual({ status: "applied" });
       expect(await readReferrer(customerId!)).toBe(referrer.customerId);
       expect(await readIntentCodes(accountId)).toEqual([]);
+    });
+
+    test("keeps reporting a settled code on later loads without recording it again, until acknowledged", async () => {
+      const referrer = await insertReferrer();
+      const account = await completeWithStoredIntent(referrer.code);
+
+      // The load that settles the code may be abandoned before it renders.
+      expect(await retrySignupReferral(account)).toEqual({ status: "applied" });
+      const settled = await readStoredOutcome(account.accountId);
+      expect(settled).toMatchObject({
+        outcome: "applied",
+        acknowledged_at: null,
+      });
+
+      expect(await retrySignupReferral(account)).toEqual({ status: "applied" });
+      expect(await readStoredOutcome(account.accountId)).toEqual(settled);
+      expect(await countAttributions(account.customerId)).toBe(1);
+
+      await acknowledgeSignupReferral({
+        accountId: account.accountId,
+        dotyposCustomerId: account.customerId,
+      }).pipe(
+        Effect.provide(completionLayer({ accountId: account.accountId })),
+        Effect.runPromise
+      );
+      expect(await retrySignupReferral(account)).toBeUndefined();
+      expect(
+        (await readStoredOutcome(account.accountId))?.acknowledged_at
+      ).not.toBeNull();
+    });
+
+    test("settles a stored code once when two account loads retry it together", async () => {
+      const referrer = await insertReferrer();
+      const account = await completeWithStoredIntent(referrer.code);
+      const linked = {
+        accountId: account.accountId,
+        dotyposCustomerId: account.customerId,
+      };
+
+      const outcomes = await Effect.gen(function* () {
+        const first = yield* makeGate;
+        const second = yield* makeGate;
+        const load = (gate: Gate) =>
+          recordSignupReferral(linked).pipe(
+            Effect.provide(
+              completionLayer({
+                accountId: account.accountId,
+                recordGate: gate,
+              })
+            )
+          );
+        const loads = yield* Effect.forkChild(
+          Effect.all([load(first), load(second)], { concurrency: "unbounded" })
+        );
+        // Both loads have read the unsettled code before either records it.
+        yield* Deferred.await(first.entered);
+        yield* Deferred.await(second.entered);
+        yield* Deferred.succeed(first.release, undefined);
+        yield* Deferred.succeed(second.release, undefined);
+        return yield* Fiber.join(loads);
+      }).pipe(withinLockBudget, Effect.runPromise);
+
+      expect(outcomes).toEqual([{ status: "applied" }, { status: "applied" }]);
+      expect(await countAttributions(account.customerId)).toBe(1);
+      expect(await readStoredOutcome(account.accountId)).toMatchObject({
+        outcome: "applied",
+      });
+    });
+
+    test("lets only one of several concurrent settlements record a stored code's outcome", async () => {
+      const referrer = await insertReferrer();
+      const account = await completeWithStoredIntent(referrer.code);
+
+      const settled = await Effect.gen(function* () {
+        const intents = yield* ReferralSignupIntentRepository;
+        return yield* Effect.all(
+          (["applied", "already-referred", "not-eligible"] as const).map(
+            (outcome) =>
+              intents
+                .settle(account.accountId, referrer.promotionCodeId, outcome)
+                .pipe(Effect.map((won) => ({ outcome, won })))
+          ),
+          { concurrency: "unbounded" }
+        );
+      }).pipe(
+        Effect.provide(
+          ReferralSignupIntentRepository.Default.pipe(
+            Layer.provide(databaseLayer())
+          )
+        ),
+        Effect.runPromise
+      );
+
+      const winners = settled.filter(({ won }) => won);
+      expect(winners).toHaveLength(1);
+      expect(await readStoredOutcome(account.accountId)).toMatchObject({
+        outcome: winners[0]!.outcome,
+      });
     });
 
     test("keeps the intent while a payment is pending and settles it as not eligible once that payment is paid", async () => {
@@ -581,7 +703,7 @@ describe.skipIf(!testDatabase)(
         return yield* Fiber.join(completion);
       }).pipe(withinLockBudget, Effect.runPromise);
 
-      expect(outcome).toEqual({
+      expect(outcome).toMatchObject({
         status: "completed",
         referral: { status: "not-applied", reason: "code-unusable" },
       });
@@ -604,7 +726,8 @@ describe.skipIf(!testDatabase)(
         Effect.runPromise
       );
 
-      expect(outcome).toEqual({ status: "completed" });
+      expect(outcome).toMatchObject({ status: "completed" });
+      expect(outcome).not.toHaveProperty("referral");
       const customerId = await readLinkedCustomer(accountId);
       expect(customerId).toBeDefined();
       expect(await readReferrer(customerId!)).toBeUndefined();

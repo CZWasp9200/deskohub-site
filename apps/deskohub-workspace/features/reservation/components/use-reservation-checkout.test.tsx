@@ -139,37 +139,21 @@ describe("useReservationCheckout", () => {
     );
   });
 
-  describe("with a shared referral code in the reservation URL", () => {
-    const submitWithSearch = (search: string) => {
-      workspaceUseSearchParams.mockReturnValue(new URLSearchParams(search));
-      const { result } = renderCheckout();
-      act(() => {
-        result.current.startCheckout({
-          advertisedPriceToken: "signed-price",
-          customer: "account",
-          reservation: reservationFor(7),
-        });
-      });
-      expect(execute).toHaveBeenCalledTimes(1);
-      return execute.mock.calls[0]?.[0];
-    };
+  test("leaves a shared referral code in the reservation URL to the remembered cookie", () => {
+    workspaceUseSearchParams.mockReturnValue(
+      new URLSearchParams("reservationDate=2099-07-30&ref=RFL12345")
+    );
+    const { result } = renderCheckout();
 
-    test("forwards the code to checkout preparation", () => {
-      expect(
-        submitWithSearch("reservationDate=2099-07-30&ref=RFL12345")
-      ).toMatchObject({
+    act(() => {
+      result.current.startCheckout({
         advertisedPriceToken: "signed-price",
         customer: "account",
-        locale: "en-US",
-        referralCode: "RFL12345",
+        reservation: reservationFor(7),
       });
     });
 
-    test.each(["", "ref=", "ref=not%20a%20code"])(
-      "omits an absent or malformed code from %p",
-      (search) => {
-        expect(submitWithSearch(search)).not.toHaveProperty("referralCode");
-      }
-    );
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(execute.mock.calls[0]?.[0]).not.toHaveProperty("referralCode");
   });
 });

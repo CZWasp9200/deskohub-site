@@ -13,6 +13,7 @@ import {
   Layer,
   Match,
   Predicate,
+  Ref,
   Schedule,
   Schema,
 } from "effect";
@@ -73,6 +74,11 @@ import {
   OfficeReservationFeatureFlagService,
 } from "@/features/office/backend/office-reservation-feature-flag.service";
 import { ReferralService } from "@/features/referrals";
+import type { ReferralCode } from "@/features/referrals/client";
+import {
+  forgetRememberedReferralCode,
+  readRememberedReferralCode,
+} from "@/features/referrals/remembered-referral-code.server";
 import { supersedableReservationPaymentStates } from "@/features/reservation/backend/reservation-supersession";
 import { WorkspaceAvailabilityService } from "@/features/reservation/backend/workspace-availability.service";
 import {
@@ -770,22 +776,21 @@ const resolveAccountCustomer = Effect.fn(
 });
 
 /**
- * Carries a shared referral code in an account booking's first Pay state when
- * the account can still take it, so the first quote already prices the
- * invitation. The attribution is recorded only when that order is paid, so an
- * abandoned checkout leaves nothing behind. Guests, contact bookings, and
+ * Carries the remembered referral code in an account booking's first Pay
+ * state when the account can still take it, so the first quote already prices
+ * the invitation. The attribution is recorded only when that order is paid, so
+ * an abandoned checkout leaves nothing behind. Guests, contact bookings, and
  * every rejection continue checkout without it.
  */
 const evaluateAccountReferralCode = Effect.fn(
   "preparePayState.evaluateAccountReferralCode"
-)(function* (input: PreparePayStateInput) {
-  if (input.customer !== "account" || input.referralCode === undefined) {
+)(function* (input: PreparePayStateInput, code: ReferralCode | undefined) {
+  if (input.customer !== "account" || code === undefined) {
     return undefined;
   }
 
   const contacts = yield* CustomerAccountContactService;
   const referrals = yield* ReferralService;
-  const code = input.referralCode;
   return yield* contacts.currentLinkedAccount.pipe(
     Effect.flatMap((account) =>
       account
@@ -815,31 +820,51 @@ const evaluateAccountReferralCode = Effect.fn(
 
 /**
  * A booking that is not the signed-in account cannot accept a referral here,
- * so a usable shared code becomes the Pay page code box's prefill instead.
+ * so a usable remembered code becomes the Pay page code box's prefill instead.
  * The customer still applies it there. An unknown or unusable code is dropped
  * without a message.
  */
 const findReferralCodePrefill = Effect.fn(
   "preparePayState.findReferralCodePrefill"
-)(function* (input: PreparePayStateInput) {
-  if (input.customer === "account" || input.referralCode === undefined) {
+)(function* (input: PreparePayStateInput, code: ReferralCode | undefined) {
+  if (input.customer === "account" || code === undefined) {
     return undefined;
   }
 
   const referrals = yield* ReferralService;
-  const code = yield* referrals
-    .findAvailableCode({ code: input.referralCode })
-    .pipe(
-      Effect.catch((error) =>
-        Effect.logInfo("Checkout referral code prefill was skipped", {
-          reason: error.reason,
-        }).pipe(Effect.as(undefined))
-      )
-    );
-  return code === undefined
+  const availableCode = yield* referrals.findAvailableCode({ code }).pipe(
+    Effect.catch((error) =>
+      Effect.logInfo("Checkout referral code prefill was skipped", {
+        reason: error.reason,
+      }).pipe(Effect.as(undefined))
+    )
+  );
+  return availableCode === undefined
     ? undefined
-    : canonicalPromotionCodeSchema.make(code);
+    : canonicalPromotionCodeSchema.make(availableCode);
 });
+
+/**
+ * Forgets the remembered referral code once the booked customer's referral is
+ * settled: attributed, or closed by a paid booking. A failed check keeps the
+ * code and never blocks checkout.
+ */
+const forgetSettledReferralCode = Effect.fn(
+  "preparePayState.forgetSettledReferralCode"
+)(
+  function* (dotyposCustomerId: DotyposCustomerId) {
+    const referrals = yield* ReferralService;
+    const settled = yield* referrals.hasSettledReferral({ dotyposCustomerId });
+    if (!settled) return;
+
+    yield* Effect.tryPromise(() => forgetRememberedReferralCode());
+  },
+  Effect.catch((cause) =>
+    Effect.logWarning("Remembered referral code could not be settled", {
+      cause,
+    })
+  )
+);
 
 class UndeliverableContactEmailError extends Data.TaggedError(
   "UndeliverableContactEmailError"
@@ -869,8 +894,26 @@ export const prepareWorkspacePayState = Effect.fn("prepareWorkspacePayState")(
     yield* botProtection.verifyHuman({ verificationFailurePolicy: "allow" });
 
     const accountActivity = yield* OptionalAccountActivityGuard;
-    const accountReferral = yield* evaluateAccountReferralCode(input);
-    const referralCodePrefill = yield* findReferralCodePrefill(input);
+    const rememberedReferralCode = yield* Effect.tryPromise(() =>
+      readRememberedReferralCode()
+    ).pipe(
+      Effect.catch((cause) =>
+        Effect.logWarning("Remembered referral code could not be read", {
+          cause,
+        }).pipe(Effect.as(undefined))
+      )
+    );
+    const accountReferral = yield* evaluateAccountReferralCode(
+      input,
+      rememberedReferralCode
+    );
+    const referralCodePrefill = yield* findReferralCodePrefill(
+      input,
+      rememberedReferralCode
+    );
+    const bookedCustomer = yield* Ref.make<DotyposCustomerId | undefined>(
+      undefined
+    );
 
     // The full state-creating section runs inside the account advisory
     // lock: authority is re-checked under the lock and the same lock is
@@ -952,6 +995,7 @@ export const prepareWorkspacePayState = Effect.fn("prepareWorkspacePayState")(
         yield* Effect.logDebug(
           "Workspace reservation Dotypos customer resolved"
         );
+        yield* Ref.set(bookedCustomer, dotyposCustomerId);
 
         const billing =
           reservation.billing ?? defaultReservationBillingSelection;
@@ -1254,6 +1298,12 @@ export const prepareWorkspacePayState = Effect.fn("prepareWorkspacePayState")(
         });
       })
     );
+
+    // Checked after the account lock is released, like the evaluation.
+    const settlingCustomer = yield* Ref.get(bookedCustomer);
+    if (rememberedReferralCode !== undefined && settlingCustomer) {
+      yield* forgetSettledReferralCode(settlingCustomer);
+    }
 
     if (!accountReferral || result.status === "error") return result;
     return {

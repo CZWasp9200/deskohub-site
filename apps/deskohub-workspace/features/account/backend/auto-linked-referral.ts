@@ -4,9 +4,10 @@ import type { ReferralCode } from "@/features/referrals/client";
 import type { CustomerAccountLinkResolution } from "./customer-account-resolver.service";
 
 /**
- * Records the shared code a customer signed in with when that sign-in linked
- * the account to an existing Dotypos customer. Such a customer skips profile
- * completion, so this is the sign-up moment for them. An account whose link
+ * Records the referral code the customer's browser remembers from a shared
+ * link when this sign-in linked the account to an existing Dotypos customer.
+ * Such a customer skips profile completion, so this is the sign-up moment for
+ * them. An account whose link
  * already existed, including one created by profile completion, never gains a
  * referral here.
  *

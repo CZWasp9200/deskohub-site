@@ -8,6 +8,7 @@ import { SessionRefresh } from "@/features/account/components/session-refresh";
 import type { CustomerAccountPageState } from "@/features/account/page-data.server";
 import { type Locale, m } from "@/features/i18n";
 import type { ReferralCode } from "@/features/referrals/client";
+import { ForgetRememberedReferralCode } from "@/features/referrals/forget-remembered-referral-code";
 import { Card, CardContent } from "@/shared/components/ui/card";
 
 const cardClassName =
@@ -15,22 +16,19 @@ const cardClassName =
 
 export function AccountPage({
   locale,
-  referralCode,
   state,
 }: {
   readonly locale: Locale;
-  readonly referralCode?: ReferralCode;
   readonly state: CustomerAccountPageState;
 }) {
   if (state.kind === "unauthenticated") {
-    return (
-      <AccountSignInRedirect locale={locale} referralCode={referralCode} />
-    );
+    return <AccountSignInRedirect locale={locale} />;
   }
   if (state.kind === "linked") {
     return (
       <>
         <SessionRefresh />
+        {state.rememberedReferralCodeUsed && <ForgetRememberedReferralCode />}
         <LinkedAccount
           avatarPresentation={state.avatar}
           email={state.email}
@@ -38,6 +36,7 @@ export function AccountPage({
           locale={locale}
           profile={state.profile}
           referrals={state.referrals}
+          signupReferral={state.signupReferral}
         />
       </>
     );

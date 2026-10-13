@@ -3,6 +3,7 @@ import { Effect } from "effect";
 import { unstable_doesMiddlewareMatch } from "next/experimental/testing/server";
 import { NextRequest } from "next/server";
 import { localeCookieName } from "@/features/i18n/routing";
+import { referralCodeCookieName } from "@/features/referrals/referral-code-cookie";
 import { getReservationAccessCookieName } from "@/features/reservation/backend/reservation-access-cookie";
 import { createReservationAccessToken } from "@/features/reservation/backend/reservation-access-token";
 import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
@@ -520,4 +521,85 @@ test("checks administration Server Action posts before the general pass-through"
 
   expect(unauthorized.status).toBe(401);
   expect(authorized.headers.get("x-middleware-next")).toBe("1");
+});
+
+describe("shared referral code capture", () => {
+  const cookieOf = (response: Response) =>
+    response.headers
+      .getSetCookie()
+      .find((cookie) => cookie.startsWith(`${referralCodeCookieName}=`));
+
+  test("remembers a shared code from any page with the cookie's flags", async () => {
+    const response = await proxy(
+      new NextRequest(
+        "https://workspace.example/cs-CZ/reservation/cowork?ref=RFL12345"
+      )
+    );
+
+    const cookie = cookieOf(response);
+    expect(cookie).toContain(`${referralCodeCookieName}=RFL12345`);
+    expect(cookie).toContain("Path=/");
+    expect(cookie).toContain("SameSite=lax");
+    expect(cookie).toContain("Secure");
+    expect(cookie).toContain(`Max-Age=${30 * 24 * 60 * 60}`);
+    expect(cookie).not.toContain("HttpOnly");
+    // The page rendered by this same response already reads the code.
+    expect(response.headers.get("x-middleware-request-cookie")).toContain(
+      `${referralCodeCookieName}=RFL12345`
+    );
+  });
+
+  test("normalizes the code's case and omits Secure over plain HTTP", async () => {
+    const response = await proxy(
+      new NextRequest("http://localhost:3000/en-US/account?ref=rfl12345")
+    );
+
+    const cookie = cookieOf(response);
+    expect(cookie).toContain(`${referralCodeCookieName}=RFL12345`);
+    expect(cookie).not.toContain("Secure");
+  });
+
+  test("keeps the first shared code when one is already remembered", async () => {
+    const response = await proxy(
+      new NextRequest("https://workspace.example/en-US/account?ref=RFLSECOND", {
+        headers: { cookie: `${referralCodeCookieName}=RFLFIRST1` },
+      })
+    );
+
+    expect(cookieOf(response)).toBeUndefined();
+    expect(response.headers.get("x-middleware-request-cookie")).toBeNull();
+  });
+
+  test("ignores a value that cannot be a referral code", async () => {
+    for (const value of ["", "a", "bad code!", "x".repeat(80)]) {
+      const response = await proxy(
+        new NextRequest(
+          `https://workspace.example/en-US/account?ref=${encodeURIComponent(value)}`
+        )
+      );
+      expect(cookieOf(response)).toBeUndefined();
+    }
+  });
+
+  test("remembers the code on the redirect that localizes a share link", async () => {
+    const response = await proxy(
+      new NextRequest("https://workspace.example/account?ref=RFL12345", {
+        headers: { "accept-language": "en-US" },
+      })
+    );
+
+    expect(response.status).toBe(307);
+    expect(cookieOf(response)).toContain(`${referralCodeCookieName}=RFL12345`);
+  });
+
+  test("never remembers a code from a Server Action request", async () => {
+    const response = await proxy(
+      new NextRequest("https://workspace.example/en-US/account?ref=RFL12345", {
+        method: "POST",
+        headers: { "next-action": "synthetic-action" },
+      })
+    );
+
+    expect(cookieOf(response)).toBeUndefined();
+  });
 });

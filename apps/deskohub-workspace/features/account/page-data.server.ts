@@ -9,10 +9,12 @@ import { CustomerAvatarService } from "@/features/account/backend/customer-avata
 import type { CustomerProfile } from "@/features/account/backend/customer-dotypos-adapter.service";
 import { CustomerProfileService } from "@/features/account/backend/customer-profile.service";
 import { CustomerReservationHistoryService } from "@/features/account/backend/customer-reservation-history.service";
+import { isRememberedReferralCodeUsed } from "@/features/account/backend/remembered-referral-code";
 import { recordSignupReferral } from "@/features/account/backend/signup-referral";
 import type {
   CustomerAvatarPresentation,
   CustomerReservationHistory,
+  ProfileCompletionReferralOutcome,
 } from "@/features/account/contracts";
 import { areAccountAvatarsEnabled } from "@/features/account/server/account-feature-flag.server";
 import type { Locale } from "@/features/i18n";
@@ -22,6 +24,7 @@ import {
   type ReferralCode,
 } from "@/features/referrals/client";
 import type { ReferralAccountOverview } from "@/features/referrals/contracts";
+import { readRememberedReferralCode } from "@/features/referrals/remembered-referral-code.server";
 import { ReferralSignupIntentRepository } from "@/features/referrals/signup-intent.repository";
 import { getWorkspaceRuntimeCallbackOrigin } from "@/shared/backend/config/workspace-url.config";
 import { runWorkspaceEffect } from "@/shared/backend/workspace-effect";
@@ -48,6 +51,17 @@ export type CustomerAccountPageState =
       readonly avatar: CustomerAvatarPresentation;
       readonly history: CustomerReservationHistory;
       readonly referrals?: ReferralAccountOverview;
+      /**
+       * Outcome of retrying the code a profile completion could not record
+       * yet, present only on the visit that ran the retry. A definitive
+       * outcome removes the stored code, so it appears exactly once.
+       */
+      readonly signupReferral?: ProfileCompletionReferralOutcome;
+      /**
+       * Present when this browser remembers a referral code that the
+       * customer's settled referral has made moot, so the page forgets it.
+       */
+      readonly rememberedReferralCodeUsed?: true;
     }
   | { readonly kind: "support-required"; readonly email: string }
   | { readonly kind: "deletion-pending"; readonly email: string };
@@ -55,17 +69,15 @@ export type CustomerAccountPageState =
 const unavailable = (): CustomerAccountPageState => ({ kind: "unavailable" });
 
 /**
- * Loads the account page for the current session. A shared referral code only
- * matters at sign-up: it prefills first-time profile completion, and it is
- * recorded when this visit links the account to an existing Dotypos customer.
- * An account that was already linked ignores it. A linked visit also retries
- * the code its profile completion could not record yet.
+ * Loads the account page for the current session. The referral code this
+ * browser remembers from a shared link only matters at sign-up: it prefills
+ * first-time profile completion, and it is recorded when this visit links the
+ * account to an existing Dotypos customer. An account that was already linked
+ * ignores it. A linked visit also retries the code its profile completion
+ * could not record yet, then reports whether the remembered code is used up.
  */
 export const loadCustomerAccountPage = cache(
-  async (
-    _locale: Locale,
-    referralCode?: ReferralCode
-  ): Promise<CustomerAccountPageState> => {
+  async (_locale: Locale): Promise<CustomerAccountPageState> => {
     const session = await Effect.flatMap(
       CustomerAuthentication,
       (authentication) => authentication.currentUser
@@ -85,6 +97,7 @@ export const loadCustomerAccountPage = cache(
       return { kind: "deletion-pending", email: user.email };
     }
 
+    const rememberedReferralCode = await readRememberedReferralCode();
     const resolution = await resolveCurrentCustomerAccount.pipe(
       Effect.tapError((error) =>
         Effect.logError("Account resolution failed", { error })
@@ -95,28 +108,16 @@ export const loadCustomerAccountPage = cache(
     if (Result.isSuccess(resolution)) {
       const account = resolution.success.account;
       // Resolution has released the account lock that acceptance takes.
-      await acceptAutoLinkedReferral(resolution.success, referralCode).pipe(
+      await acceptAutoLinkedReferral(
+        resolution.success,
+        rememberedReferralCode
+      ).pipe(
         Effect.provide(ReferralService.Live),
         Effect.catchCause(() =>
           logDegradedAccountSection("account.auto-link.referral.unavailable")
         ),
         runWorkspaceEffect("account.auto-link.referral", { boundary: "page" })
       );
-      // Retries a profile-completion referral whose recording failed
-      // transiently; outside any account lock, like the auto-link above.
-      await recordSignupReferral(account).pipe(
-        Effect.provide(
-          Layer.mergeAll(
-            ReferralService.Live,
-            ReferralSignupIntentRepository.Live
-          )
-        ),
-        Effect.catchCause(() =>
-          logDegradedAccountSection("account.signup-referral.unavailable")
-        ),
-        runWorkspaceEffect("account.signup-referral", { boundary: "page" })
-      );
-
       const profile = await Effect.flatMap(CustomerProfileService, (service) =>
         service.load(account)
       ).pipe(
@@ -130,6 +131,34 @@ export const loadCustomerAccountPage = cache(
       if (Result.isFailure(profile)) {
         return { kind: "authenticated-unavailable", email: user.email };
       }
+
+      // Retries a profile-completion referral that is still waiting, outside
+      // any account lock like the auto-link above. It runs only once the
+      // linked page is certain to render, so the visit that settles the code
+      // is the one that shows its outcome.
+      const signupReferral = await recordSignupReferral(account).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            ReferralService.Live,
+            ReferralSignupIntentRepository.Live
+          )
+        ),
+        Effect.catchCause(() =>
+          logDegradedAccountSection("account.signup-referral.unavailable").pipe(
+            Effect.as(undefined)
+          )
+        ),
+        runWorkspaceEffect("account.signup-referral", { boundary: "page" })
+      );
+      // Checked after both recording paths above, so a code they just used is
+      // forgotten on this visit.
+      const rememberedReferralCodeUsed = await isRememberedReferralCodeUsed(
+        rememberedReferralCode,
+        account
+      ).pipe(
+        Effect.provide(ReferralService.Live),
+        runWorkspaceEffect("account.remembered-referral", { boundary: "page" })
+      );
 
       const history = await Effect.flatMap(
         CustomerReservationHistoryService,
@@ -197,6 +226,10 @@ export const loadCustomerAccountPage = cache(
         avatar,
         history,
         referrals,
+        ...(signupReferral && { signupReferral }),
+        ...(rememberedReferralCodeUsed && {
+          rememberedReferralCodeUsed: true,
+        }),
       };
     }
 
@@ -209,9 +242,9 @@ export const loadCustomerAccountPage = cache(
       failure.linkReason === "not-found"
     ) {
       const availableReferralCode =
-        referralCode === undefined
+        rememberedReferralCode === undefined
           ? undefined
-          : await findAvailableReferralCode(referralCode);
+          : await findAvailableReferralCode(rememberedReferralCode);
       return {
         kind: "completion-required",
         email: user.email,
@@ -229,8 +262,8 @@ export const loadCustomerAccountPage = cache(
 );
 
 /**
- * Read-only check of a shared code; an unusable code or a failed check leaves
- * the completion form without a prefill instead of blocking sign-up.
+ * Read-only check of a remembered code; an unusable code or a failed check
+ * leaves the completion form without a prefill instead of blocking sign-up.
  */
 const findAvailableReferralCode = (code: ReferralCode) =>
   Effect.flatMap(ReferralService, (service) =>

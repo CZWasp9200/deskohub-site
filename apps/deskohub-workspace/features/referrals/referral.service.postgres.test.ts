@@ -1380,6 +1380,63 @@ describe.skipIf(!testDatabase)(
       }
     });
 
+    test("reports a referral as settled once attributed or after the first paid booking", async () => {
+      const referrer = await createActiveReferrer();
+      const openCustomer = uniqueDotyposId();
+      const attributedCustomer = uniqueDotyposId();
+      const paidCustomer = uniqueDotyposId();
+      const settled = (dotyposCustomerId: DotyposCustomerId) =>
+        runReferrals(
+          (referrals) => referrals.hasSettledReferral({ dotyposCustomerId }),
+          makeReferralLayer({
+            accountId: customerAccountIdSchema.make(uniqueId()),
+            dotyposCustomerId,
+          })
+        );
+      try {
+        await Effect.runPromise(
+          testDatabase!.db.insert(referralAttributions).values({
+            invitedDotyposCustomerId: attributedCustomer,
+            referrerDotyposCustomerId: referrer.dotyposCustomerId,
+            promotionCodeId: referrer.promotionCodeId,
+          })
+        );
+        const pendingId = await insertPendingBooking(paidCustomer);
+
+        expect(await settled(openCustomer)).toMatchObject({
+          _tag: "Success",
+          success: false,
+        });
+        expect(await settled(attributedCustomer)).toMatchObject({
+          _tag: "Success",
+          success: true,
+        });
+        // A payment still in progress keeps the window open.
+        expect(await settled(paidCustomer)).toMatchObject({
+          _tag: "Success",
+          success: false,
+        });
+        await testDatabase!.pool.query(
+          "update workspace_reservations set payment_state = 'paid', paid_at = now() where id = $1",
+          [pendingId]
+        );
+        expect(await settled(paidCustomer)).toMatchObject({
+          _tag: "Success",
+          success: true,
+        });
+      } finally {
+        await testDatabase!.pool.query(
+          "delete from referral_attributions where invited_dotypos_customer_id = $1",
+          [attributedCustomer]
+        );
+        await testDatabase!.pool.query(
+          "delete from workspace_reservations where dotypos_customer_id = $1",
+          [paidCustomer]
+        );
+        await referrer.cleanup();
+      }
+    });
+
     test("rejects acceptance cleanly when Dotypos history fails inside the attribution transaction", async () => {
       const referrer = await createActiveReferrer();
       const inviteeAccountId = customerAccountIdSchema.make(uniqueId());

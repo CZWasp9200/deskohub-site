@@ -1,4 +1,5 @@
 import { Effect, Match, Result } from "effect";
+import type { ReferralSignupOutcome } from "@/db/schema/referrals";
 import { ReferralService } from "@/features/referrals";
 import type { ReferralError } from "@/features/referrals/contracts";
 import {
@@ -95,18 +96,23 @@ const classifyRejection = (
   );
 
 /**
- * Records the referral stored by the completion that created this account's
- * link. Acceptance takes the account lock in its own transaction, so call
- * this only once no account lock or transaction is held. An accepted or
- * definitively rejected code removes the intent; a transient failure keeps it
- * for the next account visit. Returns undefined when no intent is stored.
+ * The stored completion code's outcome for the account page, and the retry
+ * that settles it. Run this only once no account lock or transaction is held.
+ *
+ * - An unsettled code is retried. A definitive result is recorded with one
+ *   conditional update, so concurrent loads settle it once; a load that loses
+ *   that race reports the stored winner. A transient failure stays pending.
+ * - A settled code reports its stored outcome on every load without retrying,
+ *   so an abandoned response or a second tab never loses it.
+ * - An acknowledged code, or none, reports nothing.
  */
 export const recordSignupReferral = Effect.fn("account.recordSignupReferral")(
   function* (account: LinkedCustomerAccount) {
     const intents = yield* ReferralSignupIntentRepository;
     const referrals = yield* ReferralService;
     const intent = yield* intents.find(account.accountId);
-    if (!intent) return undefined;
+    if (!intent || intent.acknowledged) return undefined;
+    if (intent.outcome !== null) return toOutcome(intent.outcome);
 
     const acceptance = yield* referrals
       .acceptReferral({
@@ -120,20 +126,7 @@ export const recordSignupReferral = Effect.fn("account.recordSignupReferral")(
     )
       ? applied
       : yield* classifyRejection(acceptance.failure, intent.code);
-
-    if (outcome.status !== "pending") {
-      // A failed removal only repeats an idempotent attempt on a later visit.
-      yield* intents
-        .remove(account.accountId, intent.promotionCodeId)
-        .pipe(
-          Effect.catch(() =>
-            Effect.logWarning("Referral signup intent was not removed").pipe(
-              Effect.annotateLogs({ code: "account.signup-referral.remove" })
-            )
-          )
-        );
-    }
-    yield* Effect.logInfo("Referral signup intent settled").pipe(
+    yield* Effect.logInfo("Referral signup intent checked").pipe(
       Effect.annotateLogs({
         code: "account.signup-referral",
         outcome: outcome.status,
@@ -142,9 +135,42 @@ export const recordSignupReferral = Effect.fn("account.recordSignupReferral")(
         }),
       })
     );
-    return outcome;
+    if (outcome.status === "pending") return outcome;
+
+    const settled = yield* intents.settle(
+      account.accountId,
+      intent.promotionCodeId,
+      toStoredOutcome(outcome)
+    );
+    if (settled) return outcome;
+    const winner = yield* intents.find(account.accountId);
+    return winner?.outcome && !winner.acknowledged
+      ? toOutcome(winner.outcome)
+      : undefined;
   }
 );
+
+/** Hides the account's settled completion-code outcome for good. */
+export const acknowledgeSignupReferral = Effect.fn(
+  "account.acknowledgeSignupReferral"
+)(function* (account: LinkedCustomerAccount) {
+  const intents = yield* ReferralSignupIntentRepository;
+  yield* intents.acknowledge(account.accountId);
+});
+
+const toStoredOutcome = (
+  outcome: Exclude<ProfileCompletionReferralOutcome, { status: "pending" }>
+): ReferralSignupOutcome => {
+  if (outcome.status === "applied") return "applied";
+  // Only a losing completion reports this; acceptance never settles with it.
+  if (outcome.reason === "profile-already-completed") return "code-unusable";
+  return outcome.reason;
+};
+
+const toOutcome = (
+  outcome: ReferralSignupOutcome
+): ProfileCompletionReferralOutcome =>
+  outcome === "applied" ? applied : notApplied(outcome);
 
 /**
  * Reports a completion's code from the account's current referral state when
@@ -174,9 +200,10 @@ export const describeSignupReferral = Effect.fn(
     }
     const stored = yield* intents.find(account.accountId);
     if (stored) {
-      return stored.promotionCodeId === intent.promotionCodeId
-        ? pending
-        : notApplied("already-referred");
+      if (stored.promotionCodeId !== intent.promotionCodeId) {
+        return notApplied("already-referred");
+      }
+      return stored.outcome === null ? pending : toOutcome(stored.outcome);
     }
     return unrecorded;
   }).pipe(Effect.orElseSucceed(() => (created ? pending : unrecorded)));

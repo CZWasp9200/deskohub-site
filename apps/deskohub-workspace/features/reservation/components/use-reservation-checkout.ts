@@ -11,10 +11,6 @@ import {
 } from "@/features/checkout/checkout-identifiers";
 import { useCookieConsent } from "@/features/cookie-consent";
 import { type Locale, m } from "@/features/i18n";
-import {
-  parseReferralCode,
-  referralCodeQueryParam,
-} from "@/features/referrals/client";
 import { preparePayState } from "@/features/reservation/actions/prepare-pay-state";
 import {
   getReservationAnalyticsProperties,
@@ -125,16 +121,7 @@ export function useReservationCheckout({
       checkoutSessionId,
       locale,
     };
-    // A shared code in the reservation URL is offered to the server, which
-    // accepts it for an account booking when possible.
-    const referralCode = parseReferralCode(
-      searchParams.get(referralCodeQueryParam)
-    );
-    prepareCheckout({
-      ...details,
-      ...identifiers,
-      ...(referralCode && { referralCode }),
-    });
+    prepareCheckout({ ...details, ...identifiers });
   };
 
   return {

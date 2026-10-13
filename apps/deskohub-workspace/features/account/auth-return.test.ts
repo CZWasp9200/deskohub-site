@@ -9,13 +9,8 @@ import {
   test,
 } from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
-import { parseReferralCode } from "@/features/referrals/client";
 
 const VALID_ATTEMPT_ID = "550e8400-e29b-41d4-a716-446655440000";
-const VALID_REFERRAL_CODE = parseReferralCode("RFL12345");
-if (VALID_REFERRAL_CODE === undefined) {
-  throw new Error("The referral code fixture must be valid");
-}
 
 type ReturnListener = {
   readonly attemptId: string;
@@ -174,30 +169,6 @@ describe("account auth return lifecycle", () => {
     expect(events).toContain("cleanup");
   });
 
-  test("threads a referral code through the fixed callback and same-device return", async () => {
-    const lifecycle = authReturn.createAuthReturnLifecycle({
-      locale: "en-US",
-      referralCode: VALID_REFERRAL_CODE,
-    });
-    setSession({
-      session: { createdAt: new Date() },
-      user: { emailVerified: true },
-    });
-
-    await lifecycle.sendMagicLink("ada@example.test");
-
-    expect(magicLink).toHaveBeenCalledWith({
-      email: "ada@example.test",
-      callbackURL: `/en-US/auth/callback?attempt=${VALID_ATTEMPT_ID}&ref=${VALID_REFERRAL_CODE}`,
-      metadata: { locale: "en-US" },
-    });
-    expect(await listener?.onReturn(new AbortController().signal)).toBe(true);
-    expect(events).toContain(
-      `replace:/en-US/account?ref=${VALID_REFERRAL_CODE}`
-    );
-    lifecycle.cancel();
-  });
-
   test("disposes the listener on rejected, thrown, cancelled, and resent requests", async () => {
     const lifecycle = authReturn.createAuthReturnLifecycle({
       locale: "en-US",
@@ -241,27 +212,6 @@ describe("account auth return lifecycle", () => {
     expect(magicLink).toHaveBeenCalledWith({
       email: "ada@example.test",
       callbackURL: "/cs-CZ/auth/callback",
-      metadata: { locale: "cs-CZ" },
-    });
-  });
-
-  test("keeps a referral code on the fixed callback when browser coordination is unavailable", async () => {
-    removeReturnApis();
-    Object.defineProperty(globalThis, "crypto", {
-      configurable: true,
-      value: undefined,
-    });
-    const lifecycle = authReturn.createAuthReturnLifecycle({
-      locale: "cs-CZ",
-      referralCode: VALID_REFERRAL_CODE,
-    });
-
-    await lifecycle.sendMagicLink("ada@example.test");
-
-    expect(listenForReturn).not.toHaveBeenCalled();
-    expect(magicLink).toHaveBeenCalledWith({
-      email: "ada@example.test",
-      callbackURL: `/cs-CZ/auth/callback?ref=${VALID_REFERRAL_CODE}`,
       metadata: { locale: "cs-CZ" },
     });
   });

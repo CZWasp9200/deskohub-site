@@ -3,7 +3,10 @@ import type {
   CustomerProfileInput,
   ProfileCompletionReferralOutcome,
 } from "../contracts";
-import type { CustomerAccountId } from "../customer-account";
+import type {
+  CustomerAccountId,
+  LinkedCustomerAccount,
+} from "../customer-account";
 import { CustomerProfileService } from "./customer-profile.service";
 import {
   describeSignupReferral,
@@ -15,6 +18,7 @@ type NewCustomerProfileCompletion =
   | { readonly status: "referral-code-unavailable" }
   | {
       readonly status: "completed";
+      readonly account: LinkedCustomerAccount;
       /** Present when a referral code was kept for this completion. */
       readonly referral?: ProfileCompletionReferralOutcome;
     };
@@ -46,7 +50,12 @@ export const completeNewCustomerProfile = Effect.fn(
   const creation = yield* Effect.flatMap(CustomerProfileService, (profile) =>
     profile.create(user.accountId, user.email, input, intent)
   );
-  if (intent === undefined) return { status: "completed" } as const;
+  if (intent === undefined) {
+    return {
+      status: "completed",
+      account: creation.account,
+    } satisfies NewCustomerProfileCompletion;
+  }
 
   const recorded = creation.created
     ? yield* recordSignupReferral(creation.account).pipe(
@@ -58,6 +67,7 @@ export const completeNewCustomerProfile = Effect.fn(
     (yield* describeSignupReferral(creation.account, intent, creation.created));
   return {
     status: "completed",
+    account: creation.account,
     referral: outcome,
   } satisfies NewCustomerProfileCompletion;
 });

@@ -84,7 +84,7 @@ describe("customer account route boundary", () => {
     const output = await Content(content.props);
 
     expect(events).toEqual(["connection", "gate", "load"]);
-    expect(loadCustomerAccountPage).toHaveBeenCalledWith("en-US", undefined);
+    expect(loadCustomerAccountPage).toHaveBeenCalledWith("en-US");
     expect(output).toMatchObject({
       type: AccountPage,
       props: { locale: "en-US", state: { kind: "unavailable" } },
@@ -106,48 +106,5 @@ describe("customer account route boundary", () => {
     await expect(Content(content.props)).rejects.toThrow("NEXT_NOT_FOUND");
     expect(events).toEqual(["connection", "gate"]);
     expect(loadCustomerAccountPage).not.toHaveBeenCalled();
-  });
-
-  test("hands the shared referral code to the account loader", async () => {
-    const { default: CustomerAccountPageRoute } = await import("./page");
-    const route = await CustomerAccountPageRoute({
-      searchParams: Promise.resolve({ ref: "RFL12345" }),
-    });
-    const content = route.props.children;
-    const Content = content.type as (props: {
-      readonly locale: "en-US";
-    }) => Promise<unknown>;
-
-    await Content(content.props);
-
-    expect(loadCustomerAccountPage).toHaveBeenCalledWith("en-US", "RFL12345");
-  });
-
-  test("accepts one strict referral query value and ignores malformed duplicates", async () => {
-    const { default: CustomerAccountPageRoute } = await import("./page");
-
-    const valid = await CustomerAccountPageRoute({
-      searchParams: Promise.resolve({ ref: "RFL12345" }),
-    });
-    expect(valid.props.children.props).toMatchObject({
-      locale: "en-US",
-      referralCode: "RFL12345",
-    });
-
-    const duplicate = await CustomerAccountPageRoute({
-      searchParams: Promise.resolve({ ref: ["RFL12345", "RFL67890"] }),
-    });
-    expect(duplicate.props.children.props).toMatchObject({
-      locale: "en-US",
-      referralCode: undefined,
-    });
-
-    const malformed = await CustomerAccountPageRoute({
-      searchParams: Promise.resolve({ ref: "lowercase" }),
-    });
-    expect(malformed.props.children.props).toMatchObject({
-      locale: "en-US",
-      referralCode: undefined,
-    });
   });
 });
