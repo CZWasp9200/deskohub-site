@@ -11,6 +11,11 @@ import {
 } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
+import {
+  deliverWorkspaceBrowserLogs,
+  discardWorkspaceBrowserLogs,
+  type WorkspaceBrowserLogRecord,
+} from "@/shared/browser/workspace-browser-logs";
 import { customerAccountIdSchema } from "./customer-account";
 
 const customerEmail = testEmailAddress("synthetic");
@@ -777,6 +782,159 @@ describe("analytics account identity", () => {
     } finally {
       process.off("unhandledRejection", recordUnhandled);
     }
+  });
+
+  describe("refresh failure logs", () => {
+    const refreshFailureLog: WorkspaceBrowserLogRecord = {
+      attributes: {
+        boundary: "browser",
+        errorType: "Error",
+        failureCode: "account.analytics-session.refresh-failed",
+        operation: "account.analytics-identity.refresh",
+      },
+      body: "Analytics session refresh failed",
+      level: "warn",
+    };
+    let detachLogs: (() => void) | undefined;
+
+    // Earlier failing refreshes leave records waiting for a sink.
+    const collectLogs = () => {
+      discardWorkspaceBrowserLogs();
+      const records: WorkspaceBrowserLogRecord[] = [];
+      detachLogs = deliverWorkspaceBrowserLogs((record) =>
+        records.push(record)
+      );
+      return records;
+    };
+
+    const settleLogs = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+    afterEach(() => {
+      detachLogs?.();
+      detachLogs = undefined;
+      discardWorkspaceBrowserLogs();
+    });
+
+    test("logs each failed refetch once with a stable code and no payload", async () => {
+      unsubscribe = analyticsIdentity.subscribeAnalyticsAccountIdentity(
+        () => undefined
+      );
+      await resolveNextRefetch(anonymousSession());
+      const records = collectLogs();
+
+      const failure = new Error(
+        `synthetic refetch failure for ${customerEmail} with session-token`
+      );
+      setSession({
+        ...authenticatedSession("synthetic-account-a"),
+        refetch: async () => {
+          throw failure;
+        },
+      });
+
+      await expect(
+        analyticsIdentity.refreshAnalyticsAccountIdentity()
+      ).rejects.toBe(failure);
+      await settleLogs();
+      expect(analyticsIdentity.getAnalyticsAccountIdentity()).toEqual({
+        status: "unavailable",
+      });
+      expect(records).toEqual([refreshFailureLog]);
+
+      await expect(
+        analyticsIdentity.refreshAnalyticsAccountIdentity()
+      ).rejects.toBe(failure);
+      await settleLogs();
+      expect(records).toEqual([refreshFailureLog, refreshFailureLog]);
+      expect(JSON.stringify(records)).not.toContain(customerEmail);
+      expect(JSON.stringify(records)).not.toContain("session-token");
+    });
+
+    test("logs a synchronous refetch failure once", async () => {
+      unsubscribe = analyticsIdentity.subscribeAnalyticsAccountIdentity(
+        () => undefined
+      );
+      await resolveNextRefetch(anonymousSession());
+      const records = collectLogs();
+
+      const failure = new TypeError("synthetic synchronous refetch failure");
+      setSession({
+        ...authenticatedSession("synthetic-account-a"),
+        refetch: () => {
+          throw failure;
+        },
+      });
+
+      await expect(
+        analyticsIdentity.refreshAnalyticsAccountIdentity()
+      ).rejects.toBe(failure);
+      await settleLogs();
+      expect(records).toEqual([
+        {
+          ...refreshFailureLog,
+          attributes: {
+            ...refreshFailureLog.attributes,
+            errorType: "TypeError",
+          },
+        },
+      ]);
+    });
+
+    test("does not log a successful refresh", async () => {
+      const records = collectLogs();
+      unsubscribe = analyticsIdentity.subscribeAnalyticsAccountIdentity(
+        () => undefined
+      );
+
+      await resolveNextRefetch(anonymousSession());
+      await settleLogs();
+
+      expect(analyticsIdentity.getAnalyticsAccountIdentity()).toEqual({
+        status: "anonymous",
+      });
+      expect(records).toEqual([]);
+    });
+
+    test("keeps the refresh outcome when the log sink throws", async () => {
+      let unhandledRejections = 0;
+      const recordUnhandled = () => {
+        unhandledRejections += 1;
+      };
+      process.on("unhandledRejection", recordUnhandled);
+      unsubscribe = analyticsIdentity.subscribeAnalyticsAccountIdentity(
+        () => undefined
+      );
+      await resolveNextRefetch(anonymousSession());
+      let sinkCalls = 0;
+      discardWorkspaceBrowserLogs();
+      detachLogs = deliverWorkspaceBrowserLogs(() => {
+        sinkCalls += 1;
+        throw new Error("synthetic log sink failure");
+      });
+
+      const failure = new Error("synthetic refetch failure");
+      setSession({
+        ...authenticatedSession("synthetic-account-a"),
+        refetch: async () => {
+          throw failure;
+        },
+      });
+
+      try {
+        await expect(
+          analyticsIdentity.refreshAnalyticsAccountIdentity()
+        ).rejects.toBe(failure);
+        await settleLogs();
+
+        expect(sinkCalls).toBe(1);
+        expect(analyticsIdentity.getAnalyticsAccountIdentity()).toEqual({
+          status: "unavailable",
+        });
+        expect(unhandledRejections).toBe(0);
+      } finally {
+        process.off("unhandledRejection", recordUnhandled);
+      }
+    });
   });
 
   test("holds pending through older and autoqueued refreshes until explicit mutation outcome", async () => {

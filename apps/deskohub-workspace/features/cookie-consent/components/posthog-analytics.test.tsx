@@ -9,7 +9,14 @@ import {
   test,
 } from "bun:test";
 import { act, cleanup, render } from "@testing-library/react";
-import type { CaptureResult, PostHogConfig } from "posthog-js";
+import { Effect } from "effect";
+import type {
+  CaptureLogOptions,
+  CaptureResult,
+  PostHogConfig,
+} from "posthog-js";
+import { runWorkspaceBrowserEffect } from "@/shared/browser/workspace-browser-effect";
+import { discardWorkspaceBrowserLogs } from "@/shared/browser/workspace-browser-logs";
 import {
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
@@ -104,6 +111,7 @@ const capture = mock(
     return preparedEvent ?? undefined;
   }
 );
+const captureLog = mock((_options: CaptureLogOptions) => undefined);
 const identify = mock((distinctId?: string) => {
   posthogLifecycle.push("identify");
   if (distinctId !== undefined) currentDistinctId = distinctId;
@@ -155,6 +163,7 @@ const onSessionId = mock((listener: (sessionId: string) => void) => {
 
 const posthog = {
   capture,
+  captureLog,
   featureFlags: {
     hasLoadedFlags: false,
     overrideFeatureFlags,
@@ -267,6 +276,7 @@ describe("PostHogAnalytics", () => {
     posthogLifecycle.length = 0;
     init.mockClear();
     capture.mockClear();
+    captureLog.mockClear();
     identify.mockClear();
     optInCapturing.mockClear();
     optOutCapturing.mockClear();
@@ -951,6 +961,109 @@ describe("PostHogAnalytics", () => {
     window.dispatchEvent(new Event("focus"));
     expect(refreshAnalyticsAccountIdentity).toHaveBeenCalledTimes(
       refreshCountBeforeFocus
+    );
+
+    view.unmount();
+  });
+
+  test("delivers browser logs once each, only while analytics is ready", async () => {
+    const { PostHogAnalytics, PostHogProvider } = await import(
+      "./posthog-analytics?browser-logs"
+    );
+    const logBrowserFailure = (failureCode: string) =>
+      act(async () => {
+        await Effect.logWarning("Synthetic browser failure", {
+          failureCode,
+        }).pipe(runWorkspaceBrowserEffect("test.browser-logs"));
+      });
+    const deliveredLog = (failureCode: string): CaptureLogOptions => ({
+      attributes: {
+        boundary: "browser",
+        "deployment.environment.name": "preview",
+        failureCode,
+        operation: "test.browser-logs",
+        "url.full": "https://deskohub.test/account",
+      },
+      body: "Synthetic browser failure",
+      level: "warn",
+    });
+
+    discardWorkspaceBrowserLogs();
+    window.happyDOM.setURL(
+      "https://deskohub.test/account?checkoutToken=synthetic-token#hash"
+    );
+    setConsentCookie(["necessary", "analytics"]);
+    const view = render(
+      <PostHogProvider>
+        <PostHogAnalytics analyticsAccepted posthogEnvironment="preview">
+          <p>synthetic analytics content</p>
+        </PostHogAnalytics>
+      </PostHogProvider>
+    );
+
+    await logBrowserFailure("test.before-ready");
+    expect(captureLog).not.toHaveBeenCalled();
+
+    await act(async () => {
+      publishAnalyticsAccountIdentity({
+        accountId: "account-a",
+        status: "authenticated",
+      });
+    });
+    expect(captureLog.mock.calls).toEqual([
+      [deliveredLog("test.before-ready")],
+    ]);
+
+    await logBrowserFailure("test.while-ready");
+    await act(async () => {
+      publishAnalyticsAccountIdentity({ status: "unavailable" });
+    });
+    await logBrowserFailure("test.while-paused");
+    expect(captureLog.mock.calls).toEqual([
+      [deliveredLog("test.before-ready")],
+      [deliveredLog("test.while-ready")],
+    ]);
+
+    await act(async () => {
+      publishAnalyticsAccountIdentity({
+        accountId: "account-a",
+        status: "authenticated",
+      });
+    });
+    expect(captureLog.mock.calls).toEqual([
+      [deliveredLog("test.before-ready")],
+      [deliveredLog("test.while-ready")],
+      [deliveredLog("test.while-paused")],
+    ]);
+
+    await act(async () => {
+      publishAnalyticsAccountIdentity({ status: "pending" });
+    });
+    await logBrowserFailure("test.before-withdrawal");
+    setConsentCookie(["necessary"]);
+    window.dispatchEvent(
+      new StorageEvent("storage", {
+        key: CONSENT_UPDATED_STORAGE_KEY,
+        newValue: "synthetic-withdrawal-nonce",
+      })
+    );
+    setConsentCookie(["necessary", "analytics"]);
+    window.dispatchEvent(
+      new StorageEvent("storage", {
+        key: CONSENT_UPDATED_STORAGE_KEY,
+        newValue: "synthetic-reconsent-nonce",
+      })
+    );
+    await act(async () => {
+      publishAnalyticsAccountIdentity({
+        accountId: "account-a",
+        status: "authenticated",
+      });
+    });
+
+    expect(captureLog).toHaveBeenCalledTimes(3);
+    expect(JSON.stringify(captureLog.mock.calls)).not.toContain(
+      "synthetic-token"
     );
 
     view.unmount();

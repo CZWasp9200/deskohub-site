@@ -18,9 +18,12 @@ import {
   References,
   Result,
 } from "effect";
+import {
+  CENSORED_LOG_VALUE,
+  censorErrorClassificationValue,
+  errorClassificationKeys,
+} from "@/shared/utils/log-classification";
 import { getSensitiveDatabaseQueryParameterIndexes } from "./database-query-parameter-classifier";
-
-export const CENSORED_LOG_VALUE = "[REDACTED]";
 
 type LogAnnotations = Context.Service.Shape<
   typeof References.CurrentLogAnnotations
@@ -304,21 +307,6 @@ const isEffectDrizzleQueryError = <T>(
   "_tag" in value &&
   value._tag === "EffectDrizzleQueryError";
 
-const censorErrorClassificationValue = <T>(value: T): T | string => {
-  if (Predicate.isBoolean(value)) return value;
-  if (Predicate.isNumber(value)) {
-    return Number.isFinite(value) ? value : CENSORED_LOG_VALUE;
-  }
-  if (
-    Predicate.isString(value) &&
-    value.length <= 64 &&
-    /^(?:[A-Za-z][A-Za-z0-9]*(?:[._:/-][A-Za-z0-9]+)*|[0-9A-Z]{5})$/.test(value)
-  ) {
-    return value;
-  }
-  return CENSORED_LOG_VALUE;
-};
-
 const censorQueryParameter = <T>(
   value: T,
   seen: WeakMap<object, unknown>
@@ -494,18 +482,7 @@ const censorLogValueInternal = <T>(
     };
     seen.set(value, result);
 
-    for (const key of [
-      "_tag",
-      "reason",
-      "operation",
-      "code",
-      "outcome",
-      "failureCode",
-      "errorCode",
-      "status",
-      "statusCode",
-      "constraint",
-    ] as const) {
+    for (const key of errorClassificationKeys) {
       const property = Object.getOwnPropertyDescriptor(value, key);
       if (property && "value" in property) {
         result[key] = censorErrorClassificationValue(property.value);

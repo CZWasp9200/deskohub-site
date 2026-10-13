@@ -1,13 +1,13 @@
 ---
 name: deskohub-effect-v4
-description: Effect V4 service, Layer, workflow, schema, error, and tagged-union handling.
+description: Effect V4 service, Layer, workflow, schema, error, tagged-union handling, Workspace Effect runners, runWorkspaceEffect, runWorkspaceBrowserEffect, client-side or browser Effect runs and logging.
 ---
 
 # Deskohub Effect V4
 
 Read only the references relevant to the change:
 
-- For services, capabilities, Layers, module structure, mocks, tracing, barrels, and tests, read [references/services-and-layers.md](references/services-and-layers.md).
+- For services, capabilities, Layers, module structure, mocks, tracing, barrels, tests, and the server and browser Workspace Effect runners, read [references/services-and-layers.md](references/services-and-layers.md).
 - For multi-step Effect workflows and pipeline structure, read [references/declarative-workflows.md](references/declarative-workflows.md).
 - For validation, schemas, brands, public types, and error mapping, read [references/schemas-errors-and-boundaries.md](references/schemas-errors-and-boundaries.md).
 - For discriminated unions, `_tag` construction, and Effect Match, read [references/tagged-unions-and-match.md](references/tagged-unions-and-match.md).

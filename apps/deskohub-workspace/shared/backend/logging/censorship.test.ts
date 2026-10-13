@@ -27,8 +27,8 @@ type LogAnnotations = Context.Service.Shape<
   typeof References.CurrentLogAnnotations
 >;
 
+import { CENSORED_LOG_VALUE } from "@/shared/utils/log-classification";
 import {
-  CENSORED_LOG_VALUE,
   censorDatabaseQueryParams,
   censorLoggerOptions,
   censorLogValue,

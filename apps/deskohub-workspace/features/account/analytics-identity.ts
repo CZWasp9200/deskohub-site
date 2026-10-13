@@ -1,6 +1,7 @@
 "use client";
 
-import { Option, Schema } from "effect";
+import { Effect, Option, Schema } from "effect";
+import { runWorkspaceBrowserEffect } from "@/shared/browser/workspace-browser-effect";
 import { authClient } from "./auth.client";
 import {
   type CustomerAccountId,
@@ -75,6 +76,7 @@ const authoritativeRefreshOptions: SessionRefetchOptions = {
   query: { disableCookieCache: true },
 };
 const accountSessionChangeStorageKey = "deskohub.account-session-change";
+const sessionRefreshFailureCode = "account.analytics-session.refresh-failed";
 
 const pendingIdentity: AnalyticsAccountIdentity = { status: "pending" };
 const unavailableIdentity: AnalyticsAccountIdentity = {
@@ -317,11 +319,21 @@ const startRefresh = (cycle: RefreshCycle, epoch: number): void => {
       succeeded = true;
     } catch (failure) {
       cause = failure;
+      logSessionRefreshFailure(failure);
     } finally {
       finishRefresh(cycle, epoch, succeeded, cause);
     }
   })();
   syncAnalyticsIdentity();
+};
+
+// Logs each failed refetch once, including one a newer refresh supersedes.
+// The log never settles or delays the refresh cycle.
+const logSessionRefreshFailure = (cause: unknown) => {
+  void Effect.logWarning("Analytics session refresh failed", {
+    cause,
+    failureCode: sessionRefreshFailureCode,
+  }).pipe(runWorkspaceBrowserEffect("account.analytics-identity.refresh"));
 };
 
 const finishRefresh = (

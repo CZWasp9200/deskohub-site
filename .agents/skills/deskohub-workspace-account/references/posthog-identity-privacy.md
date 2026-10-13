@@ -72,6 +72,13 @@ enabling it; existing focus and storage-unavailable fallbacks remain.
 - Later webhooks cannot join a browser without approved persisted consent linkage
   and schema. No new database data export is implemented.
 - The technical OTLP boundary is unchanged.
+- Browser logs from `runWorkspaceBrowserEffect` reach PostHog Logs through
+  `posthog.captureLog` only while analytics is ready: consented, with a settled
+  identity. `captureLog` bypasses `before_send`, so the sink overrides the SDK's
+  `url.full` with the sanitized page URL and adds
+  `deployment.environment.name`. Records logged while analytics is paused wait
+  in a bounded in-memory outbox and are delivered once each on resume, under
+  the then-ready distinct ID; reconciling without consent discards them.
 - The consent-gated server flag cookie and fixed-release strategy are unchanged.
 
 ## SDK flag-request gotcha
