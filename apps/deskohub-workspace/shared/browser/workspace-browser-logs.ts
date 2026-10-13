@@ -1,16 +1,16 @@
 import { Effect, Option, Predicate, References } from "effect";
 import {
   censorErrorClassificationValue,
-  errorClassificationKeys,
+  classifyErrorType,
 } from "@/shared/utils/log-classification";
 
 type WorkspaceBrowserLogAttributes = Record<string, string | number | boolean>;
 
 /**
  * A browser failure reduced to classification attributes: the run's
- * operation and boundary, the failure code, and the error's tag or name.
- * Error messages, stacks, payloads, and every other value are never part of
- * a record.
+ * operation and boundary, the failure code, the error type from a fixed
+ * allowlist, and an HTTP status. Error messages, stacks, payloads, and every
+ * other value are never part of a record.
  */
 export interface WorkspaceBrowserLogRecord {
   readonly attributes: Readonly<WorkspaceBrowserLogAttributes>;
@@ -88,12 +88,16 @@ const toFailureRecord = <Annotations>(
   const attributes: WorkspaceBrowserLogAttributes = {};
   addClassification(attributes, annotations, annotationKeys);
   addClassification(attributes, { failureCode }, ["failureCode"]);
-  addErrorType(attributes, cause);
+  attributes.errorType = classifyErrorType(cause);
+  if (Predicate.hasProperty(cause, "status") && isHttpStatus(cause.status)) {
+    attributes.status = cause.status;
+  }
 
   return { attributes, body: "Workspace browser failure", level: "warn" };
 };
 
-const annotationKeys = ["boundary", ...errorClassificationKeys] as const;
+// Set by `runWorkspaceBrowserEffect` from code literals.
+const annotationKeys = ["boundary", "operation"] as const;
 
 const addClassification = <T>(
   attributes: WorkspaceBrowserLogAttributes,
@@ -115,16 +119,8 @@ const addClassification = <T>(
   }
 };
 
-const addErrorType = <T>(
-  attributes: WorkspaceBrowserLogAttributes,
-  error: T
-) => {
-  if (!Predicate.isObject(error)) return;
-
-  const errorType = Predicate.hasProperty(error, "_tag")
-    ? error._tag
-    : Predicate.hasProperty(error, "name") && error.name;
-  if (Predicate.isString(errorType)) {
-    attributes.errorType = String(censorErrorClassificationValue(errorType));
-  }
-};
+const isHttpStatus = <T>(value: T): value is T & number =>
+  Number.isInteger(value) &&
+  Predicate.isNumber(value) &&
+  value >= 100 &&
+  value <= 599;

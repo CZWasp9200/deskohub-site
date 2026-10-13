@@ -17,7 +17,9 @@ const email = testEmailAddress("browser-logs");
 
 const report = (
   failureCode: string,
-  cause: Error | string = new Error(email)
+  cause: Error | string | Readonly<Record<string, string | number>> = new Error(
+    email
+  )
 ) => Effect.runPromise(reportWorkspaceBrowserFailure(failureCode, cause));
 
 let detach: (() => void) | undefined;
@@ -35,7 +37,7 @@ afterEach(() => {
 });
 
 describe("reportWorkspaceBrowserFailure", () => {
-  test("keeps only classification values from annotations, the code, and the cause", async () => {
+  test("keeps only the run annotations, the code, the error type, and the status", async () => {
     const records = collect();
 
     await Effect.runPromise(
@@ -54,10 +56,10 @@ describe("reportWorkspaceBrowserFailure", () => {
     expect(records).toEqual([
       {
         attributes: {
-          errorType: "SyntheticRefreshError",
+          errorType: "unclassified",
           failureCode: "synthetic.refresh-failed",
           operation: "test.operation",
-          reason: "[REDACTED]",
+          status: 503,
         },
         body: "Workspace browser failure",
         level: "warn",
@@ -73,11 +75,37 @@ describe("reportWorkspaceBrowserFailure", () => {
 
     expect(records).toEqual([
       {
-        attributes: { failureCode: "[REDACTED]" },
+        attributes: { errorType: "unclassified", failureCode: "[REDACTED]" },
         body: "Workspace browser failure",
         level: "warn",
       },
     ]);
+  });
+
+  test("never records identifier-shaped personal data or secrets from the cause", async () => {
+    const records = collect();
+    const renamed = new TypeError(`refresh failed for ${email}`);
+    const nonHttpStatus = { _tag: "synthetic-secret-token", status: 70_000 };
+
+    await report("synthetic.name", { name: "Synthetic-Alice-Smith" });
+    await report("synthetic.tag", nonHttpStatus);
+    await report("synthetic.message", renamed);
+    await Effect.runPromise(
+      reportWorkspaceBrowserFailure("synthetic.annotations", new Error()).pipe(
+        Effect.annotateLogs({ code: "Synthetic-Alice-Smith", token: "sk_x" })
+      )
+    );
+
+    expect(records.map(({ attributes }) => attributes)).toEqual([
+      { errorType: "unclassified", failureCode: "synthetic.name" },
+      { errorType: "unclassified", failureCode: "synthetic.tag" },
+      { errorType: "TypeError", failureCode: "synthetic.message" },
+      { errorType: "Error", failureCode: "synthetic.annotations" },
+    ]);
+    const serialized = JSON.stringify(records);
+    for (const value of ["Alice", "secret", "sk_x", email, "70000"]) {
+      expect(serialized).not.toContain(value);
+    }
   });
 
   test("holds records until a sink attaches and delivers each once", async () => {

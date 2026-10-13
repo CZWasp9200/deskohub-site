@@ -37,3 +37,42 @@ export const censorErrorClassificationValue = <T>(value: T): T | string => {
   }
   return CENSORED_LOG_VALUE;
 };
+
+// Built-in JavaScript and DOM error names. Any code can set an error's `name`
+// or `_tag`, so only these fixed values are trusted to carry no caller data.
+const trustedErrorTypes = new Set([
+  "AbortError",
+  "AggregateError",
+  "DataCloneError",
+  "DataError",
+  "Error",
+  "EvalError",
+  "InvalidStateError",
+  "NetworkError",
+  "NotAllowedError",
+  "NotFoundError",
+  "NotSupportedError",
+  "OperationError",
+  "QuotaExceededError",
+  "RangeError",
+  "ReferenceError",
+  "SecurityError",
+  "SyntaxError",
+  "TimeoutError",
+  "TypeError",
+  "URIError",
+]);
+
+/**
+ * The error's `_tag`, or else its `name`, when that is a built-in JavaScript
+ * or DOM error name; `"unclassified"` for every other value.
+ */
+export const classifyErrorType = <T>(error: T): string => {
+  let type: unknown;
+  if (Predicate.hasProperty(error, "_tag")) type = error._tag;
+  else if (Predicate.hasProperty(error, "name")) type = error.name;
+
+  return Predicate.isString(type) && trustedErrorTypes.has(type)
+    ? type
+    : "unclassified";
+};

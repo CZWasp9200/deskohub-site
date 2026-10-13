@@ -880,6 +880,42 @@ describe("analytics account identity", () => {
       ]);
     });
 
+    test("logs a refetch that resolves with a failed session request once", async () => {
+      unsubscribe = analyticsIdentity.subscribeAnalyticsAccountIdentity(
+        () => undefined
+      );
+      await resolveNextRefetch(anonymousSession());
+      const records = collectLogs();
+
+      await Promise.all([
+        analyticsIdentity.refreshAnalyticsAccountIdentity(),
+        resolveNextRefetch({
+          ...authenticatedSession("synthetic-account-a"),
+          error: {
+            message: `session unavailable for ${customerEmail}`,
+            status: 503,
+            statusText: "Service Unavailable",
+          },
+        }),
+      ]);
+      await settleLogs();
+
+      expect(analyticsIdentity.getAnalyticsAccountIdentity()).toEqual({
+        status: "unavailable",
+      });
+      expect(records).toEqual([
+        {
+          ...refreshFailureLog,
+          attributes: {
+            ...refreshFailureLog.attributes,
+            errorType: "unclassified",
+            status: 503,
+          },
+        },
+      ]);
+      expect(JSON.stringify(records)).not.toContain(customerEmail);
+    });
+
     test("does not log a successful refresh", async () => {
       const records = collectLogs();
       unsubscribe = analyticsIdentity.subscribeAnalyticsAccountIdentity(

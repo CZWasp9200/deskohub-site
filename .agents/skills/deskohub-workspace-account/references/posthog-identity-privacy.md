@@ -77,9 +77,16 @@ enabling it; existing focus and storage-unavailable fallbacks remain.
   only while analytics is ready: consented, with a settled identity.
   `captureLog` bypasses `before_send`, so the sink overrides the SDK's
   `url.full` with the sanitized page URL and adds
-  `deployment.environment.name`. A record carries only classification
-  attributes (operation, boundary, failure code, error type), never messages
-  or payloads.
+  `deployment.environment.name`. A record carries only the operation,
+  boundary, failure code, an allowlisted error type (`unclassified`
+  otherwise), and an HTTP status, never messages or payloads. The
+  `unavailable-session` scenario of the browser verification script asserts
+  the delivered `/i/v1/logs` record against that attribute list.
+- The analytics identity reports `account.analytics-session.refresh-failed`
+  for each authoritative refetch that fails. better-auth 1.7.2's
+  `useSession` `refetch` never rejects for request failures: it records them
+  on the atom's `error` and resolves, so the identity reports both a rejected
+  refetch and one that resolves with an atom error.
 - Approved delivery semantics: a record reported while analytics is paused
   (pending or unavailable identity, or before consent) waits in a bounded
   in-memory outbox of 50 records and is delivered once when analytics next
