@@ -1437,7 +1437,8 @@ const legalDocuments = {
               uplatnit slevu, o kterou jste požádali, při dokončení profilu nebo
               rezervaci. Zapamatuje se jen první doporučovací odkaz, který
               otevřete. Cookie se odstraní, jakmile je doporučení zaznamenáno
-              nebo je zaplacena vaše první rezervace, a nepoužívá se ke sledování.
+              nebo je zaplacena vaše první rezervace, a nepoužívá se ke
+              sledování.
             </>,
           ],
         },
