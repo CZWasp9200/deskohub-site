@@ -64,6 +64,7 @@ import {
   type ReferralHistoryEvidence,
 } from "./eligibility";
 import { referralInvitationDiscountBasisPoints } from "./program";
+import { ReferralFeatureFlagService } from "./referral-feature-flag.service";
 import {
   calculateReferrerDiscountAmount,
   formatReferrerDiscountPercentage,
@@ -184,6 +185,7 @@ export class ReferralService extends Context.Service<
       const dotypos = yield* DotyposService;
       const accountResolver = yield* CustomerAccountResolver;
       const accountLinks = yield* CustomerAccountLinkRepository;
+      const featureFlag = yield* ReferralFeatureFlagService;
 
       const requireCurrentIdentity = Effect.fn(
         "ReferralService.requireCurrentIdentity"
@@ -1152,15 +1154,50 @@ export class ReferralService extends Context.Service<
         )
       );
 
+      // While the program is withheld, no code is a referral code, nothing
+      // prices or attributes a referral, and recorded referrals are not read.
+      const whenReleased =
+        <Input, A, E, R>(
+          operation: (input: Input) => Effect.Effect<A, E, R>,
+          withheld: Effect.Effect<A, E>
+        ) =>
+        (input: Input) =>
+          featureFlag.isEnabled.pipe(
+            Effect.flatMap((released) =>
+              released ? operation(input) : withheld
+            )
+          );
+
       return {
-        getAccountSummary,
-        acceptReferral,
-        lookupCodeKind,
-        findAvailableCode,
-        evaluateCheckoutReferral,
-        hasSettledReferral,
-        resolveInvitationCandidate,
-        resolveReferrerCandidate,
+        getAccountSummary: whenReleased(
+          getAccountSummary,
+          Effect.fail(fail("unavailable"))
+        ),
+        acceptReferral: whenReleased(
+          acceptReferral,
+          Effect.fail(fail("unavailable"))
+        ),
+        lookupCodeKind: whenReleased(
+          lookupCodeKind,
+          Effect.succeed({ kind: "other" } as const)
+        ),
+        findAvailableCode: whenReleased(findAvailableCode, Effect.undefined),
+        evaluateCheckoutReferral: whenReleased(
+          evaluateCheckoutReferral,
+          Effect.fail(fail("unavailable"))
+        ),
+        hasSettledReferral: whenReleased(
+          hasSettledReferral,
+          Effect.succeed(false)
+        ),
+        resolveInvitationCandidate: whenReleased(
+          resolveInvitationCandidate,
+          Effect.undefined
+        ),
+        resolveReferrerCandidate: whenReleased(
+          resolveReferrerCandidate,
+          Effect.undefined
+        ),
       } satisfies IReferralService;
     })
   );
@@ -1168,6 +1205,7 @@ export class ReferralService extends Context.Service<
   static Live = this.Default.pipe(
     Layer.provide(
       Layer.mergeAll(
+        ReferralFeatureFlagService.Live,
         WorkspaceDatabase.Default,
         WorkspaceDatabaseAdvisoryLock.Default,
         WorkspaceDotyposLayer,

@@ -18,6 +18,7 @@ import {
 } from "@/features/checkout/backend/repositories/payment-lifecycle.test-utils";
 import { canonicalPromotionCodeSchema } from "@/features/discounts/persistence-contracts";
 import { ReferralService } from "@/features/referrals";
+import { ReferralFeatureFlagServiceMock } from "@/features/referrals/referral-feature-flag.service.mock";
 import { ReferralSignupIntentRepository } from "@/features/referrals/signup-intent.repository";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import {
@@ -225,6 +226,7 @@ const completionLayer = (options: {
   const referrals = ReferralService.Default.pipe(
     Layer.provide(
       Layer.mergeAll(
+        ReferralFeatureFlagServiceMock({ isEnabled: Effect.succeed(true) }),
         database,
         lock,
         links,

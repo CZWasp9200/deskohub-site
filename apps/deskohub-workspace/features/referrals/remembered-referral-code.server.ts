@@ -8,10 +8,18 @@ import {
   referralCodeCookieName,
   setReferralCodeCookie,
 } from "./referral-code-cookie";
+import { areReferralsEnabled } from "./referral-feature-flag.server";
 
-/** The referral code this browser remembers from a shared link, if any. */
+/**
+ * The referral code this browser remembers from a shared link, if any. While
+ * the referral program is withheld, a remembered code is ignored.
+ */
 export const readRememberedReferralCode = async () =>
-  parseSharedReferralCode((await cookies()).get(referralCodeCookieName)?.value);
+  (await areReferralsEnabled())
+    ? parseSharedReferralCode(
+        (await cookies()).get(referralCodeCookieName)?.value
+      )
+    : undefined;
 
 const isSecureRequest = async () =>
   (await headers()).get("x-forwarded-proto") !== "http";

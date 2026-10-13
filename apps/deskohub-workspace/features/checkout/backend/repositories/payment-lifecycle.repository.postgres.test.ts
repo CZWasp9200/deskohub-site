@@ -70,6 +70,7 @@ import type { DiscountCandidate } from "@/features/discounts/provider";
 import { type Locale, m } from "@/features/i18n";
 import { getReferralInvitationDiscountId } from "@/features/referrals/discount-identifiers";
 import { ReferralService } from "@/features/referrals/referral.service";
+import { ReferralFeatureFlagServiceMock } from "@/features/referrals/referral-feature-flag.service.mock";
 import {
   type WorkspaceReservationId,
   workspaceReservationIdSchema,
@@ -135,6 +136,9 @@ const makeReferralService = async (input?: {
         ReferralService.Default.pipe(
           Layer.provide(
             Layer.mergeAll(
+              ReferralFeatureFlagServiceMock({
+                isEnabled: Effect.succeed(true),
+              }),
               databaseLayer,
               lockLayer,
               accountLinksLayer,

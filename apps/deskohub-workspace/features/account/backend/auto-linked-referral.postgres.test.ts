@@ -19,6 +19,7 @@ import {
 import { canonicalPromotionCodeSchema } from "@/features/discounts/persistence-contracts";
 import { ReferralService } from "@/features/referrals";
 import { parseReferralCode } from "@/features/referrals/client";
+import { ReferralFeatureFlagServiceMock } from "@/features/referrals/referral-feature-flag.service.mock";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import {
   type CustomerAccountId,
@@ -159,6 +160,9 @@ const signIn = (input: {
         ReferralService.Default.pipe(
           Layer.provide(
             Layer.mergeAll(
+              ReferralFeatureFlagServiceMock({
+                isEnabled: Effect.succeed(true),
+              }),
               databaseLayer,
               lockLayer,
               linksLayer,
