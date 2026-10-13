@@ -1,6 +1,8 @@
 import { Effect, Layer } from "effect";
+import { CustomerAccountContactService } from "@/features/account";
 import { CheckoutService } from "@/features/checkout/backend/checkout";
 import { m } from "@/features/i18n";
+import { ReferralService } from "@/features/referrals";
 import type { SubmitReservationInput } from "@/features/reservation/actions/submit-reservation-input";
 import { ReservationAccessCookieError } from "@/features/reservation/backend/reservation-access-cookie";
 import { ReservationAccessCookieWriter } from "@/features/reservation/backend/reservation-access-cookie.server";
@@ -9,7 +11,9 @@ import { submitWorkspaceReservation } from "./submit-workspace-reservation";
 
 const liveLayers = Layer.mergeAll(
   CheckoutService.Live,
-  ReservationAccessCookieWriter.Live
+  ReservationAccessCookieWriter.Live,
+  CustomerAccountContactService.Live,
+  ReferralService.Live
 );
 
 export const submitReservationEffect = (

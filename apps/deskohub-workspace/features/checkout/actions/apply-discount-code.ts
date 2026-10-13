@@ -13,6 +13,8 @@ import { addCheckoutReferralAppliedMarker } from "@/features/checkout/checkout-r
 import type { DiscountCodeRejection } from "@/features/checkout/discount-code-rejection";
 import { defaultLocale, isLocale, type Locale } from "@/features/i18n";
 import { ReferralService } from "@/features/referrals";
+import { parseSharedReferralCode } from "@/features/referrals/referral-code-cookie";
+import { rememberReferralCode } from "@/features/referrals/remembered-referral-code.server";
 import { defineWorkspaceAction } from "@/shared/backend/workspace-action";
 import { applyDiscountCodeSchema } from "./apply-discount-code-input";
 import {
@@ -72,6 +74,10 @@ export async function applyDiscountCodeForm(
     freshPayUrl &&
     (data?.status === "accepted" || data?.status === "already_accepted")
   ) {
+    const acceptedCode = parseSharedReferralCode(
+      Predicate.isString(submittedCode) ? submittedCode : undefined
+    );
+    if (acceptedCode) await rememberReferralCode(acceptedCode);
     redirect(
       addCheckoutReferralAppliedMarker(freshPayUrl, locale) ?? freshPayUrl,
       RedirectType.replace

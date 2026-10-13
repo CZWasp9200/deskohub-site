@@ -15,11 +15,11 @@ Read the business-facing [referral specification](../../../apps/deskohub-workspa
   - It does this only when the browser has none yet, so the first link wins.
   - It injects the cookie into the forwarded request, so the same response's render already reads it.
   - Never thread `ref` through links. Readers use `readRememberedReferralCode()` (`remembered-referral-code.server.ts`).
-  - Clear the cookie once `ReferralService.hasSettledReferral` reports the customer attributed or past a paid booking:
+  - Account pages clear the cookie once `ReferralService.hasSettledReferral` reports the customer attributed or past a paid booking. Checkout uses `isBookerReferralSettled` (`features/checkout/backend/checkout/booker-referral-settlement.ts`, with a page wrapper in `.server.ts`): it checks the booker's own customer, which is the signed-in account's linked customer, or else the booked customer of a guest booking. Booking for someone else never clears the booker's cookie. To clear:
     - Server Actions and route handlers call `forgetRememberedReferralCode()`;
     - Server Component pages render `ForgetRememberedReferralCode`.
   - Check settlement only when the cookie is present.
-  - A code typed in the completion field or the checkout box always takes precedence.
+  - A code typed in the completion field or the checkout box always takes precedence. A typed checkout referral that is accepted or already accepted is written with `rememberReferralCode`, replacing any stored code, so an order edit keeps it. Rejected codes are never stored.
 - `features/referrals/index.ts` exports `ReferralService`; `ReferralError` and the public referral types live in `features/referrals/contracts.ts`. Use `ReferralService.Live` for production composition. `lookupCodeKind` is a pure registry lookup; it may distinguish referral from ordinary codes but must not issue a code or change attribution.
 - `getAccountSummary` is an explicit account read that may create the customer's durable share code. Do not call it from quote or checkout pricing.
 - `findAvailableCode` is a read-only check that returns the canonical code only when it is an enabled, currently valid referral code whose owner has a linked account without pending deletion. Use it to validate or prefill a code before any write; it never issues codes or attributions.

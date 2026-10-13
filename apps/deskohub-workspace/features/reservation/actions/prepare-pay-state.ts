@@ -35,6 +35,7 @@ import {
   payStateDefaultTtlMilliseconds,
   sealPayStateForUrl,
 } from "@/features/checkout/backend/checkout";
+import { isBookerReferralSettled } from "@/features/checkout/backend/checkout/booker-referral-settlement";
 import {
   deriveCheckoutAttemptKeys,
   deriveCheckoutSessionKeys,
@@ -845,16 +846,18 @@ const findReferralCodePrefill = Effect.fn(
 });
 
 /**
- * Forgets the remembered referral code once the booked customer's referral is
- * settled: attributed, or closed by a paid booking. A failed check keeps the
- * code and never blocks checkout.
+ * Forgets the remembered referral code once the booker's own referral is
+ * settled. Booking for someone else checks the booker, never the friend. A
+ * failed check keeps the code and never blocks checkout.
  */
 const forgetSettledReferralCode = Effect.fn(
   "preparePayState.forgetSettledReferralCode"
 )(
-  function* (dotyposCustomerId: DotyposCustomerId) {
-    const referrals = yield* ReferralService;
-    const settled = yield* referrals.hasSettledReferral({ dotyposCustomerId });
+  function* (bookedCustomerId: DotyposCustomerId) {
+    const settled = yield* isBookerReferralSettled({
+      bookedCustomerId,
+      paid: false,
+    });
     if (!settled) return;
 
     yield* Effect.tryPromise(() => forgetRememberedReferralCode());

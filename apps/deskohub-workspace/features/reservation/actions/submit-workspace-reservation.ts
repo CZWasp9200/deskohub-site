@@ -1,5 +1,6 @@
 import { Effect, Match } from "effect";
 import { CheckoutService } from "@/features/checkout/backend/checkout";
+import { isBookerReferralSettled } from "@/features/checkout/backend/checkout/booker-referral-settlement";
 import { m } from "@/features/i18n";
 import {
   forgetRememberedReferralCode,
@@ -18,14 +19,19 @@ import { BotProtectionService } from "@/shared/backend/bot-protection/bot-protec
 import { PublicSafeActionError } from "@/shared/utils/safe-action-client";
 
 /**
- * A paid order records any carried referral, and a first paid order closes the
- * referral window, so the browser's remembered code is of no further use. The
- * payment already succeeded, so a failure here is only logged.
+ * A paid order records any carried referral, and the booker's first paid
+ * order closes their referral window, so the browser's remembered code is of
+ * no further use once the booker's own referral is settled. Booking for
+ * someone else keeps it. The payment already succeeded, so a failure here is
+ * only logged.
  */
-const forgetUsedReferralCode = Effect.tryPromise(async () => {
-  if (await readRememberedReferralCode()) {
-    await forgetRememberedReferralCode();
-  }
+const forgetUsedReferralCode = Effect.gen(function* () {
+  const rememberedCode = yield* Effect.tryPromise(() =>
+    readRememberedReferralCode()
+  );
+  if (!rememberedCode) return;
+  if (!(yield* isBookerReferralSettled({ paid: true }))) return;
+  yield* Effect.tryPromise(() => forgetRememberedReferralCode());
 }).pipe(
   Effect.catch((cause) =>
     Effect.logWarning("Remembered referral code could not be forgotten", {
