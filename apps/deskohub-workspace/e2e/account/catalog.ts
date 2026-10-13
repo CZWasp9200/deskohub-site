@@ -34,10 +34,12 @@ export const workspaceE2EAccountMagicLinkLedger = {
   "account-profile-completion": [],
   "account-reservation-transitions": [],
   "account-deletion-marker-reauth": ["send"],
-  // The reauthentication sign-in and the rejected replay of its link.
+  // The reauthentication sign-in, which must land on the pending account's
+  // saved Czech site from its English callback, and the rejected replay.
   "account-session-lifecycle": ["verify", "verify"],
   "account-deletion-and-reactivation": ["send", "verify"],
-  // Reuses the session the reactivation sign-in opened.
+  // Reuses the session the reactivation sign-in opened; the saved-locale
+  // sign-in landing is proved by the session-lifecycle reauthentication.
   "account-locale-preference": [],
   "account-linking-variants": [],
 } as const satisfies Readonly<

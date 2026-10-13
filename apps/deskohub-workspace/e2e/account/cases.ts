@@ -42,6 +42,7 @@ import {
   findAuthUserIdByEmail,
   findLinkedDotyposCustomerId,
   removeSyntheticAccountLink,
+  setAccountLocalePreference,
   setDeletionRequestedAt,
   setSessionCreatedAt,
 } from "./auth-rows";
@@ -82,6 +83,10 @@ const supportTitle = "We need to verify your profile";
 const deletionPendingTitle = "Account deletion is pending";
 const deletionReauthLinkSent =
   "If the address can receive mail, a new link is on its way.";
+const czechDeletionPendingTitle = m.accountDeletionPendingTitle(
+  {},
+  { locale: "cs-CZ" }
+);
 const deletedTitle = "Your account was deleted";
 const currentReservationsTitle = "Current and upcoming";
 const pastReservationsTitle = "Past reservations";
@@ -1057,16 +1062,31 @@ export const makeWorkspaceE2EAccountCases = ({
             navigationTimeout
           )
         );
+        // A deletion-pending account keeps its saved preference but rejects
+        // every save, so a fixture gives it Čeština. The reauthentication
+        // link carries the English callback of the page that sent it, and
+        // the sign-in must still land on the saved Czech site.
+        yield* runStep(
+          step(
+            "saves Čeština as the pending account's preference",
+            setAccountLocalePreference(reauthentication.userId, "cs-CZ"),
+            datasourceTimeout
+          )
+        );
         yield* rateBudget.run(
           "verify",
           runStep(
             step(
-              "signs the same account back in",
+              "signs the same account back in onto the saved Czech site",
               Effect.gen(function* () {
                 yield* openPage(reauthentication.link);
+                yield* waitPathname(
+                  "Czech account landing after the en-US reauthentication link",
+                  (pathname) => pathname === `/cs-CZ${accountSuffix}`
+                );
                 yield* waitText(
-                  "deletion pending state after reauthentication",
-                  deletionPendingTitle
+                  "Czech deletion pending state after reauthentication",
+                  czechDeletionPendingTitle
                 );
                 const userId = yield* requireAuthUserId(recipient);
                 assert(
@@ -1081,6 +1101,27 @@ export const makeWorkspaceE2EAccountCases = ({
               }),
               providerTransition
             )
+          )
+        );
+        yield* runStep(
+          step(
+            "restores English (US) before completing the deletion",
+            Effect.gen(function* () {
+              yield* setAccountLocalePreference(
+                reauthentication.userId,
+                "en-US"
+              );
+              yield* openPage(localized(accountSuffix));
+              yield* waitPathname(
+                "English pending account after restoring the preference",
+                (pathname) => pathname === `/en-US${accountSuffix}`
+              );
+              yield* waitText(
+                "deletion pending state after restoring English",
+                deletionPendingTitle
+              );
+            }),
+            accountPageLoadTimeout
           )
         );
         yield* runStep(
@@ -1379,6 +1420,8 @@ export const makeWorkspaceE2EAccountCases = ({
         // The case reuses the session the reactivation sign-in opened: the
         // lane's magic-link ledger has no room for another sign-in, and a
         // new link here would wait out the full rate-limit quiet window.
+        // The session-lifecycle reauthentication proves that a sign-in from
+        // an English callback lands on the saved Czech site.
         yield* runStep(
           step(
             "opens the English profile of the reactivated account",

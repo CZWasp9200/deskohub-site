@@ -196,10 +196,15 @@ Distinguish automated-runner behavior from manual procedures before treating a d
   `account-locale-preference` added two sign-ins and took about 10.9 minutes).
   Declare each case's sends and verifications in
   `workspaceE2EAccountMagicLinkLedger` (`e2e/account/catalog.ts`).
-  `catalog.test.ts` replays the ledger through the real budget, and the
-  `cases.test.ts` lane run checks that each executed case spends exactly its
-  entry. A new link has to fit the ledger: reuse the lane's signed-in session
-  or a link it already spends. A different synthetic identity does not
+  `catalog.test.ts` replays the ledger through the real budget. The
+  `cases.test.ts` lane run executes every catalog case against the real budget
+  through the fake boundary and checks that each case spends exactly its entry;
+  extend that fake when a case gains a new browser or fixture interaction. A
+  new link has to fit the ledger: reuse the lane's signed-in session or a link
+  it already spends. The saved-locale sign-in landing reuses the
+  session-lifecycle reauthentication: a fixture saves Čeština on the
+  deletion-pending account, which rejects application saves, and then restores
+  English (US) before the deletion continues. A different synthetic identity does not
   change the limiter key, and the replayed-link check the account skill
   requires keeps its verification.
 - Treat a successful Dotypos cancellation response as issued, not converged.

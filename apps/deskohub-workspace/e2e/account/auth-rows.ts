@@ -3,6 +3,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { Effect } from "effect";
 import { authSession, authUser } from "@/db/schema/auth";
 import { customerAccountLinks } from "@/db/schema/customer-account-links";
+import type { Locale } from "@/features/i18n";
 import { sensitiveDatabaseParameter } from "@/shared/backend/logging/database-query-parameter-classifier";
 import type { WorkspaceE2EError } from "../errors";
 import { workspaceE2EError } from "../errors";
@@ -127,6 +128,24 @@ export const setDeletionRequestedAt = (
         .update(authUser)
         .set({ deletionRequestedAt: value })
         .where(eq(authUser.id, accountId))
+    );
+  });
+
+/**
+ * Sets the saved locale preference of the exact synthetic account. A
+ * deletion-pending account keeps its preference but rejects every save
+ * through the application, so the lane uses this fixture to give the
+ * pending account a preference its reauthentication sign-in must honor.
+ */
+export const setAccountLocalePreference = (
+  accountId: string,
+  locale: Locale
+): Effect.Effect<void, WorkspaceE2EError, E2EDatabase> =>
+  Effect.gen(function* () {
+    const { db } = yield* E2EDatabase;
+    yield* runDatabaseOperation(
+      "set synthetic account locale preference",
+      db.update(authUser).set({ locale }).where(eq(authUser.id, accountId))
     );
   });
 
