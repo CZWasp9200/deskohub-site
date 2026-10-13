@@ -1,17 +1,19 @@
 import "server-only";
 
 import type { CheckoutStatusKind } from "@/features/checkout/backend/checkout";
+import { checkBookerReferralSettled } from "@/features/checkout/backend/checkout/booker-referral-settlement.server";
 import { isPaidCheckoutStatus } from "@/features/checkout/paid-checkout-status";
 import { ForgetRememberedReferralCode } from "@/features/referrals/forget-remembered-referral-code";
 import { readRememberedReferralCode } from "@/features/referrals/remembered-referral-code.server";
 
 /**
  * Forgets the browser's remembered referral code once the status page shows
- * its order paid: the payment recorded any carried referral, and a first paid
- * order closes the referral window anyway. The status page is the first
- * response that knows, because the provider return only redirects here and
- * reconciliation runs on this render. An unauthorized visit shows `not_found`
- * and keeps the code.
+ * its order paid and the booker's own referral is settled: the payment
+ * recorded any carried referral, and the booker's first paid order closes
+ * their window. An order booked for someone else keeps the booker's code. The
+ * status page is the first response that knows, because the provider return
+ * only redirects here and reconciliation runs on this render. An unauthorized
+ * visit shows `not_found` and keeps the code.
  */
 export async function CheckoutStatusReferralCodeSettlement({
   status,
@@ -20,5 +22,8 @@ export async function CheckoutStatusReferralCodeSettlement({
 }) {
   if (!isPaidCheckoutStatus(status)) return null;
   const rememberedReferralCode = await readRememberedReferralCode();
-  return rememberedReferralCode ? <ForgetRememberedReferralCode /> : null;
+  if (!rememberedReferralCode) return null;
+  return (await checkBookerReferralSettled({ paid: true })) ? (
+    <ForgetRememberedReferralCode />
+  ) : null;
 }

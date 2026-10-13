@@ -35,6 +35,14 @@ mock.module("@/shared/backend/workspace-action", () => ({
 
 let operationResult: ApplyDiscountCodeResult;
 
+// The referral code this browser remembers; an accepted typed code replaces it.
+let rememberedReferralCode: string | undefined;
+mock.module("@/features/referrals/remembered-referral-code.server", () => ({
+  rememberReferralCode: async (code: string) => {
+    rememberedReferralCode = code;
+  },
+}));
+
 const runForm = async (
   result: ApplyDiscountCodeResult,
   input: {
@@ -91,6 +99,47 @@ describe("applyDiscountCodeForm", () => {
       );
 
       expect(redirectedUrl).toBe(freshPayUrl);
+    }
+  );
+
+  test.each(["accepted", "already_accepted"] as const)(
+    "remembers a typed referral code once it is %s, replacing the stored one",
+    async (status) => {
+      rememberedReferralCode = "RFLSHARED";
+      await runForm(
+        {
+          status,
+          freshPayUrl: "/en-US/checkout/pay?payState=fresh-referral-state",
+        },
+        { payStateToken: "original-token", submittedCode: " rfl12345 " }
+      );
+
+      expect(rememberedReferralCode).toBe("RFL12345");
+    }
+  );
+
+  test.each([
+    { status: "already_attributed" },
+    { status: "ineligible" },
+    { status: "unavailable" },
+    {
+      status: "applied",
+      freshPayUrl: "/en-US/checkout/pay?payState=ordinary-state",
+    },
+    {
+      status: "pricing_changed",
+      freshPayUrl: "/en-US/checkout/pay?payState=changed-state",
+    },
+  ] as const)(
+    "keeps the stored code when a typed code is not accepted as a referral: $status",
+    async (result) => {
+      rememberedReferralCode = "RFLSHARED";
+      await runForm(result as ApplyDiscountCodeResult, {
+        payStateToken: "original-token",
+        submittedCode: "RFL12345",
+      });
+
+      expect(rememberedReferralCode).toBe("RFLSHARED");
     }
   );
 

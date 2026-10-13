@@ -434,9 +434,9 @@ const runReusableReservationScenario = async (input: {
     () =>
       input.accountContact ?? Effect.die("the account contact must not be read")
   );
+  // Without a fixture the session has no linked account, as for a guest.
   const readLinkedAccount = mock(
-    () =>
-      input.linkedAccount ?? Effect.die("the linked account must not be read")
+    () => input.linkedAccount ?? Effect.succeed(null)
   );
   const evaluateCheckoutReferral =
     input.evaluateCheckoutReferral ??
@@ -1829,7 +1829,6 @@ describe("prepareWorkspacePayState", () => {
           expect(findAvailableCode.mock.calls).toEqual([
             [{ code: "RFL12345" }],
           ]);
-          expect(scenario.readLinkedAccount).not.toHaveBeenCalled();
           expect(scenario.evaluateCheckoutReferral).not.toHaveBeenCalled();
           expect(await requestedCodeOf(scenario.result)).toBe("RFL12345");
           expect(redirectUrlOf(scenario.result)).not.toContain("RFL12345");
@@ -1979,6 +1978,42 @@ describe("prepareWorkspacePayState", () => {
             [{ dotyposCustomerId }],
           ]);
           expect(scenario.rememberedReferralCodeAfter).toBeUndefined();
+        }
+      );
+
+      test.each([
+        ["a settled friend leaves the booker's code", false, true],
+        ["a settled booker clears the booker's code", true, false],
+      ] as const)(
+        "checks the booker, not the friend, when booking for someone else: %s",
+        async (_label, bookerSettled, kept) => {
+          // The friend booked for is always settled; only the booker's own
+          // customer decides whether the booker's remembered code is used.
+          const hasSettledReferral = mock(
+            ({ dotyposCustomerId }: { readonly dotyposCustomerId: string }) =>
+              Effect.succeed(
+                dotyposCustomerId === accountDotyposCustomerId
+                  ? bookerSettled
+                  : true
+              )
+          );
+          const scenario = await runReusableReservationScenario({
+            findByAttemptKeys: mock(() => Effect.succeed(null)),
+            createDraft: createFreshDraft(),
+            accountAuthority: { session: {}, activityState: "active" },
+            linkedAccount: linkedAccount(),
+            rememberedReferralCode: "RFL12345",
+            findAvailableCode: mock(() => Effect.succeed(undefined)),
+            hasSettledReferral,
+          });
+
+          expect(scenario.result?.status).toBe("ready");
+          expect(hasSettledReferral.mock.calls).toEqual([
+            [{ dotyposCustomerId: accountDotyposCustomerId }],
+          ]);
+          expect(scenario.rememberedReferralCodeAfter).toBe(
+            kept ? "RFL12345" : undefined
+          );
         }
       );
 

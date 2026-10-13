@@ -12,9 +12,9 @@ A customer's referral can come from exactly three sources:
   - On a first-time sign-in, the profile-completion referral field is pre-filled with it when the code can be used.
   - When the first sign-in links the account to an existing Workspace customer record, so that profile completion is skipped, the code becomes the customer's referral automatically if they are eligible.
   - When a signed-in customer books for themselves, checkout applies it automatically. When a guest books, or someone books for another person, a usable code is pre-filled in the checkout code field, and they apply it like a typed code.
-  - A code the customer types in the completion field or checkout code field takes precedence over the remembered one.
+  - A code the customer types in the completion field or checkout code field takes precedence over the remembered one. A referral code typed at checkout and accepted replaces the remembered code, so editing the order keeps it.
   - A remembered code that can't be used is ignored without blocking sign-up or checkout.
-  - The browser forgets the code once the customer's referral is recorded or their first booking is paid.
+  - The browser forgets the code once the booker's own referral is recorded or their own first booking is paid. Booking for someone else never makes the booker's browser forget it.
   - The remembered code stays in the browser that opened the link, so opening the sign-in email on another device doesn't carry it over.
 
 There is no separate step for accepting an invitation.

@@ -8,6 +8,18 @@ mock.module("server-only", () => ({}));
 mock.module("@/features/referrals/remembered-referral-code.server", () => ({
   readRememberedReferralCode: async () => rememberedReferralCode,
 }));
+// Whether the booker's own referral is settled; a friend's never counts.
+let bookerSettled = true;
+const bookerChecks: { readonly paid: boolean }[] = [];
+mock.module(
+  "@/features/checkout/backend/checkout/booker-referral-settlement.server",
+  () => ({
+    checkBookerReferralSettled: async (booking: { readonly paid: boolean }) => {
+      bookerChecks.push(booking);
+      return bookerSettled;
+    },
+  })
+);
 
 const renderSettlement = async (
   status: CheckoutStatusKind,
@@ -57,6 +69,19 @@ describe("CheckoutStatusReferralCodeSettlement", () => {
   );
 
   test("renders nothing for a paid order without a remembered code", async () => {
+    bookerChecks.length = 0;
     expect(await renderSettlement("fulfilled", {})).toBeNull();
+    expect(bookerChecks).toEqual([]);
+  });
+
+  test("keeps the booker's code when the paid order was booked for a friend", async () => {
+    bookerSettled = false;
+    bookerChecks.length = 0;
+    try {
+      expect(await renderSettlement("fulfilled")).toBeNull();
+      expect(bookerChecks).toEqual([{ paid: true }]);
+    } finally {
+      bookerSettled = true;
+    }
   });
 });
