@@ -736,7 +736,10 @@ class LocalPostHogServer {
     if (delayMs > 0) await sleep(delayMs);
     if (getSessionUnavailable) {
       return this.json(
-        { code: "synthetic-session-unavailable", message: "Unavailable" },
+        {
+          code: "synthetic-session-unavailable",
+          message: `Unavailable for ${syntheticEmail}`,
+        },
         { status: 503 }
       );
     }
@@ -947,6 +950,10 @@ class LocalPostHogServer {
 
     if (this.isRemoteConfigPath(pathname)) {
       return this.json(this.remoteConfig());
+    }
+
+    if (request.method === "POST" && pathname === browserLogsPath) {
+      return this.json({});
     }
 
     if (request.method === "POST" && this.isIngestPath(pathname)) {
@@ -1570,6 +1577,113 @@ const waitForEvent = async (
 
 const waitForFixtureEvent = async (server: LocalPostHogServer) =>
   waitForEvent(server, "fixture-sensitive-event");
+
+const browserLogsPath = "/i/v1/logs";
+
+type CapturedLogRecord = {
+  readonly attributes: ReadonlyMap<string, string>;
+  readonly body: string | undefined;
+};
+
+const otlpValueText = (value: JsonValue | undefined) => {
+  if (!isJsonObject(value)) return undefined;
+  const [first] = Object.values(value);
+  return first === undefined ? undefined : String(first);
+};
+
+const jsonArrayAt = (value: JsonValue | undefined, key: string) => {
+  if (!isJsonObject(value)) return [];
+  const nested = value[key];
+  return nested !== undefined && isJsonArray(nested) ? nested : [];
+};
+
+const extractLogRecords = (value: JsonValue): CapturedLogRecord[] =>
+  jsonArrayAt(value, "resourceLogs").flatMap((resourceLog) =>
+    jsonArrayAt(resourceLog, "scopeLogs").flatMap((scopeLog) =>
+      jsonArrayAt(scopeLog, "logRecords").flatMap((logRecord) => {
+        if (!isJsonObject(logRecord)) return [];
+        const attributes = new Map<string, string>();
+        for (const attribute of jsonArrayAt(logRecord, "attributes")) {
+          if (!isJsonObject(attribute) || !isJsonString(attribute.key))
+            continue;
+          attributes.set(
+            attribute.key,
+            otlpValueText(attribute.value) ?? "<unreadable>"
+          );
+        }
+        return [{ attributes, body: otlpValueText(logRecord.body) }];
+      })
+    )
+  );
+
+const capturedLogRecords = (
+  server: LocalPostHogServer,
+  sinceRequest: number
+): CapturedLogRecord[] =>
+  server
+    .allPostHogRequests()
+    .slice(sinceRequest)
+    .filter(
+      (request) => request.method === "POST" && request.path === browserLogsPath
+    )
+    .flatMap((request) => {
+      check(request.body.ok, "browser-log-unreadable");
+      return extractLogRecords(request.body.value);
+    });
+
+// Attributes the refresh-failure report sets, plus the SDK's own context.
+const allowedBrowserLogAttributes = new Set([
+  "boundary",
+  "deployment.environment.name",
+  "errorType",
+  "failureCode",
+  "lastActivityTimestamp",
+  "operation",
+  "posthogDistinctId",
+  "sessionId",
+  "sessionStartTimestamp",
+  "status",
+  "url.full",
+  "window.id",
+]);
+
+const assertRefreshFailureLog = (record: CapturedLogRecord) => {
+  check(
+    record.body === "Workspace browser failure",
+    "refresh-failure-log-body"
+  );
+  for (const key of record.attributes.keys()) {
+    check(
+      allowedBrowserLogAttributes.has(key),
+      `refresh-failure-log-attribute:${key}`
+    );
+  }
+  const attribute = (key: string) => record.attributes.get(key);
+  check(
+    attribute("failureCode") === "account.analytics-session.refresh-failed",
+    "refresh-failure-log-code"
+  );
+  check(
+    attribute("operation") === "account.analytics-identity.refresh" &&
+      attribute("boundary") === "browser",
+    "refresh-failure-log-operation"
+  );
+  check(
+    attribute("errorType") === "unclassified" && attribute("status") === "503",
+    "refresh-failure-log-classification"
+  );
+  const pageUrl = attribute("url.full") ?? "";
+  check(
+    pageUrl.startsWith(`${fixtureBaseUrl}/`) &&
+      !pageUrl.includes("?") &&
+      !pageUrl.includes("#"),
+    "refresh-failure-log-url"
+  );
+  check(
+    attribute("posthogDistinctId") === accountDistinctIds.B,
+    "refresh-failure-log-distinct-id"
+  );
+};
 
 const isFeatureFlagsRequest = (request: PostHogRequestRecord) =>
   request.path === "/flags" || request.path.startsWith("/flags/");
@@ -2249,6 +2363,24 @@ const runUnavailableSessionScenario = async (
     );
     check(server.ingestMark() === 0, "unavailable-stale-ingest");
 
+    // An authoritative refresh that fails while analytics is paused is held,
+    // then delivered once to PostHog Logs after analytics resumes.
+    const logsRequestMark = server.allPostHogRequests().length;
+    const consoleErrorsBeforeLoggedRefresh = fixture.problems.consoleErrors;
+    await refreshAnalyticsAccountIdentity(fixture.page);
+    await waitForSessionUnavailable(fixture.page);
+    await waitFor(
+      () =>
+        fixture.problems.consoleErrors === consoleErrorsBeforeLoggedRefresh + 1,
+      "unavailable-logged-refresh-console-error"
+    );
+    fixture.problems.expectedConsoleErrors += 1;
+    await sleep(3_500);
+    check(
+      capturedLogRecords(server, logsRequestMark).length === 0,
+      "unavailable-log-sent-while-paused"
+    );
+
     server.updateRun(fixture.runId, {
       getSessionDelayMs: 0,
       getSessionUnavailable: false,
@@ -2264,6 +2396,13 @@ const runUnavailableSessionScenario = async (
       captures.some((event) => eventDistinctId(event) === accountDistinctIds.B),
       "unavailable-recovery-identity"
     );
+    await waitFor(
+      () => capturedLogRecords(server, logsRequestMark).length > 0,
+      "refresh-failure-log-missing"
+    );
+    for (const record of capturedLogRecords(server, logsRequestMark)) {
+      assertRefreshFailureLog(record);
+    }
   } finally {
     await closeFixture(fixture);
   }
