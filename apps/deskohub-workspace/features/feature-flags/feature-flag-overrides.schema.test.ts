@@ -51,7 +51,6 @@ describe("PostHog feature flag override environment schema", () => {
     ["an array", "[]"],
     ["a primitive", "true"],
     ["null", "null"],
-    ["an unknown key", '{"seasonal_menu":true}'],
     ["a non-boolean value", '{"discount_codes":"treatment"}'],
   ])("rejects %s as PostHog feature flag overrides", (_case, overrides) => {
     expect(() =>
@@ -60,6 +59,46 @@ describe("PostHog feature flag override environment schema", () => {
         VERCEL_ENV: "preview",
       })
     ).toThrow();
+  });
+
+  test("defers unknown keys and their unvalidated values to the contract resolver outside production", () => {
+    for (const VERCEL_ENV of ["preview", "development"] as const) {
+      expect(
+        decodeFeatureFlagOverrideEnvironment({
+          POSTHOG_FEATURE_FLAG_OVERRIDES:
+            '{"discount_codes":true,"referrals":true,"seasonal_menu":"synthetic-variant"}',
+          VERCEL_ENV,
+        }).POSTHOG_FEATURE_FLAG_OVERRIDES
+      ).toEqual({
+        discount_codes: true,
+        referrals: true,
+        seasonal_menu: "synthetic-variant",
+      });
+    }
+  });
+
+  test("rejects unknown keys in production", () => {
+    expect(() =>
+      decodeFeatureFlagOverrideEnvironment({
+        POSTHOG_FEATURE_FLAG_OVERRIDES: '{"referrals":true}',
+        VERCEL_ENV: "production",
+      })
+    ).toThrow();
+  });
+
+  test("rejects a known key with a non-boolean value in every deployment", () => {
+    for (const VERCEL_ENV of [
+      "production",
+      "preview",
+      "development",
+    ] as const) {
+      expect(() =>
+        decodeFeatureFlagOverrideEnvironment({
+          POSTHOG_FEATURE_FLAG_OVERRIDES: '{"discount_codes":"treatment"}',
+          VERCEL_ENV,
+        })
+      ).toThrow();
+    }
   });
 
   test("accepts non-empty overrides only outside production", () => {
