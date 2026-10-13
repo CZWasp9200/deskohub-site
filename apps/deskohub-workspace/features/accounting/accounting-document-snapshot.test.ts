@@ -12,10 +12,8 @@ import {
 } from "@/features/checkout/checkout-quote.test-utils";
 import { buildOfficeReservationQuote } from "@/features/checkout/reservation-quote-office";
 import { normalizedOfficeReservationOrderSchema } from "@/features/reservation/office-reservation";
-import {
-  CENSORED_LOG_VALUE,
-  censorDatabaseQueryParams,
-} from "@/shared/backend/logging/censorship";
+import { censorDatabaseQueryParams } from "@/shared/backend/logging/censorship";
+import { CENSORED_LOG_VALUE } from "@/shared/utils/log-classification";
 import {
   accountingDocumentSnapshotSchema,
   decodeStoredAccountingDocumentSnapshot,

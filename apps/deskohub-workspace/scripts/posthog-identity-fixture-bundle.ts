@@ -71,6 +71,7 @@ const createBuildPlugin = (posthogHost: string): Bun.BunPlugin => ({
           export const useRouter = () => ({ push() {}, replace() {}, refresh() {}, back() {} });
           export const redirect = () => {};
           export const notFound = () => {};
+          export const unstable_rethrow = () => {};
         `,
         loader: "js",
       })

@@ -15,6 +15,11 @@ import {
 import type { PostHogFeatureFlagDefinitions } from "@/features/feature-flags/generated/contract";
 import { applyFeatureFlagOverrides } from "@/features/feature-flags/react";
 import {
+  deliverWorkspaceBrowserLogs,
+  discardWorkspaceBrowserLogs,
+  type WorkspaceBrowserLogRecord,
+} from "@/shared/browser/workspace-browser-logs";
+import {
   getAcceptedConsentCategoriesFromCookieValue,
   getConsentCookieValuesFromCookie,
 } from "@/shared/utils/consent-cookie";
@@ -56,6 +61,10 @@ let lastReadyAnalyticsAccountIdentity:
   | undefined;
 let hasReadyAnalyticsConsent = false;
 let analyticsTelemetryHostAllowed = false;
+let workspaceBrowserLogSink:
+  | ((record: WorkspaceBrowserLogRecord) => void)
+  | undefined;
+let detachWorkspaceBrowserLogs: (() => void) | undefined;
 
 export function PostHogProvider({
   children,
@@ -287,6 +296,7 @@ function initializePostHog({
   );
   clearPostHogInitialPersonProperties();
   hasInitializedPostHog = true;
+  workspaceBrowserLogSink = createWorkspaceBrowserLogSink(posthogEnvironment);
   posthog.stopSessionRecording();
   posthogIdentityController = createPostHogIdentityController(posthog, {
     onPause: handlePostHogPause,
@@ -319,6 +329,11 @@ function pausePostHogObserver() {
 }
 
 function reconcilePostHogIdentity(consented = getCurrentAnalyticsConsent()) {
+  // Browser logs held while analytics is paused never outlive its consent.
+  if (!analyticsTelemetryHostAllowed || !consented) {
+    discardWorkspaceBrowserLogs();
+  }
+
   if (!analyticsTelemetryHostAllowed) {
     if (!posthogIdentityController) {
       clearPostHogSessionCookies();
@@ -388,6 +403,9 @@ function isSdkIdentityReady(identity: SettledAnalyticsAccountIdentity) {
 }
 
 function handlePostHogPause() {
+  detachWorkspaceBrowserLogs?.();
+  detachWorkspaceBrowserLogs = undefined;
+
   const consented =
     analyticsTelemetryHostAllowed && getCurrentAnalyticsConsent();
   if (!consented) {
@@ -432,6 +450,27 @@ function handlePostHogReady() {
   });
   posthog.reloadFeatureFlags();
   capturePostHogPageviewIfNeeded();
+  if (workspaceBrowserLogSink) {
+    detachWorkspaceBrowserLogs ??= deliverWorkspaceBrowserLogs(
+      workspaceBrowserLogSink
+    );
+  }
+}
+
+// Browser logs wait for the same consented, settled identity as events: a
+// record logged while analytics is paused is delivered once it resumes.
+function createWorkspaceBrowserLogSink(posthogEnvironment: string) {
+  return ({ attributes, body, level }: WorkspaceBrowserLogRecord) => {
+    posthog.captureLog({
+      attributes: {
+        ...attributes,
+        "deployment.environment.name": posthogEnvironment,
+        "url.full": createPostHogPageUrl(window.location.href),
+      },
+      body,
+      level,
+    });
+  };
 }
 
 function sameSettledAnalyticsAccountIdentity(

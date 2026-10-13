@@ -1,7 +1,7 @@
 import { describe, expect, mock, spyOn, test } from "bun:test";
 import { Effect, References } from "effect";
 import { redirect } from "next/navigation";
-import { CENSORED_LOG_VALUE } from "./logging/censorship";
+import { CENSORED_LOG_VALUE } from "@/shared/utils/log-classification";
 
 const emitPostHogLog = mock(() => undefined);
 
