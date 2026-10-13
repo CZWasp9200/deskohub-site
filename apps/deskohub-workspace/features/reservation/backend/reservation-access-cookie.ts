@@ -157,14 +157,8 @@ export const parseCanonicalReservationStatusUrl = (
 ): WorkspaceReservationId | undefined => {
   if (!value.startsWith("/") || value.startsWith("//")) return undefined;
 
-  let url: URL;
-  try {
-    url = new URL(value, "https://deskohub.local");
-  } catch {
-    return undefined;
-  }
-
-  if (url.hash) return undefined;
+  const url = URL.parse(value, "https://deskohub.local");
+  if (!url || url.hash) return undefined;
 
   const path = url.pathname.split("/");
   if (
@@ -212,14 +206,9 @@ export const parseCanonicalReservationAccessUrl = (
 ): WorkspaceReservationId | undefined => {
   if (!value.startsWith("/") || value.startsWith("//")) return undefined;
 
-  let url: URL;
-  try {
-    url = new URL(value, "https://deskohub.local");
-  } catch {
-    return undefined;
-  }
-
+  const url = URL.parse(value, "https://deskohub.local");
   if (
+    !url ||
     url.hash ||
     !hasValidCanonicalReservationSearchParams(url, reservationAccessQueryParams)
   ) {
@@ -402,12 +391,12 @@ export const writeReservationAccessCookie = Effect.fn(
 
 export type { ReservationAccessCookieClaims };
 
-const decodePathSegment = (value: string | undefined) => {
-  if (!value) return undefined;
-  try {
-    const decoded = decodeURIComponent(value);
-    return decoded.includes("/") ? undefined : decoded;
-  } catch {
-    return undefined;
-  }
-};
+const decodeUriComponent = Option.liftThrowable(decodeURIComponent);
+
+const decodePathSegment = (value: string | undefined) =>
+  value
+    ? decodeUriComponent(value).pipe(
+        Option.filter((decoded) => !decoded.includes("/")),
+        Option.getOrUndefined
+      )
+    : undefined;

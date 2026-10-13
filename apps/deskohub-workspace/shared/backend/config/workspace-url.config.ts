@@ -58,20 +58,17 @@ const resolveWorkspaceCallbackOrigin = ({
     );
   }
 
-  try {
-    return Result.succeed(
+  return Result.try({
+    try: () =>
       new URL(
         url.includes("://")
           ? url
           : `${deploymentEnvironment === "development" ? "http" : "https"}://${url}`
-      )
-    );
-  } catch (cause) {
-    return Result.fail(
+      ),
+    catch: (cause) =>
       new WorkspaceUrlConfigError({
         message: "Payment checkout callback URL is not configured.",
         cause,
-      })
-    );
-  }
+      }),
+  });
 };

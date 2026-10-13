@@ -20,24 +20,26 @@ const rollbackSql = "rollback";
 const toSqlError = (cause: unknown) =>
   new SqlError.SqlError({ reason: new SqlError.UnknownError({ cause }) });
 
-const acquireTransactionLock = (
+const acquireTransactionLock = Effect.fn(function* (
   pool: PostgresAdvisoryLockPool,
   key: PostgresAdvisoryLockKey
-) =>
-  Effect.tryPromise({
-    try: async () => {
-      const client = await pool.connect();
-      try {
-        await client.query(beginSql);
-        await client.query(lockSql, [...key]);
-      } catch (cause) {
-        client.release(cause instanceof Error ? cause : true);
-        throw cause;
-      }
-      return client;
-    },
+) {
+  const client = yield* Effect.tryPromise({
+    try: () => pool.connect(),
     catch: toSqlError,
   });
+  yield* Effect.tryPromise({
+    try: async () => {
+      await client.query(beginSql);
+      await client.query(lockSql, [...key]);
+    },
+    catch: toSqlError,
+  }).pipe(
+    // A client whose transaction did not open cleanly is evicted, not reused.
+    Effect.tapError((error) => Effect.sync(() => client.release(error)))
+  );
+  return client;
+});
 
 const releaseTransactionLock = Effect.fn(function* (
   client: PostgresAdvisoryLockClient

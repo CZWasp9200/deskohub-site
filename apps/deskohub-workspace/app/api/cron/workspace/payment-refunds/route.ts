@@ -63,19 +63,6 @@ const reconcileRefunds = Effect.fn("reconcileRefunds")(function* () {
   return NextResponse.json(result);
 }, Effect.scoped);
 
-const handlePaymentRefundCronError = Effect.fn("handlePaymentRefundCronError")(
-  function* (cause: unknown) {
-    yield* Effect.logError("Payment refund reconciliation cron failed", {
-      cause,
-    });
-
-    return NextResponse.json(
-      { error: "Payment refund reconciliation failed" },
-      { status: 500 }
-    );
-  }
-);
-
 export const GET = defineWorkspaceRoute(
   {
     operation: "paymentRefundReconciliationCron",
@@ -92,7 +79,18 @@ export const GET = defineWorkspaceRoute(
 
     return reconcileRefunds().pipe(
       Effect.provide(PaymentRefundService.Live),
-      Effect.catch(handlePaymentRefundCronError)
+      Effect.catch(
+        Effect.fn("handlePaymentRefundCronError")(function* (cause) {
+          yield* Effect.logError("Payment refund reconciliation cron failed", {
+            cause,
+          });
+
+          return NextResponse.json(
+            { error: "Payment refund reconciliation failed" },
+            { status: 500 }
+          );
+        })
+      )
     );
   }
 );
