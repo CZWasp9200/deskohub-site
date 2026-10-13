@@ -993,10 +993,11 @@ const legalDocuments = {
               When you open a referral link shared by another customer, a
               strictly necessary cookie remembers its referral code for up to 30
               days so the invitation discount you asked for can be applied when
-              you complete your profile or book. Only the first referral link
-              you open is remembered. The cookie is removed once the referral is
-              recorded or your first booking is paid, and it is not used for
-              tracking.
+              you complete your profile or book. A referral link opened later
+              does not replace a code that is already remembered, but a referral
+              code you enter at checkout that is accepted does. The cookie is
+              removed once the referral is recorded or your first booking is
+              paid, and it is not used for tracking.
             </>,
           ],
         },
@@ -1435,10 +1436,11 @@ const legalDocuments = {
               Když otevřete doporučovací odkaz od jiného zákazníka, nezbytná
               cookie si nejvýše 30 dní pamatuje jeho doporučovací kód, aby šlo
               uplatnit slevu, o kterou jste požádali, při dokončení profilu nebo
-              rezervaci. Zapamatuje se jen první doporučovací odkaz, který
-              otevřete. Cookie se odstraní, jakmile je doporučení zaznamenáno
-              nebo je zaplacena vaše první rezervace, a nepoužívá se ke
-              sledování.
+              rezervaci. Později otevřený doporučovací odkaz už zapamatovaný kód
+              nenahradí; nahradí ho ale doporučovací kód, který zadáte v
+              pokladně a který je přijat. Cookie se odstraní, jakmile je
+              doporučení zaznamenáno nebo je zaplacena vaše první rezervace, a
+              nepoužívá se ke sledování.
             </>,
           ],
         },
