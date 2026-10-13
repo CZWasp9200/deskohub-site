@@ -16,14 +16,13 @@ import { AccountShell, type AccountShellProps } from "./shell/account-shell";
 
 const sectionKeys = [
   "reservations",
-  "referrals",
   "profile",
   "billing",
   "legal",
   "danger",
 ] as const;
 
-type AccountSectionKey = (typeof sectionKeys)[number];
+type AccountSectionKey = (typeof sectionKeys)[number] | "referrals";
 
 type LoadingCopy = {
   readonly accountTitle: string;
@@ -169,7 +168,7 @@ describe("AccountLoading", () => {
   });
 
   test.each(localizedLoadingCopy)(
-    "renders the localized account frame and disabled navigation for $locale",
+    "renders the localized account frame and disabled navigation without the referral section for $locale",
     (copy) => {
       const view = render(<AccountLoading locale={copy.locale} />);
       const status = view.getByRole("status", { name: copy.metadataTitle });
@@ -202,6 +201,7 @@ describe("AccountLoading", () => {
         }
       }
 
+      expect(navigation.textContent).not.toContain(copy.sections.referrals);
       const buttons = Array.from(view.container.querySelectorAll("button"));
       expect(buttons).toHaveLength(sectionKeys.length * 2 + 1);
       expect(buttons.every((button) => button.disabled)).toBe(true);

@@ -51,12 +51,15 @@ export interface AccountShellProps {
   readonly referralBadge?: AccountNavigationBadge;
   readonly sidebarFooter?: ReactNode;
   readonly disabledSections?: readonly AccountSection[];
+  /** Sections left out of the navigation entirely. */
+  readonly hiddenSections?: readonly AccountSection[];
 }
 
 export function AccountShell({
   activeSection,
   children,
   disabledSections = [],
+  hiddenSections = [],
   labels,
   onSectionChange,
   referralBadge,
@@ -73,14 +76,16 @@ export function AccountShell({
     reservationCount >= 0
       ? reservationCount
       : undefined;
-  const sections = [
-    { icon: CalendarDays, key: "reservations" },
-    { icon: Gift, key: "referrals" },
-    { icon: UserRound, key: "profile" },
-    { icon: CreditCard, key: "billing" },
-    { icon: ShieldCheck, key: "legal" },
-    { icon: TriangleAlert, key: "danger" },
-  ] as const;
+  const sections = (
+    [
+      { icon: CalendarDays, key: "reservations" },
+      { icon: Gift, key: "referrals" },
+      { icon: UserRound, key: "profile" },
+      { icon: CreditCard, key: "billing" },
+      { icon: ShieldCheck, key: "legal" },
+      { icon: TriangleAlert, key: "danger" },
+    ] as const
+  ).filter((section) => !hiddenSections.includes(section.key));
   const mobileNavigationRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -117,7 +122,12 @@ export function AccountShell({
     return () => resizeObserver.disconnect();
   }, [activeSection]);
   const handleSectionChange = (section: AccountSection) => {
-    if (disabledSections.includes(section)) return;
+    if (
+      disabledSections.includes(section) ||
+      hiddenSections.includes(section)
+    ) {
+      return;
+    }
     onSectionChange(section);
   };
 

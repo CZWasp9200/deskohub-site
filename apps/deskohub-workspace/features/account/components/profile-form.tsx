@@ -65,6 +65,11 @@ type ProfileFormProps = {
   readonly avatarPresentation?: CustomerAvatarPresentation;
   /** Server-checked invitation code that prefills first-time completion. */
   readonly referralCode?: ReferralCode;
+  /**
+   * Whether first-time completion offers the referral code field; only a
+   * released referral program does.
+   */
+  readonly referralsEnabled?: boolean;
   readonly section?: "profile" | "billing";
 };
 
@@ -113,6 +118,7 @@ export function ProfileForm({
   onSectionChange,
   profile,
   referralCode,
+  referralsEnabled = false,
   section = "profile",
 }: ProfileFormProps) {
   const router = useRouter();
@@ -895,7 +901,7 @@ export function ProfileForm({
                 </div>
               </div>
 
-              {isInitialCompletion && (
+              {isInitialCompletion && referralsEnabled && (
                 <FormField
                   control={form.control}
                   name="referralCode"

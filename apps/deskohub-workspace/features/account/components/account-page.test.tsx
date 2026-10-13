@@ -200,6 +200,7 @@ const linkedState = {
     groups: { current: [], past: [], unavailable: [] },
   },
   avatar: { kind: "hidden" },
+  referralsEnabled: true,
 } as const;
 
 describe("AccountPage states", () => {
@@ -242,7 +243,12 @@ describe("AccountPage states", () => {
     const signedIn =
       state.kind !== "unauthenticated" && state.kind !== "unavailable";
     const view = render(
-      <AccountLayoutShell accountsEnabled locale={locale} signedIn={signedIn}>
+      <AccountLayoutShell
+        accountsEnabled
+        locale={locale}
+        referralsEnabled
+        signedIn={signedIn}
+      >
         <AccountPage locale={locale} state={state} />
       </AccountLayoutShell>
     );
@@ -264,6 +270,7 @@ describe("AccountPage states", () => {
   test("asks for profile completion with the read-only verified email", async () => {
     const view = await renderState({
       kind: "completion-required",
+      referralsEnabled: true,
       email: adaAddress,
     });
 
@@ -338,6 +345,7 @@ describe("AccountPage states", () => {
     function ProfileCompletionRefreshJourney() {
       const [state, setState] = useState<CustomerAccountPageState>({
         kind: "completion-required",
+        referralsEnabled: true,
         email: adaAddress,
         referralCode,
       });
@@ -403,6 +411,7 @@ describe("AccountPage states", () => {
     function PendingCompletionJourney() {
       const [state, setState] = useState<CustomerAccountPageState>({
         kind: "completion-required",
+        referralsEnabled: true,
         email: adaAddress,
       });
       refreshLinkedAccount = () =>
@@ -596,6 +605,7 @@ describe("AccountPage states", () => {
   test("leaves the completion referral field empty without a usable code", async () => {
     const view = await renderState({
       kind: "completion-required",
+      referralsEnabled: true,
       email: adaAddress,
     });
 
@@ -605,6 +615,25 @@ describe("AccountPage states", () => {
     expect(field.value).toBe("");
     expect(
       view.queryByText(m.accountProfileReferralCodeUnavailable({}, en))
+    ).toBeNull();
+  });
+
+  test("offers no completion referral field while the program is withheld", async () => {
+    const view = await renderState({
+      kind: "completion-required",
+      referralsEnabled: false,
+      email: adaAddress,
+    });
+
+    expect(
+      view.getByRole("heading", {
+        level: 2,
+        name: m.accountCompletionTitle({}, en),
+      })
+    ).toBeTruthy();
+    expect(view.container.querySelector("#profile-referral-code")).toBeNull();
+    expect(
+      view.queryByText(m.accountProfileReferralCodeLabel({}, en))
     ).toBeNull();
   });
 

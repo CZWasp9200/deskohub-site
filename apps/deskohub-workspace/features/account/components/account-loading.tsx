@@ -10,12 +10,15 @@ import { AccountShell, type AccountShellProps } from "./shell/account-shell";
 
 const disabledAccountSections = [
   "reservations",
-  "referrals",
   "profile",
   "billing",
   "legal",
   "danger",
 ] as const;
+
+// The static shell renders before the referral flag is known, so the
+// skeleton never shows the referral section of an unreleased program.
+const hiddenAccountSections = ["referrals"] as const;
 
 const noopSectionChange: AccountShellProps["onSectionChange"] = () => undefined;
 
@@ -40,6 +43,7 @@ export function AccountLoading({ locale }: { readonly locale: Locale }) {
     <AccountShell
       activeSection="reservations"
       disabledSections={disabledAccountSections}
+      hiddenSections={hiddenAccountSections}
       labels={getAccountScreenCopy(locale).shell}
       onSectionChange={noopSectionChange}
       signOut={<AccountSignOutLoading locale={locale} />}

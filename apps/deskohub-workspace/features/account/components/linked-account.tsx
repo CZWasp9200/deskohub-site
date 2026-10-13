@@ -30,6 +30,8 @@ type LinkedAccountProps = {
   readonly locale: Locale;
   readonly profile: CustomerProfile;
   readonly avatarPresentation: CustomerAvatarPresentation;
+  /** Whether the referral program is released; withheld, nothing shows. */
+  readonly referralsEnabled: boolean;
   readonly referrals?: ReferralAccountOverview;
   readonly signupReferral?: ProfileCompletionReferralOutcome;
 };
@@ -41,6 +43,7 @@ export function LinkedAccount({
   locale,
   profile,
   referrals,
+  referralsEnabled,
   signupReferral,
 }: LinkedAccountProps) {
   const pathname = usePathname();
@@ -59,7 +62,9 @@ export function LinkedAccount({
   const reservationCount =
     history.kind === "available" ? history.groups.current.length : undefined;
 
-  const referralDiscount = referrals?.summary.discount;
+  const referralDiscount = referralsEnabled
+    ? referrals?.summary.discount
+    : undefined;
   const showReferralBadge =
     referralDiscount !== undefined && referralDiscount !== "0";
   const referralBadgeText = showReferralBadge
@@ -89,10 +94,12 @@ export function LinkedAccount({
 
   return (
     <>
-      <ProfileCompletionReferralNotice
-        locale={locale}
-        outcome={signupReferral}
-      />
+      {referralsEnabled && (
+        <ProfileCompletionReferralNotice
+          locale={locale}
+          outcome={signupReferral}
+        />
+      )}
 
       <div hidden={activeSection !== "reservations"}>
         <ReservationHistory
@@ -102,9 +109,11 @@ export function LinkedAccount({
         />
       </div>
 
-      <div hidden={activeSection !== "referrals"}>
-        <ReferralScreen locale={locale} referrals={referrals} />
-      </div>
+      {referralsEnabled && (
+        <div hidden={activeSection !== "referrals"}>
+          <ReferralScreen locale={locale} referrals={referrals} />
+        </div>
+      )}
 
       <div hidden={activeSection !== "profile" && activeSection !== "billing"}>
         <ProfileForm

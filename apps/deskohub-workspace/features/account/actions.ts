@@ -9,6 +9,7 @@ import { WorkspaceDatabase } from "@/db/database.service";
 import {
   accountActionError,
   requireAccountsEnabled,
+  requireReferralsEnabled,
   requireVerifiedSession,
 } from "@/features/account/account-action-guards";
 import type { AresBusinessBillingDraft } from "@/features/account/backend/ares-business-draft";
@@ -38,6 +39,7 @@ import type { Locale } from "@/features/i18n";
 import { locales, m } from "@/features/i18n";
 import { localeCookieName } from "@/features/i18n/routing";
 import { ReferralService } from "@/features/referrals";
+import { ReferralFeatureFlagService } from "@/features/referrals/referral-feature-flag.service";
 import {
   forgetRememberedReferralCode,
   readRememberedReferralCode,
@@ -114,6 +116,7 @@ const saveCustomerProfile = Effect.fn(
           CustomerAuthentication.Default,
           CustomerAccountResolver.Live,
           CustomerProfileService.Live,
+          ReferralFeatureFlagService.Live,
           ReferralService.Live,
           ReferralSignupIntentRepository.Live
         )
@@ -124,7 +127,8 @@ const saveCustomerProfile = Effect.fn(
 /**
  * Forgets the referral code this browser remembers once the customer's
  * referral is settled, whether by this completion or earlier. The completion
- * field, not the remembered code, decides which code this save records.
+ * field, not the remembered code, decides which code this save records. A
+ * withheld referral program neither checks nor forgets the code.
  */
 const forgetUsedRememberedReferralCode = (account: LinkedCustomerAccount) =>
   Effect.promise(readRememberedReferralCode).pipe(
@@ -134,7 +138,13 @@ const forgetUsedRememberedReferralCode = (account: LinkedCustomerAccount) =>
     Effect.flatMap((used) =>
       used ? Effect.promise(forgetRememberedReferralCode) : Effect.void
     ),
-    Effect.provide(ReferralService.Live)
+    Effect.when(
+      Effect.flatMap(ReferralFeatureFlagService, (flag) => flag.isEnabled)
+    ),
+    Effect.asVoid,
+    Effect.provide(
+      Layer.mergeAll(ReferralFeatureFlagService.Live, ReferralService.Live)
+    )
   );
 
 /**
@@ -208,7 +218,8 @@ const acknowledgeSignupReferralNoticeSchema = Schema.toStandardSchemaV1(
 
 /**
  * Hides the settled outcome of the referral code entered at profile
- * completion. The notice shows from stored state until this runs.
+ * completion. The notice shows from stored state until this runs. A withheld
+ * referral program shows no notice and leaves the stored outcome untouched.
  */
 const acknowledgeSignupReferralNoticeAction = defineWorkspaceAction(
   {
@@ -218,7 +229,10 @@ const acknowledgeSignupReferralNoticeAction = defineWorkspaceAction(
   },
   (_input, { locale }) =>
     Effect.andThen(
-      requireAccountsEnabled(locale),
+      Effect.andThen(
+        requireAccountsEnabled(locale),
+        requireReferralsEnabled(locale)
+      ),
       CustomerAccountResolver.pipe(
         Effect.flatMap((resolver) => resolver.resolve),
         Effect.flatMap((account) =>

@@ -46,6 +46,24 @@ mock.module("@/features/account/server/account-feature-flag.server", () => ({
   areAccountAvatarsEnabled,
 }));
 
+let referralsEnabled = true;
+const areReferralsEnabled = mock(() => Promise.resolve(referralsEnabled));
+mock.module("@/features/referrals/referral-feature-flag.server", () => ({
+  areReferralsEnabled,
+}));
+const ReferralFeatureFlag = Context.Service<
+  ReferralFeatureFlag,
+  { readonly isEnabled: Effect.Effect<boolean> }
+>()("@test/ActionsReferralFeatureFlag");
+Object.assign(ReferralFeatureFlag, {
+  Live: Layer.succeed(ReferralFeatureFlag, {
+    isEnabled: Effect.sync(() => referralsEnabled),
+  }),
+});
+mock.module("@/features/referrals/referral-feature-flag.service", () => ({
+  ReferralFeatureFlagService: ReferralFeatureFlag,
+}));
+
 let deleteUser: (args: { body: object; headers: Headers }) => Promise<unknown>;
 mock.module("@/features/account/server/auth.server", () => ({
   auth: {
@@ -149,6 +167,7 @@ const SignupIntents = Context.Service<
     readonly findAttributedCode: (
       customerId: string
     ) => Effect.Effect<string | undefined>;
+    readonly acknowledge: (accountId: string) => Effect.Effect<void>;
   }
 >()("@test/ActionsSignupIntents");
 Object.assign(SignupIntents, {
@@ -162,6 +181,11 @@ Object.assign(SignupIntents, {
         return true;
       }),
     findAttributedCode: () => Effect.succeed(undefined),
+    acknowledge: () =>
+      Effect.sync(() => {
+        if (storedIntent)
+          storedIntent = { ...storedIntent, acknowledged: true };
+      }),
   }),
 });
 // The real account link repository, which the locale preference action loads,
@@ -359,6 +383,8 @@ describe("account actions", () => {
     revalidatePath.mockClear();
     areAccountsEnabled.mockReset();
     areAccountsEnabled.mockResolvedValue(true);
+    referralsEnabled = true;
+    areReferralsEnabled.mockClear();
     currentUser = Effect.succeed(activeSession);
     resolve = Effect.succeed({
       accountId: "@test/account-id",
@@ -714,6 +740,71 @@ describe("account actions", () => {
     await updateLocalePreference({ locale: "cs-CZ" });
 
     expect(cookieWrites).toEqual([{ name: localeCookieName, value: "cs-CZ" }]);
+  });
+
+  test("ignores a submitted referral code while the referral program is withheld", async () => {
+    referralsEnabled = false;
+    resolveAsNewCustomerUntilCreated();
+    availableReferralCode = Effect.succeed(undefined);
+    rememberedReferralCode = "RFL12345";
+    settledReferral = Effect.succeed(true);
+    const { completeCustomerProfile } = await importActions();
+
+    const result = await completeCustomerProfile({
+      firstName: "Ada",
+      referralCode: "RFLGONE1",
+      prefilledReferralCode: "RFL12345",
+    });
+
+    expect(result).toEqual({ data: { status: "completed" } });
+    expect(profileCalls).toEqual([
+      {
+        op: "create",
+        args: [
+          "@test/account-id",
+          customerEmail,
+          { firstName: "Ada" },
+          undefined,
+        ],
+      },
+    ]);
+    expect(storedIntent).toBeUndefined();
+    expect(referralCalls).toEqual([]);
+    expect(forgetRememberedReferralCode).not.toHaveBeenCalled();
+  });
+
+  test("acknowledges the settled signup referral notice", async () => {
+    storedIntent = {
+      ...codeTarget,
+      code: "RFL12345",
+      outcome: "applied",
+      acknowledged: false,
+    };
+    const { acknowledgeSignupReferralNotice } = await importActions();
+
+    const result = await acknowledgeSignupReferralNotice({});
+
+    expect(result).toEqual({ data: { status: "acknowledged" } });
+    expect(storedIntent?.acknowledged).toBe(true);
+  });
+
+  test("leaves the signup referral notice untouched while the referral program is withheld", async () => {
+    referralsEnabled = false;
+    storedIntent = {
+      ...codeTarget,
+      code: "RFL12345",
+      outcome: "applied",
+      acknowledged: false,
+    };
+    const { acknowledgeSignupReferralNotice } = await importActions();
+
+    const result = await acknowledgeSignupReferralNotice({});
+
+    expect(result.serverError).toBe(
+      m.accountUnavailableDescription({}, { locale: "en-US" })
+    );
+    expect(areReferralsEnabled).toHaveBeenCalledTimes(1);
+    expect(storedIntent?.acknowledged).toBe(false);
   });
 
   test("returns the existing unavailable failure without reading account data when accounts are disabled", async () => {
