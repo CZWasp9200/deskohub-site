@@ -1153,6 +1153,7 @@ describe("CheckoutService", () => {
       status: "redirect",
       redirectUrl:
         "/en-US/reservation/status/reservation-zero-total?outcome=success",
+      paid: true,
     });
     expect(harness.completeInternalPayment).toHaveBeenCalledWith({
       workspaceReservationId: "reservation-zero-total",
@@ -1278,6 +1279,7 @@ describe("CheckoutService", () => {
       status: "redirect",
       redirectUrl:
         "/en-US/reservation/status/reservation-already-paid?outcome=success",
+      paid: true,
     });
     expect(harness.fulfillPaidOrder).toHaveBeenCalledWith({
       orderId: "reservation-already-paid",
@@ -1316,6 +1318,7 @@ describe("CheckoutService", () => {
     expect(result).toEqual({
       status: "redirect",
       redirectUrl: `/en-US/reservation/status/${orderId}?outcome=success`,
+      paid: true,
     });
     expect(harness.fulfillPaidOrder).toHaveBeenCalledWith({ orderId });
     expect(harness.affirm).not.toHaveBeenCalled();
@@ -1349,6 +1352,7 @@ describe("CheckoutService", () => {
       status: "redirect",
       redirectUrl:
         "/en-US/reservation/status/reservation-paid-race?outcome=success",
+      paid: true,
     });
     expect(harness.fulfillPaidOrder).toHaveBeenCalledWith({
       orderId: "reservation-paid-race",
@@ -2011,6 +2015,7 @@ describe("CheckoutService", () => {
       status: "redirect",
       redirectUrl:
         "/en-US/reservation/status/meeting-room-paid-whole-day?outcome=success",
+      paid: true,
     });
     expect(harness.fulfillPaidOrder).toHaveBeenCalledWith({ orderId });
     expect(harness.affirm).not.toHaveBeenCalled();

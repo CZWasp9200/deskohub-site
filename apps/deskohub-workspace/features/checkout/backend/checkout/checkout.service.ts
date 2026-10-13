@@ -128,6 +128,8 @@ type CheckoutRedirectResult = {
   readonly status: "redirect";
   readonly redirectUrl: string;
   readonly statusUrl?: string;
+  /** The order is paid: completed internally or already paid before. */
+  readonly paid?: true;
 };
 
 /**
@@ -506,6 +508,7 @@ const isReusableAttemptState = (state: string) =>
 const getCheckoutRedirectResult = (input: {
   readonly redirectUrl: string;
   readonly statusUrl?: string;
+  readonly paid?: true;
 }): CheckoutRedirectResult => ({ status: "redirect", ...input });
 
 const getHostedPaymentCheckoutResult = (input: {
@@ -805,6 +808,7 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
             outcome: "success",
             setBypassCookie: true,
           }),
+          paid: true,
         });
       });
 
@@ -832,6 +836,7 @@ function makeCheckoutServiceLayer(service: typeof CheckoutService) {
             outcome: "success",
             setBypassCookie: true,
           }),
+          paid: true,
         });
       });
 
