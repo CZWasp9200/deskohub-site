@@ -4,6 +4,11 @@ const isMeetingRoomPageEnabled = mock();
 const isOfficePageEnabled = mock();
 const areAccountsEnabled = mock();
 const isCustomerSignedIn = mock();
+const updateLocalePreference = mock();
+
+mock.module("@/features/account/actions", () => ({
+  updateLocalePreference,
+}));
 
 mock.module("@/features/account/server/account-feature-flag.server", () => ({
   areAccountsEnabled,
@@ -144,6 +149,40 @@ describe("getSiteHeaderConfig", () => {
     const config = await getSiteHeaderConfig("en-US");
 
     expect(config).not.toHaveProperty("account");
+    expect(config).not.toHaveProperty("localePreference");
+    expect(isCustomerSignedIn).not.toHaveBeenCalled();
+  });
+
+  test("lets the switcher save a signed-in customer's language preference", async () => {
+    const { getSiteHeaderConfig, getSiteHeaderLocalePreference } = await import(
+      "./site-header-config"
+    );
+    isCustomerSignedIn.mockResolvedValue(true);
+
+    const config = await getSiteHeaderConfig("en-US");
+    const minimal = await getSiteHeaderLocalePreference();
+
+    expect(await config.localePreference?.signedIn).toBe(true);
+    expect(config.localePreference?.save).toBe(updateLocalePreference);
+    expect(await minimal?.signedIn).toBe(true);
+  });
+
+  test("treats a failed session check as a guest switch", async () => {
+    const { getSiteHeaderLocalePreference } = await import(
+      "./site-header-config"
+    );
+    isCustomerSignedIn.mockRejectedValue(new Error("synthetic failure"));
+
+    expect(await (await getSiteHeaderLocalePreference())?.signedIn).toBe(false);
+  });
+
+  test("leaves the minimal header switcher plain when accounts are disabled", async () => {
+    const { getSiteHeaderLocalePreference } = await import(
+      "./site-header-config"
+    );
+    areAccountsEnabled.mockResolvedValue(false);
+
+    expect(await getSiteHeaderLocalePreference()).toBeUndefined();
     expect(isCustomerSignedIn).not.toHaveBeenCalled();
   });
 });

@@ -64,6 +64,7 @@ const updateCustomerProfile = mock((input: CustomerProfileInput) => {
 let legalScreenMountCount = 0;
 
 mock.module("@/features/account/actions", () => ({
+  updateLocalePreference: () => Promise.resolve({ data: { status: "saved" } }),
   lookupAresBusiness: () =>
     Promise.resolve({ data: { status: "not-found", message: "" } }),
   completeCustomerProfile: () =>

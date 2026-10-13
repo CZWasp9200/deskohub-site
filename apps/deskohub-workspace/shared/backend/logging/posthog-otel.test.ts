@@ -1,5 +1,7 @@
-import { describe, expect, spyOn, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import type { LoggerProvider } from "@opentelemetry/api-logs";
+import { Effect, Logger } from "effect";
+import { withInstantSleeps } from "@/shared/testing/workspace-test-clock.test-utils";
 import { createPostHogLoggerProvider, flushPostHogLogs } from "./posthog-otel";
 
 describe("PostHog OTel logs", () => {
@@ -25,25 +27,60 @@ describe("PostHog OTel logs", () => {
     ).toThrow("POSTHOG_INGEST_HOST is required");
   });
 
-  test("bounds a flush when the logger provider does not settle", async () => {
+  test("bounds a flush by its deadline when the logger provider does not settle", async () => {
     const provider = {
       forceFlush: () => new Promise<void>(() => undefined),
     } as Pick<LoggerProvider, "forceFlush">;
-    const warn = spyOn(console, "warn").mockImplementation(() => undefined);
 
-    const result = await Promise.race([
-      flushPostHogLogs({ provider, timeoutMs: 5 }).then(
-        () => "completed" as const
-      ),
-      new Promise<"still-pending">((resolve) =>
-        setTimeout(() => resolve("still-pending"), 100)
-      ),
+    const warnings = await runFlush(flushPostHogLogs({ provider }));
+
+    expect(warnings).toEqual([
+      "PostHog log flush exceeded its post-response deadline.",
     ]);
+  });
 
-    expect(result).toBe("completed");
-    expect(warn).toHaveBeenCalledWith(
-      "PostHog log flush exceeded its post-response deadline."
+  test("warns without failing when the logger provider rejects", async () => {
+    const provider = {
+      forceFlush: () => Promise.reject(new Error("export failed")),
+    } as Pick<LoggerProvider, "forceFlush">;
+
+    const warnings = await runFlush(
+      flushPostHogLogs({ provider, timeoutMs: 1_000 })
     );
-    warn.mockRestore();
+
+    expect(warnings).toEqual(["PostHog log flush failed."]);
+  });
+
+  test("completes silently when the logger provider flushes", async () => {
+    const provider = {
+      forceFlush: () => Promise.resolve(),
+    } as Pick<LoggerProvider, "forceFlush">;
+
+    const warnings = await runFlush(
+      flushPostHogLogs({ provider, timeoutMs: 1_000 })
+    );
+
+    expect(warnings).toEqual([]);
+  });
+
+  test("does nothing without a logger provider", async () => {
+    const warnings = await runFlush(flushPostHogLogs({ provider: undefined }));
+
+    expect(warnings).toEqual([]);
   });
 });
+
+const runFlush = async (flush: Effect.Effect<void>) => {
+  const warnings: unknown[] = [];
+  const captureLogger = Logger.make(({ logLevel, message }) => {
+    if (logLevel === "Warn") {
+      warnings.push(Array.isArray(message) ? message[0] : message);
+    }
+  });
+
+  await Effect.runPromise(
+    withInstantSleeps(flush).pipe(Effect.provide(Logger.layer([captureLogger])))
+  );
+
+  return warnings;
+};

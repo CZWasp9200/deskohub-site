@@ -3,6 +3,7 @@
 import { Menu, UserRound, X } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { Suspense, use, useState } from "react";
+import type { LocalePreferenceSaving } from "@/features/account/switch-locale";
 import type { Locale } from "@/features/i18n";
 import { GuardedLink as Link } from "@/shared/components/guarded-link";
 import {
@@ -21,6 +22,7 @@ type SiteHeaderProps = {
   account?: SiteHeaderAccountEntry;
   currentLocale: Locale;
   languageLabels: Record<Locale, string>;
+  localePreference?: LocalePreferenceSaving;
   links: SiteHeaderMenuItem[];
   contactLabel: string;
   contactHref: string;
@@ -149,6 +151,7 @@ export function SiteHeader({
   account,
   currentLocale,
   languageLabels,
+  localePreference,
   links,
   contactLabel,
   contactHref,
@@ -229,6 +232,7 @@ export function SiteHeader({
               <LocaleSwitcherLinks
                 currentLocale={currentLocale}
                 languageLabels={languageLabels}
+                localePreference={localePreference}
               />
             </Suspense>
           </nav>
@@ -299,6 +303,7 @@ export function SiteHeader({
                 languageLabels={languageLabels}
                 closeMenu={closeMenu}
                 isMobile
+                localePreference={localePreference}
               />
             </Suspense>
           </div>

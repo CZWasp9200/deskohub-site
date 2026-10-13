@@ -689,6 +689,54 @@ describe("censorLogValue", () => {
     );
   });
 
+  test("redacts sensitive protocol-relative URL query params", () => {
+    expect(
+      censorLogValue(`//${exampleHost}/pay?token=secret&visible=safe#summary`)
+    ).toBe(
+      `//${exampleHost}/pay?token=${encodeURIComponent(CENSORED_LOG_VALUE)}&visible=safe#summary`
+    );
+  });
+
+  test("keeps non-HTTP, unparseable and query-free strings unchanged", () => {
+    expect(censorLogValue(`ftp://${exampleHost}/file?visible=safe`)).toBe(
+      `ftp://${exampleHost}/file?visible=safe`
+    );
+    expect(censorLogValue("http://exa mple.com/?visible=safe")).toBe(
+      "http://exa mple.com/?visible=safe"
+    );
+    expect(censorLogValue("plain operational text")).toBe(
+      "plain operational text"
+    );
+  });
+
+  test("strips credentials and queries from protocol-relative stack frames", () => {
+    const privateValue = testEmailAddress("private");
+
+    expect(
+      censorLogValue({
+        message: "safe",
+        stack: `Error: safe\n    at cdnFailure (//user:${privateValue}@${exampleHost}/app.js?token=${privateValue}:1:2)`,
+      })
+    ).toEqual({
+      message: CENSORED_LOG_VALUE,
+      stack: `${CENSORED_LOG_VALUE}\n    at //${exampleHost}/app.js:1:2`,
+    });
+  });
+
+  test("censors JSON and URL strings inside database query parameters", () => {
+    expect(
+      censorDatabaseQueryParams("select $1, $2, $3", [
+        JSON.stringify({ email: privateEmail, visible: "safe" }),
+        "/pay?token=secret&visible=safe",
+        "not json",
+      ])
+    ).toEqual([
+      JSON.stringify({ email: CENSORED_LOG_VALUE, visible: "safe" }),
+      `/pay?token=${encodeURIComponent(CENSORED_LOG_VALUE)}&visible=safe`,
+      "not json",
+    ]);
+  });
+
   test("redacts Headers and URLSearchParams by key without mutating input", () => {
     const headers = new Headers([
       ["authorization", "Bearer secret"],
@@ -817,6 +865,8 @@ describe("censorLoggerOptions", () => {
           "visible",
           { email: privateEmail, sessionDuration: 123 },
           42,
+          undefined,
+          10n,
         ]);
       }).pipe(
         Effect.provide(
@@ -830,8 +880,10 @@ describe("censorLoggerOptions", () => {
         '"visible"',
         `{"email":"${CENSORED_LOG_VALUE}","sessionDuration":123}`,
         "42",
+        "undefined",
+        "10",
       ],
-      parameterCount: 3,
+      parameterCount: 5,
       query: "select $1, $2, $3",
     });
     expect(JSON.stringify(capturedAnnotations)).toContain("visible");
@@ -925,6 +977,30 @@ describe("createCensoredOtelLogger", () => {
     expect(record?.attributes).toMatchObject({
       sessionId: "posthog-session-id",
       token: CENSORED_LOG_VALUE,
+    });
+    await provider.shutdown();
+  });
+
+  test("serializes structured and unserializable OTel attributes", async () => {
+    const exporter = new InMemoryLogRecordExporter();
+    const provider = new LoggerProvider({
+      processors: [new SimpleLogRecordProcessor({ exporter })],
+    });
+
+    await Effect.runPromise(
+      Effect.logInfo("safe message").pipe(
+        Effect.annotateLogs({
+          attempts: 10n,
+          details: { token: "secret-token", visible: "safe" },
+        }),
+        Effect.provide(Logger.layer([createCensoredOtelLogger(provider)]))
+      )
+    );
+    await provider.forceFlush();
+
+    expect(exporter.getFinishedLogRecords()[0]?.attributes).toMatchObject({
+      attempts: "10",
+      details: JSON.stringify({ token: CENSORED_LOG_VALUE, visible: "safe" }),
     });
     await provider.shutdown();
   });

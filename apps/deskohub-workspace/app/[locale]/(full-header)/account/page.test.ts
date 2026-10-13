@@ -84,7 +84,7 @@ describe("customer account route boundary", () => {
     const output = await Content(content.props);
 
     expect(events).toEqual(["connection", "gate", "load"]);
-    expect(loadCustomerAccountPage).toHaveBeenCalledWith("en-US");
+    expect(loadCustomerAccountPage).toHaveBeenCalledWith();
     expect(output).toMatchObject({
       type: AccountPage,
       props: { locale: "en-US", state: { kind: "unavailable" } },

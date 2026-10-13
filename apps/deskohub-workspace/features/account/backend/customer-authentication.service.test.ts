@@ -16,6 +16,7 @@ type TestUserFields = {
   readonly email?: string;
   readonly emailVerified?: boolean;
   readonly deletionRequestedAt?: Date | null;
+  readonly locale?: string | null;
 };
 
 const sessionFor = (user: TestUserFields) => ({
@@ -77,6 +78,29 @@ describe("CustomerAuthentication session adapter", () => {
         "deletionRequested",
         "email",
       ]);
+    }
+  });
+
+  test("carries a saved en-US or cs-CZ locale preference", async () => {
+    for (const locale of ["en-US", "cs-CZ"] as const) {
+      const outcome = await runDecode(sessionFor({ locale }));
+
+      expect(outcome._tag).toBe("Success");
+      if (outcome._tag === "Success") {
+        expect(outcome.success!.localePreference).toBe(locale);
+      }
+    }
+  });
+
+  test("leaves the locale preference absent for a null or invalid locale", async () => {
+    for (const locale of [null, undefined, "de-DE", "cs", ""]) {
+      const outcome = await runDecode(sessionFor({ locale }));
+
+      expect(outcome._tag).toBe("Success");
+      if (outcome._tag === "Success") {
+        expect(outcome.success!.localePreference).toBeUndefined();
+        expect(Object.keys(outcome.success!)).not.toContain("localePreference");
+      }
     }
   });
 

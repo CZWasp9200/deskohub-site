@@ -44,6 +44,15 @@ export const authOptions = {
         required: false,
         input: false,
       },
+      // The customer's saved locale preference (en-US or cs-CZ, enforced by
+      // a CHECK constraint). Null until account creation seeds it or a
+      // sign-in captures it; never defaulted. Server-owned, so clients
+      // cannot set it.
+      locale: {
+        type: "string",
+        required: false,
+        input: false,
+      },
     },
     deleteUser: {
       enabled: true,
@@ -74,5 +83,11 @@ export const authOptions = {
     disableCSRFCheck: false,
     disableOriginCheck: false,
     trustedProxyHeaders: false,
+    // Session reads load the user in the same query, so a signed-in
+    // request resolves its session, account, and locale preference in one
+    // lookup.
+    database: {
+      joins: true,
+    },
   },
 } satisfies BetterAuthOptions;

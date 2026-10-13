@@ -9,6 +9,10 @@ import {
   isCallbackFailureQuery,
   isExactCallbackUrlString,
 } from "./callback-url";
+import {
+  type LanguagePreferenceReviewStage,
+  languagePreferenceReviewTargetByStage,
+} from "./review-targets";
 
 export type AccountReviewTarget =
   | "completion-mobile375x900"
@@ -18,6 +22,11 @@ export type AccountReviewTarget =
   | "linked-reservations-desktop"
   | "linked-reservations-mobile"
   | "linked-profile-desktop"
+  | "linked-profile-language-desktop"
+  | "linked-profile-language-desktop-cs"
+  | "linked-profile-language-mobile"
+  | "locale-preference-redirect-desktop"
+  | "locale-switcher-saved-desktop"
   | "linked-billing-desktop"
   | "linked-billing-mobile"
   | "linked-legal-desktop"
@@ -95,6 +104,31 @@ const accountReviewTargetMetadata = {
   },
   "linked-profile-desktop": {
     filename: "linked-profile-desktop.png",
+    path: "/en-US/account",
+    viewport: { height: 1000, width: 1440 },
+  },
+  "linked-profile-language-desktop": {
+    filename: "linked-profile-language-desktop.png",
+    path: "/en-US/account",
+    viewport: { height: 1000, width: 1440 },
+  },
+  "linked-profile-language-desktop-cs": {
+    filename: "linked-profile-language-desktop-cs.png",
+    path: "/cs-CZ/account",
+    viewport: { height: 1000, width: 1440 },
+  },
+  "linked-profile-language-mobile": {
+    filename: "linked-profile-language-mobile.png",
+    path: "/en-US/account",
+    viewport: { height: 900, width: 375 },
+  },
+  "locale-preference-redirect-desktop": {
+    filename: "locale-preference-redirect-desktop.png",
+    path: "/cs-CZ/faq",
+    viewport: { height: 1000, width: 1440 },
+  },
+  "locale-switcher-saved-desktop": {
+    filename: "locale-switcher-saved-desktop.png",
     path: "/en-US/account",
     viewport: { height: 1000, width: 1440 },
   },
@@ -265,6 +299,10 @@ const isPrivateLinkedAccountTarget = (target: ReviewTarget): boolean =>
   target === "linked-reservations-desktop" ||
   target === "linked-reservations-mobile" ||
   target === "linked-profile-desktop" ||
+  target === "linked-profile-language-desktop" ||
+  target === "linked-profile-language-desktop-cs" ||
+  target === "linked-profile-language-mobile" ||
+  target === "locale-switcher-saved-desktop" ||
   target === "linked-billing-desktop" ||
   target === "linked-billing-mobile" ||
   target === "linked-danger-desktop" ||
@@ -810,4 +848,73 @@ export const withSignInPendingReview = async (
   if (runCaseFailed) throw runCaseFailure;
   if (wrapperFailed || reviewFailed || !fullHandlerPromise)
     throw accountReviewCaptureFailure();
+};
+
+/**
+ * Captures the review target of one mid-case language moment. It never
+ * throws: a failed or repeated capture is recorded by the wrapper, which
+ * reports it only after the case has finished.
+ */
+export type LanguagePreferenceReviewCapture = (
+  stage: LanguagePreferenceReviewStage
+) => Promise<void>;
+
+const skipLanguagePreferenceReview: LanguagePreferenceReviewCapture =
+  async () => undefined;
+
+/**
+ * Hands the language case its review capture hook. The case photographs its
+ * genuine mid-case moments: the Czech profile after the profile control moved
+ * the site to Czech, the Czech page a conflicting en-US URL and cookie were
+ * redirected to, and the English account page the header switch moved the
+ * preference to. After the case ends on the English profile, the mobile
+ * language view is captured. Choosing a language saves it and navigates at
+ * once, so there is no separate saving, saved, or failed state to hold or
+ * photograph. Callers own the synthetic context; this helper only captures
+ * the allowlisted PNGs.
+ */
+export const withLanguagePreferenceReview = async (
+  page: Playwright.Page,
+  review: AccountReviewDestination,
+  runCase: (capture: LanguagePreferenceReviewCapture) => Promise<void>
+): Promise<void> => {
+  if (!review.screenshots) return runCase(skipLanguagePreferenceReview);
+
+  let reviewFailed = false;
+  const capturedStages = new Set<LanguagePreferenceReviewStage>();
+
+  const captureStage: LanguagePreferenceReviewCapture = async (stage) => {
+    if (capturedStages.has(stage)) {
+      reviewFailed = true;
+      return;
+    }
+    capturedStages.add(stage);
+    try {
+      await captureAccountReview(
+        page,
+        review,
+        languagePreferenceReviewTargetByStage[stage]
+      );
+    } catch {
+      reviewFailed = true;
+    }
+  };
+
+  // A case failure propagates as is and skips the post-case capture.
+  await runCase(captureStage);
+
+  if (
+    Object.keys(languagePreferenceReviewTargetByStage).some(
+      (stage) => !capturedStages.has(stage as LanguagePreferenceReviewStage)
+    )
+  ) {
+    reviewFailed = true;
+  }
+  try {
+    await captureAccountReview(page, review, "linked-profile-language-mobile");
+  } catch {
+    reviewFailed = true;
+  }
+
+  if (reviewFailed) throw accountReviewCaptureFailure();
 };

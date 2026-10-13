@@ -12,8 +12,8 @@ import type {
   CustomerAvatarPresentation,
   CustomerReservationHistory,
 } from "@/features/account/contracts";
+import type { LinkedCustomerAccount } from "@/features/account/customer-account";
 import { areAccountAvatarsEnabled } from "@/features/account/server/account-feature-flag.server";
-import type { Locale } from "@/features/i18n";
 import { runWorkspaceEffect } from "@/shared/backend/workspace-effect";
 
 /**
@@ -38,111 +38,139 @@ export type CustomerAccountPageState =
 
 const unavailable = (): CustomerAccountPageState => ({ kind: "unavailable" });
 
-export const loadCustomerAccountPage = cache(
-  async (_locale: Locale): Promise<CustomerAccountPageState> => {
-    const session = await Effect.flatMap(
-      CustomerAuthentication,
-      (authentication) => authentication.currentUser
-    ).pipe(
-      Effect.provide(CustomerAuthentication.Default),
-      Effect.tapError((error) =>
-        Effect.logError("Account authentication failed", { error })
-      ),
-      Effect.result,
-      runWorkspaceEffect("account.profile", { boundary: "page" })
-    );
-    if (Result.isFailure(session)) return unavailable();
+/**
+ * Scopes a step's logs to its own operation name under the page's single
+ * runtime edge.
+ */
+const withOperation = (operation: string) =>
+  Effect.annotateLogs({ boundary: "page", operation });
 
-    const user = session.success;
-    if (!user) return { kind: "unauthenticated" };
-    if (user.deletionRequested) {
-      return { kind: "deletion-pending", email: user.email };
-    }
-
-    const account = await resolveCurrentCustomerAccount.pipe(
-      Effect.tapError((error) =>
-        Effect.logError("Account resolution failed", { error })
-      ),
-      Effect.result,
-      runWorkspaceEffect("account.resolve", { boundary: "page" })
-    );
-    if (Result.isSuccess(account)) {
-      const profile = await Effect.flatMap(CustomerProfileService, (service) =>
-        service.load(account.success)
-      ).pipe(
-        Effect.provide(CustomerProfileService.Live),
-        Effect.tapError((error) =>
-          Effect.logError("Account profile load failed", { error })
-        ),
-        Effect.result,
-        runWorkspaceEffect("account.profile.read", { boundary: "page" })
-      );
-      if (Result.isFailure(profile)) {
-        return { kind: "authenticated-unavailable", email: user.email };
-      }
-
-      const history = await Effect.flatMap(
-        CustomerReservationHistoryService,
-        (service) => service.load(account.success)
-      ).pipe(
-        Effect.provide(CustomerReservationHistoryService.Live),
-        Effect.tapError(() =>
-          logDegradedAccountSection("account.reservation-history.unavailable")
-        ),
-        Effect.orElseSucceed(
-          () =>
-            ({ kind: "unavailable", reason: "provider-unavailable" }) as const
-        ),
-        runWorkspaceEffect("account.reservation-history", {
-          boundary: "page",
-        })
-      );
-
-      let avatar: CustomerAvatarPresentation = { kind: "hidden" };
-      if (await areAccountAvatarsEnabled().catch(() => false)) {
-        // A media outage never blocks the account page: an avatar read failure
-        // degrades to the initials fallback.
-        const availableAvatar = await Effect.flatMap(
-          CustomerAvatarService,
-          (service) => service.lookup(account.success.accountId)
-        ).pipe(
-          Effect.provide(CustomerAvatarService.Live),
-          Effect.tapError(() =>
-            logDegradedAccountSection("account.avatar.unavailable")
-          ),
-          Effect.orElseSucceed(() => null),
-          runWorkspaceEffect("account.avatar", { boundary: "page" })
-        );
-        avatar = { kind: "available", avatar: availableAvatar };
-      }
-
-      return {
-        kind: "linked",
-        email: user.email,
-        profile: profile.success,
-        avatar,
-        history,
-      };
-    }
-
-    const failure = account.failure;
-    if (failure.reason === "unauthenticated") {
-      return { kind: "unauthenticated" };
-    }
-    if (
-      failure.reason === "link-required" &&
-      failure.linkReason === "not-found"
-    ) {
-      return { kind: "completion-required", email: user.email };
-    }
-    if (
-      failure.reason === "link-required" ||
-      failure.reason === "unverified-email"
-    ) {
-      return { kind: "support-required", email: user.email };
-    }
-    return { kind: "authenticated-unavailable", email: user.email };
+const loadLinkedAccount = Effect.fn(function* (
+  user: { readonly email: string },
+  account: LinkedCustomerAccount
+) {
+  const profile = yield* Effect.flatMap(CustomerProfileService, (service) =>
+    service.load(account)
+  ).pipe(
+    Effect.provide(CustomerProfileService.Live),
+    Effect.tapError((error) =>
+      Effect.logError("Account profile load failed", { error })
+    ),
+    Effect.result,
+    withOperation("account.profile.read")
+  );
+  if (Result.isFailure(profile)) {
+    return {
+      kind: "authenticated-unavailable",
+      email: user.email,
+    } satisfies CustomerAccountPageState;
   }
+
+  const history = yield* Effect.flatMap(
+    CustomerReservationHistoryService,
+    (service) => service.load(account)
+  ).pipe(
+    Effect.provide(CustomerReservationHistoryService.Live),
+    Effect.tapError(() =>
+      logDegradedAccountSection("account.reservation-history.unavailable")
+    ),
+    Effect.orElseSucceed(
+      () => ({ kind: "unavailable", reason: "provider-unavailable" }) as const
+    ),
+    withOperation("account.reservation-history")
+  );
+
+  // An unavailable avatar capability evaluation fails closed to hidden.
+  const avatarsEnabled = yield* Effect.tryPromise(() =>
+    areAccountAvatarsEnabled()
+  ).pipe(Effect.orElseSucceed(() => false));
+  let avatar: CustomerAvatarPresentation = { kind: "hidden" };
+  if (avatarsEnabled) {
+    // A media outage never blocks the account page: an avatar read failure
+    // degrades to the initials fallback.
+    const availableAvatar = yield* Effect.flatMap(
+      CustomerAvatarService,
+      (service) => service.lookup(account.accountId)
+    ).pipe(
+      Effect.provide(CustomerAvatarService.Live),
+      Effect.tapError(() =>
+        logDegradedAccountSection("account.avatar.unavailable")
+      ),
+      Effect.orElseSucceed(() => null),
+      withOperation("account.avatar")
+    );
+    avatar = { kind: "available", avatar: availableAvatar };
+  }
+
+  return {
+    kind: "linked",
+    email: user.email,
+    profile: profile.success,
+    avatar,
+    history,
+  } satisfies CustomerAccountPageState;
+});
+
+const loadAccountPageState = Effect.gen(function* () {
+  const session = yield* Effect.flatMap(
+    CustomerAuthentication,
+    (authentication) => authentication.currentUser
+  ).pipe(
+    Effect.provide(CustomerAuthentication.Default),
+    Effect.tapError((error) =>
+      Effect.logError("Account authentication failed", { error })
+    ),
+    Effect.result,
+    withOperation("account.profile")
+  );
+  if (Result.isFailure(session)) return unavailable();
+
+  const user = session.success;
+  if (!user) return { kind: "unauthenticated" } as const;
+  if (user.deletionRequested) {
+    return { kind: "deletion-pending", email: user.email } as const;
+  }
+
+  const account = yield* resolveCurrentCustomerAccount.pipe(
+    Effect.tapError((error) =>
+      Effect.logError("Account resolution failed", { error })
+    ),
+    Effect.result,
+    withOperation("account.resolve")
+  );
+  if (Result.isSuccess(account)) {
+    return yield* loadLinkedAccount(user, account.success);
+  }
+
+  const failure = account.failure;
+  if (failure.reason === "unauthenticated") {
+    return { kind: "unauthenticated" } as const;
+  }
+  if (
+    failure.reason === "link-required" &&
+    failure.linkReason === "not-found"
+  ) {
+    return { kind: "completion-required", email: user.email } as const;
+  }
+  if (
+    failure.reason === "link-required" ||
+    failure.reason === "unverified-email"
+  ) {
+    return { kind: "support-required", email: user.email } as const;
+  }
+  return { kind: "authenticated-unavailable", email: user.email } as const;
+});
+
+/**
+ * Loads the account page state behind the page's single runtime edge. The
+ * account page is the signed-in customer's site locale, so it reads no
+ * separate language preference.
+ */
+export const loadCustomerAccountPage = cache(
+  (): Promise<CustomerAccountPageState> =>
+    loadAccountPageState.pipe(
+      runWorkspaceEffect("account.page", { boundary: "page" })
+    )
 );
 
 /**

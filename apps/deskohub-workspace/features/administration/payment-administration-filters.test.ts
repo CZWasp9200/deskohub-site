@@ -20,6 +20,21 @@ describe("payment administration filters", () => {
     );
   });
 
+  test("falls back to the last week for missing or unreadable dates", () => {
+    const current = Temporal.PlainDate.from("2026-08-06");
+
+    for (const [from, to] of [
+      [undefined, undefined],
+      ["", ""],
+      ["not-a-date", "2026-13-40"],
+    ] as const) {
+      const range = getAdministrationOrderDateTimeBounds(from, to, current);
+
+      expect(range.from).toBe("2026-07-30");
+      expect(range.to).toBe("2026-08-06");
+    }
+  });
+
   test("caps provider queries to Nexi's one-month maximum", () => {
     const range = getAdministrationOrderDateTimeBounds(
       "2026-06-01",
