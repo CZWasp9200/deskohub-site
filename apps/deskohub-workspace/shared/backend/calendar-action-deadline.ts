@@ -1,6 +1,5 @@
 import { getGoogleCalendarRequestWorstCaseDuration } from "@deskohub/google-calendar";
 import { Duration } from "effect";
-import { env } from "@/env";
 import type { DeploymentEnvironment } from "./config/deployment-request-timeout";
 import { getGoogleCalendarRequestTimeout } from "./config/google-calendar.config";
 import { workspaceActionDeadline } from "./workspace-action";
@@ -26,9 +25,3 @@ export const getCalendarActionDeadline = (
       sequentialCalendarLoads
     )
   );
-
-/** For an action that awaits one Calendar load in sequence. */
-export const calendarActionDeadline = getCalendarActionDeadline(
-  env.VERCEL_ENV,
-  1
-);

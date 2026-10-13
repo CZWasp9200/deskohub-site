@@ -14,7 +14,17 @@ import {
 } from "@/features/discounts";
 import { dotyposCustomerIdSchema } from "@/features/reservation/dotypos-customer";
 import { BotProtectionService } from "@/shared/backend/bot-protection/bot-protection.service";
+import { getCalendarActionDeadline } from "@/shared/backend/calendar-action-deadline";
+import type { DeploymentEnvironment } from "@/shared/backend/config/deployment-request-timeout";
 import type { ApplyDiscountCodeInput } from "./apply-discount-code-input";
+
+/**
+ * Discount-code entry affirms the displayed discounts, awaiting one Google
+ * Calendar load between its live payable-reservation guards.
+ */
+export const getApplyDiscountCodeDeadline = (
+  deploymentEnvironment: DeploymentEnvironment
+) => getCalendarActionDeadline(deploymentEnvironment, 1);
 
 export type ApplyDiscountCodeResult =
   | { readonly status: "applied"; readonly freshPayUrl: string }

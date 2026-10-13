@@ -21,7 +21,6 @@ import {
   PromotionCodeUnavailableError,
 } from "@/features/discounts";
 import { calendarSaleDiscountServiceLayer } from "@/features/discounts/calendar-sale.test-utils";
-import { getCalendarActionDeadline } from "@/shared/backend/calendar-action-deadline";
 import { getSlowestSuccessfulCalendarLoad } from "@/shared/backend/config/google-calendar.config.test-utils";
 import {
   withActionDeadline,
@@ -314,8 +313,12 @@ describe("applyDiscountCodeToPayState", () => {
       test("completes discount-code entry within its deadline", async () => {
         const { input, listEvents } = submission();
 
+        const { getApplyDiscountCodeDeadline } = await import(
+          "./apply-discount-code-to-pay-state"
+        );
+
         const exit = await runSubmissionWithinDeadline(
-          getCalendarActionDeadline(deploymentEnvironment, 1),
+          getApplyDiscountCodeDeadline(deploymentEnvironment),
           input
         );
 

@@ -1,7 +1,9 @@
+import { getGoogleCalendarRequestWorstCaseDuration } from "@deskohub/google-calendar";
 import { Duration } from "effect";
 import { env } from "@/env";
-import { googleCalendarRequestWorstCaseDuration } from "@/shared/backend/config/google-calendar.config";
-import { nexiRequestTimeout } from "@/shared/backend/config/nexi.config";
+import type { DeploymentEnvironment } from "@/shared/backend/config/deployment-request-timeout";
+import { getGoogleCalendarRequestTimeout } from "@/shared/backend/config/google-calendar.config";
+import { getNexiRequestTimeoutMilliseconds } from "@/shared/backend/config/nexi.config";
 
 /** Database, pricing, and fast Dotypos work besides the slow requests. */
 const checkoutSubmitOverhead = Duration.seconds(10);
@@ -14,22 +16,18 @@ const checkoutSubmitOverhead = Duration.seconds(10);
  * timeouts that is about 55 seconds in production and 100 seconds against
  * the Nexi sandbox.
  */
-export const getCheckoutSubmitDeadline = (requestTimeouts: {
-  readonly calendar: Duration.Duration;
-  readonly dotypos: Duration.Duration;
-  readonly nexi: Duration.Duration;
-}) =>
+export const getCheckoutSubmitDeadline = (
+  deploymentEnvironment: DeploymentEnvironment
+) =>
   [
-    requestTimeouts.calendar,
-    requestTimeouts.dotypos,
-    requestTimeouts.nexi,
+    getGoogleCalendarRequestWorstCaseDuration(
+      getGoogleCalendarRequestTimeout(deploymentEnvironment)
+    ),
+    Duration.millis(env.DOTYPOS_API_TIMEOUT),
+    Duration.millis(getNexiRequestTimeoutMilliseconds(deploymentEnvironment)),
   ].reduce(
     (deadline, requestTimeout) => Duration.sum(deadline, requestTimeout),
     checkoutSubmitOverhead
   );
 
-export const checkoutSubmitDeadline = getCheckoutSubmitDeadline({
-  calendar: googleCalendarRequestWorstCaseDuration,
-  dotypos: Duration.millis(env.DOTYPOS_API_TIMEOUT),
-  nexi: nexiRequestTimeout,
-});
+export const checkoutSubmitDeadline = getCheckoutSubmitDeadline(env.VERCEL_ENV);

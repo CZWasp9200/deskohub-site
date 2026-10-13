@@ -6,7 +6,6 @@ import {
   DotyposService,
   dotyposApiTimeoutDefaultMilliseconds,
 } from "@deskohub/dotypos";
-import { getGoogleCalendarRequestWorstCaseDuration } from "@deskohub/google-calendar";
 import { ExternalAPIError, NexiService } from "@deskohub/nexi";
 import { testEmailAddress } from "@deskohub/test-email";
 import { Data, Duration, Effect, Layer, Schema } from "effect";
@@ -40,7 +39,6 @@ import {
 import { normalizedMeetingRoomReservationOrderSchema } from "@/features/reservation/meeting-room-reservation";
 import { normalizedOfficeReservationOrderSchema } from "@/features/reservation/office-reservation";
 import { reservationOrderSchema } from "@/features/reservation/reservation-order";
-import { getGoogleCalendarRequestTimeout } from "@/shared/backend/config/google-calendar.config";
 import { getSlowestSuccessfulCalendarLoad } from "@/shared/backend/config/google-calendar.config.test-utils";
 import { getNexiRequestTimeoutMilliseconds } from "@/shared/backend/config/nexi.config";
 import { withInstantSleeps } from "@/shared/testing/workspace-test-clock.test-utils";
@@ -890,17 +888,8 @@ describe("CheckoutService", () => {
       const { withActionDeadline } = await import(
         "@/shared/backend/workspace-action"
       );
-      const deadline = getCheckoutSubmitDeadline({
-        calendar: getGoogleCalendarRequestWorstCaseDuration(
-          getGoogleCalendarRequestTimeout(deploymentEnvironment)
-        ),
-        dotypos: Duration.millis(dotyposApiTimeoutDefaultMilliseconds),
-        nexi: Duration.millis(
-          getNexiRequestTimeoutMilliseconds(deploymentEnvironment)
-        ),
-      });
       return await effect.pipe(
-        withActionDeadline(deadline),
+        withActionDeadline(getCheckoutSubmitDeadline(deploymentEnvironment)),
         Effect.exit,
         withInstantSleeps,
         Effect.runPromise
@@ -1000,17 +989,19 @@ describe("CheckoutService", () => {
         );
         return await effect.pipe(
           withActionDeadline(
-            getCheckoutSubmitDeadline({
-              calendar: includeCalendarBudget
-                ? getGoogleCalendarRequestWorstCaseDuration(
-                    getGoogleCalendarRequestTimeout(deploymentEnvironment)
-                  )
-                : Duration.zero,
-              dotypos: Duration.millis(dotyposApiTimeoutDefaultMilliseconds),
-              nexi: Duration.millis(
-                getNexiRequestTimeoutMilliseconds(deploymentEnvironment)
-              ),
-            })
+            includeCalendarBudget
+              ? getCheckoutSubmitDeadline(deploymentEnvironment)
+              : // The deadline before Calendar retries: one Dotypos request,
+                // one Nexi request, and 10 seconds of other work.
+                Duration.sum(
+                  Duration.sum(
+                    Duration.millis(dotyposApiTimeoutDefaultMilliseconds),
+                    Duration.millis(
+                      getNexiRequestTimeoutMilliseconds(deploymentEnvironment)
+                    )
+                  ),
+                  Duration.seconds(10)
+                )
           ),
           Effect.exit,
           withInstantSleeps,

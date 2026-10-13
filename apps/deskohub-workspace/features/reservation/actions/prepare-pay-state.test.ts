@@ -748,12 +748,12 @@ describe("prepareWorkspacePayState", () => {
         });
 
       test("prepares the pay state within its deadline", async () => {
-        const { getCalendarActionDeadline } = await import(
-          "@/shared/backend/calendar-action-deadline"
+        const { getPreparePayStateDeadline } = await import(
+          "./prepare-pay-state-deadline"
         );
 
         const scenario = await runTimedSubmission(
-          getCalendarActionDeadline(deploymentEnvironment, 2)
+          getPreparePayStateDeadline(deploymentEnvironment)
         );
 
         expect(scenario.exit).toMatchObject({

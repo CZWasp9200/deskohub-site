@@ -1,7 +1,6 @@
 import {
   GoogleCalendarIdSchema,
   GoogleCalendarService,
-  getGoogleCalendarRequestWorstCaseDuration,
 } from "@deskohub/google-calendar";
 import {
   GoogleCalendarRuntimeConfig,
@@ -67,15 +66,6 @@ export const getGoogleCalendarRequestTimeout = (
       nonProduction: Duration.seconds(15),
     },
     deploymentEnvironment
-  );
-
-/**
- * The longest a Google Calendar event load of this deployment can take when
- * every attempt times out.
- */
-export const googleCalendarRequestWorstCaseDuration =
-  getGoogleCalendarRequestWorstCaseDuration(
-    getGoogleCalendarRequestTimeout(env.VERCEL_ENV)
   );
 
 export const WorkspaceGoogleCalendarLayer = GoogleCalendarService.Default.pipe(
