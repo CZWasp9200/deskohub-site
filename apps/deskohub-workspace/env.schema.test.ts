@@ -223,16 +223,23 @@ describe("workspace environment schemas", () => {
   });
 
   test("tolerates unknown override keys only outside production", () => {
-    const overrides = '{"discount_codes":true,"referrals":true}';
+    const overrides =
+      '{"discount_codes":true,"referrals":true,"seasonal_menu":"synthetic-variant"}';
 
-    expect(
-      createWorkspaceEnv(
-        workspaceRuntimeEnv({
-          POSTHOG_FEATURE_FLAG_OVERRIDES: overrides,
-          VERCEL_ENV: "preview",
-        })
-      ).POSTHOG_FEATURE_FLAG_OVERRIDES
-    ).toEqual({ discount_codes: true, referrals: true });
+    for (const VERCEL_ENV of ["preview", "development"] as const) {
+      expect(
+        createWorkspaceEnv(
+          workspaceRuntimeEnv({
+            POSTHOG_FEATURE_FLAG_OVERRIDES: overrides,
+            VERCEL_ENV,
+          })
+        ).POSTHOG_FEATURE_FLAG_OVERRIDES
+      ).toEqual({
+        discount_codes: true,
+        referrals: true,
+        seasonal_menu: "synthetic-variant",
+      });
+    }
 
     const productionError = environmentError({
       POSTHOG_FEATURE_FLAG_OVERRIDES: '{"referrals":true}',

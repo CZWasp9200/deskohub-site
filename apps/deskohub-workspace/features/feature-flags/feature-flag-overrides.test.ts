@@ -35,6 +35,20 @@ describe("resolveFeatureFlagOverrides", () => {
     expect(String(message)).not.toContain("discount_codes");
   });
 
+  test("drops an unknown key without validating or echoing its value", () => {
+    expect(
+      resolveFeatureFlagOverrides({
+        discount_codes: false,
+        seasonal_menu: "synthetic-variant",
+      })
+    ).toEqual({ discount_codes: false });
+    expect(warn).toHaveBeenCalledTimes(1);
+
+    const [message] = warn.mock.calls[0] ?? [];
+    expect(String(message)).toContain("seasonal_menu");
+    expect(String(message)).not.toContain("synthetic-variant");
+  });
+
   test("resolves a map of only unknown keys to no overrides", () => {
     expect(resolveFeatureFlagOverrides({ referrals: true })).toBeUndefined();
     expect(warn).toHaveBeenCalledTimes(1);

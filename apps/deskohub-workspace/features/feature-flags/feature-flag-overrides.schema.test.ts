@@ -61,15 +61,19 @@ describe("PostHog feature flag override environment schema", () => {
     ).toThrow();
   });
 
-  test("defers unknown keys to the contract resolver outside production", () => {
+  test("defers unknown keys and their unvalidated values to the contract resolver outside production", () => {
     for (const VERCEL_ENV of ["preview", "development"] as const) {
       expect(
         decodeFeatureFlagOverrideEnvironment({
           POSTHOG_FEATURE_FLAG_OVERRIDES:
-            '{"discount_codes":true,"referrals":true}',
+            '{"discount_codes":true,"referrals":true,"seasonal_menu":"synthetic-variant"}',
           VERCEL_ENV,
         }).POSTHOG_FEATURE_FLAG_OVERRIDES
-      ).toEqual({ discount_codes: true, referrals: true });
+      ).toEqual({
+        discount_codes: true,
+        referrals: true,
+        seasonal_menu: "synthetic-variant",
+      });
     }
   });
 

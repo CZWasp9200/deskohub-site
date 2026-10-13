@@ -24,9 +24,9 @@ React consumers use the generated typed hook under the single provider at the lo
 
 ## Deployment-scoped overrides
 
-The optional server-only override map must be a JSON object of boolean values; malformed JSON and non-boolean values fail environment validation in every deployment. Production rejects any non-empty map, so an unknown key still fails there.
+The optional server-only override map must be a JSON object. Malformed JSON and an invalid value for a generated-contract key fail environment validation in every deployment. Values of keys outside the contract are not validated, because the shared value may hold a flag type, such as a string variant, that this build cannot check. Production rejects any non-empty map, so an unknown key still fails there.
 
-Outside production, the server PostHog configuration resolves the validated map against the generated contract and drops unknown keys with a warning that names only the keys, never values. One Vercel Preview value serves every branch, and it may name a flag that exists in PostHog before a branch has synchronized its contract. Failing on that key would break every preview build that has not synchronized yet. Builds do not regenerate the contract. Consumers read the resolved map from the server PostHog configuration, never the raw environment value.
+Outside production, the server PostHog configuration resolves the validated map against the generated contract and drops unknown keys and their unvalidated values with a warning that names only the keys, never values. One Vercel Preview value serves every branch, and it may name a flag that exists in PostHog before a branch has synchronized its contract. Failing on that key would break every preview build that has not synchronized yet. Builds do not regenerate the contract. Consumers read the resolved map from the server PostHog configuration, never the raw environment value.
 
 Only development and protected preview may configure a non-empty map. Production must reject it. Apply one immutable map to the process-scoped server client and serialize that same map to the consent-aware browser boundary. Never derive or mutate overrides from requests, cookies, URLs, headers, or visitor identity.
 

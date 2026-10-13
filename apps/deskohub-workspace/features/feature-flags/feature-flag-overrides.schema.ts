@@ -1,4 +1,5 @@
 import { Schema, SchemaGetter } from "effect";
+import { postHogFeatureFlags } from "./generated/contract";
 
 export const vercelEnvironmentSchema = Schema.Literals([
   "production",
@@ -6,15 +7,25 @@ export const vercelEnvironmentSchema = Schema.Literals([
   "development",
 ]);
 
-/**
- * Overrides as configured for the deployment. Keys are not checked against the
- * generated contract here because a shared preview value may name flags this
- * build does not know yet; `resolveFeatureFlagOverrides` drops those keys.
- */
-const configuredFeatureFlagOverridesSchema = Schema.Record(
-  Schema.String,
-  Schema.Boolean
+/** Overrides for the generated contract's flags; decoding ignores other keys. */
+export const contractFeatureFlagOverridesSchema = Schema.Record(
+  Schema.Literals(postHogFeatureFlags.keys),
+  Schema.optional(Schema.Boolean)
 );
+
+/**
+ * Overrides as configured for the deployment. Contract flags are validated,
+ * while other keys keep unvalidated values because a shared preview value may
+ * name flags this build does not know yet; `resolveFeatureFlagOverrides` drops
+ * those keys.
+ */
+const configuredFeatureFlagOverridesSchema = Schema.StructWithRest(
+  contractFeatureFlagOverridesSchema,
+  [Schema.Record(Schema.String, Schema.Unknown)]
+);
+
+export type ConfiguredFeatureFlagOverrides =
+  typeof configuredFeatureFlagOverridesSchema.Type;
 
 export const postHogFeatureFlagOverridesSchema = Schema.optional(
   Schema.Union([
@@ -35,7 +46,7 @@ export const postHogFeatureFlagOverridesSchema = Schema.optional(
 
 export const postHogFeatureFlagOverridesEnvironmentCheck = Schema.makeFilter<{
   readonly POSTHOG_FEATURE_FLAG_OVERRIDES?:
-    | Readonly<Record<string, boolean>>
+    | ConfiguredFeatureFlagOverrides
     | undefined;
   readonly VERCEL_ENV: "production" | "preview" | "development";
 }>((environment) =>
