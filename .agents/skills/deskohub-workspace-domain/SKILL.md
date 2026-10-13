@@ -1,16 +1,16 @@
 ---
 name: deskohub-workspace-domain
-description: Workspace reservation types, product identities, timezone values, and sales-calendar discounts.
+description: Workspace reservation families, cowork, meeting room, office, product identity, product keys, discount targets, Temporal, timezone, Prague dates, DST, Calendar sales, discount definitions.
 ---
 
 # Deskohub Workspace domain
 
-Read only the reference relevant to the change:
+Read the reference that matches the change:
 
-- For cowork and meeting-room reservation types, read [references/reservations.md](references/reservations.md).
-- For timezone values, Temporal schemas, parsing, or formatting, read [references/temporal.md](references/temporal.md).
-- For Google Calendar sales and stored discount definitions, read [references/sales-calendar.md](references/sales-calendar.md).
+- [references/reservations.md](references/reservations.md): reservation families, product identities and keys, discount targets, meeting-room durations, office ranges and seats, and Reserved Desk ranking.
+- [references/temporal.md](references/temporal.md): timezone, Temporal types, formatting, Dotypos interval decoding, and stored instant precision.
+- [references/sales-calendar.md](references/sales-calendar.md): Calendar sales, stored discount definitions, sale eligibility, and the sale source cache.
 
-Consult the business-facing [reservation product specification](../../../apps/deskohub-workspace/docs/reservation-products.md) before changing customer-visible product eligibility, duration, pricing, or availability rules.
+Read the business [reservation product](../../../apps/deskohub-workspace/docs/reservation-products.md) and [discount](../../../apps/deskohub-workspace/docs/discount-codes.md) specifications before changing customer-visible eligibility, duration, pricing, or availability.
 
-Update the relevant reference when developer feedback changes a durable domain invariant.
+Update the matching reference when developer feedback changes a durable domain invariant.

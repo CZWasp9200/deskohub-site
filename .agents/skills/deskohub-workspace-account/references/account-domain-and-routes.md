@@ -1,0 +1,86 @@
+# Account domain and routes
+
+## Customer resolution
+
+- `CustomerAccountResolver` is the replaceable identity-to-customer capability
+  for authenticated route composition and provider-independent tests.
+  `resolveCurrentCustomerAccount` is its Live-wired page convenience. Both
+  return only `CustomerAccountId` and `DotyposCustomerId`.
+- Require the authoritative current session and a verified email, then resolve
+  in this order:
+  1. An existing durable link wins.
+  2. One unique active exact-email Dotypos profile gets linked.
+  3. One unique expired profile is reactivated first and only then claimed, so
+     a failed reactivation leaves the link unreserved and retryable.
+  4. No match requires profile completion; create the Dotypos profile only
+     after the customer completes it.
+  5. Ambiguous, deleted, unusable, or already-claimed profiles return the
+     common support state.
+- Claim links through database uniqueness and conflict rereads, so same-account
+  races converge and a customer claimed by another account is rejected.
+- Never create a Dotypos customer from auth data alone; it needs the profile
+  completion input.
+
+## Error contract
+
+- `CustomerAccountAccessError.reason` is closed: `not-configured`,
+  `unauthenticated`, `unverified-email`, `link-required`, `unavailable`.
+- Attach only fixed non-PII internal failure codes, so operators can tell auth,
+  link reads, Dotypos lookup, claims, locks, and deletion apart. Never keep a
+  raw provider or database failure as the error cause.
+
+## Routes and pages
+
+- `app/api/auth/[...all]/route.ts` forwards GET and POST to `auth.handler` and
+  forces `Cache-Control: private, no-store`.
+- Render account and auth pages dynamically.
+- The account layout's `@modal` slot owns only the intercepted
+  `(..)reservation/{status,access}/[orderId]` modals. `@modal/page.tsx` renders
+  nothing at `/account`, and `@modal/default.tsx` renders nothing on hard
+  navigation to other account routes. Don't add a catch-all slot page. If a
+  modal ever links to another account route, add an explicit null slot page for
+  that route.
+- Every route into `/account/legal` and `/account/deleted` starts with the
+  modal closed. The dialog makes the background inert, closing it goes back to
+  `/account`, and deletion leaves through a document navigation.
+- Build account and sign-in URLs with `features/account/routes.ts`. Its helpers
+  pass Next's generated `/[locale]/...` route patterns to
+  `getLocalizedPagePath`, so typecheck proves the pages exist (the app doesn't
+  enable `typedRoutes`).
+- The header account button links to sign-in for anonymous visitors and to
+  `/account` for signed-in customers. Its href is an uncached
+  `isCustomerSignedIn` promise that the header resolves with `use()` inside
+  `Suspense`, with the sign-in href as fallback. Keep the static shell
+  independent of the session; a failed session check reads as signed out.
+- Keep sign-in and sign-out as document navigations so the header re-reads the
+  session. The `/account` client redirect stays only for direct or stale
+  navigations.
+- Use one magic-link form for sign-in and implicit sign-up.
+
+## Profile
+
+- Profile completion and edits update Dotypos (first name, last name, phone,
+  billing), never the auth user. Better Auth's `/update-user` path is disabled,
+  and the auth guard rejects `name` or `image` in a magic-link request.
+- The verified login email is immutable because it's the reservation-linking
+  trust boundary. Profile input never accepts an email.
+
+## Deletion
+
+Better Auth's public delete endpoint is the only identity-deletion path:
+
+1. The UI requires explicit destructive confirmation.
+2. The endpoint's `beforeDelete` hook calls
+   `CustomerAccountDeletionService.requestDeletion`, which takes the account
+   lock and then:
+   1. persists the `deletionRequestedAt` marker in its own transaction;
+   2. expires the linked Dotypos profile with a fresh ETag, retrying once on
+      a conflict; a missing or deleted profile counts as done;
+   3. destroys the avatar (see [avatar media storage](avatar-media-storage.md)).
+3. Any retryable provider failure throws before Better Auth removes the
+   identity rows, so deletion stays retryable. The link row goes by cascade.
+
+The marker blocks profile, reservation, checkout, and resolver activity but
+still allows reauthentication, logout, and delete retry. Resolution, profile
+edits, and deletion each re-read authority inside the lock. Never delete
+retained Dotypos reservations, payments, invoices, or legal evidence.

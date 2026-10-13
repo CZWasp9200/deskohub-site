@@ -1,37 +1,39 @@
 ---
 name: deskohub-dotypos
-description: Dotypos API, OpenAPI contract, generated client, authorization, and diagnostic handling.
+description: Dotypos API, @deskohub/dotypos, DotyposService, OpenAPI contract, generated client, new endpoint, refresh token, Connector authorization, manual API inspection, request timeout, Dotypos customer email or phone.
 ---
 
 # Deskohub Dotypos
 
-Read only the reference relevant to the change:
-
-- For the package boundary and client generation, read [references/openapi.md](references/openapi.md).
 - For Connector authorization and refresh-token acquisition, read [references/authorization.md](references/authorization.md).
-- For bounded manual API inspection, read [references/manual-diagnostics.md](references/manual-diagnostics.md) and the Workspace production-diagnostics reference before accessing production.
+- For manual API inspection, read [references/manual-diagnostics.md](references/manual-diagnostics.md). Before production access or log inspection, load `deskohub-workspace-operations` and follow its diagnostics reference.
 
-For a Dotypos resource or item operation:
+## Package boundary
 
-1. Consult the official API documentation.
-2. Send an authenticated `OPTIONS` request to the resource or item URL to verify supported operations. Never print the credentials.
-3. Verify the live response shape.
-4. Model the endpoint in the Dotypos OpenAPI specification.
-5. Regenerate the client and use the generated contract.
+`packages/dotypos` (`@deskohub/dotypos`) layers the integration:
 
-Do not add a parallel hand-written response decoder when the contract can be generated.
+1. Contract: `openapi/dotypos-api.yaml`.
+2. Generated client: `src/generated/`. Regenerate it with `bun run generate` in `packages/dotypos`; never edit it by hand.
+3. Effect service: `DotyposService` in `src/backend/service.ts`. `DotyposService.Live` wires the generated client, access token, and fetch transport.
+4. Configuration: apps decode their env into `DotyposRuntimeConfig` with `DotyposRuntimeConfigSchema` (`src/config.ts`), as `apps/deskohub-workspace/shared/backend/config/dotypos.config.ts` does.
+
+## Add or change an operation
+
+1. Read the official API documentation.
+2. Send an authenticated `OPTIONS` request to the resource or item URL to confirm the supported methods. Never print the credentials.
+3. Check the live response shape.
+4. Model the endpoint in `openapi/dotypos-api.yaml`.
+5. Regenerate the client and use the generated contract. Don't add a hand-written response decoder beside it.
+
+If a real response fails generated decoding, fix the OpenAPI schema and regenerate.
 
 ## Request timeouts
 
-- Prefer waiting for a slow Dotypos answer over failing the flow. The per-request timeout defaults to `dotyposApiTimeoutDefaultMilliseconds` (30 seconds, `@deskohub/dotypos/api-timeout`), and E2E uses the same value. A budget that wraps a Dotypos call, such as an E2E finalizer, must leave room for at least one full per-request timeout.
-- A page whose route `maxDuration` is shorter than the per-request timeout plus retries caps its own Dotypos reads with `Effect.timeoutOrElse` and renders a degraded state instead. The checkout status page (`maxDuration = 60`, sized for one non-production Nexi request) and the reservation access page (`maxDuration = 30`) cap theirs at 8 seconds. The cap bounds only the Dotypos work, not the page's total execution time; later steps such as Igloohome issuance can still run past `maxDuration`. Keep the shared default unchanged for these pages.
+- Prefer waiting for a slow Dotypos answer over failing the flow. The per-request timeout defaults to `dotyposApiTimeoutDefaultMilliseconds` (30 seconds, `@deskohub/dotypos/api-timeout`), and E2E uses the same value. Any budget that wraps a Dotypos call, such as an E2E finalizer, must leave room for at least one full per-request timeout.
+- A page whose `maxDuration` can't fit the per-request timeout plus retries caps its own Dotypos reads with `Effect.timeoutOrElse` and renders a degraded state. The reservation status page (`maxDuration = 60`) and access page (`maxDuration = 30`) cap theirs at 8 seconds. The cap bounds only the Dotypos reads; later steps, such as Igloohome issuance, can still run past `maxDuration`. Leave the shared default unchanged for these pages.
 
 ## Customer records
 
-- Dotypos filters customer `email` only through the STRING group: `email|like|value` is a case-insensitive substring match (`ILIKE '%value%'`, see the official filter and Customer entity references). Treat its results as candidates and identify a customer only by a whole-address, case-insensitive email comparison. Customers that differ only by email case are ambiguous, never silently merged.
-- Store the email as the customer entered it; lookups, not writes, carry the case-insensitivity.
-- An absent or unparseable phone must never overwrite the stored Dotypos phone. Omit the field from update patches. Only an explicit, validated clearing path such as the customer's own account profile edit sends the blank value.
-
-For production log inspection or provider diagnostics, also read `../deskohub-workspace-operations/references/diagnostics.md` before fetching data.
-
-Update this skill when developer feedback changes the integration workflow.
+- Dotypos filters customer `email` only with `email|like|value`, a case-insensitive substring match (`ILIKE '%value%'`). Treat results as candidates and identify a customer only by a whole-address, case-insensitive comparison. Customers whose emails differ only by case are ambiguous; never merge them silently.
+- Store the email as the customer entered it. Lookups, not writes, are case-insensitive.
+- An absent or unparseable phone never overwrites the stored Dotypos phone: omit the field from update patches. Only an explicit, validated clearing path, such as the customer's own profile edit, sends a blank value.
