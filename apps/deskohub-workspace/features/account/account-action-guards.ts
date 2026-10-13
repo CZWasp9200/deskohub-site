@@ -1,6 +1,7 @@
 import { Effect } from "effect";
 import type { Locale } from "@/features/i18n";
 import { m } from "@/features/i18n";
+import { areReferralsEnabled } from "@/features/referrals/referral-feature-flag.server";
 import { PublicSafeActionError } from "@/shared/utils/safe-action-client";
 import { CustomerAuthentication } from "./backend/customer-authentication.service";
 import { CustomerAccountAccessError } from "./customer-account";
@@ -48,6 +49,21 @@ const accountActionErrorMessage = (
 
 export const requireAccountsEnabled = (locale: Locale) =>
   Effect.promise(areAccountsEnabled).pipe(
+    Effect.filterOrFail(
+      (enabled) => enabled,
+      () =>
+        new PublicSafeActionError({
+          message: m.accountUnavailableDescription({}, { locale }),
+        })
+    ),
+    Effect.asVoid
+  );
+
+/** A withheld referral program rejects referral-only account actions. */
+export const requireReferralsEnabled = (locale: Locale) =>
+  Effect.tryPromise(areReferralsEnabled).pipe(
+    // An unreadable referral flag fails closed: the program stays withheld.
+    Effect.orElseSucceed(() => false),
     Effect.filterOrFail(
       (enabled) => enabled,
       () =>

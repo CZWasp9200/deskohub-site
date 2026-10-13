@@ -24,6 +24,7 @@ import {
   type ReferralCode,
 } from "@/features/referrals/client";
 import type { ReferralAccountOverview } from "@/features/referrals/contracts";
+import { areReferralsEnabled } from "@/features/referrals/referral-feature-flag.server";
 import { readRememberedReferralCode } from "@/features/referrals/remembered-referral-code.server";
 import { ReferralSignupIntentRepository } from "@/features/referrals/signup-intent.repository";
 import { getWorkspaceRuntimeCallbackOrigin } from "@/shared/backend/config/workspace-url.config";
@@ -41,6 +42,8 @@ export type CustomerAccountPageState =
   | {
       readonly kind: "completion-required";
       readonly email: string;
+      /** Whether the referral program is released and offers a code field. */
+      readonly referralsEnabled: boolean;
       /** Invitation code to prefill, present only when currently usable. */
       readonly referralCode?: ReferralCode;
     }
@@ -50,6 +53,8 @@ export type CustomerAccountPageState =
       readonly profile: CustomerProfile;
       readonly avatar: CustomerAvatarPresentation;
       readonly history: CustomerReservationHistory;
+      /** Whether the referral program is released and has a section. */
+      readonly referralsEnabled: boolean;
       readonly referrals?: ReferralAccountOverview;
       /**
        * Outcome of retrying the code a profile completion could not record
@@ -75,9 +80,19 @@ const unavailable = (): CustomerAccountPageState => ({ kind: "unavailable" });
 const withOperation = (operation: string) =>
   Effect.annotateLogs({ boundary: "page", operation });
 
+/**
+ * Whether the referral program is released, shared with the account layout's
+ * navigation through the per-request memo. An unavailable evaluation fails
+ * closed: a withheld program reads, writes, and shows no referral state.
+ */
+const referralsReleased = Effect.tryPromise(areReferralsEnabled).pipe(
+  Effect.orElseSucceed(() => false)
+);
+
 const loadLinkedAccount = Effect.fn(function* (
   user: { readonly email: string },
   account: LinkedCustomerAccount,
+  referralsEnabled: boolean,
   rememberedReferralCode: ReferralCode | undefined
 ) {
   const profile = yield* Effect.flatMap(CustomerProfileService, (service) =>
@@ -100,27 +115,31 @@ const loadLinkedAccount = Effect.fn(function* (
   // Retries a profile-completion referral that is still waiting, outside any
   // account lock like the auto-link before it. It runs only once the linked
   // page is certain to render, so the visit that settles the code is the one
-  // that shows its outcome.
-  const signupReferral = yield* recordSignupReferral(account).pipe(
-    Effect.provide(
-      Layer.mergeAll(ReferralService.Live, ReferralSignupIntentRepository.Live)
-    ),
-    Effect.catchCause(() =>
-      logDegradedAccountSection("account.signup-referral.unavailable").pipe(
-        Effect.as(undefined)
+  // that shows its outcome. A withheld program leaves the stored code as is.
+  const signupReferral = referralsEnabled
+    ? yield* recordSignupReferral(account).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            ReferralService.Live,
+            ReferralSignupIntentRepository.Live
+          )
+        ),
+        Effect.catchCause(() =>
+          logDegradedAccountSection("account.signup-referral.unavailable").pipe(
+            Effect.as(undefined)
+          )
+        ),
+        withOperation("account.signup-referral")
       )
-    ),
-    withOperation("account.signup-referral")
-  );
+    : undefined;
   // Checked after both recording paths, so a code they just used is forgotten
   // on this visit.
-  const rememberedReferralCodeUsed = yield* isRememberedReferralCodeUsed(
-    rememberedReferralCode,
-    account
-  ).pipe(
-    Effect.provide(ReferralService.Live),
-    withOperation("account.remembered-referral")
-  );
+  const rememberedReferralCodeUsed =
+    referralsEnabled &&
+    (yield* isRememberedReferralCodeUsed(rememberedReferralCode, account).pipe(
+      Effect.provide(ReferralService.Live),
+      withOperation("account.remembered-referral")
+    ));
 
   const history = yield* Effect.flatMap(
     CustomerReservationHistoryService,
@@ -158,7 +177,31 @@ const loadLinkedAccount = Effect.fn(function* (
     avatar = { kind: "available", avatar: availableAvatar };
   }
 
-  const referrals = yield* Effect.flatMap(ReferralService, (service) =>
+  const referrals = referralsEnabled
+    ? yield* loadReferralOverview(account)
+    : undefined;
+
+  return {
+    kind: "linked",
+    email: user.email,
+    profile: profile.success,
+    avatar,
+    history,
+    referralsEnabled,
+    referrals,
+    ...(signupReferral && { signupReferral }),
+    ...(rememberedReferralCodeUsed && {
+      rememberedReferralCodeUsed: true as const,
+    }),
+  } satisfies CustomerAccountPageState;
+});
+
+/**
+ * The customer's referral summary and share link. An unavailable summary
+ * degrades to the referral screen's unavailable state.
+ */
+const loadReferralOverview = (account: LinkedCustomerAccount) =>
+  Effect.flatMap(ReferralService, (service) =>
     service.getAccountSummary({
       customerAccountId: account.accountId,
       dotyposCustomerId: account.dotyposCustomerId,
@@ -182,20 +225,6 @@ const loadLinkedAccount = Effect.fn(function* (
     withOperation("account.referrals")
   );
 
-  return {
-    kind: "linked",
-    email: user.email,
-    profile: profile.success,
-    avatar,
-    history,
-    referrals,
-    ...(signupReferral && { signupReferral }),
-    ...(rememberedReferralCodeUsed && {
-      rememberedReferralCodeUsed: true as const,
-    }),
-  } satisfies CustomerAccountPageState;
-});
-
 /**
  * Read-only check of a remembered code; an unusable code or a failed check
  * leaves the completion form without a prefill instead of blocking sign-up.
@@ -218,7 +247,8 @@ const findAvailableReferralCode = (code: ReferralCode) =>
  * this visit links the account to an existing Dotypos customer. An account
  * that was already linked ignores it. A linked visit also retries the code its
  * profile completion could not record yet, then reports whether the
- * remembered code is used up.
+ * remembered code is used up. While the referral program is withheld, none of
+ * this runs: no prefill, acceptance, retry, or settlement check.
  */
 const loadAccountPageState = Effect.gen(function* () {
   const session = yield* Effect.flatMap(
@@ -240,9 +270,10 @@ const loadAccountPageState = Effect.gen(function* () {
     return { kind: "deletion-pending", email: user.email } as const;
   }
 
-  const rememberedReferralCode = yield* Effect.promise(
-    readRememberedReferralCode
-  );
+  const referralsEnabled = yield* referralsReleased;
+  const rememberedReferralCode = referralsEnabled
+    ? yield* Effect.promise(readRememberedReferralCode)
+    : undefined;
   const resolution = yield* resolveCurrentCustomerAccount.pipe(
     Effect.tapError((error) =>
       Effect.logError("Account resolution failed", { error })
@@ -252,19 +283,22 @@ const loadAccountPageState = Effect.gen(function* () {
   );
   if (Result.isSuccess(resolution)) {
     // Resolution has released the account lock that acceptance takes.
-    yield* acceptAutoLinkedReferral(
-      resolution.success,
-      rememberedReferralCode
-    ).pipe(
-      Effect.provide(ReferralService.Live),
-      Effect.catchCause(() =>
-        logDegradedAccountSection("account.auto-link.referral.unavailable")
-      ),
-      withOperation("account.auto-link.referral")
-    );
+    if (referralsEnabled) {
+      yield* acceptAutoLinkedReferral(
+        resolution.success,
+        rememberedReferralCode
+      ).pipe(
+        Effect.provide(ReferralService.Live),
+        Effect.catchCause(() =>
+          logDegradedAccountSection("account.auto-link.referral.unavailable")
+        ),
+        withOperation("account.auto-link.referral")
+      );
+    }
     return yield* loadLinkedAccount(
       user,
       resolution.success.account,
+      referralsEnabled,
       rememberedReferralCode
     );
   }
@@ -284,6 +318,7 @@ const loadAccountPageState = Effect.gen(function* () {
     return {
       kind: "completion-required",
       email: user.email,
+      referralsEnabled,
       ...(availableReferralCode && { referralCode: availableReferralCode }),
     } satisfies CustomerAccountPageState;
   }

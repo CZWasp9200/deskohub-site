@@ -885,6 +885,32 @@ describe("AccountShell", () => {
     expect(referralButton().querySelector("span.ml-auto")).toBeNull();
   });
 
+  test("leaves hidden sections out of both navigations", () => {
+    const view = renderShell({
+      hiddenSections: ["referrals"],
+      referralBadge: { text: "-15%", label: "15% referral discount" },
+    });
+
+    expect(
+      getDesktopNavigation(view).queryByRole("button", { name: /Referrals/ })
+    ).toBeNull();
+    expect(
+      getMobileNavigation(view).queryByRole("button", { name: "Referrals" })
+    ).toBeNull();
+    expect(view.queryByText("-15%")).toBeNull();
+    expect(
+      getDesktopNavigation(view)
+        .getAllByRole("button")
+        .map((b) => b.textContent)
+    ).toEqual([
+      "Reservations",
+      "Profile & identity",
+      "Billing & invoices",
+      "Legal & privacy",
+      "Danger zone",
+    ]);
+  });
+
   test("retains long localized title and section labels", () => {
     const localizedLabels: AccountShellProps["labels"] = {
       mobileSection: "Vyberte sekci svého zákaznického účtu",

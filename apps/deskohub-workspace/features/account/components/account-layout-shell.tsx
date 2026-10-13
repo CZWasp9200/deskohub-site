@@ -24,6 +24,8 @@ import { useConfirmDiscardChanges } from "@/shared/components/unsaved-changes-gu
 export type AccountLayoutShellProps = {
   readonly accountsEnabled: boolean;
   readonly locale: Locale;
+  /** Whether the referral program is released; withheld, it has no section. */
+  readonly referralsEnabled: boolean;
   readonly signedIn: boolean;
   readonly children: ReactNode;
 };
@@ -50,10 +52,16 @@ const anonymousDisabledSections = [
   "danger",
 ] as const;
 
-function sectionFromQuery(value: string | null): AccountSection | undefined {
+const withheldReferralSections = ["referrals"] as const;
+
+function sectionFromQuery(
+  value: string | null,
+  referralsEnabled: boolean
+): AccountSection | undefined {
   switch (value) {
-    case "reservations":
     case "referrals":
+      return referralsEnabled ? value : undefined;
+    case "reservations":
     case "profile":
     case "billing":
     case "legal":
@@ -96,6 +104,7 @@ export function AccountLayoutShell({
   accountsEnabled,
   children,
   locale,
+  referralsEnabled,
   signedIn,
 }: AccountLayoutShellProps) {
   const pathname = usePathname();
@@ -109,7 +118,8 @@ export function AccountLayoutShell({
     normalizedPathname?.endsWith("/account/legal") ?? false;
   const isDeletedPathname =
     normalizedPathname?.endsWith("/account/deleted") ?? false;
-  let routeSection = sectionFromQuery(requestedSection) ?? "reservations";
+  let routeSection =
+    sectionFromQuery(requestedSection, referralsEnabled) ?? "reservations";
   if (isLegalPathname) routeSection = "legal";
   const routeKey = `${normalizedPathname ?? ""}|${requestedSection ?? ""}`;
   const [localNavigation, setLocalNavigation] = useState(() => ({
@@ -140,6 +150,7 @@ export function AccountLayoutShell({
       }
 
       if (!privateNavigationEnabled) return;
+      if (section === "referrals" && !referralsEnabled) return;
       if (isLegalPathname) {
         if (!confirmDiscardChanges()) return;
         router.push(`/${locale}/account?section=${section}`);
@@ -153,6 +164,7 @@ export function AccountLayoutShell({
       isLegalPathname,
       locale,
       privateNavigationEnabled,
+      referralsEnabled,
       routeKey,
       router,
     ]
@@ -187,9 +199,10 @@ export function AccountLayoutShell({
       disabledSections={
         privateNavigationEnabled ? undefined : anonymousDisabledSections
       }
+      hiddenSections={referralsEnabled ? undefined : withheldReferralSections}
       labels={copy.shell}
       onSectionChange={changeSection}
-      referralBadge={referralBadge}
+      referralBadge={referralsEnabled ? referralBadge : undefined}
       reservationCount={reservationCount}
       signOut={signedIn ? <SignOutButton locale={locale} /> : null}
       sidebarFooter={<AccountHelp locale={locale} />}

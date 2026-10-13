@@ -324,8 +324,10 @@ mock.module("@/features/referrals/signup-intent.repository", () => ({
 }));
 
 let rememberedReferralCode: string | undefined;
+let rememberedReferralCodeReads = 0;
 mock.module("@/features/referrals/remembered-referral-code.server", () => ({
   readRememberedReferralCode: async () => {
+    rememberedReferralCodeReads += 1;
     const { parseReferralCode } = await import("@/features/referrals/client");
     return parseReferralCode(rememberedReferralCode);
   },
@@ -334,6 +336,10 @@ mock.module("@/features/referrals/remembered-referral-code.server", () => ({
 const areAccountAvatarsEnabled = mock(() => Promise.resolve(true));
 mock.module("@/features/account/server/account-feature-flag.server", () => ({
   areAccountAvatarsEnabled,
+}));
+const areReferralsEnabled = mock(() => Promise.resolve(true));
+mock.module("@/features/referrals/referral-feature-flag.server", () => ({
+  areReferralsEnabled,
 }));
 const runtimeRuns: { operation: string; boundary: string }[] = [];
 mock.module("@/shared/backend/workspace-effect", () => ({
@@ -364,10 +370,13 @@ describe("loadCustomerAccountPage", () => {
     settledReferralEffect = Effect.succeed(false);
     settledReferralCalls = [];
     rememberedReferralCode = undefined;
+    rememberedReferralCodeReads = 0;
     storedSignupIntent = undefined;
     events = [];
     areAccountAvatarsEnabled.mockReset();
     areAccountAvatarsEnabled.mockResolvedValue(true);
+    areReferralsEnabled.mockReset();
+    areReferralsEnabled.mockResolvedValue(true);
     historyEffect = Effect.succeed({
       kind: "available",
       groups: { current: [], past: [], unavailable: [] },
@@ -420,6 +429,7 @@ describe("loadCustomerAccountPage", () => {
 
     await expect(loadPageState()).resolves.toEqual({
       kind: "completion-required",
+      referralsEnabled: true,
       email: customerEmail,
     });
   });
@@ -433,6 +443,7 @@ describe("loadCustomerAccountPage", () => {
 
     await expect(loadPageState("RFL12345")).resolves.toEqual({
       kind: "completion-required",
+      referralsEnabled: true,
       email: customerEmail,
       referralCode: "RFL12345",
     });
@@ -449,12 +460,14 @@ describe("loadCustomerAccountPage", () => {
     availableReferralCodeEffect = Effect.succeed(undefined);
     await expect(loadPageState("RFLGONE1")).resolves.toEqual({
       kind: "completion-required",
+      referralsEnabled: true,
       email: customerEmail,
     });
 
     availableReferralCodeEffect = Effect.fail(new Error("database down"));
     await expect(loadPageState("RFL12345")).resolves.toEqual({
       kind: "completion-required",
+      referralsEnabled: true,
       email: customerEmail,
     });
   });
@@ -758,6 +771,7 @@ describe("loadCustomerAccountPage", () => {
   test("renders the linked account with profile and grouped history, in one page-boundary run", async () => {
     await expect(loadPageState()).resolves.toEqual({
       kind: "linked",
+      referralsEnabled: true,
       email: customerEmail,
       profile: {
         firstName: "Ada",
@@ -785,6 +799,7 @@ describe("loadCustomerAccountPage", () => {
 
     await expect(loadPageState()).resolves.toEqual({
       kind: "linked",
+      referralsEnabled: true,
       email: customerEmail,
       profile: {
         firstName: "Ada",
@@ -866,6 +881,7 @@ describe("loadCustomerAccountPage", () => {
 
     await expect(loadPageState()).resolves.toEqual({
       kind: "linked",
+      referralsEnabled: true,
       email: customerEmail,
       profile: {
         firstName: "Ada",
@@ -920,6 +936,88 @@ describe("loadCustomerAccountPage", () => {
     await expect(loadPageState()).resolves.toEqual({
       kind: "authenticated-unavailable",
       email: customerEmail,
+    });
+  });
+
+  describe("while the referral program is withheld", () => {
+    const expectNoReferralWork = () => {
+      expect(rememberedReferralCodeReads).toBe(0);
+      expect(availableReferralCodeCalls).toEqual([]);
+      expect(acceptReferralCalls).toEqual([]);
+      expect(settledReferralCalls).toEqual([]);
+      expect(referralSummaryCalls).toEqual([]);
+    };
+
+    test("offers no completion referral field or prefill", async () => {
+      areReferralsEnabled.mockResolvedValue(false);
+      resolveEffect = resolverOutcome({
+        kind: "failure",
+        reason: "link-required",
+        linkReason: "not-found",
+      });
+
+      await expect(loadPageState("RFL12345")).resolves.toEqual({
+        kind: "completion-required",
+        referralsEnabled: false,
+        email: customerEmail,
+      });
+      expectNoReferralWork();
+    });
+
+    test("skips the auto-link acceptance, signup retry, settlement check, and summary", async () => {
+      areReferralsEnabled.mockResolvedValue(false);
+      resolveEffect = resolverOutcome({
+        kind: "success",
+        customerId: "60111",
+        autoLinked: true,
+      });
+      const unsettledIntent = {
+        code: "RFLPENDING",
+        promotionCodeId: "@test/promotion-code-id",
+        referrerDotyposCustomerId: "70001",
+      };
+      storedSignupIntent = unsettledIntent;
+      settledReferralEffect = Effect.succeed(true);
+
+      const state = await loadPageState("RFL12345");
+
+      expect(state).toEqual({
+        kind: "linked",
+        email: customerEmail,
+        profile: {
+          firstName: "Ada",
+          lastName: "Lovelace",
+          phone: null,
+          billing: null,
+        },
+        avatar: { kind: "available", avatar: null },
+        history: {
+          kind: "available",
+          groups: { current: [], past: [], unavailable: [] },
+        },
+        referralsEnabled: false,
+        referrals: undefined,
+      });
+      expect(state).not.toHaveProperty("signupReferral");
+      expect(state).not.toHaveProperty("rememberedReferralCodeUsed");
+      expect(storedSignupIntent).toBe(unsettledIntent);
+      expect(events).toEqual(["resolved"]);
+      expectNoReferralWork();
+    });
+
+    test("fails closed when the referral flag cannot be read", async () => {
+      areReferralsEnabled.mockRejectedValue(new Error("flag service down"));
+      resolveEffect = resolverOutcome({
+        kind: "success",
+        customerId: "60111",
+        autoLinked: true,
+      });
+
+      await expect(loadPageState("RFL12345")).resolves.toMatchObject({
+        kind: "linked",
+        referralsEnabled: false,
+      });
+      expectNoReferralWork();
     });
   });
 });

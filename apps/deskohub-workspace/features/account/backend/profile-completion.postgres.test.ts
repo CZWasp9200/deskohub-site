@@ -184,8 +184,12 @@ const completionLayer = (options: {
   readonly recordGate?: Gate;
   readonly identityUnavailable?: boolean;
   readonly createdCustomers?: DotyposCustomerId[];
+  readonly referralsEnabled?: boolean;
 }) => {
   const database = databaseLayer();
+  const featureFlag = ReferralFeatureFlagServiceMock({
+    isEnabled: Effect.succeed(options.referralsEnabled ?? true),
+  });
   const lock = WorkspaceDatabaseAdvisoryLock.makeLayer(testDatabase!.pool);
   const links = CustomerAccountLinkRepository.Default.pipe(
     Layer.provide(Layer.mergeAll(database, lock))
@@ -226,7 +230,7 @@ const completionLayer = (options: {
   const referrals = ReferralService.Default.pipe(
     Layer.provide(
       Layer.mergeAll(
-        ReferralFeatureFlagServiceMock({ isEnabled: Effect.succeed(true) }),
+        featureFlag,
         database,
         lock,
         links,
@@ -243,6 +247,7 @@ const completionLayer = (options: {
     ),
     referrals,
     ReferralSignupIntentRepository.Default.pipe(Layer.provide(database)),
+    featureFlag,
     links
   );
 };
@@ -756,6 +761,33 @@ describe.skipIf(!testDatabase)(
       expect(outcome).toEqual({ status: "referral-code-unavailable" });
       expect(createdCustomers).toEqual([]);
       expect(await readLinkedCustomer(accountId)).toBeUndefined();
+    });
+
+    test("ignores a submitted code while the referral program is withheld", async () => {
+      const referrer = await insertReferrer();
+      const unusable = await insertReferrer();
+      await disableCode(unusable.promotionCodeId);
+
+      for (const code of [referrer.code, unusable.code]) {
+        const accountId = await newAccount();
+
+        const outcome = await complete(accountId, { code }).pipe(
+          withinLockBudget,
+          Effect.provide(
+            completionLayer({ accountId, referralsEnabled: false })
+          ),
+          Effect.runPromise
+        );
+
+        expect(outcome).toEqual({
+          status: "completed",
+          account: expect.objectContaining({ accountId }),
+        });
+        const customerId = await readLinkedCustomer(accountId);
+        expect(customerId).toBeDefined();
+        expect(await readStoredOutcome(accountId)).toBeUndefined();
+        expect(await countAttributions(customerId!)).toBe(0);
+      }
     });
   }
 );

@@ -1,4 +1,5 @@
 import { Effect } from "effect";
+import { ReferralFeatureFlagService } from "@/features/referrals/referral-feature-flag.service";
 import type {
   CustomerProfileInput,
   ProfileCompletionReferralOutcome,
@@ -29,7 +30,9 @@ type NewCustomerProfileCompletion =
  * creates the link owns a code. It is recorded after the account lock is
  * released, because acceptance takes that lock in its own transaction. A
  * completion that finds the link already created stores nothing and reports
- * its code against the account's current referral state.
+ * its code against the account's current referral state. While the referral
+ * program is withheld, a submitted code is ignored: it is neither checked nor
+ * stored, and the completion succeeds without one.
  */
 export const completeNewCustomerProfile = Effect.fn(
   "account.completeNewCustomerProfile"
@@ -41,7 +44,10 @@ export const completeNewCustomerProfile = Effect.fn(
     readonly prefilledCode: string | undefined;
   }
 ) {
-  const request = yield* prepareSignupReferral(referral);
+  const featureFlag = yield* ReferralFeatureFlagService;
+  const request = (yield* featureFlag.isEnabled)
+    ? yield* prepareSignupReferral(referral)
+    : ({ kind: "none" } as const);
   if (request.kind === "unavailable") {
     return { status: "referral-code-unavailable" } as const;
   }

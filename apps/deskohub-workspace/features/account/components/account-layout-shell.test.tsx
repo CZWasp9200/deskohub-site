@@ -64,6 +64,7 @@ function layoutElement(
   children: ReactNode,
   options: {
     readonly accountsEnabled?: boolean;
+    readonly referralsEnabled?: boolean;
     readonly signedIn?: boolean;
   } = {}
 ) {
@@ -71,6 +72,7 @@ function layoutElement(
     <AccountLayoutShell
       accountsEnabled={options.accountsEnabled ?? true}
       locale="en-US"
+      referralsEnabled={options.referralsEnabled ?? true}
       signedIn={options.signedIn ?? true}
     >
       {children}
@@ -82,6 +84,7 @@ function renderLayout(
   children: ReactNode,
   options: {
     readonly accountsEnabled?: boolean;
+    readonly referralsEnabled?: boolean;
     readonly signedIn?: boolean;
   } = {}
 ) {
@@ -111,6 +114,31 @@ function DirtyContent() {
   });
 
   return <p>Unsaved account changes</p>;
+}
+
+function ReferralBadgePublisher({
+  section,
+}: {
+  readonly section?: "referrals";
+}) {
+  const { changeSection, setReferralBadge } = useAccountLayout();
+  return (
+    <>
+      <button
+        onClick={() =>
+          setReferralBadge({ text: "-15%", label: "15% referral discount" })
+        }
+        type="button"
+      >
+        Publish badge
+      </button>
+      {section && (
+        <button onClick={() => changeSection(section)} type="button">
+          Open {section}
+        </button>
+      )}
+    </>
+  );
 }
 
 function AccountContextProbe() {
@@ -240,7 +268,12 @@ describe("AccountLayoutShell", () => {
     try {
       const view = render(
         <UnsavedChangesProvider>
-          <AccountLayoutShell accountsEnabled locale="en-US" signedIn>
+          <AccountLayoutShell
+            accountsEnabled
+            locale="en-US"
+            referralsEnabled
+            signedIn
+          >
             <DirtyContent />
           </AccountLayoutShell>
         </UnsavedChangesProvider>
@@ -338,6 +371,47 @@ describe("AccountLayoutShell", () => {
         .getByRole("button", { name: "Reservations" })
         .getAttribute("aria-current")
     ).toBe("page");
+  });
+
+  test("treats a withheld referral section like an unknown section", () => {
+    searchParams = new URLSearchParams("section=referrals");
+    const view = renderLayout(<ReferralBadgePublisher section="referrals" />, {
+      referralsEnabled: false,
+    });
+
+    expect(
+      getDesktopNavigation(view).queryByRole("button", { name: /Referrals/ })
+    ).toBeNull();
+    expect(
+      getMobileNavigation(view).queryByRole("button", { name: "Referrals" })
+    ).toBeNull();
+    expect(
+      getDesktopNavigation(view)
+        .getByRole("button", { name: "Reservations" })
+        .getAttribute("aria-current")
+    ).toBe("page");
+
+    fireEvent.click(view.getByRole("button", { name: "Publish badge" }));
+    fireEvent.click(view.getByRole("button", { name: "Open referrals" }));
+    expect(view.queryByText("-15%")).toBeNull();
+    expect(
+      getDesktopNavigation(view)
+        .getByRole("button", { name: "Reservations" })
+        .getAttribute("aria-current")
+    ).toBe("page");
+    expect(routerPush).not.toHaveBeenCalled();
+  });
+
+  test("opens the released referral section with its badge", () => {
+    searchParams = new URLSearchParams("section=referrals");
+    const view = renderLayout(<ReferralBadgePublisher />);
+
+    fireEvent.click(view.getByRole("button", { name: "Publish badge" }));
+    const referrals = getDesktopNavigation(view).getByRole("button", {
+      name: /Referrals/,
+    });
+    expect(referrals.getAttribute("aria-current")).toBe("page");
+    expect(within(referrals).getByText("-15%")).toBeTruthy();
   });
 
   test("bypasses the frame on the deleted-account route", () => {

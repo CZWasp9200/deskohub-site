@@ -36,6 +36,7 @@ export function AccountPage({
           locale={locale}
           profile={state.profile}
           referrals={state.referrals}
+          referralsEnabled={state.referralsEnabled}
           signupReferral={state.signupReferral}
         />
       </>
@@ -77,6 +78,7 @@ function renderState(
           email={state.email}
           locale={locale}
           referralCode={state.referralCode}
+          referralsEnabled={state.referralsEnabled}
         />
       );
     case "support-required":
@@ -111,10 +113,12 @@ function CompletionCard({
   email,
   locale,
   referralCode,
+  referralsEnabled,
 }: {
   readonly email: string;
   readonly locale: Locale;
   readonly referralCode?: ReferralCode;
+  readonly referralsEnabled: boolean;
 }) {
   return (
     <div className="grid items-start gap-6">
@@ -132,6 +136,7 @@ function CompletionCard({
               locale={locale}
               mode="complete"
               referralCode={referralCode}
+              referralsEnabled={referralsEnabled}
             />
           </div>
         </CardContent>

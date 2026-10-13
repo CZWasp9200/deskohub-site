@@ -319,6 +319,7 @@ describe("ProfileForm", () => {
         locale="en-US"
         email={adaAddress}
         referralCode={parseReferralCode("RFL12345")}
+        referralsEnabled
       />
     );
     const field = view.getByLabelText(
@@ -363,6 +364,26 @@ describe("ProfileForm", () => {
     expect(edit.container.querySelector("#profile-referral-code")).toBeNull();
   });
 
+  test("offers no referral code field while the referral program is withheld", async () => {
+    const { ProfileForm } = await import("./profile-form");
+
+    const view = render(
+      <ProfileForm
+        mode="complete"
+        locale="en-US"
+        email={adaAddress}
+        referralsEnabled={false}
+      />
+    );
+
+    expect(view.container.querySelector("#profile-referral-code")).toBeNull();
+    expect(
+      view.queryByLabelText(
+        m.accountProfileReferralCodeLabel({}, { locale: "en-US" })
+      )
+    ).toBeNull();
+  });
+
   test("shows an unavailable referral code on its field without completing", async () => {
     completeCustomerProfile.mockImplementationOnce(() =>
       Promise.resolve({ data: { status: "referral-code-unavailable" } })
@@ -370,7 +391,12 @@ describe("ProfileForm", () => {
     const { ProfileForm } = await import("./profile-form");
 
     const view = render(
-      <ProfileForm mode="complete" locale="cs-CZ" email={adaAddress} />
+      <ProfileForm
+        mode="complete"
+        locale="cs-CZ"
+        email={adaAddress}
+        referralsEnabled
+      />
     );
     fireEvent.change(view.getByLabelText("Jméno"), {
       target: { value: "Ada" },
