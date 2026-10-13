@@ -11,6 +11,7 @@ import {
 import { WORKSPACE_SITE_TIME_ZONE } from "@deskohub/workspace-admin-api/site-time-zone";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { Match, Option, Result, Schema } from "effect";
+import { isWholeHour } from "@/shared/utils/temporal";
 import type { StandaloneAccessCodeCreationOutcome } from "../standalone-access-code";
 
 const standaloneAccessCodeWindowDurationIssue = `The end must be ${ADMINISTRATION_STANDALONE_ACCESS_CODE_MINIMUM_DURATION_HOURS} to ${ADMINISTRATION_STANDALONE_ACCESS_CODE_MAXIMUM_DURATION_HOURS} hours after the start.`;
@@ -145,18 +146,11 @@ const toSiteInstant = (value: string) =>
     .toZonedDateTime(WORKSPACE_SITE_TIME_ZONE)
     .toInstant();
 
-const isWholeHourLocalTime = (dateTime: Temporal.PlainDateTime) =>
-  dateTime.minute === 0 &&
-  dateTime.second === 0 &&
-  dateTime.millisecond === 0 &&
-  dateTime.microsecond === 0 &&
-  dateTime.nanosecond === 0;
-
 const checkStandaloneAccessCodeLocalDateTime = Option.liftThrowable(
   (value: string) => {
     const dateTime = Temporal.PlainDateTime.from(value);
     if (dateTime.toString({ smallestUnit: "minute" }) !== value) return false;
-    if (!isWholeHourLocalTime(dateTime)) return false;
+    if (!isWholeHour(dateTime)) return false;
     return dateTime
       .toZonedDateTime(WORKSPACE_SITE_TIME_ZONE)
       .toPlainDateTime()

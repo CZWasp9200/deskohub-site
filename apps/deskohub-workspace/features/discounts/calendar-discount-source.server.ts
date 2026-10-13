@@ -140,8 +140,9 @@ export async function loadCalendarDiscountSource(
     Effect.provide(CalendarDiscountSourceLive),
     runWorkspaceEffectOrElse("discounts.calendar-source.load", {
       failureCode: "calendar_discount_source_load_failed",
-      // A failed load, including a runner that never starts, is never
-      // shared; the next request retries it.
+      // A typed failure or defect, including a runner that never starts,
+      // is never shared, so the next request retries it. Interruption and
+      // Next.js control flow propagate without this.
       orElse: (cause) => {
         cacheLife({ expire: 0 });
         throw cause;

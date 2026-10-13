@@ -10,7 +10,10 @@ import { getWorkspaceProductTierTitle } from "@/features/checkout/product-catalo
 import { formatWorkspaceMoney } from "@/features/checkout/workspace-money";
 import { type Locale, m } from "@/features/i18n";
 import { findWorkspaceCurrencyDefinition } from "@/shared/money/currencies";
-import { formatInstantDate } from "@/shared/utils/date-time-format";
+import {
+  formatInstantDate,
+  formatPlainDate,
+} from "@/shared/utils/date-time-format";
 import { workspaceSiteConstants } from "@/shared/utils/site-constants";
 
 export interface InvoicePresentationParty {
@@ -207,7 +210,7 @@ const getManualInvoicePresentation = (
         totalLabel: copy.totalPaid,
         dateFact: {
           label: copy.paymentDate,
-          value: formatPlainDate(date, document.locale),
+          value: formatInvoicePlainDate(date, document.locale),
         },
       }),
       due: ({ date }) =>
@@ -217,7 +220,7 @@ const getManualInvoicePresentation = (
               totalLabel: manual.totalDue,
               dateFact: {
                 label: manual.dueDate,
-                value: formatPlainDate(date, document.locale),
+                value: formatInvoicePlainDate(date, document.locale),
               },
             }
           : {
@@ -246,7 +249,7 @@ const getManualInvoicePresentation = (
         },
         {
           label: copy.serviceDate,
-          value: formatPlainDate(document.serviceDate, document.locale),
+          value: formatInvoicePlainDate(document.serviceDate, document.locale),
         },
         paymentPresentation.dateFact,
       ],
@@ -376,11 +379,8 @@ const formatCountry = (country: string, locale: Locale) =>
     Option.getOrElse(() => country)
   );
 
-const formatPlainDate = (value: string, locale: Locale) =>
-  new Intl.DateTimeFormat(locale, {
-    dateStyle: "medium",
-    timeZone: "UTC",
-  }).format(new Date(`${value}T00:00:00Z`));
+const formatInvoicePlainDate = (value: string, locale: Locale) =>
+  formatPlainDate({ date: Temporal.PlainDate.from(value), locale });
 
 const formatManualMoney = (value: string, currency: string) => {
   const exponent = findWorkspaceCurrencyDefinition(currency)?.exponent ?? 0;
