@@ -27,6 +27,10 @@ import {
   workspaceE2ETimeoutError,
 } from "../errors";
 import { pollUntil } from "../polling";
+import {
+  waitForNoRememberedReferralCode,
+  waitForRememberedReferralCode,
+} from "../referrals/referral-cookie";
 import { addRedaction, assert, type Runner } from "../runtime";
 import {
   workspaceE2EPollInitialIntervalMs,
@@ -277,9 +281,10 @@ export const makeWorkspaceE2EAccountCases = ({
     );
 
   /**
-   * The share-link sign-in page: the anonymous account redirect must land on
-   * the localized sign-in form with the share code preserved, because the form
-   * carries that code into the magic-link callback.
+   * The share-link sign-in page: the anonymous account redirect lands on the
+   * plain localized sign-in form, and the browser remembers the shared code
+   * in its referral cookie, which carries it through the magic-link round
+   * trip instead of any URL.
    */
   const waitShareLinkSignIn = Effect.fn("waitShareLinkSignIn")(function* (
     referralCode: string
@@ -290,16 +295,20 @@ export const makeWorkspaceE2EAccountCases = ({
           if (url === undefined) return undefined;
           const current = new URL(url);
           return current.pathname === `/${config.locale}${signInSuffix}` &&
-            current.searchParams.get("ref") === referralCode
+            !current.searchParams.has("ref")
             ? url
             : undefined;
         })
       ),
       {
         intervalMs: workspaceE2EPollIntervalMs.browser,
-        label: "share-link sign-in page carrying the referral code",
+        label: "plain sign-in page after the share-link redirect",
         timeoutMs: uiTransition,
       }
+    );
+    yield* waitForRememberedReferralCode(
+      { config, run, session },
+      referralCode
     );
     yield* waitSignInForm();
   });
@@ -494,8 +503,9 @@ export const makeWorkspaceE2EAccountCases = ({
         lifecycleHandoff.referralInvitation = invitation;
         yield* runStep(
           step(
-            "redirects an anonymous locale-free share link to sign-in with its code",
+            "remembers an anonymous locale-free share link and redirects to sign-in",
             Effect.gen(function* () {
+              yield* waitForNoRememberedReferralCode({ config, run, session });
               yield* openPage(
                 `${config.baseUrl}${accountSuffix}?ref=${invitation.code}`
               );
@@ -749,12 +759,13 @@ export const makeWorkspaceE2EAccountCases = ({
                   })()`,
                 { timeoutMs: uiTransition }
               );
-              // The referral outcome survives that refresh as a one-time
-              // notice on the linked account.
+              // The outcome shows on the linked account until dismissed, and
+              // the recorded referral uses up the remembered code.
               yield* waitText(
                 "applied share-link referral notice on the linked account",
                 completionReferralApplied
               );
+              yield* waitForNoRememberedReferralCode({ config, run, session });
             })
           )
         );

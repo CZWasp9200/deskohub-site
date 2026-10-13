@@ -64,17 +64,6 @@ import {
 const accountReviewCaptureFailureMessage =
   "Account review screenshot capture failed";
 
-/**
- * The cases whose pages carry the share code from the lane's first anonymous
- * share-link visit: the sign-in form, its callback, and profile completion.
- */
-const shareLinkCaseIds: ReadonlySet<WorkspaceE2EAccountCaseId> =
-  new Set<WorkspaceE2EAccountCaseId>([
-    "account-anonymous-redirect",
-    "account-sign-in-form",
-    "account-magic-link-delivery",
-  ]);
-
 type WorkspaceE2EAccountLane = {
   readonly config: ReturnType<typeof getAccountE2EConfig>;
   /**
@@ -206,16 +195,6 @@ for (const caseId of workspaceE2EAccountCaseIds) {
         if (!page) throw new Error(accountReviewCaptureFailureMessage);
         return page;
       };
-      // Read when a capture starts: the anonymous share-link case records the
-      // share code only while it runs.
-      const caseReview = () =>
-        shareLinkCaseIds.has(caseId)
-          ? {
-              ...accountLane.config.review,
-              referralCode:
-                accountLane.lifecycleHandoff.referralInvitation?.code,
-            }
-          : accountLane.config.review;
       let verifyPages:
         | readonly WorkspaceE2EStep<void, E2EDatabase>[]
         | undefined;
@@ -440,9 +419,13 @@ for (const caseId of workspaceE2EAccountCaseIds) {
           throw new Error(accountReviewCaptureFailureMessage);
         const page = pages[0];
         if (!page) throw new Error(accountReviewCaptureFailureMessage);
-        await withSignInPendingReview(page, caseReview(), runCase);
+        await withSignInPendingReview(page, accountLane.config.review, runCase);
       } else if (caseId === "account-magic-link-delivery") {
-        await withCallbackHandoffReview(getOwnedPage(), caseReview(), runCase);
+        await withCallbackHandoffReview(
+          getOwnedPage(),
+          accountLane.config.review,
+          runCase
+        );
       } else {
         await runCase();
       }
@@ -457,34 +440,8 @@ for (const caseId of workspaceE2EAccountCaseIds) {
       if (!page) throw new Error(accountReviewCaptureFailureMessage);
 
       await accountTest.step(`capture account review: ${target}`, async () => {
-        await captureAccountReview(page, caseReview(), target);
+        await captureAccountReview(page, accountLane.config.review, target);
       });
-
-      if (
-        caseId === "account-anonymous-redirect" &&
-        accountLane.config.review.screenshots
-      ) {
-        // Review-only: the plain sign-in page next to the share-link one,
-        // then back to the share-link form the next case submits from.
-        await accountTest.step(
-          "capture plain sign-in review beside the share-link one",
-          async () => {
-            const shareLinkUrl = page.url();
-            await page.goto(
-              new URL("/en-US/auth/sign-in", accountLane.config.baseUrl).href,
-              { timeout: workspaceE2ETimeouts.browserNavigation }
-            );
-            await captureAccountReview(
-              page,
-              accountLane.config.review,
-              "sign-in-desktop"
-            );
-            await page.goto(shareLinkUrl, {
-              timeout: workspaceE2ETimeouts.browserNavigation,
-            });
-          }
-        );
-      }
 
       if (caseId !== "account-linking-variants") return;
 

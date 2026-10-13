@@ -6,6 +6,7 @@ import {
 import type { Customer } from "@deskohub/dotypos/generated";
 import { Effect, Exit, Layer, Option } from "effect";
 import { FetchHttpClient } from "effect/unstable/http";
+import { referralCodeCookieName } from "@/features/referrals/referral-code-cookie";
 import type { DatasourceConfig } from "../config";
 import type { WorkspaceE2EError } from "../errors";
 import { E2EDatabase } from "../integrations/database.service";
@@ -87,7 +88,6 @@ type FakeMessage = {
   readonly kind: FakeMessageKind;
   readonly link: string;
   readonly recipient: string;
-  readonly referralCode: string | undefined;
   consumed: boolean;
 };
 
@@ -130,8 +130,6 @@ type FakeEvent = {
   readonly kind?: FakeMessageKind;
   readonly mode?: "active" | "expired";
   readonly recipient?: string;
-  /** The share code a sign-in request's callback carries. */
-  readonly referralCode?: string;
   readonly userId?: string;
 };
 
@@ -187,7 +185,6 @@ type OpenAccountResult = {
 
 type ConsumeResult = {
   readonly destination: string;
-  readonly referralCode?: string | undefined;
   readonly text: string;
 };
 
@@ -486,11 +483,7 @@ class FakeAccountExternalState {
     this.events.push({ customerId, type: "unlink", userId: accountId });
   }
 
-  sendMessage(
-    email: string,
-    kind: "sign-in" | "reauthentication",
-    referralCode?: string
-  ) {
+  sendMessage(email: string, kind: "sign-in" | "reauthentication") {
     let messageKind: FakeMessageKind;
     if (kind === "reauthentication") {
       messageKind = "reauthentication";
@@ -501,12 +494,11 @@ class FakeAccountExternalState {
     } else {
       messageKind = "initial-main";
     }
-    const message = this.makeMessage(email, messageKind, referralCode);
+    const message = this.makeMessage(email, messageKind);
     this.events.push({
       id: message.id,
       kind: message.kind,
       recipient: email,
-      ...(referralCode === undefined ? {} : { referralCode }),
       type: "send",
     });
     return message;
@@ -572,7 +564,6 @@ class FakeAccountExternalState {
         });
         return {
           destination: "/en-US/account",
-          referralCode: message.referralCode,
           text: completionTitle,
         };
       }
@@ -754,15 +745,11 @@ class FakeAccountExternalState {
     };
   }
 
-  private makeMessage(
-    email: string,
-    kind: FakeMessageKind,
-    referralCode?: string
-  ): FakeMessage {
+  private makeMessage(email: string, kind: FakeMessageKind): FakeMessage {
     this.messageSequence += 1;
     const id = `message-${this.messageSequence}`;
     const token = `synthetic-token-${this.messageSequence}`;
-    const callbackURL = `/${this.config.locale}/auth/callback${referralCode === undefined ? "" : `?${new URLSearchParams({ ref: referralCode })}`}`;
+    const callbackURL = `/${this.config.locale}/auth/callback`;
     const link = `${this.config.baseUrl}/api/auth/magic-link/verify?token=${token}&callbackURL=${encodeURIComponent(callbackURL)}`;
     const message = {
       createdAt: fixedNowMs,
@@ -770,7 +757,6 @@ class FakeAccountExternalState {
       kind,
       link,
       recipient: email,
-      referralCode,
       consumed: false,
     } satisfies FakeMessage;
     const messages = this.messagesByRecipient.get(email) ?? [];
@@ -815,6 +801,8 @@ class FakeBrowser {
   private nativeValidationBlocked = false;
   private formReady = false;
   private referralFieldValue: string | undefined;
+  /** The proxy's first-party referral cookie: the first shared link wins. */
+  referralCookie: string | undefined;
   private selectedSection = "";
 
   constructor(readonly external: FakeAccountExternalState) {}
@@ -826,6 +814,10 @@ class FakeBrowser {
       selectorOrDestination: parsed.pathname,
     });
     this.referralFieldValue = undefined;
+    const sharedCode = parsed.searchParams.get("ref");
+    if (sharedCode !== null && this.referralCookie === undefined) {
+      this.referralCookie = sharedCode;
+    }
     // The proxy keeps the query while it adds the browser's locale.
     if (parsed.pathname === "/account") parsed.pathname = "/en-US/account";
     this.external.lastDestination =
@@ -840,19 +832,15 @@ class FakeBrowser {
     }
     if (parsed.pathname === "/en-US/account") {
       const result = this.external.openAccount();
-      const referralCode = parsed.searchParams.get("ref");
-      // Only the anonymous redirect and the completion state keep the code.
-      const keepsReferralCode =
-        referralCode !== null &&
-        (result.destination.endsWith("/auth/sign-in") ||
-          result.text === completionTitle);
-      this.currentUrl = `${this.external.config.baseUrl}${result.destination}${keepsReferralCode ? `?${new URLSearchParams({ ref: referralCode })}` : ""}`;
+      // Redirects and the account page carry no code; completion prefills
+      // the remembered one.
+      this.currentUrl = `${this.external.config.baseUrl}${result.destination}`;
       this.pageText = result.text;
       this.formReady = result.destination.endsWith("/auth/sign-in");
       this.emailValue = "";
       this.nativeValidationBlocked = false;
-      if (keepsReferralCode && result.text === completionTitle) {
-        this.referralFieldValue = referralCode;
+      if (result.text === completionTitle) {
+        this.referralFieldValue = this.referralCookie;
       }
       return;
     }
@@ -870,14 +858,11 @@ class FakeBrowser {
     }
     if (parsed.pathname === "/api/auth/magic-link/verify") {
       const result = this.external.consumeLink(url);
-      const search =
-        result.referralCode === undefined
-          ? ""
-          : `?${new URLSearchParams({ ref: result.referralCode })}`;
-      this.currentUrl = `${this.external.config.baseUrl}${result.destination}${search}`;
+      this.currentUrl = `${this.external.config.baseUrl}${result.destination}`;
       this.pageText = result.text;
       this.formReady = false;
-      this.referralFieldValue = result.referralCode;
+      this.referralFieldValue =
+        result.text === completionTitle ? this.referralCookie : undefined;
       return;
     }
     throw new Error("unknown synthetic browser destination");
@@ -905,13 +890,7 @@ class FakeBrowser {
         this.pageText = "Sign in";
         return;
       }
-      const referralCode =
-        new URL(this.currentUrl).searchParams.get("ref") ?? undefined;
-      const message = this.external.sendMessage(
-        this.emailValue,
-        "sign-in",
-        referralCode
-      );
+      const message = this.external.sendMessage(this.emailValue, "sign-in");
       const response = `${acceptedTitle} ${acceptedBody}`;
       this.pageText =
         message.kind === "reauthentication" ? deletionReauthLinkSent : response;
@@ -1180,6 +1159,25 @@ mock.module("../browser", () => ({
     Effect.sync(() => requireBrowser().press(key)),
   readBrowserText: (_run: Runner, _session: string) =>
     Effect.sync(() => requireBrowser().text()),
+  readBrowserCookie: (
+    _run: Runner,
+    _session: string,
+    query: { readonly name: string; readonly value?: string }
+  ) =>
+    Effect.sync(() => {
+      const value = requireBrowser().referralCookie;
+      return query.name !== referralCodeCookieName || value === undefined
+        ? { present: false as const }
+        : {
+            httpOnly: false,
+            lifetimeDays: 30,
+            matches: query.value === undefined ? null : query.value === value,
+            path: "/",
+            present: true as const,
+            sameSite: "Lax",
+            secure: true,
+          };
+    }),
   readBrowserUrl: (_run: Runner, _session: string) =>
     Effect.sync(() => requireBrowser().url()),
   waitForBrowserCondition: (
@@ -1542,13 +1540,10 @@ test("executes the selected account lifecycle cases", async () => {
     )
   );
   expect(
-    operationEvents.map(
-      ({ kind, referralCode, type }) =>
-        `${type}:${kind ?? ""}${referralCode ? `:${referralCode}` : ""}`
-    )
+    operationEvents.map(({ kind, type }) => `${type}:${kind ?? ""}`)
   ).toEqual([
-    `send:initial-main:${syntheticReferralCode}`,
-    `send:accepted-b:${syntheticReferralCode}`,
+    "send:initial-main",
+    "send:accepted-b",
     "receive:initial-main",
     "consume:initial-main",
     "send:reauthentication",
@@ -1571,11 +1566,9 @@ test("executes the selected account lifecycle cases", async () => {
     "reauthentication",
     "reactivation",
   ]);
-  expect(mainMessages.map(({ referralCode }) => referralCode)).toEqual([
-    syntheticReferralCode,
-    undefined,
-    undefined,
-  ]);
+  // The shared code travels in the remembered cookie, never in a link.
+  expect(mainMessages.some(({ link }) => link.includes("ref"))).toBe(false);
+  expect(scenario.browser.referralCookie).toBe(syntheticReferralCode);
   expect(mainMessages[0]?.consumed).toBe(true);
   expect(mainMessages[1]?.consumed).toBe(true);
   expect(mainMessages[2]?.consumed).toBe(true);

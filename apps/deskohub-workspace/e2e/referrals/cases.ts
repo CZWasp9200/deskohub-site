@@ -7,7 +7,6 @@ import { formatReferralInvitationDiscount } from "@/features/referrals/client";
 import { accountSectionLandmarks } from "../account/account-sections";
 import { findLinkedDotyposCustomerId } from "../account/auth-rows";
 import {
-  disableWorkspaceE2EReferralCode,
   findWorkspaceE2EReferralInvitationClaimState,
   findWorkspaceE2EReferralReferrer,
   makeUnusableReferralCode,
@@ -75,6 +74,10 @@ import {
   type WorkspaceE2EReferralIdentities,
   type WorkspaceE2EReferralLinkedAccount,
 } from "./identities";
+import {
+  waitForNoRememberedReferralCode,
+  waitForRememberedReferralCode,
+} from "./referral-cookie";
 
 const completionTitle = "Complete your profile";
 const linkedEditSubmitLabel = "Save profile";
@@ -157,19 +160,27 @@ export const bindWorkspaceE2EReferralCase = ({
     ...testCase,
     checkoutStates,
     execute: ({ runStep, session }) =>
-      execute(
-        {
-          config,
-          datasourceConfig,
-          identities,
-          page,
-          run,
-          runStep,
-          screenshots,
-          session,
-        },
-        checkoutStates
-      ),
+      Effect.gen(function* () {
+        // Each case's own context starts without a remembered shared link.
+        yield* runStep({
+          execute: waitForNoRememberedReferralCode({ config, run, session }),
+          id: "starts without a remembered referral code",
+          timeoutMs: config.timeouts.uiTransition,
+        });
+        yield* execute(
+          {
+            config,
+            datasourceConfig,
+            identities,
+            page,
+            run,
+            runStep,
+            screenshots,
+            session,
+          },
+          checkoutStates
+        );
+      }),
   };
 };
 
@@ -423,6 +434,11 @@ const expectDiscounts = (
 
 const invitationDiscounts = getReferralDiscountExpectations();
 
+const appliedNotice = m.accountProfileReferralApplied(
+  { discount: formatReferralInvitationDiscount("en-US") },
+  { locale: "en-US" }
+);
+
 const referrerScreen: ReferralCaseExecutor = (context) =>
   Effect.gen(function* () {
     const { config, identities, runStep } = context;
@@ -665,29 +681,55 @@ const profileCompletionCheckout: ReferralCaseExecutor = (
     const customerId = yield* runStep({
       execute: Effect.gen(function* () {
         yield* openAccount(context, `?ref=${referrer.code}`);
+        yield* waitForRememberedReferralCode(context, referrer.code);
         yield* waitForCompletionForm(context, referrer.code);
         yield* completeProfile(context, account);
-        // The outcome survives the refresh as a one-time linked notice.
         yield* waitForBrowserText({
           description: "applied referral notice on the linked account",
-          matches: (text) =>
-            text.includes(
-              m.accountProfileReferralApplied(
-                { discount: formatReferralInvitationDiscount("en-US") },
-                { locale: "en-US" }
-              )
-            ),
+          matches: (text) => text.includes(appliedNotice),
           run: context.run,
           session: context.session,
           timeoutMs: context.config.timeouts.uiTransition,
         });
         const customerId = yield* requireLinkedCustomer(context, account);
         yield* waitForReferrer(context, customerId, referrer.customerId);
+        // The recorded referral uses the remembered code up.
+        yield* waitForNoRememberedReferralCode(context);
         return customerId;
       }),
-      id: "completes the profile with the share-link code and records the referral",
+      id: "completes the profile from the remembered code and records the referral",
       timeoutMs: config.timeouts.checkoutStart,
     });
+
+    yield* pageStep(
+      context,
+      "dismisses the referral notice for good",
+      config.timeouts.browserAction * 2 + config.timeouts.browserNavigation,
+      async (page) => {
+        const dismiss = page.getByRole("button", {
+          exact: true,
+          name: m.accountProfileReferralNoticeDismiss({}, { locale: "en-US" }),
+        });
+        await waitForReactClickHandler(page, dismiss);
+        await dismiss.click({ timeout: config.timeouts.browserAction });
+        const notice = page.getByText(appliedNotice, { exact: true });
+        await notice.waitFor({
+          state: "detached",
+          timeout: config.timeouts.browserAction,
+        });
+        await page.reload({ timeout: config.timeouts.browserNavigation });
+        await page
+          .locator(accountSectionLandmarks.reservations)
+          .waitFor({
+            state: "attached",
+            timeout: config.timeouts.browserAction,
+          });
+        assert(
+          (await notice.count()) === 0,
+          "the dismissed referral notice came back"
+        );
+      }
+    );
 
     const linked = { ...account, customerId };
     const state = requireSingleState(checkoutStates, linked);
@@ -958,8 +1000,12 @@ const shareLinkCheckout: ReferralCaseExecutor = (context, checkoutStates) =>
       timeoutMs: config.timeouts.uiTransition,
     });
     yield* runStep({
-      execute: assertNothingRecordedBeforePayment(customer.customerId),
-      id: "records nothing before payment",
+      execute: Effect.gen(function* () {
+        yield* assertNothingRecordedBeforePayment(customer.customerId);
+        // Unsettled, so the browser keeps remembering the shared code.
+        yield* waitForRememberedReferralCode(context, referrer.code);
+      }),
+      id: "records nothing before payment and keeps the remembered code",
       timeoutMs: config.timeouts.datasource,
     });
     yield* captureReviewStep({
@@ -1068,6 +1114,9 @@ const autoLinkedSignIn: ReferralCaseExecutor = (context) =>
         return customerId;
       });
 
+    // Ordered so each shared link meets an empty cookie: a recorded or
+    // existing referral uses the remembered code up, and the unusable code
+    // that stays remembered comes last.
     yield* runStep({
       execute: Effect.gen(function* () {
         const customerId = yield* signInExistingCustomer(
@@ -1075,24 +1124,9 @@ const autoLinkedSignIn: ReferralCaseExecutor = (context) =>
           referrer.code
         );
         yield* waitForReferrer(context, customerId, referrer.customerId);
+        yield* waitForNoRememberedReferralCode(context);
       }),
-      id: "records a usable share-link code at an auto-linked first sign-in",
-      timeoutMs: config.timeouts.checkoutStart,
-    });
-
-    yield* runStep({
-      execute: Effect.gen(function* () {
-        const customerId = yield* signInExistingCustomer(
-          "ral-unusable",
-          makeUnusableReferralCode()
-        );
-        yield* assertReferrer(
-          customerId,
-          undefined,
-          "an unusable share-link code recorded a referral"
-        );
-      }),
-      id: "links without a referral for an unusable share-link code",
+      id: "records the remembered code at an auto-linked first sign-in",
       timeoutMs: config.timeouts.checkoutStart,
     });
 
@@ -1111,10 +1145,29 @@ const autoLinkedSignIn: ReferralCaseExecutor = (context) =>
         yield* assertReferrer(
           customerId,
           otherReferrer.customerId,
-          "a share-link code replaced an existing referral"
+          "a remembered code replaced an existing referral"
         );
+        yield* waitForNoRememberedReferralCode(context);
       }),
       id: "keeps an existing referral at an auto-linked first sign-in",
+      timeoutMs: config.timeouts.checkoutStart,
+    });
+
+    yield* runStep({
+      execute: Effect.gen(function* () {
+        const unusableCode = makeUnusableReferralCode();
+        const customerId = yield* signInExistingCustomer(
+          "ral-unusable",
+          unusableCode
+        );
+        yield* assertReferrer(
+          customerId,
+          undefined,
+          "an unusable remembered code recorded a referral"
+        );
+        yield* waitForRememberedReferralCode(context, unusableCode);
+      }),
+      id: "links without a referral for an unusable remembered code",
       timeoutMs: config.timeouts.checkoutStart,
     });
   });
@@ -1132,21 +1185,20 @@ const profileCompletionUnusableLink: ReferralCaseExecutor = (context) =>
       id: "seeds a referrer and signs in a new account",
       timeoutMs: config.timeouts.datasource,
     });
+    const unusableCode = makeUnusableReferralCode();
     yield* runStep({
       execute: Effect.gen(function* () {
-        yield* openAccount(context, `?ref=${makeUnusableReferralCode()}`);
+        yield* openAccount(context, `?ref=${unusableCode}`);
+        yield* waitForRememberedReferralCode(context, unusableCode);
         yield* waitForCompletionForm(context, "");
+        // The first shared link wins: a later one changes nothing.
         yield* openAccount(context, `?ref=${referrer.code}`);
-        yield* waitForCompletionForm(context, referrer.code);
+        yield* waitForRememberedReferralCode(context, unusableCode);
+        yield* waitForCompletionForm(context, "");
       }),
-      id: "prefills the completion field only from a usable share link",
+      id: "remembers only the first shared link and never prefills an unusable code",
       timeoutMs:
         2 * (config.timeouts.browserNavigation + config.timeouts.uiTransition),
-    });
-    yield* runStep({
-      execute: disableWorkspaceE2EReferralCode(referrer.promotionCodeId),
-      id: "makes the prefilled code unusable before saving",
-      timeoutMs: config.timeouts.datasource,
     });
     yield* runStep({
       execute: Effect.gen(function* () {
@@ -1155,10 +1207,10 @@ const profileCompletionUnusableLink: ReferralCaseExecutor = (context) =>
         yield* assertReferrer(
           customerId,
           undefined,
-          "an unusable prefilled code recorded a referral"
+          "an unusable remembered code recorded a referral"
         );
       }),
-      id: "completes the profile without the unusable prefilled code",
+      id: "completes the profile despite the unusable remembered code",
       timeoutMs: config.timeouts.checkoutStart,
     });
   });

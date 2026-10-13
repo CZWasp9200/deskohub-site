@@ -2,7 +2,6 @@ import type * as Playwright from "@playwright/test";
 
 const callbackPath = "/en-US/auth/callback";
 const attemptParamName = "attempt";
-const referralParamName = "ref";
 const failureParamName = "error";
 const invalidTokenFailureValue = "INVALID_TOKEN";
 // Canonical lowercase UUIDv4 shape only; production mints the handoff attempt
@@ -11,24 +10,13 @@ const canonicalUuidV4Pattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 /**
- * What the callback query must carry beyond the optional `attempt`: the exact
- * share code when the sign-in started from a referral share link.
- */
-export type CallbackUrlExpectation = {
-  readonly referralCode?: string | undefined;
-};
-
-/**
  * The shared callback URL grammar: the exact expected origin and path, no
- * fragment, no repeated parameter, the expected share code as `ref` exactly
- * when one is expected, and otherwise either no query at all or precisely one
- * canonical UUIDv4 `attempt` parameter. Any other parameter name, count, or
- * shape fails closed.
+ * fragment, and either no query at all or precisely one canonical UUIDv4
+ * `attempt` parameter. Any other parameter name, count, or shape fails closed.
  */
 export const isExactCallbackUrlString = (
   rawUrl: string,
-  baseOrigin: string,
-  expectation: CallbackUrlExpectation = {}
+  baseOrigin: string
 ): boolean => {
   let url: URL;
   try {
@@ -39,26 +27,18 @@ export const isExactCallbackUrlString = (
   if (url.origin !== baseOrigin || url.pathname !== callbackPath) return false;
   if (url.hash !== "") return false;
   const entries = [...url.searchParams.entries()];
-  const parameters = new Map(entries);
-  if (parameters.size !== entries.length) return false;
-  if (expectation.referralCode !== undefined) {
-    if (parameters.get(referralParamName) !== expectation.referralCode)
-      return false;
-    parameters.delete(referralParamName);
-  }
-  if (parameters.size === 0) return true;
-  if (parameters.size !== 1) return false;
-  const [name, value] = [...parameters][0] as [string, string];
+  if (entries.length === 0) return true;
+  if (entries.length !== 1 || entries[0] === undefined) return false;
+  const [name, value] = entries[0];
   return name === attemptParamName && canonicalUuidV4Pattern.test(value);
 };
 
 export const isExactCallbackUrl = (
   page: Playwright.Page,
-  baseOrigin: string,
-  expectation: CallbackUrlExpectation = {}
+  baseOrigin: string
 ): boolean => {
   try {
-    return isExactCallbackUrlString(page.url(), baseOrigin, expectation);
+    return isExactCallbackUrlString(page.url(), baseOrigin);
   } catch {
     return false;
   }

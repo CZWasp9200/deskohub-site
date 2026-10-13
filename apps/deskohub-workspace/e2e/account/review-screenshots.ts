@@ -49,7 +49,6 @@ export type AccountReviewTarget =
   | "sign-in-accepted-desktop"
   | "sign-in-pending-desktop"
   | "sign-in-desktop"
-  | "sign-in-share-link-desktop"
   | "callback-failed-desktop"
   | "deleted-desktop";
 
@@ -262,11 +261,6 @@ const accountReviewTargetMetadata = {
     path: "/en-US/auth/sign-in",
     viewport: { height: 1000, width: 1440 },
   },
-  "sign-in-share-link-desktop": {
-    filename: "sign-in-share-link-desktop.png",
-    path: "/en-US/auth/sign-in",
-    viewport: { height: 1000, width: 1440 },
-  },
   "callback-failed-desktop": {
     filename: "callback-failed-desktop.png",
     path: "/en-US/auth/callback",
@@ -343,16 +337,6 @@ const isPrivateLinkedAccountTarget = (target: ReviewTarget): boolean =>
   target === "linked-danger-desktop" ||
   target === "linked-danger-mobile";
 
-/**
- * The pages a share-link sign-in passes through, which carry the share code
- * exactly when the destination names one.
- */
-const isShareLinkTarget = (target: ReviewTarget): boolean =>
-  target === "sign-in-share-link-desktop" ||
-  target === "sign-in-pending-desktop" ||
-  target === "sign-in-accepted-desktop" ||
-  target === "completion-mobile375x900";
-
 const isAllowedPrivateLinkedAccountQuery = (search: string): boolean =>
   search === "" ||
   privateLinkedAccountSections.some(
@@ -370,12 +354,6 @@ type AccountReviewCaptureOptions = {
  */
 export type AccountReviewDestination = {
   readonly baseUrl: string;
-  /**
-   * The share code the reviewed sign-in, callback, and completion pages carry
-   * when the lane entered through a referral share link; unset, those pages
-   * must have no share code.
-   */
-  readonly referralCode?: string | undefined;
   readonly screenshots: boolean;
 };
 
@@ -432,7 +410,7 @@ const waitForAccountReviewOperation = async <A>(
 
 const validateAccountReviewPage = (
   page: Playwright.Page,
-  { baseUrl, referralCode }: AccountReviewDestination,
+  baseUrl: string,
   target: ReviewTarget,
   metadata: AccountReviewTargetMetadata
 ): void => {
@@ -445,22 +423,15 @@ const validateAccountReviewPage = (
     throw accountReviewCaptureFailure();
   }
 
-  const shareLinkQuery =
-    referralCode === undefined
-      ? ""
-      : `?${new URLSearchParams({ ref: referralCode })}`;
   const queryIsAllowed =
     (isPrivateLinkedAccountTarget(target) &&
       isAllowedPrivateLinkedAccountQuery(pageUrl.search)) ||
-    (isShareLinkTarget(target) && pageUrl.search === shareLinkQuery) ||
-    (!isPrivateLinkedAccountTarget(target) &&
-      !isShareLinkTarget(target) &&
-      pageUrl.search === "") ||
+    (!isPrivateLinkedAccountTarget(target) && pageUrl.search === "") ||
     // The callback-loading capture reuses the shared callback URL grammar so a
-    // canonical attempt parameter and the expected share code stay allowed;
-    // all other callback queries keep failing closed.
+    // canonical attempt parameter stays allowed; all other callback queries
+    // keep failing closed.
     (target === "callback-loading-desktop" &&
-      isExactCallbackUrlString(page.url(), base.origin, { referralCode })) ||
+      isExactCallbackUrlString(page.url(), base.origin)) ||
     (target === "callback-failed-desktop" &&
       isCallbackFailureQuery(pageUrl.search));
   const allowedPaths =
@@ -477,17 +448,17 @@ const validateAccountReviewPage = (
 
 const captureAccountReviewPixels = async (
   page: Playwright.Page,
-  destination: AccountReviewDestination,
+  baseUrl: string,
   target: ReviewTarget,
   metadata: AccountReviewTargetMetadata,
   deadline: number,
   signal?: AbortSignal
 ): Promise<Buffer> => {
-  validateAccountReviewPage(page, destination, target, metadata);
+  validateAccountReviewPage(page, baseUrl, target, metadata);
   throwIfAccountReviewAborted(signal);
   await waitForDocumentFonts(page, deadline, signal);
   throwIfAccountReviewAborted(signal);
-  validateAccountReviewPage(page, destination, target, metadata);
+  validateAccountReviewPage(page, baseUrl, target, metadata);
   const screenshotTimeout = remainingAccountReviewBudget(deadline);
   // Playwright cannot cancel an already-started screenshot; the signal race
   // only prevents a cancelled preparation from starting a new one.
@@ -586,7 +557,7 @@ type CallbackCaptureValidator = (
 
 const persistAccountReview = async (
   page: Playwright.Page,
-  destination: AccountReviewDestination,
+  baseUrl: string,
   target: ReviewTarget,
   metadata: AccountReviewTargetMetadata,
   screenshot: Buffer,
@@ -597,7 +568,7 @@ const persistAccountReview = async (
   const validateBeforeWrite = async () => {
     throwIfAccountReviewAborted(signal);
     remainingAccountReviewBudget(deadline);
-    validateAccountReviewPage(page, destination, target, metadata);
+    validateAccountReviewPage(page, baseUrl, target, metadata);
     if (target === "callback-loading-desktop") {
       try {
         await validateCallbackCapture(page, deadline, signal);
@@ -637,14 +608,14 @@ const persistAccountReview = async (
  */
 const captureAccountReviewWithMetadata = async (
   page: Playwright.Page,
-  destination: AccountReviewDestination,
+  baseUrl: string,
   target: ReviewTarget,
   metadata: AccountReviewTargetMetadata,
   options: AccountReviewCaptureOptions = {}
 ): Promise<void> => {
   const deadline =
     options.deadline ?? Date.now() + workspaceE2ETimeouts.browserAction;
-  validateAccountReviewPage(page, destination, target, metadata);
+  validateAccountReviewPage(page, baseUrl, target, metadata);
 
   let previousViewport: Playwright.ViewportSize | null;
   try {
@@ -663,7 +634,7 @@ const captureAccountReviewWithMetadata = async (
     );
     const screenshot = await captureAccountReviewPixels(
       page,
-      destination,
+      baseUrl,
       target,
       metadata,
       deadline,
@@ -671,7 +642,7 @@ const captureAccountReviewWithMetadata = async (
     );
     await persistAccountReview(
       page,
-      destination,
+      baseUrl,
       target,
       metadata,
       screenshot,
@@ -704,7 +675,7 @@ const captureAccountReviewWithMetadata = async (
  */
 export const persistCallbackDocumentReview = async (
   page: Playwright.Page,
-  destination: AccountReviewDestination,
+  { baseUrl, screenshots }: AccountReviewDestination,
   pixels: Buffer,
   validate: () => void,
   options: {
@@ -712,14 +683,14 @@ export const persistCallbackDocumentReview = async (
     readonly signal?: AbortSignal;
   } = {}
 ): Promise<void> => {
-  if (!destination.screenshots) return;
+  if (!screenshots) return;
   const metadata = accountReviewTargetMetadata["callback-loading-desktop"];
   if (!metadata) throw accountReviewCaptureFailure();
   const deadline =
     options.deadline ?? Date.now() + workspaceE2ETimeouts.browserAction;
   await persistAccountReview(
     page,
-    destination,
+    baseUrl,
     "callback-loading-desktop",
     metadata,
     pixels,
@@ -733,16 +704,16 @@ export const persistCallbackDocumentReview = async (
 
 export const captureAccountReview = async (
   page: Playwright.Page,
-  destination: AccountReviewDestination,
+  { baseUrl, screenshots }: AccountReviewDestination,
   target: AccountReviewTarget,
   options: AccountReviewCaptureOptions = {}
 ): Promise<void> => {
-  if (!destination.screenshots) return;
+  if (!screenshots) return;
   const metadata = accountReviewTargetMetadata[target];
   if (!metadata) throw accountReviewCaptureFailure();
   await captureAccountReviewWithMetadata(
     page,
-    destination,
+    baseUrl,
     target,
     metadata,
     options
@@ -751,18 +722,18 @@ export const captureAccountReview = async (
 
 export const captureReservationStatusReview = async (
   page: Playwright.Page,
-  destination: AccountReviewDestination,
+  { baseUrl, screenshots }: AccountReviewDestination,
   target: ReservationStatusReviewTarget,
   reservationId: WorkspaceReservationId,
   options: AccountReviewCaptureOptions = {}
 ): Promise<void> => {
-  if (!destination.screenshots) return;
+  if (!screenshots) return;
   const metadata = reservationStatusReviewMetadata[target];
   if (!metadata) throw accountReviewCaptureFailure();
 
   await captureAccountReviewWithMetadata(
     page,
-    destination,
+    baseUrl,
     target,
     {
       ...metadata,
@@ -790,10 +761,9 @@ const waitForDocumentFonts = async (
  */
 export const withSignInPendingReview = async (
   page: Playwright.Page,
-  destination: AccountReviewDestination,
+  { baseUrl, screenshots }: AccountReviewDestination,
   runCase: () => Promise<void>
 ): Promise<void> => {
-  const { baseUrl, screenshots } = destination;
   if (!screenshots) return runCase();
   const pendingMetadata =
     accountReviewTargetMetadata["sign-in-pending-desktop"];
@@ -828,14 +798,14 @@ export const withSignInPendingReview = async (
         remainingAccountReviewBudget(deadline);
         const screenshot = await captureAccountReviewPixels(
           page,
-          destination,
+          baseUrl,
           "sign-in-pending-desktop",
           pendingMetadata,
           deadline
         );
         await persistAccountReview(
           page,
-          destination,
+          baseUrl,
           "sign-in-pending-desktop",
           pendingMetadata,
           screenshot,

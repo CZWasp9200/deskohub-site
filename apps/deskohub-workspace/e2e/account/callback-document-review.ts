@@ -1,10 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type * as Playwright from "@playwright/test";
 import { workspaceE2ETimeouts } from "../timeouts";
-import {
-  type CallbackUrlExpectation,
-  isExactCallbackUrl,
-} from "./callback-url";
+import { isExactCallbackUrl } from "./callback-url";
 
 /**
  * Receipt-backed review of the callback handoff document.
@@ -137,9 +134,6 @@ export const collectCallbackDocumentSnapshot = (config: {
   readonly attemptParamName: string;
   readonly uuidPatternSource: string;
   readonly callbackPath: string;
-  readonly referralParamName: string;
-  /** The exact share code the callback must carry, or null for none. */
-  readonly expectedReferralCode: string | null;
   readonly loadingSelector: string;
   readonly loadingSkeletonSelector: string;
   readonly loadingAriaLabel: string;
@@ -153,9 +147,7 @@ export const collectCallbackDocumentSnapshot = (config: {
   readonly viewport: { readonly width: number; readonly height: number } | null;
 }): string => {
   // Strict callback grammar mirror of e2e/account/callback-url.ts: exact
-  // origin and path, no fragment, no repeated param, the expected share code
-  // as `ref` exactly when one is expected, and at most one canonical UUIDv4
-  // attempt param.
+  // origin and path, no fragment, at most one canonical UUIDv4 attempt param.
   const urlGrammarValid = (rawUrl: string): boolean => {
     try {
       const url = new URL(rawUrl);
@@ -167,21 +159,9 @@ export const collectCallbackDocumentSnapshot = (config: {
       }
       if (url.hash !== "") return false;
       const entries = [...url.searchParams.entries()];
-      const parameters = new Map(entries);
-      if (parameters.size !== entries.length) return false;
-      if (config.expectedReferralCode !== null) {
-        if (
-          parameters.get(config.referralParamName) !==
-          config.expectedReferralCode
-        ) {
-          return false;
-        }
-        parameters.delete(config.referralParamName);
-      }
-      if (parameters.size === 0) return true;
-      const [entry] = [...parameters];
-      if (parameters.size !== 1 || entry === undefined) return false;
-      const [name, value] = entry;
+      if (entries.length === 0) return true;
+      if (entries.length !== 1 || entries[0] === undefined) return false;
+      const [name, value] = entries[0];
       return (
         name === config.attemptParamName &&
         new RegExp(config.uuidPatternSource).test(value)
@@ -340,8 +320,7 @@ export const prepareCallbackDocumentReview = async (
   page: Playwright.Page,
   baseOrigin: string,
   viewport: Playwright.ViewportSize | null,
-  options: BoundedOptions,
-  expectation: CallbackUrlExpectation = {}
+  options: BoundedOptions
 ): Promise<CallbackDocumentReview> => {
   let baseOriginValid: string;
   try {
@@ -623,8 +602,6 @@ export const prepareCallbackDocumentReview = async (
               uuidPatternSource:
                 "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
               callbackPath: "/en-US/auth/callback",
-              referralParamName: "ref",
-              expectedReferralCode: expectation.referralCode ?? null,
               loadingSelector: callbackLoadingSelector,
               loadingSkeletonSelector: '[data-slot="skeleton"]',
               loadingAriaLabel: callbackLoadingAriaLabel,
@@ -709,7 +686,7 @@ export const prepareCallbackDocumentReview = async (
         // Current receipt plus the strict URL grammar on the live page URL;
         // no page DOM APIs are used after navigation.
         requireCurrentValidReceipt();
-        if (!isExactCallbackUrl(page, baseOrigin, expectation)) {
+        if (!isExactCallbackUrl(page, baseOrigin)) {
           throw callbackDocumentReviewFailure();
         }
       },

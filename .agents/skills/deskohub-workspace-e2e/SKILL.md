@@ -178,7 +178,9 @@ Distinguish automated-runner behavior from manual procedures before treating a d
   evidence separate from deployed evidence. Reuse the first accepted
   main-recipient link: it starts anonymously from the locale-free share link
   `/account?ref=CODE` of the synthetic `referral-owner`, seeded before any
-  send, and its consumption must land on completion with the code prefilled.
+  send, which leaves the code in the browser's remembered referral cookie.
+  Its consumption must land on completion with the field prefilled from that
+  cookie; no sign-in, callback, or account URL carries `ref`.
   Then reuse the already-authenticated synthetic account and provider
   profile; cover active, expired, and duplicate provider-link states
   with exact unlink/relink transitions instead of extra auth links or
@@ -270,9 +272,17 @@ Distinguish automated-runner behavior from manual procedures before treating a d
   not starve a run that the full candidate range could support.
 - Let Playwright own one browser per worker. The compatibility runner may create one isolated context for the current Playwright test, but it must never launch or close the worker browser. Capture diagnostics for the genuine failure before closing its context. Playwright flushes HAR when the context closes, so use bounded finalizers to close every failed, completed, or interrupted context before sanitizing or discarding its raw HAR. Keep HAR structured through privacy redaction with `redactJsonValue`, then stringify once and write it without the generic text sanitizer; this preserves valid JSON when a registered numeric secret matches metadata. Keep read-only instant navigation in its own Playwright config (`bun run test:instant-navigation`), launched by the E2E entry point concurrently with the checkout graph and without a lease or dependency on it: as a project in the checkout graph it extended the setup phase barrier. It always targets the remote preview, uses a separate output directory, and its failure fails the run after checkout finishes but does not fail-fast checkout. Within checkout case finalization, let owned-reservation cleanup overlap the browser branch while preserving HAR stop before context close.
 - The account lane runs no referral overview, eligibility, or checkout
-  cases; the parallel referral lane owns them. The account lane's strict
-  callback grammar and review captures accept exactly the expected share
-  code, through `AccountReviewDestination.referralCode`, and nothing else.
+  cases; the parallel referral lane owns them. Its callback grammar and
+  review captures stay strict: no `ref` anywhere.
+- Shared links set the first-party `deskohub-referral-code` cookie (first
+  link wins); completion, auto-linked sign-in, and checkout read it, and it
+  is forgotten once the referral is recorded or a first order is paid. Assert
+  it with the runner's `cookie get --stdin` command (`readBrowserCookie`,
+  `e2e/referrals/referral-cookie.ts`), which reports presence, attributes, and
+  whether it holds an expected code, never the value. Every referral-lane case
+  and the paid guest case first prove their context starts without it, and
+  cases that open several shared links in one context order them so each
+  meets the cookie state it needs.
 - Referral coverage outside the real magic-link flow lives in the parallel
   `checkout-referrals` project (`e2e/playwright-checkout/referral-lane.pw.ts`,
   `e2e/referrals/**`). Its cases are in the checkout catalog
@@ -318,7 +328,8 @@ Distinguish automated-runner behavior from manual procedures before treating a d
   journals the referrer and the booked guest (run-scoped recipients
   `gr-referrer` and `gr-guest`) under its own account identity journal
   before payment can attribute them.
-- Checkout carries a referral in the signed pay state and records the
+- Checkout carries the remembered or typed referral in the signed pay state
+  and records the
   attribution only when the order is paid. Unpaid referral-lane checkouts
   therefore assert pricing and that no attribution or invitation claim exists
   yet; the paid guest-referral case asserts attribution, the redeemed claim,

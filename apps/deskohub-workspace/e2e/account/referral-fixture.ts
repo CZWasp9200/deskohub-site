@@ -463,21 +463,6 @@ const removeReferralFixtureRows = (
     })
   );
 
-/** Makes one seeded referral code unusable, as a disabled code would be. */
-export const disableWorkspaceE2EReferralCode = (
-  promotionCodeId: ReferralPromotionCodeId
-): Effect.Effect<void, WorkspaceE2EError, E2EDatabase> =>
-  Effect.gen(function* () {
-    const { db } = yield* E2EDatabase;
-    yield* runDatabaseOperation(
-      "disable synthetic referral code",
-      db
-        .update(promotionCodes)
-        .set({ enabled: false })
-        .where(eq(promotionCodes.id, promotionCodeId))
-    );
-  });
-
 /**
  * A well-formed referral code that no run ever seeds, registered with the
  * redactor. Pages and checkouts carrying it must behave as if it were absent.

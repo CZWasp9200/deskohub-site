@@ -46,6 +46,10 @@ import {
   isReferralAppliedPayUrl,
   referralAppliedMessage,
 } from "../referrals/checkout";
+import {
+  waitForNoRememberedReferralCode,
+  waitForRememberedReferralCode,
+} from "../referrals/referral-cookie";
 import type { WorkspaceE2ERunId } from "../run-identifiers";
 import { addRedaction, assert, type Runner } from "../runtime";
 import type {
@@ -212,6 +216,11 @@ const executeGuestReferralPayment = Effect.fn("GuestReferralPayment.execute")(
     const locale = state.data.locale;
     const invitationDiscount = getInvitationDiscount(locale);
 
+    yield* runStep({
+      execute: waitForNoRememberedReferralCode({ config, run, session }),
+      id: "starts-without-remembered-referral-code",
+      timeoutMs: config.timeouts.uiTransition,
+    });
     const referrer = yield* runStep({
       execute: seedReferrer({
         datasourceConfig,
@@ -251,6 +260,16 @@ const executeGuestReferralPayment = Effect.fn("GuestReferralPayment.execute")(
         }).pipe(Effect.provideService(E2EDatabase, database)),
         id: "journal-booked-guest-customer",
         timeoutMs: config.timeouts.datasource,
+      },
+      {
+        // The shared reservation link left its code in the guest's cookie,
+        // which prefills the box.
+        execute: waitForRememberedReferralCode(
+          { config, run, session },
+          referrer.code
+        ),
+        id: "remember-shared-referral-code",
+        timeoutMs: config.timeouts.uiTransition,
       },
       {
         execute: assertRequestedOnlyDiscountCode({
@@ -316,6 +335,12 @@ const executeGuestReferralPayment = Effect.fn("GuestReferralPayment.execute")(
       state,
     });
 
+    yield* runStep({
+      // The paid status page uses the remembered code up.
+      execute: waitForNoRememberedReferralCode({ config, run, session }),
+      id: "forget-referral-code-after-paid-status",
+      timeoutMs: config.timeouts.uiTransition,
+    });
     const orderId = state.orderId;
     yield* runStep({
       execute: Effect.gen(function* () {

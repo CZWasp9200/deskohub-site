@@ -330,12 +330,20 @@ class PlaywrightRuntime {
           `Unsupported Playwright network operation: ${commandArgs.join(" ")}`
         );
       case "cookie": {
-        if (commandArgs[0] !== "set" || commandArgs[1] !== "--stdin")
-          throw new Error("Unsupported Playwright cookie operation");
-        if (input === undefined)
+        if (commandArgs[1] !== "--stdin" || input === undefined)
           throw new Error("Playwright cookie input is required");
-        await session.context.addCookies([parseHttpsOnlyCookie(input)]);
-        return "";
+        if (commandArgs[0] === "set") {
+          await session.context.addCookies([parseHttpsOnlyCookie(input)]);
+          return "";
+        }
+        if (commandArgs[0] === "get") {
+          const query = parseCookieQuery(input);
+          const cookie = (await session.context.cookies(query.url)).find(
+            ({ name }) => name === query.name
+          );
+          return JSON.stringify(describeCookie(cookie, query.value));
+        }
+        throw new Error("Unsupported Playwright cookie operation");
       }
       case "close":
         await this.closeSession(session);
@@ -469,6 +477,62 @@ export const parseHttpsOnlyCookie = (input: string) => {
     value: value.value,
   };
 };
+
+const parseCookieQuery = (input: string) => {
+  const value: unknown = JSON.parse(input);
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    !("name" in value) ||
+    !("url" in value) ||
+    typeof value.name !== "string" ||
+    typeof value.url !== "string" ||
+    ("value" in value &&
+      value.value !== undefined &&
+      typeof value.value !== "string")
+  ) {
+    throw new Error("Playwright cookie query is invalid");
+  }
+  return {
+    name: value.name,
+    url: new URL(value.url).origin,
+    value: "value" in value ? (value.value as string | undefined) : undefined,
+  };
+};
+
+/**
+ * A cookie's attributes and whether it holds an expected value. The value
+ * itself never leaves the browser context, so it cannot reach a log.
+ */
+export const describeCookie = (
+  cookie:
+    | {
+        readonly expires: number;
+        readonly httpOnly: boolean;
+        readonly path: string;
+        readonly sameSite: string;
+        readonly secure: boolean;
+        readonly value: string;
+      }
+    | undefined,
+  expectedValue: string | undefined,
+  nowSeconds = Date.now() / 1000
+) =>
+  cookie === undefined
+    ? { present: false as const }
+    : {
+        httpOnly: cookie.httpOnly,
+        lifetimeDays:
+          cookie.expires < 0
+            ? null
+            : Math.round((cookie.expires - nowSeconds) / 86_400),
+        matches:
+          expectedValue === undefined ? null : cookie.value === expectedValue,
+        path: cookie.path,
+        present: true as const,
+        sameSite: cookie.sameSite,
+        secure: cookie.secure,
+      };
 
 const parseBrowserCommand = (args: string[]) => {
   let cursor = 0;

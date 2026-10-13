@@ -369,6 +369,41 @@ export const setBrowserCookie = (
     }
   ).pipe(Effect.asVoid);
 
+export type BrowserCookieDescription = ReturnType<
+  typeof import("./runtime").describeCookie
+>;
+
+/**
+ * Reads one cookie of the session's browser context for an origin: its
+ * attributes and whether it holds the expected value, never the value.
+ */
+export const readBrowserCookie = (
+  run: Runner,
+  session: string,
+  query: {
+    readonly name: string;
+    readonly url: string;
+    readonly value?: string;
+  }
+) =>
+  runBrowserCommand(
+    "read browser cookie",
+    run,
+    session,
+    ["cookie", "get", "--stdin"],
+    {
+      input: JSON.stringify(query),
+      logOutput: false,
+    }
+  ).pipe(
+    Effect.flatMap(({ stdout }) =>
+      tryWorkspaceE2ESync(
+        "parse browser cookie",
+        () => JSON.parse(stdout) as BrowserCookieDescription
+      )
+    )
+  );
+
 export const evalBrowserScript = (
   operation: string,
   run: Runner,

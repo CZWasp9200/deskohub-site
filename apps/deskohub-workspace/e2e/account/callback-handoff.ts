@@ -5,10 +5,7 @@ import {
   callbackDocumentReviewViewport,
   prepareCallbackDocumentReview,
 } from "./callback-document-review";
-import {
-  type CallbackUrlExpectation,
-  isExactCallbackUrl,
-} from "./callback-url";
+import { isExactCallbackUrl } from "./callback-url";
 import {
   type AccountReviewDestination,
   captureAccountReview,
@@ -125,12 +122,10 @@ const isQualifyingAccountRequest = (
 const waitForCallbackLoading = async (
   page: Playwright.Page,
   baseOrigin: string,
-  expectation: CallbackUrlExpectation,
   deadline: number,
   signal: AbortSignal
 ): Promise<Playwright.ElementHandle<HTMLElement | SVGElement>> => {
-  if (!isExactCallbackUrl(page, baseOrigin, expectation))
-    throw callbackHandoffFailure();
+  if (!isExactCallbackUrl(page, baseOrigin)) throw callbackHandoffFailure();
 
   const main = page.locator("main");
   const loadingCard = page.locator(callbackLoadingSelector);
@@ -219,8 +214,7 @@ const waitForCallbackLoading = async (
   ) {
     throw callbackHandoffFailure();
   }
-  if (!isExactCallbackUrl(page, baseOrigin, expectation))
-    throw callbackHandoffFailure();
+  if (!isExactCallbackUrl(page, baseOrigin)) throw callbackHandoffFailure();
 
   const loadingElement = await waitForCallbackOperation(
     () =>
@@ -261,9 +255,6 @@ export const withCallbackHandoffReview = async (
   runCase: () => Promise<void>
 ): Promise<void> => {
   const { baseUrl, screenshots: captureEnabled } = destination;
-  const expectation: CallbackUrlExpectation = {
-    referralCode: destination.referralCode,
-  };
   let baseOrigin: string;
   try {
     baseOrigin = new URL(baseUrl).origin;
@@ -353,7 +344,7 @@ export const withCallbackHandoffReview = async (
             pixels,
             () => {
               review.validate();
-              if (!isExactCallbackUrl(page, baseOrigin, expectation))
+              if (!isExactCallbackUrl(page, baseOrigin))
                 throw callbackHandoffFailure();
             },
             { deadline, signal: abortController.signal }
@@ -362,7 +353,6 @@ export const withCallbackHandoffReview = async (
           const loadingElement = await waitForCallbackLoading(
             page,
             baseOrigin,
-            expectation,
             deadline,
             abortController.signal
           );
@@ -375,7 +365,7 @@ export const withCallbackHandoffReview = async (
               signal: abortController.signal,
             }
           );
-          if (!isExactCallbackUrl(page, baseOrigin, expectation))
+          if (!isExactCallbackUrl(page, baseOrigin))
             throw callbackHandoffFailure();
           if (
             !(await waitForCallbackOperation(
@@ -412,8 +402,7 @@ export const withCallbackHandoffReview = async (
       {
         deadline: Date.now() + workspaceE2ETimeouts.browserAction,
         signal: abortController.signal,
-      },
-      expectation
+      }
     );
     try {
       await runCase();
