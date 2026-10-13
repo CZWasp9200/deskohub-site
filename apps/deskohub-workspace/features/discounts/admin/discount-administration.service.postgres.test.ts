@@ -12,6 +12,7 @@ import {
   workspaceLimitationsCalendarIdSchema,
 } from "@/shared/backend/config/calendar-resource.config";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
+import { CoworkTierTargetReleaseGateMock } from "./cowork-tier-target-release-gate.service.mock";
 import { DiscountAdministration } from "./discount-administration.service";
 
 const testDatabase = await connectWorkspacePostgresTestDatabase();
@@ -58,7 +59,8 @@ describe.skipIf(!testDatabase)(
                     salesCalendarId: salesCalendarIdSchema.make("sales"),
                     workspaceLimitationsCalendarId:
                       workspaceLimitationsCalendarIdSchema.make("limitations"),
-                  })
+                  }),
+                  CoworkTierTargetReleaseGateMock({})
                 )
               )
             )
