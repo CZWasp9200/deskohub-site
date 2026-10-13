@@ -2,7 +2,7 @@ import type { DotyposCustomerId } from "@deskohub/dotypos";
 import { eq } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Effect, Layer } from "effect";
-import type { SqlError } from "effect/unstable/sql/SqlError";
+import type { SqlError } from "effect/unstable/sql";
 import { WorkspaceDatabase } from "@/db/database.service";
 import {
   type PostgresAdvisoryLockKey,
@@ -25,7 +25,9 @@ export type CustomerAccountActivityState =
   | { readonly kind: "missing" }
   | { readonly kind: "active"; readonly deletionRequestedAt: Date | null };
 
-export type CustomerAccountLinkError = EffectDrizzleQueryError | SqlError;
+export type CustomerAccountLinkError =
+  | EffectDrizzleQueryError
+  | SqlError.SqlError;
 
 const accountLockKey = (
   accountId: CustomerAccountId
@@ -49,7 +51,7 @@ interface ICustomerAccountLinkRepository {
   readonly withAccountLock: <A, E, R>(
     accountId: CustomerAccountId,
     effect: Effect.Effect<A, E, R>
-  ) => Effect.Effect<A, E | SqlError, R>;
+  ) => Effect.Effect<A, E | SqlError.SqlError, R>;
 }
 
 export class CustomerAccountLinkRepository extends Context.Service<

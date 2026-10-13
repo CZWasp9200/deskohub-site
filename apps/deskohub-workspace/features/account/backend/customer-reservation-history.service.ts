@@ -9,7 +9,7 @@ import {
 import { desc, eq } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Effect, Layer } from "effect";
-import type { SqlError } from "effect/unstable/sql/SqlError";
+import type { SqlError } from "effect/unstable/sql";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { workspaceReservations } from "@/db/schema";
 import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
@@ -29,7 +29,7 @@ import { CustomerAccountLinkRepository } from "./customer-account-link.repositor
 
 type CustomerReservationHistoryError =
   | EffectDrizzleQueryError
-  | SqlError
+  | SqlError.SqlError
   | ExternalAPIError
   | NetworkError
   | ValidationError;
