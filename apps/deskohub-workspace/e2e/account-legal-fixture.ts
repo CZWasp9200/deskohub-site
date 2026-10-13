@@ -240,6 +240,14 @@ export async function areAccountsEnabled(): Promise<boolean> {
 }
 `;
 
+// The account layout reads the referral flag; the legal fixture has no
+// referral section, so it runs as a deployment with the program withheld.
+const fixtureReferralFeatureFlag = `
+export async function areReferralsEnabled(): Promise<boolean> {
+  return false;
+}
+`;
+
 const fixtureMarketingPreferences = `
 import { headers } from "next/headers";
 import type { Locale } from "@/features/i18n";
@@ -417,6 +425,7 @@ const writeFixture = async (
     "fixture/hydration.tsx": fixtureHydration,
     "fixture/marketing-actions.ts": fixtureMarketingActions,
     "fixture/marketing-preferences.server.ts": fixtureMarketingPreferences,
+    "fixture/referral-feature-flag.server.ts": fixtureReferralFeatureFlag,
     "fixture/site-header-config.ts": fixtureSiteHeaderConfig(
       realCookieConsent
         ? 'localePath + "/consent-waypoint"'
@@ -460,6 +469,9 @@ const writeFixture = async (
           "./fixture/marketing-preferences.server.ts",
         ],
         "@/features/legal/actions": ["./fixture/marketing-actions.ts"],
+        "@/features/referrals/referral-feature-flag.server": [
+          "./fixture/referral-feature-flag.server.ts",
+        ],
         "@/shared/backend/workspace-effect": ["./fixture/workspace-effect.ts"],
         "@/shared/components/site-header-config": [
           "./fixture/site-header-config.ts",
