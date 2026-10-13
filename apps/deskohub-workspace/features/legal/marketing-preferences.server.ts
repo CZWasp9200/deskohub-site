@@ -27,25 +27,30 @@ import {
  * wins over the account path, and every failure is reduced to the closed
  * public state before it reaches the page or telemetry.
  */
-export const getMarketingPreferences = async (
+export const getMarketingPreferences = (
   locale: Locale
-): Promise<MarketingPreferencesState> => {
-  let cookieStore: Awaited<ReturnType<typeof cookies>>;
-  try {
-    cookieStore = await cookies();
-  } catch {
-    return { status: "unavailable" };
-  }
-
-  return getMarketingPreferencesEffect(
-    locale,
-    createMarketingManagementCookies(cookieStore)
-  ).pipe(
+): Promise<MarketingPreferencesState> =>
+  Effect.tryPromise({
+    try: () => cookies(),
+    catch: () =>
+      new MarketingPreferencesAuthorityError({ reason: "unavailable" }),
+  }).pipe(
+    Effect.flatMap((cookieStore) =>
+      getMarketingPreferencesEffect(
+        locale,
+        createMarketingManagementCookies(cookieStore)
+      )
+    ),
+    // Without a request cookie store no authority can be resolved. This
+    // keeps the existing silent unavailable state; every later failure is
+    // logged by its error tag in `getMarketingPreferencesEffect`.
+    Effect.orElseSucceed(
+      (): MarketingPreferencesState => ({ status: "unavailable" })
+    ),
     runWorkspaceEffect("legal.marketing-preferences.read", {
       boundary: "page",
     })
   );
-};
 
 export const getMarketingPreferencesEffect = (
   locale: Locale,

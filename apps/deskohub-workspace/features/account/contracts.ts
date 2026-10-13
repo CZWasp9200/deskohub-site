@@ -1,5 +1,5 @@
 import { normalizePhoneNumber } from "@deskohub/dotypos/phone-number";
-import { Schema } from "effect";
+import { Option, Schema } from "effect";
 import type { WorkspaceCoworkProductTier } from "@/features/checkout/product-catalog";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 
@@ -130,13 +130,9 @@ export type CustomerAvatarPresentation =
       } | null;
     };
 
-const toInstantOrNull = (value: string): Temporal.Instant | null => {
-  try {
-    return Temporal.Instant.from(value);
-  } catch {
-    return null;
-  }
-};
+const parseInstant = Option.liftThrowable((value: string) =>
+  Temporal.Instant.from(value)
+);
 
 /**
  * Groups a customer's reservations for the account history. Cancelled
@@ -153,7 +149,9 @@ export const groupCustomerReservations = (
   const unavailable: CustomerReservationSummary[] = [];
 
   for (const reservation of reservations) {
-    const end = reservation.endsAt ? toInstantOrNull(reservation.endsAt) : null;
+    const end = reservation.endsAt
+      ? Option.getOrNull(parseInstant(reservation.endsAt))
+      : null;
     if (!end) {
       unavailable.push(reservation);
     } else if (
