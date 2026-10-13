@@ -66,7 +66,7 @@ Run the synthetic scheduler harness from `apps/deskohub-workspace` with `bun run
 Supported concurrency is three simultaneous exact-SHA runs (`workspaceE2EConcurrentRunTarget`).
 
 - **Shards.** Cases use dates 14 to 90 days out, split into three round-robin weekday sequences. Partition the canonical weekday sequence by absolute date before filtering availability, so a changing provider snapshot or a run crossing midnight can't move a date between shards. Validate every selected date through the deployed availability route; never add an app query parameter or runner capacity mutation.
-- **Per-run date use.** Basic cases share a date up to four reservations; Plus and each monitor-specific Profi pool take at most one. Calendar-sensitive Plus and Profi dates stay distinct from Basic and from each other. Meeting-room cases use distinct dates, including those a whole-day booking touches. The paid office case uses one Thursday-to-Friday range with the Thursday assigned through the shard.
+- **Per-run date use.** Ordinary open-space cases share a date up to four reservations (`workspaceE2EMaximumSameDateCoworkReservations`). Calendar-sale open-space dates and reserved-desk dates take one reservation each and stay distinct from the shared open-space dates and from each other. Meeting-room cases use distinct dates, including those a whole-day booking touches. The paid office case uses one Thursday-to-Friday range with the Thursday assigned through the shard.
 - **Allocator.** The trusted `.github/actions/workspace-e2e-allocation` action leases a shard before dependency install. It's authored in TypeScript and Effect and committed as a dependency-free ESM bundle; rebuild with `bun --cwd apps/deskohub-workspace e2e:coordination:build-action`. The runner receives the one-based shard as `WORKSPACE_E2E_ALLOCATION_SHARD`; its identity fallback exists only for compatibility.
 - **Database.** A separate long-lived Neon project, `workspace-e2e-coordination`, with no Vercel integration. Never coordinate through an app production, development, or preview database. Provision or migrate it from a trusted session with `WORKSPACE_E2E_COORDINATOR_ADMIN_DATABASE_URL` set only for that process: `bun --cwd apps/deskohub-workspace e2e:coordination:provision`.
 - **Lease rules.**
@@ -85,6 +85,7 @@ Supported concurrency is three simultaneous exact-SHA runs (`workspaceE2EConcurr
 The synthetic `replay-payment-webhook` step confirms the Dotypos hold and sends the paid-reservation emails through the production route. It's the one distributed boundary:
 
 - Admit one replay across all suites with a transaction-scoped PostgreSQL advisory lock in the coordination database, through `WORKSPACE_E2E_PROVIDER_PERMIT_DATABASE_URL`.
+- Treat the permit as load control, not provider-side fencing. A lost coordinator connection releases the lock while the replay's HTTP request may still run, so keep unique order and idempotency identities on every protected operation.
 - Hold the lock for a one-second quiet cooldown after every success, failure, or interruption, so two emails per fulfillment can't form a shared Resend team burst. Never retry the webhook.
 - Each worker runs one lock query at a time (worker-local semaphore), leaving a second pool connection free for interruption cancellation.
 - CI sets `WORKSPACE_E2E_PROVIDER_PERMIT_REQUIRED=true`. Every parallel checkout run, including manual runs, fails closed without the permit URL; a worker-local fallback can't bound a suite-wide limit.
@@ -95,17 +96,21 @@ The synthetic `replay-payment-webhook` step confirms the Dotypos hold and sends 
 
 ## Dotypos capacity and stale reservations
 
-`bun --cwd apps/deskohub-workspace e2e:capacity` runs a read-only aggregate validator against the E2E Dotypos cloud in every CI run. It prints no identifiers and checks both provisioned inventory and capacity left after peak overlapping active reservations:
+`bun --cwd apps/deskohub-workspace e2e:capacity` runs a read-only aggregate validator (`e2e/capacity.ts`) against the E2E Dotypos cloud in every CI run. It prints no identifiers. Each group must meet a provisioned minimum sized for the supported runs plus one headroom run (`workspaceE2EProviderHeadroomRuns`) and, where listed, a remaining minimum after peak overlapping active reservations:
 
-- `tier:basic`: at least 16 seats.
-- `tier:plus`: at least 4 seats.
-- Each exact `tier:profi` monitor tag set: at least 4 seats. A generic Profi table doesn't satisfy a specific set.
-- `reservation:meeting-room`: at least four active, visible, assignable tables.
-- `reservation:office`: at least one such table with two or more seats.
+| Group | Provisioned | Remaining |
+| --- | --- | --- |
+| `cowork:open-space`, no `monitor:` tags | 16 seats | 8 seats |
+| `cowork:reserved-desk`, no `monitor:` tags | 4 seats | 2 seats |
+| `cowork:reserved-desk` plus exactly one monitor option's `monitor:` tags, per option | 4 seats | 2 seats |
+| `reservation:meeting-room` | 4 tables | 1 table |
+| `reservation:office` | 1 table, 2 seats | Not checked |
+
+Groups count only enabled, displayed tables with an ID and a positive seat count, and use the same candidate predicate as table assignment. Legacy `tier:basic`, `tier:plus`, and `tier:profi` tags are report-only and satisfy no group, so inventory tagged only with legacy tiers fails.
 
 Use peak overlap, never a sum across unrelated dates, and never treat meeting-room seats as room concurrency. Query whole first and last candidate dates. Change table seats or rooms operationally in Dotypos, then rerun the validator; never change capacity from the runner.
 
-`e2e:cleanup-stale` is dry-run by default and applies only with `--apply`, which the workflow passes when `cleanup_stale_e2e_reservations` is set on a manual dispatch. It cancels only reservations whose customer name has the `Workspace E2E ` prefix and a test-domain `delivered+…` email, and whose embedded timestamp is at least two hours old (the job timeout is 50 minutes). Don't request it during a load soak.
+`e2e:cleanup-stale` is dry-run by default and applies only with `--apply`, which the workflow passes when `cleanup_stale_e2e_reservations` is set on a manual dispatch. It cancels only reservations whose customer name has the `Workspace E2E ` prefix and a `delivered+…` email on the test domain or the legacy `resend.dev` simulator domain, and whose embedded timestamp is at least two hours old (the job timeout is 50 minutes). If any candidate's details can't be read, it cancels nothing. Don't request it during a load soak.
 
 Before you raise supported concurrency or loosen a provider boundary:
 
