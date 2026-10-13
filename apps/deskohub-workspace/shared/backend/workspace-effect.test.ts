@@ -196,4 +196,108 @@ describe("runWorkspaceEffectOrElse", () => {
       warn.mockRestore();
     }
   });
+
+  test("serves the fallback once when the logger throws", async () => {
+    const warn = spyOn(console, "warn").mockImplementation(() => {
+      throw new Error("logger unavailable");
+    });
+    const orElse = mock(() => "fallback" as const);
+
+    try {
+      await expect(
+        Effect.fail(new Error("lookup failed")).pipe(
+          runWorkspaceEffectOrElse("test.fallback", { failureCode, orElse })
+        )
+      ).resolves.toBe("fallback");
+      expect(orElse).toHaveBeenCalledTimes(1);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  test("propagates a pre-aborted signal like runWorkspaceEffect, without falling back or logging", async () => {
+    const warn = spyOn(console, "warn").mockImplementation(() => undefined);
+    const orElse = mock(() => "fallback" as const);
+    const controller = new AbortController();
+    controller.abort();
+
+    try {
+      const expected = await settle(
+        Effect.never.pipe(
+          runWorkspaceEffect("test.fallback", { signal: controller.signal })
+        )
+      );
+      const actual = await settle(
+        Effect.never.pipe(
+          runWorkspaceEffectOrElse("test.fallback", {
+            failureCode,
+            orElse,
+            signal: controller.signal,
+          })
+        )
+      );
+
+      expect(expected.status).toBe("rejected");
+      expect(actual).toEqual(expected);
+      expect(orElse).not.toHaveBeenCalled();
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  test("propagates an abort during the run like runWorkspaceEffect, without falling back or logging", async () => {
+    const warn = spyOn(console, "warn").mockImplementation(() => undefined);
+    const orElse = mock(() => "fallback" as const);
+
+    const abortOnceStarted = async (
+      run: (
+        effect: Effect.Effect<never>,
+        signal: AbortSignal
+      ) => Promise<unknown>
+    ) => {
+      const controller = new AbortController();
+      const { promise: started, resolve } = Promise.withResolvers<void>();
+      const result = settle(
+        run(
+          Effect.sync(resolve).pipe(Effect.andThen(Effect.never)),
+          controller.signal
+        )
+      );
+      await started;
+      controller.abort();
+      return result;
+    };
+
+    try {
+      const expected = await abortOnceStarted((effect, signal) =>
+        effect.pipe(runWorkspaceEffect("test.fallback", { signal }))
+      );
+      const actual = await abortOnceStarted((effect, signal) =>
+        effect.pipe(
+          runWorkspaceEffectOrElse("test.fallback", {
+            failureCode,
+            orElse,
+            signal,
+          })
+        )
+      );
+
+      expect(expected.status).toBe("rejected");
+      expect(actual).toEqual(expected);
+      expect(orElse).not.toHaveBeenCalled();
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
 });
+
+const settle = (promise: Promise<unknown>) =>
+  promise.then(
+    (value) => ({ status: "fulfilled" as const, value }),
+    (reason: Error) => ({
+      status: "rejected" as const,
+      reason: { name: reason.name, message: reason.message },
+    })
+  );

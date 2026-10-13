@@ -61,61 +61,78 @@ export const runWorkspaceEffect =
  * failure with `orElse`: typed failures, defects, and a runner that rejects
  * before entering the Effect, such as when the shared observability runtime
  * cannot be built. A fallback inside the Effect cannot see that last case.
- * Next.js control flow (redirects, `notFound`, prerender bailouts) still
- * propagates. A failure is logged once with `failureCode` when `orElse`
- * serves a fallback; when `orElse` throws, the call rejects with that error
- * unlogged, handing the failure to the caller as `runWorkspaceEffect` does.
+ * Interruption, including an aborted `signal`, and Next.js control flow
+ * (redirects, `notFound`, prerender bailouts) propagate as they do from
+ * `runWorkspaceEffect`, without `orElse`. `orElse` runs at most once per
+ * call. When it serves a fallback, the failure is logged once with
+ * `failureCode`; when it throws, the call rejects with that error unlogged,
+ * handing the failure to the caller as `runWorkspaceEffect` does.
  */
-export const runWorkspaceEffectOrElse = <B>(
-  operation: string,
-  { failureCode, orElse, ...options }: RunWorkspaceEffectOrElseOptions<B>
-) => {
-  const answerFailure = <A, E>(
-    effect: Effect.Effect<A, E, never>
-  ): Effect.Effect<Exit.Exit<A | B, E | WorkspaceFallbackRejection>> =>
-    effect.pipe(
-      Effect.catchCause(
-        (cause): Effect.Effect<B, E | WorkspaceFallbackRejection> =>
-          causeFailures(cause).some(isNextControlFlow)
-            ? Effect.failCause(cause)
-            : Effect.try({
-                try: () => orElse(Cause.squash(cause)),
-                catch: (thrown) =>
-                  new WorkspaceFallbackRejection({ cause: thrown }),
-              }).pipe(
-                Effect.tap(() =>
-                  Effect.logWarning(
-                    "Workspace Effect failed; serving its fallback",
-                    { failureCode, cause }
+export const runWorkspaceEffectOrElse =
+  <B>(
+    operation: string,
+    { failureCode, orElse, ...options }: RunWorkspaceEffectOrElseOptions<B>
+  ) =>
+  async <A, E>(effect: Effect.Effect<A, E, never>): Promise<A | B> => {
+    let answer: Result.Result<B, WorkspaceFallbackRejection> | undefined;
+    const answerOnce = (cause: unknown) => {
+      answer ??= Result.try({
+        try: () => orElse(cause),
+        catch: (thrown) => new WorkspaceFallbackRejection({ cause: thrown }),
+      });
+      return answer;
+    };
+    const answerFailure = <A, E>(
+      program: Effect.Effect<A, E, never>
+    ): Effect.Effect<Exit.Exit<A | B, E | WorkspaceFallbackRejection>> =>
+      program.pipe(
+        Effect.catchCause(
+          (cause): Effect.Effect<B, E | WorkspaceFallbackRejection> =>
+            Cause.hasInterruptsOnly(cause) ||
+            causeFailures(cause).some(isNextControlFlow)
+              ? Effect.failCause(cause)
+              : Effect.fromResult(answerOnce(Cause.squash(cause))).pipe(
+                  Effect.tap(() =>
+                    Effect.logWarning(
+                      "Workspace Effect failed; serving its fallback",
+                      { failureCode, cause }
+                    ).pipe(
+                      // A failing logger must not discard the fallback.
+                      Effect.ignoreCause
+                    )
                   )
                 )
-              )
-      ),
-      Effect.exit
-    );
+        ),
+        Effect.exit
+      );
 
-  return async <A, E>(effect: Effect.Effect<A, E, never>): Promise<A | B> => {
-    const exit = await answerFailure(effect)
-      .pipe(runWorkspaceEffect(operation, options))
+    // A rejection after the shared runtime entered the program can only be
+    // an interruption: the program itself settles every failure as an Exit.
+    let entered = false;
+    const exit = await Effect.sync(() => {
+      entered = true;
+    })
+      .pipe(
+        Effect.andThen(answerFailure(effect)),
+        runWorkspaceEffect(operation, options)
+      )
       .then(
         (exit) => exit,
-        // Without the shared runtime, answer through the standalone logger.
-        (cause: unknown) =>
-          answerFailure(Effect.die(cause))
+        (cause: unknown) => {
+          if (entered || options.signal?.aborted) throw cause;
+          // The shared runtime could not be built: answer through the
+          // standalone logger, or unlogged if that logger fails too.
+          return answerFailure(Effect.die(cause))
             .pipe(runStandaloneWorkspaceEffect(operation))
             .then(
               (exit) => exit,
-              // Nothing is left to log through when that logger fails too.
               () =>
-                Result.match(
-                  Result.try({
-                    try: () => orElse(cause),
-                    catch: (thrown) =>
-                      new WorkspaceFallbackRejection({ cause: thrown }),
-                  }),
-                  { onSuccess: Exit.succeed, onFailure: Exit.fail }
-                )
-            )
+                Result.match(answerOnce(cause), {
+                  onSuccess: Exit.succeed,
+                  onFailure: Exit.fail,
+                })
+            );
+        }
       );
     if (Exit.isSuccess(exit)) return exit.value;
 
@@ -127,7 +144,6 @@ export const runWorkspaceEffectOrElse = <B>(
       ? failure.cause
       : failure;
   };
-};
 
 const causeFailures = (cause: Cause.Cause<unknown>) =>
   cause.reasons.flatMap((reason) => {
