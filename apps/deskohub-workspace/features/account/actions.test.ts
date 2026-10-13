@@ -207,6 +207,7 @@ let referralAcceptance: Effect.Effect<
   { readonly kind: "accepted" },
   ReferralError
 >;
+let settledReferral: Effect.Effect<boolean, ReferralError>;
 const Referrals = Context.Service<
   Referrals,
   {
@@ -216,6 +217,9 @@ const Referrals = Context.Service<
     readonly acceptReferral: (
       input: ReferralIdentity
     ) => Effect.Effect<{ readonly kind: "accepted" }, ReferralError>;
+    readonly hasSettledReferral: (input: {
+      readonly dotyposCustomerId: string;
+    }) => Effect.Effect<boolean, ReferralError>;
   }
 >()("@test/ActionsReferrals");
 Object.assign(Referrals, {
@@ -228,9 +232,23 @@ Object.assign(Referrals, {
       referralCalls.push({ op: "acceptReferral", args: input });
       return referralAcceptance;
     },
+    hasSettledReferral: (input) => {
+      referralCalls.push({ op: "hasSettledReferral", args: input });
+      return settledReferral;
+    },
   }),
 });
 mock.module("@/features/referrals", () => ({ ReferralService: Referrals }));
+
+let rememberedReferralCode: string | undefined;
+const forgetRememberedReferralCode = mock(async () => undefined);
+mock.module("@/features/referrals/remembered-referral-code.server", () => ({
+  readRememberedReferralCode: async () => {
+    const { parseReferralCode } = await import("@/features/referrals/client");
+    return parseReferralCode(rememberedReferralCode);
+  },
+  forgetRememberedReferralCode,
+}));
 
 let lookupOutcome: Effect.Effect<
   typeof syntheticAresCompany,
@@ -285,6 +303,9 @@ describe("account actions", () => {
     storedIntent = undefined;
     availableReferralCode = Effect.succeed("RFL12345");
     referralAcceptance = Effect.succeed({ kind: "accepted" });
+    settledReferral = Effect.succeed(false);
+    rememberedReferralCode = undefined;
+    forgetRememberedReferralCode.mockClear();
     revalidatePath.mockClear();
     areAccountsEnabled.mockReset();
     areAccountsEnabled.mockResolvedValue(true);
@@ -443,6 +464,104 @@ describe("account actions", () => {
       "acceptReferral",
     ]);
     expect(storedIntent).toBeUndefined();
+  });
+
+  test("records a typed referral code instead of the remembered one", async () => {
+    resolveAsNewCustomerUntilCreated();
+    rememberedReferralCode = "RFLCOOKIE";
+    const { completeCustomerProfile } = await importActions();
+
+    await completeCustomerProfile({
+      firstName: "Ada",
+      referralCode: "RFLTYPED1",
+      prefilledReferralCode: "RFLCOOKIE",
+    });
+
+    expect(referralCalls[0]).toEqual({
+      op: "findAvailableCode",
+      args: { code: "RFLTYPED1" },
+    });
+  });
+
+  test("forgets the remembered code once completion leaves the customer's referral settled", async () => {
+    resolveAsNewCustomerUntilCreated();
+    rememberedReferralCode = "RFL12345";
+    settledReferral = Effect.succeed(true);
+    const { completeCustomerProfile } = await importActions();
+
+    const result = await completeCustomerProfile({
+      firstName: "Ada",
+      referralCode: "RFL12345",
+      prefilledReferralCode: "RFL12345",
+    });
+
+    expect(result).toEqual({
+      data: { status: "completed", referral: { status: "applied" } },
+    });
+    expect(referralCalls.at(-1)).toEqual({
+      op: "hasSettledReferral",
+      args: { dotyposCustomerId: "60222" },
+    });
+    expect(forgetRememberedReferralCode).toHaveBeenCalledTimes(1);
+  });
+
+  test("keeps the remembered code while the customer's referral is open or unknown", async () => {
+    resolveAsNewCustomerUntilCreated();
+    rememberedReferralCode = "RFL12345";
+    referralAcceptance = Effect.fail(
+      new ReferralError({ reason: "pending_payment" })
+    );
+    const { completeCustomerProfile } = await importActions();
+
+    const pending = await completeCustomerProfile({
+      firstName: "Ada",
+      referralCode: "RFL12345",
+      prefilledReferralCode: "RFL12345",
+    });
+    expect(pending).toEqual({
+      data: { status: "completed", referral: { status: "pending" } },
+    });
+
+    settledReferral = Effect.fail(new ReferralError({ reason: "unavailable" }));
+    const unknown = await completeCustomerProfile({ firstName: "Ada" });
+    expect(unknown).toEqual({ data: { status: "completed" } });
+
+    expect(
+      referralCalls.filter(({ op }) => op === "hasSettledReferral")
+    ).toHaveLength(2);
+    expect(forgetRememberedReferralCode).not.toHaveBeenCalled();
+  });
+
+  test("keeps the remembered code when a typed code is unavailable", async () => {
+    resolveAsNewCustomerUntilCreated();
+    rememberedReferralCode = "RFL12345";
+    availableReferralCode = Effect.succeed(undefined);
+    const { completeCustomerProfile } = await importActions();
+
+    await completeCustomerProfile({
+      firstName: "Ada",
+      referralCode: "RFLGONE1",
+    });
+
+    expect(referralCalls.map(({ op }) => op)).toEqual(["findAvailableCode"]);
+    expect(forgetRememberedReferralCode).not.toHaveBeenCalled();
+  });
+
+  test("never checks whether the referral is settled without a remembered code", async () => {
+    resolveAsNewCustomerUntilCreated();
+    settledReferral = Effect.succeed(true);
+    const { completeCustomerProfile } = await importActions();
+
+    await completeCustomerProfile({
+      firstName: "Ada",
+      referralCode: "RFL12345",
+    });
+
+    expect(referralCalls.map(({ op }) => op)).toEqual([
+      "findAvailableCode",
+      "acceptReferral",
+    ]);
+    expect(forgetRememberedReferralCode).not.toHaveBeenCalled();
   });
 
   test("ignores a referral code when completion finds an already linked customer", async () => {

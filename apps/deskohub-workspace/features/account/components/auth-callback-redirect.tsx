@@ -3,25 +3,13 @@
 import { useEffect } from "react";
 import { getAccountPath } from "@/features/account/routes";
 import type { Locale } from "@/features/i18n";
-import type { ReferralCode } from "@/features/referrals/client";
 import { handOffReturn } from "@/shared/browser/return-window";
 import { AuthCallbackLoading } from "./auth-callback-loading";
 
-export function AuthCallbackRedirect({
-  locale,
-  referralCode,
-}: {
-  readonly locale: Locale;
-  readonly referralCode?: ReferralCode;
-}) {
+export function AuthCallbackRedirect({ locale }: { readonly locale: Locale }) {
   useEffect(() => {
     let active = true;
-    const accountBasePath = getAccountPath(locale);
-    const searchParams = new URLSearchParams();
-    if (referralCode !== undefined) searchParams.set("ref", referralCode);
-    const search = searchParams.toString();
-    const accountPath =
-      search.length === 0 ? accountBasePath : `${accountBasePath}?${search}`;
+    const accountPath = getAccountPath(locale);
     const navigateToAccount = () => {
       if (!active) return;
       try {
@@ -80,7 +68,7 @@ export function AuthCallbackRedirect({
     return () => {
       active = false;
     };
-  }, [locale, referralCode]);
+  }, [locale]);
 
   return <AuthCallbackLoading locale={locale} />;
 }

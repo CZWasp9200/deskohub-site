@@ -8,11 +8,6 @@ import { loadCustomerAccountPage } from "@/features/account/page-data.server";
 import { areAccountsEnabled } from "@/features/account/server/account-feature-flag.server";
 import { type Locale, m } from "@/features/i18n";
 import { runWithRequestLocale } from "@/features/i18n/server/request-locale";
-import {
-  parseReferralCode,
-  referralCodeQueryParam,
-} from "@/features/referrals/client";
-import type { SearchParamsRecord } from "@/shared/utils";
 
 export async function generateMetadata(): Promise<Metadata> {
   return runWithRequestLocale((locale) => ({
@@ -22,35 +17,23 @@ export async function generateMetadata(): Promise<Metadata> {
   }));
 }
 
-export default async function CustomerAccountPageRoute({
-  searchParams,
-}: {
-  readonly searchParams?: Promise<SearchParamsRecord>;
-} = {}) {
-  const referralCode = parseReferralCode(
-    searchParams ? (await searchParams)[referralCodeQueryParam] : undefined
-  );
-
+export default async function CustomerAccountPageRoute() {
   return runWithRequestLocale((locale) => (
     <Suspense fallback={<AccountContentLoading locale={locale} />}>
-      <CustomerAccountPageContent locale={locale} referralCode={referralCode} />
+      <CustomerAccountPageContent locale={locale} />
     </Suspense>
   ));
 }
 
 async function CustomerAccountPageContent({
   locale,
-  referralCode,
 }: {
   readonly locale: Locale;
-  readonly referralCode: ReturnType<typeof parseReferralCode>;
 }) {
   await connection();
   if (!(await areAccountsEnabled())) notFound();
 
-  const state = await loadCustomerAccountPage(locale, referralCode);
+  const state = await loadCustomerAccountPage(locale);
 
-  return (
-    <AccountPage locale={locale} referralCode={referralCode} state={state} />
-  );
+  return <AccountPage locale={locale} state={state} />;
 }

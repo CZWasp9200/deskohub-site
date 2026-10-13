@@ -11,14 +11,9 @@ import { getAccountSignInPath } from "@/features/account/routes";
 import { areAccountsEnabled } from "@/features/account/server/account-feature-flag.server";
 import { type Locale, m } from "@/features/i18n";
 import { runWithRequestLocale } from "@/features/i18n/server/request-locale";
-import {
-  parseReferralCode,
-  type ReferralCode,
-} from "@/features/referrals/client";
 import { runWorkspaceEffect } from "@/shared/backend/workspace-effect";
 import { Button } from "@/shared/components/ui/button";
 import { Card, CardContent } from "@/shared/components/ui/card";
-import type { SearchParamsRecord } from "@/shared/utils";
 
 export const instant = false;
 
@@ -38,10 +33,8 @@ export async function generateMetadata(): Promise<Metadata> {
  */
 const CustomerAuthCallbackSession = async ({
   locale,
-  referralCode,
 }: {
   readonly locale: Locale;
-  readonly referralCode?: ReferralCode;
 }) => {
   await connection();
   if (!(await areAccountsEnabled())) notFound();
@@ -55,7 +48,7 @@ const CustomerAuthCallbackSession = async ({
     runWorkspaceEffect("account.callback", { boundary: "page" })
   );
   if (Result.isSuccess(session) && session.success) {
-    return <AuthCallbackRedirect locale={locale} referralCode={referralCode} />;
+    return <AuthCallbackRedirect locale={locale} />;
   }
 
   return (
@@ -71,16 +64,7 @@ const CustomerAuthCallbackSession = async ({
               {m.accountCallbackFailedBody({}, { locale })}
             </p>
             <Button asChild className="mt-8">
-              <Link
-                href={{
-                  pathname: getAccountSignInPath(locale),
-                  query:
-                    referralCode === undefined
-                      ? undefined
-                      : { ref: referralCode },
-                }}
-                prefetch={false}
-              >
+              <Link href={getAccountSignInPath(locale)} prefetch={false}>
                 {m.accountCallbackFailedAction({}, { locale })}
               </Link>
             </Button>
@@ -91,21 +75,10 @@ const CustomerAuthCallbackSession = async ({
   );
 };
 
-export default async function CustomerAuthCallbackPage({
-  searchParams,
-}: {
-  readonly searchParams?: Promise<SearchParamsRecord>;
-} = {}) {
-  const referralCode = parseReferralCode(
-    searchParams ? (await searchParams).ref : undefined
-  );
-
+export default async function CustomerAuthCallbackPage() {
   return runWithRequestLocale((locale) => (
     <Suspense fallback={<AuthCallbackLoading locale={locale} />}>
-      <CustomerAuthCallbackSession
-        locale={locale}
-        referralCode={referralCode}
-      />
+      <CustomerAuthCallbackSession locale={locale} />
     </Suspense>
   ));
 }

@@ -247,7 +247,7 @@ const completeWithStoredIntent = async (code: string) => {
     Effect.provide(completionLayer({ accountId, identityUnavailable: true })),
     Effect.runPromise
   );
-  expect(outcome).toEqual({
+  expect(outcome).toMatchObject({
     status: "completed",
     referral: { status: "pending" },
   });
@@ -331,7 +331,7 @@ describe.skipIf(!testDatabase)(
         Effect.runPromise
       );
 
-      expect(outcome).toEqual({
+      expect(outcome).toMatchObject({
         status: "completed",
         referral: { status: "applied" },
       });
@@ -369,11 +369,11 @@ describe.skipIf(!testDatabase)(
         return [yield* Fiber.join(first), yield* Fiber.join(second)] as const;
       }).pipe(withinLockBudget, Effect.runPromise);
 
-      expect(winner).toEqual({
+      expect(winner).toMatchObject({
         status: "completed",
         referral: { status: "applied" },
       });
-      expect(loser).toEqual({
+      expect(loser).toMatchObject({
         status: "completed",
         referral: { status: "not-applied", reason: "already-referred" },
       });
@@ -413,7 +413,7 @@ describe.skipIf(!testDatabase)(
       }).pipe(withinLockBudget, Effect.runPromise);
 
       expect(checkout).toEqual({ kind: "accepted" });
-      expect(outcome).toEqual({
+      expect(outcome).toMatchObject({
         status: "completed",
         referral: { status: "not-applied", reason: "already-referred" },
       });
@@ -434,7 +434,7 @@ describe.skipIf(!testDatabase)(
         Effect.runPromise
       );
 
-      expect(outcome).toEqual({
+      expect(outcome).toMatchObject({
         status: "completed",
         referral: { status: "pending" },
       });
@@ -581,7 +581,7 @@ describe.skipIf(!testDatabase)(
         return yield* Fiber.join(completion);
       }).pipe(withinLockBudget, Effect.runPromise);
 
-      expect(outcome).toEqual({
+      expect(outcome).toMatchObject({
         status: "completed",
         referral: { status: "not-applied", reason: "code-unusable" },
       });
@@ -604,7 +604,8 @@ describe.skipIf(!testDatabase)(
         Effect.runPromise
       );
 
-      expect(outcome).toEqual({ status: "completed" });
+      expect(outcome).toMatchObject({ status: "completed" });
+      expect(outcome).not.toHaveProperty("referral");
       const customerId = await readLinkedCustomer(accountId);
       expect(customerId).toBeDefined();
       expect(await readReferrer(customerId!)).toBeUndefined();

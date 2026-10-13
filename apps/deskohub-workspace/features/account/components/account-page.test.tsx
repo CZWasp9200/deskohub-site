@@ -223,18 +223,11 @@ describe("AccountPage states", () => {
 
   const renderState = async (
     state: CustomerAccountPageState,
-    locale: "en-US" | "cs-CZ" = "en-US",
-    referralCode?: ReturnType<typeof parseReferralCode>
+    locale: "en-US" | "cs-CZ" = "en-US"
   ) => {
     const { AccountPage } = await import("./account-page");
     if (state.kind === "unauthenticated") {
-      return render(
-        <AccountPage
-          locale={locale}
-          referralCode={referralCode}
-          state={state}
-        />
-      );
+      return render(<AccountPage locale={locale} state={state} />);
     }
 
     const { AccountLayoutShell } = await import("./account-layout-shell");
@@ -242,11 +235,7 @@ describe("AccountPage states", () => {
       state.kind !== "unauthenticated" && state.kind !== "unavailable";
     const view = render(
       <AccountLayoutShell accountsEnabled locale={locale} signedIn={signedIn}>
-        <AccountPage
-          locale={locale}
-          referralCode={referralCode}
-          state={state}
-        />
+        <AccountPage locale={locale} state={state} />
       </AccountLayoutShell>
     );
 
@@ -329,30 +318,7 @@ describe("AccountPage states", () => {
     expect(view.getByText(m.accountProfileSave({}, en))).toBeTruthy();
   });
 
-  test("ignores a shared referral code on the linked account page", async () => {
-    const referralCode = parseReferralCode("RFL12345");
-    if (referralCode === undefined) throw new Error("invalid referral code");
-    workspaceUseSearchParams.mockReturnValue(
-      new URLSearchParams(`ref=${referralCode}`)
-    );
-
-    const view = await renderState(linkedState, "en-US", referralCode);
-
-    expect(
-      view.container.querySelector('[data-screen="referrals-screen"]')
-    ).toBeTruthy();
-    expect(view.queryByRole("button", { name: /accept/i })).toBeNull();
-    expect(view.container.querySelector("#profile-referral-code")).toBeNull();
-    expect(
-      within(view.getByRole("group", { name: m.accountSectionLabel({}, en) }))
-        .getByRole("button", {
-          name: new RegExp(`^${m.accountSectionReservations({}, en)}`),
-        })
-        .getAttribute("aria-current")
-    ).toBe("page");
-  });
-
-  test("submits the shared-link referral code with completion and shows its outcome after the refresh", async () => {
+  test("submits the remembered referral code with completion and shows its outcome after the refresh", async () => {
     completeCustomerProfile.mockImplementationOnce(() =>
       Promise.resolve({
         data: { status: "completed", referral: { status: "applied" } },
@@ -360,9 +326,6 @@ describe("AccountPage states", () => {
     );
     const referralCode = parseReferralCode("RFL12345");
     if (referralCode === undefined) throw new Error("invalid referral code");
-    workspaceUseSearchParams.mockReturnValue(
-      new URLSearchParams(`ref=${referralCode}`)
-    );
     let refreshLinkedAccount!: () => void;
     function ProfileCompletionRefreshJourney() {
       const [state, setState] = useState<CustomerAccountPageState>({
@@ -374,11 +337,7 @@ describe("AccountPage states", () => {
 
       return (
         <AccountLayoutShell accountsEnabled locale="en-US" signedIn>
-          <AccountPage
-            locale="en-US"
-            referralCode={referralCode}
-            state={state}
-          />
+          <AccountPage locale="en-US" state={state} />
         </AccountLayoutShell>
       );
     }
@@ -511,12 +470,37 @@ describe("AccountPage states", () => {
     }
   );
 
-  test("leaves the completion referral field empty without a usable code", async () => {
-    const view = await renderState(
-      { kind: "completion-required", email: "ada@example.test" },
-      "en-US",
-      parseReferralCode("RFL12345")
+  test("forgets the remembered referral code only on a linked visit that used it", async () => {
+    const { referralCodeCookieName } = await import(
+      "@/features/referrals/referral-code-cookie"
     );
+    const rememberedCookie = `${referralCodeCookieName}=RFL12345`;
+    const originalUrl = window.location.href;
+    window.happyDOM.setURL("https://deskohub.test/en-US/account");
+    try {
+      // biome-ignore lint/suspicious/noDocumentCookie: The browser test needs to remember a code synchronously.
+      document.cookie = `${rememberedCookie}; Path=/`;
+
+      const openVisit = await renderState(linkedState);
+      await act(async () => undefined);
+      expect(document.cookie).toContain(rememberedCookie);
+      openVisit.unmount();
+
+      await renderState({ ...linkedState, rememberedReferralCodeUsed: true });
+      await act(async () => undefined);
+      expect(document.cookie).not.toContain(referralCodeCookieName);
+    } finally {
+      // biome-ignore lint/suspicious/noDocumentCookie: The browser test needs to clear the code synchronously.
+      document.cookie = `${referralCodeCookieName}=; Path=/; Max-Age=0`;
+      window.happyDOM.setURL(originalUrl);
+    }
+  });
+
+  test("leaves the completion referral field empty without a usable code", async () => {
+    const view = await renderState({
+      kind: "completion-required",
+      email: "ada@example.test",
+    });
 
     const field = view.container.querySelector(
       "#profile-referral-code"

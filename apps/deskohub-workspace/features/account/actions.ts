@@ -15,16 +15,24 @@ import { CustomerAccountResolver } from "@/features/account/backend/customer-acc
 import { CustomerAuthentication } from "@/features/account/backend/customer-authentication.service";
 import { CustomerProfileService } from "@/features/account/backend/customer-profile.service";
 import { completeNewCustomerProfile } from "@/features/account/backend/profile-completion";
+import { isRememberedReferralCodeUsed } from "@/features/account/backend/remembered-referral-code";
 import {
   type CustomerProfileInput,
   completeCustomerProfileStandardSchema,
   updateCustomerProfileStandardSchema,
 } from "@/features/account/contracts";
-import { CustomerAccountAccessError } from "@/features/account/customer-account";
+import {
+  CustomerAccountAccessError,
+  type LinkedCustomerAccount,
+} from "@/features/account/customer-account";
 import { getAccountPath } from "@/features/account/routes";
 import type { Locale } from "@/features/i18n";
 import { m } from "@/features/i18n";
 import { ReferralService } from "@/features/referrals";
+import {
+  forgetRememberedReferralCode,
+  readRememberedReferralCode,
+} from "@/features/referrals/remembered-referral-code.server";
 import { ReferralSignupIntentRepository } from "@/features/referrals/signup-intent.repository";
 import { defineWorkspaceAction } from "@/shared/backend/workspace-action";
 
@@ -63,7 +71,7 @@ const saveCustomerProfile = Effect.fn(
       yield* Effect.flatMap(CustomerProfileService, (profile) =>
         profile.update(resolution.success, input)
       );
-      return { status: "saved" } as const;
+      return { status: "saved", account: resolution.success } as const;
     }
 
     const failure = resolution.failure;
@@ -94,27 +102,45 @@ const saveCustomerProfile = Effect.fn(
     )
 );
 
+/**
+ * Forgets the referral code this browser remembers once the customer's
+ * referral is settled, whether by this completion or earlier. The completion
+ * field, not the remembered code, decides which code this save records.
+ */
+const forgetUsedRememberedReferralCode = (account: LinkedCustomerAccount) =>
+  Effect.promise(readRememberedReferralCode).pipe(
+    Effect.flatMap((rememberedCode) =>
+      isRememberedReferralCodeUsed(rememberedCode, account)
+    ),
+    Effect.flatMap((used) =>
+      used ? Effect.promise(forgetRememberedReferralCode) : Effect.void
+    ),
+    Effect.provide(ReferralService.Live)
+  );
+
 const completeCustomerProfileAction = defineWorkspaceAction(
   {
     operation: "account.complete-profile",
     schema: completeCustomerProfileStandardSchema,
     logInput: false,
   },
-  ({ referralCode, prefilledReferralCode, ...input }, { locale }) =>
-    Effect.andThen(
-      requireAccountsEnabled(locale),
-      Effect.map(
-        saveCustomerProfile(
-          input,
-          { code: referralCode, prefilledCode: prefilledReferralCode },
-          locale
-        ),
-        (outcome) =>
-          outcome.status === "saved"
-            ? { status: "completed" as const }
-            : outcome
-      )
-    )
+  Effect.fn(function* (
+    { referralCode, prefilledReferralCode, ...input },
+    { locale }
+  ) {
+    yield* requireAccountsEnabled(locale);
+    const outcome = yield* saveCustomerProfile(
+      input,
+      { code: referralCode, prefilledCode: prefilledReferralCode },
+      locale
+    );
+    if (outcome.status === "referral-code-unavailable") return outcome;
+
+    yield* forgetUsedRememberedReferralCode(outcome.account);
+    return outcome.status === "completed" && outcome.referral
+      ? { status: "completed" as const, referral: outcome.referral }
+      : { status: "completed" as const };
+  })
 );
 
 const updateCustomerProfileAction = defineWorkspaceAction(

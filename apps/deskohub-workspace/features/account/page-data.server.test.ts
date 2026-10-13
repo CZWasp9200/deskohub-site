@@ -211,6 +211,8 @@ let referralSummaryCalls: Array<{
 let availableReferralCodeEffect: Effect.Effect<string | undefined, unknown>;
 let availableReferralCodeCalls: Array<{ readonly code: unknown }> = [];
 let acceptReferralEffect: Effect.Effect<unknown, { readonly reason: string }>;
+let settledReferralEffect: Effect.Effect<boolean, unknown>;
+let settledReferralCalls: Array<{ readonly dotyposCustomerId: string }> = [];
 let acceptReferralCalls: Array<{
   readonly code: unknown;
   readonly customerAccountId: CustomerAccountId;
@@ -227,6 +229,9 @@ type TestReferralService = {
   readonly acceptReferral: (
     input: (typeof acceptReferralCalls)[number]
   ) => typeof acceptReferralEffect;
+  readonly hasSettledReferral: (input: {
+    readonly dotyposCustomerId: string;
+  }) => typeof settledReferralEffect;
 };
 const Referrals = Context.Service<Referrals, TestReferralService>()(
   "@test/AccountReferrals"
@@ -245,6 +250,11 @@ const ReferralsLayer = Layer.succeed(Referrals, {
   findAvailableCode: (input) => {
     availableReferralCodeCalls.push(input);
     return availableReferralCodeEffect;
+  },
+  hasSettledReferral: (input) => {
+    settledReferralCalls.push(input);
+    events.push("settled");
+    return settledReferralEffect;
   },
 });
 Object.assign(Referrals, { Live: ReferralsLayer });
@@ -290,6 +300,14 @@ mock.module("@/features/referrals/signup-intent.repository", () => ({
   ReferralSignupIntentRepository: SignupIntents,
 }));
 
+let rememberedReferralCode: string | undefined;
+mock.module("@/features/referrals/remembered-referral-code.server", () => ({
+  readRememberedReferralCode: async () => {
+    const { parseReferralCode } = await import("@/features/referrals/client");
+    return parseReferralCode(rememberedReferralCode);
+  },
+}));
+
 const areAccountAvatarsEnabled = mock(() => Promise.resolve(true));
 mock.module("@/features/account/server/account-feature-flag.server", () => ({
   areAccountAvatarsEnabled,
@@ -316,6 +334,9 @@ describe("loadCustomerAccountPage", () => {
     availableReferralCodeCalls = [];
     acceptReferralEffect = Effect.succeed({ status: "accepted" });
     acceptReferralCalls = [];
+    settledReferralEffect = Effect.succeed(false);
+    settledReferralCalls = [];
+    rememberedReferralCode = undefined;
     storedSignupIntent = undefined;
     events = [];
     areAccountAvatarsEnabled.mockReset();
@@ -326,10 +347,10 @@ describe("loadCustomerAccountPage", () => {
     });
   });
 
-  const loadPageState = async (referralCode?: string) => {
+  const loadPageState = async (remembered?: string) => {
+    rememberedReferralCode = remembered;
     const { loadCustomerAccountPage } = await import("./page-data.server");
-    const { parseReferralCode } = await import("@/features/referrals/client");
-    return loadCustomerAccountPage("en-US", parseReferralCode(referralCode));
+    return loadCustomerAccountPage("en-US");
   };
 
   test("returns unauthenticated without customer data or downstream work when no session exists", async () => {
@@ -376,7 +397,7 @@ describe("loadCustomerAccountPage", () => {
     });
   });
 
-  test("prefills a currently usable referral code on the completion state", async () => {
+  test("prefills a currently usable remembered referral code on the completion state", async () => {
     resolveEffect = resolverOutcome({
       kind: "failure",
       reason: "link-required",
@@ -391,7 +412,7 @@ describe("loadCustomerAccountPage", () => {
     expect(availableReferralCodeCalls).toEqual([{ code: "RFL12345" }]);
   });
 
-  test("silently leaves the completion referral empty when the code is not usable", async () => {
+  test("silently leaves the completion referral empty when the remembered code is not usable", async () => {
     resolveEffect = resolverOutcome({
       kind: "failure",
       reason: "link-required",
@@ -411,7 +432,7 @@ describe("loadCustomerAccountPage", () => {
     });
   });
 
-  test("ignores a referral code once the account is linked", async () => {
+  test("records nothing from a remembered code once the account is linked", async () => {
     const state = await loadPageState("RFL12345");
 
     expect(state.kind).toBe("linked");
@@ -420,7 +441,7 @@ describe("loadCustomerAccountPage", () => {
     expect(acceptReferralCalls).toEqual([]);
   });
 
-  test("records the shared invitation after this sign-in linked an existing customer", async () => {
+  test("records the remembered invitation after this sign-in linked an existing customer", async () => {
     resolveEffect = resolverOutcome({
       kind: "success",
       customerId: "60111",
@@ -440,7 +461,7 @@ describe("loadCustomerAccountPage", () => {
         dotyposCustomerId: "60111",
       },
     ]);
-    expect(events).toEqual(["resolved", "accept", "summary"]);
+    expect(events).toEqual(["resolved", "accept", "settled", "summary"]);
   });
 
   test("retries the code a profile completion could not record yet, after resolution", async () => {
@@ -531,7 +552,7 @@ describe("loadCustomerAccountPage", () => {
     }
   });
 
-  test("records nothing when an auto-linked sign-in carries no shared code", async () => {
+  test("records nothing when an auto-linked sign-in has no remembered code", async () => {
     resolveEffect = resolverOutcome({
       kind: "success",
       customerId: "60111",
@@ -592,6 +613,58 @@ describe("loadCustomerAccountPage", () => {
     expect(output).toContain("already_attributed");
     expect(output).not.toContain("RFLSHARE");
     expect(output).not.toContain("referral store down");
+  });
+
+  test("forgets the remembered code once the linked customer's referral is settled", async () => {
+    resolveEffect = resolverOutcome({
+      kind: "success",
+      customerId: "60111",
+      autoLinked: true,
+    });
+    storedSignupIntent = {
+      code: "RFLPENDING",
+      promotionCodeId: "@test/promotion-code-id",
+      referrerDotyposCustomerId: "70001",
+    };
+    settledReferralEffect = Effect.succeed(true);
+
+    await expect(loadPageState("RFL12345")).resolves.toMatchObject({
+      kind: "linked",
+      rememberedReferralCodeUsed: true,
+    });
+    expect(settledReferralCalls).toEqual([{ dotyposCustomerId: "60111" }]);
+    expect(events).toEqual([
+      "resolved",
+      "accept",
+      "accept",
+      "settled",
+      "summary",
+    ]);
+  });
+
+  test("keeps the remembered code while the linked customer's referral is open or unknown", async () => {
+    const open = await loadPageState("RFL12345");
+    expect(open.kind).toBe("linked");
+    expect(open).not.toHaveProperty("rememberedReferralCodeUsed");
+
+    settledReferralEffect = Effect.fail(new Error("dotypos down"));
+    const unknown = await loadPageState("RFL12345");
+    expect(unknown).toMatchObject({
+      kind: "linked",
+      referrals: accountReferrals,
+    });
+    expect(unknown).not.toHaveProperty("rememberedReferralCodeUsed");
+    expect(settledReferralCalls).toHaveLength(2);
+  });
+
+  test("never checks whether the referral is settled without a remembered code", async () => {
+    settledReferralEffect = Effect.succeed(true);
+
+    const state = await loadPageState();
+
+    expect(state.kind).toBe("linked");
+    expect(state).not.toHaveProperty("rememberedReferralCodeUsed");
+    expect(settledReferralCalls).toEqual([]);
   });
 
   test("renders the support state for ambiguous, unusable, claimed, and unverified outcomes", async () => {
