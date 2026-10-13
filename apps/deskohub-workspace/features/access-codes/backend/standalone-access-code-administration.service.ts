@@ -17,7 +17,10 @@ import { Context, Data, Effect, Layer, Match, Result, Schema } from "effect";
 import { env } from "@/env";
 import { WorkspaceIgloohomeLayer } from "@/shared/backend/config/igloohome.config";
 import { workspaceSiteConstants } from "@/shared/utils";
-import { localDateTimeToOffsetInstantString } from "@/shared/utils/temporal";
+import {
+  localDateTimeToInstant,
+  localDateTimeToOffsetInstantString,
+} from "@/shared/utils/temporal";
 import type {
   StandaloneAccessCodeCreationOutcome,
   StandaloneAccessCodeFailureCode,
@@ -314,12 +317,14 @@ export class StandaloneAccessCodeAdministration extends Context.Service<
               deviceId,
               startsAtLocal: input.request.startsAt,
               endsAtLocal: input.request.endsAt,
-              startsAt: Temporal.PlainDateTime.from(input.request.startsAt)
-                .toZonedDateTime(timeZone)
-                .toInstant(),
-              endsAt: Temporal.PlainDateTime.from(input.request.endsAt)
-                .toZonedDateTime(timeZone)
-                .toInstant(),
+              startsAt: localDateTimeToInstant({
+                dateTime: input.request.startsAt,
+                timeZone,
+              }),
+              endsAt: localDateTimeToInstant({
+                dateTime: input.request.endsAt,
+                timeZone,
+              }),
             };
             const claimedAt = Temporal.Now.instant();
 
