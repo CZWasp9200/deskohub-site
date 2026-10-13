@@ -14,7 +14,7 @@ Every case uses a unique synthetic customer. Never make an edge case mutate a fi
 
 ## Synthetic recipients and email
 
-- Build every recipient with `testEmailAddress` from `@deskohub/test-email`; E2E accounts look like `delivered+<run>-<label>@<EMAIL_TEST_DOMAIN>`. Mail to `EMAIL_TEST_DOMAIN` (`deskohub.test`, a code constant) goes to the Console provider in every deployment, so there's nothing to configure. A fixture that submits any other address sends real mail. The `deskohub-repository` skill's development reference covers the literal-address scanner.
+- Build every recipient with `testEmailAddress` from `@deskohub/test-email`; E2E accounts look like `delivered+<run>-<label>@<EMAIL_TEST_DOMAIN>`. Mail to `EMAIL_TEST_DOMAIN` (`deskohub.test`, a code constant) goes to the Console provider in every deployment, so there's nothing to configure. A fixture that submits any other address sends real mail. [Test email addresses](../../deskohub-repository/references/testing-and-ci.md#test-email-addresses) covers the literal-address scanner.
 - Staff copies (contact, checkout, invoice) follow the triggering customer: a test-domain origin addresses `workspace-internal@<EMAIL_TEST_DOMAIN>`. Outside production, staff subjects carry `[TESTING]` (`staffEmailSubject` in `@deskohub/email`).
 - Check email body content with the fake transport renderer, and delivery through Vercel runtime or webhook evidence.
 

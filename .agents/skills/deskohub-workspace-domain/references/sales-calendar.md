@@ -19,7 +19,7 @@ A sale applies only when the booking instant is inside the occurrence's Prague a
 - `lastServiceDate` is the office `endsOn`, the cowork `date`, or, for a meeting room, the Prague date of its exclusive `endsAt`, because hourly bookings can cross midnight.
 - `expiresAt` is the end of the booking window. The countdown and the home-page banner both target it.
 
-Load `deskohub-workspace-checkout` for where the booking instant comes from, the anonymous advertisement boundary, discount affirmation, and `pricing_changed`.
+Load [the checkout skill's pricing reference](../../deskohub-workspace-checkout/references/pricing.md#booking-instant) for where the booking instant comes from, the anonymous advertisement boundary, discount affirmation, and `pricing_changed`.
 
 ## Resolution failures
 
