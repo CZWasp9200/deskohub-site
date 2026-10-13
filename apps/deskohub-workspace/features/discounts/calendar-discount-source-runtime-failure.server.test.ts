@@ -33,7 +33,9 @@ test("marks the Calendar sale source uncacheable when the runner cannot start", 
     );
     expect(cacheLife.mock.calls).toEqual([[{ expire: 0 }]]);
     expect(cacheTag).not.toHaveBeenCalled();
-    expect(warn.mock.calls.flat().join(" ")).toContain(
+    // The rejection reaches callers that already log it, so the runner
+    // must not log it again.
+    expect(warn.mock.calls.flat().join(" ")).not.toContain(
       "calendar_discount_source_load_failed"
     );
   } finally {
