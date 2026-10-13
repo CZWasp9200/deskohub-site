@@ -18,7 +18,10 @@ import {
   getReferralInvitationDiscountId,
   getReferralReferrerDiscountId,
 } from "@/features/referrals/discount-identifiers";
-import { ReferralServiceMock } from "@/features/referrals/referral.service.mock";
+import {
+  ReferralServiceMock,
+  WithheldReferralService,
+} from "@/features/referrals/referral.service.mock";
 import { CalendarDiscountProviderMock } from "./calendar-discount-provider.service.mock";
 import { getDiscountCommitmentPayload } from "./commitment";
 import { PromotionCodeProviderMock } from "./promotion-code-provider.service.mock";
@@ -1448,6 +1451,62 @@ describe("DiscountService", () => {
       commitment.applications.map(({ application }) => application)
     ).toEqual(affirmed.quote.discounts);
     expect(commitment.applications[2]?.claim).toEqual(voucherCandidate.claim);
+  });
+
+  test("prices no invitation or referrer benefit while referrals are withheld", async () => {
+    // The real referral gate; reading any recorded referral would die.
+    const invitedCustomerId = paymentInput.dotyposCustomerId;
+    const referralCode = canonicalPromotionCodeSchema.make("RFL12345");
+    const providers = Layer.mergeAll(
+      CalendarDiscountProviderMock({
+        discover: () => Effect.succeed([]),
+        revalidate: () => Effect.succeed([]),
+      }),
+      CustomerDiscountProviderMock({ resolve: () => Effect.succeed([]) }),
+      PromotionCodeProviderMock({
+        revalidate: () => Effect.succeed([percentage("code", 2_000, "code")]),
+      })
+    );
+
+    const { quoted, affirmed } = await runWithProviders(
+      Effect.gen(function* () {
+        const discounts = yield* DiscountService;
+        // An invitee or referrer, with a code carried from a pay state
+        // signed while the program was released.
+        const quoted = yield* discounts.quote({
+          ...advertisementInput,
+          dotyposCustomerId: invitedCustomerId,
+          submittedCode: paymentInput.submittedCode,
+          referralCode,
+        });
+        const affirmed = yield* discounts.affirmDisplayedDiscounts({
+          ...paymentInput,
+          displayedDiscountIds: [
+            discountId("code"),
+            getReferralInvitationDiscountId(invitedCustomerId),
+            getReferralReferrerDiscountId(invitedCustomerId),
+          ],
+          referralCode,
+        });
+        return { quoted, affirmed };
+      }),
+      providers,
+      allReleaseGatesEnabled,
+      WithheldReferralService
+    );
+
+    expect(quoted.discounts.map(({ discount }) => discount.id)).toEqual([
+      "code",
+    ]);
+    expect(quoted.discountedSubtotal).toEqual(money(8_000));
+    expect(affirmed.quote.discounts.map(({ discount }) => discount.id)).toEqual(
+      ["code"]
+    );
+    expect(
+      getDiscountCommitmentPayload(affirmed.commitment).applications.map(
+        ({ claim }) => claim?.kind
+      )
+    ).not.toContain("referral_invitation");
   });
 
   test("does not create a zero-minor invitation application or claim", async () => {

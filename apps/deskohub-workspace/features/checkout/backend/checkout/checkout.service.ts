@@ -48,6 +48,7 @@ import {
   getLegalAcceptanceSnapshot,
 } from "@/features/legal/acceptance-snapshot";
 import { isEarlyPerformanceRequestRequired } from "@/features/legal/early-performance";
+import { ReferralFeatureFlagService } from "@/features/referrals/referral-feature-flag.service";
 import { WorkspaceReservationRepository } from "@/features/reservation/backend/workspace-reservation.repository";
 import { getCoworkReservationIntervalInput } from "@/features/reservation/cowork-reservation";
 import { dotyposCustomerIdSchema } from "@/features/reservation/dotypos-customer";
@@ -247,6 +248,7 @@ export class CheckoutService extends Context.Service<
     Layer.provide(LegalEvidenceEventRepository.Default),
     Layer.provide(PostHogEventService.Live),
     Layer.provide(PaymentLifecycleRepository.Default),
+    Layer.provide(ReferralFeatureFlagService.Live),
     Layer.provide(PaymentAttemptRepository.Default),
     Layer.provide(WorkspaceReservationRepository.Default),
     Layer.provide(WorkspaceDatabase.Default),

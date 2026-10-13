@@ -98,15 +98,23 @@ type Admission = {
   readonly commitment: DiscountCommitment;
 };
 
+const referralFeatureFlag = (enabled: boolean) =>
+  ReferralFeatureFlagServiceMock({ isEnabled: Effect.succeed(enabled) });
+
 const makeRepository = async (
-  databaseLayer = testDatabase!.layer
+  databaseLayer = testDatabase!.layer,
+  referralsEnabled = true
 ): Promise<IPaymentLifecycleRepository> =>
   Effect.runPromise(
     Effect.gen(function* () {
       return yield* PaymentLifecycleRepository;
     }).pipe(
       Effect.provide(
-        PaymentLifecycleRepository.Default.pipe(Layer.provide(databaseLayer))
+        PaymentLifecycleRepository.Default.pipe(
+          Layer.provide(
+            Layer.mergeAll(databaseLayer, referralFeatureFlag(referralsEnabled))
+          )
+        )
       )
     )
   );
@@ -136,9 +144,7 @@ const makeReferralService = async (input?: {
         ReferralService.Default.pipe(
           Layer.provide(
             Layer.mergeAll(
-              ReferralFeatureFlagServiceMock({
-                isEnabled: Effect.succeed(true),
-              }),
+              referralFeatureFlag(true),
               databaseLayer,
               lockLayer,
               accountLinksLayer,
@@ -159,14 +165,19 @@ const makeReferralService = async (input?: {
   );
 };
 
-const makeLateRecoveryRepository = async () =>
+const makeLateRecoveryRepository = async (referralsEnabled = true) =>
   Effect.runPromise(
     Effect.gen(function* () {
       return yield* LatePaymentRecoveryRepository;
     }).pipe(
       Effect.provide(
         LatePaymentRecoveryRepository.Default.pipe(
-          Layer.provide(testDatabase!.layer)
+          Layer.provide(
+            Layer.mergeAll(
+              testDatabase!.layer,
+              referralFeatureFlag(referralsEnabled)
+            )
+          )
         )
       )
     )
@@ -1793,6 +1804,173 @@ describe.skipIf(!testDatabase)(
 );
 
 describe.skipIf(!testDatabase)(
+  "Checkout referral payments while the referral program is withheld",
+  () => {
+    const holdGraphLock = async () => {
+      const holder = await testDatabase!.pool.connect();
+      await holder.query("begin");
+      await holder.query(
+        "select pg_advisory_xact_lock(hashtext('referral-attribution'), hashtext('graph'))"
+      );
+      return {
+        release: async () => {
+          await holder.query("rollback").catch(() => {});
+          holder.release();
+        },
+      };
+    };
+
+    test("marks a checkout referral paid without the graph lock or an attribution and keeps existing attributions", async () => {
+      const fixture = await createInvitedCustomer(false);
+      const referrerInviter = await createReferralCode();
+      let graphLock: Awaited<ReturnType<typeof holdGraphLock>> | undefined;
+      try {
+        // Admitted while the program was released.
+        const { reservation, attempt } = await admitCheckoutReferral(
+          await makeRepository(),
+          fixture
+        );
+        await referrerInviter.attribute(fixture.referrerDotyposCustomerId);
+        const withheld = await makeRepository(testDatabase!.layer, false);
+        // A held graph lock would block a transition that records attribution.
+        graphLock = await holdGraphLock();
+
+        const paid = await Effect.runPromise(
+          withheld.markPaid({
+            id: attempt.id,
+            workspaceReservationId: reservation.id,
+            paidAt: Temporal.Now.instant(),
+          })
+        );
+
+        expect(paid.changed).toBe(true);
+        expect(await readClaim(attempt.id)).toEqual([
+          {
+            state: "redeemed",
+            referrer: fixture.referrerDotyposCustomerId,
+            code: fixture.promotionCodeId,
+          },
+        ]);
+        expect(
+          await readAttributions(fixture.invitedDotyposCustomerId)
+        ).toEqual([]);
+        expect(
+          await readAttributions(fixture.referrerDotyposCustomerId)
+        ).toEqual([
+          {
+            referrer: referrerInviter.referrerDotyposCustomerId,
+            code: referrerInviter.promotionCodeId,
+          },
+        ]);
+      } finally {
+        await graphLock?.release();
+        await fixture.cleanup();
+        await referrerInviter.cleanup();
+      }
+    });
+
+    test("completes a zero-payable internal payment carrying a referral without the graph lock or an attribution", async () => {
+      const repository = await makeRepository(testDatabase!.layer, false);
+      const fixture = await createInvitedCustomer(false);
+      let voucher: Awaited<ReturnType<typeof createVoucher>> | undefined;
+      let graphLock: Awaited<ReturnType<typeof holdGraphLock>> | undefined;
+      try {
+        const reservation = await createHeldReservation(
+          fixture.invitedDotyposCustomerId
+        );
+        const referralOnly = makeReferralAdmission({ reservation, ...fixture });
+        voucher = await createVoucher(
+          fixture.invitedDotyposCustomerId,
+          referralOnly.admission.amount.value
+        );
+        const fullyCovered = makeReferralAdmission({
+          reservation,
+          ...fixture,
+          creditCandidates: [voucher.candidate],
+        });
+        // The bounded graph wait would fail this payment if it were taken.
+        graphLock = await holdGraphLock();
+
+        const internal = await Effect.runPromise(
+          repository.completeInternalPayment({
+            workspaceReservationId: reservation.id,
+            amount: fullyCovered.admission.amount,
+            commitment: fullyCovered.admission.commitment,
+            locale: fullyCovered.locale,
+            accountingSnapshot: fullyCovered.snapshot,
+          })
+        );
+
+        expect(internal.attempt.state).toBe("paid");
+        expect((await readClaim(internal.attempt.id))[0]?.state).toBe(
+          "redeemed"
+        );
+        expect(
+          await readAttributions(fixture.invitedDotyposCustomerId)
+        ).toEqual([]);
+      } finally {
+        await graphLock?.release();
+        await fixture.cleanup();
+        await voucher?.cleanup();
+      }
+    });
+
+    test("late recovery to paid redeems a checkout referral without an attribution", async () => {
+      const repository = await makeRepository();
+      const lateRecoveries = await makeLateRecoveryRepository(false);
+      const fixture = await createInvitedCustomer(false);
+      let graphLock: Awaited<ReturnType<typeof holdGraphLock>> | undefined;
+      try {
+        const { reservation, attempt } = await admitCheckoutReferral(
+          repository,
+          fixture
+        );
+        await Effect.runPromise(
+          repository.markTerminal({
+            id: attempt.id,
+            workspaceReservationId: reservation.id,
+            state: "failed",
+            failureCode: "synthetic_provider_failure",
+          })
+        );
+        await Effect.runPromise(
+          lateRecoveries.start({
+            paymentAttemptId: attempt.id,
+            workspaceReservationId: reservation.id,
+            webhookEventId: `webhook-${uniqueId()}` as never,
+            verifiedPaidAt: Temporal.Now.instant(),
+          })
+        );
+        await Effect.runPromise(
+          lateRecoveries.claim({
+            paymentAttemptId: attempt.id,
+            staleProcessingBefore: Temporal.Now.instant(),
+          })
+        );
+        graphLock = await holdGraphLock();
+
+        await Effect.runPromise(
+          lateRecoveries.completeUsingOriginalReservation({
+            paymentAttemptId: attempt.id,
+            workspaceReservationId: reservation.id,
+            reservationState: "confirmed",
+            completedAt: Temporal.Now.instant(),
+          })
+        );
+
+        expect((await readClaim(attempt.id))[0]?.state).toBe("redeemed");
+        expect(
+          await readAttributions(fixture.invitedDotyposCustomerId)
+        ).toEqual([]);
+      } finally {
+        await graphLock?.release();
+        await fixture.cleanup();
+      }
+    });
+  }
+);
+
+describe.skipIf(!testDatabase)(
   "Referral acceptance with admission waiters in a bounded pool",
   () => {
     for (const max of [2, 10] as const) {
@@ -2013,6 +2191,7 @@ describe.skipIf(!testDatabase)(
         }).pipe(
           Effect.provide(PaymentLifecycleRepository.Default),
           Effect.provide(testDatabase.layer),
+          Effect.provide(referralFeatureFlag(true)),
           Effect.result
         )
       );

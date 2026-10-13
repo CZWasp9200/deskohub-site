@@ -10,6 +10,7 @@ import {
 import { Context, type Duration, Effect, Layer, Option, Schema } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import type { PaymentAttemptId } from "@/features/checkout/checkout-identifiers";
+import { ReferralFeatureFlagService } from "@/features/referrals/referral-feature-flag.service";
 import {
   type WorkspaceReservation,
   WorkspaceReservationRepository,
@@ -75,6 +76,7 @@ export class ProviderPaymentFinalizationService extends Context.Service<
   static Live = this.Default.pipe(
     Layer.provide(PaymentAttemptRepository.Default),
     Layer.provide(PaymentLifecycleRepository.Default),
+    Layer.provide(ReferralFeatureFlagService.Live),
     Layer.provide(PostHogEventService.Live),
     Layer.provide(WorkspaceReservationRepository.Default),
     Layer.provide(WorkspaceDatabase.Default),

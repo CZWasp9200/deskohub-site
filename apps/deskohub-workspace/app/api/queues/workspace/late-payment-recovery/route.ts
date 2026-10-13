@@ -10,6 +10,7 @@ import {
 } from "@/features/checkout/backend/payment";
 import { LatePaymentRecoveryRepository } from "@/features/checkout/backend/repositories";
 import { WorkspaceTableAssignmentService } from "@/features/checkout/backend/reservation";
+import { ReferralFeatureFlagService } from "@/features/referrals/referral-feature-flag.service";
 import { WorkspaceAvailabilityService } from "@/features/reservation/backend/workspace-availability.service";
 import { WorkspaceReservationRepository } from "@/features/reservation/backend/workspace-reservation.repository";
 import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
@@ -25,7 +26,8 @@ const databaseRepositories = Layer.mergeAll(
   Layer.provide(
     Layer.mergeAll(
       WorkspaceDatabase.Default,
-      AccountingSnapshotKeyService.Default
+      AccountingSnapshotKeyService.Default,
+      ReferralFeatureFlagService.Live
     )
   )
 );

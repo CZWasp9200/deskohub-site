@@ -29,6 +29,7 @@ import {
   storedDiscountIdSchema,
 } from "@/features/discounts/persistence-contracts";
 import { referralFirstBookingLockKey } from "@/features/referrals/advisory-locks";
+import { ReferralFeatureFlagServiceMock } from "@/features/referrals/referral-feature-flag.service.mock";
 import {
   type WorkspaceReservationId,
   workspaceReservationIdSchema,
@@ -41,6 +42,9 @@ import {
 } from "./late-payment-recovery.repository";
 
 const testDatabase = await connectWorkspacePostgresTestDatabase();
+const referralsEnabled = ReferralFeatureFlagServiceMock({
+  isEnabled: Effect.succeed(true),
+});
 
 describe.skipIf(!testDatabase)(
   "LatePaymentRecoveryRepository on disposable Postgres",
@@ -91,7 +95,8 @@ describe.skipIf(!testDatabase)(
           return yield* operation(yield* LatePaymentRecoveryRepository);
         }).pipe(
           Effect.provide(LatePaymentRecoveryRepository.Default),
-          Effect.provide(testDatabase.layer)
+          Effect.provide(testDatabase.layer),
+          Effect.provide(referralsEnabled)
         )
       );
 
@@ -106,6 +111,7 @@ describe.skipIf(!testDatabase)(
         }).pipe(
           Effect.provide(LatePaymentRecoveryRepository.Default),
           Effect.provide(testDatabase.layer),
+          Effect.provide(referralsEnabled),
           Effect.result
         )
       );

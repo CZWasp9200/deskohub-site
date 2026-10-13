@@ -27,6 +27,7 @@ import {
   SeatingMapFeatureFlagService,
   WorkspaceFeatureFlagService,
 } from "@/features/feature-flags/backend";
+import { ReferralFeatureFlagService } from "@/features/referrals/referral-feature-flag.service";
 import { AdvisoryAvailabilityInventory } from "@/features/reservation/backend/availability-inventory";
 import { SharedAvailabilityInventoryLive } from "@/features/reservation/backend/availability-inventory-cache.server";
 import {
@@ -810,6 +811,7 @@ export class CheckoutStatusService extends Context.Service<
     Layer.provide(ProviderPaymentFinalizationService.Live),
     Layer.provide(LatePaymentVerificationService.Live),
     Layer.provide(LatePaymentRecoveryRepository.Default),
+    Layer.provide(ReferralFeatureFlagService.Live),
     Layer.provide(PaymentAttemptRepository.Default),
     Layer.provide(WorkspaceReservationRepository.Default),
     Layer.provide(WorkspaceDatabase.Default),
