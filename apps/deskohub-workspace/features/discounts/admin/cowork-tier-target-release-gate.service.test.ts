@@ -7,36 +7,51 @@ import type { IWorkspaceFeatureFlagService } from "@/features/feature-flags/back
 import { WorkspaceFeatureFlagServiceMock } from "@/features/feature-flags/backend/workspace-feature-flag.service.mock";
 import { CoworkTierTargetReleaseGate } from "./cowork-tier-target-release-gate.service";
 
-const evaluateGate = (isEnabled: IWorkspaceFeatureFlagService["isEnabled"]) =>
+const evaluateGate = (
+  evaluateFlags: IWorkspaceFeatureFlagService["evaluateFlags"]
+) =>
   Effect.gen(function* () {
     const gate = yield* CoworkTierTargetReleaseGate;
     return yield* gate.isReleased;
   }).pipe(
     Effect.provide(CoworkTierTargetReleaseGate.Default),
-    Effect.provide(WorkspaceFeatureFlagServiceMock({ isEnabled })),
+    Effect.provide(WorkspaceFeatureFlagServiceMock({ evaluateFlags })),
     Effect.runPromise
   );
 
-describe("CoworkTierTargetReleaseGate", () => {
-  test("reads the cowork tier discount target flag", async () => {
-    const keys: string[] = [];
+// PostHog reports a variant string for an enabled multivariate flag, whatever
+// value type the generated contract declares.
+const evaluatingTo = (value: boolean | string | undefined) => () =>
+  Effect.succeed({ getFlag: () => value as never });
 
-    const released = await evaluateGate((key) =>
+describe("CoworkTierTargetReleaseGate", () => {
+  test("reads only the cowork tier discount target flag", async () => {
+    const requested: unknown[] = [];
+
+    const released = await evaluateGate((options) =>
       Effect.sync(() => {
-        keys.push(key);
-        return true;
+        requested.push(options?.flagKeys);
+        return { getFlag: () => true };
       })
     );
 
     expect(released).toBe(true);
-    expect(keys).toEqual(["cowork_tier_discount_targets"]);
+    expect(requested).toEqual([["cowork_tier_discount_targets"]]);
   });
 
   test("stays closed when the flag is off", async () => {
-    expect(await evaluateGate(() => Effect.succeed(false))).toBe(false);
+    expect(await evaluateGate(evaluatingTo(false))).toBe(false);
   });
 
-  test("fails closed when the flag is missing or PostHog is unavailable", async () => {
+  test("stays closed for an enabled multivariate value", async () => {
+    expect(await evaluateGate(evaluatingTo("control"))).toBe(false);
+  });
+
+  test("fails closed when PostHog did not evaluate the flag", async () => {
+    expect(await evaluateGate(evaluatingTo(undefined))).toBe(false);
+  });
+
+  test("fails closed when PostHog is unavailable", async () => {
     const released = await evaluateGate(() =>
       Effect.fail(
         new PostHogFeatureFlagEvaluationError({

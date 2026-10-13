@@ -1,11 +1,13 @@
 import { Context, Effect, Layer } from "effect";
 import { WorkspaceFeatureFlagService } from "@/features/feature-flags/backend/workspace-feature-flag.service";
 
+const coworkTierTargetFlag = "cowork_tier_discount_targets";
+
 export interface ICoworkTierTargetReleaseGate {
   /**
-   * Whether administrators may add single-tier cowork discount targets. Off
-   * unless the flag evaluates to `true`; reading and pricing stored tier
-   * targets never consult this gate.
+   * Whether administrators may add single-tier cowork discount targets. Only a
+   * flag value of exactly `true` releases them; reading and pricing stored
+   * tier targets never consult this gate.
    */
   readonly isReleased: Effect.Effect<boolean>;
 }
@@ -20,21 +22,23 @@ export class CoworkTierTargetReleaseGate extends Context.Service<
       const featureFlags = yield* WorkspaceFeatureFlagService;
 
       return {
-        isReleased: featureFlags.isEnabled("cowork_tier_discount_targets").pipe(
-          Effect.tapError((error) =>
-            Effect.logWarning(
-              "Cowork tier discount target release gate is unavailable",
-              { cause: error.cause }
-            ).pipe(
-              Effect.annotateLogs({
-                discountBoundary: "release_gate",
-                discountFeatureFlag: "cowork_tier_discount_targets",
-                discountErrorTag: error._tag,
-              })
-            )
+        isReleased: featureFlags
+          .evaluateFlags({ flagKeys: [coworkTierTargetFlag] })
+          .pipe(
+            Effect.flatMap((snapshot) => {
+              // A multivariate value such as "control" is enabled in PostHog
+              // but does not release the gate.
+              const value: boolean | string | undefined =
+                snapshot.getFlag(coworkTierTargetFlag);
+              return value === undefined
+                ? logUnavailableGate("MissingFeatureFlag").pipe(
+                    Effect.as(false)
+                  )
+                : Effect.succeed(value === true);
+            }),
+            Effect.tapError((error) => logUnavailableGate(error._tag)),
+            Effect.orElseSucceed(() => false)
           ),
-          Effect.orElseSucceed(() => false)
-        ),
       } satisfies ICoworkTierTargetReleaseGate;
     })
   );
@@ -43,3 +47,14 @@ export class CoworkTierTargetReleaseGate extends Context.Service<
     Layer.provide(WorkspaceFeatureFlagService.Default)
   );
 }
+
+const logUnavailableGate = (errorTag: string) =>
+  Effect.logWarning(
+    "Cowork tier discount target release gate is unavailable"
+  ).pipe(
+    Effect.annotateLogs({
+      discountBoundary: "release_gate",
+      discountFeatureFlag: coworkTierTargetFlag,
+      discountErrorTag: errorTag,
+    })
+  );
