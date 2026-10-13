@@ -49,8 +49,8 @@ afterAll(async () => {
 
 /**
  * Serves `startPage` at /start and the referral page behind the real proxy,
- * recording whether the proxy remembered the code and what the mounted
- * component reported.
+ * recording whether the proxy set the code and what the mounted component
+ * reported.
  */
 const serveHarness = (startPage: string) => {
   const proxyCaptures: boolean[] = [];
@@ -122,7 +122,7 @@ test.skipIf(!chromiumAvailable)(
       const shown = await reported;
 
       expect(shown.initiallyPrerendered).toBe(true);
-      // The proxy only saw the speculative request and rightly skipped it.
+      // Only the shown page remembers the code, never the proxy.
       expect(proxyCaptures).toEqual([false]);
       expect(shown.cookie).toContain(`${referralCodeCookieName}=RFLFIRST1`);
     } finally {
@@ -148,7 +148,6 @@ test.skipIf(!chromiumAvailable)(
       const shown = await reported;
 
       expect(shown.framed).toBe(true);
-      // The proxy skipped the frame's document request.
       expect(proxyCaptures).toEqual([false]);
       expect(shown.cookie).not.toContain(referralCodeCookieName);
       expect(

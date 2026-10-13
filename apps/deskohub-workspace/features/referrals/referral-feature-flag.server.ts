@@ -2,15 +2,22 @@ import "server-only";
 
 import { Effect } from "effect";
 import { cache } from "react";
-import { runWorkspaceEffect } from "@/shared/backend/workspace-effect";
+import { runWorkspaceEffectOrElse } from "@/shared/backend/workspace-effect";
 import { ReferralFeatureFlagService } from "./referral-feature-flag.service";
 
-/** Memoized per request: layouts, pages, and loaders of one render share it. */
+/**
+ * Memoized per request: layouts, pages, and loaders of one render share it.
+ * Any failure, including a defect or a runtime that cannot start, counts as
+ * off.
+ */
 export const areReferralsEnabled = cache(
   async (): Promise<boolean> =>
     ReferralFeatureFlagService.pipe(
       Effect.flatMap((featureFlag) => featureFlag.isEnabled),
       Effect.provide(ReferralFeatureFlagService.Live),
-      runWorkspaceEffect("referrals.enabled")
+      runWorkspaceEffectOrElse("referrals.enabled", {
+        failureCode: "referral_feature_flag_unavailable",
+        orElse: () => false,
+      })
     )
 );

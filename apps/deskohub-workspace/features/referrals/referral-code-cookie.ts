@@ -50,7 +50,7 @@ const cookieOptions = (
 
 /**
  * The code a page address carries, when this browser remembers none yet. The
- * proxy and the browser both decide with this. First wins is best-effort: two
+ * page being shown decides with this. First wins is best-effort: two
  * simultaneous first visits with different codes each set the cookie, and the
  * browser keeps whichever it applies last. Only the code's shape is checked.
  */

@@ -12,11 +12,6 @@ import {
 } from "next/server";
 import { resolveWorkspaceLocale } from "@/features/i18n/locale-resolution";
 import { localeCookieName, locales } from "@/features/i18n/routing";
-import {
-  findSharedReferralCodeToRemember,
-  referralCodeCookieName,
-  setReferralCodeCookie,
-} from "@/features/referrals/referral-code-cookie";
 import { env } from "./env";
 import { appendVercelPreviewProtectionBypass } from "./features/checkout/backend/checkout/vercel-preview-protection-bypass";
 import { reservationAccessTokenQueryParam } from "./features/reservation/reservation-access-token";
@@ -45,44 +40,6 @@ const hasReservationCapabilityToExchange = (request: NextRequest) =>
 
 const isPrivateAccountPath = (pathname: string) =>
   /\/account(\/|$)/.test(pathname) || /\/auth(\/|$)/.test(pathname);
-
-/**
- * A real top-level page load. Speculative and router requests never take the
- * first-link slot: non-GET requests; Next.js router requests (`rsc`,
- * `next-router-state-tree`) and prefetches (`next-router-prefetch`,
- * `next-router-segment-prefetch`, as Next.js 16 sends them); browser
- * speculative loads (`Sec-Purpose`, or the legacy `Purpose`, naming prefetch
- * or prerender); and, when the browser reports it, anything that is not a
- * document load.
- */
-const isDocumentNavigation = (request: NextRequest) => {
-  if (request.method !== "GET") return false;
-  const { headers } = request;
-  if (
-    headers.has("rsc") ||
-    headers.has("next-router-state-tree") ||
-    headers.has("next-router-prefetch") ||
-    headers.has("next-router-segment-prefetch")
-  ) {
-    return false;
-  }
-  const purpose = `${headers.get("sec-purpose") ?? ""};${headers.get("purpose") ?? ""}`;
-  if (/prefetch|prerender/i.test(purpose)) return false;
-  const destination = headers.get("sec-fetch-dest");
-  return destination === null || destination === "document";
-};
-
-/** The shared referral code a real page load should remember, if any. */
-const findSharedReferralCodeOfNavigation = (request: NextRequest) =>
-  isDocumentNavigation(request)
-    ? findSharedReferralCodeToRemember(
-        request.nextUrl.searchParams,
-        request.cookies
-      )
-    : undefined;
-
-const isSecureRequest = (request: NextRequest) =>
-  request.nextUrl.protocol === "https:";
 
 // Only page requests from a browser holding a session cookie can carry a saved
 // locale preference, so guests and router prefetches never load the reader or
@@ -188,21 +145,7 @@ export async function proxy(request: NextRequest) {
   );
 
   if (localeFromUrl === resolvedLocale) {
-    const sharedReferralCode = findSharedReferralCodeOfNavigation(request);
-    if (sharedReferralCode) {
-      // The page rendered by this response already reads the new code.
-      request.cookies.set(referralCodeCookieName, sharedReferralCode);
-    }
-    const response = sharedReferralCode
-      ? NextResponse.next({ request: { headers: request.headers } })
-      : NextResponse.next();
-    if (sharedReferralCode) {
-      setReferralCodeCookie(
-        response.cookies,
-        sharedReferralCode,
-        isSecureRequest(request)
-      );
-    }
+    const response = NextResponse.next();
     if (
       isPrivateReservationPath(request.nextUrl.pathname) ||
       isPrivateAccountPath(request.nextUrl.pathname)
@@ -221,14 +164,6 @@ export async function proxy(request: NextRequest) {
   );
 
   const response = NextResponse.redirect(redirectUrl);
-  const sharedReferralCode = findSharedReferralCodeOfNavigation(request);
-  if (sharedReferralCode) {
-    setReferralCodeCookie(
-      response.cookies,
-      sharedReferralCode,
-      isSecureRequest(request)
-    );
-  }
   response.headers.set("Vary", "Accept-Language");
   if (
     savedPreference !== undefined ||

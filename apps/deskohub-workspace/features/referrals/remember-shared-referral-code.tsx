@@ -12,13 +12,12 @@ const isPrerendering = () =>
   true;
 
 /**
- * Remembers a shared referral code in the browser when the proxy could not.
- * A speculatively prerendered page never reaches the proxy as a navigation,
- * and the browser can activate it later without another document request. So
- * once the page is really shown, a code in its address is remembered like the
- * proxy would: only when none is remembered yet. A server render of that page
- * did not see the code; later navigations do. Like the proxy, it remembers
- * only for a page shown as the top-level document, never inside a frame.
+ * Remembers the shared referral code in the address of the page being shown,
+ * only when none is remembered yet. The proxy cannot read the referral feature
+ * flag, so capture happens here, once the page is really shown: a
+ * speculatively prerendered page waits for activation, and a page shown inside
+ * a frame never remembers. The server render of the landing page did not see
+ * the code; later navigations do.
  */
 export function RememberSharedReferralCode() {
   useEffect(() => {
