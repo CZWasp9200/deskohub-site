@@ -429,20 +429,18 @@ describe("workspace E2E workflow", () => {
 
   test("restores Bun packages from a workflow-scoped cache saved before test code runs", () => {
     const restore = stepByName("Restore Bun package cache");
-    const fill = stepByName("Download Bun packages without lifecycle scripts");
+    const fill = stepByName("Fill Bun package cache from install manifests");
     const save = stepByName("Save Bun package cache");
     expect(restore.uses).toStartWith("actions/cache/restore@");
     expect(save.uses).toStartWith("actions/cache/save@");
     expect(restore.with?.["restore-keys"]).toBeUndefined();
     expect(String(restore.with?.key)).toStartWith("workspace-e2e-bun-");
-    // A miss is filled by an install that skips every lifecycle script, and
-    // nothing else runs between the restore and the save.
+    // Only the miss-gated fill runs between the restore and the save;
+    // workspace-e2e-bun-cache-fill.test.ts executes it against a hostile
+    // checkout.
     expect(
       stepsBetweenNames("Restore Bun package cache", "Save Bun package cache")
     ).toEqual([restore, fill]);
-    expect(fill.run?.trim()).toBe(
-      "bun install --frozen-lockfile --ignore-scripts"
-    );
     expect(fill.if).toBe(save.if);
   });
 
@@ -454,12 +452,12 @@ describe("workspace E2E workflow", () => {
     expect(saveIndex).toBeGreaterThan(0);
     const beforeSave = steps.slice(0, saveIndex);
 
-    // Bun runs before the save only to fill the cache without scripts.
+    // Bun runs before the save only to fill the cache.
     expect(
       beforeSave
         .filter((step) => /\bbunx?\b/.test(step.run ?? ""))
         .map((step) => step.name)
-    ).toEqual(["Download Bun packages without lifecycle scripts"]);
+    ).toEqual(["Fill Bun package cache from install manifests"]);
 
     // Local actions come from the workflow commit, not the exact-SHA checkout.
     const coordinatorCheckout = stepByName("Checkout allocation action");
@@ -479,13 +477,10 @@ describe("workspace E2E workflow", () => {
     expect(steps.indexOf(install)).toBeGreaterThan(
       steps.indexOf(stepByName("Save Bun package cache"))
     );
+    // The fill installs outside the checkout, so this install always starts
+    // from an empty tree and runs every lifecycle script.
     expect(install.if).toBeUndefined();
-    // A miss leaves a tree linked without scripts, which only --force relinks.
-    expect(install.env?.RELINK_DEPENDENCIES).toContain(
-      "steps.bun-cache.outputs.cache-hit != 'true'"
-    );
-    expect(install.run).toContain("bun install --frozen-lockfile --force");
-    expect(install.run).not.toContain("--ignore-scripts");
+    expect(install.run?.trim()).toBe("bun install --frozen-lockfile");
   });
 
   test("keeps the Bun binary out of the shared Actions cache", () => {

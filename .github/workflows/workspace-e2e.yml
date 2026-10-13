@@ -315,9 +315,11 @@ jobs:
           bun-version: 1.4.2
           no-cache: true
 
-      # Exact, workflow-scoped key without restore-keys. A miss is filled by
-      # an install that skips every lifecycle script and saved before any
-      # exact-SHA code runs, so a run cannot write into a reusable entry.
+      # Exact, workflow-scoped key without restore-keys. A miss is filled and
+      # saved before any exact-SHA code or Bun configuration takes effect.
+      # Bun checks tarballs against bun.lock integrity and keys patched
+      # packages by patch hash, so the entry holds only what bun.lock and the
+      # patch files produce; those exact-SHA inputs still choose its content.
       - name: Restore Bun package cache
         id: bun-cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -325,9 +327,32 @@ jobs:
           path: ~/.bun/install/cache
           key: workspace-e2e-bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
 
-      - name: Download Bun packages without lifecycle scripts
+      # Install from regular-file copies of the lockfile, manifests, and
+      # patches outside the checkout, so exact-SHA bunfig.toml hooks (such as
+      # a security scanner), .npmrc settings, symlinks, and lifecycle scripts
+      # never reach Bun.
+      - name: Fill Bun package cache from install manifests
         if: steps.bun-cache.outputs.cache-hit != 'true'
-        run: bun install --frozen-lockfile --ignore-scripts
+        run: |
+          set -euo pipefail
+          staging="$RUNNER_TEMP/bun-cache-fill"
+          mkdir "$staging"
+          git ls-files -z --stage -- \
+            bun.lock \
+            ':(glob)**/package.json' \
+            ':(glob)**/*.patch' \
+            ':(exclude,glob)**/node_modules/**' |
+            while IFS= read -r -d '' entry; do
+              read -r mode blob _ <<<"${entry%%$'\t'*}"
+              path="${entry#*$'\t'}"
+              if [[ "$mode" != 100644 && "$mode" != 100755 ]]; then
+                continue
+              fi
+              mkdir -p "$staging/$(dirname "$path")"
+              git cat-file blob "$blob" >"$staging/$path"
+            done
+          cd "$staging"
+          bun install --frozen-lockfile --ignore-scripts
 
       - name: Save Bun package cache
         if: steps.bun-cache.outputs.cache-hit != 'true'
@@ -336,18 +361,8 @@ jobs:
           path: ~/.bun/install/cache
           key: ${{ steps.bun-cache.outputs.cache-primary-key }}
 
-      # After a miss the tree is already linked without lifecycle scripts, and
-      # a plain install would leave it as is; --force relinks it so Bun runs
-      # the root and trusted dependency scripts a fresh install runs.
       - name: Install repository dependencies
-        env:
-          RELINK_DEPENDENCIES: ${{ steps.bun-cache.outputs.cache-hit != 'true' }}
-        run: |
-          if [[ "$RELINK_DEPENDENCIES" == "true" ]]; then
-            bun install --frozen-lockfile --force
-          else
-            bun install --frozen-lockfile
-          fi
+        run: bun install --frozen-lockfile
 
       - name: Resolve Neon branch backing the preview
         id: preview-database
