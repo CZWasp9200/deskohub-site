@@ -275,8 +275,10 @@ Distinguish automated-runner behavior from manual procedures before treating a d
   cases; the parallel referral lane owns them. Its callback grammar and
   review captures stay strict: no `ref` anywhere.
 - Shared links set the first-party `deskohub-referral-code` cookie (first
-  link wins); completion, auto-linked sign-in, and checkout read it, and it
-  is forgotten once the referral is recorded or a first order is paid. Assert
+  link wins); completion, auto-linked sign-in, and checkout read it. An
+  accepted typed checkout code overwrites it, and it is forgotten once the
+  booker's referral is recorded or their first order is paid; a booking for
+  someone else never clears it. Assert
   it with the runner's `cookie get --stdin` command (`readBrowserCookie`,
   `e2e/referrals/referral-cookie.ts`), which reports presence, attributes, and
   whether it holds an expected code, never the value. Every referral-lane case

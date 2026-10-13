@@ -17,7 +17,11 @@ export const workspaceE2EReferralRecipientLabels = {
     "ral-unusable",
     "ral-attributed",
   ],
-  "referral-checkout-code-entry": ["rce-referrer", "rce-customer"],
+  "referral-checkout-code-entry": [
+    "rce-referrer",
+    "rce-link-referrer",
+    "rce-customer",
+  ],
   "referral-profile-completion-checkout": [
     "rpc-referrer",
     "rpc-other-referrer",
