@@ -73,3 +73,47 @@ test("runWorkspaceEffectOrElse rejects unlogged with the fallback's error when i
     warn.mockRestore();
   }
 });
+
+test("runWorkspaceEffectOrElse serves the fallback once when the standalone logger throws after a runtime build failure", async () => {
+  const warn = spyOn(console, "warn").mockImplementation(() => {
+    throw new Error("logger unavailable");
+  });
+  const orElse = mock(() => "fallback" as const);
+
+  try {
+    await expect(
+      Effect.succeed("value").pipe(
+        runWorkspaceEffectOrElse("test.runtime-failure", {
+          failureCode: "test.runtime_failure",
+          orElse,
+        })
+      )
+    ).resolves.toBe("fallback");
+    expect(orElse).toHaveBeenCalledTimes(1);
+  } finally {
+    warn.mockRestore();
+  }
+});
+
+test("runWorkspaceEffectOrElse propagates a pre-aborted signal instead of answering a runtime build failure", async () => {
+  const warn = spyOn(console, "warn").mockImplementation(() => undefined);
+  const orElse = mock(() => "fallback" as const);
+  const controller = new AbortController();
+  controller.abort();
+
+  try {
+    await expect(
+      Effect.succeed("value").pipe(
+        runWorkspaceEffectOrElse("test.runtime-failure", {
+          failureCode: "test.runtime_failure",
+          orElse,
+          signal: controller.signal,
+        })
+      )
+    ).rejects.toBeDefined();
+    expect(orElse).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalled();
+  } finally {
+    warn.mockRestore();
+  }
+});
