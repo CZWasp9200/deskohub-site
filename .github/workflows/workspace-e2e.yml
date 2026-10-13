@@ -307,12 +307,19 @@ jobs:
             -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
             >/dev/null
 
+      # setup-bun saves its binary cache after the job, once exact-SHA code
+      # has run, into the default-branch scope every workflow restores from,
+      # so this job downloads Bun without that cache.
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.2
+          no-cache: true
 
-      # Exact, workflow-scoped key without restore-keys, saved right after
-      # install so later PR-controlled steps cannot write a reusable entry.
+      # Exact, workflow-scoped key without restore-keys. A miss is filled and
+      # saved before any exact-SHA code or Bun configuration takes effect.
+      # Bun checks tarballs against bun.lock integrity and keys patched
+      # packages by patch hash, so the entry holds only what bun.lock and the
+      # patch files produce; those exact-SHA inputs still choose its content.
       - name: Restore Bun package cache
         id: bun-cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -320,8 +327,32 @@ jobs:
           path: ~/.bun/install/cache
           key: workspace-e2e-bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
 
-      - name: Install repository dependencies
-        run: bun install --frozen-lockfile
+      # Install from regular-file copies of the lockfile, manifests, and
+      # patches outside the checkout, so exact-SHA bunfig.toml hooks (such as
+      # a security scanner), .npmrc settings, symlinks, and lifecycle scripts
+      # never reach Bun.
+      - name: Fill Bun package cache from install manifests
+        if: steps.bun-cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          staging="$RUNNER_TEMP/bun-cache-fill"
+          mkdir "$staging"
+          git ls-files -z --stage -- \
+            bun.lock \
+            ':(glob)**/package.json' \
+            ':(glob)**/*.patch' \
+            ':(exclude,glob)**/node_modules/**' |
+            while IFS= read -r -d '' entry; do
+              read -r mode blob _ <<<"${entry%%$'\t'*}"
+              path="${entry#*$'\t'}"
+              if [[ "$mode" != 100644 && "$mode" != 100755 ]]; then
+                continue
+              fi
+              mkdir -p "$staging/$(dirname "$path")"
+              git cat-file blob "$blob" >"$staging/$path"
+            done
+          cd "$staging"
+          bun install --frozen-lockfile --ignore-scripts
 
       - name: Save Bun package cache
         if: steps.bun-cache.outputs.cache-hit != 'true'
@@ -329,6 +360,9 @@ jobs:
         with:
           path: ~/.bun/install/cache
           key: ${{ steps.bun-cache.outputs.cache-primary-key }}
+
+      - name: Install repository dependencies
+        run: bun install --frozen-lockfile
 
       - name: Resolve Neon branch backing the preview
         id: preview-database
