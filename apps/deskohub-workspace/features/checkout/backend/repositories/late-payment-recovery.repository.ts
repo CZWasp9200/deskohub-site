@@ -15,7 +15,6 @@ import {
 import type { PaymentAttemptId } from "@/features/checkout/checkout-identifiers";
 import type { DiscountClaimError } from "@/features/discounts/errors";
 import { referralFirstBookingLockStatement } from "@/features/referrals/advisory-locks";
-import { ReferralFeatureFlagService } from "@/features/referrals/referral-feature-flag.service";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import {
   attemptRecordsReferral,
@@ -128,7 +127,6 @@ export class LatePaymentRecoveryRepository extends Context.Service<
     this,
     Effect.gen(function* () {
       const { db } = yield* WorkspaceDatabase;
-      const referralFeatureFlag = yield* ReferralFeatureFlagService;
 
       const findByPaymentAttemptId = Effect.fn(
         "LatePaymentRecoveryRepository.findByPaymentAttemptId"
@@ -151,9 +149,6 @@ export class LatePaymentRecoveryRepository extends Context.Service<
             readonly completedAt: Temporal.Instant;
           }
         ) {
-          // Evaluated before the transaction so no flag lookup holds its locks.
-          const referralsEnabled = yield* referralFeatureFlag.isEnabled;
-
           yield* db.transaction(
             Effect.fn(function* (tx) {
               const [reservationIdentity] = yield* tx
@@ -172,13 +167,13 @@ export class LatePaymentRecoveryRepository extends Context.Service<
                   "Late-payment reservation was not found."
                 );
               }
-              const recordsAttribution =
-                referralsEnabled &&
-                (yield* attemptRecordsReferral(tx, input.paymentAttemptId));
               yield* lockReferralFirstBooking({
                 tx,
                 dotyposCustomerId: reservationIdentity.dotyposCustomerId,
-                recordsAttribution,
+                recordsAttribution: yield* attemptRecordsReferral(
+                  tx,
+                  input.paymentAttemptId
+                ),
               });
 
               const [recovery] = yield* tx
@@ -344,13 +339,13 @@ export class LatePaymentRecoveryRepository extends Context.Service<
                   recovery.verifiedPaidAt,
                   true
                 );
-                yield* redeemReferralInvitationClaim(tx, {
-                  paymentAttemptId: input.paymentAttemptId,
-                  workspaceReservationId: input.workspaceReservationId,
-                  redeemedAt: recovery.verifiedPaidAt,
-                  allowReleased: true,
-                  recordsAttribution,
-                });
+                yield* redeemReferralInvitationClaim(
+                  tx,
+                  input.paymentAttemptId,
+                  input.workspaceReservationId,
+                  recovery.verifiedPaidAt,
+                  true
+                );
               }
 
               if (isActiveAttempt) {

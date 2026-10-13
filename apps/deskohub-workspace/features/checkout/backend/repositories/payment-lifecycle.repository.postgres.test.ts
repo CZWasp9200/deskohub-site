@@ -9,6 +9,7 @@ import {
   DotyposService,
 } from "@deskohub/dotypos";
 import { NexiOrderIdSchema } from "@deskohub/nexi";
+import { PostHogFeatureFlagEvaluationError } from "@deskohub/posthog/feature-flags/node";
 import { testEmailAddress } from "@deskohub/test-email";
 import { eq } from "drizzle-orm";
 import { Cause, Effect, Exit, Layer, Predicate, Schema } from "effect";
@@ -67,15 +68,21 @@ import {
 } from "@/features/discounts/persistence-contracts";
 import { getWorkspaceProductTarget } from "@/features/discounts/product-target";
 import type { DiscountCandidate } from "@/features/discounts/provider";
+import { WorkspaceFeatureFlagServiceMock } from "@/features/feature-flags/backend/workspace-feature-flag.service.mock";
 import { type Locale, m } from "@/features/i18n";
+import { referralGraphAdvisoryLockKey } from "@/features/referrals/advisory-locks";
 import { getReferralInvitationDiscountId } from "@/features/referrals/discount-identifiers";
 import { ReferralService } from "@/features/referrals/referral.service";
+import { ReferralFeatureFlagService } from "@/features/referrals/referral-feature-flag.service";
 import { ReferralFeatureFlagServiceMock } from "@/features/referrals/referral-feature-flag.service.mock";
 import {
   type WorkspaceReservationId,
   workspaceReservationIdSchema,
 } from "@/features/reservation/persistence-contracts";
-import { waitForPostgresLockWaiter } from "@/shared/testing/workspace-postgres-lock-waiters.test-utils";
+import {
+  waitForAdvisoryLockWaiter,
+  waitForPostgresLockWaiter,
+} from "@/shared/testing/workspace-postgres-lock-waiters.test-utils";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import { createHeldReservation as createSharedHeldReservation } from "./payment-lifecycle.test-utils";
 
@@ -101,20 +108,39 @@ type Admission = {
 const referralFeatureFlag = (enabled: boolean) =>
   ReferralFeatureFlagServiceMock({ isEnabled: Effect.succeed(enabled) });
 
+/**
+ * The referral flag as a paid transition's run would see it: off, or failing
+ * to evaluate (which the flag service reports as off).
+ */
+const withheldReferralFlags = [
+  ["off", referralFeatureFlag(false)],
+  [
+    "unreadable",
+    ReferralFeatureFlagService.Default.pipe(
+      Layer.provide(
+        WorkspaceFeatureFlagServiceMock({
+          isEnabled: () =>
+            Effect.fail(
+              new PostHogFeatureFlagEvaluationError({
+                message: "synthetic flag outage",
+                cause: undefined,
+              })
+            ),
+        })
+      )
+    ),
+  ],
+] as const;
+
 const makeRepository = async (
-  databaseLayer = testDatabase!.layer,
-  referralsEnabled = true
+  databaseLayer = testDatabase!.layer
 ): Promise<IPaymentLifecycleRepository> =>
   Effect.runPromise(
     Effect.gen(function* () {
       return yield* PaymentLifecycleRepository;
     }).pipe(
       Effect.provide(
-        PaymentLifecycleRepository.Default.pipe(
-          Layer.provide(
-            Layer.mergeAll(databaseLayer, referralFeatureFlag(referralsEnabled))
-          )
-        )
+        PaymentLifecycleRepository.Default.pipe(Layer.provide(databaseLayer))
       )
     )
   );
@@ -165,19 +191,14 @@ const makeReferralService = async (input?: {
   );
 };
 
-const makeLateRecoveryRepository = async (referralsEnabled = true) =>
+const makeLateRecoveryRepository = async () =>
   Effect.runPromise(
     Effect.gen(function* () {
       return yield* LatePaymentRecoveryRepository;
     }).pipe(
       Effect.provide(
         LatePaymentRecoveryRepository.Default.pipe(
-          Layer.provide(
-            Layer.mergeAll(
-              testDatabase!.layer,
-              referralFeatureFlag(referralsEnabled)
-            )
-          )
+          Layer.provide(testDatabase!.layer)
         )
       )
     )
@@ -1804,7 +1825,7 @@ describe.skipIf(!testDatabase)(
 );
 
 describe.skipIf(!testDatabase)(
-  "Checkout referral payments while the referral program is withheld",
+  "Checkout referral payments after the referral program was withheld",
   () => {
     const holdGraphLock = async () => {
       const holder = await testDatabase!.pool.connect();
@@ -1820,60 +1841,58 @@ describe.skipIf(!testDatabase)(
       };
     };
 
-    test("marks a checkout referral paid without the graph lock or an attribution and keeps existing attributions", async () => {
-      const fixture = await createInvitedCustomer(false);
-      const referrerInviter = await createReferralCode();
-      let graphLock: Awaited<ReturnType<typeof holdGraphLock>> | undefined;
-      try {
-        // Admitted while the program was released.
-        const { reservation, attempt } = await admitCheckoutReferral(
-          await makeRepository(),
-          fixture
-        );
-        await referrerInviter.attribute(fixture.referrerDotyposCustomerId);
-        const withheld = await makeRepository(testDatabase!.layer, false);
-        // A held graph lock would block a transition that records attribution.
-        graphLock = await holdGraphLock();
+    test.each(withheldReferralFlags)(
+      "attributes a referral admitted while released when it is paid with the flag %s, taking the graph lock first",
+      async (_flag, flagLayer) => {
+        const repository = await makeRepository();
+        const fixture = await createInvitedCustomer(false);
+        let graphLock: Awaited<ReturnType<typeof holdGraphLock>> | undefined;
+        try {
+          // Admitted while the program was released.
+          const { reservation, attempt } = await admitCheckoutReferral(
+            repository,
+            fixture
+          );
+          graphLock = await holdGraphLock();
 
-        const paid = await Effect.runPromise(
-          withheld.markPaid({
-            id: attempt.id,
-            workspaceReservationId: reservation.id,
-            paidAt: Temporal.Now.instant(),
-          })
-        );
+          const payment = Effect.runPromise(
+            repository
+              .markPaid({
+                id: attempt.id,
+                workspaceReservationId: reservation.id,
+                paidAt: Temporal.Now.instant(),
+              })
+              .pipe(Effect.provide(flagLayer))
+          );
+          // The admitted referral is honored: payment waits for the graph.
+          await waitForAdvisoryLockWaiter(
+            testDatabase!.pool,
+            referralGraphAdvisoryLockKey
+          );
+          await graphLock.release();
+          graphLock = undefined;
 
-        expect(paid.changed).toBe(true);
-        expect(await readClaim(attempt.id)).toEqual([
-          {
-            state: "redeemed",
-            referrer: fixture.referrerDotyposCustomerId,
-            code: fixture.promotionCodeId,
-          },
-        ]);
-        expect(
-          await readAttributions(fixture.invitedDotyposCustomerId)
-        ).toEqual([]);
-        expect(
-          await readAttributions(fixture.referrerDotyposCustomerId)
-        ).toEqual([
-          {
-            referrer: referrerInviter.referrerDotyposCustomerId,
-            code: referrerInviter.promotionCodeId,
-          },
-        ]);
-      } finally {
-        await graphLock?.release();
-        await fixture.cleanup();
-        await referrerInviter.cleanup();
+          expect((await payment).changed).toBe(true);
+          expect((await readClaim(attempt.id))[0]?.state).toBe("redeemed");
+          expect(
+            await readAttributions(fixture.invitedDotyposCustomerId)
+          ).toEqual([
+            {
+              referrer: fixture.referrerDotyposCustomerId,
+              code: fixture.promotionCodeId,
+            },
+          ]);
+        } finally {
+          await graphLock?.release();
+          await fixture.cleanup();
+        }
       }
-    });
+    );
 
-    test("completes a zero-payable internal payment carrying a referral without the graph lock or an attribution", async () => {
-      const repository = await makeRepository(testDatabase!.layer, false);
+    test("attributes a zero-payable internal payment admitted with a referral while the flag is off", async () => {
+      const repository = await makeRepository();
       const fixture = await createInvitedCustomer(false);
       let voucher: Awaited<ReturnType<typeof createVoucher>> | undefined;
-      let graphLock: Awaited<ReturnType<typeof holdGraphLock>> | undefined;
       try {
         const reservation = await createHeldReservation(
           fixture.invitedDotyposCustomerId
@@ -1888,17 +1907,17 @@ describe.skipIf(!testDatabase)(
           ...fixture,
           creditCandidates: [voucher.candidate],
         });
-        // The bounded graph wait would fail this payment if it were taken.
-        graphLock = await holdGraphLock();
 
         const internal = await Effect.runPromise(
-          repository.completeInternalPayment({
-            workspaceReservationId: reservation.id,
-            amount: fullyCovered.admission.amount,
-            commitment: fullyCovered.admission.commitment,
-            locale: fullyCovered.locale,
-            accountingSnapshot: fullyCovered.snapshot,
-          })
+          repository
+            .completeInternalPayment({
+              workspaceReservationId: reservation.id,
+              amount: fullyCovered.admission.amount,
+              commitment: fullyCovered.admission.commitment,
+              locale: fullyCovered.locale,
+              accountingSnapshot: fullyCovered.snapshot,
+            })
+            .pipe(Effect.provide(referralFeatureFlag(false)))
         );
 
         expect(internal.attempt.state).toBe("paid");
@@ -1907,19 +1926,22 @@ describe.skipIf(!testDatabase)(
         );
         expect(
           await readAttributions(fixture.invitedDotyposCustomerId)
-        ).toEqual([]);
+        ).toEqual([
+          {
+            referrer: fixture.referrerDotyposCustomerId,
+            code: fixture.promotionCodeId,
+          },
+        ]);
       } finally {
-        await graphLock?.release();
         await fixture.cleanup();
         await voucher?.cleanup();
       }
     });
 
-    test("late recovery to paid redeems a checkout referral without an attribution", async () => {
+    test("late recovery to paid attributes a referral admitted while released, while the flag is off", async () => {
       const repository = await makeRepository();
-      const lateRecoveries = await makeLateRecoveryRepository(false);
+      const lateRecoveries = await makeLateRecoveryRepository();
       const fixture = await createInvitedCustomer(false);
-      let graphLock: Awaited<ReturnType<typeof holdGraphLock>> | undefined;
       try {
         const { reservation, attempt } = await admitCheckoutReferral(
           repository,
@@ -1947,23 +1969,63 @@ describe.skipIf(!testDatabase)(
             staleProcessingBefore: Temporal.Now.instant(),
           })
         );
-        graphLock = await holdGraphLock();
 
         await Effect.runPromise(
-          lateRecoveries.completeUsingOriginalReservation({
-            paymentAttemptId: attempt.id,
-            workspaceReservationId: reservation.id,
-            reservationState: "confirmed",
-            completedAt: Temporal.Now.instant(),
-          })
+          lateRecoveries
+            .completeUsingOriginalReservation({
+              paymentAttemptId: attempt.id,
+              workspaceReservationId: reservation.id,
+              reservationState: "confirmed",
+              completedAt: Temporal.Now.instant(),
+            })
+            .pipe(Effect.provide(referralFeatureFlag(false)))
         );
 
         expect((await readClaim(attempt.id))[0]?.state).toBe("redeemed");
         expect(
           await readAttributions(fixture.invitedDotyposCustomerId)
+        ).toEqual([
+          {
+            referrer: fixture.referrerDotyposCustomerId,
+            code: fixture.promotionCodeId,
+          },
+        ]);
+      } finally {
+        await fixture.cleanup();
+      }
+    });
+
+    test("writes no attribution for a payment without an admitted referral while the flag is off", async () => {
+      const repository = await makeRepository();
+      const fixture = await createInvitedCustomer(false);
+      try {
+        const reservation = await createHeldReservation(
+          fixture.invitedDotyposCustomerId
+        );
+        const attempt = await Effect.runPromise(
+          admit(
+            repository,
+            reservation,
+            makeOrdinaryAdmission(reservation, fixture.invitedDotyposCustomerId)
+          )
+        );
+
+        const paid = await Effect.runPromise(
+          repository
+            .markPaid({
+              id: attempt.id,
+              workspaceReservationId: reservation.id,
+              paidAt: Temporal.Now.instant(),
+            })
+            .pipe(Effect.provide(referralFeatureFlag(false)))
+        );
+
+        expect(paid.changed).toBe(true);
+        expect(await readClaim(attempt.id)).toEqual([]);
+        expect(
+          await readAttributions(fixture.invitedDotyposCustomerId)
         ).toEqual([]);
       } finally {
-        await graphLock?.release();
         await fixture.cleanup();
       }
     });

@@ -1,7 +1,6 @@
 import { DotyposService } from "@deskohub/dotypos";
 import { Context, Data, Effect, Layer, Match } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
-import { ReferralFeatureFlagService } from "@/features/referrals/referral-feature-flag.service";
 import { WorkspaceReservationRepository } from "@/features/reservation/backend/workspace-reservation.repository";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import { PostHogEventService } from "@/shared/backend/analytics/posthog-event.service";
@@ -57,7 +56,6 @@ export class ReservationHoldCleanupService extends Context.Service<
   static Live = this.Default.pipe(
     Layer.provide(ProviderPaymentFinalizationService.Live),
     Layer.provide(PaymentLifecycleRepository.Default),
-    Layer.provide(ReferralFeatureFlagService.Live),
     Layer.provide(PostHogEventService.Live),
     Layer.provide(WorkspaceReservationRepository.Default),
     Layer.provide(WorkspaceDatabase.Default),

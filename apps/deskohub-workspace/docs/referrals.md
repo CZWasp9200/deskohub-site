@@ -2,7 +2,7 @@
 
 Workspace customers can invite new customers through a personal share link or by sharing their referral code. All entry points follow the same eligibility and attribution rules.
 
-The referral program is switched on and off as a whole. While it is off, customers see no referral features, referral codes are treated like unknown codes, and no referral discount or new referral is recorded; referrals recorded earlier are kept and apply again once the program is back on.
+The referral program is switched on and off as a whole. While it is off, customers see no referral features, referral codes are treated like unknown codes, and no referral discount is offered and no new referral is accepted. An order that already carries a referral discount from before the program was switched off is honored: its referral is recorded when that order is paid. Referrals recorded earlier are kept and apply again once the program is back on.
 
 ## Referral sources
 

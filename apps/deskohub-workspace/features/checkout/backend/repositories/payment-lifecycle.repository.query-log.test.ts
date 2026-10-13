@@ -2,7 +2,6 @@ import "@/shared/polyfills/temporal";
 
 import { describe, test } from "bun:test";
 import { Effect, Layer } from "effect";
-import { ReferralFeatureFlagServiceMock } from "@/features/referrals/referral-feature-flag.service.mock";
 import {
   collectDatabaseQueryLogs,
   expectQueryLogsToCensor,
@@ -28,12 +27,7 @@ describe("PaymentLifecycleRepository query logging", () => {
       }).pipe(
         Effect.provide(
           PaymentLifecycleRepository.Default.pipe(
-            Layer.provide(recording.layer),
-            Layer.provide(
-              ReferralFeatureFlagServiceMock({
-                isEnabled: Effect.succeed(true),
-              })
-            )
+            Layer.provide(recording.layer)
           )
         )
       )

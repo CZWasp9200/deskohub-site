@@ -15,7 +15,6 @@ import { CheckoutStatusPageSkeleton } from "@/features/checkout/components/check
 import { CheckoutStatusReferralCodeSettlement } from "@/features/checkout/components/checkout-status-referral-code-settlement";
 import type { Locale } from "@/features/i18n";
 import { runWithRequestLocale } from "@/features/i18n/server/request-locale";
-import { ReferralFeatureFlagRequest } from "@/features/referrals/referral-feature-flag.server";
 import { readReservationAccessCookie } from "@/features/reservation/backend/reservation-access-cookie";
 import { ReservationAuthorizationService } from "@/features/reservation/backend/reservation-authorization.service";
 import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
@@ -110,7 +109,7 @@ async function CheckoutStatusContent({
         Layer.mergeAll(
           CheckoutStatusService.Live,
           ReservationAuthorizationService.Live
-        ).pipe(Layer.provideMerge(ReferralFeatureFlagRequest))
+        )
       ),
       runWorkspaceEffect("checkout.status.load")
     );

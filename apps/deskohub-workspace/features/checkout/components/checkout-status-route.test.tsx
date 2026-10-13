@@ -101,7 +101,6 @@ mock.module("@/features/reservation/routes", () => ({
 }));
 mock.module("@/shared/backend/workspace-effect", () => ({
   runWorkspaceEffect: () => () => undefined,
-  runWorkspaceEffectOrElse: () => () => Promise.resolve(false),
 }));
 mock.module("@/shared/components/route-auto-refresh", () => ({
   RouteAutoRefresh: () => null,
