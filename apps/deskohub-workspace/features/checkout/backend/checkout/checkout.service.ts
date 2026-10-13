@@ -65,6 +65,7 @@ import {
   type WorkspaceUrlConfigError,
 } from "@/shared/backend/config/workspace-url.config";
 import { workspaceSiteConstants } from "@/shared/utils/site-constants";
+import { localDateTimeToInstant } from "@/shared/utils/temporal";
 import {
   capturePaymentCompleted,
   capturePaymentFailed,
@@ -144,11 +145,11 @@ const isCoworkReservationExclusiveEndReached = (input: {
   readonly now?: Temporal.Instant;
 }) => {
   const now = input.now ?? Temporal.Now.instant();
-  const exclusiveEnd = Temporal.PlainDateTime.from(
-    getCoworkReservationIntervalInput(input.entryTier, input.date).endsAt
-  )
-    .toZonedDateTime(workspaceSiteConstants.location.timeZone)
-    .toInstant();
+  const exclusiveEnd = localDateTimeToInstant({
+    dateTime: getCoworkReservationIntervalInput(input.entryTier, input.date)
+      .endsAt,
+    timeZone: workspaceSiteConstants.location.timeZone,
+  });
 
   return Temporal.Instant.compare(now, exclusiveEnd) >= 0;
 };
