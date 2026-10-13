@@ -40,9 +40,7 @@ export const prepareSignupReferral = Effect.fn("account.prepareSignupReferral")(
       .findAvailableCode({ code: input.code })
       .pipe(
         Effect.flatMap((code) =>
-          code === undefined
-            ? Effect.succeed(undefined)
-            : intents.findCodeTarget(code)
+          code === undefined ? Effect.undefined : intents.findCodeTarget(code)
         ),
         Effect.orElseSucceed(() => undefined)
       );

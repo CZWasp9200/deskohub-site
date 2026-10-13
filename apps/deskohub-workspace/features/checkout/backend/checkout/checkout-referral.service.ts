@@ -96,7 +96,7 @@ export class CheckoutReferralService extends Context.Service<
             orderId: opened.orderId,
             checkoutSessionId: opened.checkoutSessionId,
           });
-          const dotyposCustomerId = yield* Schema.decodeUnknownEffect(
+          const dotyposCustomerId = yield* Schema.decodeEffect(
             dotyposCustomerIdSchema
           )(currentReservation.dotyposCustomerId);
 

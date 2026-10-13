@@ -130,6 +130,10 @@ const fail = (
   reason: ConstructorParameters<typeof ReferralError>[0]["reason"]
 ) => new ReferralError({ reason });
 
+/** A stored account link's ID; a malformed one is a defect, not a referral outcome. */
+const decodeLinkedAccountId = (accountId: string) =>
+  Schema.decodeEffect(customerAccountIdSchema)(accountId).pipe(Effect.orDie);
+
 // biome-ignore lint/plugin: Referral code APIs accept untrusted values and decode them at this boundary.
 const normalizeCode = (value: unknown): ReferralCode | undefined => {
   if (!Schema.is(Schema.String)(value)) return undefined;
@@ -680,9 +684,7 @@ export class ReferralService extends Context.Service<
             code,
             dotyposCustomerId: input.dotyposCustomerId,
             attribution,
-          }).pipe(
-            Effect.catchTag("ReferralError", () => Effect.succeed(undefined))
-          );
+          }).pipe(Effect.catchTag("ReferralError", () => Effect.undefined));
           return evaluation
             ? makeInvitationCandidate({
                 ...input,
@@ -757,7 +759,7 @@ export class ReferralService extends Context.Service<
               .limit(1);
             if (existing) {
               const code = parseReferralCode(existing.code);
-              if (!code) return yield* Effect.fail(fail("unavailable"));
+              if (!code) return yield* fail("unavailable");
               return code;
             }
 
@@ -808,12 +810,12 @@ export class ReferralService extends Context.Service<
                   .delete(promotionCodes)
                   .where(eq(promotionCodes.id, promotion.id));
                 const code = parseReferralCode(raced.code);
-                if (!code) return yield* Effect.fail(fail("unavailable"));
+                if (!code) return yield* fail("unavailable");
                 return code;
               }
             }
 
-            return yield* Effect.fail(fail("unavailable"));
+            return yield* fail("unavailable");
           })
         )
       );
@@ -836,7 +838,7 @@ export class ReferralService extends Context.Service<
       const findAvailableCode = Effect.fn("ReferralService.findAvailableCode")(
         (input: { readonly code: unknown }) => {
           const code = normalizeCode(input.code);
-          if (!code) return Effect.succeed(undefined);
+          if (!code) return Effect.undefined;
           return findActiveReferralTarget(code).pipe(
             Effect.map((target) => (target ? code : undefined)),
             Effect.mapError(() => fail("unavailable"))
@@ -906,8 +908,7 @@ export class ReferralService extends Context.Service<
                   const referralTarget = yield* findReferralCode(code).pipe(
                     Effect.mapError(() => fail("unavailable"))
                   );
-                  if (!referralTarget)
-                    return yield* Effect.fail(fail("unavailable"));
+                  if (!referralTarget) return yield* fail("unavailable");
 
                   const [ownerLink] = yield* db
                     .select({
@@ -923,9 +924,7 @@ export class ReferralService extends Context.Service<
                     .limit(1)
                     .pipe(Effect.mapError(() => fail("unavailable")));
                   const referrerAccountId = ownerLink
-                    ? Schema.decodeUnknownSync(customerAccountIdSchema)(
-                        ownerLink.accountId
-                      )
+                    ? yield* decodeLinkedAccountId(ownerLink.accountId)
                     : undefined;
                   const accountIds = [
                     identity.accountId,
@@ -958,9 +957,7 @@ export class ReferralService extends Context.Service<
                           !inviteeActivity ||
                           inviteeActivity.deletionRequestedAt !== null
                         ) {
-                          return yield* Effect.fail(
-                            fail("account_unavailable")
-                          );
+                          return yield* fail("account_unavailable");
                         }
                         const [currentLink] = yield* tx
                           .select({
@@ -982,9 +979,7 @@ export class ReferralService extends Context.Service<
                           currentLink?.dotyposCustomerId !==
                           identity.dotyposCustomerId
                         ) {
-                          return yield* Effect.fail(
-                            fail("account_unavailable")
-                          );
+                          return yield* fail("account_unavailable");
                         }
 
                         const referral = yield* findReferralCode(code, tx).pipe(
@@ -999,14 +994,14 @@ export class ReferralService extends Context.Service<
                             Temporal.Now.instant()
                           )
                         ) {
-                          return yield* Effect.fail(fail("unavailable"));
+                          return yield* fail("unavailable");
                         }
 
                         if (
                           identity.dotyposCustomerId ===
                           referral.referrerDotyposCustomerId
                         ) {
-                          return yield* Effect.fail(fail("self_referral"));
+                          return yield* fail("self_referral");
                         }
 
                         const [owner] = yield* tx
@@ -1033,14 +1028,12 @@ export class ReferralService extends Context.Service<
                           .limit(1)
                           .pipe(Effect.mapError(() => fail("unavailable")));
                         if (!owner || !referrerAccountId) {
-                          return yield* Effect.fail(fail("unavailable"));
+                          return yield* fail("unavailable");
                         }
                         const currentReferrerAccountId =
-                          Schema.decodeUnknownSync(customerAccountIdSchema)(
-                            owner.accountId
-                          );
+                          yield* decodeLinkedAccountId(owner.accountId);
                         if (currentReferrerAccountId !== referrerAccountId) {
-                          return yield* Effect.fail(fail("unavailable"));
+                          return yield* fail("unavailable");
                         }
 
                         const [existingAttribution] = yield* tx
@@ -1061,7 +1054,7 @@ export class ReferralService extends Context.Service<
                           return existingAttribution.referrerDotyposCustomerId ===
                             referral.referrerDotyposCustomerId
                             ? ({ kind: "already_accepted" } as const)
-                            : yield* Effect.fail(fail("already_attributed"));
+                            : yield* fail("already_attributed");
                         }
 
                         const history = yield* loadCustomerHistory(
@@ -1069,7 +1062,7 @@ export class ReferralService extends Context.Service<
                           tx
                         ).pipe(Effect.mapError(() => fail("unavailable")));
                         if (history.hasPreviousPaidBooking) {
-                          return yield* Effect.fail(fail("ineligible"));
+                          return yield* fail("ineligible");
                         }
                         const [pendingAttempt] = yield* tx
                           .select({ id: workspaceReservations.id })
@@ -1089,7 +1082,7 @@ export class ReferralService extends Context.Service<
                         // settles; a reserved invitation claim always comes
                         // with such a pending reservation.
                         if (pendingAttempt) {
-                          return yield* Effect.fail(fail("pending_payment"));
+                          return yield* fail("pending_payment");
                         }
 
                         const existingRows = yield* tx
@@ -1114,10 +1107,10 @@ export class ReferralService extends Context.Service<
                           existingReferrerByInvitee: existing,
                         });
                         if (decision.kind === "already_attributed") {
-                          return yield* Effect.fail(fail("already_attributed"));
+                          return yield* fail("already_attributed");
                         }
                         if (decision.kind === "cycle") {
-                          return yield* Effect.fail(fail("cycle"));
+                          return yield* fail("cycle");
                         }
 
                         yield* tx

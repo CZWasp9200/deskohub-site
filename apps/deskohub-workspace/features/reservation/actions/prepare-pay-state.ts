@@ -799,7 +799,7 @@ const evaluateAccountReferralCode = Effect.fn(
             code,
             dotyposCustomerId: account.dotyposCustomerId,
           })
-        : Effect.succeed(undefined)
+        : Effect.undefined
     ),
     Effect.map((evaluation) =>
       evaluation === undefined

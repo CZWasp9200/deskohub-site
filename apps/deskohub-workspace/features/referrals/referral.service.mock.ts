@@ -12,7 +12,7 @@ export const ReferralServiceMock = (
     evaluateCheckoutReferral: () =>
       Effect.die("evaluateCheckoutReferral was not mocked"),
     hasSettledReferral: () => Effect.die("hasSettledReferral was not mocked"),
-    resolveInvitationCandidate: () => Effect.succeed(undefined),
-    resolveReferrerCandidate: () => Effect.succeed(undefined),
+    resolveInvitationCandidate: () => Effect.undefined,
+    resolveReferrerCandidate: () => Effect.undefined,
     ...overrides,
   });
