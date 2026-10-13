@@ -1,4 +1,5 @@
 import type { DotyposCustomerId } from "@deskohub/dotypos";
+import { makeSignature } from "better-auth/crypto";
 import { Effect } from "effect";
 import { authSession, authUser } from "@/db/schema/auth";
 import { customerAccountLinks } from "@/db/schema/customer-account-links";
@@ -56,29 +57,13 @@ export const resolveWorkspaceE2ESessionSigningSecret = (
 };
 
 /**
- * Signs a session token exactly as Better Auth's signed cookie does: the
- * token, a dot, and the base64 HMAC-SHA-256 of the token, URI-encoded.
+ * Signs a session token as Better Auth's signed cookie does: the token, a dot,
+ * and Better Auth's own HMAC signature of the token, URI-encoded.
  */
 export const signWorkspaceE2ESessionToken = async (
   token: string,
   secret: WorkspaceE2ESessionSigningSecret
-) => {
-  const key = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(secret.value),
-    { hash: "SHA-256", name: "HMAC" },
-    false,
-    ["sign"]
-  );
-  const signature = await crypto.subtle.sign(
-    "HMAC",
-    key,
-    new TextEncoder().encode(token)
-  );
-  return encodeURIComponent(
-    `${token}.${Buffer.from(signature).toString("base64")}`
-  );
-};
+) => encodeURIComponent(`${token}.${await makeSignature(token, secret.value)}`);
 
 /** A 32-character alphanumeric token, the shape Better Auth generates. */
 const generateSessionToken = () =>
