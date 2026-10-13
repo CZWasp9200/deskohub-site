@@ -89,6 +89,10 @@ const discountAdminMutationAction = defineWorkspaceAction(
               Match.tag("DiscountAdminNotFoundError", ({ message }) => message),
               Match.tag("DiscountAdminAudienceError", ({ message }) => message),
               Match.tag("DiscountAdminConflictError", ({ message }) => message),
+              Match.tag(
+                "DiscountAdminUnreleasedTierTargetError",
+                ({ message }) => message
+              ),
               Match.orElse(
                 () =>
                   "The change could not be saved. Check the values and any existing references, then try again."

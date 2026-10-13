@@ -50,7 +50,10 @@ import {
 } from "@/db/sql-constraint";
 import type { PaymentAttemptId } from "@/features/checkout/checkout-identifiers";
 import type { WorkspaceMoney } from "@/features/checkout/workspace-money";
-import type { WorkspaceProductTarget } from "@/features/discounts/product-target";
+import {
+  findAddedCoworkTierTargets,
+  type WorkspaceProductTarget,
+} from "@/features/discounts/product-target";
 import type { DotyposCustomerId } from "@/features/reservation/dotypos-customer";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import {
@@ -82,6 +85,8 @@ import type {
   UpdateDiscountCodeAdminInput,
   UpdateVoucherAdminInput,
 } from "./contracts";
+import { CoworkTierTargetReleaseGate } from "./cowork-tier-target-release-gate.service";
+import { unreleasedCoworkTierTargetMessage } from "./product-target-options";
 
 export type AdminDiscount = {
   readonly id: StoredDiscountId;
@@ -278,12 +283,18 @@ export interface IDiscountAdministration {
   >;
   readonly createDiscount: (
     input: CreateDiscountAdminInput
-  ) => Effect.Effect<StoredDiscountId, EffectDrizzleQueryError | SqlError>;
+  ) => Effect.Effect<
+    StoredDiscountId,
+    EffectDrizzleQueryError | SqlError | DiscountAdminUnreleasedTierTargetError
+  >;
   readonly updateDiscount: (
     input: UpdateDiscountAdminInput
   ) => Effect.Effect<
     void,
-    EffectDrizzleQueryError | SqlError | DiscountAdminNotFoundError
+    | EffectDrizzleQueryError
+    | SqlError
+    | DiscountAdminNotFoundError
+    | DiscountAdminUnreleasedTierTargetError
   >;
   readonly deleteDiscount: (
     input: DeleteDiscountInput
@@ -302,6 +313,7 @@ export interface IDiscountAdministration {
     | SqlError
     | DiscountAdminNotFoundError
     | DiscountAdminConflictError
+    | DiscountAdminUnreleasedTierTargetError
   >;
   readonly createCustomerCode: (
     input: CreateCustomerDiscountCodeAdminInput
@@ -314,6 +326,7 @@ export interface IDiscountAdministration {
     | ValidationError
     | DiscountAdminNotFoundError
     | DiscountAdminConflictError
+    | DiscountAdminUnreleasedTierTargetError
   >;
   readonly updateCode: (
     input: UpdateDiscountCodeAdminInput
@@ -514,6 +527,25 @@ export class DiscountAdministration extends Context.Service<
       const calendar = yield* GoogleCalendarService;
       const dotypos = yield* DotyposService;
       const { salesCalendarId } = yield* CalendarResourceConfig;
+      const tierTargetReleaseGate = yield* CoworkTierTargetReleaseGate;
+
+      // Old deployments that overlap a release reject single-tier cowork
+      // targets, so new ones stay behind a release gate. Keeping or removing
+      // a discount's stored tier targets is always allowed.
+      const requireReleasedTierTargets = Effect.fn(
+        "DiscountAdministration.requireReleasedTierTargets"
+      )(function* (
+        products: readonly WorkspaceProductTarget[],
+        storedProducts: readonly WorkspaceProductTarget[] = []
+      ) {
+        if (findAddedCoworkTierTargets(products, storedProducts).length === 0) {
+          return;
+        }
+        if (yield* tierTargetReleaseGate.isReleased) return;
+        return yield* new DiscountAdminUnreleasedTierTargetError({
+          message: unreleasedCoworkTierTargetMessage,
+        });
+      });
 
       const loadActiveCustomer = Effect.fn(
         "DiscountAdministration.loadActiveCustomer"
@@ -655,8 +687,10 @@ export class DiscountAdministration extends Context.Service<
       );
 
       const createDiscount = Effect.fn("DiscountAdministration.createDiscount")(
-        (input: CreateDiscountAdminInput) =>
-          db.transaction(
+        function* (input: CreateDiscountAdminInput) {
+          yield* requireReleasedTierTargets(input.products);
+
+          return yield* db.transaction(
             Effect.fn(function* (tx) {
               const rows = yield* tx
                 .insert(discounts)
@@ -673,7 +707,8 @@ export class DiscountAdministration extends Context.Service<
                 .values(toDiscountProductTargetRows(row.id, input.products));
               return row.id;
             })
-          )
+          );
+        }
       );
 
       const updateDiscount = Effect.fn("DiscountAdministration.updateDiscount")(
@@ -692,6 +727,14 @@ export class DiscountAdministration extends Context.Service<
                 kind: "discount",
                 id: input.id,
               });
+              const storedTargets = yield* tx
+                .select({ productTarget: discountProductTargets.productTarget })
+                .from(discountProductTargets)
+                .where(eq(discountProductTargets.discountId, input.id));
+              yield* requireReleasedTierTargets(
+                input.products,
+                storedTargets.map(({ productTarget }) => productTarget)
+              );
               yield* tx
                 .delete(discountProductTargets)
                 .where(eq(discountProductTargets.discountId, input.id));
@@ -737,6 +780,7 @@ export class DiscountAdministration extends Context.Service<
                         Effect.as(discountId)
                       ),
                   new: Effect.fn(function* ({ discount }) {
+                    yield* requireReleasedTierTargets(discount.products);
                     const rows = yield* tx
                       .insert(discounts)
                       .values(toDiscountValues(discount))
@@ -813,6 +857,7 @@ export class DiscountAdministration extends Context.Service<
                       Effect.as(discountId)
                     ),
                 new: Effect.fn(function* ({ discount }) {
+                  yield* requireReleasedTierTargets(discount.products);
                   const rows = yield* tx
                     .insert(discounts)
                     .values(toDiscountValues(discount))
@@ -1637,7 +1682,8 @@ export class DiscountAdministration extends Context.Service<
         WorkspaceDatabase.Default,
         WorkspaceDotyposLayer,
         WorkspaceGoogleCalendarLayer,
-        CalendarResourceConfig.Default
+        CalendarResourceConfig.Default,
+        CoworkTierTargetReleaseGate.Live
       )
     )
   );
@@ -1679,6 +1725,13 @@ class DiscountAdminAudienceError extends Data.TaggedError(
 
 export class DiscountAdminConflictError extends Data.TaggedError(
   "DiscountAdminConflictError"
+)<{
+  readonly message: string;
+}> {}
+
+/** A mutation would add a cowork tier target before tier targets are released. */
+export class DiscountAdminUnreleasedTierTargetError extends Data.TaggedError(
+  "DiscountAdminUnreleasedTierTargetError"
 )<{
   readonly message: string;
 }> {}

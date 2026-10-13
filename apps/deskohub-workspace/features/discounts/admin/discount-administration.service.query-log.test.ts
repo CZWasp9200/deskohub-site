@@ -10,6 +10,7 @@ import {
   expectQueryLogsToCensor,
 } from "@/shared/testing/workspace-database-query-log.test-utils";
 import { makeRecordingWorkspaceDatabase } from "@/shared/testing/workspace-recording-database.test-utils";
+import { CoworkTierTargetReleaseGateMock } from "./cowork-tier-target-release-gate.service.mock";
 import { DiscountAdministration } from "./discount-administration.service";
 
 describe("DiscountAdministration query logging", () => {
@@ -37,7 +38,8 @@ describe("DiscountAdministration query logging", () => {
                 Layer.mock(DotyposService, {}),
                 Layer.mock(CalendarResourceConfig, {
                   salesCalendarId: "sales-calendar" as never,
-                })
+                }),
+                CoworkTierTargetReleaseGateMock({})
               )
             )
           )

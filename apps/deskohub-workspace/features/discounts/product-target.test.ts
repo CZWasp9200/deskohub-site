@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  findAddedCoworkTierTargets,
   findWorkspaceProductTargetsIssue,
   getWorkspaceProductTargetsCovering,
   workspaceProductTargetMatches,
@@ -164,5 +165,23 @@ describe("workspace product targets", () => {
     ).toBe(
       "a cowork target covering every tier cannot be combined with cowork tier targets"
     );
+  });
+
+  test("finds only the cowork tier targets an update would add", () => {
+    const openSpace = { kind: "cowork", tier: "open-space" } as const;
+    const reservedDesk = { kind: "cowork", tier: "reserved-desk" } as const;
+
+    expect(
+      findAddedCoworkTierTargets([{ kind: "cowork" }, { kind: "office" }])
+    ).toEqual([]);
+    expect(findAddedCoworkTierTargets([openSpace, { kind: "office" }])).toEqual(
+      [openSpace]
+    );
+    expect(
+      findAddedCoworkTierTargets([openSpace, reservedDesk], [openSpace])
+    ).toEqual([reservedDesk]);
+    expect(
+      findAddedCoworkTierTargets([openSpace], [openSpace, reservedDesk])
+    ).toEqual([]);
   });
 });

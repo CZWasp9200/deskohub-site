@@ -1080,7 +1080,7 @@ const discountDefinitionFlags = {
   ] as const).pipe(
     Flag.atLeast(1),
     Flag.withDescription(
-      "Eligible product: a reservation family, where cowork covers every cowork tier, or a single cowork tier such as cowork:reserved-desk; repeat for multiple products"
+      "Eligible product: a reservation family, where cowork covers every cowork tier, or a single cowork tier such as cowork:reserved-desk; repeat for multiple products. The server rejects new single-tier targets until cowork tier targets are enabled"
     )
   ),
 };

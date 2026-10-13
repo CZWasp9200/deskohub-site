@@ -10,6 +10,8 @@ Every discount defines one customer benefit:
 
 A whole-cowork target covers every cowork offer, including historical tiers in stored reservations; existing whole-cowork discounts keep that meaning. A single-offer target covers only that offer. One discount either targets the whole cowork family or lists individual cowork offers, never both.
 
+Adding single-offer targets is a staged capability that stays switched off until every serving version of the site understands them. While it is off, operators cannot add a single-offer target to a new or existing discount, sale, or code. A discount that already has single-offer targets keeps working for customers and can still be edited: its existing single-offer targets may be kept or removed. Switching the capability on or off never changes how stored discounts price a reservation.
+
 The label shown to a customer is preserved with the completed checkout so later wording changes cannot rewrite history. A missing or blank required translation makes that discount unavailable; labels never fall back from one language to another.
 
 Several sales or codes may share the same benefit definition while keeping their own schedules, audiences, and usage limits.

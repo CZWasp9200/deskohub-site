@@ -727,6 +727,10 @@ const mapDiscountMutationFailure = (
       "DiscountAdminConflictError",
       ({ message }) => new CliMutationRejected({ message })
     ),
+    Match.tag(
+      "DiscountAdminUnreleasedTierTargetError",
+      ({ message }) => new CliMutationRejected({ message })
+    ),
     Match.orElse(makeServiceUnavailable)
   );
 
