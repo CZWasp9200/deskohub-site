@@ -1,34 +1,23 @@
 ---
 name: deskohub-workspace-botid
-description: Workspace BotID, protected Server Action, and preview-automation protection handling.
+description: Workspace BotID, checkBotId, verifyHuman, BotProtectionService, protected Server Actions, bot protection in preview or E2E, Vercel automation bypass.
 ---
 
 # Deskohub Workspace BotID
 
-Configure BotID end to end:
+BotID is a production-only application control. Every Workspace preview sits behind Vercel Deployment Protection instead, so preview and development never initialize BotID, install its rewrites, or call server verification.
 
-- Register only the page paths that invoke protected Server Actions.
-- Initialize the BotID client, apply `withBotId` rewrites, and call server-side
-  `checkBotId()` only when `VERCEL_ENV === "production"`.
-- Use the shared production-enforcement policy across client, build, and server
-  contexts. Vercel preview builds use production-mode Next.js builds, so never
-  substitute `NODE_ENV` for `VERCEL_ENV`.
-- Read Vercel's standard `NEXT_PUBLIC_VERCEL_ENV` in client instrumentation and
-  `VERCEL_ENV` in build/server code. Do not create a custom public mirror of the
-  Vercel environment. Expose the public value through the Workspace typed `env`
-  module rather than reading `process.env` directly in client code.
-- Keep server-side `checkBotId()` before mutation side effects in production.
-- Let the Workspace action boundary provide `BotProtectionService.Live`, but keep
-  each protected workflow's `verifyHuman` call explicit so it owns placement and
-  the `allow` or `deny` verification-failure policy. An unprotected action must
-  not verify merely because the capability is available.
-- Do not use blanket `/*` client interception without matching server verification.
-- Preserve production verification failure policies and error mapping.
+## Where it lives
 
-Every Workspace preview is protected by Vercel Deployment Protection. BotID is
-a separate, production-only application concern: do not initialize it, install
-its rewrites, or call its server verification in preview or development. Keep
-the Vercel automation bypass header/cookie/query flow for authorized preview
-automation; do not introduce an application-level BotID E2E bypass.
+- `apps/deskohub-workspace/shared/bot-protection/bot-protection.policy.js`: the shared enforcement policy, `VERCEL_ENV === "production"`. Client, build, and server code all go through it.
+- `instrumentation-client.ts`: `initBotId` with the `protect` path list, gated on `NEXT_PUBLIC_VERCEL_ENV`.
+- `next.config.mjs`: `withBotId` rewrites, gated on `VERCEL_ENV`.
+- `shared/backend/bot-protection/bot-protection.service.ts`: `BotProtectionService` and its `verifyHuman`, which calls `checkBotId()`.
 
-Update this skill when developer feedback changes either protection boundary.
+## Rules
+
+- Gate on `VERCEL_ENV`, never `NODE_ENV`: Vercel preview builds are production-mode Next.js builds. In client code, read Vercel's standard `NEXT_PUBLIC_VERCEL_ENV` through the Workspace typed client env, not `process.env` or a custom public mirror.
+- List in `protect` only the page paths that invoke protected Server Actions. Every listed path needs matching server verification; never intercept `/*` on the client.
+- The Workspace action boundary provides `BotProtectionService.Default`. Each protected workflow calls `verifyHuman` explicitly, before any mutation side effect, and chooses its `verificationFailurePolicy` (`allow` or `deny`). An unprotected action doesn't verify just because the service is available.
+- Preserve existing verification failure policies and error mapping.
+- Authorized preview automation uses the Vercel automation bypass header, cookie, and query flow. Don't add an application-level BotID bypass for E2E.

@@ -1,45 +1,28 @@
 # Discount administration
 
-Use the authenticated Workspace administration UI or `dhw` commands for ordinary discount, code, sale, target, and customer-audience mutations. Do not prescribe direct SQL as the standard operator workflow.
+The [discount specification](../../../../apps/deskohub-workspace/docs/discount-codes.md) defines code syntax, limits, voucher credit, and audience policy. Use the Admin UI or `dhw` for ordinary discount, code, voucher, sale, and audience changes. Never prescribe direct SQL as an operator workflow.
 
-## Mutation boundaries
+## Mutation rules
 
-- Create or update a discount with its complete locale labels, one adjustment, and at least one product target: a reservation family, or a saleable cowork tier (`{kind:"cowork",tier}`). A cowork target without a tier covers every cowork tier. Reject duplicates and any mix of the whole-cowork target with cowork tier targets in the shared contract and when decoding stored definitions.
-- Adding a cowork tier target is gated by the `cowork_tier_discount_targets` PostHog flag because a deployment that predates tier targets treats the whole definition as malformed during an overlapping release. `DiscountAdministration` enforces it for every surface (Admin UI, administration API, `dhw`): creating a discount, or a code with a new discount, fails with `DiscountAdminUnreleasedTierTargetError` (API: `CliMutationRejected`) when it carries any tier target; an update fails only when it adds a tier target the stored definition lacks, so stored tier targets can always be kept or removed. `CoworkTierTargetReleaseGate` reads the raw flag value and opens only for exactly `true`; a multivariate value, a missing flag, or unavailable PostHog keeps the gate shut. The flag exists in the Workspace PostHog project as an inactive boolean without payload; keep it boolean. The Admin pages pass the evaluated gate to the target editor through `CoworkTierTargetReleaseProvider`, which defaults to unreleased. Decoding, Calendar discovery, pricing, and checkout never consult the gate. Enable the flag only after every serving deployment understands tier targets, and turn it off before promoting or rolling back to one that does not; constant flag values are cached for up to five minutes.
-- Code creation may create its discount atomically or reference an existing discount.
-- A voucher is a separate promotional-credit resource, never a purchasable product or a variant of `discount_codes`. It has no discount definition or use-count limit; expose issued and remaining credit rather than calling them unlimited.
-- Discount codes and vouchers use separate child tables and claim ledgers. A shared `promotion_codes` registry owns their globally unique entered value, scheduling, enablement, and customer audience.
-- The voucher rollout is an expand/backfill release: `discount_codes` common fields and `discount_code_customers` remain as synchronized compatibility mirrors for overlapping old deployments. Remove those mirrors and their migration triggers only in a later contract release.
-- Global and per-customer use limits belong to the ordinary discount-code child rather than its shared discount. An omitted limit is unlimited in that dimension.
-- An empty audience is unrestricted. Removing the last customer therefore broadens access and requires explicit confirmation.
-- Deleting a discount code or voucher must fail when immutable claims require it for historical attribution. Prefer disabling the promotion.
-- Customer discount-group changes and administration-session changes are explicit confirmed mutations.
+- Route discount mutations through `features/discounts/admin/execute-discount-admin-mutation.ts` so the UI and API share one dispatcher.
+- A discount needs complete locale labels, one adjustment, and at least one product target: a reservation family or one saleable cowork tier (`{kind:"cowork",tier}`). See [Cowork tier targets](#cowork-tier-targets). Code creation can create its discount atomically or reference an existing one.
+- A voucher is a separate promotional-credit resource, never a product or a `discount_codes` variant. It has no discount definition and no use limit. Show issued and remaining credit rather than calling it unlimited.
+- `promotion_codes` owns the globally unique entered value, scheduling, enablement, and customer audience. Discount codes and vouchers use separate child tables and claim ledgers.
+- Database triggers keep the common fields on `discount_codes` and the `discount_code_customers` table in sync with `promotion_codes` for older deployments. Drop the mirrors and triggers only in a dedicated contract migration.
+- Global and per-customer use limits belong to the discount-code child, not the shared discount. An omitted limit is unlimited in that dimension.
+- An empty audience is unrestricted, so removing the last customer broadens access and needs explicit confirmation.
+- Deleting a code or voucher must fail when immutable claims reference it. Prefer disabling.
+- Calendar sales: validate the discount definition before associating it with a sale. Load `deskohub-workspace-domain` for Calendar sale semantics.
 
-Every CLI mutation carries a client-generated request identity. Persist and replay its result per administration session so retrying an ambiguous transport failure cannot apply the same mutation twice.
+## Cowork tier targets
 
-## Calendar sales
+- A cowork target without a tier covers every cowork tier. The shared contract and stored-definition decoding both reject duplicate targets and any mix of the whole-cowork target with tier targets.
+- The `cowork_tier_discount_targets` PostHog flag gates adding a tier target, because a deployment that predates tier targets treats the whole definition as malformed during an overlapping release. `DiscountAdministration` enforces it for the Admin UI, the API, and `dhw`.
+- Creating a discount, or a code with a new discount, that carries a tier target fails with `DiscountAdminUnreleasedTierTargetError` (API: `CliMutationRejected`). An update fails only when it adds a tier target the stored definition lacks, so stored tier targets can always be kept or removed.
+- `CoworkTierTargetReleaseGate` opens only when the raw flag value is exactly `true`. A multivariate value, a missing flag, or unavailable PostHog keeps it shut. The flag was created inactive as a boolean without payload; keep it boolean.
+- Admin pages pass the evaluated gate to the target editor through `CoworkTierTargetReleaseProvider`, which defaults to unreleased. Decoding, Calendar discovery, pricing, and checkout never read the gate.
+- Turn the flag on only once every serving deployment understands tier targets. Turn it off before promoting or rolling back to one that doesn't. Constant flag values are cached for up to five minutes.
 
-Create and validate the discount definition before associating it with a scheduled sale. Calendar owns occurrence timing; Workspace owns labels, adjustment, and targets. Keep the calendar reference exact and source-neutral, and never use the event title as customer copy.
+## Evidence
 
-## Evidence and diagnosis
-
-Discount applications and code claims are immutable operational evidence. For vouchers, show each claim's applied money and derive remaining credit from issued value minus reserved and redeemed applications; released claims restore availability without rewriting history. Inspect evidence through allowlisted administration projections. Do not repair it through ordinary mutation commands or direct edits; use a reviewed migration or dedicated repair workflow.
-
-For production diagnostics or database repair, read the Workspace operations skill and preserve its redaction and staged-release rules.
-
-## Cross-surface changes
-
-Treat `packages/workspace-admin-api/src/workspace-admin-api.ts` as the shared contract for the Admin UI, administration API, and `dhw`. Route discount mutations through `apps/deskohub-workspace/features/discounts/admin/execute-discount-admin-mutation.ts`; preserve CLI replay and mismatch protection in `features/admin-cli/cli-mutation-idempotency.service.ts`. Extend the existing generic mutation endpoint and client unless the transport boundary itself has changed.
-
-Verify the shared schema, discount administration service and dispatcher, Admin actions and components, CLI API idempotency, and exact `dhw` argument-to-mutation and output mappings. The CI-equivalent checks for shared administration-contract work are:
-
-```bash
-bun turbo lint --filter=@deskohub/workspace-admin-api --filter=dhw
-bun turbo typecheck --filter=@deskohub/workspace-admin-api --filter=dhw
-bun --cwd apps/dhw test
-bun turbo test:admin-cli --filter=./apps/deskohub-workspace
-bun apps/dhw/src/build.ts development
-apps/dhw/dist/dhw version --json
-```
-
-When a shared contract change affects `dhw`, change the CLI in the same pull request and include a releasable `feat(dhw): ...` or `fix(dhw): ...` commit. `.github/workflows/dhw-ci.yml` enforces that release boundary.
+Discount applications and code claims are immutable evidence. Voucher remaining credit is issued value minus reserved and redeemed applications; a released claim restores availability without rewriting history. Inspect evidence through allowlisted administration projections. Repair it only through a reviewed migration or dedicated repair workflow, never through ordinary mutations or direct edits. Load `deskohub-workspace-operations` before production diagnostics or database repair.
