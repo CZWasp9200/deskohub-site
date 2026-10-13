@@ -1,7 +1,7 @@
 import "server-only";
 
 import { GoogleCalendarService } from "@deskohub/google-calendar";
-import { Effect, Exit, Layer, Option } from "effect";
+import { Effect, Layer, Option } from "effect";
 import { cacheLife, cacheTag } from "next/cache";
 import { WorkspaceDatabase } from "@/db/database.service";
 import {
@@ -9,7 +9,7 @@ import {
   type SalesCalendarId,
 } from "@/shared/backend/config/calendar-resource.config";
 import { WorkspaceGoogleCalendarLayer } from "@/shared/backend/config/google-calendar.config";
-import { runWorkspaceEffect } from "@/shared/backend/workspace-effect";
+import { runWorkspaceEffectOrElse } from "@/shared/backend/workspace-effect";
 import { type CalendarSale, normalizeCalendarSales } from "./calendar-sale";
 import type { DiscountDefinition } from "./discount-definition";
 import { DiscountDefinitionRepository } from "./discount-definition.repository";
@@ -130,7 +130,7 @@ export async function loadCalendarDiscountSource(
 ): Promise<CalendarSalesSourceResult> {
   "use cache: remote";
 
-  return await Effect.gen(function* () {
+  const source = await Effect.gen(function* () {
     const { salesCalendarId } = yield* CalendarResourceConfig;
     return yield* loadCalendarSalesSource({
       calendarId: salesCalendarId,
@@ -138,18 +138,23 @@ export async function loadCalendarDiscountSource(
     });
   }).pipe(
     Effect.provide(CalendarDiscountSourceLive),
-    // Only a complete source is shared; a partial or failed load is never
-    // cached, so the next request retries it.
-    Effect.onExit((exit) =>
-      Effect.sync(() => {
-        if (Exit.isSuccess(exit) && exit.value.complete) {
-          cacheLife("advertisedPricingSources");
-          cacheTag(calendarDiscountSourceTag);
-        } else {
-          cacheLife({ expire: 0 });
-        }
-      })
-    ),
-    runWorkspaceEffect("discounts.calendar-source.load")
+    runWorkspaceEffectOrElse("discounts.calendar-source.load", {
+      failureCode: "calendar_discount_source_load_failed",
+      // A failed load, including a runner that never starts, is never
+      // shared; the next request retries it.
+      orElse: (cause) => {
+        cacheLife({ expire: 0 });
+        throw cause;
+      },
+    })
   );
+
+  if (source.complete) {
+    cacheLife("advertisedPricingSources");
+    cacheTag(calendarDiscountSourceTag);
+  } else {
+    cacheLife({ expire: 0 });
+  }
+
+  return source;
 }

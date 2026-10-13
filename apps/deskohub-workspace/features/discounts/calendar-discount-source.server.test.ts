@@ -9,7 +9,7 @@ import {
 } from "@deskohub/google-calendar";
 import { GoogleCalendarServiceMock } from "@deskohub/google-calendar/backend/service.mock";
 import { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
-import { Effect, Layer, Schema } from "effect";
+import { Cause, Effect, Exit, Layer, Schema } from "effect";
 import * as googleCalendarConfigModule from "@/shared/backend/config/google-calendar.config";
 import * as discountDefinitionRepositoryModule from "./discount-definition.repository";
 import { DiscountDefinitionRepositoryMock } from "./discount-definition.repository.mock";
@@ -46,11 +46,19 @@ const cacheLife = mock(
 const cacheTag = mock((_tag: string) => undefined);
 
 mock.module("next/cache", () => ({ cacheLife, cacheTag }));
+// Follows the runner's contract: `orElse` answers any failure once.
 mock.module("@/shared/backend/workspace-effect", () => ({
-  runWorkspaceEffect:
-    (_operation: string) =>
-    <A, E>(effect: Effect.Effect<A, E, never>): Promise<A> =>
-      Effect.runPromise(effect),
+  runWorkspaceEffectOrElse:
+    <B>(
+      _operation: string,
+      { orElse }: { readonly orElse: (cause: unknown) => B }
+    ) =>
+    async <A, E>(effect: Effect.Effect<A, E, never>): Promise<A | B> => {
+      const exit = await Effect.runPromiseExit(effect);
+      return Exit.isSuccess(exit)
+        ? exit.value
+        : orElse(Cause.squash(exit.cause));
+    },
 }));
 mock.module("@/shared/backend/config/google-calendar.config", () => ({
   ...googleCalendarConfigModule,
