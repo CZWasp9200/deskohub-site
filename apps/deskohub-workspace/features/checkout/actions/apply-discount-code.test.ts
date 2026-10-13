@@ -2,6 +2,7 @@ import "@/shared/polyfills/temporal";
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, mock, test } from "bun:test";
+import { Duration } from "effect";
 import type { WorkspaceActionOptions } from "@/shared/backend/workspace-action";
 import type { ApplyDiscountCodeResult } from "./apply-discount-code-to-pay-state";
 
@@ -30,6 +31,7 @@ mock.module("@/shared/backend/workspace-action", () => ({
     (_options: WorkspaceActionOptions<never>, _handler: never) => async () => ({
       data: operationResult,
     }),
+  workspaceActionDeadline: Duration.seconds(45),
 }));
 
 let operationResult: ApplyDiscountCodeResult;

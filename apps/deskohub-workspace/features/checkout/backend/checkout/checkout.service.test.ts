@@ -27,7 +27,10 @@ import {
   canonicalPromotionCodeSchema,
   discountIdSchema,
 } from "@/features/discounts/contracts";
-import { DiscountClaimError } from "@/features/discounts/errors";
+import {
+  DiscountAffirmationUnavailableError,
+  DiscountClaimError,
+} from "@/features/discounts/errors";
 import type { Locale } from "@/features/i18n";
 import {
   type NormalizedCoworkReservationOrder,
@@ -36,6 +39,7 @@ import {
 import { normalizedMeetingRoomReservationOrderSchema } from "@/features/reservation/meeting-room-reservation";
 import { normalizedOfficeReservationOrderSchema } from "@/features/reservation/office-reservation";
 import { reservationOrderSchema } from "@/features/reservation/reservation-order";
+import { getSlowestSuccessfulCalendarLoad } from "@/shared/backend/config/google-calendar.config.test-utils";
 import { getNexiRequestTimeoutMilliseconds } from "@/shared/backend/config/nexi.config";
 import { withInstantSleeps } from "@/shared/testing/workspace-test-clock.test-utils";
 import { workspaceSiteConstants } from "@/shared/utils/site-constants";
@@ -499,6 +503,8 @@ type CheckoutHarnessOptions<ReservationOverrides extends object> = {
   readonly changedKeys?: CheckoutSummaryChangedKeys;
   readonly reservationOverrides?: ReservationOverrides;
   readonly requireCurrent?: ReturnType<typeof mock>;
+  /** How long each default live payable-reservation guard takes. */
+  readonly liveGuardDuration?: Duration.Input;
   readonly activeAttempt?: ReturnType<typeof makeAttempt> | null;
   readonly affirm?: ReturnType<typeof mock>;
   readonly createPendingNexiAttempt?: ReturnType<typeof mock>;
@@ -609,7 +615,14 @@ const createCheckoutHarness = async <ReservationOverrides extends object>(
     ...options.reservationOverrides,
   });
   const requireCurrent =
-    options.requireCurrent ?? mock(() => Effect.succeed(reservationRecord));
+    options.requireCurrent ??
+    mock(() =>
+      options.liveGuardDuration === undefined
+        ? Effect.succeed(reservationRecord)
+        : Effect.sleep(options.liveGuardDuration).pipe(
+            Effect.as(reservationRecord)
+          )
+    );
   const reservations = {
     findById: mock(() => Effect.succeed(reservationRecord)),
     updateReservationDetails,
@@ -847,11 +860,14 @@ describe("CheckoutService", () => {
   });
 
   describe("within the pay submit deadline", () => {
-    const createSlowProviderHarness = async (orderId: string) => {
+    const createSlowProviderHarness = async (
+      orderId: string,
+      hostedPageDuration: Duration.Input = "26 seconds"
+    ) => {
       const harness = await createCheckoutHarness({
         orderId,
         createHostedPaymentPage: mock(() =>
-          Effect.sleep("26 seconds").pipe(
+          Effect.sleep(hostedPageDuration).pipe(
             Effect.as({
               securityToken: "provider-security-token",
               hostedPage: "https://payments.example/hosted",
@@ -872,14 +888,8 @@ describe("CheckoutService", () => {
       const { withActionDeadline } = await import(
         "@/shared/backend/workspace-action"
       );
-      const deadline = getCheckoutSubmitDeadline({
-        dotypos: Duration.millis(dotyposApiTimeoutDefaultMilliseconds),
-        nexi: Duration.millis(
-          getNexiRequestTimeoutMilliseconds(deploymentEnvironment)
-        ),
-      });
       return await effect.pipe(
-        withActionDeadline(deadline),
+        withActionDeadline(getCheckoutSubmitDeadline(deploymentEnvironment)),
         Effect.exit,
         withInstantSleeps,
         Effect.runPromise
@@ -905,8 +915,11 @@ describe("CheckoutService", () => {
     });
 
     test("attaches a hosted page that finishes after the deadline passes", async () => {
+      // 20 seconds of Dotypos and 36 of Nexi outlast the production
+      // deadline of about 55 seconds.
       const harness = await createSlowProviderHarness(
-        "reservation-hosted-page-past-deadline"
+        "reservation-hosted-page-past-deadline",
+        "36 seconds"
       );
 
       const exit = await submitWithinDeadline(harness.effect, "production");
@@ -927,6 +940,109 @@ describe("CheckoutService", () => {
       expect(harness.markTerminalForReservation).not.toHaveBeenCalled();
     });
   });
+
+  describe.each([
+    // The discount affirmation succeeds only on its Calendar retry, between
+    // live guards, a Dotypos note, and a hosted page that are slow but within
+    // their own timeouts; together they just outlast the pay submit deadline
+    // from before Calendar retries.
+    ["production", "6 seconds", "20 seconds", "4 seconds"],
+    ["preview", "2 seconds", "20 seconds", "17 seconds"],
+  ] as const)(
+    "in %s, with a Calendar load that succeeds on its retry",
+    (deploymentEnvironment, liveGuardDuration, noteDuration, hostedPageDuration) => {
+      const createCalendarRetryHarness = async (orderId: string) => {
+        const harness = await createCheckoutHarness({
+          orderId,
+          liveGuardDuration,
+          affirm: mock(() =>
+            Effect.sleep(
+              getSlowestSuccessfulCalendarLoad(deploymentEnvironment)
+            ).pipe(
+              Effect.as({
+                quote: buildCoworkReservationQuote(reservationData),
+                commitment: emptyCommitment,
+              })
+            )
+          ),
+          createHostedPaymentPage: mock(() =>
+            Effect.sleep(hostedPageDuration).pipe(
+              Effect.as({
+                securityToken: "provider-security-token",
+                hostedPage: "https://payments.example/hosted",
+              })
+            )
+          ),
+        });
+        harness.updateReservation.mockImplementation(() =>
+          Effect.sleep(noteDuration)
+        );
+        return harness;
+      };
+
+      const submitWithin = async <A, E>(
+        effect: Effect.Effect<A, E>,
+        includeCalendarBudget: boolean
+      ) => {
+        const { withActionDeadline } = await import(
+          "@/shared/backend/workspace-action"
+        );
+        return await effect.pipe(
+          withActionDeadline(
+            includeCalendarBudget
+              ? getCheckoutSubmitDeadline(deploymentEnvironment)
+              : // The deadline before Calendar retries: one Dotypos request,
+                // one Nexi request, and 10 seconds of other work.
+                Duration.sum(
+                  Duration.sum(
+                    Duration.millis(dotyposApiTimeoutDefaultMilliseconds),
+                    Duration.millis(
+                      getNexiRequestTimeoutMilliseconds(deploymentEnvironment)
+                    )
+                  ),
+                  Duration.seconds(10)
+                )
+          ),
+          Effect.exit,
+          withInstantSleeps,
+          Effect.runPromise
+        );
+      };
+
+      test("starts the hosted payment within the pay submit deadline", async () => {
+        const harness = await createCalendarRetryHarness(
+          `reservation-calendar-retry-${deploymentEnvironment}`
+        );
+
+        const exit = await submitWithin(harness.effect, true);
+
+        expect(exit).toMatchObject({
+          _tag: "Success",
+          value: {
+            status: "redirect",
+            redirectUrl: "https://payments.example/hosted",
+          },
+        });
+      });
+
+      test("would be interrupted without the Calendar retry budget", async () => {
+        const harness = await createCalendarRetryHarness(
+          `reservation-calendar-retry-unbudgeted-${deploymentEnvironment}`
+        );
+
+        const exit = await submitWithin(harness.effect, false);
+
+        expect(exit).toMatchObject({
+          _tag: "Failure",
+          cause: {
+            reasons: [
+              { error: { message: "Request timed out. Please try again." } },
+            ],
+          },
+        });
+      });
+    }
+  );
 
   test("redirects a reusable active attempt before discount affirmation and note refresh", async () => {
     const orderId = "reservation-reuses-provider-attempt";
@@ -2187,6 +2303,32 @@ describe("CheckoutService", () => {
         }),
       })
     );
+    expect(harness.updateReservationDetails).not.toHaveBeenCalled();
+    expect(harness.updateReservation).not.toHaveBeenCalled();
+    expect(harness.createPendingNexiAttempt).not.toHaveBeenCalled();
+    expect(harness.createHostedPaymentPage).not.toHaveBeenCalled();
+  });
+
+  test("fails without pricing_changed when accepted discounts cannot be affirmed", async () => {
+    const unavailable = new DiscountAffirmationUnavailableError({
+      message: "Calendar was unavailable.",
+      discountIds: [application.discount.id],
+    });
+    const harness = await createCheckoutHarness({
+      orderId: "reservation-discount-affirmation-unavailable",
+      acceptedQuote: buildCoworkReservationQuote(reservationData, {
+        discountQuote: discountedQuote,
+      }),
+      affirm: mock(() => Effect.fail(unavailable)),
+    });
+
+    const error = await Effect.runPromise(Effect.flip(harness.effect));
+
+    expect(error).toMatchObject({
+      _tag: "CheckoutError",
+      code: "checkout_failed",
+      cause: unavailable,
+    });
     expect(harness.updateReservationDetails).not.toHaveBeenCalled();
     expect(harness.updateReservation).not.toHaveBeenCalled();
     expect(harness.createPendingNexiAttempt).not.toHaveBeenCalled();

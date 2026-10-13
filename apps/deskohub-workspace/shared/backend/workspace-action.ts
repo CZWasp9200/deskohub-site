@@ -60,7 +60,8 @@ export interface WorkspaceActionContext<S extends StandardSchemaV1> {
   readonly locale: Locale;
 }
 
-const workspaceActionDeadline = Duration.seconds(45);
+/** The deadline of an action that sets none of its own. */
+export const workspaceActionDeadline = Duration.seconds(45);
 
 /** Fails an action that outlives `deadline` with a retryable public error. */
 export const withActionDeadline =

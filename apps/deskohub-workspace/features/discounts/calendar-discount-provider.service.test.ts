@@ -15,7 +15,10 @@ import {
   salesCalendarIdSchema,
   workspaceLimitationsCalendarIdSchema,
 } from "@/shared/backend/config/calendar-resource.config";
-import { CalendarDiscountProvider } from "./calendar-discount-provider.service";
+import {
+  CalendarDiscountProvider,
+  type ICalendarDiscountProvider,
+} from "./calendar-discount-provider.service";
 import type { DiscountDefinition } from "./discount-definition";
 import {
   DiscountDefinitionNotFoundError,
@@ -107,6 +110,23 @@ const runWithProvider = <A, E>(
     ),
     Effect.runPromise
   );
+
+/** The candidates a Calendar affirmation resolves, ignoring completeness. */
+const revalidateCandidates = (
+  provider: ICalendarDiscountProvider,
+  input: Parameters<ICalendarDiscountProvider["revalidate"]>[0]
+) =>
+  provider.revalidate(input).pipe(Effect.map(({ candidates }) => candidates));
+
+const revalidate = Effect.gen(function* () {
+  const provider = yield* CalendarDiscountProvider;
+  return yield* provider.revalidate({
+    locale: "en-US",
+    product: basicProduct,
+    lastServiceDate: "2026-07-14",
+    bookedAt: bookedAtOn("2026-07-14"),
+  });
+});
 
 const discover = Effect.gen(function* () {
   const provider = yield* CalendarDiscountProvider;
@@ -544,6 +564,38 @@ describe("CalendarDiscountProvider", () => {
     expect(loadById).toHaveBeenCalledTimes(2);
   });
 
+  test("reports an affirmation incomplete when a definition fails to load", async () => {
+    const cause = new EffectDrizzleQueryError({
+      query: "select discount definition",
+      params: [],
+      cause: new Error("database unavailable"),
+    });
+    const result = await runWithProvider(
+      revalidate,
+      () =>
+        Effect.succeed([
+          saleEvent({ id: "valid-sale", description: discountIdA }),
+          saleEvent({ id: "failed-sale", description: discountIdB }),
+        ]),
+      ({ discountId }) =>
+        discountId === discountIdB
+          ? Effect.fail(cause)
+          : Effect.succeed(definition(discountId))
+    );
+
+    expect(result.complete).toBeFalse();
+    expect(result.candidates).toHaveLength(1);
+  });
+
+  test("reports a complete affirmation when every sale resolves", async () => {
+    const result = await runWithProvider(revalidate, () =>
+      Effect.succeed([saleEvent()])
+    );
+
+    expect(result).toMatchObject({ complete: true });
+    expect(result.candidates).toHaveLength(1);
+  });
+
   test("maps Google Calendar failures while preserving the cause", async () => {
     const cause = new GoogleCalendarAPIError({
       operation: "events.list",
@@ -584,19 +636,19 @@ describe("CalendarDiscountProvider", () => {
     const result = await runWithProvider(
       Effect.gen(function* () {
         const provider = yield* CalendarDiscountProvider;
-        const spring = yield* provider.revalidate({
+        const spring = yield* revalidateCandidates(provider, {
           locale: "en-US",
           product: basicProduct,
           lastServiceDate: "2026-03-29",
           bookedAt: bookedAtOn("2026-03-29"),
         });
-        const springExclusiveEnd = yield* provider.revalidate({
+        const springExclusiveEnd = yield* revalidateCandidates(provider, {
           locale: "en-US",
           product: basicProduct,
           lastServiceDate: "2026-03-30",
           bookedAt: bookedAtOn("2026-03-30"),
         });
-        const autumn = yield* provider.revalidate({
+        const autumn = yield* revalidateCandidates(provider, {
           locale: "en-US",
           product: basicProduct,
           lastServiceDate: "2026-10-25",
@@ -640,14 +692,14 @@ describe("CalendarDiscountProvider", () => {
     const result = await runWithProvider(
       Effect.gen(function* () {
         const provider = yield* CalendarDiscountProvider;
-        const first = yield* provider.revalidate({
+        const first = yield* revalidateCandidates(provider, {
           locale: "en-US",
           product: basicProduct,
           lastServiceDate: displayedDate,
           bookedAt: bookedAtOn(displayedDate),
         });
         displayedDate = "2026-07-16";
-        const moved = yield* provider.revalidate({
+        const moved = yield* revalidateCandidates(provider, {
           locale: "en-US",
           product: basicProduct,
           lastServiceDate: displayedDate,
@@ -655,7 +707,7 @@ describe("CalendarDiscountProvider", () => {
         });
         originalDate = "2026-07-21";
         displayedDate = "2026-07-21";
-        const nextOccurrence = yield* provider.revalidate({
+        const nextOccurrence = yield* revalidateCandidates(provider, {
           locale: "en-US",
           product: basicProduct,
           lastServiceDate: displayedDate,
@@ -793,7 +845,7 @@ describe("CalendarDiscountProvider", () => {
           bookedAt: bookedAtOn("2026-07-14"),
         });
         definitions.set(discountIdA, definition(discountIdA, { products: [] }));
-        const quoteAfterMutation = yield* provider.revalidate({
+        const quoteAfterMutation = yield* revalidateCandidates(provider, {
           locale: "en-US",
           product: basicProduct,
           lastServiceDate: "2026-07-14",
@@ -841,14 +893,14 @@ describe("CalendarDiscountProvider", () => {
     const result = await runWithProvider(
       Effect.gen(function* () {
         const provider = yield* CalendarDiscountProvider;
-        const initial = yield* provider.revalidate({
+        const initial = yield* revalidateCandidates(provider, {
           locale: "en-US",
           product: basicProduct,
           lastServiceDate: "2026-07-20",
           bookedAt: bookedAtOn("2026-07-20"),
         });
         title = "Edited operator title";
-        const afterTitleEdit = yield* provider.revalidate({
+        const afterTitleEdit = yield* revalidateCandidates(provider, {
           locale: "en-US",
           product: basicProduct,
           lastServiceDate: "2026-07-20",
@@ -894,7 +946,7 @@ describe("CalendarDiscountProvider", () => {
           lastServiceDate: "2026-07-20",
           bookedAt: bookedAtOn("2026-07-20"),
         });
-        const fresh = yield* provider.revalidate({
+        const fresh = yield* revalidateCandidates(provider, {
           locale: "en-US",
           product: basicProduct,
           lastServiceDate: "2026-07-20",
@@ -947,7 +999,7 @@ describe("CalendarDiscountProvider", () => {
           lastServiceDate: "2026-07-20",
           bookedAt: lastBookableInstant.add({ seconds: 1 }),
         });
-        const storedBookingAfterExpiry = yield* provider.revalidate({
+        const storedBookingAfterExpiry = yield* revalidateCandidates(provider, {
           locale: "en-US",
           product: basicProduct,
           lastServiceDate: "2026-07-20",
@@ -981,13 +1033,13 @@ describe("CalendarDiscountProvider", () => {
     const result = await runWithProvider(
       Effect.gen(function* () {
         const provider = yield* CalendarDiscountProvider;
-        const bookedBeforeStart = yield* provider.revalidate({
+        const bookedBeforeStart = yield* revalidateCandidates(provider, {
           locale: "en-US",
           product: basicProduct,
           lastServiceDate: "2026-07-20",
           bookedAt: firstBookableInstant.subtract({ milliseconds: 1 }),
         });
-        const bookedAtStart = yield* provider.revalidate({
+        const bookedAtStart = yield* revalidateCandidates(provider, {
           locale: "en-US",
           product: basicProduct,
           lastServiceDate: "2026-07-20",
@@ -1014,7 +1066,7 @@ describe("CalendarDiscountProvider", () => {
       const result = await runWithProvider(
         Effect.gen(function* () {
           const provider = yield* CalendarDiscountProvider;
-          return yield* provider.revalidate({
+          return yield* revalidateCandidates(provider, {
             locale: "en-US",
             product: basicProduct,
             lastServiceDate,
@@ -1072,7 +1124,7 @@ describe("CalendarDiscountProvider", () => {
     });
     const revalidateForDate = Effect.gen(function* () {
       const provider = yield* CalendarDiscountProvider;
-      return yield* provider.revalidate({
+      return yield* revalidateCandidates(provider, {
         locale: "en-US",
         product: basicProduct,
         lastServiceDate: "2026-07-20",

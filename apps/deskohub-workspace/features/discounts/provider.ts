@@ -51,3 +51,12 @@ export type DiscountCandidate = {
   readonly provenance: DiscountProvenance;
   readonly claim?: DiscountClaimInstruction;
 };
+
+/**
+ * The candidates a provider resolved, and whether it resolved every discount
+ * it owns. Only a complete resolution shows that a missing discount is gone.
+ */
+export type DiscountCandidateResolution = {
+  readonly candidates: readonly DiscountCandidate[];
+  readonly complete: boolean;
+};
