@@ -367,10 +367,10 @@ describe("CalendarDiscountProvider", () => {
             yield* provider.discover(input("reserved-desk"))
           ),
           revalidatedOpenSpace: toLabels(
-            yield* provider.revalidate(input("open-space"))
+            yield* revalidateCandidates(provider, input("open-space"))
           ),
           revalidatedReservedDesk: toLabels(
-            yield* provider.revalidate(input("reserved-desk"))
+            yield* revalidateCandidates(provider, input("reserved-desk"))
           ),
         };
       }),
@@ -411,7 +411,8 @@ describe("CalendarDiscountProvider", () => {
           { kind: "cowork", tier: "reserved-desk" },
         ];
         const cachedOpenSpace = yield* provider.discover(input("open-space"));
-        const revalidatedReservedDesk = yield* provider.revalidate(
+        const revalidatedReservedDesk = yield* revalidateCandidates(
+          provider,
           input("reserved-desk")
         );
         return {
