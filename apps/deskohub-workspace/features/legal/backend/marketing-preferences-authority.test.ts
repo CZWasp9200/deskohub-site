@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
+import { CustomerAccountAccessError } from "@/features/account/customer-account";
 import { MarketingManagementError } from "./marketing-management.service";
 import {
   getAccountMarketingManagementContext,
@@ -39,7 +40,9 @@ const resolve = (input: {
           accountCalls += 1;
           return input.accountCustomerId
             ? Effect.succeed(account(input.accountCustomerId))
-            : Effect.fail(new Error("account unavailable"));
+            : Effect.fail(
+                new CustomerAccountAccessError({ reason: "unavailable" })
+              );
         },
         resolveManagementSession: () =>
           input.linkFailure

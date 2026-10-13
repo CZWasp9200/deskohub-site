@@ -214,7 +214,7 @@ const voucherAvailabilitySchema = Schema.Struct({
 
 const malformedAvailability = (
   promotionCodeId: PromotionCodeId,
-  cause: unknown
+  cause: Schema.SchemaError
 ) =>
   new PromotionCodeConfigurationError({
     promotionCodeId,

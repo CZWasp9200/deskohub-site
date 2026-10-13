@@ -1,4 +1,4 @@
-import { BigDecimal, Match } from "effect";
+import { BigDecimal, Match, Option } from "effect";
 import {
   getManualInvoicePayment,
   type InvoiceDocument,
@@ -10,7 +10,10 @@ import { getWorkspaceProductTierTitle } from "@/features/checkout/product-catalo
 import { formatWorkspaceMoney } from "@/features/checkout/workspace-money";
 import { type Locale, m } from "@/features/i18n";
 import { findWorkspaceCurrencyDefinition } from "@/shared/money/currencies";
-import { formatInstantDate } from "@/shared/utils/date-time-format";
+import {
+  formatInstantDate,
+  formatPlainDate,
+} from "@/shared/utils/date-time-format";
 import { workspaceSiteConstants } from "@/shared/utils/site-constants";
 
 export interface InvoicePresentationParty {
@@ -207,7 +210,7 @@ const getManualInvoicePresentation = (
         totalLabel: copy.totalPaid,
         dateFact: {
           label: copy.paymentDate,
-          value: formatPlainDate(date, document.locale),
+          value: formatInvoicePlainDate(date, document.locale),
         },
       }),
       due: ({ date }) =>
@@ -217,7 +220,7 @@ const getManualInvoicePresentation = (
               totalLabel: manual.totalDue,
               dateFact: {
                 label: manual.dueDate,
-                value: formatPlainDate(date, document.locale),
+                value: formatInvoicePlainDate(date, document.locale),
               },
             }
           : {
@@ -246,7 +249,7 @@ const getManualInvoicePresentation = (
         },
         {
           label: copy.serviceDate,
-          value: formatPlainDate(document.serviceDate, document.locale),
+          value: formatInvoicePlainDate(document.serviceDate, document.locale),
         },
         paymentPresentation.dateFact,
       ],
@@ -364,21 +367,20 @@ const formatWorkspaceInstantDate = (value: string, locale: Locale) =>
     timeZone: workspaceSiteConstants.location.timeZone,
   });
 
-const formatCountry = (country: string, locale: Locale) => {
-  try {
-    return (
-      new Intl.DisplayNames([locale], { type: "region" }).of(country) ?? country
-    );
-  } catch {
-    return country;
-  }
-};
+const displayRegionName = Option.liftThrowable(
+  (country: string, locale: Locale) =>
+    new Intl.DisplayNames([locale], { type: "region" }).of(country)
+);
 
-const formatPlainDate = (value: string, locale: Locale) =>
-  new Intl.DateTimeFormat(locale, {
-    dateStyle: "medium",
-    timeZone: "UTC",
-  }).format(new Date(`${value}T00:00:00Z`));
+/** The localized region name, or the stored code when Intl has no name. */
+const formatCountry = (country: string, locale: Locale) =>
+  displayRegionName(country, locale).pipe(
+    Option.flatMap(Option.fromNullishOr),
+    Option.getOrElse(() => country)
+  );
+
+const formatInvoicePlainDate = (value: string, locale: Locale) =>
+  formatPlainDate({ date: Temporal.PlainDate.from(value), locale });
 
 const formatManualMoney = (value: string, currency: string) => {
   const exponent = findWorkspaceCurrencyDefinition(currency)?.exponent ?? 0;

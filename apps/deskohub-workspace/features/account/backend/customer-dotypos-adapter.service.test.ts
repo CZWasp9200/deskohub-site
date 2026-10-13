@@ -426,6 +426,126 @@ describe("CustomerDotyposAdapter", () => {
       expect(calls).toEqual(["patch", "patch"]);
       expect(outcome._tag).toBe("Failure");
     });
+
+    test("rereads again after a second uncertain response and then fails with the patch error", async () => {
+      const calls: string[] = [];
+
+      const outcome = await runWithDotypos(
+        {
+          patchCustomer: () => {
+            calls.push("patch");
+            return Effect.fail(
+              new ExternalAPIError({
+                service: "Dotypos",
+                operation: "patchCustomer",
+                statusCode: 503,
+              })
+            );
+          },
+          getCustomer: () => {
+            calls.push("read");
+            return Effect.succeed(expiredCustomer);
+          },
+        },
+        (adapter) => adapter.reactivateCustomer("60222").pipe(Effect.result)
+      );
+
+      expect(calls).toEqual(["patch", "read", "patch", "read", "read"]);
+      expect(outcome._tag).toBe("Failure");
+      if (outcome._tag === "Failure") {
+        expect(outcome.failure).toMatchObject({
+          _tag: "ExternalAPIError",
+          operation: "patchCustomer",
+          statusCode: 503,
+        });
+      }
+    });
+
+    test("accepts a second uncertain response once the final reread shows it applied", async () => {
+      const calls: string[] = [];
+      let reads = 0;
+
+      await runWithDotypos(
+        {
+          patchCustomer: () => {
+            calls.push("patch");
+            return Effect.fail(
+              new NetworkError({ message: "connection reset" })
+            );
+          },
+          getCustomer: () => {
+            calls.push("read");
+            reads += 1;
+            return Effect.succeed(reads < 3 ? activeCustomer : expiredCustomer);
+          },
+        },
+        (adapter) => adapter.expireCustomer("60111")
+      );
+
+      expect(calls).toEqual(["patch", "read", "patch", "read", "read"]);
+    });
+
+    test("fails with a reread failure without retrying the patch", async () => {
+      const calls: string[] = [];
+
+      const outcome = await runWithDotypos(
+        {
+          patchCustomer: () => {
+            calls.push("patch");
+            return Effect.fail(
+              new NetworkError({ message: "connection reset" })
+            );
+          },
+          getCustomer: () => {
+            calls.push("read");
+            return Effect.fail(
+              new ExternalAPIError({
+                service: "Dotypos",
+                operation: "getCustomer",
+                statusCode: 500,
+              })
+            );
+          },
+        },
+        (adapter) => adapter.expireCustomer("60111").pipe(Effect.result)
+      );
+
+      expect(calls).toEqual(["patch", "read"]);
+      expect(outcome._tag).toBe("Failure");
+      if (outcome._tag === "Failure") {
+        expect(outcome.failure).toMatchObject({ operation: "getCustomer" });
+      }
+    });
+
+    test("fails a definitive rejection without rereading or retrying", async () => {
+      const calls: string[] = [];
+
+      const outcome = await runWithDotypos(
+        {
+          patchCustomer: () => {
+            calls.push("patch");
+            return Effect.fail(
+              new ExternalAPIError({
+                service: "Dotypos",
+                operation: "patchCustomer",
+                statusCode: 400,
+              })
+            );
+          },
+          getCustomer: () => {
+            calls.push("read");
+            return Effect.succeed(expiredCustomer);
+          },
+        },
+        (adapter) => adapter.expireCustomer("60111").pipe(Effect.result)
+      );
+
+      expect(calls).toEqual(["patch"]);
+      expect(outcome._tag).toBe("Failure");
+      if (outcome._tag === "Failure") {
+        expect(outcome.failure).toMatchObject({ statusCode: 400 });
+      }
+    });
   });
 
   describe("uncertain-response comparison", () => {

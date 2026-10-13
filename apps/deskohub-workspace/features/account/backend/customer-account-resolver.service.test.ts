@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
+import { NetworkError } from "@deskohub/dotypos";
 import { testEmailAddress } from "@deskohub/test-email";
-import { Effect } from "effect";
+import { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
+import { Cause, Effect } from "effect";
+import { SqlError } from "effect/unstable/sql";
 import {
   type CustomerAccountAccessError,
   customerAccountIdSchema,
@@ -70,7 +73,7 @@ const makeDependencies = (
     reactivate: () => {
       calls.push("reactivate");
       return overrides.reactivation === "fails"
-        ? Effect.fail(new Error("dotypos unavailable"))
+        ? Effect.fail(new NetworkError({ message: "dotypos unavailable" }))
         : Effect.succeed(undefined);
     },
     withAccountLock: (_accountId, effect) => {
@@ -83,6 +86,35 @@ const makeDependencies = (
     ...overrides,
   };
   return { dependencies, calls };
+};
+
+const sqlFailure = () =>
+  new SqlError.SqlError({
+    reason: new SqlError.UnknownError({
+      cause: new Error("synthetic connection refused"),
+      message: "synthetic connection refused",
+      operation: "connect",
+    }),
+  });
+
+const linkQueryFailure = () =>
+  new EffectDrizzleQueryError({
+    query: "select 1",
+    params: [],
+    cause: Cause.fail(sqlFailure()),
+  });
+
+const expectUnavailable = (
+  outcome: Awaited<ReturnType<typeof runResolution>>,
+  code: string
+) => {
+  expect(outcome._tag).toBe("Failure");
+  if (outcome._tag === "Failure") {
+    const error = outcome.failure as CustomerAccountAccessError;
+    expect(error.reason).toBe("unavailable");
+    expect(error.cause?.code).toBe(code);
+    expect(JSON.stringify(error)).not.toContain("synthetic");
+  }
 };
 
 const matches = (
@@ -342,5 +374,46 @@ describe("CustomerAccountResolver", () => {
       account: { accountId, dotyposCustomerId: "60222" },
       autoLinked: true,
     });
+  });
+
+  test("reports a failed link read as the fixed link-read unavailability", async () => {
+    const { dependencies } = makeDependencies({
+      findLink: () => Effect.fail(linkQueryFailure()),
+    });
+
+    expectUnavailable(await runResolution(dependencies), "account-link.read");
+  });
+
+  test("reports a failed provider lookup as the fixed lookup unavailability", async () => {
+    const { dependencies } = makeDependencies({
+      classify: () =>
+        Effect.fail(new NetworkError({ message: "synthetic lookup failure" })),
+    });
+
+    expectUnavailable(
+      await runResolution(dependencies),
+      "dotypos.customer-lookup"
+    );
+  });
+
+  test("reports a failed link claim as the fixed claim unavailability", async () => {
+    const { dependencies } = makeDependencies({
+      matches: matches({
+        kind: "matched",
+        state: "active",
+        customerId: "60111",
+      }),
+      claimLink: () => Effect.fail(linkQueryFailure()),
+    });
+
+    expectUnavailable(await runResolution(dependencies), "account-link.claim");
+  });
+
+  test("reports a failed lock acquisition as the fixed lock unavailability", async () => {
+    const { dependencies } = makeDependencies({
+      withAccountLock: () => Effect.fail(sqlFailure()),
+    });
+
+    expectUnavailable(await runResolution(dependencies), "account-link.lock");
   });
 });

@@ -1,10 +1,12 @@
 import { createHash } from "node:crypto";
 import type { DotyposCustomerId } from "@deskohub/dotypos";
-import { Data, Effect, Schema } from "effect";
+import { Data, Effect } from "effect";
 import type {
+  CustomerAccountAccessError,
   CustomerAccountId,
   LinkedCustomerAccount,
 } from "@/features/account/customer-account";
+import type { MarketingManagementError } from "./marketing-management.service";
 
 /**
  * The cookie adapter uses this value when a management cookie exists but is
@@ -50,13 +52,27 @@ export class MarketingPreferencesAuthorityError extends Data.TaggedError(
   "MarketingPreferencesAuthorityError"
 )<{
   readonly reason: MarketingPreferencesAuthorityFailureReason;
-}> {}
+}> {
+  /**
+   * A rejected link or session credential is an invalid link; any other
+   * management-service failure is a retryable unavailability.
+   */
+  static fromManagementFailure = (
+    failure: MarketingManagementError
+  ): MarketingPreferencesAuthorityError =>
+    isInvalidMarketingManagementCredential(failure)
+      ? invalidLink()
+      : unavailable();
+}
 
 export interface MarketingPreferencesAuthorityDependencies {
-  readonly resolveAccount: () => Effect.Effect<LinkedCustomerAccount, unknown>;
+  readonly resolveAccount: () => Effect.Effect<
+    LinkedCustomerAccount,
+    CustomerAccountAccessError
+  >;
   readonly resolveManagementSession: (
     rawSession: string
-  ) => Effect.Effect<DotyposCustomerId, unknown>;
+  ) => Effect.Effect<DotyposCustomerId, MarketingManagementError>;
 }
 
 /**
@@ -135,7 +151,7 @@ const resolveMarketingLinkAuthority = (
         context: getLinkMarketingManagementContext(rawSession, customerId),
       })
     ),
-    Effect.mapError(mapManagementResolutionFailure)
+    Effect.mapError(MarketingPreferencesAuthorityError.fromManagementFailure)
   );
 };
 
@@ -182,20 +198,13 @@ const hashContext = (input: string): string =>
 const isInvalidCookieValue = (value: string): boolean =>
   value.length === 0 || value === MARKETING_MANAGEMENT_INVALID_COOKIE_SENTINEL;
 
-const mapManagementResolutionFailure = (
-  cause: unknown
-): MarketingPreferencesAuthorityError =>
-  isInvalidMarketingManagementCredential(cause) ? invalidLink() : unavailable();
-
 /**
  * Recognizes a management-service rejection of the presented link or session
  * credential, as opposed to a retryable unavailability.
  */
-export const isInvalidMarketingManagementCredential = Schema.is(
-  Schema.TaggedStruct("MarketingManagementError", {
-    reason: Schema.Literal("invalid_credential"),
-  })
-);
+export const isInvalidMarketingManagementCredential = (
+  failure: MarketingManagementError
+): boolean => failure.reason === "invalid_credential";
 
 const invalidLink = (): MarketingPreferencesAuthorityError =>
   new MarketingPreferencesAuthorityError({ reason: "invalid-link" });
