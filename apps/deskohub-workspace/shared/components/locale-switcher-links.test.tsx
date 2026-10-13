@@ -13,6 +13,7 @@ import {
   fireEvent,
   type RenderResult,
   render,
+  waitFor,
 } from "@testing-library/react";
 import type { ComponentProps, ReactNode } from "react";
 import type { SiteHeaderAccountEntry } from "@/shared/components/site-header-config";
@@ -478,4 +479,194 @@ test("uses document navigation for the alternate-locale minimal-header link", as
     });
     view.unmount();
   }
+});
+
+const localePreference = (signedIn: boolean) => {
+  const saves: { locale: string }[] = [];
+  const saved = Promise.withResolvers<void>();
+  return {
+    saves,
+    saved,
+    preference: {
+      signedIn: Promise.resolve(signedIn),
+      save: (input: { locale: "cs-CZ" | "en-US" }) => {
+        saves.push(input);
+        return saved.promise;
+      },
+    },
+  };
+};
+
+test("a signed-in switch saves the preference before navigating to the new locale", async () => {
+  const { LocaleSwitcherLinks } = await import("./locale-switcher-links");
+  window.location.href = "http://localhost/en-US";
+  const { saves, saved, preference } = localePreference(true);
+  const view = render(
+    <LocaleSwitcherLinks
+      currentLocale="en-US"
+      languageLabels={{ "cs-CZ": "Czech", "en-US": "English" }}
+      localePreference={preference}
+    />
+  );
+  await act(() => preference.signedIn);
+
+  fireEvent.click(view.getByRole("link", { name: "Czech" }));
+
+  await waitFor(() => expect(saves).toEqual([{ locale: "cs-CZ" }]));
+  expect(window.location.pathname).toBe("/en-US");
+
+  await act(async () => {
+    saved.resolve();
+    await saved.promise;
+  });
+
+  expect(window.location.pathname).toBe("/cs-CZ");
+});
+
+test("a signed-in switch still navigates when the save fails", async () => {
+  const { LocaleSwitcherLinks } = await import("./locale-switcher-links");
+  window.location.href = "http://localhost/en-US";
+  const saves: { locale: string }[] = [];
+  const signedIn = Promise.resolve(true);
+  const view = render(
+    <LocaleSwitcherLinks
+      currentLocale="en-US"
+      languageLabels={{ "cs-CZ": "Czech", "en-US": "English" }}
+      localePreference={{
+        signedIn,
+        save: (input) => {
+          saves.push(input);
+          return Promise.reject(new Error("network unreachable"));
+        },
+      }}
+    />
+  );
+  await act(() => signedIn);
+
+  fireEvent.click(view.getByRole("link", { name: "Czech" }));
+
+  await waitFor(() => expect(window.location.pathname).toBe("/cs-CZ"));
+  expect(saves).toEqual([{ locale: "cs-CZ" }]);
+});
+
+test("a guest switch stays a plain link without saving", async () => {
+  const { LocaleSwitcherLinks } = await import("./locale-switcher-links");
+  const { saves, preference } = localePreference(false);
+  const view = render(
+    <LocaleSwitcherLinks
+      currentLocale="en-US"
+      languageLabels={{ "cs-CZ": "Czech", "en-US": "English" }}
+      localePreference={preference}
+    />
+  );
+  await act(() => preference.signedIn);
+
+  const link = view.getByRole("link", { name: "Czech" });
+  const notPrevented = fireEvent.click(link);
+
+  expect(notPrevented).toBe(true);
+  expect(link.getAttribute("href")).toBe("/cs-CZ");
+  expect(saves).toEqual([]);
+});
+
+test("a switch before the session check settles waits for it, then saves when signed in", async () => {
+  const { LocaleSwitcherLinks } = await import("./locale-switcher-links");
+  window.location.href = "http://localhost/en-US";
+  const signedIn = Promise.withResolvers<boolean>();
+  const saves: { locale: string }[] = [];
+  const view = render(
+    <LocaleSwitcherLinks
+      currentLocale="en-US"
+      languageLabels={{ "cs-CZ": "Czech", "en-US": "English" }}
+      localePreference={{
+        signedIn: signedIn.promise,
+        save: (input) => {
+          saves.push(input);
+          return Promise.resolve();
+        },
+      }}
+    />
+  );
+
+  const notPrevented = fireEvent.click(
+    view.getByRole("link", { name: "Czech" })
+  );
+  expect(notPrevented).toBe(false);
+  expect(saves).toEqual([]);
+
+  await act(async () => {
+    signedIn.resolve(true);
+    await signedIn.promise;
+  });
+
+  await waitFor(() => expect(window.location.pathname).toBe("/cs-CZ"));
+  expect(saves).toEqual([{ locale: "cs-CZ" }]);
+});
+
+test("a guest switch before the session check settles navigates without saving", async () => {
+  const { LocaleSwitcherLinks } = await import("./locale-switcher-links");
+  window.location.href = "http://localhost/en-US";
+  const signedIn = Promise.withResolvers<boolean>();
+  const saves: { locale: string }[] = [];
+  const view = render(
+    <LocaleSwitcherLinks
+      currentLocale="en-US"
+      languageLabels={{ "cs-CZ": "Czech", "en-US": "English" }}
+      localePreference={{
+        signedIn: signedIn.promise,
+        save: (input) => {
+          saves.push(input);
+          return Promise.resolve();
+        },
+      }}
+    />
+  );
+
+  fireEvent.click(view.getByRole("link", { name: "Czech" }));
+  await act(async () => {
+    signedIn.resolve(false);
+    await signedIn.promise;
+  });
+
+  await waitFor(() => expect(window.location.pathname).toBe("/cs-CZ"));
+  expect(saves).toEqual([]);
+});
+
+// React hands a client component the server's streamed promise as a bare
+// thenable: it has `then` and nothing else, so `catch` and `finally` are absent.
+const bareThenable = <T,>(value: T): PromiseLike<T> => ({
+  // biome-ignore lint/suspicious/noThenProperty: models React's streamed thenable.
+  then: (onFulfilled, onRejected) =>
+    Promise.resolve(value).then(onFulfilled, onRejected),
+});
+
+test("a signed-in switch with a streamed bare thenable saves, then navigates", async () => {
+  const { LocaleSwitcherLinks } = await import("./locale-switcher-links");
+  window.location.href = "http://localhost/en-US";
+  const saves: { locale: string }[] = [];
+  const signedIn = bareThenable(true);
+  const view = render(
+    <LocaleSwitcherLinks
+      currentLocale="en-US"
+      languageLabels={{ "cs-CZ": "Czech", "en-US": "English" }}
+      localePreference={{
+        signedIn,
+        save: (input) => {
+          saves.push(input);
+          return bareThenable(undefined);
+        },
+      }}
+    />
+  );
+  await act(async () => {
+    await signedIn;
+  });
+
+  const notPrevented = fireEvent.click(
+    view.getByRole("link", { name: "Czech" })
+  );
+
+  expect(notPrevented).toBe(false);
+  await waitFor(() => expect(window.location.pathname).toBe("/cs-CZ"));
+  expect(saves).toEqual([{ locale: "cs-CZ" }]);
 });

@@ -79,6 +79,35 @@ describe("payment timeline", () => {
     ]);
   });
 
+  test("falls back to the recorded refund when the Nexi refund time is unreadable", () => {
+    const provider = orderWithBackOfficeRefund.provider;
+    if (!provider) throw new Error("fixture order has provider details");
+    const orders: AdministrationOrder[] = [
+      {
+        ...orderWithBackOfficeRefund,
+        provider: {
+          ...provider,
+          operations: provider.operations.map((operation) =>
+            operation.operationType === "REFUND"
+              ? { ...operation, operationTime: "not a timestamp" }
+              : operation
+          ),
+        },
+      },
+    ];
+
+    expect(
+      titles([
+        ...buildPaymentAttemptTimeline([refundedAttempt], orders),
+        ...getOrderTimeline(orders),
+      ])
+    ).toEqual([
+      "Payment started",
+      "Refund recorded",
+      "Payment executed by Nexi",
+    ]);
+  });
+
   test("falls back to the recorded refund when Nexi order details are unavailable", () => {
     const orders = [orderUnavailable];
 

@@ -17,6 +17,7 @@ const key: PostgresAdvisoryLockKey = ["test-namespace", "resource-1"];
 
 const makeFakePool = (options?: {
   readonly failAcquire?: boolean;
+  readonly failLock?: boolean;
   readonly failRollback?: boolean;
 }) => {
   const queries: string[] = [];
@@ -26,6 +27,9 @@ const makeFakePool = (options?: {
   const client: PostgresAdvisoryLockClient = {
     query: (text: string) => {
       queries.push(text);
+      if (options?.failLock && text.includes("pg_advisory_xact_lock")) {
+        return Promise.reject(new Error("lock went wrong"));
+      }
       if (options?.failRollback && text.includes("rollback")) {
         return Promise.reject(new Error("rollback went wrong"));
       }
@@ -304,6 +308,28 @@ describe("Postgres advisory lock helper", () => {
     expect((error as { _tag?: string })._tag).toBe("SqlError");
     expect(fake.queries).toHaveLength(0);
     expect(fake.released).toHaveLength(0);
+  });
+
+  test("evicts the pooled client and fails with a SQL error when the lock cannot be taken", async () => {
+    const fake = makeFakePool({ failLock: true });
+    let guardedRuns = 0;
+
+    const error = await Effect.runPromise(
+      withPostgresAdvisoryLock(
+        fake.pool,
+        key,
+        Effect.sync(() => {
+          guardedRuns += 1;
+        })
+      ).pipe(Effect.flip)
+    );
+
+    expect(error._tag).toBe("SqlError");
+    expect(guardedRuns).toBe(0);
+    expect(fake.queries).toHaveLength(2);
+    expect(fake.queries).not.toContain("rollback");
+    expect(fake.released).toHaveLength(1);
+    expect(fake.released[0]).toBe(error);
   });
 
   test("evicts the pooled client when the rollback fails", async () => {

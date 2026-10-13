@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { getAuthTables } from "better-auth/db";
-import { getTableConfig, type PgTable } from "drizzle-orm/pg-core";
+import { getTableConfig, PgDialect, type PgTable } from "drizzle-orm/pg-core";
 import { authOptions } from "@/features/account/backend/auth/auth-options";
 import {
   authAccount,
@@ -112,6 +112,33 @@ describe("Better Auth schema", () => {
     )!;
     expect(column.notNull).toBe(false);
     expect(column.getSQLType()).toBe("timestamp with time zone");
+  });
+
+  test("carries the locale preference as a nullable server-owned user field", () => {
+    const fields = authTables.user!.fields as Record<string, BetterAuthField>;
+    expect(fields.locale).toMatchObject({
+      type: "string",
+      required: false,
+      input: false,
+    });
+
+    const config = getTableConfig(authUser);
+    const column = config.columns.find(
+      (candidate) => candidate.name === "locale"
+    )!;
+    expect(column.notNull).toBe(false);
+    expect(column.getSQLType()).toBe("text");
+    const check = config.checks.find(
+      (candidate) => candidate.name === "user_locale_check"
+    );
+    expect(check).toBeDefined();
+    expect(new PgDialect().sqlToQuery(check!.value).sql).toBe(
+      `"auth"."user"."locale" in ('en-US', 'cs-CZ')`
+    );
+  });
+
+  test("joins the user into the session read", () => {
+    expect(authOptions.advanced.database.joins).toBe(true);
   });
 
   test("keeps timestamps decoding as Date, not Temporal", () => {

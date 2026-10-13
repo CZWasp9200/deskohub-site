@@ -57,4 +57,22 @@ describe("createPostHogConfig", () => {
     });
     expect(JSON.stringify(maskedRequest)).not.toContain("synthetic");
   });
+
+  test("drops captured network requests whose URL cannot be parsed", () => {
+    const { maskCapturedNetworkRequestFn } = createPostHogConfig({
+      apiHost: "https://posthog.example",
+      beforeSend: (event) => event,
+      optOutUseragentFilter: false,
+    }).session_recording;
+
+    expect(
+      maskCapturedNetworkRequestFn({
+        duration: 1,
+        entryType: "resource",
+        name: "not a url synthetic-request",
+        requestBody: "synthetic-request-body",
+        startTime: 0,
+      })
+    ).toBeNull();
+  });
 });

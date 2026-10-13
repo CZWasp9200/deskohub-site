@@ -39,19 +39,6 @@ const reconcilePaidFulfillments = Effect.fn("reconcilePaidFulfillments")(
   Effect.scoped
 );
 
-const handlePaidFulfillmentCronError = Effect.fn(
-  "handlePaidFulfillmentCronError"
-)(function* (cause: unknown) {
-  yield* Effect.logError("Paid fulfillment reconciliation cron failed", {
-    cause,
-  });
-
-  return NextResponse.json(
-    { error: "Paid fulfillment reconciliation failed" },
-    { status: 500 }
-  );
-});
-
 export const GET = defineWorkspaceRoute(
   {
     operation: "paidFulfillmentReconciliationCron",
@@ -68,7 +55,19 @@ export const GET = defineWorkspaceRoute(
 
     return reconcilePaidFulfillments().pipe(
       Effect.provide(ReconciliationLive),
-      Effect.catch(handlePaidFulfillmentCronError)
+      Effect.catch(
+        Effect.fn("handlePaidFulfillmentCronError")(function* (cause) {
+          yield* Effect.logError(
+            "Paid fulfillment reconciliation cron failed",
+            { cause }
+          );
+
+          return NextResponse.json(
+            { error: "Paid fulfillment reconciliation failed" },
+            { status: 500 }
+          );
+        })
+      )
     );
   }
 );

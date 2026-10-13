@@ -844,7 +844,7 @@ export function ProfileForm({
           className={isComplete ? "space-y-6" : undefined}
           disabled={isRefreshPending}
         >
-          {isComplete ? (
+          {mode === "complete" ? (
             <>
               <div className="grid gap-5 @xl:grid-cols-2">
                 {identityFields}

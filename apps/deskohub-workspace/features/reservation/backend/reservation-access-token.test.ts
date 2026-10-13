@@ -91,6 +91,36 @@ describe("reservation access token", () => {
     }
   });
 
+  test("rejects unreadable or unexpected claims as an invalid token", async () => {
+    const token = await Effect.runPromise(createToken());
+    const [, signature] = token.split(".");
+    const encode = (claims: string) =>
+      Buffer.from(claims).toString("base64url");
+
+    for (const encodedClaims of [
+      encode("not json"),
+      encode(JSON.stringify({ purpose: "reservation-access", orderId })),
+    ]) {
+      const error = await Effect.runPromise(
+        Effect.flip(
+          openReservationAccessToken(
+            {
+              token: reservationAccessTokenSchema.make(
+                `${encodedClaims}.${signature}`
+              ),
+              orderId,
+              locale: "en-US",
+            },
+            { secret }
+          )
+        )
+      );
+      expect(error.code).toBe("invalid-token");
+      expect(error.message).toBe("Reservation access token is invalid.");
+      expect(error.cause).toBeDefined();
+    }
+  });
+
   test("keeps links valid when checkout keys are retired", async () => {
     const token = await Effect.runPromise(createToken());
     const previousCheckoutKeys = process.env.CHECKOUT_PAY_STATE_KEYS;

@@ -1,6 +1,6 @@
 "use client";
 
-import { Predicate } from "effect";
+import { Option, Predicate } from "effect";
 import { CalendarIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { isLocale, m } from "@/features/i18n";
@@ -18,6 +18,7 @@ import {
   useLoadedModule,
   usePreloadWhenIdle,
 } from "@/shared/utils/preloadable-module";
+import { parsePlainDate } from "@/shared/utils/temporal";
 
 export type ReservationDatePickerProps = {
   readonly ariaDescribedBy?: string;
@@ -47,15 +48,8 @@ const reservationCalendar = createPreloadableModule(
   () => import("@/shared/components/ui/calendar")
 );
 
-const parsePlainDate = (value: string | undefined) => {
-  if (!value) return undefined;
-
-  try {
-    return Temporal.PlainDate.from(value);
-  } catch {
-    return undefined;
-  }
-};
+const parseCalendarDate = (value: string | undefined) =>
+  value ? Option.getOrUndefined(parsePlainDate(value)) : undefined;
 
 const getCalendarDate = (date: Temporal.PlainDate) =>
   new Date(date.year, date.month - 1, date.day, 12);
@@ -130,11 +124,11 @@ export function ReservationDatePicker({
         isLocale(locale) ? { locale } : undefined
       )}`
     : ariaLabel;
-  const selectedDate = parsePlainDate(value);
-  const maximumDate = parsePlainDate(
+  const selectedDate = parseCalendarDate(value);
+  const maximumDate = parseCalendarDate(
     Predicate.isFunction(maximum) ? maximum() : maximum
   );
-  const minimumDate = parsePlainDate(
+  const minimumDate = parseCalendarDate(
     Predicate.isFunction(minimum) ? minimum() : minimum
   );
 

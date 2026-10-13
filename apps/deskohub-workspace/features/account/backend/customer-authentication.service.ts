@@ -2,6 +2,7 @@ import type { User as BetterAuthUser } from "better-auth";
 import { Context, Data, Effect, Layer, Option, Schema } from "effect";
 import { headers } from "next/headers";
 import { env } from "@/env";
+import { type Locale, locales } from "@/features/i18n";
 import { reservationCustomerEmailSchema } from "@/features/reservation/reservation-contact";
 import { CurrentWorkspaceRequestHeaders } from "@/shared/backend/workspace-request-context";
 import {
@@ -20,13 +21,22 @@ import {
 /**
  * The closed account-domain view of an authoritative Better Auth session.
  * Better Auth user, provider, and session field types never cross this
- * adapter, so domain code sees only these three facts.
+ * adapter, so domain code sees only these facts.
  */
 export type CustomerAccountSession = {
   readonly accountId: CustomerAccountId;
   readonly email: typeof reservationCustomerEmailSchema.Type;
   readonly deletionRequested: boolean;
+  /**
+   * The saved locale preference on the account. Absent for an account that
+   * has none yet; never defaulted.
+   */
+  readonly localePreference?: Locale;
 };
+
+const decodeLocalePreference = Schema.decodeUnknownOption(
+  Schema.Literals(locales)
+);
 
 const accessError = (reason: CustomerAccountAccessError["reason"]) =>
   new CustomerAccountAccessError({ reason });
@@ -53,11 +63,15 @@ export const decodeCustomerAccountSession = (
     const withDeletionMarker = session.user as BetterAuthUser & {
       deletionRequestedAt?: Date | null;
     };
+    const localePreference = Option.getOrUndefined(
+      decodeLocalePreference((session.user as { locale?: unknown }).locale)
+    );
 
     return {
       accountId,
       email,
       deletionRequested: withDeletionMarker.deletionRequestedAt != null,
+      ...(localePreference && { localePreference }),
     } satisfies CustomerAccountSession;
   });
 

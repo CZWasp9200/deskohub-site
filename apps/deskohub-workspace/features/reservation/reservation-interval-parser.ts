@@ -103,12 +103,12 @@ const normalizeInstantString = (
     Schema.decodeUnknownResult(instantStringSchema)(normalize())
   ).pipe(Effect.mapError((cause) => toValidationError(path, cause)));
 
-const toValidationError = (path: keyof ReservationInterval, cause: unknown) =>
+const toValidationError = (
+  path: keyof ReservationInterval,
+  cause: Schema.SchemaError
+) =>
   new ReservationIntervalValidationError({
     path,
-    message:
-      cause instanceof Error
-        ? cause.message
-        : "Reservation start and end must be valid timestamps.",
+    message: cause.message,
     cause,
   });

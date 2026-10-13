@@ -42,6 +42,7 @@ mock.module("@/features/account/actions", () => ({
   completeCustomerProfile,
   lookupAresBusiness,
   updateCustomerProfile,
+  updateLocalePreference: () => Promise.resolve({ data: { status: "saved" } }),
 }));
 
 mock.module("@/features/account/avatar-actions", () => ({
