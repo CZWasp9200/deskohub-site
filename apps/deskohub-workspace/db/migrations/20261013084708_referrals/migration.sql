@@ -21,6 +21,8 @@ CREATE TABLE "referral_codes" (
 CREATE TABLE "referral_invitation_claims" (
 	"id" text PRIMARY KEY DEFAULT uuid_generate_v7(),
 	"invited_dotypos_customer_id" text NOT NULL,
+	"referrer_dotypos_customer_id" text,
+	"promotion_code_id" text,
 	"application_id" text NOT NULL,
 	"payment_attempt_id" text NOT NULL,
 	"state" text NOT NULL,
@@ -31,6 +33,9 @@ CREATE TABLE "referral_invitation_claims" (
 	"release_reason" text,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "referral_invitation_claims_referral_check" CHECK (("promotion_code_id" is null) = ("referrer_dotypos_customer_id" is null)
+        and ("referrer_dotypos_customer_id" is null
+          or "referrer_dotypos_customer_id" <> "invited_dotypos_customer_id")),
 	CONSTRAINT "referral_invitation_claims_customer_check" CHECK (btrim("invited_dotypos_customer_id") <> ''),
 	CONSTRAINT "referral_invitation_claims_state_check" CHECK ("state" in ('reserved', 'redeemed', 'released')),
 	CONSTRAINT "referral_invitation_claims_expiration_check" CHECK ("reservation_expires_at" > "reserved_at"),
@@ -53,6 +58,20 @@ CREATE TABLE "referral_invitation_claims" (
       ))
 );
 --> statement-breakpoint
+CREATE TABLE "referral_signup_intents" (
+	"customer_account_id" text PRIMARY KEY,
+	"promotion_code_id" text NOT NULL,
+	"referrer_dotypos_customer_id" text NOT NULL,
+	"outcome" text,
+	"settled_at" timestamp with time zone,
+	"acknowledged_at" timestamp with time zone,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "referral_signup_intents_outcome_check" CHECK (("outcome" is null) = ("settled_at" is null)
+        and ("outcome" is null
+          or "outcome" in ('applied', 'already-referred', 'not-eligible', 'code-unusable'))
+        and ("acknowledged_at" is null or "settled_at" is not null))
+);
+--> statement-breakpoint
 CREATE UNIQUE INDEX "discount_applications_id_attempt_unique_idx" ON "discount_applications" ("id","payment_attempt_id");--> statement-breakpoint
 CREATE INDEX "referral_attributions_referrer_idx" ON "referral_attributions" ("referrer_dotypos_customer_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "referral_codes_referrer_unique_idx" ON "referral_codes" ("referrer_dotypos_customer_id");--> statement-breakpoint
@@ -63,6 +82,8 @@ CREATE UNIQUE INDEX "referral_invitation_claims_active_customer_unique_idx" ON "
 CREATE INDEX "referral_invitation_claims_stale_reserved_idx" ON "referral_invitation_claims" ("reservation_expires_at") WHERE "state" = 'reserved';--> statement-breakpoint
 ALTER TABLE "referral_attributions" ADD CONSTRAINT "referral_attributions_code_referrer_fk" FOREIGN KEY ("promotion_code_id","referrer_dotypos_customer_id") REFERENCES "referral_codes"("promotion_code_id","referrer_dotypos_customer_id");--> statement-breakpoint
 ALTER TABLE "referral_codes" ADD CONSTRAINT "referral_codes_promotion_fk" FOREIGN KEY ("promotion_code_id","promotion_kind") REFERENCES "promotion_codes"("id","kind") ON DELETE CASCADE;--> statement-breakpoint
-ALTER TABLE "referral_invitation_claims" ADD CONSTRAINT "referral_invitation_claims_DNDgiDyFCKlU_fkey" FOREIGN KEY ("invited_dotypos_customer_id") REFERENCES "referral_attributions"("invited_dotypos_customer_id");--> statement-breakpoint
 ALTER TABLE "referral_invitation_claims" ADD CONSTRAINT "referral_invitation_claims_application_attempt_fk" FOREIGN KEY ("application_id","payment_attempt_id") REFERENCES "discount_applications"("id","payment_attempt_id");--> statement-breakpoint
+ALTER TABLE "referral_invitation_claims" ADD CONSTRAINT "referral_invitation_claims_code_referrer_fk" FOREIGN KEY ("promotion_code_id","referrer_dotypos_customer_id") REFERENCES "referral_codes"("promotion_code_id","referrer_dotypos_customer_id");--> statement-breakpoint
+ALTER TABLE "referral_signup_intents" ADD CONSTRAINT "referral_signup_intents_customer_account_id_user_id_fkey" FOREIGN KEY ("customer_account_id") REFERENCES "auth"."user"("id") ON DELETE CASCADE;--> statement-breakpoint
+ALTER TABLE "referral_signup_intents" ADD CONSTRAINT "referral_signup_intents_code_referrer_fk" FOREIGN KEY ("promotion_code_id","referrer_dotypos_customer_id") REFERENCES "referral_codes"("promotion_code_id","referrer_dotypos_customer_id") ON DELETE CASCADE;--> statement-breakpoint
 ALTER TABLE "promotion_codes" DROP CONSTRAINT "promotion_codes_kind_check", ADD CONSTRAINT "promotion_codes_kind_check" CHECK ("kind" in ('discount', 'voucher', 'referral'));

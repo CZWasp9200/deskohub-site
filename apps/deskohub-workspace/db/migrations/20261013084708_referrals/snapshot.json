@@ -1,9 +1,8 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "e737a080-913b-4313-a9d1-57daee8798ec",
+  "id": "e74f0c1e-77a2-4f8f-a470-ddb9e9d8cc39",
   "prevIds": [
-    "618a563f-f513-4682-a219-6ccd873c4a5b",
     "a55af6a7-82a3-466c-be4f-febdfa0bfe49",
     "e5bbe96c-f234-48c2-aa4c-c032006272d6"
   ],
@@ -3025,6 +3024,45 @@
       "generated": null,
       "identity": null,
       "name": "referrer_dotypos_customer_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "referral_signup_intents"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "outcome",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "referral_signup_intents"
+    },
+    {
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "settled_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "referral_signup_intents"
+    },
+    {
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "acknowledged_at",
       "entityType": "columns",
       "schema": "public",
       "table": "referral_signup_intents"
@@ -8090,6 +8128,13 @@
       "entityType": "checks",
       "schema": "public",
       "table": "referral_invitation_claims"
+    },
+    {
+      "value": "(\"outcome\" is null) = (\"settled_at\" is null)\n        and (\"outcome\" is null\n          or \"outcome\" in ('applied', 'already-referred', 'not-eligible', 'code-unusable'))\n        and (\"acknowledged_at\" is null or \"settled_at\" is not null)",
+      "name": "referral_signup_intents_outcome_check",
+      "entityType": "checks",
+      "schema": "public",
+      "table": "referral_signup_intents"
     },
     {
       "value": "\"provider\" = 'igloohome' and \"credential_type\" = 'algopin_hourly'",
