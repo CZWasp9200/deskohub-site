@@ -8,6 +8,7 @@ import { CookieConsentProvider } from "@/features/cookie-consent/components/cook
 import { DeferredTagManager } from "@/features/cookie-consent/components/deferred-tag-manager";
 import { PostHogProvider } from "@/features/cookie-consent/components/posthog-analytics";
 import { isLocale, locales } from "@/features/i18n";
+import { postHogRuntimeConfig } from "@/shared/backend/config/posthog.config";
 import { UnsavedChangesProvider } from "@/shared/components/unsaved-changes-guard";
 import "../globals.css";
 
@@ -70,7 +71,7 @@ export default async function LocaleLayout({
           <CookieConsentProvider locale={locale} />
           <Suspense fallback={null}>
             <ConsentAwareAnalytics
-              featureFlagOverrides={env.POSTHOG_FEATURE_FLAG_OVERRIDES}
+              featureFlagOverrides={postHogRuntimeConfig.featureFlagOverrides}
               posthogEnvironment={env.VERCEL_ENV}
             />
           </Suspense>
