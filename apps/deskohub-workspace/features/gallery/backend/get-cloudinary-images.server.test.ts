@@ -62,12 +62,21 @@ mock.module("@/env", () => ({
 }));
 // The real runner's only addition on top of a plain rejection is log
 // annotation, so the propagated escaping error stays identical. The extra
-// exports keep bun's cross-file module registry satisfied.
+// exports keep bun's cross-file module registry satisfied. The fallback
+// runner's own runtime-failure handling is covered beside it in `shared` and
+// by `get-cloudinary-images.server.runtime-failure.test.ts`.
 mock.module("@/shared/backend/workspace-effect", () => ({
   runWorkspaceEffect:
     () =>
     <A, E>(effect: Effect.Effect<A, E, never>): Promise<A> =>
       Effect.runPromise(effect),
+  runWorkspaceEffectOrElse:
+    <B>(
+      _operation: string,
+      { orElse }: { readonly orElse: (cause: unknown) => B }
+    ) =>
+    <A, E>(effect: Effect.Effect<A, E, never>): Promise<A | B> =>
+      Effect.runPromise(effect).catch(orElse),
   defineWorkspaceTask: () => () => Promise.reject(new Error("unused")),
   defineWorkspacePage: () => () => {
     throw new Error("unused");

@@ -8,7 +8,7 @@ import {
 import { getGalleryImages } from "@deskohub/cloudinary/server";
 import { Effect } from "effect";
 import { cacheLife, cacheTag } from "next/cache";
-import { runWorkspaceEffect } from "@/shared/backend/workspace-effect";
+import { runWorkspaceEffectOrElse } from "@/shared/backend/workspace-effect";
 import { cloudinaryTags } from "@/shared/utils/cache-tags";
 import type { CloudinaryTag } from "../types/cloudinary-tag";
 import {
@@ -64,10 +64,10 @@ export async function getCloudinaryImages({
 
   cacheTag(cloudinaryTags.all(), cloudinaryTags.search(tags, maxResults ?? 50));
 
-  // A Cloudinary outage or a rejected tag list request must not fail the
-  // page: under Cache Components a throwing "use cache" function fails the
-  // prerender even when the caller catches it. `getGalleryImages` logs a
-  // failed lookup; serve no photos and refresh soon. The expiry stays at the
+  // A Cloudinary outage, a rejected tag list request, or a Workspace runtime
+  // that cannot start must not fail the page: under Cache Components a
+  // throwing "use cache" function fails the prerender even when the caller
+  // catches it. Serve no photos and refresh soon. The expiry stays at the
   // 5-minute prerender threshold so callers without a Suspense boundary
   // remain part of the static shell instead of becoming dynamic holes.
   return getGalleryImages(expression, {
@@ -76,12 +76,12 @@ export async function getCloudinaryImages({
     sortDirection,
   }).pipe(
     Effect.provide(WorkspaceCloudinaryLayer),
-    Effect.catchCause(() =>
-      Effect.sync((): readonly CloudinaryAsset[] => {
+    runWorkspaceEffectOrElse("gallery.images.load", {
+      failureCode: "gallery.images.unavailable",
+      orElse: (): readonly CloudinaryAsset[] => {
         cacheLife(cloudinaryFailureCacheLife);
         return [];
-      })
-    ),
-    runWorkspaceEffect("gallery.images.load")
+      },
+    })
   );
 }
