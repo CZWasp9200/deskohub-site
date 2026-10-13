@@ -98,15 +98,18 @@ State types and check constraints are in `db/schema`. Repositories guard every t
 - The attempt key binds the normalized reservation, including contact and billing details, so replaying an opaque ID with different inputs can't reuse a hold. Marketing consent is excluded.
 - Both payloads are `JSON.stringify` of a fixed object shape. Never sort keys or join a tuple.
 
-Lookup keys survive `CHECKOUT_PAY_STATE_KEYS` rotation. Each configured key derives an HKDF subkey; new rows store the active key's `<kid>:<hex>` digest. Lookups accept every configured key's prefixed digest plus the legacy ring-keyed digest. Never look up a single freshly derived key.
+Lookup keys survive `CHECKOUT_PAY_STATE_KEYS` rotation. Each configured key derives an HKDF subkey; new rows store the active key's `<kid>:<hex>` digest. Lookups accept every configured key's prefixed digest plus the legacy ring-keyed digest: an unprefixed hex HMAC keyed by the whole configured string. Never look up a single freshly derived key.
 
 - Every row of a session stores the same session key. Before inserting, resolve the session's latest stored key under any accepted derivation and reuse it.
 - Draft creation runs in one transaction behind `pg_advisory_xact_lock` on a rotation-independent key derived from the raw session ID (`deriveCheckoutSessionLockKey`), then inserts only if neither the attempt nor the session exists under any derivation.
-- Remove the ring-keyed derivation from lookups only after a read-only query finds no unprefixed key on a `held` row or a row with `pending` payment.
 
 ### Rotating `CHECKOUT_PAY_STATE_KEYS`
 
-The value is an ordered `kid:base64url-32-byte-key` list. The first entry is active: it seals new Pay-state tokens and derives new lookup keys. Every entry opens its tokens and is accepted for lookups. Rotate in three complete deployments:
+The value is an ordered `kid:base64url-32-byte-key` list. The first entry is active: it seals new Pay-state tokens and derives new lookup keys. Every entry opens its tokens and is accepted for lookups.
+
+Before any change to the value, including the one-step replace below, confirm with a read-only query that no `held` row or row with `pending` payment stores an unprefixed (ring-keyed) `checkout_session_key` or `checkout_attempt_key`. Any edit to the string stops those digests matching, which breaks lookup and late-payment recovery and lets a resubmission create a duplicate hold. The same check gates removing the ring-keyed derivation from lookups.
+
+Rotate in three complete deployments:
 
 1. **Stage.** Append the new entry after the active one.
 2. **Activate.** Once only the staged configuration serves traffic, move the new entry first.
@@ -114,7 +117,7 @@ The value is an ordered `kid:base64url-32-byte-key` list. The first entry is act
 
 Never prepend a new key in one step: an old worker could neither open new tokens nor find new lookup keys.
 
-Production stores the value as a Vercel sensitive variable that can't be read back, and every phase rewrites the whole list. Confirm the developer can supply the current entries before staging. If they can't, the only option is a one-step replace followed by a production redeploy. It breaks every open Pay page, so do it at a quiet time and only after the retire check passes. Orphaned holds still reach cleanup, which works from reservation IDs.
+Production stores the value as a Vercel sensitive variable that can't be read back, and every phase rewrites the whole list. Confirm the developer can supply the current entries before staging. If they can't, the only option is a one-step replace followed by a production redeploy. It breaks every open Pay page, so do it at a quiet time and only after the ring-keyed and retire checks pass. Orphaned holds still reach cleanup, which works from reservation IDs.
 
 ## Supersession
 
