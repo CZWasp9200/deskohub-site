@@ -9,7 +9,7 @@ import {
   NexiOrderIdSchema,
   NexiService,
 } from "@deskohub/nexi";
-import { Context, Data, Effect, Layer, Match, Predicate, Schema } from "effect";
+import { Context, Data, Effect, Layer, Match, Schema } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { OptionalAccountActivityGuard } from "@/features/account";
 import {
@@ -48,7 +48,6 @@ import {
   getLegalAcceptanceSnapshot,
 } from "@/features/legal/acceptance-snapshot";
 import { isEarlyPerformanceRequestRequired } from "@/features/legal/early-performance";
-import type { WorkspaceTableUnavailableError } from "@/features/reservation/backend/workspace-availability.service";
 import { WorkspaceReservationRepository } from "@/features/reservation/backend/workspace-reservation.repository";
 import { getCoworkReservationIntervalInput } from "@/features/reservation/cowork-reservation";
 import { dotyposCustomerIdSchema } from "@/features/reservation/dotypos-customer";
@@ -467,38 +466,15 @@ const getFreshPayUrl: (
     )
 );
 
-type MappableCheckoutFailure = CheckoutError | WorkspaceTableUnavailableError;
-
-const isMappableCheckoutFailure = (
-  cause: unknown
-): cause is MappableCheckoutFailure =>
-  Predicate.isTagged(cause, "CheckoutError") ||
-  Predicate.isTagged(cause, "WorkspaceTableUnavailableError");
-
-const mapCheckoutFailure = (cause: unknown) => {
-  if (isMappableCheckoutFailure(cause)) {
-    return Match.value(cause).pipe(
-      Match.tag("CheckoutError", (error) => error),
-      Match.tag(
-        "WorkspaceTableUnavailableError",
-        (error) =>
-          new CheckoutError({
-            code: "checkout_failed",
-            message: "workspace_table_unavailable",
-            cause: error,
-          })
-      ),
-      Match.exhaustive
-    );
-  }
-
-  return new CheckoutError({
-    code: "checkout_failed",
-    message:
-      "Payment checkout could not be started. Please review your details and try again.",
-    cause,
-  });
-};
+const mapCheckoutFailure = <E>(cause: E | CheckoutError): CheckoutError =>
+  cause instanceof CheckoutError
+    ? cause
+    : new CheckoutError({
+        code: "checkout_failed",
+        message:
+          "Payment checkout could not be started. Please review your details and try again.",
+        cause,
+      });
 
 const isReusableAttemptState = (state: string) =>
   state === "created" || state === "pending";
