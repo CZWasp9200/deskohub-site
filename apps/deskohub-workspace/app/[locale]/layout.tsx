@@ -8,6 +8,7 @@ import { CookieConsentProvider } from "@/features/cookie-consent/components/cook
 import { DeferredTagManager } from "@/features/cookie-consent/components/deferred-tag-manager";
 import { PostHogProvider } from "@/features/cookie-consent/components/posthog-analytics";
 import { isLocale, locales } from "@/features/i18n";
+import { RememberSharedReferralCode } from "@/features/referrals/remember-shared-referral-code";
 import { UnsavedChangesProvider } from "@/shared/components/unsaved-changes-guard";
 import "../globals.css";
 
@@ -68,6 +69,7 @@ export default async function LocaleLayout({
         {gtmId && <DeferredTagManager gtmId={gtmId} />}
         <PostHogProvider>
           <CookieConsentProvider locale={locale} />
+          <RememberSharedReferralCode />
           <Suspense fallback={null}>
             <ConsentAwareAnalytics
               featureFlagOverrides={env.POSTHOG_FEATURE_FLAG_OVERRIDES}

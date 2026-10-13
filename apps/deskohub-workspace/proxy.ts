@@ -15,9 +15,8 @@ import {
   localeCookieName,
   locales,
 } from "@/features/i18n/routing";
-import { referralCodeQueryParam } from "@/features/referrals/client";
 import {
-  parseSharedReferralCode,
+  findSharedReferralCodeToRemember,
   referralCodeCookieName,
   setReferralCodeCookie,
 } from "@/features/referrals/referral-code-cookie";
@@ -76,19 +75,14 @@ const isDocumentNavigation = (request: NextRequest) => {
   return destination === null || destination === "document";
 };
 
-/**
- * The referral code a shared link carries, when this browser has none yet.
- * First wins is best-effort: two simultaneous first visits with different
- * codes each set the cookie, and the browser keeps whichever response it
- * applies last. There is no visitor identity to coordinate on, and the case is
- * negligible. Only the code's shape is checked here.
- */
-const findSharedReferralCodeToRemember = (request: NextRequest) =>
-  !isDocumentNavigation(request) || request.cookies.has(referralCodeCookieName)
-    ? undefined
-    : parseSharedReferralCode(
-        request.nextUrl.searchParams.get(referralCodeQueryParam)
-      );
+/** The shared referral code a real page load should remember, if any. */
+const findSharedReferralCodeOfNavigation = (request: NextRequest) =>
+  isDocumentNavigation(request)
+    ? findSharedReferralCodeToRemember(
+        request.nextUrl.searchParams,
+        request.cookies
+      )
+    : undefined;
 
 const isSecureRequest = (request: NextRequest) =>
   request.nextUrl.protocol === "https:";
@@ -151,7 +145,7 @@ export async function proxy(request: NextRequest) {
       return exchangeReservationCapability(request, localeFromUrl);
     }
 
-    const sharedReferralCode = findSharedReferralCodeToRemember(request);
+    const sharedReferralCode = findSharedReferralCodeOfNavigation(request);
     if (sharedReferralCode) {
       // The page rendered by this response already reads the new code.
       request.cookies.set(referralCodeCookieName, sharedReferralCode);
@@ -190,7 +184,7 @@ export async function proxy(request: NextRequest) {
   );
 
   const response = NextResponse.redirect(redirectUrl);
-  const sharedReferralCode = findSharedReferralCodeToRemember(request);
+  const sharedReferralCode = findSharedReferralCodeOfNavigation(request);
   if (sharedReferralCode) {
     setReferralCodeCookie(
       response.cookies,
