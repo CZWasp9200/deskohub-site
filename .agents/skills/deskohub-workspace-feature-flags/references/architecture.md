@@ -1,39 +1,56 @@
 # Workspace feature-flag architecture
 
-PostHog is the source of truth for Workspace flag keys, variants, and payload types. Workspace owns a checked-in generated contract so normal builds do not need the management API or its credential.
+PostHog is the source of truth for flag keys, variants, and payload types. Workspace commits its generated contract so builds don't need the management API or its credential, and builds never regenerate it.
 
-## Synchronize the contract
+## Sync the contract
 
-After changing flags in PostHog, run:
+After you change flags in PostHog, run:
 
 ```bash
 bun turbo run feature-flags:sync --filter=deskohub-workspace
 ```
 
-Generation writes only definitions and payload shapes, never live payload values. It uses the same `POSTHOG_API_KEY` as the application; supply that credential explicitly when running the synchronization command.
+The task needs `POSTHOG_API_KEY`, `POSTHOG_API_HOST`, and `POSTHOG_PROJECT_ID`; supply them explicitly. `bun scripts/sync-posthog-feature-flags.ts --cli` reads definitions through `posthog-cli` instead and needs only `POSTHOG_PROJECT_ID`. The CLI path refuses to run unless the CLI points at project `204184` and the `accounts` flag is still present and inactive. Generation writes definitions and payload shapes, never live payload values.
 
 ## Runtime evaluation
 
-Server features resolve the app-owned feature-flag Context capability. That boundary owns the process-scoped typed Node client. It reads the live management definition through the cached runtime management configuration and proves whether boolean enablement is constant. Inactive flags, unconditional 0% flags, and unconditional 100% flags are constant; partial rollouts, person/group/cohort/dependent conditions, continuity, and unknown definitions require the request subject. A management read failure also requires the request subject.
+`WorkspaceFeatureFlagService.Default` (`features/feature-flags/backend/workspace-feature-flag.service.ts`) first classifies each flag from its live management definition (`backend/feature-flag-evaluation-mode.server.ts`, cached with the `publicContent` profile):
 
-Boolean lookups return a proven constant directly, without reading request state or asking PostHog to evaluate it. Whole-snapshot evaluation likewise returns proven constants locally when every requested flag is constant. The Node SDK swallows failed, timed-out, or quota-limited remote evaluations and returns an empty snapshot, so a needless remote call turns transient PostHog failures into missing flags. Request-dependent evaluation uses the consented PostHog visitor identity, falling back to the fixed subject before consent.
+- Constant: inactive flags, flags whose every release group rolls out to 0%, and boolean flags with an unconditional 100% group.
+- Request-dependent: everything else, including partial rollouts, property, group, or cohort conditions, multivariate flags, and experience continuity. A management read failure or missing management configuration makes every flag without an override request-dependent.
 
-Public pages use this adaptive capability through one rendering path. Cache request-independent provider reads, such as public calendar or media data, at their own boundaries. Do not cache a parallel global version of the page or duplicate service layers for global and request evaluation: when a flag becomes targeted, the same capability reads the request subject and Next.js makes that route dynamic.
+`getConstantEnabledValue` in `packages/posthog/src/feature-flags/definitions.ts` holds the exact rules.
 
-React consumers use the generated typed hook under the single provider at the localized application root. Do not add feature-local providers or independently declared flag-key types.
+`isEnabled` returns a constant directly. `evaluateFlags` returns constants locally only when every requested flag is constant. Otherwise the service evaluates remotely with the consented PostHog visitor identity, or the fixed `deskohub-workspace:global-release` subject (with `sendFeatureFlagEvents: false`) before consent. Avoid needless remote calls: the Node SDK turns failed, timed-out, or quota-limited evaluations into missing flags, not errors. Never infer constancy from an evaluated value.
+
+Public pages use this one adaptive path. Cache request-independent provider reads, such as calendar or media data, at their own boundaries. Don't build a parallel global page or separate global and request service layers; when a flag becomes targeted, the same service reads the request subject and Next.js makes the route dynamic.
+
+Keep the package Node service a thin typed wrapper around one lazily created SDK client. A key-value lookup doesn't need its own Context service, Layer, or ManagedRuntime.
 
 ## Deployment-scoped overrides
 
-The optional server-only override map must be a JSON object. Malformed JSON and an invalid value for a generated-contract key fail environment validation in every deployment. Values of keys outside the contract are not validated, because the shared value may hold a flag type, such as a string variant, that this build cannot check. Production rejects any non-empty map, so an unknown key still fails there.
+`POSTHOG_FEATURE_FLAG_OVERRIDES` is an optional server-only JSON object of flag keys to booleans. Use it only for isolated development or protected-preview validation, never for rollout management or to change PostHog's stored definitions:
 
-Outside production, the server PostHog configuration resolves the validated map against the generated contract and drops unknown keys and their unvalidated values with a warning that names only the keys, never values. One Vercel Preview value serves every branch, and it may name a flag that exists in PostHog before a branch has synchronized its contract. Failing on that key would break every preview build that has not synchronized yet. Builds do not regenerate the contract. Consumers read the resolved map from the server PostHog configuration, never the raw environment value.
+```env
+POSTHOG_FEATURE_FLAG_OVERRIDES={"discount_codes":true}
+```
 
-Only development and protected preview may configure a non-empty map. Production must reject it. Apply one immutable map to the process-scoped server client and serialize that same map to the consent-aware browser boundary. Never derive or mutate overrides from requests, cookies, URLs, headers, or visitor identity.
+Validation, in `features/feature-flags/feature-flag-overrides.schema.ts`:
 
-After browser analytics initializes, replace the complete override set. Explicitly clear persisted overrides when configuration is absent. Do not initialize analytics merely to apply an override before consent.
+- Malformed JSON and an invalid value for a contract key fail in every deployment.
+- Values of keys outside the contract stay unvalidated. One Vercel Preview value serves every branch and may name a flag that a branch hasn't synced yet, so an unknown key must not fail a preview build.
+- Production rejects any non-empty map.
 
-Overrides are isolated validation tools, not rollout management, and never mutate the definitions stored by PostHog.
+Keep these schemas and their tests in the feature-flag module; `env.schema.ts` composes them. T3 Env's field dictionary drops cross-field Effect Struct checks, so the production check runs in the named final-schema composer `createEnvironmentSchema`. Keep a regression test on that integration path.
+
+`resolveFeatureFlagOverrides` (`feature-flag-overrides.ts`) drops unknown keys and their values with a warning that names only the keys. Consumers read the resolved map from `postHogRuntimeConfig`, never the raw environment value. The map:
+
+- applies once to the process-scoped Node client and also overrides constant classification;
+- passes unchanged from the server layout to the consent-aware browser boundary, which replaces the complete override set after analytics initializes and clears persisted overrides when the map is absent;
+- never comes from a request, cookie, header, URL, or visitor identity.
+
+Don't initialize analytics before consent just to apply an override. Type browser override clients against `PostHogFeatureFlagOverrides<Definitions>` instead of casting to a record.
 
 ## Rollout inspection
 
-Read a flag's enabled status independently from its release conditions. A disabled flag may still display the conditions that would apply if enabled; that configuration is not evidence that the flag is active.
+Read a flag's enabled status separately from its release conditions. A disabled flag can still show a condition such as `100% of all users`; that's what would apply if it were enabled, not evidence that it's active.
