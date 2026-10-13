@@ -770,15 +770,29 @@ to explain the failure.
 Failures before the E2E process starts—target resolution, dependency
 installation, preview-database resolution, capacity validation, or
 migration—do not produce suite spans. Diagnose those from the responsible
-GitHub Actions step. The workflow adds a setup timing table to its Actions
-summary for Bun setup, repository dependencies, Neon resolution, aggregate
-Dotypos capacity validation, migration, Playwright, and hosted browser/system
-dependencies. It reports both the post-allocation setup path and
-the complete `test-e2e` job setup path from before the exact-SHA checkout. The
-separate target-resolution job remains visible in native Actions timings. The Bun package
-cache is restored by an exact `bun.lock` key without restore keys and saved
-before any exact-SHA test code runs, so a run cannot poison it. These
-operations remain sequential until a supported prepared runner image or cache
+GitHub Actions step. The workflow writes no setup summary; read setup
+durations from the native Actions step timings of the `test-e2e` and
+target-resolution jobs.
+
+The Bun package cache is restored by an exact `bun.lock` key without restore
+keys. On a miss, the fill step copies `bun.lock`, the tracked `package.json`
+manifests, and tracked `*.patch` files as regular Git blobs into
+`$RUNNER_TEMP`, runs `bun install --frozen-lockfile --ignore-scripts` there,
+and the job saves the cache next. No exact-SHA code, `bunfig.toml` (including
+`[install.security]` scanner hooks and `preload`), `.npmrc`, symlink, or
+lifecycle script runs or takes effect before the save. Bun checks every
+fetched tarball against the lockfile integrity and caches a patched package
+under the hash of its patch, so the saved entry holds only what that lockfile
+and those patches produce. Exact-SHA manifests and patches still decide what
+is fetched and patched; the entry is pinned to its inputs, not reviewed. The
+plain `bun install --frozen-lockfile` in the checkout then runs from the warm
+cache with every lifecycle script. Keep every step before the save free of
+exact-SHA code and configuration, and extend
+`scripts/workspace-e2e-bun-cache-fill.test.ts`, which runs the fill step
+against a checkout carrying a scanner hook, when changing the fill. The job
+also sets `no-cache` on `setup-bun`, whose post-job save would otherwise put a
+Bun binary that exact-SHA code could replace into the default-branch cache
+scope that every workflow restores from. Setup operations remain sequential until a supported prepared runner image or cache
 can overlap them without background shell jobs, shared-install locks, or hidden
 failures.
 

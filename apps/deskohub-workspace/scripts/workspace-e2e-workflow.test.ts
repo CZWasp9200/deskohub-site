@@ -535,17 +535,69 @@ describe("workspace E2E workflow", () => {
 
   test("restores Bun packages from a workflow-scoped cache saved before test code runs", () => {
     const restore = stepByName("Restore Bun package cache");
+    const fill = stepByName("Fill Bun package cache from install manifests");
     const save = stepByName("Save Bun package cache");
     expect(restore.uses).toStartWith("actions/cache/restore@");
     expect(save.uses).toStartWith("actions/cache/save@");
     expect(restore.with?.["restore-keys"]).toBeUndefined();
     expect(String(restore.with?.key)).toStartWith("workspace-e2e-bun-");
-    // Only the dependency install runs before the cache entry is saved.
-    const beforeSave = stepsBetweenNames(
-      "Restore Bun package cache",
-      "Save Bun package cache"
+    // Only the miss-gated fill runs between the restore and the save;
+    // workspace-e2e-bun-cache-fill.test.ts executes it against a hostile
+    // checkout.
+    expect(
+      stepsBetweenNames("Restore Bun package cache", "Save Bun package cache")
+    ).toEqual([restore, fill]);
+    expect(fill.if).toBe(save.if);
+  });
+
+  test("runs no exact-SHA code before the Bun package cache is saved", () => {
+    const steps = testJob?.steps ?? [];
+    const saveIndex = steps.findIndex(
+      (step) => step.name === "Save Bun package cache"
     );
-    expect(beforeSave).toHaveLength(2);
-    expect(beforeSave[1]?.run).toStartWith("bun install");
+    expect(saveIndex).toBeGreaterThan(0);
+    const beforeSave = steps.slice(0, saveIndex);
+
+    // Bun runs before the save only to fill the cache.
+    expect(
+      beforeSave
+        .filter((step) => /\bbunx?\b/.test(step.run ?? ""))
+        .map((step) => step.name)
+    ).toEqual(["Fill Bun package cache from install manifests"]);
+
+    // Local actions come from the workflow commit, not the exact-SHA checkout.
+    const coordinatorCheckout = stepByName("Checkout allocation action");
+    expect(coordinatorCheckout.with?.ref).toContain("github.workflow_sha");
+    const localActions = beforeSave.filter((step) =>
+      (step.uses ?? "").startsWith("./")
+    );
+    expect(localActions.length).toBeGreaterThan(0);
+    for (const step of localActions) {
+      expect(step.uses).toStartWith(`./${coordinatorCheckout.with?.path}/`);
+    }
+  });
+
+  test("runs install lifecycle scripts after the Bun package cache is saved", () => {
+    const steps = testJob?.steps ?? [];
+    const install = stepByName("Install repository dependencies");
+    expect(steps.indexOf(install)).toBeGreaterThan(
+      steps.indexOf(stepByName("Save Bun package cache"))
+    );
+    // The fill installs outside the checkout, so this install always starts
+    // from an empty tree and runs every lifecycle script.
+    expect(install.if).toBeUndefined();
+    expect(install.run?.trim()).toBe("bun install --frozen-lockfile");
+  });
+
+  test("keeps the Bun binary out of the shared Actions cache", () => {
+    // setup-bun would save it after exact-SHA code ran, into the
+    // default-branch scope every workflow restores from.
+    const setupBunSteps = allSteps.filter((step) =>
+      (step.uses ?? "").startsWith("oven-sh/setup-bun@")
+    );
+    expect(setupBunSteps.length).toBeGreaterThan(0);
+    for (const step of setupBunSteps) {
+      expect(step.with?.["no-cache"]).toBe(true);
+    }
   });
 });
