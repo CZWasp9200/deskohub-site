@@ -9,14 +9,16 @@ import {
   test,
 } from "bun:test";
 import { act, cleanup, render } from "@testing-library/react";
-import { Effect } from "effect";
 import type {
   CaptureLogOptions,
   CaptureResult,
   PostHogConfig,
 } from "posthog-js";
 import { runWorkspaceBrowserEffect } from "@/shared/browser/workspace-browser-effect";
-import { discardWorkspaceBrowserLogs } from "@/shared/browser/workspace-browser-logs";
+import {
+  discardWorkspaceBrowserLogs,
+  reportWorkspaceBrowserFailure,
+} from "@/shared/browser/workspace-browser-logs";
 import {
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
@@ -972,19 +974,21 @@ describe("PostHogAnalytics", () => {
     );
     const logBrowserFailure = (failureCode: string) =>
       act(async () => {
-        await Effect.logWarning("Synthetic browser failure", {
+        await reportWorkspaceBrowserFailure(
           failureCode,
-        }).pipe(runWorkspaceBrowserEffect("test.browser-logs"));
+          new Error("synthetic browser failure")
+        ).pipe(runWorkspaceBrowserEffect("test.browser-logs"));
       });
     const deliveredLog = (failureCode: string): CaptureLogOptions => ({
       attributes: {
         boundary: "browser",
         "deployment.environment.name": "preview",
+        errorType: "Error",
         failureCode,
         operation: "test.browser-logs",
         "url.full": "https://deskohub.test/account",
       },
-      body: "Synthetic browser failure",
+      body: "Workspace browser failure",
       level: "warn",
     });
 

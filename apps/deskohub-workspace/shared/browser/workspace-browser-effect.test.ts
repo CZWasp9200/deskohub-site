@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
 import { Data, Effect } from "effect";
 import { notFound, redirect } from "next/navigation";
@@ -6,6 +6,7 @@ import { runWorkspaceBrowserEffect } from "./workspace-browser-effect";
 import {
   deliverWorkspaceBrowserLogs,
   discardWorkspaceBrowserLogs,
+  reportWorkspaceBrowserFailure,
   type WorkspaceBrowserLogRecord,
 } from "./workspace-browser-logs";
 
@@ -106,15 +107,14 @@ describe("runWorkspaceBrowserEffect", () => {
     expect(String(missing?.digest)).toStartWith("NEXT_HTTP_ERROR_FALLBACK;");
   });
 
-  test("logs a censored record carrying the operation", async () => {
+  test("reports a censored failure carrying the operation", async () => {
     const records = collectLogs();
     const email = testEmailAddress("browser-runner");
 
-    await Effect.logWarning("Synthetic browser failure", {
-      cause: new Error(`refresh failed for ${email}`),
-      failureCode: "test.browser-failure",
-      token: "synthetic-token",
-    }).pipe(runWorkspaceBrowserEffect("test.logging"));
+    await reportWorkspaceBrowserFailure(
+      "test.browser-failure",
+      new Error(`refresh failed for ${email} with synthetic-token`)
+    ).pipe(runWorkspaceBrowserEffect("test.reporting"));
 
     expect(records).toEqual([
       {
@@ -122,14 +122,30 @@ describe("runWorkspaceBrowserEffect", () => {
           boundary: "browser",
           errorType: "Error",
           failureCode: "test.browser-failure",
-          operation: "test.logging",
+          operation: "test.reporting",
         },
-        body: "Synthetic browser failure",
+        body: "Workspace browser failure",
         level: "warn",
       },
     ]);
     expect(JSON.stringify(records)).not.toContain(email);
     expect(JSON.stringify(records)).not.toContain("synthetic-token");
+  });
+
+  test("discards Effect log output instead of printing raw causes", async () => {
+    const email = testEmailAddress("browser-runner-console");
+    const spies = (["log", "info", "warn", "error", "debug"] as const).map(
+      (method) => spyOn(console, method).mockImplementation(() => undefined)
+    );
+
+    try {
+      await Effect.logError("Synthetic failure", new Error(email)).pipe(
+        runWorkspaceBrowserEffect("test.console")
+      );
+      for (const spy of spies) expect(spy).not.toHaveBeenCalled();
+    } finally {
+      for (const spy of spies) spy.mockRestore();
+    }
   });
 
   test("keeps the run's outcome when the log sink throws", async () => {
@@ -140,14 +156,14 @@ describe("runWorkspaceBrowserEffect", () => {
     });
 
     await expect(
-      Effect.logError("Synthetic sink failure").pipe(
+      reportWorkspaceBrowserFailure("test.sink-failure", new Error("x")).pipe(
         Effect.as("value"),
         runWorkspaceBrowserEffect("test.sink-failure")
       )
     ).resolves.toBe("value");
     const failure = new SyntheticFailure({ message: "synthetic" });
     await expect(
-      Effect.logError("Synthetic sink failure").pipe(
+      reportWorkspaceBrowserFailure("test.sink-failure", failure).pipe(
         Effect.andThen(Effect.fail(failure)),
         runWorkspaceBrowserEffect("test.sink-failure")
       )

@@ -1,11 +1,4 @@
-import {
-  Cause,
-  Logger,
-  type LogLevel,
-  Option,
-  Predicate,
-  References,
-} from "effect";
+import { Effect, Option, Predicate, References } from "effect";
 import {
   censorErrorClassificationValue,
   errorClassificationKeys,
@@ -13,23 +6,16 @@ import {
 
 type WorkspaceBrowserLogAttributes = Record<string, string | number | boolean>;
 
-type WorkspaceBrowserLogLevel =
-  | "trace"
-  | "debug"
-  | "info"
-  | "warn"
-  | "error"
-  | "fatal";
-
 /**
- * A browser log reduced to its message and classification attributes: the
- * run's operation and boundary, codes, tags, and statuses. Error messages,
- * stacks, payloads, and every other value are never part of a record.
+ * A browser failure reduced to classification attributes: the run's
+ * operation and boundary, the failure code, and the error's tag or name.
+ * Error messages, stacks, payloads, and every other value are never part of
+ * a record.
  */
 export interface WorkspaceBrowserLogRecord {
   readonly attributes: Readonly<WorkspaceBrowserLogAttributes>;
   readonly body: string;
-  readonly level: WorkspaceBrowserLogLevel;
+  readonly level: "warn";
 }
 
 type WorkspaceBrowserLogSink = (record: WorkspaceBrowserLogRecord) => void;
@@ -64,76 +50,47 @@ const deliverRecord = Option.liftThrowable(
     sink(record)
 );
 
-const recordLog = Option.liftThrowable(
-  (options: Logger.Options<unknown>): void => {
-    const record = toWorkspaceBrowserLogRecord(options);
-    if (record === undefined) return;
-
-    if (attachedSink !== undefined) {
-      deliverRecord(attachedSink, record);
-    } else if (pendingRecords.length < maxPendingRecords) {
-      pendingRecords.push(record);
-    }
-  }
-);
-
-// A failing projection or sink loses the record; logging never fails the run.
-const WorkspaceBrowserLogger = Logger.make((options) => {
-  recordLog(options);
-});
-
-/** Replaces Effect's console logger, which would print raw causes. */
-export const WorkspaceBrowserLoggerLive = Logger.layer([
-  WorkspaceBrowserLogger,
-]);
-
-const toWorkspaceBrowserLogRecord = (
-  options: Logger.Options<unknown>
-): WorkspaceBrowserLogRecord | undefined => {
-  const level = browserLogLevels[options.logLevel];
-  if (level === undefined) return undefined;
-
-  const messages = Array.isArray(options.message)
-    ? options.message
-    : [options.message];
-  const [body] = messages;
-  const attributes: WorkspaceBrowserLogAttributes = {};
-
-  addClassification(
-    attributes,
-    options.fiber.getRef(References.CurrentLogAnnotations),
-    annotationKeys
-  );
-  for (const message of messages.slice(1)) {
-    addClassification(attributes, message, errorClassificationKeys);
-    if (Predicate.hasProperty(message, "cause")) {
-      addErrorType(attributes, message.cause);
-    }
-  }
-  if (
-    options.cause.reasons.some(
-      (reason) => Cause.isFailReason(reason) || Cause.isDieReason(reason)
+/**
+ * Records one censored failure for PostHog Logs, annotated with the
+ * `operation` and `boundary` of the `runWorkspaceBrowserEffect` run. Use a
+ * stable, low-cardinality `failureCode` without IDs, URLs, or payload data.
+ * Never fails: a failing projection or sink loses the record.
+ */
+export const reportWorkspaceBrowserFailure = (
+  failureCode: string,
+  cause: unknown
+): Effect.Effect<void> =>
+  Effect.withFiber((fiber) =>
+    Effect.sync(() =>
+      holdOrDeliver(
+        toFailureRecord(
+          failureCode,
+          cause,
+          fiber.getRef(References.CurrentLogAnnotations)
+        )
+      )
     )
-  ) {
-    addErrorType(attributes, Cause.squash(options.cause));
-  }
+  ).pipe(Effect.ignoreCause);
 
-  return {
-    attributes,
-    body: Predicate.isString(body) ? body : "Workspace browser log",
-    level,
-  };
+const holdOrDeliver = (failure: WorkspaceBrowserLogRecord) => {
+  if (attachedSink !== undefined) {
+    deliverRecord(attachedSink, failure);
+  } else if (pendingRecords.length < maxPendingRecords) {
+    pendingRecords.push(failure);
+  }
 };
 
-const browserLogLevels: Partial<
-  Record<LogLevel.LogLevel, WorkspaceBrowserLogLevel>
-> = {
-  Debug: "debug",
-  Error: "error",
-  Fatal: "fatal",
-  Info: "info",
-  Trace: "trace",
-  Warn: "warn",
+const toFailureRecord = <Annotations>(
+  failureCode: string,
+  cause: unknown,
+  annotations: Annotations
+): WorkspaceBrowserLogRecord => {
+  const attributes: WorkspaceBrowserLogAttributes = {};
+  addClassification(attributes, annotations, annotationKeys);
+  addClassification(attributes, { failureCode }, ["failureCode"]);
+  addErrorType(attributes, cause);
+
+  return { attributes, body: "Workspace browser failure", level: "warn" };
 };
 
 const annotationKeys = ["boundary", ...errorClassificationKeys] as const;

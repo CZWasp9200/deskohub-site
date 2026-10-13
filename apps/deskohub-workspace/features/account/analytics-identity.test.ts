@@ -792,7 +792,7 @@ describe("analytics account identity", () => {
         failureCode: "account.analytics-session.refresh-failed",
         operation: "account.analytics-identity.refresh",
       },
-      body: "Analytics session refresh failed",
+      body: "Workspace browser failure",
       level: "warn",
     };
     let detachLogs: (() => void) | undefined;

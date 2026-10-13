@@ -1,7 +1,8 @@
 "use client";
 
-import { Effect, Option, Schema } from "effect";
+import { Option, Schema } from "effect";
 import { runWorkspaceBrowserEffect } from "@/shared/browser/workspace-browser-effect";
+import { reportWorkspaceBrowserFailure } from "@/shared/browser/workspace-browser-logs";
 import { authClient } from "./auth.client";
 import {
   type CustomerAccountId,
@@ -330,10 +331,9 @@ const startRefresh = (cycle: RefreshCycle, epoch: number): void => {
 // Logs each failed refetch once, including one a newer refresh supersedes.
 // The log never settles or delays the refresh cycle.
 const logSessionRefreshFailure = (cause: unknown) => {
-  void Effect.logWarning("Analytics session refresh failed", {
-    cause,
-    failureCode: sessionRefreshFailureCode,
-  }).pipe(runWorkspaceBrowserEffect("account.analytics-identity.refresh"));
+  void reportWorkspaceBrowserFailure(sessionRefreshFailureCode, cause).pipe(
+    runWorkspaceBrowserEffect("account.analytics-identity.refresh")
+  );
 };
 
 const finishRefresh = (

@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
-import { Cause, Data, Effect } from "effect";
+import { Data, Effect } from "effect";
 import {
   deliverWorkspaceBrowserLogs,
   discardWorkspaceBrowserLogs,
-  WorkspaceBrowserLoggerLive,
+  reportWorkspaceBrowserFailure,
   type WorkspaceBrowserLogRecord,
 } from "./workspace-browser-logs";
 
@@ -15,8 +15,10 @@ class SyntheticRefreshError extends Data.TaggedError("SyntheticRefreshError")<{
 
 const email = testEmailAddress("browser-logs");
 
-const log = (effect: Effect.Effect<void>) =>
-  Effect.runPromise(effect.pipe(Effect.provide(WorkspaceBrowserLoggerLive)));
+const report = (
+  failureCode: string,
+  cause: Error | string = new Error(email)
+) => Effect.runPromise(reportWorkspaceBrowserFailure(failureCode, cause));
 
 let detach: (() => void) | undefined;
 
@@ -32,20 +34,14 @@ afterEach(() => {
   discardWorkspaceBrowserLogs();
 });
 
-describe("WorkspaceBrowserLoggerLive", () => {
-  test("keeps only classification values from annotations, messages, and causes", async () => {
+describe("reportWorkspaceBrowserFailure", () => {
+  test("keeps only classification values from annotations, the code, and the cause", async () => {
     const records = collect();
 
-    await log(
-      Effect.logError(
-        "Synthetic refresh failed",
-        {
-          address: "Synthetic street 1",
-          cause: new SyntheticRefreshError({ message: email, status: 503 }),
-          code: "synthetic.code",
-          failureCode: `failed for ${email}`,
-        },
-        Cause.fail(new SyntheticRefreshError({ message: email, status: 500 }))
+    await Effect.runPromise(
+      reportWorkspaceBrowserFailure(
+        "synthetic.refresh-failed",
+        new SyntheticRefreshError({ message: email, status: 503 })
       ).pipe(
         Effect.annotateLogs({
           email,
@@ -58,56 +54,57 @@ describe("WorkspaceBrowserLoggerLive", () => {
     expect(records).toEqual([
       {
         attributes: {
-          code: "synthetic.code",
           errorType: "SyntheticRefreshError",
-          failureCode: "[REDACTED]",
+          failureCode: "synthetic.refresh-failed",
           operation: "test.operation",
           reason: "[REDACTED]",
         },
-        body: "Synthetic refresh failed",
-        level: "error",
+        body: "Workspace browser failure",
+        level: "warn",
       },
     ]);
     expect(JSON.stringify(records)).not.toContain(email);
   });
 
-  test("replaces a non-string message with a fixed body", async () => {
+  test("censors a failure code that is not a stable identifier", async () => {
     const records = collect();
 
-    await log(Effect.logInfo({ email }));
+    await report(`failed for ${email}`, "raw string cause");
 
     expect(records).toEqual([
-      { attributes: {}, body: "Workspace browser log", level: "info" },
+      {
+        attributes: { failureCode: "[REDACTED]" },
+        body: "Workspace browser failure",
+        level: "warn",
+      },
     ]);
   });
 
   test("holds records until a sink attaches and delivers each once", async () => {
-    await log(Effect.logWarning("First synthetic record"));
-    await log(Effect.logWarning("Second synthetic record"));
+    await report("synthetic.first");
+    await report("synthetic.second");
 
     const first = collect();
     detach?.();
     const second = collect();
 
-    expect(first.map(({ body }) => body)).toEqual([
-      "First synthetic record",
-      "Second synthetic record",
+    expect(first.map(({ attributes }) => attributes.failureCode)).toEqual([
+      "synthetic.first",
+      "synthetic.second",
     ]);
     expect(second).toEqual([]);
   });
 
   test("bounds the records held without a sink", async () => {
-    await log(
-      Effect.forEach(Array.from({ length: 60 }), () =>
-        Effect.logWarning("Held synthetic record")
-      ).pipe(Effect.asVoid)
-    );
+    for (let index = 0; index < 60; index += 1) {
+      await report("synthetic.held");
+    }
 
     expect(collect()).toHaveLength(50);
   });
 
   test("discards held records", async () => {
-    await log(Effect.logWarning("Discarded synthetic record"));
+    await report("synthetic.discarded");
     discardWorkspaceBrowserLogs();
 
     expect(collect()).toEqual([]);
@@ -118,10 +115,12 @@ describe("WorkspaceBrowserLoggerLive", () => {
     detach?.();
     detach = undefined;
 
-    await log(Effect.logWarning("Held after detach"));
+    await report("synthetic.after-detach");
 
     expect(delivered).toEqual([]);
-    expect(collect().map(({ body }) => body)).toEqual(["Held after detach"]);
+    expect(collect().map(({ attributes }) => attributes.failureCode)).toEqual([
+      "synthetic.after-detach",
+    ]);
   });
 
   test("a throwing sink loses only its own record", async () => {
@@ -130,12 +129,12 @@ describe("WorkspaceBrowserLoggerLive", () => {
     detach = deliverWorkspaceBrowserLogs((record) => {
       calls += 1;
       if (calls === 1) throw new Error("sink unavailable");
-      delivered.push(record.body);
+      delivered.push(String(record.attributes.failureCode));
     });
 
-    await log(Effect.logWarning("Lost synthetic record"));
-    await log(Effect.logWarning("Delivered synthetic record"));
+    await report("synthetic.lost");
+    await report("synthetic.delivered");
 
-    expect(delivered).toEqual(["Delivered synthetic record"]);
+    expect(delivered).toEqual(["synthetic.delivered"]);
   });
 });

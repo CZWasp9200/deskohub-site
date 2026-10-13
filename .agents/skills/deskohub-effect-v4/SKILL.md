@@ -1,6 +1,6 @@
 ---
 name: deskohub-effect-v4
-description: Effect V4 service, Layer, workflow, schema, error, tagged-union handling, Workspace Effect runners, runWorkspaceEffect, runWorkspaceBrowserEffect, client-side or browser Effect runs and logging.
+description: Effect V4 service, Layer, workflow, schema, error, tagged-union handling, Workspace Effect runners, runWorkspaceEffect, runWorkspaceBrowserEffect, client-side or browser Effect runs, browser failure reporting, Effect bundle size.
 ---
 
 # Deskohub Effect V4
