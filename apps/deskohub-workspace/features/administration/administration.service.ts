@@ -6,6 +6,9 @@ import {
   DotyposService,
   type DotyposTableId,
   DotyposTableIdSchema,
+  type ExternalAPIError,
+  type NetworkError,
+  type ValidationError,
 } from "@deskohub/dotypos";
 import type {
   Customer as DotyposCustomer,
@@ -34,6 +37,7 @@ import {
   sql,
   sum,
 } from "drizzle-orm";
+import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import {
   Context,
   Effect,
@@ -1211,15 +1215,15 @@ export class AdministrationService extends Context.Service<
   {
     readonly loadOverviewSource: () => Effect.Effect<
       AdministrationOverviewSource,
-      unknown
+      EffectDrizzleQueryError
     >;
     readonly loadOverview: (
       source: AdministrationOverviewSource
-    ) => Effect.Effect<AdministrationOverview, unknown>;
+    ) => Effect.Effect<AdministrationOverview, EffectDrizzleQueryError>;
     /** Reservations with at least one paid Nexi attempt awaiting refund work. */
     readonly countReservationsNeedingRefund: () => Effect.Effect<
       number,
-      unknown
+      EffectDrizzleQueryError
     >;
     readonly listReservations: (
       input: AdministrationReservationListInput
@@ -1228,28 +1232,40 @@ export class AdministrationService extends Context.Service<
         readonly dateFilterUnavailable: boolean;
         readonly dateSortUnavailable: boolean;
       },
-      unknown
+      EffectDrizzleQueryError
     >;
     readonly loadReservation: (
       id: WorkspaceReservationId
-    ) => Effect.Effect<AdministrationReservationDetail | null, unknown>;
+    ) => Effect.Effect<
+      AdministrationReservationDetail | null,
+      EffectDrizzleQueryError
+    >;
     readonly loadReservationBreadcrumbLabel: (
       id: WorkspaceReservationId
-    ) => Effect.Effect<string | null, unknown>;
+    ) => Effect.Effect<string | null, EffectDrizzleQueryError>;
     readonly findReservationId: (
       identifier: string
-    ) => Effect.Effect<WorkspaceReservationId | null, unknown>;
+    ) => Effect.Effect<WorkspaceReservationId | null, EffectDrizzleQueryError>;
     readonly listBookings: (
       input: AdministrationBookingListInput
-    ) => Effect.Effect<AdministrationBookingPage, unknown>;
+    ) => Effect.Effect<
+      AdministrationBookingPage,
+      | EffectDrizzleQueryError
+      | ExternalAPIError
+      | NetworkError
+      | ValidationError
+    >;
     readonly loadBooking: (
       id: DotyposReservationId
-    ) => Effect.Effect<AdministrationBookingDetail | null, unknown>;
+    ) => Effect.Effect<
+      AdministrationBookingDetail | null,
+      EffectDrizzleQueryError
+    >;
     readonly loadBookingBreadcrumb: (
       id: DotyposReservationId
     ) => Effect.Effect<
       { readonly startsAt: string; readonly tableName: string | null } | null,
-      unknown
+      EffectDrizzleQueryError
     >;
     readonly listCustomers: (
       input: AdministrationCustomerListInput
@@ -1260,18 +1276,21 @@ export class AdministrationService extends Context.Service<
         readonly pageCount: number;
         readonly total: number;
       },
-      unknown
+      EffectDrizzleQueryError
     >;
     readonly loadCustomerReservations: (input: {
       readonly customerId: DotyposCustomerId;
       readonly page?: number;
-    }) => Effect.Effect<AdministrationReservationPage, unknown>;
+    }) => Effect.Effect<AdministrationReservationPage, EffectDrizzleQueryError>;
     readonly loadCustomerActivity: (
       customerId: DotyposCustomerId
-    ) => Effect.Effect<AdministrationCustomerActivity, unknown>;
+    ) => Effect.Effect<AdministrationCustomerActivity, EffectDrizzleQueryError>;
     readonly loadCustomerReservationActivity: (
       customerId: DotyposCustomerId
-    ) => Effect.Effect<AdministrationCustomerReservationActivity, unknown>;
+    ) => Effect.Effect<
+      AdministrationCustomerReservationActivity,
+      EffectDrizzleQueryError
+    >;
     readonly listOrders: IPaymentAdministrationService["listOrders"];
     readonly loadOrder: IPaymentAdministrationService["loadOrder"];
     readonly listOperations: IPaymentAdministrationService["listOperations"];
