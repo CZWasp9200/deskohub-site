@@ -162,6 +162,7 @@ One row per Deskohub checkout workflow for a Dotypos reservation hold and its pa
 | `fulfillment_state` | text enum | yes | Local post-payment/legal-delivery workflow state. |
 | `active_payment_attempt_id` | text | no | Current Nexi or internal payment attempt. |
 | `active_customer_email_delivery_id` | text | no | Active non-PII provider delivery ID for the customer email: the accepted send awaiting its webhook, or, while a delivery-failure recovery reclaims fulfillment into `processing`, the prior failed send's ID as the recovery generation marker. |
+| `active_customer_email_delivery_locale` | text | no | Locale pinned for the in-flight customer confirmation-email generation. It is written only while null, before the generation's first provider send, so retries keep a locale-stable idempotency key. It is cleared atomically when the accepted send's delivery ID is recorded, so the next generation resolves the customer's current language preference. |
 | `reservation_hold_expires_at` | timestamptz | no | Local hold deadline used for cleanup scheduling. Mirrors Deskohub hold policy, not Dotypos facts. |
 | `reservation_hold_expired_at` | timestamptz | no | When local cleanup observed the hold as expired. |
 | `reservation_created_at` | timestamptz | no | When Dotypos reservation creation succeeded. |

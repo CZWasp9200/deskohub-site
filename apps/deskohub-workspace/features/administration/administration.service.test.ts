@@ -1,6 +1,6 @@
 import "@/shared/testing/workspace-test-env";
 import { afterEach, describe, expect, setSystemTime, test } from "bun:test";
-import { ExternalAPIError } from "@deskohub/dotypos";
+import { ExternalAPIError, NetworkError } from "@deskohub/dotypos";
 import { DotyposServiceMock } from "@deskohub/dotypos/backend/service.mock";
 import { Cause, Deferred, Effect, Fiber, Layer } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
@@ -1219,6 +1219,58 @@ describe("AdministrationService", () => {
     );
 
     expect(result).toBeNull();
+  });
+
+  test("propagates Dotypos failures other than a missing booking", async () => {
+    const unavailable = new ExternalAPIError({
+      service: "Dotypos",
+      operation: "getReservation",
+      statusCode: 503,
+    });
+    const offline = new NetworkError({ message: "Dotypos is unreachable" });
+
+    for (const [failure, operation] of [
+      [unavailable, "loadBooking"],
+      [unavailable, "loadBookingBreadcrumb"],
+      [offline, "loadBooking"],
+      [offline, "loadBookingBreadcrumb"],
+    ] as const) {
+      const error = await Effect.gen(function* () {
+        const administration = yield* AdministrationService;
+        return yield* administration[operation]("unavailable-booking");
+      }).pipe(
+        Effect.flip,
+        Effect.provide(
+          AdministrationService.Default.pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(
+                  WorkspaceDatabase,
+                  WorkspaceDatabase.of({
+                    db: { select: () => makeQuery([]) } as never,
+                  })
+                ),
+                DotyposServiceMock({
+                  getReservation: () => Effect.fail(failure),
+                  getTables: () => Effect.succeed([]),
+                }),
+                Layer.succeed(
+                  PostHogReservationHistory,
+                  PostHogReservationHistory.of({
+                    load: () =>
+                      Effect.succeed({ kind: "unavailable" } as const),
+                  })
+                ),
+                PaymentAdministrationServiceMock({})
+              )
+            )
+          )
+        ),
+        Effect.runPromise
+      );
+
+      expect(error).toBe(failure);
+    }
   });
 
   test("loads a reservation breadcrumb from only its product projection", async () => {

@@ -8,7 +8,7 @@ import {
 import { getGalleryImages } from "@deskohub/cloudinary/server";
 import { Effect } from "effect";
 import { cacheLife, cacheTag } from "next/cache";
-import { runWorkspaceEffect } from "@/shared/backend/workspace-effect";
+import { runWorkspaceEffectOrElse } from "@/shared/backend/workspace-effect";
 import { cloudinaryTags } from "@/shared/utils/cache-tags";
 import type { CloudinaryTag } from "../types/cloudinary-tag";
 import {
@@ -64,23 +64,25 @@ export async function getCloudinaryImages({
 
   cacheTag(cloudinaryTags.all(), cloudinaryTags.search(tags, maxResults ?? 50));
 
-  // A Cloudinary outage or a rejected tag list request must not fail the
-  // page: under Cache Components a throwing "use cache" function fails the
-  // prerender even when the caller catches it. The failure is logged by the
-  // runner; serve no photos and refresh soon. The expiry stays at the
+  // A Cloudinary outage, a rejected tag list request, or a Workspace runtime
+  // that cannot start must not fail the page: under Cache Components a
+  // throwing "use cache" function fails the prerender even when the caller
+  // catches it. Serve no photos and refresh soon. The expiry stays at the
   // 5-minute prerender threshold so callers without a Suspense boundary
   // remain part of the static shell instead of becoming dynamic holes.
   return getGalleryImages(expression, {
     maxResults,
     sortBy,
     sortDirection,
-  })
-    .pipe(
-      Effect.provide(WorkspaceCloudinaryLayer),
-      runWorkspaceEffect("gallery.images.load")
-    )
-    .catch((): readonly CloudinaryAsset[] => {
-      cacheLife(cloudinaryFailureCacheLife);
-      return [];
-    });
+  }).pipe(
+    Effect.provide(WorkspaceCloudinaryLayer),
+    // `getGalleryImages` logs the lookup failure; this logs the served fallback under a stable code.
+    runWorkspaceEffectOrElse("gallery.images.load", {
+      failureCode: "gallery.images.load_failed",
+      orElse: (): readonly CloudinaryAsset[] => {
+        cacheLife(cloudinaryFailureCacheLife);
+        return [];
+      },
+    })
+  );
 }

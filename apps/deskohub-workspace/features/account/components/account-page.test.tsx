@@ -70,6 +70,7 @@ mock.module("@/features/account/actions", () => ({
   completeCustomerProfile: () =>
     Promise.resolve({ data: { status: "completed" } }),
   updateCustomerProfile: () => Promise.resolve({ data: { status: "updated" } }),
+  updateLocalePreference: () => Promise.resolve({ data: { status: "saved" } }),
   deleteCustomerAccount: () => Promise.resolve({ data: { status: "deleted" } }),
 }));
 

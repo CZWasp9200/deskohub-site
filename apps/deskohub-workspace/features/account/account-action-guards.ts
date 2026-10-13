@@ -59,10 +59,8 @@ export const requireAccountsEnabled = (locale: Locale) =>
   );
 
 export const requireAccountAvatarsEnabled = (locale: Locale) =>
-  Effect.tryPromise({
-    try: areAccountAvatarsEnabled,
-    catch: () => false,
-  }).pipe(
+  Effect.tryPromise(areAccountAvatarsEnabled).pipe(
+    // An unreadable avatar flag fails closed: avatars stay unavailable.
     Effect.orElseSucceed(() => false),
     Effect.filterOrFail(
       (enabled) => enabled,

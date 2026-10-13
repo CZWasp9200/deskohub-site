@@ -9,7 +9,7 @@ import type {
 } from "@deskohub/nexi";
 import { and, count, eq, inArray, sql } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
-import { Context, Data, Effect, Layer, Match, Predicate, Schema } from "effect";
+import { Context, Data, Effect, Layer, Match, Option, Schema } from "effect";
 import type { SqlError } from "effect/unstable/sql/SqlError";
 import {
   WorkspaceDatabase,
@@ -30,6 +30,10 @@ import {
   vouchers,
   workspaceReservations,
 } from "@/db/schema";
+import {
+  type DatabaseQueryError,
+  findViolatedConstraint,
+} from "@/db/sql-constraint";
 import { postgresUuidV7 } from "@/db/uuid-v7";
 import {
   type AccountingDocumentSnapshot,
@@ -363,17 +367,10 @@ export class PaymentLifecycleRepository extends Context.Service<
             })
           )
           .pipe(
-            Effect.catchIf(isActiveClaimUniqueViolation, (cause) =>
-              Effect.fail(
-                new DiscountClaimError({
-                  operation: "reserve",
-                  reason: "claim_conflict",
-                  message:
-                    "The discount code was claimed by another payment attempt.",
-                  cause,
-                })
-              )
-            )
+            Effect.catchTags({
+              EffectDrizzleQueryError: failActiveClaimConflict,
+              SqlError: failActiveClaimConflict,
+            })
           );
       });
 
@@ -613,17 +610,10 @@ export class PaymentLifecycleRepository extends Context.Service<
             })
           )
           .pipe(
-            Effect.catchIf(isActiveClaimUniqueViolation, (cause) =>
-              Effect.fail(
-                new DiscountClaimError({
-                  operation: "reserve",
-                  reason: "claim_conflict",
-                  message:
-                    "The discount code was claimed by another payment attempt.",
-                  cause,
-                })
-              )
-            )
+            Effect.catchTags({
+              EffectDrizzleQueryError: failActiveClaimConflict,
+              SqlError: failActiveClaimConflict,
+            })
           );
       });
 
@@ -1987,25 +1977,20 @@ const activeClaimConstraints = new Set([
   "voucher_redemptions_attempt_unique_idx",
 ]);
 
-const getUniqueConstraint = (cause: unknown): string | undefined => {
-  if (!Predicate.isObject(cause)) return undefined;
-  if (
-    "_tag" in cause &&
-    cause._tag === "UniqueViolation" &&
-    "constraint" in cause &&
-    Predicate.isString(cause.constraint)
-  ) {
-    return cause.constraint;
-  }
-  if ("reason" in cause) {
-    const constraint = getUniqueConstraint(cause.reason);
-    if (constraint) return constraint;
-  }
-  if ("cause" in cause) return getUniqueConstraint(cause.cause);
-  return undefined;
-};
-
-const isActiveClaimUniqueViolation = (cause: unknown) => {
-  const constraint = getUniqueConstraint(cause);
-  return constraint !== undefined && activeClaimConstraints.has(constraint);
-};
+/**
+ * Reports a claim that lost the race for an active discount or voucher claim
+ * as a claim conflict. The transaction has already rolled back.
+ */
+const failActiveClaimConflict = <E extends DatabaseQueryError>(cause: E) =>
+  Effect.fail(
+    findViolatedConstraint(cause).pipe(
+      Option.exists((constraint) => activeClaimConstraints.has(constraint))
+    )
+      ? new DiscountClaimError({
+          operation: "reserve",
+          reason: "claim_conflict",
+          message: "The discount code was claimed by another payment attempt.",
+          cause,
+        })
+      : cause
+  );

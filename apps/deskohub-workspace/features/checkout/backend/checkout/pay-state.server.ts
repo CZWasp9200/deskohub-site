@@ -10,6 +10,7 @@ export {
   getSignedPayStateSubmittedCodeApplication,
   openPayState,
   PayStateTokenError,
+  payStateContinuesOn,
   payStateDefaultTtlMilliseconds,
   payStateTokenQueryParam,
   type SignedPayState,

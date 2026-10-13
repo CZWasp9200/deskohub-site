@@ -42,11 +42,12 @@ export function getAcceptedConsentCategoriesFromCookieValue(
 ) {
   if (!cookieValue) return [];
 
-  const value = parseConsentCookieValue(cookieValue);
-  if (value === undefined) {
+  const parsedValue = parseConsentCookieValue(cookieValue);
+  if (Option.isNone(parsedValue)) {
     diagnostics?.onUnexpectedValue?.("invalid_json");
     return [];
   }
+  const value = parsedValue.value;
   if (!Predicate.isObject(value)) {
     diagnostics?.onUnexpectedValue?.("invalid_value_type");
     return [];
@@ -76,16 +77,17 @@ export function getAcceptedConsentCategoriesFromCookieValue(
   return acceptedCategories;
 }
 
-function parseConsentCookieValue(cookieValue: string) {
-  try {
-    return JSON.parse(cookieValue) as unknown;
-  } catch {
-    try {
-      return JSON.parse(decodeURIComponent(cookieValue)) as unknown;
-    } catch {
-      return undefined;
-    }
-  }
-}
+const parseJsonCookieValue = Option.liftThrowable(
+  (cookieValue: string): unknown => JSON.parse(cookieValue)
+);
 
-import { Predicate } from "effect";
+const parseUriEncodedJsonCookieValue = Option.liftThrowable(
+  (cookieValue: string): unknown => JSON.parse(decodeURIComponent(cookieValue))
+);
+
+const parseConsentCookieValue = (cookieValue: string) =>
+  parseJsonCookieValue(cookieValue).pipe(
+    Option.orElse(() => parseUriEncodedJsonCookieValue(cookieValue))
+  );
+
+import { Option, Predicate } from "effect";

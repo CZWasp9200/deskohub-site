@@ -16,6 +16,7 @@ type TestUserFields = {
   readonly email?: string;
   readonly emailVerified?: boolean;
   readonly deletionRequestedAt?: Date | null;
+  readonly locale?: string | null;
 };
 
 const sessionFor = (user: TestUserFields) => ({
@@ -77,6 +78,29 @@ describe("CustomerAuthentication session adapter", () => {
         "deletionRequested",
         "email",
       ]);
+    }
+  });
+
+  test("carries a saved en-US or cs-CZ locale preference", async () => {
+    for (const locale of ["en-US", "cs-CZ"] as const) {
+      const outcome = await runDecode(sessionFor({ locale }));
+
+      expect(outcome._tag).toBe("Success");
+      if (outcome._tag === "Success") {
+        expect(outcome.success!.localePreference).toBe(locale);
+      }
+    }
+  });
+
+  test("leaves the locale preference absent for a null or invalid locale", async () => {
+    for (const locale of [null, undefined, "de-DE", "cs", ""]) {
+      const outcome = await runDecode(sessionFor({ locale }));
+
+      expect(outcome._tag).toBe("Success");
+      if (outcome._tag === "Success") {
+        expect(outcome.success!.localePreference).toBeUndefined();
+        expect(Object.keys(outcome.success!)).not.toContain("localePreference");
+      }
     }
   });
 
@@ -561,6 +585,45 @@ describe("CustomerAuthentication authority-read phase diagnostics", () => {
     expect(warning.annotations.category).toBe("Error");
     expect(warning.annotations.nextCode).toBe("E251");
     expect(JSON.stringify(warning)).not.toContain("request scope");
+  });
+
+  test("attributes a synchronous request-headers throw to its stage", async () => {
+    const outcome = await withPhases({
+      readRequestHeaders: () => {
+        throw nextRequestScopeError("headers");
+      },
+    });
+
+    expect(outcome._tag).toBe("Failure");
+    if (outcome._tag === "Failure") {
+      const error = outcome.failure as CustomerAccountAccessError;
+      expect(error.reason).toBe("unavailable");
+      expect(error.diagnostic).toBe("authentication.session.request-context");
+    }
+    const warning = lastWarning();
+    expect(warning.annotations.stage).toBe("request-headers");
+    expect(warning.annotations.nextCode).toBe("E251");
+  });
+
+  test("rejects the phased read with an error that keeps only the closed facts", async () => {
+    const read = makeAuthoritySessionRead({
+      readRequestHeaders: async () => new Headers({ host: "workspace.test" }),
+      loadAuthority: () =>
+        Promise.reject(new TypeError("synthetic authority import failure")),
+    });
+
+    const rejection = await read().then(
+      () => undefined,
+      (cause: unknown) => cause
+    );
+
+    expect(rejection).toBeInstanceOf(Error);
+    expect(rejection).toMatchObject({
+      _tag: "AuthorityStageFailure",
+      diagnostic: "authentication.session.unclassified",
+      facts: { stage: "auth-import", category: "TypeError" },
+    });
+    expect(JSON.stringify(rejection)).not.toContain("synthetic authority");
   });
 
   test("tags an auth-import TypeError without carrying the raw failure", async () => {

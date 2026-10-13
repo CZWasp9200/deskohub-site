@@ -9,7 +9,7 @@ import {
   type SalesCalendarId,
 } from "@/shared/backend/config/calendar-resource.config";
 import { WorkspaceGoogleCalendarLayer } from "@/shared/backend/config/google-calendar.config";
-import { runWorkspaceEffect } from "@/shared/backend/workspace-effect";
+import { runWorkspaceEffectOrElse } from "@/shared/backend/workspace-effect";
 import { type CalendarSale, normalizeCalendarSales } from "./calendar-sale";
 import type { DiscountDefinition } from "./discount-definition";
 import { DiscountDefinitionRepository } from "./discount-definition.repository";
@@ -130,28 +130,32 @@ export async function loadCalendarDiscountSource(
 ): Promise<CalendarSalesSourceResult> {
   "use cache: remote";
 
-  try {
-    const source = await Effect.gen(function* () {
-      const { salesCalendarId } = yield* CalendarResourceConfig;
-      return yield* loadCalendarSalesSource({
-        calendarId: salesCalendarId,
-        bookingDate,
-      });
-    }).pipe(
-      Effect.provide(CalendarDiscountSourceLive),
-      runWorkspaceEffect("discounts.calendar-source.load")
-    );
+  const source = await Effect.gen(function* () {
+    const { salesCalendarId } = yield* CalendarResourceConfig;
+    return yield* loadCalendarSalesSource({
+      calendarId: salesCalendarId,
+      bookingDate,
+    });
+  }).pipe(
+    Effect.provide(CalendarDiscountSourceLive),
+    runWorkspaceEffectOrElse("discounts.calendar-source.load", {
+      failureCode: "calendar_discount_source_load_failed",
+      // A typed failure or defect, including a runner that never starts,
+      // is never shared, so the next request retries it. Interruption and
+      // Next.js control flow propagate without this.
+      orElse: (cause) => {
+        cacheLife({ expire: 0 });
+        throw cause;
+      },
+    })
+  );
 
-    if (source.complete) {
-      cacheLife("advertisedPricingSources");
-      cacheTag(calendarDiscountSourceTag);
-    } else {
-      cacheLife({ expire: 0 });
-    }
-
-    return source;
-  } catch (cause) {
+  if (source.complete) {
+    cacheLife("advertisedPricingSources");
+    cacheTag(calendarDiscountSourceTag);
+  } else {
     cacheLife({ expire: 0 });
-    throw cause;
   }
+
+  return source;
 }

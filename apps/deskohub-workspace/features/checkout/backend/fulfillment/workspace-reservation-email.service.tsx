@@ -17,6 +17,7 @@ import { CustomerReservationEmail } from "@/emails/customer-reservation";
 import { ReservationNotificationEmail } from "@/emails/reservation-notification";
 import type { WorkspaceEmailDetail } from "@/emails/workspace-email-detail";
 import { env } from "@/env";
+import { CustomerEmailLocaleService } from "@/features/account";
 import {
   getWorkspaceOfficeProductTitle,
   getWorkspaceProductMonitorTitle,
@@ -62,6 +63,7 @@ import { createWorkspaceMeetingRoomEmailDetailRows } from "./workspace-meeting-r
 export interface IWorkspaceReservationEmailService {
   readonly sendPaidReservationEmails: (input: {
     readonly reservation: WorkspaceReservationDetails;
+    readonly customerEmailLocale: Locale;
     readonly customerEmailIdempotencyKey?: string;
   }) => Effect.Effect<EmailDeliveryId, EmailSendError>;
   readonly sendCancellationEmail: (input: {
@@ -99,6 +101,41 @@ const customerAccessHeadingDateFormatOptions = {
 
 const getReservationLocale = (locale: string): Locale =>
   isLocale(locale) ? locale : "cs-CZ";
+
+/**
+ * Resolves the customer email language for one reservation: a linked account
+ * with a saved language preference uses it, while an unlinked guest or
+ * an account without a preference keeps the reservation locale. A preference
+ * read failure fails the email send instead of silently guessing a wrong
+ * customer preference.
+ *
+ * Exported for the paid-fulfillment workflow, which must resolve and retain
+ * the locale before a generation's first provider send so failed and
+ * accepted-but-unrecorded retries keep a locale-stable idempotency key.
+ */
+export const createCustomerEmailLocaleResolver =
+  (emailLocale: CustomerEmailLocaleService["Service"]) =>
+  (reservation: WorkspaceReservationDetails) =>
+    emailLocale.byDotyposCustomer(reservation.dotyposCustomerId).pipe(
+      Effect.flatMap((resolved) =>
+        resolved.kind === "account"
+          ? Effect.succeed(resolved.locale)
+          : Effect.succeed(getReservationLocale(reservation.locale))
+      ),
+      Effect.mapError(
+        (cause) =>
+          new EmailServiceError(
+            "Workspace reservation customer email language could not be determined.",
+            cause
+          )
+      ),
+      Effect.tapError((cause) =>
+        Effect.logError(
+          "Workspace reservation customer email language read failed",
+          { cause, workspaceReservationId: reservation.id }
+        )
+      )
+    );
 
 const getCustomerName = (customer: Customer) =>
   [customer.firstName, customer.lastName]
@@ -473,36 +510,48 @@ export class WorkspaceReservationEmailService extends Context.Service<
       const emailConfig = yield* EmailConfigTag;
       const networkDetailsService =
         yield* WorkspaceCheckoutNetworkDetailsService;
+      const emailLocaleService = yield* CustomerEmailLocaleService;
+      const resolveCustomerEmailLocale =
+        createCustomerEmailLocaleResolver(emailLocaleService);
 
       const createCustomerAccessUrls = Effect.fn(
         "WorkspaceReservationEmailService.createCustomerAccessUrls"
       )(function* (reservation: WorkspaceReservationDetails, locale: Locale) {
-        // Idempotent provider retries resend the same key, so the token must be a
-        // pure function of the reservation; anchor issuance at its immutable start.
-        const accessToken = yield* createReservationAccessToken(
-          {
-            orderId: reservation.id,
-            locale,
-          },
-          { now: () => reservation.reservedFrom.epochMilliseconds }
-        );
         const origin = yield* getWorkspaceRuntimeCallbackOrigin;
+        // Idempotent provider retries resend the same key, so each token must
+        // be a pure function of the reservation and its locale; anchor
+        // issuance at the reservation's immutable start.
+        const createLink = Effect.fn(function* (
+          linkLocale: Locale,
+          getPath: typeof getReservationAccessPath
+        ) {
+          const accessToken = yield* createReservationAccessToken(
+            { orderId: reservation.id, locale: linkLocale },
+            { now: () => reservation.reservedFrom.epochMilliseconds }
+          );
+          return new URL(
+            getPath({
+              locale: linkLocale,
+              orderId: reservation.id,
+              accessToken,
+              setBypassCookie: true,
+            }),
+            origin
+          ).toString();
+        });
 
-        const pathInput = {
-          locale,
-          orderId: reservation.id,
-          accessToken,
-          setBypassCookie: true,
-        };
         return {
-          accessUrl: new URL(
-            getReservationAccessPath(pathInput),
-            origin
-          ).toString(),
-          invoiceUrl: new URL(
-            getReservationInvoicePath(pathInput),
-            origin
-          ).toString(),
+          // The access link only needs its token and URL to agree, and the
+          // proxy exchanges it before any locale decision, so it follows the
+          // email language.
+          accessUrl: yield* createLink(locale, getReservationAccessPath),
+          // The invoice page issues the invoice in the reservation's locale
+          // and validates it against the URL, so its link keeps that locale
+          // even when the email follows the customer's saved preference.
+          invoiceUrl: yield* createLink(
+            getReservationLocale(reservation.locale),
+            getReservationInvoicePath
+          ),
         };
       });
 
@@ -510,7 +559,7 @@ export class WorkspaceReservationEmailService extends Context.Service<
         sendCancellationEmail: Effect.fn(
           "WorkspaceReservationEmailService.sendCancellationEmail"
         )(function* ({ reservation }) {
-          const locale = getReservationLocale(reservation.locale);
+          const locale = yield* resolveCustomerEmailLocale(reservation);
           const customerEmail = reservation.customer.email?.trim();
           if (!customerEmail) {
             return yield* Effect.fail(
@@ -550,7 +599,7 @@ export class WorkspaceReservationEmailService extends Context.Service<
           "WorkspaceReservationEmailService.sendPaidReservationEmails"
         )(function* (input) {
           const { reservation } = input;
-          const locale = getReservationLocale(reservation.locale);
+          const locale = input.customerEmailLocale;
           const customer = reservation.customer;
           const customerName = getCustomerName(customer);
           const customerEmail = customer.email?.trim();

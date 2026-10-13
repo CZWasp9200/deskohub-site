@@ -50,4 +50,39 @@ describe("getAcceptedConsentCategoriesFromCookie", () => {
 
     expect(reasons).toEqual(["invalid_json", "invalid_categories_type"]);
   });
+
+  test("reads raw JSON values and URI-encoded JSON values", () => {
+    const categories = JSON.stringify({ categories: ["marketing"] });
+
+    expect(getAcceptedConsentCategoriesFromCookieValue(categories)).toEqual([
+      "marketing",
+    ]);
+    expect(
+      getAcceptedConsentCategoriesFromCookieValue(
+        encodeURIComponent(categories)
+      )
+    ).toEqual(["marketing"]);
+  });
+
+  test("reports a JSON null value as an unexpected value type", () => {
+    const reasons: UnexpectedConsentCookieReason[] = [];
+
+    expect(
+      getAcceptedConsentCategoriesFromCookieValue("null", {
+        onUnexpectedValue: (reason) => reasons.push(reason),
+      })
+    ).toEqual([]);
+    expect(reasons).toEqual(["invalid_value_type"]);
+  });
+
+  test("reports malformed URI encoding as invalid JSON", () => {
+    const reasons: UnexpectedConsentCookieReason[] = [];
+
+    expect(
+      getAcceptedConsentCategoriesFromCookieValue("%7B%E0%A4%A", {
+        onUnexpectedValue: (reason) => reasons.push(reason),
+      })
+    ).toEqual([]);
+    expect(reasons).toEqual(["invalid_json"]);
+  });
 });

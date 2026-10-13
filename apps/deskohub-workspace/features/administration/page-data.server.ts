@@ -1,11 +1,12 @@
 import "server-only";
 
-import { Effect, Predicate } from "effect";
+import { Effect, Option, Predicate } from "effect";
 import { notFound } from "next/navigation";
 import { cache } from "react";
 import { getCurrentWorkspaceDate } from "@/features/reservation/reservation-date";
 import { authorizeAdministratorPage } from "@/shared/administrator/administrator-authorization.server";
 import { runWorkspaceEffect } from "@/shared/backend/workspace-effect";
+import { parsePlainDate } from "@/shared/utils/temporal";
 import {
   type AdministrationBookingListInput,
   type AdministrationCustomerListInput,
@@ -41,14 +42,13 @@ const parsePage = (value: string | undefined) => {
   return Number.isSafeInteger(page) && page > 0 ? page : 1;
 };
 
-const parseDate = (value: string | undefined) => {
-  if (!value) return getCurrentWorkspaceDate().toString();
-  try {
-    return Temporal.PlainDate.from(value).toString();
-  } catch {
-    return getCurrentWorkspaceDate().toString();
-  }
-};
+const parseDate = (value: string | undefined) =>
+  Option.fromNullishOr(value)
+    .pipe(
+      Option.flatMap(parsePlainDate),
+      Option.getOrElse(() => getCurrentWorkspaceDate())
+    )
+    .toString();
 
 const parseStatus = (
   value: string | undefined

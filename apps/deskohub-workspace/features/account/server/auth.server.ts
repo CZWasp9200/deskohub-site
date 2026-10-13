@@ -1,5 +1,7 @@
 import "server-only";
 
+import { Effect } from "effect";
+import { WorkspaceDatabase } from "@/db/database.service";
 import { env } from "@/env";
 import { resolveBetterAuthAllowedHosts } from "@/features/account/backend/auth/auth-hosts";
 import { parseBetterAuthSecrets } from "@/features/account/backend/auth/auth-secrets";
@@ -9,6 +11,7 @@ import {
   workspaceBeforeDeleteUser,
   workspaceSendMagicLink,
 } from "@/features/account/backend/auth/auth-server";
+import { captureAccountLocalePreference } from "@/features/account/backend/customer-locale-preference";
 import { workspaceSiteConstants } from "@/shared/utils/site-constants";
 import { areAccountsEnabled } from "./account-feature-flag.server";
 
@@ -43,4 +46,8 @@ export const auth = makeWorkspaceAuth({
   areAccountsEnabled,
   sendMagicLink: workspaceSendMagicLink,
   beforeDeleteUser: workspaceBeforeDeleteUser,
+  captureAccountLocalePreference: (accountId, locale) =>
+    captureAccountLocalePreference(accountId, locale).pipe(
+      Effect.provide(WorkspaceDatabase.Default)
+    ),
 });

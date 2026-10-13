@@ -1,10 +1,20 @@
 import { NexiService, summarizeNexiRefunds } from "@deskohub/nexi";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
-import { Clock, Context, Data, Duration, Effect, Exit, Layer } from "effect";
+import {
+  Clock,
+  Context,
+  Data,
+  Duration,
+  Effect,
+  Exit,
+  Layer,
+  Option,
+} from "effect";
 import type { SqlError } from "effect/unstable/sql";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { databasePoolTimeouts } from "@/db/database-pool-timeouts";
 import { WorkspaceNexiLayer } from "@/shared/backend/config/nexi.config";
+import { parseInstant } from "@/shared/utils/temporal";
 import {
   type ClaimedRefundCheck,
   type PaymentRefundRecordResult,
@@ -114,17 +124,15 @@ export const refundBatchOverrunWorstCase = Duration.millis(
   )
 );
 
-const toRefundedAt = (
-  value: string | undefined,
-  fallback: Temporal.Instant
-) => {
-  if (!value) return fallback;
-  try {
-    return Temporal.Instant.from(value);
-  } catch {
-    return fallback;
-  }
-};
+/**
+ * Nexi's latest refund time, or the recording time when Nexi omits it or
+ * reports a time that names no instant. The refund itself is still recorded.
+ */
+const toRefundedAt = (value: string | undefined, fallback: Temporal.Instant) =>
+  Option.fromNullishOr(value).pipe(
+    Option.flatMap(parseInstant),
+    Option.getOrElse(() => fallback)
+  );
 
 export class PaymentRefundService extends Context.Service<
   PaymentRefundService,

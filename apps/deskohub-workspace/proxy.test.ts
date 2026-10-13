@@ -11,6 +11,16 @@ import { runCommand } from "@/scripts/shared/command";
 import { workspaceTestAdministrators } from "@/shared/testing/workspace-test-environment";
 import { config, proxy } from "./proxy";
 
+// A signed-in request reads the saved language preference, whose logs share
+// stdout with the inspection result.
+const inspectionMarker = "proxy-inspection:";
+const inspectedResponses = (result: { readonly stdout: string }) =>
+  JSON.parse(
+    result.stdout.slice(
+      result.stdout.lastIndexOf(inspectionMarker) + inspectionMarker.length
+    )
+  );
+
 const inspectCheckoutEntry = (
   deploymentEnvironment: "preview" | "production" | "development"
 ) =>
@@ -47,7 +57,7 @@ const inspectCheckoutEntry = (
             referrerPolicy: response.headers.get("referrer-policy"),
           });
         }
-        process.stdout.write(JSON.stringify(results));
+        process.stdout.write("\\n${inspectionMarker}" + JSON.stringify(results));
       `,
     ],
     {
@@ -84,7 +94,7 @@ const inspectCheckoutEntryOnce = (
 test("starts Preview payment on the callback host before issuing its host-only cookie", async () => {
   const result = await inspectCheckoutEntryOnce("preview");
   expect(result.exitCode).toBe(0);
-  const responses = JSON.parse(result.stdout);
+  const responses = inspectedResponses(result);
 
   for (const index of [0, 1, 2, 7]) {
     const response = responses[index];
@@ -123,7 +133,7 @@ test("starts Preview payment on the callback host before issuing its host-only c
 test("uses the Preview callback host before sign-in and reservation preparation", async () => {
   const result = await inspectCheckoutEntryOnce("preview");
   expect(result.exitCode).toBe(0);
-  const responses = JSON.parse(result.stdout);
+  const responses = inspectedResponses(result);
   for (const index of [8, 10, 11]) {
     expect(responses[index].status).toBe(307);
     expect(new URL(responses[index].location).origin).toBe(
@@ -140,7 +150,7 @@ test("retains Development and Production payment origins", async () => {
   );
   for (const result of results) {
     expect(result.exitCode).toBe(0);
-    const responses = JSON.parse(result.stdout);
+    const responses = inspectedResponses(result);
     for (const index of [0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11]) {
       expect(responses[index].location).toBeNull();
     }

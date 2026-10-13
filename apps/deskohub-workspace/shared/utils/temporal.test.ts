@@ -1,14 +1,18 @@
 import { describe, expect, test } from "bun:test";
 import "@/shared/polyfills/temporal";
-import { Schema } from "effect";
+import { Option, Schema } from "effect";
 import {
   ceilToWholeHour,
   floorToWholeHour,
   instantStringSchema,
   isFuturePlainDateTime,
   isPlainDateString,
+  localDateTimeSchema,
   localDateTimeToTemporalInstantString,
+  localTimeSchema,
   makeWholeHourInstantStringSchema,
+  parseInstant,
+  parsePlainDate,
   temporalInstantToIsoString,
   temporalInstantToLocalDateTimeString,
 } from "./temporal";
@@ -79,6 +83,45 @@ describe("makeWholeHourInstantStringSchema", () => {
     expect(isWholeHourInPrague("2026-07-10T08:00:00.001Z")).toBe(false);
     expect(isWholeHourInPrague("not-an-instant")).toBe(false);
   });
+
+  test("rejects instants when the time zone is unknown", () => {
+    expect(
+      Schema.is(makeWholeHourInstantStringSchema("Not/A_Zone"))(
+        "2026-07-10T08:00:00Z"
+      )
+    ).toBe(false);
+  });
+});
+
+describe("localTimeSchema", () => {
+  const isLocalTime = Schema.is(localTimeSchema);
+
+  test("accepts canonical hour and minute times", () => {
+    expect(isLocalTime("08:30")).toBe(true);
+  });
+
+  test("rejects noncanonical and invalid times", () => {
+    expect(isLocalTime("08:30:00")).toBe(false);
+    expect(isLocalTime("8:30")).toBe(false);
+    expect(isLocalTime("25:00")).toBe(false);
+    expect(isLocalTime("not-a-time")).toBe(false);
+  });
+});
+
+describe("localDateTimeSchema", () => {
+  const isLocalDateTime = Schema.is(localDateTimeSchema);
+
+  test("accepts canonical local date-times to the minute or second", () => {
+    expect(isLocalDateTime("2026-07-10T08:30")).toBe(true);
+    expect(isLocalDateTime("2026-07-10T08:30:15")).toBe(true);
+  });
+
+  test("rejects noncanonical, offset and invalid date-times", () => {
+    expect(isLocalDateTime("2026-07-10T08:30:00")).toBe(false);
+    expect(isLocalDateTime("2026-07-10T08:30Z")).toBe(false);
+    expect(isLocalDateTime("2026-02-30T08:30")).toBe(false);
+    expect(isLocalDateTime("not-a-date-time")).toBe(false);
+  });
 });
 
 describe("isPlainDateString", () => {
@@ -93,6 +136,7 @@ describe("isPlainDateString", () => {
   test("rejects impossible and noncanonical dates", () => {
     expect(isCanonicalPlainDate("2026-02-30")).toBe(false);
     expect(isCanonicalPlainDate("2026-7-10")).toBe(false);
+    expect(isCanonicalPlainDate("not-a-date")).toBe(false);
   });
 });
 
@@ -120,5 +164,31 @@ describe("local date-time input conversion", () => {
         timeZone: "Europe/Prague",
       })
     ).toBe("2026-08-01T08:00:00Z");
+  });
+});
+
+describe("parseInstant", () => {
+  test("parses ISO strings with an offset", () => {
+    expect(
+      Option.map(parseInstant("2026-07-10T10:00:00+02:00"), String)
+    ).toEqual(Option.some("2026-07-10T08:00:00Z"));
+  });
+
+  test("returns none for local and invalid strings", () => {
+    expect(parseInstant("2026-07-10T10:00:00")).toEqual(Option.none());
+    expect(parseInstant("not-an-instant")).toEqual(Option.none());
+  });
+});
+
+describe("parsePlainDate", () => {
+  test("parses calendar dates", () => {
+    expect(Option.map(parsePlainDate("2026-07-10"), String)).toEqual(
+      Option.some("2026-07-10")
+    );
+  });
+
+  test("returns none for invalid dates", () => {
+    expect(parsePlainDate("2026-02-30")).toEqual(Option.none());
+    expect(parsePlainDate("not-a-date")).toEqual(Option.none());
   });
 });

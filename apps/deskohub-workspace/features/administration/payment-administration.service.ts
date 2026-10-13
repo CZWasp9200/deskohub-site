@@ -17,6 +17,7 @@ import {
   type SQL,
   sql,
 } from "drizzle-orm";
+import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Effect, Layer } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import {
@@ -199,13 +200,13 @@ const toLocalOrderRows = (
 export interface IPaymentAdministrationService {
   readonly listOrders: (
     input: AdministrationOrderListInput
-  ) => Effect.Effect<AdministrationOrderList, unknown>;
+  ) => Effect.Effect<AdministrationOrderList, EffectDrizzleQueryError>;
   readonly loadOrder: (
     orderId: NexiOrderId
-  ) => Effect.Effect<AdministrationOrder, unknown>;
+  ) => Effect.Effect<AdministrationOrder, EffectDrizzleQueryError>;
   readonly listOperations: (
     input: AdministrationOperationListInput
-  ) => Effect.Effect<AdministrationOperationList, unknown>;
+  ) => Effect.Effect<AdministrationOperationList, EffectDrizzleQueryError>;
   readonly loadOperation: (operationId: NexiOperationId) => Effect.Effect<
     {
       readonly operationId: NexiOperationId;
@@ -214,11 +215,11 @@ export interface IPaymentAdministrationService {
       readonly providerStatus: "available" | "not_found" | "unavailable";
       readonly linkedReservationId: WorkspaceReservationId | null;
     },
-    unknown
+    EffectDrizzleQueryError
   >;
   readonly loadReservationOrders: (
     reservationId: WorkspaceReservationId
-  ) => Effect.Effect<readonly AdministrationOrder[], unknown>;
+  ) => Effect.Effect<readonly AdministrationOrder[], EffectDrizzleQueryError>;
 }
 
 export class PaymentAdministrationService extends Context.Service<

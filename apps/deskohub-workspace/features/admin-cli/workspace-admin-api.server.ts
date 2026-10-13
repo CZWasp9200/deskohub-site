@@ -29,14 +29,8 @@ import {
   type StandaloneAccessCodeCreationError,
   standaloneAccessCodeAttemptStaleAfterMilliseconds,
 } from "@/features/access-codes";
-import {
-  InvoiceAdministrationCustomerError,
-  InvoiceAdministrationInProgressError,
-  InvoiceAdministrationService,
-} from "@/features/accounting/admin/invoice-administration.service";
+import { InvoiceAdministrationService } from "@/features/accounting/admin/invoice-administration.service";
 import { InvoiceAdministrationNotFoundError } from "@/features/accounting/admin/invoice-administration-identifier";
-import { ManualInvoiceConflictError } from "@/features/accounting/backend/invoice.repository";
-import { ManualInvoiceValidationError } from "@/features/accounting/manual-invoice";
 import { AdministrationService } from "@/features/administration/administration.service";
 import {
   getAdministrationOperationFilters,
@@ -740,27 +734,39 @@ const mapDiscountMutationFailure = (
     Match.orElse(makeServiceUnavailable)
   );
 
-const mapInvoiceReadFailure = (cause: unknown) =>
-  cause instanceof InvoiceAdministrationNotFoundError
-    ? new CliResourceNotFound({ message: "The invoice was not found." })
-    : makeServiceUnavailable();
+type InvoiceAdministration = typeof InvoiceAdministrationService.Service;
 
-const mapInvoiceMutationFailure = (cause: unknown) => {
-  if (cause instanceof InvoiceAdministrationInProgressError) {
-    return new CliMutationInProgress({
-      message: cause.message,
-      requestId: CliMutationRequestId.make(cause.invoiceId),
-    });
-  }
-  if (
-    cause instanceof InvoiceAdministrationCustomerError ||
-    cause instanceof ManualInvoiceConflictError ||
-    cause instanceof ManualInvoiceValidationError
-  ) {
-    return new CliMutationRejected({ message: cause.message });
-  }
-  return makeServiceUnavailable();
-};
+const mapInvoiceReadFailure = (
+  cause: Effect.Error<ReturnType<InvoiceAdministration["get" | "getPdf"]>>
+) =>
+  Match.value(cause).pipe(
+    Match.tag(
+      "InvoiceAdministrationNotFoundError",
+      () => new CliResourceNotFound({ message: "The invoice was not found." })
+    ),
+    Match.orElse(makeServiceUnavailable)
+  );
+
+const mapInvoiceMutationFailure = (
+  cause: Effect.Error<ReturnType<InvoiceAdministration["create"]>>
+) =>
+  Match.value(cause).pipe(
+    Match.tag(
+      "InvoiceAdministrationInProgressError",
+      ({ message, invoiceId }) =>
+        new CliMutationInProgress({
+          message,
+          requestId: CliMutationRequestId.make(invoiceId),
+        })
+    ),
+    Match.tag(
+      "InvoiceAdministrationCustomerError",
+      "ManualInvoiceConflictError",
+      "ManualInvoiceValidationError",
+      ({ message }) => new CliMutationRejected({ message })
+    ),
+    Match.orElse(makeServiceUnavailable)
+  );
 
 const mapStandaloneAccessCodeCreationFailure = (
   cause: StandaloneAccessCodeCreationError,

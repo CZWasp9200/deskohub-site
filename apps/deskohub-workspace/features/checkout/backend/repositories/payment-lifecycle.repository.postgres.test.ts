@@ -30,18 +30,22 @@ import {
   makeDiscountCommitment,
 } from "@/features/discounts/commitment";
 import { discountIdSchema } from "@/features/discounts/contracts";
+import { deriveOpaqueDiscountId } from "@/features/discounts/opaque-discount-id";
 import {
   canonicalPromotionCodeSchema,
   discountCodeIdSchema,
   promotionCodeIdSchema,
   type StoredDiscountId,
   storedDiscountIdSchema,
+  voucherIdSchema,
 } from "@/features/discounts/persistence-contracts";
 import type { WorkspaceProductTarget } from "@/features/discounts/product-target";
+import { m } from "@/features/i18n";
 import {
   type WorkspaceReservationId,
   workspaceReservationIdSchema,
 } from "@/features/reservation/persistence-contracts";
+import { waitForPostgresLockWaiter } from "@/shared/testing/workspace-postgres-lock-waiters.test-utils";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import { PaymentLifecycleRepository } from "./payment-lifecycle.repository";
 
@@ -54,7 +58,17 @@ describe.skipIf(!testDatabase)(
     const reservationIds: WorkspaceReservationId[] = [];
     const discountIds: StoredDiscountId[] = [];
 
+    const voucherIds: string[] = [];
+
     afterAll(async () => {
+      await testDatabase.pool.query(
+        "delete from voucher_redemptions where voucher_id = any($1)",
+        [voucherIds]
+      );
+      await testDatabase.pool.query(
+        "delete from promotion_codes where id in (select promotion_code_id from vouchers where id = any($1))",
+        [voucherIds]
+      );
       // Snapshots may only be deleted once their attempt is terminal.
       await testDatabase.pool.query(
         "update payment_attempts set state = 'expired', failure_code = 'synthetic_cleanup' where workspace_reservation_id = any($1)",
@@ -426,6 +440,135 @@ describe.skipIf(!testDatabase)(
         _tag: "Failure",
         failure: { _tag: "DiscountClaimError", reason: "customer_ineligible" },
       });
+      const rows = await readRows(reservation.reservationId);
+      expect(rows.attempts).toEqual([]);
+      expect(rows.snapshots).toEqual([]);
+      expect(rows.applications).toEqual([]);
+      expect(rows.reservation?.activePaymentAttemptId).toBeNull();
+      expect(rows.reservation?.paymentState).toBe("not_started");
+    });
+
+    /**
+     * Seeds a voucher whose earlier claim by the customer, on another
+     * checkout, has been released.
+     */
+    const seedReleasedVoucherClaim = async (customerId: string) => {
+      const id = crypto.randomUUID();
+      const voucherId = voucherIdSchema.make(`lifecycle-voucher-${id}`);
+      const reservationId = `lifecycle-released-claim-${id}`;
+      voucherIds.push(voucherId);
+      reservationIds.push(workspaceReservationIdSchema.make(reservationId));
+      await testDatabase.pool.query(
+        `insert into workspace_reservations (id, checkout_attempt_key, dotypos_customer_id, dotypos_reservation_id, reservation_state, payment_state, fulfillment_state, reservation_details, locale)
+         values ($1, $1, $2, $1, 'cancelled', 'expired', 'not_started', '{"kind":"cowork","entryTier":"open-space","coffee":false}', 'en-US')`,
+        [reservationId, customerId]
+      );
+      await testDatabase.pool.query(
+        `insert into payment_attempts (id, workspace_reservation_id, provider, provider_order_id, state, failure_code, refund_state, amount_value, amount_exponent, currency)
+         values ($1, $1, 'nexi', $1, 'expired', 'payment_abandoned_after_provider_cutoff', 'not_required', 29000, 2, 'CZK')`,
+        [reservationId]
+      );
+      await testDatabase.pool.query(
+        `insert into discount_applications (id, payment_attempt_id, workspace_reservation_id, sequence, public_discount_id, label, adjustment, product_identity, subtotal_before_value, subtotal_before_exponent, subtotal_before_currency, applied_amount_value, applied_amount_exponent, applied_amount_currency, subtotal_after_value, subtotal_after_exponent, subtotal_after_currency, provenance)
+         values ($1, $1, $1, 0, 'synthetic-discount', 'Synthetic', '{}', '{}', 29000, 2, 'CZK', 1000, 2, 'CZK', 28000, 2, 'CZK', '{}')`,
+        [reservationId]
+      );
+      await testDatabase.pool.query(
+        `insert into promotion_codes (id, kind, code, enabled)
+         values ($1, 'voucher', $2, true)`,
+        [voucherId, `SYNTHETIC_${id.replaceAll("-", "_").toUpperCase()}`]
+      );
+      await testDatabase.pool.query(
+        `insert into vouchers (id, promotion_code_id, issued_amount_value, issued_amount_exponent, issued_amount_currency)
+         values ($1, $1, 1000, 2, 'CZK')`,
+        [voucherId]
+      );
+      await testDatabase.pool.query(
+        `insert into voucher_redemptions (id, voucher_id, application_id, payment_attempt_id, dotypos_customer_id, state, reservation_expires_at, released_at, release_reason)
+         values ($1, $1, $2, $2, $3, 'released', now() + interval '1 hour', now(), 'expired')`,
+        [voucherId, reservationId, customerId]
+      );
+      return voucherId;
+    };
+
+    test("reports an active voucher claim that wins the race as a claim conflict", async () => {
+      const reservation = await insertHeldReservation();
+      const voucherId = await seedReleasedVoucherClaim(
+        reservation.dotyposCustomerId
+      );
+      const snapshot = makeSnapshot(reservation);
+      const subtotalBefore = snapshot.quote.payment.expectedPrice;
+      const voucherCredit = { ...subtotalBefore, value: 1000 };
+      const provenance = {
+        providerNamespace: "database-voucher",
+        providerReference: voucherId,
+      };
+      const discount = {
+        id: deriveOpaqueDiscountId(provenance),
+        label: m.checkoutVoucherLabel({}, { locale: "en-US" }),
+        adjustment: { kind: "fixed" as const, amount: voucherCredit },
+      };
+
+      // Another checkout re-activates the customer's claim but has not
+      // committed, so this attempt's claim checks still see it released and
+      // only the active-claim unique index stops the second claim.
+      const competingCheckout = await testDatabase.pool.connect();
+      try {
+        await competingCheckout.query("begin");
+        await competingCheckout.query(
+          "update voucher_redemptions set state = 'reserved', released_at = null, release_reason = null where voucher_id = $1",
+          [voucherId]
+        );
+
+        const attempt = createPendingNexiAttempt({
+          ...reservation,
+          snapshot,
+          commitment: makeDiscountCommitment({
+            product: { kind: "cowork", tier: "basic" },
+            applications: [
+              {
+                application: {
+                  discount,
+                  subtotalBefore,
+                  amount: voucherCredit,
+                  subtotalAfter: {
+                    ...subtotalBefore,
+                    value: subtotalBefore.value - voucherCredit.value,
+                  },
+                },
+                candidate: {
+                  discount,
+                  provenance,
+                  claim: {
+                    kind: "voucher",
+                    voucherId,
+                    availableAmount: voucherCredit,
+                    dotyposCustomerId: reservation.dotyposCustomerId,
+                  },
+                },
+              },
+            ],
+          }),
+        });
+        await waitForPostgresLockWaiter(testDatabase.pool, {
+          condition: "locktype = 'transactionid'",
+          description: "the second voucher claim waiting on the first",
+        });
+        await competingCheckout.query("commit");
+
+        expect(await attempt).toMatchObject({
+          _tag: "Failure",
+          failure: {
+            _tag: "DiscountClaimError",
+            operation: "reserve",
+            reason: "claim_conflict",
+          },
+        });
+      } finally {
+        await competingCheckout.query("rollback").catch(() => {});
+        competingCheckout.release();
+      }
+
       const rows = await readRows(reservation.reservationId);
       expect(rows.attempts).toEqual([]);
       expect(rows.snapshots).toEqual([]);

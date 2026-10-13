@@ -237,6 +237,37 @@ describe("advertised price state", () => {
     ).toThrow("expired");
   });
 
+  test("reports token failures by code and invalid snapshots as invalid tokens", () => {
+    const token = seal();
+
+    expect(
+      Effect.runSync(
+        openAdvertisedPriceState(token, {
+          keys: [fixedKey],
+          now: () => new Date("2026-06-01T10:10:00.000Z"),
+        }).pipe(Effect.flip)
+      )
+    ).toMatchObject({
+      _tag: "AdvertisedPriceStateTokenError",
+      code: "expired",
+      message: "Checkout state token expired.",
+      cause: { _tag: "CheckoutStateTokenError", code: "expired" },
+    });
+    expect(
+      Effect.runSync(
+        sealAdvertisedPriceState(
+          { ...buildState(), customerEmail: testEmailAddressForAda },
+          { keys: [fixedKey], randomBytes: fixedRandomBytes }
+        ).pipe(Effect.flip)
+      )
+    ).toMatchObject({
+      _tag: "AdvertisedPriceStateTokenError",
+      code: "invalid-token",
+      message: "Invalid advertised price state.",
+      cause: { _tag: "SchemaError" },
+    });
+  });
+
   test("strictly rejects extra snapshot fields", () => {
     const state = { ...buildState(), customerEmail: testEmailAddressForAda };
     const token = Effect.runSync(

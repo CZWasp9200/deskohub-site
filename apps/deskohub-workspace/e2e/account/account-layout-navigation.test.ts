@@ -1,10 +1,9 @@
-import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, expect, mock, test } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
 import type { Page } from "@playwright/test";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { createElement, useState } from "react";
 import { getAccountScreenCopy } from "@/features/account/components/account-screen-copy";
-import { ProfileScreen } from "@/features/account/components/profile/profile-screen";
 import {
   type AccountSection,
   AccountShell,
@@ -21,6 +20,27 @@ import {
   verifyAccountLayoutNavigation,
 } from "./account-layout-navigation";
 import { accountSectionLabels } from "./account-sections";
+
+mock.module("next/navigation", () => ({
+  useRouter: () => ({ refresh: () => undefined }),
+}));
+
+mock.module("@/features/account/actions", () => ({
+  updateLocalePreference: () => Promise.resolve({ data: { status: "saved" } }),
+}));
+
+mock.module("@/shared/utils/use-workspace-action", () => ({
+  useWorkspaceAction: () => ({
+    execute: () => undefined,
+    isExecuting: false,
+    reset: () => undefined,
+    result: {},
+  }),
+}));
+
+const { ProfileScreen } = await import(
+  "@/features/account/components/profile/profile-screen"
+);
 
 const sections = [
   "reservations",

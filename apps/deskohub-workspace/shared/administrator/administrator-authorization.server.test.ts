@@ -7,6 +7,7 @@ let requestHeaders = new Headers();
 
 mock.module("server-only", () => ({}));
 mock.module("next/headers", () => ({
+  cookies: async () => ({ get: () => undefined }),
   headers: async () => requestHeaders,
 }));
 mock.module("next/server", () => ({
