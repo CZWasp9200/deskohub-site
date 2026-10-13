@@ -6,6 +6,15 @@ import { Effect, Layer } from "effect";
 
 mock.module("server-only", () => ({}));
 
+// The referral code this browser remembers from a shared link.
+let rememberedReferralCode: string | undefined;
+mock.module("@/features/referrals/remembered-referral-code.server", () => ({
+  readRememberedReferralCode: async () => rememberedReferralCode,
+  forgetRememberedReferralCode: async () => {
+    rememberedReferralCode = undefined;
+  },
+}));
+
 const input = {
   locale: "en-US" as const,
   payStateToken: "pay-state-token",
@@ -196,6 +205,40 @@ describe("submitWorkspaceReservation", () => {
       );
     }
   );
+
+  test.each(["zero-total", "already-paid"] as const)(
+    "forgets the remembered referral code once the %s checkout is paid",
+    async (label) => {
+      rememberedReferralCode = "RFL12345";
+      const redirectUrl = `/en-US/reservation/status/reservation-${label}?outcome=success`;
+      const scenario = await runSubmitReservation({
+        createHostedPaymentCheckout: mock(() =>
+          Effect.succeed({
+            status: "redirect" as const,
+            redirectUrl,
+            paid: true,
+          })
+        ),
+      });
+
+      await expect(Effect.runPromise(scenario.effect)).resolves.toEqual({
+        message: "Checkout started successfully",
+        status: "redirect",
+        redirectUrl,
+        paid: true,
+      });
+      expect(rememberedReferralCode).toBeUndefined();
+    }
+  );
+
+  test("keeps the remembered referral code while a hosted payment is pending", async () => {
+    rememberedReferralCode = "RFL12345";
+    const scenario = await runSubmitReservation();
+
+    await Effect.runPromise(scenario.effect);
+
+    expect(rememberedReferralCode).toBe("RFL12345");
+  });
 
   test("rejects a classified bot before creating checkout", async () => {
     const { BotDetectedError } = await import(

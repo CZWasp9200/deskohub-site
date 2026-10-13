@@ -29,6 +29,12 @@ import { instantStringSchema } from "@/shared/utils/temporal";
 
 mock.module("server-only", () => ({}));
 
+// The browser remembers a different shared code than the one typed below.
+mock.module("@/features/referrals/remembered-referral-code.server", () => ({
+  readRememberedReferralCode: async () => "RFLREMEMBERED",
+  forgetRememberedReferralCode: async () => undefined,
+}));
+
 const payStateBookedAt = instantStringSchema.make("2026-06-01T09:58:00.000Z");
 
 const reservation = {
@@ -230,6 +236,18 @@ describe("applyDiscountCodeToPayState", () => {
       )
     );
     expect(ordinaryState.referralCode).toBe("RFL12345");
+  });
+
+  test("accepts the typed referral code over the browser's remembered one", async () => {
+    const referral = await runSubmission({
+      submittedCode: "RFL12345",
+      codeKind: "referral",
+    });
+
+    expect(referral.lookupCodeKind).toHaveBeenCalledWith({ code: "RFL12345" });
+    expect(referral.acceptCode.mock.calls).toEqual([
+      [expect.objectContaining({ code: "RFL12345" })],
+    ]);
   });
 
   test.each([
