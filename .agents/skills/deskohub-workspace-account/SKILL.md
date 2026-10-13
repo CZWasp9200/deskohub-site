@@ -6,7 +6,7 @@ description: Workspace customer account, Better Auth, magic link, sign-in, sessi
 # Workspace customer accounts
 
 Paths are relative to `apps/deskohub-workspace` unless they start with
-`packages/`.
+`packages/`. The repository root holds `lint/` and `biome.json`.
 
 ## Ownership boundary
 

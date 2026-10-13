@@ -17,6 +17,8 @@
 - `EMAIL_API_KEY` is required in Production and Preview. Only development may
   omit it, and then every message, real recipients included, goes to Console
   with bearer content suppressed. There's no provider selection setting.
+- Use a sending-only, domain-scoped Resend key in Production. Never make
+  production message-retrieval credentials available to CI.
 - Auth owns the template, the synthetic-recipient pattern
   (`features/account/backend/auth/magic-link-policy.ts`), and the gated log
   lines. Don't loosen the shared Console provider; Boardgame Bar uses it too.

@@ -46,13 +46,17 @@ writes to the production namespace from a preview.
    upload straight onto the live ID; a bad image would replace a good one.
 3. Clean up staging on every known failure after staging succeeds. A
    definitive provider rejection cleans staging and leaves the old avatar.
-4. Treat an ambiguous rename as uncertain: retry and reconcile before reporting
-   success. Reconciliation compares the provider `asset_id`, which survives the
-   rename. An asset at the live ID counts as the promoted upload only when its
-   identity matches. A source-missing response, a mismatch, a missing identity,
-   or a failed live lookup stays uncertain: destroy nothing and fail
-   retryably. If a different known identity is live after the retry, the
-   previous asset remains, so clean staging and fail retryably.
+4. Reconcile before reporting success when the rename outcome isn't
+   definitive. Reconciliation compares the provider `asset_id`, which survives
+   the rename: an asset at the live ID counts as the promoted upload only when
+   its identity matches the staged upload's.
+   - Source-missing response: look up the live asset. A matching identity
+     means the rename committed, so clean staging and report success. A
+     mismatch, a missing identity, or a failed lookup fails retryably.
+   - Other ambiguous response: retry the rename once, then reconcile the same
+     way. If a different known identity is live, the previous asset remains,
+     so clean staging and fail retryably. If no identity can be confirmed,
+     destroy nothing and fail retryably.
 5. If promotion stays ambiguous, no previous live avatar exists, and staging
    still exists, keep staging as the only recoverable copy. On the next upload,
    `recoverRetainedStaging` promotes it first, but only when the live lookup

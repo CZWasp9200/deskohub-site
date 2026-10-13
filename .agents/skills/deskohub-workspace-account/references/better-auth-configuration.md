@@ -91,7 +91,8 @@ only cleans its own deployment's database.
   data and older keys still verify. Production env validation requires it,
   and auth bootstrap throws on an invalid value. Configure it per
   environment, and never derive a secret from a public deployment
-  identifier.
+  identifier. Give Preview a secret distinct from Production so session
+  material copied into a preview branch can't pass as a production session.
 - Pin `better-auth` and every `@better-auth/*` package to the same exact
   version, and treat published Better Auth advisories as patch triggers.
 - Add only environment-scoped auth secrets and mail settings to the existing

@@ -25,15 +25,25 @@ what the privacy copy promises. Privacy copy lives in
   Dotypos Customer API documents no retention or anonymization behavior for
   `expireDate`. Never delete or anonymize the Dotypos customer or its
   reservation, payment, invoice, or legal records.
-- Name Resend as the email processor in privacy copy. Account deletion can't
-  erase an already-sent email; Resend publishes no sent-message delete API.
-  Don't mirror Resend message bodies or delivery events into Workspace.
+- In privacy copy, name Resend as the email processor and disclose:
+  - The recipient address, message content including the magic link, and
+    delivery metadata.
+  - Storage in the United States.
+  - The applicable 30-day active-account retention and seven-day backups.
+  - That account deletion can't erase an already-sent email (Resend publishes
+    no sent-message delete API), and that an exceptional early-removal request
+    goes through Resend's contact process.
+- Don't mirror Resend message bodies or delivery events into Workspace.
 - Neon preview branches copy production data at the branch point, and later
   production deletions don't reach existing branches. The allowed contents and
   the no-sanitizer rule are in the root `AGENTS.md`. Rely on the
   integration's preview-branch cleanup; don't add a scrub job, PII-free
   parent, branch reset job, or masking branch. Never query, log, display, or
   email inherited real identities during E2E.
+- Because preview-branch cleanup is the retention control, check the Neon
+  integration as an operations task: the production branch is protected,
+  automatic cleanup of obsolete preview branches is on, and neither setting has
+  drifted.
 - Avatars never enter Neon. See [avatar media storage](avatar-media-storage.md).
 - PostHog has its own retention and erasure limits. See
   [PostHog identity and privacy](posthog-identity-privacy.md).
