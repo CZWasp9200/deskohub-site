@@ -18,16 +18,7 @@ import {
 } from "@deskohub/google-calendar";
 import { and, eq, sql } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
-import {
-  Context,
-  Data,
-  Effect,
-  Layer,
-  Match,
-  Option,
-  Predicate,
-  Schema,
-} from "effect";
+import { Context, Data, Effect, Layer, Match, Option, Schema } from "effect";
 import type { SqlError } from "effect/unstable/sql/SqlError";
 import {
   WorkspaceDatabase,
@@ -52,6 +43,11 @@ import {
   voucherRedemptions,
   vouchers,
 } from "@/db/schema";
+import {
+  type DatabaseQueryError,
+  findViolatedConstraint,
+  isDatabaseQueryError,
+} from "@/db/sql-constraint";
 import type { PaymentAttemptId } from "@/features/checkout/checkout-identifiers";
 import type { WorkspaceMoney } from "@/features/checkout/workspace-money";
 import type { WorkspaceProductTarget } from "@/features/discounts/product-target";
@@ -1714,44 +1710,21 @@ const withDiscountAdminConflict =
   <Input, A, E, R>(operation: (input: Input) => Effect.Effect<A, E, R>) =>
   (input: Input): Effect.Effect<A, E | DiscountAdminConflictError, R> =>
     operation(input).pipe(
-      Effect.mapError((cause) => {
-        return findDiscountAdminConflict(cause) ?? cause;
-      })
+      Effect.catchIf(isDatabaseQueryError, (cause) =>
+        Effect.fail(findDiscountAdminConflict(cause) ?? cause)
+      )
     );
 
 export const findDiscountAdminConflict = (
-  cause: unknown
-): DiscountAdminConflictError | undefined => {
-  const constraint = findConstraintName(cause);
-  const message = constraint
-    ? discountAdminConstraintMessages.get(constraint)
-    : undefined;
-  return message ? new DiscountAdminConflictError({ message }) : undefined;
-};
-
-const findConstraintName = (
-  cause: unknown,
-  visited: Set<unknown> = new Set()
-): string | undefined => {
-  if (!cause || visited.has(cause) || !Predicate.isObjectKeyword(cause)) {
-    return undefined;
-  }
-  visited.add(cause);
-  if (
-    "constraint" in cause &&
-    Predicate.isString(cause.constraint) &&
-    cause.constraint.length > 0
-  ) {
-    return cause.constraint;
-  }
-  if ("reason" in cause) {
-    const constraint = findConstraintName(cause.reason, visited);
-    if (constraint) return constraint;
-  }
-  return "cause" in cause
-    ? findConstraintName(cause.cause, visited)
-    : undefined;
-};
+  cause: DatabaseQueryError
+): DiscountAdminConflictError | undefined =>
+  findViolatedConstraint(cause).pipe(
+    Option.flatMapNullishOr((constraint) =>
+      discountAdminConstraintMessages.get(constraint)
+    ),
+    Option.map((message) => new DiscountAdminConflictError({ message })),
+    Option.getOrUndefined
+  );
 
 type AdminDiscountRow = StoredDiscount & {
   readonly productTargets: readonly DiscountProductTarget[];
