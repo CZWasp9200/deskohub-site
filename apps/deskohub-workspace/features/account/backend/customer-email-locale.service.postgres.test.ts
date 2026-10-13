@@ -24,19 +24,17 @@ describe.skipIf(!testDatabase)(
     ) => {
       const accountId = uniqueId();
       await testDatabase!.pool.query(
-        `insert into auth."user" (id, name, email) values ($1, '', $2)`,
-        [accountId, testEmailAddress(`locale-${accountId}`)]
+        `insert into auth."user" (id, name, email, locale) values ($1, '', $2, $3)`,
+        [
+          accountId,
+          testEmailAddress(`locale-${accountId}`),
+          options.locale ?? null,
+        ]
       );
       await testDatabase!.pool.query(
         `insert into customer_account_links (customer_account_id, dotypos_customer_id) values ($1, $2)`,
         [accountId, dotyposCustomerId]
       );
-      if (options.locale) {
-        await testDatabase!.pool.query(
-          `insert into customer_locale_preferences (customer_account_id, locale) values ($1, $2)`,
-          [accountId, options.locale]
-        );
-      }
     };
 
     test("resolves a linked account's saved preference", async () => {
@@ -76,7 +74,7 @@ describe.skipIf(!testDatabase)(
       expect(outcome).toEqual({ kind: "guest" });
     });
 
-    test("keeps the reservation locale for a linked account without a preference row", async () => {
+    test("keeps the reservation locale for a linked account without a locale preference", async () => {
       const dotyposCustomerId = DotyposCustomerIdSchema.make(
         `locale-missing-${uniqueId()}`
       );

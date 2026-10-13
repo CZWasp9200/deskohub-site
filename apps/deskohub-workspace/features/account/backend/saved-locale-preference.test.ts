@@ -37,7 +37,6 @@ describe("saved locale preference through the session read", () => {
 
     expect(preference).toBe("cs-CZ");
     expect(reader.fake.sessionReads).toEqual([syntheticSessionCookie]);
-    expect(reader.fake.preferenceReads).toEqual(["synthetic-account"]);
     expect(warnings).toEqual([]);
   });
 
@@ -51,18 +50,17 @@ describe("saved locale preference through the session read", () => {
     );
   });
 
-  test("has no preference for a guest and never reads the preference table", async () => {
+  test("has no preference for a guest", async () => {
     const reader = makeFakeSavedLocalePreference();
     reader.fake.savedPreference = "cs-CZ";
 
     const { preference, warnings } = await read(reader);
 
     expect(preference).toBeUndefined();
-    expect(reader.fake.preferenceReads).toEqual([]);
     expect(warnings).toEqual([]);
   });
 
-  test("has no preference for an account without a saved row", async () => {
+  test("has no preference for an account without a saved locale", async () => {
     const reader = makeFakeSavedLocalePreference();
 
     expect(
@@ -85,7 +83,6 @@ describe("saved locale preference through the session read", () => {
       );
 
       expect(preference).toBeUndefined();
-      expect(reader.fake.preferenceReads).toEqual([]);
       expect(warnings).toEqual([]);
     }
   );
@@ -96,16 +93,6 @@ describe("saved locale preference through the session read", () => {
     reader.fake.sessionReadFailure = new CustomerAccountAccessError({
       reason: "unavailable",
     });
-
-    const { preference, warnings } = await read(reader, syntheticSessionCookie);
-
-    expect(preference).toBeUndefined();
-    expect(warnings).toHaveLength(1);
-  });
-
-  test("falls back to no preference with one warning when the preference read fails", async () => {
-    const reader = makeFakeSavedLocalePreference();
-    reader.fake.preferenceReadFailure = true;
 
     const { preference, warnings } = await read(reader, syntheticSessionCookie);
 

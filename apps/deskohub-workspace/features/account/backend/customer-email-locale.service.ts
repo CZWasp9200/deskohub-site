@@ -2,7 +2,7 @@ import type { DotyposCustomerId } from "@deskohub/dotypos";
 import { eq } from "drizzle-orm";
 import { Context, Data, Effect, Layer } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
-import { customerLocalePreferences } from "@/db/schema";
+import { authUser } from "@/db/schema/auth";
 import { customerAccountLinks } from "@/db/schema/customer-account-links";
 import type { Locale } from "@/features/i18n";
 
@@ -35,8 +35,8 @@ export interface ICustomerEmailLocaleService {
 
 /**
  * Resolves the customer's saved locale preference behind reservation
- * customer emails through the durable Dotypos customer link and the saved
- * preference row, without exposing account, session, or profile data.
+ * customer emails through the durable Dotypos customer link and the
+ * account's locale field, without exposing account, session, or profile data.
  */
 export class CustomerEmailLocaleService extends Context.Service<
   CustomerEmailLocaleService,
@@ -49,14 +49,11 @@ export class CustomerEmailLocaleService extends Context.Service<
 
       const byDotyposCustomer = (dotyposCustomerId: DotyposCustomerId) =>
         db
-          .select({ locale: customerLocalePreferences.locale })
+          .select({ locale: authUser.locale })
           .from(customerAccountLinks)
           .leftJoin(
-            customerLocalePreferences,
-            eq(
-              customerLocalePreferences.customerAccountId,
-              customerAccountLinks.customerAccountId
-            )
+            authUser,
+            eq(authUser.id, customerAccountLinks.customerAccountId)
           )
           .where(eq(customerAccountLinks.dotyposCustomerId, dotyposCustomerId))
           .limit(1)

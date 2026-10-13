@@ -2,12 +2,9 @@ import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, mock, test } from "bun:test";
 import { resendSimulatorAddress } from "@deskohub/test-email";
-import { Effect, Layer } from "effect";
-import { WorkspaceDatabase } from "@/db/database.service";
+import { Layer } from "effect";
 import type { Locale } from "@/features/i18n";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
-import { customerAccountIdSchema } from "../../customer-account";
-import { seedAccountLocalePreference } from "../customer-locale-preference.repository";
 
 const afterCallbacks: (() => unknown)[] = [];
 const resendSends: {
@@ -72,19 +69,10 @@ const insertVerifiedUser = async (email: string, verified: boolean) => {
   return id;
 };
 
-const seedPreference = async (accountId: string, locale: Locale) => {
-  await Effect.runPromise(
-    seedAccountLocalePreference(
-      customerAccountIdSchema.make(accountId),
-      locale
-    ).pipe(
-      Effect.provide(
-        Layer.succeed(
-          WorkspaceDatabase,
-          WorkspaceDatabase.of({ db: testDatabase!.db })
-        )
-      )
-    )
+const savePreference = async (accountId: string, locale: Locale) => {
+  await testDatabase!.pool.query(
+    `update auth."user" set locale = $2 where id = $1`,
+    [accountId, locale]
   );
 };
 
@@ -112,7 +100,7 @@ describe.skipIf(!testDatabase)(
     test("delivers with the saved preference even when the site locale differs", async () => {
       const email = uniqueEmail("precedence");
       const accountId = await insertVerifiedUser(email, true);
-      await seedPreference(accountId, "cs-CZ");
+      await savePreference(accountId, "cs-CZ");
 
       const queued = await requestDelivery(email, "en-US");
 
@@ -139,26 +127,26 @@ describe.skipIf(!testDatabase)(
       expect(sentSubjectsFor(email)).toEqual([CS_SUBJECT]);
 
       const rows = await testDatabase!.pool.query(
-        `select locale from customer_locale_preferences where customer_account_id = $1`,
+        `select locale from auth."user" where id = $1`,
         [accountId]
       );
-      expect(rows.rows).toEqual([]);
+      expect(rows.rows).toEqual([{ locale: null }]);
     });
 
     test("skips delivery for an existing account when the preference read keeps failing", async () => {
       const email = uniqueEmail("read-failure");
       const accountId = await insertVerifiedUser(email, true);
-      await seedPreference(accountId, "cs-CZ");
+      await savePreference(accountId, "cs-CZ");
 
       await testDatabase!.pool.query(
-        `alter table customer_locale_preferences rename to customer_locale_preferences_moved`
+        `alter table auth."user" rename column locale to locale_moved`
       );
       try {
         const queued = await requestDelivery(email, "en-US");
         expect(queued).toBe(0);
       } finally {
         await testDatabase!.pool.query(
-          `alter table customer_locale_preferences_moved rename to customer_locale_preferences`
+          `alter table auth."user" rename column locale_moved to locale`
         );
       }
 

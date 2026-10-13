@@ -1,9 +1,9 @@
 import { testEmailAddress } from "@deskohub/test-email";
 import "@/shared/testing/workspace-test-env";
 
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { drizzleAdapter } from "@better-auth/drizzle-adapter/relations-v2";
-import { Effect, Layer } from "effect";
+import { Effect } from "effect";
 import { makeAuthDatabase } from "@/db/auth-database-client";
 import { drizzleAuthTables } from "@/db/schema/auth";
 import { env } from "@/env";
@@ -53,7 +53,7 @@ describe.skipIf(!testDatabase)(
           sentMagicLinks.push(data.url);
         },
         beforeDeleteUser: () => Effect.void,
-        createAccountLocalePreference: () => Effect.void,
+        captureAccountLocalePreference: () => Effect.void,
       });
 
     const callHandler = (
@@ -73,8 +73,14 @@ describe.skipIf(!testDatabase)(
         })
       );
 
-    /** Signs a new synthetic customer in and returns its session cookie. */
-    const signIn = async (options: { readonly locale?: "cs-CZ" | "en-US" }) => {
+    /**
+     * Signs a new synthetic customer in and returns its session cookie. The
+     * account gets `locale` as its saved preference; null makes it a legacy
+     * account without one.
+     */
+    const signIn = async (options: {
+      readonly locale: "cs-CZ" | "en-US" | null;
+    }) => {
       const sentMagicLinks: string[] = [];
       const auth = makeAuth(sentMagicLinks);
       const email = testEmailAddress(`saved-locale-${crypto.randomUUID()}`);
@@ -97,12 +103,10 @@ describe.skipIf(!testDatabase)(
         `select id from auth."user" where email = $1`,
         [email]
       );
-      if (options.locale) {
-        await testDatabase!.pool.query(
-          `insert into customer_locale_preferences (customer_account_id, locale) values ($1, $2)`,
-          [user.id, options.locale]
-        );
-      }
+      await testDatabase!.pool.query(
+        `update auth."user" set locale = $2 where id = $1`,
+        [user.id, options.locale]
+      );
       return { auth, cookie, accountId: user.id as string };
     };
 
@@ -111,17 +115,14 @@ describe.skipIf(!testDatabase)(
       Effect.runPromise(
         findSavedLocalePreference.pipe(
           Effect.provide(
-            Layer.mergeAll(
-              CustomerAuthentication.fromEnvironment({
-                readBetterAuthSecretsRaw: () => env.BETTER_AUTH_SECRETS,
-                readCurrentSession: makeAuthoritySessionRead({
-                  readRequestHeaders: async () =>
-                    new Headers({ host: HOST, cookie }),
-                  loadAuthority: async () => ({ auth }),
-                }),
+            CustomerAuthentication.fromEnvironment({
+              readBetterAuthSecretsRaw: () => env.BETTER_AUTH_SECRETS,
+              readCurrentSession: makeAuthoritySessionRead({
+                readRequestHeaders: async () =>
+                  new Headers({ host: HOST, cookie }),
+                loadAuthority: async () => ({ auth }),
               }),
-              testDatabase!.layer
-            )
+            })
           )
         )
       );
@@ -130,6 +131,17 @@ describe.skipIf(!testDatabase)(
       const { auth, cookie } = await signIn({ locale: "cs-CZ" });
 
       await expect(find(auth, cookie)).resolves.toBe("cs-CZ");
+    });
+
+    test("reads the session, its account, and the locale preference in one query", async () => {
+      const { auth, cookie } = await signIn({ locale: "cs-CZ" });
+      const queries = spyOn(testDatabase!.pool, "query");
+      try {
+        await expect(find(auth, cookie)).resolves.toBe("cs-CZ");
+        expect(queries).toHaveBeenCalledTimes(1);
+      } finally {
+        queries.mockRestore();
+      }
     });
 
     test("keeps the preference of an account pending deletion", async () => {
@@ -142,8 +154,8 @@ describe.skipIf(!testDatabase)(
       await expect(find(auth, cookie)).resolves.toBe("cs-CZ");
     });
 
-    test("has no preference for a legacy account without a saved row", async () => {
-      const { auth, cookie } = await signIn({});
+    test("has no preference for a legacy account without a saved locale", async () => {
+      const { auth, cookie } = await signIn({ locale: null });
 
       await expect(find(auth, cookie)).resolves.toBeUndefined();
     });

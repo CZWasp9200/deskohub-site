@@ -47,6 +47,13 @@ const isPrivateAccountPath = (pathname: string) =>
 // cookie check is Better Auth's optimistic presence test; the reader then
 // validates the session through Better Auth. A reader that fails to load
 // counts as no preference, like a failed read.
+//
+// Accepted side effect: for a correctly signed cookie of an expired or revoked
+// session, Better Auth's `getSession` deletes the expired session row and
+// expires the cookie through `nextCookies`. Next then replaces this response's
+// Set-Cookie with that expiry, so the locale cookie is not refreshed on this
+// one response; the URL still carries the locale, and the next (guest) request
+// sets the cookie again.
 const pageLocalePreference = async (request: NextRequest) => {
   if (
     (request.method !== "GET" && request.method !== "HEAD") ||

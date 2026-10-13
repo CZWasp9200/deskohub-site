@@ -40,7 +40,7 @@ import {
   type CustomerAvatarUnavailableError,
 } from "../customer-avatar.service";
 import { CustomerDotyposAdapter } from "../customer-dotypos-adapter.service";
-import { seedAccountLocalePreference } from "../customer-locale-preference.repository";
+import { captureAccountLocalePreference } from "../customer-locale-preference";
 import type { MagicLinkSendFunction, WorkspaceAuthConfig } from "./auth-server";
 
 const emitWorkspaceLog = mock(() => undefined);
@@ -87,15 +87,15 @@ type TestAuthOptions = {
   readonly sentLinks?: CapturedMagicLink[];
   readonly areAccountsEnabled?: WorkspaceAuthConfig["areAccountsEnabled"];
   readonly beforeDeleteUser?: WorkspaceAuthConfig["beforeDeleteUser"];
-  readonly createAccountLocalePreference?: WorkspaceAuthConfig["createAccountLocalePreference"];
+  readonly captureAccountLocalePreference?: WorkspaceAuthConfig["captureAccountLocalePreference"];
 };
 
-/** The real seed against the migrated disposable database. */
-const realSeed: WorkspaceAuthConfig["createAccountLocalePreference"] = (
+/** The real sign-in capture against the migrated disposable database. */
+const realCapture: WorkspaceAuthConfig["captureAccountLocalePreference"] = (
   accountId,
   locale
 ) =>
-  seedAccountLocalePreference(accountId, locale).pipe(
+  captureAccountLocalePreference(accountId, locale).pipe(
     Effect.provide(
       Layer.succeed(
         WorkspaceDatabase,
@@ -104,25 +104,18 @@ const realSeed: WorkspaceAuthConfig["createAccountLocalePreference"] = (
     )
   );
 
-/** A database failure the seed sees: a dropped connection or a constraint. */
-const seedFailure = (kind: "transient" | "permanent") =>
+/** A database failure the sign-in capture sees. */
+const captureFailure = () =>
   new EffectDrizzleQueryError({
-    query: "insert into customer_locale_preferences",
+    query: 'update "auth"."user" set "locale"',
     params: [],
     cause: Cause.fail(
       new SqlError.SqlError({
-        reason:
-          kind === "transient"
-            ? new SqlError.ConnectionError({
-                cause: new Error("synthetic connection reset"),
-                message: "synthetic connection reset",
-                operation: "execute",
-              })
-            : new SqlError.ConstraintError({
-                cause: new Error("synthetic constraint violation"),
-                message: "synthetic constraint violation",
-                operation: "execute",
-              }),
+        reason: new SqlError.ConstraintError({
+          cause: new Error("synthetic constraint violation"),
+          message: "synthetic constraint violation",
+          operation: "execute",
+        }),
       })
     ),
   });
@@ -131,13 +124,13 @@ const makeTestAuth = (options: TestAuthOptions = {}) => {
   const sendMagicLink: MagicLinkSendFunction = (data) => {
     options.sentLinks?.push(data);
   };
-  const createAccountLocalePreference:
-    | WorkspaceAuthConfig["createAccountLocalePreference"]
+  const captureAccountLocalePreference:
+    | WorkspaceAuthConfig["captureAccountLocalePreference"]
     | undefined =
-    options.createAccountLocalePreference ??
-    // The real seed requires the account row in the migrated disposable
-    // Postgres, so memory-backed auth instances default to a noop seed.
-    (testDatabase && !options.database ? realSeed : () => Effect.void);
+    options.captureAccountLocalePreference ??
+    // The real capture requires the migrated disposable Postgres, so
+    // memory-backed auth instances default to a noop capture.
+    (testDatabase && !options.database ? realCapture : () => Effect.void);
   return makeWorkspaceAuth({
     database: options.database ?? buildDatabaseAdapter(),
     secrets: options.secrets ?? [{ version: 1, value: SECRET_V1 }],
@@ -146,7 +139,7 @@ const makeTestAuth = (options: TestAuthOptions = {}) => {
     areAccountsEnabled: options.areAccountsEnabled ?? (async () => true),
     sendMagicLink,
     beforeDeleteUser: options.beforeDeleteUser ?? (() => Effect.void),
-    createAccountLocalePreference,
+    captureAccountLocalePreference,
   });
 };
 
@@ -764,137 +757,52 @@ describe.skipIf(!testDatabase)(
       expect(user.rows).toHaveLength(0);
     });
 
-    test("seeds the language preference from the initiating site locale at account creation", async () => {
+    const localeOf = async (accountId: string) =>
+      (
+        await testDatabase!.pool.query<{ locale: string | null }>(
+          `select locale from auth."user" where id = $1`,
+          [accountId]
+        )
+      ).rows[0]?.locale;
+
+    test("sets the locale preference from the initiating site locale in the account-creation insert", async () => {
       const sentLinks: CapturedMagicLink[] = [];
       const auth = makeTestAuth({ sentLinks });
 
-      const preferenceLocaleFor = async (email: string) => {
+      const createdLocaleFor = async (email: string) => {
         const userId = await userIdForEmail(email);
         expect(userId).toBeTruthy();
-        for (let attempt = 0; attempt < 20; attempt += 1) {
-          const rows = await testDatabase!.pool.query(
-            `select locale from customer_locale_preferences where customer_account_id = $1`,
-            [userId]
-          );
-          if (rows.rows.length > 0) return rows.rows[0]!.locale as string;
-          await new Promise((resolve) => setTimeout(resolve, 50));
-        }
-        return undefined;
+        return localeOf(userId!);
       };
 
       const emailEn = uniqueEmail("seed-en");
       await signInForMagicLink(auth, emailEn, "/en-US/account");
       await verifyMagicLink(auth, sentLinks[0]!);
-      expect(await preferenceLocaleFor(emailEn)).toBe("en-US");
+      expect(await createdLocaleFor(emailEn)).toBe("en-US");
 
       const emailCs = uniqueEmail("seed-cs");
       await signInForMagicLink(auth, emailCs, "/cs-CZ/account");
       await verifyMagicLink(auth, sentLinks[1]!);
-      expect(await preferenceLocaleFor(emailCs)).toBe("cs-CZ");
+      expect(await createdLocaleFor(emailCs)).toBe("cs-CZ");
 
       const emailDefault = uniqueEmail("seed-default");
       await signInForMagicLink(auth, emailDefault);
       await verifyMagicLink(auth, sentLinks[2]!);
-      expect(await preferenceLocaleFor(emailDefault)).toBe("en-US");
+      expect(await createdLocaleFor(emailDefault)).toBe("en-US");
     });
 
-    test("rejects the activating verification when the preference seed keeps failing, while a later link still signs in", async () => {
+    test("keeps the creation locale when a later sign-in carries another one", async () => {
       const sentLinks: CapturedMagicLink[] = [];
-      let persistentAttempts = 0;
-      const auth = makeTestAuth({
-        sentLinks,
-        createAccountLocalePreference: () =>
-          Effect.suspend(() => {
-            persistentAttempts += 1;
-            return Effect.fail(seedFailure("transient"));
-          }),
-      });
-      const email = uniqueEmail("seed-persistent-failure");
-
-      emitWorkspaceLog.mockClear();
-      await signInForMagicLink(auth, email, "/cs-CZ/account");
-      await signInForMagicLink(auth, email, "/cs-CZ/account");
-      expect(sentLinks).toHaveLength(2);
-
-      const firstVerified = await verifyMagicLink(auth, sentLinks[0]!);
-      expect(getSessionCookie(firstVerified)).toBeUndefined();
-      expect(firstVerified.status).toBe(500);
-
-      // A missing preference never refuses a login: the second outstanding
-      // link signs the now-existing user in without a preference row.
-      const secondVerified = await verifyMagicLink(auth, sentLinks[1]!);
-      expect(getSessionCookie(secondVerified)).toBeTruthy();
-
-      const userId = await userIdForEmail(email);
-      expect(userId).toBeTruthy();
-      const preference = await testDatabase!.pool.query(
-        `select locale from customer_locale_preferences where customer_account_id = $1`,
-        [userId]
-      );
-      expect(preference.rows).toHaveLength(0);
-
-      const loggedCodes = JSON.stringify(emitWorkspaceLog.mock.calls);
-      expect(loggedCodes).toContain("account-locale-preference.seed-failed");
-      expect(loggedCodes).toContain("account-locale-preference.capture-failed");
-      // Three creation seed attempts (transient errors are retried twice),
-      // then the second link's single sign-in capture attempt.
-      expect(persistentAttempts).toBe(4);
-    });
-
-    test("does not retry a permanent preference seed failure", async () => {
-      const sentLinks: CapturedMagicLink[] = [];
-      let attempts = 0;
-      const auth = makeTestAuth({
-        sentLinks,
-        createAccountLocalePreference: () =>
-          Effect.suspend(() => {
-            attempts += 1;
-            return Effect.fail(seedFailure("permanent"));
-          }),
-      });
-      const email = uniqueEmail("seed-permanent-failure");
-
-      emitWorkspaceLog.mockClear();
-      await signInForMagicLink(auth, email, "/cs-CZ/account");
-      const verified = await verifyMagicLink(auth, sentLinks[0]!);
-
-      expect(verified.status).toBe(500);
-      expect(getSessionCookie(verified)).toBeUndefined();
-      expect(attempts).toBe(1);
-      const loggedCodes = JSON.stringify(emitWorkspaceLog.mock.calls);
-      expect(loggedCodes).toContain("account-locale-preference.seed-failed");
-      expect(loggedCodes).not.toContain("synthetic constraint violation");
-    });
-
-    test("recovers a transient preference seed failure within the same activation without losing the initiating locale", async () => {
-      const sentLinks: CapturedMagicLink[] = [];
-      let attempts = 0;
-      const auth = makeTestAuth({
-        sentLinks,
-        createAccountLocalePreference: (accountId, locale) =>
-          Effect.suspend(() => {
-            attempts += 1;
-            return attempts === 1
-              ? Effect.fail(seedFailure("transient"))
-              : realSeed(accountId, locale);
-          }),
-      });
-      const email = uniqueEmail("seed-transient-recovery");
+      const auth = makeTestAuth({ sentLinks });
+      const email = uniqueEmail("seed-kept");
 
       await signInForMagicLink(auth, email, "/cs-CZ/account");
-      const verified = await verifyMagicLink(auth, sentLinks[0]!);
+      await verifyMagicLink(auth, sentLinks[0]!);
+      await signInForMagicLink(auth, email, "/en-US/account");
+      const second = await verifyMagicLink(auth, sentLinks[1]!);
 
-      expect(getSessionCookie(verified)).toBeTruthy();
-      // Two creation seed attempts, then the sign-in capture's no-op insert.
-      expect(attempts).toBe(3);
-
-      const userId = await userIdForEmail(email);
-      expect(userId).toBeTruthy();
-      const preference = await testDatabase!.pool.query(
-        `select locale from customer_locale_preferences where customer_account_id = $1`,
-        [userId]
-      );
-      expect(preference.rows).toEqual([{ locale: "cs-CZ" }]);
+      expect(getSessionCookie(second)).toBeTruthy();
+      expect(await localeOf((await userIdForEmail(email))!)).toBe("cs-CZ");
     });
 
     const insertLegacyAccount = async (email: string) => {
@@ -906,14 +814,6 @@ describe.skipIf(!testDatabase)(
       return id;
     };
 
-    const preferenceRowsFor = async (accountId: string) =>
-      (
-        await testDatabase!.pool.query(
-          `select locale from customer_locale_preferences where customer_account_id = $1`,
-          [accountId]
-        )
-      ).rows;
-
     test("signs a legacy account in and captures its first sign-in locale without overwriting it later", async () => {
       const sentLinks: CapturedMagicLink[] = [];
       const auth = makeTestAuth({ sentLinks });
@@ -923,12 +823,12 @@ describe.skipIf(!testDatabase)(
       await signInForMagicLink(auth, email, "/cs-CZ/account");
       const first = await verifyMagicLink(auth, sentLinks[0]!);
       expect(getSessionCookie(first)).toBeTruthy();
-      expect(await preferenceRowsFor(accountId)).toEqual([{ locale: "cs-CZ" }]);
+      expect(await localeOf(accountId)).toBe("cs-CZ");
 
       await signInForMagicLink(auth, email, "/en-US/account");
       const second = await verifyMagicLink(auth, sentLinks[1]!);
       expect(getSessionCookie(second)).toBeTruthy();
-      expect(await preferenceRowsFor(accountId)).toEqual([{ locale: "cs-CZ" }]);
+      expect(await localeOf(accountId)).toBe("cs-CZ");
     });
 
     test("keeps a legacy account without a preference when the sign-in callback carries no locale", async () => {
@@ -941,15 +841,14 @@ describe.skipIf(!testDatabase)(
       const verified = await verifyMagicLink(auth, sentLinks[0]!);
 
       expect(getSessionCookie(verified)).toBeTruthy();
-      expect(await preferenceRowsFor(accountId)).toEqual([]);
+      expect(await localeOf(accountId)).toBeNull();
     });
 
     test("signs a legacy account in when the preference capture fails", async () => {
       const sentLinks: CapturedMagicLink[] = [];
       const auth = makeTestAuth({
         sentLinks,
-        createAccountLocalePreference: () =>
-          Effect.fail(seedFailure("permanent")),
+        captureAccountLocalePreference: () => Effect.fail(captureFailure()),
       });
       const email = uniqueEmail("legacy-capture-failure");
       const accountId = await insertLegacyAccount(email);
@@ -960,7 +859,7 @@ describe.skipIf(!testDatabase)(
 
       expect(verified.status).toBe(302);
       expect(getSessionCookie(verified)).toBeTruthy();
-      expect(await preferenceRowsFor(accountId)).toEqual([]);
+      expect(await localeOf(accountId)).toBeNull();
       const logs = JSON.stringify(emitWorkspaceLog.mock.calls);
       expect(logs).toContain("account-locale-preference.capture-failed");
       expect(logs).not.toContain("synthetic constraint violation");

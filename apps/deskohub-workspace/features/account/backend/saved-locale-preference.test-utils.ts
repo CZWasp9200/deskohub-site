@@ -1,6 +1,5 @@
 import { testEmailAddress } from "@deskohub/test-email";
-import { Data, Effect, Layer } from "effect";
-import { WorkspaceDatabase } from "@/db/database.service";
+import { Effect, Layer } from "effect";
 import type { Locale } from "@/features/i18n";
 import { CurrentWorkspaceRequestHeaders } from "@/shared/backend/workspace-request-context";
 import type {
@@ -17,29 +16,22 @@ import { findSavedLocalePreference } from "./saved-locale-preference";
 export const syntheticSessionCookie =
   "better-auth.session_token=synthetic-token.signature";
 
-class SyntheticPreferenceReadFailure extends Data.TaggedError(
-  "SyntheticPreferenceReadFailure"
-) {}
-
 const syntheticAccountId = "synthetic-account" as CustomerAccountId;
 
 /**
- * The saved-preference reader over a fake session read and preference row.
- * The fake session read answers from the request headers the caller
- * provides, as the production read does: only a request carrying
- * `syntheticSessionCookie` is signed in. Tests change the fields of `fake`
- * between requests.
+ * The saved-preference reader over a fake session read. The fake session
+ * read answers from the request headers the caller provides, as the
+ * production read does: only a request carrying `syntheticSessionCookie` is
+ * signed in, and its session carries `savedPreference`. Tests change the
+ * fields of `fake` between requests.
  */
 export const makeFakeSavedLocalePreference = () => {
   const fake = {
     savedPreference: undefined as Locale | undefined,
     deletionRequested: false,
     sessionReadFailure: undefined as CustomerAccountAccessError | undefined,
-    preferenceReadFailure: false,
     /** The cookie header each session read saw. */
     sessionReads: [] as string[],
-    /** The account each preference read asked for. */
-    preferenceReads: [] as CustomerAccountId[],
   };
 
   const authentication = Layer.succeed(
@@ -55,38 +47,18 @@ export const makeFakeSavedLocalePreference = () => {
           accountId: syntheticAccountId,
           email: testEmailAddress("synthetic-account"),
           deletionRequested: fake.deletionRequested,
+          ...(fake.savedPreference && {
+            localePreference: fake.savedPreference,
+          }),
         } as CustomerAccountSession;
       }),
     })
   );
 
-  const db = {
-    select: () => ({
-      from: () => ({
-        where: () => ({
-          limit: () =>
-            Effect.suspend(() => {
-              fake.preferenceReads.push(syntheticAccountId);
-              if (fake.preferenceReadFailure) {
-                return Effect.fail(new SyntheticPreferenceReadFailure());
-              }
-              return Effect.succeed(
-                fake.savedPreference ? [{ locale: fake.savedPreference }] : []
-              );
-            }),
-        }),
-      }),
-    }),
-  };
-  const database = Layer.succeed(
-    WorkspaceDatabase,
-    WorkspaceDatabase.of({ db: db as never })
-  );
-
   return {
     fake,
     savedLocalePreference: findSavedLocalePreference.pipe(
-      Effect.provide(Layer.mergeAll(authentication, database))
+      Effect.provide(authentication)
     ),
   };
 };

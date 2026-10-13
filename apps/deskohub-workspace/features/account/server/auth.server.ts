@@ -11,7 +11,7 @@ import {
   workspaceBeforeDeleteUser,
   workspaceSendMagicLink,
 } from "@/features/account/backend/auth/auth-server";
-import { seedAccountLocalePreference } from "@/features/account/backend/customer-locale-preference.repository";
+import { captureAccountLocalePreference } from "@/features/account/backend/customer-locale-preference";
 import { workspaceSiteConstants } from "@/shared/utils/site-constants";
 import { areAccountsEnabled } from "./account-feature-flag.server";
 
@@ -46,8 +46,8 @@ export const auth = makeWorkspaceAuth({
   areAccountsEnabled,
   sendMagicLink: workspaceSendMagicLink,
   beforeDeleteUser: workspaceBeforeDeleteUser,
-  createAccountLocalePreference: (accountId, locale) =>
-    seedAccountLocalePreference(accountId, locale).pipe(
+  captureAccountLocalePreference: (accountId, locale) =>
+    captureAccountLocalePreference(accountId, locale).pipe(
       Effect.provide(WorkspaceDatabase.Default)
     ),
 });

@@ -5,6 +5,7 @@ import { setLocaleCookie } from "@deskohub/i18n/next";
 import { Effect, Layer, Match, Result, Schema } from "effect";
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
+import { WorkspaceDatabase } from "@/db/database.service";
 import {
   accountActionError,
   requireAccountsEnabled,
@@ -13,9 +14,10 @@ import {
 import type { AresBusinessBillingDraft } from "@/features/account/backend/ares-business-draft";
 import { toAresBusinessBillingDraft } from "@/features/account/backend/ares-business-draft";
 import { deleteCurrentAccountThroughAuthEndpoint } from "@/features/account/backend/auth/delete-account-endpoint";
+import { CustomerAccountLinkRepository } from "@/features/account/backend/customer-account-link.repository";
 import { CustomerAccountResolver } from "@/features/account/backend/customer-account-resolver.service";
 import { CustomerAuthentication } from "@/features/account/backend/customer-authentication.service";
-import { CustomerLocalePreferenceRepository } from "@/features/account/backend/customer-locale-preference.repository";
+import { saveAccountLocalePreference } from "@/features/account/backend/customer-locale-preference";
 import { CustomerProfileService } from "@/features/account/backend/customer-profile.service";
 import {
   type CustomerProfileInput,
@@ -91,15 +93,13 @@ const saveCustomerProfile = Effect.fn(
 );
 
 /**
- * Saves the Workspace-owned locale preference for the verified account under
+ * Saves the locale preference of the verified account under
  * the account lock, then moves the locale cookie to it. The preference is
  * also the site locale for the signed-in customer, so the caller navigates to
  * the page under the saved locale; the Dotypos profile is never touched.
  */
 const saveLocalePreference = (accountId: CustomerAccountId, locale: Locale) =>
-  Effect.flatMap(CustomerLocalePreferenceRepository, (repository) =>
-    repository.save(accountId, locale)
-  ).pipe(
+  saveAccountLocalePreference(accountId, locale).pipe(
     Effect.andThen(
       Effect.promise(() => cookies()).pipe(
         Effect.map((cookieStore) =>
@@ -107,7 +107,13 @@ const saveLocalePreference = (accountId: CustomerAccountId, locale: Locale) =>
         )
       )
     ),
-    Effect.provide(CustomerLocalePreferenceRepository.Live)
+    Effect.provide(
+      Layer.mergeAll(
+        WorkspaceDatabase.Default,
+        CustomerAccountLinkRepository.Live,
+        CustomerAuthentication.Default
+      )
+    )
   );
 
 const completeCustomerProfileAction = defineWorkspaceAction(

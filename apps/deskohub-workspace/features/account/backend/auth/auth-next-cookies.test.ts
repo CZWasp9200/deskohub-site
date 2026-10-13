@@ -14,16 +14,16 @@ import {
   authVerification,
 } from "@/db/schema/auth";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
-import { seedAccountLocalePreference } from "../customer-locale-preference.repository";
+import { captureAccountLocalePreference } from "../customer-locale-preference";
 import { type MagicLinkSendFunction, makeWorkspaceAuth } from "./auth-server";
 
 const testDatabase = await connectWorkspacePostgresTestDatabase();
 
-const seedPreference = (
-  accountId: Parameters<typeof seedAccountLocalePreference>[0],
-  locale: Parameters<typeof seedAccountLocalePreference>[1]
+const captureLocalePreference = (
+  accountId: Parameters<typeof captureAccountLocalePreference>[0],
+  locale: Parameters<typeof captureAccountLocalePreference>[1]
 ) =>
-  seedAccountLocalePreference(accountId, locale).pipe(
+  captureAccountLocalePreference(accountId, locale).pipe(
     Effect.provide(
       Layer.succeed(
         WorkspaceDatabase,
@@ -84,7 +84,7 @@ const makeTestAuth = (sentMagicLinks: { url: string }[] = []) => {
     areAccountsEnabled: async () => true,
     sendMagicLink,
     beforeDeleteUser: () => Effect.void,
-    createAccountLocalePreference: seedPreference,
+    captureAccountLocalePreference: captureLocalePreference,
   });
 };
 

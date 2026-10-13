@@ -10,7 +10,7 @@ import {
   type CustomerAccountSession,
   CustomerAuthentication,
 } from "./customer-authentication.service";
-import { CustomerLocalePreferenceRepository } from "./customer-locale-preference.repository";
+import { saveAccountLocalePreference } from "./customer-locale-preference";
 
 type ActivityState =
   | { readonly kind: "missing" }
@@ -19,18 +19,12 @@ type ActivityState =
       readonly deletionRequestedAt: Date | null;
     };
 
-type PreferenceRow = {
-  readonly locale: "cs-CZ" | "en-US";
-};
-
 const makeTestLayers = (options: {
   readonly state: ActivityState;
-  readonly row?: PreferenceRow;
   readonly lockFails?: boolean;
   readonly holdLock?: Promise<void>;
-  readonly readFails?: boolean;
 }) => {
-  const upserts: {
+  const updates: {
     readonly accountId: CustomerAccountId;
     readonly locale: "cs-CZ" | "en-US";
   }[] = [];
@@ -73,27 +67,11 @@ const makeTestLayers = (options: {
   );
 
   const fakeDb = {
-    select: () => ({
-      from: () => ({
-        where: () => ({
-          limit: () =>
-            options.readFails
-              ? Effect.fail(new Error("synthetic preference read failure"))
-              : Effect.succeed(options.row ? [options.row] : []),
-        }),
-      }),
-    }),
-    insert: () => ({
-      values: (values: {
-        customerAccountId: CustomerAccountId;
-        locale: "cs-CZ" | "en-US";
-      }) => ({
-        onConflictDoUpdate: () =>
+    update: () => ({
+      set: (values: { locale: "cs-CZ" | "en-US" }) => ({
+        where: () =>
           Effect.sync(() => {
-            upserts.push({
-              accountId: values.customerAccountId,
-              locale: values.locale,
-            });
+            updates.push({ accountId, locale: values.locale });
           }),
       }),
     }),
@@ -104,13 +82,11 @@ const makeTestLayers = (options: {
     WorkspaceDatabase.of({ db: fakeDb as never })
   );
 
-  const Repository = CustomerLocalePreferenceRepository.Default.pipe(
-    Layer.provide(Layer.mergeAll(DbLayer, LinksLayer, AuthenticationLayer))
-  );
+  const Dependencies = Layer.mergeAll(DbLayer, LinksLayer, AuthenticationLayer);
 
   return {
-    Repository,
-    upserts,
+    Dependencies,
+    updates,
     revokeSession: () => {
       sessionAccountId = null;
     },
@@ -126,9 +102,9 @@ const makeSession = (accountId: CustomerAccountId): CustomerAccountSession => ({
 
 const accountId = "pref-account-1" as CustomerAccountId;
 
-describe("CustomerLocalePreferenceRepository with mock layers", () => {
+describe("saveAccountLocalePreference with mock layers", () => {
   test("fails closed with the deletion-pending error and never writes under a deletion marker", async () => {
-    const { Repository, upserts } = makeTestLayers({
+    const { Dependencies, updates } = makeTestLayers({
       state: {
         kind: "active",
         deletionRequestedAt: new Date("2026-09-01T00:00:00.000Z"),
@@ -136,9 +112,10 @@ describe("CustomerLocalePreferenceRepository with mock layers", () => {
     });
 
     const outcome = await Effect.runPromise(
-      Effect.flatMap(CustomerLocalePreferenceRepository, (repository) =>
-        repository.save(accountId, "cs-CZ")
-      ).pipe(Effect.result, Effect.provide(Repository))
+      saveAccountLocalePreference(accountId, "cs-CZ").pipe(
+        Effect.result,
+        Effect.provide(Dependencies)
+      )
     );
 
     expect(outcome._tag).toBe("Failure");
@@ -147,19 +124,20 @@ describe("CustomerLocalePreferenceRepository with mock layers", () => {
       expect(failure.reason).toBe("link-required");
       expect(failure.linkReason).toBe("deletion-requested");
     }
-    expect(upserts).toHaveLength(0);
+    expect(updates).toHaveLength(0);
   });
 
   test("maps a lock failure to the fixed unavailable access error without writing", async () => {
-    const { Repository, upserts } = makeTestLayers({
+    const { Dependencies, updates } = makeTestLayers({
       state: { kind: "active", deletionRequestedAt: null },
       lockFails: true,
     });
 
     const outcome = await Effect.runPromise(
-      Effect.flatMap(CustomerLocalePreferenceRepository, (repository) =>
-        repository.save(accountId, "en-US")
-      ).pipe(Effect.result, Effect.provide(Repository))
+      saveAccountLocalePreference(accountId, "en-US").pipe(
+        Effect.result,
+        Effect.provide(Dependencies)
+      )
     );
 
     expect(outcome._tag).toBe("Failure");
@@ -167,21 +145,21 @@ describe("CustomerLocalePreferenceRepository with mock layers", () => {
       const failure = outcome.failure as CustomerAccountAccessErrorLike;
       expect(failure.reason).toBe("unavailable");
     }
-    expect(upserts).toHaveLength(0);
+    expect(updates).toHaveLength(0);
   });
 
-  test("writes the upsert for an active account", async () => {
-    const { Repository, upserts } = makeTestLayers({
+  test("updates the account locale for an active account", async () => {
+    const { Dependencies, updates } = makeTestLayers({
       state: { kind: "active", deletionRequestedAt: null },
     });
 
     await Effect.runPromise(
-      Effect.flatMap(CustomerLocalePreferenceRepository, (repository) =>
-        repository.save(accountId, "en-US")
-      ).pipe(Effect.provide(Repository))
+      saveAccountLocalePreference(accountId, "en-US").pipe(
+        Effect.provide(Dependencies)
+      )
     );
 
-    expect(upserts).toEqual([{ accountId, locale: "en-US" }]);
+    expect(updates).toEqual([{ accountId, locale: "en-US" }]);
   });
 
   test("rechecks the session under the lock and never writes for a revoked session", async () => {
@@ -189,21 +167,22 @@ describe("CustomerLocalePreferenceRepository with mock layers", () => {
     const lockGate = new Promise<void>((resolve) => {
       releaseLock = resolve;
     });
-    const { Repository, upserts, revokeSession, authReads } = makeTestLayers({
+    const { Dependencies, updates, revokeSession, authReads } = makeTestLayers({
       state: { kind: "active", deletionRequestedAt: null },
       holdLock: lockGate,
     });
 
     const pendingSave = Effect.runPromise(
-      Effect.flatMap(CustomerLocalePreferenceRepository, (repository) =>
-        repository.save(accountId, "en-US")
-      ).pipe(Effect.result, Effect.provide(Repository))
+      saveAccountLocalePreference(accountId, "en-US").pipe(
+        Effect.result,
+        Effect.provide(Dependencies)
+      )
     );
 
     // The saver is parked on the lock gate. Revoke the session before the
     // lock is released so only the under-lock recheck can observe it.
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(upserts).toHaveLength(0);
+    expect(updates).toHaveLength(0);
     revokeSession();
     releaseLock();
 
@@ -215,7 +194,7 @@ describe("CustomerLocalePreferenceRepository with mock layers", () => {
       expect(failure.reason).toBe("unauthenticated");
     }
     expect(authReads()).toBe(1);
-    expect(upserts).toHaveLength(0);
+    expect(updates).toHaveLength(0);
   });
 });
 

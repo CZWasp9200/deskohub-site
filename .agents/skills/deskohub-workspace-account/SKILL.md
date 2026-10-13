@@ -29,8 +29,10 @@ description: Workspace customer account, Better Auth, magic link, auth persisten
   `schemaName: "auth"`. Never create, attach, or close a second pool, and
   never pass the Effect Drizzle client to Better Auth.
 - Keep the connectionless auth options module as the single source of
-  table-shaping choices (`rate_limit` storage, `deletionRequestedAt`, session
-  fields) shared by schema generation and the runtime auth instance.
+  table-shaping choices (`rate_limit` storage, `deletionRequestedAt`,
+  `locale`, session fields, `advanced.database.joins`) shared by schema
+  generation and the runtime auth instance. Keep `db/schema/auth.ts` and
+  `db/schema/auth.test.ts` in step with every user field added there.
 - Keep Better Auth model names and schema types private to the account and
   database boundary. Domain code sees only `CustomerAccountId` and
   `DotyposCustomerId`.
@@ -122,14 +124,18 @@ description: Workspace customer account, Better Auth, magic link, auth persisten
 
 ## Language preference
 
-- `customer_locale_preferences` holds one saved language per account.
-  It is both the email language and the signed-in site locale. An absent row
-  means no preference: accounts that predate the table have none until their
-  next sign-in. Never backfill or invent a default.
-- Writes: account creation seeds the callback locale, and every session
-  creation captures the callback locale when the row is missing. Both use
-  insert-on-conflict-do-nothing, so sign-in never overwrites a saved
-  preference, and a capture failure never blocks login. The profile control
+- The saved language is the nullable Better Auth user field `locale`
+  (`auth.user.locale`, CHECK en-US/cs-CZ, `input: false`). It is both the
+  email language and the signed-in site locale. NULL means no preference:
+  accounts that predate the field have none until their next sign-in. Never
+  backfill or invent a default.
+- Writes (`features/account/backend/customer-locale-preference.ts`): the
+  `user.create.before` hook sets the callback locale (else the site default)
+  in the user insert, so no new account lacks one. Every session creation
+  captures the callback locale with an update that only matches a NULL
+  locale, so sign-in never overwrites a saved preference, and a capture
+  failure logs `account-locale-preference.capture-failed` and never blocks
+  login. The profile control
   and the header switcher share `switchLocale` in
   `features/account/switch-locale.ts`. Callers pass the
   `updateLocalePreference` Server Action as `save`. It saves under the
@@ -140,14 +146,14 @@ description: Workspace customer account, Better Auth, magic link, auth persisten
   Accept-Language, default. The proxy applies it to page requests and
   redirects a mismatching URL. Server Actions apply it to the referring page.
   Rendering trusts the URL segment the proxy normalized. The signed-in
-  account comes only from the authoritative `CustomerAuthentication` read
-  (Better Auth `getSession` with `disableRefresh`). Never parse the session
-  cookie or query `auth.session` yourself. `findSavedLocalePreference`
-  (`features/account/backend/saved-locale-preference.ts`) then reads the row
-  by account ID. It deliberately skips the repository's deletion-marker
-  check, so a deletion-pending account keeps its preference. Only an
-  unavailable session read or a failed row read logs
-  `account.locale-preference.read`. Every failure resolves to no preference,
+  account and its locale come only from the authoritative
+  `CustomerAuthentication` read (Better Auth `getSession` with
+  `disableRefresh`) as `CustomerAccountSession.localePreference`. Never parse
+  the session cookie, query `auth.session`, or read the locale column
+  yourself on a request path. `findSavedLocalePreference`
+  (`features/account/backend/saved-locale-preference.ts`) takes it from that
+  session, so a deletion-pending account keeps its preference. Only an
+  unavailable session read logs `account.locale-preference.read`. Every failure resolves to no preference,
   so the guest chain serves the page. `pageLocalePreference`
   (`features/i18n/server/page-locale-preference.server.ts`) composes that
   read with the continuation check below into one Effect, which the proxy and
@@ -155,12 +161,13 @@ description: Workspace customer account, Better Auth, magic link, auth persisten
   for GET/HEAD non-prefetch requests that pass Better Auth's optimistic
   `getSessionCookie` presence check, so guests never load the reader or touch
   the database. A reader that fails to load counts as no preference. Cookie
-  caching stays disabled, so a signed-in page request costs three sequential
-  queries: session, user, and preference. A stale session cookie (expired or
-  revoked) makes Better Auth delete the expired row and expire the cookie
-  through `nextCookies`. In the proxy, Next then replaces that response's
-  `Set-Cookie` with the expiry, so the locale cookie is not refreshed on that
-  one response. The proxy exchanges a reservation capability in its issuance
+  caching stays disabled; with `advanced.database.joins` the session read
+  loads the session, its user, and the locale in one query, so a signed-in
+  page request costs one lookup. Accepted side effect: a stale session cookie
+  (expired or revoked) makes Better Auth delete the expired session row and
+  expire the cookie through `nextCookies`, even inside the proxy. Next then
+  replaces that response's `Set-Cookie` with the expiry, so the locale cookie
+  is not refreshed on that one response. Do not add a mitigation. The proxy exchanges a reservation capability in its issuance
   locale before any preference redirect. Email readers fall back to the reservation
   or request locale when an account has no preference.
 - Locale-bound continuations keep their issued locale, but only when they
@@ -197,6 +204,9 @@ description: Workspace customer account, Better Auth, magic link, auth persisten
 - The profile's language control shows the page locale. An account with no
   saved preference gets one when it chooses a language, or at its next
   sign-in.
+- Magic-link emails read `auth.user.locale` by recipient email, and
+  reservation emails (`CustomerEmailLocaleService`) read it through the
+  Dotypos customer link.
 
 ## Protected-preview E2E
 

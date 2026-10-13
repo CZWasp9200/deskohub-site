@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "1f3a1940-3a3e-4deb-80ce-3626116f0d1b",
+  "id": "516a1449-1a17-4fb4-bfdc-e56f8c535529",
   "prevIds": [
     "a55af6a7-82a3-466c-be4f-febdfa0bfe49",
     "e5bbe96c-f234-48c2-aa4c-c032006272d6"
@@ -38,12 +38,6 @@
     {
       "isRlsEnabled": false,
       "name": "customer_account_links",
-      "entityType": "tables",
-      "schema": "public"
-    },
-    {
-      "isRlsEnabled": false,
-      "name": "customer_locale_preferences",
       "entityType": "tables",
       "schema": "public"
     },
@@ -708,45 +702,6 @@
       "entityType": "columns",
       "schema": "public",
       "table": "customer_account_links"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "customer_account_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "customer_locale_preferences"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "locale",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "customer_locale_preferences"
-    },
-    {
-      "type": "timestamp with time zone",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "now()",
-      "generated": null,
-      "identity": null,
-      "name": "updated_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "customer_locale_preferences"
     },
     {
       "type": "text",
@@ -4365,6 +4320,19 @@
     {
       "type": "text",
       "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "locale",
+      "entityType": "columns",
+      "schema": "auth",
+      "table": "user"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
       "default": null,
@@ -6026,23 +5994,6 @@
     {
       "nameExplicit": false,
       "columns": [
-        "customer_account_id"
-      ],
-      "schemaTo": "auth",
-      "tableTo": "user",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "name": "customer_locale_preferences_customer_account_id_user_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "customer_locale_preferences"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
         "payment_attempt_id"
       ],
       "schemaTo": "public",
@@ -6555,16 +6506,6 @@
     },
     {
       "columns": [
-        "customer_account_id"
-      ],
-      "nameExplicit": false,
-      "name": "customer_locale_preferences_pkey",
-      "schema": "public",
-      "table": "customer_locale_preferences",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
         "dotypos_customer_id"
       ],
       "nameExplicit": false,
@@ -6996,13 +6937,6 @@
       "entityType": "checks",
       "schema": "public",
       "table": "customer_account_links"
-    },
-    {
-      "value": "\"locale\" in ('en-US', 'cs-CZ')",
-      "name": "customer_locale_preferences_locale_check",
-      "entityType": "checks",
-      "schema": "public",
-      "table": "customer_locale_preferences"
     },
     {
       "value": "btrim(\"dotypos_customer_id\") <> ''",
@@ -7689,6 +7623,13 @@
       "entityType": "checks",
       "schema": "public",
       "table": "workspace_reservations"
+    },
+    {
+      "value": "\"locale\" in ('en-US', 'cs-CZ')",
+      "name": "user_locale_check",
+      "entityType": "checks",
+      "schema": "auth",
+      "table": "user"
     }
   ],
   "renames": []

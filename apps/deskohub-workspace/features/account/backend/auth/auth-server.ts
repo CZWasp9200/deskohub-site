@@ -12,7 +12,6 @@ import { after } from "next/server";
 import { makeAuthDatabase } from "@/db/auth-database-client";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { workspaceDatabasePool } from "@/db/database-provider.server";
-import { retryDatabaseRead } from "@/db/retry-database-read";
 import { drizzleAuthTables } from "@/db/schema/auth";
 import { env } from "@/env";
 import { CustomerAccountDeletionService } from "@/features/account/backend/customer-account-deletion";
@@ -25,7 +24,7 @@ import { runWorkspaceEffect } from "@/shared/backend/workspace-effect";
 import {
   lookupMagicLinkDeliveryLocale,
   type MagicLinkLocaleLookup,
-} from "../customer-locale-preference.repository";
+} from "../customer-locale-preference";
 import { authOptions, betterAuthMagicLinkOptions } from "./auth-options";
 import { renderMagicLinkEmail } from "./magic-link-email";
 import {
@@ -49,40 +48,15 @@ export type WorkspaceAuthConfig = {
     accountId: CustomerAccountId
   ) => Effect.Effect<void, unknown>;
   /**
-   * Inserts the locale preference only when the account has
-   * none, never overwriting a saved preference. Account creation seeds it
-   * from the initiating site locale, retrying and rejecting the hook on a
-   * persistent failure. Every sign-in captures it from the callback locale
-   * for accounts that predate the preference, and a capture failure never
-   * blocks the login.
+   * Sets the locale preference of an account that has none, never
+   * overwriting a saved one. Every sign-in captures it from the callback
+   * locale for accounts that predate the preference.
    */
-  readonly createAccountLocalePreference: (
+  readonly captureAccountLocalePreference: (
     accountId: CustomerAccountId,
     locale: Locale
   ) => Effect.Effect<void, EffectDrizzleQueryError>;
 };
-
-/**
- * Seeds the preference at account creation. The insert is idempotent (it
- * never overwrites a saved preference), so a transient database failure is
- * retried under the shared read retry policy with the same initiating
- * locale. A permanent or exhausted failure is logged with a fixed code and
- * fails the activating request.
- */
-const seedLocalePreference = (
-  config: WorkspaceAuthConfig,
-  accountId: CustomerAccountId,
-  locale: Locale
-) =>
-  config.createAccountLocalePreference(accountId, locale).pipe(
-    retryDatabaseRead,
-    Effect.tapError(() =>
-      Effect.logWarning(
-        "Customer language preference seed failed; rejecting account activation.",
-        { code: "account-locale-preference.seed-failed" }
-      )
-    )
-  );
 
 const accountMagicLinkPaths = new Set([
   "/sign-in/magic-link",
@@ -139,7 +113,7 @@ const callbackLocaleFromAuthContext = (
 
 /**
  * Captures the sign-in callback locale as the preference of an account that
- * has none, such as one created before preferences existed. The insert never
+ * has none, such as one created before preferences existed. The update never
  * overwrites a saved preference. A failure is logged with a fixed code and
  * never blocks the login: readers fall back without a preference, and the
  * next sign-in retries.
@@ -150,7 +124,7 @@ const captureLocalePreference = (
   locale: Locale
 ) =>
   config
-    .createAccountLocalePreference(accountId, locale)
+    .captureAccountLocalePreference(accountId, locale)
     .pipe(
       Effect.catch(() =>
         Effect.logWarning(
@@ -314,27 +288,18 @@ export const makeWorkspaceAuth = (config: WorkspaceAuthConfig) => {
       },
       user: {
         create: {
-          after: (user, ctx) =>
-            runWorkspaceEffect("account.locale-preference.seed", {
-              boundary: "route",
-            })(
-              Effect.gen(function* () {
-                const accountId = decodeAccountId(user.id);
-                if (!accountId) return;
-                // The user row is already committed when this hook runs, so a
-                // failed seed must fail the activating request. A later
-                // sign-in captures the preference from its own callback
-                // locale. Anything without a callback locale seeds the site
-                // default.
-                yield* seedLocalePreference(
-                  config,
-                  accountId,
-                  callbackLocaleFromAuthContext(
-                    Option.getOrElse(decodeAuthContext(ctx), () => ({}))
-                  ) ?? defaultLocale
-                );
-              })
-            ),
+          // The locale preference is part of the user insert, so no account
+          // exists without one. It comes from the initiating site locale in
+          // the callback URL, else the site default.
+          before: async (user, ctx) => ({
+            data: {
+              ...user,
+              locale:
+                callbackLocaleFromAuthContext(
+                  Option.getOrElse(decodeAuthContext(ctx), () => ({}))
+                ) ?? defaultLocale,
+            },
+          }),
         },
       },
     },

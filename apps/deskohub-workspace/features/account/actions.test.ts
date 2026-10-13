@@ -157,37 +157,15 @@ let preferenceSaveEffect: Effect.Effect<void, unknown> =
   Effect.succeed(undefined);
 let preferenceSaveCalls: PreferenceSave[] = [];
 
-const PreferenceRepository = Context.Service<
-  PreferenceRepository,
-  {
-    readonly load: () => Effect.Effect<"cs-CZ" | "en-US" | undefined, unknown>;
-    readonly save: (
-      accountId: string,
-      locale: string
-    ) => typeof preferenceSaveEffect;
-  }
->()("@test/ActionsLocalePreference");
-
-const PreferenceRepositoryLayer = Layer.succeed(PreferenceRepository, {
-  load: () => Effect.succeed(undefined),
-  save: (accountId, locale) => {
+mock.module("@/features/account/backend/customer-locale-preference", () => ({
+  saveAccountLocalePreference: (accountId: string, locale: string) => {
     preferenceSaveCalls.push({
       accountId: accountId as "@test/account-id",
       locale: locale as "cs-CZ" | "en-US",
     });
     return preferenceSaveEffect;
   },
-});
-Object.assign(PreferenceRepository, {
-  Default: PreferenceRepositoryLayer,
-  Live: PreferenceRepositoryLayer,
-});
-mock.module(
-  "@/features/account/backend/customer-locale-preference.repository",
-  () => ({
-    CustomerLocalePreferenceRepository: PreferenceRepository,
-  })
-);
+}));
 
 let lookupOutcome: Effect.Effect<
   typeof syntheticAresCompany,
