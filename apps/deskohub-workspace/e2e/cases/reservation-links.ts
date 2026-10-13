@@ -1,3 +1,4 @@
+import { testEmailAddress } from "@deskohub/test-email";
 import { Effect } from "effect";
 import { HttpClient } from "effect/unstable/http";
 import { formatDiscountAdjustment } from "@/features/checkout/format-discount-adjustment";
@@ -1010,7 +1011,7 @@ const returnToReservationWithConflictingQuery = ({
         assert(url, "restored reservation URL missing");
         url.searchParams.set(discountCodeQueryParam, unknownLinkCode);
         url.searchParams.set("duration", "hour:4");
-        url.searchParams.set("email", "conflicting-link@example.test");
+        url.searchParams.set("email", testEmailAddress("conflicting-link"));
         url.searchParams.set("name", "Conflicting Link Name");
         url.searchParams.set("phone", "+420999999999");
         // A valid different start so the conflict is itself submittable and

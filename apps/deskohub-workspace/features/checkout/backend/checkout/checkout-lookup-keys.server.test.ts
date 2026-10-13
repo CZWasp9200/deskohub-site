@@ -2,6 +2,7 @@ import "@/shared/polyfills/temporal";
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, mock, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import { ConfigProvider, Effect, Schema } from "effect";
 import {
   type CheckoutSessionId,
@@ -31,7 +32,7 @@ const decodeReservation = <T>(input: T) =>
 
 const contact = {
   name: "Ada Lovelace",
-  email: "ada@example.com",
+  email: testEmailAddress("ada"),
   phone: "+420 777 777 777",
 };
 

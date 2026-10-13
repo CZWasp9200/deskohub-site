@@ -6,6 +6,7 @@ import {
   expect,
   test,
 } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import { type UseFormReturn, useForm } from "react-hook-form";
 import { m } from "@/features/i18n";
 import type {
@@ -16,6 +17,8 @@ import {
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
 } from "@/shared/testing/workspace-component-test-env";
+
+const testEmailAddressForAda = testEmailAddress("ada");
 
 // React DOM detects input events when it loads, so the DOM must exist first.
 registerWorkspaceComponentTestEnv();
@@ -69,14 +72,14 @@ describe("ReservationCustomerFields", () => {
 const existingCustomer: ReservationExistingCustomerForm = {
   contact: {
     name: "Ada Lovelace",
-    email: "ada@example.com",
+    email: testEmailAddressForAda,
     phone: "+420777777777",
   },
   hasMarketingConsent: false,
   initialMode: "account",
   otherContact: {
     name: "Grace Hopper",
-    email: "grace@example.com",
+    email: testEmailAddress("grace"),
     phone: "+420606060606",
   },
 };
@@ -156,7 +159,7 @@ describe("ReservationCustomerSection", () => {
     ).getByText;
 
     expect(card("Ada Lovelace")).not.toBeNull();
-    expect(card("ada@example.com")).not.toBeNull();
+    expect(card(testEmailAddressForAda)).not.toBeNull();
     expect(card("+420777777777")).not.toBeNull();
     expect(view.container.querySelector("input")).toBeNull();
   });
@@ -195,7 +198,7 @@ describe("ReservationCustomerSection", () => {
     );
     expect(getValues()).toEqual({
       name: "Ada Lovelace",
-      email: "ada@example.com",
+      email: testEmailAddressForAda,
       phone: "+420777777777",
     });
 

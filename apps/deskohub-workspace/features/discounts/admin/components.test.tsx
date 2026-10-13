@@ -8,6 +8,7 @@ import {
   mock,
   test,
 } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Profiler, StrictMode } from "react";
 import { AdministrationTableToolbar } from "@/features/administration/components";
 import { loadFixtureReservations } from "@/features/administration/fixtures";
@@ -20,6 +21,8 @@ import type {
   AdminCustomerProfile,
   DiscountAdminDashboard,
 } from "./discount-administration.service";
+
+const testEmailAddressForTest = testEmailAddress("test");
 
 // react-dom decides how to synthesize change events while it is evaluated, so
 // the DOM environment must exist before @testing-library/react loads. Static
@@ -223,6 +226,49 @@ describe("discount administration pages", () => {
     expect(searchboxes).toHaveLength(1);
     expect(view.getByRole("button", { name: "Find customer" })).toBeDefined();
     expect(view.queryByRole("combobox", { name: "Search by" })).toBeNull();
+  });
+
+  test("shows a refunded customer payment as refunded with its amount crossed out", async () => {
+    const { CustomerTransactionHistoryTable } = await import(
+      "./customer-admin-tables"
+    );
+    const [refunded, paid] = loadFixtureReservations({}).items.filter(
+      ({ latestPayment }) => latestPayment?.state === "paid"
+    );
+    if (!refunded?.latestPayment || !paid?.latestPayment) {
+      throw new Error("Expected two paid fixture reservations");
+    }
+    const view = render(
+      <CustomerTransactionHistoryTable
+        transactions={[
+          {
+            attempt: {
+              ...refunded.latestPayment,
+              refundState: "refunded",
+              refundedAmount: refunded.latestPayment.amount,
+              refundedAt: "2026-10-12T09:00:00Z",
+            },
+            reservation: refunded,
+          },
+          { attempt: paid.latestPayment, reservation: paid },
+        ]}
+      />
+    );
+
+    const [refundedRow, paidRow] = within(
+      view.getByRole("table", { name: "Customer transaction history" })
+    )
+      .getAllByRole("row")
+      .slice(1);
+    expect(
+      within(refundedRow as HTMLElement).getByText("Refunded")
+    ).toBeDefined();
+    expect(within(refundedRow as HTMLElement).queryByText("Paid")).toBeNull();
+    expect(
+      refundedRow?.querySelector("del")?.textContent?.replace(/\s+/g, " ")
+    ).toBe("CZK 275.00 refunded");
+    expect(within(paidRow as HTMLElement).getByText("Paid")).toBeDefined();
+    expect(paidRow?.querySelector("del")).toBeNull();
   });
 
   test("uses a sortable table and a percentage editor with a dirty save state", async () => {
@@ -651,7 +697,7 @@ describe("discount administration pages", () => {
               customer: {
                 id: "dotypos-customer",
                 displayName: "Test Customer",
-                email: "test@example.com",
+                email: testEmailAddressForTest,
                 phone: null,
                 discountGroupId: null,
               },
@@ -721,7 +767,7 @@ describe("discount administration pages", () => {
               customer: {
                 id: "dotypos-customer",
                 displayName: "Test Customer",
-                email: "test@example.com",
+                email: testEmailAddressForTest,
                 phone: null,
                 discountGroupId: null,
               },
@@ -770,7 +816,7 @@ describe("discount administration pages", () => {
       customer: {
         id: "dotypos-customer",
         displayName: "Test Customer",
-        email: "test@example.com",
+        email: testEmailAddressForTest,
         phone: "+420 123 456 789",
         discountGroupId: null,
       },
@@ -1016,8 +1062,8 @@ describe("discount administration pages", () => {
     expect(view.queryByText("Declined")).toBeNull();
     expect(view.queryByText("Privacy policy")).toBeNull();
     expect(
-      view.container.textContent?.match(/test@example\.com/g)
-    ).toHaveLength(1);
+      view.container.textContent?.split(testEmailAddressForTest)
+    ).toHaveLength(2);
     expect(
       view.container.textContent?.match(/\+420 123 456 789/g)
     ).toHaveLength(1);
@@ -1096,7 +1142,7 @@ describe("discount administration pages", () => {
           customer: {
             id: "dotypos-customer",
             displayName: "Test Customer",
-            email: "test@example.com",
+            email: testEmailAddressForTest,
             phone: null,
             discountGroupId: null,
           },
@@ -1151,7 +1197,7 @@ describe("discount administration pages", () => {
           customer: {
             id: "dotypos-customer",
             displayName: "Test Customer",
-            email: "test@example.com",
+            email: testEmailAddressForTest,
             phone: null,
             discountGroupId: null,
           },
@@ -1281,7 +1327,7 @@ describe("discount administration pages", () => {
           customer: {
             id: "dotypos-customer",
             displayName: "Test Customer",
-            email: "test@example.com",
+            email: testEmailAddressForTest,
             phone: null,
             discountGroupId: null,
           },
@@ -2180,7 +2226,7 @@ describe("discount administration pages", () => {
             {
               id: "dotypos-customer",
               displayName: "Test Customer",
-              email: "test@example.com",
+              email: testEmailAddressForTest,
               phone: null,
               discountGroupId: null,
             },

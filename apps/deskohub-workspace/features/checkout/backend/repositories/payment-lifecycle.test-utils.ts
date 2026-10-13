@@ -2,6 +2,7 @@ import type {
   DotyposCustomerId,
   DotyposReservationId,
 } from "@deskohub/dotypos";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Effect } from "effect";
 import type { WorkspaceDatabaseClient } from "@/db/database.service";
 import { workspaceReservations } from "@/db/schema";
@@ -131,7 +132,7 @@ export const admitPendingNexiPayment = (
           ...reservationDetails,
           date: "2099-01-01",
           name: "Synthetic Customer",
-          email: "synthetic@example.test",
+          email: testEmailAddress("synthetic"),
           phone: "+420 700 000 000",
         },
         quote,

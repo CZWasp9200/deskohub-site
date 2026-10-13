@@ -191,7 +191,6 @@ const processWebhookEffect = async (input: ProcessWebhookInput) => {
 
 describe("ResendWebhookService", () => {
   beforeEach(() => {
-    process.env.EMAIL_API_KEY = "re_test";
     verifiedPayload = undefined;
     verifyWebhook.mockClear();
     constructResend.mockClear();

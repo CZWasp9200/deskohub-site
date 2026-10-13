@@ -1,8 +1,11 @@
+import { testEmailAddress } from "@deskohub/test-email";
 import "@/shared/testing/workspace-test-env";
 
 import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { Context, Effect, Layer, Predicate } from "effect";
 import type { CustomerAccountId } from "@/features/account/customer-account";
+
+const customerEmail = testEmailAddress("ada");
 
 let currentUserEffect: Effect.Effect<
   {
@@ -36,7 +39,7 @@ Object.assign(Authentication, {
 const accountId = "auth-account-1" as CustomerAccountId;
 const activeSession = {
   accountId,
-  email: "ada@example.test",
+  email: customerEmail,
   deletionRequested: false,
 };
 
@@ -413,7 +416,7 @@ describe("loadCustomerAccountPage", () => {
 
     await expect(loadPageState()).resolves.toEqual({
       kind: "completion-required",
-      email: "ada@example.test",
+      email: customerEmail,
     });
   });
 
@@ -426,7 +429,7 @@ describe("loadCustomerAccountPage", () => {
 
     await expect(loadPageState("RFL12345")).resolves.toEqual({
       kind: "completion-required",
-      email: "ada@example.test",
+      email: customerEmail,
       referralCode: "RFL12345",
     });
     expect(availableReferralCodeCalls).toEqual([{ code: "RFL12345" }]);
@@ -442,13 +445,13 @@ describe("loadCustomerAccountPage", () => {
     availableReferralCodeEffect = Effect.succeed(undefined);
     await expect(loadPageState("RFLGONE1")).resolves.toEqual({
       kind: "completion-required",
-      email: "ada@example.test",
+      email: customerEmail,
     });
 
     availableReferralCodeEffect = Effect.fail(new Error("database down"));
     await expect(loadPageState("RFL12345")).resolves.toEqual({
       kind: "completion-required",
-      email: "ada@example.test",
+      email: customerEmail,
     });
   });
 
@@ -703,7 +706,7 @@ describe("loadCustomerAccountPage", () => {
     });
     await expect(loadPageState()).resolves.toEqual({
       kind: "support-required",
-      email: "ada@example.test",
+      email: customerEmail,
     });
 
     resolveEffect = resolverOutcome({
@@ -713,7 +716,7 @@ describe("loadCustomerAccountPage", () => {
     });
     await expect(loadPageState()).resolves.toEqual({
       kind: "support-required",
-      email: "ada@example.test",
+      email: customerEmail,
     });
 
     resolveEffect = resolverOutcome({
@@ -723,7 +726,7 @@ describe("loadCustomerAccountPage", () => {
     });
     await expect(loadPageState()).resolves.toEqual({
       kind: "support-required",
-      email: "ada@example.test",
+      email: customerEmail,
     });
 
     resolveEffect = resolverOutcome({
@@ -732,7 +735,7 @@ describe("loadCustomerAccountPage", () => {
     });
     await expect(loadPageState()).resolves.toEqual({
       kind: "support-required",
-      email: "ada@example.test",
+      email: customerEmail,
     });
   });
 
@@ -744,14 +747,14 @@ describe("loadCustomerAccountPage", () => {
 
     await expect(loadPageState()).resolves.toEqual({
       kind: "deletion-pending",
-      email: "ada@example.test",
+      email: customerEmail,
     });
   });
 
   test("renders the linked account with profile and grouped history", async () => {
     await expect(loadPageState()).resolves.toMatchObject({
       kind: "linked",
-      email: "ada@example.test",
+      email: customerEmail,
       profile: { firstName: "Ada" },
       avatar: { kind: "available", avatar: null },
       history: { kind: "available" },
@@ -767,7 +770,7 @@ describe("loadCustomerAccountPage", () => {
 
     await expect(loadPageState()).resolves.toEqual({
       kind: "linked",
-      email: "ada@example.test",
+      email: customerEmail,
       profile: {
         firstName: "Ada",
         lastName: "Lovelace",
@@ -848,7 +851,7 @@ describe("loadCustomerAccountPage", () => {
 
     await expect(loadPageState()).resolves.toEqual({
       kind: "linked",
-      email: "ada@example.test",
+      email: customerEmail,
       profile: {
         firstName: "Ada",
         lastName: "Lovelace",
@@ -887,7 +890,7 @@ describe("loadCustomerAccountPage", () => {
 
     await expect(loadPageState()).resolves.toEqual({
       kind: "authenticated-unavailable",
-      email: "ada@example.test",
+      email: customerEmail,
     });
 
     Object.assign(Profile, { Live: ProfileLayer });
@@ -901,7 +904,7 @@ describe("loadCustomerAccountPage", () => {
 
     await expect(loadPageState()).resolves.toEqual({
       kind: "authenticated-unavailable",
-      email: "ada@example.test",
+      email: customerEmail,
     });
   });
 });

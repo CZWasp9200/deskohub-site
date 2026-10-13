@@ -3,6 +3,7 @@ import "@/shared/testing/workspace-test-env";
 import { expect, test } from "bun:test";
 import { basename, dirname, resolve } from "node:path";
 import { DotyposCustomerIdSchema } from "@deskohub/dotypos";
+import { testEmailAddress } from "@deskohub/test-email";
 import {
   BasicTracerProvider,
   InMemorySpanExporter,
@@ -45,7 +46,7 @@ import {
 const customerId = DotyposCustomerIdSchema.make("workspace-e2e-referral-owner");
 const contact = {
   customerId,
-  email: "delivered+account-referral@example.test",
+  email: testEmailAddress("delivered+account-referral"),
   name: "E2E Lane",
   phone: "+420 555 000 111",
 } as const;
@@ -151,7 +152,7 @@ test("both ownership guards accept and constrain URLs from the real fresh-pay bu
     coffee: false,
     date: "2099-09-01",
     name: "Synthetic E2E",
-    email: "delivered+referral-url@example.test",
+    email: testEmailAddress("delivered+referral-url"),
     phone: "+420 555 000 111",
   };
   const input = {

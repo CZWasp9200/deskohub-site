@@ -1,3 +1,4 @@
+import { testEmailAddress } from "@deskohub/test-email";
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, test } from "bun:test";
@@ -44,7 +45,7 @@ const uniqueCode = () =>
 const insertAuthUser = async (accountId: CustomerAccountId) => {
   await testDatabase!.pool.query(
     `insert into auth."user" (id, name, email) values ($1, '', $2)`,
-    [accountId, `${accountId}@deskohub.test`]
+    [accountId, testEmailAddress(accountId)]
   );
 };
 
@@ -134,7 +135,7 @@ const signIn = (input: {
       currentUser: () =>
         Effect.succeed({
           accountId: input.accountId,
-          email: `${input.accountId}@deskohub.test`,
+          email: testEmailAddress(input.accountId),
           deletionRequested: false,
         }),
       findLink: links.find,

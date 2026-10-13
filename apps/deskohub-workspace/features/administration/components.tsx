@@ -16,11 +16,14 @@ import type {
 } from "./administration.service";
 import {
   formatAdministrationDateTime,
-  formatAdministrationMoney,
-  formatAdministrationRefund,
   formatAdministrationReservationDate,
 } from "./formatters";
 import { NexiOrderLink } from "./nexi-order-link";
+import {
+  PaymentAmount,
+  PaymentRefundRequiredLabel,
+  PaymentStatusLabel,
+} from "./payment-status";
 
 export { BookingStatusBadge, BookingTable } from "./booking-table";
 export { CustomerReservationActivity } from "./customer-reservation-activity";
@@ -46,6 +49,11 @@ export {
   AdministrationAlert,
   AdministrationNoticeBanner,
 } from "./notice";
+export {
+  PaymentAmount,
+  PaymentRefundRequiredLabel,
+  PaymentStatusText,
+} from "./payment-status";
 export { ReservationTable } from "./reservation-table";
 export {
   AdministrationTableCount,
@@ -114,33 +122,6 @@ export function AdministrationPageHeader({
   );
 }
 
-export function PaymentRefundLabel({
-  attempt,
-  className,
-}: {
-  readonly className?: string;
-  readonly attempt: Pick<
-    AdministrationPaymentAttempt,
-    "amount" | "refundState" | "refundedAmount" | "refundedAt"
-  >;
-}) {
-  const refund = formatAdministrationRefund(attempt);
-  if (!refund) return null;
-  return (
-    <span
-      className={cn(
-        "block",
-        className,
-        refund.needsAction
-          ? "font-semibold text-burned-orange-ink"
-          : "text-navy-blue/65"
-      )}
-    >
-      {refund.label}
-    </span>
-  );
-}
-
 export function PaymentAttemptList({
   attempts,
 }: {
@@ -174,11 +155,11 @@ export function PaymentAttemptList({
           </div>
           <div className="text-right">
             <p className="font-semibold">
-              {formatAdministrationMoney(attempt.amount)}
+              <PaymentAmount payment={attempt} />
             </p>
             <p className="mt-1 text-sm text-navy-blue/65">
-              {attempt.stateLabel}
-              <PaymentRefundLabel attempt={attempt} />
+              <PaymentStatusLabel payment={attempt} />
+              <PaymentRefundRequiredLabel payment={attempt} />
             </p>
           </div>
         </li>

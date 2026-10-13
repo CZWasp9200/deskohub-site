@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Effect, Fiber, Layer, Schema } from "effect";
 import { TestClock } from "effect/testing";
 import { GoogleCalendarRuntimeConfig } from "../config";
@@ -68,8 +69,10 @@ const { GoogleCalendarService } = await import("./service");
 
 type GoogleCalendarRequirement = import("./service").GoogleCalendarService;
 
+const serviceAccountEmail = testEmailAddress("service");
+
 const config = {
-  serviceAccountEmail: "service@example.test",
+  serviceAccountEmail,
   privateKey: "line1\\nline2",
   timeZone: "Europe/Prague",
 };
@@ -164,7 +167,7 @@ describe("GoogleCalendarService", () => {
     );
 
     expect(jwtCalls[0]).toMatchObject({
-      email: "service@example.test",
+      email: serviceAccountEmail,
       key: "line1\nline2",
       scopes: ["https://www.googleapis.com/auth/calendar.readonly"],
     });

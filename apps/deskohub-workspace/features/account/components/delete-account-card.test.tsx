@@ -7,6 +7,7 @@ import {
   mock,
   test,
 } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import React from "react";
 import { type Locale, m } from "@/features/i18n";
@@ -19,6 +20,8 @@ import {
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
 } from "@/shared/testing/workspace-component-test-env";
+
+const adaAddress = testEmailAddress("ada");
 
 type ActionResult = {
   data?: { status?: string };
@@ -184,7 +187,7 @@ describe("DeleteAccountCard", () => {
     const view = render(
       <DeleteAccountCard
         deletionPending={false}
-        email="ada@example.test"
+        email={adaAddress}
         locale="en-US"
       />
     );
@@ -201,7 +204,7 @@ describe("DeleteAccountCard", () => {
 
     const view = render(
       <DeleteAccountCard
-        email="ada@example.test"
+        email={adaAddress}
         locale="en-US"
         deletionPending={false}
         heading="Synthetic danger heading"
@@ -222,7 +225,7 @@ describe("DeleteAccountCard", () => {
 
     view.rerender(
       <DeleteAccountCard
-        email="ada@example.test"
+        email={adaAddress}
         locale="en-US"
         deletionPending={false}
       />
@@ -242,7 +245,7 @@ describe("DeleteAccountCard", () => {
 
       const view = render(
         <DeleteAccountCard
-          email="ada@example.test"
+          email={adaAddress}
           locale={locale}
           deletionPending={false}
         />
@@ -258,7 +261,7 @@ describe("DeleteAccountCard", () => {
 
     const view = render(
       <DeleteAccountCard
-        email="ada@example.test"
+        email={adaAddress}
         locale="cs-CZ"
         deletionPending={false}
       />
@@ -277,7 +280,7 @@ describe("DeleteAccountCard", () => {
 
     const view = render(
       <DeleteAccountCard
-        email="ada@example.test"
+        email={adaAddress}
         locale="en-US"
         deletionPending={false}
       />
@@ -316,7 +319,7 @@ describe("DeleteAccountCard", () => {
 
     const view = render(
       <DeleteAccountCard
-        email="ada@example.test"
+        email={adaAddress}
         locale="en-US"
         deletionPending={false}
       />
@@ -361,7 +364,7 @@ describe("DeleteAccountCard", () => {
         <UnsavedChangesProvider>
           <DirtyForm />
           <DeleteAccountCard
-            email="ada@example.test"
+            email={adaAddress}
             locale="en-US"
             deletionPending={false}
           />
@@ -396,7 +399,7 @@ describe("DeleteAccountCard", () => {
       <UnsavedChangesProvider>
         <DirtyForm />
         <DeleteAccountCard
-          email="ada@example.test"
+          email={adaAddress}
           locale="en-US"
           deletionPending={false}
         />
@@ -431,7 +434,7 @@ describe("DeleteAccountCard", () => {
       <UnsavedChangesProvider>
         <DirtyForm />
         <DeleteAccountCard
-          email="ada@example.test"
+          email={adaAddress}
           locale="en-US"
           deletionPending={false}
         />
@@ -469,7 +472,7 @@ describe("DeleteAccountCard", () => {
 
     expect(signInMagicLink).toHaveBeenCalledWith(
       expect.objectContaining({
-        email: "ada@example.test",
+        email: adaAddress,
         callbackURL: "/en-US/auth/callback",
       })
     );
@@ -491,7 +494,7 @@ describe("DeleteAccountCard", () => {
       <UnsavedChangesProvider>
         <DirtyForm />
         <DeleteAccountCard
-          email="ada@example.test"
+          email={adaAddress}
           locale="en-US"
           deletionPending={false}
         />
@@ -548,7 +551,7 @@ describe("DeleteAccountCard", () => {
       <UnsavedChangesProvider>
         <DirtyForm />
         <DeleteAccountCard
-          email="ada@example.test"
+          email={adaAddress}
           locale="en-US"
           deletionPending={false}
         />
@@ -609,7 +612,7 @@ describe("DeleteAccountCard", () => {
       <UnsavedChangesProvider>
         <DirtyForm />
         <DeleteAccountCard
-          email="ada@example.test"
+          email={adaAddress}
           locale="en-US"
           deletionPending={false}
         />
@@ -675,7 +678,7 @@ describe("DeleteAccountCard", () => {
       <UnsavedChangesProvider>
         <DirtyForm />
         <DeleteAccountCard
-          email="ada@example.test"
+          email={adaAddress}
           locale="en-US"
           deletionPending={false}
         />
@@ -719,7 +722,7 @@ describe("DeleteAccountCard", () => {
 
     const view = render(
       <DeleteAccountCard
-        email="ada@example.test"
+        email={adaAddress}
         locale="en-US"
         deletionPending={false}
       />
@@ -758,7 +761,7 @@ describe("DeleteAccountCard", () => {
 
     const view = render(
       <DeleteAccountCard
-        email="ada@example.test"
+        email={adaAddress}
         locale="en-US"
         deletionPending={false}
       />
@@ -817,7 +820,7 @@ describe("DeleteAccountCard", () => {
     try {
       const view = render(
         <DeleteAccountCard
-          email="ada@example.test"
+          email={adaAddress}
           locale="en-US"
           deletionPending={false}
         />
@@ -872,7 +875,7 @@ describe("DeleteAccountCard", () => {
 
     const view = render(
       <DeleteAccountCard
-        email="ada@example.test"
+        email={adaAddress}
         locale="en-US"
         deletionPending={false}
       />
@@ -920,7 +923,7 @@ describe("DeleteAccountCard", () => {
 
     const view = render(
       <DeleteAccountCard
-        email="ada@example.test"
+        email={adaAddress}
         locale="en-US"
         deletionPending={false}
       />
@@ -968,7 +971,7 @@ describe("DeleteAccountCard", () => {
 
     const view = render(
       <DeleteAccountCard
-        email="ada@example.test"
+        email={adaAddress}
         locale="en-US"
         deletionPending={false}
       />
@@ -1010,11 +1013,7 @@ describe("DeleteAccountCard", () => {
     const { DeleteAccountCard } = await import("./delete-account-card");
 
     const view = render(
-      <DeleteAccountCard
-        email="ada@example.test"
-        locale="en-US"
-        deletionPending
-      />
+      <DeleteAccountCard email={adaAddress} locale="en-US" deletionPending />
     );
     expect(view.getByText("Account deletion is pending")).toBeTruthy();
     expect(

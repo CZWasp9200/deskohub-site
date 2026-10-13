@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Context, Effect, Layer } from "effect";
 import { createElement, type ReactElement, type ReactNode } from "react";
+
+const adaEmail = testEmailAddress("ada");
 
 type TestSession = {
   readonly accountId: string;
@@ -90,7 +93,7 @@ describe("account route layout", () => {
       "signed-in",
       Effect.succeed({
         accountId: "account-1",
-        email: "ada@example.test",
+        email: adaEmail,
         deletionRequested: false,
       }),
       true,
@@ -143,7 +146,7 @@ describe("account route layout", () => {
     accountsEnabled = false;
     currentUserEffect = Effect.succeed({
       accountId: "account-1",
-      email: "ada@example.test",
+      email: adaEmail,
       deletionRequested: false,
     });
     const { default: AccountLayout } = await import("./layout");

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import {
   BasicTracerProvider,
   InMemorySpanExporter,
@@ -703,7 +704,7 @@ describe("workspace e2e Vercel log retrieval", () => {
   });
 
   test("traces marker filters without exporting synthetic log content", async () => {
-    const syntheticRecipient = "other-recipient-private@e2e.invalid";
+    const syntheticRecipient = testEmailAddress("other-recipient-private");
     const hiddenRowId = "request-row-private-baseline";
     const startedAt = new Date("2026-10-01T12:00:00.000Z");
     const excludedMarker = row(
@@ -977,7 +978,7 @@ describe("workspace e2e Vercel log retrieval", () => {
       Response.json(
         page([
           row("req-other", [
-            log(previewE2ELine(magicLink("token"), "other@resend.dev")),
+            log(previewE2ELine(magicLink("token"), testEmailAddress("other"))),
           ]),
         ])
       )

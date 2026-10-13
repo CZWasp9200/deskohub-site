@@ -1,3 +1,4 @@
+import { testEmailAddress } from "@deskohub/test-email";
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, test } from "bun:test";
@@ -47,7 +48,7 @@ const uniqueCode = () =>
 const insertAuthUser = async (accountId: CustomerAccountId) => {
   await testDatabase!.pool.query(
     `insert into auth."user" (id, name, email) values ($1, '', $2)`,
-    [accountId, `${accountId}@deskohub.test`]
+    [accountId, testEmailAddress(accountId)]
   );
 };
 
@@ -255,7 +256,7 @@ const complete = (
   referral: { readonly code?: string; readonly prefilledCode?: string }
 ) =>
   completeNewCustomerProfile(
-    { accountId, email: `${accountId}@deskohub.test` },
+    { accountId, email: testEmailAddress(accountId) },
     { firstName: "Nova" },
     { code: referral.code, prefilledCode: referral.prefilledCode }
   );

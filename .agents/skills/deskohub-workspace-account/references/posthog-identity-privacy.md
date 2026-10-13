@@ -184,8 +184,13 @@ The [browser verification script](../../../../apps/deskohub-workspace/scripts/po
 uses local fake ingest and synthetic identities only. Its run output is the
 evidence for the current implementation.
 
-The audited lock snapshot contains `posthog-js` 1.418.1, `posthog-node` 5.49.1,
-and `better-auth` 1.7.2.
+The script verifies the `posthog-js` version Workspace pins in its
+`package.json`: it fails unless the installed SDK and every captured event's
+`$lib_version` match that pin, and records it in the report. A Workspace unit
+test (`scripts/posthog-sdk-version.test.ts`) keeps the pin exact and installed
+because CI does not run the browser script. The fixture bundle stubs `@/env`
+and `@/client-env`; the browser has no `process`. The original audit also
+covered `posthog-node` 5.49.1 and `better-auth` 1.7.2.
 
 Primary sources, accessed 2026-09-11:
 

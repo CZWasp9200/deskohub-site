@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Effect, Exit } from "effect";
 import { referralCodeQueryParam } from "@/features/referrals/client";
 import { makeCoworkCheckoutData } from "../checkout/data";
@@ -172,12 +173,12 @@ test.each([
 test("opens the reservation from a referral link as the run-scoped guest", () => {
   const planned = makeCoworkCheckoutData(config.baseUrl, "2099-08-03");
   const data = withReferralCode(
-    withGuestContact(planned, "delivered+run-gr-guest@resend.dev"),
+    withGuestContact(planned, testEmailAddress("delivered+run-gr-guest")),
     "RFLABCDEF12"
   );
   const url = new URL(data.checkoutUrl);
 
-  expect(data.email).toBe("delivered+run-gr-guest@resend.dev");
+  expect(data.email).toBe(testEmailAddress("delivered+run-gr-guest"));
   expect(url.searchParams.get("email")).toBe(data.email);
   expect(url.searchParams.getAll(referralCodeQueryParam)).toEqual([
     "RFLABCDEF12",

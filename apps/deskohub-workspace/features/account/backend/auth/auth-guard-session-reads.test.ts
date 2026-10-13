@@ -1,3 +1,4 @@
+import { testEmailAddress } from "@deskohub/test-email";
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, mock, test } from "bun:test";
@@ -67,7 +68,7 @@ const makeTestAuth = (sentMagicLinks: { url: string }[] = []) => {
 };
 
 const uniqueEmail = (label: string) =>
-  `${label}-${crypto.randomUUID()}@deskohub.test`;
+  testEmailAddress(`${label}-${crypto.randomUUID()}`);
 
 /**
  * Rate-limit state lives in the shared `auth.rate_limit` table keyed by

@@ -1,9 +1,9 @@
 import "server-only";
 
 import {
+  type EmailConfig,
   EmailDeliveryIdSchema,
   type EmailMessage,
-  type EmailProviderConfig,
   type EmailSendResult,
 } from "@deskohub/email";
 import type { EmailService } from "@deskohub/email/backend/service";
@@ -11,22 +11,23 @@ import {
   EmailConfigTag,
   EmailServiceTag,
 } from "@deskohub/email/backend/service";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Effect, Layer } from "effect";
 import { ContactService } from "@/features/contact/backend/contact.service";
 import type { Locale } from "@/features/i18n";
+import { workspaceDefaultFromAddress } from "@/shared/backend/config/email.config";
 
 const previewSubmission = {
   name: "Ada Lovelace",
-  email: "customer@example.com",
+  email: testEmailAddress("customer"),
   phone: "+420 123 456 789",
   message:
     "Hello,\n\nI'd like to confirm that the Profi pass includes both monitors and coffee. Thank you!",
 } as const;
 
-const emailConfig: EmailProviderConfig = {
-  provider: "console",
+const emailConfig: EmailConfig = {
   defaultFrom: {
-    email: "reservations@workspace.deskohub.cz",
+    email: workspaceDefaultFromAddress,
     name: "Deskohub Workspace",
   },
 };

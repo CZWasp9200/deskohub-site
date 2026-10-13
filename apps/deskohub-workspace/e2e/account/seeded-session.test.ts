@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import type {
   Account,
   RateLimit,
@@ -57,7 +58,7 @@ const seedStoredSession = (
   const now = new Date();
   store.user.push({
     createdAt: now,
-    email: "seeded@workspace-session.test",
+    email: testEmailAddress("seeded"),
     emailVerified: true,
     id: "seeded-user",
     image: null,

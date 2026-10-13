@@ -1,5 +1,6 @@
 "use client";
 
+import { testEmailAddress } from "@deskohub/test-email";
 import { Schema } from "effect";
 import posthog from "posthog-js";
 import { useCallback, useEffect } from "react";
@@ -23,7 +24,8 @@ import {
   getConsentCookieValuesFromCookie,
 } from "@/shared/utils/consent-cookie";
 
-const syntheticEmail = "posthog.identity.synthetic@example.test";
+const syntheticEmail = testEmailAddress("posthog.identity.synthetic");
+
 const syntheticName = "PostHog Identity Synthetic Name";
 const syntheticBilling = "Synthetic Billing Street, Test City";
 const syntheticPin = "583104729";

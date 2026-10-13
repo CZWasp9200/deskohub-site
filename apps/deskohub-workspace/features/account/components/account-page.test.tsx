@@ -7,6 +7,7 @@ import {
   mock,
   test,
 } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import { useState } from "react";
 import type { CustomerProfileInput } from "@/features/account/contracts";
 import { type Locale, m } from "@/features/i18n";
@@ -31,6 +32,8 @@ registerWorkspaceComponentTestEnv();
 const { act, cleanup, fireEvent, render, waitFor, within } = await import(
   "@testing-library/react"
 );
+
+const adaAddress = testEmailAddress("ada");
 
 const signInMagicLink = mock(() => Promise.resolve({ error: null }));
 const getSession = mock(() => Promise.resolve({ data: null, error: null }));
@@ -184,7 +187,7 @@ const en = { locale: "en-US" } as const;
 
 const linkedState = {
   kind: "linked",
-  email: "ada@example.test",
+  email: adaAddress,
   profile: {
     firstName: "Ada",
     lastName: "Lovelace",
@@ -260,7 +263,7 @@ describe("AccountPage states", () => {
   test("asks for profile completion with the read-only verified email", async () => {
     const view = await renderState({
       kind: "completion-required",
-      email: "ada@example.test",
+      email: adaAddress,
     });
 
     expect(
@@ -272,7 +275,7 @@ describe("AccountPage states", () => {
     const email = view.getByLabelText(
       m.accountProfileEmailLabel({}, en)
     ) as HTMLInputElement;
-    expect(email.value).toBe("ada@example.test");
+    expect(email.value).toBe(adaAddress);
     expect(email.readOnly).toBe(true);
     expect(
       view.getByLabelText(m.accountProfileFirstNameLabel({}, en))
@@ -311,7 +314,7 @@ describe("AccountPage states", () => {
     );
     expect(view.getByText(m.accountProfileSave({}, en))).toBeTruthy();
     expect(view.getByText("Ada Lovelace")).toBeTruthy();
-    expect(view.getByText("ada@example.test")).toBeTruthy();
+    expect(view.getByText(adaAddress)).toBeTruthy();
 
     fireEvent.click(
       sectionNavigation.getByRole("button", {
@@ -334,7 +337,7 @@ describe("AccountPage states", () => {
     function ProfileCompletionRefreshJourney() {
       const [state, setState] = useState<CustomerAccountPageState>({
         kind: "completion-required",
-        email: "ada@example.test",
+        email: adaAddress,
         referralCode,
       });
       refreshLinkedAccount = () =>
@@ -399,7 +402,7 @@ describe("AccountPage states", () => {
     function PendingCompletionJourney() {
       const [state, setState] = useState<CustomerAccountPageState>({
         kind: "completion-required",
-        email: "ada@example.test",
+        email: adaAddress,
       });
       refreshLinkedAccount = () =>
         setState((current) =>
@@ -592,7 +595,7 @@ describe("AccountPage states", () => {
   test("leaves the completion referral field empty without a usable code", async () => {
     const view = await renderState({
       kind: "completion-required",
-      email: "ada@example.test",
+      email: adaAddress,
     });
 
     const field = view.container.querySelector(
@@ -607,7 +610,7 @@ describe("AccountPage states", () => {
   test("renders the support state with the contact destination and no profile data", async () => {
     const view = await renderState({
       kind: "support-required",
-      email: "ada@example.test",
+      email: adaAddress,
     });
 
     expect(
@@ -635,7 +638,7 @@ describe("AccountPage states", () => {
   test("renders the pending deletion state with retry and sign out", async () => {
     const view = await renderState({
       kind: "deletion-pending",
-      email: "ada@example.test",
+      email: adaAddress,
     });
 
     expect(view.getByText(m.accountDeletionPendingTitle({}, en))).toBeTruthy();
@@ -667,13 +670,13 @@ describe("AccountPage states", () => {
     expect(
       view.queryByLabelText(m.accountProfileScreenVerifiedEmail({}, en))
     ).toBeNull();
-    expect(view.container.textContent).not.toContain("ada@example.test");
+    expect(view.container.textContent).not.toContain(adaAddress);
   });
 
   test("renders the authenticated unavailable state with account controls", async () => {
     const view = await renderState({
       kind: "authenticated-unavailable",
-      email: "ada@example.test",
+      email: adaAddress,
     });
 
     expect(view.getByText(m.accountTitle({}, en))).toBeTruthy();

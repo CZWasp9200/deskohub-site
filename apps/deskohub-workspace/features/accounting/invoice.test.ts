@@ -1,6 +1,7 @@
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Effect, Schema } from "effect";
 import type { PreparedCustomerQuote } from "@/features/checkout/backend/checkout/checkout-pricing.service";
 import {
@@ -32,7 +33,7 @@ const prepared = {
     ...coworkOrder,
     date: "2099-01-01",
     name: "Original Buyer",
-    email: "synthetic@example.test",
+    email: testEmailAddress("synthetic"),
     phone: "+420 700 000 000",
   },
   quote: buildCoworkReservationQuote(coworkOrder),
@@ -306,7 +307,7 @@ describe("invoice", () => {
       endsOn: "2099-06-21",
       seats: 3,
       name: "Office Buyer",
-      email: "office-buyer@example.test",
+      email: testEmailAddress("office-buyer"),
       phone: "+420 700 000 000",
     });
     const officeSource = makeAccountingDocumentSnapshot({

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Schema } from "effect";
 import { makeWorkspaceE2EEnvironment } from "../e2e-env";
 import { validE2ERuntimeEnvironment } from "../e2e-env.test-fixture";
@@ -111,12 +112,14 @@ describe("workspace account e2e configuration", () => {
       workspaceE2EReferralOwnerRecipientLabel
     );
 
-    expect(recipient).toBe(`delivered+${config.runId}-main@resend.dev`);
-    expect(other).toBe(`delivered+${config.runId}-active-linking@resend.dev`);
+    expect(recipient).toBe(testEmailAddress(`delivered+${config.runId}-main`));
+    expect(other).toBe(
+      testEmailAddress(`delivered+${config.runId}-active-linking`)
+    );
     expect(redact(recipient)).toBe("[redacted]");
     expect(redact(other)).toBe("[redacted]");
     expect(referralOwner).toBe(
-      `delivered+${config.runId}-referral-owner@resend.dev`
+      testEmailAddress(`delivered+${config.runId}-referral-owner`)
     );
     expect(redact(referralOwner)).toBe("[redacted]");
   });

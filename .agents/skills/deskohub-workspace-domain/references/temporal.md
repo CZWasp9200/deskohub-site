@@ -21,3 +21,10 @@ Decode Dotypos reservation start/end values through the canonical reservation
 interval schema before projecting them to application timing values. Do not add
 a parallel timestamp parser or compatibility for response shapes rejected by
 the generated Dotypos client.
+
+`Temporal.Now.instant()` carries nanoseconds, but `instant` columns store
+microseconds. An instant that was persisted and read back never `equals` the
+in-memory value it came from. Before comparing an in-memory instant (or one
+serialized into a queue payload or key) with a stored one, pass both through
+`toStoredInstant` from [`db/instant.ts`](../../../../apps/deskohub-workspace/db/instant.ts),
+and serialize such instants at stored precision.

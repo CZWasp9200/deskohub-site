@@ -1,0 +1,31 @@
+{
+  "$schema": "https://v2-9-14.turborepo.dev/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    "test": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/apps/**/*.ts",
+        "$TURBO_ROOT$/apps/**/*.tsx",
+        "$TURBO_ROOT$/apps/**/*.js",
+        "$TURBO_ROOT$/apps/**/*.jsx",
+        "$TURBO_ROOT$/apps/**/*.mjs",
+        "$TURBO_ROOT$/apps/**/*.cjs",
+        "$TURBO_ROOT$/packages/**/*.ts",
+        "$TURBO_ROOT$/packages/**/*.tsx",
+        "$TURBO_ROOT$/packages/**/*.js",
+        "$TURBO_ROOT$/packages/**/*.jsx",
+        "$TURBO_ROOT$/packages/**/*.mjs",
+        "$TURBO_ROOT$/packages/**/*.cjs",
+        "$TURBO_ROOT$/scripts/**/*.ts",
+        "$TURBO_ROOT$/scripts/**/*.tsx",
+        "$TURBO_ROOT$/scripts/**/*.js",
+        "$TURBO_ROOT$/scripts/**/*.jsx",
+        "$TURBO_ROOT$/scripts/**/*.mjs",
+        "$TURBO_ROOT$/scripts/**/*.cjs",
+        "!$TURBO_ROOT$/apps/deskohub-boardgame-bar/**",
+        "!$TURBO_ROOT$/**/node_modules/**"
+      ]
+    }
+  }
+}

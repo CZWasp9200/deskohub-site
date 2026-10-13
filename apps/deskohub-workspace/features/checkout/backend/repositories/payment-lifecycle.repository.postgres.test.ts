@@ -9,6 +9,7 @@ import {
   DotyposService,
 } from "@deskohub/dotypos";
 import { NexiOrderIdSchema } from "@deskohub/nexi";
+import { testEmailAddress } from "@deskohub/test-email";
 import { eq } from "drizzle-orm";
 import { Cause, Effect, Exit, Layer, Predicate, Schema } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
@@ -415,7 +416,7 @@ const makeSnapshot = (
       coffee: false,
       date: "2099-01-01",
       name: "Synthetic Customer",
-      email: "synthetic@example.test",
+      email: testEmailAddress("synthetic"),
       phone: "+420 700 000 000",
     },
     quote: Effect.runSync(
@@ -1823,9 +1824,9 @@ describe.skipIf(!testDatabase)(
             `insert into auth."user" (id, name, email) values ($1, '', $2), ($3, '', $4)`,
             [
               inviteeAccountId,
-              `${inviteeAccountId}@deskohub.test`,
+              testEmailAddress(inviteeAccountId),
               referrerAccountId,
-              `${referrerAccountId}@deskohub.test`,
+              testEmailAddress(referrerAccountId),
             ]
           );
           await testDatabase!.pool.query(
@@ -2057,7 +2058,7 @@ describe.skipIf(!testDatabase)(
         dotyposReservationId: reservation.dotyposReservationId,
         supplier,
         billing: { purpose: "personal", invoice: "none" },
-        delivery: { email: "synthetic@example.test" },
+        delivery: { email: testEmailAddress("synthetic") },
       });
     };
 

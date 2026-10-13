@@ -1,6 +1,7 @@
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, mock, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Effect, Layer, Schema } from "effect";
 import {
   type AccountingDocumentSnapshot,
@@ -11,6 +12,8 @@ import { makeRecordingWorkspaceDatabase } from "@/shared/testing/workspace-recor
 import { AccountingDocumentSnapshotRepository } from "./accounting-document-snapshot.repository";
 import { AccountingSnapshotKeyService } from "./accounting-snapshot-key.service";
 import { InvoiceRepository } from "./invoice.repository";
+
+const syntheticEmail = testEmailAddress("synthetic");
 
 mock.module("server-only", () => ({}) as never);
 
@@ -43,7 +46,7 @@ const makeSource = (): AccountingDocumentSnapshot => {
       invoice: "requested",
       address: personalAddress,
     },
-    delivery: { email: "synthetic@example.test" },
+    delivery: { email: syntheticEmail },
   });
 };
 
@@ -236,7 +239,7 @@ describe("invoice repository persistence contract", () => {
         invoiceId: "3f2504e0-4f89-11d3-9a0c-0305e82c3301",
         dotyposCustomerId: "dotypos-customer-1" as never,
         buyer,
-        deliveryEmail: "synthetic@example.test",
+        deliveryEmail: syntheticEmail,
         locale: "en-US",
         serviceDate: "2026-01-01",
         payment: { status: "paid", date: "2026-01-01" },

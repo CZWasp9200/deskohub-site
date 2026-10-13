@@ -1,6 +1,7 @@
 import "@/shared/polyfills/temporal";
 
 import { describe, expect, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Schema } from "effect";
 import {
   buildCoworkCheckoutSummary,
@@ -151,7 +152,7 @@ describe("checkout details persistence", () => {
     );
     for (const [field, value] of Object.entries({
       name: "Ada Lovelace",
-      email: "ada@example.com",
+      email: testEmailAddress("ada"),
       phone: "+420777123456",
       message: "Please keep this private.",
     })) {

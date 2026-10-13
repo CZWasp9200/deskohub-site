@@ -1,6 +1,7 @@
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Effect, Layer } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { WorkspaceDatabaseAdvisoryLock } from "@/db/postgres-advisory-lock";
@@ -48,7 +49,7 @@ describe.skipIf(!testDatabase)(
       const layer = makeRepositoryLayer();
       const account = customerAccountIdSchema.make(uniqueId());
       const dotyposCustomerId = uniqueDotyposId();
-      await insertAuthUser(account, `del-${account}@deskohub.test`);
+      await insertAuthUser(account, testEmailAddress(`del-${account}`));
       await insertLink(account, dotyposCustomerId);
 
       const order: string[] = [];
@@ -89,7 +90,7 @@ describe.skipIf(!testDatabase)(
       const layer = makeRepositoryLayer();
       const account = customerAccountIdSchema.make(uniqueId());
       const dotyposCustomerId = uniqueDotyposId();
-      await insertAuthUser(account, `del-${account}@deskohub.test`);
+      await insertAuthUser(account, testEmailAddress(`del-${account}`));
       await insertLink(account, dotyposCustomerId);
 
       const outcome = await Effect.runPromise(

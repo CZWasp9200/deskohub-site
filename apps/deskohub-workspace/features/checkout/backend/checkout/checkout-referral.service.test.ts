@@ -1,3 +1,4 @@
+import { testEmailAddress } from "@deskohub/test-email";
 import "@/shared/polyfills/temporal";
 
 import { describe, expect, mock, test } from "bun:test";
@@ -101,7 +102,7 @@ const reservation = Schema.decodeUnknownSync(
   coffee: true,
   monitorOption: "2x27-qhd",
   name: "Referral Checkout Test",
-  email: "referral-checkout-test@example.test",
+  email: testEmailAddress("referral-checkout-test"),
   phone: "+420 777 000 000",
 });
 
@@ -113,7 +114,7 @@ const meetingRoomReservation = normalizedMeetingRoomReservationOrderSchema.make(
     startsAt: "2099-06-20T08:00:00Z",
     endsAt: "2099-06-20T12:00:00Z",
     name: "Referral Checkout Test",
-    email: "referral-checkout-test@example.test",
+    email: testEmailAddress("referral-checkout-test"),
     phone: "+420 777 000 000",
   }
 );
@@ -124,7 +125,7 @@ const officeReservation = normalizedOfficeReservationOrderSchema.make({
   endsOn: "2099-06-20",
   seats: 3,
   name: "Referral Checkout Test",
-  email: "referral-checkout-test@example.test",
+  email: testEmailAddress("referral-checkout-test"),
   phone: "+420 777 000 000",
 });
 

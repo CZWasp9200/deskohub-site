@@ -133,6 +133,7 @@
         "@deskohub/posthog": "workspace:*",
         "@deskohub/qr-code": "workspace:*",
         "@deskohub/standard-schema": "workspace:*",
+        "@deskohub/test-email": "workspace:*",
         "@deskohub/workspace-admin-api": "workspace:*",
         "@doist/react-interpolate": "^2.2.1",
         "@effect/atom-react": "4.0.0-beta.85",
@@ -242,7 +243,7 @@
     },
     "apps/dhw": {
       "name": "dhw",
-      "version": "1.11.1",
+      "version": "1.12.0",
       "dependencies": {
         "@deskohub/workspace-admin-api": "workspace:*",
         "@effect/platform-bun": "4.0.0-beta.85",
@@ -250,6 +251,7 @@
         "semver": "^7.7.4",
       },
       "devDependencies": {
+        "@deskohub/test-email": "workspace:*",
         "@types/semver": "^7.7.1",
         "typescript": "npm:@typescript/typescript6@6.0.2",
       },
@@ -301,6 +303,7 @@
         "libphonenumber-js": "^1.13.15",
       },
       "devDependencies": {
+        "@deskohub/test-email": "workspace:*",
         "@types/react": "^19.3.0",
         "react": "19.3.0",
         "typescript": "npm:@typescript/typescript6@6.0.2",
@@ -334,6 +337,7 @@
     "packages/email": {
       "name": "@deskohub/email",
       "dependencies": {
+        "@deskohub/test-email": "workspace:*",
         "effect": "4.0.0-beta.85",
         "resend": "^6.32.1",
       },
@@ -357,6 +361,7 @@
         "effect": "4.0.0-beta.85",
       },
       "devDependencies": {
+        "@deskohub/test-email": "workspace:*",
         "typescript": "npm:@typescript/typescript6@6.0.2",
       },
     },
@@ -393,6 +398,7 @@
         "effect": "4.0.0-beta.85",
       },
       "devDependencies": {
+        "@deskohub/test-email": "workspace:*",
         "typescript": "npm:@typescript/typescript6@6.0.2",
       },
     },
@@ -437,6 +443,7 @@
         "posthog-node": "^5.55.1",
       },
       "devDependencies": {
+        "@deskohub/test-email": "workspace:*",
         "@effect/openapi-generator": "4.0.0-beta.85",
         "@types/mustache": "^4.2.6",
         "@types/react": "^19.3.0",
@@ -474,6 +481,13 @@
         "typescript": "npm:@typescript/typescript6@6.0.2",
       },
     },
+    "packages/test-email": {
+      "name": "@deskohub/test-email",
+      "version": "0.1.0",
+      "devDependencies": {
+        "typescript": "npm:@typescript/typescript6@6.0.2",
+      },
+    },
     "packages/workspace-admin-api": {
       "name": "@deskohub/workspace-admin-api",
       "version": "0.1.0",
@@ -482,6 +496,7 @@
         "effect": "4.0.0-beta.85",
       },
       "devDependencies": {
+        "@deskohub/test-email": "workspace:*",
         "typescript": "npm:@typescript/typescript6@6.0.2",
       },
     },
@@ -711,6 +726,8 @@
     "@deskohub/reservation": ["@deskohub/reservation@workspace:packages/reservation"],
 
     "@deskohub/standard-schema": ["@deskohub/standard-schema@workspace:packages/standard-schema"],
+
+    "@deskohub/test-email": ["@deskohub/test-email@workspace:packages/test-email"],
 
     "@deskohub/workspace-admin-api": ["@deskohub/workspace-admin-api@workspace:packages/workspace-admin-api"],
 

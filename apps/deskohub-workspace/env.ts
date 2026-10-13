@@ -73,7 +73,7 @@ export const createWorkspaceEnv = (runtimeEnv: WorkspaceRuntimeEnv) =>
         if (hasPath("EMAIL_API_KEY")) {
           return {
             ...issue,
-            message: "Invalid production email delivery configuration.",
+            message: "Invalid email delivery configuration.",
           };
         }
 
@@ -116,7 +116,6 @@ export const env = createWorkspaceEnv({
   DOTYPOS_EMPLOYEE_ID: process.env.DOTYPOS_EMPLOYEE_ID,
   DOTYPOS_REFRESH_TOKEN: process.env.DOTYPOS_REFRESH_TOKEN,
   EMAIL_API_KEY: process.env.EMAIL_API_KEY,
-  EMAIL_PROVIDER: process.env.EMAIL_PROVIDER,
   GOOGLE_CALENDAR_PRIVATE_KEY: process.env.GOOGLE_CALENDAR_PRIVATE_KEY,
   GOOGLE_CALENDAR_SALES_ID: process.env.GOOGLE_CALENDAR_SALES_ID,
   GOOGLE_CALENDAR_SERVICE_ACCOUNT_EMAIL:

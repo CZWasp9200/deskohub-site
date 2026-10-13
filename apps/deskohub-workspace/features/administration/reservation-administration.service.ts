@@ -268,7 +268,7 @@ export class ReservationAdministrationService extends Context.Service<
       Layer.provideMerge(
         WorkspaceReservationEmailService.Default,
         Layer.provideMerge(
-          Layer.provideMerge(EmailServiceTag.Live, EmailConfigLayer),
+          Layer.provideMerge(EmailServiceTag.RecipientRouted, EmailConfigLayer),
           WorkspaceCheckoutNetworkDetailsService.Default
         )
       )

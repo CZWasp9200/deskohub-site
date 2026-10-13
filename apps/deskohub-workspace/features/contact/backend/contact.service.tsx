@@ -7,9 +7,13 @@ import { Context, Effect, Layer } from "effect";
 import { ContactBusinessEmail } from "@/emails/contact-business";
 import { ContactConfirmationEmail } from "@/emails/contact-confirmation";
 import type { WorkspaceEmailDetail } from "@/emails/workspace-email-detail";
-import { env } from "@/env";
 import { type Locale, m } from "@/features/i18n";
 import { renderWorkspaceEmail } from "@/shared/backend/email/render-react-email";
+import {
+  internalWorkspaceEmailRecipientFor,
+  internalWorkspaceEmailSubject,
+  workspaceEmailRecipient,
+} from "@/shared/backend/email/workspace-email-recipients";
 import { StorageError } from "@/shared/backend/errors";
 import { workspaceSiteConstants } from "@/shared/utils";
 
@@ -29,13 +33,7 @@ export interface IContactService {
   ) => Effect.Effect<ContactSubmission, StorageError>;
 }
 
-const workspaceRecipient = {
-  email: workspaceSiteConstants.contact.infoEmail,
-  name: workspaceSiteConstants.brand.name,
-} as const;
-
 const businessNotificationLocale: Locale = "cs-CZ";
-const businessTestingSubjectPrefix = "[TESTING]";
 
 const formatSubmissionDate = (submittedAt: string, locale: Locale) =>
   new Date(submittedAt).toLocaleString(locale, {
@@ -44,18 +42,13 @@ const formatSubmissionDate = (submittedAt: string, locale: Locale) =>
     timeZone: workspaceSiteConstants.location.timeZone,
   });
 
-const getBusinessSubject = (name: string) => {
-  const subject = m.contactEmailBusinessSubject(
-    { name },
-    { locale: businessNotificationLocale }
+const getBusinessSubject = (name: string) =>
+  internalWorkspaceEmailSubject(
+    m.contactEmailBusinessSubject(
+      { name },
+      { locale: businessNotificationLocale }
+    )
   );
-
-  if (env.VERCEL_ENV === "production") {
-    return subject;
-  }
-
-  return `${businessTestingSubjectPrefix} ${subject}`;
-};
 
 const getConfirmationSubject = (locale: Locale) =>
   m.contactEmailConfirmationSubject({}, { locale });
@@ -147,7 +140,7 @@ export class ContactService extends Context.Service<
             );
             const businessEmailMessage: EmailMessage = {
               from: emailConfig.defaultFrom,
-              to: workspaceRecipient,
+              to: internalWorkspaceEmailRecipientFor(data.email),
               subject: businessSubject,
               html: businessEmail.html,
               text: businessEmail.text,
@@ -206,7 +199,7 @@ export class ContactService extends Context.Service<
                   email: data.email,
                   name: data.name,
                 },
-                replyTo: workspaceRecipient,
+                replyTo: workspaceEmailRecipient,
                 subject: confirmationSubject,
                 html: confirmationEmail.html,
                 text: confirmationEmail.text,

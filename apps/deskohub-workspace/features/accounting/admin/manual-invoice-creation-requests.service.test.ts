@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import { AdministrationInvoiceCreateInput } from "@deskohub/workspace-admin-api";
 import { Schema } from "effect";
 import { getManualInvoiceCreationRequestJson } from "./invoice-administration.service";
@@ -14,7 +15,7 @@ const request = {
     kind: "new",
     details: {
       kind: "business",
-      email: "billing@example.test",
+      email: testEmailAddress("billing"),
       phone: "+420 123 456 789",
       companyName: "Example s.r.o.",
       companyId: "12345678",

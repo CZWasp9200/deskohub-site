@@ -1,4 +1,5 @@
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import type { Page } from "@playwright/test";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { createElement, useState } from "react";
@@ -58,7 +59,7 @@ const sectionPanel = (section: AccountSection) => {
         // ProfileScreen's typed createElement overload requires children in props.
         // biome-ignore lint/correctness/noChildrenProp: the required child must be present in the props object.
         children: createElement("input", { id: "account-profile-first-name" }),
-        email: "synthetic@example.test",
+        email: testEmailAddress("synthetic"),
         firstName: "E2E",
         lastName: null,
       });
@@ -314,8 +315,7 @@ test("visits and captures every desktop section in review runs", async () => {
   expect(reservationsPanelIsVisible()).toBe(true);
 });
 
-const accountLayoutFailureMarker =
-  "https://private.example.test/account?email=secret@example.test&token=secret-token";
+const accountLayoutFailureMarker = `https://private.example.test/account?email=${testEmailAddress("secret")}&token=secret-token`;
 const accountLayoutFailure = new Error(accountLayoutFailureMarker, {
   cause: accountLayoutFailureMarker,
 });
@@ -455,10 +455,8 @@ test("uses a fixed generic diagnostic when final viewport reset fails", async ()
 
 test("preserves the phase diagnostic when final viewport reset also fails", async () => {
   let setViewportCalls = 0;
-  const captureFailureMarker =
-    "https://private.example.test/account/capture?email=secretA@example.test&token=secretA";
-  const restoreFailureMarker =
-    "https://private.example.test/account/restore?email=secretB@example.test&token=secretB";
+  const captureFailureMarker = `https://private.example.test/account/capture?email=${testEmailAddress("secretA")}&token=secretA`;
+  const restoreFailureMarker = `https://private.example.test/account/restore?email=${testEmailAddress("secretB")}&token=secretB`;
   const failure = await runLayoutVerificationFailure(
     {
       onSetViewport: () => {

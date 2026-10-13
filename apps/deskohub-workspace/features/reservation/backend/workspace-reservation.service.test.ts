@@ -4,6 +4,7 @@ import "@/shared/testing/workspace-test-env";
 import { describe, expect, mock, test } from "bun:test";
 import { DotyposService } from "@deskohub/dotypos";
 import type { Customer, Reservation, Table } from "@deskohub/dotypos/generated";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Effect, Layer } from "effect";
 import { SeatingMapFeatureFlagServiceMock } from "@/features/feature-flags/backend/seating-map-feature-flag.service.mock";
 import {
@@ -17,7 +18,7 @@ import {
 
 const customer: Customer = {
   _cloudId: "cloud",
-  email: "customer@example.com",
+  email: testEmailAddress("customer"),
   firstName: "Ada",
   lastName: "Lovelace",
 };

@@ -2,6 +2,7 @@ import {
   DotyposCustomerIdSchema,
   DotyposReservationIdSchema,
 } from "@deskohub/dotypos";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Effect, Schema } from "effect";
 import type { PreparedCustomerQuote } from "@/features/checkout/backend/checkout/checkout-pricing.service";
 import {
@@ -37,6 +38,8 @@ import {
   manualInvoiceInputSchema,
   normalizeManualInvoiceInput,
 } from "./manual-invoice";
+
+const syntheticEmail = testEmailAddress("synthetic");
 
 const issuedAt = Temporal.Instant.from("2026-08-12T12:34:56.789Z");
 const paidAt = Temporal.Instant.from("2026-08-10T12:30:00Z");
@@ -78,7 +81,7 @@ export const makeCoworkInvoiceDocument = (
       ...order,
       date: "2099-01-01",
       name: "Ada Lovelace",
-      email: "synthetic@example.test",
+      email: syntheticEmail,
       phone: "+420 700 000 000",
       billing: options.businessBuyer
         ? { purpose: "business", invoice: "required", buyer: businessBuyer }
@@ -109,7 +112,7 @@ export const makeMeetingRoomInvoiceDocument = (
     startsAt: instantStringSchema.make("2099-02-03T08:00:00Z"),
     endsAt: instantStringSchema.make("2099-02-03T12:00:00Z"),
     name: "Grace Hopper",
-    email: "synthetic@example.test",
+    email: syntheticEmail,
     phone: "+420 700 000 000",
     billing: {
       purpose: "personal",
@@ -142,7 +145,7 @@ export const makeOfficeInvoiceDocument = (locale: Locale): InvoiceDocument => {
     endsOn: plainDateStringSchema.make("2099-06-21"),
     seats: 3,
     name: "Katherine Johnson",
-    email: "synthetic@example.test",
+    email: syntheticEmail,
     phone: "+420 700 000 000",
     billing: {
       purpose: "personal",
@@ -175,7 +178,7 @@ export const makeTestManualInvoiceDocument = (
       legalName: "Ada Lovelace",
       address: personalAddress,
     },
-    deliveryEmail: "manual-invoice@example.test",
+    deliveryEmail: testEmailAddress("manual-invoice"),
     locale,
     serviceDate: "2026-08-18",
     payment,

@@ -83,7 +83,7 @@ const requiredWorkspaceCronDefinitions = [
   },
   {
     path: "/api/cron/workspace/payment-refunds",
-    schedule: "37 4 * * *",
+    schedule: "37 * * * *",
   },
 ] as const;
 

@@ -7,6 +7,7 @@ import {
   dotyposApiTimeoutDefaultMilliseconds,
 } from "@deskohub/dotypos";
 import { ExternalAPIError, NexiService } from "@deskohub/nexi";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Data, Duration, Effect, Layer, Schema } from "effect";
 import { env } from "@/env";
 import type { OptionalAccountActivityFixture } from "@/features/account/backend/customer-account-activity.test-utils";
@@ -50,6 +51,8 @@ import {
   sealPayState,
 } from "./pay-state";
 
+const testEmailAddressForAda = testEmailAddress("ada");
+
 mock.module("server-only", () => ({}));
 
 const payStateBookedAt = instantStringSchema.make("2026-06-01T09:58:00.000Z");
@@ -87,7 +90,7 @@ const reservationData = Schema.decodeUnknownSync(
   coffee: true,
   monitorOption: "2x27-qhd",
   name: "Ada Lovelace",
-  email: "ada@example.com",
+  email: testEmailAddressForAda,
   phone: "+420 777 777 777",
 });
 
@@ -100,7 +103,7 @@ const meetingRoomReservationData = Schema.decodeUnknownSync(
   startsAt: "2099-06-20T08:00:00Z",
   endsAt: "2099-06-20T12:00:00Z",
   name: "Ada Lovelace",
-  email: "ada@example.com",
+  email: testEmailAddressForAda,
   phone: "+420 777 777 777",
 });
 if (meetingRoomReservationData.kind !== "meeting-room") {
@@ -169,7 +172,7 @@ const zeroTotalReservation = Schema.decodeUnknownSync(
   date: "2099-06-20",
   coffee: false,
   name: "Ada Lovelace",
-  email: "ada@example.com",
+  email: testEmailAddressForAda,
   phone: "+420 777 777 777",
 });
 
@@ -331,7 +334,7 @@ const buildStartedWholeDayReservation = () => {
       .toInstant()
       .toString(),
     name: "Ada Lovelace",
-    email: "ada@example.com",
+    email: testEmailAddressForAda,
     phone: "+420 777 777 777",
   });
   if (reservation.kind !== "meeting-room") {
@@ -359,7 +362,7 @@ const buildEndedMeetingRoomReservation = () => {
     startsAt: startsAt.toString(),
     endsAt: startsAt.add({ hours: 1 }).toString(),
     name: "Ada Lovelace",
-    email: "ada@example.com",
+    email: testEmailAddressForAda,
     phone: "+420 777 777 777",
   });
 };
@@ -377,7 +380,7 @@ const buildEndedOfficeReservation = () => {
     endsOn: yesterday.toString(),
     seats: 3,
     name: "Ada Lovelace",
-    email: "ada@example.com",
+    email: testEmailAddressForAda,
     phone: "+420 777 777 777",
   });
 };
@@ -393,7 +396,7 @@ const buildSaleableCoworkReservation = (
     coffee: entryTier === "reserved-desk",
     ...(entryTier === "reserved-desk" && { monitorOption: "2x27-qhd" }),
     name: "Ada Lovelace",
-    email: "ada@example.com",
+    email: testEmailAddressForAda,
     phone: "+420 777 777 777",
   });
 
@@ -1092,7 +1095,7 @@ describe("CheckoutService", () => {
         customer: {
           id: "stored-dotypos-customer-id",
           name: "Ada Lovelace",
-          email: "ada@example.com",
+          email: testEmailAddressForAda,
           mobilePhone: {
             countryCallingCode: "420",
             nationalNumber: "777777777",
@@ -1164,7 +1167,7 @@ describe("CheckoutService", () => {
         workspaceReservationId: "reservation-zero-total",
         buyer: { kind: "person", legalName: "Ada Lovelace" },
         billing: { purpose: "personal", invoice: "none" },
-        delivery: { email: "ada@example.com" },
+        delivery: { email: testEmailAddressForAda },
       }),
     });
     expect(harness.createPendingNexiAttempt).not.toHaveBeenCalled();
@@ -1835,7 +1838,7 @@ describe("CheckoutService", () => {
       date: "2099-06-10",
       coffee: false,
       name: "Ada Lovelace",
-      email: "ada@example.com",
+      email: testEmailAddressForAda,
       phone: "+420 777 777 777",
     });
     const acceptedQuote = buildCoworkReservationQuote(
@@ -1946,7 +1949,7 @@ describe("CheckoutService", () => {
       startsAt: "2099-06-10T11:00:00Z",
       endsAt: "2099-06-10T12:00:00Z",
       name: "Ada Lovelace",
-      email: "ada@example.com",
+      email: testEmailAddressForAda,
       phone: "+420 777 777 777",
     });
     const orderId = "meeting-room-ends-during-payment-preparation";

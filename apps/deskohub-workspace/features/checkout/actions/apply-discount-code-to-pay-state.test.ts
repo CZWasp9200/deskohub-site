@@ -2,6 +2,7 @@ import "@/shared/polyfills/temporal";
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, mock, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Effect, Layer, Schema } from "effect";
 import type { WorkspaceE2EConfig } from "@/e2e/config";
 import { isFreshOwnedPayStateUrl } from "@/e2e/referrals/checkout";
@@ -43,7 +44,7 @@ const reservation = {
   coffee: false,
   date: "2026-08-04",
   name: "Ada Lovelace",
-  email: "ada@example.test",
+  email: testEmailAddress("ada"),
   phone: "+420777000111",
 };
 const quote = buildCoworkReservationQuote(reservation);

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Effect, Schema } from "effect";
 import { HttpClient, HttpClientRequest } from "effect/unstable/http";
 import type {
@@ -112,7 +113,7 @@ const makeCheckoutContact = (flowId: string) => {
   const emailKey = `${normalizedFlowId.slice(0, maxEmailFlowIdLength)}-${uniqueEmailKey}`;
   const name = `Workspace E2E ${flowId} ${runId} ${sequence}`;
   const phone = `+4207${runId.slice(2, 8)}${sequence}`;
-  const email = `${deliveredEmailPrefix}${emailKey}@resend.dev`;
+  const email = testEmailAddress(`${deliveredEmailPrefix}${emailKey}`);
 
   return { email, name, phone };
 };

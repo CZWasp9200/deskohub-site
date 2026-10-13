@@ -1,10 +1,13 @@
 import { describe, expect, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import { Temporal } from "@js-temporal/polyfill";
 import {
   type CustomerReservationSummary,
   groupCustomerReservations,
   updateCustomerProfileStandardSchema,
 } from "./contracts";
+
+const adaAddress = testEmailAddress("ada");
 
 const validateProfileInput = async (input: {
   readonly firstName: string;
@@ -174,7 +177,7 @@ describe("customer profile input", () => {
   test("refuses an email field because the verified login email is not editable", async () => {
     const outcome = await updateCustomerProfileStandardSchema[
       "~standard"
-    ].validate({ firstName: "Ada", email: "ada@example.test" });
+    ].validate({ firstName: "Ada", email: adaAddress });
 
     expect(outcome).toHaveProperty("issues");
   });
