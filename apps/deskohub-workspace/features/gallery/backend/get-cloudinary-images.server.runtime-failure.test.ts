@@ -69,7 +69,7 @@ test("serves no images with the failure cache profile when the Workspace runtime
     );
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn.mock.calls.flat().join(" ")).toContain(
-      "gallery.images.unavailable"
+      "gallery.images.load_failed"
     );
   } finally {
     warn.mockRestore();

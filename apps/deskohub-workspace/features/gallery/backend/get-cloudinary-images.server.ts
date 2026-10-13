@@ -77,7 +77,7 @@ export async function getCloudinaryImages({
   }).pipe(
     Effect.provide(WorkspaceCloudinaryLayer),
     runWorkspaceEffectOrElse("gallery.images.load", {
-      failureCode: "gallery.images.unavailable",
+      failureCode: "gallery.images.load_failed",
       orElse: (): readonly CloudinaryAsset[] => {
         cacheLife(cloudinaryFailureCacheLife);
         return [];
