@@ -36,7 +36,11 @@ import { WorkspaceFeatureFlagServiceMock } from "@/features/feature-flags/backen
 import type { ICustomerMarketingConsentRepository } from "@/features/legal/backend/customer-marketing-consent.repository";
 import { OfficeReservationFeatureFlagService } from "@/features/office/backend/office-reservation-feature-flag.service";
 import { ReferralError } from "@/features/referrals/contracts";
-import { ReferralServiceMock } from "@/features/referrals/referral.service.mock";
+import type { ReferralService } from "@/features/referrals/referral.service";
+import {
+  ReferralServiceMock,
+  WithheldReferralService,
+} from "@/features/referrals/referral.service.mock";
 import type { IWorkspaceAvailabilityService } from "@/features/reservation/backend/workspace-availability.service";
 import { meetingRoomAdvertisedPriceReservationSchema } from "@/features/reservation/meeting-room-reservation";
 import { workspaceSiteConstants } from "@/shared/utils/site-constants";
@@ -357,6 +361,8 @@ const runReusableReservationScenario = async (input: {
   readonly evaluateCheckoutReferral?: ReturnType<typeof mock>;
   readonly findAvailableCode?: ReturnType<typeof mock>;
   readonly hasSettledReferral?: ReturnType<typeof mock>;
+  /** Replaces the mocked referral operations above. */
+  readonly referralService?: Layer.Layer<ReferralService>;
   readonly checkContactEmailDomain?: ReturnType<typeof mock>;
 }) => {
   const { prepareWorkspacePayState } = await import("./prepare-pay-state");
@@ -457,11 +463,12 @@ const runReusableReservationScenario = async (input: {
       current: Effect.suspend(() => readAccountContact()),
       currentLinkedAccount: Effect.suspend(() => readLinkedAccount()),
     }),
-    ReferralServiceMock({
-      evaluateCheckoutReferral: evaluateCheckoutReferral as never,
-      findAvailableCode: findAvailableCode as never,
-      hasSettledReferral: hasSettledReferral as never,
-    }),
+    input.referralService ??
+      ReferralServiceMock({
+        evaluateCheckoutReferral: evaluateCheckoutReferral as never,
+        findAvailableCode: findAvailableCode as never,
+        hasSettledReferral: hasSettledReferral as never,
+      }),
     CheckoutPricingServiceMock({
       affirmCoworkAdvertisement: affirmAdvertisement,
       quoteForCustomer: quoteForCustomerResult as never,
@@ -2042,6 +2049,40 @@ describe("prepareWorkspacePayState", () => {
           expect(scenario.result?.status).toBe("ready");
           expect(scenario.hasSettledReferral).toHaveBeenCalledTimes(1);
           expect(await requestedCodeOf(scenario.result)).toBe("RFL12345");
+          expect(scenario.rememberedReferralCodeAfter).toBe("RFL12345");
+        }
+      );
+
+      // The remembered-code reader already reports nothing while the program
+      // is withheld; even a code that still reaches preparation stays inert.
+      test.each([
+        ["an anonymous guest", { accountAuthority: { session: null } }],
+        [
+          "the signed-in account",
+          {
+            accountAuthority: { session: {}, activityState: "active" },
+            customer: "account" as const,
+            accountContact: accountContact(),
+            linkedAccount: linkedAccount(),
+          },
+        ],
+      ] as const)(
+        "carries, prefills, and forgets nothing for %s while referrals are withheld",
+        async (_label, booking) => {
+          const scenario = await runReusableReservationScenario({
+            findByAttemptKeys: mock(() => Effect.succeed(null)),
+            createDraft: createFreshDraft(),
+            ...booking,
+            rememberedReferralCode: "RFL12345",
+            referralService: WithheldReferralService,
+          });
+
+          expect(scenario.result?.status).toBe("ready");
+          expect(
+            (await signedStateOf(scenario.result))?.referralCode
+          ).toBeUndefined();
+          expect(await requestedCodeOf(scenario.result)).toBeUndefined();
+          expect(referralAppliedOf(redirectUrlOf(scenario.result))).toBeNull();
           expect(scenario.rememberedReferralCodeAfter).toBe("RFL12345");
         }
       );

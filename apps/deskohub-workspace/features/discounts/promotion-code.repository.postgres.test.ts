@@ -6,7 +6,7 @@ import {
   DotyposCustomerIdSchema,
 } from "@deskohub/dotypos";
 import { NexiOrderIdSchema } from "@deskohub/nexi";
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 import {
   type DiscountCodeClaimState,
   discountApplications,
@@ -97,7 +97,7 @@ describe.skipIf(!testDatabase)(
 
     /** Inserts the shared promotion registry row with its customer audience. */
     const insertPromotionCode = async (input: {
-      readonly kind: "discount" | "voucher";
+      readonly kind: "discount" | "voucher" | "referral";
       readonly audience: readonly DotyposCustomerId[];
     }) => {
       const id = crypto.randomUUID();
@@ -298,6 +298,27 @@ describe.skipIf(!testDatabase)(
         })
       );
     };
+
+    test("finds no ordinary promotion for a referral code, exactly as for an unknown code", async () => {
+      // While the referral program is withheld, a referral code reaches the
+      // ordinary code path, which must reject it as an unknown code.
+      const referral = await insertPromotionCode({
+        kind: "referral",
+        audience: [],
+      });
+      const unknown = canonicalPromotionCodeSchema.make(
+        `PG-${crypto.randomUUID().replaceAll("-", "").toUpperCase()}`
+      );
+
+      expect(
+        await run((repository) =>
+          repository.findByCode({ code: referral.code })
+        )
+      ).toEqual(Option.none());
+      expect(
+        await run((repository) => repository.findByCode({ code: unknown }))
+      ).toEqual(Option.none());
+    });
 
     test("reports an empty shared audience as unrestricted", async () => {
       const customerId = makeCustomerId();

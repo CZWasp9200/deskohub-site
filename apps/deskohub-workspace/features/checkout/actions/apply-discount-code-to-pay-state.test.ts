@@ -25,6 +25,8 @@ import {
   type CanonicalPromotionCode,
   canonicalPromotionCodeSchema,
 } from "@/features/discounts/contracts";
+import type { ReferralService as ReferralServiceTag } from "@/features/referrals";
+import { WithheldReferralService } from "@/features/referrals/referral.service.mock";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import { instantStringSchema } from "@/shared/utils/temporal";
 
@@ -75,6 +77,8 @@ const runSubmission = async (input?: {
   readonly applyDiscountCode?: ReturnType<typeof mock>;
   readonly acceptCode?: ReturnType<typeof mock>;
   readonly codeKind?: "referral" | "other";
+  /** Replaces the mocked code-kind lookup. */
+  readonly referralService?: Layer.Layer<ReferralServiceTag>;
   readonly payStateToken?: string;
   readonly activePaymentAttemptId?: string;
   readonly activePaymentAttemptIdAfterPricing?: string;
@@ -155,7 +159,8 @@ const runSubmission = async (input?: {
         BotProtectionServiceMock({ verifyHuman }),
         CheckoutPricingServiceMock({ applyDiscountCode }),
         Layer.succeed(PayableReservationService, { requireCurrent }),
-        Layer.succeed(ReferralService, { lookupCodeKind } as never),
+        input?.referralService ??
+          Layer.succeed(ReferralService, { lookupCodeKind } as never),
         Layer.succeed(CheckoutReferralService, { acceptCode } as never)
       )
     ),
@@ -422,6 +427,66 @@ describe("applyDiscountCodeToPayState", () => {
     expect(freshState.submittedCode).toBeUndefined();
     expect(freshState.submittedCodeDiscountId).toBeUndefined();
     expect(scenario.result.freshPayUrl).not.toContain("SAVE20");
+  });
+
+  test("rejects a referral code exactly like an unknown code while referrals are withheld", async () => {
+    // The ordinary code path finds no discount or voucher behind a referral
+    // registry row, as PromotionCodeRepository.findByCode pins.
+    const unknownCode = () =>
+      mock(() =>
+        Effect.fail(
+          new PromotionCodeUnavailableError({
+            reason: "unknown_code",
+            message: "The submitted promotion code does not exist.",
+          })
+        )
+      );
+    const submit = (submittedCode: string) =>
+      runSubmission({
+        submittedCode,
+        referralService: WithheldReferralService,
+        applyDiscountCode: unknownCode(),
+      });
+    const fieldOutcome = async (
+      scenario: Awaited<ReturnType<typeof submit>>
+    ) => {
+      if (scenario.result.status !== "unavailable") {
+        throw new Error("Expected unavailable result");
+      }
+      const freshUrl = new URL(
+        scenario.result.freshPayUrl ?? "",
+        "https://deskohub.test"
+      );
+      const freshState = await Effect.runPromise(
+        openPayState(freshUrl.searchParams.get(payStateTokenQueryParam) ?? "")
+      );
+      return {
+        discountCodeError: freshUrl.searchParams.get("discountCodeError"),
+        requestedDiscountCode: freshState.requestedDiscountCode,
+        referralCode: freshState.referralCode,
+        submittedCode: freshState.submittedCode,
+      };
+    };
+
+    const referral = await submit("RFL12345");
+    const unknown = await submit("NOPE12345");
+
+    expect(referral.acceptCode).not.toHaveBeenCalled();
+    expect(referral.applyDiscountCode).toHaveBeenCalledWith(
+      expect.objectContaining({ submittedCode: "RFL12345" })
+    );
+    expect(await fieldOutcome(referral)).toEqual({
+      discountCodeError: "unavailable",
+      requestedDiscountCode: "RFL12345",
+      referralCode: undefined,
+      submittedCode: undefined,
+    });
+    expect(await fieldOutcome(unknown)).toEqual({
+      discountCodeError: "unavailable",
+      requestedDiscountCode: "NOPE12345",
+      referralCode: undefined,
+      submittedCode: undefined,
+    });
   });
 
   test("applies a new code when the signed state only carries a requested code", async () => {

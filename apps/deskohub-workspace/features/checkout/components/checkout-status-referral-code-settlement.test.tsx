@@ -5,8 +5,15 @@ import { ForgetRememberedReferralCode } from "@/features/referrals/forget-rememb
 
 let rememberedReferralCode: string | undefined;
 mock.module("server-only", () => ({}));
+// Bun shares module mocks across test files, so keep the module's full shape.
 mock.module("@/features/referrals/remembered-referral-code.server", () => ({
   readRememberedReferralCode: async () => rememberedReferralCode,
+  forgetRememberedReferralCode: async () => {
+    rememberedReferralCode = undefined;
+  },
+  rememberReferralCode: async (code: string) => {
+    rememberedReferralCode = code;
+  },
 }));
 // Whether the booker's own referral is settled; a friend's never counts.
 let bookerSettled = true;
@@ -68,7 +75,9 @@ describe("CheckoutStatusReferralCodeSettlement", () => {
     }
   );
 
-  test("renders nothing for a paid order without a remembered code", async () => {
+  // While referrals are withheld the reader reports no remembered code, so a
+  // code left from before stays in the browser untouched.
+  test("renders nothing for a paid order without a remembered code, as while referrals are withheld", async () => {
     bookerChecks.length = 0;
     expect(await renderSettlement("fulfilled", {})).toBeNull();
     expect(bookerChecks).toEqual([]);

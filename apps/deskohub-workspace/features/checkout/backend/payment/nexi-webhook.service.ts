@@ -14,6 +14,7 @@ import {
 import { Context, Data, Effect, Layer, Predicate, Schema } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import type { PaymentAttemptState } from "@/db/schema";
+import { ReferralFeatureFlagService } from "@/features/referrals/referral-feature-flag.service";
 import { WorkspaceReservationRepository } from "@/features/reservation/backend/workspace-reservation.repository";
 import { PostHogEventService } from "@/shared/backend/analytics/posthog-event.service";
 import {
@@ -84,6 +85,7 @@ export class NexiWebhookService extends Context.Service<
     Layer.provide(PaymentAttemptRepository.Default),
     Layer.provide(PaymentLifecycleRepository.Default),
     Layer.provide(LatePaymentRecoveryRepository.Default),
+    Layer.provide(ReferralFeatureFlagService.Live),
     Layer.provide(LatePaymentRecoveryQueueService.Default),
     Layer.provide(PostHogEventService.Live),
     Layer.provide(WorkspaceReservationRepository.Default),

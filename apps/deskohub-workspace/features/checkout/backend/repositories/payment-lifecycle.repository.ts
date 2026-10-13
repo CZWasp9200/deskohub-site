@@ -86,6 +86,7 @@ import {
 } from "@/features/referrals/advisory-locks";
 import { evaluateReferralAttribution } from "@/features/referrals/attribution";
 import { getReferralInvitationDiscountId } from "@/features/referrals/discount-identifiers";
+import { ReferralFeatureFlagService } from "@/features/referrals/referral-feature-flag.service";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import { sensitiveDatabaseParameter } from "@/shared/backend/logging/database-query-parameter-classifier";
 import {
@@ -197,6 +198,7 @@ export class PaymentLifecycleRepository extends Context.Service<
     Effect.gen(function* () {
       const { db } = yield* WorkspaceDatabase;
       const accountingSnapshotKeys = yield* AccountingSnapshotKeyService;
+      const referralFeatureFlag = yield* ReferralFeatureFlagService;
 
       const createPendingNexiAttempt = Effect.fn(
         "PaymentLifecycleRepository.createPendingNexiAttempt"
@@ -455,6 +457,11 @@ export class PaymentLifecycleRepository extends Context.Service<
           );
         }
 
+        // Evaluated before the transaction so no flag lookup holds its locks.
+        const recordsAttribution =
+          claimedApplications.referral !== undefined &&
+          (yield* referralFeatureFlag.isEnabled);
+
         return yield* db
           .transaction(
             Effect.fn(function* (tx) {
@@ -480,7 +487,7 @@ export class PaymentLifecycleRepository extends Context.Service<
               yield* lockReferralFirstBooking({
                 tx,
                 dotyposCustomerId: reservationIdentity.dotyposCustomerId,
-                recordsAttribution: claimedApplications.referral !== undefined,
+                recordsAttribution,
                 // Checkout completes an internal payment inside the account
                 // guard, whose account lock is held on another connection.
                 // acceptReferral takes the graph lock before account locks,
@@ -686,12 +693,12 @@ export class PaymentLifecycleRepository extends Context.Service<
                 yield* redeemCodeClaim(tx, attemptRow.id, claimedAt.code);
               }
               if (claimedAt.referral) {
-                yield* redeemReferralInvitationClaim(
-                  tx,
-                  attemptRow.id,
-                  input.workspaceReservationId,
-                  claimedAt.referral
-                );
+                yield* redeemReferralInvitationClaim(tx, {
+                  paymentAttemptId: attemptRow.id,
+                  workspaceReservationId: input.workspaceReservationId,
+                  redeemedAt: claimedAt.referral,
+                  recordsAttribution,
+                });
               }
 
               return {
@@ -757,6 +764,9 @@ export class PaymentLifecycleRepository extends Context.Service<
           readonly providerStatus?: string;
           readonly paidAt: Temporal.Instant;
         }) {
+          // Evaluated before the transaction so no flag lookup holds its locks.
+          const referralsEnabled = yield* referralFeatureFlag.isEnabled;
+
           return yield* db.transaction(
             Effect.fn(function* (tx) {
               const [reservationIdentity] = yield* tx
@@ -778,10 +788,13 @@ export class PaymentLifecycleRepository extends Context.Service<
                   "The payment reservation was not found."
                 );
               }
+              const recordsAttribution =
+                referralsEnabled &&
+                (yield* attemptRecordsReferral(tx, input.id));
               yield* lockReferralFirstBooking({
                 tx,
                 dotyposCustomerId: reservationIdentity.dotyposCustomerId,
-                recordsAttribution: yield* attemptRecordsReferral(tx, input.id),
+                recordsAttribution,
               });
               yield* ensureReferralFirstPaidTransition({
                 tx,
@@ -844,12 +857,12 @@ export class PaymentLifecycleRepository extends Context.Service<
 
               if (reservation) {
                 yield* redeemCodeClaim(tx, input.id, input.paidAt);
-                yield* redeemReferralInvitationClaim(
-                  tx,
-                  input.id,
-                  input.workspaceReservationId,
-                  input.paidAt
-                );
+                yield* redeemReferralInvitationClaim(tx, {
+                  paymentAttemptId: input.id,
+                  workspaceReservationId: input.workspaceReservationId,
+                  redeemedAt: input.paidAt,
+                  recordsAttribution,
+                });
                 return {
                   attempt: toPaymentAttempt(attempt),
                   changed: true,
@@ -878,12 +891,12 @@ export class PaymentLifecycleRepository extends Context.Service<
               }
 
               yield* redeemCodeClaim(tx, input.id, input.paidAt);
-              yield* redeemReferralInvitationClaim(
-                tx,
-                input.id,
-                input.workspaceReservationId,
-                input.paidAt
-              );
+              yield* redeemReferralInvitationClaim(tx, {
+                paymentAttemptId: input.id,
+                workspaceReservationId: input.workspaceReservationId,
+                redeemedAt: input.paidAt,
+                recordsAttribution,
+              });
               return {
                 attempt: toPaymentAttempt(attempt),
                 changed: false,
@@ -2461,14 +2474,29 @@ export const redeemCodeClaim = Effect.fn("PaymentLifecycle.redeemCodeClaim")(
   }
 );
 
+/**
+ * Redeems the attempt's invitation claim. A checkout referral claim also
+ * records its attribution when `recordsAttribution` is set, which requires the
+ * caller to hold the referral graph lock; while the referral program is
+ * withheld the claim is redeemed without touching the graph.
+ */
 export const redeemReferralInvitationClaim = Effect.fn(
   "PaymentLifecycle.redeemReferralInvitationClaim"
 )(function* (
   tx: TransactionClient,
-  paymentAttemptId: PaymentAttemptId,
-  workspaceReservationId: WorkspaceReservationId,
-  redeemedAt: Temporal.Instant,
-  allowReleased = false
+  {
+    paymentAttemptId,
+    workspaceReservationId,
+    redeemedAt,
+    allowReleased = false,
+    recordsAttribution,
+  }: {
+    readonly paymentAttemptId: PaymentAttemptId;
+    readonly workspaceReservationId: WorkspaceReservationId;
+    readonly redeemedAt: Temporal.Instant;
+    readonly allowReleased?: boolean;
+    readonly recordsAttribution: boolean;
+  }
 ) {
   const [claim] = yield* tx
     .select({
@@ -2551,7 +2579,11 @@ export const redeemReferralInvitationClaim = Effect.fn(
       )
     );
 
-  if (claim.referrerDotyposCustomerId && claim.promotionCodeId) {
+  if (
+    recordsAttribution &&
+    claim.referrerDotyposCustomerId &&
+    claim.promotionCodeId
+  ) {
     yield* recordClaimAttribution(tx, {
       invitedDotyposCustomerId: claim.invitedDotyposCustomerId,
       referrerDotyposCustomerId: claim.referrerDotyposCustomerId,

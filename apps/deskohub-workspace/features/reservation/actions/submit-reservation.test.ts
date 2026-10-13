@@ -8,9 +8,11 @@ mock.module("server-only", () => ({}));
 
 // The referral code this browser remembers from a shared link.
 let rememberedReferralCode: string | undefined;
+let forgottenReferralCodes = 0;
 mock.module("@/features/referrals/remembered-referral-code.server", () => ({
   readRememberedReferralCode: async () => rememberedReferralCode,
   forgetRememberedReferralCode: async () => {
+    forgottenReferralCodes += 1;
     rememberedReferralCode = undefined;
   },
 }));
@@ -278,6 +280,29 @@ describe("submitWorkspaceReservation", () => {
       expect(rememberedReferralCode).toBe(codeAfter);
     }
   );
+
+  test("checks no referral after a paid checkout while referrals are withheld", async () => {
+    // While the program is withheld the remembered-code reader reports none,
+    // so even a paid guest checkout settles and clears nothing.
+    rememberedReferralCode = undefined;
+    forgottenReferralCodes = 0;
+    const hasSettledReferral = mock(() => Effect.succeed(true));
+    const scenario = await runSubmitReservation({
+      createHostedPaymentCheckout: mock(() =>
+        Effect.succeed({
+          status: "redirect" as const,
+          redirectUrl: "/en-US/reservation/status/reservation-withheld",
+          paid: true,
+        })
+      ),
+      bookerCustomerId: "booker-customer",
+      hasSettledReferral,
+    });
+    await Effect.runPromise(scenario.effect);
+
+    expect(hasSettledReferral).not.toHaveBeenCalled();
+    expect(forgottenReferralCodes).toBe(0);
+  });
 
   test("keeps the remembered referral code while a hosted payment is pending", async () => {
     rememberedReferralCode = "RFL12345";
