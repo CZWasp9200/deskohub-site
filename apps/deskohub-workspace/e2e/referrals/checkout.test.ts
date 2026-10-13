@@ -16,6 +16,7 @@ import { formatDiscountAdjustment } from "@/features/checkout/format-discount-ad
 import { getWorkspaceProductByTier } from "@/features/checkout/product-catalog";
 import { currencyCZK } from "@/features/checkout/workspace-money";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
+import { getReservationCustomerQueryMode } from "@/features/reservation/reservation-checkout-query";
 import { instantStringSchema } from "@/shared/utils/temporal";
 import { createCensoredOtelSpanExporter } from "../../shared/backend/logging/censorship";
 import { createTracingLive } from "../../shared/backend/observability/otel-tracing";
@@ -90,6 +91,30 @@ test("binds a planned checkout to the seeded customer's contact without codes", 
   expect(url.searchParams.get("name")).toBe(contact.name);
   expect(url.searchParams.get("phone")).toBe(contact.phone);
   expect(url.searchParams.has("ref")).toBe(false);
+});
+
+test("opens a bound checkout on the signed-in account card, not for someone else", () => {
+  const planned = makeCoworkCheckoutData(
+    "https://workspace.example.test",
+    "2099-09-01"
+  );
+  const contactOnly = new URL(planned.checkoutUrl);
+  for (const [key, value] of Object.entries({
+    email: contact.email,
+    name: contact.name,
+    phone: contact.phone,
+  })) {
+    contactOnly.searchParams.set(key, value);
+  }
+  // Contact fields alone book for someone else, which only prefills a
+  // remembered referral instead of applying it.
+  expect(getReservationCustomerQueryMode(contactOnly.searchParams)).toBe(
+    "contact"
+  );
+
+  const bound = new URL(bindCheckoutContact(planned, contact).checkoutUrl);
+
+  expect(getReservationCustomerQueryMode(bound.searchParams)).toBe("account");
 });
 
 test("accepts only fresh signed pay URLs for the owned order and preview host", () => {

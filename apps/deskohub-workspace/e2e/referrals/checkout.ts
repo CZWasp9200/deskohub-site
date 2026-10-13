@@ -8,6 +8,7 @@ import {
 import { m } from "@/features/i18n";
 import { formatReferralInvitationDiscount } from "@/features/referrals/client";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
+import { reservationCustomerQueryParam } from "@/features/reservation/reservation-checkout-query";
 import {
   evalBrowserScript,
   openBrowserPage,
@@ -793,11 +794,17 @@ export const getReferralDiscountExpectations =
     },
   ];
 
+/**
+ * Binds a planned checkout to the signed-in customer's own booking. Contact
+ * fields alone open a signed-in reservation page in "book for someone else"
+ * mode, so the link also asks for the account card.
+ */
 export const bindCheckoutContact = (
   data: CheckoutData,
   contact: Pick<WorkspaceE2EReferralCheckoutContact, "email" | "name" | "phone">
 ): CheckoutData => {
   const url = new URL(data.checkoutUrl);
+  url.searchParams.set(reservationCustomerQueryParam, "account");
   url.searchParams.set("email", contact.email);
   url.searchParams.set("name", contact.name);
   url.searchParams.set("phone", contact.phone);
