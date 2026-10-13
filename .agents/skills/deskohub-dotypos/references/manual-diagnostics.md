@@ -7,11 +7,14 @@ Inspect Dotypos data through `DotyposService` with `bun --eval`, not throwaway s
 - Bun loads `.env*` files from the working directory even without `--env-file`, so any run from `apps/deskohub-workspace` reaches the configured Dotypos account.
 - Print only the fields you need. Customer records hold personal data.
 
-Run from `apps/deskohub-workspace`. This example lists tables. The config decode error and provider errors can carry the raw input, including the secrets, so `Effect.matchCause` reduces every failure to its `_tag` before anything reaches the terminal. Keep that projection when you adapt the snippet:
+Run from `apps/deskohub-workspace`. This example lists tables. Config decode errors, transport errors, and provider errors can carry secrets, request URLs, and provider-supplied text, and the service logs those errors before it fails. Keep both safeguards when you adapt the snippet:
+
+- The outermost `Effect.provide(Logger.layer([]))` removes every Effect logger, including during Dotypos layer construction, so the service's own logs never reach the terminal.
+- `Effect.matchCause` reduces every failure to its `_tag` and hides defects and interruptions.
 
 ```bash
 bun --env-file=.env.development --env-file=.env.local --env-file=.env.development.local --eval '
-import { Cause, Effect, Layer, Option, Schema } from "effect";
+import { Cause, Effect, Layer, Logger, Option, Schema } from "effect";
 import { DotyposRuntimeConfig, DotyposRuntimeConfigSchema, DotyposService, dotyposApiTimeoutDefaultMilliseconds } from "@deskohub/dotypos";
 const config = Layer.effect(DotyposRuntimeConfig, Schema.decodeUnknownEffect(DotyposRuntimeConfigSchema)({
   clientId: process.env.DOTYPOS_CLIENT_ID, clientSecret: process.env.DOTYPOS_CLIENT_SECRET,
@@ -24,7 +27,8 @@ const result = await Effect.runPromise(DotyposService.use((dotypos) => dotypos.g
   Effect.matchCause({
     onFailure: (cause) => ({ failed: Option.match(Cause.findErrorOption(cause), { onNone: () => "defect or interruption", onSome: (error) => error._tag }) }),
     onSuccess: (tables) => tables.map(({ id, name, seats, enabled }) => ({ id, name, seats, enabled })),
-  })));
+  }),
+  Effect.provide(Logger.layer([]))));
 console.log(result);
 '
 ```
