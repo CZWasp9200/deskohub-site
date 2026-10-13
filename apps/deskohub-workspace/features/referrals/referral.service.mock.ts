@@ -27,18 +27,17 @@ export const ReferralServiceMock = (
   });
 
 /**
- * The real ReferralService while the `referrals` flag withholds the program.
- * Its data dependencies are empty mocks, so any read of recorded referrals
- * dies.
+ * The real ReferralService over empty data mocks: any read of recorded
+ * referrals dies. It takes the referral decision from the caller's
+ * `ReferralFeatureFlagService`.
  */
-export const WithheldReferralService = ReferralService.Default.pipe(
+export const ReferralServiceWithoutData = ReferralService.Default.pipe(
   Layer.provide(
     Layer.mergeAll(
-      ReferralFeatureFlagServiceMock({ isEnabled: Effect.succeed(false) }),
       Layer.mock(WorkspaceDatabase, {
         db: new Proxy({} as WorkspaceDatabaseClient, {
           get: () => {
-            throw new Error("Withheld referrals must not read the database.");
+            throw new Error("Referral data is unavailable in this test.");
           },
         }),
       }),
@@ -47,5 +46,12 @@ export const WithheldReferralService = ReferralService.Default.pipe(
       Layer.mock(CustomerAccountResolver, {}),
       Layer.mock(CustomerAccountLinkRepository, {})
     )
+  )
+);
+
+/** The real ReferralService while the `referrals` flag withholds the program. */
+export const WithheldReferralService = ReferralServiceWithoutData.pipe(
+  Layer.provide(
+    ReferralFeatureFlagServiceMock({ isEnabled: Effect.succeed(false) })
   )
 );

@@ -757,12 +757,24 @@ export class DiscountService extends Context.Service<
     })
   );
 
-  static Live = makeDiscountServiceLayer(DiscountReleaseGateService.Live);
+  static Live = makeDiscountServiceLayer({
+    service: this.Default,
+    releaseGates: DiscountReleaseGateService.Live,
+    referrals: ReferralService.Live,
+  });
 }
 
-function makeDiscountServiceLayer(
-  releaseGates: Layer.Layer<DiscountReleaseGateService>
-) {
+/**
+ * Builds the discount providers and release gates once per process: they hold
+ * clients and configuration and read nothing from the request. The referral
+ * service and the discount service over it are built per run, so each run
+ * sees its own request's referral decision (`ReferralFeatureFlagService`).
+ */
+export function makeDiscountServiceLayer<E, R>(input: {
+  readonly service: typeof DiscountService.Default;
+  readonly releaseGates: Layer.Layer<DiscountReleaseGateService>;
+  readonly referrals: Layer.Layer<ReferralService, E, R>;
+}) {
   const discountRepositories = Layer.mergeAll(
     DiscountDefinitionRepository.Default,
     PromotionCodeRepository.Default
@@ -778,20 +790,18 @@ function makeDiscountServiceLayer(
     CustomerDiscountProvider.Default,
     PromotionCodeProvider.Default
   ).pipe(Layer.provide(providerDependencies));
-  const dependencies = Layer.mergeAll(
-    discountProviders,
-    releaseGates,
-    ReferralService.Live
-  );
   const processScope = Scope.makeUnsafe();
   const processMemoMap = Layer.makeMemoMapUnsafe();
-
-  return Layer.fromBuild(() =>
+  const processDependencies = Layer.fromBuild(() =>
     Layer.buildWithMemoMap(
-      DiscountService.Default.pipe(Layer.provide(dependencies)),
+      Layer.merge(discountProviders, input.releaseGates),
       processMemoMap,
       processScope
     )
+  );
+
+  return input.service.pipe(
+    Layer.provide(Layer.merge(processDependencies, input.referrals))
   );
 }
 
