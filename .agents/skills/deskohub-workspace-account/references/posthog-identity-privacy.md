@@ -1,227 +1,121 @@
-# PostHog identity and privacy boundary
+# PostHog identity and privacy
 
-This reference records the approved Workspace analytics contract, audited against
-provider documentation and locked dependencies on 2026-09-11. Provider behavior
-can change. The versions below are snapshot evidence, not a future guarantee.
+Code: `features/account/analytics-identity.ts`,
+`features/cookie-consent/components/posthog-analytics.tsx`, and
+`features/cookie-consent/utils/` (`posthog-config.ts`, `posthog-identity.ts`).
 
-## Account identity is a small public contract
+## Account identity contract
 
 - The account analytics boundary publishes only `pending`, `unavailable`,
-  `anonymous`, or `authenticated`, plus the opaque `CustomerAccountId` for an
-  authenticated account.
-- Better Auth session and user details stay private to the account boundary.
-- The application has one root `PostHogProvider`.
-- Initialize PostHog only after analytics consent.
-- Use the canonical `getPostHogAccountDistinctId` helper from
-  `features/cookie-consent/utils/posthog-identity.ts`.
-- Call `identify(id)` without supplied properties. A consented anonymous browser
-  history may associate with the authenticated account at that call.
+  `anonymous`, or `authenticated`, plus the opaque `CustomerAccountId` when
+  authenticated. Better Auth session and user details stay private.
+- The app has one root `PostHogProvider` (`app/[locale]/layout.tsx`).
+  Initialize PostHog only after analytics consent.
+- Derive the distinct ID with `getPostHogAccountDistinctId`, and call
+  `identify(id)` without properties. A consented anonymous browser history may
+  merge into the account at that call.
 
-## Identity transition rules
+## Identity transitions
 
-- Reset the previous identity before opting PostHog into capture for a different
-  account.
-- Reset before opting PostHog into capture after confirmed logout, account
-  deletion, or session expiry.
-- Reset before opting out when analytics consent is withdrawn.
-- Pause analytics while auth is `pending` or `unavailable`; do not repeat resets
-  while the authority is uncertain.
-- A failed logout refreshes auth authority and does not reset the identity early.
+- Reset the previous identity before opting in capture for a different account,
+  and after confirmed logout, account deletion, or session expiry. Reset before
+  opting out when consent is withdrawn.
+- Pause analytics while auth is `pending` or `unavailable`, and don't repeat
+  resets while authority is uncertain. A failed logout refreshes authority and
+  doesn't reset early.
 - Callers use `beginAnalyticsAccountTransition`,
   `completeAnalyticsAccountSignOut`, and `refreshAnalyticsAccountIdentity`.
-- Ordinary `refreshAnalyticsAccountIdentity()` preserves an unresolved mutation
-  barrier: failed logout or deletion, or a completed outcome that did not delete
-  the account, uses `refreshAnalyticsAccountIdentity({ settleTransition: true })`,
-  while confirmed success uses `completeAnalyticsAccountSignOut`, so
-  `SessionRefresh` and focus refreshes cannot resume analytics mid-mutation.
-
-Auth refresh reads fresh authoritative session state. Run that refresh on initial
-mount, focus or visibility recovery, and cross-tab auth signals. Publish
-`pending` during the refresh and `unavailable` after an authority failure.
-
-Settled account-identity changes, including login, account switch, and expiry,
-plus confirmed termination emit a same-origin notification; an ordinary
-same-account refresh does not broadcast. The account lifecycle and consent
-dispatcher use separate `localStorage` signals containing only random nonces,
-never account or session IDs, profile data, category payloads, or timestamps, and
-these signals are not analytics profiles or exports. An other-tab consent
-withdrawal stops the SDK immediately, and reconsent verifies fresh auth before
-enabling it; existing focus and storage-unavailable fallbacks remain.
+  A plain refresh keeps an unresolved mutation barrier, so focus refreshes and
+  `SessionRefresh` can't resume analytics mid-mutation. A failed logout or
+  deletion, or a completed outcome that didn't delete the account, calls
+  `refreshAnalyticsAccountIdentity({ settleTransition: true })`. Confirmed
+  success calls `completeAnalyticsAccountSignOut`.
+- Refresh authoritative session state on mount, focus or visibility recovery,
+  and cross-tab auth signals. Publish `pending` during the refresh and
+  `unavailable` after an authority failure.
+- Settled identity changes (login, account switch, expiry) and confirmed
+  termination emit a same-origin notification; a same-account refresh
+  doesn't. The account and consent `localStorage` signals carry only random
+  nonces, never IDs, profile data, payloads, or timestamps. A consent
+  withdrawal in another tab stops the SDK at once; reconsent verifies fresh
+  auth before enabling it.
+- better-auth's `useSession` `refetch` resolves even when the request fails and
+  records the failure on the atom's `error`. Report
+  `account.analytics-session.refresh-failed` for both a rejected refetch and
+  one that resolves with an error.
 
 ## Event and property limits
 
-- Disable session replay, autocapture, exception capture, heatmaps, and surveys.
-  This prevents read-only profile, billing, and PIN DOM values from entering the
-  integration.
-- Redact URL query strings, hashes, usernames, passwords, and operational path
-  identifiers.
-- Apply URL, path, and query metadata cleanup to current, initial, and SDK
-  session-entry variants, including session-entry campaign fields. In
-  `posthog-js` 1.418.1, `session-props.js` maps these fields into
-  `$session_entry_*`; disabled replay does not suppress session metadata.
-- Drop malformed metadata. Remove saved UTM and click metadata.
-- Do not describe network IP handling as disabled. The deprecated IP
-  configuration was removed.
-- New person properties exclude email, name, phone, billing, reservation IDs,
-  and raw auth data.
-- Existing durable server metrics retain their reservation and payment
-  operational IDs where those established events require them.
-- Do not add a browser-to-reservation alias or send a Dotypos customer ID.
-- Set `$process_person_profile: false` on these server events.
-- Consented request events use the same browser `distinct_id` and `$session_id`.
-- Later webhooks cannot join a browser without approved persisted consent linkage
-  and schema. No new database data export is implemented.
-- The technical OTLP boundary is unchanged.
-- Browser failure reports (`reportWorkspaceBrowserFailure`, run through
-  `runWorkspaceBrowserEffect`) reach PostHog Logs through `posthog.captureLog`
-  only while analytics is ready: consented, with a settled identity.
-  `captureLog` bypasses `before_send`, so the sink overrides the SDK's
-  `url.full` with the sanitized page URL and adds
-  `deployment.environment.name`. A record carries only the operation,
-  boundary, failure code, an allowlisted error type (`unclassified`
-  otherwise), and an HTTP status, never messages or payloads. The
-  `unavailable-session` scenario of the browser verification script asserts
-  the delivered `/i/v1/logs` record against that attribute list.
-- The analytics identity reports `account.analytics-session.refresh-failed`
-  for each authoritative refetch that fails. better-auth 1.7.2's
-  `useSession` `refetch` never rejects for request failures: it records them
-  on the atom's `error` and resolves, so the identity reports both a rejected
-  refetch and one that resolves with an atom error.
-- Approved delivery semantics: a record reported while analytics is paused
-  (pending or unavailable identity, or before consent) waits in a bounded
-  in-memory outbox of 50 records and is delivered once when analytics next
-  becomes ready, under whichever distinct ID is ready at that moment, which may
-  differ from the identity at report time. Every reconcile without consent or
-  with an unsafe telemetry host discards the held records. Records do not
-  survive a page load.
-- The consent-gated server flag cookie and fixed-release strategy are unchanged.
+- Keep session replay, autocapture, exception capture, heatmaps, and surveys
+  disabled so profile, billing, and PIN values never enter PostHog.
+- Redact URL query strings, hashes, credentials, and operational path
+  identifiers. Apply the URL cleanup to current, initial, and
+  `$session_entry_*` variants, including session-entry campaign fields;
+  disabled replay doesn't suppress session metadata. Drop malformed metadata,
+  and remove saved UTM and click metadata.
+- Don't describe network IP handling as disabled.
+- Person properties never include email, name, phone, billing, reservation
+  IDs, or raw auth data. Don't alias a browser to a reservation or send a
+  Dotypos customer ID.
+- Server events set `$process_person_profile: false` and may keep the
+  reservation and payment operational IDs that existing durable metrics need.
+  Consented request events use the browser's `distinct_id` and `$session_id`.
+  Webhooks can't join a browser without an approved persisted consent link.
+- Browser failure reports (`reportWorkspaceBrowserFailure`) reach PostHog Logs
+  through `posthog.captureLog` only while analytics is ready (consented, with
+  a settled identity). `captureLog` bypasses `before_send`, so the sink
+  overrides `url.full` with the sanitized page URL and adds
+  `deployment.environment.name`. A record holds only the operation, boundary,
+  failure code, an allowlisted error type (else `unclassified`), and an HTTP
+  status.
+- Records reported while analytics is paused wait in an in-memory outbox of 50
+  and go out once analytics is ready, under whichever distinct ID is ready
+  then. Every reconcile without consent or with an unsafe telemetry host
+  discards them. They don't survive a page load.
 
-## SDK flag-request gotcha
+## Flag-request gotcha
 
-In `posthog-js` 1.418.1, `/flags` bypasses `before_send` and merges persisted
-`$initial_person_info`, `$initial_referrer_info`, and `$initial_campaign_params`,
-even when the `save_*` options are `false`.
+The SDK's `/flags` request bypasses `before_send` and merges persisted
+`$initial_person_info`, `$initial_referrer_info`, and
+`$initial_campaign_params`, even with the `save_*` options off. Right after
+`init`, and again before re-enabling or reloading flags, call `unregister`
+for exactly those three keys. This keeps the `distinct_id` and history and
+doesn't touch remote data.
 
-Immediately after `init`, use the public `unregister` API for exactly those three
-keys. Repeat that cleanup before re-enabling or reloading feature flags. This
-local cleanup preserves the `distinct_id` and history. It does not erase remote
-history or change server flag classification.
+## Ingest host isolation
 
-These SDK storage key names are audited for 1.418.1. Run a real SDK transport
-test on every SDK upgrade. Check flag and remote-configuration requests, capture
-payloads, and replay payloads.
+Better Auth cookies are host-only, and the SDK has no option to omit
+credentials (`fetch` uses same-origin credentials and Beacon may send them).
+`isPostHogTelemetryHostAllowed` fails closed before SDK init when the ingest
+hostname matches the app hostname (on any port), or the ingest URL is
+relative, same-origin, non-HTTP(S), or has userinfo. Keep the public UI
+working instead of throwing, and never fall back to a same-host proxy.
 
-## Browser transport and deployment contract
+## Not part of this integration
 
-The checked-in browser ingest example uses a dedicated telemetry `HOSTNAME`.
-Better Auth cross-subdomain cookies are disabled, so auth cookies remain
-host-only.
+- No auth or user database connector, warehouse sync, connector credentials,
+  or bulk export. A default Postgres sync would export auth PII and secrets. A
+  future export needs an approved purpose, property list, retention rule, and
+  root policy first.
+- Don't enable `ensure_experience_continuity`, change `person_profiles` from
+  `identified_only`, or add device bucketing without a root decision.
+  Changing the distinct ID can move a percentage-rollout bucket, so keep
+  account rollouts global on or off.
 
-In `posthog-js` 1.418.1, `fetch` uses native same-origin credentials, XHR leaves
-`withCredentials` unset, and Beacon may include credentials. The SDK has no
-public credentials-omit option. The repository has no Next upstream ingest proxy
-or header-stripping path, and external proxy settings are not inspected.
+## Retention
 
-Fail closed before SDK initialization when the ingest hostname matches the app
-hostname, even on another port, or when the ingest URL is relative, same-origin,
-non-HTTP(S), or includes userinfo. Preserve the public UI instead of throwing.
-Do not silently switch to a same-host proxy. This enforces host-only auth-cookie
-isolation.
+PostHog `reset` changes only local identity state; it doesn't delete remote
+events or unmerge aliases. Public legal copy uses generic provider-settings
+language for analytics retention; don't promise deletion deadlines. How
+PostHog erasure requests are handled is the project owner's decision and must
+not block account deletion. Better Auth retention is in
+[privacy and retention](privacy-and-retention.md).
 
-The local SDK transport test models an app at `127.0.0.1` and ingest at
-`localhost` on private port `3211`. It uses synthetic HTTP-only auth-cookie
-negative cases across ingest headers and never contacts the real provider. This
-records the checked-in configuration and runtime guard, not an audit of actual
-production environment values.
+## Verification
 
-An inherited read-only configuration audit dated 2026-09-11 reports that
-production and preview use `https://t.workspace.deskohub.cz/` for PostHog
-project `204184`. This host differs from the production
-`workspace.deskohub.cz` and preview `vercel.app` app hosts, so the separate-host
-guard passes for those observed values. This is inherited configuration
-evidence, not a local test proving deployed behavior or proxy settings.
-
-## Database connectors are not part of this integration
-
-- Do not add an auth or user database connector now.
-- `identify(id)` plus consented events supports browser history, funnels, and
-  behavior cohorts. `identify(id)` alone does not create events.
-- Raw database sync does not fix identity resolution or missing durable checkout
-  attribution.
-- A default Postgres sync of all columns from selected tables risks exporting
-  auth PII and secrets.
-- Warehouse joins run at query time. They do not store flag properties.
-- No connector, warehouse sync, connector credentials, or bulk export is
-  authorized.
-- A future export needs an approved business purpose, property list, retention
-  rule, and root policy before implementation.
-
-## Retention and deletion
-
-[The customer-account data retention contract](auth-data-retention-contract.md)
-governs Better Auth retention and provider-first account deletion. It does not
-define PostHog erasure.
-
-Public legal content uses generic provider-settings language for analytics
-retention. A completed read-only audit on 2026-09-11
-observed these settings in PostHog project `204184`:
-`session_recording_retention_period=30d`, `event_retention_months=84`, and
-`events_retention_enforced=false`. These observed settings are not guaranteed
-deletion deadlines. The 84-month value is not an enforced cap. Session replay
-remains disabled.
-
-PostHog `reset` changes local browser identity state. It does not delete remote
-historical events or aliases. Historical aliases and data are not retroactively
-erased or unmerged by this integration.
-
-The project owner must decide how PostHog retention, disclosure, and historical
-erasure requests are handled. This decision does not require an automatic new
-workflow. It must not block the existing account-deletion path.
-
-## Feature-flag cohorts
-
-- Changing the PostHog `distinct_id` can change a percentage-rollout bucket.
-- Keep the initial account rollout as a global off or global on decision.
-- PostHog documents `ensure_experience_continuity` with
-  `person_profiles: "always"`. The current integration uses
-  `person_profiles: "identified_only"`, so continuity is incompatible with its
-  current person classification.
-- PostHog also documents continuity as incompatible with local-evaluation and
-  bootstrap modes. This reference does not assign either mode to this
-  integration.
-- Do not enable `ensure_experience_continuity` or change person classification
-  without a root decision.
-- Device bucketing needs a cross-environment `device_id` contract and root
-  coordination. It is not implemented.
-
-## Verification and source snapshot
-
-Run browser verification from `apps/deskohub-workspace`:
-
-```sh
-bun scripts/posthog-identity-browser.ts
-```
-
-The [browser verification script](../../../../apps/deskohub-workspace/scripts/posthog-identity-browser.ts)
-uses local fake ingest and synthetic identities only. Its run output is the
-evidence for the current implementation.
-
-The script verifies the `posthog-js` version Workspace pins in its
-`package.json`: it fails unless the installed SDK and every captured event's
-`$lib_version` match that pin, and records it in the report. A Workspace unit
-test (`scripts/posthog-sdk-version.test.ts`) keeps the pin exact and installed
-because CI does not run the browser script. The fixture bundle stubs `@/env`
-and `@/client-env`; the browser has no `process`. The original audit also
-covered `posthog-node` 5.49.1 and `better-auth` 1.7.2.
-
-Primary sources, accessed 2026-09-11:
-
-- [PostHog identify](https://posthog.com/docs/product-analytics/identify)
-- [PostHog JS reference](https://posthog.com/docs/references/posthog-js)
-- [PostHog session replay privacy](https://posthog.com/docs/session-replay/privacy)
-- [PostHog persons](https://posthog.com/docs/data/persons)
-- [PostHog Postgres source](https://posthog.com/docs/data-warehouse/sources/postgres)
-- [PostHog warehouse joins](https://posthog.com/docs/data-warehouse/join)
-- [PostHog stable identity for flags](https://posthog.com/docs/feature-flags/stable-identity-for-flags)
-- [Better Auth session management](https://better-auth.com/docs/concepts/session-management)
-- [Pinned Better Auth session atom](https://github.com/better-auth/better-auth/blob/v1.7.2/packages/better-auth/src/client/session-atom.ts)
+From `apps/deskohub-workspace`, run `bun scripts/posthog-identity-browser.ts`.
+It uses a local fake ingest and synthetic identities, and fails unless the
+installed SDK and every event's `$lib_version` match the pinned `posthog-js`
+version. CI doesn't run it, so `scripts/posthog-sdk-version.test.ts` keeps the
+pin exact. Run the browser script on every SDK upgrade and check flag,
+remote-configuration, capture, and replay payloads.
