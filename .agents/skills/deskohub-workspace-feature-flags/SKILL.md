@@ -1,62 +1,27 @@
 ---
 name: deskohub-workspace-feature-flags
-description: Workspace PostHog feature flags, generated contracts, release subjects, and preview overrides.
+description: Workspace PostHog feature flags, release gates, generated flag contract, feature-flag sync, flag overrides, POSTHOG_FEATURE_FLAG_OVERRIDES, rollout status, @deskohub/posthog package.
 ---
 
 # Deskohub Workspace feature flags
 
-Use the Workspace app-owned generated PostHog contract and typed server client. Do not reuse the Boardgame Bar static flag constants.
+Read the reference for the task:
 
-Server consumers resolve `WorkspaceFeatureFlagService` from Effect Context. The default service classifies the current PostHog definition: boolean lookups return a provably constant value directly, while partial rollouts and conditions use the consented request subject. Whole-snapshot evaluation returns proven constants locally without contacting PostHog when every requested flag is constant, because the Node SDK reports failed remote evaluations as missing flags rather than errors. Classification must fail closed to request-aware evaluation when management configuration or definition loading is unavailable. Never infer this from an evaluated value. Keep public pages on one adaptive rendering path and cache their request-independent provider data separately; do not introduce parallel global and request layers or page implementations. The capability owns the process-scoped typed Node client; feature-specific services own fail-closed logging and fallback behavior. Do not import the Node client or release subject directly from feature code, and do not redeclare generated flag-key or package snapshot types.
+- Evaluation, constant-flag classification, deployment-scoped overrides, contract sync, or rollout inspection: [references/architecture.md](references/architecture.md).
+- Changes to `@deskohub/posthog`, its generated API client, or its typed feature-flag adapters: [references/posthog-package.md](references/posthog-package.md).
 
-Compose a feature-specific fail-closed lookup as `Effect.tapError` followed by
-`Effect.orElseSucceed(() => false)`. Keep logging and fallback as peer
-operators; do not nest a logging pipe inside `catch`. When a release gate
-applies to only one reservation family, dispatch exhaustively by `kind` so
-unrelated families do not even evaluate the gated lookup.
+## Always apply
 
-Memoize a page release gate with React `cache` and provide that memoized
-lookup to the page's Effect consumers, so metadata, page content, and nested
-loaders such as advertised prices share one evaluation per render. A gate may
-read the request subject, so on a Cache Components page evaluate it inside the
-Suspense boundary after `connection()`, never in the page component that builds
-the static shell; a shell-level read makes the route dynamic and breaks
-`instant = true`. Keep the gate in `generateMetadata` as well so crawlers and a
-constant-off flag still get a real 404, while browsers receive the streamed
-not-found boundary.
+- Use the Workspace generated contract in `apps/deskohub-workspace/features/feature-flags/generated/contract.ts`, not the Boardgame Bar static flag constants. Don't redeclare flag-key or snapshot types.
+- Server consumers resolve `WorkspaceFeatureFlagService` from Effect Context. Feature code doesn't import the Node client (`backend/node.ts`) or the request subject (`backend/subject.ts`) directly. Feature-specific services own fail-closed logging and fallback.
+- Compose a fail-closed lookup as `Effect.tapError` followed by `Effect.orElseSucceed(() => false)`, as peer operators. Don't nest a logging pipe inside `catch`.
+- For a boolean release gate, only `true` is enabled. Explicit `false` is the ordinary off state; don't log it as an error. An omitted value means PostHog didn't evaluate the flag, for example because it's inactive: fail the gate closed and log the flag as unavailable.
+- When a release gate applies to one reservation family, dispatch exhaustively by `kind` so other families never evaluate the lookup.
+- Keep the one PostHog React provider in `app/[locale]/layout.tsx`. Don't add page- or feature-local providers. Consent-aware initialization and analytics rendering may suspend inside it so consent state doesn't gate cacheable navigation shells.
+- Keep PostHog origins role-specific: `POSTHOG_API_HOST` is the server-only management and query origin, `POSTHOG_INGEST_HOST` is the direct server SDK and OTLP origin, and `NEXT_PUBLIC_POSTHOG_HOST` is the browser ingest proxy. Server clients never go through the public proxy.
 
-For boolean release gates, only `true` is enabled. Treat explicit `false` as
-the ordinary off state without error logging. An omitted value means PostHog
-did not evaluate the requested flag, such as when the flag is inactive; fail
-that gate closed and log the missing flag as unavailable.
+## Page release gates
 
-Keep the package Node service as a thin typed wrapper around one lazily created SDK client. A key/value lookup does not need its own nested Context service, Layer, or ManagedRuntime.
+Memoize a page gate with React `cache` and provide the memoized lookup to the page's Effect consumers, so metadata, page content, and nested loaders such as advertised prices share one evaluation per render. `features/office/backend/office-reservation-feature-flag.server.ts` is the pattern.
 
-Keep PostHog origins role-specific: `POSTHOG_API_HOST` is the server-only
-management/query origin, `POSTHOG_INGEST_HOST` is the direct server SDK and
-OTLP origin, and `NEXT_PUBLIC_POSTHOG_HOST` is the browser-facing ingest proxy.
-Do not route server clients through the public proxy.
-
-Read [the feature-flag architecture](references/architecture.md) for generation, runtime evaluation, subjects, and deployment-scoped overrides. Read [the PostHog package reference](references/posthog-package.md) when changing the shared generated client or typed feature-flag adapters. Keep flag evaluation fail-closed where the feature requires it, and update this skill when developer feedback changes a durable feature-flag convention.
-
-Deployment-scoped overrides use the optional server-only `POSTHOG_FEATURE_FLAG_OVERRIDES` value. Environment validation requires a JSON object and validates the values of generated-contract keys; it leaves other keys' values unvalidated so a flag this build does not know cannot fail on its value shape. Only preview and development deployments may configure a non-empty map, and production configuration must fail validation. The server PostHog configuration then resolves the map against the generated Workspace contract, dropping keys the contract does not know, with their values, and warning with only the key names. The shared Preview value can lead a branch's committed contract, so an unknown key must not fail a preview build. Apply the resolved map once to the process-scoped Node client and pass that identical typed map from the server layout to the consent-aware browser boundary. Never derive overrides from a request, cookie, header, URL, or visitor identity. After browser initialization, replace the complete override set and explicitly clear persisted overrides when the map is absent. Do not initialize PostHog before analytics consent merely to apply an override.
-
-Keep feature-flag-specific environment schemas and their focused tests in the feature-flag module; the root environment schema should import and compose them. T3 Env's field dictionary drops cross-field Effect Struct checks, so apply deployment validation through a named final-schema composer and cover that integration path with a regression test. Type browser override clients directly against `PostHogFeatureFlagOverrides<Definitions>` instead of casting the typed map to an arbitrary record.
-
-Keep the PostHog React provider at the localized application root so one context
-wraps every client feature-flag consumer. Do not add page- or feature-local
-providers. Consent-aware initialization and analytics rendering may suspend
-independently inside that global provider so dynamic consent state does not gate
-the application's cacheable navigation shells.
-
-Use overrides only for isolated development or protected-preview validation, never for rollout management or mutation of PostHog's stored flag definitions. Safe example:
-
-```env
-POSTHOG_FEATURE_FLAG_OVERRIDES={"discount_codes":true}
-```
-
-When auditing rollout state, read PostHog's explicit flag status independently
-from its release conditions. A disabled flag may still display a configured
-condition such as `100% of all users`; that percentage describes the rollout
-that would apply if the flag were enabled and is not evidence that the flag is
-active.
+A gate may read the request subject. On a Cache Components page, evaluate it inside the Suspense boundary after `connection()`, never in the component that builds the static shell; a shell-level read makes the route dynamic and breaks `instant = true`. Also check the gate in `generateMetadata`, so crawlers and a constant-off flag get a real 404 while browsers get the streamed not-found boundary.
