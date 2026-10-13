@@ -307,12 +307,17 @@ jobs:
             -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
             >/dev/null
 
+      # setup-bun saves its binary cache after the job, once exact-SHA code
+      # has run, into the default-branch scope every workflow restores from,
+      # so this job downloads Bun without that cache.
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.2
+          no-cache: true
 
-      # Exact, workflow-scoped key without restore-keys, saved right after
-      # install so later PR-controlled steps cannot write a reusable entry.
+      # Exact, workflow-scoped key without restore-keys. A miss is filled by
+      # an install that skips every lifecycle script and saved before any
+      # exact-SHA code runs, so a run cannot write into a reusable entry.
       - name: Restore Bun package cache
         id: bun-cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -320,8 +325,9 @@ jobs:
           path: ~/.bun/install/cache
           key: workspace-e2e-bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
 
-      - name: Install repository dependencies
-        run: bun install --frozen-lockfile
+      - name: Download Bun packages without lifecycle scripts
+        if: steps.bun-cache.outputs.cache-hit != 'true'
+        run: bun install --frozen-lockfile --ignore-scripts
 
       - name: Save Bun package cache
         if: steps.bun-cache.outputs.cache-hit != 'true'
@@ -329,6 +335,19 @@ jobs:
         with:
           path: ~/.bun/install/cache
           key: ${{ steps.bun-cache.outputs.cache-primary-key }}
+
+      # After a miss the tree is already linked without lifecycle scripts, and
+      # a plain install would leave it as is; --force relinks it so Bun runs
+      # the root and trusted dependency scripts a fresh install runs.
+      - name: Install repository dependencies
+        env:
+          RELINK_DEPENDENCIES: ${{ steps.bun-cache.outputs.cache-hit != 'true' }}
+        run: |
+          if [[ "$RELINK_DEPENDENCIES" == "true" ]]; then
+            bun install --frozen-lockfile --force
+          else
+            bun install --frozen-lockfile
+          fi
 
       - name: Resolve Neon branch backing the preview
         id: preview-database

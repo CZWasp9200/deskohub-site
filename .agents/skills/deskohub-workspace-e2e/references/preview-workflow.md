@@ -776,8 +776,15 @@ Dotypos capacity validation, migration, Playwright, and hosted browser/system
 dependencies. It reports both the post-allocation setup path and
 the complete `test-e2e` job setup path from before the exact-SHA checkout. The
 separate target-resolution job remains visible in native Actions timings. The Bun package
-cache is restored by an exact `bun.lock` key without restore keys and saved
-before any exact-SHA test code runs, so a run cannot poison it. These
+cache is restored by an exact `bun.lock` key without restore keys. A miss is
+filled by `bun install --ignore-scripts`, which skips the root `prepare`
+script and trusted dependency install scripts, and saved before any exact-SHA
+code runs. Only then does `bun install --force` relink the tree so those
+scripts run. A run therefore cannot poison the entry. Keep every other step before the
+save free of exact-SHA code. The job also sets `no-cache` on `setup-bun`,
+whose post-job save would otherwise put a Bun binary that exact-SHA code could
+replace into the default-branch cache scope that every workflow restores
+from. These
 operations remain sequential until a supported prepared runner image or cache
 can overlap them without background shell jobs, shared-install locks, or hidden
 failures.
