@@ -41,6 +41,7 @@ import { normalizedMeetingRoomReservationOrderSchema } from "@/features/reservat
 import { normalizedOfficeReservationOrderSchema } from "@/features/reservation/office-reservation";
 import { reservationOrderSchema } from "@/features/reservation/reservation-order";
 import { getGoogleCalendarRequestTimeout } from "@/shared/backend/config/google-calendar.config";
+import { getSlowestSuccessfulCalendarLoad } from "@/shared/backend/config/google-calendar.config.test-utils";
 import { getNexiRequestTimeoutMilliseconds } from "@/shared/backend/config/nexi.config";
 import { withInstantSleeps } from "@/shared/testing/workspace-test-clock.test-utils";
 import { workspaceSiteConstants } from "@/shared/utils/site-constants";
@@ -504,6 +505,8 @@ type CheckoutHarnessOptions<ReservationOverrides extends object> = {
   readonly changedKeys?: CheckoutSummaryChangedKeys;
   readonly reservationOverrides?: ReservationOverrides;
   readonly requireCurrent?: ReturnType<typeof mock>;
+  /** How long each default live payable-reservation guard takes. */
+  readonly liveGuardDuration?: Duration.Input;
   readonly activeAttempt?: ReturnType<typeof makeAttempt> | null;
   readonly affirm?: ReturnType<typeof mock>;
   readonly createPendingNexiAttempt?: ReturnType<typeof mock>;
@@ -614,7 +617,14 @@ const createCheckoutHarness = async <ReservationOverrides extends object>(
     ...options.reservationOverrides,
   });
   const requireCurrent =
-    options.requireCurrent ?? mock(() => Effect.succeed(reservationRecord));
+    options.requireCurrent ??
+    mock(() =>
+      options.liveGuardDuration === undefined
+        ? Effect.succeed(reservationRecord)
+        : Effect.sleep(options.liveGuardDuration).pipe(
+            Effect.as(reservationRecord)
+          )
+    );
   const reservations = {
     findById: mock(() => Effect.succeed(reservationRecord)),
     updateReservationDetails,
@@ -916,11 +926,11 @@ describe("CheckoutService", () => {
     });
 
     test("attaches a hosted page that finishes after the deadline passes", async () => {
-      // 20 seconds of Dotypos and 120 of Nexi outlast the production
-      // deadline of about 135 seconds.
+      // 20 seconds of Dotypos and 36 of Nexi outlast the production
+      // deadline of about 55 seconds.
       const harness = await createSlowProviderHarness(
         "reservation-hosted-page-past-deadline",
-        "120 seconds"
+        "36 seconds"
       );
 
       const exit = await submitWithinDeadline(harness.effect, "production");
@@ -941,6 +951,107 @@ describe("CheckoutService", () => {
       expect(harness.markTerminalForReservation).not.toHaveBeenCalled();
     });
   });
+
+  describe.each([
+    // The discount affirmation succeeds only on its Calendar retry, between
+    // live guards, a Dotypos note, and a hosted page that are slow but within
+    // their own timeouts; together they just outlast the pay submit deadline
+    // from before Calendar retries.
+    ["production", "6 seconds", "20 seconds", "4 seconds"],
+    ["preview", "2 seconds", "20 seconds", "17 seconds"],
+  ] as const)(
+    "in %s, with a Calendar load that succeeds on its retry",
+    (deploymentEnvironment, liveGuardDuration, noteDuration, hostedPageDuration) => {
+      const createCalendarRetryHarness = async (orderId: string) => {
+        const harness = await createCheckoutHarness({
+          orderId,
+          liveGuardDuration,
+          affirm: mock(() =>
+            Effect.sleep(
+              getSlowestSuccessfulCalendarLoad(deploymentEnvironment)
+            ).pipe(
+              Effect.as({
+                quote: buildCoworkReservationQuote(reservationData),
+                commitment: emptyCommitment,
+              })
+            )
+          ),
+          createHostedPaymentPage: mock(() =>
+            Effect.sleep(hostedPageDuration).pipe(
+              Effect.as({
+                securityToken: "provider-security-token",
+                hostedPage: "https://payments.example/hosted",
+              })
+            )
+          ),
+        });
+        harness.updateReservation.mockImplementation(() =>
+          Effect.sleep(noteDuration)
+        );
+        return harness;
+      };
+
+      const submitWithin = async <A, E>(
+        effect: Effect.Effect<A, E>,
+        includeCalendarBudget: boolean
+      ) => {
+        const { withActionDeadline } = await import(
+          "@/shared/backend/workspace-action"
+        );
+        return await effect.pipe(
+          withActionDeadline(
+            getCheckoutSubmitDeadline({
+              calendar: includeCalendarBudget
+                ? getGoogleCalendarRequestWorstCaseDuration(
+                    getGoogleCalendarRequestTimeout(deploymentEnvironment)
+                  )
+                : Duration.zero,
+              dotypos: Duration.millis(dotyposApiTimeoutDefaultMilliseconds),
+              nexi: Duration.millis(
+                getNexiRequestTimeoutMilliseconds(deploymentEnvironment)
+              ),
+            })
+          ),
+          Effect.exit,
+          withInstantSleeps,
+          Effect.runPromise
+        );
+      };
+
+      test("starts the hosted payment within the pay submit deadline", async () => {
+        const harness = await createCalendarRetryHarness(
+          `reservation-calendar-retry-${deploymentEnvironment}`
+        );
+
+        const exit = await submitWithin(harness.effect, true);
+
+        expect(exit).toMatchObject({
+          _tag: "Success",
+          value: {
+            status: "redirect",
+            redirectUrl: "https://payments.example/hosted",
+          },
+        });
+      });
+
+      test("would be interrupted without the Calendar retry budget", async () => {
+        const harness = await createCalendarRetryHarness(
+          `reservation-calendar-retry-unbudgeted-${deploymentEnvironment}`
+        );
+
+        const exit = await submitWithin(harness.effect, false);
+
+        expect(exit).toMatchObject({
+          _tag: "Failure",
+          cause: {
+            reasons: [
+              { error: { message: "Request timed out. Please try again." } },
+            ],
+          },
+        });
+      });
+    }
+  );
 
   test("redirects a reusable active attempt before discount affirmation and note refresh", async () => {
     const orderId = "reservation-reuses-provider-attempt";

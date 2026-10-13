@@ -2,10 +2,10 @@ import "@/shared/polyfills/temporal";
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, mock, test } from "bun:test";
-import { dotyposApiTimeoutDefaultMilliseconds } from "@deskohub/dotypos";
-import { getGoogleCalendarRequestWorstCaseDuration } from "@deskohub/google-calendar";
+import type { GoogleCalendarEvent } from "@deskohub/google-calendar";
 import { testEmailAddress } from "@deskohub/test-email";
-import { Duration, Effect, Layer, Schema } from "effect";
+import { type Duration, Effect, Layer, Schema } from "effect";
+import { CheckoutPricingService } from "@/features/checkout/backend/checkout/checkout-pricing.service";
 import { CheckoutPricingServiceMock } from "@/features/checkout/backend/checkout/checkout-pricing.service.mock";
 import {
   buildSignedPayState,
@@ -20,10 +20,15 @@ import {
   discountIdSchema,
   PromotionCodeUnavailableError,
 } from "@/features/discounts";
-import { getGoogleCalendarRequestTimeout } from "@/shared/backend/config/google-calendar.config";
+import { calendarSaleDiscountServiceLayer } from "@/features/discounts/calendar-sale.test-utils";
+import { getCalendarActionDeadline } from "@/shared/backend/calendar-action-deadline";
+import { getSlowestSuccessfulCalendarLoad } from "@/shared/backend/config/google-calendar.config.test-utils";
+import {
+  withActionDeadline,
+  workspaceActionDeadline,
+} from "@/shared/backend/workspace-action";
 import { withInstantSleeps } from "@/shared/testing/workspace-test-clock.test-utils";
 import { instantStringSchema } from "@/shared/utils/temporal";
-import { getApplyDiscountCodeDeadline } from "./apply-discount-code-deadline";
 
 mock.module("server-only", () => ({}));
 
@@ -70,6 +75,8 @@ type SubmissionInput = {
   readonly requestedDiscountCode?: CanonicalPromotionCode;
   /** How long each live payable-reservation guard takes. */
   readonly requireCurrentDuration?: Duration.Input;
+  /** Replaces the pricing stub, for example with real pricing. */
+  readonly pricing?: Layer.Layer<CheckoutPricingService>;
 };
 
 const prepareSubmission = async (input?: SubmissionInput) => {
@@ -132,7 +139,7 @@ const prepareSubmission = async (input?: SubmissionInput) => {
     Effect.provide(
       Layer.mergeAll(
         BotProtectionServiceMock({ verifyHuman }),
-        CheckoutPricingServiceMock({ applyDiscountCode }),
+        input?.pricing ?? CheckoutPricingServiceMock({ applyDiscountCode }),
         Layer.succeed(PayableReservationService, { requireCurrent })
       )
     )
@@ -157,9 +164,6 @@ const runSubmissionWithinDeadline = async (
   deadline: Duration.Input,
   input?: SubmissionInput
 ) => {
-  const { withActionDeadline } = await import(
-    "@/shared/backend/workspace-action"
-  );
   const { effect } = await prepareSubmission(input);
   return await effect.pipe(
     withActionDeadline(deadline),
@@ -272,58 +276,70 @@ describe("applyDiscountCodeToPayState", () => {
     expect(scenario.result.freshPayUrl).not.toContain("SAVE20");
   });
 
-  describe("under the action deadline", () => {
-    // Live guards of 8 seconds before and after pricing that succeeds only
-    // on its Calendar retry, 29.5 seconds in.
-    const slowSuccessfulSubmission = () =>
-      ({
-        requireCurrentDuration: "8 seconds",
-        applyDiscountCode: mock(() =>
-          Effect.sleep("29500 millis").pipe(
-            Effect.as({
-              kind: "cowork" as const,
-              reservation,
-              status: "applied" as const,
-              submittedCodeDiscountId,
-              quote,
-            })
-          )
-        ),
-      }) satisfies SubmissionInput;
+  describe.each([
+    // A slow successful Calendar retry between live guards that are slow but
+    // well within the Dotypos timeout; together they just outlast the
+    // ordinary 45-second deadline.
+    ["production", "18 seconds"],
+    ["preview", "8 seconds"],
+  ] as const)(
+    "in %s, with a Calendar load that succeeds on its retry",
+    (deploymentEnvironment, liveGuardDuration) => {
+      const submission = () => {
+        const listEvents = mock((saleEvents: readonly GoogleCalendarEvent[]) =>
+          Effect.sleep(
+            getSlowestSuccessfulCalendarLoad(deploymentEnvironment)
+          ).pipe(Effect.as(saleEvents))
+        );
+        return {
+          listEvents,
+          input: {
+            requireCurrentDuration: liveGuardDuration,
+            pricing: CheckoutPricingService.Default.pipe(
+              Layer.provide(
+                calendarSaleDiscountServiceLayer({
+                  calendarId: `apply-code-deadline-${deploymentEnvironment}`,
+                  firstDay: Temporal.PlainDate.from("2026-05-01"),
+                  lastDay: Temporal.PlainDate.from("2026-09-30"),
+                  labels: { "en-US": "Summer sale", "cs-CZ": "Letní sleva" },
+                  products: [{ kind: "cowork" }],
+                  listEvents,
+                })
+              )
+            ),
+          } satisfies SubmissionInput,
+        };
+      };
 
-    test("completes slow live guards around a slow successful Calendar retry", async () => {
-      const exit = await runSubmissionWithinDeadline(
-        getApplyDiscountCodeDeadline({
-          calendar: getGoogleCalendarRequestWorstCaseDuration(
-            getGoogleCalendarRequestTimeout("preview")
-          ),
-          dotypos: Duration.millis(dotyposApiTimeoutDefaultMilliseconds),
-        }),
-        slowSuccessfulSubmission()
-      );
+      test("completes discount-code entry within its deadline", async () => {
+        const { input, listEvents } = submission();
 
-      expect(exit).toMatchObject({
-        _tag: "Success",
-        value: { status: "applied" },
+        const exit = await runSubmissionWithinDeadline(
+          getCalendarActionDeadline(deploymentEnvironment),
+          input
+        );
+
+        expect(listEvents).toHaveBeenCalledTimes(1);
+        expect(exit._tag).toBe("Success");
       });
-    });
 
-    test("would interrupt the same submission under the generic 45-second deadline", async () => {
-      const exit = await runSubmissionWithinDeadline(
-        "45 seconds",
-        slowSuccessfulSubmission()
-      );
+      test("would be interrupted under the ordinary action deadline", async () => {
+        const exit = await runSubmissionWithinDeadline(
+          workspaceActionDeadline,
+          submission().input
+        );
 
-      expect(exit).toMatchObject({
-        _tag: "Failure",
-        cause: {
-          reasons: [
-            { error: { message: "Request timed out. Please try again." } },
-          ],
-        },
+        expect(exit).toMatchObject({
+          _tag: "Failure",
+          cause: {
+            reasons: [
+              { error: { message: "Request timed out. Please try again." } },
+            ],
+          },
+        });
       });
-    });
-  });
+    }
+  );
 
   test("keeps the existing summary payable when displayed discounts cannot be affirmed", async () => {
     const applyDiscountCode = mock(() =>

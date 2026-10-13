@@ -1,29 +1,32 @@
 import { Duration } from "effect";
 import { env } from "@/env";
-import { getActionDeadline } from "@/shared/backend/action-deadline";
 import { googleCalendarRequestWorstCaseDuration } from "@/shared/backend/config/google-calendar.config";
 import { nexiRequestTimeout } from "@/shared/backend/config/nexi.config";
 
+/** Database, pricing, and fast Dotypos work besides the slow requests. */
+const checkoutSubmitOverhead = Duration.seconds(10);
+
 /**
- * The pay submit runs, one after another: the live hold guard (Dotypos), the
- * discount affirmation (a retried Google Calendar load alongside the Dotypos
- * customer discount), the reservation note (Dotypos), the live hold guard
- * again before the provider session (Dotypos), and the hosted payment page
- * (Nexi). With the default timeouts that is about 135 seconds in production
- * and 160 seconds against the Nexi sandbox.
+ * The pay submit covers one full Dotypos request (the live hold guards or the
+ * reservation note) and one full Nexi hosted page request, plus the rest of
+ * its work. The discount affirmation awaits Google Calendar in sequence with
+ * that work, so one retried Calendar load is added on top. With the default
+ * timeouts that is about 55 seconds in production and 100 seconds against
+ * the Nexi sandbox.
  */
 export const getCheckoutSubmitDeadline = (requestTimeouts: {
   readonly calendar: Duration.Duration;
   readonly dotypos: Duration.Duration;
   readonly nexi: Duration.Duration;
 }) =>
-  getActionDeadline([
-    requestTimeouts.dotypos,
-    Duration.max(requestTimeouts.calendar, requestTimeouts.dotypos),
-    requestTimeouts.dotypos,
+  [
+    requestTimeouts.calendar,
     requestTimeouts.dotypos,
     requestTimeouts.nexi,
-  ]);
+  ].reduce(
+    (deadline, requestTimeout) => Duration.sum(deadline, requestTimeout),
+    checkoutSubmitOverhead
+  );
 
 export const checkoutSubmitDeadline = getCheckoutSubmitDeadline({
   calendar: googleCalendarRequestWorstCaseDuration,
