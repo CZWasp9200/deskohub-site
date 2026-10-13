@@ -9,6 +9,7 @@ import { DeferredTagManager } from "@/features/cookie-consent/components/deferre
 import { PostHogProvider } from "@/features/cookie-consent/components/posthog-analytics";
 import { isLocale, locales } from "@/features/i18n";
 import { RememberSharedReferralCodeWhenEnabled } from "@/features/referrals/remember-shared-referral-code-when-enabled";
+import { postHogRuntimeConfig } from "@/shared/backend/config/posthog.config";
 import { UnsavedChangesProvider } from "@/shared/components/unsaved-changes-guard";
 import "../globals.css";
 
@@ -72,7 +73,7 @@ export default async function LocaleLayout({
           <RememberSharedReferralCodeWhenEnabled />
           <Suspense fallback={null}>
             <ConsentAwareAnalytics
-              featureFlagOverrides={env.POSTHOG_FEATURE_FLAG_OVERRIDES}
+              featureFlagOverrides={postHogRuntimeConfig.featureFlagOverrides}
               posthogEnvironment={env.VERCEL_ENV}
             />
           </Suspense>

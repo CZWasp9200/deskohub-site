@@ -222,6 +222,49 @@ describe("workspace environment schemas", () => {
     expect(productionError).not.toContain(overrides);
   });
 
+  test("tolerates unknown override keys only outside production", () => {
+    const overrides =
+      '{"discount_codes":true,"loyalty_points":true,"seasonal_menu":"synthetic-variant"}';
+
+    for (const VERCEL_ENV of ["preview", "development"] as const) {
+      expect(
+        createWorkspaceEnv(
+          workspaceRuntimeEnv({
+            POSTHOG_FEATURE_FLAG_OVERRIDES: overrides,
+            VERCEL_ENV,
+          })
+        ).POSTHOG_FEATURE_FLAG_OVERRIDES
+      ).toEqual({
+        discount_codes: true,
+        loyalty_points: true,
+        seasonal_menu: "synthetic-variant",
+      });
+    }
+
+    const productionError = environmentError({
+      POSTHOG_FEATURE_FLAG_OVERRIDES: '{"loyalty_points":true}',
+      VERCEL_ENV: "production",
+    });
+
+    expect(productionError).toContain(
+      "Invalid PostHog feature flag override configuration."
+    );
+    expect(productionError).not.toContain('{"loyalty_points":true}');
+  });
+
+  test("names an invalid override key without echoing its value", () => {
+    const error = environmentError({
+      POSTHOG_FEATURE_FLAG_OVERRIDES: '{"discount_codes":"synthetic-variant"}',
+      VERCEL_ENV: "preview",
+    });
+
+    expect(error).toContain(
+      "Invalid PostHog feature flag override configuration."
+    );
+    expect(error).toContain('"discount_codes"');
+    expect(error).not.toContain("synthetic-variant");
+  });
+
   test("reports invalid secrets without echoing configured values", () => {
     const administratorDigest = createHash("sha256")
       .update("hushhush:quiet-synthetic-password")
