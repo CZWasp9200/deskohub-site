@@ -4,6 +4,7 @@ import {
   instantStringSchema,
   type LocalDateTime,
   localDateTimeSchema,
+  localDateTimeToTemporalInstantString,
 } from "@/shared/utils/temporal";
 import {
   type ReservationInterval,
@@ -79,10 +80,10 @@ export const normalizeTimestampField = ({
       Match.value(timestamp).pipe(
         Match.tag("LocalDateTime", ({ value: localDateTime }) =>
           normalizeInstantString(path, () =>
-            Temporal.PlainDateTime.from(localDateTime)
-              .toZonedDateTime(timeZone)
-              .toInstant()
-              .toString()
+            localDateTimeToTemporalInstantString({
+              dateTime: localDateTime,
+              timeZone,
+            })
           )
         ),
         Match.tag("Instant", ({ value: instant }) =>
