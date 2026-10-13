@@ -50,3 +50,26 @@ test("runWorkspaceEffectOrElse falls back once and logs once when the runtime ca
     warn.mockRestore();
   }
 });
+
+test("runWorkspaceEffectOrElse rejects unlogged with the fallback's error when it rethrows after a runtime build failure", async () => {
+  const warn = spyOn(console, "warn").mockImplementation(() => undefined);
+  const onFailure = mock(() => undefined);
+
+  try {
+    await expect(
+      Effect.succeed("value").pipe(
+        runWorkspaceEffectOrElse("test.runtime-failure", {
+          failureCode: "test.runtime_failure",
+          orElse: (cause) => {
+            onFailure();
+            throw cause;
+          },
+        })
+      )
+    ).rejects.toBe(runtimeBuildFailure);
+    expect(onFailure).toHaveBeenCalledTimes(1);
+    expect(warn).not.toHaveBeenCalled();
+  } finally {
+    warn.mockRestore();
+  }
+});

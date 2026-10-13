@@ -173,7 +173,7 @@ describe("runWorkspaceEffectOrElse", () => {
     }
   });
 
-  test("rejects with the fallback's error when it rethrows", async () => {
+  test("rejects with the fallback's error, unlogged, when it rethrows", async () => {
     const warn = spyOn(console, "warn").mockImplementation(() => undefined);
     const failure = new Error("source failed");
     const onFailure = mock(() => undefined);
@@ -191,6 +191,7 @@ describe("runWorkspaceEffectOrElse", () => {
         )
       ).rejects.toBe(failure);
       expect(onFailure).toHaveBeenCalledTimes(1);
+      expect(warn).not.toHaveBeenCalled();
     } finally {
       warn.mockRestore();
     }
