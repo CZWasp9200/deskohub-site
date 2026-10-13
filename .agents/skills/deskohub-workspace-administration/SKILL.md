@@ -1,14 +1,18 @@
 ---
 name: deskohub-workspace-administration
-description: Workspace administration dashboard, administration API, dhw CLI, discount, code, sale, session, and standalone Igloohome access-code creation operations.
+description: Workspace admin dashboard, /admin pages, administration API, dhw CLI, CLI sessions, operator cancellation and refunds, access recovery, standalone access codes, invoices, discount codes, vouchers, sales administration.
 ---
 
 # Deskohub Workspace administration
 
-Read only the reference relevant to the change:
+Read the reference that matches the change:
 
-- For dashboard projections, navigation, standalone access-code creation, data sources, search, and operational history, read [references/dashboard.md](references/dashboard.md).
-- For discount, code, target, customer allowlist, claim, and Calendar-sale operations, read [references/discounts.md](references/discounts.md).
-- For the administration API, `dhw` commands, standalone access-code creation, authentication, builds, updates, and releases, read [references/dhw-cli.md](references/dhw-cli.md).
+- [references/dashboard.md](references/dashboard.md): `/admin` rendering, data sources, reservation and customer projections, cancellation and refund state, access recovery, standalone access codes, and history.
+- [references/discounts.md](references/discounts.md): discount, code, voucher, audience, and claim mutations.
+- [references/dhw-cli.md](references/dhw-cli.md): the shared administration API contract, `dhw` authentication, confirmation, retries, configuration, checks, and releases.
 
-Use the same application services and validation contracts across the administration UI, administration API, and CLI. Keep provider enrichment read-only unless the named operator workflow explicitly owns a mutation. Consult the business-facing [administration dashboard](../../../apps/deskohub-workspace/docs/administration-dashboard.md) and [discount-code](../../../apps/deskohub-workspace/docs/discount-codes.md) specifications before changing operator-visible policy.
+Always apply these rules:
+
+- Route the Admin UI, administration API, and `dhw` through the same application services and schemas so all three enforce the same validation.
+- Keep page loads read-only. Mutate only inside an explicit operator workflow, such as cancellation, access recovery, or a discount change.
+- Read the business specifications before changing operator-visible policy: [administration](../../../apps/deskohub-workspace/docs/administration-dashboard.md), [discounts](../../../apps/deskohub-workspace/docs/discount-codes.md), and [`dhw`](../../../apps/dhw/README.md).
