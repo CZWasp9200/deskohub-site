@@ -1,0 +1,77 @@
+# Workspace E2E fixtures and synthetic data
+
+## Contents
+
+- [Synthetic recipients and email](#synthetic-recipients-and-email)
+- [Magic-link retrieval](#magic-link-retrieval)
+- [Account lane](#account-lane)
+- [Discount fixtures](#discount-fixtures)
+- [Calendar sale event](#calendar-sale-event)
+- [Admin Basic auth](#admin-basic-auth)
+- [Access-code idempotency](#access-code-idempotency)
+
+Every case uses a unique synthetic customer. Never make an edge case mutate a fixture another case reads.
+
+## Synthetic recipients and email
+
+- Build every recipient with `testEmailAddress` from `@deskohub/test-email`; E2E accounts look like `delivered+<run>-<label>@<EMAIL_TEST_DOMAIN>`. Mail to `EMAIL_TEST_DOMAIN` (`deskohub.test`, a code constant) goes to the Console provider in every deployment, so there's nothing to configure. A fixture that submits any other address sends real mail. The `deskohub-repository` skill's development reference covers the literal-address scanner.
+- Staff copies (contact, checkout, invoice) follow the triggering customer: a test-domain origin addresses `workspace-internal@<EMAIL_TEST_DOMAIN>`. Outside production, staff subjects carry `[TESTING]` (`staffEmailSubject` in `@deskohub/email`).
+- Check email body content with the fake transport renderer, and delivery through Vercel runtime or webhook evidence.
+
+## Magic-link retrieval
+
+- On a preview, the account feature logs one `account.magic-link.preview-e2e` line after Console accepts a link for a synthetic E2E recipient. Its `{code, recipient, message, text}` envelope is the parser's wire format. Under local `next dev` it prints `account.magic-link.development` instead.
+- `e2e/account/vercel-log-retrieval.ts` reads that line from `https://vercel.com/api/logs/request-logs`, the internal request-log route the Vercel CLI uses, not a documented public API. Keep every filter: project, immutable deployment, time window, marker, baseline row IDs, and exact recipient. Anything other than exactly one match is a failure.
+- `WORKSPACE_E2E_VERCEL_TOKEN` is opaque to the runner and sent only as a Bearer header. The current credential is a team token with history read; prefer a narrower project credential if the route accepts one, and never require a full-account key.
+- Deployment resolution, history polling, and the baseline listing are read-only, so they retry transport failures, per-request timeouts, and HTTP 408, 429, 500, 502, 503, and 504 at the poll interval, inside the existing auth-delivery and provider-transition deadlines. Other statuses, malformed payloads, and ambiguous matches are terminal. A deadline-clipped request after history already answered reports `auth_delivery_message_not_observed`.
+- Redact the link from runner output and artifacts. Require an exact-preview E2E pass before you treat a delivered link as verified.
+
+## Account lane
+
+Account cases run serially in `account-auth` from the catalog in `e2e/account/catalog.ts`. Cases use reservation fixtures 120 days out, outside the checkout date range.
+
+- Every case shares the runner's egress IP, so the lane gets one Better Auth magic-link rate window per path. `makeMagicLinkRateBudget` (`e2e/account/rate-budget.ts`) allows one operation fewer than the deployed limit per window. An over-budget link waits out the whole quiet window (`accountCase` in `e2e/timeouts.ts` budgets for one).
+- Declare each case's sends and verifications in `workspaceE2EAccountMagicLinkLedger`. `catalog.test.ts` replays the ledger through the real budget, and `cases.test.ts` runs every case through `makeWorkspaceE2EAccountCases` with a fake boundary and checks each spends exactly its entry. Extend that fake when a case gains a new browser or fixture interaction.
+- Fit a new link into the ledger by reusing the lane's signed-in session or a link it already spends. A different synthetic identity doesn't change the limiter key. Keep the replayed-link verification the account skill requires.
+- Keep the callback screenshot review on `account-magic-link-delivery`, which consumes the first main-recipient link inside the callback handoff. The handoff hold and its loading-document receipt run on every pass.
+- Never fabricate production auth, clear rate limits, change Resend configuration, or change production limits or headroom to speed up the lane.
+- On a failed CI run, `e2e:account-state` prints one token (`missing`, `unlinked`, `linked`) classifying the synthetic main account.
+
+## Discount fixtures
+
+`checkout-seed` upserts source-neutral discount definitions, targets, promotion-code registry rows, discount codes, and vouchers into the exact preview database (`e2e/integrations/discount-fixtures.ts`). It never inserts applications or claim history; only the deployed checkout lifecycle creates those. Capacity limits advance from retained audit history on reruns, and the suite never deletes application or redemption records.
+
+- Dedicated immutable code rows cover valid, inactive, not-started, expired, customer-ineligible, and product-ineligible submissions.
+- Capacity and one-redemption-per-customer cases first complete a real zero-total checkout, then try the consumed code.
+- The voucher case issues credit for two zero-total reservations, spends it twice, checks two `voucher_redemptions` rows totaling the issued credit, and then expects the unavailable error. Its fixture derives issued credit from earlier applications so reruns keep audit history.
+- Customer fixtures come from the normal Dotypos customer API. The runner picks an active partial-percentage group, derives the expected discount from its real percentage, and assigns customers with an ETag-protected patch. Cases change only their own customer's group, never the group definition.
+
+Browser E2E proves customer-visible behavior and the persisted lifecycle state:
+
+| Scenario | Browser evidence |
+| --- | --- |
+| Calendar, customer, or code alone, or any combination | Completed payment, generic label, applications persisted in source-neutral order |
+| Code brings the total to zero | Internal paid attempt, redeemed claim, fulfillment, no Nexi page |
+| Voucher partly spent, reused, exhausted | Two internal paid attempts, two claims totaling the credit, then the unavailable error |
+| Invalid, unknown, inactive, not-started, expired, or ineligible code | One generic field error; summary still usable; no payment state, application, or claim |
+| Capacity exhausted or already redeemed | A real first redemption, then the rejected attempt |
+| Code, Calendar sale, or customer discount changes after summary, before Pay | `pricing_changed`; no payment attempt, application, or claim |
+| Calendar sale disappears after advertisement, before quote | Refreshed summary with `pricing_changed` |
+
+Keep malformed input, provider failures, clock boundaries, cache expiry, and claim races in deterministic provider and checkout lifecycle tests. Calendar all-day expiry follows the selected date, so browser cases can't wait for real Prague midnight; provider tests use Effect's test clock for the exclusive end.
+
+## Calendar sale event
+
+`GOOGLE_CALENDAR_SALES_ID` names the dedicated E2E sales calendar. Its long-lived event references the discount definition seeded with UUID `454784dd-380b-43a1-bae7-cc070bf1aec2`, which targets the cowork and meeting-room families.
+
+- Keep the event immutable and non-recurring. It must start on or before the run date and end after the 90-day candidate range. A sale applies only to bookings made during it whose last service date falls within it, so a daily recurring event would cover only same-day bookings.
+- Happy paths book open space; pricing-change cases book a reserved desk. The pricing-change case lives in `checkout-shared-fixture`, which runs after every independent case project. It removes the cowork target from the stored definition after advertisement and again after summary creation, and restores it in an interruption-safe finalizer. Never mutate meeting-room eligibility.
+- Calendar discovery caches definitions under the booking date (today), and `advertisedPricingSources` keeps advertising a removed target until revalidation. Fixture writes skip the admin mutation's tag revalidation. So bring every checkout that needs the advertised sale to that state first (or save its pay page URL to reopen), then remove eligibility once. Never wait for a restored row to show through the cache. Keep the reload-until-advertised poll only as a safety net for an earlier run's stale entry.
+
+## Admin Basic auth
+
+`WORKSPACE_E2E_ADMIN_BASIC_AUTH` (`username:password`, GitHub secret) pairs with the Preview-only Vercel `ADMIN_BASIC_AUTH_CREDENTIALS` registry, whose lines are `username:<sha256(username:password)>`. `e2e/e2e-env.ts` decodes it and `e2e/admin-basic-auth.ts` validates the pair, registers the pair and password for redaction, and fails closed with provisioning guidance when it's absent. Authenticate the browser context with `httpCredentials` and `send: "always"`, scoped to the preview origin. Never weaken Basic auth or BotID or add an app bypass.
+
+## Access-code idempotency
+
+Reset or "Create another" mints a new attempt ID, so it proves nothing about idempotency. Replay the first submission's captured Server Action POST byte for byte (same `Next-Action` ID, content type, origin, and payload) through the context request API. Assert the `already-created` outcome, that the one-time PIN isn't disclosed again, and the attempt-event counts in the preview database. Clean only exact synthetic rows, pre-clean for reruns, and prove zero matching rows remain in an interruption-safe finalizer.
