@@ -111,6 +111,7 @@ mock.module("@/features/account/actions", () => ({
     Promise.resolve({ data: { status: "not-found", message: "" } }),
   completeCustomerProfile,
   updateCustomerProfile: () => Promise.resolve({ data: { status: "updated" } }),
+  updateLocalePreference: () => Promise.resolve({ data: { status: "saved" } }),
   deleteCustomerAccount: () => Promise.resolve({ data: { status: "deleted" } }),
 }));
 

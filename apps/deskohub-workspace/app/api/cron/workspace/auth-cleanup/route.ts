@@ -1,6 +1,9 @@
 import { Effect } from "effect";
 import { NextResponse } from "next/server";
-import { AuthCleanupService } from "@/features/account/backend/auth/auth-cleanup.service";
+import {
+  type AuthCleanupFailure,
+  AuthCleanupService,
+} from "@/features/account/backend/auth/auth-cleanup.service";
 import { isAuthorizedCronRequest } from "@/shared/backend/cron-request";
 import { defineWorkspaceRoute } from "@/shared/backend/workspace-route";
 
@@ -17,10 +20,10 @@ const sweepExpiredAuthRows = Effect.gen(function* () {
   return NextResponse.json(result);
 }).pipe(Effect.scoped);
 
-const handleAuthCleanupCronError = (cause: unknown) =>
+const handleAuthCleanupCronError = (failure: AuthCleanupFailure) =>
   Effect.logError("Customer account cleanup cron failed", {
     code: "account.cleanup.unavailable",
-    cause,
+    cause: failure,
   }).pipe(
     Effect.as(
       NextResponse.json(

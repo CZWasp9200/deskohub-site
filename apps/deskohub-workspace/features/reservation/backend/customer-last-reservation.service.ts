@@ -9,7 +9,7 @@ import {
 } from "@deskohub/dotypos";
 import { and, desc, eq, isNotNull, sql } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
-import { Context, Effect, Layer, Match } from "effect";
+import { Context, Effect, Layer, Match, Option } from "effect";
 import type { SqlError } from "effect/unstable/sql/SqlError";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { workspaceReservations } from "@/db/schema";
@@ -23,6 +23,7 @@ import type {
 } from "@/features/reservation/reservation-existing-customer";
 import type { WorkspaceReservationKind } from "@/features/reservation/reservation-kind";
 import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
+import { parseInstant } from "@/shared/utils/temporal";
 
 type CustomerLastReservationError =
   | EffectDrizzleQueryError
@@ -31,14 +32,8 @@ type CustomerLastReservationError =
   | NetworkError
   | ValidationError;
 
-const toInstant = (value: string | null | undefined) => {
-  if (!value) return null;
-  try {
-    return Temporal.Instant.from(value);
-  } catch {
-    return null;
-  }
-};
+const toInstant = (value: string | null | undefined) =>
+  value ? Option.getOrNull(parseInstant(value)) : null;
 
 const getBookedInterval = (reservation: DotyposReservation | undefined) => {
   const startsAt = toInstant(reservation?.startDate);

@@ -58,6 +58,13 @@ const signInFormSelector = "#account-sign-in-form";
 const signInEmailSelector = "#account-sign-in-email";
 const signInSubmitSelector = "#account-sign-in-submit";
 const signOutSelector = "#account-sign-out";
+const languageTriggerSelector = '[data-slot="select-trigger"]';
+const languageOptionCsSelector = '[role="option"]:has-text("Čeština")';
+const languageOptionEnSelector = '[role="option"]:has-text("English (US)")';
+const englishLanguageLabel = "Preferred language";
+const czechLanguageLabel = "Preferovaný jazyk";
+const englishFaqTitle = "Frequently Asked Questions";
+const czechFaqTitle = "Často kladené otázky";
 const deleteTriggerSelector = "#delete-account-trigger";
 const deleteReauthSendSelector = "#delete-account-reauth-send";
 const deleteConfirmCheckboxSelector = "#confirm-account-deletion";
@@ -225,6 +232,29 @@ class FakeAccountExternalState {
   readonly usersById = new Map<string, FakeUser>();
   readonly linksByUserId = new Map<string, string>();
   readonly consumedLinks = new Set<string>();
+  readonly languageSaves: Array<"cs-CZ" | "en-US"> = [];
+  readonly switcherSaves: Array<"cs-CZ" | "en-US"> = [];
+  readonly languageReviews: Array<{
+    readonly stage: string;
+    readonly url: string;
+  }> = [];
+
+  /**
+   * The proxy's saved-preference authority: a signed-in page request whose
+   * URL locale differs from the preference is redirected to it. Turning it
+   * off models the old path-first precedence.
+   */
+  preferenceRedirects = true;
+  /** Whether a signed-in header switch saves the preference first. */
+  switcherSavesPreference = true;
+
+  /**
+   * The site default preference: the migration backfills existing accounts
+   * and the user.create hook seeds new accounts from the initiating site
+   * locale, so the synthetic account restores English (US) on every sign-in
+   * until a save changes it.
+   */
+  localePreference: "cs-CZ" | "en-US" = "en-US";
 
   currentAuthUserId: string | undefined;
   historyReady = false;
@@ -483,6 +513,11 @@ class FakeAccountExternalState {
     this.events.push({ customerId, type: "unlink", userId: accountId });
   }
 
+  saveLocalePreference(locale: "cs-CZ" | "en-US") {
+    this.languageSaves.push(locale);
+    this.localePreference = locale;
+  }
+
   sendMessage(email: string, kind: "sign-in" | "reauthentication") {
     let messageKind: FakeMessageKind;
     if (kind === "reauthentication") {
@@ -554,8 +589,15 @@ class FakeAccountExternalState {
     this.consumedLinks.add(link);
     switch (message.kind) {
       case "initial-main": {
-        this.createAuthUser("auth-original", message.recipient);
-        this.currentAuthUserId = "auth-original";
+        // A magic-link sign-in for an existing verified account signs into
+        // the same user instead of creating a duplicate identity; the lane's
+        // later account cases rely on that persisted link and preference.
+        if (this.usersById.has("auth-original")) {
+          this.currentAuthUserId = "auth-original";
+        } else {
+          this.createAuthUser("auth-original", message.recipient);
+          this.currentAuthUserId = "auth-original";
+        }
         this.events.push({
           id: message.id,
           kind: message.kind,
@@ -794,9 +836,18 @@ class FakeAccountExternalState {
   }
 }
 
+type FakeLocale = "cs-CZ" | "en-US";
+
+const fakeLocalePath = /^\/(cs-CZ|en-US)(?=\/|$)/;
+
 class FakeBrowser {
   private currentUrl = "";
+  private localeCookie: FakeLocale | undefined;
   private pageText = "";
+  /** The `textContent` of the profile language control's label. */
+  private languageControlLabel: string | null = null;
+  /** The `textContent` of the page's `h1`. */
+  private heading: string | null = null;
   private emailValue = "";
   private nativeValidationBlocked = false;
   private formReady = false;
@@ -804,8 +855,54 @@ class FakeBrowser {
   /** The proxy's first-party referral cookie: the first shared link wins. */
   referralCookie: string | undefined;
   private selectedSection = "";
+  private languageListboxOpen = false;
 
   constructor(readonly external: FakeAccountExternalState) {}
+
+  /**
+   * The select value is the page locale. Re-picking it fires no
+   * onValueChange, exactly as the real Radix Select behaves.
+   */
+  private get languageValue(): "cs-CZ" | "en-US" {
+    return this.pageLocale();
+  }
+
+  private signedIn(): boolean {
+    const userId = this.external.currentAuthUserId;
+    return userId !== undefined && this.external.usersById.has(userId);
+  }
+
+  private pageLocale(): FakeLocale {
+    const locale = fakeLocalePath.exec(new URL(this.currentUrl).pathname)?.[1];
+    if (locale !== "cs-CZ" && locale !== "en-US") {
+      throw new Error("the synthetic page has no locale");
+    }
+    return locale;
+  }
+
+  /**
+   * The proxy for one localized page request: a signed-in browser lands on
+   * its saved preference, a guest keeps the URL locale, and the locale cookie
+   * follows the resolved locale either way.
+   */
+  private resolveLocale(pathLocale: FakeLocale): FakeLocale {
+    const resolved =
+      this.signedIn() && this.external.preferenceRedirects
+        ? this.external.localePreference
+        : pathLocale;
+    this.localeCookie = resolved;
+    return resolved;
+  }
+
+  private withLocale(url: string, locale: FakeLocale): string {
+    const parsed = new URL(url);
+    parsed.pathname = parsed.pathname.replace(fakeLocalePath, `/${locale}`);
+    return parsed.toString();
+  }
+
+  private profileLabel(locale: FakeLocale) {
+    return locale === "cs-CZ" ? czechLanguageLabel : englishLanguageLabel;
+  }
 
   open(url: string) {
     const parsed = new URL(url);
@@ -822,7 +919,32 @@ class FakeBrowser {
     if (parsed.pathname === "/account") parsed.pathname = "/en-US/account";
     this.external.lastDestination =
       parsed.pathname.replace(/^\/en-US/, "") || "/";
-    if (parsed.pathname === "/en-US/auth/sign-in") {
+    this.navigate(parsed.toString());
+  }
+
+  /** Places a lane browser that an earlier case left on a page. */
+  startAt(url: string) {
+    this.navigate(url);
+  }
+
+  /** A document navigation through the proxy. */
+  private navigate(requested: string) {
+    this.languageListboxOpen = false;
+    this.selectedSection = "";
+    this.languageControlLabel = null;
+    this.heading = null;
+    const pathLocale = fakeLocalePath.exec(new URL(requested).pathname)?.[1] as
+      | FakeLocale
+      | undefined;
+    const url =
+      pathLocale === undefined
+        ? requested
+        : this.withLocale(requested, this.resolveLocale(pathLocale));
+    const parsed = new URL(url);
+    const locale =
+      pathLocale === undefined ? undefined : this.pageLocaleOf(url);
+    const suffix = parsed.pathname.replace(fakeLocalePath, "");
+    if (locale !== undefined && suffix === "/auth/sign-in") {
       this.currentUrl = url;
       this.pageText = "Sign in";
       this.formReady = true;
@@ -830,18 +952,40 @@ class FakeBrowser {
       this.nativeValidationBlocked = false;
       return;
     }
-    if (parsed.pathname === "/en-US/account") {
+    if (locale !== undefined && suffix === "/account") {
       const result = this.external.openAccount();
+      const destination = this.withLocale(
+        `${this.external.config.baseUrl}${result.destination}`,
+        locale
+      );
       // Redirects and the account page carry no code; completion prefills
       // the remembered one.
-      this.currentUrl = `${this.external.config.baseUrl}${result.destination}`;
-      this.pageText = result.text;
+      const profile =
+        parsed.searchParams.get("section") === "profile" &&
+        !result.destination.endsWith("/auth/sign-in");
+      this.currentUrl = profile
+        ? `${destination}${parsed.search}`
+        : destination;
+      // Rendered page text applies the label's CSS uppercase, as
+      // `innerText` does; only its `textContent` keeps the message casing.
+      this.pageText = profile
+        ? `${result.text} ${this.profileLabel(locale).toLocaleUpperCase()}`
+        : result.text;
+      this.languageControlLabel = profile ? this.profileLabel(locale) : null;
+      if (profile) this.selectedSection = "profile";
       this.formReady = result.destination.endsWith("/auth/sign-in");
       this.emailValue = "";
       this.nativeValidationBlocked = false;
       if (result.text === completionTitle) {
         this.referralFieldValue = this.referralCookie;
       }
+      return;
+    }
+    if (locale !== undefined && suffix === "/faq") {
+      this.currentUrl = url;
+      this.pageText = locale === "cs-CZ" ? czechFaqTitle : englishFaqTitle;
+      this.heading = this.pageText;
+      this.formReady = false;
       return;
     }
     if (parsed.pathname === "/en-US/contact") {
@@ -858,7 +1002,9 @@ class FakeBrowser {
     }
     if (parsed.pathname === "/api/auth/magic-link/verify") {
       const result = this.external.consumeLink(url);
-      this.currentUrl = `${this.external.config.baseUrl}${result.destination}`;
+      // The callback lands through the proxy like any page request.
+      const landing = `${this.external.config.baseUrl}${result.destination}`;
+      this.currentUrl = this.withLocale(landing, this.resolveLocale("en-US"));
       this.pageText = result.text;
       this.formReady = false;
       this.referralFieldValue =
@@ -866,6 +1012,57 @@ class FakeBrowser {
       return;
     }
     throw new Error("unknown synthetic browser destination");
+  }
+
+  private pageLocaleOf(url: string): FakeLocale {
+    return fakeLocalePath.exec(new URL(url).pathname)?.[1] as FakeLocale;
+  }
+
+  /** Native activation of a header language switcher link. */
+  activate(selector: string) {
+    const locale = /a\[href\^="\/(cs-CZ|en-US)"\]/.exec(selector)?.[1] as
+      | FakeLocale
+      | undefined;
+    if (!selector.startsWith("[data-locale-switcher]") || !locale) {
+      throw new Error("the synthetic browser activated an unexpected control");
+    }
+    this.external.recordBrowserAction({
+      kind: "press",
+      selectorOrDestination: selector,
+    });
+    if (this.signedIn() && this.external.switcherSavesPreference) {
+      this.external.switcherSaves.push(locale);
+      this.external.saveLocalePreference(locale);
+    }
+    this.navigate(this.withLocale(this.currentUrl, locale));
+  }
+
+  waitForHandler(selector: string, handler: string) {
+    if (selector.endsWith(languageTriggerSelector)) {
+      if (handler !== "onPointerDown" || this.selectedSection !== "profile") {
+        throw new Error("the language trigger is not on the profile section");
+      }
+      return;
+    }
+    if (
+      selector !== signOutSelector ||
+      handler !== "onClick" ||
+      !this.signedIn() ||
+      !new URL(this.currentUrl).pathname.endsWith("/account")
+    ) {
+      throw new Error("the sign-out handler is not on a signed-in account");
+    }
+  }
+
+  waitForUrl(matches: (url: string) => boolean) {
+    if (!matches(this.currentUrl)) {
+      throw new Error("the synthetic browser URL assertion did not match");
+    }
+    return this.currentUrl;
+  }
+
+  captureLanguageReview(stage: string) {
+    this.external.languageReviews.push({ stage, url: this.currentUrl });
   }
 
   fill(selector: string, value: string) {
@@ -906,8 +1103,9 @@ class FakeBrowser {
       return;
     }
     if (selector === signOutSelector) {
+      const locale = this.pageLocale();
       this.external.logout();
-      this.currentUrl = `${this.external.config.baseUrl}/en-US`;
+      this.currentUrl = `${this.external.config.baseUrl}/${locale}`;
       this.pageText = "Sign in";
       this.formReady = false;
       return;
@@ -962,6 +1160,35 @@ class FakeBrowser {
       this.selectedSection = "danger";
       return;
     }
+    if (selector.includes("Profile & Identity")) {
+      if (this.pageLocale() !== "en-US") {
+        throw new Error("the English account navigation was clicked in Czech");
+      }
+      this.selectedSection = "profile";
+      this.pageText = `${this.pageText} ${englishLanguageLabel.toLocaleUpperCase()}`;
+      this.languageControlLabel = englishLanguageLabel;
+      return;
+    }
+    if (selector === languageTriggerSelector) {
+      this.languageListboxOpen = true;
+      return;
+    }
+    if (
+      selector === languageOptionCsSelector ||
+      selector === languageOptionEnSelector
+    ) {
+      if (!this.languageListboxOpen) {
+        throw new Error("the language option was clicked without a listbox");
+      }
+      this.languageListboxOpen = false;
+      const chosen = selector === languageOptionCsSelector ? "cs-CZ" : "en-US";
+      if (chosen === this.languageValue) return;
+      // The shared locale switch saves the preference, then moves the
+      // document to the same URL under the chosen locale either way.
+      this.external.saveLocalePreference(chosen);
+      this.navigate(this.withLocale(this.currentUrl, chosen));
+      return;
+    }
     throw new Error("the synthetic browser clicked an unexpected control");
   }
 
@@ -977,6 +1204,7 @@ class FakeBrowser {
       kind: "press",
       selectorOrDestination: key,
     });
+    if (key === "Escape") this.languageListboxOpen = false;
   }
 
   eval(input: string) {
@@ -984,6 +1212,17 @@ class FakeBrowser {
       return JSON.stringify({ blocked: this.nativeValidationBlocked });
     }
     if (input.includes("window.matchMedia")) return "true";
+    const cookieWrite =
+      /^document\.cookie = "PARAGLIDE_LOCALE=(cs-CZ|en-US); path=\/"$/.exec(
+        input
+      );
+    if (cookieWrite) {
+      this.localeCookie = cookieWrite[1] as FakeLocale;
+      return "";
+    }
+    if (input.includes("document.cookie.split")) {
+      return JSON.stringify({ czech: this.localeCookie === "cs-CZ" });
+    }
     throw new Error("the synthetic browser evaluated an unexpected script");
   }
 
@@ -1010,9 +1249,34 @@ class FakeBrowser {
   }
 
   waitForCondition(description: string, condition: string) {
+    if (description.endsWith(" language control label")) {
+      if (
+        this.languageControlLabel === null ||
+        !condition.includes(JSON.stringify(this.languageControlLabel)) ||
+        !condition.includes(".labels")
+      ) {
+        throw new Error("the language control does not carry that label");
+      }
+      return;
+    }
+    if (description.endsWith(" heading")) {
+      if (
+        this.heading === null ||
+        !condition.includes(JSON.stringify(this.heading))
+      ) {
+        throw new Error("the page heading does not match");
+      }
+      return;
+    }
     if (description === "account danger panel hydration") {
       if (!condition.includes("#delete-account-trigger")) {
         throw new Error("the danger panel hydration anchor is wrong");
+      }
+      return;
+    }
+    if (description === "account profile panel hydration") {
+      if (!condition.includes("[data-screen='profile-screen']")) {
+        throw new Error("the profile panel hydration anchor is wrong");
       }
       return;
     }
@@ -1043,6 +1307,32 @@ class FakeBrowser {
     if (description === "reauthentication dialog") {
       if (!this.external.reauthenticationDialog) {
         throw new Error("the reauthentication dialog is missing");
+      }
+      return;
+    }
+    if (description === "account profile section") {
+      if (this.selectedSection !== "profile") {
+        throw new Error("the profile section is not selected");
+      }
+      return;
+    }
+    if (description.endsWith("option selected")) {
+      if (!this.languageListboxOpen) {
+        throw new Error("the selected language check ran without a listbox");
+      }
+      const expected = description.includes("Čeština") ? "cs-CZ" : "en-US";
+      if (this.languageValue !== expected) {
+        throw new Error(`the selected language option is not ${expected}`);
+      }
+      return;
+    }
+    if (
+      description.endsWith(" panel") &&
+      condition.includes("[data-screen='profile-screen']") &&
+      condition.includes("__reactProps$")
+    ) {
+      if (this.selectedSection !== "profile") {
+        throw new Error("the deep-linked profile panel is not shown");
       }
       return;
     }
@@ -1132,6 +1422,11 @@ const browserResult = (stdout = ""): BrowserCommandResult => ({
  */
 mock.module("../browser", () => ({
   ...realBrowserModule,
+  activateHydratedBrowserElement: (
+    _run: Runner,
+    _session: string,
+    selector: string
+  ) => Effect.sync(() => requireBrowser().activate(selector)),
   clickBrowserElement: (_run: Runner, _session: string, selector: string) =>
     Effect.sync(() => requireBrowser().click(selector)),
   evalBrowserScript: (
@@ -1198,11 +1493,22 @@ mock.module("../browser", () => ({
     Effect.sync(() =>
       requireBrowser().waitForFormSubmitHandler(selector, fieldSelectors)
     ),
+  waitForBrowserReactHandler: (
+    _run: Runner,
+    _session: string,
+    selector: string,
+    handler: string
+  ) => Effect.sync(() => requireBrowser().waitForHandler(selector, handler)),
   waitForBrowserText: ({
     matches,
   }: {
     readonly matches: (text: string) => boolean;
   }) => Effect.sync(() => requireBrowser().waitForText(matches)),
+  waitForBrowserUrl: ({
+    matches,
+  }: {
+    readonly matches: (url: string) => boolean;
+  }) => Effect.sync(() => requireBrowser().waitForUrl(matches)),
   waitForInteractiveSnapshot: ({
     matches,
   }: {
@@ -1435,9 +1741,17 @@ const executeCase = async (
 const buildCase = async (
   makeCases: typeof import("./cases").makeWorkspaceE2EAccountCases,
   caseId: WorkspaceE2EAccountCaseId,
-  scenario: ReturnType<typeof makeScenario>
+  scenario: ReturnType<typeof makeScenario>,
+  options: { readonly captureLanguageReview?: boolean } = {}
 ) => {
   const cases = makeCases({
+    ...(options.captureLanguageReview
+      ? {
+          captureLanguagePreferenceReview: async (stage: string) => {
+            requireBrowser().captureLanguageReview(stage);
+          },
+        }
+      : {}),
     config: scenario.config,
     datasourceConfig: scenario.datasourceConfig,
     lifecycleHandoff: scenario.lifecycleHandoff,
@@ -1802,4 +2116,176 @@ test("fails when the reauthentication handoff names a different linked customer"
   ]);
   expect(scenario.operations).toEqual(["verify"]);
   expect(scenario.retries).toEqual([]);
+});
+
+const seedLanguageAccount = (external: FakeAccountExternalState): FakeUser => {
+  // The lane reaches the language case with an onboarded, linked account
+  // whose reservation history is already provisioned, signed in on a fresh
+  // session. The account was created under en-US, so English (US) is saved.
+  const seedUser = {
+    createdAt: fixedNow,
+    deletionRequestedAt: null,
+    email: external.mainRecipient,
+    id: "auth-original",
+    session: true,
+  } satisfies FakeUser;
+  external.usersById.set(seedUser.id, seedUser);
+  external.usersByEmail.set(seedUser.email, seedUser);
+  const seedProfile = {
+    companyName: null,
+    deleted: false,
+    email: external.mainRecipient,
+    expireDate: null,
+    firstName: "E2E",
+    id: "customer-language",
+    lastName: "",
+    phone: "",
+  } satisfies FakeProfile;
+  external.profiles.set(seedProfile.id, seedProfile);
+  external.linksByUserId.set(seedUser.id, seedProfile.id);
+  external.currentAuthUserId = seedUser.id;
+  external.historyReady = true;
+  return seedUser;
+};
+
+const runLanguageCase = async (
+  configure: (external: FakeAccountExternalState) => void = () => undefined,
+  options: { readonly captureLanguageReview?: boolean } = {}
+) => {
+  setSystemTime(fixedNow);
+  const { makeWorkspaceE2EAccountCases } = await import("./cases");
+  const scenario = makeScenario();
+  seedLanguageAccount(scenario.external);
+  // The previous case leaves the English account open.
+  scenario.browser.startAt(`${baseUrl}/en-US/account`);
+  configure(scenario.external);
+  const selected = await buildCase(
+    makeWorkspaceE2EAccountCases,
+    "account-locale-preference",
+    scenario,
+    options
+  );
+  const stepIds: string[] = [];
+  const runStep: WorkspaceE2EStepRunner = <A, R>(
+    step: WorkspaceE2EStep<A, R>
+  ) => {
+    stepIds.push(step.id);
+    return step.execute;
+  };
+  const exit = await Effect.runPromiseExit(
+    selected.execute({
+      journalRef: scenario.journalRef,
+      runStep,
+      session,
+    }) as Effect.Effect<void, WorkspaceE2EError>
+  );
+  return { exit, scenario, stepIds };
+};
+
+const languageCaseStepIds = [
+  "signs out for a fresh language-preference sign-in",
+  "records the delivered log baseline before the fresh sign-in",
+  "requests the fresh sign-in link",
+  "retrieves the fresh sign-in link",
+  "signs in on the English site and opens the profile section",
+  "chooses Čeština, which saves it and moves the site to Czech",
+  "shows Čeština selected on the Czech profile",
+  "redirects a conflicting en-US URL and cookie to the saved Czech locale",
+  "signs out from the Czech site",
+  "records the delivered log baseline before the Czech sign-in",
+  "requests the sign-in link from the English sign-in page",
+  "retrieves the sign-in link with its en-US callback",
+  "signs in from the en-US link onto the Czech site",
+  "keeps Čeština selected after signing in again",
+  "switches to English through the header language switcher",
+  "redirects a Czech account URL to the switched English preference",
+  "shows English (US) as the saved language after the switch",
+];
+
+test("makes the saved language preference the site locale and switches it back from the header", async () => {
+  const { exit, scenario, stepIds } = await runLanguageCase();
+  const external = scenario.external;
+
+  expect(Exit.isSuccess(exit)).toBe(true);
+  // Both sign-ins budgeted their send and verification, with no extra link.
+  expect(scenario.operations).toEqual(["send", "verify", "send", "verify"]);
+  expect(scenario.retries).toEqual([]);
+  // Choosing Čeština in the profile saved it once, and the header switch
+  // saved English (US) back.
+  expect(external.languageSaves).toEqual(["cs-CZ", "en-US"]);
+  expect(external.switcherSaves).toEqual(["en-US"]);
+  expect(external.localePreference).toBe("en-US");
+  expect(stepIds).toEqual(languageCaseStepIds);
+  // The en-US probes were requested and redirected by the preference.
+  const opened = external.browserActions
+    .filter(({ kind }) => kind === "open")
+    .map(({ selectorOrDestination }) => selectorOrDestination);
+  expect(opened).toContain("/en-US/faq");
+  expect(opened).toContain("/cs-CZ/account");
+  // Later serial cases start from the English account, signed in.
+  expect(requireBrowser().url()).toBe(`${baseUrl}/en-US/account`);
+  expect(external.currentAuthUserId).toBe("auth-original");
+  // Without a review hook nothing is captured.
+  expect(external.languageReviews).toEqual([]);
+});
+
+test("hands each language review moment to the capture hook while it is genuine", async () => {
+  const { exit, scenario } = await runLanguageCase(undefined, {
+    captureLanguageReview: true,
+  });
+
+  expect(Exit.isSuccess(exit)).toBe(true);
+  expect(scenario.external.languageReviews).toEqual([
+    {
+      stage: "czech-profile",
+      url: `${baseUrl}/cs-CZ/account?section=profile`,
+    },
+    { stage: "preference-redirect", url: `${baseUrl}/cs-CZ/faq` },
+    { stage: "switcher-saved", url: `${baseUrl}/en-US/account` },
+  ]);
+});
+
+test("rejects a proxy that lets the URL locale outrank the saved preference", async () => {
+  const { exit, scenario, stepIds } = await runLanguageCase((external) => {
+    external.preferenceRedirects = false;
+  });
+
+  expect(Exit.isFailure(exit)).toBe(true);
+  // The Czech save still navigates to Czech, but the conflicting en-US URL
+  // and cookie keep the English page.
+  expect(stepIds.at(-1)).toBe(
+    "redirects a conflicting en-US URL and cookie to the saved Czech locale"
+  );
+  expect(scenario.external.localePreference).toBe("cs-CZ");
+});
+
+test("rejects a header switch that does not save the preference", async () => {
+  const { exit, scenario, stepIds } = await runLanguageCase((external) => {
+    external.switcherSavesPreference = false;
+  });
+
+  expect(Exit.isFailure(exit)).toBe(true);
+  // A plain link is redirected straight back to the saved Czech locale.
+  expect(stepIds.at(-1)).toBe(
+    "switches to English through the header language switcher"
+  );
+  expect(scenario.external.switcherSaves).toEqual([]);
+  expect(scenario.external.localePreference).toBe("cs-CZ");
+});
+
+test("rejects a Czech save that the saved preference does not keep", async () => {
+  const { exit, stepIds } = await runLanguageCase((external) => {
+    const save = external.saveLocalePreference.bind(external);
+    // The profile save reports success but persists nothing, so the
+    // proxy sends the Czech navigation straight back to English (US).
+    external.saveLocalePreference = (locale) => {
+      external.languageSaves.push(locale);
+      if (external.languageSaves.length > 1) save(locale);
+    };
+  });
+
+  expect(Exit.isFailure(exit)).toBe(true);
+  expect(stepIds.at(-1)).toBe(
+    "chooses Čeština, which saves it and moves the site to Czech"
+  );
 });

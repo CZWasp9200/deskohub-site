@@ -16,8 +16,8 @@ import type {
   CustomerReservationHistory,
   ProfileCompletionReferralOutcome,
 } from "@/features/account/contracts";
+import type { LinkedCustomerAccount } from "@/features/account/customer-account";
 import { areAccountAvatarsEnabled } from "@/features/account/server/account-feature-flag.server";
-import type { Locale } from "@/features/i18n";
 import { ReferralService } from "@/features/referrals";
 import {
   getReferralShareUrl,
@@ -69,197 +69,132 @@ export type CustomerAccountPageState =
 const unavailable = (): CustomerAccountPageState => ({ kind: "unavailable" });
 
 /**
- * Loads the account page for the current session. The referral code this
- * browser remembers from a shared link only matters at sign-up: it prefills
- * first-time profile completion, and it is recorded when this visit links the
- * account to an existing Dotypos customer. An account that was already linked
- * ignores it. A linked visit also retries the code its profile completion
- * could not record yet, then reports whether the remembered code is used up.
+ * Scopes a step's logs to its own operation name under the page's single
+ * runtime edge.
  */
-export const loadCustomerAccountPage = cache(
-  async (_locale: Locale): Promise<CustomerAccountPageState> => {
-    const session = await Effect.flatMap(
-      CustomerAuthentication,
-      (authentication) => authentication.currentUser
-    ).pipe(
-      Effect.provide(CustomerAuthentication.Default),
-      Effect.tapError((error) =>
-        Effect.logError("Account authentication failed", { error })
-      ),
-      Effect.result,
-      runWorkspaceEffect("account.profile", { boundary: "page" })
-    );
-    if (Result.isFailure(session)) return unavailable();
+const withOperation = (operation: string) =>
+  Effect.annotateLogs({ boundary: "page", operation });
 
-    const user = session.success;
-    if (!user) return { kind: "unauthenticated" };
-    if (user.deletionRequested) {
-      return { kind: "deletion-pending", email: user.email };
-    }
-
-    const rememberedReferralCode = await readRememberedReferralCode();
-    const resolution = await resolveCurrentCustomerAccount.pipe(
-      Effect.tapError((error) =>
-        Effect.logError("Account resolution failed", { error })
-      ),
-      Effect.result,
-      runWorkspaceEffect("account.resolve", { boundary: "page" })
-    );
-    if (Result.isSuccess(resolution)) {
-      const account = resolution.success.account;
-      // Resolution has released the account lock that acceptance takes.
-      await acceptAutoLinkedReferral(
-        resolution.success,
-        rememberedReferralCode
-      ).pipe(
-        Effect.provide(ReferralService.Live),
-        Effect.catchCause(() =>
-          logDegradedAccountSection("account.auto-link.referral.unavailable")
-        ),
-        runWorkspaceEffect("account.auto-link.referral", { boundary: "page" })
-      );
-      const profile = await Effect.flatMap(CustomerProfileService, (service) =>
-        service.load(account)
-      ).pipe(
-        Effect.provide(CustomerProfileService.Live),
-        Effect.tapError((error) =>
-          Effect.logError("Account profile load failed", { error })
-        ),
-        Effect.result,
-        runWorkspaceEffect("account.profile.read", { boundary: "page" })
-      );
-      if (Result.isFailure(profile)) {
-        return { kind: "authenticated-unavailable", email: user.email };
-      }
-
-      // Retries a profile-completion referral that is still waiting, outside
-      // any account lock like the auto-link above. It runs only once the
-      // linked page is certain to render, so the visit that settles the code
-      // is the one that shows its outcome.
-      const signupReferral = await recordSignupReferral(account).pipe(
-        Effect.provide(
-          Layer.mergeAll(
-            ReferralService.Live,
-            ReferralSignupIntentRepository.Live
-          )
-        ),
-        Effect.catchCause(() =>
-          logDegradedAccountSection("account.signup-referral.unavailable").pipe(
-            Effect.as(undefined)
-          )
-        ),
-        runWorkspaceEffect("account.signup-referral", { boundary: "page" })
-      );
-      // Checked after both recording paths above, so a code they just used is
-      // forgotten on this visit.
-      const rememberedReferralCodeUsed = await isRememberedReferralCodeUsed(
-        rememberedReferralCode,
-        account
-      ).pipe(
-        Effect.provide(ReferralService.Live),
-        runWorkspaceEffect("account.remembered-referral", { boundary: "page" })
-      );
-
-      const history = await Effect.flatMap(
-        CustomerReservationHistoryService,
-        (service) => service.load(account)
-      ).pipe(
-        Effect.provide(CustomerReservationHistoryService.Live),
-        Effect.tapError(() =>
-          logDegradedAccountSection("account.reservation-history.unavailable")
-        ),
-        Effect.orElseSucceed(
-          () =>
-            ({ kind: "unavailable", reason: "provider-unavailable" }) as const
-        ),
-        runWorkspaceEffect("account.reservation-history", {
-          boundary: "page",
-        })
-      );
-
-      let avatar: CustomerAvatarPresentation = { kind: "hidden" };
-      if (await areAccountAvatarsEnabled().catch(() => false)) {
-        // A media outage never blocks the account page: an avatar read failure
-        // degrades to the initials fallback.
-        const availableAvatar = await Effect.flatMap(
-          CustomerAvatarService,
-          (service) => service.lookup(account.accountId)
-        ).pipe(
-          Effect.provide(CustomerAvatarService.Live),
-          Effect.tapError(() =>
-            logDegradedAccountSection("account.avatar.unavailable")
-          ),
-          Effect.orElseSucceed(() => null),
-          runWorkspaceEffect("account.avatar", { boundary: "page" })
-        );
-        avatar = { kind: "available", avatar: availableAvatar };
-      }
-
-      const referrals = await Effect.flatMap(ReferralService, (service) =>
-        service.getAccountSummary({
-          customerAccountId: account.accountId,
-          dotyposCustomerId: account.dotyposCustomerId,
-        })
-      ).pipe(
-        Effect.flatMap((summary) =>
-          getWorkspaceRuntimeCallbackOrigin.pipe(
-            Effect.map(
-              (origin): ReferralAccountOverview => ({
-                summary,
-                shareUrl: getReferralShareUrl(summary.code, origin),
-              })
-            )
-          )
-        ),
-        Effect.provide(ReferralService.Live),
-        Effect.tapError(() =>
-          logDegradedAccountSection("account.referrals.unavailable")
-        ),
-        Effect.orElseSucceed(() => undefined),
-        runWorkspaceEffect("account.referrals", { boundary: "page" })
-      );
-
-      return {
-        kind: "linked",
-        email: user.email,
-        profile: profile.success,
-        avatar,
-        history,
-        referrals,
-        ...(signupReferral && { signupReferral }),
-        ...(rememberedReferralCodeUsed && {
-          rememberedReferralCodeUsed: true,
-        }),
-      };
-    }
-
-    const failure = resolution.failure;
-    if (failure.reason === "unauthenticated") {
-      return { kind: "unauthenticated" };
-    }
-    if (
-      failure.reason === "link-required" &&
-      failure.linkReason === "not-found"
-    ) {
-      const availableReferralCode =
-        rememberedReferralCode === undefined
-          ? undefined
-          : await findAvailableReferralCode(rememberedReferralCode);
-      return {
-        kind: "completion-required",
-        email: user.email,
-        ...(availableReferralCode && { referralCode: availableReferralCode }),
-      };
-    }
-    if (
-      failure.reason === "link-required" ||
-      failure.reason === "unverified-email"
-    ) {
-      return { kind: "support-required", email: user.email };
-    }
-    return { kind: "authenticated-unavailable", email: user.email };
+const loadLinkedAccount = Effect.fn(function* (
+  user: { readonly email: string },
+  account: LinkedCustomerAccount,
+  rememberedReferralCode: ReferralCode | undefined
+) {
+  const profile = yield* Effect.flatMap(CustomerProfileService, (service) =>
+    service.load(account)
+  ).pipe(
+    Effect.provide(CustomerProfileService.Live),
+    Effect.tapError((error) =>
+      Effect.logError("Account profile load failed", { error })
+    ),
+    Effect.result,
+    withOperation("account.profile.read")
+  );
+  if (Result.isFailure(profile)) {
+    return {
+      kind: "authenticated-unavailable",
+      email: user.email,
+    } satisfies CustomerAccountPageState;
   }
-);
+
+  // Retries a profile-completion referral that is still waiting, outside any
+  // account lock like the auto-link before it. It runs only once the linked
+  // page is certain to render, so the visit that settles the code is the one
+  // that shows its outcome.
+  const signupReferral = yield* recordSignupReferral(account).pipe(
+    Effect.provide(
+      Layer.mergeAll(ReferralService.Live, ReferralSignupIntentRepository.Live)
+    ),
+    Effect.catchCause(() =>
+      logDegradedAccountSection("account.signup-referral.unavailable").pipe(
+        Effect.as(undefined)
+      )
+    ),
+    withOperation("account.signup-referral")
+  );
+  // Checked after both recording paths, so a code they just used is forgotten
+  // on this visit.
+  const rememberedReferralCodeUsed = yield* isRememberedReferralCodeUsed(
+    rememberedReferralCode,
+    account
+  ).pipe(
+    Effect.provide(ReferralService.Live),
+    withOperation("account.remembered-referral")
+  );
+
+  const history = yield* Effect.flatMap(
+    CustomerReservationHistoryService,
+    (service) => service.load(account)
+  ).pipe(
+    Effect.provide(CustomerReservationHistoryService.Live),
+    Effect.tapError(() =>
+      logDegradedAccountSection("account.reservation-history.unavailable")
+    ),
+    Effect.orElseSucceed(
+      () => ({ kind: "unavailable", reason: "provider-unavailable" }) as const
+    ),
+    withOperation("account.reservation-history")
+  );
+
+  // An unavailable avatar capability evaluation fails closed to hidden.
+  const avatarsEnabled = yield* Effect.tryPromise(() =>
+    areAccountAvatarsEnabled()
+  ).pipe(Effect.orElseSucceed(() => false));
+  let avatar: CustomerAvatarPresentation = { kind: "hidden" };
+  if (avatarsEnabled) {
+    // A media outage never blocks the account page: an avatar read failure
+    // degrades to the initials fallback.
+    const availableAvatar = yield* Effect.flatMap(
+      CustomerAvatarService,
+      (service) => service.lookup(account.accountId)
+    ).pipe(
+      Effect.provide(CustomerAvatarService.Live),
+      Effect.tapError(() =>
+        logDegradedAccountSection("account.avatar.unavailable")
+      ),
+      Effect.orElseSucceed(() => null),
+      withOperation("account.avatar")
+    );
+    avatar = { kind: "available", avatar: availableAvatar };
+  }
+
+  const referrals = yield* Effect.flatMap(ReferralService, (service) =>
+    service.getAccountSummary({
+      customerAccountId: account.accountId,
+      dotyposCustomerId: account.dotyposCustomerId,
+    })
+  ).pipe(
+    Effect.flatMap((summary) =>
+      getWorkspaceRuntimeCallbackOrigin.pipe(
+        Effect.map(
+          (origin): ReferralAccountOverview => ({
+            summary,
+            shareUrl: getReferralShareUrl(summary.code, origin),
+          })
+        )
+      )
+    ),
+    Effect.provide(ReferralService.Live),
+    Effect.tapError(() =>
+      logDegradedAccountSection("account.referrals.unavailable")
+    ),
+    Effect.orElseSucceed(() => undefined),
+    withOperation("account.referrals")
+  );
+
+  return {
+    kind: "linked",
+    email: user.email,
+    profile: profile.success,
+    avatar,
+    history,
+    referrals,
+    ...(signupReferral && { signupReferral }),
+    ...(rememberedReferralCodeUsed && {
+      rememberedReferralCodeUsed: true as const,
+    }),
+  } satisfies CustomerAccountPageState;
+});
 
 /**
  * Read-only check of a remembered code; an unusable code or a failed check
@@ -274,8 +209,104 @@ const findAvailableReferralCode = (code: ReferralCode) =>
       logDegradedAccountSection("account.referral-code.unavailable")
     ),
     Effect.orElseSucceed(() => undefined),
-    runWorkspaceEffect("account.referral-code", { boundary: "page" })
+    withOperation("account.referral-code")
   );
+
+/**
+ * The referral code this browser remembers from a shared link only matters at
+ * sign-up: it prefills first-time profile completion, and it is recorded when
+ * this visit links the account to an existing Dotypos customer. An account
+ * that was already linked ignores it. A linked visit also retries the code its
+ * profile completion could not record yet, then reports whether the
+ * remembered code is used up.
+ */
+const loadAccountPageState = Effect.gen(function* () {
+  const session = yield* Effect.flatMap(
+    CustomerAuthentication,
+    (authentication) => authentication.currentUser
+  ).pipe(
+    Effect.provide(CustomerAuthentication.Default),
+    Effect.tapError((error) =>
+      Effect.logError("Account authentication failed", { error })
+    ),
+    Effect.result,
+    withOperation("account.profile")
+  );
+  if (Result.isFailure(session)) return unavailable();
+
+  const user = session.success;
+  if (!user) return { kind: "unauthenticated" } as const;
+  if (user.deletionRequested) {
+    return { kind: "deletion-pending", email: user.email } as const;
+  }
+
+  const rememberedReferralCode = yield* Effect.promise(
+    readRememberedReferralCode
+  );
+  const resolution = yield* resolveCurrentCustomerAccount.pipe(
+    Effect.tapError((error) =>
+      Effect.logError("Account resolution failed", { error })
+    ),
+    Effect.result,
+    withOperation("account.resolve")
+  );
+  if (Result.isSuccess(resolution)) {
+    // Resolution has released the account lock that acceptance takes.
+    yield* acceptAutoLinkedReferral(
+      resolution.success,
+      rememberedReferralCode
+    ).pipe(
+      Effect.provide(ReferralService.Live),
+      Effect.catchCause(() =>
+        logDegradedAccountSection("account.auto-link.referral.unavailable")
+      ),
+      withOperation("account.auto-link.referral")
+    );
+    return yield* loadLinkedAccount(
+      user,
+      resolution.success.account,
+      rememberedReferralCode
+    );
+  }
+
+  const failure = resolution.failure;
+  if (failure.reason === "unauthenticated") {
+    return { kind: "unauthenticated" } as const;
+  }
+  if (
+    failure.reason === "link-required" &&
+    failure.linkReason === "not-found"
+  ) {
+    const availableReferralCode =
+      rememberedReferralCode === undefined
+        ? undefined
+        : yield* findAvailableReferralCode(rememberedReferralCode);
+    return {
+      kind: "completion-required",
+      email: user.email,
+      ...(availableReferralCode && { referralCode: availableReferralCode }),
+    } satisfies CustomerAccountPageState;
+  }
+  if (
+    failure.reason === "link-required" ||
+    failure.reason === "unverified-email"
+  ) {
+    return { kind: "support-required", email: user.email } as const;
+  }
+  return { kind: "authenticated-unavailable", email: user.email } as const;
+});
+
+/**
+ * Loads the account page state behind the page's single runtime edge. The
+ * account page is the signed-in customer's site locale, so it reads no
+ * separate language preference.
+ */
+export const loadCustomerAccountPage = cache(
+  (): Promise<CustomerAccountPageState> =>
+    loadAccountPageState.pipe(
+      runWorkspaceEffect("account.page", { boundary: "page" })
+    )
+);
 
 /**
  * Records a degraded, non-blocking account section with a fixed, non-PII

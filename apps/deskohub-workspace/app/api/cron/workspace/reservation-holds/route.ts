@@ -25,19 +25,6 @@ const sweepExpiredReservationHolds = Effect.fn("sweepExpiredReservationHolds")(
   Effect.scoped
 );
 
-const handleReservationHoldCleanupCronError = Effect.fn(
-  "handleReservationHoldCleanupCronError"
-)(function* (cause: unknown) {
-  yield* Effect.logError("Reservation hold cleanup cron failed", {
-    cause,
-  });
-
-  return NextResponse.json(
-    { error: "Reservation hold cleanup failed" },
-    { status: 500 }
-  );
-});
-
 export const GET = defineWorkspaceRoute(
   {
     operation: "reservationHoldCleanupCron",
@@ -54,7 +41,18 @@ export const GET = defineWorkspaceRoute(
 
     return sweepExpiredReservationHolds().pipe(
       Effect.provide(ReservationHoldCleanupService.Live),
-      Effect.catch(handleReservationHoldCleanupCronError)
+      Effect.catch(
+        Effect.fn("handleReservationHoldCleanupCronError")(function* (cause) {
+          yield* Effect.logError("Reservation hold cleanup cron failed", {
+            cause,
+          });
+
+          return NextResponse.json(
+            { error: "Reservation hold cleanup failed" },
+            { status: 500 }
+          );
+        })
+      )
     );
   }
 );

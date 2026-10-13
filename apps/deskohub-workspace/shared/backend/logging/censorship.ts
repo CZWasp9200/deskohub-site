@@ -16,6 +16,7 @@ import {
   type LogLevel,
   Predicate,
   References,
+  Result,
 } from "effect";
 import { getSensitiveDatabaseQueryParameterIndexes } from "./database-query-parameter-classifier";
 
@@ -192,13 +193,7 @@ const redactUrlSearchParams = (url: URL): void => {
 };
 
 const censorUrlString = (value: string) => {
-  let absoluteUrl: URL | undefined;
-
-  try {
-    absoluteUrl = new URL(value);
-  } catch {
-    absoluteUrl = undefined;
-  }
+  const absoluteUrl = URL.parse(value);
 
   if (absoluteUrl) {
     if (absoluteUrl.protocol !== "http:" && absoluteUrl.protocol !== "https:") {
@@ -219,41 +214,37 @@ const censorUrlString = (value: string) => {
     return value;
   }
 
-  try {
-    const relativeUrl = new URL(value, "https://deskohub.local");
-    redactUrlSearchParams(relativeUrl);
+  const relativeUrl = URL.parse(value, "https://deskohub.local");
+  if (!relativeUrl) return value;
 
-    if (value.startsWith("//")) {
-      return `//${relativeUrl.host}${relativeUrl.pathname}${relativeUrl.search}${relativeUrl.hash}`;
-    }
+  redactUrlSearchParams(relativeUrl);
 
-    if (!(isPathRelativeUrl || isQueryOnlyRelativeUrl)) {
-      return `${relativeUrl.pathname.slice(1)}${relativeUrl.search}${relativeUrl.hash}`;
-    }
-
-    return isQueryOnlyRelativeUrl
-      ? `${relativeUrl.search}${relativeUrl.hash}`
-      : `${relativeUrl.pathname}${relativeUrl.search}${relativeUrl.hash}`;
-  } catch {
-    return value;
+  if (value.startsWith("//")) {
+    return `//${relativeUrl.host}${relativeUrl.pathname}${relativeUrl.search}${relativeUrl.hash}`;
   }
+
+  if (!(isPathRelativeUrl || isQueryOnlyRelativeUrl)) {
+    return `${relativeUrl.pathname.slice(1)}${relativeUrl.search}${relativeUrl.hash}`;
+  }
+
+  return isQueryOnlyRelativeUrl
+    ? `${relativeUrl.search}${relativeUrl.hash}`
+    : `${relativeUrl.pathname}${relativeUrl.search}${relativeUrl.hash}`;
 };
 
 const censorStackFrameSource = (source: string): string | undefined => {
   const location = source.replace(/[?#].*$/, "");
   if (/^(?:\/(?!\/)|[A-Za-z]:[\\/])/.test(location)) return location;
 
-  try {
-    const isProtocolRelative = location.startsWith("//");
-    const url = isProtocolRelative
-      ? new URL(location, "https://deskohub.local")
-      : new URL(location);
-    url.username = "";
-    url.password = "";
-    return isProtocolRelative ? `//${url.host}${url.pathname}` : url.toString();
-  } catch {
-    return undefined;
-  }
+  const isProtocolRelative = location.startsWith("//");
+  const url = isProtocolRelative
+    ? URL.parse(location, "https://deskohub.local")
+    : URL.parse(location);
+  if (!url) return undefined;
+
+  url.username = "";
+  url.password = "";
+  return isProtocolRelative ? `//${url.host}${url.pathname}` : url.toString();
 };
 
 const censorStackTrace = (stack: string, message: string): string => {
@@ -336,13 +327,9 @@ const censorQueryParameter = <T>(
     return censorLogValueInternal(value, seen);
   }
 
-  try {
-    return JSON.stringify(
-      censorLogValueInternal(JSON.parse(value) as unknown, seen)
-    );
-  } catch {
-    return censorLogValueInternal(value, seen);
-  }
+  return Result.try(() =>
+    JSON.stringify(censorLogValueInternal(JSON.parse(value) as unknown, seen))
+  ).pipe(Result.getOrElse(() => censorLogValueInternal(value, seen)));
 };
 
 const censorQueryParamsInternal = <T>(
@@ -681,11 +668,9 @@ const toOtelValue = <T>(value: T): AnyValue => {
     return value;
   }
 
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return String(value);
-  }
+  return Result.try(() => JSON.stringify(value)).pipe(
+    Result.getOrElse(() => String(value))
+  );
 };
 
 const toOtelBody = <T>(message: T): AnyValue => {

@@ -28,10 +28,8 @@ export function getAccountScreenCopy(locale: Locale) {
         unverified: m.accountProfileEmailVerificationUnverified({}, { locale }),
       },
       languageLabel: m.accountProfileScreenLanguageLabel({}, { locale }),
-      languageUnavailableValue: m.accountProfileScreenLanguageUnavailableValue(
-        {},
-        { locale }
-      ),
+      languageOptionCs: m.accountProfileScreenLanguageOptionCs({}, { locale }),
+      languageOptionEn: m.accountProfileScreenLanguageOptionEn({}, { locale }),
     } satisfies ProfileScreenCopy,
     billing: {
       title: m.accountSectionBilling({}, { locale }),

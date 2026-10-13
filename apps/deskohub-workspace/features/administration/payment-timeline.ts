@@ -1,4 +1,6 @@
 import { isNexiRefundOperation, type NexiOperation } from "@deskohub/nexi";
+import { Option } from "effect";
+import { parseInstant } from "@/shared/utils/temporal";
 import type {
   AdministrationPaymentAttempt,
   AdministrationTimelineItem,
@@ -10,14 +12,13 @@ import {
 } from "./payment-presentation";
 
 /** The operation's time as an instant, or nothing when Nexi sent none or an unreadable one. */
-const getOperationOccurredAt = (operation: NexiOperation) => {
-  if (!operation.operationTime) return undefined;
-  try {
-    return Temporal.Instant.from(operation.operationTime).toString();
-  } catch {
-    return undefined;
-  }
-};
+const getOperationOccurredAt = (operation: NexiOperation) =>
+  operation.operationTime
+    ? parseInstant(operation.operationTime).pipe(
+        Option.map((instant) => instant.toString()),
+        Option.getOrUndefined
+      )
+    : undefined;
 
 /** Whether the order timeline shows a Nexi refund operation for this order. */
 const hasRefundOperationItem = (order: AdministrationOrder | undefined) =>

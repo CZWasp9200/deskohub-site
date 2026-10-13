@@ -4,6 +4,7 @@ import "@/shared/testing/workspace-test-env";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { AresLookupFailure } from "@deskohub/ares";
 import { Context, Effect, Layer } from "effect";
+import { m } from "@/features/i18n";
 import { ReferralError } from "@/features/referrals/contracts";
 import { CustomerAccountAccessError } from "./customer-account";
 
@@ -14,9 +15,16 @@ const revalidatePath = mock((_path: string) => undefined);
 mock.module("next/cache", () => ({ revalidatePath }));
 
 const requestHeaders = new Headers({ referer: "https://deskohub.test/en-US" });
+const cookieWrites: { name: string; value: string }[] = [];
 mock.module("next/headers", () => ({
   headers: async () => requestHeaders,
-  cookies: async () => ({ getAll: () => [] }),
+  cookies: async () => ({
+    get: () => undefined,
+    getAll: () => [],
+    set: (name: string, value: string) => {
+      cookieWrites.push({ name, value });
+    },
+  }),
 }));
 mock.module("next/server", () => ({
   after: () => undefined,
@@ -156,7 +164,13 @@ Object.assign(SignupIntents, {
     findAttributedCode: () => Effect.succeed(undefined),
   }),
 });
+// The real account link repository, which the locale preference action loads,
+// imports the intent insert; only the service is replaced.
+const realSignupIntentModule = await import(
+  "@/features/referrals/signup-intent.repository"
+);
 mock.module("@/features/referrals/signup-intent.repository", () => ({
+  ...realSignupIntentModule,
   ReferralSignupIntentRepository: SignupIntents,
 }));
 
@@ -267,6 +281,25 @@ mock.module("@/features/referrals/remembered-referral-code.server", () => ({
   forgetRememberedReferralCode,
 }));
 
+type PreferenceSave = {
+  readonly accountId: "@test/account-id";
+  readonly locale: "cs-CZ" | "en-US";
+};
+
+let preferenceSaveEffect: Effect.Effect<void, unknown> =
+  Effect.succeed(undefined);
+let preferenceSaveCalls: PreferenceSave[] = [];
+
+mock.module("@/features/account/backend/customer-locale-preference", () => ({
+  saveAccountLocalePreference: (accountId: string, locale: string) => {
+    preferenceSaveCalls.push({
+      accountId: accountId as "@test/account-id",
+      locale: locale as "cs-CZ" | "en-US",
+    });
+    return preferenceSaveEffect;
+  },
+}));
+
 let lookupOutcome: Effect.Effect<
   typeof syntheticAresCompany,
   AresLookupFailure
@@ -332,6 +365,9 @@ describe("account actions", () => {
       dotyposCustomerId: "60111",
     });
     deleteUser = () => Promise.resolve({ success: true });
+    preferenceSaveEffect = Effect.succeed(undefined);
+    preferenceSaveCalls = [];
+    cookieWrites.length = 0;
   });
 
   const importActions = () => import("./actions");
@@ -671,6 +707,15 @@ describe("account actions", () => {
     expect(revalidatePath).not.toHaveBeenCalled();
   });
 
+  test("moves the locale cookie to the saved preference", async () => {
+    const { localeCookieName } = await import("@/features/i18n/routing");
+    const { updateLocalePreference } = await importActions();
+
+    await updateLocalePreference({ locale: "cs-CZ" });
+
+    expect(cookieWrites).toEqual([{ name: localeCookieName, value: "cs-CZ" }]);
+  });
+
   test("returns the existing unavailable failure without reading account data when accounts are disabled", async () => {
     areAccountsEnabled.mockResolvedValue(false);
     const { completeCustomerProfile } = await importActions();
@@ -695,6 +740,103 @@ describe("account actions", () => {
     );
     expect(profileCalls).toHaveLength(0);
     expect(areAccountsEnabled).toHaveBeenCalledTimes(1);
+  });
+
+  test("saves the locale preference for the verified account", async () => {
+    const { updateLocalePreference } = await importActions();
+
+    const result = await updateLocalePreference({ locale: "cs-CZ" });
+
+    expect(result).toEqual({ data: { status: "saved" } });
+    expect(preferenceSaveCalls).toEqual([
+      { accountId: "@test/account-id", locale: "cs-CZ" },
+    ]);
+    expect(profileCalls).toHaveLength(0);
+    expect(revalidatePath).not.toHaveBeenCalled();
+  });
+
+  test("rejects locales outside the selectable set", async () => {
+    const { updateLocalePreference } = await importActions();
+
+    const result = await updateLocalePreference({
+      locale: "de-DE",
+    } as never);
+
+    expect(result.validationErrors).toBeTruthy();
+    expect(preferenceSaveCalls).toHaveLength(0);
+  });
+
+  test("accepts every locale of the inlang locales tuple and no hard-coded list remains", async () => {
+    const { locales } = await import("@/features/i18n");
+    const { updateLocalePreference } = await importActions();
+
+    for (const locale of locales) {
+      const result = await updateLocalePreference({ locale });
+      expect(result).toEqual({ data: { status: "saved" } });
+    }
+    expect(preferenceSaveCalls.map(({ locale }) => locale)).toEqual([
+      ...locales,
+    ]);
+
+    // The validation must stay derived from the locales tuple: a structural
+    // AST check verifies no literal locale list and no locale string literal
+    // exists in the action module.
+    const { callsNamed, parseTrackedSource, stringLiterals } = await import(
+      "../../scripts/shared/source-ast"
+    );
+    const actionsSource = parseTrackedSource(
+      new URL("./actions.ts", import.meta.url).pathname
+    );
+    for (const call of callsNamed(actionsSource.ast, "Literals")) {
+      expect(call.arguments[0]?.type).toBe("Identifier");
+    }
+    const localeLiterals = stringLiterals(actionsSource.ast)
+      .map(({ value }) => value)
+      .filter((value) => locales.includes(value as never));
+    expect(localeLiterals).toEqual([]);
+  });
+
+  test("returns the session-expired error without saving when unauthenticated", async () => {
+    currentUser = Effect.succeed(null);
+    const { updateLocalePreference } = await importActions();
+
+    const result = await updateLocalePreference({ locale: "cs-CZ" });
+
+    expect(result.serverError).toBe(
+      m.accountSessionExpired({}, { locale: "en-US" })
+    );
+    expect(preferenceSaveCalls).toHaveLength(0);
+  });
+
+  test("returns the deletion-pending error when the account is being deleted", async () => {
+    preferenceSaveEffect = Effect.fail(
+      new CustomerAccountAccessError({
+        reason: "link-required",
+        linkReason: "deletion-requested",
+      })
+    );
+    const { updateLocalePreference } = await importActions();
+
+    const result = await updateLocalePreference({ locale: "en-US" });
+
+    expect(result.serverError).toBe(
+      m.accountDeletionPendingError({}, { locale: "en-US" })
+    );
+    expect(preferenceSaveCalls).toHaveLength(1);
+    expect(cookieWrites).toEqual([]);
+  });
+
+  test("returns the generic profile error without leaking the write failure", async () => {
+    preferenceSaveEffect = Effect.fail(
+      new CustomerAccountAccessError({ reason: "unavailable" })
+    );
+    const { updateLocalePreference } = await importActions();
+
+    const result = await updateLocalePreference({ locale: "en-US" });
+
+    expect(result.serverError).toBe(
+      m.accountProfileError({}, { locale: "en-US" })
+    );
   });
 
   test("deletes through the Better Auth endpoint and revalidates account and deleted paths", async () => {

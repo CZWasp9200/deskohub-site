@@ -6,6 +6,7 @@ import { PublicSiteFooter } from "@/shared/components/public-site-footer";
 import {
   getSiteHeaderAccessibilityLabels,
   getSiteHeaderLanguageLabels,
+  getSiteHeaderLocalePreference,
 } from "@/shared/components/site-header-config";
 import { SkipLink } from "@/shared/components/skip-link";
 
@@ -19,6 +20,7 @@ export default async function MinimalHeaderLayout({
   const locale = await getRequestLocale();
   const languageLabels = getSiteHeaderLanguageLabels(locale);
   const { languageSwitcherLabel } = getSiteHeaderAccessibilityLabels(locale);
+  const localePreference = await getSiteHeaderLocalePreference();
 
   return (
     <>
@@ -27,6 +29,7 @@ export default async function MinimalHeaderLayout({
         currentLocale={locale}
         languageLabels={languageLabels}
         languageSwitcherLabel={languageSwitcherLabel}
+        localePreference={localePreference}
       />
       <div id="main-content" tabIndex={-1}>
         {children}

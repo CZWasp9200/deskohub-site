@@ -2,20 +2,50 @@ import {
   afterAll,
   afterEach,
   beforeAll,
+  beforeEach,
   describe,
   expect,
+  mock,
   test,
 } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  type RenderResult,
+  render,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { type Locale, m } from "@/features/i18n";
 import { Input } from "@/shared/components/ui/input";
 import {
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
 } from "@/shared/testing/workspace-component-test-env";
 import type { ProfileScreenCopy, ProfileScreenProps } from "./profile-screen";
-import { ProfileScreen } from "./profile-screen";
+
+let ProfileScreen: (props: ProfileScreenProps) => React.ReactNode;
+
+type LanguageActionResult = {
+  readonly data?: { readonly status?: string };
+  readonly serverError?: string;
+};
+
+// The real shared locale switch runs; only its Server Action is replaced.
+const updateLocalePreference = mock(
+  (_input: { locale: Locale }): Promise<LanguageActionResult> =>
+    Promise.resolve({ data: { status: "saved" } })
+);
+
+mock.module("@/features/account/actions", () => ({
+  updateLocalePreference,
+}));
+
+registerWorkspaceComponentTestEnv();
+({ ProfileScreen } = await import("./profile-screen"));
 
 const adaAddress = testEmailAddress("ada");
 
@@ -25,8 +55,9 @@ const englishCopy: ProfileScreenCopy = {
     unverified: "This email still needs verification.",
     verified: "This email has been successfully verified.",
   },
-  languageLabel: "Preferred communication language",
-  languageUnavailableValue: "Not set",
+  languageLabel: "Preferred language",
+  languageOptionCs: "Čeština",
+  languageOptionEn: "English (US)",
   memberFallback: "Workspace member",
   title: "Member profile and settings",
   verifiedEmail: "Verified login email",
@@ -38,17 +69,30 @@ const czechCopy: ProfileScreenCopy = {
     unverified: "Tento e-mail stále vyžaduje ověření.",
     verified: "Tento e-mail byl úspěšně ověřen.",
   },
-  languageLabel: "Preferovaný komunikační jazyk",
-  languageUnavailableValue: "Nenastaveno",
+  languageLabel: "Preferovaný jazyk",
+  languageOptionCs: "Čeština",
+  languageOptionEn: "English (US)",
   memberFallback: "Člen Workspace",
   title: "Profil a nastavení",
   verifiedEmail: "Ověřený přihlašovací e-mail",
 };
 
-const formerLanguageUnavailableDescriptions = {
-  "en-US": "Language preferences are not saved yet.",
-  "cs-CZ": "Preference jazyka se zatím neukládají.",
-} as const;
+test("keeps the compiled catalog copy in sync with the component copy fixtures", () => {
+  for (const [locale, copy] of [
+    ["en-US", englishCopy],
+    ["cs-CZ", czechCopy],
+  ] as const) {
+    expect(m.accountProfileScreenLanguageLabel({}, { locale })).toBe(
+      copy.languageLabel
+    );
+    expect(m.accountProfileScreenLanguageOptionCs({}, { locale })).toBe(
+      copy.languageOptionCs
+    );
+    expect(m.accountProfileScreenLanguageOptionEn({}, { locale })).toBe(
+      copy.languageOptionEn
+    );
+  }
+});
 
 const profileFields = (
   <>
@@ -175,66 +219,189 @@ describe("ProfileScreen", () => {
     expect(markup).toContain('data-avatar-marker="avatar-slot"');
   });
 
-  test("renders the unavailable language control as a disabled localized combobox", () => {
-    for (const [locale, copy] of [
-      ["en-US", englishCopy],
-      ["cs-CZ", czechCopy],
+  const renderLanguageControl = (
+    locale: Locale = "en-US",
+    copy: ProfileScreenCopy = englishCopy
+  ) =>
+    render(
+      <ProfileScreen
+        copy={copy}
+        email={adaAddress}
+        firstName="Ada"
+        lastName="Lovelace"
+        locale={locale}
+      >
+        {profileFields}
+      </ProfileScreen>
+    );
+
+  const languageTrigger = (
+    view: RenderResult,
+    copy: ProfileScreenCopy = englishCopy
+  ) => view.getByRole("combobox", { name: copy.languageLabel });
+
+  const openLanguageListbox = async (
+    view: RenderResult,
+    copy: ProfileScreenCopy = englishCopy
+  ) => {
+    await act(async () => {
+      fireEvent.keyDown(languageTrigger(view, copy), { key: "Enter" });
+    });
+    return view.findByRole("listbox");
+  };
+
+  const chooseLanguage = async (view: RenderResult, name: string) => {
+    await openLanguageListbox(view);
+    const option = view.getByRole("option", { name });
+    await act(async () => {
+      option.focus();
+    });
+    await act(async () => {
+      fireEvent.keyDown(option, { key: "Enter" });
+    });
+  };
+
+  beforeEach(() => {
+    updateLocalePreference.mockReset();
+    updateLocalePreference.mockImplementation(() =>
+      Promise.resolve({ data: { status: "saved" } })
+    );
+    window.location.href = "http://localhost/en-US/account?section=profile";
+  });
+
+  test("shows the page locale as the selected language", async () => {
+    for (const [locale, copy, label] of [
+      ["en-US", englishCopy, "English (US)"],
+      ["cs-CZ", czechCopy, "Čeština"],
     ] as const) {
-      const view = render(
-        <form data-testid="profile-form">
-          <ProfileScreen
-            copy={copy}
-            email={adaAddress}
-            firstName="Ada"
-            footer={<button type="button">Save profile</button>}
-            lastName="Lovelace"
-            locale={locale}
-          >
-            {profileFields}
-          </ProfileScreen>
-        </form>
-      );
-      const languageTrigger = view.getByRole("combobox", {
-        name: copy.languageLabel,
-      });
-      const languageWrapper =
-        languageTrigger.closest<HTMLElement>('[role="group"]');
-      const nativeSelect = view.container.querySelector<HTMLSelectElement>(
-        'select[aria-hidden="true"]'
-      );
+      const view = renderLanguageControl(locale, copy);
+      const trigger = languageTrigger(view, copy);
 
-      for (const description of Object.values(
-        formerLanguageUnavailableDescriptions
-      )) {
-        expect(view.queryByText(description)).toBeNull();
-      }
-      expect(languageTrigger.getAttribute("data-slot")).toBe("select-trigger");
-      expect(languageTrigger.tagName).toBe("BUTTON");
-      expect((languageTrigger as HTMLButtonElement).disabled).toBe(true);
-      expect(languageWrapper).not.toBeNull();
-      expect(languageTrigger.textContent).toContain(
-        copy.languageUnavailableValue
-      );
-      expect(view.getByLabelText(copy.languageLabel)).toBe(languageTrigger);
-      expect(languageTrigger.getAttribute("aria-describedby")).toBeNull();
+      // Radix registers item text only once the content has mounted, so open
+      // the listbox before asserting the selected label.
+      const listbox = await openLanguageListbox(view, copy);
+
+      expect(trigger.textContent).toContain(label);
       expect(
-        view.getByRole("button", { name: copy.emailVerification.verified })
-      ).toBeTruthy();
-      expect(nativeSelect).not.toBeNull();
-      expect(nativeSelect?.disabled).toBe(true);
+        within(listbox)
+          .getByRole("option", { selected: true })
+          .textContent?.includes(label)
+      ).toBe(true);
+      cleanup();
+    }
+  });
 
-      const form = view.getByTestId("profile-form") as HTMLFormElement;
-      expect([...new FormData(form).keys()]).not.toContain("language");
+  test("offers exactly one labelled option for every inlang locale", async () => {
+    const { locales } = await import("@/features/i18n");
+    const view = renderLanguageControl();
 
-      fireEvent.click(languageTrigger);
-      fireEvent.keyDown(languageTrigger, { key: "ArrowDown" });
+    const listbox = await openLanguageListbox(view);
 
-      expect(view.queryByRole("listbox")).toBeNull();
-      expect(languageTrigger.textContent).toContain(
-        copy.languageUnavailableValue
+    const options = within(listbox).getAllByRole("option");
+    expect(options).toHaveLength(locales.length);
+    // The option order follows the inlang locales tuple, and every locale has
+    // a non-empty translated label.
+    const labelsByLocale = {
+      "cs-CZ": englishCopy.languageOptionCs,
+      "en-US": englishCopy.languageOptionEn,
+    };
+    expect(options.map((option) => option.textContent)).toEqual(
+      locales.map((locale) => labelsByLocale[locale])
+    );
+  });
+
+  test("renders the language control without a separate Save button", () => {
+    const view = renderLanguageControl();
+
+    expect(view.queryByRole("button", { name: "Save" })).toBeNull();
+    expect(view.queryByRole("status")).toBeNull();
+  });
+
+  test("saves the chosen language, then moves the document to it", async () => {
+    const saved = Promise.withResolvers<LanguageActionResult>();
+    updateLocalePreference.mockImplementationOnce(() => saved.promise);
+    const view = renderLanguageControl();
+
+    await chooseLanguage(view, "Čeština");
+
+    expect(updateLocalePreference).toHaveBeenCalledWith({ locale: "cs-CZ" });
+    expect(window.location.pathname).toBe("/en-US/account");
+    // The control shows the choice and stays locked while the switch runs.
+    expect(languageTrigger(view).textContent).toContain("Čeština");
+    expect((languageTrigger(view) as HTMLButtonElement).disabled).toBe(true);
+
+    await act(async () => {
+      saved.resolve({ data: { status: "saved" } });
+      await saved.promise;
+    });
+
+    await waitFor(() =>
+      expect(window.location.pathname).toBe("/cs-CZ/account")
+    );
+    expect(window.location.search).toBe("?section=profile");
+    expect(updateLocalePreference).toHaveBeenCalledTimes(1);
+  });
+
+  test("still moves the document when the save is rejected or fails in transport", async () => {
+    for (const failure of [
+      () => Promise.resolve({ serverError: "save rejected" }),
+      () => Promise.reject(new Error("network unreachable")),
+    ]) {
+      window.location.href = "http://localhost/en-US/account?section=profile";
+      updateLocalePreference.mockImplementationOnce(failure);
+      const view = renderLanguageControl();
+
+      await chooseLanguage(view, "Čeština");
+
+      await waitFor(() =>
+        expect(window.location.pathname).toBe("/cs-CZ/account")
       );
       cleanup();
     }
+  });
+
+  test("does nothing when the current language is picked again", async () => {
+    const view = renderLanguageControl();
+
+    await chooseLanguage(view, "English (US)");
+
+    expect(updateLocalePreference).not.toHaveBeenCalled();
+    expect(window.location.pathname).toBe("/en-US/account");
+    expect((languageTrigger(view) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  test("keeps the language control out of the surrounding profile form submission", async () => {
+    let submitted = 0;
+    const view = render(
+      <form
+        data-testid="profile-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          submitted += 1;
+        }}
+      >
+        <ProfileScreen
+          copy={englishCopy}
+          email={adaAddress}
+          firstName="Ada"
+          lastName="Lovelace"
+          locale="en-US"
+        >
+          {profileFields}
+        </ProfileScreen>
+      </form>
+    );
+    const form = view.getByTestId("profile-form") as HTMLFormElement;
+
+    expect(languageTrigger(view).getAttribute("type")).toBe("button");
+    expect([...new FormData(form).keys()]).not.toContain("language");
+
+    await act(async () => {
+      fireEvent.submit(form);
+    });
+
+    expect(submitted).toBe(1);
+    expect(updateLocalePreference).not.toHaveBeenCalled();
   });
 
   test("uses real Unicode code points in the display name", () => {
@@ -255,7 +422,6 @@ describe("ProfileScreen", () => {
       copy: czechCopy,
       firstName: "",
       lastName: null,
-      locale: "cs-CZ",
     });
 
     expect(markup).not.toMatch(/member since|Prague|Czechia|turnstile|access/i);

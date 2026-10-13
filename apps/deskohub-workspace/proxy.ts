@@ -1,20 +1,17 @@
 import {
   getLocaleFromRequestPathname,
   getLocalizedRedirectPathname,
-  resolveRequestLocale,
   setLocaleCookie,
 } from "@deskohub/i18n/next";
+import { getSessionCookie } from "better-auth/cookies";
 import { Result } from "effect";
 import {
   type MiddlewareConfig,
   type NextRequest,
   NextResponse,
 } from "next/server";
-import {
-  localeConfig,
-  localeCookieName,
-  locales,
-} from "@/features/i18n/routing";
+import { resolveWorkspaceLocale } from "@/features/i18n/locale-resolution";
+import { localeCookieName, locales } from "@/features/i18n/routing";
 import {
   findSharedReferralCodeToRemember,
   referralCodeCookieName,
@@ -87,6 +84,38 @@ const findSharedReferralCodeOfNavigation = (request: NextRequest) =>
 const isSecureRequest = (request: NextRequest) =>
   request.nextUrl.protocol === "https:";
 
+// Only page requests from a browser holding a session cookie can carry a saved
+// locale preference, so guests and router prefetches never load the reader or
+// touch the database. Prefetched links already share the page's locale. The
+// cookie check is Better Auth's optimistic presence test; the reader then
+// validates the session through Better Auth. A reader that fails to load
+// counts as no preference, like a failed read.
+//
+// Accepted side effect: for a correctly signed cookie of an expired or revoked
+// session, Better Auth's `getSession` deletes the expired session row and
+// expires the cookie through `nextCookies`. Next then replaces this response's
+// Set-Cookie with that expiry, so the locale cookie is not refreshed on this
+// one response; the URL still carries the locale, and the next (guest) request
+// sets the cookie again.
+const pageLocalePreference = async (request: NextRequest) => {
+  if (
+    (request.method !== "GET" && request.method !== "HEAD") ||
+    request.headers.has("next-router-prefetch") ||
+    !getSessionCookie(request)
+  ) {
+    return undefined;
+  }
+
+  try {
+    const { readPageLocalePreference } = await import(
+      "./features/i18n/server/page-locale-preference.server"
+    );
+    return await readPageLocalePreference(request.headers, request.nextUrl);
+  } catch {
+    return undefined;
+  }
+};
+
 export async function proxy(request: NextRequest) {
   if (isAdministrationPath(request.nextUrl.pathname)) {
     if (
@@ -137,14 +166,28 @@ export async function proxy(request: NextRequest) {
 
   const localeFromUrl = getLocaleFromRequestPathname(request, locales);
 
-  if (localeFromUrl) {
-    if (hasReservationCapabilityToExchange(request)) {
-      const { exchangeReservationCapability } = await import(
-        "./features/reservation/backend/reservation-capability-exchange"
-      );
-      return exchangeReservationCapability(request, localeFromUrl);
-    }
+  // A reservation capability is bound to the locale it was issued in, so it is
+  // exchanged before any preference redirect moves the request elsewhere.
+  if (localeFromUrl && hasReservationCapabilityToExchange(request)) {
+    const { exchangeReservationCapability } = await import(
+      "./features/reservation/backend/reservation-capability-exchange"
+    );
+    return exchangeReservationCapability(request, localeFromUrl);
+  }
 
+  // A verified continuation (a Pay state or an invoice link) keeps the locale
+  // it was issued in; the saved preference applies everywhere else.
+  const savedPreference = await pageLocalePreference(request);
+  const resolvedLocale = resolveWorkspaceLocale(
+    {
+      pathname: request.nextUrl.pathname,
+      cookies: request.cookies,
+      headers: request.headers,
+    },
+    savedPreference
+  );
+
+  if (localeFromUrl === resolvedLocale) {
     const sharedReferralCode = findSharedReferralCodeOfNavigation(request);
     if (sharedReferralCode) {
       // The page rendered by this response already reads the new code.
@@ -166,15 +209,9 @@ export async function proxy(request: NextRequest) {
     ) {
       markPrivateResponse(response);
     }
-    setLocaleCookie(response, localeCookieName, localeFromUrl);
+    setLocaleCookie(response, localeCookieName, resolvedLocale);
     return response;
   }
-
-  const resolvedLocale = resolveRequestLocale({
-    request,
-    localeConfig: localeConfig,
-    localeCookieName: localeCookieName,
-  });
 
   const redirectUrl = request.nextUrl.clone();
   redirectUrl.pathname = getLocalizedRedirectPathname(
@@ -193,7 +230,10 @@ export async function proxy(request: NextRequest) {
     );
   }
   response.headers.set("Vary", "Accept-Language");
-  if (isPrivateReservationPath(request.nextUrl.pathname)) {
+  if (
+    savedPreference !== undefined ||
+    isPrivateReservationPath(request.nextUrl.pathname)
+  ) {
     markPrivateResponse(response);
   }
   setLocaleCookie(response, localeCookieName, resolvedLocale);

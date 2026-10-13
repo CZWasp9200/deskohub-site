@@ -335,11 +335,14 @@ const areAccountAvatarsEnabled = mock(() => Promise.resolve(true));
 mock.module("@/features/account/server/account-feature-flag.server", () => ({
   areAccountAvatarsEnabled,
 }));
+const runtimeRuns: { operation: string; boundary: string }[] = [];
 mock.module("@/shared/backend/workspace-effect", () => ({
   runWorkspaceEffect:
-    (_operation: string, _options: { readonly boundary: string }) =>
-    (effect: Effect.Effect<unknown, unknown, never>) =>
-      Effect.runPromise(effect),
+    (operation: string, options: { readonly boundary: string }) =>
+    (effect: Effect.Effect<unknown, unknown, never>) => {
+      runtimeRuns.push({ operation, boundary: options.boundary });
+      return Effect.runPromise(effect);
+    },
 }));
 
 describe("loadCustomerAccountPage", () => {
@@ -350,6 +353,7 @@ describe("loadCustomerAccountPage", () => {
     profileLoadCalls = 0;
     historyLoadCalls = 0;
     avatarLookupCalls = 0;
+    runtimeRuns.length = 0;
     avatarLookupEffect = Effect.succeed(null);
     referralSummaryEffect = Effect.succeed(referralSummary);
     referralSummaryCalls = [];
@@ -373,7 +377,7 @@ describe("loadCustomerAccountPage", () => {
   const loadPageState = async (remembered?: string) => {
     rememberedReferralCode = remembered;
     const { loadCustomerAccountPage } = await import("./page-data.server");
-    return loadCustomerAccountPage("en-US");
+    return loadCustomerAccountPage();
   };
 
   test("returns unauthenticated without customer data or downstream work when no session exists", async () => {
@@ -751,17 +755,28 @@ describe("loadCustomerAccountPage", () => {
     });
   });
 
-  test("renders the linked account with profile and grouped history", async () => {
-    await expect(loadPageState()).resolves.toMatchObject({
+  test("renders the linked account with profile and grouped history, in one page-boundary run", async () => {
+    await expect(loadPageState()).resolves.toEqual({
       kind: "linked",
       email: customerEmail,
-      profile: { firstName: "Ada" },
+      profile: {
+        firstName: "Ada",
+        lastName: "Lovelace",
+        phone: null,
+        billing: null,
+      },
       avatar: { kind: "available", avatar: null },
-      history: { kind: "available" },
+      history: {
+        kind: "available",
+        groups: { current: [], past: [], unavailable: [] },
+      },
       referrals: accountReferrals,
     });
     expect(referralSummaryCalls).toEqual([
       { customerAccountId: accountId, dotyposCustomerId: "60111" },
+    ]);
+    expect(runtimeRuns).toEqual([
+      { operation: "account.page", boundary: "page" },
     ]);
   });
 

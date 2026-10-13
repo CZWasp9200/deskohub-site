@@ -62,6 +62,9 @@ const completeCustomerProfile = mock(
 const updateCustomerProfile = mock(
   (): Promise<ActionResult> => Promise.resolve({ data: { status: "updated" } })
 );
+const updateLocalePreference = mock(
+  (): Promise<ActionResult> => Promise.resolve({ data: { status: "saved" } })
+);
 const deleteCustomerAccount = mock(
   (): Promise<ActionResult> => Promise.resolve({ data: { status: "deleted" } })
 );
@@ -75,6 +78,7 @@ mock.module("@/features/account/actions", () => ({
   completeCustomerProfile,
   deleteCustomerAccount,
   updateCustomerProfile,
+  updateLocalePreference,
 }));
 
 const uploadCustomerAvatar = mock(() =>
@@ -179,7 +183,6 @@ const { BillingScreen } = await import("./billing/billing-screen");
 const { DeleteAccountCard } = await import("./delete-account-card");
 const { LegalScreen } = await import("./legal/legal-screen");
 const { ProfileForm } = await import("./profile-form");
-const { ProfileScreen } = await import("./profile/profile-screen");
 const { ReservationHistory } = await import("./reservation-history");
 const { SignInCard } = await import("./sign-in-card");
 const { SignInLoading } = await import("./sign-in-loading");
@@ -193,24 +196,12 @@ afterEach(() => {
   signInMagicLink.mockClear();
   signOut.mockClear();
   updateCustomerProfile.mockClear();
+  updateLocalePreference.mockClear();
   uploadCustomerAvatar.mockClear();
   removeCustomerAvatar.mockClear();
 });
 
 afterAll(unregisterWorkspaceComponentTestEnv);
-
-const profileFields = (
-  <>
-    <div>
-      <label htmlFor="future-feature-first-name">First name</label>
-      <input id="future-feature-first-name" name="firstName" required />
-    </div>
-    <div>
-      <label htmlFor="future-feature-last-name">Last name</label>
-      <input id="future-feature-last-name" name="lastName" />
-    </div>
-  </>
-);
 
 const reservation = (
   overrides: Partial<CustomerReservationSummary>
@@ -237,20 +228,6 @@ type ScreenView = ReturnType<typeof render>;
 
 const locale = "en-US";
 const screenCopy = getAccountScreenCopy(locale);
-
-function renderProfileScreen(): ScreenView {
-  return render(
-    <ProfileScreen
-      copy={screenCopy.profile}
-      email={adaAddress}
-      firstName="Ada"
-      lastName="Lovelace"
-      locale={locale}
-    >
-      {profileFields}
-    </ProfileScreen>
-  );
-}
 
 function renderBillingScreen(): ScreenView {
   return render(
@@ -302,12 +279,6 @@ function expectNoFutureTooltipWrapper(control: Element) {
 }
 
 const futureFeatureTargets = [
-  {
-    label: screenCopy.profile.languageLabel,
-    name: "language control",
-    render: renderProfileScreen,
-    role: "combobox",
-  },
   {
     label: screenCopy.billing.addPaymentCard,
     name: "add payment card control",

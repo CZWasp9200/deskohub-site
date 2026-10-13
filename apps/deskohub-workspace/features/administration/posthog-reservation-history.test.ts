@@ -78,6 +78,60 @@ describe("PostHog reservation history", () => {
     });
   });
 
+  test("keeps offset timestamps and drops events with unreadable timestamps", async () => {
+    const fetchHistory: typeof globalThis.fetch = Object.assign(
+      async () =>
+        Response.json({
+          results: [
+            [
+              "payment started",
+              "2026-08-04T14:30:00+02:00",
+              "offset-uuid",
+              null,
+              null,
+            ],
+            [
+              "payment started",
+              "not a timestamp",
+              "unreadable-uuid",
+              null,
+              null,
+            ],
+          ],
+        }),
+      { preconnect: originalFetch.preconnect }
+    );
+    const layer = PostHogReservationHistory.Default.pipe(
+      Layer.provide(
+        Layer.succeed(PostHogHistoryRuntimeConfig, {
+          apiKey: "test-key",
+          environment: "preview",
+          host: "https://eu.posthog.test",
+          projectId: PostHogProjectId.make("42"),
+          serviceName: "deskohub-workspace",
+        })
+      ),
+      Layer.provide(FetchHttpClient.layer)
+    );
+
+    const result = await Effect.gen(function* () {
+      const history = yield* PostHogReservationHistory;
+      return yield* history.load(reservationId);
+    }).pipe(
+      Effect.provide(layer),
+      Effect.provideService(FetchHttpClient.Fetch, fetchHistory),
+      Effect.runPromise
+    );
+
+    expect(result).toMatchObject({
+      kind: "available",
+      items: [
+        { id: "posthog-offset-uuid", occurredAt: "2026-08-04T12:30:00Z" },
+      ],
+    });
+    expect(result.kind === "available" && result.items).toHaveLength(1);
+  });
+
   test("is unavailable without the PostHog API key", async () => {
     const layer = PostHogReservationHistory.Default.pipe(
       Layer.provide(

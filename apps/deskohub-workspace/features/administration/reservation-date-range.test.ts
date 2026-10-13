@@ -24,6 +24,25 @@ describe("administration reservation date ranges", () => {
     );
   });
 
+  test("ignores unreadable range filters", () => {
+    expect(
+      getAdministrationReservationDateRange({
+        from: "not-a-date",
+        to: "2026-08-12",
+      })
+    ).toEqual({ to: "2026-08-12" });
+    expect(
+      getAdministrationReservationDateRange({
+        from: "2026-13-40",
+        to: "",
+        date: "2026-08-12",
+      })
+    ).toEqual({ from: "2026-08-12", to: "2026-08-12" });
+    expect(
+      getAdministrationReservationDateRange({ date: "not-a-date" })
+    ).toBeUndefined();
+  });
+
   test("keeps exact-date deep links working", () => {
     expect(
       getAdministrationReservationDateRange({ date: "2026-08-12" })

@@ -1,4 +1,4 @@
-import { Clock, Effect, Schema } from "effect";
+import { Clock, Effect, Option, Schema } from "effect";
 
 export const unixTimestampSecondsSchema = Schema.Int.check(
   Schema.isGreaterThanOrEqualTo(0)
@@ -25,17 +25,37 @@ export const currentInstant: Effect.Effect<Temporal.Instant> =
     )
   );
 
+const parsePlainTime = Option.liftThrowable((value: string) =>
+  Temporal.PlainTime.from(value)
+);
+
+const parsePlainDateTime = Option.liftThrowable((value: string) =>
+  Temporal.PlainDateTime.from(value)
+);
+
+/** The instant an ISO string with an offset names, or none when it names no valid instant. */
+export const parseInstant: (value: string) => Option.Option<Temporal.Instant> =
+  Option.liftThrowable((value: string) => Temporal.Instant.from(value));
+
+const parseZonedInstant = Option.liftThrowable(
+  (value: string, timeZone: string) =>
+    Temporal.Instant.from(value).toZonedDateTimeISO(timeZone)
+);
+
+/** The calendar date an ISO string names, or none when it names no valid date. */
+export const parsePlainDate: (
+  value: string
+) => Option.Option<Temporal.PlainDate> = Option.liftThrowable((value: string) =>
+  Temporal.PlainDate.from(value)
+);
+
 export const localTimeSchema = Schema.String.check(
-  Schema.makeFilter((value) => {
-    try {
-      return (
-        Temporal.PlainTime.from(value).toString({ smallestUnit: "minute" }) ===
-        value
-      );
-    } catch {
-      return false;
-    }
-  })
+  Schema.makeFilter((value) =>
+    Option.exists(
+      parsePlainTime(value),
+      (time) => time.toString({ smallestUnit: "minute" }) === value
+    )
+  )
 )
   .pipe(Schema.brand("LocalTime"))
   .annotate({
@@ -44,18 +64,15 @@ export const localTimeSchema = Schema.String.check(
   });
 
 export const localDateTimeSchema = Schema.String.check(
-  Schema.makeFilter((value) => {
-    try {
-      const dateTime = Temporal.PlainDateTime.from(value);
-      return (
+  Schema.makeFilter((value) =>
+    Option.exists(
+      parsePlainDateTime(value),
+      (dateTime) =>
         dateTime.toString({
           smallestUnit: dateTime.second === 0 ? "minute" : "second",
         }) === value
-      );
-    } catch {
-      return false;
-    }
-  })
+    )
+  )
 )
   .pipe(Schema.brand("LocalDateTime"))
   .annotate({
@@ -66,14 +83,7 @@ export const localDateTimeSchema = Schema.String.check(
 export type LocalDateTime = typeof localDateTimeSchema.Type;
 
 export const instantStringSchema = Schema.String.check(
-  Schema.makeFilter((value) => {
-    try {
-      Temporal.Instant.from(value);
-      return true;
-    } catch {
-      return false;
-    }
-  })
+  Schema.makeFilter((value) => Option.isSome(parseInstant(value)))
 )
   .pipe(Schema.brand("Instant"))
   .annotate({
@@ -84,13 +94,11 @@ export const instantStringSchema = Schema.String.check(
 export type Instant = typeof instantStringSchema.Type;
 
 export const isPlainDateString = (annotations?: Schema.Annotations.Filter) =>
-  Schema.makeFilter<string>((value) => {
-    try {
-      return Temporal.PlainDate.from(value).toString() === value;
-    } catch {
-      return false;
-    }
-  }, annotations);
+  Schema.makeFilter<string>(
+    (value) =>
+      Option.exists(parsePlainDate(value), (date) => date.toString() === value),
+    annotations
+  );
 
 export const plainDateStringSchema = Schema.String.check(isPlainDateString())
   .pipe(Schema.brand("PlainDate"))
@@ -210,17 +218,9 @@ export const ceilToWholeHour = (value: Temporal.ZonedDateTime) =>
 
 export const makeWholeHourInstantStringSchema = (timeZone: string) =>
   instantStringSchema.check(
-    Schema.makeFilter((value) => {
-      try {
-        const time = Temporal.Instant.from(value)
-          .toZonedDateTimeISO(timeZone)
-          .toPlainTime();
-
-        return isWholeHour(time);
-      } catch {
-        return false;
-      }
-    })
+    Schema.makeFilter((value) =>
+      Option.exists(parseZonedInstant(value, timeZone), isWholeHour)
+    )
   );
 
 export const addCalendarDuration = ({

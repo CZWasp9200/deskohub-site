@@ -1,4 +1,6 @@
+import { Option } from "effect";
 import { getCurrentWorkspaceDate } from "@/features/reservation/reservation-date";
+import { parsePlainDate } from "@/shared/utils/temporal";
 import type { AdministrationReservationStatusFilter } from "./administration.service";
 
 export type AdministrationReservationDateRange = {
@@ -106,11 +108,5 @@ export const getAdministrationReservationDateShortcuts = (
   },
 });
 
-const parseCalendarDate = (value: string | undefined) => {
-  if (!value) return undefined;
-  try {
-    return Temporal.PlainDate.from(value);
-  } catch {
-    return undefined;
-  }
-};
+const parseCalendarDate = (value: string | undefined) =>
+  value ? Option.getOrUndefined(parsePlainDate(value)) : undefined;

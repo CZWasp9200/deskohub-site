@@ -33,6 +33,7 @@ export {
   getSignedPayStateSubmittedCodeApplication,
   openPayState,
   PayStateTokenError,
+  payStateContinuesOn,
   payStateDefaultTtlMilliseconds,
   payStateTokenQueryParam,
   sealPayStateForUrl,

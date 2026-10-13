@@ -47,6 +47,8 @@ import {
 import {
   captureAccountReview,
   captureReservationStatusReview,
+  type LanguagePreferenceReviewCapture,
+  withLanguagePreferenceReview,
   withSignInPendingReview,
 } from "./review-screenshots";
 import {
@@ -174,7 +176,15 @@ for (const caseId of workspaceE2EAccountCaseIds) {
       const { getDatasourceConfig } = await import("../config");
       const { runWorkspaceE2EAccountCase } = await import("./runner");
       const datasourceConfig = getDatasourceConfig(environment);
+      // The language review wrapper hands its capture hook over only when it
+      // starts the case, so the case reads it through this slot.
+      let captureLanguagePreferenceReview:
+        | LanguagePreferenceReviewCapture
+        | undefined;
       const cases = makeWorkspaceE2EAccountCases({
+        captureLanguagePreferenceReview: async (stage) => {
+          await captureLanguagePreferenceReview?.(stage);
+        },
         config: accountLane.config,
         datasourceConfig,
         lifecycleHandoff: accountLane.lifecycleHandoff,
@@ -425,6 +435,15 @@ for (const caseId of workspaceE2EAccountCaseIds) {
           getOwnedPage(),
           accountLane.config.review,
           runCase
+        );
+      } else if (caseId === "account-locale-preference") {
+        await withLanguagePreferenceReview(
+          getOwnedPage(),
+          accountLane.config.review,
+          (capture) => {
+            captureLanguagePreferenceReview = capture;
+            return runCase();
+          }
         );
       } else {
         await runCase();

@@ -1,10 +1,9 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "e74f0c1e-77a2-4f8f-a470-ddb9e9d8cc39",
+  "id": "133f0519-6459-4072-8bf2-d94c730d9df2",
   "prevIds": [
-    "a55af6a7-82a3-466c-be4f-febdfa0bfe49",
-    "e5bbe96c-f234-48c2-aa4c-c032006272d6"
+    "516a1449-1a17-4fb4-bfdc-e56f8c535529"
   ],
   "ddl": [
     {
@@ -4095,6 +4094,19 @@
       "table": "workspace_reservations"
     },
     {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "active_customer_email_delivery_locale",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "workspace_reservations"
+    },
+    {
       "type": "jsonb",
       "typeSchema": null,
       "notNull": true,
@@ -4714,6 +4726,19 @@
       "generated": null,
       "identity": null,
       "name": "deletion_requested_at",
+      "entityType": "columns",
+      "schema": "auth",
+      "table": "user"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "locale",
       "entityType": "columns",
       "schema": "auth",
       "table": "user"
@@ -8415,6 +8440,13 @@
       "entityType": "checks",
       "schema": "public",
       "table": "workspace_reservations"
+    },
+    {
+      "value": "\"locale\" in ('en-US', 'cs-CZ')",
+      "name": "user_locale_check",
+      "entityType": "checks",
+      "schema": "auth",
+      "table": "user"
     }
   ],
   "renames": []

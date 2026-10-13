@@ -1,8 +1,11 @@
 import "@/shared/testing/workspace-test-env";
 
 import { expect, test } from "bun:test";
-import { Effect } from "effect";
-import { getWorkspaceCallbackOrigin } from "./workspace-url.config";
+import { Cause, Effect, Exit } from "effect";
+import {
+  getWorkspaceCallbackOrigin,
+  WorkspaceUrlConfigError,
+} from "./workspace-url.config";
 
 const getOrigin = (environment: {
   readonly deploymentEnvironment: "development" | "preview" | "production";
@@ -39,4 +42,40 @@ test("selects the callback origin from the runtime environment", () => {
       productionUrl: "workspace.deskohub.cz",
     })
   ).toBe("https://workspace.deskohub.cz");
+});
+
+test("fails with a typed configuration error when the callback URL is missing", () => {
+  const exit = Effect.runSyncExit(
+    getWorkspaceCallbackOrigin({
+      deploymentEnvironment: "production",
+      deploymentUrl: "ignored.vercel.app",
+      productionUrl: undefined,
+    })
+  );
+
+  expect(exit).toEqual(
+    Exit.fail(
+      new WorkspaceUrlConfigError({
+        message: "Payment checkout callback URL is not configured.",
+      })
+    )
+  );
+});
+
+test("fails with a typed configuration error that keeps the URL parse cause", () => {
+  const exit = Effect.runSyncExit(
+    getWorkspaceCallbackOrigin({
+      deploymentEnvironment: "preview",
+      deploymentUrl: "https://exa mple.vercel.app",
+      productionUrl: undefined,
+    })
+  );
+
+  expect(Exit.isFailure(exit)).toBe(true);
+  const error = Exit.isFailure(exit) ? Cause.squash(exit.cause) : undefined;
+  expect(error).toBeInstanceOf(WorkspaceUrlConfigError);
+  expect(error).toMatchObject({
+    message: "Payment checkout callback URL is not configured.",
+  });
+  expect((error as WorkspaceUrlConfigError).cause).toBeInstanceOf(TypeError);
 });

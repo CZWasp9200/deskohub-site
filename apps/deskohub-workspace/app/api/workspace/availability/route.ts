@@ -1,5 +1,4 @@
-import type { ValidationError } from "@deskohub/dotypos";
-import { Effect, Predicate } from "effect";
+import { Effect } from "effect";
 import { NextResponse } from "next/server";
 import {
   loadAvailability,
@@ -25,25 +24,6 @@ const loadWorkspaceAvailabilityRequest = Effect.fn(
   });
 }, Effect.scoped);
 
-const isValidationError = (cause: unknown): cause is ValidationError =>
-  Predicate.isTagged(cause, "ValidationError") &&
-  Predicate.isString((cause as { message?: unknown }).message);
-
-const handleAvailabilityRouteError = Effect.fn("handleAvailabilityRouteError")(
-  function* (cause: unknown) {
-    if (isValidationError(cause)) {
-      return NextResponse.json({ error: cause.message }, { status: 400 });
-    }
-
-    yield* Effect.logError("Workspace availability route failed", { cause });
-
-    return NextResponse.json(
-      { error: "Workspace availability could not be loaded" },
-      { status: 500 }
-    );
-  }
-);
-
 export const GET = defineWorkspaceRoute(
   {
     operation: "workspaceAvailability",
@@ -60,6 +40,22 @@ export const GET = defineWorkspaceRoute(
         })
       ),
       Effect.provide(WorkspaceAvailabilityLoaderLive),
-      Effect.catch(handleAvailabilityRouteError)
+      Effect.catchTag("ValidationError", (error) =>
+        Effect.succeed(
+          NextResponse.json({ error: error.message }, { status: 400 })
+        )
+      ),
+      Effect.catch(
+        Effect.fn("handleAvailabilityRouteError")(function* (cause) {
+          yield* Effect.logError("Workspace availability route failed", {
+            cause,
+          });
+
+          return NextResponse.json(
+            { error: "Workspace availability could not be loaded" },
+            { status: 500 }
+          );
+        })
+      )
     )
 );

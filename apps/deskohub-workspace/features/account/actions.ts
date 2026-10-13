@@ -1,8 +1,11 @@
 "use server";
 
 import { type AresLookupFailure, AresLookupService } from "@deskohub/ares";
+import { setLocaleCookie } from "@deskohub/i18n/next";
 import { Effect, Layer, Match, Result, Schema } from "effect";
 import { revalidatePath } from "next/cache";
+import { cookies } from "next/headers";
+import { WorkspaceDatabase } from "@/db/database.service";
 import {
   accountActionError,
   requireAccountsEnabled,
@@ -11,8 +14,10 @@ import {
 import type { AresBusinessBillingDraft } from "@/features/account/backend/ares-business-draft";
 import { toAresBusinessBillingDraft } from "@/features/account/backend/ares-business-draft";
 import { deleteCurrentAccountThroughAuthEndpoint } from "@/features/account/backend/auth/delete-account-endpoint";
+import { CustomerAccountLinkRepository } from "@/features/account/backend/customer-account-link.repository";
 import { CustomerAccountResolver } from "@/features/account/backend/customer-account-resolver.service";
 import { CustomerAuthentication } from "@/features/account/backend/customer-authentication.service";
+import { saveAccountLocalePreference } from "@/features/account/backend/customer-locale-preference";
 import { CustomerProfileService } from "@/features/account/backend/customer-profile.service";
 import { completeNewCustomerProfile } from "@/features/account/backend/profile-completion";
 import { isRememberedReferralCodeUsed } from "@/features/account/backend/remembered-referral-code";
@@ -24,12 +29,14 @@ import {
 } from "@/features/account/contracts";
 import {
   CustomerAccountAccessError,
+  type CustomerAccountId,
   type LinkedCustomerAccount,
   mapCustomerAccountFailure,
 } from "@/features/account/customer-account";
 import { getAccountPath } from "@/features/account/routes";
 import type { Locale } from "@/features/i18n";
-import { m } from "@/features/i18n";
+import { locales, m } from "@/features/i18n";
+import { localeCookieName } from "@/features/i18n/routing";
 import { ReferralService } from "@/features/referrals";
 import {
   forgetRememberedReferralCode,
@@ -47,6 +54,16 @@ type ProfileCompletionReferral = {
   readonly code: string | undefined;
   readonly prefilledCode: string | undefined;
 };
+
+/**
+ * The selectable locale preferences, derived from the Inlang `locales` tuple
+ * so a locale list change is authoritative here too; the database CHECK
+ * derives from the same list.
+ */
+const localePreferenceSchema = Schema.toStandardSchemaV1(
+  Schema.Struct({ locale: Schema.Literals(locales) }),
+  { parseOptions: { errors: "all", onExcessProperty: "error" } }
+);
 
 /**
  * Saves the Dotypos-owned profile for the verified account: a not-yet-linked
@@ -118,6 +135,30 @@ const forgetUsedRememberedReferralCode = (account: LinkedCustomerAccount) =>
       used ? Effect.promise(forgetRememberedReferralCode) : Effect.void
     ),
     Effect.provide(ReferralService.Live)
+  );
+
+/**
+ * Saves the locale preference of the verified account under
+ * the account lock, then moves the locale cookie to it. The preference is
+ * also the site locale for the signed-in customer, so the caller navigates to
+ * the page under the saved locale; the Dotypos profile is never touched.
+ */
+const saveLocalePreference = (accountId: CustomerAccountId, locale: Locale) =>
+  saveAccountLocalePreference(accountId, locale).pipe(
+    Effect.andThen(
+      Effect.promise(() => cookies()).pipe(
+        Effect.map((cookieStore) =>
+          setLocaleCookie({ cookies: cookieStore }, localeCookieName, locale)
+        )
+      )
+    ),
+    Effect.provide(
+      Layer.mergeAll(
+        WorkspaceDatabase.Default,
+        CustomerAccountLinkRepository.Live,
+        CustomerAuthentication.Default
+      )
+    )
   );
 
 const completeCustomerProfileAction = defineWorkspaceAction(
@@ -195,6 +236,25 @@ const acknowledgeSignupReferralNoticeAction = defineWorkspaceAction(
             ReferralSignupIntentRepository.Live
           )
         )
+      )
+    )
+);
+
+const updateLocalePreferenceAction = defineWorkspaceAction(
+  {
+    operation: "account.update-locale-preference",
+    schema: localePreferenceSchema,
+    logInput: false,
+  },
+  (input, { locale }) =>
+    Effect.andThen(
+      requireAccountsEnabled(locale),
+      Effect.flatMap(requireVerifiedSession, (user) =>
+        saveLocalePreference(user.accountId, input.locale)
+      ).pipe(
+        Effect.mapError(accountActionError(locale)),
+        Effect.provide(CustomerAuthentication.Default),
+        Effect.as({ status: "saved" as const })
       )
     )
 );
@@ -318,12 +378,10 @@ const lookupAresBusinessWorkflow = Effect.fn(function* (
     // provider write, and it rejects accounts whose profile link is not
     // settled. The durable deletion marker on the verified session is the
     // same authority the activity guard consults, checked here explicitly.
-    return yield* Effect.fail(
-      new CustomerAccountAccessError({
-        reason: "link-required",
-        linkReason: "deletion-requested",
-      })
-    );
+    return yield* new CustomerAccountAccessError({
+      reason: "link-required",
+      linkReason: "deletion-requested",
+    });
   }
 
   const ares = yield* AresLookupService;
@@ -382,6 +440,12 @@ export const updateCustomerProfile: typeof updateCustomerProfileAction = async (
   "use server";
   return await updateCustomerProfileAction(...args);
 };
+
+export const updateLocalePreference: typeof updateLocalePreferenceAction =
+  async (...args: Parameters<typeof updateLocalePreferenceAction>) => {
+    "use server";
+    return await updateLocalePreferenceAction(...args);
+  };
 
 export const deleteCustomerAccount: typeof deleteCustomerAccountAction = async (
   ...args: Parameters<typeof deleteCustomerAccountAction>
