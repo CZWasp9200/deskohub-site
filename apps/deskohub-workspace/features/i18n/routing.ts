@@ -15,6 +15,7 @@ export const defaultLocale: Locale = baseLocale;
 export const localeConfig = {
   locales,
   baseLocale: defaultLocale,
+  // Maps the browser's Accept-Language, not the saved locale preference.
   preferredLanguageToLocale: {
     cs: "cs-CZ",
     en: "en-US",

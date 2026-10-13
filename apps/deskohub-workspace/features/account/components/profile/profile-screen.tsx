@@ -1,11 +1,19 @@
+"use client";
+
 import { Check } from "lucide-react";
-import { type ReactNode, useId } from "react";
-import { FutureFeatureTooltip } from "@/features/account/components/future-feature-tooltip";
+import { type ReactNode, useId, useState } from "react";
+import { updateLocalePreference } from "@/features/account/actions";
 import { AccountSectionPanel } from "@/features/account/components/shell/account-section-panel";
-import type { Locale } from "@/features/i18n";
+import {
+  type LocalePreferenceSaving,
+  switchLocale,
+} from "@/features/account/switch-locale";
+import { isLocale, type Locale, locales } from "@/features/i18n";
 import { Label } from "@/shared/components/ui/label";
 import {
   Select,
+  SelectContent,
+  SelectItem,
   SelectTrigger,
   SelectValue,
 } from "@/shared/components/ui/select";
@@ -19,7 +27,10 @@ import {
  * profile card. Identity is factual, while unavailable settings stay visibly
  * non-interactive and all editable fields remain caller-owned. The avatar
  * media and its controls are caller-owned so the profile form owns their
- * mutation state.
+ * mutation state. The preferred language is the page locale, which on the
+ * account page is the signed-in customer's saved locale preference: choosing
+ * another one switches the site exactly like the header switcher, never
+ * through the surrounding Dotypos profile form.
  */
 
 export interface ProfileScreenCopy {
@@ -29,19 +40,39 @@ export interface ProfileScreenCopy {
   readonly emailLabel: string;
   readonly emailVerification: EmailVerificationStatusCopy;
   readonly languageLabel: string;
-  readonly languageUnavailableValue: string;
+  readonly languageOptionCs: string;
+  readonly languageOptionEn: string;
 }
 
 export interface ProfileScreenProps {
   readonly firstName: string;
   readonly lastName: string | null;
   readonly email: string;
-  readonly locale: Locale;
   readonly copy: ProfileScreenCopy;
+  readonly locale: Locale;
   readonly children: ReactNode;
   readonly footer?: ReactNode;
   readonly avatar?: ReactNode;
 }
+
+/**
+ * Every Inlang locale must have a translated label key, so adding a locale
+ * to the tuple is a compile error until this record gains its label. The
+ * option list derives from the tuple, keeping the selector exhaustive.
+ */
+type LanguageOptionLabelKey = "languageOptionCs" | "languageOptionEn";
+
+const languageOptionLabels: Readonly<Record<Locale, LanguageOptionLabelKey>> = {
+  "cs-CZ": "languageOptionCs",
+  "en-US": "languageOptionEn",
+};
+
+// The profile renders only for a signed-in customer, so a choice always saves
+// the preference before the document moves to the chosen locale.
+const signedInLocalePreference: LocalePreferenceSaving = {
+  signedIn: Promise.resolve(true),
+  save: updateLocalePreference,
+};
 
 export function ProfileScreen({
   avatar,
@@ -55,10 +86,17 @@ export function ProfileScreen({
 }: ProfileScreenProps) {
   const titleId = useId();
   const languageId = useId();
+  const [switchingLocale, setSwitchingLocale] = useState<Locale | null>(null);
   const nameParts = [firstName, lastName ?? ""]
     .map((name) => name.trim())
     .filter((name) => name.length > 0);
   const displayName = nameParts.join(" ") || copy.memberFallback;
+
+  const handleLanguageChange = (value: string) => {
+    if (!isLocale(value) || switchingLocale !== null) return;
+    setSwitchingLocale(value);
+    void switchLocale(value, signedInLocalePreference);
+  };
 
   return (
     <AccountSectionPanel
@@ -111,15 +149,24 @@ export function ProfileScreen({
         >
           {copy.languageLabel}
         </Label>
-        <Select disabled value="unavailable">
-          <FutureFeatureTooltip className="w-full" locale={locale}>
-            <SelectTrigger
-              id={languageId}
-              className="mt-2 min-h-11 w-full rounded-2xl border border-[#cad3df] bg-[#f8fafc] px-3 py-2 text-base text-[#52647c] outline-none disabled:cursor-not-allowed disabled:opacity-70 focus-visible:ring-2 focus-visible:ring-burned-orange"
-            >
-              <SelectValue>{copy.languageUnavailableValue}</SelectValue>
-            </SelectTrigger>
-          </FutureFeatureTooltip>
+        <Select
+          disabled={switchingLocale !== null}
+          onValueChange={handleLanguageChange}
+          value={switchingLocale ?? locale}
+        >
+          <SelectTrigger
+            id={languageId}
+            className="mt-2 min-h-11 w-full rounded-2xl border border-[#cad3df] bg-[#f8fafc] px-3 py-2 text-base text-[#52647c] outline-none focus-visible:ring-2 focus-visible:ring-burned-orange"
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {locales.map((optionLocale) => (
+              <SelectItem key={optionLocale} value={optionLocale}>
+                {copy[languageOptionLabels[optionLocale]]}
+              </SelectItem>
+            ))}
+          </SelectContent>
         </Select>
       </div>
     </AccountSectionPanel>

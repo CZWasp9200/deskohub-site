@@ -13,7 +13,9 @@ import type {
 } from "better-auth";
 import { betterAuth } from "better-auth";
 import { memoryAdapter } from "better-auth/adapters/memory";
-import { Deferred, Effect, Fiber, Layer } from "effect";
+import { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
+import { Cause, Deferred, Effect, Fiber, Layer } from "effect";
+import * as SqlError from "effect/unstable/sql/SqlError";
 import { makeAuthDatabase } from "@/db/auth-database-client";
 import { WorkspaceDatabase } from "@/db/database.service";
 import {
@@ -38,6 +40,7 @@ import {
   type CustomerAvatarUnavailableError,
 } from "../customer-avatar.service";
 import { CustomerDotyposAdapter } from "../customer-dotypos-adapter.service";
+import { captureAccountLocalePreference } from "../customer-locale-preference";
 import type { MagicLinkSendFunction, WorkspaceAuthConfig } from "./auth-server";
 
 const emitWorkspaceLog = mock(() => undefined);
@@ -83,13 +86,51 @@ type TestAuthOptions = {
   readonly secrets?: { readonly version: number; readonly value: string }[];
   readonly sentLinks?: CapturedMagicLink[];
   readonly areAccountsEnabled?: WorkspaceAuthConfig["areAccountsEnabled"];
-  readonly beforeDeleteUser?: (accountId: CustomerAccountId) => Promise<void>;
+  readonly beforeDeleteUser?: WorkspaceAuthConfig["beforeDeleteUser"];
+  readonly captureAccountLocalePreference?: WorkspaceAuthConfig["captureAccountLocalePreference"];
 };
+
+/** The real sign-in capture against the migrated disposable database. */
+const realCapture: WorkspaceAuthConfig["captureAccountLocalePreference"] = (
+  accountId,
+  locale
+) =>
+  captureAccountLocalePreference(accountId, locale).pipe(
+    Effect.provide(
+      Layer.succeed(
+        WorkspaceDatabase,
+        WorkspaceDatabase.of({ db: testDatabase!.db })
+      )
+    )
+  );
+
+/** A database failure the sign-in capture sees. */
+const captureFailure = () =>
+  new EffectDrizzleQueryError({
+    query: 'update "auth"."user" set "locale"',
+    params: [],
+    cause: Cause.fail(
+      new SqlError.SqlError({
+        reason: new SqlError.ConstraintError({
+          cause: new Error("synthetic constraint violation"),
+          message: "synthetic constraint violation",
+          operation: "execute",
+        }),
+      })
+    ),
+  });
 
 const makeTestAuth = (options: TestAuthOptions = {}) => {
   const sendMagicLink: MagicLinkSendFunction = (data) => {
     options.sentLinks?.push(data);
   };
+  const captureAccountLocalePreference:
+    | WorkspaceAuthConfig["captureAccountLocalePreference"]
+    | undefined =
+    options.captureAccountLocalePreference ??
+    // The real capture requires the migrated disposable Postgres, so
+    // memory-backed auth instances default to a noop capture.
+    (testDatabase && !options.database ? realCapture : () => Effect.void);
   return makeWorkspaceAuth({
     database: options.database ?? buildDatabaseAdapter(),
     secrets: options.secrets ?? [{ version: 1, value: SECRET_V1 }],
@@ -97,7 +138,8 @@ const makeTestAuth = (options: TestAuthOptions = {}) => {
     httpsOnly: true,
     areAccountsEnabled: options.areAccountsEnabled ?? (async () => true),
     sendMagicLink,
-    beforeDeleteUser: options.beforeDeleteUser ?? (() => Promise.resolve()),
+    beforeDeleteUser: options.beforeDeleteUser ?? (() => Effect.void),
+    captureAccountLocalePreference,
   });
 };
 
@@ -275,11 +317,9 @@ const runTestDeletion = (
   layers: Layer.Layer<CustomerAccountDeletionService>,
   accountId: CustomerAccountId
 ) =>
-  Effect.runPromise(
-    Effect.flatMap(CustomerAccountDeletionService, (service) =>
-      service.requestDeletion(accountId)
-    ).pipe(Effect.provide(layers))
-  );
+  Effect.flatMap(CustomerAccountDeletionService, (service) =>
+    service.requestDeletion(accountId)
+  ).pipe(Effect.provide(layers));
 
 test("reports auth handler failures without logging provider data", async () => {
   const email = uniqueEmail("verification-failure");
@@ -604,9 +644,10 @@ test("allows fresh deletion while accounts are disabled", async () => {
   const disabled = makeTestAuth({
     database: memoryAdapter(enabled.store),
     areAccountsEnabled: async () => false,
-    beforeDeleteUser: async () => {
-      beforeDeleteCalls += 1;
-    },
+    beforeDeleteUser: () =>
+      Effect.sync(() => {
+        beforeDeleteCalls += 1;
+      }),
   });
   const deleted = await callHandler(disabled, "/delete-user", {
     method: "POST",
@@ -636,9 +677,8 @@ test("does not issue reauthentication links for stale deletion while accounts ar
   const disabled = makeTestAuth({
     database: memoryAdapter(enabled.store),
     areAccountsEnabled: async () => false,
-    beforeDeleteUser: async () => {
-      throw new Error("deletion hook must not run for a stale session");
-    },
+    beforeDeleteUser: () =>
+      Effect.die(new Error("deletion hook must not run for a stale session")),
   });
   const stale = await callHandler(disabled, "/delete-user", {
     method: "POST",
@@ -715,6 +755,115 @@ describe.skipIf(!testDatabase)(
         [email]
       );
       expect(user.rows).toHaveLength(0);
+    });
+
+    const localeOf = async (accountId: string) =>
+      (
+        await testDatabase!.pool.query<{ locale: string | null }>(
+          `select locale from auth."user" where id = $1`,
+          [accountId]
+        )
+      ).rows[0]?.locale;
+
+    test("sets the locale preference from the initiating site locale in the account-creation insert", async () => {
+      const sentLinks: CapturedMagicLink[] = [];
+      const auth = makeTestAuth({ sentLinks });
+
+      const createdLocaleFor = async (email: string) => {
+        const userId = await userIdForEmail(email);
+        expect(userId).toBeTruthy();
+        return localeOf(userId!);
+      };
+
+      const emailEn = uniqueEmail("seed-en");
+      await signInForMagicLink(auth, emailEn, "/en-US/account");
+      await verifyMagicLink(auth, sentLinks[0]!);
+      expect(await createdLocaleFor(emailEn)).toBe("en-US");
+
+      const emailCs = uniqueEmail("seed-cs");
+      await signInForMagicLink(auth, emailCs, "/cs-CZ/account");
+      await verifyMagicLink(auth, sentLinks[1]!);
+      expect(await createdLocaleFor(emailCs)).toBe("cs-CZ");
+
+      const emailDefault = uniqueEmail("seed-default");
+      await signInForMagicLink(auth, emailDefault);
+      await verifyMagicLink(auth, sentLinks[2]!);
+      expect(await createdLocaleFor(emailDefault)).toBe("en-US");
+    });
+
+    test("keeps the creation locale when a later sign-in carries another one", async () => {
+      const sentLinks: CapturedMagicLink[] = [];
+      const auth = makeTestAuth({ sentLinks });
+      const email = uniqueEmail("seed-kept");
+
+      await signInForMagicLink(auth, email, "/cs-CZ/account");
+      await verifyMagicLink(auth, sentLinks[0]!);
+      await signInForMagicLink(auth, email, "/en-US/account");
+      const second = await verifyMagicLink(auth, sentLinks[1]!);
+
+      expect(getSessionCookie(second)).toBeTruthy();
+      expect(await localeOf((await userIdForEmail(email))!)).toBe("cs-CZ");
+    });
+
+    const insertLegacyAccount = async (email: string) => {
+      const id = crypto.randomUUID();
+      await testDatabase!.pool.query(
+        `insert into auth."user" (id, name, email, email_verified) values ($1, '', $2, true)`,
+        [id, email]
+      );
+      return id;
+    };
+
+    test("signs a legacy account in and captures its first sign-in locale without overwriting it later", async () => {
+      const sentLinks: CapturedMagicLink[] = [];
+      const auth = makeTestAuth({ sentLinks });
+      const email = uniqueEmail("legacy-capture");
+      const accountId = await insertLegacyAccount(email);
+
+      await signInForMagicLink(auth, email, "/cs-CZ/account");
+      const first = await verifyMagicLink(auth, sentLinks[0]!);
+      expect(getSessionCookie(first)).toBeTruthy();
+      expect(await localeOf(accountId)).toBe("cs-CZ");
+
+      await signInForMagicLink(auth, email, "/en-US/account");
+      const second = await verifyMagicLink(auth, sentLinks[1]!);
+      expect(getSessionCookie(second)).toBeTruthy();
+      expect(await localeOf(accountId)).toBe("cs-CZ");
+    });
+
+    test("keeps a legacy account without a preference when the sign-in callback carries no locale", async () => {
+      const sentLinks: CapturedMagicLink[] = [];
+      const auth = makeTestAuth({ sentLinks });
+      const email = uniqueEmail("legacy-no-locale");
+      const accountId = await insertLegacyAccount(email);
+
+      await signInForMagicLink(auth, email);
+      const verified = await verifyMagicLink(auth, sentLinks[0]!);
+
+      expect(getSessionCookie(verified)).toBeTruthy();
+      expect(await localeOf(accountId)).toBeNull();
+    });
+
+    test("signs a legacy account in when the preference capture fails", async () => {
+      const sentLinks: CapturedMagicLink[] = [];
+      const auth = makeTestAuth({
+        sentLinks,
+        captureAccountLocalePreference: () => Effect.fail(captureFailure()),
+      });
+      const email = uniqueEmail("legacy-capture-failure");
+      const accountId = await insertLegacyAccount(email);
+
+      emitWorkspaceLog.mockClear();
+      await signInForMagicLink(auth, email, "/cs-CZ/account");
+      const verified = await verifyMagicLink(auth, sentLinks[0]!);
+
+      expect(verified.status).toBe(302);
+      expect(getSessionCookie(verified)).toBeTruthy();
+      expect(await localeOf(accountId)).toBeNull();
+      const logs = JSON.stringify(emitWorkspaceLog.mock.calls);
+      expect(logs).toContain("account-locale-preference.capture-failed");
+      expect(logs).not.toContain("synthetic constraint violation");
+      expect(logs).not.toContain(email);
     });
 
     test("keeps normal magic-link users at the auth placeholders", async () => {
@@ -1164,10 +1313,10 @@ describe.skipIf(!testDatabase)(
       const sentLinks: CapturedMagicLink[] = [];
       const auth = makeTestAuth({
         sentLinks,
-        beforeDeleteUser: () => {
-          hookCalls += 1;
-          return Promise.resolve();
-        },
+        beforeDeleteUser: () =>
+          Effect.sync(() => {
+            hookCalls += 1;
+          }),
       });
       const email = uniqueEmail("stale");
 

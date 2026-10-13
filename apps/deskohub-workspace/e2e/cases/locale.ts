@@ -2,6 +2,7 @@ import { Effect } from "effect";
 import {
   activateHydratedBrowserElement,
   openBrowserPage,
+  waitForBrowserCondition,
   waitForBrowserUrl,
 } from "../browser";
 import type { WorkspaceE2EConfig } from "../config";
@@ -49,24 +50,38 @@ export const assertLocaleSwitcher = ({
     log("Locale switch e2e passed");
   });
 
+type SwitchLocale = CheckoutData["locale"] | "cs-CZ";
+
+const localeSwitchLinkSelector = (locale: SwitchLocale) =>
+  `[data-locale-switcher] a[href^="/${locale}"]`;
+
 const activateLocaleSwitchLink = (
   run: Runner,
   session: string,
-  locale: CheckoutData["locale"] | "cs-CZ",
+  locale: SwitchLocale,
   timeouts: WorkspaceE2ETimeouts
 ) =>
   Effect.gen(function* () {
     const timeoutMs = timeouts.browserNavigation;
-    const selector = `[data-locale-switcher] a[href^="/${locale}"]`;
-    yield* activateHydratedBrowserElement(run, session, selector, {
-      timeoutMs,
-    });
+    yield* activateHydratedBrowserElement(
+      run,
+      session,
+      localeSwitchLinkSelector(locale),
+      { timeoutMs }
+    );
   });
 
-const switchLocale = (
+/**
+ * Switches the locale through the header with a native activation of the
+ * hydrated link. For a signed-in visitor the switcher saves the language
+ * preference before the document navigation, waiting for the streamed
+ * session check if needed, so the URL wait also proves the save: without it
+ * the proxy would redirect back to the old preference.
+ */
+export const switchLocale = (
   run: Runner,
   session: string,
-  locale: CheckoutData["locale"] | "cs-CZ",
+  locale: SwitchLocale,
   timeouts: WorkspaceE2ETimeouts
 ) =>
   Effect.gen(function* () {

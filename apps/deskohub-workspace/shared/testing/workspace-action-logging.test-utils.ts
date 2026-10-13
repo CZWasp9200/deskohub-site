@@ -11,7 +11,7 @@ const installActionTelemetryMocks = async () => {
   mock.module("server-only", () => ({}));
   mock.module("next/server", () => ({ ...nextServer, after: () => {} }));
   mock.module("next/headers", () => ({
-    cookies: async () => ({ getAll: () => [] }),
+    cookies: async () => ({ get: () => undefined, getAll: () => [] }),
     headers: async () =>
       new Headers({ referer: "https://deskohub.test/en-US" }),
   }));
