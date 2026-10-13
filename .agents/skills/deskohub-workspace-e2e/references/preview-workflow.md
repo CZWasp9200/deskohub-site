@@ -81,9 +81,9 @@ names. Inspect settings and deployment metadata without printing their values.
   deployment without the key; only development may omit it, and then every
   message goes to Console.
 - The non-sensitive Preview-only
-  `POSTHOG_FEATURE_FLAG_OVERRIDES={"accounts":true,"calendar_sales":true,"customer_discounts":true,"discount_codes":true,"meeting_room_page":true,"office_page":true}`.
-  Account navigation E2E requires `accounts:true` even when the production
-  rollout is off. A branch-specific Preview override replaces the whole map,
+  `POSTHOG_FEATURE_FLAG_OVERRIDES={"accounts":true,"calendar_sales":true,"customer_discounts":true,"discount_codes":true,"meeting_room_page":true,"office_page":true,"referrals":true}`.
+  Account navigation E2E requires `accounts:true`, and the referral lane
+  `referrals:true`, even when the production rollout is off. A branch-specific Preview override replaces the whole map,
   so include every flag above when targeting one PR branch.
   Set this before the immutable Git preview is built; the runner never mutates
   deployment configuration or the real PostHog rollout state.

@@ -30,6 +30,8 @@ the ordinary off state without error logging. An omitted value means PostHog
 did not evaluate the requested flag, such as when the flag is inactive; fail
 that gate closed and log the missing flag as unavailable.
 
+`WorkspaceFeatureFlagService` cannot run in `proxy.ts`: its classification is a `"use cache"` function, and the Next.js proxy does not support `use cache`. Gate request-time behavior in pages, actions, or route handlers instead.
+
 Keep the package Node service as a thin typed wrapper around one lazily created SDK client. A key/value lookup does not need its own nested Context service, Layer, or ManagedRuntime.
 
 Keep PostHog origins role-specific: `POSTHOG_API_HOST` is the server-only

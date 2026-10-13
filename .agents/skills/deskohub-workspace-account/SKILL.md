@@ -129,6 +129,11 @@ description: Workspace customer account, Better Auth, magic link, auth persisten
   finds an existing link and never claims, resolves, or locks. Never call
   `resolveCurrentCustomerAccount` inside the guard; it would wait on the lock
   the guard already holds.
+- A section withheld by a release flag (Referrals behind `referrals`) is
+  passed to `AccountShell` as `hiddenSections`: it leaves both navigations,
+  and its `?section=` value falls back like an unknown section. The static
+  loading skeleton renders before any flag is known, so it never shows a
+  flagged section.
 
 ## Language preference
 

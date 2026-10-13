@@ -7,18 +7,29 @@ description: Workspace referral attribution, referral-code lookup, invitation an
 
 Read the business-facing [referral specification](../../../apps/deskohub-workspace/docs/referrals.md) before changing referral eligibility, attribution, discount, or payment behavior. Treat it as the policy source; keep implementation guidance here.
 
+## Release flag
+
+The whole program sits behind the PostHog boolean flag `referrals` (generated contract key; see the `deskohub-workspace-feature-flags` skill). Only `true` releases it; an error, timeout, or missing flag counts as off and is logged.
+
+- Turn it on per deployment with `POSTHOG_FEATURE_FLAG_OVERRIDES` (`"referrals":true` in the map): `.env.development` sets it for local development, and the protected Preview environment must include it for the E2E referral lane. Production rejects overrides, so production follows the PostHog flag; keep it inactive there until launch.
+- Effect code reads `ReferralFeatureFlagService.isEnabled`; Server Components and actions read the per-request `areReferralsEnabled()` (`referral-feature-flag.server.ts`), evaluated after `connection()` inside a Suspense boundary on Cache Components pages. Tests pick the value with `ReferralFeatureFlagServiceMock({ isEnabled: Effect.succeed(bool) })`; `WithheldReferralService` (`referral.service.mock.ts`) is the real service with the flag off and no data access.
+- While off, enforcement is server-side at every seam:
+  - `ReferralService` treats no code as a referral code (`lookupCodeKind` → other, so the checkout box answers like any unknown code), finds no available code, prices no invitation or referrer discount, reports nothing settled, issues no code, and refuses acceptance.
+  - `readRememberedReferralCode()` returns nothing, so no prefill, auto-apply, settlement check, or cookie clearing runs; the client capture is not mounted.
+  - The account hides the Referrals section, nav item, and badge (`?section=referrals` falls back like an unknown section), drops the completion field and ignores a submitted code, and skips the auto-linked acceptance, the signup-intent retry, and the notice; the acknowledge action requires the flag.
+  - The paid transition (`markPaid`, `completeInternalPayment`, late-recovery settle) reads the flag before opening its transaction. While off it redeems or releases the invitation claim as usual but takes no graph lock and records no attribution.
+  - Existing attributions, intents, and claims stay untouched and apply again once the flag is back on. Admission still serializes an attributed invitee's first booking.
+- The proxy cannot evaluate the flag: flag classification is a `"use cache"` function, which the Next.js proxy does not support.
+
 ## Public boundaries
 
 - `features/referrals/client.ts` is browser-safe. Use `parseReferralCode` for untrusted values and `referralCodeQueryParam` for the `ref` search parameter of share links.
 - Remembered shared code (`features/referrals/referral-code-cookie.ts`):
-  - `proxy.ts` stores a syntactically valid `?ref=` from any page request in the first-party `deskohub-referral-code` cookie (Path=/, SameSite=Lax, Secure over https, not HttpOnly, `sharedReferralCodeRememberedDays`).
-  - It captures only real top-level document GET navigations. It skips non-GET requests, Next.js router and prefetch requests (`rsc`, `next-router-state-tree`, `next-router-prefetch`, `next-router-segment-prefetch`), browser speculative loads (`Sec-Purpose`/`Purpose` naming prefetch or prerender), and any `Sec-Fetch-Dest` other than `document`.
-  - It stores the code only when the browser has none yet. First-wins is best-effort: simultaneous first visits with different codes each set the cookie, and the last response applied wins.
-  - It sets the code with `request.cookies.set` and forwards those request headers, so the same response's render already reads it.
-  - A page Chrome prerendered skipped the proxy capture, and activation shows it without another document request. `RememberSharedReferralCode` (mounted in the locale root layout) therefore remembers the address's code once `document.prerendering` is false or on `prerenderingchange`.
-    - It applies the same rules through the shared `findSharedReferralCodeToRemember`, `setReferralCodeCookie` and `browserCookieJar` (`referral-code-cookie.ts`).
-    - It remembers only in the top-level browsing context (`window.self === window.top`), never inside a frame, matching the proxy's document-only rule.
-    - Server readers of that activated page didn't see the code, so the completion prefill may appear only from the next navigation.
+  - `RememberSharedReferralCode` (mounted in the locale root layout through `RememberSharedReferralCodeWhenEnabled`) stores a syntactically valid `?ref=` from the shown page in the first-party `deskohub-referral-code` cookie (Path=/, SameSite=Lax, Secure over https, not HttpOnly, `sharedReferralCodeRememberedDays`). It is the only capture: `proxy.ts` cannot read the referral flag (see "Release flag"), so it never captures.
+    - It stores the code only when the browser has none yet, through the shared `findSharedReferralCodeToRemember`, `setReferralCodeCookie` and `browserCookieJar` (`referral-code-cookie.ts`). First-wins is best-effort: simultaneous first visits with different codes each set the cookie, and the last one applied wins.
+    - A page Chrome prerendered is remembered once `document.prerendering` is false or on `prerenderingchange`.
+    - It remembers only in the top-level browsing context (`window.self === window.top`), never inside a frame.
+    - The landing page's own server render didn't see the code, so the completion prefill may appear only from the next navigation.
     - `remember-shared-referral-code.browser.test.ts` pins prerender plus activation in natively launched Chromium (Chrome won't prerender under Playwright's DevTools control), and a framed page that remembers nothing.
   - Never thread `ref` through links. Readers use `readRememberedReferralCode()` (`remembered-referral-code.server.ts`).
   - Account pages clear the cookie once `ReferralService.hasSettledReferral` reports the customer attributed or past a paid booking. Checkout uses `isBookerReferralSettled` (`features/checkout/backend/checkout/booker-referral-settlement.ts`, with a page wrapper in `.server.ts`): it checks the booker's own customer, which is the signed-in account's linked customer, or else the booked customer of a guest booking. Booking for someone else never clears the booker's cookie. To clear:
