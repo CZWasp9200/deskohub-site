@@ -42,6 +42,7 @@ import {
   findAuthUserIdByEmail,
   findLinkedDotyposCustomerId,
   removeSyntheticAccountLink,
+  setAccountLocalePreference,
   setDeletionRequestedAt,
   setSessionCreatedAt,
 } from "./auth-rows";
@@ -82,6 +83,10 @@ const supportTitle = "We need to verify your profile";
 const deletionPendingTitle = "Account deletion is pending";
 const deletionReauthLinkSent =
   "If the address can receive mail, a new link is on its way.";
+const czechDeletionPendingTitle = m.accountDeletionPendingTitle(
+  {},
+  { locale: "cs-CZ" }
+);
 const deletedTitle = "Your account was deleted";
 const currentReservationsTitle = "Current and upcoming";
 const pastReservationsTitle = "Past reservations";
@@ -1057,16 +1062,31 @@ export const makeWorkspaceE2EAccountCases = ({
             navigationTimeout
           )
         );
+        // A deletion-pending account keeps its saved preference but rejects
+        // every save, so a fixture gives it Čeština. The reauthentication
+        // link carries the English callback of the page that sent it, and
+        // the sign-in must still land on the saved Czech site.
+        yield* runStep(
+          step(
+            "saves Čeština as the pending account's preference",
+            setAccountLocalePreference(reauthentication.userId, "cs-CZ"),
+            datasourceTimeout
+          )
+        );
         yield* rateBudget.run(
           "verify",
           runStep(
             step(
-              "signs the same account back in",
+              "signs the same account back in onto the saved Czech site",
               Effect.gen(function* () {
                 yield* openPage(reauthentication.link);
+                yield* waitPathname(
+                  "Czech account landing after the en-US reauthentication link",
+                  (pathname) => pathname === `/cs-CZ${accountSuffix}`
+                );
                 yield* waitText(
-                  "deletion pending state after reauthentication",
-                  deletionPendingTitle
+                  "Czech deletion pending state after reauthentication",
+                  czechDeletionPendingTitle
                 );
                 const userId = yield* requireAuthUserId(recipient);
                 assert(
@@ -1081,6 +1101,27 @@ export const makeWorkspaceE2EAccountCases = ({
               }),
               providerTransition
             )
+          )
+        );
+        yield* runStep(
+          step(
+            "restores English (US) before completing the deletion",
+            Effect.gen(function* () {
+              yield* setAccountLocalePreference(
+                reauthentication.userId,
+                "en-US"
+              );
+              yield* openPage(localized(accountSuffix));
+              yield* waitPathname(
+                "English pending account after restoring the preference",
+                (pathname) => pathname === `/en-US${accountSuffix}`
+              );
+              yield* waitText(
+                "deletion pending state after restoring English",
+                deletionPendingTitle
+              );
+            }),
+            accountPageLoadTimeout
           )
         );
         yield* runStep(
@@ -1376,56 +1417,26 @@ export const makeWorkspaceE2EAccountCases = ({
             yield* waitLanguageControlLabel(description, czechLanguageLabel);
           });
 
+        // The case reuses the session the reactivation sign-in opened: the
+        // lane's magic-link ledger has no room for another sign-in, and a
+        // new link here would wait out the full rate-limit quiet window.
+        // The session-lifecycle reauthentication proves that a sign-in from
+        // an English callback lands on the saved Czech site.
         yield* runStep(
           step(
-            "signs out for a fresh language-preference sign-in",
-            signOutAndRequireAnonymous(),
-            navigationTimeout
-          )
-        );
-        const startedAt = new Date();
-        const observedLogEntryIds = yield* runStep(
-          step(
-            "records the delivered log baseline before the fresh sign-in",
-            observeDeliveredLogEntryIds(recipient, startedAt),
-            providerTransition
-          )
-        );
-        yield* rateBudget.run(
-          "send",
-          runStep(
-            step(
-              "requests the fresh sign-in link",
-              requestSignInLink(recipient),
-              navigationTimeout
-            )
-          )
-        );
-        const link = yield* runStep(
-          step(
-            "retrieves the fresh sign-in link",
-            retrieveSignInLink(recipient, observedLogEntryIds, startedAt),
-            authDeliveryTimeout
-          )
-        );
-        yield* rateBudget.run(
-          "verify",
-          runStep(
-            step(
-              "signs in on the English site and opens the profile section",
-              Effect.gen(function* () {
-                yield* openPage(link);
-                // The account was created under en-US, so its saved
-                // preference keeps the English account page.
-                yield* waitPathname(
-                  "English account landing after the fresh sign-in",
-                  (pathname) => pathname === `/en-US${accountSuffix}`
-                );
-                yield* waitDefaultReservations("freshly signed-in account");
-                yield* selectAccountSectionInRunner(run, session, "profile");
-              }),
-              providerTransition
-            )
+            "opens the English profile of the reactivated account",
+            Effect.gen(function* () {
+              yield* openPage(localized(accountSuffix));
+              // The reactivated account was created under en-US, so its
+              // saved preference keeps the English account page.
+              yield* waitPathname(
+                "English account of the reactivated account",
+                (pathname) => pathname === `/en-US${accountSuffix}`
+              );
+              yield* waitDefaultReservations("reactivated signed-in account");
+              yield* selectAccountSectionInRunner(run, session, "profile");
+            }),
+            accountPageLoadTimeout
           )
         );
         yield* runStep(
@@ -1518,76 +1529,12 @@ export const makeWorkspaceE2EAccountCases = ({
         );
         yield* runStep(
           step(
-            "signs out from the Czech site",
+            "keeps Čeština selected on the Czech profile after the redirect",
             Effect.gen(function* () {
-              yield* openPage(localized(accountSuffix, "cs-CZ"));
-              yield* waitDefaultReservations("Czech account before sign-out");
-              yield* waitForBrowserReactHandler(
-                run,
-                session,
-                signOutSelector,
-                "onClick",
-                { timeoutMs: uiTransition }
-              );
-              yield* signOutAndRequireAnonymous("cs-CZ");
-            }),
-            providerTransition
-          )
-        );
-        const czechStartedAt = new Date();
-        const czechObservedLogEntryIds = yield* runStep(
-          step(
-            "records the delivered log baseline before the Czech sign-in",
-            observeDeliveredLogEntryIds(recipient, czechStartedAt),
-            providerTransition
-          )
-        );
-        yield* rateBudget.run(
-          "send",
-          runStep(
-            step(
-              "requests the sign-in link from the English sign-in page",
-              requestSignInLink(recipient),
-              navigationTimeout
-            )
-          )
-        );
-        const czechLink = yield* runStep(
-          step(
-            "retrieves the sign-in link with its en-US callback",
-            retrieveSignInLink(
-              recipient,
-              czechObservedLogEntryIds,
-              czechStartedAt
-            ),
-            authDeliveryTimeout
-          )
-        );
-        yield* rateBudget.run(
-          "verify",
-          runStep(
-            step(
-              "signs in from the en-US link onto the Czech site",
-              Effect.gen(function* () {
-                yield* openPage(czechLink);
-                yield* waitPathname(
-                  "Czech account landing after the en-US sign-in link",
-                  (pathname) => pathname === `/cs-CZ${accountSuffix}`
-                );
-                yield* waitDefaultReservations("Czech signed-in account");
-              }),
-              providerTransition
-            )
-          )
-        );
-        yield* runStep(
-          step(
-            "keeps Čeština selected after signing in again",
-            Effect.gen(function* () {
-              yield* openCzechProfile("Czech profile after signing in again");
+              yield* openCzechProfile("Czech profile after the redirect");
               yield* requireSelectedLanguage(
                 "Čeština",
-                "restored Čeština option selected"
+                "kept Čeština option selected"
               );
             }),
             providerTransition
