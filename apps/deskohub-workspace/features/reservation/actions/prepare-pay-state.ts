@@ -17,6 +17,7 @@ import {
   Schema,
 } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
+import { env } from "@/env";
 import {
   CustomerAccountAccessError,
   CustomerAccountContactService,
@@ -87,7 +88,7 @@ import type { ReservationPrePaymentOutcome } from "@/features/reservation/reserv
 import { defaultReservationBillingSelection } from "@/features/reservation/reservation-billing";
 import { PostHogEventService } from "@/shared/backend/analytics/posthog-event.service";
 import { BotProtectionService } from "@/shared/backend/bot-protection/bot-protection.service";
-import { calendarActionDeadline } from "@/shared/backend/calendar-action-deadline";
+import { getCalendarActionDeadline } from "@/shared/backend/calendar-action-deadline";
 import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
 import { defineWorkspaceAction } from "@/shared/backend/workspace-action";
 import { PublicSafeActionError } from "@/shared/utils/safe-action-client";
@@ -1271,7 +1272,9 @@ const preparePayStateAction = defineWorkspaceAction(
   {
     logInput: false,
     operation: "checkout.prepare-pay-state",
-    deadline: calendarActionDeadline,
+    // Sales affirmation, then the availability check's Calendar limitations,
+    // whose parallel Dotypos reads are usually faster.
+    deadline: getCalendarActionDeadline(env.VERCEL_ENV, 2),
     schema: preparePayStateSchema,
   },
   (input) =>

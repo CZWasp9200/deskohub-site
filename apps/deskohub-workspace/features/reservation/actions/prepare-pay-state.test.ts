@@ -6,7 +6,7 @@ import { DotyposService } from "@deskohub/dotypos";
 import { EmailRecipientDomainServiceMock } from "@deskohub/email/backend/recipient-domain.service.mock";
 import { testEmailAddress } from "@deskohub/test-email";
 import { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
-import { type Duration, Effect, Layer, Schema } from "effect";
+import { Duration, Effect, Layer, Schema } from "effect";
 import type { WorkspaceReservation } from "@/db/schema";
 import type { OptionalAccountActivityFixture } from "@/features/account/backend/customer-account-activity.test-utils";
 import { CustomerAccountContactService } from "@/features/account/backend/customer-account-contact.service";
@@ -533,13 +533,14 @@ const runMeetingRoomNewHoldScenario = async (
     readonly submittedCodeDiscountId?: string;
   } = {},
   /**
-   * Runs the submission under `deadline` on an instant test clock, with the
-   * advertised discount affirmation taking `calendar` and each Dotypos-bound
-   * step taking `dotypos`.
+   * Runs the submission under `deadline` on an instant test clock. Each
+   * Google Calendar load (the sales affirmation and the availability check's
+   * limitations) takes `calendar` and each Dotypos request `dotypos`; the
+   * availability check reads both in parallel.
    */
   timing?: {
-    readonly calendar: Duration.Input;
-    readonly dotypos: Duration.Input;
+    readonly calendar: Duration.Duration;
+    readonly dotypos: Duration.Duration;
     readonly deadline: Duration.Input;
   }
 ) => {
@@ -574,7 +575,11 @@ const runMeetingRoomNewHoldScenario = async (
     "@/shared/backend/bot-protection/bot-protection.service.mock"
   );
 
-  const ensureAvailable = mock(() => afterDotypos(Effect.void));
+  const ensureAvailable = mock(() =>
+    timing
+      ? Effect.sleep(Duration.max(timing.calendar, timing.dotypos))
+      : Effect.void
+  );
   const createDraft = mock((input) =>
     Effect.succeed({
       id: "meeting-room-reservation-id",
@@ -726,19 +731,19 @@ const runMeetingRoomNewHoldScenario = async (
 
 describe("prepareWorkspacePayState", () => {
   describe.each([
-    // The advertised discount affirmation succeeds only on its Calendar
-    // retry, and four Dotypos-bound steps (customer, availability, table,
-    // hold) are slow but well within the Dotypos timeout; together they just
-    // outlast the ordinary 45-second deadline.
-    ["production", "9 seconds"],
-    ["preview", "4 seconds"],
+    // Both Calendar loads (sales affirmation, then the availability check's
+    // limitations) succeed only on their retry, and the customer, table, and
+    // hold Dotypos requests are slow but well within their timeout; together
+    // they outlast a budget for one Calendar load.
+    ["production", 13],
+    ["preview", 6],
   ] as const)(
-    "in %s, with a Calendar load that succeeds on its retry",
-    (deploymentEnvironment, dotyposStepDuration) => {
+    "in %s, with Calendar loads that succeed on their retry",
+    (deploymentEnvironment, dotyposSeconds) => {
       const runTimedSubmission = (deadline: Duration.Input) =>
         runMeetingRoomNewHoldScenario(undefined, undefined, {
           calendar: getSlowestSuccessfulCalendarLoad(deploymentEnvironment),
-          dotypos: dotyposStepDuration,
+          dotypos: Duration.seconds(dotyposSeconds),
           deadline,
         });
 
@@ -748,7 +753,7 @@ describe("prepareWorkspacePayState", () => {
         );
 
         const scenario = await runTimedSubmission(
-          getCalendarActionDeadline(deploymentEnvironment)
+          getCalendarActionDeadline(deploymentEnvironment, 2)
         );
 
         expect(scenario.exit).toMatchObject({
@@ -758,12 +763,14 @@ describe("prepareWorkspacePayState", () => {
         expect(scenario.createReservation).toHaveBeenCalledTimes(1);
       });
 
-      test("would be interrupted under the ordinary action deadline", async () => {
-        const { workspaceActionDeadline } = await import(
-          "@/shared/backend/workspace-action"
+      test("would be interrupted with a budget for one Calendar load", async () => {
+        const { getCalendarActionDeadline } = await import(
+          "@/shared/backend/calendar-action-deadline"
         );
 
-        const scenario = await runTimedSubmission(workspaceActionDeadline);
+        const scenario = await runTimedSubmission(
+          getCalendarActionDeadline(deploymentEnvironment, 1)
+        );
 
         expect(scenario.exit).toMatchObject({
           _tag: "Failure",

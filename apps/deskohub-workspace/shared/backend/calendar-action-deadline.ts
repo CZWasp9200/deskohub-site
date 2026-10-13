@@ -6,19 +6,29 @@ import { getGoogleCalendarRequestTimeout } from "./config/google-calendar.config
 import { workspaceActionDeadline } from "./workspace-action";
 
 /**
- * The ordinary action deadline plus one retried Google Calendar load, for an
- * action that awaits Calendar in sequence with its other work. The added
- * budget lets a Calendar retry succeed; like the ordinary deadline, it does
- * not cover every other provider being slow at once.
+ * The ordinary action deadline plus `sequentialCalendarLoads` retried Google
+ * Calendar loads, for an action that awaits Calendar in sequence with its
+ * other work. A Calendar load parallel with other work still counts unless
+ * that work is reliably slower. The added budget lets each Calendar retry
+ * succeed; like the ordinary deadline, it does not cover every other provider
+ * being slow at once.
  */
 export const getCalendarActionDeadline = (
-  deploymentEnvironment: DeploymentEnvironment
+  deploymentEnvironment: DeploymentEnvironment,
+  sequentialCalendarLoads: number
 ) =>
   Duration.sum(
     workspaceActionDeadline,
-    getGoogleCalendarRequestWorstCaseDuration(
-      getGoogleCalendarRequestTimeout(deploymentEnvironment)
+    Duration.times(
+      getGoogleCalendarRequestWorstCaseDuration(
+        getGoogleCalendarRequestTimeout(deploymentEnvironment)
+      ),
+      sequentialCalendarLoads
     )
   );
 
-export const calendarActionDeadline = getCalendarActionDeadline(env.VERCEL_ENV);
+/** For an action that awaits one Calendar load in sequence. */
+export const calendarActionDeadline = getCalendarActionDeadline(
+  env.VERCEL_ENV,
+  1
+);

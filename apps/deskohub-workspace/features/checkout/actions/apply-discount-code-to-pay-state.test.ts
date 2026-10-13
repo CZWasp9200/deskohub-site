@@ -315,7 +315,7 @@ describe("applyDiscountCodeToPayState", () => {
         const { input, listEvents } = submission();
 
         const exit = await runSubmissionWithinDeadline(
-          getCalendarActionDeadline(deploymentEnvironment),
+          getCalendarActionDeadline(deploymentEnvironment, 1),
           input
         );
 
