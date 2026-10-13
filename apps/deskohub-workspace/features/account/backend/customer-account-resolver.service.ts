@@ -1,5 +1,6 @@
 import type { DotyposCustomerId } from "@deskohub/dotypos";
 import { Context, Effect, Layer } from "effect";
+import type { SqlError } from "effect/unstable/sql";
 import {
   CustomerAccountAccessError,
   type CustomerAccountId,
@@ -8,6 +9,7 @@ import {
 } from "../customer-account";
 import {
   type CustomerAccountLinkClaim,
+  type CustomerAccountLinkError,
   CustomerAccountLinkRepository,
 } from "./customer-account-link.repository";
 import {
@@ -16,6 +18,7 @@ import {
 } from "./customer-authentication.service";
 import {
   CustomerDotyposAdapter,
+  type DotyposCustomerError,
   type ExactEmailCustomerMatch,
 } from "./customer-dotypos-adapter.service";
 
@@ -44,21 +47,21 @@ export type CustomerAccountResolutionDependencies = {
   >;
   readonly findLink: (
     accountId: CustomerAccountId
-  ) => Effect.Effect<DotyposCustomerId | null, unknown>;
+  ) => Effect.Effect<DotyposCustomerId | null, CustomerAccountLinkError>;
   readonly classify: (
     email: string
-  ) => Effect.Effect<ExactEmailCustomerMatch, unknown>;
+  ) => Effect.Effect<ExactEmailCustomerMatch, DotyposCustomerError>;
   readonly claimLink: (
     accountId: CustomerAccountId,
     customerId: DotyposCustomerId
-  ) => Effect.Effect<CustomerAccountLinkClaim, unknown>;
+  ) => Effect.Effect<CustomerAccountLinkClaim, CustomerAccountLinkError>;
   readonly reactivate: (
     customerId: DotyposCustomerId
-  ) => Effect.Effect<void, unknown>;
+  ) => Effect.Effect<void, DotyposCustomerError>;
   readonly withAccountLock: <A, E, R>(
     accountId: CustomerAccountId,
     effect: Effect.Effect<A, E, R>
-  ) => Effect.Effect<A, unknown, R>;
+  ) => Effect.Effect<A, E | SqlError.SqlError, R>;
 };
 
 export const resolveCustomerAccount = (

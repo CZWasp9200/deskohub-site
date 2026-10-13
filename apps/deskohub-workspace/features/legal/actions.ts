@@ -2,7 +2,10 @@
 
 import { Data, Effect, Schema } from "effect";
 import { cookies } from "next/headers";
-import { CustomerAccountResolver } from "@/features/account";
+import {
+  CustomerAccountAccessError,
+  CustomerAccountResolver,
+} from "@/features/account";
 import { type Locale, locales } from "@/features/i18n";
 import { getLegalAcceptanceSnapshot } from "@/features/legal/acceptance-snapshot";
 import type { MarketingPreferencesMutationFailureReason } from "@/features/legal/marketing-preferences";
@@ -13,7 +16,10 @@ import {
 import { defineWorkspaceAction } from "@/shared/backend/workspace-action";
 import { PublicSafeActionError } from "@/shared/utils/safe-action-client";
 import { CustomerMarketingConsentRepository } from "./backend/customer-marketing-consent.repository";
-import { MarketingManagementService } from "./backend/marketing-management.service";
+import {
+  type MarketingManagementError,
+  MarketingManagementService,
+} from "./backend/marketing-management.service";
 import {
   createMarketingManagementCookies,
   type MarketingManagementCookieOperations,
@@ -22,7 +28,7 @@ import {
   getMarketingManagementDismissalContext,
   isInvalidMarketingManagementCredential,
   type MarketingManagementCookies as MarketingManagementCookieValues,
-  MarketingPreferencesAuthorityError,
+  type MarketingPreferencesAuthorityError,
   matchesMarketingManagementContext,
   resolveMarketingPreferencesAuthority,
 } from "./backend/marketing-preferences-authority";
@@ -225,9 +231,7 @@ const resolvePendingAuthority = (
     // A pending cookie must not need the account capability. This callback is
     // never called while pending is present; if it is, fail closed.
     resolveAccount: () =>
-      Effect.fail(
-        new MarketingPreferencesAuthorityError({ reason: "unavailable" })
-      ),
+      Effect.fail(new CustomerAccountAccessError({ reason: "unavailable" })),
     resolveManagementSession: (rawSession) => management.resolve(rawSession),
   }).pipe(Effect.mapError(mapAuthorityFailure));
 
@@ -276,9 +280,9 @@ const mapAuthorityFailure = (
 ): MarketingPreferencesMutationError => mutationError(failure.reason);
 
 const mapManagementMutationFailure = (
-  cause: unknown
+  failure: MarketingManagementError
 ): MarketingPreferencesMutationError =>
-  isInvalidMarketingManagementCredential(cause)
+  isInvalidMarketingManagementCredential(failure)
     ? mutationError("invalid-link")
     : mutationError("unavailable");
 

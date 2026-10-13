@@ -46,7 +46,19 @@ const marketingCookies: MarketingManagementCookieOperations = {
   setPendingMarketingManagementCookie: async () => undefined,
 };
 
-const { getMarketingPreferencesEffect } = await import(
+const requestCookies = mock(
+  (): Promise<never> =>
+    Promise.reject(new Error("synthetic request scope loss"))
+);
+mock.module("next/headers", () => ({ cookies: requestCookies }));
+mock.module("@/shared/backend/workspace-effect", () => ({
+  runWorkspaceEffect:
+    (_operation: string, _options?: { readonly boundary?: string }) =>
+    <A, E>(effect: Effect.Effect<A, E, never>): Promise<A> =>
+      Effect.runPromise(effect),
+}));
+
+const { getMarketingPreferences, getMarketingPreferencesEffect } = await import(
   "./marketing-preferences.server"
 );
 
@@ -135,6 +147,23 @@ beforeEach(() => {
 });
 
 describe("getMarketingPreferences", () => {
+  test("renders unavailable when the request cookie store rejects", async () => {
+    await expect(getMarketingPreferences("en-US")).resolves.toEqual({
+      status: "unavailable",
+    });
+    expect(readMarketingManagementCookies).not.toHaveBeenCalled();
+  });
+
+  test("renders unavailable when reading the request cookie store throws", async () => {
+    requestCookies.mockImplementationOnce(() => {
+      throw new Error("synthetic request scope loss");
+    });
+
+    await expect(getMarketingPreferences("en-US")).resolves.toEqual({
+      status: "unavailable",
+    });
+  });
+
   test("renders pending-link before resolving either account or session authority", async () => {
     cookieState = { pending: pendingToken, session: sessionToken };
     const scenario = makeScenario();

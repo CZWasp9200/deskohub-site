@@ -169,14 +169,9 @@ const readSessionIdentity = (value: SessionAtomSnapshot): IdentityFacts => {
     return { expiresAt: expiresAtMillis, identity: unavailableIdentity };
   }
 
-  let accountId: CustomerAccountId | undefined;
-  try {
-    accountId = Option.getOrUndefined(
-      Schema.decodeUnknownOption(customerAccountIdSchema)(data.user.id)
-    );
-  } catch {
-    return { identity: unavailableIdentity };
-  }
+  const accountId = Option.getOrUndefined(
+    Schema.decodeUnknownOption(customerAccountIdSchema)(data.user.id)
+  );
   if (accountId === undefined) {
     return { identity: unavailableIdentity };
   }
@@ -229,18 +224,21 @@ const scheduleExpiryTimer = (expiresAt: number | undefined) => {
   );
 };
 
+// Storage is an optimization for other tabs, not the local state path, so a
+// throwing storage write is ignored.
+const writeAccountSessionChangeMarker = Option.liftThrowable(
+  (browserWindow: Window) =>
+    browserWindow.localStorage.setItem(
+      accountSessionChangeStorageKey,
+      crypto.randomUUID()
+    )
+);
+
 const notifyAccountSessionChange = () => {
   const browserWindow = globalThis.window;
   if (browserWindow === undefined) return;
 
-  try {
-    browserWindow.localStorage.setItem(
-      accountSessionChangeStorageKey,
-      crypto.randomUUID()
-    );
-  } catch {
-    // Storage is an optimization for other tabs, not the local state path.
-  }
+  writeAccountSessionChangeMarker(browserWindow);
 };
 
 const publish = (
@@ -368,6 +366,10 @@ const createRefreshCycle = (epoch: number): RefreshCycle => {
     resolve = resolvePromise;
     reject = rejectPromise;
   });
+  // A failed refresh already publishes the unavailable identity. Only a
+  // caller that awaits the cycle observes the rejection, so a refresh nobody
+  // awaits must not surface as an unhandled rejection.
+  promise.catch(() => undefined);
   return {
     activeEpoch: epoch,
     promise,
@@ -377,7 +379,7 @@ const createRefreshCycle = (epoch: number): RefreshCycle => {
   };
 };
 
-const requestRefresh = (epoch: number): Promise<void> => {
+const requestRefresh = (epoch: number): RefreshCycle => {
   authorityRefreshPending = true;
   authorityRefreshFailed = false;
   completedRefreshEpoch = undefined;
@@ -387,14 +389,14 @@ const requestRefresh = (epoch: number): Promise<void> => {
       refreshCycle.requestedEpoch = epoch;
     }
     syncAnalyticsIdentity();
-    return refreshCycle.promise;
+    return refreshCycle;
   }
 
   const cycle = createRefreshCycle(epoch);
   refreshCycle = cycle;
   syncAnalyticsIdentity();
   startRefresh(cycle, epoch);
-  return cycle.promise;
+  return cycle;
 };
 
 const handleSessionSnapshot = () => {
@@ -422,7 +424,7 @@ const requestExternalRefresh = () => {
     });
   }
   refreshEpoch += 1;
-  void requestRefresh(refreshEpoch).catch(() => undefined);
+  requestRefresh(refreshEpoch);
 };
 
 const beginRemoteAccountTransition = () => {
@@ -433,7 +435,7 @@ const beginRemoteAccountTransition = () => {
   completedRefreshEpoch = undefined;
   authorityRefreshFailed = false;
   syncAnalyticsIdentity();
-  void requestRefresh(refreshEpoch).catch(() => undefined);
+  requestRefresh(refreshEpoch);
 };
 
 const installBrowserListeners = () => {
@@ -478,7 +480,7 @@ const mount = () => {
   syncAnalyticsIdentity();
   unsubscribeSession = sessionAtom.subscribe(handleSessionSnapshot);
   installBrowserListeners();
-  void requestRefresh(refreshEpoch).catch(() => undefined);
+  requestRefresh(refreshEpoch);
 };
 
 const unmount = () => {
@@ -517,6 +519,11 @@ export function subscribeAnalyticsAccountIdentity(
   };
 }
 
+/**
+ * Refreshes the identity from the authoritative session. The promise rejects
+ * when the refresh fails; that failure is also published as the unavailable
+ * identity.
+ */
 export function refreshAnalyticsAccountIdentity(options?: {
   readonly settleTransition?: true;
 }): Promise<void> {
@@ -525,7 +532,7 @@ export function refreshAnalyticsAccountIdentity(options?: {
     lifecycleOverride = undefined;
   }
   refreshEpoch += 1;
-  return requestRefresh(refreshEpoch);
+  return requestRefresh(refreshEpoch).promise;
 }
 
 export function beginAnalyticsAccountTransition(): void {
@@ -549,5 +556,5 @@ export function completeAnalyticsAccountSignOut(): void {
   scheduleExpiryTimer(undefined);
   notifyAccountSessionChange();
 
-  void requestRefresh(refreshEpoch).catch(() => undefined);
+  requestRefresh(refreshEpoch);
 }
