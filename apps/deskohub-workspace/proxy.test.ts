@@ -535,14 +535,119 @@ test("checks administration Server Action posts before the general pass-through"
   expect(authorized.headers.get("x-middleware-next")).toBe("1");
 });
 
-test.each([
-  ["a localized page", "https://workspace.example/en-US/account?ref=RFL12345"],
-  ["the localizing redirect", "https://workspace.example/account?ref=RFL12345"],
-])(
-  "leaves a shared referral code on %s to the page's own capture",
-  async (_target, url) => {
+describe("shared referral code hand-off", () => {
+  const storedCookieOf = (response: Response) =>
+    response.headers
+      .getSetCookie()
+      .find((cookie) => cookie.startsWith(`${referralCodeCookieName}=`));
+  const renderedCookies = (response: Response) =>
+    response.headers.get("x-middleware-request-cookie");
+
+  test("hands a shared code to the page's own render without storing it", async () => {
     const response = await proxy(
-      new NextRequest(url, {
+      new NextRequest(
+        "https://workspace.example/cs-CZ/reservation/cowork?ref=RFL12345"
+      )
+    );
+
+    // The proxy cannot read the referrals flag, so only the gated page
+    // remembers the code; the render's gated reader sees it meanwhile.
+    expect(storedCookieOf(response)).toBeUndefined();
+    expect(renderedCookies(response)).toContain(
+      `${referralCodeCookieName}=RFL12345`
+    );
+  });
+
+  test("normalizes the code's case", async () => {
+    const response = await proxy(
+      new NextRequest("http://localhost:3000/en-US/account?ref=rfl12345")
+    );
+
+    expect(renderedCookies(response)).toContain(
+      `${referralCodeCookieName}=RFL12345`
+    );
+  });
+
+  test("keeps the first shared code when one is already remembered", async () => {
+    const response = await proxy(
+      new NextRequest("https://workspace.example/en-US/account?ref=RFLSECOND", {
+        headers: { cookie: `${referralCodeCookieName}=RFLFIRST1` },
+      })
+    );
+
+    expect(storedCookieOf(response)).toBeUndefined();
+    expect(renderedCookies(response)).toBeNull();
+  });
+
+  test("ignores a value that cannot be a referral code", async () => {
+    for (const value of ["", "a", "bad code!", "x".repeat(80)]) {
+      const response = await proxy(
+        new NextRequest(
+          `https://workspace.example/en-US/account?ref=${encodeURIComponent(value)}`
+        )
+      );
+      expect(renderedCookies(response)).toBeNull();
+    }
+  });
+
+  test("keeps the code in the address of the redirect that localizes a share link", async () => {
+    const response = await proxy(
+      new NextRequest("https://workspace.example/account?ref=RFL12345", {
+        headers: { "accept-language": "en-US" },
+      })
+    );
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(
+      "https://workspace.example/en-US/account?ref=RFL12345"
+    );
+    expect(storedCookieOf(response)).toBeUndefined();
+  });
+
+  test.each(
+    (
+      [
+        ["HEAD", { method: "HEAD", headers: {} }],
+        ["a non-action POST", { method: "POST", headers: {} }],
+        ["an RSC request", { headers: { rsc: "1" } }],
+        ["a router prefetch", { headers: { "next-router-prefetch": "1" } }],
+        [
+          "a segment prefetch",
+          { headers: { "next-router-segment-prefetch": "/_tree" } },
+        ],
+        [
+          "a router state request",
+          { headers: { "next-router-state-tree": "%5B%22%22%5D" } },
+        ],
+        ["a speculative prefetch", { headers: { "sec-purpose": "prefetch" } }],
+        [
+          "a speculative prerender",
+          { headers: { "sec-purpose": "prefetch;prerender" } },
+        ],
+        ["a legacy prefetch", { headers: { purpose: "prefetch" } }],
+        ["a subresource fetch", { headers: { "sec-fetch-dest": "empty" } }],
+        ["an iframe load", { headers: { "sec-fetch-dest": "iframe" } }],
+        [
+          "a Server Action",
+          { method: "POST", headers: { "next-action": "synthetic-action" } },
+        ],
+      ] as const
+    ).map(([kind, init]) => [kind, init] as const)
+  )("never hands a code to %s", async (_kind, init) => {
+    const response = await proxy(
+      new NextRequest("https://workspace.example/en-US/account?ref=RFL12345", {
+        ...init,
+        headers: { "accept-language": "en-US", ...init.headers },
+      })
+    );
+
+    expect(storedCookieOf(response)).toBeUndefined();
+    expect(renderedCookies(response)).toBeNull();
+  });
+
+  test("hands a code to a top-level document navigation", async () => {
+    const response = await proxy(
+      new NextRequest("https://workspace.example/en-US/account?ref=RFL12345", {
         headers: {
           "accept-language": "en-US",
           "sec-fetch-dest": "document",
@@ -551,11 +656,9 @@ test.each([
       })
     );
 
-    expect(
-      response.headers
-        .getSetCookie()
-        .some((cookie) => cookie.startsWith(`${referralCodeCookieName}=`))
-    ).toBe(false);
-    expect(response.headers.get("x-middleware-request-cookie")).toBeNull();
-  }
-);
+    expect(renderedCookies(response)).toContain(
+      `${referralCodeCookieName}=RFL12345`
+    );
+    expect(storedCookieOf(response)).toBeUndefined();
+  });
+});

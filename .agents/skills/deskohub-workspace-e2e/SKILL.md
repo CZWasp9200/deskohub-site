@@ -278,11 +278,12 @@ Distinguish automated-runner behavior from manual procedures before treating a d
   link wins); completion, auto-linked sign-in, and checkout read it. An
   accepted typed checkout code overwrites it, and it is forgotten once the
   booker's referral is recorded or their first order is paid; a booking for
-  someone else never clears it. Only the shown top-level page captures
+  someone else never clears it. Only the shown top-level page stores
   `?ref=`, after hydration and only while the `referrals` flag is on (the
-  proxy cannot read the flag), so open shared links with `openBrowserPage`
-  or `page.goto`, never a fetch or request-context call, and wait for the
-  cookie before navigating away. Assert
+  proxy cannot read the flag and only hands the code to that document's own
+  render), so open shared links with `openBrowserPage` or `page.goto`, never
+  a fetch, request-context call, or client-router transition, and wait for
+  the cookie before navigating away. Assert
   it with the runner's `cookie get --stdin` command (`readBrowserCookie`,
   `e2e/referrals/referral-cookie.ts`), which reports presence, attributes, and
   whether it holds an expected code, never the value. Every referral-lane case
