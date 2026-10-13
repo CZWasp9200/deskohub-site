@@ -9,6 +9,7 @@ import type { WorkspaceE2EStep, WorkspaceE2EStepRunner } from "../types";
 import {
   type WorkspaceE2EAccountCaseId,
   workspaceE2EAccountCaseIds,
+  workspaceE2EAccountMagicLinkLedger,
 } from "./catalog";
 import {
   makeWorkspaceE2EAccountRecipient,
@@ -62,11 +63,13 @@ const deleteConfirmCheckboxSelector = "#confirm-account-deletion";
 const deleteConfirmSelector = "#delete-account-confirm";
 
 const selectedCaseIds = [
+  "account-anonymous-redirect",
   "account-sign-in-form",
   "account-magic-link-delivery",
   "account-deletion-marker-reauth",
   "account-session-lifecycle",
   "account-deletion-and-reactivation",
+  "account-locale-preference",
   "account-linking-variants",
 ] as const satisfies readonly WorkspaceE2EAccountCaseId[];
 
@@ -1568,13 +1571,18 @@ test("executes the selected account lifecycle cases", async () => {
     )
   ).toEqual(selectedCaseIds);
 
+  const operationsByCase: Partial<
+    Record<WorkspaceE2EAccountCaseId, readonly MagicLinkOperation[]>
+  > = {};
   for (const caseId of selectedCaseIds) {
     const selected = await buildCase(
       makeWorkspaceE2EAccountCases,
       caseId,
       scenario
     );
+    const operationsBefore = scenario.operations.length;
     await executeCase(selected, scenario, stepIds);
+    operationsByCase[caseId] = scenario.operations.slice(operationsBefore);
     if (caseId === "account-magic-link-delivery") {
       // Profile completion and reservation transitions intentionally retain
       // their separate coverage; seed their successful postcondition here.
@@ -1598,7 +1606,27 @@ test("executes the selected account lifecycle cases", async () => {
   expect(
     scenario.operations.filter((operation) => operation === "verify")
   ).toHaveLength(4);
+  // The real budget never waited, and every executed case spent exactly its
+  // ledger entry. The seeded profile and reservation cases own no entry, so
+  // the executed cases account for the whole lane ledger.
   expect(scenario.retries).toEqual([]);
+  expect(operationsByCase).toEqual(
+    Object.fromEntries(
+      selectedCaseIds.map((caseId) => [
+        caseId,
+        workspaceE2EAccountMagicLinkLedger[caseId],
+      ])
+    )
+  );
+  expect(scenario.operations).toEqual(
+    workspaceE2EAccountCaseIds.flatMap(
+      (caseId) => workspaceE2EAccountMagicLinkLedger[caseId]
+    )
+  );
+  // The locale case saved Čeština and switched back to English (US), so the
+  // following linking case still runs on the English site.
+  expect(scenario.external.languageSaves).toEqual(["cs-CZ", "en-US"]);
+  expect(scenario.external.localePreference).toBe("en-US");
 
   const operationEvents = scenario.external.events.filter(({ type }) =>
     ["send", "receive", "logout", "consume", "deletion", "replay"].includes(
@@ -1875,8 +1903,9 @@ test("fails when the reauthentication handoff names a different linked customer"
 
 const seedLanguageAccount = (external: FakeAccountExternalState): FakeUser => {
   // The lane reaches the language case with an onboarded, linked account
-  // whose reservation history is already provisioned, signed in on a fresh
-  // session. The account was created under en-US, so English (US) is saved.
+  // whose reservation history is already provisioned, still signed in from
+  // the reactivation sign-in. The account was created under en-US, so
+  // English (US) is saved.
   const seedUser = {
     createdAt: fixedNow,
     deletionRequestedAt: null,
@@ -1938,20 +1967,11 @@ const runLanguageCase = async (
 };
 
 const languageCaseStepIds = [
-  "signs out for a fresh language-preference sign-in",
-  "records the delivered log baseline before the fresh sign-in",
-  "requests the fresh sign-in link",
-  "retrieves the fresh sign-in link",
-  "signs in on the English site and opens the profile section",
+  "opens the English profile of the reactivated account",
   "chooses Čeština, which saves it and moves the site to Czech",
   "shows Čeština selected on the Czech profile",
   "redirects a conflicting en-US URL and cookie to the saved Czech locale",
-  "signs out from the Czech site",
-  "records the delivered log baseline before the Czech sign-in",
-  "requests the sign-in link from the English sign-in page",
-  "retrieves the sign-in link with its en-US callback",
-  "signs in from the en-US link onto the Czech site",
-  "keeps Čeština selected after signing in again",
+  "keeps Čeština selected on the Czech profile after the redirect",
   "switches to English through the header language switcher",
   "redirects a Czech account URL to the switched English preference",
   "shows English (US) as the saved language after the switch",
@@ -1962,8 +1982,8 @@ test("makes the saved language preference the site locale and switches it back f
   const external = scenario.external;
 
   expect(Exit.isSuccess(exit)).toBe(true);
-  // Both sign-ins budgeted their send and verification, with no extra link.
-  expect(scenario.operations).toEqual(["send", "verify", "send", "verify"]);
+  // The case reuses the lane's signed-in session and spends no magic link.
+  expect(scenario.operations).toEqual([]);
   expect(scenario.retries).toEqual([]);
   // Choosing Čeština in the profile saved it once, and the header switch
   // saved English (US) back.
