@@ -1,28 +1,32 @@
 import { Duration } from "effect";
 import { env } from "@/env";
+import { getActionDeadline } from "@/shared/backend/action-deadline";
 import { googleCalendarRequestWorstCaseDuration } from "@/shared/backend/config/google-calendar.config";
 
-/** Database, pricing, and fast Dotypos work besides the slow requests. */
-const preparePayStateOverhead = Duration.seconds(10);
-
 /**
- * Reservation submission affirms the advertised discounts with one fully
- * retried Google Calendar load, then checks availability, which loads the
- * Calendar limitations alongside one full Dotypos request, plus the rest of
- * its work. With the default timeouts that is about 50 seconds in production
- * and 70 seconds elsewhere.
+ * Reservation submission runs, one after another: the advertised discount
+ * affirmation (a retried Google Calendar load), the Dotypos customer lookup
+ * and creation, the Dotypos customer discount, the superseded hold's Dotypos
+ * status check and cancellation, the availability check (Calendar limitations
+ * alongside Dotypos reservations), table assignment (Dotypos), and the hold
+ * creation (Dotypos). With the default timeouts that is about 260 seconds in
+ * production and 280 seconds elsewhere.
  */
 export const getPreparePayStateDeadline = (requestTimeouts: {
   readonly calendar: Duration.Duration;
   readonly dotypos: Duration.Duration;
 }) =>
-  Duration.sum(
-    Duration.sum(
-      requestTimeouts.calendar,
-      Duration.max(requestTimeouts.calendar, requestTimeouts.dotypos)
-    ),
-    preparePayStateOverhead
-  );
+  getActionDeadline([
+    requestTimeouts.calendar,
+    requestTimeouts.dotypos,
+    requestTimeouts.dotypos,
+    requestTimeouts.dotypos,
+    requestTimeouts.dotypos,
+    requestTimeouts.dotypos,
+    Duration.max(requestTimeouts.calendar, requestTimeouts.dotypos),
+    requestTimeouts.dotypos,
+    requestTimeouts.dotypos,
+  ]);
 
 export const preparePayStateDeadline = getPreparePayStateDeadline({
   calendar: googleCalendarRequestWorstCaseDuration,

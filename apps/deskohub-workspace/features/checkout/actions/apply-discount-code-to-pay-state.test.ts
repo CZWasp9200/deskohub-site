@@ -2,8 +2,10 @@ import "@/shared/polyfills/temporal";
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, mock, test } from "bun:test";
+import { dotyposApiTimeoutDefaultMilliseconds } from "@deskohub/dotypos";
+import { getGoogleCalendarRequestWorstCaseDuration } from "@deskohub/google-calendar";
 import { testEmailAddress } from "@deskohub/test-email";
-import { Effect, Layer, Schema } from "effect";
+import { Duration, Effect, Layer, Schema } from "effect";
 import { CheckoutPricingServiceMock } from "@/features/checkout/backend/checkout/checkout-pricing.service.mock";
 import {
   buildSignedPayState,
@@ -18,7 +20,10 @@ import {
   discountIdSchema,
   PromotionCodeUnavailableError,
 } from "@/features/discounts";
+import { getGoogleCalendarRequestTimeout } from "@/shared/backend/config/google-calendar.config";
+import { withInstantSleeps } from "@/shared/testing/workspace-test-clock.test-utils";
 import { instantStringSchema } from "@/shared/utils/temporal";
+import { getApplyDiscountCodeDeadline } from "./apply-discount-code-deadline";
 
 mock.module("server-only", () => ({}));
 
@@ -56,14 +61,18 @@ const makePayStateToken = async (input?: {
   return await Effect.runPromise(sealPayState(state));
 };
 
-const runSubmission = async (input?: {
+type SubmissionInput = {
   readonly submittedCode?: string;
   readonly applyDiscountCode?: ReturnType<typeof mock>;
   readonly activePaymentAttemptId?: string;
   readonly activePaymentAttemptIdAfterPricing?: string;
   readonly payableReservationUnavailableAt?: 1 | 2;
   readonly requestedDiscountCode?: CanonicalPromotionCode;
-}) => {
+  /** How long each live payable-reservation guard takes. */
+  readonly requireCurrentDuration?: Duration.Input;
+};
+
+const prepareSubmission = async (input?: SubmissionInput) => {
   const [
     { applyDiscountCodeToPayState },
     { PayableReservationService },
@@ -85,18 +94,22 @@ const runSubmission = async (input?: {
           null)
         : (input?.activePaymentAttemptId ?? null),
   });
-  const requireCurrent = mock(() => {
-    payableReservationReadCount += 1;
-    return input?.payableReservationUnavailableAt ===
-      payableReservationReadCount
-      ? Effect.fail(
-          new PayableReservationUnavailableError({
-            orderId: "reservation-id",
-            reason: "not_current",
-          })
-        )
-      : Effect.succeed(getReservation() as never);
-  });
+  const requireCurrent = mock(() =>
+    Effect.sleep(input?.requireCurrentDuration ?? 0).pipe(
+      Effect.andThen(() => {
+        payableReservationReadCount += 1;
+        return input?.payableReservationUnavailableAt ===
+          payableReservationReadCount
+          ? Effect.fail(
+              new PayableReservationUnavailableError({
+                orderId: "reservation-id",
+                reason: "not_current",
+              })
+            )
+          : Effect.succeed(getReservation() as never);
+      })
+    )
+  );
   const applyDiscountCode =
     input?.applyDiscountCode ??
     mock(() =>
@@ -111,7 +124,7 @@ const runSubmission = async (input?: {
   const payStateToken = await makePayStateToken({
     requestedDiscountCode: input?.requestedDiscountCode,
   });
-  const result = await applyDiscountCodeToPayState({
+  const effect = applyDiscountCodeToPayState({
     locale: "en-US",
     payStateToken,
     submittedCode: input?.submittedCode ?? " save20 ",
@@ -122,17 +135,38 @@ const runSubmission = async (input?: {
         CheckoutPricingServiceMock({ applyDiscountCode }),
         Layer.succeed(PayableReservationService, { requireCurrent })
       )
-    ),
-    Effect.runPromise
+    )
   );
 
   return {
     applyDiscountCode,
+    effect,
     requireCurrent,
     payStateToken,
-    result,
     verifyHuman,
   };
+};
+
+const runSubmission = async (input?: SubmissionInput) => {
+  const { effect, ...submission } = await prepareSubmission(input);
+  return { ...submission, result: await Effect.runPromise(effect) };
+};
+
+/** Runs a submission under an action deadline on an instant test clock. */
+const runSubmissionWithinDeadline = async (
+  deadline: Duration.Input,
+  input?: SubmissionInput
+) => {
+  const { withActionDeadline } = await import(
+    "@/shared/backend/workspace-action"
+  );
+  const { effect } = await prepareSubmission(input);
+  return await effect.pipe(
+    withActionDeadline(deadline),
+    Effect.exit,
+    withInstantSleeps,
+    Effect.runPromise
+  );
 };
 
 describe("applyDiscountCodeToPayState", () => {
@@ -236,6 +270,59 @@ describe("applyDiscountCodeToPayState", () => {
     expect(freshState.submittedCode).toBeUndefined();
     expect(freshState.submittedCodeDiscountId).toBeUndefined();
     expect(scenario.result.freshPayUrl).not.toContain("SAVE20");
+  });
+
+  describe("under the action deadline", () => {
+    // Live guards of 8 seconds before and after pricing that succeeds only
+    // on its Calendar retry, 29.5 seconds in.
+    const slowSuccessfulSubmission = () =>
+      ({
+        requireCurrentDuration: "8 seconds",
+        applyDiscountCode: mock(() =>
+          Effect.sleep("29500 millis").pipe(
+            Effect.as({
+              kind: "cowork" as const,
+              reservation,
+              status: "applied" as const,
+              submittedCodeDiscountId,
+              quote,
+            })
+          )
+        ),
+      }) satisfies SubmissionInput;
+
+    test("completes slow live guards around a slow successful Calendar retry", async () => {
+      const exit = await runSubmissionWithinDeadline(
+        getApplyDiscountCodeDeadline({
+          calendar: getGoogleCalendarRequestWorstCaseDuration(
+            getGoogleCalendarRequestTimeout("preview")
+          ),
+          dotypos: Duration.millis(dotyposApiTimeoutDefaultMilliseconds),
+        }),
+        slowSuccessfulSubmission()
+      );
+
+      expect(exit).toMatchObject({
+        _tag: "Success",
+        value: { status: "applied" },
+      });
+    });
+
+    test("would interrupt the same submission under the generic 45-second deadline", async () => {
+      const exit = await runSubmissionWithinDeadline(
+        "45 seconds",
+        slowSuccessfulSubmission()
+      );
+
+      expect(exit).toMatchObject({
+        _tag: "Failure",
+        cause: {
+          reasons: [
+            { error: { message: "Request timed out. Please try again." } },
+          ],
+        },
+      });
+    });
   });
 
   test("keeps the existing summary payable when displayed discounts cannot be affirmed", async () => {

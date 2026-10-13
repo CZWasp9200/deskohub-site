@@ -916,11 +916,11 @@ describe("CheckoutService", () => {
     });
 
     test("attaches a hosted page that finishes after the deadline passes", async () => {
-      // 20 seconds of Dotypos and 36 of Nexi outlast the production
-      // deadline of about 55 seconds.
+      // 20 seconds of Dotypos and 120 of Nexi outlast the production
+      // deadline of about 135 seconds.
       const harness = await createSlowProviderHarness(
         "reservation-hosted-page-past-deadline",
-        "36 seconds"
+        "120 seconds"
       );
 
       const exit = await submitWithinDeadline(harness.effect, "production");

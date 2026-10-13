@@ -11,7 +11,7 @@ import {
   affirmedDiscountAdvertisementQuoteCodec,
   type CanonicalPromotionCode,
   type DiscountAdvertisementInput,
-  type DiscountAffirmationUnavailableError,
+  DiscountAffirmationUnavailableError,
   type DiscountCommitment,
   type DiscountId,
   type DiscountQuote,
@@ -242,24 +242,44 @@ export const reservationCheckoutPricing = <
   Effect.gen(function* () {
     const discounts = yield* DiscountService;
 
+    /**
+     * Previews a query code on top of the anonymous discounts. Discovery omits
+     * a code it cannot preview. Affirming an advertised code treats a provider
+     * failure as unknown rather than gone, so it fails instead of silently
+     * dropping the code; an unavailable code is still gone.
+     */
     const previewSubmittedCode = Effect.fn(
       "ReservationCheckoutPricing.previewSubmittedCode"
     )(function* (input: {
       readonly discountQuote: DiscountQuote;
       readonly locale: Locale;
       readonly submittedCode?: CanonicalPromotionCode;
+      readonly advertisedCodeDiscountId?: DiscountId;
     }) {
       if (!input.submittedCode) return undefined;
 
-      const preview = Option.getOrUndefined(
-        yield* discounts
-          .previewDiscountCode({
-            baseQuote: input.discountQuote,
-            locale: input.locale,
-            submittedCode: input.submittedCode,
-          })
-          .pipe(Effect.option)
-      );
+      const preview = yield* discounts
+        .previewDiscountCode({
+          baseQuote: input.discountQuote,
+          locale: input.locale,
+          submittedCode: input.submittedCode,
+        })
+        .pipe(
+          Effect.map(Option.some),
+          Effect.catch((cause) =>
+            cause._tag === "DiscountProviderError" &&
+            input.advertisedCodeDiscountId !== undefined
+              ? Effect.fail(
+                  new DiscountAffirmationUnavailableError({
+                    message:
+                      "The advertised discount code could not be affirmed because its provider was unavailable.",
+                    discountIds: [input.advertisedCodeDiscountId],
+                  })
+                )
+              : Effect.succeed(Option.none())
+          ),
+          Effect.map(Option.getOrUndefined)
+        );
       if (
         !preview ||
         input.discountQuote.discounts.some(
@@ -334,6 +354,7 @@ export const reservationCheckoutPricing = <
             discountQuote,
             locale: input.locale,
             submittedCode: input.submittedCode,
+            advertisedCodeDiscountId: input.submittedCodeDiscountId,
           })
         ),
         Effect.bind("quote", ({ discountQuote, preview, pricing }) =>

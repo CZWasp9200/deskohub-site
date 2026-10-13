@@ -10,12 +10,14 @@ import {
 import { CheckoutPricingService } from "@/features/checkout/backend/checkout/checkout-pricing.service";
 import { defaultLocale, isLocale, type Locale } from "@/features/i18n";
 import { defineWorkspaceAction } from "@/shared/backend/workspace-action";
+import { applyDiscountCodeDeadline } from "./apply-discount-code-deadline";
 import { applyDiscountCodeSchema } from "./apply-discount-code-input";
 import { applyDiscountCodeToPayState } from "./apply-discount-code-to-pay-state";
 
 const applyDiscountCodeAction = defineWorkspaceAction(
   {
     operation: "checkout.apply-discount-code",
+    deadline: applyDiscountCodeDeadline,
     schema: applyDiscountCodeSchema,
   },
   (input) =>
