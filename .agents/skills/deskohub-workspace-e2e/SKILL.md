@@ -210,8 +210,8 @@ Distinguish automated-runner behavior from manual procedures before treating a d
   provider profile; cover active, expired, and duplicate provider-link states
   with exact unlink/relink transitions instead of extra auth links or
   identities. Keep the callback screenshot review on
-  `account-session-lifecycle` when it consumes the handed-off
-  reauthentication link; the marker case only issues it. The callback
+  `account-magic-link-delivery`, which consumes the first main-recipient
+  link inside the callback handoff wrapper. The callback
   handoff hold and its loading-document receipt are E2E evidence and run on
   every pass; only the screenshot, its capture viewport, and the font and
   viewport readiness checks depend on the review screenshot opt-in. For a candidate that
@@ -221,6 +221,24 @@ Distinguish automated-runner behavior from manual procedures before treating a d
   production limits and headroom unchanged, and perform no production auth
   fabrication, rate-limit clearing, Resend configuration changes, or automatic
   provider work.
+- Every account case shares the runner's egress IP, so the serial lane gets
+  one Better Auth magic-link rate window per path: four sends and four
+  verifications, one below the deployed maximum of five. An over-budget link
+  makes the lane wait out the full 10-minute quiet window (the first
+  `account-locale-preference` added two sign-ins and took about 10.9 minutes).
+  Declare each case's sends and verifications in
+  `workspaceE2EAccountMagicLinkLedger` (`e2e/account/catalog.ts`).
+  `catalog.test.ts` replays the ledger through the real budget. The
+  `cases.test.ts` lane run executes every catalog case against the real budget
+  through the fake boundary and checks that each case spends exactly its entry;
+  extend that fake when a case gains a new browser or fixture interaction. A
+  new link has to fit the ledger: reuse the lane's signed-in session or a link
+  it already spends. The saved-locale sign-in landing reuses the
+  session-lifecycle reauthentication: a fixture saves Čeština on the
+  deletion-pending account, which rejects application saves, and then restores
+  English (US) before the deletion continues. A different synthetic identity does not
+  change the limiter key, and the replayed-link check the account skill
+  requires keeps its verification.
 - Treat a successful Dotypos cancellation response as issued, not converged.
   Before suite cleanup releases the sandbox boundary, poll the same active
   reservation inventory consumed by availability until every successfully

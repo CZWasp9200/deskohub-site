@@ -9,6 +9,7 @@ import type { WorkspaceE2EStep, WorkspaceE2EStepRunner } from "../types";
 import {
   type WorkspaceE2EAccountCaseId,
   workspaceE2EAccountCaseIds,
+  workspaceE2EAccountMagicLinkLedger,
 } from "./catalog";
 import {
   makeWorkspaceE2EAccountRecipient,
@@ -40,6 +41,7 @@ const acceptedBody =
   "If the address can receive mail, a single-use link will arrive shortly. The link works once and expires in 10 minutes.";
 const completionTitle = "Complete your profile";
 const deletionPendingTitle = "Account deletion is pending";
+const czechDeletionPendingTitle = "Smazání účtu čeká na dokončení";
 const deletionReauthLinkSent =
   "If the address can receive mail, a new link is on its way.";
 const deletedTitle = "Your account was deleted";
@@ -60,15 +62,17 @@ const deleteTriggerSelector = "#delete-account-trigger";
 const deleteReauthSendSelector = "#delete-account-reauth-send";
 const deleteConfirmCheckboxSelector = "#confirm-account-deletion";
 const deleteConfirmSelector = "#delete-account-confirm";
-
-const selectedCaseIds = [
-  "account-sign-in-form",
-  "account-magic-link-delivery",
-  "account-deletion-marker-reauth",
-  "account-session-lifecycle",
-  "account-deletion-and-reactivation",
-  "account-linking-variants",
-] as const satisfies readonly WorkspaceE2EAccountCaseId[];
+const profileFirstNameSelector = "#account-profile-first-name";
+const profileLastNameSelector = "#account-profile-last-name";
+const profilePhoneSelector = "#account-profile-phone";
+const profileSubmitSelector = "#account-profile-form button[type=submit]";
+const billingKindSelector = "#account-profile-billing-kind";
+const billingCompanyNameSelector = "#account-profile-billing-company-name";
+const profileDraftSelectors = [
+  profileFirstNameSelector,
+  profileLastNameSelector,
+  profilePhoneSelector,
+] as const;
 
 type FakeMessageKind =
   | "initial-main"
@@ -86,13 +90,13 @@ type FakeMessage = {
 };
 
 type FakeProfile = {
-  readonly companyName: string | null;
+  companyName: string | null;
   deleted: boolean;
   expireDate: string | null;
   readonly firstName: string;
   readonly id: string;
   readonly email: string;
-  readonly lastName: string;
+  lastName: string;
   phone: string;
 };
 
@@ -230,7 +234,13 @@ class FakeAccountExternalState {
 
   currentAuthUserId: string | undefined;
   historyReady = false;
-  profileHistorySeeded = false;
+  readonly profileDrafts = new Map<string, string>();
+  billingKind: "business" | "individual" = "individual";
+  readonly reservations: Array<{
+    readonly id: string;
+    status: "CANCELLED" | "CONFIRMED";
+  }> = [];
+  readonly fixtureLocaleWrites: Array<"cs-CZ" | "en-US"> = [];
   lastDestination = "";
   staleSession = false;
   deletionDialog = false;
@@ -303,20 +313,56 @@ class FakeAccountExternalState {
     );
   }
 
-  seedCompletedProfileAndHistory() {
-    const original = this.usersById.get("auth-original");
-    if (!original)
-      throw new Error("the synthetic magic link did not create auth");
+  /**
+   * The profile form submit: the first submit completes the profile by
+   * creating and linking the retained provider profile; later submits save
+   * the optional profile and billing drafts to it.
+   */
+  submitProfile(): "completed" | "saved" {
+    const userId = this.currentAuthUserId;
+    if (!userId) throw new Error("the profile form was submitted signed out");
+    const linkedCustomerId = this.linksByUserId.get(userId);
+    if (!linkedCustomerId) {
+      const retained = this.makeProfile({
+        email: this.mainRecipient,
+        firstName: this.profileDrafts.get(profileFirstNameSelector) ?? "",
+        id: "customer-retained",
+      });
+      retained.lastName = "";
+      this.profiles.set(retained.id, retained);
+      this.linksByUserId.set(userId, retained.id);
+      return "completed";
+    }
+    const profile = this.requireProfile(linkedCustomerId);
+    profile.lastName = this.profileDrafts.get(profileLastNameSelector) ?? "";
+    profile.phone = this.profileDrafts.get(profilePhoneSelector) ?? "";
+    profile.companyName =
+      this.billingKind === "business"
+        ? (this.profileDrafts.get(billingCompanyNameSelector) ?? null)
+        : null;
+    return "saved";
+  }
 
-    const retained = this.makeProfile({
-      email: this.mainRecipient,
-      firstName: "E2E",
-      id: "customer-retained",
-    });
-    this.profiles.set(retained.id, retained);
-    this.linksByUserId.set(original.id, retained.id);
+  createReservation(customerId: string) {
+    this.requireProfile(customerId);
+    const id = `reservation-${this.reservations.length + 1}`;
+    this.reservations.push({ id, status: "CONFIRMED" });
+    return id;
+  }
+
+  cancelReservation(reservationId: string) {
+    const reservation = this.reservations.find(
+      ({ id }) => id === reservationId
+    );
+    if (!reservation) throw new Error("unknown synthetic reservation");
+    reservation.status = "CANCELLED";
     this.historyReady = true;
-    this.profileHistorySeeded = true;
+  }
+
+  setLocalePreference(userId: string, locale: "cs-CZ" | "en-US") {
+    this.requireUser(userId);
+    this.fixtureLocaleWrites.push(locale);
+    this.localePreference = locale;
   }
 
   seedPendingReauthenticationForTest() {
@@ -771,6 +817,7 @@ class FakeBrowser {
   private formReady = false;
   private selectedSection = "";
   private languageListboxOpen = false;
+  private focusedSelector = "";
 
   constructor(readonly external: FakeAccountExternalState) {}
 
@@ -874,9 +921,10 @@ class FakeBrowser {
         : destination;
       // Rendered page text applies the label's CSS uppercase, as
       // `innerText` does; only its `textContent` keeps the message casing.
+      const text = this.localizedText(result.text, locale);
       this.pageText = profile
-        ? `${result.text} ${this.profileLabel(locale).toLocaleUpperCase()}`
-        : result.text;
+        ? `${text} ${this.profileLabel(locale).toLocaleUpperCase()}`
+        : text;
       this.languageControlLabel = profile ? this.profileLabel(locale) : null;
       if (profile) this.selectedSection = "profile";
       this.formReady = result.destination.endsWith("/auth/sign-in");
@@ -905,12 +953,20 @@ class FakeBrowser {
       const result = this.external.consumeLink(url);
       // The callback lands through the proxy like any page request.
       const landing = `${this.external.config.baseUrl}${result.destination}`;
-      this.currentUrl = this.withLocale(landing, this.resolveLocale("en-US"));
-      this.pageText = result.text;
+      const landingLocale = this.resolveLocale("en-US");
+      this.currentUrl = this.withLocale(landing, landingLocale);
+      this.pageText = this.localizedText(result.text, landingLocale);
       this.formReady = false;
       return;
     }
     throw new Error("unknown synthetic browser destination");
+  }
+
+  /** The only fake page copy the lane reads in both locales. */
+  private localizedText(text: string, locale: FakeLocale) {
+    return locale === "cs-CZ" && text === deletionPendingTitle
+      ? czechDeletionPendingTitle
+      : text;
   }
 
   private pageLocaleOf(url: string): FakeLocale {
@@ -969,6 +1025,13 @@ class FakeBrowser {
       kind: "fill",
       selectorOrDestination: selector,
     });
+    if (
+      (profileDraftSelectors as readonly string[]).includes(selector) ||
+      selector === billingCompanyNameSelector
+    ) {
+      this.external.profileDrafts.set(selector, value);
+      return;
+    }
     if (selector !== signInEmailSelector) {
       throw new Error("the synthetic browser filled an unexpected control");
     }
@@ -1059,6 +1122,17 @@ class FakeBrowser {
       this.selectedSection = "danger";
       return;
     }
+    if (selector === profileSubmitSelector) {
+      this.pageText =
+        this.external.submitProfile() === "completed"
+          ? "Save profile"
+          : "Profile updated.";
+      return;
+    }
+    if (selector.includes("Billing & Invoices")) {
+      this.selectedSection = "billing";
+      return;
+    }
     if (selector.includes("Profile & Identity")) {
       if (this.pageLocale() !== "en-US") {
         throw new Error("the English account navigation was clicked in Czech");
@@ -1092,6 +1166,7 @@ class FakeBrowser {
   }
 
   focus(selector: string) {
+    this.focusedSelector = selector;
     this.external.recordBrowserAction({
       kind: "focus",
       selectorOrDestination: selector,
@@ -1104,6 +1179,9 @@ class FakeBrowser {
       selectorOrDestination: key,
     });
     if (key === "Escape") this.languageListboxOpen = false;
+    if (key === "End" && this.focusedSelector === billingKindSelector) {
+      this.external.billingKind = "business";
+    }
   }
 
   eval(input: string) {
@@ -1118,6 +1196,28 @@ class FakeBrowser {
     if (cookieWrite) {
       this.localeCookie = cookieWrite[1] as FakeLocale;
       return "";
+    }
+    if (input.includes("readOnly:")) {
+      return JSON.stringify({
+        matches: input.includes(JSON.stringify(this.external.mainRecipient)),
+        readOnly: true,
+      });
+    }
+    if (input.includes("editable:")) {
+      return JSON.stringify({
+        editable: false,
+        matches: input.includes(JSON.stringify(this.external.mainRecipient)),
+      });
+    }
+    if (input.includes("profilePreserved")) {
+      const drafts = this.external.profileDrafts;
+      const preserved = (selector: string) =>
+        drafts.has(selector) &&
+        input.includes(JSON.stringify(drafts.get(selector)));
+      return JSON.stringify({
+        billingPreserved: preserved(billingCompanyNameSelector),
+        profilePreserved: profileDraftSelectors.every(preserved),
+      });
     }
     if (input.includes("document.cookie.split")) {
       return JSON.stringify({ czech: this.localeCookie === "cs-CZ" });
@@ -1176,6 +1276,34 @@ class FakeBrowser {
     if (description === "account profile panel hydration") {
       if (!condition.includes("[data-screen='profile-screen']")) {
         throw new Error("the profile panel hydration anchor is wrong");
+      }
+      return;
+    }
+    if (description === "account billing panel hydration") {
+      if (!condition.includes("[data-screen='profile-screen']")) {
+        throw new Error("the billing panel hydration anchor is wrong");
+      }
+      return;
+    }
+    if (description === "account billing section") {
+      if (this.selectedSection !== "billing") {
+        throw new Error("the billing section is not selected");
+      }
+      return;
+    }
+    if (description === "business billing kind") {
+      if (this.external.billingKind !== "business") {
+        throw new Error("the billing kind is not business");
+      }
+      return;
+    }
+    if (
+      description ===
+      "linked account edit form with its Save profile submit control"
+    ) {
+      const userId = this.external.currentAuthUserId;
+      if (!userId || !this.external.linksByUserId.has(userId)) {
+        throw new Error("the linked edit form is not shown");
       }
       return;
     }
@@ -1241,10 +1369,29 @@ class FakeBrowser {
     );
   }
 
+  /**
+   * The reservation groups the account page renders. The language case
+   * seeds history without reservation fixtures, so it shows a fixed one.
+   */
+  private reservationSnapshot() {
+    const reservations = this.external.reservations;
+    if (reservations.length === 0) {
+      return this.external.historyReady
+        ? "Current and upcoming\nPast reservations\nCancelled"
+        : "";
+    }
+    const hasStatus = (status: "CANCELLED" | "CONFIRMED") =>
+      reservations.some((reservation) => reservation.status === status);
+    return [
+      "Current and upcoming",
+      ...(hasStatus("CONFIRMED") ? ["Confirmed"] : []),
+      "Past reservations",
+      ...(hasStatus("CANCELLED") ? ["Cancelled"] : []),
+    ].join("\n");
+  }
+
   waitForSnapshot(matches: (snapshot: string) => boolean) {
-    const snapshot = this.external.historyReady
-      ? "Current and upcoming\nPast reservations\nCancelled"
-      : "";
+    const snapshot = this.reservationSnapshot();
     if (!matches(snapshot)) {
       throw new Error(
         "the synthetic reservation snapshot assertion did not match"
@@ -1374,6 +1521,8 @@ mock.module("./auth-rows", () => ({
     Effect.sync(() =>
       requireExternal().removeAccountLink(accountId, customerId)
     ),
+  setAccountLocalePreference: (userId: string, locale: "cs-CZ" | "en-US") =>
+    Effect.sync(() => requireExternal().setLocalePreference(userId, locale)),
   setDeletionRequestedAt: (userId: string, value: Date | null) =>
     Effect.sync(() => requireExternal().setDeletionMarker(userId, value)),
   setSessionCreatedAt: (userId: string, value: Date) =>
@@ -1385,22 +1534,23 @@ mock.module("./fixtures", () => ({
     _config: DatasourceConfig,
     email: string
   ) => Effect.sync(() => requireExternal().assertNoProfile(email)),
-  cancelSyntheticReservation: () =>
-    Effect.sync(() => {
-      throw new Error(
-        "the selected account cases must not create reservations"
-      );
-    }),
+  cancelSyntheticReservation: (
+    _config: DatasourceConfig,
+    reservationId: string
+  ) => Effect.sync(() => requireExternal().cancelReservation(reservationId)),
   createSyntheticCustomerProfile: (
     _config: DatasourceConfig,
     profile: { readonly email: string; readonly firstName: string }
   ) => Effect.sync(() => requireExternal().createProfile(profile)),
-  createSyntheticReservation: () =>
-    Effect.sync(() => {
-      throw new Error(
-        "reservation fixture coverage belongs to its separate case"
-      );
-    }),
+  createSyntheticReservation: (
+    _config: DatasourceConfig,
+    input: { readonly customerId: string }
+  ) =>
+    Effect.sync(() => ({
+      endsAt: fixedNow,
+      reservationId: requireExternal().createReservation(input.customerId),
+      startsAt: fixedNow,
+    })),
   expireSyntheticCustomerProfile: (
     _config: DatasourceConfig,
     customerId: string
@@ -1556,49 +1706,48 @@ afterEach(() => {
   setSystemTime();
 });
 
-test("executes the selected account lifecycle cases", async () => {
+test("executes every account lane case within the magic-link ledger", async () => {
   setSystemTime(fixedNow);
   const { makeWorkspaceE2EAccountCases } = await import("./cases");
   const scenario = makeScenario();
   const stepIds: string[] = [];
 
-  expect(
-    workspaceE2EAccountCaseIds.filter((caseId) =>
-      selectedCaseIds.includes(caseId as (typeof selectedCaseIds)[number])
-    )
-  ).toEqual(selectedCaseIds);
-
-  for (const caseId of selectedCaseIds) {
+  // Every catalog case runs in lane order against one real budget whose
+  // quiet-window retry throws, so an operation any case spends beyond the
+  // lane budget fails here, declared or not.
+  const operationsByCase: Partial<
+    Record<WorkspaceE2EAccountCaseId, readonly MagicLinkOperation[]>
+  > = {};
+  for (const caseId of workspaceE2EAccountCaseIds) {
     const selected = await buildCase(
       makeWorkspaceE2EAccountCases,
       caseId,
       scenario
     );
+    const operationsBefore = scenario.operations.length;
     await executeCase(selected, scenario, stepIds);
-    if (caseId === "account-magic-link-delivery") {
-      // Profile completion and reservation transitions intentionally retain
-      // their separate coverage; seed their successful postcondition here.
-      scenario.external.seedCompletedProfileAndHistory();
-    }
+    operationsByCase[caseId] = scenario.operations.slice(operationsBefore);
   }
 
   expect(stepIds.length).toBeGreaterThan(0);
   expect(scenario.lifecycleHandoff.firstAcceptedRequestedAt).toEqual(fixedNow);
 
-  expect(scenario.operations).toEqual([
-    "send",
-    "send",
-    "verify",
-    "send",
-    "verify",
-    "verify",
-    "send",
-    "verify",
-  ]);
-  expect(
-    scenario.operations.filter((operation) => operation === "verify")
-  ).toHaveLength(4);
+  // Each case spent exactly its ledger entry, so an undeclared operation
+  // fails even while the lane total still fits the budget.
   expect(scenario.retries).toEqual([]);
+  expect(Object.keys(operationsByCase)).toEqual([
+    ...workspaceE2EAccountCaseIds,
+  ]);
+  expect(operationsByCase).toEqual(workspaceE2EAccountMagicLinkLedger);
+  // The reauthentication sign-in landed on the fixture-saved Czech site, and
+  // English (US) was restored before the deletion; the locale case then saved
+  // Čeština and switched back to English (US) for the linking case.
+  expect(scenario.external.fixtureLocaleWrites).toEqual(["cs-CZ", "en-US"]);
+  expect(scenario.external.languageSaves).toEqual(["cs-CZ", "en-US"]);
+  expect(scenario.external.localePreference).toBe("en-US");
+  expect(stepIds).toContain(
+    "signs the same account back in onto the saved Czech site"
+  );
 
   const operationEvents = scenario.external.events.filter(({ type }) =>
     ["send", "receive", "logout", "consume", "deletion", "replay"].includes(
@@ -1751,7 +1900,10 @@ test("executes the selected account lifecycle cases", async () => {
     "customer-retained",
     "customer-duplicate-1",
   ]);
-  expect(scenario.external.journal.dotyposReservationIds).toEqual([]);
+  expect(scenario.external.journal.dotyposReservationIds).toEqual([
+    "reservation-1",
+    "reservation-2",
+  ]);
 });
 
 test("fails closed before external side effects when the accepted request handoff is missing", async () => {
@@ -1859,7 +2011,9 @@ test("fails when the reauthentication handoff names a different linked customer"
   );
 
   expect(Exit.isFailure(exit)).toBe(true);
-  expect(stepIds).toContain("signs the same account back in");
+  expect(stepIds).toContain(
+    "signs the same account back in onto the saved Czech site"
+  );
   expect(scenario.external.createdAuthIds).toEqual(["auth-original"]);
   expect(scenario.external.deletionObservations).toEqual([]);
   expect(scenario.external.reauthenticationObservations).toEqual([
@@ -1875,8 +2029,9 @@ test("fails when the reauthentication handoff names a different linked customer"
 
 const seedLanguageAccount = (external: FakeAccountExternalState): FakeUser => {
   // The lane reaches the language case with an onboarded, linked account
-  // whose reservation history is already provisioned, signed in on a fresh
-  // session. The account was created under en-US, so English (US) is saved.
+  // whose reservation history is already provisioned, still signed in from
+  // the reactivation sign-in. The account was created under en-US, so
+  // English (US) is saved.
   const seedUser = {
     createdAt: fixedNow,
     deletionRequestedAt: null,
@@ -1938,20 +2093,11 @@ const runLanguageCase = async (
 };
 
 const languageCaseStepIds = [
-  "signs out for a fresh language-preference sign-in",
-  "records the delivered log baseline before the fresh sign-in",
-  "requests the fresh sign-in link",
-  "retrieves the fresh sign-in link",
-  "signs in on the English site and opens the profile section",
+  "opens the English profile of the reactivated account",
   "chooses Čeština, which saves it and moves the site to Czech",
   "shows Čeština selected on the Czech profile",
   "redirects a conflicting en-US URL and cookie to the saved Czech locale",
-  "signs out from the Czech site",
-  "records the delivered log baseline before the Czech sign-in",
-  "requests the sign-in link from the English sign-in page",
-  "retrieves the sign-in link with its en-US callback",
-  "signs in from the en-US link onto the Czech site",
-  "keeps Čeština selected after signing in again",
+  "keeps Čeština selected on the Czech profile after the redirect",
   "switches to English through the header language switcher",
   "redirects a Czech account URL to the switched English preference",
   "shows English (US) as the saved language after the switch",
@@ -1962,8 +2108,8 @@ test("makes the saved language preference the site locale and switches it back f
   const external = scenario.external;
 
   expect(Exit.isSuccess(exit)).toBe(true);
-  // Both sign-ins budgeted their send and verification, with no extra link.
-  expect(scenario.operations).toEqual(["send", "verify", "send", "verify"]);
+  // The case reuses the lane's signed-in session and spends no magic link.
+  expect(scenario.operations).toEqual([]);
   expect(scenario.retries).toEqual([]);
   // Choosing Čeština in the profile saved it once, and the header switch
   // saved English (US) back.
