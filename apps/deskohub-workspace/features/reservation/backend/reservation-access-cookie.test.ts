@@ -255,4 +255,34 @@ describe("reservation access cookie", () => {
       ).toBeUndefined();
     }
   });
+
+  test("rejects malformed or slash-encoded reservation path segments and fragments", () => {
+    for (const segment of ["%E0%A4%A", "reservation%2Fcookie-1"]) {
+      expect(
+        parseCanonicalReservationStatusUrl(
+          `/en-US/reservation/status/${segment}`,
+          "en-US"
+        )
+      ).toBeUndefined();
+      expect(
+        parseCanonicalReservationAccessUrl(
+          `/en-US/reservation/access/${segment}`,
+          "en-US"
+        )
+      ).toBeUndefined();
+    }
+
+    expect(
+      parseCanonicalReservationStatusUrl(
+        `/en-US/reservation/status/${orderId}#fragment`,
+        "en-US"
+      )
+    ).toBeUndefined();
+    expect(
+      parseCanonicalReservationAccessUrl(
+        `/en-US/reservation/access/${orderId}#fragment`,
+        "en-US"
+      )
+    ).toBeUndefined();
+  });
 });

@@ -33,7 +33,7 @@ async function CustomerAccountPageContent({
   await connection();
   if (!(await areAccountsEnabled())) notFound();
 
-  const state = await loadCustomerAccountPage(locale);
+  const state = await loadCustomerAccountPage();
 
   return <AccountPage locale={locale} state={state} />;
 }

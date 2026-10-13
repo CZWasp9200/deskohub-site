@@ -48,6 +48,11 @@ const allowedColumns = new Map([
     "public.workspace_reservations.active_customer_email_delivery_id",
     "customer email delivery ID",
   ],
+  // The en-US/cs-CZ locale retained for one customer email generation.
+  [
+    "public.workspace_reservations.active_customer_email_delivery_locale",
+    "customer email delivery locale",
+  ],
   // Operator-side labels, not customer data.
   ["public.cli_sessions.client_name", "dhw CLI client label"],
   ["public.cli_authentication_requests.client_name", "dhw CLI client label"],

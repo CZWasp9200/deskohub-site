@@ -10,9 +10,12 @@ import {
   type AccountReviewTarget,
   captureAccountReview,
   captureReservationStatusReview,
+  type LanguagePreferenceReviewCapture,
   persistCallbackDocumentReview,
+  withLanguagePreferenceReview,
   withSignInPendingReview,
 } from "./review-screenshots";
+import type { LanguagePreferenceReviewStage } from "./review-targets";
 
 const baseUrl = "https://deskohub-workspace-review.example.test";
 const review = { baseUrl, screenshots: true } as const;
@@ -451,6 +454,96 @@ describe("account review screenshot capture", () => {
       url: `${baseUrl}/en-US/account/legal?section=profile`,
     },
     {
+      name: "a language capture with an extra query parameter",
+      target: "linked-profile-language-desktop",
+      url: `${baseUrl}/en-US/account?section=profile&view=private`,
+    },
+    {
+      name: "a language capture with a credential query",
+      target: "linked-profile-language-desktop",
+      url: `${baseUrl}/en-US/account?section=profile&token=synthetic-secret-token`,
+    },
+    {
+      name: "a language capture with an unknown section query",
+      target: "linked-profile-language-desktop",
+      url: `${baseUrl}/en-US/account?section=unknown`,
+    },
+    {
+      name: "a language capture with a hash",
+      target: "linked-profile-language-desktop",
+      url: `${baseUrl}/en-US/account#review-state`,
+    },
+    {
+      name: "the desktop language capture at the cs-CZ path",
+      target: "linked-profile-language-desktop",
+      url: `${baseUrl}/cs-CZ/account`,
+    },
+    {
+      name: "the cs-CZ language capture at the en-US path",
+      target: "linked-profile-language-desktop-cs",
+      url: `${baseUrl}/en-US/account`,
+    },
+    {
+      name: "the cs-CZ language capture with a credential query",
+      target: "linked-profile-language-desktop-cs",
+      url: `${baseUrl}/cs-CZ/account?section=profile&token=synthetic-secret-token`,
+    },
+    {
+      name: "the cs-CZ language capture with a hash",
+      target: "linked-profile-language-desktop-cs",
+      url: `${baseUrl}/cs-CZ/account#review-state`,
+    },
+    {
+      name: "a private linked account at the cs-CZ path",
+      target: "linked-profile-desktop",
+      url: `${baseUrl}/cs-CZ/account`,
+    },
+    {
+      name: "a mobile language capture at the cs-CZ path",
+      target: "linked-profile-language-mobile",
+      url: `${baseUrl}/cs-CZ/account`,
+    },
+    {
+      name: "the preference redirect capture at the unredirected en-US page",
+      target: "locale-preference-redirect-desktop",
+      url: `${baseUrl}/en-US/faq`,
+    },
+    {
+      name: "the preference redirect capture with a section query",
+      target: "locale-preference-redirect-desktop",
+      url: `${baseUrl}/cs-CZ/faq?section=profile`,
+    },
+    {
+      name: "the preference redirect capture with a credential query",
+      target: "locale-preference-redirect-desktop",
+      url: `${baseUrl}/cs-CZ/faq?token=synthetic-secret-token`,
+    },
+    {
+      name: "the preference redirect capture with a hash",
+      target: "locale-preference-redirect-desktop",
+      url: `${baseUrl}/cs-CZ/faq#review-state`,
+    },
+    {
+      name: "the preference redirect capture at a foreign origin",
+      target: "locale-preference-redirect-desktop",
+      url: "https://other.example.test/cs-CZ/faq",
+    },
+    {
+      name: "the switcher capture at the Czech account it switched away from",
+      target: "locale-switcher-saved-desktop",
+      url: `${baseUrl}/cs-CZ/account`,
+    },
+    {
+      name: "the switcher capture with a credential query",
+      target: "locale-switcher-saved-desktop",
+      url: `${baseUrl}/en-US/account?section=profile&token=synthetic-secret-token`,
+    },
+    {
+      name: "the switcher capture with a hash",
+      target: "locale-switcher-saved-desktop",
+      url: `${baseUrl}/en-US/account#review-state`,
+    },
+    {
       name: "linked account with an extra query parameter",
       target: "linked-profile-desktop",
       url: `${baseUrl}/en-US/account?section=profile&view=private`,
@@ -712,6 +805,21 @@ describe("account review screenshot capture", () => {
       "the sign-in page handoff path",
       "sign-in-handoff-desktop",
       "/en-US/auth/sign-in",
+    ],
+    [
+      "the Czech profile section",
+      "linked-profile-language-desktop-cs",
+      "/cs-CZ/account?section=profile",
+    ],
+    [
+      "the Czech page a preference redirect reached",
+      "locale-preference-redirect-desktop",
+      "/cs-CZ/faq",
+    ],
+    [
+      "the English account after the switcher save",
+      "locale-switcher-saved-desktop",
+      "/en-US/account",
     ],
   ] as const satisfies ReadonlyArray<
     readonly [string, AccountReviewTarget, string]
@@ -1284,6 +1392,140 @@ describe("account review screenshot capture", () => {
   });
 });
 
+/**
+ * The language case as the wrapper sees it: each genuine mid-case moment
+ * handed to the capture hook on its own page, then the English profile the
+ * case ends on.
+ */
+const runLanguageCaseMoments = async (
+  fakePage: FakePage,
+  capture: LanguagePreferenceReviewCapture,
+  options: { readonly skip?: LanguagePreferenceReviewStage } = {}
+) => {
+  const captureUnlessSkipped = async (stage: LanguagePreferenceReviewStage) => {
+    if (stage !== options.skip) await capture(stage);
+  };
+  fakePage.setUrl(`${baseUrl}/cs-CZ/account?section=profile`);
+  await captureUnlessSkipped("czech-profile");
+  fakePage.setUrl(`${baseUrl}/cs-CZ/faq`);
+  await captureUnlessSkipped("preference-redirect");
+  fakePage.setUrl(`${baseUrl}/en-US/account`);
+  await captureUnlessSkipped("switcher-saved");
+  fakePage.setUrl(`${baseUrl}/en-US/account?section=profile`);
+};
+
+const languageReviewFileNames = [
+  "linked-profile-language-desktop-cs.png",
+  "locale-preference-redirect-desktop.png",
+  "locale-switcher-saved-desktop.png",
+  "linked-profile-language-mobile.png",
+];
+
+describe("language preference review wrapper", () => {
+  const createLanguageWriteFileSpy = () =>
+    spyOn(fsPromises, "writeFile").mockImplementation(async () => undefined);
+  let languageWriteFileSpy:
+    | ReturnType<typeof createLanguageWriteFileSpy>
+    | undefined;
+  const writeFileNames = (): string[] =>
+    (languageWriteFileSpy?.mock.calls ?? []).map(
+      ([path]) => String(path).split(/[\\/]/).pop() ?? ""
+    );
+
+  beforeEach(() => {
+    languageWriteFileSpy = createLanguageWriteFileSpy();
+  });
+
+  afterEach(() => {
+    languageWriteFileSpy?.mockRestore();
+    languageWriteFileSpy = undefined;
+  });
+
+  test("captures every mid-case moment, then the mobile language view", async () => {
+    const fakePage = makeFakePage(`${baseUrl}/en-US/account?section=profile`);
+
+    // The fake page has no route API: the wrapper holds no request, since a
+    // language choice saves and navigates without a separate feedback state.
+    await withLanguagePreferenceReview(fakePage.page, review, (capture) =>
+      runLanguageCaseMoments(fakePage, capture)
+    );
+
+    expect(writeFileNames()).toEqual(languageReviewFileNames);
+    expect(fakePage.currentViewport()).toEqual(initialViewport);
+  });
+
+  test("fails the review when the case skips a language moment", async () => {
+    const fakePage = makeFakePage(`${baseUrl}/en-US/account?section=profile`);
+
+    await expect(
+      withLanguagePreferenceReview(fakePage.page, review, (capture) =>
+        runLanguageCaseMoments(fakePage, capture, { skip: "switcher-saved" })
+      )
+    ).rejects.toThrow(captureFailureMessage);
+
+    // Every genuine capture still lands; only the skipped one is missing.
+    expect(writeFileNames()).toEqual(
+      languageReviewFileNames.filter(
+        (name) => name !== "locale-switcher-saved-desktop.png"
+      )
+    );
+  });
+
+  test("fails the review when a moment is captured off its page", async () => {
+    const fakePage = makeFakePage(`${baseUrl}/en-US/account`);
+
+    await expect(
+      withLanguagePreferenceReview(fakePage.page, review, async (capture) => {
+        // The Czech profile capture while the page is still the English
+        // account must never be written.
+        await capture("czech-profile");
+        await runLanguageCaseMoments(fakePage, capture);
+      })
+    ).rejects.toThrow(captureFailureMessage);
+
+    expect(writeFileNames()).toEqual(
+      languageReviewFileNames.filter(
+        (name) => name !== "linked-profile-language-desktop-cs.png"
+      )
+    );
+  });
+
+  test("fails the review when a moment is captured twice", async () => {
+    const fakePage = makeFakePage(`${baseUrl}/en-US/account`);
+
+    await expect(
+      withLanguagePreferenceReview(fakePage.page, review, async (capture) => {
+        await runLanguageCaseMoments(fakePage, capture);
+        fakePage.setUrl(`${baseUrl}/en-US/account`);
+        await capture("switcher-saved");
+      })
+    ).rejects.toThrow(captureFailureMessage);
+
+    expect(
+      writeFileNames().filter(
+        (name) => name === "locale-switcher-saved-desktop.png"
+      )
+    ).toHaveLength(1);
+  });
+
+  test("rethrows the case failure without the post-case capture", async () => {
+    const fakePage = makeFakePage(`${baseUrl}/en-US/account`);
+    const caseFailure = new Error("synthetic language case failure");
+
+    await expect(
+      withLanguagePreferenceReview(fakePage.page, review, async (capture) => {
+        fakePage.setUrl(`${baseUrl}/cs-CZ/account?section=profile`);
+        await capture("czech-profile");
+        throw caseFailure;
+      })
+    ).rejects.toBe(caseFailure);
+
+    expect(writeFileNames()).toEqual([
+      "linked-profile-language-desktop-cs.png",
+    ]);
+  });
+});
+
 describe("account review screenshots without the opt-in", () => {
   let writeFileSpy: ReturnType<typeof spyOn> | undefined;
   let mkdirSpy: ReturnType<typeof spyOn> | undefined;
@@ -1373,6 +1615,23 @@ describe("account review screenshots without the opt-in", () => {
     expect(caseRuns).toBe(1);
     expect(fakePage.routeCalls).toHaveLength(0);
     expect(fakePage.unrouteCallCount()).toBe(0);
+    expectUntouched(fakePage);
+  });
+
+  test("runs the language case without capturing anything", async () => {
+    const fakePage = makeFakePage(`${baseUrl}/en-US/account?section=profile`);
+    let caseRuns = 0;
+
+    await withLanguagePreferenceReview(
+      fakePage.page,
+      reviewWithoutScreenshots,
+      async (capture) => {
+        caseRuns += 1;
+        await runLanguageCaseMoments(fakePage, capture);
+      }
+    );
+
+    expect(caseRuns).toBe(1);
     expectUntouched(fakePage);
   });
 

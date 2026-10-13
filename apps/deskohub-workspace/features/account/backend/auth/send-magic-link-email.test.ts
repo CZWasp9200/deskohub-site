@@ -1,6 +1,7 @@
 import "@/shared/testing/workspace-test-environment";
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { EmailServiceError } from "@deskohub/email/backend/service";
 import { resendSimulatorAddress, testEmailAddress } from "@deskohub/test-email";
 import { ConfigProvider, Effect, Predicate } from "effect";
 import { withInstantSleeps } from "@/shared/testing/workspace-test-clock.test-utils";
@@ -475,7 +476,10 @@ describe("Errors and log safety", () => {
     const code = await runDeliver(
       resendEmailConfig,
       makeMagicLinkEmailDelivery(
-        () => Effect.fail(new Error("render exploded with secret-token")),
+        () =>
+          Effect.fail(
+            new EmailServiceError("render exploded with secret-token")
+          ),
         productionEnvironment
       ).deliver(request)
     );

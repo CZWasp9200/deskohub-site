@@ -1,7 +1,8 @@
-import { defineRelationsPart } from "drizzle-orm";
+import { defineRelationsPart, sql } from "drizzle-orm";
 import {
   bigint,
   boolean,
+  check,
   index,
   integer,
   pgSchema,
@@ -9,6 +10,11 @@ import {
   timestamp,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
+import type { Locale } from "@/features/i18n";
+import inlangSettings from "../../project.inlang/settings.json" with {
+  type: "json",
+};
+import { quotedSqlList } from "./sql-list";
 
 export const authSchema = pgSchema("auth");
 
@@ -30,8 +36,15 @@ export const authUser = authSchema.table(
     deletionRequestedAt: timestamp("deletion_requested_at", {
       withTimezone: true,
     }),
+    locale: text("locale").$type<Locale>(),
   },
-  (t) => [uniqueIndex("user_email_unique_idx").on(t.email)]
+  (t) => [
+    uniqueIndex("user_email_unique_idx").on(t.email),
+    check(
+      "user_locale_check",
+      sql`${t.locale} in (${quotedSqlList(inlangSettings.locales)})`
+    ),
+  ]
 );
 
 export const authSession = authSchema.table(

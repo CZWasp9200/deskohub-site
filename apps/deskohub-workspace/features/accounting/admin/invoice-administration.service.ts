@@ -158,7 +158,7 @@ type InvoiceAdministrationRetryResult = {
   readonly needsAttention: boolean;
 };
 
-export class InvoiceAdministrationCustomerError extends Data.TaggedError(
+class InvoiceAdministrationCustomerError extends Data.TaggedError(
   "InvoiceAdministrationCustomerError"
 )<{ readonly message: string }> {}
 

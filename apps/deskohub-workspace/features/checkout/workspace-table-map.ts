@@ -5,18 +5,13 @@ import {
   DotyposTableIdSchema,
 } from "@deskohub/dotypos";
 import { Option, Schema } from "effect";
+import { getAssignableDotyposTableId } from "./backend/reservation/dotypos-table-id";
 import { isDisplayableWorkspaceTable } from "./backend/reservation/workspace-table-selection";
 
 export type WorkspaceTableMap = {
   readonly assignedTableId: DotyposTableId;
   readonly roomName?: string;
   readonly tables: readonly DotyposTable[];
-};
-
-const getTableId = (table: Pick<DotyposTable, "id">) => {
-  return Option.getOrUndefined(
-    Schema.decodeUnknownOption(DotyposTableIdSchema)(table.id?.trim())
-  );
 };
 
 const getTableRoomName = (table: Pick<DotyposTable, "locationName">) => {
@@ -37,7 +32,7 @@ export const getWorkspaceTableMap = (
 
   const displayableTables = tables.filter(isDisplayableWorkspaceTable);
   const assignedTable = displayableTables.find(
-    (table) => getTableId(table) === assignedTableId
+    (table) => getAssignableDotyposTableId(table) === assignedTableId
   );
   if (!assignedTable) return undefined;
 

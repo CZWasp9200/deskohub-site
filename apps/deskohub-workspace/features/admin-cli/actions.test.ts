@@ -24,6 +24,7 @@ import {
 let requestHeaders = new Headers();
 
 mock.module("next/headers", () => ({
+  cookies: async () => ({ get: () => undefined }),
   headers: async () => requestHeaders,
 }));
 mock.module("next/cache", () => ({

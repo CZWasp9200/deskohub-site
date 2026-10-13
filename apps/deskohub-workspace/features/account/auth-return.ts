@@ -46,28 +46,26 @@ export type AuthReturnLifecycle = {
 
 const noop = () => undefined;
 
-const hasReturnWindowSupport = () => {
-  try {
-    return (
-      Predicate.isFunction(globalThis.crypto?.randomUUID) &&
-      Predicate.isFunction(globalThis.BroadcastChannel) &&
-      Predicate.isFunction(globalThis.navigator?.locks?.request)
-    );
-  } catch {
-    return false;
-  }
-};
+// Browser coordination APIs are best effort: a throwing API reads as absent.
+const detectReturnWindowSupport = Option.liftThrowable(
+  (): boolean =>
+    Predicate.isFunction(globalThis.crypto?.randomUUID) &&
+    Predicate.isFunction(globalThis.BroadcastChannel) &&
+    Predicate.isFunction(globalThis.navigator?.locks?.request)
+);
 
-const createAttemptId = (): string | undefined => {
-  try {
-    const randomUUID = globalThis.crypto?.randomUUID;
-    if (!Predicate.isFunction(randomUUID)) return undefined;
-    const attemptId = randomUUID.call(globalThis.crypto);
-    return Predicate.isString(attemptId) ? attemptId : undefined;
-  } catch {
-    return undefined;
-  }
-};
+const generateAttemptId = Option.liftThrowable((): string | undefined => {
+  const randomUUID = globalThis.crypto?.randomUUID;
+  if (!Predicate.isFunction(randomUUID)) return undefined;
+  const attemptId = randomUUID.call(globalThis.crypto);
+  return Predicate.isString(attemptId) ? attemptId : undefined;
+});
+
+const hasReturnWindowSupport = (): boolean =>
+  Option.getOrElse(detectReturnWindowSupport(), () => false);
+
+const createAttemptId = (): string | undefined =>
+  Option.getOrUndefined(generateAttemptId());
 
 const readSessionResponse = async (): Promise<SessionResponse | undefined> =>
   Option.getOrUndefined(
@@ -108,25 +106,32 @@ const hasAuthenticatedSession = (
   value.error === null &&
   isUsableSession(value.data, requireFreshSession);
 
-const focusWindow = () => {
-  try {
-    globalThis.window?.focus?.();
-  } catch {
-    // Refocusing is best effort and must not change the navigation result.
-  }
-};
+// Refocusing is best effort and must not change the navigation result.
+const focusWindow = Option.liftThrowable(() => globalThis.window?.focus?.());
 
-const navigateToAccount = (locale: Locale) => {
-  try {
+const requestAccountNavigation = Option.liftThrowable(
+  (locale: Locale): boolean => {
     const replace = globalThis.window?.location?.replace;
     if (!Predicate.isFunction(replace)) return false;
     replace.call(globalThis.window.location, getAccountPath(locale));
-  } catch {
-    return false;
+    return true;
   }
-  focusWindow();
-  return true;
+);
+
+const navigateToAccount = (locale: Locale): boolean => {
+  const navigated = Option.getOrElse(
+    requestAccountNavigation(locale),
+    () => false
+  );
+  if (navigated) focusWindow();
+  return navigated;
 };
+
+// Return-window cleanup is best effort.
+const runCleanup = Option.liftThrowable((cleanup: () => void) => cleanup());
+
+// A coordination failure falls back to the ordinary callback.
+const listenForReturnSafely = Option.liftThrowable(listenForReturn);
 
 export const createAuthReturnLifecycle = ({
   locale,
@@ -138,11 +143,7 @@ export const createAuthReturnLifecycle = ({
   const dispose = () => {
     const cleanup = currentCleanup;
     currentCleanup = noop;
-    try {
-      cleanup();
-    } catch {
-      // Return-window cleanup is best effort.
-    }
+    runCleanup(cleanup);
   };
 
   const cancel = () => {
@@ -161,8 +162,8 @@ export const createAuthReturnLifecycle = ({
     if (hasReturnWindowSupport()) {
       const attemptId = createAttemptId();
       if (attemptId !== undefined) {
-        try {
-          const cleanup = listenForReturn({
+        const cleanup = Option.getOrUndefined(
+          listenForReturnSafely({
             attemptId,
             onReturn: async (signal) => {
               if (signal.aborted || requestEpoch !== requestId) return false;
@@ -184,13 +185,11 @@ export const createAuthReturnLifecycle = ({
               return navigateToAccount(locale);
             },
             ttlMs: RETURN_LISTENER_TTL_MS,
-          });
-          if (cleanup) {
-            currentCleanup = cleanup;
-            callbackURL = `${callbackPath}?attempt=${encodeURIComponent(attemptId)}`;
-          }
-        } catch {
-          // A coordination failure falls back to the ordinary callback.
+          })
+        );
+        if (cleanup) {
+          currentCleanup = cleanup;
+          callbackURL = `${callbackPath}?attempt=${encodeURIComponent(attemptId)}`;
         }
       }
     }

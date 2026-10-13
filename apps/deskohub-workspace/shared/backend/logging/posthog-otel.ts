@@ -4,6 +4,7 @@ import {
   BatchLogRecordProcessor,
   LoggerProvider,
 } from "@opentelemetry/sdk-logs";
+import { Data, Effect } from "effect";
 import { workspaceServiceResourceAttributes } from "../observability/workspace-service";
 
 const POSTHOG_LOGS_PATH = "/i/v1/logs";
@@ -66,26 +67,31 @@ export function createPostHogLoggerProvider({
   });
 }
 
-export async function flushPostHogLogs(options: PostHogLogsFlushOptions) {
-  const provider = options.provider;
-  if (!provider) return;
+class PostHogLogsFlushError extends Data.TaggedError("PostHogLogsFlushError")<{
+  readonly cause: unknown;
+}> {}
 
-  const timeoutMs = options.timeoutMs ?? postHogLogsFlushTimeoutMs;
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  const result = await Promise.race([
-    provider.forceFlush({ timeoutMillis: timeoutMs }).then(
-      () => "completed" as const,
-      () => "failed" as const
-    ),
-    new Promise<"timed_out">((resolve) => {
-      timeout = setTimeout(() => resolve("timed_out"), timeoutMs);
-    }),
-  ]);
-  if (timeout) clearTimeout(timeout);
-
-  if (result === "failed") {
-    console.warn("PostHog log flush failed.");
-  } else if (result === "timed_out") {
-    console.warn("PostHog log flush exceeded its post-response deadline.");
-  }
-}
+/**
+ * Flushes buffered PostHog log records within the post-response deadline.
+ * Never fails: a rejected or overdue flush is logged as a warning.
+ */
+export const flushPostHogLogs = ({
+  provider,
+  timeoutMs = postHogLogsFlushTimeoutMs,
+}: PostHogLogsFlushOptions): Effect.Effect<void> =>
+  provider
+    ? Effect.tryPromise({
+        try: () => provider.forceFlush({ timeoutMillis: timeoutMs }),
+        catch: (cause) => new PostHogLogsFlushError({ cause }),
+      }).pipe(
+        Effect.timeout(timeoutMs),
+        Effect.catchTags({
+          PostHogLogsFlushError: ({ cause }) =>
+            Effect.logWarning("PostHog log flush failed.", { cause }),
+          TimeoutError: () =>
+            Effect.logWarning(
+              "PostHog log flush exceeded its post-response deadline."
+            ),
+        })
+      )
+    : Effect.void;

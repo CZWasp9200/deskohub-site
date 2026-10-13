@@ -3,7 +3,9 @@ import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, mock, test } from "bun:test";
 import { drizzleAdapter } from "@better-auth/drizzle-adapter/relations-v2";
+import { Effect, Layer } from "effect";
 import { makeAuthDatabase } from "@/db/auth-database-client";
+import { WorkspaceDatabase } from "@/db/database.service";
 import {
   authAccount,
   authRateLimit,
@@ -12,9 +14,23 @@ import {
   authVerification,
 } from "@/db/schema/auth";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
+import { captureAccountLocalePreference } from "../customer-locale-preference";
 import { type MagicLinkSendFunction, makeWorkspaceAuth } from "./auth-server";
 
 const testDatabase = await connectWorkspacePostgresTestDatabase();
+
+const captureLocalePreference = (
+  accountId: Parameters<typeof captureAccountLocalePreference>[0],
+  locale: Parameters<typeof captureAccountLocalePreference>[1]
+) =>
+  captureAccountLocalePreference(accountId, locale).pipe(
+    Effect.provide(
+      Layer.succeed(
+        WorkspaceDatabase,
+        WorkspaceDatabase.of({ db: testDatabase!.db })
+      )
+    )
+  );
 
 type RecordedCookieOptions = {
   readonly maxAge?: number;
@@ -67,7 +83,8 @@ const makeTestAuth = (sentMagicLinks: { url: string }[] = []) => {
     httpsOnly: true,
     areAccountsEnabled: async () => true,
     sendMagicLink,
-    beforeDeleteUser: () => Promise.resolve(),
+    beforeDeleteUser: () => Effect.void,
+    captureAccountLocalePreference: captureLocalePreference,
   });
 };
 

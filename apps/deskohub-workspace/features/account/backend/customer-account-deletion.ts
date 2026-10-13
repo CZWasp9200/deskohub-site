@@ -1,6 +1,6 @@
 import type { DotyposCustomerId } from "@deskohub/dotypos";
 import { Context, Effect, Layer } from "effect";
-import type { SqlError } from "effect/unstable/sql/SqlError";
+import type { SqlError } from "effect/unstable/sql";
 import type { CustomerAccountId } from "../customer-account";
 import {
   type CustomerAccountLinkError,
@@ -42,7 +42,7 @@ export type CustomerAccountDeletionDependencies = {
   readonly withAccountLock: <A, E, R>(
     accountId: CustomerAccountId,
     effect: Effect.Effect<A, E, R>
-  ) => Effect.Effect<A, E | SqlError, R>;
+  ) => Effect.Effect<A, E | SqlError.SqlError, R>;
 };
 
 /**
