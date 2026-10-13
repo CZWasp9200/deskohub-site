@@ -1,8 +1,11 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
-import { Effect, Fiber, Layer, Schema } from "effect";
+import { Duration, Effect, Fiber, Layer, Schema } from "effect";
 import { TestClock } from "effect/testing";
-import { GoogleCalendarRuntimeConfig } from "../config";
+import {
+  GoogleCalendarRuntimeConfig,
+  type IGoogleCalendarRuntimeConfig,
+} from "../config";
 import {
   GoogleCalendarChannelIdSchema,
   GoogleCalendarEventIdSchema,
@@ -65,7 +68,8 @@ mock.module("@googleapis/calendar", () => ({
   })),
 }));
 
-const { GoogleCalendarService } = await import("./service");
+const { GoogleCalendarService, getGoogleCalendarRequestWorstCaseDuration } =
+  await import("./service");
 
 type GoogleCalendarRequirement = import("./service").GoogleCalendarService;
 
@@ -101,17 +105,48 @@ beforeEach(() => {
 });
 
 const runWithCalendar = <A, E>(
-  effect: Effect.Effect<A, E, GoogleCalendarRequirement>
+  effect: Effect.Effect<A, E, GoogleCalendarRequirement>,
+  runtimeConfig: IGoogleCalendarRuntimeConfig = config
 ) =>
   Effect.runPromise(
     effect.pipe(
       Effect.provide(
         GoogleCalendarService.Default.pipe(
-          Layer.provide(Layer.succeed(GoogleCalendarRuntimeConfig, config))
+          Layer.provide(
+            Layer.succeed(GoogleCalendarRuntimeConfig, runtimeConfig)
+          )
         )
       )
     )
   );
+
+/** A provider request that never answers until it is aborted. */
+const stalledRequest = (
+  options: RequestOptions | undefined,
+  onAbort: () => void = () => undefined
+) =>
+  new Promise<CalendarListResponse>((_resolve, reject) => {
+    options?.signal?.addEventListener("abort", () => {
+      onAbort();
+      reject(new Error("aborted"));
+    });
+  });
+
+const providerError = (status: number, message: string) =>
+  Object.assign(new Error(message), { status });
+
+/** Lists events while advancing the test clock by each of `steps` in turn. */
+const listEventsAdvancingClock = (steps: readonly Duration.Input[]) =>
+  Effect.gen(function* () {
+    const googleCalendar = yield* GoogleCalendarService;
+    const fiber = yield* googleCalendar
+      .listEvents({ calendarId, from: "2026-06-20", to: "2026-06-21" })
+      .pipe(Effect.result, Effect.forkChild);
+    for (const step of steps) {
+      yield* TestClock.adjust(step);
+    }
+    return yield* Fiber.join(fiber);
+  }).pipe(Effect.provide(TestClock.layer()));
 
 describe("GoogleCalendarService", () => {
   test("paginates, expands date window, maps key newlines and events", async () => {
@@ -431,16 +466,112 @@ describe("GoogleCalendarService", () => {
     );
   });
 
-  test("times out and aborts a stalled events request", async () => {
-    let aborted = false;
-    listEvents = mock<ListEventsImplementation>(
-      (_params, options) =>
-        new Promise((_resolve, reject) => {
-          options?.signal?.addEventListener("abort", () => {
-            aborted = true;
-            reject(new Error("aborted"));
-          });
-        })
+  test("times out and aborts a stalled events request after its retry", async () => {
+    let aborted = 0;
+    listEvents = mock<ListEventsImplementation>((_params, options) =>
+      stalledRequest(options, () => {
+        aborted += 1;
+      })
+    );
+
+    const result = await runWithCalendar(
+      listEventsAdvancingClock(["10 seconds", "1 second", "10 seconds"])
+    );
+
+    expect(result).toMatchObject({
+      _tag: "Failure",
+      failure: {
+        _tag: "GoogleCalendarAPIError",
+        operation: "events.list",
+        message: "Google Calendar request timed out.",
+      },
+    });
+    expect(listEvents).toHaveBeenCalledTimes(2);
+    expect(aborted).toBe(2);
+  });
+
+  test("retries a timed-out events request once", async () => {
+    let attempt = 0;
+    listEvents = mock<ListEventsImplementation>((_params, options) => {
+      attempt += 1;
+      return attempt === 1
+        ? stalledRequest(options)
+        : Promise.resolve({ data: { items: [] } });
+    });
+
+    const result = await runWithCalendar(
+      listEventsAdvancingClock(["10 seconds", "1 second"])
+    );
+
+    expect(result).toMatchObject({ _tag: "Success", success: [] });
+    expect(listEvents).toHaveBeenCalledTimes(2);
+  });
+
+  test.each([429, 503])(
+    "retries an events request answered with HTTP %i",
+    async (status) => {
+      let attempt = 0;
+      listEvents = mock<ListEventsImplementation>(async () => {
+        attempt += 1;
+        if (attempt === 1) throw providerError(status, "Try again");
+        return { data: { items: [] } };
+      });
+
+      const result = await runWithCalendar(
+        listEventsAdvancingClock(["1 second"])
+      );
+
+      expect(result).toMatchObject({ _tag: "Success", success: [] });
+      expect(listEvents).toHaveBeenCalledTimes(2);
+    }
+  );
+
+  test("does not retry an events request rejected as a client error", async () => {
+    listEvents = mock<ListEventsImplementation>(async () => {
+      throw providerError(404, "Not Found");
+    });
+
+    const result = await runWithCalendar(
+      listEventsAdvancingClock(["1 second"])
+    );
+
+    expect(result).toMatchObject({
+      _tag: "Failure",
+      failure: { statusCode: 404 },
+    });
+    expect(listEvents).toHaveBeenCalledTimes(1);
+  });
+
+  test("times each attempt out at the configured request timeout", async () => {
+    let attempt = 0;
+    listEvents = mock<ListEventsImplementation>((_params, options) => {
+      attempt += 1;
+      return attempt === 1
+        ? stalledRequest(options)
+        : Promise.resolve({ data: { items: [] } });
+    });
+
+    const result = await runWithCalendar(
+      listEventsAdvancingClock(["5 seconds", "1 second"]),
+      { ...config, requestTimeout: "5 seconds" }
+    );
+
+    expect(result).toMatchObject({ _tag: "Success", success: [] });
+    expect(listEvents).toHaveBeenCalledTimes(2);
+  });
+
+  test("bounds every page of one load by the worst case of one retried request", async () => {
+    let answerFirstPage: (() => void) | undefined;
+    listEvents = mock<ListEventsImplementation>((params, options) =>
+      params.pageToken === undefined
+        ? new Promise((resolve) => {
+            answerFirstPage = () =>
+              resolve({ data: { items: [], nextPageToken: "next" } });
+          })
+        : stalledRequest(options)
+    );
+    const settle = Effect.promise(
+      () => new Promise((resolve) => setTimeout(resolve, 0))
     );
 
     const result = await runWithCalendar(
@@ -448,18 +579,31 @@ describe("GoogleCalendarService", () => {
         const googleCalendar = yield* GoogleCalendarService;
         const fiber = yield* googleCalendar
           .listEvents({ calendarId, from: "2026-06-20", to: "2026-06-21" })
-          .pipe(Effect.flip, Effect.forkChild);
+          .pipe(Effect.result, Effect.forkChild);
+        // The first page answers within its own timeout, after 9 seconds.
+        yield* TestClock.adjust("9 seconds");
+        answerFirstPage?.();
+        yield* settle;
+        // The second page times out at 19 seconds and is retried; the whole
+        // load ends at the 20.12-second worst case, not the retry's own 29.
         yield* TestClock.adjust("10 seconds");
+        yield* settle;
+        yield* TestClock.adjust("1200 millis");
         return yield* Fiber.join(fiber);
       }).pipe(Effect.provide(TestClock.layer()))
     );
 
+    expect(
+      Duration.toMillis(getGoogleCalendarRequestWorstCaseDuration("10 seconds"))
+    ).toBe(20_120);
     expect(result).toMatchObject({
-      _tag: "GoogleCalendarAPIError",
-      operation: "events.list",
-      message: "Google Calendar request timed out.",
+      _tag: "Failure",
+      failure: {
+        operation: "events.list",
+        message: "Google Calendar request timed out.",
+      },
     });
-    expect(aborted).toBe(true);
+    expect(listEvents).toHaveBeenCalledTimes(3);
   });
 
   test.each(["id", "iCalUID", "recurringEventId"] as const)(

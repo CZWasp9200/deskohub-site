@@ -23,6 +23,8 @@ The advertised price includes only adjustments that can be discovered without id
 
 A newly available automatic discount is not added retrospectively to an existing checkout. A discount that disappears or changes produces an updated summary and asks the customer to accept the price again. No payment begins until the payable amount exactly matches the last summary the customer reviewed.
 
+A discount counts as gone only when the service that offers it answers in full and no longer includes it. When that service is temporarily unavailable or answers only partly, Workspace can neither confirm nor remove a discount the customer has already seen. It never applies such a discount unconfirmed, and it never silently drops it from the price. The customer keeps the price they were shown and is asked to try again; checkout does not change the summary or start a payment until the discount can be confirmed or is confirmed gone.
+
 Zero-priced components may appear in the order summary without changing the price. They remain part of the reserved product even though they do not affect the advertised amount.
 
 ## Discount codes
@@ -36,6 +38,7 @@ Entering a discount code on the order summary remains an independent action:
 - Capacity is reserved only when the customer proceeds with the accepted summary.
 - A successful payment permanently redeems the claim. A failed, cancelled, or expired payment releases it.
 - If the code or another displayed discount can no longer be honored, checkout returns an updated summary before any payment session is created.
+- If a displayed discount cannot be confirmed right now, the code is not applied and the existing summary stays payable.
 
 Voucher codes follow the same customer flow but resolve to their current stored credit rather than a discount definition. Code entry only quotes that credit. Final payment admission locks and reserves the exact applied amount; terminal failure releases it, and successful payment consumes it permanently.
 

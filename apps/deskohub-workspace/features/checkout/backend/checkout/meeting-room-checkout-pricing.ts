@@ -7,6 +7,7 @@ import {
   type MeetingRoomReservationQuote,
 } from "@/features/checkout/reservation-quote-meeting-room";
 import type {
+  DiscountAffirmationUnavailableError,
   DiscountQuote,
   DiscountResolutionError,
 } from "@/features/discounts";
@@ -33,7 +34,8 @@ import {
 
 export type MeetingRoomCheckoutPricingError =
   | ReservationQuoteError
-  | DiscountResolutionError;
+  | DiscountResolutionError
+  | DiscountAffirmationUnavailableError;
 
 export type MeetingRoomAdvertisementQuoteInput =
   ReservationAdvertisementQuoteInput<MeetingRoomAdvertisedPriceReservation>;

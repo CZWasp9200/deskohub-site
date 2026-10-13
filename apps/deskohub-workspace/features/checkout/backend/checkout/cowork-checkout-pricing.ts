@@ -7,6 +7,7 @@ import {
 } from "@/features/checkout/reservation-quote-cowork";
 import type { WorkspaceMoneyError } from "@/features/checkout/workspace-money";
 import type {
+  DiscountAffirmationUnavailableError,
   DiscountQuote,
   DiscountResolutionError,
 } from "@/features/discounts";
@@ -32,7 +33,8 @@ import {
 
 export type CoworkCheckoutPricingError =
   | WorkspaceMoneyError
-  | DiscountResolutionError;
+  | DiscountResolutionError
+  | DiscountAffirmationUnavailableError;
 
 export type CoworkAdvertisementQuoteInput =
   ReservationAdvertisementQuoteInput<CoworkAdvertisedPriceReservation>;

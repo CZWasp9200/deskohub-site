@@ -41,13 +41,17 @@ import {
   type DiscountReleaseGates,
 } from "./discount-release-gate.service";
 import {
+  DiscountAffirmationUnavailableError,
   type DiscountCalculationError,
   type DiscountResolutionError,
   PromotionCodeUnavailableError,
 } from "./errors";
 import { PromotionCodeRepository } from "./promotion-code.repository";
 import { PromotionCodeProvider } from "./promotion-code-provider.service";
-import type { DiscountCandidate } from "./provider";
+import type {
+  DiscountCandidate,
+  DiscountCandidateResolution,
+} from "./provider";
 import {
   type DiscountResolutionFailure,
   type DiscountResolutionOperation,
@@ -95,6 +99,10 @@ type ApplyDiscountCodeInput = {
   readonly referralCode?: CanonicalPromotionCode;
 };
 
+type DiscountAffirmationError =
+  | DiscountCalculationError
+  | DiscountAffirmationUnavailableError;
+
 type PreviewDiscountCodeInput = Omit<
   ApplyDiscountCodeInput,
   "dotyposCustomerId" | "referralCode"
@@ -119,17 +127,17 @@ export interface IDiscountService {
     input: DiscountAdvertisementAffirmationInput
   ) => Effect.Effect<
     AffirmedDiscountAdvertisementQuote,
-    DiscountCalculationError
+    DiscountAffirmationError
   >;
   readonly applyCustomerDiscount: (
     input: ApplyCustomerDiscountInput
-  ) => Effect.Effect<AppliedCustomerDiscountQuote, DiscountCalculationError>;
+  ) => Effect.Effect<AppliedCustomerDiscountQuote, DiscountAffirmationError>;
   readonly previewDiscountCode: (
     input: PreviewDiscountCodeInput
   ) => Effect.Effect<AppliedDiscountCodeQuote, DiscountResolutionError>;
   readonly affirmDisplayedDiscounts: (
     input: DisplayedDiscountAffirmationInput
-  ) => Effect.Effect<DisplayedDiscountAffirmation, DiscountCalculationError>;
+  ) => Effect.Effect<DisplayedDiscountAffirmation, DiscountAffirmationError>;
   readonly applyDiscountCode: (
     input: ApplyDiscountCodeInput
   ) => Effect.Effect<AppliedDiscountCodeQuote, DiscountResolutionError>;
@@ -324,33 +332,38 @@ export class DiscountService extends Context.Service<
         }) =>
           Effect.all(
             [
-              recoverGatedDiscountResolution({
+              resolveGatedAffirmation({
                 enabled: input.releaseGates.calendarSales,
                 operation: "affirm_displayed_discounts",
                 provider: "calendar",
                 resolve: () => calendar.revalidate(input.affirmationInput),
               }),
-              recoverGatedDiscountResolution({
+              resolveGatedAffirmation({
                 enabled: input.releaseGates.customerDiscounts,
                 operation: "affirm_displayed_discounts",
                 provider: "customer",
-                resolve: () => customer.resolve(input.affirmationInput),
+                resolve: () =>
+                  customer
+                    .resolve(input.affirmationInput)
+                    .pipe(Effect.map(toCompleteResolution)),
               }),
-              recoverGatedDiscountResolution({
+              resolveGatedAffirmation({
                 enabled: input.releaseGates.discountCodes,
                 operation: "affirm_displayed_discounts",
                 provider: "code",
-                resolve: () => code.revalidate(input.affirmationInput),
+                resolve: () =>
+                  code
+                    .revalidate(input.affirmationInput)
+                    .pipe(Effect.map(toCompleteResolution)),
               }),
             ],
             { concurrency: "inherit" }
           ).pipe(
-            Effect.map((candidatesByProvider) => candidatesByProvider.flat()),
-            Effect.map((candidates) =>
-              selectDiscountCandidates({
+            Effect.flatMap((resolutions) =>
+              selectAffirmedCandidates({
                 selectedDiscountIds:
                   input.affirmationInput.displayedDiscountIds,
-                candidates,
+                resolutions,
               })
             )
           )
@@ -424,7 +437,7 @@ export class DiscountService extends Context.Service<
               releaseGates.evaluate({ operation: "affirm_advertisement" })
             ),
             Effect.bind("candidates", ({ releaseGates }) =>
-              recoverGatedDiscountResolution({
+              resolveGatedAffirmation({
                 enabled:
                   releaseGates.calendarSales &&
                   input.advertisedDiscountIds.length > 0,
@@ -432,10 +445,10 @@ export class DiscountService extends Context.Service<
                 provider: "calendar",
                 resolve: () => calendar.revalidate(input),
               }).pipe(
-                Effect.map((candidates) =>
-                  selectDiscountCandidates({
+                Effect.flatMap((resolution) =>
+                  selectAffirmedCandidates({
                     selectedDiscountIds: input.advertisedDiscountIds,
-                    candidates,
+                    resolutions: [resolution],
                   })
                 )
               )
@@ -501,28 +514,30 @@ export class DiscountService extends Context.Service<
               })
             ),
             Effect.bind("codeCandidates", ({ releaseGates }) =>
-              recoverGatedDiscountResolution({
+              resolveGatedAffirmation({
                 enabled:
                   releaseGates.discountCodes &&
                   input.submittedCode !== undefined,
                 operation: "apply_customer_discount",
                 provider: "code",
                 resolve: () =>
-                  code.revalidate({
-                    product: input.affirmedAdvertisement.product,
-                    discountableSubtotal:
-                      input.affirmedAdvertisement.discountableSubtotal,
-                    dotyposCustomerId: input.dotyposCustomerId,
-                    locale: input.locale,
-                    submittedCode: input.submittedCode,
-                  }),
+                  code
+                    .revalidate({
+                      product: input.affirmedAdvertisement.product,
+                      discountableSubtotal:
+                        input.affirmedAdvertisement.discountableSubtotal,
+                      dotyposCustomerId: input.dotyposCustomerId,
+                      locale: input.locale,
+                      submittedCode: input.submittedCode,
+                    })
+                    .pipe(Effect.map(toCompleteResolution)),
               }).pipe(
-                Effect.map((candidates) =>
-                  selectDiscountCandidates({
+                Effect.flatMap((resolution) =>
+                  selectAffirmedCandidates({
                     selectedDiscountIds: input.submittedCodeDiscountId
                       ? [input.submittedCodeDiscountId]
                       : [],
-                    candidates,
+                    resolutions: [resolution],
                   })
                 )
               )
@@ -800,6 +815,76 @@ const recoverGatedDiscountResolution = <A>(input: {
     Effect.map(Option.getOrElse(() => []))
   );
 
+const toCompleteResolution = (
+  candidates: readonly DiscountCandidate[]
+): DiscountCandidateResolution => ({ candidates, complete: true });
+
+/**
+ * Resolves one provider's candidates for affirming discounts the customer has
+ * already seen. A disabled provider and an unavailable promotion code are
+ * definitive answers. Any other failure is logged and leaves the resolution
+ * incomplete, because it cannot show that a missing discount is gone.
+ */
+const resolveGatedAffirmation = (input: {
+  readonly enabled: boolean;
+  readonly operation: DiscountResolutionOperation;
+  readonly provider: DiscountResolutionProvider;
+  readonly resolve: () => Effect.Effect<
+    DiscountCandidateResolution,
+    DiscountResolutionFailure
+  >;
+}): Effect.Effect<DiscountCandidateResolution> =>
+  Effect.suspend(input.resolve).pipe(
+    Effect.when(Effect.succeed(input.enabled)),
+    Effect.map(Option.getOrElse(() => toCompleteResolution([]))),
+    Effect.tapError((cause) =>
+      logDiscountResolutionFailure({
+        cause,
+        operation: input.operation,
+        provider: input.provider,
+      })
+    ),
+    Effect.catch((cause) =>
+      Effect.succeed(
+        cause._tag === "PromotionCodeUnavailableError"
+          ? toCompleteResolution([])
+          : { candidates: [], complete: false }
+      )
+    )
+  );
+
+/**
+ * Selects the candidates that affirm the given discounts, in their order. A
+ * discount that no candidate affirms is gone only when every provider
+ * resolved completely; otherwise it cannot be affirmed yet.
+ */
+const selectAffirmedCandidates = (input: {
+  readonly selectedDiscountIds: readonly DiscountId[];
+  readonly resolutions: readonly DiscountCandidateResolution[];
+}) => {
+  const candidates = selectDiscountCandidates({
+    selectedDiscountIds: input.selectedDiscountIds,
+    candidates: input.resolutions.flatMap(({ candidates }) => candidates),
+  });
+  const affirmedDiscountIds = new Set(
+    candidates.map(({ discount }) => discount.id)
+  );
+  const unaffirmedDiscountIds = input.selectedDiscountIds.filter(
+    (discountId) => !affirmedDiscountIds.has(discountId)
+  );
+
+  return unaffirmedDiscountIds.length > 0 &&
+    input.resolutions.some(({ complete }) => !complete)
+    ? Effect.fail(
+        new DiscountAffirmationUnavailableError({
+          message:
+            "Displayed discounts could not be affirmed because a provider was unavailable.",
+          discountIds: unaffirmedDiscountIds,
+        })
+      )
+    : Effect.succeed(candidates);
+};
+
 const selectDiscountCandidates = (input: {
   readonly selectedDiscountIds: readonly DiscountId[];
   readonly candidates: readonly DiscountCandidate[];
@@ -905,8 +990,8 @@ const withServiceAnnotations =
       | "apply_customer_discount"
       | "affirm_displayed_discounts"
   ) =>
-  <A>(
-    effect: Effect.Effect<A, DiscountCalculationError>,
+  <A, E extends DiscountAffirmationError>(
+    effect: Effect.Effect<A, E>,
     input:
       | DisplayedDiscountAffirmationInput
       | DiscountQuoteInput
@@ -916,11 +1001,15 @@ const withServiceAnnotations =
   ) =>
     effect.pipe(
       Effect.tapError((cause) =>
-        logDiscountResolutionFailure({
-          cause,
-          operation,
-          provider: "calculator",
-        })
+        cause._tag === "DiscountAffirmationUnavailableError"
+          ? Effect.logWarning(cause.message, {
+              unaffirmedDiscountCount: cause.discountIds.length,
+            })
+          : logDiscountResolutionFailure({
+              cause,
+              operation,
+              provider: "calculator",
+            })
       ),
       Effect.annotateLogs({
         discountOperation: operation,

@@ -14,6 +14,10 @@ import {
 } from "@/features/discounts/contracts";
 import type { DiscountService } from "@/features/discounts/discount.service";
 import { DiscountServiceMock } from "@/features/discounts/discount.service.mock";
+import {
+  DiscountProviderError,
+  PromotionCodeUnavailableError,
+} from "@/features/discounts/errors";
 import { getCoworkAdvertisedPriceReservation } from "@/features/reservation/cowork-reservation";
 import { dotyposCustomerIdSchema } from "@/features/reservation/dotypos-customer";
 import { coworkCheckoutPricing } from "./cowork-checkout-pricing";
@@ -215,6 +219,126 @@ describe("cowork checkout pricing", () => {
     });
     expect(result.discountQuote).toBe(affirmedAdvertisement);
     expect(result.quote.payment.expectedPrice).toEqual(money(22_500));
+  });
+
+  describe("affirming an advertised query code", () => {
+    const codeDiscountId = Schema.decodeUnknownSync(discountIdSchema)("code");
+    const codeApplication = {
+      discount: {
+        id: codeDiscountId,
+        label: "Campaign code",
+        adjustment: { kind: "percentage" as const, basisPoints: 2000 },
+      },
+      subtotalBefore: money(17_500),
+      amount: money(3500),
+      subtotalAfter: money(14_000),
+    };
+
+    /** Affirms an advertisement carrying the code while code preview fails. */
+    const affirmWithFailedCodePreview = async (
+      failure: DiscountProviderError | PromotionCodeUnavailableError
+    ) => {
+      const advertisedQuote = await Effect.runPromise(
+        buildCoworkReservationQuote(reservation, {
+          discountQuote: discountQuoteCodec.make({
+            ...advertisementQuote,
+            discounts: [...advertisementQuote.discounts, codeApplication],
+            totalDiscount: money(21_000),
+            discountedSubtotal: money(14_000),
+          }),
+        })
+      );
+      const affirmAdvertisement = mock(() =>
+        Effect.succeed(affirmedAdvertisement)
+      );
+
+      const result = await runWithDiscounts(
+        Effect.gen(function* () {
+          const pricing = yield* coworkCheckoutPricing;
+          return yield* pricing
+            .affirmAdvertisement({
+              reservation: advertisedReservation,
+              locale: "en-US",
+              bookedAt,
+              advertisedQuote,
+              submittedCode,
+              submittedCodeDiscountId: codeDiscountId,
+            })
+            .pipe(Effect.result);
+        }),
+        DiscountServiceMock({
+          affirmAdvertisement,
+          previewDiscountCode: () => Effect.fail(failure),
+        })
+      );
+
+      return { advertisedQuote, affirmAdvertisement, result };
+    };
+
+    test("fails instead of dropping a code whose provider is unavailable", async () => {
+      const { affirmAdvertisement, result } = await affirmWithFailedCodePreview(
+        new DiscountProviderError({
+          reason: "provider_failure",
+          message: "Promotion codes could not be loaded.",
+        })
+      );
+
+      expect(affirmAdvertisement).toHaveBeenCalledWith(
+        expect.objectContaining({
+          advertisedDiscountIds: [advertisedDiscountId],
+        })
+      );
+      expect(result).toMatchObject({
+        _tag: "Failure",
+        failure: {
+          _tag: "DiscountAffirmationUnavailableError",
+          discountIds: [codeDiscountId],
+        },
+      });
+    });
+
+    test("drops a code that is no longer available", async () => {
+      const { advertisedQuote, result } = await affirmWithFailedCodePreview(
+        new PromotionCodeUnavailableError({
+          reason: "usage_limit_reached",
+          message: "The code has no uses left.",
+        })
+      );
+
+      expect(result._tag).toBe("Success");
+      if (result._tag !== "Success") return;
+      expect(result.success.submittedCodeDiscountId).toBeUndefined();
+      expect(result.success.quote.fingerprint).not.toBe(
+        advertisedQuote.fingerprint
+      );
+      expect(result.success.quote.payment.expectedPrice).toEqual(money(22_500));
+    });
+
+    test("omits a code from discovery when its provider is unavailable", async () => {
+      const result = await runWithDiscounts(
+        Effect.gen(function* () {
+          const pricing = yield* coworkCheckoutPricing;
+          return yield* pricing.quoteAdvertisement({
+            reservation: advertisedReservation,
+            locale: "en-US",
+            submittedCode,
+          });
+        }),
+        DiscountServiceMock({
+          discoverAdvertisedDiscounts: () => Effect.succeed(advertisementQuote),
+          previewDiscountCode: () =>
+            Effect.fail(
+              new DiscountProviderError({
+                reason: "provider_failure",
+                message: "Promotion codes could not be loaded.",
+              })
+            ),
+        })
+      );
+
+      expect(result.submittedCodeDiscountId).toBeUndefined();
+      expect(result.quote.payment.expectedPrice).toEqual(money(22_500));
+    });
   });
 
   test("applies customer discounts to the affirmed advertisement", async () => {

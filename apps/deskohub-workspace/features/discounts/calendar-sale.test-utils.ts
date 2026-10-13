@@ -1,4 +1,8 @@
-import { GoogleCalendarEventIdSchema } from "@deskohub/google-calendar";
+import {
+  type GoogleCalendarError,
+  type GoogleCalendarEvent,
+  GoogleCalendarEventIdSchema,
+} from "@deskohub/google-calendar";
 import { GoogleCalendarServiceMock } from "@deskohub/google-calendar/backend/service.mock";
 import { Effect, Layer } from "effect";
 import { CalendarDiscountProvider } from "@/features/discounts/calendar-discount-provider.service";
@@ -32,6 +36,13 @@ export const calendarSaleDiscountServiceLayer = (input: {
   readonly lastDay: Temporal.PlainDate;
   readonly labels: DiscountDefinition["labels"];
   readonly products: DiscountDefinition["products"];
+  /**
+   * Answers each Google Calendar load given the synthetic sale's events.
+   * Defaults to returning them, so the sale is always found.
+   */
+  readonly listEvents?: (
+    saleEvents: readonly GoogleCalendarEvent[]
+  ) => Effect.Effect<readonly GoogleCalendarEvent[], GoogleCalendarError>;
 }) =>
   DiscountService.Default.pipe(
     Layer.provide(
@@ -41,7 +52,7 @@ export const calendarSaleDiscountServiceLayer = (input: {
             Layer.mergeAll(
               GoogleCalendarServiceMock({
                 listEvents: () =>
-                  Effect.succeed([
+                  (input.listEvents ?? Effect.succeed)([
                     {
                       id: GoogleCalendarEventIdSchema.make(
                         `${input.calendarId}-sale`

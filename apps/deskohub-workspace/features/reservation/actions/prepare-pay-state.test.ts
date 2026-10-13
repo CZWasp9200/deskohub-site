@@ -6,7 +6,7 @@ import { DotyposService } from "@deskohub/dotypos";
 import { EmailRecipientDomainServiceMock } from "@deskohub/email/backend/recipient-domain.service.mock";
 import { testEmailAddress } from "@deskohub/test-email";
 import { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
-import { Effect, Layer, Schema } from "effect";
+import { Duration, Effect, Layer, Schema } from "effect";
 import type { WorkspaceReservation } from "@/db/schema";
 import type { OptionalAccountActivityFixture } from "@/features/account/backend/customer-account-activity.test-utils";
 import { CustomerAccountContactService } from "@/features/account/backend/customer-account-contact.service";
@@ -43,6 +43,8 @@ import {
 } from "@/features/referrals/referral.service.mock";
 import type { IWorkspaceAvailabilityService } from "@/features/reservation/backend/workspace-availability.service";
 import { meetingRoomAdvertisedPriceReservationSchema } from "@/features/reservation/meeting-room-reservation";
+import { getSlowestSuccessfulCalendarLoad } from "@/shared/backend/config/google-calendar.config.test-utils";
+import { withInstantSleeps } from "@/shared/testing/workspace-test-clock.test-utils";
 import { workspaceSiteConstants } from "@/shared/utils/site-constants";
 
 const testEmailAddressForAda = testEmailAddress("ada");
@@ -582,9 +584,25 @@ const runMeetingRoomNewHoldScenario = async (
     readonly requestedDiscountCode?: string;
     readonly submittedCode?: string;
     readonly submittedCodeDiscountId?: string;
-  } = {}
+  } = {},
+  /**
+   * Runs the submission under `deadline` on an instant test clock. Each
+   * Google Calendar load (the sales affirmation and the availability check's
+   * limitations) takes `calendar` and each Dotypos request `dotypos`; the
+   * availability check reads both in parallel.
+   */
+  timing?: {
+    readonly calendar: Duration.Duration;
+    readonly dotypos: Duration.Duration;
+    readonly deadline: Duration.Input;
+  }
 ) => {
   const { prepareWorkspacePayState } = await import("./prepare-pay-state");
+  const { withActionDeadline } = await import(
+    "@/shared/backend/workspace-action"
+  );
+  const afterDotypos = <A, E>(effect: Effect.Effect<A, E>) =>
+    timing ? Effect.sleep(timing.dotypos).pipe(Effect.andThen(effect)) : effect;
   const { CheckoutPricingService } = await import(
     "@/features/checkout/backend/checkout/checkout-pricing.service"
   );
@@ -610,7 +628,11 @@ const runMeetingRoomNewHoldScenario = async (
     "@/shared/backend/bot-protection/bot-protection.service.mock"
   );
 
-  const ensureAvailable = mock(() => Effect.void);
+  const ensureAvailable = mock(() =>
+    timing
+      ? Effect.sleep(Duration.max(timing.calendar, timing.dotypos))
+      : Effect.void
+  );
   const createDraft = mock((input) =>
     Effect.succeed({
       id: "meeting-room-reservation-id",
@@ -620,9 +642,11 @@ const runMeetingRoomNewHoldScenario = async (
       reservationDetails: input.reservationDetails,
     } as never)
   );
-  const assignTableId = mock(() => Effect.succeed("meeting-room-table-id"));
+  const assignTableId = mock(() =>
+    afterDotypos(Effect.succeed("meeting-room-table-id"))
+  );
   const createReservation = mock(() =>
-    Effect.succeed({ id: "dotypos-meeting-room-id" } as never)
+    afterDotypos(Effect.succeed({ id: "dotypos-meeting-room-id" } as never))
   );
   const attachHold = mock(() => Effect.void);
   const enqueueCleanup = mock(() => Effect.void);
@@ -642,7 +666,9 @@ const runMeetingRoomNewHoldScenario = async (
   const affirmedAdvertisement =
     affirmedDiscountAdvertisementQuoteCodec.make(advertisementQuote);
   const accountAuthority = await accountAuthorityFixture();
-  const affirmAdvertisement = mock(() => Effect.succeed(affirmedAdvertisement));
+  const affirmAdvertisement = mock(() =>
+    Effect.sleep(timing?.calendar ?? 0).pipe(Effect.as(affirmedAdvertisement))
+  );
   const applyCustomerDiscount = mock(() =>
     Effect.succeed(affirmedAdvertisement)
   );
@@ -710,7 +736,9 @@ const runMeetingRoomNewHoldScenario = async (
       enqueueCleanup,
     } as never),
     Layer.mock(DotyposService, {
-      findOrCreateCustomer: mock(() => Effect.succeed({ id: "customer-id" })),
+      findOrCreateCustomer: mock(() =>
+        afterDotypos(Effect.succeed({ id: "customer-id" }))
+      ),
       createReservation,
     }),
     Layer.mock(PostHogEventService, {
@@ -718,7 +746,7 @@ const runMeetingRoomNewHoldScenario = async (
     })
   );
 
-  const result = await prepareWorkspacePayState({
+  const submission = prepareWorkspacePayState({
     locale: "en-US",
     checkoutSessionId: "meeting-room-session-id",
     checkoutAttemptId: "meeting-room-attempt-id",
@@ -728,9 +756,19 @@ const runMeetingRoomNewHoldScenario = async (
       advertisedMetadata
     ),
     reservation: meetingRoomReservation,
-  }).pipe(Effect.provide(testLayer), Effect.runPromise);
+  }).pipe(Effect.provide(testLayer));
+  const exit = timing
+    ? await submission.pipe(
+        withActionDeadline(timing.deadline),
+        Effect.exit,
+        withInstantSleeps,
+        Effect.runPromise
+      )
+    : undefined;
+  const result = timing ? undefined : await Effect.runPromise(submission);
 
   return {
+    exit,
     result,
     meetingRoomReservation,
     ensureAvailable,
@@ -745,6 +783,60 @@ const runMeetingRoomNewHoldScenario = async (
 };
 
 describe("prepareWorkspacePayState", () => {
+  describe.each([
+    // Both Calendar loads (sales affirmation, then the availability check's
+    // limitations) succeed only on their retry, and the customer, table, and
+    // hold Dotypos requests are slow but well within their timeout; together
+    // they outlast a budget for one Calendar load.
+    ["production", 13],
+    ["preview", 6],
+  ] as const)(
+    "in %s, with Calendar loads that succeed on their retry",
+    (deploymentEnvironment, dotyposSeconds) => {
+      const runTimedSubmission = (deadline: Duration.Input) =>
+        runMeetingRoomNewHoldScenario(undefined, undefined, {
+          calendar: getSlowestSuccessfulCalendarLoad(deploymentEnvironment),
+          dotypos: Duration.seconds(dotyposSeconds),
+          deadline,
+        });
+
+      test("prepares the pay state within its deadline", async () => {
+        const { getPreparePayStateDeadline } = await import(
+          "./prepare-pay-state-deadline"
+        );
+
+        const scenario = await runTimedSubmission(
+          getPreparePayStateDeadline(deploymentEnvironment)
+        );
+
+        expect(scenario.exit).toMatchObject({
+          _tag: "Success",
+          value: { status: "ready" },
+        });
+        expect(scenario.createReservation).toHaveBeenCalledTimes(1);
+      });
+
+      test("would be interrupted with a budget for one Calendar load", async () => {
+        const { getCalendarActionDeadline } = await import(
+          "@/shared/backend/calendar-action-deadline"
+        );
+
+        const scenario = await runTimedSubmission(
+          getCalendarActionDeadline(deploymentEnvironment, 1)
+        );
+
+        expect(scenario.exit).toMatchObject({
+          _tag: "Failure",
+          cause: {
+            reasons: [
+              { error: { message: "Request timed out. Please try again." } },
+            ],
+          },
+        });
+      });
+    }
+  );
+
   test("carries the advertised requested discount code into the signed pay state", async () => {
     const { openPayState, payStateTokenQueryParam } = await import(
       "@/features/checkout/backend/checkout"

@@ -2,12 +2,14 @@ import "@/shared/polyfills/temporal";
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, mock, test } from "bun:test";
+import type { GoogleCalendarEvent } from "@deskohub/google-calendar";
 import { testEmailAddress } from "@deskohub/test-email";
-import { Effect, Layer, Schema } from "effect";
+import { type Duration, Effect, Layer, Schema } from "effect";
 import type { WorkspaceE2EConfig } from "@/e2e/config";
 import { isFreshOwnedPayStateUrl } from "@/e2e/referrals/checkout";
 import { isOwnedReferralCheckoutReviewUrl } from "@/e2e/referrals/checkout-review";
 import { buildFreshCheckoutPayPath } from "@/features/checkout/backend/checkout/checkout-pay-url";
+import { CheckoutPricingService } from "@/features/checkout/backend/checkout/checkout-pricing.service";
 import { CheckoutPricingServiceMock } from "@/features/checkout/backend/checkout/checkout-pricing.service.mock";
 import {
   buildSignedPayState,
@@ -18,9 +20,11 @@ import {
 import { PayableReservationUnavailableError } from "@/features/checkout/backend/checkout/payable-reservation.service";
 import { buildCoworkReservationQuote } from "@/features/checkout/checkout-quote.test-utils";
 import {
+  DiscountAffirmationUnavailableError,
   discountIdSchema,
   PromotionCodeUnavailableError,
 } from "@/features/discounts";
+import { calendarSaleDiscountServiceLayer } from "@/features/discounts/calendar-sale.test-utils";
 import {
   type CanonicalPromotionCode,
   canonicalPromotionCodeSchema,
@@ -28,6 +32,12 @@ import {
 import type { ReferralService as ReferralServiceTag } from "@/features/referrals";
 import { WithheldReferralService } from "@/features/referrals/referral.service.mock";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
+import { getSlowestSuccessfulCalendarLoad } from "@/shared/backend/config/google-calendar.config.test-utils";
+import {
+  withActionDeadline,
+  workspaceActionDeadline,
+} from "@/shared/backend/workspace-action";
+import { withInstantSleeps } from "@/shared/testing/workspace-test-clock.test-utils";
 import { instantStringSchema } from "@/shared/utils/temporal";
 
 mock.module("server-only", () => ({}));
@@ -72,7 +82,7 @@ const makePayStateToken = async (input?: {
   return await Effect.runPromise(sealPayState(state));
 };
 
-const runSubmission = async (input?: {
+type SubmissionInput = {
   readonly submittedCode?: string;
   readonly applyDiscountCode?: ReturnType<typeof mock>;
   readonly acceptCode?: ReturnType<typeof mock>;
@@ -84,7 +94,13 @@ const runSubmission = async (input?: {
   readonly activePaymentAttemptIdAfterPricing?: string;
   readonly payableReservationUnavailableAt?: 1 | 2;
   readonly requestedDiscountCode?: CanonicalPromotionCode;
-}) => {
+  /** How long each live payable-reservation guard takes. */
+  readonly requireCurrentDuration?: Duration.Input;
+  /** Replaces the pricing stub, for example with real pricing. */
+  readonly pricing?: Layer.Layer<CheckoutPricingService>;
+};
+
+const prepareSubmission = async (input?: SubmissionInput) => {
   const [
     { applyDiscountCodeToPayState },
     { PayableReservationService },
@@ -110,18 +126,22 @@ const runSubmission = async (input?: {
           null)
         : (input?.activePaymentAttemptId ?? null),
   });
-  const requireCurrent = mock(() => {
-    payableReservationReadCount += 1;
-    return input?.payableReservationUnavailableAt ===
-      payableReservationReadCount
-      ? Effect.fail(
-          new PayableReservationUnavailableError({
-            orderId: "reservation-id",
-            reason: "not_current",
-          })
-        )
-      : Effect.succeed(getReservation() as never);
-  });
+  const requireCurrent = mock(() =>
+    Effect.sleep(input?.requireCurrentDuration ?? 0).pipe(
+      Effect.andThen(() => {
+        payableReservationReadCount += 1;
+        return input?.payableReservationUnavailableAt ===
+          payableReservationReadCount
+          ? Effect.fail(
+              new PayableReservationUnavailableError({
+                orderId: "reservation-id",
+                reason: "not_current",
+              })
+            )
+          : Effect.succeed(getReservation() as never);
+      })
+    )
+  );
   const applyDiscountCode =
     input?.applyDiscountCode ??
     mock(() =>
@@ -149,7 +169,7 @@ const runSubmission = async (input?: {
     (await makePayStateToken({
       requestedDiscountCode: input?.requestedDiscountCode,
     }));
-  const result = await applyDiscountCodeToPayState({
+  const effect = applyDiscountCodeToPayState({
     locale: "en-US",
     payStateToken,
     submittedCode: input?.submittedCode ?? " save20 ",
@@ -157,25 +177,43 @@ const runSubmission = async (input?: {
     Effect.provide(
       Layer.mergeAll(
         BotProtectionServiceMock({ verifyHuman }),
-        CheckoutPricingServiceMock({ applyDiscountCode }),
+        input?.pricing ?? CheckoutPricingServiceMock({ applyDiscountCode }),
         Layer.succeed(PayableReservationService, { requireCurrent }),
         input?.referralService ??
           Layer.succeed(ReferralService, { lookupCodeKind } as never),
         Layer.succeed(CheckoutReferralService, { acceptCode } as never)
       )
-    ),
-    Effect.runPromise
+    )
   );
 
   return {
     applyDiscountCode,
     acceptCode,
     lookupCodeKind,
+    effect,
     requireCurrent,
     payStateToken,
-    result,
     verifyHuman,
   };
+};
+
+const runSubmission = async (input?: SubmissionInput) => {
+  const { effect, ...submission } = await prepareSubmission(input);
+  return { ...submission, result: await Effect.runPromise(effect) };
+};
+
+/** Runs a submission under an action deadline on an instant test clock. */
+const runSubmissionWithinDeadline = async (
+  deadline: Duration.Input,
+  input?: SubmissionInput
+) => {
+  const { effect } = await prepareSubmission(input);
+  return await effect.pipe(
+    withActionDeadline(deadline),
+    Effect.exit,
+    withInstantSleeps,
+    Effect.runPromise
+  );
 };
 
 describe("applyDiscountCodeToPayState", () => {
@@ -487,6 +525,93 @@ describe("applyDiscountCodeToPayState", () => {
       referralCode: undefined,
       submittedCode: undefined,
     });
+  });
+
+  describe.each([
+    // A slow successful Calendar retry between live guards that are slow but
+    // well within the Dotypos timeout; together they just outlast the
+    // ordinary 45-second deadline.
+    ["production", "18 seconds"],
+    ["preview", "8 seconds"],
+  ] as const)(
+    "in %s, with a Calendar load that succeeds on its retry",
+    (deploymentEnvironment, liveGuardDuration) => {
+      const submission = () => {
+        const listEvents = mock((saleEvents: readonly GoogleCalendarEvent[]) =>
+          Effect.sleep(
+            getSlowestSuccessfulCalendarLoad(deploymentEnvironment)
+          ).pipe(Effect.as(saleEvents))
+        );
+        return {
+          listEvents,
+          input: {
+            requireCurrentDuration: liveGuardDuration,
+            pricing: CheckoutPricingService.Default.pipe(
+              Layer.provide(
+                calendarSaleDiscountServiceLayer({
+                  calendarId: `apply-code-deadline-${deploymentEnvironment}`,
+                  firstDay: Temporal.PlainDate.from("2026-05-01"),
+                  lastDay: Temporal.PlainDate.from("2026-09-30"),
+                  labels: { "en-US": "Summer sale", "cs-CZ": "Letní sleva" },
+                  products: [{ kind: "cowork" }],
+                  listEvents,
+                })
+              )
+            ),
+          } satisfies SubmissionInput,
+        };
+      };
+
+      test("completes discount-code entry within its deadline", async () => {
+        const { input, listEvents } = submission();
+
+        const { getApplyDiscountCodeDeadline } = await import(
+          "./apply-discount-code-to-pay-state"
+        );
+
+        const exit = await runSubmissionWithinDeadline(
+          getApplyDiscountCodeDeadline(deploymentEnvironment),
+          input
+        );
+
+        expect(listEvents).toHaveBeenCalledTimes(1);
+        expect(exit._tag).toBe("Success");
+      });
+
+      test("would be interrupted under the ordinary action deadline", async () => {
+        const exit = await runSubmissionWithinDeadline(
+          workspaceActionDeadline,
+          submission().input
+        );
+
+        expect(exit).toMatchObject({
+          _tag: "Failure",
+          cause: {
+            reasons: [
+              { error: { message: "Request timed out. Please try again." } },
+            ],
+          },
+        });
+      });
+    }
+  );
+
+  test("keeps the existing summary payable when displayed discounts cannot be affirmed", async () => {
+    const applyDiscountCode = mock(() =>
+      Effect.fail(
+        new DiscountAffirmationUnavailableError({
+          message: "Calendar was unavailable.",
+          discountIds: [submittedCodeDiscountId],
+        })
+      )
+    );
+    const scenario = await runSubmission({ applyDiscountCode });
+
+    expect(scenario.result).toEqual({
+      status: "unavailable",
+      freshPayUrl: undefined,
+    });
+    expect(applyDiscountCode).toHaveBeenCalledTimes(1);
   });
 
   test("applies a new code when the signed state only carries a requested code", async () => {

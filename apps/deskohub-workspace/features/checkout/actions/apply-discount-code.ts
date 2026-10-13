@@ -3,6 +3,7 @@
 import { randomUUID } from "node:crypto";
 import { Effect, Layer, Predicate } from "effect";
 import { RedirectType, redirect } from "next/navigation";
+import { env } from "@/env";
 import {
   buildCheckoutPayPathFromToken,
   CheckoutReferralService,
@@ -21,11 +22,13 @@ import { applyDiscountCodeSchema } from "./apply-discount-code-input";
 import {
   type ApplyDiscountCodeResult,
   applyDiscountCodeToPayState,
+  getApplyDiscountCodeDeadline,
 } from "./apply-discount-code-to-pay-state";
 
 const applyDiscountCodeAction = defineWorkspaceAction(
   {
     operation: "checkout.apply-discount-code",
+    deadline: getApplyDiscountCodeDeadline(env.VERCEL_ENV),
     schema: applyDiscountCodeSchema,
   },
   (input) =>

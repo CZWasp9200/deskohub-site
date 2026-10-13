@@ -18,6 +18,7 @@ import {
   Schema,
 } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
+import { env } from "@/env";
 import {
   CustomerAccountAccessError,
   CustomerAccountContactService,
@@ -134,6 +135,7 @@ import {
   type PreparePayStateInput,
   preparePayStateSchema,
 } from "./prepare-pay-state.schema";
+import { getPreparePayStateDeadline } from "./prepare-pay-state-deadline";
 
 const decodeLegalEvidenceMap = Schema.decodeUnknownSync(
   legalEvidenceMapSchema,
@@ -1424,6 +1426,7 @@ const preparePayStateAction = defineWorkspaceAction(
   {
     logInput: false,
     operation: "checkout.prepare-pay-state",
+    deadline: getPreparePayStateDeadline(env.VERCEL_ENV),
     schema: preparePayStateSchema,
   },
   (input) =>
