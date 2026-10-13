@@ -60,7 +60,10 @@ import type {
   WorkspaceE2EStep,
 } from "../types";
 import { executeCheckoutFlow } from "./checkout";
-import { assertDisplayedDiscounts } from "./discounts";
+import {
+  assertDisplayedDiscounts,
+  calendarDiscountExpectation,
+} from "./discounts";
 
 export const guestReferralPaymentCaseId = "checkout-guest-referral";
 
@@ -88,6 +91,18 @@ const getInvitationDiscount = (
   adjustment: invitationAdjustment,
   label: m.checkoutSummaryItemReferralInvitationDiscount({}, { locale }),
 });
+
+/**
+ * The paid guest order's discount applications, in order. The long-lived E2E
+ * Calendar sale covers every cowork date, so the invitation applies after it,
+ * to the sale's remaining subtotal.
+ */
+export const getGuestReferralDiscounts = (
+  locale: CheckoutData["locale"]
+): readonly ExpectedDiscountApplication[] => [
+  calendarDiscountExpectation,
+  getInvitationDiscount(locale),
+];
 
 /**
  * Plans the paid guest-referral checkout on its own cowork date, after every
@@ -215,6 +230,7 @@ const executeGuestReferralPayment = Effect.fn("GuestReferralPayment.execute")(
     const journal = makeIdentityJournal();
     const locale = state.data.locale;
     const invitationDiscount = getInvitationDiscount(locale);
+    const expectedDiscounts = getGuestReferralDiscounts(locale);
 
     yield* runStep({
       execute: waitForNoRememberedReferralCode({ config, run, session }),
@@ -310,7 +326,7 @@ const executeGuestReferralPayment = Effect.fn("GuestReferralPayment.execute")(
       {
         execute: assertDisplayedDiscounts({
           config,
-          discounts: [invitationDiscount],
+          discounts: expectedDiscounts,
           run,
           session,
         }),
@@ -323,7 +339,7 @@ const executeGuestReferralPayment = Effect.fn("GuestReferralPayment.execute")(
       config,
       data,
       datasourceConfig,
-      expectedDiscounts: [invitationDiscount],
+      expectedDiscounts,
       flow: {
         id: guestReferralPaymentCaseId,
         submitReservationScript: getSubmitCoworkReservationScript,

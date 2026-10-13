@@ -38,5 +38,5 @@ Sign referral-lane identities in by seeding a session, never by sending a magic 
 
 ## Assertions
 
-- Checkout records the attribution only when the order is paid. Unpaid referral checkouts assert pricing and that no attribution or invitation claim exists yet; the paid guest case asserts the booked customer is attributed and its one active invitation claim is `redeemed` by the paid attempt's 15% application.
+- Checkout records the attribution only when the order is paid. Unpaid referral checkouts assert pricing and that no attribution or invitation claim exists yet; the paid guest case asserts the booked customer is attributed and its one active invitation claim is `redeemed` by the paid attempt's 15% application. Its open-space date also carries the [Calendar sale](fixtures.md#calendar-sale-event), so the paid attempt persists the sale first and the invitation second, priced on the sale's remaining subtotal.
 - A rejected referral code re-signs the pay state so the typed code stays in the box, so rejection checks expect a new URL for the same order, not the same `payState`.

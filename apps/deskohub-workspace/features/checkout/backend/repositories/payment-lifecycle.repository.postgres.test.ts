@@ -1336,6 +1336,156 @@ describe.skipIf(!testDatabase)(
       }
     });
 
+    test("persists a paid guest referral after a Calendar sale as one invitation application counted in savings", async () => {
+      const repository = await makeRepository();
+      const fixture = await createInvitedCustomer(false);
+      const inviteeAccountId = customerAccountIdSchema.make(
+        `referral-guest-savings-${uniqueId()}`
+      );
+      const occurrenceReference = `guest-referral-sale-${uniqueId()}`;
+      const calendarSale: DiscountCandidate = {
+        discount: {
+          id: deriveOpaqueDiscountId({
+            providerNamespace: "google-calendar-sales",
+            providerReference: occurrenceReference,
+          }),
+          label: "Calendar sale",
+          adjustment: { kind: "percentage", basisPoints: 2_000 },
+        },
+        provenance: {
+          providerNamespace: "google-calendar-sales",
+          providerReference: occurrenceReference,
+          details: {
+            calendarId: "synthetic-sales-calendar",
+            eventReference: occurrenceReference,
+            occurrenceDate: "2099-01-01",
+            storedDiscountId: storedDiscountIdSchema.make(uniqueId()),
+          },
+        },
+      };
+      try {
+        // A guest booking: no attribution and no linked account before payment.
+        const reservation = await createHeldReservation(
+          fixture.invitedDotyposCustomerId
+        );
+        const referralAdmission = makeReferralAdmission({
+          reservation,
+          ...fixture,
+          ordinaryCandidates: [calendarSale],
+        });
+        const attempt = await Effect.runPromise(
+          admit(repository, reservation, referralAdmission)
+        );
+        await Effect.runPromise(
+          repository.markPaid({
+            id: attempt.id,
+            workspaceReservationId: reservation.id,
+            paidAt: Temporal.Now.instant(),
+          })
+        );
+
+        const applications = await Effect.runPromise(
+          testDatabase!.db
+            .select({
+              id: discountApplications.id,
+              sequence: discountApplications.sequence,
+              publicDiscountId: discountApplications.publicDiscountId,
+              subtotalBefore: discountApplications.subtotalBeforeValue,
+              applied: discountApplications.appliedAmountValue,
+            })
+            .from(discountApplications)
+            .where(eq(discountApplications.paymentAttemptId, attempt.id))
+            .orderBy(discountApplications.sequence)
+        );
+        const invitationId = getReferralInvitationDiscountId(
+          fixture.invitedDotyposCustomerId
+        );
+        const [sale, invitation] = applications;
+        expect(
+          applications.filter(
+            ({ publicDiscountId }) => publicDiscountId === invitationId
+          )
+        ).toHaveLength(1);
+        expect(applications).toHaveLength(2);
+        expect(sale).toMatchObject({
+          sequence: 0,
+          publicDiscountId: calendarSale.discount.id,
+          subtotalBefore: 35_000,
+          applied: 7_000,
+        });
+        // The invitation takes 15% of what the sale leaves.
+        expect(invitation).toMatchObject({
+          sequence: 1,
+          publicDiscountId: invitationId,
+          subtotalBefore: 28_000,
+          applied: 4_200,
+        });
+        expect(attempt.amount.value).toBe(23_800);
+        const [claim] = (
+          await testDatabase!.pool.query(
+            "select state, application_id from referral_invitation_claims where payment_attempt_id = $1",
+            [attempt.id]
+          )
+        ).rows;
+        expect(claim).toEqual({
+          state: "redeemed",
+          application_id: invitation!.id,
+        });
+        expect(
+          await readAttributions(fixture.invitedDotyposCustomerId)
+        ).toEqual([
+          {
+            referrer: fixture.referrerDotyposCustomerId,
+            code: fixture.promotionCodeId,
+          },
+        ]);
+
+        // Once the guest signs in, the Referrals screen counts the invitation.
+        await testDatabase!.pool.query(
+          `insert into auth."user" (id, name, email) values ($1, '', $2)`,
+          [inviteeAccountId, testEmailAddress(inviteeAccountId)]
+        );
+        await testDatabase!.pool.query(
+          "insert into customer_account_links (customer_account_id, dotypos_customer_id) values ($1, $2)",
+          [inviteeAccountId, fixture.invitedDotyposCustomerId]
+        );
+        const identity = {
+          accountId: inviteeAccountId,
+          dotyposCustomerId: fixture.invitedDotyposCustomerId,
+        };
+        const referrals = await makeReferralService({ identity });
+        const summary = await Effect.runPromise(
+          referrals.getAccountSummary({
+            customerAccountId: inviteeAccountId,
+            dotyposCustomerId: fixture.invitedDotyposCustomerId,
+          })
+        );
+        expect(summary.savings).toEqual([
+          { value: 4_200, exponent: 2, currency: "CZK" },
+        ]);
+      } finally {
+        await fixture.cleanup();
+        const issued = await testDatabase!.pool.query<{
+          readonly id: string;
+        }>(
+          "delete from referral_codes where referrer_dotypos_customer_id = $1 returning promotion_code_id as id",
+          [fixture.invitedDotyposCustomerId]
+        );
+        await testDatabase!.pool.query(
+          "delete from promotion_codes where id = any($1)",
+          [issued.rows.map(({ id }) => id)]
+        );
+        await testDatabase!.pool.query(
+          "delete from customer_account_links where customer_account_id = $1",
+          [inviteeAccountId]
+        );
+        await testDatabase!.pool.query(
+          'delete from auth."user" where id = $1',
+          [inviteeAccountId]
+        );
+      }
+    });
+
     test("releases a checkout referral on failed, cancelled, or expired payment and leaves no attribution", async () => {
       const repository = await makeRepository();
       for (const state of ["failed", "cancelled", "expired"] as const) {

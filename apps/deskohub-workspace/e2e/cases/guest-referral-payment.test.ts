@@ -1,16 +1,22 @@
 import { expect, test } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
 import { Effect, Exit } from "effect";
+import { m } from "@/features/i18n";
 import { referralCodeQueryParam } from "@/features/referrals/client";
 import { makeCoworkCheckoutData } from "../checkout/data";
 import type { WorkspaceE2EConfig } from "../config";
-import type { ReferralInvitationPaymentRecord } from "../integrations/database";
+import {
+  assertDiscountApplications,
+  type DiscountApplicationRow,
+  type ReferralInvitationPaymentRecord,
+} from "../integrations/database";
 import type { WorkspaceE2ERunId } from "../run-identifiers";
 import { workspaceE2ETimeouts } from "../timeouts";
 import type { CheckoutFlowState, WorkspaceE2ECase } from "../types";
 import {
   assertGuestReferralPayment,
   bindGuestReferralPaymentCase,
+  getGuestReferralDiscounts,
   guestReferralPaymentCaseId,
   planGuestReferralPaymentCase,
   withGuestContact,
@@ -62,6 +68,69 @@ const expected = {
   invitationLabel,
   referrerCustomerId: "referrer",
 };
+
+const discountRow = (
+  row: Pick<
+    DiscountApplicationRow,
+    | "adjustment"
+    | "applied_amount_value"
+    | "label"
+    | "sequence"
+    | "subtotal_before_value"
+  > &
+    Partial<Pick<DiscountApplicationRow, "countdown_starts_at" | "expires_at">>
+): DiscountApplicationRow => ({
+  applied_amount_currency: "CZK",
+  applied_amount_exponent: 2,
+  countdown_starts_at: null,
+  expires_at: null,
+  redeemed_at: null,
+  redemption_state: null,
+  subtotal_after_currency: "CZK",
+  subtotal_after_exponent: 2,
+  subtotal_after_value: row.subtotal_before_value - row.applied_amount_value,
+  subtotal_before_currency: "CZK",
+  subtotal_before_exponent: 2,
+  subtotal_before_value: row.subtotal_before_value,
+  ...row,
+});
+
+test("expects the Calendar sale before the invitation on the paid guest order", () => {
+  // CZK 290 Open Space, less the 20% E2E Calendar sale, less the 15%
+  // invitation on what remains: the CZK 197.20 the guest pays.
+  const rows = [
+    discountRow({
+      adjustment: { kind: "percentage", basisPoints: 2000 },
+      applied_amount_value: 5_800,
+      countdown_starts_at: new Date("2099-07-24T00:00:00.000Z"),
+      expires_at: new Date("2099-07-25T00:00:00.000Z"),
+      label: "E2E Calendar sale",
+      sequence: 0,
+      subtotal_before_value: 29_000,
+    }),
+    discountRow({
+      adjustment: { kind: "percentage", basisPoints: 1500 },
+      applied_amount_value: 3_480,
+      label: m.checkoutSummaryItemReferralInvitationDiscount(
+        {},
+        { locale: "en-US" }
+      ),
+      sequence: 1,
+      subtotal_before_value: 23_200,
+    }),
+  ];
+
+  expect(() =>
+    assertDiscountApplications(rows, getGuestReferralDiscounts("en-US"), "CZK")
+  ).not.toThrow();
+  expect(() =>
+    assertDiscountApplications(
+      rows.slice(1).map((row) => ({ ...row, sequence: 0 })),
+      getGuestReferralDiscounts("en-US"),
+      "CZK"
+    )
+  ).toThrow("expected 2 discount applications");
+});
 
 test("accepts a paid guest order attributed to the seeded referrer", () => {
   expect(() =>
