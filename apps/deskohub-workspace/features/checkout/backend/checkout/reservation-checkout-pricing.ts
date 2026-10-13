@@ -11,6 +11,7 @@ import {
   affirmedDiscountAdvertisementQuoteCodec,
   type CanonicalPromotionCode,
   type DiscountAdvertisementInput,
+  type DiscountAffirmationUnavailableError,
   type DiscountCommitment,
   type DiscountId,
   type DiscountQuote,
@@ -230,7 +231,10 @@ export const reservationCheckoutPricing = <
     Advertisement,
     CustomerReservation,
     Quote,
-    ContextError | QuoteError | DiscountResolutionError
+    | ContextError
+    | QuoteError
+    | DiscountResolutionError
+    | DiscountAffirmationUnavailableError
   >,
   never,
   DiscountService

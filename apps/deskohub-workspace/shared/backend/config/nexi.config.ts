@@ -5,18 +5,28 @@ import {
 } from "@deskohub/nexi";
 import { Duration, Layer } from "effect";
 import { env } from "@/env";
-
-type DeploymentEnvironment = (typeof env)["VERCEL_ENV"];
+import {
+  type DeploymentEnvironment,
+  getDeploymentRequestTimeout,
+} from "./deployment-request-timeout";
 
 /**
- * Production fails a slow Nexi request fast. Preview, development, and test
- * environments talk to the Nexi sandbox, which can take several seconds to
- * create a hosted payment page; a timeout there leaves the payment attempt
- * ambiguous, so they wait much longer.
+ * The Nexi sandbox can take several seconds to create a hosted payment page,
+ * and a timeout there leaves the payment attempt ambiguous, so non-production
+ * deployments wait much longer than production.
  */
 export const getNexiRequestTimeoutMilliseconds = (
   deploymentEnvironment: DeploymentEnvironment
-) => (deploymentEnvironment === "production" ? 5_000 : 30_000);
+) =>
+  Duration.toMillis(
+    getDeploymentRequestTimeout(
+      {
+        production: Duration.seconds(5),
+        nonProduction: Duration.seconds(30),
+      },
+      deploymentEnvironment
+    )
+  );
 
 /** The per-request Nexi timeout of this deployment. */
 export const nexiRequestTimeout = Duration.millis(

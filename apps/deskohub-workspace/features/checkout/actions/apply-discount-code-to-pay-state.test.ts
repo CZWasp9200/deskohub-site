@@ -14,6 +14,7 @@ import {
 import { PayableReservationUnavailableError } from "@/features/checkout/backend/checkout/payable-reservation.service";
 import { buildCoworkReservationQuote } from "@/features/checkout/checkout-quote.test-utils";
 import {
+  DiscountAffirmationUnavailableError,
   discountIdSchema,
   PromotionCodeUnavailableError,
 } from "@/features/discounts";
@@ -235,6 +236,24 @@ describe("applyDiscountCodeToPayState", () => {
     expect(freshState.submittedCode).toBeUndefined();
     expect(freshState.submittedCodeDiscountId).toBeUndefined();
     expect(scenario.result.freshPayUrl).not.toContain("SAVE20");
+  });
+
+  test("keeps the existing summary payable when displayed discounts cannot be affirmed", async () => {
+    const applyDiscountCode = mock(() =>
+      Effect.fail(
+        new DiscountAffirmationUnavailableError({
+          message: "Calendar was unavailable.",
+          discountIds: [submittedCodeDiscountId],
+        })
+      )
+    );
+    const scenario = await runSubmission({ applyDiscountCode });
+
+    expect(scenario.result).toEqual({
+      status: "unavailable",
+      freshPayUrl: undefined,
+    });
+    expect(applyDiscountCode).toHaveBeenCalledTimes(1);
   });
 
   test("applies a new code when the signed state only carries a requested code", async () => {

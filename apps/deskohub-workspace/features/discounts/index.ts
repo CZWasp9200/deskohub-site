@@ -15,6 +15,7 @@ export {
 } from "./contracts";
 export { DiscountService } from "./discount.service";
 export {
+  DiscountAffirmationUnavailableError,
   DiscountProviderError,
   type DiscountResolutionError,
   PromotionCodeUnavailableError,

@@ -120,6 +120,7 @@ import {
   type PreparePayStateInput,
   preparePayStateSchema,
 } from "./prepare-pay-state.schema";
+import { preparePayStateDeadline } from "./prepare-pay-state-deadline";
 
 const decodeLegalEvidenceMap = Schema.decodeUnknownSync(
   legalEvidenceMapSchema,
@@ -1270,6 +1271,7 @@ const preparePayStateAction = defineWorkspaceAction(
   {
     logInput: false,
     operation: "checkout.prepare-pay-state",
+    deadline: preparePayStateDeadline,
     schema: preparePayStateSchema,
   },
   (input) =>

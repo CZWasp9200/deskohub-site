@@ -157,6 +157,13 @@ export const applyDiscountCodeToPayState = Effect.fn(
   (effect) =>
     effect.pipe(
       Effect.catchTags({
+        // The displayed discounts could not be affirmed, so the code is not
+        // applied and the existing summary stays payable for a retry.
+        DiscountAffirmationUnavailableError: () =>
+          Effect.succeed({
+            status: "unavailable" as const,
+            freshPayUrl: undefined,
+          }),
         DiscountProviderError: () =>
           Effect.succeed({
             status: "unavailable" as const,

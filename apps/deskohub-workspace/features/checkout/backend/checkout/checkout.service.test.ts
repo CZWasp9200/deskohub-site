@@ -6,6 +6,7 @@ import {
   DotyposService,
   dotyposApiTimeoutDefaultMilliseconds,
 } from "@deskohub/dotypos";
+import { getGoogleCalendarRequestWorstCaseDuration } from "@deskohub/google-calendar";
 import { ExternalAPIError, NexiService } from "@deskohub/nexi";
 import { testEmailAddress } from "@deskohub/test-email";
 import { Data, Duration, Effect, Layer, Schema } from "effect";
@@ -27,7 +28,10 @@ import {
   canonicalPromotionCodeSchema,
   discountIdSchema,
 } from "@/features/discounts/contracts";
-import { DiscountClaimError } from "@/features/discounts/errors";
+import {
+  DiscountAffirmationUnavailableError,
+  DiscountClaimError,
+} from "@/features/discounts/errors";
 import type { Locale } from "@/features/i18n";
 import {
   type NormalizedCoworkReservationOrder,
@@ -36,6 +40,7 @@ import {
 import { normalizedMeetingRoomReservationOrderSchema } from "@/features/reservation/meeting-room-reservation";
 import { normalizedOfficeReservationOrderSchema } from "@/features/reservation/office-reservation";
 import { reservationOrderSchema } from "@/features/reservation/reservation-order";
+import { getGoogleCalendarRequestTimeout } from "@/shared/backend/config/google-calendar.config";
 import { getNexiRequestTimeoutMilliseconds } from "@/shared/backend/config/nexi.config";
 import { withInstantSleeps } from "@/shared/testing/workspace-test-clock.test-utils";
 import { workspaceSiteConstants } from "@/shared/utils/site-constants";
@@ -847,11 +852,14 @@ describe("CheckoutService", () => {
   });
 
   describe("within the pay submit deadline", () => {
-    const createSlowProviderHarness = async (orderId: string) => {
+    const createSlowProviderHarness = async (
+      orderId: string,
+      hostedPageDuration: Duration.Input = "26 seconds"
+    ) => {
       const harness = await createCheckoutHarness({
         orderId,
         createHostedPaymentPage: mock(() =>
-          Effect.sleep("26 seconds").pipe(
+          Effect.sleep(hostedPageDuration).pipe(
             Effect.as({
               securityToken: "provider-security-token",
               hostedPage: "https://payments.example/hosted",
@@ -873,6 +881,9 @@ describe("CheckoutService", () => {
         "@/shared/backend/workspace-action"
       );
       const deadline = getCheckoutSubmitDeadline({
+        calendar: getGoogleCalendarRequestWorstCaseDuration(
+          getGoogleCalendarRequestTimeout(deploymentEnvironment)
+        ),
         dotypos: Duration.millis(dotyposApiTimeoutDefaultMilliseconds),
         nexi: Duration.millis(
           getNexiRequestTimeoutMilliseconds(deploymentEnvironment)
@@ -905,8 +916,11 @@ describe("CheckoutService", () => {
     });
 
     test("attaches a hosted page that finishes after the deadline passes", async () => {
+      // 20 seconds of Dotypos and 36 of Nexi outlast the production
+      // deadline of about 55 seconds.
       const harness = await createSlowProviderHarness(
-        "reservation-hosted-page-past-deadline"
+        "reservation-hosted-page-past-deadline",
+        "36 seconds"
       );
 
       const exit = await submitWithinDeadline(harness.effect, "production");
@@ -2187,6 +2201,32 @@ describe("CheckoutService", () => {
         }),
       })
     );
+    expect(harness.updateReservationDetails).not.toHaveBeenCalled();
+    expect(harness.updateReservation).not.toHaveBeenCalled();
+    expect(harness.createPendingNexiAttempt).not.toHaveBeenCalled();
+    expect(harness.createHostedPaymentPage).not.toHaveBeenCalled();
+  });
+
+  test("fails without pricing_changed when accepted discounts cannot be affirmed", async () => {
+    const unavailable = new DiscountAffirmationUnavailableError({
+      message: "Calendar was unavailable.",
+      discountIds: [application.discount.id],
+    });
+    const harness = await createCheckoutHarness({
+      orderId: "reservation-discount-affirmation-unavailable",
+      acceptedQuote: buildCoworkReservationQuote(reservationData, {
+        discountQuote: discountedQuote,
+      }),
+      affirm: mock(() => Effect.fail(unavailable)),
+    });
+
+    const error = await Effect.runPromise(Effect.flip(harness.effect));
+
+    expect(error).toMatchObject({
+      _tag: "CheckoutError",
+      code: "checkout_failed",
+      cause: unavailable,
+    });
     expect(harness.updateReservationDetails).not.toHaveBeenCalled();
     expect(harness.updateReservation).not.toHaveBeenCalled();
     expect(harness.createPendingNexiAttempt).not.toHaveBeenCalled();
