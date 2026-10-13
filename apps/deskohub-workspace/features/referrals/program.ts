@@ -12,6 +12,9 @@ export const referrerDiscountBasisPointsPerInvitee = 500;
 /** How long after an invitee's paid visit ends it counts toward the referrer. */
 export const referralVisitWindowDays = 30;
 
+/** How long a browser remembers the referral code a shared link carried. */
+export const sharedReferralCodeRememberedDays = 30;
+
 /** Share of the price the account explanation uses as a milestone. */
 export const referralDiscountBenchmark = 0.2;
 

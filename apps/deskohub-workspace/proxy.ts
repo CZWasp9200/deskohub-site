@@ -15,6 +15,12 @@ import {
   localeCookieName,
   locales,
 } from "@/features/i18n/routing";
+import { referralCodeQueryParam } from "@/features/referrals/client";
+import {
+  parseSharedReferralCode,
+  referralCodeCookieName,
+  setReferralCodeCookie,
+} from "@/features/referrals/referral-code-cookie";
 import { env } from "./env";
 import { appendVercelPreviewProtectionBypass } from "./features/checkout/backend/checkout/vercel-preview-protection-bypass";
 import { reservationAccessTokenQueryParam } from "./features/reservation/reservation-access-token";
@@ -43,6 +49,32 @@ const hasReservationCapabilityToExchange = (request: NextRequest) =>
 
 const isPrivateAccountPath = (pathname: string) =>
   /\/account(\/|$)/.test(pathname) || /\/auth(\/|$)/.test(pathname);
+
+/**
+ * The referral code a shared link carries, when this browser has none yet:
+ * the first shared link wins. Only the code's shape is checked here.
+ */
+const findSharedReferralCodeToRemember = (request: NextRequest) =>
+  request.cookies.has(referralCodeCookieName)
+    ? undefined
+    : parseSharedReferralCode(
+        request.nextUrl.searchParams.get(referralCodeQueryParam)
+      );
+
+/** Lets the page rendered by this response already read the new code. */
+const withRememberedReferralCode = (
+  request: NextRequest,
+  code: string
+): Headers => {
+  const headers = new Headers(request.headers);
+  const cookie = headers.get("cookie");
+  const remembered = `${referralCodeCookieName}=${code}`;
+  headers.set("cookie", cookie ? `${cookie}; ${remembered}` : remembered);
+  return headers;
+};
+
+const isSecureRequest = (request: NextRequest) =>
+  request.nextUrl.protocol === "https:";
 
 export async function proxy(request: NextRequest) {
   if (isAdministrationPath(request.nextUrl.pathname)) {
@@ -102,7 +134,21 @@ export async function proxy(request: NextRequest) {
       return exchangeReservationCapability(request, localeFromUrl);
     }
 
-    const response = NextResponse.next();
+    const sharedReferralCode = findSharedReferralCodeToRemember(request);
+    const response = sharedReferralCode
+      ? NextResponse.next({
+          request: {
+            headers: withRememberedReferralCode(request, sharedReferralCode),
+          },
+        })
+      : NextResponse.next();
+    if (sharedReferralCode) {
+      setReferralCodeCookie(
+        response.cookies,
+        sharedReferralCode,
+        isSecureRequest(request)
+      );
+    }
     if (
       isPrivateReservationPath(request.nextUrl.pathname) ||
       isPrivateAccountPath(request.nextUrl.pathname)
@@ -127,6 +173,14 @@ export async function proxy(request: NextRequest) {
   );
 
   const response = NextResponse.redirect(redirectUrl);
+  const sharedReferralCode = findSharedReferralCodeToRemember(request);
+  if (sharedReferralCode) {
+    setReferralCodeCookie(
+      response.cookies,
+      sharedReferralCode,
+      isSecureRequest(request)
+    );
+  }
   response.headers.set("Vary", "Accept-Language");
   if (isPrivateReservationPath(request.nextUrl.pathname)) {
     markPrivateResponse(response);

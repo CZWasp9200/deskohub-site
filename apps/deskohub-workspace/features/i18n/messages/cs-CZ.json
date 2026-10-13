@@ -780,7 +780,7 @@
   "cookieConsentPreferencesUsageTitle": "Jak cookies používáme",
   "cookieConsentPreferencesUsageDescription": "Můžete si vybrat, které volitelné kategorie cookies povolíte. Nezbytné cookies zůstávají aktivní, protože bez nich web nefunguje správně.",
   "cookieConsentPreferencesNecessaryTitle": "Nezbytné cookies",
-  "cookieConsentPreferencesNecessaryDescription": "Tyto cookies podporují základní provoz webu, práci s jazykem, uložení vaší volby souhlasu a udržení vašeho přihlášení k zákaznickému účtu.",
+  "cookieConsentPreferencesNecessaryDescription": "Tyto cookies podporují základní provoz webu, práci s jazykem, uložení vaší volby souhlasu, udržení vašeho přihlášení k zákaznickému účtu a zapamatování doporučovacího kódu ze sdíleného odkazu, aby šlo uplatnit jeho slevu.",
   "cookieConsentPreferencesAnalyticsTitle": "Analytické cookies",
   "cookieConsentPreferencesAnalyticsDescription": "Tyto cookies nám pomáhají měřit používání webu, spolehlivost rezervačního formuláře a účinnost kampaní. Rezervační analytika neobsahuje hodnoty formuláře ani osobní údaje.",
   "cookieConsentPreferencesMarketingTitle": "Marketingové cookies",

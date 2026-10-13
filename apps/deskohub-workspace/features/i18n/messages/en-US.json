@@ -773,7 +773,7 @@
   "cookieConsentPreferencesUsageTitle": "How we use cookies",
   "cookieConsentPreferencesUsageDescription": "You can decide which optional cookie categories are allowed. Necessary cookies stay enabled because the site depends on them.",
   "cookieConsentPreferencesNecessaryTitle": "Necessary cookies",
-  "cookieConsentPreferencesNecessaryDescription": "These cookies support core website operation, language selection, storing your consent choice, and keeping you signed in to your customer account.",
+  "cookieConsentPreferencesNecessaryDescription": "These cookies support core website operation, language selection, storing your consent choice, keeping you signed in to your customer account, and remembering the referral code from a shared link so its discount can be applied.",
   "cookieConsentPreferencesAnalyticsTitle": "Analytics cookies",
   "cookieConsentPreferencesAnalyticsDescription": "These cookies help us measure site usage, reservation form reliability, and campaign effectiveness. Reservation analytics do not include form values or personal details.",
   "cookieConsentPreferencesMarketingTitle": "Marketing cookies",
