@@ -119,20 +119,3 @@ export const findWorkspaceProductTargetsIssue = (
   }
   return undefined;
 };
-
-/**
- * Single-tier cowork targets in `targets` that `existing` does not already
- * contain, such as the tier targets a discount update would introduce.
- */
-export const findAddedCoworkTierTargets = (
-  targets: readonly WorkspaceProductTarget[],
-  existing: readonly WorkspaceProductTarget[] = []
-): WorkspaceProductTarget[] => {
-  const existingKeys = new Set(existing.map(getWorkspaceProductTargetKey));
-  return targets.filter(
-    (target) =>
-      target.kind === "cowork" &&
-      target.tier !== undefined &&
-      !existingKeys.has(getWorkspaceProductTargetKey(target))
-  );
-};

@@ -23,7 +23,7 @@ The [reservation product specification](../../../../apps/deskohub-workspace/docs
 - A key encodes the complete identity, including the family. Never use a tier or duration alone as a key.
 - Build keys only through the family constructor or `getWorkspaceProductKey`. Never interpolate them in quote construction or rendering code. Checkout summary item keys add a `product:` prefix, for example `product:cowork:open-space`.
 - A discount or Calendar sale target names a reservation family (`{ kind }`) or, for cowork, one saleable tier (`open-space` or `reserved-desk`); a cowork target without a tier covers every cowork tier, including historical ones. Targets are stored as `product_target`.
-- Quotes, purchases, commitments, summaries, and discount applications carry the complete `product_identity`. Keep the tier in eligibility matching with `workspaceProductTargetMatches`; never reduce an identity to `{ kind }` before matching, or a `reserved-desk` target could match `open-space`. Creating tier targets is gated by `cowork_tier_discount_targets`; pricing stored targets is not.
+- Quotes, purchases, commitments, summaries, and discount applications carry the complete `product_identity`. Keep the tier in eligibility matching with `workspaceProductTargetMatches`; never reduce an identity to `{ kind }` before matching, or a `reserved-desk` target could match `open-space`.
 - An advertised-price batch carries the typed request as its only selection state. Derive tier, duration, or seats from the request's family details instead of returning a parallel wrapper that can drift.
 
 ## Persistence

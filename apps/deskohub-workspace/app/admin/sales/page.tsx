@@ -6,7 +6,6 @@ import {
   AdministrationTableToolbar,
 } from "@/features/administration/components";
 import {
-  AdministrationActionLoading,
   AdministrationCollectionLoading,
   AdministrationCountLoading,
 } from "@/features/administration/loading";
@@ -14,7 +13,6 @@ import {
   SalesAdministrationActions,
   SalesAdministrationCollection,
 } from "@/features/discounts/admin/components";
-import { CoworkTierTargetReleaseProvider } from "@/features/discounts/admin/cowork-tier-target-release";
 import {
   type DiscountAdminSearchParams,
   loadDiscountAdminSalesPageData,
@@ -34,13 +32,7 @@ export default function SalesAdminPage({
         <SalesNotice data={data} />
       </Suspense>
       <AdministrationTableToolbar
-        actions={
-          <Suspense
-            fallback={<AdministrationActionLoading label="sale action" />}
-          >
-            <SalesActions data={data} />
-          </Suspense>
-        }
+        actions={<SalesAdministrationActions />}
         count={
           <Suspense fallback={<AdministrationCountLoading label="sale" />}>
             <SalesCount data={data} />
@@ -63,16 +55,6 @@ async function SalesNotice({ data }: { readonly data: Promise<SalesData> }) {
   return <AdministrationNoticeBanner notice={(await data).notice} />;
 }
 
-async function SalesActions({ data }: { readonly data: Promise<SalesData> }) {
-  return (
-    <CoworkTierTargetReleaseProvider
-      released={(await data).coworkTierTargetsReleased}
-    >
-      <SalesAdministrationActions />
-    </CoworkTierTargetReleaseProvider>
-  );
-}
-
 async function SalesCount({ data }: { readonly data: Promise<SalesData> }) {
   return (
     <AdministrationTableCount
@@ -87,10 +69,5 @@ async function SalesCollection({
 }: {
   readonly data: Promise<SalesData>;
 }) {
-  const { coworkTierTargetsReleased, dashboard } = await data;
-  return (
-    <CoworkTierTargetReleaseProvider released={coworkTierTargetsReleased}>
-      <SalesAdministrationCollection dashboard={dashboard} />
-    </CoworkTierTargetReleaseProvider>
-  );
+  return <SalesAdministrationCollection dashboard={(await data).dashboard} />;
 }

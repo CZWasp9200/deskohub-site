@@ -1221,35 +1221,6 @@ describe("dhw mutation commands", () => {
     ]);
   });
 
-  test("reports the server rejection of an unreleased cowork tier target", async () => {
-    const message =
-      "Adding single cowork tier targets is not enabled yet. Choose All cowork tiers instead.";
-    const { layer, mutations } = makeCommandLayer({
-      discountMutationRejection: new CliMutationRejected({ message }),
-    });
-
-    const error = await runCommand(
-      [
-        "discounts",
-        "create",
-        "percentage",
-        "--label-en",
-        "Desks",
-        "--label-cs",
-        "Stoly",
-        "--percentage",
-        "10",
-        "--product",
-        "cowork:reserved-desk",
-      ],
-      layer
-    ).pipe(Effect.flip, Effect.runPromise);
-
-    expect(error).toBeInstanceOf(CliMutationRejected);
-    expect(error).toMatchObject({ message });
-    expect(mutations).toHaveLength(1);
-  });
-
   test("rejects every cowork tier combined with a single tier before making a request", async () => {
     const { layer, mutations } = makeCommandLayer();
 
@@ -1462,7 +1433,6 @@ const makeCommandLayer = ({
   createInvoice = () => Effect.die("not used"),
   createStandaloneAccessCode = () => Effect.die("not used"),
   getDiscountDashboard = () => Effect.die("not used"),
-  discountMutationRejection,
   authenticatedSession = session,
   listSessions = () => Effect.succeed([]),
   revokeSession = () => Effect.succeed({ changed: false }),
@@ -1473,7 +1443,6 @@ const makeCommandLayer = ({
   readonly createInvoice?: WorkspaceAdminApiClient["Service"]["createInvoice"];
   readonly createStandaloneAccessCode?: WorkspaceAdminApiClient["Service"]["createStandaloneAccessCode"];
   readonly getDiscountDashboard?: WorkspaceAdminApiClient["Service"]["getDiscountDashboard"];
-  readonly discountMutationRejection?: CliMutationRejected;
   readonly authenticatedSession?: CliSessionType;
   readonly listSessions?: WorkspaceAdminApiClient["Service"]["listSessions"];
   readonly revokeSession?: WorkspaceAdminApiClient["Service"]["revokeSession"];
@@ -1518,24 +1487,22 @@ const makeCommandLayer = ({
       } as never),
     listSessions,
     mutateDiscounts: (_accessToken, _requestId, mutation) =>
-      Effect.suspend(() => {
+      Effect.sync(() => {
         mutations.push(mutation);
-        return discountMutationRejection
-          ? Effect.fail(discountMutationRejection)
-          : Effect.succeed({
-              kind: mutation.kind,
-              createdDiscountId: null,
-              createdCodeId:
-                mutation.kind === "create-code" ||
-                mutation.kind === "create-customer-code"
-                  ? codeId
-                  : null,
-              createdVoucherId:
-                mutation.kind === "create-voucher" ||
-                mutation.kind === "create-customer-voucher"
-                  ? voucherId
-                  : null,
-            });
+        return {
+          kind: mutation.kind,
+          createdDiscountId: null,
+          createdCodeId:
+            mutation.kind === "create-code" ||
+            mutation.kind === "create-customer-code"
+              ? codeId
+              : null,
+          createdVoucherId:
+            mutation.kind === "create-voucher" ||
+            mutation.kind === "create-customer-voucher"
+              ? voucherId
+              : null,
+        };
       }),
     mutateReservationAccess: (
       _accessToken,

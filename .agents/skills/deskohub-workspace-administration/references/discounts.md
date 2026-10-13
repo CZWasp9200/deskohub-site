@@ -17,11 +17,6 @@ The [discount specification](../../../../apps/deskohub-workspace/docs/discount-c
 ## Cowork tier targets
 
 - A cowork target without a tier covers every cowork tier. The shared contract and stored-definition decoding both reject duplicate targets and any mix of the whole-cowork target with tier targets.
-- The `cowork_tier_discount_targets` PostHog flag gates adding a tier target, because a deployment that predates tier targets treats the whole definition as malformed during an overlapping release. `DiscountAdministration` enforces it for the Admin UI, the API, and `dhw`.
-- Creating a discount, or a code with a new discount, that carries a tier target fails with `DiscountAdminUnreleasedTierTargetError` (API: `CliMutationRejected`). An update fails only when it adds a tier target the stored definition lacks, so stored tier targets can always be kept or removed.
-- `CoworkTierTargetReleaseGate` opens only when the raw flag value is exactly `true`. A multivariate value, a missing flag, or unavailable PostHog keeps it shut. The flag was created inactive as a boolean without payload; keep it boolean.
-- Admin pages pass the evaluated gate to the target editor through `CoworkTierTargetReleaseProvider`, which defaults to unreleased. Decoding, Calendar discovery, pricing, and checkout never read the gate.
-- Turn the flag on only once every serving deployment understands tier targets. Turn it off before promoting or rolling back to one that doesn't. Constant flag values are cached for up to five minutes.
 
 ## Evidence
 

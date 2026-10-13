@@ -29,7 +29,6 @@ import type {
   VoucherId,
 } from "@/features/discounts/persistence-contracts";
 import {
-  findAddedCoworkTierTargets,
   getWorkspaceProductTargetKey,
   type WorkspaceProductTarget,
 } from "@/features/discounts/product-target";
@@ -52,14 +51,12 @@ import {
   workspaceCurrencyDefinitions,
 } from "@/shared/money/currencies";
 import {
-  cn,
   temporalInstantToLocalDateTimeString,
   workspaceSiteConstants,
 } from "@/shared/utils";
 import { useWorkspaceAction } from "@/shared/utils/use-workspace-action";
 import { mutateDiscountAdmin } from "./actions";
 import type { DiscountAdminMutation } from "./contracts";
-import { useCoworkTierTargetRelease } from "./cowork-tier-target-release";
 import type { AdminCalendarSale } from "./discount-administration.service";
 import { getDiscountAdminValidationMessage } from "./form-feedback";
 import {
@@ -80,7 +77,6 @@ import {
 import {
   discountProductTargetOptions,
   formatDiscountProductTargets,
-  unreleasedCoworkTierTargetMessage,
 } from "./product-target-options";
 
 export type DiscountTableItem = {
@@ -993,16 +989,6 @@ export function DiscountDefinitionFields({
 }) {
   const { control } = useFormContext<DiscountDefinitionFormValues>();
   const kind = useWatch({ control, name: "adjustmentKind" });
-  const tierTargetsReleased = useCoworkTierTargetRelease();
-  // Before the release, only tier targets the discount already stores stay
-  // selectable, so they can be kept or removed but never added.
-  const productTargetOptions = discountProductTargetOptions.map((option) => ({
-    ...option,
-    unreleased:
-      !tierTargetsReleased &&
-      findAddedCoworkTierTargets([option.target], discount?.products).length >
-        0,
-  }));
   const existingFixedCurrency =
     discount?.adjustment.kind === "fixed"
       ? discount.adjustment.amount.currency
@@ -1187,25 +1173,14 @@ export function DiscountDefinitionFields({
                 Eligible products
               </legend>
               <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                {productTargetOptions.map((option) => (
+                {discountProductTargetOptions.map((option) => (
                   <label
-                    className={cn(
-                      "flex items-center gap-3 rounded-xl bg-navy-blue/[0.045] px-4 py-3 text-sm font-medium",
-                      option.unreleased
-                        ? "cursor-not-allowed text-navy-blue/50"
-                        : "cursor-pointer hover:bg-navy-blue/[0.075]"
-                    )}
+                    className="flex cursor-pointer items-center gap-3 rounded-xl bg-navy-blue/[0.045] px-4 py-3 text-sm font-medium hover:bg-navy-blue/[0.075]"
                     key={option.key}
                   >
                     <input
-                      aria-describedby={
-                        option.unreleased
-                          ? fieldId("unreleasedTierTargets", discount?.id)
-                          : undefined
-                      }
                       checked={field.value.includes(option.key)}
                       className="size-4 accent-[var(--brand-burned-orange)]"
-                      disabled={option.unreleased}
                       name={field.name}
                       onBlur={field.onBlur}
                       onChange={(event) =>
@@ -1222,14 +1197,6 @@ export function DiscountDefinitionFields({
                   </label>
                 ))}
               </div>
-              {productTargetOptions.some(({ unreleased }) => unreleased) && (
-                <p
-                  className="mt-3 text-xs leading-5 text-navy-blue/70"
-                  id={fieldId("unreleasedTierTargets", discount?.id)}
-                >
-                  {unreleasedCoworkTierTargetMessage}
-                </p>
-              )}
             </fieldset>
             <FormMessage />
           </FormItem>

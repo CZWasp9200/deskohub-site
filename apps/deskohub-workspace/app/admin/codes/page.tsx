@@ -14,7 +14,6 @@ import {
   CodesAdministrationActions,
   CodesAdministrationCollection,
 } from "@/features/discounts/admin/components";
-import { CoworkTierTargetReleaseProvider } from "@/features/discounts/admin/cowork-tier-target-release";
 import {
   type DiscountAdminSearchParams,
   loadDiscountAdminCodesPageData,
@@ -68,12 +67,7 @@ async function CodesNotice({ data }: { readonly data: Promise<CodesData> }) {
 }
 
 async function CodesActions({ data }: { readonly data: Promise<CodesData> }) {
-  const { coworkTierTargetsReleased, dashboard } = await data;
-  return (
-    <CoworkTierTargetReleaseProvider released={coworkTierTargetsReleased}>
-      <CodesAdministrationActions dashboard={dashboard} />
-    </CoworkTierTargetReleaseProvider>
-  );
+  return <CodesAdministrationActions dashboard={(await data).dashboard} />;
 }
 
 async function CodesCount({ data }: { readonly data: Promise<CodesData> }) {
@@ -90,10 +84,5 @@ async function CodesCollection({
 }: {
   readonly data: Promise<CodesData>;
 }) {
-  const { coworkTierTargetsReleased, dashboard } = await data;
-  return (
-    <CoworkTierTargetReleaseProvider released={coworkTierTargetsReleased}>
-      <CodesAdministrationCollection dashboard={dashboard} />
-    </CoworkTierTargetReleaseProvider>
-  );
+  return <CodesAdministrationCollection dashboard={(await data).dashboard} />;
 }

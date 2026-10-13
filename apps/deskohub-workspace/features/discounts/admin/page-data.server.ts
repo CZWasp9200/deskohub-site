@@ -7,7 +7,6 @@ import type { DotyposCustomerId } from "@/features/reservation/dotypos-customer"
 import { authorizeAdministratorPage } from "@/shared/administrator/administrator-authorization.server";
 import { runWorkspaceEffect } from "@/shared/backend/workspace-effect";
 import type { DiscountCodeId, VoucherId } from "../persistence-contracts";
-import { CoworkTierTargetReleaseGate } from "./cowork-tier-target-release-gate.service";
 import { DiscountAdministration } from "./discount-administration.service";
 
 export type DiscountAdminSearchParams = Promise<{
@@ -50,13 +49,11 @@ export const loadDiscountAdminCodesPageData = async (
       boundary: "route",
     })
   );
-  const [resolvedDashboard, notice, coworkTierTargetsReleased] =
-    await Promise.all([
-      dashboard,
-      loadNotice(searchParams),
-      loadCoworkTierTargetRelease(),
-    ]);
-  return { dashboard: resolvedDashboard, notice, coworkTierTargetsReleased };
+  const [resolvedDashboard, notice] = await Promise.all([
+    dashboard,
+    loadNotice(searchParams),
+  ]);
+  return { dashboard: resolvedDashboard, notice };
 };
 
 export const loadDiscountAdminSalesPageData = async (
@@ -72,13 +69,11 @@ export const loadDiscountAdminSalesPageData = async (
       boundary: "route",
     })
   );
-  const [resolvedDashboard, notice, coworkTierTargetsReleased] =
-    await Promise.all([
-      dashboard,
-      loadNotice(searchParams),
-      loadCoworkTierTargetRelease(),
-    ]);
-  return { dashboard: resolvedDashboard, notice, coworkTierTargetsReleased };
+  const [resolvedDashboard, notice] = await Promise.all([
+    dashboard,
+    loadNotice(searchParams),
+  ]);
+  return { dashboard: resolvedDashboard, notice };
 };
 
 export const loadDiscountAdminVouchersPageData = async (
@@ -192,22 +187,18 @@ export const loadDiscountAdminCustomerCodeCreationPageData = async (
 ) => {
   await authorizeAdministratorPage();
 
-  const [data, coworkTierTargetsReleased] = await Promise.all([
-    Effect.gen(function* () {
-      const administration = yield* DiscountAdministration;
-      return yield* administration.loadCustomerCodeCreation({ customerId });
-    }).pipe(
-      Effect.catchTag("DiscountAdminNotFoundError", () => Effect.succeed(null)),
-      Effect.provide(DiscountAdministration.Live),
-      runWorkspaceEffect(
-        "discount-administration.load-customer-code-creation",
-        { boundary: "route" }
-      )
-    ),
-    loadCoworkTierTargetRelease(),
-  ]);
+  const data = await Effect.gen(function* () {
+    const administration = yield* DiscountAdministration;
+    return yield* administration.loadCustomerCodeCreation({ customerId });
+  }).pipe(
+    Effect.catchTag("DiscountAdminNotFoundError", () => Effect.succeed(null)),
+    Effect.provide(DiscountAdministration.Live),
+    runWorkspaceEffect("discount-administration.load-customer-code-creation", {
+      boundary: "route",
+    })
+  );
   if (!data) notFound();
-  return { ...data, coworkTierTargetsReleased };
+  return data;
 };
 
 export const loadDiscountAdminCustomerVoucherCreationPageData = async (
@@ -294,24 +285,6 @@ export const loadDiscountAdminCustomerBreadcrumbLabel = async (
     })
   );
 };
-
-// One evaluation per render, shared by every target editor on the page.
-const loadCoworkTierTargetRelease = cache(
-  Effect.fn(
-    function* () {
-      const gate = yield* CoworkTierTargetReleaseGate;
-      return yield* gate.isReleased;
-    },
-    (effect) =>
-      effect.pipe(
-        Effect.provide(CoworkTierTargetReleaseGate.Live),
-        runWorkspaceEffect(
-          "discount-administration.cowork-tier-target-release",
-          { boundary: "route" }
-        )
-      )
-  )
-);
 
 const loadNotice = async (searchParams: DiscountAdminSearchParams) => {
   const params = await searchParams;

@@ -48,7 +48,3 @@ export const toDiscountProductTargets = (
 export const formatDiscountProductTargets = (
   targets: readonly WorkspaceProductTarget[]
 ) => targets.map(getDiscountProductTargetLabel).join(", ");
-
-/** Why a single-tier cowork target cannot be added before its release. */
-export const unreleasedCoworkTierTargetMessage =
-  "Adding single cowork tier targets is not enabled yet. Choose All cowork tiers instead.";

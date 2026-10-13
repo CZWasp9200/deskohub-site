@@ -38,7 +38,7 @@ Rules:
 
 ## Discount targets
 
-`--product cowork` targets every cowork tier. `cowork:open-space` and `cowork:reserved-desk` target one tier and can't be combined with `cowork`. While the `cowork_tier_discount_targets` release flag is off, the server rejects adding a tier target with `CliMutationRejected`; see [discounts.md](discounts.md#cowork-tier-targets).
+`--product cowork` targets every cowork tier. `cowork:open-space` and `cowork:reserved-desk` target one tier and can't be combined with `cowork`. See [discounts.md](discounts.md#cowork-tier-targets).
 
 ## Standalone access codes
 
