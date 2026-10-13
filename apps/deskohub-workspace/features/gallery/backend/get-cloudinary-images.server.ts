@@ -66,21 +66,22 @@ export async function getCloudinaryImages({
 
   // A Cloudinary outage or a rejected tag list request must not fail the
   // page: under Cache Components a throwing "use cache" function fails the
-  // prerender even when the caller catches it. The failure is logged by the
-  // runner; serve no photos and refresh soon. The expiry stays at the
+  // prerender even when the caller catches it. `getGalleryImages` logs a
+  // failed lookup; serve no photos and refresh soon. The expiry stays at the
   // 5-minute prerender threshold so callers without a Suspense boundary
   // remain part of the static shell instead of becoming dynamic holes.
   return getGalleryImages(expression, {
     maxResults,
     sortBy,
     sortDirection,
-  })
-    .pipe(
-      Effect.provide(WorkspaceCloudinaryLayer),
-      runWorkspaceEffect("gallery.images.load")
-    )
-    .catch((): readonly CloudinaryAsset[] => {
-      cacheLife(cloudinaryFailureCacheLife);
-      return [];
-    });
+  }).pipe(
+    Effect.provide(WorkspaceCloudinaryLayer),
+    Effect.catchCause(() =>
+      Effect.sync((): readonly CloudinaryAsset[] => {
+        cacheLife(cloudinaryFailureCacheLife);
+        return [];
+      })
+    ),
+    runWorkspaceEffect("gallery.images.load")
+  );
 }

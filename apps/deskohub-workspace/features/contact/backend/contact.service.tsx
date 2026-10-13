@@ -1,5 +1,6 @@
 import {
   EmailConfigTag,
+  type EmailSendError,
   EmailServiceTag,
 } from "@deskohub/email/backend/service";
 import type { EmailMessage } from "@deskohub/email/types/email.types";
@@ -80,7 +81,7 @@ const createContactEmailDetails = (
   },
 ];
 
-const toContactStorageError = (locale: Locale, cause: unknown) =>
+const toContactStorageError = (locale: Locale) => (cause: EmailSendError) =>
   new StorageError({
     message: m.contactEmailSendError({}, { locale }),
     operation: "workspace.contact.submit",
@@ -135,9 +136,7 @@ export class ContactService extends Context.Service<
                 )}
                 preview={businessSubject}
               />
-            ).pipe(
-              Effect.mapError((cause) => toContactStorageError(locale, cause))
-            );
+            ).pipe(Effect.mapError(toContactStorageError(locale)));
             const businessEmailMessage: EmailMessage = {
               from: emailConfig.defaultFrom,
               to: internalWorkspaceEmailRecipientFor(data.email),
@@ -172,7 +171,7 @@ export class ContactService extends Context.Service<
                   }
                 )
               ),
-              Effect.mapError((cause) => toContactStorageError(locale, cause))
+              Effect.mapError(toContactStorageError(locale))
             );
             yield* Effect.logInfo(
               "Workspace contact business email send succeeded"

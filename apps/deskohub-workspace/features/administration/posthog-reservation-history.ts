@@ -2,7 +2,7 @@ import {
   PostHogEventId,
   type PostHogProjectId,
 } from "@deskohub/posthog/identifiers";
-import { Context, Effect, Layer, Schema } from "effect";
+import { Context, Effect, Layer, Option, Schema } from "effect";
 import {
   FetchHttpClient,
   HttpClient,
@@ -11,6 +11,7 @@ import {
 } from "effect/unstable/http";
 import { env } from "@/env";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
+import { parseInstant } from "@/shared/utils/temporal";
 import type { AdministrationTimelineItem } from "./administration.service";
 
 const lifecycleEvents = [
@@ -128,13 +129,12 @@ WHERE distinct_id = {reservationId}
 ORDER BY timestamp ASC, uuid ASC
 LIMIT 100`;
 
-const normalizePostHogTimestamp = (value: string) => {
-  try {
-    return Temporal.Instant.from(value).toString();
-  } catch {
-    return Temporal.Instant.from(`${value}Z`).toString();
-  }
-};
+/** PostHog may return a timestamp without an offset; it is in UTC. */
+const normalizePostHogTimestamp = (value: string) =>
+  parseInstant(value).pipe(
+    Option.orElse(() => parseInstant(`${value}Z`)),
+    Option.map((instant) => instant.toString())
+  );
 
 export class PostHogReservationHistory extends Context.Service<
   PostHogReservationHistory,
@@ -186,21 +186,16 @@ export class PostHogReservationHistory extends Context.Service<
             ),
             Effect.map(({ results }) => ({
               kind: "available" as const,
-              items: results.flatMap(([event, occurredAt, uuid]) => {
-                try {
-                  const normalizedTime = normalizePostHogTimestamp(occurredAt);
-                  const presentation = eventPresentation[event];
-                  return [
-                    {
-                      id: `posthog-${uuid}`,
-                      ...presentation,
-                      occurredAt: normalizedTime,
-                    },
-                  ];
-                } catch {
-                  return [];
-                }
-              }),
+              items: results.flatMap(([event, occurredAt, uuid]) =>
+                normalizePostHogTimestamp(occurredAt).pipe(
+                  Option.map((normalizedTime) => ({
+                    id: `posthog-${uuid}`,
+                    ...eventPresentation[event],
+                    occurredAt: normalizedTime,
+                  })),
+                  Option.toArray
+                )
+              ),
             })),
             Effect.timeout("5 seconds"),
             Effect.catch((cause) =>

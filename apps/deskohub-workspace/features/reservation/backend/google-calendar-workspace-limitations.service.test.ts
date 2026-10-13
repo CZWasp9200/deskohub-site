@@ -190,6 +190,34 @@ describe("GoogleCalendarWorkspaceLimitationsService", () => {
     ]);
   });
 
+  test("reads offset-less event times in the event time zone", async () => {
+    const limitations = await runWithEvents(
+      [
+        {
+          id: "offset-less-midnight-event",
+          status: "confirmed",
+          description: "[workspace:full]",
+          start: {
+            dateTime: "2026-06-10T12:00:00",
+            timeZone: "Europe/Prague",
+          },
+          end: {
+            dateTime: "2026-06-11T00:00:00",
+            timeZone: "Europe/Prague",
+          },
+        },
+      ],
+      { from: "2026-06-10", to: "2026-06-11" }
+    );
+
+    expect(limitations).toEqual([
+      WorkspaceCalendarLimitation.FullyOccupied({
+        date: "2026-06-10",
+        sourceEventId: "offset-less-midnight-event",
+      }),
+    ]);
+  });
+
   test("treats midnight in Prague as end-exclusive", async () => {
     const limitations = await runWithEvents(
       [

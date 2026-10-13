@@ -6,11 +6,11 @@ import {
   type GoogleCalendarICalUid,
   GoogleCalendarService,
 } from "@deskohub/google-calendar";
-import { Context, Data, Effect, Layer } from "effect";
+import { Context, Data, Effect, Layer, Option } from "effect";
 import { CalendarResourceConfig } from "@/shared/backend/config/calendar-resource.config";
 import { WorkspaceGoogleCalendarLayer } from "@/shared/backend/config/google-calendar.config";
 import { workspaceSiteConstants } from "@/shared/utils/site-constants";
-import { isMidnight } from "@/shared/utils/temporal";
+import { isMidnight, parseInstant } from "@/shared/utils/temporal";
 
 const fullMarker = "[workspace:full]";
 const partialMarker = "[workspace:partial]";
@@ -201,17 +201,17 @@ const getExclusiveMidnightEndDate = (event: GoogleCalendarEvent) => {
   return end.toPlainDate().subtract({ days: 1 }).toString();
 };
 
-const toWorkspaceZonedDateTime = (dateTime: string, timeZone?: string) => {
-  try {
-    return Temporal.Instant.from(dateTime).toZonedDateTimeISO(
-      workspaceSiteConstants.location.timeZone
-    );
-  } catch {
-    return Temporal.PlainDateTime.from(dateTime)
-      .toZonedDateTime(timeZone ?? workspaceSiteConstants.location.timeZone)
-      .withTimeZone(workspaceSiteConstants.location.timeZone);
-  }
-};
+const toWorkspaceZonedDateTime = (dateTime: string, timeZone?: string) =>
+  parseInstant(dateTime).pipe(
+    Option.map((instant) =>
+      instant.toZonedDateTimeISO(workspaceSiteConstants.location.timeZone)
+    ),
+    Option.getOrElse(() =>
+      Temporal.PlainDateTime.from(dateTime)
+        .toZonedDateTime(timeZone ?? workspaceSiteConstants.location.timeZone)
+        .withTimeZone(workspaceSiteConstants.location.timeZone)
+    )
+  );
 
 const getDateRange = (from: string, to: string) => {
   const dates: string[] = [];

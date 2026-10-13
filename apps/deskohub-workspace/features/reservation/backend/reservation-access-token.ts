@@ -131,10 +131,8 @@ export const openReservationAccessToken = Effect.fn(
         onExcessProperty: "error",
       })
     ),
-    Effect.mapError((cause) =>
-      cause instanceof ReservationAccessTokenError
-        ? cause
-        : invalidToken("Reservation access token is invalid.", cause)
+    Effect.catchTag("SchemaError", (cause) =>
+      Effect.fail(invalidToken("Reservation access token is invalid.", cause))
     )
   );
   const secret = yield* getReservationAccessTokenSecret(options);
