@@ -1259,13 +1259,16 @@ export class AdministrationService extends Context.Service<
       id: DotyposReservationId
     ) => Effect.Effect<
       AdministrationBookingDetail | null,
-      EffectDrizzleQueryError
+      | EffectDrizzleQueryError
+      | ExternalAPIError
+      | NetworkError
+      | ValidationError
     >;
     readonly loadBookingBreadcrumb: (
       id: DotyposReservationId
     ) => Effect.Effect<
       { readonly startsAt: string; readonly tableName: string | null } | null,
-      EffectDrizzleQueryError
+      ExternalAPIError | NetworkError | ValidationError
     >;
     readonly listCustomers: (
       input: AdministrationCustomerListInput
@@ -2303,19 +2306,21 @@ export class AdministrationService extends Context.Service<
         return row ? getReservationTypeLabel(row) : null;
       });
 
+      /** The Dotypos booking, or null when Dotypos no longer has it. */
+      const findBookingDetails = (id: DotyposReservationId) =>
+        dotypos.getReservation(id).pipe(
+          Effect.catchIf(
+            (error) =>
+              error._tag === "ExternalAPIError" && error.statusCode === 404,
+            () => Effect.succeed(null)
+          )
+        );
+
       const loadBooking = Effect.fn("AdministrationService.loadBooking")(
         function* (id: DotyposReservationId) {
           const { details, rows, tables } = yield* Effect.all(
             {
-              details: dotypos
-                .getReservation(id)
-                .pipe(
-                  Effect.catchTag("ExternalAPIError", (error) =>
-                    error.statusCode === 404
-                      ? Effect.succeed(null)
-                      : Effect.fail(error)
-                  )
-                ),
+              details: findBookingDetails(id),
               rows: db
                 .select(safeReservationSelection)
                 .from(workspaceReservations)
@@ -2361,15 +2366,7 @@ export class AdministrationService extends Context.Service<
       )(function* (id: DotyposReservationId) {
         const { details, tables } = yield* Effect.all(
           {
-            details: dotypos
-              .getReservation(id)
-              .pipe(
-                Effect.catchTag("ExternalAPIError", (error) =>
-                  error.statusCode === 404
-                    ? Effect.succeed(null)
-                    : Effect.fail(error)
-                )
-              ),
+            details: findBookingDetails(id),
             tables: loadBookingTables(),
           },
           { concurrency: 2 }
