@@ -76,6 +76,7 @@ import {
 } from "@/features/office/backend/office-reservation-feature-flag.service";
 import { ReferralService } from "@/features/referrals";
 import type { ReferralCode } from "@/features/referrals/client";
+import { ReferralFeatureFlagRequest } from "@/features/referrals/referral-feature-flag.server";
 import {
   forgetRememberedReferralCode,
   readRememberedReferralCode,
@@ -1428,7 +1429,11 @@ const preparePayStateAction = defineWorkspaceAction(
     schema: preparePayStateSchema,
   },
   (input) =>
-    prepareWorkspacePayState(input).pipe(Effect.provide(PreparePayStateLive))
+    prepareWorkspacePayState(input).pipe(
+      Effect.provide(
+        PreparePayStateLive.pipe(Layer.provideMerge(ReferralFeatureFlagRequest))
+      )
+    )
 );
 
 export const preparePayState: typeof preparePayStateAction = async (

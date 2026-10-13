@@ -1154,8 +1154,10 @@ export class ReferralService extends Context.Service<
         )
       );
 
-      // While the program is withheld, no code is a referral code, nothing
-      // prices or attributes a referral, and recorded referrals are not read.
+      // While the program is withheld, no code is a referral code and nothing
+      // prices a referral. Reads and writes that could otherwise conclude
+      // something about a code or customer fail as `disabled` instead, so no
+      // caller mistakes a withheld program for an unusable code.
       const whenReleased =
         <Input, A, E, R>(
           operation: (input: Input) => Effect.Effect<A, E, R>,
@@ -1167,24 +1169,19 @@ export class ReferralService extends Context.Service<
               released ? operation(input) : withheld
             )
           );
+      const disabled = Effect.fail(fail("disabled"));
 
       return {
-        getAccountSummary: whenReleased(
-          getAccountSummary,
-          Effect.fail(fail("unavailable"))
-        ),
-        acceptReferral: whenReleased(
-          acceptReferral,
-          Effect.fail(fail("unavailable"))
-        ),
+        getAccountSummary: whenReleased(getAccountSummary, disabled),
+        acceptReferral: whenReleased(acceptReferral, disabled),
         lookupCodeKind: whenReleased(
           lookupCodeKind,
           Effect.succeed({ kind: "other" } as const)
         ),
-        findAvailableCode: whenReleased(findAvailableCode, Effect.undefined),
+        findAvailableCode: whenReleased(findAvailableCode, disabled),
         evaluateCheckoutReferral: whenReleased(
           evaluateCheckoutReferral,
-          Effect.fail(fail("unavailable"))
+          disabled
         ),
         hasSettledReferral: whenReleased(
           hasSettledReferral,
@@ -1205,7 +1202,6 @@ export class ReferralService extends Context.Service<
   static Live = this.Default.pipe(
     Layer.provide(
       Layer.mergeAll(
-        ReferralFeatureFlagService.Live,
         WorkspaceDatabase.Default,
         WorkspaceDatabaseAdvisoryLock.Default,
         WorkspaceDotyposLayer,

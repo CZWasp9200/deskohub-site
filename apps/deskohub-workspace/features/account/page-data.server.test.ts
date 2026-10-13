@@ -4,6 +4,7 @@ import "@/shared/testing/workspace-test-env";
 import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { Context, Effect, Layer, Predicate } from "effect";
 import type { CustomerAccountId } from "@/features/account/customer-account";
+import { ReferralFeatureFlagService } from "@/features/referrals/referral-feature-flag.service";
 
 const customerEmail = testEmailAddress("ada");
 
@@ -340,6 +341,11 @@ mock.module("@/features/account/server/account-feature-flag.server", () => ({
 const areReferralsEnabled = mock(() => Promise.resolve(true));
 mock.module("@/features/referrals/referral-feature-flag.server", () => ({
   areReferralsEnabled,
+  ReferralFeatureFlagRequest: Layer.unwrap(
+    Effect.promise(areReferralsEnabled).pipe(
+      Effect.map(ReferralFeatureFlagService.fromDecision)
+    )
+  ),
 }));
 const runtimeRuns: { operation: string; boundary: string }[] = [];
 mock.module("@/shared/backend/workspace-effect", () => ({
@@ -1005,8 +1011,7 @@ describe("loadCustomerAccountPage", () => {
       expectNoReferralWork();
     });
 
-    test("fails closed when the referral flag cannot be read", async () => {
-      areReferralsEnabled.mockRejectedValue(new Error("flag service down"));
+    test("decides the referral program once for the whole load", async () => {
       resolveEffect = resolverOutcome({
         kind: "success",
         customerId: "60111",
@@ -1015,9 +1020,11 @@ describe("loadCustomerAccountPage", () => {
 
       await expect(loadPageState("RFL12345")).resolves.toMatchObject({
         kind: "linked",
-        referralsEnabled: false,
+        referralsEnabled: true,
       });
-      expectNoReferralWork();
+      // The page gate and every referral service of this load share one
+      // decision, so none of them can see the program differently.
+      expect(areReferralsEnabled).toHaveBeenCalledTimes(1);
     });
   });
 });

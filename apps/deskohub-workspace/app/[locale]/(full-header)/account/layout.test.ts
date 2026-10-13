@@ -2,6 +2,7 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
 import { Context, Effect, Layer } from "effect";
 import { createElement, type ReactElement, type ReactNode } from "react";
+import { ReferralFeatureFlagService } from "@/features/referrals/referral-feature-flag.service";
 
 const adaEmail = testEmailAddress("ada");
 
@@ -62,6 +63,11 @@ mock.module("@/features/account/server/account-feature-flag.server", () => ({
 }));
 mock.module("@/features/referrals/referral-feature-flag.server", () => ({
   areReferralsEnabled,
+  ReferralFeatureFlagRequest: Layer.unwrap(
+    Effect.promise(areReferralsEnabled).pipe(
+      Effect.map(ReferralFeatureFlagService.fromDecision)
+    )
+  ),
 }));
 mock.module(
   "@/features/account/backend/customer-authentication.service",

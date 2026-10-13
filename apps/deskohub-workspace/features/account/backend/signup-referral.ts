@@ -36,14 +36,23 @@ export const prepareSignupReferral = Effect.fn("account.prepareSignupReferral")(
 
     const referrals = yield* ReferralService;
     const intents = yield* ReferralSignupIntentRepository;
-    const target = yield* referrals
+    const lookup = yield* referrals
       .findAvailableCode({ code: input.code })
       .pipe(
         Effect.flatMap((code) =>
           code === undefined ? Effect.undefined : intents.findCodeTarget(code)
         ),
-        Effect.orElseSucceed(() => undefined)
+        Effect.result
       );
+    // A withheld program ignores the code rather than reporting it unusable.
+    if (
+      Result.isFailure(lookup) &&
+      lookup.failure._tag === "ReferralError" &&
+      lookup.failure.reason === "disabled"
+    ) {
+      return { kind: "none" } as const;
+    }
+    const target = Result.getOrUndefined(lookup);
     if (target) return { kind: "intent", intent: target } as const;
 
     const fromSharedLink =
@@ -74,8 +83,11 @@ const classifyRejection = (
     // A pending payment may still become the first paid booking, either
     // closing the window or recording that checkout's own referral; the
     // retry after it settles reports whichever happened.
-    Match.when(Match.is("pending_payment", "account_unavailable"), () =>
-      Effect.succeed(pending)
+    // A withheld program, or a flag that could not be read, says nothing
+    // about the code: the intent waits for the program.
+    Match.when(
+      Match.is("pending_payment", "account_unavailable", "disabled"),
+      () => Effect.succeed(pending)
     ),
     // Acceptance reports both an unusable code and a failed database or
     // Dotypos read as `unavailable`. Only a read that succeeds and finds the

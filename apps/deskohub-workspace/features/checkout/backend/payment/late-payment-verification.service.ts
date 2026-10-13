@@ -5,7 +5,6 @@ import {
 } from "@deskohub/nexi";
 import { Context, type Duration, Effect, Layer, Schema } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
-import { ReferralFeatureFlagService } from "@/features/referrals/referral-feature-flag.service";
 import { WorkspaceReservationRepository } from "@/features/reservation/backend/workspace-reservation.repository";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import { WorkspaceNexiLayer } from "@/shared/backend/config/nexi.config";
@@ -175,7 +174,6 @@ export class LatePaymentVerificationService extends Context.Service<
         WorkspaceNexiLayer
       )
     ),
-    Layer.provide(WorkspaceDatabase.Default),
-    Layer.provide(ReferralFeatureFlagService.Live)
+    Layer.provide(WorkspaceDatabase.Default)
   );
 }

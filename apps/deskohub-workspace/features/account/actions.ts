@@ -39,6 +39,7 @@ import type { Locale } from "@/features/i18n";
 import { locales, m } from "@/features/i18n";
 import { localeCookieName } from "@/features/i18n/routing";
 import { ReferralService } from "@/features/referrals";
+import { ReferralFeatureFlagRequest } from "@/features/referrals/referral-feature-flag.server";
 import { ReferralFeatureFlagService } from "@/features/referrals/referral-feature-flag.service";
 import {
   forgetRememberedReferralCode,
@@ -116,7 +117,6 @@ const saveCustomerProfile = Effect.fn(
           CustomerAuthentication.Default,
           CustomerAccountResolver.Live,
           CustomerProfileService.Live,
-          ReferralFeatureFlagService.Live,
           ReferralService.Live,
           ReferralSignupIntentRepository.Live
         )
@@ -142,9 +142,7 @@ const forgetUsedRememberedReferralCode = (account: LinkedCustomerAccount) =>
       Effect.flatMap(ReferralFeatureFlagService, (flag) => flag.isEnabled)
     ),
     Effect.asVoid,
-    Effect.provide(
-      Layer.mergeAll(ReferralFeatureFlagService.Live, ReferralService.Live)
-    )
+    Effect.provide(ReferralService.Live)
   );
 
 /**
@@ -193,7 +191,7 @@ const completeCustomerProfileAction = defineWorkspaceAction(
     return outcome.status === "completed" && outcome.referral
       ? { status: "completed" as const, referral: outcome.referral }
       : { status: "completed" as const };
-  })
+  }, Effect.provide(ReferralFeatureFlagRequest))
 );
 
 const updateCustomerProfileAction = defineWorkspaceAction(
@@ -208,7 +206,7 @@ const updateCustomerProfileAction = defineWorkspaceAction(
       Effect.as(saveCustomerProfile(input, undefined, locale), {
         status: "updated" as const,
       })
-    )
+    ).pipe(Effect.provide(ReferralFeatureFlagRequest))
 );
 
 const acknowledgeSignupReferralNoticeSchema = Schema.toStandardSchemaV1(
@@ -251,7 +249,7 @@ const acknowledgeSignupReferralNoticeAction = defineWorkspaceAction(
           )
         )
       )
-    )
+    ).pipe(Effect.provide(ReferralFeatureFlagRequest))
 );
 
 const updateLocalePreferenceAction = defineWorkspaceAction(

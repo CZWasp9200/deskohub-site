@@ -14,6 +14,7 @@ import type { DiscountCodeRejection } from "@/features/checkout/discount-code-re
 import { defaultLocale, isLocale, type Locale } from "@/features/i18n";
 import { ReferralService } from "@/features/referrals";
 import { parseSharedReferralCode } from "@/features/referrals/referral-code-cookie";
+import { ReferralFeatureFlagRequest } from "@/features/referrals/referral-feature-flag.server";
 import { rememberReferralCode } from "@/features/referrals/remembered-referral-code.server";
 import { defineWorkspaceAction } from "@/shared/backend/workspace-action";
 import { applyDiscountCodeSchema } from "./apply-discount-code-input";
@@ -35,7 +36,7 @@ const applyDiscountCodeAction = defineWorkspaceAction(
           PayableReservationService.Live,
           ReferralService.Live,
           CheckoutReferralService.Live
-        )
+        ).pipe(Layer.provideMerge(ReferralFeatureFlagRequest))
       )
     )
 );

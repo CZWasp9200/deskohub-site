@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import type { Locale } from "@/features/i18n";
 import { m } from "@/features/i18n";
-import { areReferralsEnabled } from "@/features/referrals/referral-feature-flag.server";
+import { ReferralFeatureFlagService } from "@/features/referrals/referral-feature-flag.service";
 import { PublicSafeActionError } from "@/shared/utils/safe-action-client";
 import { CustomerAuthentication } from "./backend/customer-authentication.service";
 import { CustomerAccountAccessError } from "./customer-account";
@@ -61,9 +61,9 @@ export const requireAccountsEnabled = (locale: Locale) =>
 
 /** A withheld referral program rejects referral-only account actions. */
 export const requireReferralsEnabled = (locale: Locale) =>
-  Effect.tryPromise(areReferralsEnabled).pipe(
-    // An unreadable referral flag fails closed: the program stays withheld.
-    Effect.orElseSucceed(() => false),
+  ReferralFeatureFlagService.pipe(
+    // The request's one decision, which already fails closed.
+    Effect.flatMap((featureFlag) => featureFlag.isEnabled),
     Effect.filterOrFail(
       (enabled) => enabled,
       () =>

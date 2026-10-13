@@ -721,6 +721,7 @@ describe("CheckoutReferralService", () => {
     ["unavailable", "unavailable"],
     ["account_unavailable", "unavailable"],
     ["invalid_code", "unavailable"],
+    ["disabled", "unavailable"],
   ] as const)(
     "reports the %s evaluation failure as %s without a refreshed Pay URL",
     async (reason, expectedStatus) => {

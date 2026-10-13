@@ -3,6 +3,7 @@ import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, test } from "bun:test";
 import { type DotyposCustomerId, DotyposService } from "@deskohub/dotypos";
+import { PostHogFeatureFlagEvaluationError } from "@deskohub/posthog/feature-flags/node";
 import { Deferred, Effect, Fiber, Layer } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { WorkspaceDatabaseAdvisoryLock } from "@/db/postgres-advisory-lock";
@@ -17,7 +18,9 @@ import {
   createHeldReservation,
 } from "@/features/checkout/backend/repositories/payment-lifecycle.test-utils";
 import { canonicalPromotionCodeSchema } from "@/features/discounts/persistence-contracts";
+import { WorkspaceFeatureFlagServiceMock } from "@/features/feature-flags/backend/workspace-feature-flag.service.mock";
 import { ReferralService } from "@/features/referrals";
+import { ReferralFeatureFlagService } from "@/features/referrals/referral-feature-flag.service";
 import { ReferralFeatureFlagServiceMock } from "@/features/referrals/referral-feature-flag.service.mock";
 import { ReferralSignupIntentRepository } from "@/features/referrals/signup-intent.repository";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
@@ -185,11 +188,15 @@ const completionLayer = (options: {
   readonly identityUnavailable?: boolean;
   readonly createdCustomers?: DotyposCustomerId[];
   readonly referralsEnabled?: boolean;
+  /** The referral flag the services read; `referralsEnabled` by default. */
+  readonly featureFlag?: Layer.Layer<ReferralFeatureFlagService>;
 }) => {
   const database = databaseLayer();
-  const featureFlag = ReferralFeatureFlagServiceMock({
-    isEnabled: Effect.succeed(options.referralsEnabled ?? true),
-  });
+  const featureFlag =
+    options.featureFlag ??
+    ReferralFeatureFlagServiceMock({
+      isEnabled: Effect.succeed(options.referralsEnabled ?? true),
+    });
   const lock = WorkspaceDatabaseAdvisoryLock.makeLayer(testDatabase!.pool);
   const links = CustomerAccountLinkRepository.Default.pipe(
     Layer.provide(Layer.mergeAll(database, lock))
@@ -497,6 +504,117 @@ describe.skipIf(!testDatabase)(
       expect(retried).toEqual({ status: "applied" });
       expect(await readReferrer(customerId!)).toBe(referrer.customerId);
       expect(await readIntentCodes(accountId)).toEqual([]);
+    });
+
+    test("keeps a stored code pending while the referral program is withheld", async () => {
+      const referrer = await insertReferrer();
+      const account = await completeWithStoredIntent(referrer.code);
+
+      const retried = await recordSignupReferral({
+        accountId: account.accountId,
+        dotyposCustomerId: account.customerId,
+      }).pipe(
+        withinLockBudget,
+        Effect.provide(
+          completionLayer({
+            accountId: account.accountId,
+            referralsEnabled: false,
+          })
+        ),
+        Effect.runPromise
+      );
+
+      expect(retried).toEqual({ status: "pending" });
+      expect(await readIntentCodes(account.accountId)).toEqual([
+        referrer.promotionCodeId,
+      ]);
+      expect(await readStoredOutcome(account.accountId)).toMatchObject({
+        outcome: null,
+        settled_at: null,
+      });
+      expect(await retrySignupReferral(account)).toEqual({
+        status: "applied",
+      });
+    });
+
+    test("keeps a stored code pending when the referral flag becomes unreadable after the page gate passed", async () => {
+      const referrer = await insertReferrer();
+      const account = await completeWithStoredIntent(referrer.code);
+      // PostHog answers the first evaluation and fails every later one.
+      let evaluations = 0;
+      // A fresh build evaluates on its own; a shared one is memoized.
+      const flakyFlag = (build: "fresh" | "shared") =>
+        (build === "fresh"
+          ? Layer.fresh(ReferralFeatureFlagService.Default)
+          : ReferralFeatureFlagService.Default
+        ).pipe(
+          Layer.provide(
+            WorkspaceFeatureFlagServiceMock({
+              isEnabled: () =>
+                Effect.suspend(() =>
+                  evaluations++ === 0
+                    ? Effect.succeed(true)
+                    : Effect.fail(
+                        new PostHogFeatureFlagEvaluationError({
+                          message: "synthetic flag outage",
+                          cause: undefined,
+                        })
+                      )
+                ),
+            })
+          )
+        );
+      const pageGate = ReferralFeatureFlagService.pipe(
+        Effect.flatMap((featureFlag) => featureFlag.isEnabled)
+      );
+      const linkedLoad = Effect.gen(function* () {
+        const released = yield* pageGate;
+        return released
+          ? yield* recordSignupReferral({
+              accountId: account.accountId,
+              dotyposCustomerId: account.customerId,
+            })
+          : undefined;
+      }).pipe(withinLockBudget);
+
+      // The page gate and the referral service each evaluating the flag: the
+      // gate passes, the service's own evaluation fails closed, and the
+      // intent must stay pending rather than settle as an unusable code.
+      const separateDecisions = await linkedLoad.pipe(
+        Effect.provide(flakyFlag("fresh")),
+        Effect.provide(
+          completionLayer({
+            accountId: account.accountId,
+            featureFlag: flakyFlag("fresh"),
+          })
+        ),
+        Effect.runPromise
+      );
+      expect(evaluations).toBe(2);
+      expect(separateDecisions).toEqual({ status: "pending" });
+      expect(await readIntentCodes(account.accountId)).toEqual([
+        referrer.promotionCodeId,
+      ]);
+      expect(await readStoredOutcome(account.accountId)).toMatchObject({
+        outcome: null,
+        settled_at: null,
+      });
+
+      // One decision for the whole load, as Workspace provides it: the flag
+      // is read once and the stored code is recorded.
+      evaluations = 0;
+      const sharedDecision = await linkedLoad.pipe(
+        Effect.provide(
+          completionLayer({
+            accountId: account.accountId,
+            featureFlag: flakyFlag("shared"),
+          })
+        ),
+        Effect.runPromise
+      );
+      expect(evaluations).toBe(1);
+      expect(sharedDecision).toEqual({ status: "applied" });
+      expect(await readReferrer(account.customerId)).toBe(referrer.customerId);
     });
 
     test("keeps reporting a settled code on later loads without recording it again, until acknowledged", async () => {

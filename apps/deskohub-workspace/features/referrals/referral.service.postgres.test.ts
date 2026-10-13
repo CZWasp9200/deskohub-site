@@ -1487,9 +1487,10 @@ describe.skipIf(!testDatabase)(
         const withheld = (
           use: Parameters<typeof runReferrals>[0]
         ): ReturnType<typeof runReferrals> => runReferrals(use, layer(false));
-        const unavailable = {
+        // A withheld program is never reported as an unusable code.
+        const disabled = {
           _tag: "Failure",
-          failure: { _tag: "ReferralError", reason: "unavailable" },
+          failure: { _tag: "ReferralError", reason: "disabled" },
         };
         expect(
           await withheld((referrals) =>
@@ -1500,7 +1501,7 @@ describe.skipIf(!testDatabase)(
           await withheld((referrals) =>
             referrals.findAvailableCode({ code: referrer.code })
           )
-        ).toMatchObject({ _tag: "Success", success: undefined });
+        ).toMatchObject(disabled);
         expect(
           await withheld((referrals) =>
             referrals.evaluateCheckoutReferral({
@@ -1508,7 +1509,7 @@ describe.skipIf(!testDatabase)(
               dotyposCustomerId: newCustomer,
             })
           )
-        ).toMatchObject(unavailable);
+        ).toMatchObject(disabled);
         expect(await invitation(false)).toMatchObject({
           _tag: "Success",
           success: undefined,
@@ -1536,7 +1537,7 @@ describe.skipIf(!testDatabase)(
               dotyposCustomerId: referrer.dotyposCustomerId,
             })
           )
-        ).toMatchObject(unavailable);
+        ).toMatchObject(disabled);
         expect(
           await withheld((referrals) =>
             referrals.acceptReferral({
@@ -1545,7 +1546,7 @@ describe.skipIf(!testDatabase)(
               dotyposCustomerId: newCustomer,
             })
           )
-        ).toMatchObject(unavailable);
+        ).toMatchObject(disabled);
 
         const attributions = await testDatabase!.pool.query(
           "select invited_dotypos_customer_id from referral_attributions where promotion_code_id = $1",

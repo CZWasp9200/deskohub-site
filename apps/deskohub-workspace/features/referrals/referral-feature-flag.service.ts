@@ -13,23 +13,34 @@ export class ReferralFeatureFlagService extends Context.Service<
   ReferralFeatureFlagService,
   IReferralFeatureFlagService
 >()("@deskohub-workspace/referrals/ReferralFeatureFlagService") {
+  /**
+   * Evaluates the flag at most once per build of this layer, so one run sees
+   * one decision. Next.js request code instead provides the per-request page
+   * gate (`ReferralFeatureFlagRequest` in `referral-feature-flag.server.ts`).
+   * Never put this in a process-wide runtime layer.
+   */
   static Default = Layer.effect(
     this,
     Effect.gen(function* () {
       const featureFlags = yield* WorkspaceFeatureFlagService;
-
-      return {
-        isEnabled: featureFlags.isEnabled("referrals").pipe(
+      const isEnabled = yield* Effect.cached(
+        featureFlags.isEnabled("referrals").pipe(
           Effect.tapError((error) =>
             Effect.logWarning("Referral feature flag evaluation unavailable", {
               cause: error.cause,
             })
           ),
           Effect.orElseSucceed(() => false)
-        ),
-      } satisfies IReferralFeatureFlagService;
+        )
+      );
+
+      return { isEnabled } satisfies IReferralFeatureFlagService;
     })
   );
+
+  /** A decision the caller already made for this request. */
+  static fromDecision = (enabled: boolean) =>
+    Layer.succeed(this, { isEnabled: Effect.succeed(enabled) });
 
   static Live = this.Default.pipe(
     Layer.provide(WorkspaceFeatureFlagService.Default)

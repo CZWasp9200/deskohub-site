@@ -56,7 +56,13 @@ type ReferralFailureReason =
   | "pending_payment"
   /** The code's owner was invited, directly or through others, by this customer. */
   | "cycle"
-  | "account_unavailable";
+  | "account_unavailable"
+  /**
+   * The referral program is withheld, or its feature flag could not be
+   * evaluated. Never a verdict on the code or the customer: callers that
+   * store an outcome keep it pending.
+   */
+  | "disabled";
 
 export class ReferralError extends Data.TaggedError("ReferralError")<{
   readonly reason: ReferralFailureReason;

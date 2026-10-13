@@ -24,7 +24,8 @@ import {
   type ReferralCode,
 } from "@/features/referrals/client";
 import type { ReferralAccountOverview } from "@/features/referrals/contracts";
-import { areReferralsEnabled } from "@/features/referrals/referral-feature-flag.server";
+import { ReferralFeatureFlagRequest } from "@/features/referrals/referral-feature-flag.server";
+import { ReferralFeatureFlagService } from "@/features/referrals/referral-feature-flag.service";
 import { readRememberedReferralCode } from "@/features/referrals/remembered-referral-code.server";
 import { ReferralSignupIntentRepository } from "@/features/referrals/signup-intent.repository";
 import { getWorkspaceRuntimeCallbackOrigin } from "@/shared/backend/config/workspace-url.config";
@@ -81,12 +82,13 @@ const withOperation = (operation: string) =>
   Effect.annotateLogs({ boundary: "page", operation });
 
 /**
- * Whether the referral program is released, shared with the account layout's
- * navigation through the per-request memo. An unavailable evaluation fails
- * closed: a withheld program reads, writes, and shows no referral state.
+ * Whether the referral program is released: the request's one decision,
+ * shared with the account layout's navigation and every referral service of
+ * this load. An unavailable evaluation fails closed: a withheld program
+ * reads, writes, and shows no referral state.
  */
-const referralsReleased = Effect.tryPromise(areReferralsEnabled).pipe(
-  Effect.orElseSucceed(() => false)
+const referralsReleased = ReferralFeatureFlagService.pipe(
+  Effect.flatMap((featureFlag) => featureFlag.isEnabled)
 );
 
 const loadLinkedAccount = Effect.fn(function* (
@@ -339,6 +341,7 @@ const loadAccountPageState = Effect.gen(function* () {
 export const loadCustomerAccountPage = cache(
   (): Promise<CustomerAccountPageState> =>
     loadAccountPageState.pipe(
+      Effect.provide(ReferralFeatureFlagRequest),
       runWorkspaceEffect("account.page", { boundary: "page" })
     )
 );

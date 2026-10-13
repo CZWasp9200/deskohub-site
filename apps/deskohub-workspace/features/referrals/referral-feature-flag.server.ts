@@ -1,6 +1,6 @@
 import "server-only";
 
-import { Effect } from "effect";
+import { Effect, Layer } from "effect";
 import { cache } from "react";
 import { runWorkspaceEffectOrElse } from "@/shared/backend/workspace-effect";
 import { ReferralFeatureFlagService } from "./referral-feature-flag.service";
@@ -20,4 +20,14 @@ export const areReferralsEnabled = cache(
         orElse: () => false,
       })
     )
+);
+
+/**
+ * The request's memoized decision for Effect consumers, so services and the
+ * page or action that gated them agree for the whole request.
+ */
+export const ReferralFeatureFlagRequest = Layer.unwrap(
+  Effect.promise(areReferralsEnabled).pipe(
+    Effect.map(ReferralFeatureFlagService.fromDecision)
+  )
 );

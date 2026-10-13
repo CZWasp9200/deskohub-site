@@ -48,18 +48,24 @@ mock.module("@/features/account/server/account-feature-flag.server", () => ({
 
 let referralsEnabled = true;
 const areReferralsEnabled = mock(() => Promise.resolve(referralsEnabled));
-mock.module("@/features/referrals/referral-feature-flag.server", () => ({
-  areReferralsEnabled,
-}));
 const ReferralFeatureFlag = Context.Service<
   ReferralFeatureFlag,
   { readonly isEnabled: Effect.Effect<boolean> }
 >()("@test/ActionsReferralFeatureFlag");
+const decideReferrals = (enabled: boolean) =>
+  Layer.succeed(ReferralFeatureFlag, { isEnabled: Effect.succeed(enabled) });
 Object.assign(ReferralFeatureFlag, {
   Live: Layer.succeed(ReferralFeatureFlag, {
     isEnabled: Effect.sync(() => referralsEnabled),
   }),
+  fromDecision: decideReferrals,
 });
+mock.module("@/features/referrals/referral-feature-flag.server", () => ({
+  areReferralsEnabled,
+  ReferralFeatureFlagRequest: Layer.unwrap(
+    Effect.promise(areReferralsEnabled).pipe(Effect.map(decideReferrals))
+  ),
+}));
 mock.module("@/features/referrals/referral-feature-flag.service", () => ({
   ReferralFeatureFlagService: ReferralFeatureFlag,
 }));
