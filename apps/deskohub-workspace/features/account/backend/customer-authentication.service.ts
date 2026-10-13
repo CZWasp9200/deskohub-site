@@ -3,7 +3,6 @@ import { Context, Data, Effect, Layer, Option, Schema } from "effect";
 import { headers } from "next/headers";
 import { env } from "@/env";
 import { reservationCustomerEmailSchema } from "@/features/reservation/reservation-contact";
-import { runWorkspaceEffect } from "@/shared/backend/workspace-effect";
 import { CurrentWorkspaceRequestHeaders } from "@/shared/backend/workspace-request-context";
 import {
   CustomerAccountAccessError,
@@ -252,13 +251,19 @@ const readAuthoritySession = (
  * The phased authority read as the Promise-shaped session read that
  * `CustomerAuthenticationEnvironment` injects. It rejects with the internal
  * stage failure, which the service recognizes and attributes to its stage.
- * `CustomerAuthentication.Default` composes the phased read directly.
+ * `CustomerAuthentication.Default` composes the phased read directly and
+ * never calls this adapter, so the Workspace runner is loaded on demand and
+ * the service module stays free of its instrumentation import.
  */
 export const makeAuthoritySessionRead =
-  (phases: AuthoritySessionPhases) => (): Promise<AuthoritySession> =>
-    readAuthoritySession(phases).pipe(
+  (phases: AuthoritySessionPhases) => async (): Promise<AuthoritySession> => {
+    const { runWorkspaceEffect } = await import(
+      "@/shared/backend/workspace-effect"
+    );
+    return readAuthoritySession(phases).pipe(
       runWorkspaceEffect("account.authority-session.read")
     );
+  };
 
 /**
  * Adapts an injected Promise session read. Its stage failures keep their

@@ -521,9 +521,8 @@ export function subscribeAnalyticsAccountIdentity(
 
 /**
  * Refreshes the identity from the authoritative session. The promise rejects
- * when the refresh fails; that failure is already published as the
- * unavailable identity, so a caller that does not await it need not handle
- * the rejection.
+ * when the refresh fails; that failure is also published as the unavailable
+ * identity.
  */
 export function refreshAnalyticsAccountIdentity(options?: {
   readonly settleTransition?: true;

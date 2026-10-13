@@ -13,7 +13,7 @@ import { refreshAnalyticsAccountIdentity } from "@/features/account/analytics-id
  */
 export function SessionRefresh() {
   useEffect(() => {
-    void refreshAnalyticsAccountIdentity();
+    void refreshAnalyticsAccountIdentity().catch(() => undefined);
   }, []);
 
   return null;

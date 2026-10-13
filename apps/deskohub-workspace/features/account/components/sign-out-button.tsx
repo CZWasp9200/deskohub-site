@@ -36,7 +36,9 @@ export function SignOutButton({ locale }: SignOutButtonProps) {
     try {
       const result = await authClient.signOut();
       if (result.error) {
-        void refreshAnalyticsAccountIdentity({ settleTransition: true });
+        void refreshAnalyticsAccountIdentity({ settleTransition: true }).catch(
+          () => undefined
+        );
         setSigningOut(false);
         setSignOutFailed(true);
         return;
@@ -45,7 +47,9 @@ export function SignOutButton({ locale }: SignOutButtonProps) {
       allowNextUnload();
       window.location.assign(target);
     } catch {
-      void refreshAnalyticsAccountIdentity({ settleTransition: true });
+      void refreshAnalyticsAccountIdentity({ settleTransition: true }).catch(
+        () => undefined
+      );
       setSigningOut(false);
       setSignOutFailed(true);
     }

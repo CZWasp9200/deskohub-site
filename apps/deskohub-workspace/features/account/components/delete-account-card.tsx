@@ -70,7 +70,9 @@ export function DeleteAccountCard({
           window.location.assign(`/${locale}/account/deleted`);
           return;
         }
-        void refreshAnalyticsAccountIdentity({ settleTransition: true });
+        void refreshAnalyticsAccountIdentity({ settleTransition: true }).catch(
+          () => undefined
+        );
         if (data?.status === "reauthentication-required") {
           setReauthRequired(true);
           return;
@@ -79,7 +81,9 @@ export function DeleteAccountCard({
       },
       // Also runs for thrown (transport) failures, so no onTransportError.
       onError: () => {
-        void refreshAnalyticsAccountIdentity({ settleTransition: true });
+        void refreshAnalyticsAccountIdentity({ settleTransition: true }).catch(
+          () => undefined
+        );
       },
     });
 
