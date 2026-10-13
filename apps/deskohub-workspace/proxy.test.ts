@@ -592,6 +592,80 @@ describe("shared referral code capture", () => {
     expect(cookieOf(response)).toContain(`${referralCodeCookieName}=RFL12345`);
   });
 
+  const sharedLinkUrls = [
+    [
+      "a localized page",
+      "https://workspace.example/en-US/account?ref=RFL12345",
+    ],
+    [
+      "the localizing redirect",
+      "https://workspace.example/account?ref=RFL12345",
+    ],
+  ] as const;
+
+  test.each(
+    sharedLinkUrls.flatMap(([target, url]) =>
+      (
+        [
+          ["HEAD", { method: "HEAD", headers: {} }],
+          ["a non-action POST", { method: "POST", headers: {} }],
+          ["an RSC request", { headers: { rsc: "1" } }],
+          ["a router prefetch", { headers: { "next-router-prefetch": "1" } }],
+          [
+            "a segment prefetch",
+            { headers: { "next-router-segment-prefetch": "/_tree" } },
+          ],
+          [
+            "a router state request",
+            { headers: { "next-router-state-tree": "%5B%22%22%5D" } },
+          ],
+          [
+            "a speculative prefetch",
+            { headers: { "sec-purpose": "prefetch" } },
+          ],
+          [
+            "a speculative prerender",
+            { headers: { "sec-purpose": "prefetch;prerender" } },
+          ],
+          ["a legacy prefetch", { headers: { purpose: "prefetch" } }],
+          ["a subresource fetch", { headers: { "sec-fetch-dest": "empty" } }],
+          ["an iframe load", { headers: { "sec-fetch-dest": "iframe" } }],
+        ] as const
+      ).map(([kind, init]) => [kind, target, url, init] as const)
+    )
+  )(
+    "never remembers a code from %s to %s",
+    async (_kind, _target, url, init) => {
+      const response = await proxy(
+        new NextRequest(url, {
+          ...init,
+          headers: { "accept-language": "en-US", ...init.headers },
+        })
+      );
+
+      expect(cookieOf(response)).toBeUndefined();
+    }
+  );
+
+  test.each(sharedLinkUrls)(
+    "remembers a code from a top-level document navigation to %s",
+    async (_target, url) => {
+      const response = await proxy(
+        new NextRequest(url, {
+          headers: {
+            "accept-language": "en-US",
+            "sec-fetch-dest": "document",
+            "sec-fetch-mode": "navigate",
+          },
+        })
+      );
+
+      expect(cookieOf(response)).toContain(
+        `${referralCodeCookieName}=RFL12345`
+      );
+    }
+  );
+
   test("never remembers a code from a Server Action request", async () => {
     const response = await proxy(
       new NextRequest("https://workspace.example/en-US/account?ref=RFL12345", {

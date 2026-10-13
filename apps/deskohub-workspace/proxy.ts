@@ -51,27 +51,44 @@ const isPrivateAccountPath = (pathname: string) =>
   /\/account(\/|$)/.test(pathname) || /\/auth(\/|$)/.test(pathname);
 
 /**
- * The referral code a shared link carries, when this browser has none yet:
- * the first shared link wins. Only the code's shape is checked here.
+ * A real top-level page load. Speculative and router requests never take the
+ * first-link slot: non-GET requests; Next.js router requests (`rsc`,
+ * `next-router-state-tree`) and prefetches (`next-router-prefetch`,
+ * `next-router-segment-prefetch`, as Next.js 16 sends them); browser
+ * speculative loads (`Sec-Purpose`, or the legacy `Purpose`, naming prefetch
+ * or prerender); and, when the browser reports it, anything that is not a
+ * document load.
+ */
+const isDocumentNavigation = (request: NextRequest) => {
+  if (request.method !== "GET") return false;
+  const { headers } = request;
+  if (
+    headers.has("rsc") ||
+    headers.has("next-router-state-tree") ||
+    headers.has("next-router-prefetch") ||
+    headers.has("next-router-segment-prefetch")
+  ) {
+    return false;
+  }
+  const purpose = `${headers.get("sec-purpose") ?? ""};${headers.get("purpose") ?? ""}`;
+  if (/prefetch|prerender/i.test(purpose)) return false;
+  const destination = headers.get("sec-fetch-dest");
+  return destination === null || destination === "document";
+};
+
+/**
+ * The referral code a shared link carries, when this browser has none yet.
+ * First wins is best-effort: two simultaneous first visits with different
+ * codes each set the cookie, and the browser keeps whichever response it
+ * applies last. There is no visitor identity to coordinate on, and the case is
+ * negligible. Only the code's shape is checked here.
  */
 const findSharedReferralCodeToRemember = (request: NextRequest) =>
-  request.cookies.has(referralCodeCookieName)
+  !isDocumentNavigation(request) || request.cookies.has(referralCodeCookieName)
     ? undefined
     : parseSharedReferralCode(
         request.nextUrl.searchParams.get(referralCodeQueryParam)
       );
-
-/** Lets the page rendered by this response already read the new code. */
-const withRememberedReferralCode = (
-  request: NextRequest,
-  code: string
-): Headers => {
-  const headers = new Headers(request.headers);
-  const cookie = headers.get("cookie");
-  const remembered = `${referralCodeCookieName}=${code}`;
-  headers.set("cookie", cookie ? `${cookie}; ${remembered}` : remembered);
-  return headers;
-};
 
 const isSecureRequest = (request: NextRequest) =>
   request.nextUrl.protocol === "https:";
@@ -135,12 +152,12 @@ export async function proxy(request: NextRequest) {
     }
 
     const sharedReferralCode = findSharedReferralCodeToRemember(request);
+    if (sharedReferralCode) {
+      // The page rendered by this response already reads the new code.
+      request.cookies.set(referralCodeCookieName, sharedReferralCode);
+    }
     const response = sharedReferralCode
-      ? NextResponse.next({
-          request: {
-            headers: withRememberedReferralCode(request, sharedReferralCode),
-          },
-        })
+      ? NextResponse.next({ request: { headers: request.headers } })
       : NextResponse.next();
     if (sharedReferralCode) {
       setReferralCodeCookie(

@@ -12,8 +12,9 @@ Read the business-facing [referral specification](../../../apps/deskohub-workspa
 - `features/referrals/client.ts` is browser-safe. Use `parseReferralCode` for untrusted values and `referralCodeQueryParam` for the `ref` search parameter of share links.
 - Remembered shared code (`features/referrals/referral-code-cookie.ts`):
   - `proxy.ts` stores a syntactically valid `?ref=` from any page request in the first-party `deskohub-referral-code` cookie (Path=/, SameSite=Lax, Secure over https, not HttpOnly, `sharedReferralCodeRememberedDays`).
-  - It does this only when the browser has none yet, so the first link wins.
-  - It injects the cookie into the forwarded request, so the same response's render already reads it.
+  - It captures only real top-level document GET navigations. It skips non-GET requests, Next.js router and prefetch requests (`rsc`, `next-router-state-tree`, `next-router-prefetch`, `next-router-segment-prefetch`), browser speculative loads (`Sec-Purpose`/`Purpose` naming prefetch or prerender), and any `Sec-Fetch-Dest` other than `document`.
+  - It stores the code only when the browser has none yet. First-wins is best-effort: simultaneous first visits with different codes each set the cookie, and the last response applied wins.
+  - It sets the code with `request.cookies.set` and forwards those request headers, so the same response's render already reads it.
   - Never thread `ref` through links. Readers use `readRememberedReferralCode()` (`remembered-referral-code.server.ts`).
   - Account pages clear the cookie once `ReferralService.hasSettledReferral` reports the customer attributed or past a paid booking. Checkout uses `isBookerReferralSettled` (`features/checkout/backend/checkout/booker-referral-settlement.ts`, with a page wrapper in `.server.ts`): it checks the booker's own customer, which is the signed-in account's linked customer, or else the booked customer of a guest booking. Booking for someone else never clears the booker's cookie. To clear:
     - Server Actions and route handlers call `forgetRememberedReferralCode()`;
