@@ -29,7 +29,10 @@ import type {
 import { DiscountDefinitionRepository } from "./discount-definition.repository";
 import { DiscountProviderError } from "./errors";
 import { deriveOpaqueDiscountId } from "./opaque-discount-id";
-import type { DiscountCandidate } from "./provider";
+import type {
+  DiscountCandidate,
+  DiscountCandidateResolution,
+} from "./provider";
 
 const providerNamespace = "google-calendar-sales";
 
@@ -52,7 +55,7 @@ export interface ICalendarDiscountProvider {
   ) => Effect.Effect<readonly DiscountCandidate[], DiscountProviderError>;
   readonly revalidate: (
     input: CalendarDiscountProviderInput
-  ) => Effect.Effect<readonly DiscountCandidate[], DiscountProviderError>;
+  ) => Effect.Effect<DiscountCandidateResolution, DiscountProviderError>;
 }
 
 export class CalendarDiscountProvider extends Context.Service<
@@ -190,7 +193,13 @@ function makeCalendarDiscountProviderLayer(useRemoteDiscovery: boolean) {
             ),
             Effect.let("sales", ({ resolvedSales }) => resolvedSales.sales),
             Effect.let("candidates", toEligibleCalendarCandidates),
-            Effect.map(({ candidates }) => candidates)
+            Effect.map(
+              ({ candidates, resolvedSales }) =>
+                ({
+                  candidates,
+                  complete: resolvedSales.complete,
+                }) satisfies DiscountCandidateResolution
+            )
           ),
         withProviderAnnotations("revalidate")
       );

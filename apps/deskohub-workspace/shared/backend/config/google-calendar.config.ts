@@ -6,9 +6,13 @@ import {
   GoogleCalendarRuntimeConfig,
   type IGoogleCalendarRuntimeConfig,
 } from "@deskohub/google-calendar/config";
-import { Context, Layer, Schema } from "effect";
+import { Context, Duration, Layer, Schema } from "effect";
 import { env } from "@/env";
 import { workspaceSiteConstants } from "@/shared/utils/site-constants";
+import {
+  type DeploymentEnvironment,
+  getDeploymentRequestTimeout,
+} from "./deployment-request-timeout";
 
 export const workspaceLimitationsCalendarIdSchema = GoogleCalendarIdSchema.pipe(
   Schema.brand("WorkspaceLimitationsCalendarId")
@@ -49,15 +53,28 @@ export class CalendarResourceConfig extends Context.Service<
   );
 }
 
-const WorkspaceGoogleCalendarRuntimeConfigLayer = Layer.succeed(
-  GoogleCalendarRuntimeConfig,
-  {
-    serviceAccountEmail: env.GOOGLE_CALENDAR_SERVICE_ACCOUNT_EMAIL,
-    privateKey: env.GOOGLE_CALENDAR_PRIVATE_KEY,
-    timeZone: workspaceSiteConstants.location.timeZone,
-  } satisfies IGoogleCalendarRuntimeConfig
-);
+/**
+ * One Google Calendar request attempt. A timed-out attempt is retried once,
+ * so a single stalled request does not fail the load.
+ */
+export const getGoogleCalendarRequestTimeout = (
+  deploymentEnvironment: DeploymentEnvironment
+) =>
+  getDeploymentRequestTimeout(
+    {
+      production: Duration.seconds(5),
+      nonProduction: Duration.seconds(15),
+    },
+    deploymentEnvironment
+  );
 
 export const WorkspaceGoogleCalendarLayer = GoogleCalendarService.Default.pipe(
-  Layer.provide(WorkspaceGoogleCalendarRuntimeConfigLayer)
+  Layer.provide(
+    Layer.succeed(GoogleCalendarRuntimeConfig, {
+      serviceAccountEmail: env.GOOGLE_CALENDAR_SERVICE_ACCOUNT_EMAIL,
+      privateKey: env.GOOGLE_CALENDAR_PRIVATE_KEY,
+      timeZone: workspaceSiteConstants.location.timeZone,
+      requestTimeout: getGoogleCalendarRequestTimeout(env.VERCEL_ENV),
+    } satisfies IGoogleCalendarRuntimeConfig)
+  )
 );

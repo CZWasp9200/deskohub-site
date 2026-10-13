@@ -32,9 +32,11 @@ const installActionTelemetryMocks = async () => {
     },
   }));
 
-  const { defineWorkspaceAction, defineWorkspaceStateAction } = await import(
-    "@/shared/backend/workspace-action"
-  );
+  const {
+    defineWorkspaceAction,
+    defineWorkspaceStateAction,
+    workspaceActionDeadline,
+  } = await import("@/shared/backend/workspace-action");
   type ActionOptions = Parameters<typeof defineWorkspaceAction>[0];
 
   mock.module("@/shared/backend/workspace-action", () => ({
@@ -42,6 +44,7 @@ const installActionTelemetryMocks = async () => {
       defineWorkspaceAction(options, () => Effect.succeed(null)),
     defineWorkspaceStateAction: (options: ActionOptions) =>
       defineWorkspaceStateAction(options, () => Effect.succeed(null)),
+    workspaceActionDeadline,
   }));
 };
 
