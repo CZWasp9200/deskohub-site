@@ -7,14 +7,17 @@ import { createAuthMiddleware, isAPIError } from "better-auth/api";
 import { nextCookies } from "better-auth/next-js";
 import { magicLink } from "better-auth/plugins";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
-import { Data, Effect, Match, Option, Predicate, Schema } from "effect";
+import { Data, Effect, Layer, Match, Option, Predicate, Schema } from "effect";
 import { after } from "next/server";
 import { makeAuthDatabase } from "@/db/auth-database-client";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { workspaceDatabasePool } from "@/db/database-provider.server";
 import { drizzleAuthTables } from "@/db/schema/auth";
 import { env } from "@/env";
-import { CustomerAccountDeletionService } from "@/features/account/backend/customer-account-deletion";
+import {
+  type CustomerAccountDeletionError,
+  CustomerAccountDeletionService,
+} from "@/features/account/backend/customer-account-deletion";
 import {
   type CustomerAccountId,
   customerAccountIdSchema,
@@ -44,9 +47,13 @@ export type WorkspaceAuthConfig = {
   /** Request-memoized feature-flag read; a rejection counts as disabled. */
   readonly areAccountsEnabled: () => Promise<boolean>;
   readonly sendMagicLink: MagicLinkSendFunction;
+  /**
+   * Requests the account's deletion before Better Auth removes it. Its
+   * failures stay typed up to the hook's Promise boundary.
+   */
   readonly beforeDeleteUser: (
     accountId: CustomerAccountId
-  ) => Effect.Effect<void, unknown>;
+  ) => Effect.Effect<void, CustomerAccountDeletionError>;
   /**
    * Sets the locale preference of an account that has none, never
    * overwriting a saved one. Every sign-in captures it from the callback
@@ -377,7 +384,10 @@ export const workspaceSendMagicLink: MagicLinkSendFunction = (data) =>
     )
   );
 
+// A deletion service that cannot be built is a configuration defect, not a
+// deletion failure; either way the hook rejects and Better Auth keeps the
+// account.
 export const workspaceBeforeDeleteUser = (accountId: CustomerAccountId) =>
   Effect.flatMap(CustomerAccountDeletionService, (service) =>
     service.requestDeletion(accountId)
-  ).pipe(Effect.provide(CustomerAccountDeletionService.Live));
+  ).pipe(Effect.provide(CustomerAccountDeletionService.Live.pipe(Layer.orDie)));
