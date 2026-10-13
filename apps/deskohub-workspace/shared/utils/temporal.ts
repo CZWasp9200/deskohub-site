@@ -138,17 +138,23 @@ export const localDateTimeToOffsetInstantString = ({
     .toZonedDateTime(timeZone)
     .toString({ smallestUnit: "second", timeZoneName: "never" });
 
-export const localDateTimeToTemporalInstantString = ({
+/**
+ * The instant a local date-time names in a time zone. Times skipped by a DST
+ * gap resolve forward and repeated times resolve to the earlier occurrence.
+ */
+export const localDateTimeToInstant = ({
   dateTime,
   timeZone,
 }: {
   readonly dateTime: string;
   readonly timeZone: string;
 }) =>
-  Temporal.PlainDateTime.from(dateTime)
-    .toZonedDateTime(timeZone)
-    .toInstant()
-    .toString();
+  Temporal.PlainDateTime.from(dateTime).toZonedDateTime(timeZone).toInstant();
+
+export const localDateTimeToTemporalInstantString = (input: {
+  readonly dateTime: string;
+  readonly timeZone: string;
+}) => localDateTimeToInstant(input).toString();
 
 export const temporalPlainDateToDate = ({
   date,
