@@ -1,4 +1,4 @@
-import { Data, Effect, Schema } from "effect";
+import { Data, Effect, Match, Schema } from "effect";
 import {
   type CoworkReservationQuote,
   coworkReservationQuoteSchema,
@@ -153,17 +153,27 @@ class AdvertisedPriceStateTokenError extends Data.TaggedError(
   static fromStateFailure = (
     cause: CheckoutStateTokenError | Schema.SchemaError
   ) =>
-    cause._tag === "CheckoutStateTokenError"
-      ? new AdvertisedPriceStateTokenError({
-          code: cause.code,
-          message: cause.message,
-          cause,
-        })
-      : new AdvertisedPriceStateTokenError({
-          code: "invalid-token",
-          message: "Invalid advertised price state.",
-          cause,
-        });
+    Match.value(cause).pipe(
+      Match.tag(
+        "CheckoutStateTokenError",
+        (failure) =>
+          new AdvertisedPriceStateTokenError({
+            code: failure.code,
+            message: failure.message,
+            cause: failure,
+          })
+      ),
+      Match.tag(
+        "SchemaError",
+        (failure) =>
+          new AdvertisedPriceStateTokenError({
+            code: "invalid-token",
+            message: "Invalid advertised price state.",
+            cause: failure,
+          })
+      ),
+      Match.exhaustive
+    );
 }
 
 export class AdvertisedPriceMismatchError extends Data.TaggedError(
