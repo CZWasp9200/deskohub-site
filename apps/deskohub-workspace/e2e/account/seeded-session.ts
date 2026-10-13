@@ -3,6 +3,7 @@ import { Effect } from "effect";
 import { authSession, authUser } from "@/db/schema/auth";
 import { customerAccountLinks } from "@/db/schema/customer-account-links";
 import { parseBetterAuthSecrets } from "@/features/account/backend/auth/auth-secrets";
+import { sensitiveDatabaseParameter } from "@/shared/backend/logging/database-query-parameter-classifier";
 import { setBrowserCookie } from "../browser";
 import type { WorkspaceE2EEnvironment } from "../e2e-env";
 import { type WorkspaceE2EError, workspaceE2EError } from "../errors";
@@ -106,7 +107,7 @@ export const seedWorkspaceE2ESyntheticAccount = (
         Effect.fn(function* (tx) {
           yield* tx.insert(authUser).values({
             deletionRequestedAt: null,
-            email: account.email,
+            email: sensitiveDatabaseParameter(account.email),
             emailVerified: true,
             id: account.accountId,
             name: account.name,
@@ -154,7 +155,9 @@ export const signInWorkspaceE2ESyntheticAccount = ({
         expiresAt: new Date(now.getTime() + seededSessionLifetimeMs),
         id: crypto.randomUUID(),
         ipAddress: "",
-        token,
+        // The database query logger keeps its own censor, so the bearer
+        // token must be marked sensitive rather than only redacted here.
+        token: sensitiveDatabaseParameter(token),
         updatedAt: now,
         userAgent: "",
         userId: accountId,

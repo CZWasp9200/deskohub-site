@@ -28,6 +28,7 @@ import {
   fillBrowserField,
   openBrowserPage,
   waitForBrowserCondition,
+  waitForBrowserReactFormSubmit,
   waitForBrowserText,
 } from "../browser";
 import { assertDisplayedDiscounts } from "../cases/discounts";
@@ -42,6 +43,7 @@ import { type WorkspaceE2EError, workspaceE2EError } from "../errors";
 import { discountCodeFixtures } from "../integrations/discount-fixtures";
 import type { WorkspaceE2EReferralCaseId } from "../playwright-checkout/case-catalog";
 import { pollUntil } from "../polling";
+import { waitForReactClickHandler } from "../react-handlers";
 import type { WorkspaceE2ERunId } from "../run-identifiers";
 import { assert, type Runner } from "../runtime";
 import { workspaceE2EPollIntervalMs } from "../timeouts";
@@ -78,7 +80,8 @@ const completionTitle = "Complete your profile";
 const linkedEditSubmitLabel = "Save profile";
 const profileFirstNameSelector = "#account-profile-first-name";
 const profilePhoneSelector = "#account-profile-phone";
-const profileSubmitSelector = "#account-profile-form button[type=submit]";
+const profileFormSelector = "#account-profile-form";
+const profileSubmitSelector = `${profileFormSelector} button[type=submit]`;
 const profileReferralCodeSelector = "#profile-referral-code";
 const ordinaryCodeAdjustment = {
   kind: "percentage",
@@ -256,6 +259,15 @@ const completeProfile = (
   account: WorkspaceE2EReferralAccount
 ) =>
   Effect.gen(function* () {
+    // Fill only once React owns the form, or the native submit bypasses
+    // the completion action.
+    yield* waitForBrowserReactFormSubmit(
+      context.run,
+      context.session,
+      profileFormSelector,
+      [profileFirstNameSelector, profilePhoneSelector],
+      { timeoutMs: context.config.timeouts.browserAction }
+    );
     yield* fillBrowserField(
       context.run,
       context.session,
@@ -575,9 +587,9 @@ const referrerScreen: ReferralCaseExecutor = (context) =>
             link,
           ],
         ] as const) {
-          await page
-            .getByRole("button", { exact: true, name: label })
-            .click({ timeout: config.timeouts.browserAction });
+          const button = page.getByRole("button", { exact: true, name: label });
+          await waitForReactClickHandler(page, button);
+          await button.click({ timeout: config.timeouts.browserAction });
           await page
             .getByRole("button", { exact: true, name: copied })
             .waitFor({ timeout: config.timeouts.browserAction });

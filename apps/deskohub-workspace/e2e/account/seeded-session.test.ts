@@ -8,11 +8,15 @@ import type {
 } from "better-auth";
 import { betterAuth } from "better-auth";
 import { memoryAdapter } from "better-auth/adapters/memory";
+import { Effect, Logger, References } from "effect";
 import { authOptions } from "@/features/account/backend/auth/auth-options";
+import { makeDatabaseClient, makeDatabasePool } from "../../db/database-client";
 import { WorkspaceE2EError } from "../errors";
+import { E2EDatabase } from "../integrations/database.service";
 import { parseHttpsOnlyCookie, redact } from "../runtime";
 import {
   resolveWorkspaceE2ESessionSigningSecret,
+  signInWorkspaceE2ESyntheticAccount,
   signWorkspaceE2ESessionToken,
   workspaceE2ESessionCookieName,
 } from "./seeded-session";
@@ -173,5 +177,40 @@ describe("workspace e2e seeded sessions", () => {
         )
       ).toThrow();
     }
+  });
+
+  test("keeps the seeded session token out of database query logs", async () => {
+    // The real client and query logger log each statement before it needs a
+    // connection, so an unreachable server still yields the logged insert.
+    const pool = makeDatabasePool({
+      connectionString: "postgresql://synthetic:synthetic@127.0.0.1:1/none",
+      connectionTimeoutMillis: 200,
+    });
+    const annotations: unknown[] = [];
+    const capture = Logger.make((options) => {
+      annotations.push(options.fiber.getRef(References.CurrentLogAnnotations));
+    });
+    try {
+      const db = await Effect.runPromise(makeDatabaseClient(pool));
+      await Effect.runPromiseExit(
+        signInWorkspaceE2ESyntheticAccount({
+          accountId: "synthetic-account",
+          baseUrl: `https://${host}`,
+          run: async () => ({ exitCode: 0, stderr: "", stdout: "" }),
+          secret: { value: currentSecret },
+          session: "synthetic-session",
+        }).pipe(
+          Effect.provideService(E2EDatabase, E2EDatabase.of({ db })),
+          Effect.provide(Logger.layer([capture]))
+        )
+      );
+    } finally {
+      await pool.end().catch(() => undefined);
+    }
+
+    const logged = JSON.stringify(annotations);
+    expect(logged).toContain('insert into \\"auth\\".\\"session\\"');
+    // Seeded tokens are 32 lowercase hex characters.
+    expect(logged).not.toMatch(/[0-9a-f]{32}/);
   });
 });

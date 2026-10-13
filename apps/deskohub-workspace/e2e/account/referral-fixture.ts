@@ -25,6 +25,7 @@ import { canonicalPromotionCodeSchema } from "@/features/discounts/contracts";
 import { parseReferralCode } from "@/features/referrals/client";
 import { getReferralReferrerDiscountId } from "@/features/referrals/discount-identifiers";
 import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
+import { sensitiveDatabaseParameter } from "@/shared/backend/logging/database-query-parameter-classifier";
 import type { DatabaseClient } from "../../db/database-client";
 import type { WorkspaceE2EError } from "../errors";
 import { workspaceE2EError } from "../errors";
@@ -74,7 +75,7 @@ const insertReferralCode = Effect.fn("seedWorkspaceE2EReferralCode")(function* (
   const [promotion] = yield* tx
     .insert(promotionCodes)
     .values({
-      code: canonicalPromotionCodeSchema.make(code),
+      code: sensitiveDatabaseParameter(canonicalPromotionCodeSchema.make(code)),
       enabled: true,
       kind: "referral",
       validFrom: null,
@@ -120,7 +121,7 @@ const insertReferralOwner = Effect.fn("seedWorkspaceE2EReferralOwner")(
   function* (tx: DatabaseTransaction, owner: WorkspaceE2EReferralOwnerInput) {
     yield* tx.insert(authUser).values({
       deletionRequestedAt: null,
-      email: owner.email,
+      email: sensitiveDatabaseParameter(owner.email),
       emailVerified: true,
       id: owner.accountId,
       name: owner.name,
