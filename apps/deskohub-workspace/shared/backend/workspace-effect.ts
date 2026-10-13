@@ -104,17 +104,10 @@ const workspaceRuntime = NextEffect.make({
   memoMap: workspaceMemoMap,
 });
 
-const flushTelemetry = Effect.tryPromise({
-  try: () => flushPostHogLogs({ provider: postHogLoggerProvider }),
-  catch: (cause) =>
-    new WorkspaceTelemetryError({
-      cause,
-      message: "PostHog log flush failed",
-    }),
+// Telemetry is best effort: an unexpected flush defect must not fail the
+// request or task it follows.
+const flushTelemetry = flushPostHogLogs({
+  provider: postHogLoggerProvider,
 }).pipe(
-  Effect.timeout("5 seconds"),
-  Effect.tapError((cause) =>
-    Effect.logWarning("PostHog log flush failed", { cause })
-  ),
-  Effect.ignoreCause
+  Effect.ignoreCause({ log: "Warn", message: "PostHog log flush failed" })
 );
