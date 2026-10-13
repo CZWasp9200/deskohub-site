@@ -1358,7 +1358,7 @@ describe("DiscountService", () => {
     const providers = Layer.mergeAll(
       CalendarDiscountProviderMock({
         discover: () => Effect.succeed([]),
-        revalidate: () => Effect.succeed([]),
+        revalidate: () => Effect.succeed(calendarResolution([])),
       }),
       CustomerDiscountProviderMock({ resolve: () => Effect.succeed([]) }),
       PromotionCodeProviderMock({ revalidate: () => Effect.succeed([]) })
@@ -1456,7 +1456,7 @@ describe("DiscountService", () => {
     const providers = Layer.mergeAll(
       CalendarDiscountProviderMock({
         discover: () => Effect.succeed([]),
-        revalidate: () => Effect.succeed([]),
+        revalidate: () => Effect.succeed(calendarResolution([])),
       }),
       CustomerDiscountProviderMock({ resolve: () => Effect.succeed([]) }),
       PromotionCodeProviderMock({
@@ -1583,7 +1583,7 @@ describe("DiscountService", () => {
     const providers = Layer.mergeAll(
       CalendarDiscountProviderMock({
         discover: () => Effect.succeed([]),
-        revalidate: () => Effect.succeed([]),
+        revalidate: () => Effect.succeed(calendarResolution([])),
       }),
       CustomerDiscountProviderMock({ resolve: () => Effect.succeed([]) }),
       PromotionCodeProviderMock({
@@ -1653,7 +1653,9 @@ describe("DiscountService", () => {
       },
     };
     const providers = Layer.mergeAll(
-      CalendarDiscountProviderMock({ revalidate: () => Effect.succeed([]) }),
+      CalendarDiscountProviderMock({
+        revalidate: () => Effect.succeed(calendarResolution([])),
+      }),
       CustomerDiscountProviderMock({ resolve: () => Effect.succeed([]) }),
       PromotionCodeProviderMock({ revalidate: () => Effect.succeed([]) })
     );
