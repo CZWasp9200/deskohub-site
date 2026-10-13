@@ -1,4 +1,5 @@
 import { type EmailMessage, EmailServiceTag } from "@deskohub/email";
+import type { EmailServiceError } from "@deskohub/email/backend/service";
 import { type Config, Data, Effect, Layer, Predicate } from "effect";
 import type { WorkspaceEmailLocale } from "@/emails/_components/workspace-email-layout";
 import {
@@ -51,7 +52,7 @@ export type MagicLinkEmailRenderer = (
     readonly html: string;
     readonly text: string;
   },
-  unknown
+  EmailServiceError
 >;
 
 export type MagicLinkDeliveryEnvironment = {
