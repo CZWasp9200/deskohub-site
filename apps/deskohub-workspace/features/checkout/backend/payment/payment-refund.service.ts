@@ -14,6 +14,7 @@ import type { SqlError } from "effect/unstable/sql";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { databasePoolTimeouts } from "@/db/database-pool-timeouts";
 import { WorkspaceNexiLayer } from "@/shared/backend/config/nexi.config";
+import { parseInstant } from "@/shared/utils/temporal";
 import {
   type ClaimedRefundCheck,
   type PaymentRefundRecordResult,
@@ -121,10 +122,6 @@ export const refundBatchOverrunWorstCase = Duration.millis(
       2 * databasePoolTimeouts.query_timeout,
     Duration.toMillis(claimReleaseTimeout)
   )
-);
-
-const parseInstant = Option.liftThrowable((value: string) =>
-  Temporal.Instant.from(value)
 );
 
 /**
