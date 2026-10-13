@@ -2,7 +2,7 @@
 
 ## Declare services
 
-Declare the public interface first. Define the service with `Context.Service` and static Layer properties. Do not introduce `Effect.Service`, `Context.Tag`, or `Context.GenericTag`.
+Declare the public interface first, then the service with `Context.Service` and static Layer properties. V4 has no `Effect.Service`, `Context.Tag`, or `Context.GenericTag`.
 
 ```ts
 interface IFooService {
@@ -17,85 +17,43 @@ export class FooService extends Context.Service<
 }
 ```
 
-Select the Layer constructor by setup behavior:
+Choose the Layer constructor by setup behavior:
 
-- Use `Layer.effect(this, ...)` for effectful or fallible setup.
-- Use `Layer.sync(this, ...)` for pure lazy construction.
-- Use `Layer.succeed(this, ...)` for an already-created implementation or test fake.
+- `Layer.effect(this, ...)` for effectful or fallible setup.
+- `Layer.sync(this, ...)` for pure lazy construction.
+- `Layer.succeed(this, ...)` for an existing implementation or a test fake.
 
-Keep live Layers on their owning Context capability. Do not declare standalone
-aliases such as `FooServiceDefault` or `FooServiceLive`; callers use
-`FooService.Default` while composing dependencies and `FooService.Live` when
-the capability exposes a standard fully wired composition. This applies to
-repositories, configuration, and other Context capabilities as well as classes
-whose names end in `Service`.
+Name the default implementation `Default`, even when it still requires dependencies from Context. When a standard fully wired production composition exists, expose it as static `Live` on the same class, not in a separate runtime module. This applies to every Context capability, including repositories and configuration. The `no-standalone-capability-layers` Grit rule rejects standalone `FooDefault` or `FooLive` constants.
 
-Name the default implementation `Default`, even when it still requires Context
-dependencies. Name a standard production composition `Live` when one exists.
+When a runtime that can't load application environment modules must still import the capability, keep `Live` on the class and lazily load an environment-bound factory named for construction, such as `makeFooLayer`. See `accounting-snapshot-key.service.ts`.
 
-Represent service construction directly as an Effect when a factory adds no behavior or reuse. Do not add a `make*` function that merely returns one Effect expression.
+Write service construction directly as an Effect. Add a `make*` function only when it adds behavior or reuse.
 
-## Structure modules
+## Lay out modules
 
-Write service modules as top-down narratives. After imports, place the public interface and `Context.Service` declaration first, then the primary workflow, then progressively more concrete operations. Split the module when implementation detail branches into a separate concern.
-
-Place newly introduced private helper definitions below their callers so the primary workflow remains the module's entry point and implementation details unfold afterward. Keep a helper above when its inferred return type establishes a public contract there.
-
-Keep the interface, Context service declaration, and live layer in the `*.service.ts` module. Put the mock layer in an adjacent `*.service.mock.ts` module and use `Layer.mock` for partial test implementations instead of inline test mocks.
-
-When a capability declaration must remain importable by a runtime that cannot
-load application environment modules, keep its static `Live` property on the
-class and lazily load an environment-bound provider factory. Name that export
-for construction (for example `makeFooLayer`), never as a standalone
-`FooLive` alias.
-
-When a service has one standard fully wired live composition, expose it as the
-service's static `Live` layer. Do not create a separate runtime module whose
-only job is to export that composition.
+- Write a service module top-down: imports, public interface, `Context.Service` declaration, primary workflow, then progressively more concrete operations. Place new private helpers below their callers, unless a helper's inferred return type defines a public contract above.
+- Split the module when a detail becomes a separate concern.
+- Keep the interface, service declaration, and live Layer in `*.service.ts`. Put the mock Layer in an adjacent `*.service.mock.ts` and build partial fakes with `Layer.mock`.
+- Expose a feature's public service API through explicit named exports in its `index.ts` barrel. Keep providers, repositories, and other implementation modules private. In tests, import the module under test directly, not through the barrel. The `no-wildcard-reexport` Grit rule rejects `export *` in Workspace source.
 
 ## Model capabilities
 
-Treat services, providers, repositories, and external clients as Effect capabilities. Supply them through Context and compose implementations with Layers; do not pass them as ordinary function arguments or dependency objects.
+Treat services, providers, repositories, and external clients as Effect capabilities. Supply them through Context and compose them with Layers, never as function arguments or dependency objects.
 
-Use Effect's `HttpClient` capability for outbound HTTP. Provide the live transport with a `FetchHttpClient` Layer at the closest application adapter that owns the external operation, so unrelated upstream orchestration services do not inherit the low-level `HttpClient` requirement. Replace it with a Layer-provided client or fetch implementation in tests. Do not thread `fetch` functions through operation parameters as an ad hoc mocking seam.
-
-Import HTTP modules as named namespaces from the `effect/unstable/http` barrel, for example `import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/unstable/http"`. Do not add per-module namespace imports such as `import * as HttpClient from "effect/unstable/http/HttpClient"` in handwritten code.
-
-Resolve capabilities while constructing the consuming service and close over them in its implementation so public methods accept domain input only. Let a service's `Default` layer require its dependencies from Context. Provide live dependency layers in the service's `Live` composition and replace them with test layers in tests.
+- Resolve capabilities while you construct the consuming service, and close over them so public methods take domain input only.
+- Let `Default` require dependencies from Context. Provide live dependencies in `Live` and swap in test Layers in tests.
+- Use Effect's `HttpClient` for outbound HTTP. Provide the `FetchHttpClient` Layer at the closest adapter that owns the external call, so upstream services don't inherit the `HttpClient` requirement. In tests, provide a test client or fetch through a Layer instead of passing `fetch` as a parameter.
+- Import unstable modules as namespaces from their barrel: `import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/unstable/http"` or `import { SqlError } from "effect/unstable/sql"`. Don't deep-import paths such as `effect/unstable/http/HttpClient`.
 
 ## Call external providers
 
-- Bound every outbound provider request with a timeout that fails with the capability's typed error. Pass the `Effect.tryPromise` abort signal to promise-based SDKs so a timeout or interruption cancels the request.
-- Retry idempotent reads on transient failures. A timeout, transport failure, or 5xx can follow a committed create or send, so retry those only when the provider honors an idempotency key that stays the same across attempts. Otherwise retry only failures that prove nothing was applied, such as 429 or an empty creation response.
+- Bound every outbound request with a timeout that fails with the capability's typed error. Pass the `Effect.tryPromise` abort signal to promise-based SDKs so a timeout or interruption cancels the request.
+- Retry idempotent reads on transient failures. A timeout, transport failure, or 5xx can follow a committed create or send, so retry writes only when the provider honors an idempotency key that stays the same across attempts. Otherwise retry only failures that prove nothing was applied, such as 429 or an empty creation response.
 - When a provider rejects a cached credential with 401, invalidate the cached credential.
-- Keep the original error as `cause` unless it carries request bodies, credentials, or personal data. In that case remove those parts, and log only tags, identifiers, status codes, and field names.
+- Keep the original error as `cause` unless it carries request bodies, credentials, or personal data. Then strip those parts and log only tags, identifiers, status codes, and field names.
 
-## Name and expose operations
+## Name and run operations
 
-Name public service operations with `Effect.fn("Service.operation")`. Do not wrap the entire named operation in a redundant `Effect.withSpan`; add explicit spans only for meaningful nested trace boundaries.
-
-In a named Effect operation, do not add a scoped annotation for the entire input when the operation wrapper already annotates the same input fields individually.
-
-Prefer explicit type annotations for constructed service-boundary and public
-projection values. Reserve `satisfies` for configuration and other literals
-whose narrow inferred type is intentionally retained.
-
-Collection combinators such as `Effect.all` and `Effect.forEach` are sequential by default. When all collection items are independent and all results are required, prefer `Effect.all(items.map(operation), { concurrency: "inherit" })`; `"inherit"` runs unbounded unless a caller narrows it with `Effect.withConcurrency`. Use `Effect.forEach` when the workflow is intrinsically iterative. Do not manually fork and join fibers to obtain concurrency. Use a numeric limit only when the operation has a real local concurrency constraint.
-
-Expose each feature's public service API through explicit named exports in its `index.ts` barrel; do not use wildcard exports. Keep providers, repositories, intermediate candidates, and other implementation modules private. In tests, import the declaration module under test directly rather than through the feature barrel.
-
-## Adapt Next boundaries
-
-For same-app UI operations that do not need an independently addressable HTTP resource, use `defineWorkspaceAction` and validate untrusted input with its Standard Schema boundary. Provide feature capabilities inside the handler so the shared action runtime owns execution, request context, bot protection, failure mapping, timeouts, and telemetry. Do not make client components construct requests to app-owned endpoints merely to call server code.
-
-For independently addressable HTTP resources, use `defineWorkspaceRoute` and choose its request-disconnect cancellation policy explicitly. Interrupt pure response generation when the requester disconnects; continue after disconnect only for side effects that must finish independently of the response. Keep status codes and safe public messages out of reusable domain and Layer errors. Before returning the handler Effect, provide all feature capabilities and map the final expected error channel to `WorkspaceRouteFailure`, preserving the original error as `cause`.
-
-Map unexpected internal route errors with `WorkspaceRouteFailure.internal(publicMessage)` so HTTP 500 construction stays on the boundary error class and call sites remain concise.
-
-An Effect HTTP API served through `HttpRouter.toWebHandler` runs in its own runtime, not the route's. Merge `WorkspaceObservabilityLive` into its application Layer so its logs pass through the censoring Workspace logger and tracer, and pass `memoMap: workspaceMemoMap` so it reuses the observability instance the Workspace runtime already built. When a handler maps a failure to a cause-less public error such as service-unavailable, log the original cause first.
-
-`NextEffect.make({ layer })` builds its layer once per process, on the first run, and every Workspace boundary (`runWorkspaceEffect`, routes, actions, pages, tasks) shares that build. Each run still gets its own fork of the runtime's memo map, so providing a runtime layer again reuses the shared build, while other layers a handler provides with `Effect.provide` are built per run and never shared between concurrent requests. Put only process-wide, finalizer-free capabilities in a runtime layer. Never dispose a runtime: serverless processes end without a shutdown hook. Flush telemetry explicitly, through `scheduleWorkspaceTelemetryFlush` (`after()`) at request boundaries and `Effect.ensuring` in tasks, never by closing a layer scope. Keep per-request state (log annotations, request context, headers, abort signals) inside the run.
-
-When a run must fail open or react to any failure, such as a `"use cache"` function that serves a fallback or calls `cacheLife({ expire: 0 })`, use `runWorkspaceEffectOrElse(operation, { failureCode, orElse })`. The shared runtime builds its layer before entering the Effect, so `Effect.catchCause` or `Effect.onExit` inside the program cannot see a runtime-build failure. Do not add a Promise `.catch` after `runWorkspaceEffect` either. The helper calls `orElse` at most once per call, for typed failures, defects, and runtime-build rejections. Interruption, including an aborted `signal`, and Next.js control flow propagate as they do from `runWorkspaceEffect`, without `orElse`. A failing logger never discards the fallback. When `orElse` returns, the helper logs the failure once with the stable `failureCode` and serves that value. When `orElse` rethrows, the call rejects with that error unlogged, so the caller logs it as it would a `runWorkspaceEffect` rejection.
-
-Client modules run Effects with `runWorkspaceBrowserEffect(operation, { signal })` from `shared/browser/workspace-browser-effect.ts`, the browser counterpart of `runWorkspaceEffect`. It is the only browser module allowed to import `@deskohub/next-effect`; raw `Effect.run*` stays banned everywhere in Workspace source. Like the server runner, it rejects with the squashed failure or defect, rethrows Next.js control flow unchanged, and interrupts the run when `signal` aborts (an Effect that completes synchronously still finishes, as with `Effect.runPromise`). It provides an empty `References.CurrentLoggers`, so browser `Effect.log*` output is discarded rather than printing raw causes to the console. Do not add a Logger-based layer to browser code: any import of Effect's `Logger` module, even a named import from `effect/Logger`, costs about 20 KB gzip of first-load JavaScript on every page under Turbopack, while Effect's core runtime is already shipped. Report a browser failure with `reportWorkspaceBrowserFailure(failureCode, cause)` from `shared/browser/workspace-browser-logs.ts`, run through the runner. It never fails and records only the run's `operation` and `boundary` annotations, the stable `failureCode` (syntax-censored), an HTTP `status` when the cause carries an integer 100–599, and an `errorType` from `classifyErrorType` in `shared/utils/log-classification.ts`. Any code can set an error's `name` or `_tag`, so `classifyErrorType` passes only a fixed allowlist of built-in JavaScript and DOM error names and maps everything else, including Workspace tagged errors, to `unclassified`; never copy a raw `name`, `_tag`, or message into a browser record. Records go to the PostHog Logs outbox described in the account skill's PostHog identity reference; a throwing sink loses only that record and never fails the run. For a fire-and-forget report from a Promise-shaped client path, `void` the runner's promise; it cannot reject.
+- Name public service operations with `Effect.fn("Service.operation")`. It already creates the span; add `Effect.withSpan` only for a meaningful nested boundary. Don't add a scoped annotation for the whole input when the wrapper already annotates its fields.
+- Annotate the type of constructed service-boundary and public projection values. Reserve `satisfies` for configuration and other literals whose narrow inferred type you want to keep.
+- `Effect.all` and `Effect.forEach` run sequentially by default. For independent items whose results you all need, use `Effect.all(items.map(operation), { concurrency: "inherit" })`. `"inherit"` is unbounded unless a caller sets `Effect.withConcurrency`. Use `Effect.forEach` for intrinsically iterative work, a numeric limit only for a real local constraint, and never fork and join fibers by hand for concurrency.
