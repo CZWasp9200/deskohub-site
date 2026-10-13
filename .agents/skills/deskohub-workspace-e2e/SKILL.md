@@ -178,8 +178,8 @@ Distinguish automated-runner behavior from manual procedures before treating a d
   provider profile; cover active, expired, and duplicate provider-link states
   with exact unlink/relink transitions instead of extra auth links or
   identities. Keep the callback screenshot review on
-  `account-session-lifecycle` when it consumes the handed-off
-  reauthentication link; the marker case only issues it. The callback
+  `account-magic-link-delivery`, which consumes the first main-recipient
+  link inside the callback handoff wrapper. The callback
   handoff hold and its loading-document receipt are E2E evidence and run on
   every pass; only the screenshot, its capture viewport, and the font and
   viewport readiness checks depend on the review screenshot opt-in. For a candidate that
