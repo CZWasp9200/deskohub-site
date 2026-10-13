@@ -59,7 +59,7 @@ Provider failures that leave every displayed discount matched don't block affirm
 
 ## Booking instant
 
-A Calendar sale applies according to the booking instant (eligibility rule: `calendarSaleAppliesToBooking` in `features/discounts/calendar-sale.ts`).
+A Calendar sale applies according to the booking instant. The eligibility rule itself is in the domain skill's [sales calendar reference](../../deskohub-workspace-domain/references/sales-calendar.md); this section covers only where the booking instant comes from.
 
 - Advertisement and the home-page banner use the current instant.
 - Reservation submission (`prepareWorkspacePayState`) captures the instant once and signs it into the Pay state as `bookedAt`. Re-signed Pay states carry it forward.
@@ -67,7 +67,7 @@ A Calendar sale applies according to the booking instant (eligibility rule: `cal
 - Editing the reservation creates a new Pay state and a new booking instant. Never use the reservation draft's creation time.
 - Webhook, finalization, and late-payment recovery read persisted application snapshots and never re-evaluate eligibility.
 
-Meeting-room pricing derives `lastServiceDate` from the Prague date of the exclusive `endsAt` (`getMeetingRoomLastServiceDate`), so the advertisement stays keyed by dates, not clock times.
+Meeting-room advertised-price details carry `lastServiceDate` rather than clock times, so the advertisement stays keyed by dates.
 
 ## Calendar time budgets
 

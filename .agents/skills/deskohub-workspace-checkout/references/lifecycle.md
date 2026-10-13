@@ -51,6 +51,8 @@ Dotypos owns customer and reservation facts. Nexi owns external payment facts. T
 - Never recreate a `checkout_return_state_tokens` table. Return pages derive context from signed URL state, route parameters, Nexi verification, and the durable rows.
 - Administration reads current Nexi orders on demand and exposes only allowlisted fields; it persists no provider snapshot.
 
+Discount and voucher tables (`discounts`, `discount_targets`, `promotion_codes`, `discount_codes`, `vouchers`, `discount_applications`, the redemption ledgers, and their customer-audience tables) hold only source-neutral configuration, Dotypos customer IDs, application snapshots, and claim state. `promotion_codes` is the one submitted-code namespace; discount codes and vouchers keep separate aggregates and claim ledgers. Operator mutations are in the administration skill's [discount reference](../../deskohub-workspace-administration/references/discounts.md).
+
 Customer marketing consent lives in `customer_marketing_consents`, one row per Dotypos customer. A checked box grants or reactivates it; an unchecked box is a no-op, never a withdrawal. Reservation terms acceptance is append-only in `legal_evidence_events` with source `payment_submit`. When one control captures both the early-performance request and the withdrawal-right acknowledgement, persist one consent fact, not one boolean per legal label.
 
 ## State machines
