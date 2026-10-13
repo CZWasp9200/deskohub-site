@@ -102,6 +102,14 @@ export interface IReferralService {
     readonly dotyposCustomerId: DotyposCustomerId;
   }) => Effect.Effect<CheckoutReferralEvaluation, ReferralError>;
   /**
+   * Whether the customer's one referral is settled: an attribution exists or
+   * a paid booking has closed the first-booking window. A remembered shared
+   * code is then of no further use.
+   */
+  readonly hasSettledReferral: (input: {
+    readonly dotyposCustomerId: DotyposCustomerId;
+  }) => Effect.Effect<boolean, ReferralError>;
+  /**
    * The 15% invitation for the customer's first paid booking, from an
    * existing attribution or, failing that, from the checkout's still-eligible
    * `referralCode`.
@@ -1136,12 +1144,28 @@ export class ReferralService extends Context.Service<
         }
       );
 
+      const hasSettledReferral = Effect.fn(
+        "ReferralService.hasSettledReferral"
+      )((input: { readonly dotyposCustomerId: DotyposCustomerId }) =>
+        findAttribution(input.dotyposCustomerId).pipe(
+          Effect.flatMap((attribution) =>
+            attribution
+              ? Effect.succeed(true)
+              : findInvitationWindow(input.dotyposCustomerId).pipe(
+                  Effect.map((window) => window === "closed")
+                )
+          ),
+          Effect.mapError(() => fail("unavailable"))
+        )
+      );
+
       return {
         getAccountSummary,
         acceptReferral,
         lookupCodeKind,
         findAvailableCode,
         evaluateCheckoutReferral,
+        hasSettledReferral,
         resolveInvitationCandidate,
         resolveReferrerCandidate,
       } satisfies IReferralService;
