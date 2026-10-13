@@ -61,7 +61,7 @@ class InvoiceStorageError extends Data.TaggedError("InvoiceStorageError")<{
   readonly cause?: unknown;
 }> {}
 
-export class ManualInvoiceConflictError extends Data.TaggedError(
+class ManualInvoiceConflictError extends Data.TaggedError(
   "ManualInvoiceConflictError"
 )<{
   readonly invoiceId: string;

@@ -258,4 +258,18 @@ describe("invoice presentation", () => {
       expect.objectContaining({ label: "Due date" })
     );
   });
+
+  test("falls back to the stored country code Intl cannot name", () => {
+    const document = makeCoworkInvoiceDocument("en-US");
+    const presentation = getInvoicePresentation({
+      ...document,
+      buyer: {
+        ...document.buyer,
+        address: { ...document.buyer.address, country: "not-a-region" },
+      },
+    });
+
+    expect(presentation.buyer.details).toContain("not-a-region");
+    expect(presentation.supplier.details).toContain("Czechia");
+  });
 });

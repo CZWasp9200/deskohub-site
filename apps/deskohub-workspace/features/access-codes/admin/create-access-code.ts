@@ -10,7 +10,8 @@ import {
 } from "@deskohub/workspace-admin-api";
 import { WORKSPACE_SITE_TIME_ZONE } from "@deskohub/workspace-admin-api/site-time-zone";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { Match, Result, Schema } from "effect";
+import { Match, Option, Result, Schema } from "effect";
+import { isWholeHour } from "@/shared/utils/temporal";
 import type { StandaloneAccessCodeCreationOutcome } from "../standalone-access-code";
 
 const standaloneAccessCodeWindowDurationIssue = `The end must be ${ADMINISTRATION_STANDALONE_ACCESS_CODE_MINIMUM_DURATION_HOURS} to ${ADMINISTRATION_STANDALONE_ACCESS_CODE_MAXIMUM_DURATION_HOURS} hours after the start.`;
@@ -145,26 +146,23 @@ const toSiteInstant = (value: string) =>
     .toZonedDateTime(WORKSPACE_SITE_TIME_ZONE)
     .toInstant();
 
-const isWholeHourLocalTime = (dateTime: Temporal.PlainDateTime) =>
-  dateTime.minute === 0 &&
-  dateTime.second === 0 &&
-  dateTime.millisecond === 0 &&
-  dateTime.microsecond === 0 &&
-  dateTime.nanosecond === 0;
-
-export const isStandaloneAccessCodeLocalDateTime = (value: string) => {
-  try {
+const checkStandaloneAccessCodeLocalDateTime = Option.liftThrowable(
+  (value: string) => {
     const dateTime = Temporal.PlainDateTime.from(value);
     if (dateTime.toString({ smallestUnit: "minute" }) !== value) return false;
-    if (!isWholeHourLocalTime(dateTime)) return false;
+    if (!isWholeHour(dateTime)) return false;
     return dateTime
       .toZonedDateTime(WORKSPACE_SITE_TIME_ZONE)
       .toPlainDateTime()
       .equals(dateTime);
-  } catch {
-    return false;
   }
-};
+);
+
+/** Whether a value is a canonical whole-hour local time that exists on site. */
+export const isStandaloneAccessCodeLocalDateTime = (value: string) =>
+  checkStandaloneAccessCodeLocalDateTime(value).pipe(
+    Option.getOrElse(() => false)
+  );
 
 export const standaloneAccessCodeElapsedHours = ({
   startsAt,
