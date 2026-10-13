@@ -749,6 +749,36 @@ describe("analytics account identity", () => {
     });
   });
 
+  test("publishes unavailable for a failed background refresh that nobody awaits", async () => {
+    let unhandledRejections = 0;
+    const recordUnhandled = () => {
+      unhandledRejections += 1;
+    };
+    process.on("unhandledRejection", recordUnhandled);
+    setSession({
+      ...authenticatedSession("synthetic-account-a"),
+      refetch: async () => {
+        throw new Error("synthetic background refetch failure");
+      },
+    });
+
+    try {
+      unsubscribe = analyticsIdentity.subscribeAnalyticsAccountIdentity(
+        () => undefined
+      );
+      window.dispatchEvent(new Event("focus"));
+      await flushMicrotasks();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(analyticsIdentity.getAnalyticsAccountIdentity()).toEqual({
+        status: "unavailable",
+      });
+      expect(unhandledRejections).toBe(0);
+    } finally {
+      process.off("unhandledRejection", recordUnhandled);
+    }
+  });
+
   test("holds pending through older and autoqueued refreshes until explicit mutation outcome", async () => {
     unsubscribe = analyticsIdentity.subscribeAnalyticsAccountIdentity(
       () => undefined

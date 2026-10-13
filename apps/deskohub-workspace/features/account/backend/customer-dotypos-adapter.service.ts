@@ -9,7 +9,7 @@ import {
   type ValidationError,
 } from "@deskohub/dotypos";
 import type { UpdateCustomerRequest } from "@deskohub/dotypos/generated";
-import { Context, Effect, Layer, Result } from "effect";
+import { Context, Data, Effect, Layer } from "effect";
 import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
 import type { CustomerProfileInput } from "../contracts";
 
@@ -90,6 +90,14 @@ const isUncertainDotyposError = (error: DotyposCustomerError): boolean => {
   }
   return false;
 };
+
+/**
+ * A rejected profile patch, kept apart from reread failures so the patch
+ * retry policy never retries a failed reread.
+ */
+class CustomerPatchRejected extends Data.TaggedError("CustomerPatchRejected")<{
+  readonly error: DotyposCustomerError;
+}> {}
 
 const isEtagConflictError = (error: DotyposCustomerError): boolean =>
   error._tag === "ExternalAPIError" &&
@@ -391,34 +399,43 @@ export class CustomerDotyposAdapter extends Context.Service<
         readonly payload: UpdateCustomerRequest;
         readonly isApplied: (customer: DotyposCustomer | null) => boolean;
       }) {
-        let lastError: DotyposCustomerError | undefined;
+        const confirmApplied = (rejection: CustomerPatchRejected) =>
+          readCustomer(input.customerId).pipe(
+            Effect.filterOrFail(input.isApplied, () => rejection),
+            Effect.asVoid
+          );
+        const isUncertainRejection = (
+          failure: CustomerPatchRejected | DotyposCustomerError
+        ): failure is CustomerPatchRejected =>
+          failure instanceof CustomerPatchRejected &&
+          isUncertainDotyposError(failure.error);
 
-        for (let attempt = 0; attempt < 2; attempt += 1) {
-          const outcome = yield* dotypos
-            .patchCustomer(input.customerId, input.payload)
-            .pipe(Effect.asVoid, Effect.result);
-          if (Result.isSuccess(outcome)) return;
+        // Each attempt issues a fresh patch request. An uncertain rejection
+        // may still have been applied, so the attempt rereads before treating
+        // it as failed. Only the patch rejection is retried, never a reread
+        // failure.
+        const attempt = Effect.suspend(() =>
+          dotypos.patchCustomer(input.customerId, input.payload)
+        ).pipe(
+          Effect.asVoid,
+          Effect.mapError((error) => new CustomerPatchRejected({ error })),
+          Effect.catchIf(isUncertainRejection, confirmApplied)
+        );
 
-          const error = outcome.failure as DotyposCustomerError;
-          lastError = error;
-
-          if (isEtagConflictError(error) && attempt === 0) continue;
-
-          if (isUncertainDotyposError(error)) {
-            const reread = yield* readCustomer(input.customerId);
-            if (input.isApplied(reread)) return;
-            continue;
-          }
-
-          return yield* error;
-        }
-
-        if (lastError && isUncertainDotyposError(lastError)) {
-          const finalReread = yield* readCustomer(input.customerId);
-          if (input.isApplied(finalReread)) return;
-        }
-
-        return yield* lastError!;
+        return yield* attempt.pipe(
+          Effect.retry({
+            times: 1,
+            while: (failure) =>
+              failure instanceof CustomerPatchRejected &&
+              (isEtagConflictError(failure.error) ||
+                isUncertainDotyposError(failure.error)),
+          }),
+          // A retried attempt that stays uncertain gets one final reread.
+          Effect.catchIf(isUncertainRejection, confirmApplied),
+          Effect.mapError((failure) =>
+            failure instanceof CustomerPatchRejected ? failure.error : failure
+          )
+        );
       });
 
       const updateCustomerProfile = Effect.fn(
