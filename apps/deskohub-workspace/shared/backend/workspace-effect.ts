@@ -29,6 +29,13 @@ interface RunWorkspaceEffectOrElseOptions<B> extends RunWorkspaceEffectOptions {
   readonly orElse: (cause: unknown) => B;
 }
 
+/** What `orElse` threw, carried to the boundary that rethrows it. */
+class WorkspaceFallbackRejection extends Data.TaggedError(
+  "WorkspaceFallbackRejection"
+)<{
+  readonly cause: unknown;
+}> {}
+
 class WorkspaceTelemetryError extends Data.TaggedError(
   "WorkspaceTelemetryError"
 )<{
@@ -55,41 +62,72 @@ export const runWorkspaceEffect =
  * before entering the Effect, such as when the shared observability runtime
  * cannot be built. A fallback inside the Effect cannot see that last case.
  * Next.js control flow (redirects, `notFound`, prerender bailouts) still
- * propagates. Each failure is logged once with `failureCode`.
+ * propagates. A failure is logged once with `failureCode` when `orElse`
+ * serves a fallback; when `orElse` throws, the call rejects with that error
+ * unlogged, handing the failure to the caller as `runWorkspaceEffect` does.
  */
-export const runWorkspaceEffectOrElse =
-  <B>(
-    operation: string,
-    { failureCode, orElse, ...options }: RunWorkspaceEffectOrElseOptions<B>
-  ) =>
-  async <A, E>(effect: Effect.Effect<A, E, never>): Promise<A | B> => {
-    const exit = await effect
-      .pipe(
-        Effect.exit,
-        Effect.tap(logFallbackFailure(failureCode)),
-        runWorkspaceEffect(operation, options)
-      )
+export const runWorkspaceEffectOrElse = <B>(
+  operation: string,
+  { failureCode, orElse, ...options }: RunWorkspaceEffectOrElseOptions<B>
+) => {
+  const answerFailure = <A, E>(
+    effect: Effect.Effect<A, E, never>
+  ): Effect.Effect<Exit.Exit<A | B, E | WorkspaceFallbackRejection>> =>
+    effect.pipe(
+      Effect.catchCause(
+        (cause): Effect.Effect<B, E | WorkspaceFallbackRejection> =>
+          causeFailures(cause).some(isNextControlFlow)
+            ? Effect.failCause(cause)
+            : Effect.try({
+                try: () => orElse(Cause.squash(cause)),
+                catch: (thrown) =>
+                  new WorkspaceFallbackRejection({ cause: thrown }),
+              }).pipe(
+                Effect.tap(() =>
+                  Effect.logWarning(
+                    "Workspace Effect failed; serving its fallback",
+                    { failureCode, cause }
+                  )
+                )
+              )
+      ),
+      Effect.exit
+    );
+
+  return async <A, E>(effect: Effect.Effect<A, E, never>): Promise<A | B> => {
+    const exit = await answerFailure(effect)
+      .pipe(runWorkspaceEffect(operation, options))
       .then(
-        (exit): Exit.Exit<A, unknown> => exit,
-        (cause: unknown) => {
-          // Without the shared runtime, log through the standalone logger.
-          const exit = Exit.die(cause);
-          return logFallbackFailure(failureCode)(exit)
+        (exit) => exit,
+        // Without the shared runtime, answer through the standalone logger.
+        (cause: unknown) =>
+          answerFailure(Effect.die(cause))
             .pipe(runStandaloneWorkspaceEffect(operation))
             .then(
-              () => exit,
+              (exit) => exit,
               // Nothing is left to log through when that logger fails too.
-              () => exit
-            );
-        }
+              () =>
+                Result.match(
+                  Result.try({
+                    try: () => orElse(cause),
+                    catch: (thrown) =>
+                      new WorkspaceFallbackRejection({ cause: thrown }),
+                  }),
+                  { onSuccess: Exit.succeed, onFailure: Exit.fail }
+                )
+            )
       );
     if (Exit.isSuccess(exit)) return exit.value;
 
     for (const failure of causeFailures(exit.cause)) {
       unstable_rethrow(failure);
     }
-    return orElse(Cause.squash(exit.cause));
+    const failure = Cause.squash(exit.cause);
+    throw failure instanceof WorkspaceFallbackRejection
+      ? failure.cause
+      : failure;
   };
+};
 
 const causeFailures = (cause: Cause.Cause<unknown>) =>
   cause.reasons.flatMap((reason) => {
@@ -100,16 +138,6 @@ const causeFailures = (cause: Cause.Cause<unknown>) =>
 
 const isNextControlFlow = (cause: unknown) =>
   Result.isFailure(Result.try(() => unstable_rethrow(cause)));
-
-const logFallbackFailure =
-  (failureCode: string) =>
-  <A, E>(exit: Exit.Exit<A, E>) =>
-    Exit.isFailure(exit) && !causeFailures(exit.cause).some(isNextControlFlow)
-      ? Effect.logWarning("Workspace Effect failed; serving its fallback", {
-          failureCode,
-          cause: exit.cause,
-        })
-      : Effect.void;
 
 export const defineWorkspaceTask =
   <Args extends readonly unknown[], A, E>(
