@@ -11,7 +11,7 @@ import {
 import { WORKSPACE_SITE_TIME_ZONE } from "@deskohub/workspace-admin-api/site-time-zone";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { Match, Option, Result, Schema } from "effect";
-import { isWholeHour } from "@/shared/utils/temporal";
+import { isWholeHour, localDateTimeToInstant } from "@/shared/utils/temporal";
 import type { StandaloneAccessCodeCreationOutcome } from "../standalone-access-code";
 
 const standaloneAccessCodeWindowDurationIssue = `The end must be ${ADMINISTRATION_STANDALONE_ACCESS_CODE_MINIMUM_DURATION_HOURS} to ${ADMINISTRATION_STANDALONE_ACCESS_CODE_MAXIMUM_DURATION_HOURS} hours after the start.`;
@@ -141,11 +141,6 @@ export interface StandaloneAccessCodeWindowValues {
   readonly endsAt: string;
 }
 
-const toSiteInstant = (value: string) =>
-  Temporal.PlainDateTime.from(value)
-    .toZonedDateTime(WORKSPACE_SITE_TIME_ZONE)
-    .toInstant();
-
 const checkStandaloneAccessCodeLocalDateTime = Option.liftThrowable(
   (value: string) => {
     const dateTime = Temporal.PlainDateTime.from(value);
@@ -177,8 +172,14 @@ export const standaloneAccessCodeElapsedHours = ({
   // Exact integer arithmetic: multiplying by a floating-point reciprocal
   // made valid whole-hour durations such as 15 or 60 hours non-integer.
   const elapsedNanoseconds =
-    toSiteInstant(endsAt).epochNanoseconds -
-    toSiteInstant(startsAt).epochNanoseconds;
+    localDateTimeToInstant({
+      dateTime: endsAt,
+      timeZone: WORKSPACE_SITE_TIME_ZONE,
+    }).epochNanoseconds -
+    localDateTimeToInstant({
+      dateTime: startsAt,
+      timeZone: WORKSPACE_SITE_TIME_ZONE,
+    }).epochNanoseconds;
   return elapsedNanoseconds % nanosecondsPerHour === 0n
     ? Number(elapsedNanoseconds / nanosecondsPerHour)
     : null;
