@@ -17,8 +17,9 @@ Read the business-facing [referral specification](../../../apps/deskohub-workspa
   - It sets the code with `request.cookies.set` and forwards those request headers, so the same response's render already reads it.
   - A page Chrome prerendered skipped the proxy capture, and activation shows it without another document request. `RememberSharedReferralCode` (mounted in the locale root layout) therefore remembers the address's code once `document.prerendering` is false or on `prerenderingchange`.
     - It applies the same rules through the shared `findSharedReferralCodeToRemember`, `setReferralCodeCookie` and `browserCookieJar` (`referral-code-cookie.ts`).
+    - It remembers only in the top-level browsing context (`window.self === window.top`), never inside a frame, matching the proxy's document-only rule.
     - Server readers of that activated page didn't see the code, so the completion prefill may appear only from the next navigation.
-    - `remember-shared-referral-code.browser.test.ts` pins prerender plus activation in natively launched Chromium. Chrome won't prerender under Playwright's DevTools control.
+    - `remember-shared-referral-code.browser.test.ts` pins prerender plus activation in natively launched Chromium (Chrome won't prerender under Playwright's DevTools control), and a framed page that remembers nothing.
   - Never thread `ref` through links. Readers use `readRememberedReferralCode()` (`remembered-referral-code.server.ts`).
   - Account pages clear the cookie once `ReferralService.hasSettledReferral` reports the customer attributed or past a paid booking. Checkout uses `isBookerReferralSettled` (`features/checkout/backend/checkout/booker-referral-settlement.ts`, with a page wrapper in `.server.ts`): it checks the booker's own customer, which is the signed-in account's linked customer, or else the booked customer of a guest booking. Booking for someone else never clears the booker's cookie. To clear:
     - Server Actions and route handlers call `forgetRememberedReferralCode()`;

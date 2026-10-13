@@ -67,6 +67,23 @@ describe("RememberSharedReferralCode", () => {
     expect(rememberedCode()).toBe("RFL12345");
   });
 
+  test("ignores the shared code of a page shown inside a frame", () => {
+    openPage("https://deskohub.test/en-US/account?ref=RFL12345");
+    const top = Object.getOwnPropertyDescriptor(window, "top");
+    Object.defineProperty(window, "top", {
+      configurable: true,
+      get: () => ({}),
+    });
+    try {
+      render(<RememberSharedReferralCode />);
+    } finally {
+      if (top) Object.defineProperty(window, "top", top);
+      else Reflect.deleteProperty(window, "top");
+    }
+
+    expect(rememberedCode()).toBeUndefined();
+  });
+
   test("keeps a code the browser already remembers", () => {
     document.cookie = `${referralCodeCookieName}=RFLFIRST1; Path=/`;
     openPage("https://deskohub.test/en-US/account?ref=RFLSECOND");

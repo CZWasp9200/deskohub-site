@@ -17,10 +17,13 @@ const isPrerendering = () =>
  * and the browser can activate it later without another document request. So
  * once the page is really shown, a code in its address is remembered like the
  * proxy would: only when none is remembered yet. A server render of that page
- * did not see the code; later navigations do.
+ * did not see the code; later navigations do. Like the proxy, it remembers
+ * only for a page shown as the top-level document, never inside a frame.
  */
 export function RememberSharedReferralCode() {
   useEffect(() => {
+    // Comparing window proxies is allowed even under a cross-origin parent.
+    if (window.self !== window.top) return;
     const remember = () => {
       const code = findSharedReferralCodeToRemember(
         new URL(window.location.href).searchParams,
