@@ -2165,6 +2165,88 @@ describe("discount administration pages", () => {
     expect(execute).not.toHaveBeenCalled();
   });
 
+  test("offers no new single cowork tier targets before their release", async () => {
+    const { CreateDiscountForm } = await import("./admin-tables");
+    const view = render(<CreateDiscountForm />);
+
+    for (const name of ["Open Space only", "Reserved Desk only"]) {
+      const checkbox = view.getByRole("checkbox", { name });
+      expect((checkbox as HTMLInputElement).disabled).toBe(true);
+      expect(checkbox.getAttribute("aria-describedby")).toBe(
+        "unreleasedTierTargets"
+      );
+    }
+    expect(
+      (
+        view.getByRole("checkbox", {
+          name: "All cowork tiers",
+        }) as HTMLInputElement
+      ).disabled
+    ).toBe(false);
+    expect(
+      view.getByText(
+        "Adding single cowork tier targets is not enabled yet. Choose All cowork tiers instead."
+      ).id
+    ).toBe("unreleasedTierTargets");
+  });
+
+  test("keeps stored single cowork tier targets editable before their release", async () => {
+    const captured = captureWorkspaceActions(/^updateDiscount\./);
+    const [discount] = dashboard.discounts;
+    const { CodesAdministrationCollection } = await import("./components");
+    const view = render(
+      <CodesAdministrationCollection
+        dashboard={{
+          ...dashboard,
+          discounts: [
+            {
+              ...discount,
+              products: [
+                { kind: "cowork", tier: "open-space" },
+                { kind: "office" },
+              ],
+            },
+          ],
+        }}
+      />
+    );
+
+    fireEvent.click(view.getByRole("button", { name: "Edit SUMMER10" }));
+    const discountForm = view
+      .getByRole("button", { name: "Save discount" })
+      .closest("form")!;
+    const openSpace = within(discountForm).getByRole("checkbox", {
+      name: "Open Space only",
+    }) as HTMLInputElement;
+    const reservedDesk = within(discountForm).getByRole("checkbox", {
+      name: "Reserved Desk only",
+    }) as HTMLInputElement;
+    expect(openSpace.disabled).toBe(false);
+    expect(reservedDesk.disabled).toBe(true);
+
+    fireEvent.click(
+      within(discountForm).getByRole("checkbox", { name: "Meeting room" })
+    );
+    fireEvent.submit(discountForm);
+    await waitFor(() =>
+      expect(
+        captured(`updateDiscount.${discount.id}`).execute
+      ).toHaveBeenCalledWith({
+        kind: "update-discount",
+        discount: {
+          id: discount.id,
+          labels: discount.labels,
+          adjustment: discount.adjustment,
+          products: [
+            { kind: "cowork", tier: "open-space" },
+            { kind: "meeting-room" },
+            { kind: "office" },
+          ],
+        },
+      })
+    );
+  });
+
   test("targets single cowork tiers and blocks mixing them with all cowork tiers", async () => {
     const execute = mock();
     workspaceUseAction.mockReturnValue({
@@ -2173,7 +2255,15 @@ describe("discount administration pages", () => {
       result: {},
     });
     const { CreateDiscountForm } = await import("./admin-tables");
-    const view = render(<CreateDiscountForm />);
+    const { CoworkTierTargetReleaseProvider } = await import(
+      "./cowork-tier-target-release"
+    );
+    const view = render(
+      <CoworkTierTargetReleaseProvider released>
+        <CreateDiscountForm />
+      </CoworkTierTargetReleaseProvider>
+    );
+    expect(view.queryByText(/not enabled yet/)).toBeNull();
     const form = view
       .getByRole("button", { name: "Create discount" })
       .closest("form")!;
@@ -2231,21 +2321,26 @@ describe("discount administration pages", () => {
     const captured = captureWorkspaceActions(/^updateDiscount\./);
     const [discount] = dashboard.discounts;
     const { CodesAdministrationCollection } = await import("./components");
+    const { CoworkTierTargetReleaseProvider } = await import(
+      "./cowork-tier-target-release"
+    );
     const view = render(
-      <CodesAdministrationCollection
-        dashboard={{
-          ...dashboard,
-          discounts: [
-            {
-              ...discount,
-              products: [
-                { kind: "cowork", tier: "open-space" },
-                { kind: "office" },
-              ],
-            },
-          ],
-        }}
-      />
+      <CoworkTierTargetReleaseProvider released>
+        <CodesAdministrationCollection
+          dashboard={{
+            ...dashboard,
+            discounts: [
+              {
+                ...discount,
+                products: [
+                  { kind: "cowork", tier: "open-space" },
+                  { kind: "office" },
+                ],
+              },
+            ],
+          }}
+        />
+      </CoworkTierTargetReleaseProvider>
     );
 
     const row = view.getByRole("link", { name: "SUMMER10" }).closest("tr")!;

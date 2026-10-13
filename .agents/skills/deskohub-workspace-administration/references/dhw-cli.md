@@ -112,7 +112,9 @@ UI application services.
 Mutation commands use the same validated mutation schema and application
 services as the Admin UI. `--product cowork` targets every cowork tier;
 `cowork:open-space` and `cowork:reserved-desk` target one tier and cannot be
-combined with `cowork`. Representative commands are:
+combined with `cowork`. The server rejects adding a single-tier target with
+`CliMutationRejected` while the `cowork_tier_discount_targets` release flag is
+off; see the discount reference. Representative commands are:
 
 ```bash
 dhw reservations retry-access <reservation-id> --yes

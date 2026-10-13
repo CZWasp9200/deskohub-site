@@ -5,6 +5,7 @@ import {
 } from "@/features/administration/components";
 import { AdministrationDetailLoading } from "@/features/administration/loading";
 import { requireDotyposCustomerRouteId } from "@/features/administration/route-identifiers.server";
+import { CoworkTierTargetReleaseProvider } from "@/features/discounts/admin/cowork-tier-target-release";
 import { CustomerDiscountCodeCreationForm } from "@/features/discounts/admin/customer-code-creation";
 import { loadDiscountAdminCustomerCodeCreationPageData } from "@/features/discounts/admin/page-data.server";
 
@@ -30,7 +31,7 @@ async function CustomerDiscountCodeCreationContent({
   readonly params: Promise<{ readonly customerId: string }>;
 }) {
   const { customerId } = await params;
-  const { customer, discounts } =
+  const { coworkTierTargetsReleased, customer, discounts } =
     await loadDiscountAdminCustomerCodeCreationPageData(
       requireDotyposCustomerRouteId(customerId)
     );
@@ -43,12 +44,14 @@ async function CustomerDiscountCodeCreationContent({
         title={`Create a discount code for ${customer.displayName}`}
       />
       <div className="rounded-xl border border-navy-blue/10 bg-white p-5 sm:p-6">
-        <CustomerDiscountCodeCreationForm
-          completion="customer"
-          customerId={customer.id}
-          customerName={customer.displayName}
-          discounts={discounts}
-        />
+        <CoworkTierTargetReleaseProvider released={coworkTierTargetsReleased}>
+          <CustomerDiscountCodeCreationForm
+            completion="customer"
+            customerId={customer.id}
+            customerName={customer.displayName}
+            discounts={discounts}
+          />
+        </CoworkTierTargetReleaseProvider>
       </div>
     </>
   );

@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import { AdministrationModalLoading } from "@/features/administration/loading";
 import { requireDotyposCustomerRouteId } from "@/features/administration/route-identifiers.server";
+import { CoworkTierTargetReleaseProvider } from "@/features/discounts/admin/cowork-tier-target-release";
 import { CustomerDiscountCodeCreationDialog } from "@/features/discounts/admin/customer-code-creation-dialog";
 import { loadDiscountAdminCustomerCodeCreationPageData } from "@/features/discounts/admin/page-data.server";
 
@@ -22,16 +23,18 @@ async function CustomerDiscountCodeCreationModalContent({
   readonly params: Promise<{ readonly customerId: string }>;
 }) {
   const { customerId } = await params;
-  const { customer, discounts } =
+  const { coworkTierTargetsReleased, customer, discounts } =
     await loadDiscountAdminCustomerCodeCreationPageData(
       requireDotyposCustomerRouteId(customerId)
     );
 
   return (
-    <CustomerDiscountCodeCreationDialog
-      customerId={customer.id}
-      customerName={customer.displayName}
-      discounts={discounts}
-    />
+    <CoworkTierTargetReleaseProvider released={coworkTierTargetsReleased}>
+      <CustomerDiscountCodeCreationDialog
+        customerId={customer.id}
+        customerName={customer.displayName}
+        discounts={discounts}
+      />
+    </CoworkTierTargetReleaseProvider>
   );
 }

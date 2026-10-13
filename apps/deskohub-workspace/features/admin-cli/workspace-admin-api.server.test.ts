@@ -62,6 +62,7 @@ import {
   DiscountAdminConflictError,
   type DiscountAdminDashboard,
   DiscountAdministration,
+  DiscountAdminUnreleasedTierTargetError,
 } from "@/features/discounts/admin/discount-administration.service";
 import { CliAuthentication } from "./cli-authentication.service";
 import { CliAuthenticationAdmission } from "./cli-authentication-admission.service";
@@ -1477,6 +1478,78 @@ describe("Workspace Admin API", () => {
     expect(result.conflict).toBeInstanceOf(CliMutationRejected);
     expect(result.pending).toBeInstanceOf(CliMutationInProgress);
     expect(executions).toBe(1);
+    expect(releases).toBe(1);
+  });
+
+  test("rejects an unreleased cowork tier target and releases the claim", async () => {
+    const requestId = Schema.decodeUnknownSync(CliMutationRequestId)(
+      "01980000-0000-7000-8000-000000000013"
+    );
+    const message =
+      "Adding single cowork tier targets is not enabled yet. Choose All cowork tiers instead.";
+    let completions = 0;
+    let releases = 0;
+    const idempotency = Layer.succeed(CliMutationIdempotency, {
+      claim: () => Effect.succeed({ kind: "claimed" as const }),
+      complete: () =>
+        Effect.sync(() => {
+          completions += 1;
+        }),
+      reclaimStale: () => Effect.succeed(false),
+      release: () =>
+        Effect.sync(() => {
+          releases += 1;
+        }),
+    });
+    const discounts = Layer.succeed(DiscountAdministration, {
+      ...({} as DiscountAdministration["Service"]),
+      createDiscount: () =>
+        Effect.fail(new DiscountAdminUnreleasedTierTargetError({ message })),
+    });
+
+    const rejected = await Effect.gen(function* () {
+      const client = yield* HttpApiTest.groups(WorkspaceAdminApi, [
+        "administration",
+      ]);
+      return yield* client.administration
+        .mutateDiscounts({
+          payload: {
+            requestId,
+            mutation: {
+              kind: "create-discount",
+              discount: {
+                labels: { "cs-CZ": "Stoly", "en-US": "Desks" },
+                adjustment: { kind: "percentage", basisPoints: 1000 },
+                products: [{ kind: "cowork", tier: "reserved-desk" }],
+              },
+            },
+          },
+        })
+        .pipe(Effect.flip);
+    }).pipe(
+      Effect.provide(AdminCliAdministrationApiHandlers),
+      Effect.provide(AuthorizedCliRequest),
+      Effect.provide(idempotency),
+      Effect.provide(UnusedInvoiceAdministration),
+      Effect.provide(UnusedStandaloneAccessCodeAdministration),
+      Effect.provide(UnusedReservationAdministration),
+      Effect.provide(discounts),
+      Effect.provide(UnusedCliAuthentication),
+      Effect.provide(
+        Layer.succeed(
+          AdministrationService,
+          {} as AdministrationService["Service"]
+        )
+      ),
+      Effect.provide(UnusedReservationAccessAdministration),
+      Effect.provide(NodeHttpServer.layerHttpServices),
+      Effect.scoped,
+      Effect.runPromise
+    );
+
+    expect(rejected).toBeInstanceOf(CliMutationRejected);
+    expect(rejected).toMatchObject({ message });
+    expect(completions).toBe(0);
     expect(releases).toBe(1);
   });
 });
