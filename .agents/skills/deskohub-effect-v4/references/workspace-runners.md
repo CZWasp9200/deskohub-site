@@ -12,7 +12,7 @@ Every Workspace Effect runs through one runner or boundary. Server runners live 
 
 ## Shared runtime
 
-`NextEffect.make({ layer })` builds its Layer once per process, on the first run, and all server boundaries share it. Each run forks the memo map, so Layers a handler provides with `Effect.provide` build per run and never leak between requests.
+`NextEffect.make({ layer })` builds its Layer once per process, on the first run, and all server boundaries share it. Each run forks the runtime's memo map. Providing a Layer the runtime already built reuses its shared instance; any other Layer a handler provides with `Effect.provide` builds per run and never leaks between concurrent requests.
 
 - Put only process-wide, finalizer-free capabilities in a runtime Layer. Keep per-request state (log annotations, request context, headers, abort signals) inside the run.
 - Never dispose a runtime; serverless processes end without a shutdown hook. Flush telemetry with `scheduleWorkspaceTelemetryFlush` at request boundaries and `Effect.ensuring` in tasks, as `defineWorkspaceTask` does.

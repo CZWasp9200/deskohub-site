@@ -53,6 +53,10 @@ The root `patchedDependencies` patch `effect`, `@effect/sql-pg`, and `@effect/op
 - The Games and Igloohome clients are gitignored. Run their tests through `bun turbo test --filter=<package-name>`, or run `bun run generate` in the package once before a bare `bun test`.
 - Generate Workspace migrations and metadata with `bun turbo db:generate --filter=deskohub-workspace`. Never hand-write the Drizzle journal or snapshots.
 
+## Branch integration
+
+When you combine branches, inspect each conflict and decide the exact combined behavior before you resolve it. Keep lockfile reconciliation and generated-file cleanup separate from other changes. Then verify the combined result and get it reviewed.
+
 ## Environment files
 
 - Workspace and Boardgame Bar each own a `.env.example`. Copy it to the app-local ignored env file. Keep developer-only values in ignored local overrides.
