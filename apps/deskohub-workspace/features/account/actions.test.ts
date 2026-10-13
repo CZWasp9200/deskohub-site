@@ -114,7 +114,12 @@ const codeTarget: SignupIntent = {
   promotionCodeId: "@test/promotion-code-id",
   referrerDotyposCustomerId: "70001",
 };
-let storedIntent: (SignupIntent & { readonly code: string }) | undefined;
+type StoredIntent = SignupIntent & {
+  readonly code: string;
+  readonly outcome: string | null;
+  readonly acknowledged: boolean;
+};
+let storedIntent: StoredIntent | undefined;
 const SignupIntents = Context.Service<
   SignupIntents,
   {
@@ -123,11 +128,12 @@ const SignupIntents = Context.Service<
     ) => Effect.Effect<SignupIntent | undefined>;
     readonly find: (
       accountId: string
-    ) => Effect.Effect<(SignupIntent & { readonly code: string }) | undefined>;
-    readonly remove: (
+    ) => Effect.Effect<StoredIntent | undefined>;
+    readonly settle: (
       accountId: string,
-      promotionCodeId: string
-    ) => Effect.Effect<void>;
+      promotionCodeId: string,
+      outcome: string
+    ) => Effect.Effect<boolean>;
     readonly findAttributedCode: (
       customerId: string
     ) => Effect.Effect<string | undefined>;
@@ -137,9 +143,11 @@ Object.assign(SignupIntents, {
   Live: Layer.succeed(SignupIntents, {
     findCodeTarget: () => Effect.succeed(codeTarget),
     find: () => Effect.sync(() => storedIntent),
-    remove: () =>
+    settle: (_accountId, _promotionCodeId, outcome) =>
       Effect.sync(() => {
-        storedIntent = undefined;
+        if (!storedIntent || storedIntent.outcome !== null) return false;
+        storedIntent = { ...storedIntent, outcome };
+        return true;
       }),
     findAttributedCode: () => Effect.succeed(undefined),
   }),
@@ -183,7 +191,12 @@ Object.assign(Profile, {
         args: [accountId, email, input, signupReferral],
       });
       // The real link repository stores the intent with the created link.
-      storedIntent = signupReferral && { ...signupReferral, code: "RFL12345" };
+      storedIntent = signupReferral && {
+        ...signupReferral,
+        code: "RFL12345",
+        outcome: null,
+        acknowledged: false,
+      };
       return Effect.succeed({
         account: { accountId, dotyposCustomerId: "60222" },
         profile: { firstName: "Ada" },
@@ -402,7 +415,7 @@ describe("account actions", () => {
         },
       },
     ]);
-    expect(storedIntent).toBeUndefined();
+    expect(storedIntent?.outcome).toBe("applied");
   });
 
   test("reports an unavailable typed referral code on its field and creates nothing", async () => {
@@ -463,7 +476,7 @@ describe("account actions", () => {
       "findAvailableCode",
       "acceptReferral",
     ]);
-    expect(storedIntent).toBeUndefined();
+    expect(storedIntent?.outcome).toBe("already-referred");
   });
 
   test("records a typed referral code instead of the remembered one", async () => {

@@ -273,26 +273,46 @@ type StoredSignupIntent = {
   readonly code: string;
   readonly promotionCodeId: string;
   readonly referrerDotyposCustomerId: string;
+  readonly outcome?: string | null;
+  readonly acknowledged?: boolean;
 };
 let storedSignupIntent: StoredSignupIntent | undefined;
 const SignupIntents = Context.Service<
   SignupIntents,
   {
-    readonly find: (
-      accountId: CustomerAccountId
-    ) => Effect.Effect<StoredSignupIntent | undefined>;
-    readonly remove: (
+    readonly find: (accountId: CustomerAccountId) => Effect.Effect<
+      | (StoredSignupIntent & {
+          readonly outcome: string | null;
+          readonly acknowledged: boolean;
+        })
+      | undefined
+    >;
+    readonly settle: (
       accountId: CustomerAccountId,
-      promotionCodeId: string
-    ) => Effect.Effect<void>;
+      promotionCodeId: string,
+      outcome: string
+    ) => Effect.Effect<boolean>;
   }
 >()("@test/AccountSignupIntents");
 Object.assign(SignupIntents, {
   Live: Layer.succeed(SignupIntents, {
-    find: () => Effect.sync(() => storedSignupIntent),
-    remove: () =>
+    find: () =>
+      Effect.sync(() =>
+        storedSignupIntent
+          ? {
+              ...storedSignupIntent,
+              outcome: storedSignupIntent.outcome ?? null,
+              acknowledged: storedSignupIntent.acknowledged ?? false,
+            }
+          : undefined
+      ),
+    settle: (_accountId, _promotionCodeId, outcome) =>
       Effect.sync(() => {
-        storedSignupIntent = undefined;
+        if (!storedSignupIntent || (storedSignupIntent.outcome ?? null)) {
+          return false;
+        }
+        storedSignupIntent = { ...storedSignupIntent, outcome };
+        return true;
       }),
   }),
 });
@@ -482,10 +502,10 @@ describe("loadCustomerAccountPage", () => {
       },
     ]);
     expect(events).toEqual(["resolved", "accept", "summary"]);
-    expect(storedSignupIntent).toBeUndefined();
+    expect(storedSignupIntent?.outcome).toBe("applied");
   });
 
-  test("shows a stored code that settles as applied on that visit, and not on a fresh one", async () => {
+  test("keeps showing a code settled as applied on later visits, without retrying, until acknowledged", async () => {
     storedSignupIntent = {
       code: "RFLPENDING",
       promotionCodeId: "@test/promotion-code-id",
@@ -497,21 +517,26 @@ describe("loadCustomerAccountPage", () => {
       kind: "linked",
       signupReferral: { status: "pending" },
     });
-    expect(storedSignupIntent).toBeDefined();
+    expect(storedSignupIntent?.outcome ?? null).toBeNull();
 
     acceptReferralEffect = Effect.succeed({ status: "accepted" });
+    // The visit that settles the code may never reach the browser.
+    await loadPageState();
+    expect(storedSignupIntent?.outcome).toBe("applied");
+
     await expect(loadPageState()).resolves.toMatchObject({
       kind: "linked",
       signupReferral: { status: "applied" },
     });
-    expect(storedSignupIntent).toBeUndefined();
+    expect(acceptReferralCalls).toHaveLength(2);
 
-    const freshVisit = await loadPageState();
-    expect(freshVisit.kind).toBe("linked");
-    expect(freshVisit).not.toHaveProperty("signupReferral");
+    storedSignupIntent = { ...storedSignupIntent!, acknowledged: true };
+    const acknowledged = await loadPageState();
+    expect(acknowledged.kind).toBe("linked");
+    expect(acknowledged).not.toHaveProperty("signupReferral");
   });
 
-  test("shows a stored code that settles as rejected once, after the first booking is paid", async () => {
+  test("keeps showing a code settled as rejected after the first booking is paid, until acknowledged", async () => {
     storedSignupIntent = {
       code: "RFLPENDING",
       promotionCodeId: "@test/promotion-code-id",
@@ -523,11 +548,14 @@ describe("loadCustomerAccountPage", () => {
       kind: "linked",
       signupReferral: { status: "not-applied", reason: "not-eligible" },
     });
-    expect(storedSignupIntent).toBeUndefined();
-
-    const freshVisit = await loadPageState();
-    expect(freshVisit).not.toHaveProperty("signupReferral");
+    await expect(loadPageState()).resolves.toMatchObject({
+      kind: "linked",
+      signupReferral: { status: "not-applied", reason: "not-eligible" },
+    });
     expect(acceptReferralCalls).toHaveLength(1);
+
+    storedSignupIntent = { ...storedSignupIntent!, acknowledged: true };
+    expect(await loadPageState()).not.toHaveProperty("signupReferral");
   });
 
   test("leaves a stored code unsettled when the linked page cannot render", async () => {

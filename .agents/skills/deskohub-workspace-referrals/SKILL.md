@@ -9,7 +9,17 @@ Read the business-facing [referral specification](../../../apps/deskohub-workspa
 
 ## Public boundaries
 
-- `features/referrals/client.ts` is browser-safe. Use `parseReferralCode` for untrusted values and `referralCodeQueryParam` for the `ref` search parameter carried by share links, sign-in, and reservation pages.
+- `features/referrals/client.ts` is browser-safe. Use `parseReferralCode` for untrusted values and `referralCodeQueryParam` for the `ref` search parameter of share links.
+- Remembered shared code (`features/referrals/referral-code-cookie.ts`):
+  - `proxy.ts` stores a syntactically valid `?ref=` from any page request in the first-party `deskohub-referral-code` cookie (Path=/, SameSite=Lax, Secure over https, not HttpOnly, `sharedReferralCodeRememberedDays`).
+  - It does this only when the browser has none yet, so the first link wins.
+  - It injects the cookie into the forwarded request, so the same response's render already reads it.
+  - Never thread `ref` through links. Readers use `readRememberedReferralCode()` (`remembered-referral-code.server.ts`).
+  - Clear the cookie once `ReferralService.hasSettledReferral` reports the customer attributed or past a paid booking:
+    - Server Actions and route handlers call `forgetRememberedReferralCode()`;
+    - Server Component pages render `ForgetRememberedReferralCode`.
+  - Check settlement only when the cookie is present.
+  - A code typed in the completion field or the checkout box always takes precedence.
 - `features/referrals/index.ts` exports `ReferralService`; `ReferralError` and the public referral types live in `features/referrals/contracts.ts`. Use `ReferralService.Live` for production composition. `lookupCodeKind` is a pure registry lookup; it may distinguish referral from ordinary codes but must not issue a code or change attribution.
 - `getAccountSummary` is an explicit account read that may create the customer's durable share code. Do not call it from quote or checkout pricing.
 - `findAvailableCode` is a read-only check that returns the canonical code only when it is an enabled, currently valid referral code whose owner has a linked account without pending deletion. Use it to validate or prefill a code before any write; it never issues codes or attributions.
@@ -18,12 +28,21 @@ Read the business-facing [referral specification](../../../apps/deskohub-workspa
 - Only these callers may attribute, matching the business sources:
   - First-time profile completion (`features/account/actions.ts`, create branch only): the code is checked with `findAvailableCode` before the profile is created. A typed unusable code returns `referral-code-unavailable`. A code that matches the server-supplied prefill (`prefilledReferralCode`) and has become unusable is dropped silently.
     - The link claim writes a `referral_signup_intents` row (`features/referrals/signup-intent.repository.ts`) in the transaction that inserts the link, and only when that claim creates it. A losing concurrent completion stores nothing and reports from the account's state.
-    - `recordSignupReferral` (`features/account/backend/signup-referral.ts`) then runs `acceptReferral` after the lock is released. A definitive outcome, including `cycle`, deletes the intent. A transient failure or `pending_payment` keeps it, and every linked account-page load retries it until a paid booking or an attribution settles it.
-    - The action returns the outcome (applied, pending, or not applied with a reason), and the linked page shows it once. The loader runs the retry only after the profile loads, so the linked page is certain to render. It carries the retry's outcome as the linked state's `signupReferral`. `ProfileCompletionReferralNotice` shows it in place of the completion's own feedback. A definitive outcome deletes the intent, so only the visit that settles it reports it. An already-linked account ignores the code. The account page prefills the field from `ref` only in the completion-required state, and only when `findAvailableCode` returns it.
-  - Auto-linked first sign-in (`features/account/backend/auto-linked-referral.ts` `acceptAutoLinkedReferral`, from the account page loader). When `resolveCurrentCustomerAccount` reports `autoLinked` (this resolution claimed the link to an existing customer) and `ref` is present, it calls `acceptReferral` after the resolver lock is released. Failures are silent. Nothing between the magic-link callback and `/account?ref=` may resolve the account; otherwise that request claims the link without `ref` and the attribution is missed.
+    - `recordSignupReferral` (`features/account/backend/signup-referral.ts`) runs `acceptReferral` after the lock is released.
+      - An unsettled intent (`settled_at` empty) is retried on every linked account load. A transient failure or `pending_payment` leaves it pending.
+      - A definitive outcome, including `cycle`, is stored with one conditional `settle` update (`where settled_at is null`), so concurrent loads settle it once and a loser reports the stored winner.
+      - A settled intent is never retried. Its stored outcome is reported on every load, so an abandoned response or a second tab is harmless.
+    - The loader carries the stored outcome as the linked state's `signupReferral`. `ProfileCompletionReferralNotice` renders only from that server state.
+    - A settled outcome shows until the customer dismisses it through `acknowledgeSignupReferralNotice`, which sets `acknowledged_at`. Nothing client-side keeps an outcome, so a refresh can't revive stale feedback.
+    - An already-linked account ignores the code.
+    - The account page prefills the field from the remembered cookie only in the completion-required state, and only when `findAvailableCode` returns it.
+  - Auto-linked first sign-in (`features/account/backend/auto-linked-referral.ts` `acceptAutoLinkedReferral`, from the account page loader). When `resolveCurrentCustomerAccount` reports `autoLinked` (this resolution claimed the link to an existing customer) and the browser remembers a shared code, it calls `acceptReferral` after the resolver lock is released. Failures are silent. Opening the magic link in a browser without the cookie misses the attribution.
   - Checkout, for the booked customer of any booking (guest, account, or someone else). It carries the referral in the signed pay state (`referralCode`), prices it, reserves the invitation claim with its referrer and code at admission, and records the attribution in the transaction that marks the order paid. Sources:
     - the checkout code field, through `CheckoutReferralService`;
-    - reservation-page `ref` (`use-reservation-checkout.ts` → `preparePayState` `referralCode`). An account booking for the customer themselves evaluates the code and carries it into the first pay state, adding the `referralApplied` marker. Nothing is written before payment. For guest and someone-else bookings, a code that `findAvailableCode` accepts becomes the signed pay state's `requestedDiscountCode`, which only prefills the box. A `discountCode` the visitor requested takes priority, and nothing auto-submits.
+    - the remembered cookie, read in `prepareWorkspacePayState`:
+      - An account booking for the customer themselves evaluates the code and carries it into the first pay state, adding the `referralApplied` marker.
+      - Preparation clears the cookie when the booked customer is settled.
+      - The paid status page (`checkout-status-referral-code-settlement.tsx`) and the zero-total internal payment clear it too. Nothing is written before payment. For guest and someone-else bookings, a code that `findAvailableCode` accepts becomes the signed pay state's `requestedDiscountCode`, which only prefills the box. A `discountCode` the visitor requested takes priority, and nothing auto-submits.
 - Do not add an account-screen or other later acceptance path. The auto-linked first sign-in and the linked-load retry of a stored signup intent are the only account-side cases outside the completion action.
 - `features/checkout/backend/checkout/checkout-referral.service.ts` exports `CheckoutReferralService`. Its `acceptCode({ code, payStateToken, locale })` needs no account. It evaluates the code for the reservation's own customer, re-signs the pay state carrying the referral, and returns one of these statuses:
   - `accepted` or `already_accepted`, with an updated signed checkout URL.

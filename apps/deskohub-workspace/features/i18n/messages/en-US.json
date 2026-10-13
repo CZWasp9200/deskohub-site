@@ -899,6 +899,7 @@
   "accountProfileReferralCodeLabel": "Referral code",
   "accountProfileReferralCodeHint": "Invited by another Workspace customer? Enter their code to get {discount} off your first paid booking.",
   "accountProfileReferralCodeUnavailable": "This referral code can’t be used. Check it or leave the field empty.",
+  "accountProfileReferralNoticeDismiss": "Dismiss",
   "accountProfileReferralApplied": "Your referral code was applied. You’ll get {discount} off your first paid booking.",
   "accountProfileReferralPending": "We couldn’t save your referral code yet. We’ll try again the next time you open your account.",
   "accountProfileReferralAlreadyReferred": "Your referral code wasn’t applied because this account already has a referral.",

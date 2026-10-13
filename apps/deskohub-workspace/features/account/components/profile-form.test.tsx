@@ -55,6 +55,9 @@ const removeCustomerAvatar = mock(() =>
 );
 
 mock.module("@/features/account/actions", () => ({
+  acknowledgeSignupReferralNotice: mock(() =>
+    Promise.resolve({ data: { status: "acknowledged" } })
+  ),
   lookupAresBusiness: () =>
     Promise.resolve({ data: { status: "not-found", message: "" } }),
   completeCustomerProfile,
@@ -391,72 +394,6 @@ describe("ProfileForm", () => {
     ).toBeNull();
     expect(workspaceRouterRefresh).not.toHaveBeenCalled();
     expect(view.container.querySelector("#profile-referral-code")).toBeTruthy();
-  });
-
-  test("reports the completion's referral outcome and hands it to the linked account once", async () => {
-    completeCustomerProfile.mockImplementationOnce(() =>
-      Promise.resolve({
-        data: {
-          status: "completed",
-          referral: { status: "not-applied", reason: "already-referred" },
-        },
-      })
-    );
-    const { ProfileForm } = await import("./profile-form");
-    const {
-      ProfileCompletionReferralNotice,
-      ProfileCompletionReferralNoticeProvider,
-    } = await import("./profile-completion-referral-notice");
-    const message = m.accountProfileReferralAlreadyReferred(
-      {},
-      { locale: "en-US" }
-    );
-
-    function CompletionHarness() {
-      const [screen, setScreen] = React.useState<
-        "completion" | "linked" | "elsewhere"
-      >("completion");
-      return (
-        <ProfileCompletionReferralNoticeProvider>
-          <button onClick={() => setScreen("linked")} type="button">
-            linked
-          </button>
-          <button onClick={() => setScreen("elsewhere")} type="button">
-            elsewhere
-          </button>
-          {screen === "completion" && (
-            <ProfileForm
-              mode="complete"
-              locale="en-US"
-              email="ada@example.test"
-            />
-          )}
-          {screen === "linked" && (
-            <ProfileCompletionReferralNotice locale="en-US" />
-          )}
-        </ProfileCompletionReferralNoticeProvider>
-      );
-    }
-
-    const view = render(<CompletionHarness />);
-    fireEvent.change(view.getByLabelText("First name"), {
-      target: { value: "Ada" },
-    });
-    fireEvent.change(view.container.querySelector("#profile-referral-code")!, {
-      target: { value: "RFL12345" },
-    });
-    await act(async () => {
-      fireEvent.submit(view.container.querySelector("#account-profile-form")!);
-    });
-
-    expect(await view.findByText(message)).toBeTruthy();
-
-    fireEvent.click(view.getByText("linked"));
-    expect(view.getByRole("status").textContent).toBe(message);
-
-    fireEvent.click(view.getByText("elsewhere"));
-    fireEvent.click(view.getByText("linked"));
-    expect(view.getByRole("status").textContent).toBe("");
   });
 
   test("keeps the full edit snapshot and drafts across identity and billing sections", async () => {

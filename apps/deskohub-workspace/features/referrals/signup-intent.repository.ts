@@ -1,5 +1,5 @@
 import type { DotyposCustomerId } from "@deskohub/dotypos";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Effect, Layer } from "effect";
 import type { SqlError } from "effect/unstable/sql/SqlError";
@@ -9,6 +9,7 @@ import {
 } from "@/db/database.service";
 import { promotionCodes } from "@/db/schema/discounts";
 import {
+  type ReferralSignupOutcome,
   referralAttributions,
   referralCodes,
   referralSignupIntents,
@@ -26,9 +27,14 @@ export type ReferralSignupIntent = {
   readonly referrerDotyposCustomerId: DotyposCustomerId;
 };
 
-/** A stored intent with the code text that acceptance takes. */
-type PendingReferralSignupIntent = ReferralSignupIntent & {
+/**
+ * A stored intent with the code text that acceptance takes. `outcome` is
+ * empty while it still waits to be recorded.
+ */
+type StoredReferralSignupIntent = ReferralSignupIntent & {
   readonly code: string;
+  readonly outcome: ReferralSignupOutcome | null;
+  readonly acknowledged: boolean;
 };
 
 type ReferralSignupIntentError = EffectDrizzleQueryError | SqlError;
@@ -80,13 +86,21 @@ interface IReferralSignupIntentRepository {
   readonly find: (
     customerAccountId: CustomerAccountId
   ) => Effect.Effect<
-    PendingReferralSignupIntent | undefined,
+    StoredReferralSignupIntent | undefined,
     ReferralSignupIntentError
   >;
-  /** Removes the intent only while it still names the given code. */
-  readonly remove: (
+  /**
+   * Records the outcome of a still-unsettled intent that names the given
+   * code. Only one caller can settle it; the others get `false`.
+   */
+  readonly settle: (
     customerAccountId: CustomerAccountId,
-    promotionCodeId: PromotionCodeId
+    promotionCodeId: PromotionCodeId,
+    outcome: ReferralSignupOutcome
+  ) => Effect.Effect<boolean, ReferralSignupIntentError>;
+  /** Hides a settled outcome from the account for good. */
+  readonly acknowledge: (
+    customerAccountId: CustomerAccountId
   ) => Effect.Effect<void, ReferralSignupIntentError>;
   /** The code a customer's permanent attribution came from, if any. */
   readonly findAttributedCode: (
@@ -134,6 +148,8 @@ export class ReferralSignupIntentRepository extends Context.Service<
               promotionCodeId: referralSignupIntents.promotionCodeId,
               referrerDotyposCustomerId:
                 referralSignupIntents.referrerDotyposCustomerId,
+              outcome: referralSignupIntents.outcome,
+              acknowledgedAt: referralSignupIntents.acknowledgedAt,
             })
             .from(referralSignupIntents)
             .innerJoin(
@@ -144,23 +160,54 @@ export class ReferralSignupIntentRepository extends Context.Service<
               eq(referralSignupIntents.customerAccountId, customerAccountId)
             )
             .limit(1)
-            .pipe(Effect.map(([intent]) => intent))
+            .pipe(
+              Effect.map(([row]) => {
+                if (!row) return undefined;
+                const { acknowledgedAt, ...intent } = row;
+                return {
+                  ...intent,
+                  acknowledged: acknowledgedAt !== null,
+                } satisfies StoredReferralSignupIntent;
+              })
+            )
       );
 
-      const remove = Effect.fn("ReferralSignupIntentRepository.remove")(
+      const settle = Effect.fn("ReferralSignupIntentRepository.settle")(
         (
           customerAccountId: CustomerAccountId,
-          promotionCodeId: PromotionCodeId
+          promotionCodeId: PromotionCodeId,
+          outcome: ReferralSignupOutcome
         ) =>
           db
-            .delete(referralSignupIntents)
+            .update(referralSignupIntents)
+            .set({ outcome, settledAt: Temporal.Now.instant() })
             .where(
               and(
                 eq(referralSignupIntents.customerAccountId, customerAccountId),
-                eq(referralSignupIntents.promotionCodeId, promotionCodeId)
+                eq(referralSignupIntents.promotionCodeId, promotionCodeId),
+                isNull(referralSignupIntents.settledAt)
               )
             )
-            .pipe(Effect.asVoid)
+            .returning({
+              customerAccountId: referralSignupIntents.customerAccountId,
+            })
+            .pipe(Effect.map((rows) => rows.length > 0))
+      );
+
+      const acknowledge = Effect.fn(
+        "ReferralSignupIntentRepository.acknowledge"
+      )((customerAccountId: CustomerAccountId) =>
+        db
+          .update(referralSignupIntents)
+          .set({ acknowledgedAt: Temporal.Now.instant() })
+          .where(
+            and(
+              eq(referralSignupIntents.customerAccountId, customerAccountId),
+              isNotNull(referralSignupIntents.settledAt),
+              isNull(referralSignupIntents.acknowledgedAt)
+            )
+          )
+          .pipe(Effect.asVoid)
       );
 
       const findAttributedCode = Effect.fn(
@@ -182,7 +229,8 @@ export class ReferralSignupIntentRepository extends Context.Service<
       return {
         findCodeTarget,
         find,
-        remove,
+        settle,
+        acknowledge,
         findAttributedCode,
       } satisfies IReferralSignupIntentRepository;
     })

@@ -211,12 +211,21 @@ export const referralInvitationClaims = pgTable(
   ]
 );
 
+const referralSignupOutcomes = [
+  "applied",
+  "already-referred",
+  "not-eligible",
+  "code-unusable",
+] as const;
+
+export type ReferralSignupOutcome = (typeof referralSignupOutcomes)[number];
+
 /**
  * A referral code entered at first-time profile completion, written in the
  * same transaction that links the new customer so only the completion that
- * created the link records its code. It is removed once the attribution is
- * recorded or definitively rejected, and kept for a retry after a transient
- * failure.
+ * created the link records its code. While `settled_at` is empty it is
+ * retried; one conditional update then records its `outcome`. The row stays
+ * so the account can show that outcome until the customer acknowledges it.
  */
 export const referralSignupIntents = pgTable(
   "referral_signup_intents",
@@ -230,9 +239,19 @@ export const referralSignupIntents = pgTable(
     referrerDotyposCustomerId: text("referrer_dotypos_customer_id")
       .notNull()
       .$type<DotyposCustomerId>(),
+    outcome: text("outcome").$type<ReferralSignupOutcome>(),
+    settledAt: instant("settled_at"),
+    acknowledgedAt: instant("acknowledged_at"),
     createdAt: instant("created_at").notNull().default(sql`now()`),
   },
   (t) => [
+    check(
+      "referral_signup_intents_outcome_check",
+      sql`(${t.outcome} is null) = (${t.settledAt} is null)
+        and (${t.outcome} is null
+          or ${t.outcome} in (${quotedSqlList(referralSignupOutcomes)}))
+        and (${t.acknowledgedAt} is null or ${t.settledAt} is not null)`
+    ),
     foreignKey({
       name: "referral_signup_intents_code_referrer_fk",
       columns: [t.promotionCodeId, t.referrerDotyposCustomerId],

@@ -907,6 +907,7 @@
   "accountProfileReferralCodeLabel": "Doporučovací kód",
   "accountProfileReferralCodeHint": "Pozval vás jiný zákazník Workspace? Zadejte jeho kód a získáte slevu {discount} na svou první zaplacenou rezervaci.",
   "accountProfileReferralCodeUnavailable": "Tento doporučovací kód nelze použít. Zkontrolujte ho, nebo pole nechte prázdné.",
+  "accountProfileReferralNoticeDismiss": "Zavřít",
   "accountProfileReferralApplied": "Doporučovací kód byl uplatněn. Na svou první zaplacenou rezervaci získáte slevu {discount}.",
   "accountProfileReferralPending": "Doporučovací kód se zatím nepodařilo uložit. Zkusíme to znovu, až příště otevřete svůj účet.",
   "accountProfileReferralAlreadyReferred": "Doporučovací kód nebyl uplatněn, protože tento účet už doporučení má.",

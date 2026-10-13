@@ -16,6 +16,7 @@ import { CustomerAuthentication } from "@/features/account/backend/customer-auth
 import { CustomerProfileService } from "@/features/account/backend/customer-profile.service";
 import { completeNewCustomerProfile } from "@/features/account/backend/profile-completion";
 import { isRememberedReferralCodeUsed } from "@/features/account/backend/remembered-referral-code";
+import { acknowledgeSignupReferral } from "@/features/account/backend/signup-referral";
 import {
   type CustomerProfileInput,
   completeCustomerProfileStandardSchema,
@@ -24,6 +25,7 @@ import {
 import {
   CustomerAccountAccessError,
   type LinkedCustomerAccount,
+  mapCustomerAccountFailure,
 } from "@/features/account/customer-account";
 import { getAccountPath } from "@/features/account/routes";
 import type { Locale } from "@/features/i18n";
@@ -155,6 +157,45 @@ const updateCustomerProfileAction = defineWorkspaceAction(
       Effect.as(saveCustomerProfile(input, undefined, locale), {
         status: "updated" as const,
       })
+    )
+);
+
+const acknowledgeSignupReferralNoticeSchema = Schema.toStandardSchemaV1(
+  Schema.Struct({}),
+  { parseOptions: { errors: "all", onExcessProperty: "error" } }
+);
+
+/**
+ * Hides the settled outcome of the referral code entered at profile
+ * completion. The notice shows from stored state until this runs.
+ */
+const acknowledgeSignupReferralNoticeAction = defineWorkspaceAction(
+  {
+    operation: "account.acknowledge-signup-referral",
+    schema: acknowledgeSignupReferralNoticeSchema,
+    logInput: false,
+  },
+  (_input, { locale }) =>
+    Effect.andThen(
+      requireAccountsEnabled(locale),
+      CustomerAccountResolver.pipe(
+        Effect.flatMap((resolver) => resolver.resolve),
+        Effect.flatMap((account) =>
+          acknowledgeSignupReferral(account).pipe(
+            Effect.mapError(
+              mapCustomerAccountFailure("referral.signup-acknowledge")
+            )
+          )
+        ),
+        Effect.as({ status: "acknowledged" as const }),
+        Effect.mapError(accountActionError(locale)),
+        Effect.provide(
+          Layer.mergeAll(
+            CustomerAccountResolver.Live,
+            ReferralSignupIntentRepository.Live
+          )
+        )
+      )
     )
 );
 
@@ -348,3 +389,9 @@ export const deleteCustomerAccount: typeof deleteCustomerAccountAction = async (
   "use server";
   return await deleteCustomerAccountAction(...args);
 };
+
+export const acknowledgeSignupReferralNotice: typeof acknowledgeSignupReferralNoticeAction =
+  async (...args: Parameters<typeof acknowledgeSignupReferralNoticeAction>) => {
+    "use server";
+    return await acknowledgeSignupReferralNoticeAction(...args);
+  };

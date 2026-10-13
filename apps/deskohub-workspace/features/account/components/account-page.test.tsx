@@ -37,6 +37,9 @@ const getSession = mock(() => Promise.resolve({ data: null, error: null }));
 const beginAnalyticsAccountTransition = mock(() => undefined);
 const completeAnalyticsAccountSignOut = mock(() => undefined);
 const refreshAnalyticsAccountIdentity = mock(() => Promise.resolve());
+const acknowledgeSignupReferralNotice = mock(() =>
+  Promise.resolve({ data: { status: "acknowledged" } } as never)
+);
 const completeCustomerProfile = mock((_input: CustomerProfileInput) =>
   Promise.resolve({ data: { status: "completed" } })
 );
@@ -100,6 +103,7 @@ mock.module("@/shared/utils/use-workspace-action", () => ({
   },
 }));
 mock.module("@/features/account/actions", () => ({
+  acknowledgeSignupReferralNotice,
   lookupAresBusiness: () =>
     Promise.resolve({ data: { status: "not-found", message: "" } }),
   completeCustomerProfile,
@@ -333,7 +337,8 @@ describe("AccountPage states", () => {
         email: "ada@example.test",
         referralCode,
       });
-      refreshLinkedAccount = () => setState(linkedState);
+      refreshLinkedAccount = () =>
+        setState({ ...linkedState, signupReferral: { status: "applied" } });
 
       return (
         <AccountLayoutShell accountsEnabled locale="en-US" signedIn>
@@ -397,7 +402,11 @@ describe("AccountPage states", () => {
         email: "ada@example.test",
       });
       refreshLinkedAccount = () =>
-        setState({ ...linkedState, signupReferral: { status: "applied" } });
+        setState((current) =>
+          current.kind === "linked"
+            ? linkedState
+            : { ...linkedState, signupReferral: { status: "applied" } }
+        );
 
       return (
         <AccountLayoutShell accountsEnabled locale="en-US" signedIn>
@@ -437,6 +446,16 @@ describe("AccountPage states", () => {
     expect(
       view.queryByText(m.accountProfileReferralPending({}, en))
     ).toBeNull();
+
+    // A later refresh with no stored outcome (it was acknowledged) never
+    // brings back the completion's pending feedback.
+    await act(async () => {
+      refreshLinkedAccount();
+    });
+    expect(
+      view.queryByText(m.accountProfileReferralPending({}, en))
+    ).toBeNull();
+    expect(view.getByRole("status").textContent).toBe("");
   });
 
   test.each([
@@ -455,7 +474,7 @@ describe("AccountPage states", () => {
       () => m.accountProfileReferralNotEligible({}, en),
     ],
   ] as const)(
-    "shows a stored code settled as %s on the visit that settles it, and not on a fresh visit",
+    "shows a stored code settled as %s from server state, and nothing once acknowledged",
     async (_name, signupReferral, message) => {
       const settlingVisit = await renderState({
         ...linkedState,
@@ -494,6 +513,80 @@ describe("AccountPage states", () => {
       document.cookie = `${referralCodeCookieName}=; Path=/; Max-Age=0`;
       window.happyDOM.setURL(originalUrl);
     }
+  });
+
+  test.each([
+    [
+      "applied",
+      { status: "applied" },
+      () =>
+        m.accountProfileReferralApplied(
+          { discount: formatReferralInvitationDiscount(en.locale) },
+          en
+        ),
+    ],
+    [
+      "rejected",
+      { status: "not-applied", reason: "not-eligible" },
+      () => m.accountProfileReferralNotEligible({}, en),
+    ],
+  ] as const)(
+    "never revives pending feedback on a mounted notice after the code settles as %s",
+    async (_name, settled, message) => {
+      const { AccountLayoutShell } = await import("./account-layout-shell");
+      const { AccountPage } = await import("./account-page");
+      const page = (state: CustomerAccountPageState) => (
+        <AccountLayoutShell accountsEnabled locale="en-US" signedIn>
+          <AccountPage locale="en-US" state={state} />
+        </AccountLayoutShell>
+      );
+      const pendingMessage = m.accountProfileReferralPending({}, en);
+      const view = render(
+        page({ ...linkedState, signupReferral: { status: "pending" } })
+      );
+      expect(view.getByText(pendingMessage)).toBeTruthy();
+      expect(
+        view.queryByRole("button", {
+          name: m.accountProfileReferralNoticeDismiss({}, en),
+        })
+      ).toBeNull();
+
+      view.rerender(page({ ...linkedState, signupReferral: settled }));
+      expect(view.getByText(message())).toBeTruthy();
+
+      // A later refresh, such as after an avatar change, still loads the
+      // stored outcome.
+      view.rerender(page({ ...linkedState, signupReferral: settled }));
+      expect(view.getByText(message())).toBeTruthy();
+      expect(view.queryByText(pendingMessage)).toBeNull();
+
+      // Once acknowledged, a refresh carries no outcome and nothing returns.
+      view.rerender(page(linkedState));
+      expect(view.queryByText(message())).toBeNull();
+      expect(view.queryByText(pendingMessage)).toBeNull();
+    }
+  );
+
+  test("dismisses a settled outcome through the account and reloads its state", async () => {
+    acknowledgeSignupReferralNotice.mockClear();
+    workspaceRouterRefresh.mockClear();
+    const view = await renderState({
+      ...linkedState,
+      signupReferral: { status: "not-applied", reason: "already-referred" },
+    });
+
+    await act(async () => {
+      fireEvent.click(
+        view.getByRole("button", {
+          name: m.accountProfileReferralNoticeDismiss({}, en),
+        })
+      );
+    });
+
+    await waitFor(() => {
+      expect(acknowledgeSignupReferralNotice).toHaveBeenCalledWith({});
+      expect(workspaceRouterRefresh).toHaveBeenCalledTimes(1);
+    });
   });
 
   test("leaves the completion referral field empty without a usable code", async () => {

@@ -49,6 +49,9 @@ mock.module("next/navigation", () => ({
 }));
 
 mock.module("@/features/account/actions", () => ({
+  acknowledgeSignupReferralNotice: mock(() =>
+    Promise.resolve({ data: { status: "acknowledged" } })
+  ),
   lookupAresBusiness: () =>
     Promise.resolve({ data: { status: "not-found", message: "" } }),
   completeCustomerProfile,

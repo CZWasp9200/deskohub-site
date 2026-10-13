@@ -91,7 +91,7 @@ export function LinkedAccount({
     <>
       <ProfileCompletionReferralNotice
         locale={locale}
-        settledOutcome={signupReferral}
+        outcome={signupReferral}
       />
 
       <div hidden={activeSection !== "reservations"}>

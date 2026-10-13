@@ -1,54 +1,14 @@
 "use client";
 
-import {
-  createContext,
-  type ReactNode,
-  useContext,
-  useEffect,
-  useState,
-} from "react";
+import { useRouter } from "next/navigation";
+import { acknowledgeSignupReferralNotice } from "@/features/account/actions";
 import type { ProfileCompletionReferralOutcome } from "@/features/account/contracts";
 import { type Locale, m } from "@/features/i18n";
 import { formatReferralInvitationDiscount } from "@/features/referrals/client";
+import { Button } from "@/shared/components/ui/button";
+import { useWorkspaceAction } from "@/shared/utils/use-workspace-action";
 
-type ProfileCompletionReferralNoticeState = {
-  readonly outcome: ProfileCompletionReferralOutcome | undefined;
-  readonly setOutcome: (
-    outcome: ProfileCompletionReferralOutcome | undefined
-  ) => void;
-};
-
-const ProfileCompletionReferralNoticeContext =
-  createContext<ProfileCompletionReferralNoticeState | null>(null);
-
-/**
- * Holds the referral outcome of a first-time completion in the account
- * layout, which survives the refresh that replaces the completion form with
- * the linked account.
- */
-export function ProfileCompletionReferralNoticeProvider({
-  children,
-}: {
-  readonly children: ReactNode;
-}) {
-  const [outcome, setOutcome] = useState<
-    ProfileCompletionReferralOutcome | undefined
-  >();
-  return (
-    <ProfileCompletionReferralNoticeContext.Provider
-      value={{ outcome, setOutcome }}
-    >
-      {children}
-    </ProfileCompletionReferralNoticeContext.Provider>
-  );
-}
-
-/** Hands a completion's referral outcome to the linked account's notice. */
-export function useShowProfileCompletionReferralNotice() {
-  return useContext(ProfileCompletionReferralNoticeContext)?.setOutcome;
-}
-
-export const getProfileCompletionReferralMessage = (
+const getProfileCompletionReferralMessage = (
   outcome: ProfileCompletionReferralOutcome,
   locale: Locale
 ) => {
@@ -71,44 +31,49 @@ export const getProfileCompletionReferralMessage = (
 };
 
 /**
- * Shows the completion's referral outcome once on the linked account: the
- * notice takes the outcome from the layout, so a later visit starts clean.
- * `settledOutcome` comes from the page load that retried the stored code. It
- * is the account's current state, so it supersedes the completion's own
- * feedback; the load that settles the code is the only one that reports it.
+ * Shows the outcome of the referral code entered at profile completion, from
+ * the account's stored state alone. A pending code shows until it settles; a
+ * settled outcome shows on every visit until the customer dismisses it, so a
+ * refresh, a second tab, or an abandoned response cannot lose or revive it.
  */
 export function ProfileCompletionReferralNotice({
   locale,
-  settledOutcome,
+  outcome,
 }: {
   readonly locale: Locale;
-  readonly settledOutcome?: ProfileCompletionReferralOutcome;
+  readonly outcome?: ProfileCompletionReferralOutcome;
 }) {
-  const context = useContext(ProfileCompletionReferralNoticeContext);
-  const [outcome, setOutcome] = useState(context?.outcome);
-  const clearLayoutOutcome = context?.setOutcome;
-
-  useEffect(() => {
-    clearLayoutOutcome?.(undefined);
-  }, [clearLayoutOutcome]);
-
-  if (context?.outcome !== undefined && context.outcome !== outcome) {
-    setOutcome(context.outcome);
-  }
-  const shown = settledOutcome ?? outcome;
+  const router = useRouter();
+  const dismiss = useWorkspaceAction(acknowledgeSignupReferralNotice, {
+    actionName: "account.acknowledge-signup-referral",
+    onSuccess: () => router.refresh(),
+  });
 
   return (
     <div role="status">
-      {shown && (
-        <p
-          className={`mb-6 rounded-2xl border px-4 py-3 text-sm leading-6 ${
-            shown.status === "applied"
+      {outcome && (
+        <div
+          className={`mb-6 flex items-start justify-between gap-4 rounded-2xl border px-4 py-3 text-sm leading-6 ${
+            outcome.status === "applied"
               ? "border-emerald-200 bg-emerald-50 text-emerald-900"
               : "border-navy-blue/12 bg-white/92 text-navy-blue"
           }`}
         >
-          {getProfileCompletionReferralMessage(shown, locale)}
-        </p>
+          <p className="min-w-0">
+            {getProfileCompletionReferralMessage(outcome, locale)}
+          </p>
+          {outcome.status !== "pending" && (
+            <Button
+              className="h-auto shrink-0 rounded-full px-3 py-1 text-sm"
+              disabled={dismiss.isExecuting}
+              onClick={() => dismiss.execute({})}
+              type="button"
+              variant="ghost"
+            >
+              {m.accountProfileReferralNoticeDismiss({}, { locale })}
+            </Button>
+          )}
+        </div>
       )}
     </div>
   );

@@ -38,6 +38,9 @@ const completeAnalyticsAccountSignOut = mock(() => {
 });
 const refreshAnalyticsAccountIdentity = mock(() => Promise.resolve());
 mock.module("@/features/account/actions", () => ({
+  acknowledgeSignupReferralNotice: mock(() =>
+    Promise.resolve({ data: { status: "acknowledged" } })
+  ),
   deleteCustomerAccount,
 }));
 
