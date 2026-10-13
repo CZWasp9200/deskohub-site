@@ -77,7 +77,7 @@ mock.module("next/headers", () => ({
 // The referral code this browser remembers from a shared link.
 let rememberedReferralCode: string | undefined;
 mock.module("@/features/referrals/remembered-referral-code.server", () => ({
-  readRememberedReferralCode: async () => rememberedReferralCode,
+  readRememberedReferralCode: Effect.sync(() => rememberedReferralCode),
   forgetRememberedReferralCode: async () => {
     rememberedReferralCode = undefined;
   },

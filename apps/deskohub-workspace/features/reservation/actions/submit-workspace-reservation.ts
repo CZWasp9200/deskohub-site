@@ -26,9 +26,7 @@ import { PublicSafeActionError } from "@/shared/utils/safe-action-client";
  * only logged.
  */
 const forgetUsedReferralCode = Effect.gen(function* () {
-  const rememberedCode = yield* Effect.tryPromise(() =>
-    readRememberedReferralCode()
-  );
+  const rememberedCode = yield* readRememberedReferralCode;
   if (!rememberedCode) return;
   if (!(yield* isBookerReferralSettled({ paid: true }))) return;
   yield* Effect.tryPromise(() => forgetRememberedReferralCode());

@@ -1,5 +1,6 @@
 import "server-only";
 
+import { Effect } from "effect";
 import { cookies, headers } from "next/headers";
 import type { ReferralCode } from "./client";
 import {
@@ -8,18 +9,26 @@ import {
   referralCodeCookieName,
   setReferralCodeCookie,
 } from "./referral-code-cookie";
-import { areReferralsEnabled } from "./referral-feature-flag.server";
+import { ReferralFeatureFlagService } from "./referral-feature-flag.service";
 
 /**
  * The referral code this browser remembers from a shared link, if any. While
- * the referral program is withheld, a remembered code is ignored.
+ * the referral program is withheld, a remembered code is ignored. It reads the
+ * request's provided decision, so an action or page that already decided
+ * never evaluates the flag again.
  */
-export const readRememberedReferralCode = async () =>
-  (await areReferralsEnabled())
-    ? parseSharedReferralCode(
-        (await cookies()).get(referralCodeCookieName)?.value
-      )
-    : undefined;
+export const readRememberedReferralCode = ReferralFeatureFlagService.pipe(
+  Effect.flatMap((featureFlag) => featureFlag.isEnabled),
+  Effect.flatMap((released) =>
+    released
+      ? Effect.tryPromise(() => cookies()).pipe(
+          Effect.map((jar) =>
+            parseSharedReferralCode(jar.get(referralCodeCookieName)?.value)
+          )
+        )
+      : Effect.undefined
+  )
+);
 
 const isSecureRequest = async () =>
   (await headers()).get("x-forwarded-proto") !== "http";

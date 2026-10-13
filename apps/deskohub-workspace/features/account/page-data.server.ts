@@ -274,7 +274,9 @@ const loadAccountPageState = Effect.gen(function* () {
 
   const referralsEnabled = yield* referralsReleased;
   const rememberedReferralCode = referralsEnabled
-    ? yield* Effect.promise(readRememberedReferralCode)
+    ? yield* readRememberedReferralCode.pipe(
+        Effect.orElseSucceed(() => undefined)
+      )
     : undefined;
   const resolution = yield* resolveCurrentCustomerAccount.pipe(
     Effect.tapError((error) =>

@@ -1,4 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
+import { Effect } from "effect";
 import { isValidElement, type ReactNode } from "react";
 import type { CheckoutStatusKind } from "@/features/checkout/backend/checkout";
 import { ForgetRememberedReferralCode } from "@/features/referrals/forget-remembered-referral-code";
@@ -7,7 +8,7 @@ let rememberedReferralCode: string | undefined;
 mock.module("server-only", () => ({}));
 // Bun shares module mocks across test files, so keep the module's full shape.
 mock.module("@/features/referrals/remembered-referral-code.server", () => ({
-  readRememberedReferralCode: async () => rememberedReferralCode,
+  readRememberedReferralCode: Effect.sync(() => rememberedReferralCode),
   forgetRememberedReferralCode: async () => {
     rememberedReferralCode = undefined;
   },

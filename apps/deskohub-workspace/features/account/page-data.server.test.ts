@@ -327,11 +327,11 @@ mock.module("@/features/referrals/signup-intent.repository", () => ({
 let rememberedReferralCode: string | undefined;
 let rememberedReferralCodeReads = 0;
 mock.module("@/features/referrals/remembered-referral-code.server", () => ({
-  readRememberedReferralCode: async () => {
+  readRememberedReferralCode: Effect.promise(async () => {
     rememberedReferralCodeReads += 1;
     const { parseReferralCode } = await import("@/features/referrals/client");
     return parseReferralCode(rememberedReferralCode);
-  },
+  }),
 }));
 
 const areAccountAvatarsEnabled = mock(() => Promise.resolve(true));

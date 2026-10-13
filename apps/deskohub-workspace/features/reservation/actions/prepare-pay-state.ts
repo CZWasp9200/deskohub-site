@@ -898,9 +898,7 @@ export const prepareWorkspacePayState = Effect.fn("prepareWorkspacePayState")(
     yield* botProtection.verifyHuman({ verificationFailurePolicy: "allow" });
 
     const accountActivity = yield* OptionalAccountActivityGuard;
-    const rememberedReferralCode = yield* Effect.tryPromise(() =>
-      readRememberedReferralCode()
-    ).pipe(
+    const rememberedReferralCode = yield* readRememberedReferralCode.pipe(
       Effect.catch((cause) =>
         Effect.logWarning("Remembered referral code could not be read", {
           cause,

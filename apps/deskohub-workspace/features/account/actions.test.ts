@@ -304,10 +304,20 @@ mock.module("@/features/referrals", () => ({ ReferralService: Referrals }));
 let rememberedReferralCode: string | undefined;
 const forgetRememberedReferralCode = mock(async () => undefined);
 mock.module("@/features/referrals/remembered-referral-code.server", () => ({
-  readRememberedReferralCode: async () => {
-    const { parseReferralCode } = await import("@/features/referrals/client");
-    return parseReferralCode(rememberedReferralCode);
-  },
+  // Like the real reader: the request's provided decision, then the cookie.
+  readRememberedReferralCode: ReferralFeatureFlag.pipe(
+    Effect.flatMap((featureFlag) => featureFlag.isEnabled),
+    Effect.flatMap((released) =>
+      released
+        ? Effect.promise(async () => {
+            const { parseReferralCode } = await import(
+              "@/features/referrals/client"
+            );
+            return parseReferralCode(rememberedReferralCode);
+          })
+        : Effect.undefined
+    )
+  ),
   forgetRememberedReferralCode,
 }));
 
@@ -390,7 +400,10 @@ describe("account actions", () => {
     areAccountsEnabled.mockReset();
     areAccountsEnabled.mockResolvedValue(true);
     referralsEnabled = true;
-    areReferralsEnabled.mockClear();
+    areReferralsEnabled.mockReset();
+    areReferralsEnabled.mockImplementation(() =>
+      Promise.resolve(referralsEnabled)
+    );
     currentUser = Effect.succeed(activeSession);
     resolve = Effect.succeed({
       accountId: "@test/account-id",
@@ -587,6 +600,30 @@ describe("account actions", () => {
       op: "hasSettledReferral",
       args: { dotyposCustomerId: "60222" },
     });
+    expect(forgetRememberedReferralCode).toHaveBeenCalledTimes(1);
+  });
+
+  test("decides the referral program once per action, so a later flag outage cannot skip its referral work", async () => {
+    resolveAsNewCustomerUntilCreated();
+    rememberedReferralCode = "RFL12345";
+    settledReferral = Effect.succeed(true);
+    // The first evaluation succeeds; any later one would fail closed.
+    areReferralsEnabled
+      .mockImplementationOnce(() => Promise.resolve(true))
+      .mockImplementation(() => Promise.resolve(false));
+    const { completeCustomerProfile } = await importActions();
+
+    const result = await completeCustomerProfile({
+      firstName: "Ada",
+      referralCode: "RFL12345",
+      prefilledReferralCode: "RFL12345",
+    });
+
+    expect(areReferralsEnabled).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({
+      data: { status: "completed", referral: { status: "applied" } },
+    });
+    // The remembered-code reader used the same decision as the completion.
     expect(forgetRememberedReferralCode).toHaveBeenCalledTimes(1);
   });
 

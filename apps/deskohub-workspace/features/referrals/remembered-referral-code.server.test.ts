@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { Effect } from "effect";
 import { NextRequest } from "next/server";
 import { referralCodeCookieName } from "./referral-code-cookie";
+import { ReferralFeatureFlagService } from "./referral-feature-flag.service";
 
 const browser = { cookie: "" };
 mock.module("server-only", () => ({}));
@@ -13,29 +15,28 @@ mock.module("next/headers", () => ({
     }).cookies,
 }));
 
-const referrals = { enabled: true };
-mock.module("./referral-feature-flag.server", () => ({
-  areReferralsEnabled: async () => referrals.enabled,
-}));
-
 const { readRememberedReferralCode } = await import(
   "./remembered-referral-code.server"
 );
+
+/** Reads under a decision the caller already made for the request. */
+const readUnder = (released: boolean) =>
+  Effect.runPromise(
+    readRememberedReferralCode.pipe(
+      Effect.provide(ReferralFeatureFlagService.fromDecision(released))
+    )
+  );
 
 describe("readRememberedReferralCode", () => {
   beforeEach(() => {
     browser.cookie = `${referralCodeCookieName}=rfl12345`;
   });
 
-  test("reads the remembered shared code while referrals are enabled", async () => {
-    referrals.enabled = true;
-
-    expect(await readRememberedReferralCode()).toBe("RFL12345");
+  test("reads the remembered shared code while the request has referrals enabled", async () => {
+    expect(await readUnder(true)).toBe("RFL12345");
   });
 
-  test("ignores the remembered code while referrals are off", async () => {
-    referrals.enabled = false;
-
-    expect(await readRememberedReferralCode()).toBeUndefined();
+  test("ignores the remembered code while the request has referrals off", async () => {
+    expect(await readUnder(false)).toBeUndefined();
   });
 });

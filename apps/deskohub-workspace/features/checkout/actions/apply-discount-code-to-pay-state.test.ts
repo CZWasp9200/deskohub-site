@@ -34,7 +34,7 @@ mock.module("server-only", () => ({}));
 
 // The browser remembers a different shared code than the one typed below.
 mock.module("@/features/referrals/remembered-referral-code.server", () => ({
-  readRememberedReferralCode: async () => "RFLREMEMBERED",
+  readRememberedReferralCode: Effect.succeed("RFLREMEMBERED"),
   forgetRememberedReferralCode: async () => undefined,
 }));
 

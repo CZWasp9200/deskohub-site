@@ -1,10 +1,13 @@
 import "server-only";
 
+import { Effect } from "effect";
 import type { CheckoutStatusKind } from "@/features/checkout/backend/checkout";
 import { checkBookerReferralSettled } from "@/features/checkout/backend/checkout/booker-referral-settlement.server";
 import { isPaidCheckoutStatus } from "@/features/checkout/paid-checkout-status";
 import { ForgetRememberedReferralCode } from "@/features/referrals/forget-remembered-referral-code";
+import { ReferralFeatureFlagRequest } from "@/features/referrals/referral-feature-flag.server";
 import { readRememberedReferralCode } from "@/features/referrals/remembered-referral-code.server";
+import { runWorkspaceEffect } from "@/shared/backend/workspace-effect";
 
 /**
  * Forgets the browser's remembered referral code once the status page shows
@@ -21,7 +24,12 @@ export async function CheckoutStatusReferralCodeSettlement({
   readonly status: CheckoutStatusKind;
 }) {
   if (!isPaidCheckoutStatus(status)) return null;
-  const rememberedReferralCode = await readRememberedReferralCode();
+  const rememberedReferralCode = await readRememberedReferralCode.pipe(
+    Effect.provide(ReferralFeatureFlagRequest),
+    runWorkspaceEffect("checkout.remembered-referral-code", {
+      boundary: "page",
+    })
+  );
   if (!rememberedReferralCode) return null;
   return (await checkBookerReferralSettled({ paid: true })) ? (
     <ForgetRememberedReferralCode />

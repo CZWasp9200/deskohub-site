@@ -2,6 +2,7 @@ import "@/shared/polyfills/temporal";
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, mock, test } from "bun:test";
+import { Effect } from "effect";
 import { payStateTokenQueryParam } from "@/features/checkout/backend/checkout/pay-state";
 import type { WorkspaceActionOptions } from "@/shared/backend/workspace-action";
 import type { ApplyDiscountCodeResult } from "./apply-discount-code-to-pay-state";
@@ -38,6 +39,10 @@ let operationResult: ApplyDiscountCodeResult;
 // The referral code this browser remembers; an accepted typed code replaces it.
 let rememberedReferralCode: string | undefined;
 mock.module("@/features/referrals/remembered-referral-code.server", () => ({
+  readRememberedReferralCode: Effect.sync(() => rememberedReferralCode),
+  forgetRememberedReferralCode: async () => {
+    rememberedReferralCode = undefined;
+  },
   rememberReferralCode: async (code: string) => {
     rememberedReferralCode = code;
   },

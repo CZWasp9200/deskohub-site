@@ -10,7 +10,7 @@ mock.module("server-only", () => ({}));
 let rememberedReferralCode: string | undefined;
 let forgottenReferralCodes = 0;
 mock.module("@/features/referrals/remembered-referral-code.server", () => ({
-  readRememberedReferralCode: async () => rememberedReferralCode,
+  readRememberedReferralCode: Effect.sync(() => rememberedReferralCode),
   forgetRememberedReferralCode: async () => {
     forgottenReferralCodes += 1;
     rememberedReferralCode = undefined;

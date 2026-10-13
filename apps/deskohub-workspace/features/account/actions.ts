@@ -131,7 +131,9 @@ const saveCustomerProfile = Effect.fn(
  * withheld referral program neither checks nor forgets the code.
  */
 const forgetUsedRememberedReferralCode = (account: LinkedCustomerAccount) =>
-  Effect.promise(readRememberedReferralCode).pipe(
+  readRememberedReferralCode.pipe(
+    // Forgetting is best effort; an unreadable cookie keeps the code.
+    Effect.orElseSucceed(() => undefined),
     Effect.flatMap((rememberedCode) =>
       isRememberedReferralCodeUsed(rememberedCode, account)
     ),
