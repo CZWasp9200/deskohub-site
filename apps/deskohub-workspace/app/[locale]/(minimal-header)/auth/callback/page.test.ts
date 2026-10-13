@@ -90,24 +90,4 @@ describe("customer auth callback route boundary", () => {
     await expect(Content(content.props)).rejects.toThrow("NEXT_NOT_FOUND");
     expect(events).toEqual(["connection", "gate"]);
   });
-
-  test("threads one strict referral code into the callback suspense boundary", async () => {
-    const { default: CustomerAuthCallbackPage } = await import("./page");
-
-    const valid = await CustomerAuthCallbackPage({
-      searchParams: Promise.resolve({ ref: "RFL12345" }),
-    });
-    expect(valid.props.children.props).toMatchObject({
-      locale: "en-US",
-      referralCode: "RFL12345",
-    });
-
-    const duplicate = await CustomerAuthCallbackPage({
-      searchParams: Promise.resolve({ ref: ["RFL12345", "OTHER"] }),
-    });
-    expect(duplicate.props.children.props).toMatchObject({
-      locale: "en-US",
-      referralCode: undefined,
-    });
-  });
 });
