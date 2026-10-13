@@ -11,6 +11,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { testEmailAddress } from "@deskohub/test-email";
 import { commandOutput, runCommand } from "./shared/command";
 import { findStepByName, parseWorkflow } from "./shared/workflow-contract";
 
@@ -147,7 +148,7 @@ describe("Workspace E2E Bun cache fill", () => {
       "-c",
       "user.name=Fixture",
       "-c",
-      "user.email=fixture@example.invalid",
+      `user.email=${testEmailAddress("fixture")}`,
       "commit",
       "--quiet",
       "--no-gpg-sign",
