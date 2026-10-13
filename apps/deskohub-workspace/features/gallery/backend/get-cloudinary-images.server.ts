@@ -76,6 +76,7 @@ export async function getCloudinaryImages({
     sortDirection,
   }).pipe(
     Effect.provide(WorkspaceCloudinaryLayer),
+    // `getGalleryImages` logs the lookup failure; this logs the served fallback under a stable code.
     runWorkspaceEffectOrElse("gallery.images.load", {
       failureCode: "gallery.images.load_failed",
       orElse: (): readonly CloudinaryAsset[] => {
