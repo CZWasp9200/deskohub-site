@@ -33,4 +33,3 @@ The Neon/Vercel integration creates and deletes Workspace preview branches for t
 - Get direct and pooled URLs with pinned `neonctl`, mask both immediately, and migrate with the direct URL.
 
 Preview reports Ready before migration runs. That's acceptable only while builds don't touch the database. A schema-breaking change must stay compatible with that order or add a preview-only migration step that runs before the runtime starts.
-

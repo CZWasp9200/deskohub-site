@@ -16,10 +16,11 @@ The task needs `POSTHOG_API_KEY`, `POSTHOG_API_HOST`, and `POSTHOG_PROJECT_ID`; 
 
 `WorkspaceFeatureFlagService.Default` (`features/feature-flags/backend/workspace-feature-flag.service.ts`) first classifies each flag from its live management definition (`backend/feature-flag-evaluation-mode.server.ts`, cached with the `publicContent` profile):
 
-- Constant: inactive flags, flags whose every release group rolls out to 0%, and boolean flags with an unconditional 100% group.
-- Request-dependent: everything else, including partial rollouts, property, group, or cohort conditions, multivariate flags, and experience continuity. A management read failure or missing management configuration makes every flag without an override request-dependent.
+- Constant off: inactive flags, and active flags without experience continuity that have at least one release group and roll every group out to 0%.
+- Constant on: active flags with an unconditional 100% group (no properties, no group aggregation), unless the flag uses experience continuity, flag-level group aggregation, or variants. With `early_exit`, every earlier group must also roll out to 100%. An unset rollout counts as 100%.
+- Request-dependent: everything else. A management read failure or missing management configuration makes every flag without an override request-dependent.
 
-`getConstantEnabledValue` in `packages/posthog/src/feature-flags/definitions.ts` holds the exact rules.
+`getConstantEnabledValue` in `packages/posthog/src/feature-flags/definitions.ts` holds these rules.
 
 `isEnabled` returns a constant directly. `evaluateFlags` returns constants locally only when every requested flag is constant. Otherwise the service evaluates remotely with the consented PostHog visitor identity, or the fixed `deskohub-workspace:global-release` subject (with `sendFeatureFlagEvents: false`) before consent. Avoid needless remote calls: the Node SDK turns failed, timed-out, or quota-limited evaluations into missing flags, not errors. Never infer constancy from an evaluated value.
 
