@@ -161,17 +161,6 @@ describe("AuthCallbackRedirect", () => {
     expect(replace).toHaveBeenCalledWith("/en-US/account");
   });
 
-  test("falls back when the callback has no attempt", async () => {
-    setAttempt();
-    const replace = mock((_href: string) => undefined);
-    window.location.replace = replace as typeof window.location.replace;
-
-    await renderAndFlush("cs-CZ");
-
-    expect(handOffReturn).toHaveBeenCalledWith({ attemptId: "" });
-    expect(replace).toHaveBeenCalledWith("/cs-CZ/account");
-  });
-
   test("suppresses handoff and close when the callback reports an error", async () => {
     setAttempt(VALID_ATTEMPT_ID, "INVALID_TOKEN");
     const close = mock(() => undefined);

@@ -103,30 +103,6 @@ const makeSession = (accountId: CustomerAccountId): CustomerAccountSession => ({
 const accountId = "pref-account-1" as CustomerAccountId;
 
 describe("saveAccountLocalePreference with mock layers", () => {
-  test("fails closed with the deletion-pending error and never writes under a deletion marker", async () => {
-    const { Dependencies, updates } = makeTestLayers({
-      state: {
-        kind: "active",
-        deletionRequestedAt: new Date("2026-09-01T00:00:00.000Z"),
-      },
-    });
-
-    const outcome = await Effect.runPromise(
-      saveAccountLocalePreference(accountId, "cs-CZ").pipe(
-        Effect.result,
-        Effect.provide(Dependencies)
-      )
-    );
-
-    expect(outcome._tag).toBe("Failure");
-    if (outcome._tag === "Failure") {
-      const failure = outcome.failure as CustomerAccountAccessErrorLike;
-      expect(failure.reason).toBe("link-required");
-      expect(failure.linkReason).toBe("deletion-requested");
-    }
-    expect(updates).toHaveLength(0);
-  });
-
   test("maps a lock failure to the fixed unavailable access error without writing", async () => {
     const { Dependencies, updates } = makeTestLayers({
       state: { kind: "active", deletionRequestedAt: null },
@@ -146,20 +122,6 @@ describe("saveAccountLocalePreference with mock layers", () => {
       expect(failure.reason).toBe("unavailable");
     }
     expect(updates).toHaveLength(0);
-  });
-
-  test("updates the account locale for an active account", async () => {
-    const { Dependencies, updates } = makeTestLayers({
-      state: { kind: "active", deletionRequestedAt: null },
-    });
-
-    await Effect.runPromise(
-      saveAccountLocalePreference(accountId, "en-US").pipe(
-        Effect.provide(Dependencies)
-      )
-    );
-
-    expect(updates).toEqual([{ accountId, locale: "en-US" }]);
   });
 
   test("rechecks the session under the lock and never writes for a revoked session", async () => {

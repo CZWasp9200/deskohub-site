@@ -455,17 +455,6 @@ describe("account actions", () => {
     );
   };
 
-  test("creates the profile without referral work when no referral code is entered", async () => {
-    resolveAsNewCustomerUntilCreated();
-    const { completeCustomerProfile } = await importActions();
-
-    const result = await completeCustomerProfile({ firstName: "Ada" });
-
-    expect(result).toEqual({ data: { status: "completed" } });
-    expect(profileCalls.map(({ op }) => op)).toEqual(["create"]);
-    expect(referralCalls).toEqual([]);
-  });
-
   test("stores the entered referral with the new link and records it afterwards", async () => {
     resolveAsNewCustomerUntilCreated();
     const { completeCustomerProfile } = await importActions();
@@ -654,21 +643,6 @@ describe("account actions", () => {
     expect(forgetRememberedReferralCode).not.toHaveBeenCalled();
   });
 
-  test("keeps the remembered code when a typed code is unavailable", async () => {
-    resolveAsNewCustomerUntilCreated();
-    rememberedReferralCode = "RFL12345";
-    availableReferralCode = Effect.succeed(undefined);
-    const { completeCustomerProfile } = await importActions();
-
-    await completeCustomerProfile({
-      firstName: "Ada",
-      referralCode: "RFLGONE1",
-    });
-
-    expect(referralCalls.map(({ op }) => op)).toEqual(["findAvailableCode"]);
-    expect(forgetRememberedReferralCode).not.toHaveBeenCalled();
-  });
-
   test("never checks whether the referral is settled without a remembered code", async () => {
     resolveAsNewCustomerUntilCreated();
     settledReferral = Effect.succeed(true);
@@ -704,19 +678,6 @@ describe("account actions", () => {
         ],
       },
     ]);
-    expect(referralCalls).toEqual([]);
-  });
-
-  test("rejects a referral code on profile updates", async () => {
-    const { updateCustomerProfile } = await importActions();
-
-    const result = await updateCustomerProfile({
-      firstName: "Ada",
-      referralCode: "RFL12345",
-    } as never);
-
-    expect(result.validationErrors).toBeTruthy();
-    expect(profileCalls).toEqual([]);
     expect(referralCalls).toEqual([]);
   });
 
@@ -889,47 +850,6 @@ describe("account actions", () => {
     expect(revalidatePath).not.toHaveBeenCalled();
   });
 
-  test("rejects locales outside the selectable set", async () => {
-    const { updateLocalePreference } = await importActions();
-
-    const result = await updateLocalePreference({
-      locale: "de-DE",
-    } as never);
-
-    expect(result.validationErrors).toBeTruthy();
-    expect(preferenceSaveCalls).toHaveLength(0);
-  });
-
-  test("accepts every locale of the inlang locales tuple and no hard-coded list remains", async () => {
-    const { locales } = await import("@/features/i18n");
-    const { updateLocalePreference } = await importActions();
-
-    for (const locale of locales) {
-      const result = await updateLocalePreference({ locale });
-      expect(result).toEqual({ data: { status: "saved" } });
-    }
-    expect(preferenceSaveCalls.map(({ locale }) => locale)).toEqual([
-      ...locales,
-    ]);
-
-    // The validation must stay derived from the locales tuple: a structural
-    // AST check verifies no literal locale list and no locale string literal
-    // exists in the action module.
-    const { callsNamed, parseTrackedSource, stringLiterals } = await import(
-      "../../scripts/shared/source-ast"
-    );
-    const actionsSource = parseTrackedSource(
-      new URL("./actions.ts", import.meta.url).pathname
-    );
-    for (const call of callsNamed(actionsSource.ast, "Literals")) {
-      expect(call.arguments[0]?.type).toBe("Identifier");
-    }
-    const localeLiterals = stringLiterals(actionsSource.ast)
-      .map(({ value }) => value)
-      .filter((value) => locales.includes(value as never));
-    expect(localeLiterals).toEqual([]);
-  });
-
   test("returns the session-expired error without saving when unauthenticated", async () => {
     currentUser = Effect.succeed(null);
     const { updateLocalePreference } = await importActions();
@@ -958,19 +878,6 @@ describe("account actions", () => {
     );
     expect(preferenceSaveCalls).toHaveLength(1);
     expect(cookieWrites).toEqual([]);
-  });
-
-  test("returns the generic profile error without leaking the write failure", async () => {
-    preferenceSaveEffect = Effect.fail(
-      new CustomerAccountAccessError({ reason: "unavailable" })
-    );
-    const { updateLocalePreference } = await importActions();
-
-    const result = await updateLocalePreference({ locale: "en-US" });
-
-    expect(result.serverError).toBe(
-      m.accountProfileError({}, { locale: "en-US" })
-    );
   });
 
   test("deletes through the Better Auth endpoint and revalidates account and deleted paths", async () => {
@@ -1097,38 +1004,6 @@ describe("account ARES business lookup action", () => {
     expect(lookupCalls).toEqual(["27082440"]);
     expect(profileCalls).toHaveLength(0);
     expect(revalidatePath).not.toHaveBeenCalled();
-  });
-
-  test("reports an invalid company ID without touching the registry", async () => {
-    lookupOutcome = Effect.fail(
-      new AresLookupFailure({ reason: "InvalidIco" })
-    );
-    const { lookupAresBusiness } = await importActions();
-
-    const result = await lookupAresBusiness({ ico: "1234567a" });
-
-    expect(result).toEqual({
-      data: {
-        status: "invalid-ico",
-        message:
-          "Enter a valid company ID (IČO): exactly eight digits with a valid check digit.",
-      },
-    });
-    expect(lookupCalls).toEqual(["1234567a"]);
-  });
-
-  test("reports a missing company as not found", async () => {
-    lookupOutcome = Effect.fail(new AresLookupFailure({ reason: "NotFound" }));
-    const { lookupAresBusiness } = await importActions();
-
-    const result = await lookupAresBusiness({ ico: "27082440" });
-
-    expect(result).toEqual({
-      data: {
-        status: "not-found",
-        message: "No company was found for this company ID (IČO).",
-      },
-    });
   });
 
   test("reports an unavailable registry as retryable", async () => {

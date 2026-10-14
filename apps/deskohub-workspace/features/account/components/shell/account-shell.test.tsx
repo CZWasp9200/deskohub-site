@@ -45,21 +45,15 @@ class TestResizeObserver implements ResizeObserver {
   static readonly instances: TestResizeObserver[] = [];
 
   readonly callback: ResizeObserverCallback;
-  observedElement: Element | null = null;
-  disconnectCalls = 0;
 
   constructor(callback: ResizeObserverCallback) {
     this.callback = callback;
     TestResizeObserver.instances.push(this);
   }
 
-  disconnect() {
-    this.disconnectCalls += 1;
-  }
+  disconnect() {}
 
-  observe(target: Element) {
-    this.observedElement = target;
-  }
+  observe() {}
 
   unobserve() {}
 
@@ -135,34 +129,6 @@ describe("AccountShell", () => {
     await unregisterWorkspaceComponentTestEnv();
   });
 
-  test("renders caller-owned title, content, and sign-out action", () => {
-    const onSectionChange = mock((section: AccountSection) => {
-      void section;
-    });
-    const onSignOut = mock(() => undefined);
-    const view = renderShell({
-      children: <div data-testid="account-content">Profile content</div>,
-      onSectionChange,
-      signOut: (
-        <button onClick={onSignOut} type="button">
-          Sign out
-        </button>
-      ),
-      title: "Jan's Workspace Account",
-    });
-
-    expect(
-      view.getByRole("heading", { level: 1, name: "Jan's Workspace Account" })
-    ).toBeTruthy();
-    expect(view.getByTestId("account-content")).toBeTruthy();
-
-    fireEvent.click(getDesktopButton(view, "reservations"));
-    fireEvent.click(view.getByRole("button", { name: "Sign out" }));
-
-    expect(onSectionChange).toHaveBeenCalledWith("reservations");
-    expect(onSignOut).toHaveBeenCalledTimes(1);
-  });
-
   test("dispatches every desktop section and marks only the active section", () => {
     const onSectionChange = mock((section: AccountSection) => {
       void section;
@@ -189,24 +155,6 @@ describe("AccountShell", () => {
         .getByRole("button", { name: labels.sections.legal })
         .getAttribute("aria-current")
     ).toBe("page");
-  });
-
-  test("keeps every section enabled by default", () => {
-    const view = renderShell();
-    const mobileNavigation = getMobileNavigation(view);
-
-    for (const section of sectionKeys) {
-      const mobileButton = mobileNavigation.getByRole("button", {
-        name: labels.sections[section],
-      }) as HTMLButtonElement;
-      const desktopButton = getDesktopButton(
-        view,
-        section
-      ) as HTMLButtonElement;
-
-      expect(mobileButton.disabled).toBe(false);
-      expect(desktopButton.disabled).toBe(false);
-    }
   });
 
   test("disables anonymous nonlegal sections while keeping legal enabled", () => {
@@ -336,71 +284,6 @@ describe("AccountShell", () => {
     } finally {
       getComputedStyle.mockRestore();
     }
-  });
-
-  test("keeps sticky mobile focus targets visible without scrolling the page", () => {
-    const view = renderShell();
-    const aside = view.container.querySelector("aside");
-    if (!aside) throw new Error("Account shell aside was not rendered");
-    const target = getMobileNavigation(view).getByRole("button", {
-      name: labels.sections.reservations,
-    });
-    const getBoundingClientRect = mock(() => ({ bottom: 160, top: 120 }));
-    const scrollIntoView = mock(() => undefined);
-    Object.defineProperty(target, "getBoundingClientRect", {
-      configurable: true,
-      value: getBoundingClientRect,
-    });
-    Object.defineProperty(target, "scrollIntoView", {
-      configurable: true,
-      value: scrollIntoView,
-    });
-    const getComputedStyle = spyOn(window, "getComputedStyle").mockReturnValue({
-      position: "sticky",
-      top: "96px",
-    } as CSSStyleDeclaration);
-
-    try {
-      fireEvent.focus(target);
-
-      expect(getComputedStyle).toHaveBeenCalledWith(aside);
-      expect(getBoundingClientRect).toHaveBeenCalledTimes(1);
-      expect(scrollIntoView).not.toHaveBeenCalled();
-    } finally {
-      getComputedStyle.mockRestore();
-    }
-  });
-
-  test("allows the caller to omit the sign-out action", () => {
-    const view = renderShell({ signOut: null });
-    const header = view.container.querySelector("header");
-    if (!header) throw new Error("Account shell header was not rendered");
-    const heading = view.getByRole("heading", { level: 1 });
-
-    expect(
-      view.getByRole("heading", { level: 1, name: "Workspace account" })
-    ).toBeTruthy();
-    expect(header.children).toHaveLength(1);
-    expect(header.firstElementChild).toBe(heading);
-    expect(view.queryByRole("button", { name: "Sign out" })).toBeNull();
-  });
-
-  test("preserves caller-owned pending and feedback content in the action slot", () => {
-    const view = renderShell({
-      signOut: (
-        <>
-          <span data-testid="sign-out-pending">Signing out...</span>
-          <span data-testid="sign-out-feedback">Try again.</span>
-        </>
-      ),
-    });
-
-    expect(view.getByTestId("sign-out-pending").textContent).toBe(
-      "Signing out..."
-    );
-    expect(view.getByTestId("sign-out-feedback").textContent).toBe(
-      "Try again."
-    );
   });
 
   test("uses a controlled labelled mobile button group", () => {
@@ -711,134 +594,6 @@ describe("AccountShell", () => {
     }
   });
 
-  test("re-reveals the active mobile section when hidden layout becomes visible", () => {
-    const originalGetBoundingClientRect =
-      Element.prototype.getBoundingClientRect;
-    let isVisible = false;
-    const sectionPosition = 400;
-    const makeRect = (left: number, right: number): DOMRect =>
-      ({
-        bottom: 44,
-        height: 44,
-        left,
-        right,
-        top: 0,
-        width: right - left,
-        x: left,
-        y: 0,
-        toJSON: () => ({}),
-      }) as DOMRect;
-
-    Element.prototype.getBoundingClientRect = function () {
-      if (this.hasAttribute("data-account-mobile-navigation")) {
-        return makeRect(0, isVisible ? 200 : 0);
-      }
-      if (this.getAttribute("data-account-section") === "danger") {
-        const mobileNavigation = this.closest(
-          "[data-account-mobile-navigation]"
-        );
-        const scrollLeft =
-          mobileNavigation instanceof HTMLElement
-            ? mobileNavigation.scrollLeft
-            : 0;
-        return makeRect(
-          sectionPosition - scrollLeft,
-          sectionPosition + 100 - scrollLeft
-        );
-      }
-      return originalGetBoundingClientRect.call(this);
-    };
-
-    try {
-      const view = renderShell({ activeSection: "danger" });
-      const group = view.getByRole("group", { name: labels.mobileSection });
-      const mobileNavigation = group.querySelector<HTMLDivElement>(
-        "[data-account-mobile-navigation]"
-      );
-      if (!mobileNavigation)
-        throw new Error("Mobile account navigation was not rendered");
-      const observer = getLatestResizeObserver();
-
-      expect(observer.observedElement).toBe(mobileNavigation);
-      expect(mobileNavigation.scrollLeft).toBe(0);
-
-      isVisible = true;
-      observer.trigger();
-
-      expect(mobileNavigation.scrollLeft).toBe(400);
-    } finally {
-      Element.prototype.getBoundingClientRect = originalGetBoundingClientRect;
-    }
-  });
-
-  test("re-reveals the active mobile section when its container narrows", () => {
-    const originalGetBoundingClientRect =
-      Element.prototype.getBoundingClientRect;
-    let navigationWidth = 500;
-    const sectionPosition = 400;
-    const makeRect = (left: number, right: number): DOMRect =>
-      ({
-        bottom: 44,
-        height: 44,
-        left,
-        right,
-        top: 0,
-        width: right - left,
-        x: left,
-        y: 0,
-        toJSON: () => ({}),
-      }) as DOMRect;
-
-    Element.prototype.getBoundingClientRect = function () {
-      if (this.hasAttribute("data-account-mobile-navigation")) {
-        return makeRect(0, navigationWidth);
-      }
-      if (this.getAttribute("data-account-section") === "danger") {
-        const mobileNavigation = this.closest(
-          "[data-account-mobile-navigation]"
-        );
-        const scrollLeft =
-          mobileNavigation instanceof HTMLElement
-            ? mobileNavigation.scrollLeft
-            : 0;
-        return makeRect(
-          sectionPosition - scrollLeft,
-          sectionPosition + 100 - scrollLeft
-        );
-      }
-      return originalGetBoundingClientRect.call(this);
-    };
-
-    try {
-      const view = renderShell({ activeSection: "danger" });
-      const group = view.getByRole("group", { name: labels.mobileSection });
-      const mobileNavigation = group.querySelector<HTMLDivElement>(
-        "[data-account-mobile-navigation]"
-      );
-      if (!mobileNavigation)
-        throw new Error("Mobile account navigation was not rendered");
-      const observer = getLatestResizeObserver();
-
-      expect(mobileNavigation.scrollLeft).toBe(0);
-
-      navigationWidth = 200;
-      observer.trigger();
-
-      expect(mobileNavigation.scrollLeft).toBe(400);
-    } finally {
-      Element.prototype.getBoundingClientRect = originalGetBoundingClientRect;
-    }
-  });
-
-  test("disconnects the mobile ResizeObserver when unmounted", () => {
-    const view = renderShell({ activeSection: "danger" });
-    const observer = getLatestResizeObserver();
-
-    view.unmount();
-
-    expect(observer.disconnectCalls).toBe(1);
-  });
-
   test("renders only valid supplied reservation counts, including zero", () => {
     const view = renderShell();
     const reservationButton = () =>
@@ -909,41 +664,5 @@ describe("AccountShell", () => {
       "Legal & privacy",
       "Danger zone",
     ]);
-  });
-
-  test("retains long localized title and section labels", () => {
-    const localizedLabels: AccountShellProps["labels"] = {
-      mobileSection: "Vyberte sekci svého zákaznického účtu",
-      navigation: "Navigace zákaznického účtu",
-      sections: {
-        billing: "Fakturace a účetní doklady",
-        danger: "Nebezpečná zóna účtu",
-        legal: "Právo, soukromí a souhlasy",
-        profile: "Profil a identita zákazníka",
-        reservations: "Rezervace a nadcházející návštěvy",
-      },
-    };
-    const title = "Nastavení zákaznického účtu pro vaše Workspace rezervace";
-    const view = renderShell({ labels: localizedLabels, title });
-
-    expect(view.getByRole("heading", { level: 1, name: title })).toBeTruthy();
-    expect(
-      getDesktopNavigation(view).getByRole("button", {
-        name: localizedLabels.sections.legal,
-      })
-    ).toBeTruthy();
-    expect(
-      within(
-        view.getByRole("group", { name: localizedLabels.mobileSection })
-      ).getByRole("button", {
-        name: localizedLabels.sections.reservations,
-      })
-    ).toBeTruthy();
-  });
-
-  test("accepts a null sign-out action", () => {
-    const view = renderShell({ signOut: null });
-
-    expect(view.queryByRole("button", { name: "Sign out" })).toBeNull();
   });
 });

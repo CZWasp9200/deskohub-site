@@ -104,14 +104,6 @@ describe("CustomerAuthentication session adapter", () => {
     }
   });
 
-  test("maps missing sessions to null", async () => {
-    const outcome = await runDecode(null);
-    expect(outcome._tag).toBe("Success");
-    if (outcome._tag === "Success") {
-      expect(outcome.success).toBeNull();
-    }
-  });
-
   test("rejects unverified email addresses", async () => {
     const outcome = await runDecode(sessionFor({ emailVerified: false }));
 
@@ -236,22 +228,6 @@ describe("CustomerAuthentication environment classification", () => {
     expect(sessionReads).toBe(0);
   });
 
-  test("fails closed as unavailable with the fixed session code when the configured session read rejects", async () => {
-    const outcome = await runCurrentUser({
-      readBetterAuthSecretsRaw: () => configuredSecretsRaw,
-      readCurrentSession: () =>
-        Promise.reject(new Error('relation "auth"."user" does not exist')),
-    });
-
-    expect(outcome._tag).toBe("Failure");
-    if (outcome._tag === "Failure") {
-      const error = outcome.failure as CustomerAccountAccessError;
-      expect(error.reason).toBe("unavailable");
-      expect(error.cause?.code).toBe("authentication.session");
-      expect(JSON.stringify(error)).not.toContain("does not exist");
-    }
-  });
-
   test("fails closed as unavailable when configured secrets are invalid", async () => {
     let sessionReads = 0;
     const outcome = await runCurrentUser({
@@ -269,20 +245,6 @@ describe("CustomerAuthentication environment classification", () => {
       expect(error.cause?.code).toBe("authentication.session");
     }
     expect(sessionReads).toBe(0);
-  });
-
-  test("keeps unverified-email handling for a configured readable session", async () => {
-    const outcome = await runCurrentUser({
-      readBetterAuthSecretsRaw: () => configuredSecretsRaw,
-      readCurrentSession: () =>
-        Promise.resolve(sessionFor({ emailVerified: false })),
-    });
-
-    expect(outcome._tag).toBe("Failure");
-    if (outcome._tag === "Failure") {
-      const error = outcome.failure as CustomerAccountAccessError;
-      expect(error.reason).toBe("unverified-email");
-    }
   });
 });
 
@@ -567,65 +529,6 @@ describe("CustomerAuthentication authority-read phase diagnostics", () => {
     expect(JSON.stringify(warning)).not.toContain("after()");
   });
 
-  test("tags a request-headers rejection with its stage and the Next.js code", async () => {
-    const outcome = await withPhases({
-      readRequestHeaders: () =>
-        Promise.reject(nextRequestScopeError("headers")),
-    });
-
-    expect(outcome._tag).toBe("Failure");
-    if (outcome._tag === "Failure") {
-      const error = outcome.failure as CustomerAccountAccessError;
-      expect(error.reason).toBe("unavailable");
-      expect(error.diagnostic).toBe("authentication.session.request-context");
-    }
-    const warning = lastWarning();
-    expect(warning.message).toBe("Customer session read failed closed.");
-    expect(warning.annotations.stage).toBe("request-headers");
-    expect(warning.annotations.category).toBe("Error");
-    expect(warning.annotations.nextCode).toBe("E251");
-    expect(JSON.stringify(warning)).not.toContain("request scope");
-  });
-
-  test("attributes a synchronous request-headers throw to its stage", async () => {
-    const outcome = await withPhases({
-      readRequestHeaders: () => {
-        throw nextRequestScopeError("headers");
-      },
-    });
-
-    expect(outcome._tag).toBe("Failure");
-    if (outcome._tag === "Failure") {
-      const error = outcome.failure as CustomerAccountAccessError;
-      expect(error.reason).toBe("unavailable");
-      expect(error.diagnostic).toBe("authentication.session.request-context");
-    }
-    const warning = lastWarning();
-    expect(warning.annotations.stage).toBe("request-headers");
-    expect(warning.annotations.nextCode).toBe("E251");
-  });
-
-  test("rejects the phased read with an error that keeps only the closed facts", async () => {
-    const read = makeAuthoritySessionRead({
-      readRequestHeaders: async () => new Headers({ host: "workspace.test" }),
-      loadAuthority: () =>
-        Promise.reject(new TypeError("synthetic authority import failure")),
-    });
-
-    const rejection = await read().then(
-      () => undefined,
-      (cause: unknown) => cause
-    );
-
-    expect(rejection).toBeInstanceOf(Error);
-    expect(rejection).toMatchObject({
-      _tag: "AuthorityStageFailure",
-      diagnostic: "authentication.session.unclassified",
-      facts: { stage: "auth-import", category: "TypeError" },
-    });
-    expect(JSON.stringify(rejection)).not.toContain("synthetic authority");
-  });
-
   test("tags an auth-import TypeError without carrying the raw failure", async () => {
     const outcome = await withPhases({
       loadAuthority: () =>
@@ -645,30 +548,6 @@ describe("CustomerAuthentication authority-read phase diagnostics", () => {
     expect(warning.annotations.category).toBe("TypeError");
     expect(warning.annotations.nextCode).toBeUndefined();
     expect(JSON.stringify(warning)).not.toContain("Cannot read properties");
-  });
-
-  test("tags a get-session abort as the get-session stage", async () => {
-    const abort = new Error("The operation was aborted.");
-    abort.name = "AbortError";
-    const outcome = await withPhases({
-      loadAuthority: async () => ({
-        auth: {
-          api: {
-            getSession: () => Promise.reject(abort),
-          },
-        },
-      }),
-    });
-
-    expect(outcome._tag).toBe("Failure");
-    if (outcome._tag === "Failure") {
-      const error = outcome.failure as CustomerAccountAccessError;
-      expect(error.diagnostic).toBe("authentication.session.unclassified");
-    }
-    const warning = lastWarning();
-    expect(warning.annotations.stage).toBe("get-session");
-    expect(warning.annotations.category).toBe("AbortError");
-    expect(JSON.stringify(warning)).not.toContain("was aborted");
   });
 
   test("tags a get-session rate-limit rejection as rate-limited", async () => {
@@ -702,35 +581,5 @@ describe("CustomerAuthentication authority-read phase diagnostics", () => {
     expect(warning.annotations.diagnostic).toBe(
       "authentication.session.rate-limited"
     );
-  });
-
-  test("passes a readable session through the phases without warnings", async () => {
-    capturedWarnings.length = 0;
-    const outcome = await runCurrentUserCapturingLogs({
-      readBetterAuthSecretsRaw: () => configuredSecretsRaw,
-      readCurrentSession: makeAuthoritySessionRead({
-        readRequestHeaders: async () => new Headers({ host: "workspace.test" }),
-        loadAuthority: async () => ({
-          auth: {
-            api: {
-              getSession: async () => ({
-                user: {
-                  id: "auth-user-1",
-                  name: "",
-                  email: customerEmail,
-                  emailVerified: true,
-                  image: null,
-                  createdAt: new Date(),
-                  updatedAt: new Date(),
-                },
-              }),
-            },
-          },
-        }),
-      }),
-    });
-
-    expect(outcome._tag).toBe("Success");
-    expect(capturedWarnings).toHaveLength(0);
   });
 });

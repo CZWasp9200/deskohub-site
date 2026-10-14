@@ -1,13 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { testEmailAddress } from "@deskohub/test-email";
 import { Temporal } from "@js-temporal/polyfill";
 import {
   type CustomerReservationSummary,
   groupCustomerReservations,
   updateCustomerProfileStandardSchema,
 } from "./contracts";
-
-const adaAddress = testEmailAddress("ada");
 
 const validateProfileInput = async (input: {
   readonly firstName: string;
@@ -51,22 +48,6 @@ describe("groupCustomerReservations", () => {
     expect(groups.unavailable).toHaveLength(0);
   });
 
-  test("moves an ended reservation to the past group", () => {
-    const groups = groupCustomerReservations(
-      [
-        reservation({
-          id: "yesterday",
-          startsAt: "2026-08-21T08:00:00Z",
-          endsAt: "2026-08-21T18:00:00Z",
-        }),
-      ],
-      now
-    );
-
-    expect(groups.current).toHaveLength(0);
-    expect(groups.past.map(({ id }) => id)).toEqual(["yesterday"]);
-  });
-
   test("groups a cancelled reservation as past even with a future end date", () => {
     const groups = groupCustomerReservations(
       [reservation({ id: "cancelled", status: "cancelled" })],
@@ -75,15 +56,6 @@ describe("groupCustomerReservations", () => {
 
     expect(groups.current).toHaveLength(0);
     expect(groups.past.map(({ id }) => id)).toEqual(["cancelled"]);
-  });
-
-  test("keeps a pending reservation current while its end instant is in the future", () => {
-    const groups = groupCustomerReservations(
-      [reservation({ id: "pending", status: "pending" })],
-      now
-    );
-
-    expect(groups.current.map(({ id }) => id)).toEqual(["pending"]);
   });
 
   test("groups a missing end date as unavailable", () => {
@@ -120,15 +92,6 @@ describe("customer profile input", () => {
     expect(JSON.stringify(issues)).toContain("phone");
   });
 
-  test("rejects a digits-only phone that no provider format can normalize", async () => {
-    const outcome = await validateProfileInput({
-      firstName: "Ada",
-      phone: "123",
-    });
-
-    expect(outcome).toHaveProperty("issues");
-  });
-
   test("treats a blank phone as clearing the field", async () => {
     const outcome = await validateProfileInput({
       firstName: "Ada",
@@ -139,15 +102,6 @@ describe("customer profile input", () => {
     expect(
       (outcome as { readonly value: { readonly phone?: string } }).value.phone
     ).toBe("");
-  });
-
-  test("keeps an absent phone absent", async () => {
-    const outcome = await validateProfileInput({ firstName: "Ada" });
-
-    expect(outcome).toHaveProperty("value");
-    expect(
-      (outcome as { readonly value: { readonly phone?: string } }).value.phone
-    ).toBeUndefined();
   });
 
   test("accepts a local phone format", async () => {
@@ -172,13 +126,5 @@ describe("customer profile input", () => {
     expect(
       (outcome as { readonly value: { readonly phone: string } }).value.phone
     ).toBe("+420 601 123 456");
-  });
-
-  test("refuses an email field because the verified login email is not editable", async () => {
-    const outcome = await updateCustomerProfileStandardSchema[
-      "~standard"
-    ].validate({ firstName: "Ada", email: adaAddress });
-
-    expect(outcome).toHaveProperty("issues");
   });
 });

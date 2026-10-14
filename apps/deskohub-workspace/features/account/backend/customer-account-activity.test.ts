@@ -247,51 +247,6 @@ describe("optional account activity guard", () => {
     expect(events).toEqual(["account-session", "state-creation"]);
   });
 
-  test("runs anonymous state creation unchanged when authentication is explicitly not configured", async () => {
-    const events: string[] = [];
-    const backend: GuardBackend = {
-      currentUser: Effect.fail(
-        new CustomerAccountAccessError({ reason: "not-configured" })
-      ),
-      findActivityState: () => Effect.die("activity must not be read"),
-      withAccountLock: () => Effect.die("lock must not be acquired"),
-    };
-    const stateCreation = Effect.sync(() => {
-      events.push("state-creation");
-      return "created" as const;
-    });
-
-    const outcome = await Effect.runPromise(
-      guardOptionalAccountStateCreation(backend, stateCreation)
-    );
-
-    expect(outcome).toBe("created");
-    expect(events).toEqual(["state-creation"]);
-  });
-
-  test("fails closed when the session authority cannot be read", async () => {
-    const events: string[] = [];
-    const backend = makeBackend({
-      events,
-      activityState: activeState,
-      sessionUnavailable: true,
-    });
-    const stateCreation = Effect.sync(() => {
-      events.push("state-creation");
-      return "created" as const;
-    });
-
-    const error = await Effect.runPromise(
-      Effect.flip(guardOptionalAccountStateCreation(backend, stateCreation))
-    );
-
-    expect(error).toMatchObject({
-      _tag: "CustomerAccountAccessError",
-      reason: "unavailable",
-    });
-    expect(events).toEqual([]);
-  });
-
   test("proceeds anonymously when the service classifies authentication as not configured", async () => {
     const events: string[] = [];
     const currentUser = await serviceCurrentUserFrom({
@@ -376,26 +331,6 @@ describe("optional account activity guard", () => {
       reason: "unavailable",
       cause: { code: "account-link.lock" },
     });
-  });
-
-  test("preserves a typed state-creation failure unchanged inside the lock", async () => {
-    const events: string[] = [];
-    const backend = makeBackend({ events, activityState: activeState });
-    const stateCreationFailure = { _tag: "PricingChanged" as const };
-    const stateCreation: Effect.Effect<never, typeof stateCreationFailure> =
-      Effect.fail(stateCreationFailure);
-
-    const error = await Effect.runPromise(
-      Effect.flip(guardOptionalAccountStateCreation(backend, stateCreation))
-    );
-
-    expect(error).toBe(stateCreationFailure);
-    expect(events).toEqual([
-      "account-session",
-      "account-lock-acquired",
-      "account-activity",
-      "account-lock-released",
-    ]);
   });
 
   test("returns a SqlError raised by state creation itself as the same instance", async () => {

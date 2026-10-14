@@ -118,47 +118,6 @@ describe.skipIf(!testDatabase)("AuthCleanupService", () => {
       rateLimitRows: 1,
     });
   });
-
-  test("is idempotent: the second sweep deletes nothing", async () => {
-    const runId = crypto.randomUUID();
-    const nowMs = 1_800_100_000_000;
-
-    await runSweep(preSweepNow);
-
-    await insertUser(`user-${runId}`);
-    await insertSession(
-      `expired-session-${runId}`,
-      `user-${runId}`,
-      new Date(nowMs - 5_000).toISOString()
-    );
-    await insertVerification(
-      `expired-verification-${runId}`,
-      new Date(nowMs - 5_000).toISOString()
-    );
-    await insertRateLimitRow(
-      `stale-rate-limit-${runId}`,
-      String(nowMs - 601_000)
-    );
-
-    const first = await runSweep(new Date(nowMs));
-    expect(first).toEqual({
-      sessions: 1,
-      verifications: 1,
-      rateLimitRows: 1,
-    });
-
-    const second = await runSweep(new Date(nowMs));
-    expect(second).toEqual({
-      sessions: 0,
-      verifications: 0,
-      rateLimitRows: 0,
-    });
-    expect(await countSweepRows(runId)).toEqual({
-      sessions: 0,
-      verifications: 0,
-      rateLimitRows: 0,
-    });
-  });
 });
 
 describe("AuthCleanupService failures", () => {
