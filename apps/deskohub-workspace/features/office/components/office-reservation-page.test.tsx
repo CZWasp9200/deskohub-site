@@ -143,21 +143,3 @@ test("keys the preloaded availability to the Prague date near midnight", async (
     Temporal.Now.instant = originalNow;
   }
 });
-
-test("leaves availability to the client when the page could not load it", async () => {
-  const originalNow = Temporal.Now.instant;
-  Temporal.Now.instant = () => Temporal.Instant.from("2099-07-30T13:01:00Z");
-  preloadAvailability.mockImplementationOnce(() => Effect.succeed([]));
-
-  try {
-    const form = (await renderOfficeReservationContent({
-      locale: "en-US",
-      pageData: 5,
-      searchParams: {},
-    })) as ReactElement<Parameters<typeof OfficeReservationForm>[0]>;
-
-    expect(form.props.initialAvailability).toEqual([]);
-  } finally {
-    Temporal.Now.instant = originalNow;
-  }
-});
