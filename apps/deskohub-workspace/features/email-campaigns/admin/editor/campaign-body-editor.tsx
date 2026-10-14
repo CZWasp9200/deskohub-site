@@ -1,0 +1,86 @@
+"use client";
+
+import { Placeholder, UndoRedo } from "@tiptap/extensions";
+import {
+  EditorContent,
+  type JSONContent,
+  ReactNodeViewRenderer,
+  useEditor,
+} from "@tiptap/react";
+import { cn } from "@/shared/utils";
+import type { CampaignBodyNode } from "../../body/campaign-body-document";
+import { campaignBodyExtensions } from "../../body/campaign-body-extensions";
+import { CampaignCtaButton } from "../../body/campaign-cta-button";
+import { CampaignBodyToolbar } from "./campaign-body-toolbar";
+import { CtaButtonNodeView } from "./cta-button-node-view";
+
+/** The shared content set plus editing-only behavior: history, hints, views. */
+const campaignBodyEditorExtensions = [
+  ...campaignBodyExtensions.filter(
+    (extension) => extension.name !== CampaignCtaButton.name
+  ),
+  CampaignCtaButton.extend({
+    addNodeView: () => ReactNodeViewRenderer(CtaButtonNodeView),
+  }),
+  UndoRedo,
+  Placeholder.configure({
+    placeholder:
+      "Write the email. Use the toolbar for headings, links, images, and buttons.",
+  }),
+];
+
+/** Rich-text editor for one locale's campaign body. */
+export function CampaignBodyEditor({
+  id,
+  invalid,
+  label,
+  onChange,
+  value,
+}: {
+  readonly id?: string;
+  readonly invalid?: boolean;
+  readonly label: string;
+  readonly onChange: (doc: CampaignBodyNode) => void;
+  /** The initial document; later changes come from the editor itself. */
+  readonly value: CampaignBodyNode;
+}) {
+  const editor = useEditor({
+    extensions: campaignBodyEditorExtensions,
+    content: value as JSONContent,
+    immediatelyRender: false,
+    shouldRerenderOnTransaction: false,
+    editorProps: {
+      attributes: {
+        "aria-label": label,
+        "aria-multiline": "true",
+        ...(id && { id }),
+        ...(invalid && { "aria-invalid": "true" }),
+        class: cn(
+          "min-h-80 px-4 py-3 text-[15px] leading-7 text-navy-blue focus:outline-none",
+          "[&_h1]:mt-5 [&_h1]:mb-2 [&_h1]:font-semibold [&_h1]:text-2xl [&_h1]:leading-tight",
+          "[&_h2]:mt-4 [&_h2]:mb-2 [&_h2]:font-semibold [&_h2]:text-xl [&_h2]:leading-snug",
+          "[&_h3]:mt-3 [&_h3]:mb-1.5 [&_h3]:font-semibold [&_h3]:text-lg",
+          "[&_p]:my-2 [&_a]:text-burned-orange-ink [&_a]:underline",
+          "[&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-6 [&_li_p]:my-0.5",
+          "[&_hr]:my-5 [&_hr]:border-navy-blue/20",
+          "[&_img]:my-3 [&_img]:max-w-full [&_img]:rounded-md [&_img.ProseMirror-selectednode]:ring-2 [&_img.ProseMirror-selectednode]:ring-navy-blue",
+          "[&_hr.ProseMirror-selectednode]:border-navy-blue",
+          "[&_.is-editor-empty:first-child]:before:pointer-events-none [&_.is-editor-empty:first-child]:before:float-left [&_.is-editor-empty:first-child]:before:h-0 [&_.is-editor-empty:first-child]:before:text-navy-blue/40 [&_.is-editor-empty:first-child]:before:content-[attr(data-placeholder)]"
+        ),
+      },
+    },
+    onUpdate: ({ editor }) => onChange(editor.getJSON() as CampaignBodyNode),
+  });
+
+  return (
+    <div
+      className={cn(
+        "overflow-hidden rounded-md border bg-white focus-within:ring-2 focus-within:ring-burned-orange/40",
+        invalid ? "border-burned-orange" : "border-navy-blue/20"
+      )}
+    >
+      <CampaignBodyToolbar editor={editor} />
+      <EditorContent editor={editor} />
+    </div>
+  );
+}
