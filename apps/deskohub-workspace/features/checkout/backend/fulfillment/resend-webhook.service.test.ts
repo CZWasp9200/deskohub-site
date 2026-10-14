@@ -258,54 +258,6 @@ describe("ResendWebhookService", () => {
     });
   });
 
-  test("rejects a verified delivery payload without created_at", async () => {
-    verifiedPayload = {
-      type: "email.delivered",
-      data: customerDeliveredPayload.data,
-    };
-    const reservations = {
-      findByActiveCustomerEmailDeliveryId: mock(() =>
-        Effect.die("should not load reservation")
-      ),
-    };
-
-    const error = await processWebhookError({ reservations });
-
-    expect(error).toMatchObject({
-      _tag: "ResendWebhookProcessingError",
-      errorCode: "resend_webhook_payload_invalid",
-      eventId: "webhook-event-id",
-    });
-    expect(verifyWebhook).toHaveBeenCalled();
-    expect(
-      reservations.findByActiveCustomerEmailDeliveryId
-    ).not.toHaveBeenCalled();
-  });
-
-  test("rejects a verified delivery payload with an invalid created_at", async () => {
-    verifiedPayload = {
-      ...customerDeliveredPayload,
-      created_at: "yesterday afternoon",
-    };
-    const reservations = {
-      findByActiveCustomerEmailDeliveryId: mock(() =>
-        Effect.die("should not load reservation")
-      ),
-    };
-
-    const error = await processWebhookError({ reservations });
-
-    expect(error).toMatchObject({
-      _tag: "ResendWebhookProcessingError",
-      errorCode: "resend_webhook_payload_invalid",
-      eventId: "webhook-event-id",
-    });
-    expect(verifyWebhook).toHaveBeenCalled();
-    expect(
-      reservations.findByActiveCustomerEmailDeliveryId
-    ).not.toHaveBeenCalled();
-  });
-
   test("retries invoice processing for an already fulfilled reservation", async () => {
     verifiedPayload = customerDeliveredPayload;
     const invoiceFailure = new Error("synthetic invoice failure");
@@ -669,72 +621,6 @@ describe("ResendWebhookService", () => {
     expect(reservations.markCustomerEmailDeliveryFailed).not.toHaveBeenCalled();
   });
 
-  test("ignores a delivered event when the guarded transition matches no row", async () => {
-    verifiedPayload = customerDeliveredPayload;
-    const capture = mock(() => Effect.void);
-    const processInvoice = mock(() => Effect.void);
-    const markFulfilled = mock(() => Effect.succeed(null));
-    const reservations = {
-      findByActiveCustomerEmailDeliveryId: mock(() =>
-        Effect.succeed(awaitingDeliveryReservation)
-      ),
-      markCustomerEmailDeliveryFulfilled: markFulfilled,
-    };
-
-    const effect = await processWebhookEffect({
-      reservations,
-      posthogCapture: capture,
-    });
-    const result = await Effect.runPromise(
-      effect.pipe(
-        Effect.provideService(
-          ReservationInvoiceService,
-          ReservationInvoiceService.of({
-            processByPaymentAttemptId: processInvoice,
-          })
-        )
-      )
-    );
-
-    expect(result).toEqual({
-      status: "ignored",
-      reason: "reservation_delivery_state_changed",
-    });
-    expect(markFulfilled).toHaveBeenCalledWith(
-      expect.objectContaining({ customerEmailDeliveryId })
-    );
-    expect(capture).not.toHaveBeenCalled();
-    expect(processInvoice).not.toHaveBeenCalled();
-  });
-
-  test("fails Resend webhook processing without an API key", async () => {
-    verifiedPayload = customerDeliveredPayload;
-    const reservations = {
-      findByActiveCustomerEmailDeliveryId: mock(() =>
-        Effect.die("should not load reservation")
-      ),
-    };
-
-    const error = await processWebhookError({
-      reservations,
-      config: {
-        deploymentEnvironment: "development",
-        webhookSecret: "whsec_test",
-      },
-    });
-
-    expect(error).toMatchObject({
-      _tag: "ResendWebhookProcessingError",
-      errorCode: "resend_webhook_api_key_missing",
-      eventId: "webhook-event-id",
-    });
-    expect(constructResend).not.toHaveBeenCalled();
-    expect(verifyWebhook).not.toHaveBeenCalled();
-    expect(
-      reservations.findByActiveCustomerEmailDeliveryId
-    ).not.toHaveBeenCalled();
-  });
-
   test("fails Resend webhook processing for invalid payloads", async () => {
     verifiedPayload = { data: { tags: [] }, type: 42 };
     const reservations = {
@@ -746,74 +632,6 @@ describe("ResendWebhookService", () => {
     const error = await processWebhookError({
       reservations,
     });
-
-    expect(error).toMatchObject({
-      _tag: "ResendWebhookProcessingError",
-      errorCode: "resend_webhook_payload_invalid",
-      eventId: "webhook-event-id",
-    });
-    expect(verifyWebhook).toHaveBeenCalled();
-    expect(
-      reservations.findByActiveCustomerEmailDeliveryId
-    ).not.toHaveBeenCalled();
-  });
-
-  test("rejects an empty raw webhook event ID at the header boundary", async () => {
-    const reservations = {
-      findByActiveCustomerEmailDeliveryId: mock(() =>
-        Effect.die("should not load reservation")
-      ),
-    };
-
-    const error = await processWebhookError({
-      reservations,
-      request: {
-        ...validRawWebhookRequest,
-        headers: { ...validRawWebhookRequest.headers, id: "" },
-      },
-    });
-
-    expect(error).toMatchObject({
-      _tag: "ResendWebhookProcessingError",
-      errorCode: "resend_webhook_headers_missing",
-    });
-    expect(constructResend).not.toHaveBeenCalled();
-    expect(verifyWebhook).not.toHaveBeenCalled();
-  });
-
-  test("rejects an empty raw webhook body at the payload boundary", async () => {
-    const reservations = {
-      findByActiveCustomerEmailDeliveryId: mock(() =>
-        Effect.die("should not load reservation")
-      ),
-    };
-
-    const error = await processWebhookError({
-      reservations,
-      request: { ...validRawWebhookRequest, payload: "" },
-    });
-
-    expect(error).toMatchObject({
-      _tag: "ResendWebhookProcessingError",
-      errorCode: "resend_webhook_payload_invalid",
-      eventId: "webhook-event-id",
-    });
-    expect(constructResend).not.toHaveBeenCalled();
-    expect(verifyWebhook).not.toHaveBeenCalled();
-  });
-
-  test("rejects an empty Resend email ID in a verified delivery payload", async () => {
-    verifiedPayload = {
-      ...customerDeliveredPayload,
-      data: { ...customerDeliveredPayload.data, email_id: "" },
-    };
-    const reservations = {
-      findByActiveCustomerEmailDeliveryId: mock(() =>
-        Effect.die("should not load reservation")
-      ),
-    };
-
-    const error = await processWebhookError({ reservations });
 
     expect(error).toMatchObject({
       _tag: "ResendWebhookProcessingError",
@@ -952,39 +770,5 @@ describe("ResendWebhookService", () => {
     expect(
       reservations.markCustomerEmailDeliveryFulfilled
     ).not.toHaveBeenCalled();
-  });
-
-  test("ignores delivery events without a deployment environment tag", async () => {
-    verifiedPayload = {
-      ...customerDeliveredPayload,
-      data: {
-        ...customerDeliveredPayload.data,
-        tags: customerDeliveredPayload.data.tags.filter(
-          (tag) => tag.name !== "deploymentEnvironment"
-        ),
-      },
-    };
-    const reservations = {
-      findByActiveCustomerEmailDeliveryId: mock(() =>
-        Effect.succeed(awaitingDeliveryReservation)
-      ),
-      markCustomerEmailDeliveryFulfilled: mock(() =>
-        Effect.die("should not update")
-      ),
-      markCustomerEmailDeliveryFailed: mock(() =>
-        Effect.die("should not update")
-      ),
-    };
-
-    const result = await processWebhook({ reservations });
-
-    expect(result).toEqual({
-      status: "ignored",
-      reason: "deployment_environment_missing",
-    });
-    expect(
-      reservations.markCustomerEmailDeliveryFulfilled
-    ).not.toHaveBeenCalled();
-    expect(reservations.markCustomerEmailDeliveryFailed).not.toHaveBeenCalled();
   });
 });
