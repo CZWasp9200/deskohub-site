@@ -499,8 +499,8 @@ export function CustomerPromotionCodeAction({
       <DialogTrigger asChild>
         <Button
           aria-label={label}
-          className="relative z-10 size-8"
-          size="icon"
+          className="relative z-10"
+          size="icon-sm"
           title={label}
           variant="ghost"
         >
@@ -532,9 +532,9 @@ export function CustomerPromotionCodeAction({
                 Delete {noun}
               </Button>
               <Button
-                className="bg-burned-orange-ink hover:bg-burned-orange-ink/90"
                 disabled={isExecuting}
                 onClick={() => execute(mutations.makeUnrestricted)}
+                tone="burned-orange-ink"
                 type="button"
               >
                 Make available to all
@@ -549,9 +549,9 @@ export function CustomerPromotionCodeAction({
                 </Button>
               </DialogClose>
               <Button
-                className="bg-burned-orange-ink hover:bg-burned-orange-ink/90"
                 disabled={isExecuting}
                 onClick={() => execute(mutations.remove)}
+                tone="burned-orange-ink"
                 type="button"
               >
                 Remove customer
@@ -566,9 +566,9 @@ export function CustomerPromotionCodeAction({
                 </Button>
               </DialogClose>
               <Button
-                className="bg-burned-orange-ink hover:bg-burned-orange-ink/90"
                 disabled={isExecuting}
                 onClick={() => execute(mutations.add)}
+                tone="burned-orange-ink"
                 type="button"
               >
                 {audienceSize > 0 ? "Add customer" : "Limit to only this user"}

@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import { AdministrationLink as Link } from "@/features/administration/admin-link";
+import { AdministrationRecordLink } from "@/features/administration/admin-link";
 import {
   AdministrationAlert,
   AdministrationFact,
@@ -139,15 +139,14 @@ export async function OrderAdministrationDetail({
               Reservation
             </h2>
             {order.link ? (
-              <Link
-                className="block rounded-lg px-3 py-3 hover:bg-navy-blue/[0.035]"
+              <AdministrationRecordLink
                 href={`/admin/reservations/${order.link.reservationId}`}
               >
                 <span className="block font-semibold">View reservation</span>
                 <span className="mt-1 block font-mono text-xs text-navy-blue/65">
                   {order.link.reservationId}
                 </span>
-              </Link>
+              </AdministrationRecordLink>
             ) : (
               <p className="px-3 py-3 text-sm text-navy-blue/65">
                 No local payment attempt is linked to this order.

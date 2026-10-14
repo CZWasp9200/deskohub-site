@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import { isReservationAccessProvisioningStale } from "@/features/reservation-access/reservation-access";
-import { Button, buttonVariants } from "@/shared/components/ui/button";
+import { Button } from "@/shared/components/ui/button";
 import { StatusBadge } from "@/shared/components/ui/status-badge";
 import { useWorkspaceAction } from "@/shared/utils/use-workspace-action";
 import { mutateReservationAccess } from "./actions";
@@ -95,9 +95,9 @@ export function ReservationAccessAdministration({
 
       {needsProviderReconciliation && (
         <details className="mt-4 rounded-xl border border-burned-orange/25 bg-burned-orange/5 p-4">
-          <summary className={buttonVariants({ size: "sm" })}>
-            Reconcile access
-          </summary>
+          <Button asChild size="sm">
+            <summary>Reconcile access</summary>
+          </Button>
           <div className="mt-4 space-y-4 text-sm leading-6 text-navy-blue/65">
             <p>
               At the lock, connect the Igloohome app over Bluetooth and find “

@@ -8,6 +8,7 @@ import { useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { Button } from "@/shared/components/ui/button";
 import { Checkbox } from "@/shared/components/ui/checkbox";
+import { ChoiceCard } from "@/shared/components/ui/choice-card";
 import {
   Dialog,
   DialogClose,
@@ -170,19 +171,21 @@ export function ReservationCancellation({
                     name="providerCredentialRemoved"
                     render={({ field: { onChange, ...field } }) => (
                       <FormItem>
-                        <FormLabel className="flex cursor-pointer items-start gap-3 rounded-xl border border-burned-orange/25 bg-burned-orange/5 p-4 text-sm leading-6 text-navy-blue/70">
-                          <FormControl>
-                            <Checkbox
-                              checked={field.value}
-                              onCheckedChange={(checked) =>
-                                onChange(checked === true)
-                              }
-                            />
-                          </FormControl>
-                          <span>
-                            I removed the active door PIN from the lock in
-                            Igloohome
-                          </span>
+                        <FormLabel asChild>
+                          <ChoiceCard tone="warning">
+                            <FormControl>
+                              <Checkbox
+                                checked={field.value}
+                                onCheckedChange={(checked) =>
+                                  onChange(checked === true)
+                                }
+                              />
+                            </FormControl>
+                            <span className="leading-6">
+                              I removed the active door PIN from the lock in
+                              Igloohome
+                            </span>
+                          </ChoiceCard>
                         </FormLabel>
                         <FormMessage />
                       </FormItem>
@@ -194,16 +197,20 @@ export function ReservationCancellation({
                   name="sendCancellationEmail"
                   render={({ field: { onChange, ...field } }) => (
                     <FormItem>
-                      <FormLabel className="flex cursor-pointer items-start gap-3 rounded-xl border border-navy-blue/10 bg-navy-blue/2.5 p-4 text-sm leading-6 text-navy-blue/70">
-                        <FormControl>
-                          <Checkbox
-                            checked={field.value}
-                            onCheckedChange={(checked) =>
-                              onChange(checked === true)
-                            }
-                          />
-                        </FormControl>
-                        <span>Send a cancellation email to the customer</span>
+                      <FormLabel asChild>
+                        <ChoiceCard>
+                          <FormControl>
+                            <Checkbox
+                              checked={field.value}
+                              onCheckedChange={(checked) =>
+                                onChange(checked === true)
+                              }
+                            />
+                          </FormControl>
+                          <span className="leading-6 text-navy-blue/70">
+                            Send a cancellation email to the customer
+                          </span>
+                        </ChoiceCard>
                       </FormLabel>
                       <FormMessage />
                     </FormItem>
@@ -225,12 +232,12 @@ export function ReservationCancellation({
                     </Button>
                   </DialogClose>
                   <Button
-                    className="bg-burned-orange-ink hover:bg-burned-orange-ink/90"
                     disabled={
                       isExecuting ||
                       (requiresProviderCredentialRemoval &&
                         !providerCredentialRemoved)
                     }
+                    tone="burned-orange-ink"
                     type="submit"
                   >
                     {isExecuting ? "Cancelling…" : "Cancel reservation"}
