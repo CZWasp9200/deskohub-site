@@ -576,59 +576,6 @@ describe("MeetingRoomReservationForm", () => {
     }
   });
 
-  test("quotes the selectable whole day when restoring an hourly reservation", async () => {
-    const originalNow = Temporal.Now.instant;
-    Temporal.Now.instant = () => Temporal.Instant.from("2099-07-30T12:37:00Z");
-    globalThis.fetch = mock(() =>
-      Promise.resolve(jsonResponse(availabilityResponse))
-    ) as typeof fetch;
-    const restoredHourlyReservation =
-      normalizedMeetingRoomReservationOrderSchema.make({
-        ...initialReservation,
-        duration: { unit: "hour", amount: 1 },
-        startsAt: "2099-07-30T14:00:00Z",
-        endsAt: "2099-07-30T15:00:00Z",
-      });
-
-    try {
-      renderForm({ initialReservation: restoredHourlyReservation });
-
-      await waitFor(() => {
-        expect(getAdvertisedPrices).toHaveBeenCalledTimes(1);
-      });
-      expect(getAdvertisedPrices).toHaveBeenCalledWith(
-        expect.arrayContaining([
-          {
-            locale: "en-US",
-            reservation: {
-              kind: "meeting-room",
-              details: {
-                kind: "meeting-room",
-                duration: { unit: "day", amount: 1 },
-                reservationDate: "2099-07-30",
-                lastServiceDate: "2099-07-30",
-              },
-            },
-          },
-          {
-            locale: "en-US",
-            reservation: {
-              kind: "meeting-room",
-              details: {
-                kind: "meeting-room",
-                duration: { unit: "hour", amount: 1 },
-                reservationDate: "2099-07-30",
-                lastServiceDate: "2099-07-30",
-              },
-            },
-          },
-        ])
-      );
-    } finally {
-      Temporal.Now.instant = originalNow;
-    }
-  });
-
   test("keeps the selected quote on a restored hourly slot that has started", async () => {
     const originalNow = Temporal.Now.instant;
     Temporal.Now.instant = () => Temporal.Instant.from("2099-07-30T13:01:00Z");

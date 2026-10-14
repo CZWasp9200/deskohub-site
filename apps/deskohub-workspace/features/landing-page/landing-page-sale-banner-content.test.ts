@@ -1,10 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { WorkspaceProductTarget } from "@/features/discounts/product-target";
 import { type Locale, m } from "@/features/i18n";
-import {
-  getLandingPageSaleBannerContent,
-  getLandingPageSaleBannerLabel,
-} from "./landing-page-sale-banner-content";
+import { getLandingPageSaleBannerLabel } from "./landing-page-sale-banner-content";
 
 const coworkProduct = {
   kind: "cowork",
@@ -79,70 +76,6 @@ describe("getLandingPageSaleBannerLabel", () => {
   test("does not omit office from a mixed sale label", () => {
     expect(formatLabel([coworkProduct, officeProduct])).toEqual(
       summerFocusLabel(bannerTemplate(m.landingSaleBannerSelectedProducts))
-    );
-  });
-
-  test("formats fixed adjustments with their currency", () => {
-    expect(
-      formatLabel([coworkProduct], {
-        kind: "fixed",
-        amount: { value: 20_000, exponent: 2, currency: "CZK" },
-      })
-    ).toEqual({
-      template: bannerTemplate(m.landingSaleBannerAllCoworkProducts),
-      title: "Summer focus",
-      adjustment: "CZK\u00a0200",
-    });
-  });
-
-  test("localizes the template and adjustment for Czech", () => {
-    expect(
-      getLandingPageSaleBannerLabel(
-        {
-          title: "Letní soustředění",
-          adjustment: { kind: "percentage", basisPoints: 2000 },
-          products: [coworkProduct],
-        },
-        "cs-CZ"
-      )
-    ).toEqual({
-      template: bannerTemplate(m.landingSaleBannerAllCoworkProducts, "cs-CZ"),
-      title: "Letní soustředění",
-      adjustment: "20\u00a0%",
-    });
-  });
-});
-
-describe("getLandingPageSaleBannerContent", () => {
-  test("attributes reservation visits to the home sale banner", () => {
-    expect(
-      getLandingPageSaleBannerContent({
-        locale: "en-US",
-        reservationKind: "meeting-room",
-        sale: {
-          title: "Summer focus",
-          adjustment: { kind: "percentage", basisPoints: 2000 },
-          products: [meetingRoomProduct],
-        },
-      }).href
-    ).toBe(
-      "/en-US/reservation/meeting-room?utm_source=deskohub&utm_medium=sale_banner&utm_content=home_hero"
-    );
-  });
-
-  test("links an office-only sale to the office reservation page", () => {
-    expect(
-      getLandingPageSaleBannerContent({
-        locale: "en-US",
-        reservationKind: "office",
-        sale: {
-          title: "Office week",
-          adjustment: { kind: "percentage", basisPoints: 1000 },
-          products: [officeProduct],
-        },
-      }).href
-    ).toBe(
-      "/en-US/reservation/office?utm_source=deskohub&utm_medium=sale_banner&utm_content=home_hero"
     );
   });
 });

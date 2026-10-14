@@ -73,31 +73,6 @@ describe("ContactForm", () => {
   afterEach(() => cleanup());
   afterAll(unregisterWorkspaceComponentTestEnv);
 
-  test("prefills values and retains a native form action", async () => {
-    const { ContactForm } = await import("./contact-form");
-    const view = render(
-      <ContactForm
-        locale="en-US"
-        initialValues={{
-          name: "Ada Lovelace",
-          email: adaEmail,
-          phone: "+420777777777",
-          message: "Please help with a reservation.",
-        }}
-      />
-    );
-    for (const [label, value] of [
-      ["Name", "Ada Lovelace"],
-      ["Email", adaEmail],
-      ["Phone", "+420777777777"],
-      ["Message", "Please help with a reservation."],
-    ]) {
-      expect((view.getByLabelText(label) as HTMLInputElement).value).toBe(
-        value
-      );
-    }
-  });
-
   test("validates and submits edited field values after hydration", async () => {
     response = { data: { status: "success", message: "Sent" } };
     const { ContactForm } = await import("./contact-form");

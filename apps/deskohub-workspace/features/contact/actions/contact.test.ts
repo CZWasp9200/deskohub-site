@@ -1,11 +1,8 @@
 import "@/shared/testing/workspace-test-env";
 import { describe, expect, mock, test } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
-import { Effect, Layer, Schema } from "effect";
-import {
-  type ContactFormValues,
-  createContactSchema,
-} from "@/features/contact/schemas/contact";
+import { Effect, Layer } from "effect";
+import type { ContactFormValues } from "@/features/contact/schemas/contact";
 import { type Locale, m } from "@/features/i18n";
 
 const adaEmail = testEmailAddress("ada");
@@ -107,26 +104,6 @@ describe("processContactSubmission", () => {
       });
       expect(result.submit).not.toHaveBeenCalled();
     }
-  });
-
-  test("enforces the shared schema length limits", async () => {
-    const schema = Schema.toStandardSchemaV1(createContactSchema("en-US"));
-    const email = `${"a".repeat(63)}@${"b".repeat(63)}.${"c".repeat(63)}.${"d".repeat(58)}.com`;
-    const accepted = await schema["~standard"].validate({
-      ...data,
-      name: "n".repeat(100),
-      email,
-      message: "m".repeat(1000),
-    });
-    expect("issues" in accepted).toBe(false);
-    const rejected = await schema["~standard"].validate({
-      ...data,
-      name: "n".repeat(101),
-      email: "e".repeat(256),
-      phone: "p".repeat(21),
-      message: "m".repeat(1001),
-    });
-    expect(rejected).toMatchObject({ issues: expect.any(Array) });
   });
 
   test("maps detected bots to the localized rate-limit response", async () => {

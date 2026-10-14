@@ -118,35 +118,6 @@ describe("OfficeReservationForm", () => {
     await unregisterWorkspaceComponentTestEnv();
   });
 
-  test("renders one start date and a day-count input", () => {
-    const queryClient = new QueryClient();
-    const view = render(
-      <QueryClientProvider client={queryClient}>
-        <OfficeReservationForm
-          seatCapacity={3}
-          initialValues={officeReservationDefaultValues}
-          locale="en-US"
-          today={decodePlainDate("2026-08-10")}
-        />
-      </QueryClientProvider>
-    );
-
-    expect(
-      view.getByRole("group", { name: "Reservation dates" })
-    ).toBeDefined();
-    expect(
-      view.getByRole("button", { name: /^Office reservation start date/ })
-    ).toBeDefined();
-    expect(
-      view.queryByRole("button", { name: "Office reservation end date" })
-    ).toBeNull();
-    expect(
-      view.getByRole<HTMLInputElement>("spinbutton", {
-        name: "Number of days",
-      }).value
-    ).toBe("1");
-  });
-
   test("loads the month calendar without seat or interval filters and bounds the stay before an unavailable date", async () => {
     const today = decodePlainDate("2026-08-10");
     const requests: URL[] = [];

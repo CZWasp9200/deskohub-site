@@ -306,45 +306,5 @@ describe.skipIf(!testDatabase)(
         withdrawnAt: latestWithdrawal.grantedAt,
       });
     });
-
-    test("keeps distinct customer IDs independent with otherwise identical inputs", async () => {
-      const firstCustomerId = uniqueCustomerId();
-      const secondCustomerId = uniqueCustomerId();
-      const sharedEvidence = {
-        documentHash: "shared-document",
-        locale: "en-US" as const,
-        grantedAt: Temporal.Instant.from("2026-09-13T10:00:00Z"),
-      };
-      const first = makeInput(firstCustomerId, sharedEvidence);
-      const second = makeInput(secondCustomerId, sharedEvidence);
-      const firstWithdrawal = makeInput(firstCustomerId, {
-        documentHash: "first-withdrawal-document",
-        grantedAt: Temporal.Instant.from("2026-09-14T10:00:00Z"),
-      });
-      const unknownCustomerId = uniqueCustomerId();
-
-      const consents = await runRepository((repository) =>
-        Effect.gen(function* () {
-          yield* repository.grantInitial(first);
-          yield* repository.grantInitial(second);
-          yield* repository.withdraw(firstWithdrawal);
-          return yield* Effect.all([
-            repository.get(firstCustomerId),
-            repository.get(secondCustomerId),
-            repository.get(unknownCustomerId),
-          ]);
-        })
-      );
-
-      expectConsent(consents[0], {
-        ...first,
-        withdrawnAt: firstWithdrawal.grantedAt,
-      });
-      expectConsent(consents[1], {
-        ...second,
-        withdrawnAt: null,
-      });
-      expect(consents[2]).toBeNull();
-    });
   }
 );

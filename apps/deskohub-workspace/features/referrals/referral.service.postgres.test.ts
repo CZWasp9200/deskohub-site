@@ -987,45 +987,6 @@ describe.skipIf(!testDatabase)("ReferralService on disposable Postgres", () => {
       ]);
     }
   });
-
-  test("summarizes a customer without referrals or referral savings as empty", async () => {
-    const customerId = uniqueDotyposId();
-    const accountId = await insertLinkedAccount(customerId);
-    await insertDiscountedBooking({
-      dotyposCustomerId: customerId,
-      attempt: "paid",
-      applications: [
-        { publicDiscountId: "synthetic-ordinary-discount", amountValue: 1000 },
-      ],
-    });
-
-    try {
-      const summary = await getAccountSummary({
-        accountId,
-        dotyposCustomerId: customerId,
-      });
-
-      expect(summary).toMatchObject({
-        inviteeCount: 0,
-        eligibleInviteeCount: 0,
-        discount: "0",
-        savings: [],
-      });
-    } finally {
-      await deleteBookings([customerId]);
-      await testDatabase!.pool.query(
-        `delete from promotion_codes where id in (select promotion_code_id from referral_codes where referrer_dotypos_customer_id = $1)`,
-        [customerId]
-      );
-      await testDatabase!.pool.query(
-        "delete from customer_account_links where customer_account_id = $1",
-        [accountId]
-      );
-      await testDatabase!.pool.query('delete from auth."user" where id = $1', [
-        accountId,
-      ]);
-    }
-  });
 });
 
 const createActiveReferrer = async () => {

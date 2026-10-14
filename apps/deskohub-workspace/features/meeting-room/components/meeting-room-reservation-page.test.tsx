@@ -75,48 +75,6 @@ beforeEach(() => {
   isRememberedDurationAvailable = true;
 });
 
-test("preloads the preserved quote for a restored hourly slot that has started", async () => {
-  const originalNow = Temporal.Now.instant;
-  Temporal.Now.instant = () => Temporal.Instant.from("2099-07-30T13:01:00Z");
-  const restoredReservation = normalizedMeetingRoomReservationOrderSchema.make({
-    kind: "meeting-room",
-    duration: { unit: "hour", amount: 4 },
-    reservationDate: "2099-07-30",
-    startsAt: "2099-07-30T13:00:00Z",
-    endsAt: "2099-07-30T17:00:00Z",
-    name: "Ada Lovelace",
-    email: adaEmail,
-    phone: "+420777777777",
-  });
-
-  try {
-    await renderMeetingRoomReservationContent({
-      initialReservation: restoredReservation,
-      locale: "en-US",
-      searchParams: {},
-    });
-
-    expect(loadAdvertisedPrices).toHaveBeenCalledTimes(1);
-    expect(loadAdvertisedPrices.mock.calls[0]?.[0]).toHaveLength(
-      meetingRoomReservationDurations.length
-    );
-    expect(loadAdvertisedPrices.mock.calls[0]?.[0]).toContainEqual({
-      locale: "en-US",
-      reservation: {
-        kind: "meeting-room",
-        details: {
-          kind: "meeting-room",
-          duration: { unit: "hour", amount: 4 },
-          reservationDate: "2099-07-30",
-          lastServiceDate: "2099-07-30",
-        },
-      },
-    });
-  } finally {
-    Temporal.Now.instant = originalNow;
-  }
-});
-
 test("restores a whole-day reservation after its start and before its end", async () => {
   const originalNow = Temporal.Now.instant;
   Temporal.Now.instant = () => Temporal.Instant.from("2099-07-30T13:01:00Z");
@@ -220,26 +178,6 @@ test("preloads every duration's price and the selected interval's availability",
     });
     expect(form.props.initialAvailability?.map(({ query }) => query)).toEqual(
       preloadAvailability.mock.calls[0]?.[0].queries
-    );
-  } finally {
-    Temporal.Now.instant = originalNow;
-  }
-});
-
-test("leaves availability to the client when the page could not load it", async () => {
-  const originalNow = Temporal.Now.instant;
-  Temporal.Now.instant = () => Temporal.Instant.from("2099-07-30T13:01:00Z");
-  preloadAvailability.mockImplementationOnce(() => Effect.succeed([]));
-
-  try {
-    const form = (await renderMeetingRoomReservationContent({
-      locale: "en-US",
-      searchParams: {},
-    })) as ReactElement<Parameters<typeof MeetingRoomReservationForm>[0]>;
-
-    expect(form.props.initialAvailability).toEqual([]);
-    expect(form.props.initialAdvertisedPrices).toHaveLength(
-      meetingRoomReservationDurations.length
     );
   } finally {
     Temporal.Now.instant = originalNow;

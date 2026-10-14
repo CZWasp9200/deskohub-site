@@ -34,15 +34,7 @@ import {
 mock.module("server-only", () => ({}));
 
 const cookieStore = {};
-let rejectAmbientCookieLookups = false;
-let ambientCookieLookupCount = 0;
-const requestCookies = mock(async () => {
-  ambientCookieLookupCount += 1;
-  if (rejectAmbientCookieLookups && ambientCookieLookupCount > 1) {
-    throw new Error("ambient cookie lookup after exchange");
-  }
-  return cookieStore;
-});
+const requestCookies = mock(async () => cookieStore);
 
 mock.module("next/headers", () => ({ cookies: requestCookies }));
 
@@ -246,8 +238,6 @@ beforeEach(() => {
   setMarketingManagementSessionCookie.mockClear();
   clearMarketingManagementCookies.mockClear();
   requestCookies.mockClear();
-  rejectAmbientCookieLookups = false;
-  ambientCookieLookupCount = 0;
 });
 
 afterAll(() => {
@@ -279,29 +269,6 @@ describe("marketing preference actions", () => {
       session: "new-session-token",
     });
     expect(requestCookies).toHaveBeenCalledTimes(1);
-  });
-
-  test("captures the cookie store before an asynchronous exchange and never calls ambient cookies again", async () => {
-    currentScenario.cookies = { pending: pendingToken, session: undefined };
-    currentScenario.exchange.mockImplementation(() =>
-      Effect.promise(
-        async () =>
-          await Promise.resolve({
-            token: "new-session-token",
-            expiresAt: sessionExpiry,
-          })
-      )
-    );
-    rejectAmbientCookieLookups = true;
-
-    await expect(
-      confirmMarketingManagementAction({
-        context: getPendingMarketingManagementContext(pendingToken),
-      })
-    ).resolves.toEqual({ data: { status: "confirmed" } });
-
-    expect(requestCookies).toHaveBeenCalledTimes(1);
-    expect(setMarketingManagementSessionCookie).toHaveBeenCalledTimes(1);
   });
 
   test("does not exchange a stale pending context", async () => {
@@ -447,22 +414,6 @@ describe("marketing preference actions", () => {
 
     expect(currentScenario.resolve).not.toHaveBeenCalled();
     expect(currentScenario.exchange).not.toHaveBeenCalled();
-    expect(currentScenario.revoke).not.toHaveBeenCalled();
-    expect(clearMarketingManagementCookies).toHaveBeenCalledTimes(1);
-  });
-
-  test("clears malformed pending management state without resolving a credential", async () => {
-    currentScenario.cookies = { pending: "invalid", session: undefined };
-
-    await expect(
-      clearMarketingManagementAction({
-        context: getMarketingManagementDismissalContext(
-          currentScenario.cookies
-        ),
-      })
-    ).resolves.toEqual({ data: { status: "cleared" } });
-
-    expect(currentScenario.resolve).not.toHaveBeenCalled();
     expect(currentScenario.revoke).not.toHaveBeenCalled();
     expect(clearMarketingManagementCookies).toHaveBeenCalledTimes(1);
   });

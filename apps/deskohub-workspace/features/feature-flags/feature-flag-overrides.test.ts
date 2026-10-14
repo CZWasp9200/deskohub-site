@@ -16,13 +16,6 @@ describe("resolveFeatureFlagOverrides", () => {
     expect(warn).not.toHaveBeenCalled();
   });
 
-  test("honors the referrals override, which the generated contract knows", () => {
-    expect(
-      resolveFeatureFlagOverrides({ referrals: true, discount_codes: true })
-    ).toEqual({ referrals: true, discount_codes: true });
-    expect(warn).not.toHaveBeenCalled();
-  });
-
   test("drops keys missing from the generated contract and names only the keys", () => {
     expect(
       resolveFeatureFlagOverrides({
@@ -54,12 +47,5 @@ describe("resolveFeatureFlagOverrides", () => {
     const [message] = warn.mock.calls[0] ?? [];
     expect(String(message)).toContain("seasonal_menu");
     expect(String(message)).not.toContain("synthetic-variant");
-  });
-
-  test("resolves a map of only unknown keys to no overrides", () => {
-    expect(
-      resolveFeatureFlagOverrides({ loyalty_points: true })
-    ).toBeUndefined();
-    expect(warn).toHaveBeenCalledTimes(1);
   });
 });

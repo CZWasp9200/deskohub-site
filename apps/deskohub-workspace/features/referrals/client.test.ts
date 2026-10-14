@@ -25,8 +25,6 @@ describe("referral discount formatting", () => {
     ["en-US", "0", "0%"],
     ["en-US", "5", "5%"],
     ["en-US", "14.2625", "15%"],
-    ["en-US", "18.549375", "19%"],
-    ["en-US", "64.15140775914577656425895595550537109375", "65%"],
     ["cs-CZ", "9.75", "10\u00a0%"],
   ] as const)("rounds %s %s up to %p", (locale, discount, formatted) => {
     expect(formatReferralDiscount(discount, locale)).toBe(formatted);

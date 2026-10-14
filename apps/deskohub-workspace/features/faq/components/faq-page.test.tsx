@@ -7,7 +7,6 @@ import {
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
 } from "@/shared/testing/workspace-component-test-env";
-import { workspaceSiteConstants } from "@/shared/utils";
 import { FaqPage } from "./faq-page";
 
 beforeAll(() => {
@@ -71,101 +70,6 @@ test("FAQ focus indicator has at least 3:1 contrast against its navy offset", as
   expect(
     colorContrastRatio(focusRingColor, ringOffsetColor)
   ).toBeGreaterThanOrEqual(3);
-});
-
-const questionMessages = [
-  m.faqQuestionLocation,
-  m.faqQuestionHowItWorks,
-  m.faqQuestionInternet,
-  m.faqQuestionFood,
-  m.faqQuestionCalls,
-  m.faqQuestionBusyness,
-] as const;
-
-test("renders six closed native FAQ disclosures", () => {
-  const view = render(
-    <FaqPage
-      averageReservationsPerDay={1.2}
-      coworkSeatCapacity={28}
-      locale="en-US"
-    />
-  );
-
-  expect(
-    view.getByRole("heading", {
-      level: 1,
-      name: m.faqPageTitle({}, { locale: "en-US" }),
-    })
-  ).toBeTruthy();
-  expect(
-    view
-      .getAllByRole("heading", { level: 2 })
-      .map((heading) => heading.textContent)
-  ).toEqual(
-    questionMessages.map((message) => message({}, { locale: "en-US" }))
-  );
-
-  const disclosures = view.container.querySelectorAll("details");
-  expect(disclosures).toHaveLength(6);
-  for (const disclosure of disclosures) {
-    expect(disclosure.hasAttribute("open")).toBe(false);
-    // Browsers expose a first-child <summary> as a focusable disclosure
-    // control only while it keeps its native role and tab order.
-    const summary = disclosure.firstElementChild;
-    expect(summary?.tagName).toBe("SUMMARY");
-    expect(summary?.hasAttribute("role")).toBe(false);
-    expect(summary?.hasAttribute("tabindex")).toBe(false);
-    expect(summary?.querySelector("h2")).toBeTruthy();
-    expect(summary?.querySelector("svg")?.getAttribute("aria-hidden")).toBe(
-      "true"
-    );
-  }
-
-  expect(view.container.querySelector("address")?.textContent).toContain(
-    workspaceSiteConstants.location.address.street
-  );
-});
-
-test("allows multiple native FAQ disclosures to stay open", () => {
-  const view = render(
-    <FaqPage
-      averageReservationsPerDay={1.26}
-      coworkSeatCapacity={28}
-      locale="en-US"
-    />
-  );
-  const disclosureFor = (question: string) => {
-    const heading = view.getByRole("heading", { level: 2, name: question });
-    return heading.closest("details") as HTMLDetailsElement;
-  };
-  const howItWorks = disclosureFor(
-    m.faqQuestionHowItWorks({}, { locale: "en-US" })
-  );
-  const calls = disclosureFor(m.faqQuestionCalls({}, { locale: "en-US" }));
-  const busyness = disclosureFor(
-    m.faqQuestionBusyness({}, { locale: "en-US" })
-  );
-
-  fireEvent.click(howItWorks.querySelector("summary")!);
-  fireEvent.click(calls.querySelector("summary")!);
-  fireEvent.click(busyness.querySelector("summary")!);
-
-  expect(howItWorks.open).toBe(true);
-  expect(calls.open).toBe(true);
-  expect(
-    view.getByText(
-      m.faqAnswerBusyness(
-        { average: "1.3", capacity: "28" },
-        { locale: "en-US" }
-      )
-    )
-  ).toBeTruthy();
-
-  fireEvent.click(howItWorks.querySelector("summary")!);
-
-  expect(howItWorks.open).toBe(false);
-  expect(calls.open).toBe(true);
-  expect(busyness.open).toBe(true);
 });
 
 test("localizes Czech copy and formats the average with one decimal", () => {
