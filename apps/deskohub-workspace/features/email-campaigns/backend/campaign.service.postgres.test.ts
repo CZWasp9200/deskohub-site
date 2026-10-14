@@ -71,6 +71,48 @@ describe.skipIf(!testDatabase)("CampaignService on disposable Postgres", () => {
     });
   });
 
+  test("persists and duplicates an operational reason override", async () => {
+    const draft = await createDraft();
+    const content = campaignContentFixture();
+    const withReason = {
+      "cs-CZ": {
+        ...content["cs-CZ"]!,
+        operationalReason: "Měníme provozní dobu.",
+      },
+    };
+    const updated = await run(
+      CampaignService.pipe(
+        Effect.flatMap((campaigns) =>
+          campaigns.update({ campaignId: draft.id, content: withReason })
+        )
+      )
+    );
+    expect(Exit.isSuccess(updated)).toBe(true);
+
+    const copy = await run(
+      CampaignService.pipe(
+        Effect.flatMap((campaigns) => campaigns.duplicate(draft.id))
+      )
+    );
+    if (Exit.isFailure(copy)) throw Cause.squash(copy.cause);
+    campaignIds.push(copy.value.id);
+    expect(copy.value.content).toEqual(withReason);
+
+    const blank = await run(
+      CampaignService.pipe(
+        Effect.flatMap((campaigns) =>
+          campaigns.update({
+            campaignId: draft.id,
+            content: {
+              "cs-CZ": { ...content["cs-CZ"]!, operationalReason: "  " },
+            },
+          })
+        )
+      )
+    );
+    expect(failure(blank)).toMatchObject({ _tag: "CampaignContentInvalid" });
+  });
+
   test("rejects content that breaks the body rules", async () => {
     const draft = await createDraft();
     const content = campaignContentFixture();

@@ -79,10 +79,21 @@ const content: CampaignLocaleContent = {
   },
 };
 
-const render = (footer: CampaignEmailFooter, locale = "cs-CZ" as const) =>
+const render = (
+  footer: CampaignEmailFooter,
+  locale = "cs-CZ" as const,
+  localeContent: CampaignLocaleContent = content
+) =>
   Effect.runPromise(
-    renderCampaignEmail({ templateKey: "workspace", locale, content, footer })
+    renderCampaignEmail({
+      templateKey: "workspace",
+      locale,
+      content: localeContent,
+      footer,
+    })
   );
+
+const operationalReason = "Píšeme vám kvůli změně provozní doby.";
 
 describe("renderCampaignEmail", () => {
   test("renders the body inside the Workspace layout", async () => {
@@ -151,6 +162,30 @@ describe("renderCampaignEmail", () => {
     expect(email.html).toContain("Toto provozní sdělení vám posíláme");
     expect(email.html).not.toContain("marketing-preferences");
     expect(email.html).not.toContain("Odhlásit odběr");
+  });
+
+  test("replaces the operational reason line with the campaign's own", async () => {
+    const email = await render(CampaignEmailFooter.Operational(), "cs-CZ", {
+      ...content,
+      operationalReason,
+    });
+
+    expect(email.html).toContain(operationalReason);
+    expect(email.text).toContain(operationalReason);
+    expect(email.html).not.toContain("Toto provozní sdělení vám posíláme");
+  });
+
+  test("ignores the operational reason in a marketing email", async () => {
+    const email = await render(
+      CampaignEmailFooter.Marketing({
+        marketingPreferencesUrl: preferencesUrl,
+      }),
+      "cs-CZ",
+      { ...content, operationalReason }
+    );
+
+    expect(email.html).not.toContain(operationalReason);
+    expect(email.html).toContain("Odhlásit odběr nebo změnit nastavení");
   });
 
   test("localizes the footer", async () => {

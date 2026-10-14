@@ -17,6 +17,13 @@ export const CampaignLocaleContent = Schema.Struct({
   subject: Schema.String,
   preheader: Schema.String,
   body: CampaignBodyDocument,
+  /**
+   * Replaces the fixed reason line in an operational campaign's footer.
+   * Marketing campaigns ignore it.
+   */
+  operationalReason: Schema.optionalKey(
+    Schema.Trimmed.check(Schema.isNonEmpty())
+  ),
 });
 export type CampaignLocaleContent = typeof CampaignLocaleContent.Type;
 

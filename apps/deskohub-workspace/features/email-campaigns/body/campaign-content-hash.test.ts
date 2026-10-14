@@ -145,6 +145,19 @@ describe("hashCampaignContent", () => {
       },
     ],
     [
+      "operational reason",
+      {
+        ...content,
+        locales: {
+          ...content.locales,
+          "cs-CZ": {
+            ...content.locales["cs-CZ"]!,
+            operationalReason: "Měníme provozní dobu.",
+          },
+        },
+      },
+    ],
+    [
       "removed locale",
       { ...content, locales: { "cs-CZ": content.locales["cs-CZ"] } },
     ],

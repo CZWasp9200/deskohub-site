@@ -14,7 +14,8 @@ import {
 /**
  * Why the recipient gets the email. A marketing email links to the customer's
  * marketing preferences, where they can unsubscribe; an operational email
- * states that it is a service message.
+ * states that it is a service message, in the campaign's own words when the
+ * locale content sets `operationalReason`.
  */
 export type CampaignEmailFooter = Data.TaggedEnum<{
   Marketing: { readonly marketingPreferencesUrl: string };
@@ -23,10 +24,15 @@ export type CampaignEmailFooter = Data.TaggedEnum<{
 
 export const CampaignEmailFooter = Data.taggedEnum<CampaignEmailFooter>();
 
-const footerProps = (
-  footer: CampaignEmailFooter,
-  locale: Locale
-): CampaignTemplateProps["footer"] =>
+const footerProps = ({
+  footer,
+  locale,
+  content,
+}: {
+  readonly footer: CampaignEmailFooter;
+  readonly locale: Locale;
+  readonly content: CampaignLocaleContent;
+}): CampaignTemplateProps["footer"] =>
   Match.valueTags(footer, {
     Marketing: ({ marketingPreferencesUrl }) => ({
       note: m.emailCampaignMarketingFooter({}, { locale }),
@@ -36,7 +42,9 @@ const footerProps = (
       },
     }),
     Operational: () => ({
-      note: m.emailCampaignOperationalFooter({}, { locale }),
+      note:
+        content.operationalReason ??
+        m.emailCampaignOperationalFooter({}, { locale }),
     }),
   });
 
@@ -55,7 +63,7 @@ export const renderCampaignEmail = Effect.fn("renderCampaignEmail")(
     const rendered = yield* renderWorkspaceEmail(
       <Email
         body={<CampaignBodyContent body={input.content.body} />}
-        footer={footerProps(input.footer, input.locale)}
+        footer={footerProps(input)}
         locale={input.locale}
         preview={input.content.preheader}
       />
