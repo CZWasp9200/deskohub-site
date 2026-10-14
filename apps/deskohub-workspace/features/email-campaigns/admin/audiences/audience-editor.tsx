@@ -1,7 +1,7 @@
 "use client";
 
 import { effectSchemaResolver } from "@deskohub/effect-schema-resolver";
-import { Archive, Trash2 } from "lucide-react";
+import { Archive, ArchiveRestore, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { type ReactNode, useState } from "react";
@@ -34,18 +34,20 @@ import { useWorkspaceAction } from "@/shared/utils/use-workspace-action";
 import type { CampaignAudienceId } from "../../campaign-identifiers";
 import {
   audienceSingleLocale,
+  type DiscountGroupOption,
   describeAudienceFilter,
 } from "../audience-filter-summary";
-import { archiveAudience, deleteAudience, saveAudience } from "./actions";
+import {
+  archiveAudience,
+  deleteAudience,
+  saveAudience,
+  unarchiveAudience,
+} from "./actions";
 import {
   type AudienceFormValues,
   audienceFormSchema,
 } from "./audience-contracts";
-import {
-  AudienceFilterBuilder,
-  asRootGroup,
-  type DiscountGroupOption,
-} from "./audience-filter-builder";
+import { AudienceFilterBuilder, asRootGroup } from "./audience-filter-builder";
 import { AudienceStatusBadge, audienceHref } from "./audience-list";
 import type { AudienceEditorData } from "./audience-page-data.server";
 
@@ -76,7 +78,9 @@ export function AudienceEditorPage({
           audience ? (
             <div className="flex flex-wrap items-center gap-2">
               <AudienceStatusBadge archived={audience.archived} />
-              {audience.archived ? null : (
+              {audience.archived ? (
+                <UnarchiveAudienceControl audienceId={audience.id} />
+              ) : (
                 <ArchiveAudienceControl audienceId={audience.id} />
               )}
               <DeleteAudienceControl audienceId={audience.id} />
@@ -208,7 +212,7 @@ function AudienceForm({
               In plain English
             </p>
             <p className="mt-1 text-sm leading-6">
-              {describeAudienceFilter(filter)}.
+              {describeAudienceFilter(filter, discountGroups)}.
             </p>
             {singleLocale ? (
               <p className="mt-1 text-navy-blue/62 text-sm">
@@ -288,6 +292,50 @@ function ArchiveAudienceControl({
       error={error}
       onConfirm={() => execute({ audienceId })}
     />
+  );
+}
+
+function UnarchiveAudienceControl({
+  audienceId,
+}: {
+  readonly audienceId: CampaignAudienceId;
+}) {
+  const router = useRouter();
+  const [error, setError] = useState<string | null>(null);
+  const { execute, isExecuting } = useWorkspaceAction(unarchiveAudience, {
+    actionName: "email-campaigns.admin.unarchive-audience",
+    onSuccess: ({ data }) => {
+      if (!data) return;
+      router.refresh();
+    },
+    onError: ({ error }) =>
+      setError(error.serverError ?? "The audience could not be unarchived."),
+    onTransportError: () =>
+      setError("The audience could not be unarchived. Try again."),
+  });
+
+  return (
+    <>
+      <Button
+        type="button"
+        variant="secondary"
+        size="sm"
+        disabled={isExecuting}
+        onClick={() => {
+          setError(null);
+          execute({ audienceId });
+        }}
+      >
+        <ArchiveRestore className="h-4 w-4" aria-hidden />
+        {isExecuting ? "Unarchiving…" : "Unarchive"}
+      </Button>
+      <span
+        role="alert"
+        className="basis-full text-burned-orange-ink text-sm empty:hidden"
+      >
+        {error}
+      </span>
+    </>
   );
 }
 

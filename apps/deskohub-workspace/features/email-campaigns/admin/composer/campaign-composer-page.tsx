@@ -1,6 +1,6 @@
 import type { CampaignRow } from "@/db/schema";
 import { AdministrationPage } from "@/features/administration/components";
-import { locales } from "@/features/i18n";
+import { campaignLocales } from "../../recipient-locale";
 import { CampaignComposer } from "./campaign-composer";
 import { loadCampaignComposerOptions } from "./campaign-composer-data.server";
 import {
@@ -21,7 +21,7 @@ export async function CampaignComposerPage({
         {...options}
         draft={{
           id: campaign.id,
-          contentLocales: locales.filter(
+          contentLocales: campaignLocales.filter(
             (locale) => campaign.content[locale] !== undefined
           ),
         }}

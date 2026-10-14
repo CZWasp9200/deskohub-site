@@ -92,8 +92,8 @@ export function CampaignConfirmSendDialog({
         </DialogHeader>
         {unsavedChanges && (
           <AdministrationAlert className="mt-5" status="warning">
-            Save your changes and send a new test first. The campaign sends
-            only saved content.
+            Save your changes and send a new test first. The campaign sends only
+            saved content.
           </AdministrationAlert>
         )}
         <Form {...form}>

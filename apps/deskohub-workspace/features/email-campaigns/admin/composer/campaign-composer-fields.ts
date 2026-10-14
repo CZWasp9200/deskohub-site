@@ -1,11 +1,15 @@
 import { Schema } from "effect";
 import type { CampaignRow } from "@/db/schema";
-import { type Locale, locales } from "@/features/i18n";
+import type { Locale } from "@/features/i18n";
 import {
   type CampaignBodyNode,
   CampaignBodyNode as CampaignBodyNodeSchema,
   campaignBodyFormatVersion,
 } from "../../body/campaign-body-document";
+import {
+  campaignFallbackLocale,
+  campaignLocales,
+} from "../../recipient-locale";
 import {
   type CampaignBodyIssue,
   campaignBodyIssues,
@@ -118,7 +122,7 @@ export const hasLocaleContent = (fields: CampaignComposerLocaleFields) =>
 export const composerLocales = (singleLocale: Locale | undefined) =>
   singleLocale
     ? { editable: [singleLocale], required: singleLocale }
-    : { editable: locales, required: "cs-CZ" as const };
+    : { editable: campaignLocales, required: campaignFallbackLocale };
 
 export const toCampaignLocaleContent = (
   fields: CampaignComposerLocaleFields,

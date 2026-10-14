@@ -5,5 +5,7 @@ export default async function EmailCampaignBreadcrumb({
   readonly params: Promise<{ readonly campaignId: string }>;
 }) {
   const { campaignId } = await params;
-  return <AdministrationBreadcrumb segments={["email-campaigns", campaignId]} />;
+  return (
+    <AdministrationBreadcrumb segments={["email-campaigns", campaignId]} />
+  );
 }

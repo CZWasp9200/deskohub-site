@@ -48,7 +48,8 @@ const columns: AdministrationDataTableColumn<SentRecipientRow>[] = [
   {
     accessorKey: "statusUpdatedAt",
     header: "Status since",
-    cell: ({ row }) => formatAdministrationDateTime(row.original.statusUpdatedAt),
+    cell: ({ row }) =>
+      formatAdministrationDateTime(row.original.statusUpdatedAt),
   },
 ];
 
@@ -66,6 +67,30 @@ export function SentRecipientTable({
       columns={columns}
       data={recipients}
       getRowId={(recipient) => recipient.dotyposCustomerId}
+      mobile={
+        <ul className="divide-y divide-navy-blue/10">
+          {recipients.map((recipient) => (
+            <li
+              className="space-y-1 px-4 py-3 text-sm"
+              key={recipient.dotyposCustomerId}
+            >
+              <p className="flex items-center justify-between gap-3">
+                <Link
+                  className="font-mono underline decoration-navy-blue/25 underline-offset-4 hover:decoration-navy-blue"
+                  href={`/admin/customers/${recipient.dotyposCustomerId}`}
+                >
+                  {recipient.dotyposCustomerId}
+                </Link>
+                <CampaignRecipientStatusBadge status={recipient.status} />
+              </p>
+              <p className="text-navy-blue/65">
+                {campaignLocaleNames[recipient.locale]} · since{" "}
+                {formatAdministrationDateTime(recipient.statusUpdatedAt)}
+              </p>
+            </li>
+          ))}
+        </ul>
+      }
     />
   );
 }

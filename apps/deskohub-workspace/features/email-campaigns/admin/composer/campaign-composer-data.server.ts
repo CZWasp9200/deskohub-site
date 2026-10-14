@@ -1,9 +1,8 @@
 import "server-only";
 
-import { Effect, Layer } from "effect";
+import { Effect } from "effect";
 import { authorizeAdministratorPage } from "@/shared/administrator/administrator-authorization.server";
 import { runWorkspaceEffect } from "@/shared/backend/workspace-effect";
-import { CampaignAudienceService } from "../../backend/campaign-audience.service";
 import { campaignBodyFormatVersion } from "../../body/campaign-body-document";
 import type { CampaignLocaleContent } from "../../body/campaign-content";
 import { campaignTemplates } from "../../body/campaign-templates";
@@ -11,15 +10,9 @@ import {
   CampaignEmailFooter,
   renderCampaignEmail,
 } from "../../body/render-campaign-email";
-import {
-  audienceSingleLocale,
-  describeAudienceFilter,
-} from "../audience-filter-summary";
+import { loadAudienceOptions } from "../audiences/audience-page-data.server";
 import { CampaignSendPipeline } from "../campaign-send-pipeline";
-import type {
-  CampaignComposerAudience,
-  CampaignComposerTemplate,
-} from "./campaign-composer";
+import type { CampaignComposerTemplate } from "./campaign-composer";
 
 /** Placeholder content that shows a template's typography and footer. */
 const templateSampleContent: CampaignLocaleContent = {
@@ -94,27 +87,9 @@ const loadTemplates = Effect.forEach(
     )
 );
 
-// TODO(594-ui integration): switch to `loadAudienceOptions` from
-// `../audiences/audience-page-data.server` once the audiences stream lands.
-const loadAudiences = Effect.gen(function* () {
-  const audiences = yield* CampaignAudienceService;
-  const options = yield* audiences.list({ includeArchived: false });
-  return options
-    .map(
-      (audience): CampaignComposerAudience => ({
-        id: audience.id,
-        title: audience.title,
-        summary: describeAudienceFilter(audience.filter),
-        singleLocale: audienceSingleLocale(audience.filter),
-      })
-    )
-    .toSorted((a, b) => a.title.localeCompare(b.title));
-});
-
 const loadComposerOptions = () =>
   Effect.all(
     {
-      audiences: loadAudiences,
       templates: loadTemplates,
       adminInbox: Effect.gen(function* () {
         return (yield* CampaignSendPipeline).adminInbox;
@@ -122,9 +97,7 @@ const loadComposerOptions = () =>
     },
     { concurrency: "unbounded" }
   ).pipe(
-    Effect.provide(
-      Layer.mergeAll(CampaignAudienceService.Live, CampaignSendPipeline.Live)
-    ),
+    Effect.provide(CampaignSendPipeline.Live),
     runWorkspaceEffect("email-campaigns.admin.load-composer", {
       boundary: "route",
     })
@@ -133,5 +106,9 @@ const loadComposerOptions = () =>
 /** Audiences, templates, and the test inbox the composer offers. */
 export const loadCampaignComposerOptions = async () => {
   await authorizeAdministratorPage();
-  return await loadComposerOptions();
+  const [audiences, options] = await Promise.all([
+    loadAudienceOptions(),
+    loadComposerOptions(),
+  ]);
+  return { audiences, ...options };
 };

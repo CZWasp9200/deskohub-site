@@ -202,57 +202,57 @@ export class CampaignSendPipeline extends Context.Service<
 
       return CampaignSendPipeline.of({
         adminInbox,
-        testSend: Effect.fn("CampaignSendPipeline.Stub.testSend")(
-          function* ({ campaignId, extraRecipients }) {
-            const recipients = normalizeTestRecipients(
-              adminInbox,
-              extraRecipients
-            );
-            const invalid = recipients.find(
-              (email) =>
-                !Schema.is(reservationCustomerEmailSchema)(email)
-            );
-            if (invalid !== undefined) {
-              return yield* new CampaignTestRecipientInvalid({ email: invalid });
-            }
-            const campaign = yield* campaigns.get(campaignId);
-            const contentLocales = locales.filter(
-              (locale) => campaign.content[locale] !== undefined
-            );
-            if (contentLocales.length === 0) {
-              return yield* new CampaignContentMissing({ campaignId });
-            }
-            yield* ensureCampaignRecipientsAllowed({
-              deploymentEnvironment: env.VERCEL_ENV,
-              emails: recipients,
-            });
-            const issued = yield* confirmationCodes
-              .issue({
-                campaignId,
-                contentHash: hashCampaignContent({
-                  purpose: campaign.purpose,
-                  templateKey: campaign.templateKey,
-                  locales: campaign.content,
-                }),
-              })
-              .pipe(
-                Effect.catchTags({
-                  PlatformError: Effect.die,
-                  SqlError: Effect.die,
-                })
-              );
-            yield* Effect.logInfo("Campaign test send stubbed", {
-              campaignId,
-              recipients: recipients.length,
-              confirmationCode: issued.code,
-            });
-            return {
-              recipients,
-              locales: contentLocales,
-              codeExpiresAt: issued.expiresAt,
-            };
+        testSend: Effect.fn("CampaignSendPipeline.Stub.testSend")(function* ({
+          campaignId,
+          extraRecipients,
+        }) {
+          const recipients = normalizeTestRecipients(
+            adminInbox,
+            extraRecipients
+          );
+          const invalid = recipients.find(
+            (email) => !Schema.is(reservationCustomerEmailSchema)(email)
+          );
+          if (invalid !== undefined) {
+            return yield* new CampaignTestRecipientInvalid({ email: invalid });
           }
-        ),
+          const campaign = yield* campaigns.get(campaignId);
+          const contentLocales = locales.filter(
+            (locale) => campaign.content[locale] !== undefined
+          );
+          if (contentLocales.length === 0) {
+            return yield* new CampaignContentMissing({ campaignId });
+          }
+          yield* ensureCampaignRecipientsAllowed({
+            deploymentEnvironment: env.VERCEL_ENV,
+            emails: recipients,
+          });
+          const issued = yield* confirmationCodes
+            .issue({
+              campaignId,
+              contentHash: hashCampaignContent({
+                purpose: campaign.purpose,
+                templateKey: campaign.templateKey,
+                locales: campaign.content,
+              }),
+            })
+            .pipe(
+              Effect.catchTags({
+                PlatformError: Effect.die,
+                SqlError: Effect.die,
+              })
+            );
+          yield* Effect.logInfo("Campaign test send stubbed", {
+            campaignId,
+            recipients: recipients.length,
+            confirmationCode: issued.code,
+          });
+          return {
+            recipients,
+            locales: contentLocales,
+            codeExpiresAt: issued.expiresAt,
+          };
+        }),
         send: ({ campaignId }) =>
           Effect.fail(new CampaignSendUnavailable({ campaignId })),
         retryUndelivered: ({ campaignId }) =>

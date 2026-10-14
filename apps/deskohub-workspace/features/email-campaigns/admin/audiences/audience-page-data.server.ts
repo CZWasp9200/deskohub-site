@@ -3,18 +3,25 @@ import "server-only";
 import { Effect, Option } from "effect";
 import { notFound } from "next/navigation";
 import type { CampaignAudienceRow } from "@/db/schema";
+import type { Locale } from "@/features/i18n";
 import { authorizeAdministratorPage } from "@/shared/administrator/administrator-authorization.server";
 import { runWorkspaceEffect } from "@/shared/backend/workspace-effect";
 import type { AudienceFilter } from "../../audience-filter";
 import { CampaignAudienceService } from "../../backend/campaign-audience.service";
 import type { CampaignAudienceId } from "../../campaign-identifiers";
-import { describeAudienceFilter } from "../audience-filter-summary";
+import {
+  audienceSingleLocale,
+  describeAudienceFilter,
+} from "../audience-filter-summary";
+import { loadDiscountGroupOptions } from "./discount-group-options.server";
 
 /** An audience a campaign can select. */
 export type AudienceOption = {
   readonly id: CampaignAudienceId;
   readonly title: string;
-  readonly filter: AudienceFilter;
+  readonly summary: string;
+  /** Every recipient speaks this locale, so content needs only it. */
+  readonly singleLocale: Locale | undefined;
 };
 
 export type AudienceListItem = {
@@ -59,7 +66,10 @@ export const loadAudienceList = async (): Promise<
   readonly AudienceListItem[]
 > => {
   await authorizeAdministratorPage();
-  const audiences = await runAudienceListing(true);
+  const [audiences, discountGroups] = await Promise.all([
+    runAudienceListing(true),
+    loadDiscountGroupOptions(),
+  ]);
   return audiences
     .toSorted(
       (left, right) =>
@@ -69,7 +79,7 @@ export const loadAudienceList = async (): Promise<
     .map((audience) => ({
       id: audience.id,
       title: audience.title,
-      summary: describeAudienceFilter(audience.filter),
+      summary: describeAudienceFilter(audience.filter, discountGroups),
       archived: isArchived(audience),
       updatedAt: audience.updatedAt.toString(),
     }));
@@ -80,9 +90,17 @@ export const loadAudienceOptions = async (): Promise<
   readonly AudienceOption[]
 > => {
   await authorizeAdministratorPage();
-  const audiences = await runAudienceListing(false);
+  const [audiences, discountGroups] = await Promise.all([
+    runAudienceListing(false),
+    loadDiscountGroupOptions(),
+  ]);
   return audiences
-    .map(({ id, title, filter }) => ({ id, title, filter }))
+    .map(({ id, title, filter }) => ({
+      id,
+      title,
+      summary: describeAudienceFilter(filter, discountGroups),
+      singleLocale: audienceSingleLocale(filter),
+    }))
     .toSorted(byTitle);
 };
 

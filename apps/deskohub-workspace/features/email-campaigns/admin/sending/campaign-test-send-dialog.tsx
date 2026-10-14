@@ -52,9 +52,7 @@ export function CampaignTestSendDialog({
   readonly contentLocales: readonly Locale[];
   readonly unsavedChanges: boolean;
 }) {
-  const [extraRecipients, setExtraRecipients] = useState<readonly string[]>(
-    []
-  );
+  const [extraRecipients, setExtraRecipients] = useState<readonly string[]>([]);
   const [receipt, setReceipt] = useState<TestSendReceipt | null>(null);
   const [error, setError] = useState<string | null>(null);
   const form = useForm<
@@ -142,14 +140,14 @@ export function CampaignTestSendDialog({
           <div className="space-y-5">
             {unsavedChanges && (
               <AdministrationAlert status="warning">
-                Save your changes first. A test send uses the saved campaign,
-                so its code wouldn't confirm your unsaved edits.
+                Save your changes first. A test send uses the saved campaign, so
+                its code wouldn't confirm your unsaved edits.
               </AdministrationAlert>
             )}
             {contentLocales.length === 0 ? (
               <AdministrationAlert status="warning">
-                Add a subject and body in at least one language before
-                sending a test.
+                Add a subject and body in at least one language before sending a
+                test.
               </AdministrationAlert>
             ) : (
               <p className="text-sm text-navy-blue/70">
@@ -212,7 +210,7 @@ export function CampaignTestSendDialog({
                   control={form.control}
                   name="email"
                   render={({ field: { onChange, ...field }, fieldState }) => (
-                    <FormItem className="flex-1">
+                    <FormItem className="min-w-0 flex-1">
                       <FormLabel className="sr-only">
                         Add a test recipient
                       </FormLabel>
@@ -231,7 +229,11 @@ export function CampaignTestSendDialog({
                     </FormItem>
                   )}
                 />
-                <Button disabled={isExecuting} type="submit" variant="secondary">
+                <Button
+                  disabled={isExecuting}
+                  type="submit"
+                  variant="secondary"
+                >
                   <Plus aria-hidden className="size-4" />
                   Add
                 </Button>

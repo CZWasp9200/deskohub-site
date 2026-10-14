@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import type { ReactNode } from "react";
 import {
   AdministrationDataTable,
   type AdministrationDataTableColumn,
@@ -85,13 +86,23 @@ const duplicateColumns: AdministrationDataTableColumn<Duplicate>[] = [
   },
 ];
 
+function MobileList({ children }: { readonly children: ReactNode }) {
+  return <ul className="divide-y divide-navy-blue/10">{children}</ul>;
+}
+
+function MobileItem({ children }: { readonly children: ReactNode }) {
+  return <li className="space-y-1 px-4 py-3 text-sm">{children}</li>;
+}
+
 export function RecipientTable({
   recipients,
 }: {
   readonly recipients: CampaignRecipientResolution["recipients"];
 }) {
   if (recipients.length === 0) {
-    return <EmptyState message="The audience reaches no customers right now." />;
+    return (
+      <EmptyState message="The audience reaches no customers right now." />
+    );
   }
   return (
     <AdministrationDataTable
@@ -99,6 +110,19 @@ export function RecipientTable({
       columns={recipientColumns}
       data={recipients}
       getRowId={(recipient) => recipient.dotyposCustomerId}
+      mobile={
+        <MobileList>
+          {recipients.map((recipient) => (
+            <MobileItem key={recipient.dotyposCustomerId}>
+              <p className="break-all font-semibold">{recipient.email}</p>
+              <p className="text-navy-blue/65">
+                {campaignLocaleNames[recipient.locale]} · Customer{" "}
+                <CustomerLink customerId={recipient.dotyposCustomerId} />
+              </p>
+            </MobileItem>
+          ))}
+        </MobileList>
+      }
     />
   );
 }
@@ -117,6 +141,21 @@ export function ExclusionTable({
       columns={exclusionColumns}
       data={exclusions}
       getRowId={(exclusion) => exclusion.dotyposCustomerId}
+      mobile={
+        <MobileList>
+          {exclusions.map((exclusion) => (
+            <MobileItem key={exclusion.dotyposCustomerId}>
+              <p className="font-semibold">
+                {exclusionReasons[exclusion.reason]}
+              </p>
+              <p className="text-navy-blue/65">
+                Customer{" "}
+                <CustomerLink customerId={exclusion.dotyposCustomerId} />
+              </p>
+            </MobileItem>
+          ))}
+        </MobileList>
+      }
     />
   );
 }
@@ -135,6 +174,25 @@ export function DuplicateTable({
       columns={duplicateColumns}
       data={duplicates}
       getRowId={(duplicate) => duplicate.email}
+      mobile={
+        <MobileList>
+          {duplicates.map((duplicate) => (
+            <MobileItem key={duplicate.email}>
+              <p className="break-all font-semibold">{duplicate.email}</p>
+              <p className="text-navy-blue/65">
+                Receives it:{" "}
+                <CustomerLink customerId={duplicate.recipientCustomerId} />
+              </p>
+              <p className="flex flex-wrap gap-x-3 text-navy-blue/65">
+                Skipped:
+                {duplicate.duplicateCustomerIds.map((customerId) => (
+                  <CustomerLink customerId={customerId} key={customerId} />
+                ))}
+              </p>
+            </MobileItem>
+          ))}
+        </MobileList>
+      }
     />
   );
 }

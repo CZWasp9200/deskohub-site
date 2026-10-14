@@ -17,16 +17,14 @@ import {
 
 /** Decodes a campaign route segment, or renders the not-found page. */
 export const requireCampaignRouteId = (value: string): CampaignId =>
-  Option.getOrElse(
-    Schema.decodeOption(campaignIdSchema)(value),
-    () => notFound()
+  Option.getOrElse(Schema.decodeOption(campaignIdSchema)(value), () =>
+    notFound()
   );
 
 /** Decodes an audience route segment, or renders the not-found page. */
 export const requireAudienceRouteId = (value: string): CampaignAudienceId =>
-  Option.getOrElse(
-    Schema.decodeOption(campaignAudienceIdSchema)(value),
-    () => notFound()
+  Option.getOrElse(Schema.decodeOption(campaignAudienceIdSchema)(value), () =>
+    notFound()
   );
 
 const findCampaign = cache((campaignId: CampaignId) =>
@@ -70,9 +68,7 @@ export const loadCampaignBreadcrumbLabel = async (campaignId: string) => {
 
 export const loadAudienceBreadcrumbLabel = async (audienceId: string) => {
   await authorizeAdministratorPage();
-  const decoded = Schema.decodeOption(campaignAudienceIdSchema)(
-    audienceId
-  );
+  const decoded = Schema.decodeOption(campaignAudienceIdSchema)(audienceId);
   if (Option.isNone(decoded)) return undefined;
   return Option.getOrUndefined(await findAudience(decoded.value))?.title;
 };

@@ -82,6 +82,29 @@ const archiveAudienceAction = defineWorkspaceAction(
     )
 );
 
+const unarchiveAudienceAction = defineWorkspaceAction(
+  {
+    operation: "email-campaigns.admin.unarchive-audience",
+    schema: audienceReferenceStandardSchema,
+  },
+  ({ audienceId }) =>
+    requireAdministratorAuthorization.pipe(
+      Effect.andThen(
+        Effect.gen(function* () {
+          const audiences = yield* CampaignAudienceService;
+          const audience = yield* audiences.unarchive(audienceId);
+          return { audienceId: audience.id };
+        })
+      ),
+      Effect.provide(CampaignAudienceService.Live),
+      Effect.mapError(
+        toPublicAudienceError(
+          "The audience could not be unarchived. Try again."
+        )
+      )
+    )
+);
+
 const deleteAudienceAction = defineWorkspaceAction(
   {
     operation: "email-campaigns.admin.delete-audience",
@@ -115,6 +138,13 @@ export const archiveAudience: typeof archiveAudienceAction = async (
 ) => {
   "use server";
   return archiveAudienceAction(...args);
+};
+
+export const unarchiveAudience: typeof unarchiveAudienceAction = async (
+  ...args: Parameters<typeof unarchiveAudienceAction>
+) => {
+  "use server";
+  return unarchiveAudienceAction(...args);
 };
 
 export const deleteAudience: typeof deleteAudienceAction = async (

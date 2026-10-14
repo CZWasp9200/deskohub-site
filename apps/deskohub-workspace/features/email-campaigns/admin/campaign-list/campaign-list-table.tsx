@@ -67,9 +67,34 @@ export function CampaignListTable({
       columns={columns}
       data={campaigns}
       getRowId={(campaign) => campaign.id}
+      mobile={
+        <ul className="divide-y divide-navy-blue/10">
+          {campaigns.map((campaign) => (
+            <li key={campaign.id}>
+              <Link
+                className="block px-4 py-4 transition-colors hover:bg-navy-blue/[0.025] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-navy-blue/40"
+                href={`/admin/email-campaigns/${campaign.id}`}
+              >
+                <span className="block font-semibold">{campaign.title}</span>
+                <span className="mt-2 flex flex-wrap gap-1.5">
+                  <CampaignStatusBadge status={campaign.status} />
+                  <CampaignPurposeBadge purpose={campaign.purpose} />
+                </span>
+                <span className="mt-2 block text-navy-blue/70 text-sm">
+                  {campaign.audienceTitle ?? "No audience"}
+                </span>
+                <span className="mt-3 block text-navy-blue/60 text-xs">
+                  Updated {formatAdministrationDateTime(campaign.updatedAt)}
+                </span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      }
       onRowActivate={(campaign) =>
         router.push(`/admin/email-campaigns/${campaign.id}`)
       }
+      tableClassName="min-w-[720px]"
     />
   );
 }

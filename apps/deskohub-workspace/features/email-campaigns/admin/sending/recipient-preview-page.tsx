@@ -51,8 +51,8 @@ export async function RecipientPreviewPage({
       {preview.kind === "unavailable" && (
         <AdministrationAlert role="alert" status="error">
           <p>
-            Recipients couldn&apos;t be resolved because Dotypos is
-            unavailable. Nothing was changed.
+            Recipients couldn&apos;t be resolved because Dotypos is unavailable.
+            Nothing was changed.
           </p>
           <Button asChild className="mt-3" size="sm" variant="secondary">
             <a href={`${campaignHref}/recipients`}>
@@ -95,8 +95,8 @@ export async function RecipientPreviewPage({
           </AdministrationDetailSection>
           <AdministrationDetailSection title="Shared email addresses">
             <p className="mb-4 text-sm text-navy-blue/65">
-              Customers sharing an email get one email, sent to the customer
-              who reserved most recently.
+              Customers sharing an email get one email, sent to the customer who
+              reserved most recently.
             </p>
             <DuplicateTable duplicates={preview.resolution.duplicates} />
           </AdministrationDetailSection>

@@ -24,9 +24,11 @@ export function CampaignStatusBadge({
         )[status]
       }
     >
-      {{ draft: "Draft", sending: "Sending", sent: "Sent", failed: "Failed" }[
-        status
-      ]}
+      {
+        { draft: "Draft", sending: "Sending", sent: "Sent", failed: "Failed" }[
+          status
+        ]
+      }
     </StatusBadge>
   );
 }

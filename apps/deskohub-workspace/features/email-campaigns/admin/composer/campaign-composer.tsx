@@ -55,16 +55,9 @@ import {
   localeContentIssues,
   toCampaignLocalizedContent,
 } from "./campaign-composer-fields";
+import type { AudienceOption } from "../audiences/audience-page-data.server";
 import { CampaignEmailPreview } from "./campaign-email-preview";
 import { CampaignTemplatePreview } from "./campaign-template-preview";
-
-export type CampaignComposerAudience = {
-  readonly id: CampaignAudienceId;
-  readonly title: string;
-  readonly summary: string;
-  /** Every recipient speaks this locale, so content needs only it. */
-  readonly singleLocale: Locale | undefined;
-};
 
 export type CampaignComposerTemplate = {
   readonly key: CampaignTemplateKey;
@@ -115,7 +108,7 @@ export function CampaignComposer({
   templates,
 }: {
   readonly adminInbox: string;
-  readonly audiences: readonly CampaignComposerAudience[];
+  readonly audiences: readonly AudienceOption[];
   readonly draft: CampaignComposerDraft | undefined;
   readonly initialFields: CampaignComposerFields;
   readonly templates: readonly CampaignComposerTemplate[];
@@ -241,201 +234,210 @@ export function CampaignComposer({
       >
         {saveError}
       </p>
-      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] 2xl:grid-cols-[minmax(0,7fr)_minmax(0,6fr)]">
-        <form
-          className="min-w-0 space-y-6"
-          id="campaign-composer"
-          noValidate
-          onSubmit={save}
-        >
-          <ComposerSection title="Campaign">
-            <div className="space-y-5">
-              <FormField
-                control={form.control}
-                name="title"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel required>Title</FormLabel>
-                    <FormControl>
-                      <Input placeholder="Spring opening hours" {...field} />
-                    </FormControl>
-                    <p className="text-navy-blue/55 text-xs">
-                      Only admins see the title.
-                    </p>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="purpose"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Purpose</FormLabel>
-                    <FormControl>
-                      <ToggleGroup
-                        className="grid gap-2 sm:grid-cols-2"
-                        onValueChange={(value) =>
-                          value && field.onChange(value)
-                        }
-                        type="single"
-                        value={field.value}
-                      >
-                        {purposeOptions.map((option) => (
-                          <ToggleGroupItem
-                            className="flex h-auto flex-col items-start gap-1 rounded-lg border border-navy-blue/15 bg-white p-3 text-left data-[state=on]:border-burned-orange data-[state=on]:bg-burned-orange/5"
-                            key={option.value}
-                            value={option.value}
-                          >
-                            <span className="font-semibold text-navy-blue">
-                              {option.label}
-                            </span>
-                            <span className="text-navy-blue/60 text-xs leading-5">
-                              {option.description}
-                            </span>
-                          </ToggleGroupItem>
-                        ))}
-                      </ToggleGroup>
-                    </FormControl>
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="templateKey"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Template</FormLabel>
-                    <div className="flex flex-wrap items-center gap-2">
+      <div className="@container">
+        <div className="grid items-start gap-6 @5xl:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]">
+          <form
+            className="min-w-0 space-y-6"
+            id="campaign-composer"
+            noValidate
+            onSubmit={save}
+          >
+            <ComposerSection title="Campaign">
+              <div className="space-y-5">
+                <FormField
+                  control={form.control}
+                  name="title"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel required>Title</FormLabel>
+                      <FormControl>
+                        <Input placeholder="Spring opening hours" {...field} />
+                      </FormControl>
+                      <p className="text-navy-blue/55 text-xs">
+                        Only admins see the title.
+                      </p>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="purpose"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Purpose</FormLabel>
+                      <FormControl>
+                        <ToggleGroup
+                          className="grid gap-2 sm:grid-cols-2"
+                          onValueChange={(value) =>
+                            value && field.onChange(value)
+                          }
+                          type="single"
+                          value={field.value}
+                        >
+                          {purposeOptions.map((option) => (
+                            <ToggleGroupItem
+                              className="flex h-auto flex-col items-start gap-1 rounded-lg border border-navy-blue/15 bg-white p-3 text-left data-[state=on]:border-burned-orange data-[state=on]:bg-burned-orange/5"
+                              key={option.value}
+                              value={option.value}
+                            >
+                              <span className="font-semibold text-navy-blue">
+                                {option.label}
+                              </span>
+                              <span className="text-navy-blue/60 text-xs leading-5">
+                                {option.description}
+                              </span>
+                            </ToggleGroupItem>
+                          ))}
+                        </ToggleGroup>
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="templateKey"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Template</FormLabel>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Select
+                          onValueChange={field.onChange}
+                          value={field.value}
+                        >
+                          <FormControl>
+                            <SelectTrigger className="min-w-56 flex-1">
+                              <SelectValue />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {templates.map((option) => (
+                              <SelectItem key={option.key} value={option.key}>
+                                {option.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {template && (
+                          <CampaignTemplatePreview template={template} />
+                        )}
+                      </div>
+                      {template && (
+                        <p className="text-navy-blue/55 text-xs">
+                          {template.description}
+                        </p>
+                      )}
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="audienceId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Audience</FormLabel>
                       <Select
-                        onValueChange={field.onChange}
-                        value={field.value}
+                        onValueChange={(value) =>
+                          field.onChange(value === noAudience ? "" : value)
+                        }
+                        value={field.value || noAudience}
                       >
                         <FormControl>
-                          <SelectTrigger className="min-w-56 flex-1">
+                          <SelectTrigger>
                             <SelectValue />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {templates.map((option) => (
-                            <SelectItem key={option.key} value={option.key}>
-                              {option.name}
+                          <SelectItem value={noAudience}>
+                            No audience yet
+                          </SelectItem>
+                          {audiences.map((option) => (
+                            <SelectItem key={option.id} value={option.id}>
+                              {option.title}
                             </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
-                      {template && (
-                        <CampaignTemplatePreview template={template} />
-                      )}
-                    </div>
-                    {template && (
                       <p className="text-navy-blue/55 text-xs">
-                        {template.description}
+                        {audience && `${audience.summary}.`}
+                        {!audience &&
+                          audiences.length > 0 &&
+                          "Choose who receives the campaign before sending it."}
+                        {audiences.length === 0 &&
+                          "No audiences yet. Create one under Audiences."}
                       </p>
-                    )}
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="audienceId"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Audience</FormLabel>
-                    <Select
-                      onValueChange={(value) =>
-                        field.onChange(value === noAudience ? "" : value)
-                      }
-                      value={field.value || noAudience}
-                    >
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value={noAudience}>
-                          No audience yet
-                        </SelectItem>
-                        {audiences.map((option) => (
-                          <SelectItem key={option.id} value={option.id}>
-                            {option.title}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <p className="text-navy-blue/55 text-xs">
-                      {audience && `${audience.summary}.`}
-                      {!audience &&
-                        audiences.length > 0 &&
-                        "Choose who receives the campaign before sending it."}
-                      {audiences.length === 0 &&
-                        "No audiences yet. Create one under Audiences."}
-                    </p>
-                  </FormItem>
-                )}
-              />
-            </div>
-          </ComposerSection>
-          <ComposerSection title="Content">
-            <Tabs
-              onValueChange={(value) => setSelectedLocale(value as Locale)}
-              value={locale}
-            >
-              <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-                <TabsList aria-label="Content language">
-                  {editable.map((option) => (
-                    <TabsTrigger key={option} value={option}>
-                      {localeLabels[option]}
-                      <LocaleStatus
-                        fields={localeFields[option]}
-                        required={option === required}
-                      />
-                    </TabsTrigger>
-                  ))}
-                </TabsList>
-                <p className="text-navy-blue/55 text-xs">
-                  {audience?.singleLocale
-                    ? `The audience only includes ${localeLabels[audience.singleLocale]} speakers.`
-                    : "Czech is required: recipients without content in their language get it."}
-                </p>
+                    </FormItem>
+                  )}
+                />
               </div>
-              {hiddenLocalesWithContent.length > 0 && (
-                <p className="mb-4 rounded-md bg-sunset-yellow/15 px-3 py-2 text-navy-blue/80 text-sm">
-                  {hiddenLocalesWithContent
-                    .map((option) => localeLabels[option])
-                    .join(" and ")}{" "}
-                  content is hidden for this audience and won't be saved.
-                </p>
-              )}
-              {editable.map((option) => (
-                <TabsContent
-                  className="data-[state=inactive]:hidden"
-                  forceMount
-                  key={option}
-                  value={option}
-                >
-                  <LocaleContentFields
-                    control={form.control}
-                    fields={localeFields[option]}
-                    locale={option}
-                    purpose={purpose}
-                  />
-                </TabsContent>
-              ))}
-            </Tabs>
-          </ComposerSection>
-        </form>
-        <aside className="min-w-0 lg:sticky lg:top-20">
-          <CampaignEmailPreview
-            fields={localeFields[locale]}
-            locale={locale}
-            locales={editable}
-            onLocaleChange={setSelectedLocale}
-            purpose={purpose}
-            templateKey={templateKey}
-          />
-        </aside>
+            </ComposerSection>
+            <ComposerSection title="Content">
+              <Tabs
+                onValueChange={(value) => setSelectedLocale(value as Locale)}
+                value={locale}
+              >
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+                  <TabsList
+                    aria-label="Content language"
+                    className="flex w-full sm:inline-flex sm:w-auto"
+                  >
+                    {editable.map((option) => (
+                      <TabsTrigger
+                        className="flex-1 px-2 sm:flex-none sm:px-3"
+                        key={option}
+                        value={option}
+                      >
+                        {localeLabels[option]}
+                        <LocaleStatus
+                          fields={localeFields[option]}
+                          required={option === required}
+                        />
+                      </TabsTrigger>
+                    ))}
+                  </TabsList>
+                  <p className="text-navy-blue/55 text-xs">
+                    {audience?.singleLocale
+                      ? `The audience only includes ${localeLabels[audience.singleLocale]} speakers.`
+                      : "Czech is required: recipients without content in their language get it."}
+                  </p>
+                </div>
+                {hiddenLocalesWithContent.length > 0 && (
+                  <p className="mb-4 rounded-md bg-sunset-yellow/15 px-3 py-2 text-navy-blue/80 text-sm">
+                    {hiddenLocalesWithContent
+                      .map((option) => localeLabels[option])
+                      .join(" and ")}{" "}
+                    content is hidden for this audience and won't be saved.
+                  </p>
+                )}
+                {editable.map((option) => (
+                  <TabsContent
+                    className="data-[state=inactive]:hidden"
+                    forceMount
+                    key={option}
+                    value={option}
+                  >
+                    <LocaleContentFields
+                      control={form.control}
+                      fields={localeFields[option]}
+                      locale={option}
+                      purpose={purpose}
+                    />
+                  </TabsContent>
+                ))}
+              </Tabs>
+            </ComposerSection>
+          </form>
+          <aside className="min-w-0 @5xl:sticky @5xl:top-20">
+            <CampaignEmailPreview
+              fields={localeFields[locale]}
+              locale={locale}
+              locales={editable}
+              onLocaleChange={setSelectedLocale}
+              purpose={purpose}
+              templateKey={templateKey}
+            />
+          </aside>
+        </div>
       </div>
     </Form>
   );

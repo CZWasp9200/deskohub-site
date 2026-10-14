@@ -16,7 +16,10 @@ export const loadSentCampaign = cache((campaignId: CampaignId) =>
     const pipeline = yield* CampaignSendPipeline;
     const audiences = yield* CampaignAudienceService;
     const send = yield* pipeline.getSendStatus({ campaignId });
-    const audienceId = Option.flatMapNullishOr(send, (status) => status.audienceId);
+    const audienceId = Option.flatMapNullishOr(
+      send,
+      (status) => status.audienceId
+    );
     const audienceTitle = Option.isSome(audienceId)
       ? yield* audiences.get(audienceId.value).pipe(
           Effect.map((audience) => audience.title),

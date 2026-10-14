@@ -23,5 +23,7 @@ async function EmailCampaignRecipients({
   readonly params: CampaignRouteParams;
 }) {
   const { campaignId } = await params;
-  return <RecipientPreviewPage campaignId={requireCampaignRouteId(campaignId)} />;
+  return (
+    <RecipientPreviewPage campaignId={requireCampaignRouteId(campaignId)} />
+  );
 }

@@ -257,12 +257,14 @@ export function AdminShell({
   return (
     <div className="min-h-screen bg-[#f6f6f3] text-navy-blue lg:grid lg:grid-cols-[15rem_minmax(0,1fr)]">
       <SkipLink label="Skip to main content" />
-      <aside className="hidden border-r border-navy-blue/10 bg-white px-4 py-5 lg:sticky lg:top-0 lg:block lg:h-screen">
-        <Brand />
-        <div className="mt-9">
-          <Suspense fallback={<Navigation />}>
-            <ActiveNavigation />
-          </Suspense>
+      <aside className="hidden border-r border-navy-blue/10 bg-white lg:block">
+        <div className="sticky top-0 max-h-screen overflow-y-auto px-4 py-5">
+          <Brand />
+          <div className="mt-9">
+            <Suspense fallback={<Navigation />}>
+              <ActiveNavigation />
+            </Suspense>
+          </div>
         </div>
       </aside>
 

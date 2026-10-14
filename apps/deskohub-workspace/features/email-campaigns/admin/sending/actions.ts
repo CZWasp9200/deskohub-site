@@ -28,8 +28,7 @@ const confirmationRejectionMessages: Record<
     "That code doesn't match the latest test email. Check it for typos and try again.",
   superseded:
     "A newer test email replaced that code. Use the code from the latest test email.",
-  expired:
-    "That code expired. Send a new test email to get a fresh code.",
+  expired: "That code expired. Send a new test email to get a fresh code.",
   "content-changed":
     "The campaign changed after that test email. Send a new test email and use its code.",
   "too-many-attempts":
@@ -50,13 +49,13 @@ const describeSendFailure = (
   Match.value(cause).pipe(
     Match.tag(
       "AdministratorUnauthorizedError",
-      () => "Your admin sign-in is no longer valid. Reload the page and sign in again."
+      () =>
+        "Your admin sign-in is no longer valid. Reload the page and sign in again."
     ),
     Match.tag("CampaignNotFound", () => "This campaign no longer exists."),
     Match.tag(
       "CampaignReadOnly",
-      () =>
-        "This campaign already left Draft. Duplicate it to send a new copy."
+      () => "This campaign already left Draft. Duplicate it to send a new copy."
     ),
     Match.tag(
       "CampaignConfirmationRejected",
@@ -115,9 +114,8 @@ const describeSendFailure = (
 
 // Failures outside the pipeline's typed errors, such as a layer that can't
 // be built, reach the action client's generic server error.
-const toPublicSendError = (
-  cause: Parameters<typeof describeSendFailure>[0]
-) => new PublicSafeActionError({ message: describeSendFailure(cause), cause });
+const toPublicSendError = (cause: Parameters<typeof describeSendFailure>[0]) =>
+  new PublicSafeActionError({ message: describeSendFailure(cause), cause });
 
 const campaignPath = (campaignId: string) =>
   `/admin/email-campaigns/${campaignId}`;

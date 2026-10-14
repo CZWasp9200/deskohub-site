@@ -48,11 +48,7 @@ export default function EmailCampaignsPage() {
 
 type Campaigns = ReturnType<typeof loadCampaignList>;
 
-async function CampaignCount({
-  campaigns,
-}: {
-  readonly campaigns: Campaigns;
-}) {
+async function CampaignCount({ campaigns }: { readonly campaigns: Campaigns }) {
   return (
     <AdministrationTableCount
       count={(await campaigns).length}

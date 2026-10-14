@@ -50,6 +50,13 @@ export interface ICampaignAudienceService {
     CampaignAudience,
     CampaignAudienceNotFound | EffectDrizzleQueryError
   >;
+  /** Makes an archived audience selectable again. */
+  readonly unarchive: (
+    audienceId: CampaignAudienceId
+  ) => Effect.Effect<
+    CampaignAudience,
+    CampaignAudienceNotFound | EffectDrizzleQueryError
+  >;
   /** Deletes an audience no draft campaign uses; sent campaigns detach. */
   readonly delete: (
     audienceId: CampaignAudienceId
@@ -174,6 +181,17 @@ export class CampaignAudienceService extends Context.Service<
                 archivedAt: sql`coalesce(${emailCampaignAudiences.archivedAt}, ${sql.param(archivedAt, emailCampaignAudiences.archivedAt)})`,
                 updatedAt: archivedAt,
               })
+              .where(eq(emailCampaignAudiences.id, audienceId))
+              .returning()
+              .pipe(Effect.flatMap(requireUpdated(audienceId)));
+          }
+        ),
+        unarchive: Effect.fn("CampaignAudienceService.unarchive")(
+          function* (audienceId) {
+            const updatedAt = yield* currentInstant;
+            return yield* db
+              .update(emailCampaignAudiences)
+              .set({ archivedAt: null, updatedAt })
               .where(eq(emailCampaignAudiences.id, audienceId))
               .returning()
               .pipe(Effect.flatMap(requireUpdated(audienceId)));

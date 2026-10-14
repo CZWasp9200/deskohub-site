@@ -75,14 +75,19 @@ export function CampaignBodyToolbar({
 }: {
   readonly editor: Editor | null;
 }) {
-  const state = useEditorState({ editor, selector: selectToolbarState });
+  // useEditorState selects again only on a transaction, so before the first
+  // one (usually focus) it still holds the selection from the null editor.
+  const state =
+    useEditorState({ editor, selector: selectToolbarState }) ??
+    selectToolbarState({ editor });
   const [ctaDialogOpen, setCtaDialogOpen] = useState(false);
   const disabled = !editor || !state;
+  const blockType: BlockType = state?.blockType ?? "paragraph";
   const chain = () => editor?.chain().focus();
 
-  const setBlockType = (blockType: BlockType) => {
-    if (blockType === "paragraph") chain()?.setParagraph().run();
-    else chain()?.setHeading({ level: headingLevels[blockType] }).run();
+  const setBlockType = (next: BlockType) => {
+    if (next === "paragraph") chain()?.setParagraph().run();
+    else chain()?.setHeading({ level: headingLevels[next] }).run();
   };
 
   const submitCtaButton = (values: CtaButtonValues) => {
@@ -97,85 +102,92 @@ export function CampaignBodyToolbar({
     <TooltipProvider>
       <div
         aria-label="Formatting"
-        className="flex flex-wrap items-center gap-1 border-navy-blue/10 border-b bg-navy-blue/[0.03] px-2 py-1.5"
+        className="flex items-start gap-1 border-navy-blue/10 border-b bg-navy-blue/[0.03] px-2 py-1.5"
         role="toolbar"
       >
-        <Select
-          disabled={disabled}
-          onValueChange={(value) => setBlockType(value as BlockType)}
-          value={state?.blockType ?? "paragraph"}
-        >
-          <SelectTrigger
-            aria-label="Text style"
-            className="h-8 w-[8.5rem] bg-white text-sm"
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
+          <Select
+            disabled={disabled}
+            // Inside a form, Radix's hidden native select reports "" once
+            // the value changes before the menu ever opened; applying that
+            // would steal focus into the editor.
+            onValueChange={(value) => {
+              if (value) setBlockType(value as BlockType);
+            }}
+            value={blockType}
           >
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="paragraph">Paragraph</SelectItem>
-            <SelectItem value="h1">Heading 1</SelectItem>
-            <SelectItem value="h2">Heading 2</SelectItem>
-            <SelectItem value="h3">Heading 3</SelectItem>
-          </SelectContent>
-        </Select>
-        <ToolbarSeparator />
-        <ToolbarToggle
-          disabled={disabled}
-          label="Bold"
-          onPressedChange={() => chain()?.toggleBold().run()}
-          pressed={state?.bold ?? false}
-        >
-          <Bold aria-hidden className="size-4" />
-        </ToolbarToggle>
-        <ToolbarToggle
-          disabled={disabled}
-          label="Italic"
-          onPressedChange={() => chain()?.toggleItalic().run()}
-          pressed={state?.italic ?? false}
-        >
-          <Italic aria-hidden className="size-4" />
-        </ToolbarToggle>
-        <LinkControl
-          active={state?.link ?? false}
-          currentHref={state?.linkHref ?? ""}
-          disabled={disabled}
-          editor={editor}
-        />
-        <ToolbarSeparator />
-        <ToolbarToggle
-          disabled={disabled}
-          label="Bulleted list"
-          onPressedChange={() => chain()?.toggleBulletList().run()}
-          pressed={state?.bulletList ?? false}
-        >
-          <List aria-hidden className="size-4" />
-        </ToolbarToggle>
-        <ToolbarToggle
-          disabled={disabled}
-          label="Numbered list"
-          onPressedChange={() => chain()?.toggleOrderedList().run()}
-          pressed={state?.orderedList ?? false}
-        >
-          <ListOrdered aria-hidden className="size-4" />
-        </ToolbarToggle>
-        <ToolbarSeparator />
-        <ImageUploadControl disabled={disabled} editor={editor} />
-        <ToolbarButton
-          disabled={disabled}
-          label={state?.ctaButton ? "Edit button" : "Insert button"}
-          onClick={() => setCtaDialogOpen(true)}
-          pressed={state?.ctaButton}
-        >
-          <MousePointerClick aria-hidden className="size-4" />
-        </ToolbarButton>
-        <ToolbarButton
-          disabled={disabled}
-          label="Divider"
-          onClick={() => chain()?.setHorizontalRule().run()}
-        >
-          <Minus aria-hidden className="size-4" />
-        </ToolbarButton>
-        <div className="ml-auto flex items-center gap-1">
+            <SelectTrigger
+              aria-label="Text style"
+              className="h-8 min-h-8 w-[8.5rem] rounded-md px-2.5 py-1 text-sm"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="paragraph">Paragraph</SelectItem>
+              <SelectItem value="h1">Heading 1</SelectItem>
+              <SelectItem value="h2">Heading 2</SelectItem>
+              <SelectItem value="h3">Heading 3</SelectItem>
+            </SelectContent>
+          </Select>
+          <ToolbarSeparator />
+          <ToolbarToggle
+            disabled={disabled}
+            label="Bold"
+            onPressedChange={() => chain()?.toggleBold().run()}
+            pressed={state?.bold ?? false}
+          >
+            <Bold aria-hidden className="size-4" />
+          </ToolbarToggle>
+          <ToolbarToggle
+            disabled={disabled}
+            label="Italic"
+            onPressedChange={() => chain()?.toggleItalic().run()}
+            pressed={state?.italic ?? false}
+          >
+            <Italic aria-hidden className="size-4" />
+          </ToolbarToggle>
+          <LinkControl
+            active={state?.link ?? false}
+            currentHref={state?.linkHref ?? ""}
+            disabled={disabled}
+            editor={editor}
+          />
+          <ToolbarSeparator />
+          <ToolbarToggle
+            disabled={disabled}
+            label="Bulleted list"
+            onPressedChange={() => chain()?.toggleBulletList().run()}
+            pressed={state?.bulletList ?? false}
+          >
+            <List aria-hidden className="size-4" />
+          </ToolbarToggle>
+          <ToolbarToggle
+            disabled={disabled}
+            label="Numbered list"
+            onPressedChange={() => chain()?.toggleOrderedList().run()}
+            pressed={state?.orderedList ?? false}
+          >
+            <ListOrdered aria-hidden className="size-4" />
+          </ToolbarToggle>
+          <ToolbarSeparator />
+          <ImageUploadControl disabled={disabled} editor={editor} />
+          <ToolbarButton
+            disabled={disabled}
+            label={state?.ctaButton ? "Edit button" : "Insert button"}
+            onClick={() => setCtaDialogOpen(true)}
+            pressed={state?.ctaButton}
+          >
+            <MousePointerClick aria-hidden className="size-4" />
+          </ToolbarButton>
+          <ToolbarButton
+            disabled={disabled}
+            label="Divider"
+            onClick={() => chain()?.setHorizontalRule().run()}
+          >
+            <Minus aria-hidden className="size-4" />
+          </ToolbarButton>
+        </div>
+        <div className="flex shrink-0 items-center gap-1 border-navy-blue/10 border-l pl-1">
           <ToolbarButton
             disabled={!state?.canUndo}
             label="Undo"

@@ -26,16 +26,12 @@ import {
 } from "@/shared/components/ui/toggle-group";
 import { cn } from "@/shared/utils";
 import type { AudienceFilter } from "../../audience-filter";
+import type { DiscountGroupOption } from "../audience-filter-summary";
 
 export type AudienceFilterGroup = Extract<AudienceFilter, { _tag: "Group" }>;
 type AudienceCondition = Exclude<AudienceFilter, { _tag: "Group" }>;
 type ReservationCondition = Extract<AudienceFilter, { _tag: "Reservation" }>;
 type ReservationStatus = NonNullable<ReservationCondition["status"]>;
-
-export type DiscountGroupOption = {
-  readonly id: string;
-  readonly name: string;
-};
 
 /** Error message React Hook Form holds for a form path, if any. */
 export type FilterErrorLookup = (path: string) => string | undefined;
@@ -180,7 +176,7 @@ function GroupEditor({
   return (
     <div
       className={cn(
-        "space-y-3 rounded-lg border p-3",
+        "space-y-3 rounded-lg border p-2 sm:p-3",
         groupFrameClassName(depth)
       )}
     >
@@ -194,7 +190,7 @@ function GroupEditor({
             }
           }}
           aria-label="How conditions combine"
-          className="rounded-md border border-navy-blue/15 p-0.5"
+          className="whitespace-nowrap rounded-md border border-navy-blue/15 p-0.5"
         >
           <ToggleGroupItem value="and">
             {operatorLabels.and.match}
@@ -363,7 +359,7 @@ function ConditionEditor({
             placeholder="Dotypos tag"
             aria-label="Dotypos tag"
             variant={fieldError("tag") ? "error" : "default"}
-            className={cn(compactInputClassName, "w-56")}
+            className={cn(compactInputClassName, "w-56 max-w-full")}
           />
         </div>
       ),
@@ -380,11 +376,22 @@ function ConditionEditor({
               <SelectTrigger
                 aria-label="Discount group"
                 variant={fieldError("discountGroupId") ? "error" : "default"}
-                className={cn(compactSelectClassName, "min-w-56")}
+                className={cn(
+                  compactSelectClassName,
+                  "w-full sm:w-auto sm:min-w-56"
+                )}
               >
                 <SelectValue placeholder="Choose a discount group" />
               </SelectTrigger>
               <SelectContent>
+                {discountGroupId &&
+                  !context.discountGroups.some(
+                    ({ id }) => id === discountGroupId
+                  ) && (
+                    <SelectItem value={discountGroupId}>
+                      Unknown group {discountGroupId}
+                    </SelectItem>
+                  )}
                 {context.discountGroups.map((group) => (
                   <SelectItem key={group.id} value={group.id}>
                     {group.name}
@@ -404,7 +411,7 @@ function ConditionEditor({
               placeholder="Dotypos discount group ID"
               aria-label="Discount group ID"
               variant={fieldError("discountGroupId") ? "error" : "default"}
-              className={cn(compactInputClassName, "w-56")}
+              className={cn(compactInputClassName, "w-56 max-w-full")}
             />
           )}
         </div>
@@ -434,7 +441,7 @@ function ConditionEditor({
   ].filter((message): message is string => message !== undefined);
 
   return (
-    <div className="flex items-start gap-3 rounded-md border border-navy-blue/15 bg-white px-3 py-2">
+    <div className="flex items-start gap-2 rounded-md border border-navy-blue/15 bg-white px-2.5 py-2 sm:gap-3 sm:px-3">
       <div className="min-w-0 flex-1 space-y-1">
         <span className="block font-semibold text-[0.7rem] text-navy-blue/55 uppercase tracking-[0.12em]">
           {newConditions[condition._tag].label}
@@ -489,7 +496,7 @@ function ReservationEditor({
           }
         }}
         aria-label="Date basis"
-        className="rounded-md border border-navy-blue/15 p-0.5"
+        className="whitespace-nowrap rounded-md border border-navy-blue/15 p-0.5"
       >
         <ToggleGroupItem value="visit">Visit date</ToggleGroupItem>
         <ToggleGroupItem value="booking">Booking date</ToggleGroupItem>
@@ -502,7 +509,7 @@ function ReservationEditor({
           onChange={(event) => setCriteria({ from: event.target.value })}
           aria-label="From date"
           variant={fieldError("from") ? "error" : "default"}
-          className={cn(compactInputClassName, "w-40")}
+          className={cn(compactInputClassName, "w-40 max-w-full")}
         />
       </LabeledControl>
       <LabeledControl label="to">
@@ -513,7 +520,7 @@ function ReservationEditor({
           onChange={(event) => setCriteria({ to: event.target.value })}
           aria-label="To date"
           variant={fieldError("to") ? "error" : "default"}
-          className={cn(compactInputClassName, "w-40")}
+          className={cn(compactInputClassName, "w-40 max-w-full")}
         />
       </LabeledControl>
       <Select
@@ -561,7 +568,7 @@ function PresenceToggle({
         if (next === "has" || next === "hasNot") onChange(next);
       }}
       aria-label={label}
-      className="rounded-md border border-navy-blue/15 p-0.5"
+      className="whitespace-nowrap rounded-md border border-navy-blue/15 p-0.5"
     >
       <ToggleGroupItem value="has">Has</ToggleGroupItem>
       <ToggleGroupItem value="hasNot">Hasn&rsquo;t</ToggleGroupItem>

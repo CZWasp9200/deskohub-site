@@ -156,13 +156,13 @@ export function CampaignEmailPreview({
       </p>
       {hasContent && preview ? (
         <iframe
-          className="h-[calc(100vh-17rem)] min-h-[32rem] w-full bg-white"
+          className="h-[40rem] @5xl:h-[calc(100vh-17rem)] @5xl:min-h-[32rem] w-full bg-white"
           sandbox=""
           srcDoc={preview.html}
           title={`Email preview, ${localeLabels[locale]}`}
         />
       ) : (
-        <div className="flex h-[calc(100vh-17rem)] min-h-[32rem] items-center justify-center px-8 text-center text-navy-blue/55 text-sm">
+        <div className="flex h-[40rem] @5xl:h-[calc(100vh-17rem)] @5xl:min-h-[32rem] items-center justify-center px-8 text-center text-navy-blue/55 text-sm">
           {hasContent
             ? "Rendering the preview…"
             : `Add ${localeLabels[locale]} content to see the email.`}

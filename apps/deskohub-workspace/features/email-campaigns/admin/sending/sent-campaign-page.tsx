@@ -7,7 +7,7 @@ import {
   formatAdministrationDateTime,
 } from "@/features/administration/components";
 import type { CampaignRow } from "@/db/schema";
-import { locales } from "@/features/i18n";
+import { campaignLocales } from "../../recipient-locale";
 import { campaignRecipientStatuses } from "../../campaign-states";
 import { describeAudienceFilter } from "../audience-filter-summary";
 import {
@@ -15,6 +15,7 @@ import {
   CampaignRecipientStatusBadge,
   CampaignStatusBadge,
 } from "../campaign-list/campaign-badges";
+import { loadDiscountGroupOptions } from "../audiences/discount-group-options.server";
 import { campaignLocaleNames } from "./campaign-locale-names";
 import { SentCampaignActions } from "./sent-campaign-actions";
 import { loadSentCampaign } from "./sent-campaign.server";
@@ -26,8 +27,11 @@ export async function SentCampaignPage({
 }: {
   readonly campaign: CampaignRow;
 }) {
-  const { send, audienceTitle } = await loadSentCampaign(campaign.id);
-  const contentLocales = locales.filter(
+  const [{ send, audienceTitle }, discountGroups] = await Promise.all([
+    loadSentCampaign(campaign.id),
+    loadDiscountGroupOptions(),
+  ]);
+  const contentLocales = campaignLocales.filter(
     (locale) => campaign.content[locale] !== undefined
   );
   return (
@@ -98,7 +102,10 @@ export async function SentCampaignPage({
               />
               <AdministrationFact
                 label="Filter"
-                value={describeAudienceFilter(send.audienceFilter)}
+                value={describeAudienceFilter(
+                  send.audienceFilter,
+                  discountGroups
+                )}
               />
             </dl>
           ) : (
