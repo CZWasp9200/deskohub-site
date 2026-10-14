@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.14.0](https://github.com/totalolage/deskohub-site/compare/dhw-v1.13.0...dhw-v1.14.0) (2026-10-14)
+
+
+### Features
+
+* **discounts:** gate new cowork tier targets behind a release flag ([23e92d8](https://github.com/totalolage/deskohub-site/commit/23e92d8a4b7d2dd73841055ffd0d557488b98c78))
+
+
+### Bug Fixes
+
+* **dhw:** explain that new cowork tier targets need the release flag ([5548286](https://github.com/totalolage/deskohub-site/commit/5548286e5725f60ec3f26024c889be4cd81084de))
+
+
+### Performance Improvements
+
+* **e2e:** pool checkout cases and drop serial E2E tails ([6de60e0](https://github.com/totalolage/deskohub-site/commit/6de60e06aacba4cdb7d0aa57d88e517809af6ae2))
+
 ## [1.13.0](https://github.com/totalolage/deskohub-site/compare/dhw-v1.12.0...dhw-v1.13.0) (2026-10-12)
 
 
