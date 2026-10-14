@@ -11,11 +11,7 @@ export function CheckoutDiscountCodeSubmitButton({
   readonly pending: boolean;
 }) {
   return (
-    <Button
-      className="h-12 rounded-full px-7 text-sm uppercase tracking-[0.14em]"
-      disabled={pending}
-      type="submit"
-    >
+    <Button size="lg" caps pending={pending} type="submit">
       {pending
         ? m.checkoutDiscountCodeApplying({}, { locale })
         : m.checkoutDiscountCodeApply({}, { locale })}

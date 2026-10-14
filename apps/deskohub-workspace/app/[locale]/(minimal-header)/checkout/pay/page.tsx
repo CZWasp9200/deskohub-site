@@ -305,10 +305,7 @@ function InvalidPayState({
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <Button
-            asChild
-            className="h-13 w-full rounded-full text-sm uppercase tracking-[0.18em]"
-          >
+          <Button asChild size="xl" caps fullWidth>
             <a href={restartPath}>
               {m.checkoutPayRestartButton({}, { locale })}
             </a>

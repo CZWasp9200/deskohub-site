@@ -5,12 +5,12 @@ import type { ReactNode } from "react";
 import { ReservationSkeletonBlock } from "@/features/reservation/components/reservation-form-fallback";
 import { ReservationFormLabel } from "@/features/reservation/components/reservation-form-label";
 import { Button } from "@/shared/components/ui/button";
+import { ChoiceCard } from "@/shared/components/ui/choice-card";
 import {
   FormControl,
   FormItemLayout,
   useFormField,
 } from "@/shared/components/ui/form";
-import { Label } from "@/shared/components/ui/label";
 import { Switch } from "@/shared/components/ui/switch";
 import {
   Tooltip,
@@ -60,8 +60,9 @@ export function CoworkOptionalAddonToggle({
     <FormItemLayout data-cowork-addon-control>
       <ReservationFormLabel>{label}</ReservationFormLabel>
       <div className="flex items-center gap-2">
-        <Label
-          className="flex h-13 flex-1 cursor-pointer items-center justify-between gap-3 rounded-[1.1rem] border border-navy-blue/10 bg-linear-to-br from-sunset-yellow/18 to-white px-4 py-3 text-navy-blue transition hover:border-burned-orange/30"
+        <ChoiceCard
+          align="center"
+          className="flex-1"
           data-cowork-optional-addon-toggle={addon}
           htmlFor={formItemId}
         >
@@ -77,6 +78,7 @@ export function CoworkOptionalAddonToggle({
             </FormControl>
           </span>
           <span
+            className="ml-auto"
             {...{
               coffee: { "data-reservation-coffee-price": "" },
               workstation: { "data-reservation-workstation-price": "" },
@@ -90,7 +92,7 @@ export function CoworkOptionalAddonToggle({
               <ReservationSkeletonBlock className="h-4 w-14 bg-sunset-yellow/25" />
             )}
           </span>
-        </Label>
+        </ChoiceCard>
         {info && (
           <TooltipProvider>
             <Tooltip>
@@ -98,9 +100,10 @@ export function CoworkOptionalAddonToggle({
                 <Button
                   type="button"
                   variant="ghost"
-                  size="icon"
+                  tone="muted"
+                  size="icon-lg"
                   aria-label={info.triggerLabel}
-                  className="h-11 w-11 shrink-0 rounded-full p-0 text-navy-blue/60"
+                  className="shrink-0"
                 >
                   <Info aria-hidden="true" className="size-4" />
                 </Button>

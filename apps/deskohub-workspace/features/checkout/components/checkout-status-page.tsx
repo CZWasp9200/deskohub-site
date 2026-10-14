@@ -402,7 +402,7 @@ export function CheckoutStatusPage({
       </div>
 
       {showSupportButton && (
-        <Button asChild className="h-12 px-6 mt-6 w-full">
+        <Button asChild size="lg" fullWidth className="mt-6">
           <Link
             href={supportContactHref}
             id="checkout-status-support-contact"
@@ -499,7 +499,7 @@ export function CheckoutStatusPage({
           {showPageActions && (
             <>
               {offersNewReservation && (
-                <Button asChild className="h-12 px-6">
+                <Button asChild size="lg">
                   <a href={reserveAgainPath} id="checkout-status-reserve-again">
                     {repeatReservationSearchParams
                       ? m.checkoutStatusBookAgain({}, { locale })
@@ -507,7 +507,7 @@ export function CheckoutStatusPage({
                   </a>
                 </Button>
               )}
-              <Button asChild variant="secondary" className="h-12 px-6">
+              <Button asChild variant="secondary" size="lg">
                 <Link href={`/${locale}`} prefetch={false}>
                   {m.checkoutStatusBackHome({}, { locale })}
                 </Link>
@@ -515,7 +515,7 @@ export function CheckoutStatusPage({
             </>
           )}
           {reservationAccessHref && (
-            <Button asChild variant="secondary" className="h-12 px-6">
+            <Button asChild variant="secondary" size="lg">
               {presentation === "modal" ? (
                 <Link
                   href={reservationAccessHref}

@@ -15,7 +15,7 @@ import {
   CardTitle,
 } from "@/shared/components/ui/card";
 import { Checkbox } from "@/shared/components/ui/checkbox";
-import { cn } from "@/shared/utils";
+import { ChoiceCard } from "@/shared/components/ui/choice-card";
 
 type CheckoutPayActionVariant = "pay" | "retry";
 
@@ -68,13 +68,7 @@ export function CheckoutPayConsent({
   readonly variant: CheckoutPayActionVariant;
 }) {
   return (
-    <label
-      htmlFor={id}
-      className={cn(
-        "flex items-start gap-3 rounded-[1.35rem] border border-navy-blue/10 bg-navy-blue/2.5 p-4",
-        disabled ? "cursor-not-allowed opacity-70" : "cursor-pointer"
-      )}
-    >
+    <ChoiceCard htmlFor={id}>
       <Checkbox
         id={id}
         className="mt-1"
@@ -109,7 +103,7 @@ export function CheckoutPayConsent({
           }}
         />
       </span>
-    </label>
+    </ChoiceCard>
   );
 }
 
@@ -129,8 +123,11 @@ export function CheckoutPaySubmitButton({
   return (
     <Button
       type="button"
-      className="h-13 w-full rounded-full text-sm uppercase tracking-[0.18em]"
+      size="xl"
+      caps
+      fullWidth
       disabled={disabled}
+      pending={pending}
       onClick={onClick}
     >
       {pending ? (

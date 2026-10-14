@@ -469,11 +469,7 @@ function SubmitButton({
   pending,
 }: Pick<ContactFormClientProps, "locale"> & { pending: boolean }) {
   return (
-    <Button
-      type="submit"
-      className="h-13 w-full rounded-full text-sm uppercase tracking-[0.18em]"
-      disabled={pending}
-    >
+    <Button type="submit" size="xl" caps fullWidth pending={pending}>
       {pending ? (
         m.contactSubmitPending({}, { locale })
       ) : (
