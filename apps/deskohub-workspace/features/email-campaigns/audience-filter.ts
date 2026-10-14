@@ -1,96 +1,24 @@
 import type { DotyposCustomer, DotyposCustomerId } from "@deskohub/dotypos";
-import { Match, Option, Schema } from "effect";
-import type { AdministrationReservationStatusFilter } from "@/features/administration/administration.service";
-import { type Locale, locales } from "@/features/i18n";
-import { isPlainDateString } from "@/shared/utils/temporal";
-
-const reservationStatusFilters = [
-  "in_progress",
-  "complete",
-  "cancelled",
-  "needs_refund",
-] as const satisfies readonly AdministrationReservationStatusFilter[];
-
-const calendarDateSchema = Schema.String.check(isPlainDateString());
+import {
+  type AudienceFilterType,
+  AudienceFilter as audienceFilterSchema,
+} from "@deskohub/workspace-admin-api";
+import { Match, Option } from "effect";
+import type { Locale } from "@/features/i18n";
 
 /**
- * Whether the customer has (or hasn't) a Workspace reservation, optionally
- * within an inclusive calendar date range and in one admin status group.
- * Without a status only booked reservations count: confirmed and never
- * cancelled, so abandoned and expired checkouts do not. `visit` dates the
- * reservation by when the customer occupies the space (its Dotypos start),
- * `booking` by when Workspace confirmed it.
+ * The filter tree a campaign audience selects its recipients with. The
+ * administration contract defines it once for Workspace, the Admin UI, and
+ * `dhw`.
  */
-const audienceReservationConditionSchema = Schema.TaggedStruct("Reservation", {
-  presence: Schema.Literals(["has", "hasNot"]),
-  dateBasis: Schema.Literals(["visit", "booking"]),
-  from: Schema.optionalKey(calendarDateSchema),
-  to: Schema.optionalKey(calendarDateSchema),
-  status: Schema.optionalKey(Schema.Literals(reservationStatusFilters)),
-});
-type AudienceReservationCondition =
-  typeof audienceReservationConditionSchema.Type;
+export type AudienceFilter = AudienceFilterType;
+export { audienceFilterSchema };
 
-/** The customer's resolved campaign locale is one of these. */
-const audienceLocaleConditionSchema = Schema.TaggedStruct("Locale", {
-  locales: Schema.NonEmptyArray(Schema.Literals(locales)),
-});
-
-/** Whether the customer has a linked Workspace account. */
-const audienceAccountConditionSchema = Schema.TaggedStruct("Account", {
-  hasAccount: Schema.Boolean,
-});
-
-/** The customer's Dotypos profile carries this tag. */
-const audienceDotyposTagConditionSchema = Schema.TaggedStruct("DotyposTag", {
-  tag: Schema.NonEmptyString,
-});
-
-/** The customer's Dotypos profile belongs to this discount group. */
-const audienceDiscountGroupConditionSchema = Schema.TaggedStruct(
-  "DiscountGroup",
-  { discountGroupId: Schema.NonEmptyString }
-);
-
-/**
- * A nested AND/OR group. An empty AND group matches every candidate, so an
- * audience whose root is `{ operator: "and", filters: [] }` reaches all
- * customers Workspace knows; an empty OR group matches nobody.
- */
-type AudienceFilterGroup = {
-  readonly _tag: "Group";
-  readonly operator: "and" | "or";
-  readonly filters: readonly AudienceFilter[];
-};
-
-export type AudienceFilter =
-  | AudienceReservationCondition
-  | typeof audienceLocaleConditionSchema.Type
-  | typeof audienceAccountConditionSchema.Type
-  | typeof audienceDotyposTagConditionSchema.Type
-  | typeof audienceDiscountGroupConditionSchema.Type
-  | AudienceFilterGroup;
-
-const audienceFilterGroupSchema = Schema.TaggedStruct("Group", {
-  operator: Schema.Literals(["and", "or"]),
-  filters: Schema.Array(
-    Schema.suspend((): Schema.Codec<AudienceFilter> => audienceFilterSchema)
-  ),
-});
-
-/** The filter tree a campaign audience selects its recipients with. */
-export const audienceFilterSchema: Schema.Codec<AudienceFilter> = Schema.Union([
-  audienceReservationConditionSchema,
-  audienceLocaleConditionSchema,
-  audienceAccountConditionSchema,
-  audienceDotyposTagConditionSchema,
-  audienceDiscountGroupConditionSchema,
-  audienceFilterGroupSchema,
-]).annotate({
-  identifier: "AudienceFilter",
-  description:
-    "Nested AND/OR tree of reservation, locale, account, Dotypos tag, and discount-group conditions.",
-});
+type AudienceReservationCondition = Extract<
+  AudienceFilter,
+  { readonly _tag: "Reservation" }
+>;
+type AudienceFilterGroup = Extract<AudienceFilter, { readonly _tag: "Group" }>;
 
 /**
  * Three-valued result: a Dotypos condition is `unknown` until the customer's
