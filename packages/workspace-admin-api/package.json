@@ -9,6 +9,7 @@
   },
   "scripts": {
     "lint": "cd ../.. && biome check packages/workspace-admin-api/src --config-path biome.json --vcs-root .",
+    "test": "bun test",
     "typecheck": "tsc --project tsconfig.json"
   },
   "dependencies": {
