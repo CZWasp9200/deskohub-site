@@ -9,7 +9,7 @@ import {
 import { NexiCorrelationIdSchema, NexiOrderIdSchema } from "@deskohub/nexi";
 import { testEmailAddress } from "@deskohub/test-email";
 import { asc, eq, inArray, like, sql } from "drizzle-orm";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Schema } from "effect";
 import {
   accountingDocumentSnapshots,
   invoiceEmailDeliveries,
@@ -29,6 +29,7 @@ import {
   type InvoiceBuyer,
   type InvoiceNumber,
 } from "@/features/accounting/invoice";
+import { manualInvoiceInputSchema } from "@/features/accounting/manual-invoice";
 import type { PreparedCustomerQuote } from "@/features/checkout/backend/checkout/checkout-pricing.service";
 import {
   checkoutAttemptKeySchema,
@@ -485,6 +486,21 @@ describe.skipIf(!testDatabase)(
       expect(await readCounters()).toEqual(before);
     });
 
+    test("refuses to number a failed attempt of a paid reservation", async () => {
+      const fixture = await createPaidFixture();
+      const failedPaymentAttemptId =
+        await createAdditionalFailedAttempt(fixture);
+      const before = await readCounters();
+
+      const error = await issueFailure(failedPaymentAttemptId);
+
+      expect(error).toMatchObject({
+        _tag: "InvoiceEligibilityError",
+        paymentAttemptId: failedPaymentAttemptId,
+      });
+      expect(await readCounters()).toEqual(before);
+    });
+
     test("rejects a second payment attempt for an invoiced reservation", async () => {
       const fixture = await createPaidFixture();
       await issue(fixture.paymentAttemptId);
@@ -497,6 +513,42 @@ describe.skipIf(!testDatabase)(
         _tag: "InvoiceEligibilityError",
         paymentAttemptId: otherPaymentAttemptId,
       });
+    });
+
+    test("issues one manual invoice for concurrent requests with the same id", async () => {
+      const input = Schema.decodeUnknownSync(manualInvoiceInputSchema)({
+        invoiceId: randomUUID(),
+        dotyposCustomerId: `${fixtureCustomerPrefix}${randomUUID()}`,
+        buyer: personalInvoiceBuyer,
+        deliveryEmail: testEmailAddress("manual-invoice-integration"),
+        locale: "en-US",
+        serviceDate: "2099-01-01",
+        payment: { status: "paid", date: "2099-01-01" },
+        currency: "CZK",
+        lines: [{ description: "Synthetic line", price: "100.00" }],
+        provenance: { source: "admin-ui", actor: "synthetic-admin" },
+      });
+      const before = await readCounters();
+
+      const results = await Promise.all(
+        Array.from({ length: 10 }, () =>
+          runRepository((repository) => repository.issueManual(input))
+        )
+      );
+
+      expect(new Set(results.map(({ invoice }) => invoice.id))).toEqual(
+        new Set([input.invoiceId])
+      );
+      expect(
+        new Set(results.map(({ invoice }) => invoice.invoiceNumber)).size
+      ).toBe(1);
+      expect(results.filter(({ changed }) => changed)).toHaveLength(1);
+      const numberingYear = getInvoiceNumberingYear(
+        results[0]!.invoice.issuedAt
+      );
+      expect((await readCounters()).get(numberingYear)).toBe(
+        (before.get(numberingYear) ?? 0) + 1
+      );
     });
 
     test("rolls the number back when the invoice insert fails", async () => {
