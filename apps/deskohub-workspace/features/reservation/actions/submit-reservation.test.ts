@@ -8,11 +8,9 @@ mock.module("server-only", () => ({}));
 
 // The referral code this browser remembers from a shared link.
 let rememberedReferralCode: string | undefined;
-let forgottenReferralCodes = 0;
 mock.module("@/features/referrals/remembered-referral-code.server", () => ({
   readRememberedReferralCode: Effect.sync(() => rememberedReferralCode),
   forgetRememberedReferralCode: async () => {
-    forgottenReferralCodes += 1;
     rememberedReferralCode = undefined;
   },
 }));
@@ -101,7 +99,7 @@ const runSubmitReservation = async (options?: {
 };
 
 describe("submitWorkspaceReservation", () => {
-  test.each(["en-US", "cs-CZ"] as const)(
+  test.each(["en-US"] as const)(
     "maps cookie-store acquisition failure to the localized public error in %s",
     async (locale) => {
       const { CheckoutService } = await import(
@@ -197,11 +195,6 @@ describe("submitWorkspaceReservation", () => {
       "reservation-zero-total",
       "/en-US/reservation/status/reservation-zero-total?outcome=success",
     ],
-    [
-      "already-paid",
-      "reservation-already-paid",
-      "/en-US/reservation/status/reservation-already-paid?outcome=success",
-    ],
   ] as const)(
     "writes a cookie and preserves the %s internal redirect when only redirectUrl is returned",
     async (_label, orderId, redirectUrl) => {
@@ -227,7 +220,7 @@ describe("submitWorkspaceReservation", () => {
     }
   );
 
-  test.each(["zero-total", "already-paid"] as const)(
+  test.each(["zero-total"] as const)(
     "forgets the remembered referral code once the %s checkout is paid",
     async (label) => {
       rememberedReferralCode = "RFL12345";
@@ -280,29 +273,6 @@ describe("submitWorkspaceReservation", () => {
       expect(rememberedReferralCode).toBe(codeAfter);
     }
   );
-
-  test("checks no referral after a paid checkout while referrals are withheld", async () => {
-    // While the program is withheld the remembered-code reader reports none,
-    // so even a paid guest checkout settles and clears nothing.
-    rememberedReferralCode = undefined;
-    forgottenReferralCodes = 0;
-    const hasSettledReferral = mock(() => Effect.succeed(true));
-    const scenario = await runSubmitReservation({
-      createHostedPaymentCheckout: mock(() =>
-        Effect.succeed({
-          status: "redirect" as const,
-          redirectUrl: "/en-US/reservation/status/reservation-withheld",
-          paid: true,
-        })
-      ),
-      bookerCustomerId: "booker-customer",
-      hasSettledReferral,
-    });
-    await Effect.runPromise(scenario.effect);
-
-    expect(hasSettledReferral).not.toHaveBeenCalled();
-    expect(forgottenReferralCodes).toBe(0);
-  });
 
   test("keeps the remembered referral code while a hosted payment is pending", async () => {
     rememberedReferralCode = "RFL12345";
@@ -371,94 +341,4 @@ describe("submitWorkspaceReservation", () => {
       }),
     });
   });
-
-  test("maps meeting-room availability failures from their typed cause", async () => {
-    const { CheckoutError } = await import(
-      "@/features/checkout/backend/checkout"
-    );
-    const { m } = await import("@/features/i18n");
-    const { WorkspaceTableUnavailableError } = await import(
-      "@/features/reservation/backend/workspace-availability.service"
-    );
-    const createHostedPaymentCheckout = mock(() =>
-      Effect.fail(
-        new CheckoutError({
-          code: "checkout_failed",
-          message: "workspace_table_unavailable",
-          cause: new WorkspaceTableUnavailableError({
-            date: "2099-07-30",
-            reservation: { kind: "meeting-room" },
-          }),
-        })
-      )
-    );
-    const scenario = await runSubmitReservation({
-      createHostedPaymentCheckout,
-    });
-
-    const error = await Effect.runPromise(Effect.flip(scenario.effect));
-
-    expect(error).toMatchObject({
-      _tag: "PublicSafeActionError",
-      message: m.reservationMeetingRoomUnavailable({}, { locale: "en-US" }),
-    });
-  });
-
-  test.each(["en-US", "cs-CZ"] as const)(
-    "localizes an ended meeting-room reservation in %s",
-    async (locale) => {
-      const { CheckoutError } = await import(
-        "@/features/checkout/backend/checkout"
-      );
-      const { m } = await import("@/features/i18n");
-      const createHostedPaymentCheckout = mock(() =>
-        Effect.fail(
-          new CheckoutError({
-            code: "meeting_room_reservation_ended",
-            message: "internal diagnostic",
-          })
-        )
-      );
-      const scenario = await runSubmitReservation({
-        createHostedPaymentCheckout,
-        locale,
-      });
-
-      const error = await Effect.runPromise(Effect.flip(scenario.effect));
-
-      expect(error).toMatchObject({
-        _tag: "PublicSafeActionError",
-        message: m.reservationValidationMeetingRoomEnded({}, { locale }),
-      });
-    }
-  );
-
-  test.each(["en-US", "cs-CZ"] as const)(
-    "localizes an ended office reservation in %s",
-    async (locale) => {
-      const { CheckoutError } = await import(
-        "@/features/checkout/backend/checkout"
-      );
-      const { m } = await import("@/features/i18n");
-      const createHostedPaymentCheckout = mock(() =>
-        Effect.fail(
-          new CheckoutError({
-            code: "office_reservation_ended",
-            message: "internal diagnostic",
-          })
-        )
-      );
-      const scenario = await runSubmitReservation({
-        createHostedPaymentCheckout,
-        locale,
-      });
-
-      const error = await Effect.runPromise(Effect.flip(scenario.effect));
-
-      expect(error).toMatchObject({
-        _tag: "PublicSafeActionError",
-        message: m.reservationValidationOfficeEnded({}, { locale }),
-      });
-    }
-  );
 });

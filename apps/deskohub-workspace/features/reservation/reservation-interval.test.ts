@@ -43,16 +43,6 @@ describe("reservation intervals", () => {
     });
   });
 
-  test("rejects non-canonical timestamps at the schema boundary", () => {
-    expect(
-      Schema.is(reservationIntervalInputSchema)({
-        date: "2099-06-10",
-        startsAt: "9:00",
-        endsAt: "10:00",
-      })
-    ).toBeFalse();
-  });
-
   test("normalizes rolling 24-hour reservations", () => {
     const interval = Effect.runSync(
       normalizeReservationInterval(

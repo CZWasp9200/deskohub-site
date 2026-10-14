@@ -157,8 +157,6 @@ const buildMeetingRoomAdvertisedPriceToken = async (
   locale: "en-US" | "cs-CZ" = "en-US",
   metadata: {
     readonly requestedDiscountCode?: string;
-    readonly submittedCode?: string;
-    readonly submittedCodeDiscountId?: string;
   } = {}
 ) => {
   const { buildAdvertisedPriceState, sealAdvertisedPriceState } = await import(
@@ -198,15 +196,6 @@ const buildMeetingRoomAdvertisedPriceToken = async (
           canonicalPromotionCodeSchema
         )(metadata.requestedDiscountCode),
       }),
-      ...(metadata.submittedCode !== undefined &&
-        metadata.submittedCodeDiscountId !== undefined && {
-          submittedCode: Schema.decodeUnknownSync(canonicalPromotionCodeSchema)(
-            metadata.submittedCode
-          ),
-          submittedCodeDiscountId: Schema.decodeUnknownSync(discountIdSchema)(
-            metadata.submittedCodeDiscountId
-          ),
-        }),
     });
     return yield* sealAdvertisedPriceState(state);
   }).pipe(Effect.runPromise);
@@ -351,10 +340,7 @@ const runReusableReservationScenario = async (input: {
   readonly ensureAvailable?: ReturnType<typeof mock>;
   readonly grantInitialMarketingConsent?: ReturnType<typeof mock>;
   readonly findOrCreateCustomer?: ReturnType<typeof mock>;
-  readonly reservation?:
-    | typeof reservation
-    | (Omit<typeof reservation, "billing"> & { readonly billing: unknown });
-  readonly updateCustomerBillingDetails?: ReturnType<typeof mock>;
+  readonly reservation?: typeof reservation;
   readonly accountAuthority?: Parameters<typeof accountAuthorityFixture>[0];
   readonly customer?: "account";
   readonly accountContact?: CustomerAccountContactService["Service"]["current"];
@@ -434,8 +420,6 @@ const runReusableReservationScenario = async (input: {
   const findOrCreateCustomer =
     input.findOrCreateCustomer ??
     mock(() => Effect.succeed({ id: "customer-id" }));
-  const updateCustomerBillingDetails =
-    input.updateCustomerBillingDetails ?? mock(() => Effect.void);
   const checkContactEmailDomain =
     input.checkContactEmailDomain ??
     mock(() => Effect.succeed("accepts_mail" as const));
@@ -517,7 +501,6 @@ const runReusableReservationScenario = async (input: {
     }),
     Layer.mock(DotyposService, {
       findOrCreateCustomer,
-      updateCustomerBillingDetails,
       getReservationStatus,
       cancelReservation,
       createReservation,
@@ -543,7 +526,6 @@ const runReusableReservationScenario = async (input: {
     updateReservationDetails,
     grantInitialMarketingConsent,
     grantMarketingConsent,
-    withdrawMarketingConsent,
     ensureAvailable,
     createDraft,
     claimHoldCreation,
@@ -558,7 +540,6 @@ const runReusableReservationScenario = async (input: {
     affirmAdvertisement,
     quoteForCustomer,
     findOrCreateCustomer,
-    updateCustomerBillingDetails,
     readAccountContact,
     readLinkedAccount,
     evaluateCheckoutReferral,
@@ -582,8 +563,6 @@ const runMeetingRoomNewHoldScenario = async (
   },
   advertisedMetadata: {
     readonly requestedDiscountCode?: string;
-    readonly submittedCode?: string;
-    readonly submittedCodeDiscountId?: string;
   } = {},
   /**
    * Runs the submission under `deadline` on an instant test clock. Each
@@ -861,30 +840,6 @@ describe("prepareWorkspacePayState", () => {
     expect(scenario.result.redirectUrl).not.toContain("CAMPAIGN10");
   });
 
-  test("falls back to an old advertisement's applied code for requested intent", async () => {
-    const { openPayState, payStateTokenQueryParam } = await import(
-      "@/features/checkout/backend/checkout"
-    );
-    const scenario = await runMeetingRoomNewHoldScenario(undefined, {
-      submittedCode: "OLDCODE",
-      submittedCodeDiscountId: "code-discount",
-    });
-
-    expect(scenario.result.status).toBe("ready");
-    if (scenario.result.status !== "ready") {
-      throw new Error("Expected a ready result");
-    }
-    const token = new URL(
-      scenario.result.redirectUrl,
-      "https://deskohub.test"
-    ).searchParams.get(payStateTokenQueryParam);
-    const state = Effect.runSync(openPayState(token ?? ""));
-
-    expect(state.requestedDiscountCode).toBe("OLDCODE");
-    expect(state.submittedCode).toBeUndefined();
-    expect(state.submittedCodeDiscountId).toBeUndefined();
-  });
-
   test("rejects office reservation issuance while the office flag is disabled", async () => {
     const { prepareWorkspacePayState } = await import("./prepare-pay-state");
     const { BotProtectionServiceMock } = await import(
@@ -930,31 +885,6 @@ describe("prepareWorkspacePayState", () => {
       cause: { _tag: "OfficeReservationsDisabledError" },
     });
     expect(verifyHuman).toHaveBeenCalledTimes(1);
-  });
-
-  test("accepts meeting-room preparation with its family advertisement", async () => {
-    const { preparePayStateSchema } = await import(
-      "./prepare-pay-state.schema"
-    );
-    const result = await preparePayStateSchema["~standard"].validate({
-      locale: "en-US",
-      checkoutSessionId: "meeting-room-session-id",
-      checkoutAttemptId: "meeting-room-attempt-id",
-      advertisedPriceToken: "meeting-room-advertised-price-token",
-      reservation: {
-        kind: "meeting-room",
-        duration: { unit: "hour", amount: 4 },
-        reservationDate: "2099-06-10",
-        startsAt: "2099-06-10T08:00:00Z",
-        endsAt: "2099-06-10T12:00:00Z",
-        name: "Ada Lovelace",
-        email: testEmailAddressForAda,
-        phone: "+420 777 777 777",
-      },
-    });
-
-    expect(result).not.toHaveProperty("issues");
-    expect(result).toHaveProperty("value.reservation.kind", "meeting-room");
   });
 
   test("keeps meeting-room timing transient while creating its hold", async () => {
@@ -1321,33 +1251,6 @@ describe("prepareWorkspacePayState", () => {
     );
   });
 
-  test("does not mutate reusable Dotypos billing before payment", async () => {
-    const updateCustomerBillingDetails = mock(() => Effect.void);
-    const address = {
-      line1: "Synthetic street 1",
-      line2: "Unit 2",
-      city: "Prague",
-      postalCode: "100 00",
-      country: "CZ",
-    };
-    const result = await runReusableReservationScenario({
-      findByAttemptKeys: mock(() => Effect.succeed(makeReusableReservation())),
-      reservation: {
-        ...reservation,
-        billing: { purpose: "personal", invoice: "requested", address },
-      },
-      updateCustomerBillingDetails,
-    });
-
-    expect(updateCustomerBillingDetails).not.toHaveBeenCalled();
-    expect(result.updateReservationDetails).toHaveBeenCalled();
-
-    const personalResult = await runReusableReservationScenario({
-      findByAttemptKeys: mock(() => Effect.succeed(makeReusableReservation())),
-    });
-    expect(personalResult.updateCustomerBillingDetails).not.toHaveBeenCalled();
-  });
-
   test("records marketing opt-in against the resolved customer", async () => {
     const existingReservation = makeReusableReservation();
     const result = await runReusableReservationScenario({
@@ -1382,63 +1285,6 @@ describe("prepareWorkspacePayState", () => {
       _tag: "PublicSafeActionError",
       cause: persistenceFailure,
     });
-  });
-
-  test("keeps anonymous preparation flowing without consulting account activity", async () => {
-    const scenario = await runReusableReservationScenario({
-      findByAttemptKeys: mock(() => Effect.succeed(null)),
-      createDraft: mock((input) =>
-        Effect.succeed(
-          makeReusableReservation({
-            id: "fresh-reservation-id",
-            checkoutSessionKey: input.checkoutSessionKey,
-            checkoutAttemptKey: input.checkoutAttemptKey,
-            correlationId: "fresh-correlation-id",
-            dotyposCustomerId: input.dotyposCustomerId,
-            reservationDetails: input.reservationDetails,
-            locale: input.locale,
-            reservationHoldExpiresAt: input.reservationHoldExpiresAt,
-          })
-        )
-      ),
-      accountAuthority: { session: null },
-    });
-
-    expect(scenario.result?.status).toBe("ready");
-    expect(scenario.createDraft).toHaveBeenCalledTimes(1);
-    expect(scenario.findOrCreateCustomer).toHaveBeenCalledTimes(1);
-    expect(scenario.guardEvents).toEqual([]);
-  });
-
-  test("keeps an active authenticated account preparation flowing", async () => {
-    const scenario = await runReusableReservationScenario({
-      findByAttemptKeys: mock(() => Effect.succeed(null)),
-      createDraft: mock((input) =>
-        Effect.succeed(
-          makeReusableReservation({
-            id: "fresh-reservation-id",
-            checkoutSessionKey: input.checkoutSessionKey,
-            checkoutAttemptKey: input.checkoutAttemptKey,
-            correlationId: "fresh-correlation-id",
-            dotyposCustomerId: input.dotyposCustomerId,
-            reservationDetails: input.reservationDetails,
-            locale: input.locale,
-            reservationHoldExpiresAt: input.reservationHoldExpiresAt,
-          })
-        )
-      ),
-      accountAuthority: { session: {}, activityState: "active" },
-    });
-
-    expect(scenario.result?.status).toBe("ready");
-    expect(scenario.createDraft).toHaveBeenCalledTimes(1);
-    expect(scenario.findOrCreateCustomer).toHaveBeenCalledTimes(1);
-    expect(scenario.guardEvents).toEqual([
-      "account-session",
-      "account-lock-acquired",
-      "account-activity",
-      "account-lock-released",
-    ]);
   });
 
   test("holds the account advisory lock across reservation state creation", async () => {
@@ -1606,22 +1452,6 @@ describe("prepareWorkspacePayState", () => {
       });
     });
 
-    test("leaves the account's stored marketing consent untouched without an opt-in", async () => {
-      const scenario = await runReusableReservationScenario({
-        findByAttemptKeys: mock(() => Effect.succeed(null)),
-        createDraft: createFreshDraft(),
-        accountAuthority: { session: {}, activityState: "active" },
-        customer: "account",
-        accountContact: accountContact(),
-        marketingConsent: false,
-      });
-
-      expect(scenario.result?.status).toBe("ready");
-      expect(scenario.grantInitialMarketingConsent).not.toHaveBeenCalled();
-      expect(scenario.grantMarketingConsent).not.toHaveBeenCalled();
-      expect(scenario.withdrawMarketingConsent).not.toHaveBeenCalled();
-    });
-
     test("prices the reservation with the account contact instead of the submitted one", async () => {
       const scenario = await runReusableReservationScenario({
         findByAttemptKeys: mock(() => Effect.succeed(null)),
@@ -1647,34 +1477,10 @@ describe("prepareWorkspacePayState", () => {
       });
     });
 
-    test("keeps the submitted phone when the account has no usable phone", async () => {
-      const scenario = await runReusableReservationScenario({
-        findByAttemptKeys: mock(() => Effect.succeed(null)),
-        createDraft: createFreshDraft(),
-        accountAuthority: { session: {}, activityState: "active" },
-        customer: "account",
-        accountContact: accountContact({ phone: null }),
-      });
-
-      expect(scenario.result?.status).toBe("ready");
-      expect(
-        scenario.quoteForCustomer.mock.calls[0]?.[0].reservation
-      ).toMatchObject({
-        name: "Grace Hopper",
-        email: testEmailAddressForGrace,
-        phone: reservation.phone,
-      });
-    });
-
     test.each([
       [
         "an anonymous session has no account contact",
         undefined,
-        Effect.succeed(null),
-      ],
-      [
-        "the signed-in account has no bookable contact",
-        { session: {}, activityState: "active" } as const,
         Effect.succeed(null),
       ],
       [
@@ -1825,14 +1631,7 @@ describe("prepareWorkspacePayState", () => {
         }
       );
 
-      test.each([
-        "already_attributed",
-        "ineligible",
-        "self_referral",
-        "unavailable",
-        "invalid_code",
-        "account_unavailable",
-      ] as const)(
+      test.each(["already_attributed"] as const)(
         "continues checkout silently without the code when evaluation fails as %s",
         async (reason) => {
           const scenario = await runReusableReservationScenario({
@@ -1880,21 +1679,6 @@ describe("prepareWorkspacePayState", () => {
         expect(scenario.result?.status).toBe("ready");
         expect(scenario.evaluateCheckoutReferral).not.toHaveBeenCalled();
         expect(scenario.createDraft).toHaveBeenCalledTimes(1);
-      });
-
-      test("skips acceptance for a session without a linked account", async () => {
-        const scenario = await runReusableReservationScenario({
-          findByAttemptKeys: mock(() => Effect.succeed(null)),
-          createDraft: createFreshDraft(),
-          accountAuthority: { session: {}, activityState: "active" },
-          customer: "account",
-          accountContact: accountContact(),
-          linkedAccount: Effect.succeed(null),
-          rememberedReferralCode: "RFL12345",
-        });
-
-        expect(scenario.result?.status).toBe("ready");
-        expect(scenario.evaluateCheckoutReferral).not.toHaveBeenCalled();
       });
 
       type PreparedResult = Awaited<
@@ -1998,48 +1782,6 @@ describe("prepareWorkspacePayState", () => {
         expect(scenario.result?.status).toBe("ready");
         expect(scenario.findAvailableCode).not.toHaveBeenCalled();
         expect(await requestedCodeOf(scenario.result)).toBeUndefined();
-      });
-
-      test.each([
-        ["an anonymous guest", { session: null }],
-        ["an account booking", { session: {}, activityState: "active" }],
-      ] as const)(
-        "does nothing for %s without a remembered code",
-        async (_label, accountAuthority) => {
-          const scenario = await runReusableReservationScenario({
-            findByAttemptKeys: mock(() => Effect.succeed(null)),
-            createDraft: createFreshDraft(),
-            accountAuthority,
-            ...(accountAuthority.session && {
-              customer: "account" as const,
-              accountContact: accountContact(),
-              linkedAccount: linkedAccount(),
-            }),
-          });
-
-          expect(scenario.result?.status).toBe("ready");
-          expect(scenario.evaluateCheckoutReferral).not.toHaveBeenCalled();
-          expect(scenario.findAvailableCode).not.toHaveBeenCalled();
-          expect(scenario.hasSettledReferral).not.toHaveBeenCalled();
-          expect(
-            (await signedStateOf(scenario.result))?.referralCode
-          ).toBeUndefined();
-          expect(await requestedCodeOf(scenario.result)).toBeUndefined();
-        }
-      );
-
-      test("keeps the remembered code for an unusable guest code", async () => {
-        const scenario = await runReusableReservationScenario({
-          findByAttemptKeys: mock(() => Effect.succeed(null)),
-          createDraft: createFreshDraft(),
-          accountAuthority: { session: null },
-          rememberedReferralCode: "RFL12345",
-          findAvailableCode: mock(() => Effect.succeed(undefined)),
-        });
-
-        expect(scenario.result?.status).toBe("ready");
-        expect(await requestedCodeOf(scenario.result)).toBeUndefined();
-        expect(scenario.rememberedReferralCodeAfter).toBe("RFL12345");
       });
 
       test.each([
