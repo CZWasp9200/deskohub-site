@@ -78,7 +78,7 @@ export function OrdersAdministrationFilterForm({
           type="date"
         />
       </AdministrationFilterField>
-      <Button className="min-h-10" size="sm" type="submit">
+      <Button size="sm" type="submit">
         Show orders
       </Button>
     </AdministrationFilterForm>
@@ -132,7 +132,7 @@ export function BookingsAdministrationFilterForm({
         type="hidden"
         value={input.direction}
       />
-      <Button className="min-h-10" size="sm" type="submit">
+      <Button size="sm" type="submit">
         Show bookings
       </Button>
     </AdministrationFilterForm>
@@ -220,7 +220,7 @@ export function OperationsAdministrationFilterForm({
           ))}
         </AdministrationFilterSelect>
       </AdministrationFilterField>
-      <Button className="min-h-10" size="sm" type="submit">
+      <Button size="sm" type="submit">
         Show operations
       </Button>
     </AdministrationFilterForm>
@@ -392,11 +392,11 @@ export function ReservationsAdministrationFilterForm({
             input.status ||
             input.to ||
             input.type) && (
-            <Button asChild className="min-h-10" size="sm" variant="ghost">
+            <Button asChild size="sm" variant="ghost">
               <Link href="/admin/reservations">Clear</Link>
             </Button>
           )}
-          <Button className="min-h-10" size="sm" type="submit">
+          <Button size="sm" type="submit">
             Apply filters
           </Button>
         </fieldset>
