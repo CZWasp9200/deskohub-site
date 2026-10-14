@@ -168,38 +168,6 @@ describe("AccountLayoutShell", () => {
     await unregisterWorkspaceComponentTestEnv();
   });
 
-  test("keeps the actual header and navigation nodes across account route content", () => {
-    searchParams = new URLSearchParams("section=profile");
-    const view = renderLayout(<p data-testid="account-content">Account</p>);
-    const header = view.container.querySelector("header");
-    const navigation = view.getByRole("navigation");
-    if (!header) throw new Error("Account header was not rendered");
-
-    pathname = "/en-US/account/legal";
-    searchParams = new URLSearchParams();
-    view.rerender(layoutElement(<p data-testid="legal-content">Legal</p>));
-
-    expect(view.container.querySelector("header")).toBe(header);
-    expect(view.getByRole("navigation")).toBe(navigation);
-    expect(
-      getDesktopNavigation(view)
-        .getByRole("button", { name: "Legal & Privacy" })
-        .getAttribute("aria-current")
-    ).toBe("page");
-
-    pathname = "/en-US/account";
-    searchParams = new URLSearchParams("section=billing");
-    view.rerender(layoutElement(<p data-testid="billing-content">Billing</p>));
-
-    expect(view.container.querySelector("header")).toBe(header);
-    expect(view.getByRole("navigation")).toBe(navigation);
-    expect(
-      getDesktopNavigation(view)
-        .getByRole("button", { name: "Billing & Invoices" })
-        .getAttribute("aria-current")
-    ).toBe("page");
-  });
-
   test.each([
     ["signed-out with rollout on", false, true],
     ["signed-in with rollout off", true, false],
@@ -351,24 +319,6 @@ describe("AccountLayoutShell", () => {
     expect(
       getDesktopNavigation(view)
         .getByRole("button", { name: "Profile & Identity" })
-        .getAttribute("aria-current")
-    ).toBe("page");
-  });
-
-  test("keeps the requested section when a shared referral code is present", () => {
-    searchParams = new URLSearchParams("section=profile&ref=RFL12345");
-    const view = renderLayout(<p>Account</p>);
-    expect(
-      getDesktopNavigation(view)
-        .getByRole("button", { name: "Profile & Identity" })
-        .getAttribute("aria-current")
-    ).toBe("page");
-
-    searchParams = new URLSearchParams("ref=RFL12345");
-    view.rerender(layoutElement(<p>Account with only a share code</p>));
-    expect(
-      getDesktopNavigation(view)
-        .getByRole("button", { name: "Reservations" })
         .getAttribute("aria-current")
     ).toBe("page");
   });

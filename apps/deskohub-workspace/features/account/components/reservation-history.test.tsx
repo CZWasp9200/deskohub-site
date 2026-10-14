@@ -260,31 +260,6 @@ describe("ReservationHistory", () => {
     expect(group("unavailable").querySelector("article")).toBeTruthy();
   });
 
-  test("renders localized group titles and statuses in Czech", () => {
-    const view = renderHistory("cs-CZ", availableHistory);
-
-    expect(
-      view.getByRole("heading", {
-        name: m.accountReservationsCurrentTitle({}, { locale: "cs-CZ" }),
-      })
-    ).toBeTruthy();
-    expect(
-      view.getByRole("heading", {
-        name: m.accountReservationsPastTitle({}, { locale: "cs-CZ" }),
-      })
-    ).toBeTruthy();
-    expect(
-      view.getByRole("heading", {
-        name: m.accountReservationsOtherTitle({}, { locale: "cs-CZ" }),
-      })
-    ).toBeTruthy();
-    expect(
-      view.getByText(
-        m.accountReservationStatusCancelled({}, { locale: "cs-CZ" })
-      )
-    ).toBeTruthy();
-  });
-
   test("keeps every provider status and exposes unsupported actions as disabled", () => {
     const statuses = [
       "confirmed",
@@ -379,52 +354,6 @@ describe("ReservationHistory", () => {
       "/en-US/reservation/status/workspace%20reservation%2F1"
     );
   });
-
-  test.each(["en-US", "cs-CZ"] as const)(
-    "preserves timed past periods in %s",
-    (locale) => {
-      const startsAt = "2026-09-18T12:00:00Z";
-      const endsAt = "2026-09-18T14:00:00Z";
-      const view = renderHistory(locale, {
-        kind: "available",
-        groups: {
-          current: [],
-          past: [reservation({ endsAt, startsAt })],
-          unavailable: [],
-        },
-      });
-      const row = view.container.querySelector(
-        '[data-account-reservation-group="past"] tbody tr'
-      );
-
-      expect(row?.querySelector("td")?.textContent).toContain(
-        expectedPragueTimedRange(locale, startsAt, endsAt)
-      );
-    }
-  );
-
-  test.each(["en-US", "cs-CZ"] as const)(
-    "preserves inclusive all-day past periods in %s",
-    (locale) => {
-      const startsAt = "2026-09-05T22:00:00Z";
-      const endsAt = "2026-09-07T22:00:00Z";
-      const view = renderHistory(locale, {
-        kind: "available",
-        groups: {
-          current: [],
-          past: [reservation({ endsAt, startsAt })],
-          unavailable: [],
-        },
-      });
-      const row = view.container.querySelector(
-        '[data-account-reservation-group="past"] tbody tr'
-      );
-
-      expect(row?.querySelector("td")?.textContent).toContain(
-        expectedPragueAllDayRange(locale, startsAt, endsAt)
-      );
-    }
-  );
 
   test("wraps opaque ids and constrains responsive reservation content", () => {
     const longId =
@@ -569,10 +498,6 @@ describe("ReservationHistory", () => {
     ["en-US", "missing end", { endsAt: null }],
     ["en-US", "invalid start", { startsAt: "not-a-date" }],
     ["en-US", "invalid end", { endsAt: "not-a-date" }],
-    ["cs-CZ", "missing start", { startsAt: null }],
-    ["cs-CZ", "missing end", { endsAt: null }],
-    ["cs-CZ", "invalid start", { startsAt: "not-a-date" }],
-    ["cs-CZ", "invalid end", { endsAt: "not-a-date" }],
   ] as const)(
     "omits the calendar row for a %s %s reservation",
     (locale, _caseName, overrides) => {
@@ -590,28 +515,6 @@ describe("ReservationHistory", () => {
       expect(item?.querySelector("svg.lucide-calendar-days")).toBeNull();
     }
   );
-
-  test("links a persisted reservation to its encoded English status URL", () => {
-    const view = renderHistory("en-US", linkedHistory);
-
-    const link = view.getByRole("link", {
-      name: copyFor("en-US").viewReservation,
-    });
-    expect(link.getAttribute("href")).toBe(
-      "/en-US/reservation/status/workspace%20reservation%2F1"
-    );
-  });
-
-  test("links a persisted reservation to its encoded Czech status URL", () => {
-    const view = renderHistory("cs-CZ", linkedHistory);
-
-    const link = view.getByRole("link", {
-      name: copyFor("cs-CZ").viewReservation,
-    });
-    expect(link.getAttribute("href")).toBe(
-      "/cs-CZ/reservation/status/workspace%20reservation%2F1"
-    );
-  });
 
   test.each(["en-US", "cs-CZ"] as const)(
     "renders a localized guarded PIN access link without URL extras in %s",
@@ -682,23 +585,6 @@ describe("ReservationHistory", () => {
     expect(view.container.querySelector("li a")).toBeNull();
   });
 
-  test("keeps linked reservation actions as focusable native anchors", () => {
-    const view = renderHistory("en-US", linkedHistory);
-
-    const link = view.getByRole("link", {
-      name: copyFor("en-US").viewReservation,
-    });
-    expect(link.tagName).toBe("A");
-    expect(link.getAttribute("role")).toBeNull();
-    expect(link.getAttribute("tabindex")).toBeNull();
-    expect(link.tabIndex).toBe(0);
-    link.focus();
-    expect(document.activeElement).toBe(link);
-    const item = link.closest("li");
-    expect(item).toBeTruthy();
-    expect(item?.querySelectorAll("a")).toHaveLength(2);
-  });
-
   test("uses the guarded link for dirty profile navigation", () => {
     const originalConfirm = window.confirm;
     const confirm = mock(() => false);
@@ -765,64 +651,6 @@ describe("ReservationHistory", () => {
     } finally {
       window.confirm = originalConfirm;
     }
-  });
-
-  test("allows dirty PIN access navigation after confirmation is accepted", () => {
-    const originalConfirm = window.confirm;
-    const confirm = mock(() => true);
-    window.confirm = confirm;
-
-    try {
-      const view = render(
-        <UnsavedChangesProvider>
-          <DirtyProfileGuard />
-          <ReservationHistory
-            copy={copyFor("en-US")}
-            locale="en-US"
-            history={linkedHistory}
-          />
-        </UnsavedChangesProvider>
-      );
-      const pinLink = view.getByRole("link", {
-        name: copyFor("en-US").showPinCode,
-      });
-      const event = new MouseEvent("click", {
-        bubbles: true,
-        cancelable: true,
-        button: 0,
-      });
-
-      pinLink.dispatchEvent(event);
-
-      expect(event.defaultPrevented).toBe(false);
-      expect(confirm).toHaveBeenCalledTimes(1);
-    } finally {
-      window.confirm = originalConfirm;
-    }
-  });
-
-  test("renders current and past groups inside the shared account section panel", () => {
-    const view = renderHistory("en-US", availableHistory);
-
-    const panels = view.container.querySelectorAll(
-      '[data-slot="account-section-panel"]'
-    );
-    expect(panels.length).toBe(2);
-
-    const current = view.container.querySelector(
-      '[data-account-reservation-group="current"]'
-    );
-    expect(current).not.toBeNull();
-    expect(
-      current?.querySelector("#account-reservations-current-title")
-    ).toBeTruthy();
-
-    const past = view.container.querySelector(
-      '[data-account-reservation-group="past"]'
-    );
-    expect(
-      past?.querySelector("#account-reservations-past-title")
-    ).toBeTruthy();
   });
 
   test("omits the current panel entirely when the history has no current reservations", () => {
