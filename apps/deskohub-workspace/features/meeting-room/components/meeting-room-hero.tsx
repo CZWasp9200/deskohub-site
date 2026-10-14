@@ -52,7 +52,7 @@ export function MeetingRoomHero({ image, locale }: MeetingRoomHeroProps) {
           <div className="mt-8 flex flex-col items-stretch gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-4">
             <Button
               asChild
-              className="group h-16 justify-between rounded-2xl bg-chilean-fire px-7 text-xs text-navy-blue uppercase tracking-[0.09em] hover:bg-chilean-fire/90 sm:min-w-[17rem]"
+              className="group h-16 justify-between rounded-2xl bg-chilean-fire px-7 text-xs button-tint-chilean-fire text-navy-blue uppercase tracking-[0.09em] hover:bg-chilean-fire/90 sm:min-w-[17rem]"
             >
               <Link href={getMeetingRoomReservationPath(locale)}>
                 {m.meetingRoomReservationCta({}, { locale })}

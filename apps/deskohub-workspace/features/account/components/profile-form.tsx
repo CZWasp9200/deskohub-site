@@ -739,7 +739,7 @@ export function ProfileForm({
                 />
                 <div className="flex flex-wrap items-center gap-3">
                   <Button
-                    className="rounded-xl bg-navy-blue px-4 text-xs uppercase tracking-[0.08em] hover:bg-navy-blue/90"
+                    className="rounded-xl bg-navy-blue px-4 text-xs uppercase tracking-[0.08em] button-tint-navy-blue hover:bg-navy-blue/90"
                     disabled={lookupAres.isExecuting}
                     onClick={handleAresLookup}
                     size="sm"
@@ -853,7 +853,7 @@ export function ProfileForm({
             ? undefined
             : {
                 billing:
-                  "rounded-xl bg-navy-blue px-4 text-xs uppercase tracking-[0.08em] hover:bg-navy-blue/90",
+                  "rounded-xl bg-navy-blue px-4 text-xs uppercase tracking-[0.08em] button-tint-navy-blue hover:bg-navy-blue/90",
                 profile:
                   "rounded-xl bg-burned-orange px-4 text-xs uppercase tracking-[0.08em] hover:bg-burned-orange/90",
               }[section]

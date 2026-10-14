@@ -4,14 +4,14 @@ import type * as React from "react";
 import { cn } from "@/shared/utils";
 
 const buttonVariants = cva(
-  "cursor-pointer inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-full text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-burned-orange focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50",
+  "cursor-pointer inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-full text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-burned-orange focus-visible:ring-offset-2 disabled:pointer-events-none disabled:bg-none disabled:opacity-50 disabled:shadow-none",
   {
     variants: {
       variant: {
         primary:
-          "bg-burned-orange px-6 py-3 text-white hover:bg-burned-orange/90",
+          "bg-burned-orange bg-linear-to-b from-white/15 to-transparent px-6 py-3 text-white shadow-button-raised hover:bg-burned-orange/90 active:translate-y-px active:shadow-button-pressed",
         secondary:
-          "border border-navy-blue/20 bg-white px-6 py-3 text-navy-blue hover:border-navy-blue/50",
+          "border border-navy-blue/20 bg-white bg-linear-to-b from-transparent to-navy-blue/4 px-6 py-3 text-navy-blue shadow-button-raised-subtle hover:border-navy-blue/50 active:translate-y-px active:shadow-button-pressed-subtle",
         ghost: "px-3 py-2 text-navy-blue hover:bg-navy-blue/5",
       },
       size: {
