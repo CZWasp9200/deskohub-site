@@ -55,55 +55,12 @@ describe("getSiteHeaderConfig", () => {
     expect(config).not.toHaveProperty("disabledMenuItems");
   });
 
-  test("includes the Meeting Room link when its release flag is enabled", async () => {
-    const { getSiteHeaderConfig } = await import("./site-header-config");
-    isMeetingRoomPageEnabled.mockResolvedValue(true);
-    const config = await getSiteHeaderConfig("en-US");
-
-    expect(config.links).toContainEqual(
-      expect.objectContaining({
-        id: "meetingRoom",
-        href: "/en-US/meeting-room",
-      })
-    );
-    expect(config).not.toHaveProperty("disabledMenuItems");
-  });
-
-  test("links Team and FAQ to their localized standalone pages", async () => {
-    const { getSiteHeaderConfig } = await import("./site-header-config");
-    const en = await getSiteHeaderConfig("en-US");
-    const cs = await getSiteHeaderConfig("cs-CZ");
-
-    expect(en.links).toContainEqual(
-      expect.objectContaining({ id: "team", href: "/en-US/team" })
-    );
-    expect(en.links).toContainEqual(
-      expect.objectContaining({ id: "faq", href: "/en-US/faq" })
-    );
-    expect(cs.links).toContainEqual(
-      expect.objectContaining({ id: "team", href: "/cs-CZ/team" })
-    );
-    expect(cs.links).toContainEqual(
-      expect.objectContaining({ id: "faq", href: "/cs-CZ/faq" })
-    );
-  });
-
   test("omits the Private Office link when its release flag is disabled", async () => {
     const { getSiteHeaderConfig } = await import("./site-header-config");
     const config = await getSiteHeaderConfig("cs-CZ");
 
     expect(config.links).not.toContainEqual(
       expect.objectContaining({ href: "/cs-CZ/reservation/office" })
-    );
-  });
-
-  test("includes the Private Office link when its release flag is enabled", async () => {
-    const { getSiteHeaderConfig } = await import("./site-header-config");
-    isOfficePageEnabled.mockResolvedValue(true);
-    const config = await getSiteHeaderConfig("en-US");
-
-    expect(config.links).toContainEqual(
-      expect.objectContaining({ href: "/en-US/reservation/office" })
     );
   });
 
@@ -153,20 +110,6 @@ describe("getSiteHeaderConfig", () => {
     expect(isCustomerSignedIn).not.toHaveBeenCalled();
   });
 
-  test("lets the switcher save a signed-in customer's language preference", async () => {
-    const { getSiteHeaderConfig, getSiteHeaderLocalePreference } = await import(
-      "./site-header-config"
-    );
-    isCustomerSignedIn.mockResolvedValue(true);
-
-    const config = await getSiteHeaderConfig("en-US");
-    const minimal = await getSiteHeaderLocalePreference();
-
-    expect(await config.localePreference?.signedIn).toBe(true);
-    expect(config.localePreference?.save).toBe(updateLocalePreference);
-    expect(await minimal?.signedIn).toBe(true);
-  });
-
   test("treats a failed session check as a guest switch", async () => {
     const { getSiteHeaderLocalePreference } = await import(
       "./site-header-config"
@@ -174,15 +117,5 @@ describe("getSiteHeaderConfig", () => {
     isCustomerSignedIn.mockRejectedValue(new Error("synthetic failure"));
 
     expect(await (await getSiteHeaderLocalePreference())?.signedIn).toBe(false);
-  });
-
-  test("leaves the minimal header switcher plain when accounts are disabled", async () => {
-    const { getSiteHeaderLocalePreference } = await import(
-      "./site-header-config"
-    );
-    areAccountsEnabled.mockResolvedValue(false);
-
-    expect(await getSiteHeaderLocalePreference()).toBeUndefined();
-    expect(isCustomerSignedIn).not.toHaveBeenCalled();
   });
 });

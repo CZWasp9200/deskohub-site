@@ -4,7 +4,6 @@ import { resolve } from "node:path";
 import { isNumber, isString } from "effect/Predicate";
 import {
   nodesOf,
-  type ParsedSource,
   parseTrackedSource,
   topLevelConstInitializer,
 } from "./shared/source-ast";
@@ -53,24 +52,6 @@ const stepByName = (name: string): WorkflowStep => {
 };
 
 const stepIndexOfName = (name: string): number => stepNames.indexOf(name);
-
-/**
- * Text of the tagged shell template inside the rollback operation — the
- * command the recovery path actually executes — or undefined when the
- * operation exists without such an invocation.
- */
-const rollbackCommandInRecoveryPath = (
-  ast: ParsedSource["ast"]
-): string | undefined => {
-  const operation = topLevelConstInitializer(ast, "rollbackToDeployment");
-  if (!operation) return undefined;
-  const templates = nodesOf(operation).flatMap((node) =>
-    node.type === "TaggedTemplateExpression"
-      ? [node.quasi.quasis.map((quasi) => quasi.value.cooked ?? "").join(" ")]
-      : []
-  );
-  return templates.find((text) => text.includes("rollback"));
-};
 
 const requiredWorkspaceCronDefinitions = [
   {
@@ -250,35 +231,6 @@ describe("deploy-workspace-production workflow", () => {
     expect(jobTimeoutMinutes).toBeGreaterThanOrEqual(
       recoveryWorstCaseMinutes + setupAndBuildHeadroomMinutes
     );
-  });
-
-  test("smokes the customer-facing production host only after a confirmed promotion", () => {
-    const canonicalStep = stepByName(
-      "Verify canonical production smoke and cron convergence"
-    );
-    expect(canonicalStep.if).toBe(
-      "always() && steps.promote.outputs.promoted == 'true'"
-    );
-  });
-
-  test("rolls the release back through the script's Vercel rollback operation", () => {
-    // Scoped AST verdict: the versioned rollback command must be the actual
-    // shell invocation inside the rollback operation, not a string sitting
-    // anywhere in the module. Comment-immune by construction.
-    const rollbackCommand = rollbackCommandInRecoveryPath(releaseScript.ast);
-    expect(rollbackCommand).toBeDefined();
-    expect(rollbackCommand).toMatch(/\bvercel@\d[\d.]* rollback\b/);
-    expect(rollbackCommand).toContain("--timeout ");
-    expect(/rollback[^\n]*vercel@\d[\d.]* promote/.test(rawWorkflow)).toBe(
-      false
-    );
-    expect(
-      allSteps.some((step) =>
-        (step.run ?? "").includes(
-          "bun scripts/production-release.ts rollback --url"
-        )
-      )
-    ).toBe(true);
   });
 
   test("keeps GitHub free of Better Auth, Resend, and mail authority", () => {

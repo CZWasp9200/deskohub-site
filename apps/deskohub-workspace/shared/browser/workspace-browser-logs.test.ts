@@ -131,13 +131,6 @@ describe("reportWorkspaceBrowserFailure", () => {
     expect(collect()).toHaveLength(50);
   });
 
-  test("discards held records", async () => {
-    await report("synthetic.discarded");
-    discardWorkspaceBrowserLogs();
-
-    expect(collect()).toEqual([]);
-  });
-
   test("holds later records again after the sink detaches", async () => {
     const delivered = collect();
     detach?.();

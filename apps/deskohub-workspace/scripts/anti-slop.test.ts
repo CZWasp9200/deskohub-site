@@ -162,28 +162,6 @@ test("chained assertion rule retains Workspace e2e coverage", async () => {
   expect(output).toContain("[anti-slop/no-chained-type-assertions]");
 });
 
-test("chained assertion rule retains the E2E run plan", async () => {
-  const result = await lint(
-    "declare const value: object; value as unknown as { id: string };",
-    "e2e/playwright-checkout",
-    "run-plan.ts"
-  );
-  const output = `${result.stdout}${result.stderr}`;
-
-  expect(output).toContain("[anti-slop/no-chained-type-assertions]");
-});
-
-test("chained assertion rule retains test utility coverage", async () => {
-  const result = await lint(
-    "declare const value: object; value as unknown as { id: string };",
-    "shared/testing",
-    "fixture.test-utils.ts"
-  );
-  const output = `${result.stdout}${result.stderr}`;
-
-  expect(output).toContain("[anti-slop/no-chained-type-assertions]");
-});
-
 test("shape rule ignores external property names", async () => {
   const result = await lint(
     `

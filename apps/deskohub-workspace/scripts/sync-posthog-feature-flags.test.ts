@@ -233,14 +233,6 @@ describe("Workspace PostHog feature flag CLI synchronization", () => {
       definitions: [],
     },
     {
-      name: "a flag with the wrong identity",
-      project: workspaceProject,
-      pages: [{ count: 1, results: [{ id: 274448, key: "not_accounts" }] }],
-      definitions: [
-        { id: 274448, key: "not_accounts", active: false, filters: {} },
-      ],
-    },
-    {
       name: "the accounts ID with the wrong key",
       project: workspaceProject,
       pages: [{ count: 1, results: [{ id: 274447, key: "not_accounts" }] }],

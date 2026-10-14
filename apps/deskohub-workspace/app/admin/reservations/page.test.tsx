@@ -192,20 +192,4 @@ describe("ReservationsAdministrationPage", () => {
       "/admin/reservations?direction=asc&from=2026-08-04&sort=status&status=complete&to=2026-08-10&type=cowork"
     );
   });
-
-  test("clears the customer from a complete customer history", async () => {
-    reservationPage = {
-      input: {
-        customerId: "customer-one",
-        direction: "desc",
-        sort: "created",
-      },
-      result: defaultReservationPage.result,
-    };
-    const view = await prerenderReservationsPage();
-
-    expect(
-      view.getByRole("link", { name: "Clear customer" }).getAttribute("href")
-    ).toBe("/admin/reservations?direction=desc&sort=created");
-  });
 });

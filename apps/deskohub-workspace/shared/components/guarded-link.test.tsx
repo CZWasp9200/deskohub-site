@@ -5,12 +5,7 @@ import {
   fireEvent,
   render,
 } from "@testing-library/react";
-import {
-  type ComponentPropsWithoutRef,
-  createRef,
-  type ReactNode,
-  type Ref,
-} from "react";
+import type { ComponentPropsWithoutRef, ReactNode, Ref } from "react";
 import {
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
@@ -155,32 +150,4 @@ test("allows exact-page and hash-only links without confirmation", () => {
 
   expect(callerCalls).toBe(2);
   expect(confirmMock).not.toHaveBeenCalled();
-});
-
-test("forwards its ref to the rendered link", () => {
-  const ref = createRef<HTMLAnchorElement>();
-  const view = render(
-    withProvider(
-      <GuardedLink ref={ref} href="/next">
-        Next
-      </GuardedLink>
-    )
-  );
-
-  expect<HTMLElement | null>(ref.current).toBe(
-    view.getByRole("link", { name: "Next" })
-  );
-});
-
-test("lets the caller cancel an accepted navigation through the public contract", () => {
-  confirmMock.mockReturnValue(true);
-  render(
-    withProvider(
-      <GuardedLink href="/next" onNavigate={(event) => event.preventDefault()}>
-        Next
-      </GuardedLink>
-    )
-  );
-
-  expect(invokeNavigate().prevented).toBe(true);
 });

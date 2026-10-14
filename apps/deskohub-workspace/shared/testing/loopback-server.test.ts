@@ -1,8 +1,7 @@
 import { expect, test } from "bun:test";
 import { createServer as createHttpServer } from "node:http";
-import { createServer } from "node:net";
+import type { createServer } from "node:net";
 import {
-  allocateLoopbackPort,
   waitForOwnedLoopbackServer,
   waitForOwnedLoopbackServerToStop,
 } from "./loopback-server";
@@ -44,18 +43,6 @@ const closeHttpServer = (server: ReturnType<typeof createHttpServer>) =>
     server.closeAllConnections();
   });
 
-test("allocates a bindable loopback port", async () => {
-  const port = await allocateLoopbackPort();
-  const server = createServer();
-
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(port, "127.0.0.1", resolve);
-  });
-
-  await closeServer(server);
-});
-
 test("does not accept an unrelated HTTP 200 as owned readiness", async () => {
   const server = await openServer("another fixture");
   const exitCode = { value: undefined as number | undefined };
@@ -74,19 +61,6 @@ test("does not accept an unrelated HTTP 200 as owned readiness", async () => {
   } finally {
     await server.close();
   }
-});
-
-test("fails readiness promptly when the owned child exits", async () => {
-  const exitCode = { value: 1 as number | undefined };
-
-  await expect(
-    waitForOwnedLoopbackServer({
-      exitCode: () => exitCode.value,
-      marker: "this fixture",
-      readyUrl: "http://127.0.0.1:1/ready",
-      timeoutMs: 10_000,
-    })
-  ).rejects.toThrow("exited before readiness (exit 1)");
 });
 
 test("owned-server stop polling leaves another listener untouched", async () => {

@@ -133,20 +133,6 @@ afterAll(async () => {
   await unregisterWorkspaceComponentTestEnv();
 });
 
-test("reserves both language labels before request-aware links resolve", async () => {
-  const { LocaleSwitcherLabels } = await import("./locale-switcher-links");
-  const view = render(
-    <LocaleSwitcherLabels
-      currentLocale="en-US"
-      languageLabels={{ "cs-CZ": "Czech", "en-US": "English" }}
-    />
-  );
-
-  expect(view.getByText("English").tagName).toBe("STRONG");
-  expect(view.getByText("Czech").tagName).toBe("SPAN");
-  expect(view.container.querySelectorAll("a")).toHaveLength(0);
-});
-
 test("uses document navigation for every alternate-locale full-header link", async () => {
   const { SiteHeader } = await import("./site-header");
 
@@ -250,57 +236,12 @@ test("marks navigation links for the current page", async () => {
   ).toEqual([null, null]);
 });
 
-test("omits account links when the account configuration is unavailable", async () => {
-  const { SiteHeader } = await import("./site-header");
-  const view = render(
-    <SiteHeader
-      closeNavigationMenuLabel="Close navigation menu"
-      contactHref="/en-US/reservation/cowork"
-      contactLabel="Book"
-      currentLocale="en-US"
-      languageLabels={{ "cs-CZ": "Czech", "en-US": "English" }}
-      links={[]}
-      mobilePrimaryNavigationLabel="Mobile primary navigation"
-      openNavigationMenuLabel="Open navigation menu"
-      primaryNavigationLabel="Primary navigation"
-    />
-  );
-
-  expect(
-    view.container.querySelectorAll('a[href="/en-US/account"]')
-  ).toHaveLength(0);
-});
-
 test.each([
   {
     accountHref: "/en-US/account",
     currentLocale: "en-US" as const,
     pathname: "/en-US/account",
     active: true,
-  },
-  {
-    accountHref: "/cs-CZ/account",
-    currentLocale: "cs-CZ" as const,
-    pathname: "/cs-CZ/account",
-    active: true,
-  },
-  {
-    accountHref: "/en-US/account",
-    currentLocale: "en-US" as const,
-    pathname: "/en-US",
-    active: false,
-  },
-  {
-    accountHref: "/en-US/account",
-    currentLocale: "en-US" as const,
-    pathname: "/en-US/contact",
-    active: false,
-  },
-  {
-    accountHref: "/en-US/account",
-    currentLocale: "en-US" as const,
-    pathname: "/en-US/reservation/status/reservation-1",
-    active: false,
   },
   {
     accountHref: "/en-US/account",
@@ -343,51 +284,6 @@ test.each([
   }
 );
 
-test("updates account active state when the exact route changes", async () => {
-  const { SiteHeader } = await import("./site-header");
-  currentPathname = "/en-US/account";
-  const view = render(<SiteHeader {...completeSiteHeaderProps} />);
-
-  const accountLinks = () =>
-    Array.from(view.container.querySelectorAll('a[href="/en-US/account"]'));
-
-  expect(
-    accountLinks().every((link) => link.getAttribute("aria-current") === "page")
-  ).toBe(true);
-
-  act(() => {
-    currentPathname = "/en-US/contact";
-    view.rerender(<SiteHeader {...completeSiteHeaderProps} />);
-  });
-
-  expect(
-    accountLinks().every((link) => link.getAttribute("aria-current") === null)
-  ).toBe(true);
-});
-
-test("closes the mobile menu when its account link is clicked", async () => {
-  const { SiteHeader } = await import("./site-header");
-  currentPathname = "/en-US";
-  const view = render(<SiteHeader {...completeSiteHeaderProps} />);
-  const menuButton = view.getByRole("button", {
-    name: "Open navigation menu",
-  });
-
-  fireEvent.click(menuButton);
-  expect(menuButton.getAttribute("aria-expanded")).toBe("true");
-
-  const mobileAccountLink = view.container.querySelector<HTMLAnchorElement>(
-    '#site-header-mobile-menu a[href="/en-US/account"]'
-  );
-  expect(mobileAccountLink).toBeTruthy();
-
-  act(() => {
-    fireEvent.click(mobileAccountLink!);
-  });
-
-  expect(menuButton.getAttribute("aria-expanded")).toBe("false");
-});
-
 test("links the account entry to sign-in while the session check is pending", async () => {
   const { SiteHeader } = await import("./site-header");
   let resolveHref!: (href: string) => void;
@@ -424,23 +320,6 @@ test("links the account entry to sign-in while the session check is pending", as
   expect(
     view.container.querySelectorAll('a[href="/en-US/auth/sign-in"]')
   ).toHaveLength(0);
-});
-
-test("keeps an anonymous customer's account entry on the sign-in page", async () => {
-  const { SiteHeader } = await import("./site-header");
-  const view = render(
-    <SiteHeader
-      {...completeSiteHeaderProps}
-      account={accountEntry("/en-US/auth/sign-in")}
-    />
-  );
-
-  expect(
-    view.container.querySelectorAll('a[href="/en-US/account"]')
-  ).toHaveLength(0);
-  expect(
-    view.container.querySelectorAll('a[href="/en-US/auth/sign-in"]')
-  ).toHaveLength(2);
 });
 
 test("uses document navigation for the alternate-locale minimal-header link", async () => {

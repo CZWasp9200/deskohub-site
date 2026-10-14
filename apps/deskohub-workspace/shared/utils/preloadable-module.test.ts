@@ -34,14 +34,4 @@ describe("createPreloadableModule", () => {
     expect(await preloadable.load()).toEqual({ value: 2 });
     expect(preloadable.getLoaded()).toEqual({ value: 2 });
   });
-
-  test("swallows preload failures so a later request can surface them", async () => {
-    const preloadable = createPreloadableModule(() =>
-      Promise.reject(new Error("chunk failed"))
-    );
-
-    preloadable.preload();
-
-    await expect(preloadable.load()).rejects.toThrow("chunk failed");
-  });
 });

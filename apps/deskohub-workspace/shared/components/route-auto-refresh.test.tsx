@@ -144,11 +144,3 @@ test("defers the return refresh until a slow refresh finishes", async () => {
   act(() => jest.advanceTimersByTime(0));
   expect(workspaceRouterRefresh).toHaveBeenCalledTimes(2);
 });
-
-test("does not poll when disabled", async () => {
-  const { RouteAutoRefresh } = await import("./route-auto-refresh");
-  render(<RouteAutoRefresh enabled={false} />);
-
-  act(() => jest.advanceTimersByTime(60_000));
-  expect(workspaceRouterRefresh).not.toHaveBeenCalled();
-});

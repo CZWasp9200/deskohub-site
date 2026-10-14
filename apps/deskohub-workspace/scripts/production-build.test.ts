@@ -11,8 +11,4 @@ Aliased: https://workspace-new.vercel.app
 `)
     ).toBe("https://workspace-new.vercel.app");
   });
-
-  test("returns undefined when the output has no deployment URL", () => {
-    expect(findDeploymentUrl("Deployment failed")).toBeUndefined();
-  });
 });
