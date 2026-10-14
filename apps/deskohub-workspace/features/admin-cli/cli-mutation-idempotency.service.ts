@@ -1,13 +1,17 @@
 import {
+  AdministrationCampaignAudience,
+  AdministrationCampaignDetail,
   AdministrationDiscountMutationResult,
   AdministrationReservationAccessGrant,
   AdministrationStandaloneAccessCodeResult,
+  CliMutationInProgress,
+  CliMutationRejected,
   type CliMutationRequestIdType,
   type CliSessionIdType,
 } from "@deskohub/workspace-admin-api";
 import { and, eq, isNull, lte } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
-import { Context, Effect, Layer, Schema } from "effect";
+import { Context, Effect, Layer, Match, Schema } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import {
   type CliStoredMutation,
@@ -24,7 +28,7 @@ type CliMutationClaim =
   | { readonly kind: "in-progress" }
   | { readonly kind: "mismatch" };
 
-type CliMutationRequest = {
+export type CliMutationRequest = {
   readonly sessionId: CliSessionIdType;
   readonly requestId: CliMutationRequestIdType;
   readonly mutation: CliStoredMutation;
@@ -94,6 +98,8 @@ export class CliMutationIdempotency extends Context.Service<
             AdministrationDiscountMutationResult,
             AdministrationReservationAccessGrant,
             AdministrationStandaloneAccessCodeResult,
+            AdministrationCampaignAudience,
+            AdministrationCampaignDetail,
           ])
         )(row.result);
         return { kind: "completed", result } as const;
@@ -182,3 +188,50 @@ export class CliMutationIdempotency extends Context.Service<
 
   static Live = this.Default.pipe(Layer.provide(WorkspaceDatabase.Default));
 }
+
+/**
+ * Applies a CLI mutation at most once per session and request ID. A retry
+ * replays the stored result. A failure that `releaseOn` accepts proves
+ * nothing was applied, so it frees the request ID for a corrected retry;
+ * any other failure keeps the claim, and retries report it in progress.
+ */
+export const applyCliMutationOnce = <A extends CliStoredMutationResult, E, R>(
+  ledger: CliMutationIdempotency["Service"],
+  input: {
+    readonly request: CliMutationRequest;
+    readonly result: Schema.Decoder<A>;
+    readonly apply: Effect.Effect<A, E, R>;
+    readonly releaseOn: (cause: E) => boolean;
+  }
+) =>
+  Effect.gen(function* () {
+    const claim = yield* ledger.claim(input.request);
+    return yield* Match.value(claim).pipe(
+      Match.discriminatorsExhaustive("kind")({
+        claimed: () =>
+          input.apply.pipe(
+            Effect.tapError((cause) =>
+              input.releaseOn(cause)
+                ? ledger.release(input.request).pipe(Effect.ignore)
+                : Effect.void
+            ),
+            Effect.tap((result) =>
+              ledger.complete({ ...input.request, result })
+            )
+          ),
+        completed: ({ result }) =>
+          Schema.decodeUnknownEffect(input.result)(result),
+        "in-progress": () =>
+          new CliMutationInProgress({
+            requestId: input.request.requestId,
+            message:
+              "This mutation is still being applied. Retrying with the same request identifier is safe.",
+          }),
+        mismatch: () =>
+          new CliMutationRejected({
+            message:
+              "This mutation request identifier was already used for different input.",
+          }),
+      })
+    );
+  });

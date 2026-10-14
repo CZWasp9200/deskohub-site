@@ -5,7 +5,9 @@ import {
   AdministrationDotyposCustomerId,
   CliBearerAuthentication,
   CliInputInvalid,
+  CliMutationInProgress,
   CliMutationRejected,
+  CliMutationRequestId,
   CliResourceNotFound,
   CliServiceUnavailable,
 } from "./workspace-admin-api";
@@ -72,10 +74,23 @@ export const AdministrationCampaignRecipientStatus = Schema.Literals([
   "bounced",
   "complained",
   "failed",
+  "unconfirmed",
   "skipped",
 ]);
 export type AdministrationCampaignRecipientStatus =
   typeof AdministrationCampaignRecipientStatus.Type;
+
+/** Why a recipient was skipped at delivery instead of mailed. */
+export const AdministrationCampaignRecipientSkipReason = Schema.Literals([
+  "missing-from-dotypos",
+  "deleted-customer",
+  "missing-email",
+  "invalid-email",
+  "consent-withdrawn",
+  "outside-test-domain",
+]);
+export type AdministrationCampaignRecipientSkipReason =
+  typeof AdministrationCampaignRecipientSkipReason.Type;
 
 const AdministrationCampaignTitle = Schema.Trim.check(Schema.isNonEmpty());
 
@@ -165,6 +180,14 @@ export const AdministrationCampaignAudienceInput = Schema.Struct({
 export type AdministrationCampaignAudienceInput =
   typeof AdministrationCampaignAudienceInput.Type;
 
+/** The request ID makes a retried creation replay the first one's result. */
+export const AdministrationCampaignAudienceCreateRequest = Schema.Struct({
+  requestId: CliMutationRequestId,
+  audience: AdministrationCampaignAudienceInput,
+}).annotate(strictParseOptions);
+export type AdministrationCampaignAudienceCreateRequest =
+  typeof AdministrationCampaignAudienceCreateRequest.Type;
+
 export const AdministrationCampaignAudienceUpdate = Schema.Struct({
   title: Schema.optionalKey(AdministrationCampaignTitle),
   filter: Schema.optionalKey(AdministrationAudienceFilter),
@@ -239,6 +262,21 @@ export const AdministrationCampaignCreateInput = Schema.Struct({
 }).annotate(strictParseOptions);
 export type AdministrationCampaignCreateInput =
   typeof AdministrationCampaignCreateInput.Type;
+
+/** The request ID makes a retried creation replay the first one's draft. */
+export const AdministrationCampaignCreateRequest = Schema.Struct({
+  requestId: CliMutationRequestId,
+  campaign: AdministrationCampaignCreateInput,
+}).annotate(strictParseOptions);
+export type AdministrationCampaignCreateRequest =
+  typeof AdministrationCampaignCreateRequest.Type;
+
+/** The request ID makes a retried duplication replay the first one's draft. */
+export const AdministrationCampaignDuplicateRequest = Schema.Struct({
+  requestId: CliMutationRequestId,
+}).annotate(strictParseOptions);
+export type AdministrationCampaignDuplicateRequest =
+  typeof AdministrationCampaignDuplicateRequest.Type;
 
 /**
  * Changes to one locale's texts. Omitted fields keep their value; a null
@@ -372,6 +410,16 @@ export const AdministrationCampaignSendResult = Schema.Struct({
 export type AdministrationCampaignSendResult =
   typeof AdministrationCampaignSendResult.Type;
 
+/**
+ * Retries pending and failed recipients. `unconfirmed` recipients may
+ * already have the email, so they're mailed again only when included.
+ */
+export const AdministrationCampaignRetryInput = Schema.Struct({
+  includeUnconfirmed: Schema.Boolean,
+}).annotate(strictParseOptions);
+export type AdministrationCampaignRetryInput =
+  typeof AdministrationCampaignRetryInput.Type;
+
 export const AdministrationCampaignRetryResult = Schema.Struct({
   sendId: AdministrationCampaignSendId,
   retriedCount: count,
@@ -392,6 +440,8 @@ export const AdministrationCampaignSendStatus = Schema.Struct({
       customerId: AdministrationDotyposCustomerId,
       locale: AdministrationCampaignLocale,
       status: AdministrationCampaignRecipientStatus,
+      /** Set exactly when the status is `skipped`. */
+      skipReason: Schema.NullOr(AdministrationCampaignRecipientSkipReason),
       statusUpdatedAt: Schema.String,
     })
   ),
@@ -408,11 +458,13 @@ export type AdministrationCampaignSendStatusResult =
 
 /**
  * Campaign endpoints share one error set: invalid input (400), a missing
- * campaign or audience (404), a state conflict (409), and an unavailable
- * dependency (503).
+ * campaign or audience (404), a state conflict or a creation still being
+ * applied under the same request ID (409), and an unavailable dependency
+ * (503).
  */
 const campaignErrors = [
   CliInputInvalid.schema,
+  CliMutationInProgress.schema,
   CliMutationRejected.schema,
   CliResourceNotFound.schema,
   CliServiceUnavailable.schema,
@@ -441,7 +493,7 @@ export const AdminCliCampaignsApi = HttpApiGroup.make("campaigns")
   )
   .add(
     HttpApiEndpoint.post("createCampaignAudience", "/campaign-audiences", {
-      payload: AdministrationCampaignAudienceInput,
+      payload: AdministrationCampaignAudienceCreateRequest,
       success: AdministrationCampaignAudience,
       error: campaignErrors,
     })
@@ -462,6 +514,17 @@ export const AdminCliCampaignsApi = HttpApiGroup.make("campaigns")
     HttpApiEndpoint.post(
       "archiveCampaignAudience",
       "/campaign-audiences/:audienceId/archive",
+      {
+        params: audienceParams,
+        success: AdministrationCampaignAudience,
+        error: campaignErrors,
+      }
+    )
+  )
+  .add(
+    HttpApiEndpoint.post(
+      "unarchiveCampaignAudience",
+      "/campaign-audiences/:audienceId/unarchive",
       {
         params: audienceParams,
         success: AdministrationCampaignAudience,
@@ -512,7 +575,7 @@ export const AdminCliCampaignsApi = HttpApiGroup.make("campaigns")
   )
   .add(
     HttpApiEndpoint.post("createCampaign", "/campaigns", {
-      payload: AdministrationCampaignCreateInput,
+      payload: AdministrationCampaignCreateRequest,
       success: AdministrationCampaignDetail,
       error: campaignErrors,
     })
@@ -531,6 +594,7 @@ export const AdminCliCampaignsApi = HttpApiGroup.make("campaigns")
       "/campaigns/:campaignId/duplicate",
       {
         params: campaignParams,
+        payload: AdministrationCampaignDuplicateRequest,
         success: AdministrationCampaignDetail,
         error: campaignErrors,
       }
@@ -577,6 +641,7 @@ export const AdminCliCampaignsApi = HttpApiGroup.make("campaigns")
   .add(
     HttpApiEndpoint.post("retryCampaign", "/campaigns/:campaignId/retry", {
       params: campaignParams,
+      payload: AdministrationCampaignRetryInput,
       success: AdministrationCampaignRetryResult,
       error: campaignErrors,
     })

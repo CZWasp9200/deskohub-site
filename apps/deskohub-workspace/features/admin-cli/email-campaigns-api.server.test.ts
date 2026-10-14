@@ -1,8 +1,9 @@
 import "@/shared/testing/workspace-test-env";
 
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
 import {
+  AdministrationActorUsername,
   AdministrationCampaignAudienceId,
   AdministrationCampaignId,
   AdministrationCampaignSendId,
@@ -10,16 +11,24 @@ import {
   CliBearerAuthentication,
   CliInputInvalid,
   CliMutationRejected,
+  CliMutationRequestId,
   CliResourceNotFound,
   CliServiceUnavailable,
+  CliSessionId,
   CliSessionUnauthorized,
   CurrentCliSession,
+  digestCliAuthenticationSecret,
+  makeCliAuthenticationSecret,
   WorkspaceAdminApi,
 } from "@deskohub/workspace-admin-api";
-import { NodeHttpServer } from "@effect/platform-node";
+import { NodeCrypto, NodeHttpServer } from "@effect/platform-node";
 import { Effect, Layer, Option } from "effect";
 import { HttpApiTest } from "effect/unstable/httpapi";
-import type { CampaignAudienceRow, CampaignRow } from "@/db/schema";
+import {
+  type CampaignAudienceRow,
+  type CampaignRow,
+  cliSessions,
+} from "@/db/schema";
 import { CampaignService } from "@/features/email-campaigns/backend/campaign.service";
 import { CampaignAudienceService } from "@/features/email-campaigns/backend/campaign-audience.service";
 import { CampaignRecipientService } from "@/features/email-campaigns/backend/campaign-recipient.service";
@@ -28,11 +37,14 @@ import { parseCampaignBodyMarkdown } from "@/features/email-campaigns/body/campa
 import type { CampaignLocalizedContent } from "@/features/email-campaigns/body/campaign-content";
 import {
   CampaignAudienceInUse,
+  CampaignAudienceNotFound,
   CampaignConfirmationRejected,
   CampaignNotFound,
   CampaignRecipientResolutionError,
   CampaignTestRecipientInvalid,
 } from "@/features/email-campaigns/errors";
+import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
+import { CliMutationIdempotency } from "./cli-mutation-idempotency.service";
 import { AdminCliCampaignsApiHandlers } from "./email-campaigns-api.server";
 
 const campaignId = AdministrationCampaignId.make(
@@ -100,10 +112,23 @@ const campaignServices = (overrides: CampaignServiceOverrides) =>
     })
   );
 
+const mutationRequestId = (n: number) =>
+  CliMutationRequestId.make(
+    `01990000-0000-7000-8000-${n.toString().padStart(12, "0")}`
+  );
+
+/** Every mutation is new; the Postgres suite below covers replays. */
+const ClaimEveryCliMutation = Layer.succeed(CliMutationIdempotency, {
+  claim: () => Effect.succeed({ kind: "claimed" as const }),
+  complete: () => Effect.void,
+  reclaimStale: () => Effect.succeed(false),
+  release: () => Effect.void,
+});
+
 const AuthorizedCliRequest = Layer.succeed(CliBearerAuthentication, {
   bearer: (httpEffect) =>
     Effect.provideService(httpEffect, CurrentCliSession, {
-      id: "01980000-0000-7000-8000-000000000000",
+      id: CliSessionId.make("01980000-0000-7000-8000-000000000000"),
       approvedBy: null,
       clientName: "test client",
       cliVersion: "1.0.0",
@@ -136,6 +161,7 @@ const callCampaignsApi = <A, E>(
     Effect.provide(AdminCliCampaignsApiHandlers),
     Effect.provide(bearer),
     Effect.provide(campaignServices(overrides)),
+    Effect.provide(ClaimEveryCliMutation),
     Effect.provide(NodeHttpServer.layerHttpServices),
     Effect.scoped,
     Effect.runPromise
@@ -173,17 +199,20 @@ describe("campaign admin API", () => {
       (client) =>
         client.createCampaign({
           payload: {
-            title: "October news",
-            purpose: "operational",
-            templateKey: "workspace",
-            audienceId,
-            content: {
-              "cs-CZ": {
-                subject: "Novinky",
-                preheader: "Co je nového",
-                bodyMarkdown:
-                  "# Novinky\n\nOtevíráme **novou** zasedačku.\n\n[[button: Rezervovat](https://workspace.deskohub.cz/cs-CZ/meeting-room)]",
-                operationalReason: "Máte u nás rezervaci.",
+            requestId: mutationRequestId(1),
+            campaign: {
+              title: "October news",
+              purpose: "operational",
+              templateKey: "workspace",
+              audienceId,
+              content: {
+                "cs-CZ": {
+                  subject: "Novinky",
+                  preheader: "Co je nového",
+                  bodyMarkdown:
+                    "# Novinky\n\nOtevíráme **novou** zasedačku.\n\n[[button: Rezervovat](https://workspace.deskohub.cz/cs-CZ/meeting-room)]",
+                  operationalReason: "Máte u nás rezervaci.",
+                },
               },
             },
           },
@@ -228,15 +257,18 @@ describe("campaign admin API", () => {
         client
           .createCampaign({
             payload: {
-              title: "October news",
-              purpose: "marketing",
-              templateKey: "workspace",
-              audienceId: null,
-              content: {
-                "en-US": {
-                  subject: "News",
-                  preheader: "",
-                  bodyMarkdown: "[[button: Go](http://deskohub.cz)]",
+              requestId: mutationRequestId(2),
+              campaign: {
+                title: "October news",
+                purpose: "marketing",
+                templateKey: "workspace",
+                audienceId: null,
+                content: {
+                  "en-US": {
+                    subject: "News",
+                    preheader: "",
+                    bodyMarkdown: "[[button: Go](http://deskohub.cz)]",
+                  },
                 },
               },
             },
@@ -543,13 +575,22 @@ describe("campaign admin API", () => {
                   bounced: 0,
                   complained: 0,
                   failed: 0,
-                  skipped: 0,
+                  unconfirmed: 1,
+                  skipped: 1,
                 },
                 recipients: [
                   {
                     dotyposCustomerId: customerId,
                     locale: "cs-CZ",
                     status: "delivered",
+                    skipReason: null,
+                    statusUpdatedAt: createdAt,
+                  },
+                  {
+                    dotyposCustomerId: otherCustomerId,
+                    locale: "en-US",
+                    status: "skipped",
+                    skipReason: "consent-withdrawn",
                     statusUpdatedAt: createdAt,
                   },
                 ],
@@ -564,12 +605,20 @@ describe("campaign admin API", () => {
       sendId: "send-1",
       createdAt: "2026-10-14T08:00:00Z",
       completedAt: null,
-      counts: { delivered: 1 },
+      counts: { delivered: 1, unconfirmed: 1, skipped: 1 },
       recipients: [
         {
           customerId,
           locale: "cs-CZ",
           status: "delivered",
+          skipReason: null,
+          statusUpdatedAt: "2026-10-14T08:00:00Z",
+        },
+        {
+          customerId: otherCustomerId,
+          locale: "en-US",
+          status: "skipped",
+          skipReason: "consent-withdrawn",
           statusUpdatedAt: "2026-10-14T08:00:00Z",
         },
       ],
@@ -617,7 +666,10 @@ describe("campaign admin API", () => {
     const audience = await callCampaignsApi(
       (client) =>
         client.createCampaignAudience({
-          payload: { title: "Members", filter },
+          payload: {
+            requestId: mutationRequestId(3),
+            audience: { title: "Members", filter },
+          },
         }),
       {
         audiences: {
@@ -704,4 +756,276 @@ describe("campaign admin API", () => {
     expect(missingLocale).toBeInstanceOf(CliInputInvalid);
     expect(missingCampaign).toBeInstanceOf(CliResourceNotFound);
   });
+
+  test("retries unconfirmed recipients only when asked", async () => {
+    const retried: unknown[] = [];
+    const retry = (includeUnconfirmed: boolean) =>
+      callCampaignsApi(
+        (client) =>
+          client.retryCampaign({
+            params: { campaignId },
+            payload: { includeUnconfirmed },
+          }),
+        {
+          sending: {
+            retryUndelivered: (input) => {
+              retried.push(input);
+              return Effect.succeed({
+                sendId: AdministrationCampaignSendId.make("send-1"),
+                retriedCount: 2,
+              });
+            },
+          },
+        }
+      );
+
+    expect((await retry(false)).retriedCount).toBe(2);
+    await retry(true);
+
+    expect(retried).toEqual([
+      { campaignId, includeUnconfirmed: false },
+      { campaignId, includeUnconfirmed: true },
+    ]);
+  });
+
+  test("unarchives an audience, or reports it missing", async () => {
+    const unarchived = await callCampaignsApi(
+      (client) => client.unarchiveCampaignAudience({ params: { audienceId } }),
+      { audiences: { unarchive: () => Effect.succeed(audienceRow()) } }
+    );
+    const missing = await callCampaignsApi(
+      (client) =>
+        client
+          .unarchiveCampaignAudience({ params: { audienceId } })
+          .pipe(Effect.flip),
+      {
+        audiences: {
+          unarchive: () =>
+            Effect.fail(new CampaignAudienceNotFound({ audienceId })),
+        },
+      }
+    );
+
+    expect(unarchived).toMatchObject({ id: audienceId, archivedAt: null });
+    expect(missing).toBeInstanceOf(CliResourceNotFound);
+  });
 });
+
+const testDatabase = await connectWorkspacePostgresTestDatabase();
+
+describe.skipIf(!testDatabase)(
+  "campaign creations on disposable Postgres",
+  () => {
+    if (!testDatabase) return;
+    const sessionId = CliSessionId.make(crypto.randomUUID());
+    const titlePrefix = `Ledger ${crypto.randomUUID()}`;
+
+    afterAll(async () => {
+      // Deleting the session deletes its mutation requests.
+      await testDatabase.pool.query("delete from cli_sessions where id = $1", [
+        sessionId,
+      ]);
+      await testDatabase.pool.query(
+        "delete from email_campaigns where title like $1",
+        [`${titlePrefix}%`]
+      );
+      await testDatabase.pool.query(
+        "delete from email_campaign_audiences where title like $1",
+        [`${titlePrefix}%`]
+      );
+    });
+
+    const seedSession = Effect.gen(function* () {
+      const tokenHash = yield* makeCliAuthenticationSecret().pipe(
+        Effect.flatMap(digestCliAuthenticationSecret)
+      );
+      yield* testDatabase.db.insert(cliSessions).values({
+        id: sessionId,
+        approvedBy: AdministrationActorUsername.make("operator"),
+        tokenHash,
+        clientName: "ledger test client",
+        cliVersion: "1.0.0",
+        buildTarget: "development",
+        createdAt: createdAt,
+        lastUsedAt: createdAt,
+      });
+    });
+    beforeAll(() =>
+      Effect.runPromise(seedSession.pipe(Effect.provide(NodeCrypto.layer)))
+    );
+
+    const SeededSessionRequest = Layer.succeed(CliBearerAuthentication, {
+      bearer: (httpEffect) =>
+        Effect.provideService(httpEffect, CurrentCliSession, {
+          id: sessionId,
+          approvedBy: null,
+          clientName: "ledger test client",
+          cliVersion: "1.0.0",
+          buildTarget: "development",
+          createdAt: createdAt.toString(),
+          lastUsedAt: createdAt.toString(),
+          expiresAt: null,
+        }),
+    });
+
+    const callWithLedger = <A, E>(
+      call: (client: CampaignsClient) => Effect.Effect<A, E>
+    ) =>
+      campaignsClient.pipe(
+        Effect.flatMap(call),
+        Effect.provide(AdminCliCampaignsApiHandlers),
+        Effect.provide(SeededSessionRequest),
+        Effect.provide(
+          Layer.mergeAll(
+            CampaignService.Default,
+            CampaignAudienceService.Default,
+            CliMutationIdempotency.Default,
+            Layer.succeed(
+              CampaignRecipientService,
+              {} as CampaignRecipientService["Service"]
+            ),
+            Layer.succeed(
+              CampaignSendService,
+              {} as CampaignSendService["Service"]
+            )
+          ).pipe(Layer.provide(testDatabase.layer))
+        ),
+        Effect.provide(NodeHttpServer.layerHttpServices),
+        Effect.scoped,
+        Effect.runPromise
+      );
+
+    const countRows = async (table: string, title: string) => {
+      const result = (await testDatabase.pool.query(
+        `select count(*)::int as count from ${table} where title like $1`,
+        [`${title}%`]
+      )) as { rows: Array<{ count: number }> };
+      return result.rows[0]?.count;
+    };
+
+    const campaignInput = (title: string, bodyMarkdown = "# Ahoj") => ({
+      title,
+      purpose: "operational" as const,
+      templateKey: "workspace" as const,
+      audienceId: null,
+      content: {
+        "cs-CZ": { subject: "Novinky", preheader: "", bodyMarkdown },
+      },
+    });
+
+    test("replays a retried campaign creation without another draft", async () => {
+      const title = `${titlePrefix} create`;
+      const requestId = CliMutationRequestId.make(crypto.randomUUID());
+      const create = () =>
+        callWithLedger((client) =>
+          client.createCampaign({
+            payload: { requestId, campaign: campaignInput(title) },
+          })
+        );
+
+      const first = await create();
+      const retried = await create();
+
+      expect(retried).toEqual(first);
+      expect(await countRows("email_campaigns", title)).toBe(1);
+
+      const reused = await callWithLedger((client) =>
+        client
+          .createCampaign({
+            payload: {
+              requestId,
+              campaign: campaignInput(`${title} changed`),
+            },
+          })
+          .pipe(Effect.flip)
+      );
+      expect(reused).toBeInstanceOf(CliMutationRejected);
+      expect(await countRows("email_campaigns", title)).toBe(1);
+    });
+
+    test("frees the request ID of a creation it rejected", async () => {
+      const title = `${titlePrefix} corrected`;
+      const requestId = CliMutationRequestId.make(crypto.randomUUID());
+
+      const rejected = await callWithLedger((client) =>
+        client
+          .createCampaign({
+            payload: {
+              requestId,
+              campaign: campaignInput(title, "[[button: Go](http://x.cz)]"),
+            },
+          })
+          .pipe(Effect.flip)
+      );
+      const corrected = await callWithLedger((client) =>
+        client.createCampaign({
+          payload: { requestId, campaign: campaignInput(title) },
+        })
+      );
+
+      expect(rejected).toBeInstanceOf(CliInputInvalid);
+      expect(corrected.title).toBe(title);
+      expect(await countRows("email_campaigns", title)).toBe(1);
+    });
+
+    test("replays a retried duplication without another draft", async () => {
+      const title = `${titlePrefix} duplicate`;
+      const source = await callWithLedger((client) =>
+        client.createCampaign({
+          payload: {
+            requestId: CliMutationRequestId.make(crypto.randomUUID()),
+            campaign: campaignInput(title),
+          },
+        })
+      );
+      const requestId = CliMutationRequestId.make(crypto.randomUUID());
+      const duplicate = () =>
+        callWithLedger((client) =>
+          client.duplicateCampaign({
+            params: { campaignId: source.id },
+            payload: { requestId },
+          })
+        );
+
+      const first = await duplicate();
+      const retried = await duplicate();
+
+      expect(first.id).not.toBe(source.id);
+      expect(retried).toEqual(first);
+      expect(await countRows("email_campaigns", title)).toBe(2);
+
+      await callWithLedger((client) =>
+        client.duplicateCampaign({
+          params: { campaignId: source.id },
+          payload: {
+            requestId: CliMutationRequestId.make(crypto.randomUUID()),
+          },
+        })
+      );
+      expect(await countRows("email_campaigns", title)).toBe(3);
+    });
+
+    test("replays a retried audience creation without another audience", async () => {
+      const title = `${titlePrefix} audience`;
+      const requestId = CliMutationRequestId.make(crypto.randomUUID());
+      const create = () =>
+        callWithLedger((client) =>
+          client.createCampaignAudience({
+            payload: {
+              requestId,
+              audience: {
+                title,
+                filter: { _tag: "Locale", locales: ["cs-CZ"] },
+              },
+            },
+          })
+        );
+
+      const first = await create();
+      const retried = await create();
+
+      expect(retried).toEqual(first);
+      expect(await countRows("email_campaign_audiences", title)).toBe(1);
+    });
+  }
+);
