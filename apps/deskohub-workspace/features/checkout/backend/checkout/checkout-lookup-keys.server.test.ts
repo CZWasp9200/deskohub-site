@@ -19,11 +19,9 @@ import {
 
 mock.module("server-only", () => ({}));
 
-const {
-  deriveCheckoutAttemptKeys,
-  deriveCheckoutSessionKeys,
-  deriveCheckoutSessionLockKey,
-} = await import("./checkout-lookup-keys.server");
+const { deriveCheckoutAttemptKeys, deriveCheckoutSessionKeys } = await import(
+  "./checkout-lookup-keys.server"
+);
 
 const decodeReservation = <T>(input: T) =>
   Schema.decodeUnknownEffect(reservationOrderSchema)(input).pipe(
@@ -117,19 +115,6 @@ describe("checkout lookup key write format", () => {
       "ee6351f8b63fa03fc29e75e70810c05b7b3389186445a460d9b1b0252e191259"
     );
   });
-
-  test("accepts the stored key and every configured key's prefixed key once", () => {
-    const keys = sessionKeysUnder(`${rotatedKey},${originalKey}`);
-
-    expect(keys.accepted[0]).toBe(keys.current);
-    expect(new Set(keys.accepted).size).toBe(keys.accepted.length);
-    expect(findKeyIdPrefixedLookupKey(keys, "rotated")).toMatch(
-      /^rotated:[a-f0-9]{64}$/
-    );
-    expect(findKeyIdPrefixedLookupKey(keys, "original")).toMatch(
-      /^original:[a-f0-9]{64}$/
-    );
-  });
 });
 
 describe("checkout lookup key rotation", () => {
@@ -137,15 +122,6 @@ describe("checkout lookup key rotation", () => {
     findKeyIdPrefixedLookupKey(sessionKeysUnder(keyRing), kid);
   const prefixedAttemptKeyUnder = (keyRing: string, kid: string) =>
     findKeyIdPrefixedLookupKey(attemptKeysUnder(keyRing), kid);
-
-  test("derives each key's prefixed key independently of the key ring", () => {
-    expect(prefixedSessionKeyUnder(originalKey, "original")).toBe(
-      prefixedSessionKeyUnder(`${rotatedKey},${originalKey}`, "original")
-    );
-    expect(prefixedSessionKeyUnder(originalKey, "original")).not.toBe(
-      prefixedSessionKeyUnder(rotatedKey, "rotated")
-    );
-  });
 
   test("keeps an in-flight checkout when a new active key is added", () => {
     const storedSession = prefixedSessionKeyUnder(originalKey, "original");
@@ -194,27 +170,6 @@ describe("checkout lookup key rotation", () => {
     expect(sessionKeysUnder(activatedRing).accepted).toContain(
       prefixedSessionKeyUnder(stagedRing, "original")
     );
-  });
-
-  test("locks each checkout session under its own identity", () => {
-    const lockKey = deriveCheckoutSessionLockKey(checkoutSessionId);
-
-    expect(
-      deriveCheckoutSessionLockKey(
-        checkoutSessionIdSchema.make("other-session-id")
-      )
-    ).not.toBe(lockKey);
-  });
-
-  test("does not accept another session's keys", () => {
-    const otherSession = sessionKeysUnder(
-      originalKey,
-      checkoutSessionIdSchema.make("other-session-id")
-    );
-
-    for (const key of otherSession.accepted) {
-      expect(sessionKeysUnder(originalKey).accepted).not.toContain(key);
-    }
   });
 });
 

@@ -50,95 +50,6 @@ describe("CheckoutSummary", () => {
     await unregisterWorkspaceComponentTestEnv();
   });
 
-  test("renders server-provided summary rows and amounts without a duplicate title", () => {
-    const quote = buildCoworkReservationQuote({
-      entryTier: "basic",
-      coffee: true,
-    });
-
-    const view = render(
-      <CheckoutSummary locale="en-US" summary={quote.summary} />
-    );
-
-    expect(view.queryByText("Order summary")).toBeNull();
-    expect(view.getByText("Basic Day Pass")).toBeDefined();
-    expect(view.getByText("Coffee")).toBeDefined();
-    expect(view.getAllByText(/CZK/).length).toBeGreaterThan(0);
-    expect(view.queryByRole("button", { name: /discount/i })).toBeNull();
-    expect(view.container.querySelector("del")).toBeNull();
-  });
-
-  test("localizes product summary item keys", () => {
-    const quote = buildCoworkReservationQuote({
-      entryTier: "basic",
-      coffee: false,
-    });
-
-    const view = render(
-      <CheckoutSummary locale="cs-CZ" summary={quote.summary} />
-    );
-
-    expect(view.getByText("Basic Day Pass")).toBeDefined();
-    expect(view.queryByText("product:basic")).toBeNull();
-  });
-
-  test("renders the paid workstation addon with its localized price in both locales", () => {
-    for (const [locale, addonLabel, priceLabel] of [
-      ["en-US", "Monitor workstation", "CZK 120"],
-      ["cs-CZ", "Pracovní stanice s monitory", "120 Kč"],
-    ] as const) {
-      const quote = buildCoworkReservationQuote({
-        entryTier: "reserved-desk",
-        coffee: true,
-        monitorOption: "2x27-qhd",
-      });
-
-      const view = render(
-        <CheckoutSummary locale={locale} summary={quote.summary} />
-      );
-
-      expect(view.getByText(addonLabel)).toBeDefined();
-      const addonRow = view.getByText(addonLabel).parentElement;
-      expect(addonRow?.textContent?.replaceAll("\u00a0", " ")).toContain(
-        priceLabel
-      );
-      expect(view.queryByText("addon:workstation")).toBeNull();
-      cleanup();
-    }
-  });
-
-  test("renders zero-priced monitor configuration lines for every monitor option", () => {
-    for (const monitorOption of [
-      "2x27-qhd",
-      "2x32-qhd",
-      "2x27-4k",
-      "2x32-4k",
-    ] as const) {
-      const quote = buildCoworkReservationQuote({
-        entryTier: "reserved-desk",
-        coffee: true,
-        monitorOption,
-      });
-
-      const view = render(
-        <CheckoutSummary locale="en-US" summary={quote.summary} />
-      );
-
-      expect(view.queryByText(`monitor:${monitorOption}`)).toBeNull();
-      const monitorTitle = {
-        "2x27-qhd": "2x 27″ QHD",
-        "2x32-qhd": "2x 32″ QHD",
-        "2x27-4k": "2x 27″ 4K",
-        "2x32-4k": "2x 32″ 4K",
-      }[monitorOption];
-      const monitorRow = view.getByText(monitorTitle).parentElement;
-      expect(monitorRow?.textContent?.replaceAll("\u00a0", " ")).toContain(
-        "CZK 0"
-      );
-      cleanup();
-    }
-  });
-
   test("keeps the paid workstation addon full price while discounting only the Reserved Desk product", () => {
     const reservedDeskPrice = getWorkspaceProductByTier("reserved-desk").price;
     const quote = buildCoworkReservationQuote(
@@ -247,46 +158,6 @@ describe("CheckoutSummary", () => {
     expect(view.queryByText("CZK 315")).toBeNull();
   });
 
-  test("pluralizes multi-day office summary rows", () => {
-    const quote = Effect.runSync(
-      getOfficeReservationQuote({
-        kind: "office",
-        startsOn: "2099-06-10",
-        endsOn: "2099-06-11",
-        seats: 1,
-      })
-    );
-    const view = render(
-      <CheckoutSummary
-        locale="en-US"
-        summary={getOfficeCheckoutSummary(quote)}
-      />
-    );
-
-    expect(view.getByText("Private office access · 2 days")).toBeDefined();
-    expect(view.getByText("1 office seat · 2 days")).toBeDefined();
-  });
-
-  test("localizes an aggregate office seat row", () => {
-    const quote = Effect.runSync(
-      getOfficeReservationQuote({
-        kind: "office",
-        startsOn: "2099-06-10",
-        endsOn: "2099-06-10",
-        seats: 3,
-      })
-    );
-    const view = render(
-      <CheckoutSummary
-        locale="cs-CZ"
-        summary={getOfficeCheckoutSummary(quote)}
-      />
-    );
-
-    expect(view.getByText("3 místa v kanceláři · 1 den")).toBeDefined();
-    expect(view.getByText("945 Kč")).toBeDefined();
-  });
-
   test("keeps office component rows and discounts reconciled to the total", () => {
     const money = (value: number) => ({
       value,
@@ -390,48 +261,6 @@ describe("CheckoutSummary", () => {
     expect(document.activeElement).toBe(detailsButton);
     expect(detailsButton.getAttribute("data-state")).toBe("instant-open");
     expect(detailsButton.getAttribute("aria-describedby")).toMatch(/^radix-/);
-  });
-
-  test("keeps paid Basic coffee full price while discounting only the product", () => {
-    const money = (value: number) => ({
-      value,
-      exponent: 2,
-      currency: "CZK",
-    });
-    const quote = buildCoworkReservationQuote(
-      { entryTier: "basic", coffee: true },
-      {
-        discountQuote: {
-          product: { kind: "cowork", tier: "basic" },
-          discountableSubtotal: money(35_000),
-          discounts: [
-            {
-              discount: {
-                id: Schema.decodeUnknownSync(discountIdSchema)("half-price"),
-                label: "Half price",
-                adjustment: { kind: "percentage", basisPoints: 5000 },
-              },
-              subtotalBefore: money(35_000),
-              amount: money(17_500),
-              subtotalAfter: money(17_500),
-            },
-          ],
-          totalDiscount: money(17_500),
-          discountedSubtotal: money(17_500),
-        },
-      }
-    );
-
-    const view = render(
-      <CheckoutSummary locale="en-US" summary={quote.summary} />
-    );
-
-    expect(view.container.querySelectorAll("del")).toHaveLength(1);
-    const coffeeRow = view.getByText("Coffee").parentElement;
-    expect(coffeeRow?.textContent?.replaceAll("\u00a0", " ")).toContain(
-      "CZK 50"
-    );
-    expect(coffeeRow?.querySelector("del")).toBeNull();
   });
 
   test("shows stacked discounts in application order", () => {

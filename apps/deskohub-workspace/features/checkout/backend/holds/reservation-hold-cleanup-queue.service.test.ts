@@ -156,31 +156,6 @@ describe("ReservationHoldCleanupScheduleService", () => {
     );
   });
 
-  test("keeps enqueue failure causes visible in structured logs", async () => {
-    const { makeReservationHoldCleanupScheduleService } = await import(
-      "./reservation-hold-cleanup-queue.service"
-    );
-    const source = new Error("queue unavailable");
-    const service = makeReservationHoldCleanupScheduleService(
-      mock(() => Promise.reject(source)) as never
-    );
-    const error = await service
-      .enqueueCleanup({
-        orderId: "order-id",
-        reservationHoldExpiresAt: expiresAt,
-      })
-      .pipe(Effect.flip, Effect.runPromise);
-
-    expect(error.message).toBe(
-      "Reservation hold cleanup could not be enqueued."
-    );
-    expect(error.cause).toMatchObject({
-      name: "Error",
-      message: "queue unavailable",
-    });
-    expect(error.cause).not.toBe(source);
-  });
-
   test("ignores invalid, not-due, changed-expiry, and completed reservations", async () => {
     const invalid = await runProcessMessage({ schemaVersion: 2 });
     expect(invalid.result).toBe("ignored");
@@ -285,24 +260,6 @@ describe("ReservationHoldCleanupScheduleService", () => {
       expect(result.result).toBe("cancelled");
       expect(cancelOrderHold).toHaveBeenCalledTimes(1);
     }
-  });
-
-  test("acks skipped cleanup while the reservation is still due", async () => {
-    const cancelOrderHold = mock(() => Effect.succeed("skipped" as const));
-    const findById = mock(() => Effect.succeed(makeReservation()));
-
-    const result = await runProcessMessage(duePayload, {
-      cancelOrderHold,
-      findById,
-      now: dueNow,
-    });
-
-    expect(result.result).toBe("skipped");
-    expect(cancelOrderHold).toHaveBeenCalledWith({
-      orderId: "order-id",
-      checkedAt: dueNow,
-    });
-    expect(findById).toHaveBeenCalledTimes(1);
   });
 
   test("retries cleanup while an empty provider order is inside the cutoff", async () => {

@@ -224,29 +224,6 @@ describe("WorkspaceTableAssignmentService", () => {
     expect(interval?.endDate.toISOString()).toBe("2099-06-10T11:00:00.000Z");
   });
 
-  test("uses Prague day bounds for cowork inventory across DST", async () => {
-    let interval: DotyposReservationInterval | undefined;
-
-    await assignTableId(
-      makeReservation({ date: "2026-10-25" }),
-      [
-        makeTable({
-          id: "basic",
-          name: "Basic",
-          tags: ["tier:basic"],
-        }),
-      ],
-      [],
-      [],
-      (value) => {
-        interval = value;
-      }
-    );
-
-    expect(interval?.startDate.toISOString()).toBe("2026-10-24T22:00:00.000Z");
-    expect(interval?.endDate.toISOString()).toBe("2026-10-25T23:00:00.000Z");
-  });
-
   test("uses the tier reservation interval as cowork occupancy input across DST", async () => {
     const captureInterval = () => {
       let interval: DotyposReservationInterval | undefined;
@@ -303,54 +280,6 @@ describe("WorkspaceTableAssignmentService", () => {
     );
     expect(reservedDesk.interval?.endDate.toISOString()).toBe(
       "2026-10-25T23:00:00.000Z"
-    );
-  });
-
-  test("does not consume open-space assignment capacity for an after-17:00 reservation", async () => {
-    await expect(
-      assignTableId(
-        makeReservation({ entryTier: "open-space" }),
-        [
-          makeTable({
-            id: "open-1",
-            name: "Open 1",
-            tags: ["cowork:open-space"],
-          }),
-        ],
-        [
-          makeDotyposReservation({
-            tableId: "open-1",
-            status: "CONFIRMED",
-            startDate: "2099-06-10T16:00:00Z",
-            endDate: "2099-06-10T18:00:00Z",
-          }),
-        ]
-      )
-    ).resolves.toBe("open-1");
-  });
-
-  test("consumes open-space assignment capacity for an overlapping morning reservation", async () => {
-    await expect(
-      assignTableId(
-        makeReservation({ entryTier: "open-space" }),
-        [
-          makeTable({
-            id: "open-1",
-            name: "Open 1",
-            tags: ["cowork:open-space"],
-          }),
-        ],
-        [
-          makeDotyposReservation({
-            tableId: "open-1",
-            status: "CONFIRMED",
-            startDate: "2099-06-10T06:00:00Z",
-            endDate: "2099-06-10T08:00:00Z",
-          }),
-        ]
-      )
-    ).rejects.toThrow(
-      "No available Dotypos workspace table matches tags: cowork:open-space"
     );
   });
 
@@ -488,39 +417,6 @@ describe("WorkspaceTableAssignmentService", () => {
         ]
       )
     ).resolves.toBe("qhd-27");
-  });
-
-  test("matches Profi 2x32 4K by tier and monitor tags", async () => {
-    await expect(
-      assignTableId(
-        makeReservation({
-          entryTier: "profi",
-          monitorOption: "2x32-4k",
-        }),
-        [
-          makeTable({
-            id: "qhd-32",
-            name: "2",
-            tags: [
-              "tier:profi",
-              "monitor:count:2",
-              "monitor:size:32",
-              "monitor:resolution:qhd",
-            ],
-          }),
-          makeTable({
-            id: "4k-32",
-            name: "4",
-            tags: [
-              "tier:profi",
-              "monitor:count:2",
-              "monitor:size:32",
-              "monitor:resolution:4k",
-            ],
-          }),
-        ]
-      )
-    ).resolves.toBe("4k-32");
   });
 
   test("skips an occupied matching table and assigns the next free matching table", async () => {

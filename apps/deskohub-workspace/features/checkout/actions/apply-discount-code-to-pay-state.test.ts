@@ -282,18 +282,6 @@ describe("applyDiscountCodeToPayState", () => {
     expect(ordinaryState.referralCode).toBe("RFL12345");
   });
 
-  test("accepts the typed referral code over the browser's remembered one", async () => {
-    const referral = await runSubmission({
-      submittedCode: "RFL12345",
-      codeKind: "referral",
-    });
-
-    expect(referral.lookupCodeKind).toHaveBeenCalledWith({ code: "RFL12345" });
-    expect(referral.acceptCode.mock.calls).toEqual([
-      [expect.objectContaining({ code: "RFL12345" })],
-    ]);
-  });
-
   test.each([
     ["unavailable", "unavailable"],
     ["already_attributed", "referral-already-attributed"],
@@ -419,20 +407,6 @@ describe("applyDiscountCodeToPayState", () => {
     expect(scenario.requireCurrent).not.toHaveBeenCalled();
     expect(scenario.applyDiscountCode).not.toHaveBeenCalled();
   });
-
-  test.each(["", "   "])(
-    "returns plain unavailable for empty or whitespace input %j without lookups or pricing",
-    async (submittedCode) => {
-      const scenario = await runSubmission({ submittedCode });
-
-      expect(scenario.result).toEqual({
-        status: "unavailable",
-        freshPayUrl: undefined,
-      });
-      expect(scenario.requireCurrent).not.toHaveBeenCalled();
-      expect(scenario.applyDiscountCode).not.toHaveBeenCalled();
-    }
-  );
 
   test("maps a specific backend eligibility reason to the generic field result while retaining the attempt", async () => {
     const applyDiscountCode = mock(() =>

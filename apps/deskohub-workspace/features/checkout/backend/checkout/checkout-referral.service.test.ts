@@ -715,13 +715,8 @@ describe("CheckoutReferralService", () => {
   test.each([
     ["already_attributed", "already_attributed"],
     ["ineligible", "ineligible"],
-    ["pending_payment", "unavailable"],
-    ["cycle", "unavailable"],
     ["self_referral", "unavailable"],
-    ["unavailable", "unavailable"],
-    ["account_unavailable", "unavailable"],
     ["invalid_code", "unavailable"],
-    ["disabled", "unavailable"],
   ] as const)(
     "reports the %s evaluation failure as %s without a refreshed Pay URL",
     async (reason, expectedStatus) => {

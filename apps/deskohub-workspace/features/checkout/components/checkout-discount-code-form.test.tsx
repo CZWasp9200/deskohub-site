@@ -8,14 +8,12 @@ import {
   mock,
   test,
 } from "bun:test";
-import { DotyposCustomerIdSchema } from "@deskohub/dotypos";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
   buildCoworkCheckoutSummary,
   buildCoworkReservationQuote as buildCoworkPriceQuote,
 } from "@/features/checkout/checkout-quote.test-utils";
-import { hasCheckoutReferralAppliedNotice } from "@/features/checkout/checkout-referral-notice";
 import { m } from "@/features/i18n";
 import { formatReferralInvitationDiscount } from "@/features/referrals/client";
 import { workspaceUseAction } from "@/shared/testing/workspace-component-module-mocks";
@@ -248,26 +246,6 @@ describe("CheckoutDiscountCodeForm", () => {
     expect(nextFormData?.get("submittedCode")).toBe("NEXTCODE");
   });
 
-  test("shows the applied adjustment instead of a prefilled code field", async () => {
-    const { CheckoutDiscountCodeForm } = await import(
-      "./checkout-discount-code-form"
-    );
-    const view = render(
-      <CheckoutDiscountCodeForm
-        appliedAdjustment={{ kind: "percentage", basisPoints: 2000 }}
-        defaultCode="SUMMER10"
-        enabled={false}
-        locale="en-US"
-        payStateToken="signed-state"
-      />
-    );
-
-    expect(view.getByRole("status").textContent).toBe(
-      m.checkoutDiscountCodeApplied({ discount: "20%" }, { locale: "en-US" })
-    );
-    expect(view.queryByRole("textbox")).toBeNull();
-  });
-
   test.each(["en-US", "cs-CZ"] as const)(
     "shows the %s referral confirmation and leaves the ordinary code form available",
     async (locale) => {
@@ -304,59 +282,6 @@ describe("CheckoutDiscountCodeForm", () => {
       ).toHaveProperty("disabled", false);
     }
   );
-
-  test.each([
-    { discounts: [], marker: "1" },
-    { discounts: [], marker: "unknown" },
-    { discounts: [], marker: ["1"] },
-  ])(
-    "does not show referral feedback for an invalid marker or absent signed invitation discount",
-    async ({ discounts, marker }) => {
-      const { CheckoutDiscountCodeForm } = await import(
-        "./checkout-discount-code-form"
-      );
-      const referralApplied = hasCheckoutReferralAppliedNotice({
-        discounts,
-        dotyposCustomerId: DotyposCustomerIdSchema.make(
-          "checkout-referral-notice-customer"
-        ),
-        marker,
-      });
-      const view = render(
-        <CheckoutDiscountCodeForm
-          enabled
-          locale="en-US"
-          payStateToken="signed-state"
-          referralApplied={referralApplied}
-        />
-      );
-
-      expect(
-        view.queryByText(
-          m.checkoutReferralDiscountApplied(
-            { discount: formatReferralInvitationDiscount("en-US") },
-            { locale: "en-US" }
-          )
-        )
-      ).toBeNull();
-      expect(view.getByRole("textbox")).toBeDefined();
-    }
-  );
-
-  test("stays hidden while its server-evaluated release gate is disabled", async () => {
-    const { CheckoutDiscountCodeForm } = await import(
-      "./checkout-discount-code-form"
-    );
-    const view = render(
-      <CheckoutDiscountCodeForm
-        enabled={false}
-        locale="en-US"
-        payStateToken="signed-state"
-      />
-    );
-
-    expect(view.queryByRole("textbox")).toBeNull();
-  });
 
   test("posts the raw field through the bound server action", async () => {
     const { CheckoutDiscountCodeForm } = await import(

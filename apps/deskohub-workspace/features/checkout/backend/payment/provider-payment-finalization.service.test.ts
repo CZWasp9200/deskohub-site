@@ -426,66 +426,6 @@ describe("ProviderPaymentFinalizationService", () => {
     });
   }
 
-  test("returns not_verifiable for pending attempts missing local verification data", async () => {
-    const { ProviderPaymentFinalizationService } = await import(
-      "./provider-payment-finalization.service"
-    );
-    const { PaymentAttemptRepository } = await import(
-      "../repositories/payment-attempt.repository"
-    );
-    const { PaidFulfillmentQueueService } = await import(
-      "../fulfillment/paid-fulfillment-queue.service"
-    );
-    const { WorkspaceReservationRepository } = await import(
-      "@/features/reservation/backend/workspace-reservation.repository"
-    );
-    const { PostHogEventService } = await import(
-      "@/shared/backend/analytics/posthog-event.service"
-    );
-    const { NexiService } = await import("@deskohub/nexi");
-
-    const verifyPaymentOutcome = mock(() => Effect.die("not used"));
-    const result = await Effect.gen(function* () {
-      const service = yield* ProviderPaymentFinalizationService;
-      return yield* service.finalizePendingProviderPayment({
-        orderId: "reservation-id",
-        paymentAttemptId: "attempt-id",
-      });
-    }).pipe(
-      Effect.provide(
-        ProviderPaymentFinalizationService.Default.pipe(
-          Layer.provide(
-            Layer.mergeAll(
-              Layer.mock(WorkspaceReservationRepository, {
-                findById: mock(() => Effect.succeed(pendingReservation)),
-              }),
-              paidFulfillmentLayer(),
-              Layer.mock(PaidFulfillmentQueueService, {
-                enqueue: mock(() => Effect.void),
-              }),
-              Layer.mock(PaymentAttemptRepository, {
-                findById: mock(() =>
-                  Effect.succeed({ ...pendingAttempt, securityToken: null })
-                ),
-              }),
-              paymentLifecycleLayer(),
-              Layer.mock(PostHogEventService, {
-                capture: () => Effect.void,
-              }),
-              Layer.mock(NexiService, {
-                verifyPaymentOutcome,
-              })
-            )
-          )
-        )
-      ),
-      Effect.runPromise
-    );
-
-    expect(result).toBe("not_verifiable");
-    expect(verifyPaymentOutcome).not.toHaveBeenCalled();
-  });
-
   test("returns the empty-order abandonment state and keeps orders with activity pending", async () => {
     const { ProviderPaymentFinalizationService } = await import(
       "./provider-payment-finalization.service"

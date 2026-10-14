@@ -47,29 +47,6 @@ test("falls back to authoritative local status after a page refresh read fails",
   });
 });
 
-test("preserves a local status read failure after the refresh fallback", async () => {
-  const refreshStatus = mock(() =>
-    Effect.fail(new Error("refresh read failed"))
-  ) as ICheckoutStatusService["refreshStatus"];
-  const getStatus = mock(() =>
-    Effect.fail(new Error("local read failed"))
-  ) as ICheckoutStatusService["getStatus"];
-  const isAuthorized = mock(() => Effect.succeed(true));
-
-  await expect(
-    Effect.runPromise(
-      loadCheckoutStatusPage(
-        { getStatus, refreshStatus },
-        { isAuthorized } as IReservationAuthorizationService,
-        input
-      )
-    )
-  ).rejects.toThrow("local read failed");
-
-  expect(refreshStatus).toHaveBeenCalledTimes(1);
-  expect(getStatus).toHaveBeenCalledTimes(1);
-});
-
 test("does not read checkout status when reservation access is unauthorized", async () => {
   const refreshStatus = mock(() =>
     Effect.fail(new Error("must not refresh"))

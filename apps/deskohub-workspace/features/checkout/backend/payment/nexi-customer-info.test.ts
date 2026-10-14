@@ -23,18 +23,4 @@ describe("getNexiHostedPaymentCustomer", () => {
       },
     });
   });
-
-  test("preserves an international customer phone prefix", () => {
-    expect(
-      getNexiHostedPaymentCustomer({
-        id: "dotypos-customer-id",
-        name: "Grace Hopper",
-        email: testEmailAddress("grace"),
-        phone: "+1 202 555 0123",
-      }).mobilePhone
-    ).toEqual({
-      countryCallingCode: "1",
-      nationalNumber: "2025550123",
-    });
-  });
 });

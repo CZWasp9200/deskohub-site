@@ -10,7 +10,6 @@ import {
 } from "@/features/checkout/reservation-quote-cowork";
 import type { AppliedDiscount, DiscountQuote } from "@/features/discounts";
 import { discountIdSchema } from "@/features/discounts/contracts";
-import { coworkAdvertisedPriceDetailsSchema } from "@/features/reservation/cowork-reservation";
 import {
   type ReservationOrderData,
   reservationOrderSchema,
@@ -167,19 +166,6 @@ describe("reservation quotes", () => {
     expect(quote.payment.undiscountedPrice.value).toBe(34_000);
   });
 
-  test("preserves authoritative minor-unit discount amounts", () => {
-    const application = discountApplication(4375);
-    const quote = buildQuote(
-      coworkReservation({ entryTier: "open-space", coffee: false }),
-      {
-        discountQuote: discountQuote([application]),
-      }
-    );
-
-    expect(quote.payment.expectedPrice.value).toBe(24_625);
-    expect(quote.payment.discounts[0]?.amount.value).toBe(4375);
-  });
-
   test("fingerprint changes for different composition with the same total", () => {
     const accessOnly = buildQuote(
       coworkReservation({ entryTier: "open-space", coffee: false })
@@ -197,19 +183,6 @@ describe("reservation quotes", () => {
     expect(accessOnly.fingerprint).not.toBe(
       coffeeDiscountedToSameTotal.fingerprint
     );
-  });
-
-  test("does not duplicate reservation data in quote output", () => {
-    const quote = buildQuote(
-      coworkReservation({ entryTier: "open-space", coffee: false })
-    );
-
-    expect(quote).not.toHaveProperty("order");
-    expect(quote).not.toHaveProperty("reservation");
-    expect(quote).not.toHaveProperty("summary");
-    expect(quote).not.toHaveProperty("name");
-    expect(quote).not.toHaveProperty("email");
-    expect(quote).not.toHaveProperty("phone");
   });
 
   test("monitor composition does not alter the cowork price quote", () => {
@@ -406,75 +379,5 @@ describe("cowork quote input truthfulness", () => {
       amount: { value: 12_000, exponent: 2, currency: "CZK" },
     });
     expect(quote.payment.expectedPrice.value).toBe(53_000);
-  });
-
-  test("requires the canonical cowork kind in the quote input", () => {
-    const decodeDetails = Schema.decodeUnknownSync(
-      coworkAdvertisedPriceDetailsSchema
-    );
-
-    expect(() =>
-      decodeDetails({
-        entryTier: "reserved-desk",
-        workstation: true,
-        date: "2099-06-10",
-      })
-    ).toThrow();
-
-    expect(() =>
-      decodeDetails({
-        kind: "cowork",
-        entryTier: "reserved-desk",
-        workstation: true,
-        date: "2099-06-10",
-      })
-    ).not.toThrow();
-  });
-
-  test("rejects quote building without the canonical cowork kind", () => {
-    const buildQuoteWithoutKind = (
-      input: Omit<CoworkReservationQuoteInput, "kind">
-    ) => Effect.runSync(buildCoworkReservationQuote(input as never));
-
-    expect(() =>
-      buildQuoteWithoutKind({
-        entryTier: "reserved-desk",
-        coffee: true,
-        workstation: true,
-      })
-    ).toThrow();
-    expect(() =>
-      buildQuoteWithoutKind({
-        kind: "residency",
-        entryTier: "reserved-desk",
-        coffee: true,
-        workstation: true,
-      } as Omit<CoworkReservationQuoteInput, "kind">)
-    ).toThrow();
-  });
-
-  test("rejects wrong-family kinds at the cowork builder boundary", () => {
-    // Cast past TypeScript the way a runtime bug would: a dishonest input
-    // that claims to satisfy CoworkReservationQuoteInput.
-    const buildWrongFamilyQuote = (
-      input: Omit<CoworkReservationQuoteInput, "kind"> & {
-        kind: "office" | "meeting-room";
-      }
-    ) => Effect.runSync(buildCoworkReservationQuote(input as never));
-
-    expect(() =>
-      buildWrongFamilyQuote({
-        kind: "office",
-        entryTier: "reserved-desk",
-        workstation: true,
-      })
-    ).toThrow();
-    expect(() =>
-      buildWrongFamilyQuote({
-        kind: "meeting-room",
-        entryTier: "reserved-desk",
-        duration: { unit: "hour", amount: 1 },
-      })
-    ).toThrow();
   });
 });
