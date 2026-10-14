@@ -14,9 +14,9 @@ import type { AudienceFilter } from "../audience-filter";
 import type { CampaignAudienceId } from "../campaign-identifiers";
 import { CampaignAudienceInUse, CampaignAudienceNotFound } from "../errors";
 
-export type CampaignAudience = CampaignAudienceRow;
+type CampaignAudience = CampaignAudienceRow;
 
-export type CampaignAudienceInput = {
+type CampaignAudienceInput = {
   readonly title: string;
   readonly filter: AudienceFilter;
 };

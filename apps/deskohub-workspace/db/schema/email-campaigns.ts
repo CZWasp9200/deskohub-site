@@ -10,11 +10,10 @@ import {
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 import type { AudienceFilter } from "@/features/email-campaigns/audience-filter";
-import {
-  type CampaignLocalizedContent,
-  type CampaignPurpose,
-  CampaignPurpose as CampaignPurposeSchema,
-  type CampaignTemplateKey,
+import type {
+  CampaignLocalizedContent,
+  CampaignPurpose,
+  CampaignTemplateKey,
 } from "@/features/email-campaigns/body/campaign-content";
 import type { CampaignContentHash } from "@/features/email-campaigns/body/campaign-content-hash";
 import type {
@@ -35,6 +34,13 @@ import inlangSettings from "../../project.inlang/settings.json" with {
 import { instant } from "../instant";
 import { postgresUuidV7 } from "../uuid-v7";
 import { quotedSqlList } from "./sql-list";
+
+// Keyed by every purpose so a new one fails to compile until it's listed.
+// A type-only import keeps drizzle-kit off the body module's env loading.
+const campaignPurposes = Object.keys({
+  marketing: true,
+  operational: true,
+} satisfies Record<CampaignPurpose, true>);
 
 export const emailCampaignAudiences = pgTable(
   "email_campaign_audiences",
@@ -83,7 +89,7 @@ export const emailCampaigns = pgTable(
     check("email_campaigns_title_check", sql`btrim(${t.title}) <> ''`),
     check(
       "email_campaigns_purpose_check",
-      sql`${t.purpose} in (${quotedSqlList(CampaignPurposeSchema.literals)})`
+      sql`${t.purpose} in (${quotedSqlList(campaignPurposes)})`
     ),
     check(
       "email_campaigns_status_check",

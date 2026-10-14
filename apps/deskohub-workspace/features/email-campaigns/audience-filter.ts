@@ -19,37 +19,33 @@ const calendarDateSchema = Schema.String.check(isPlainDateString());
  * `visit` dates the reservation by when the customer occupies the space (its
  * Dotypos start), `booking` by when the customer booked it in Workspace.
  */
-export const audienceReservationConditionSchema = Schema.TaggedStruct(
-  "Reservation",
-  {
-    presence: Schema.Literals(["has", "hasNot"]),
-    dateBasis: Schema.Literals(["visit", "booking"]),
-    from: Schema.optionalKey(calendarDateSchema),
-    to: Schema.optionalKey(calendarDateSchema),
-    status: Schema.optionalKey(Schema.Literals(reservationStatusFilters)),
-  }
-);
-export type AudienceReservationCondition =
+const audienceReservationConditionSchema = Schema.TaggedStruct("Reservation", {
+  presence: Schema.Literals(["has", "hasNot"]),
+  dateBasis: Schema.Literals(["visit", "booking"]),
+  from: Schema.optionalKey(calendarDateSchema),
+  to: Schema.optionalKey(calendarDateSchema),
+  status: Schema.optionalKey(Schema.Literals(reservationStatusFilters)),
+});
+type AudienceReservationCondition =
   typeof audienceReservationConditionSchema.Type;
 
 /** The customer's resolved campaign locale is one of these. */
-export const audienceLocaleConditionSchema = Schema.TaggedStruct("Locale", {
+const audienceLocaleConditionSchema = Schema.TaggedStruct("Locale", {
   locales: Schema.NonEmptyArray(Schema.Literals(locales)),
 });
 
 /** Whether the customer has a linked Workspace account. */
-export const audienceAccountConditionSchema = Schema.TaggedStruct("Account", {
+const audienceAccountConditionSchema = Schema.TaggedStruct("Account", {
   hasAccount: Schema.Boolean,
 });
 
 /** The customer's Dotypos profile carries this tag. */
-export const audienceDotyposTagConditionSchema = Schema.TaggedStruct(
-  "DotyposTag",
-  { tag: Schema.NonEmptyString }
-);
+const audienceDotyposTagConditionSchema = Schema.TaggedStruct("DotyposTag", {
+  tag: Schema.NonEmptyString,
+});
 
 /** The customer's Dotypos profile belongs to this discount group. */
-export const audienceDiscountGroupConditionSchema = Schema.TaggedStruct(
+const audienceDiscountGroupConditionSchema = Schema.TaggedStruct(
   "DiscountGroup",
   { discountGroupId: Schema.NonEmptyString }
 );
@@ -59,7 +55,7 @@ export const audienceDiscountGroupConditionSchema = Schema.TaggedStruct(
  * audience whose root is `{ operator: "and", filters: [] }` reaches all
  * customers Workspace knows; an empty OR group matches nobody.
  */
-export type AudienceFilterGroup = {
+type AudienceFilterGroup = {
   readonly _tag: "Group";
   readonly operator: "and" | "or";
   readonly filters: readonly AudienceFilter[];
@@ -73,7 +69,7 @@ export type AudienceFilter =
   | typeof audienceDiscountGroupConditionSchema.Type
   | AudienceFilterGroup;
 
-export const audienceFilterGroupSchema = Schema.TaggedStruct("Group", {
+const audienceFilterGroupSchema = Schema.TaggedStruct("Group", {
   operator: Schema.Literals(["and", "or"]),
   filters: Schema.Array(
     Schema.suspend((): Schema.Codec<AudienceFilter> => audienceFilterSchema)

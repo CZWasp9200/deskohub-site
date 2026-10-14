@@ -6,7 +6,7 @@ import { Schema } from "effect";
  * recipients.
  */
 export const campaignStatuses = ["draft", "sending", "sent", "failed"] as const;
-export const campaignStatusSchema = Schema.Literals(campaignStatuses);
+const campaignStatusSchema = Schema.Literals(campaignStatuses);
 export type CampaignStatus = typeof campaignStatusSchema.Type;
 
 /**
@@ -24,7 +24,7 @@ export const campaignRecipientStatuses = [
   "failed",
   "skipped",
 ] as const;
-export const campaignRecipientStatusSchema = Schema.Literals(
+const campaignRecipientStatusSchema = Schema.Literals(
   campaignRecipientStatuses
 );
 export type CampaignRecipientStatus = typeof campaignRecipientStatusSchema.Type;

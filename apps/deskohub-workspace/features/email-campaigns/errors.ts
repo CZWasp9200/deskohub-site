@@ -1,4 +1,4 @@
-import { Data } from "effect";
+import { Data, type Schema } from "effect";
 import type { CampaignAudienceId, CampaignId } from "./campaign-identifiers";
 import type { CampaignStatus } from "./campaign-states";
 
@@ -10,6 +10,16 @@ export class CampaignAudienceNotFound extends Data.TaggedError(
   "CampaignAudienceNotFound"
 )<{
   readonly audienceId: CampaignAudienceId;
+}> {}
+
+/**
+ * Campaign content failed the body document rules (TipTap schema, link and
+ * image hosts, CTA fields).
+ */
+export class CampaignContentInvalid extends Data.TaggedError(
+  "CampaignContentInvalid"
+)<{
+  readonly cause: Schema.SchemaError;
 }> {}
 
 /** A campaign left Draft, so its content and audience are frozen. */

@@ -39,20 +39,20 @@ import {
 const hydrationChunkSize = 100;
 
 /** A customer the campaign reaches, with the Dotypos profile email. */
-export type CampaignRecipient = {
+type CampaignRecipient = {
   readonly dotyposCustomerId: DotyposCustomerId;
   readonly locale: Locale;
   readonly email: string;
 };
 
-export type CampaignRecipientExclusionReason =
+type CampaignRecipientExclusionReason =
   | "missing-from-dotypos"
   | "deleted-customer"
   | "missing-email"
   | "invalid-email";
 
 /** A customer the audience matches whom the campaign can't reach. */
-export type CampaignRecipientExclusion = {
+type CampaignRecipientExclusion = {
   readonly dotyposCustomerId: DotyposCustomerId;
   readonly reason: CampaignRecipientExclusionReason;
 };
@@ -61,13 +61,13 @@ export type CampaignRecipientExclusion = {
  * Customers sharing one email address (compared trimmed and lowercased). The
  * campaign mails `recipientCustomerId` only.
  */
-export type CampaignRecipientDuplicate = {
+type CampaignRecipientDuplicate = {
   readonly email: string;
   readonly recipientCustomerId: DotyposCustomerId;
   readonly duplicateCustomerIds: readonly DotyposCustomerId[];
 };
 
-export type CampaignRecipientResolution = {
+type CampaignRecipientResolution = {
   readonly recipients: readonly CampaignRecipient[];
   readonly exclusions: readonly CampaignRecipientExclusion[];
   readonly duplicates: readonly CampaignRecipientDuplicate[];

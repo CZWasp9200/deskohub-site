@@ -1,6 +1,6 @@
 import { Schema } from "effect";
 
-export const campaignIdSchema = Schema.NonEmptyString.pipe(
+const campaignIdSchema = Schema.NonEmptyString.pipe(
   Schema.brand("CampaignId")
 ).annotate({
   identifier: "CampaignId",
@@ -8,7 +8,7 @@ export const campaignIdSchema = Schema.NonEmptyString.pipe(
 });
 export type CampaignId = typeof campaignIdSchema.Type;
 
-export const campaignAudienceIdSchema = Schema.NonEmptyString.pipe(
+const campaignAudienceIdSchema = Schema.NonEmptyString.pipe(
   Schema.brand("CampaignAudienceId")
 ).annotate({
   identifier: "CampaignAudienceId",
@@ -16,7 +16,7 @@ export const campaignAudienceIdSchema = Schema.NonEmptyString.pipe(
 });
 export type CampaignAudienceId = typeof campaignAudienceIdSchema.Type;
 
-export const campaignSendIdSchema = Schema.NonEmptyString.pipe(
+const campaignSendIdSchema = Schema.NonEmptyString.pipe(
   Schema.brand("CampaignSendId")
 ).annotate({
   identifier: "CampaignSendId",

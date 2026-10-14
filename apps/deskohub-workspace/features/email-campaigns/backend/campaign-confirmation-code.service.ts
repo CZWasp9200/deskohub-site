@@ -24,7 +24,7 @@ import {
   CampaignReadOnly,
 } from "../errors";
 
-export const campaignConfirmationCodeLifetime = Temporal.Duration.from({
+const campaignConfirmationCodeLifetime = Temporal.Duration.from({
   hours: 24,
 });
 
@@ -36,7 +36,7 @@ const codeLength = 8;
 const normalizeCampaignConfirmationCode = (typed: string) =>
   typed.toUpperCase().replaceAll(/[\s-]/g, "");
 
-export type IssuedCampaignConfirmationCode = {
+type IssuedCampaignConfirmationCode = {
   readonly code: CampaignConfirmationCode;
   readonly expiresAt: Temporal.Instant;
 };

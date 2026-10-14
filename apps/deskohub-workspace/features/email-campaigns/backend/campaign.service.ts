@@ -2,7 +2,7 @@ import "server-only";
 
 import { and, desc, eq } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
-import { Context, Effect, Layer, Option } from "effect";
+import { Context, Effect, Layer, Option, Schema } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import {
   type CampaignRow,
@@ -10,22 +10,23 @@ import {
   emailCampaigns,
 } from "@/db/schema";
 import { currentInstant } from "@/shared/utils/temporal";
-import type {
+import {
   CampaignLocalizedContent,
-  CampaignPurpose,
-  CampaignTemplateKey,
+  type CampaignPurpose,
+  type CampaignTemplateKey,
 } from "../body/campaign-content";
 import type { CampaignAudienceId, CampaignId } from "../campaign-identifiers";
 import {
   CampaignAudienceArchived,
   CampaignAudienceNotFound,
+  CampaignContentInvalid,
   CampaignNotFound,
   CampaignReadOnly,
 } from "../errors";
 
-export type Campaign = CampaignRow;
+type Campaign = CampaignRow;
 
-export type CampaignDraftInput = {
+type CampaignDraftInput = {
   readonly title: string;
   readonly purpose: CampaignPurpose;
   readonly templateKey: CampaignTemplateKey;
@@ -33,9 +34,10 @@ export type CampaignDraftInput = {
   readonly audienceId: CampaignAudienceId | null;
 };
 
-type CampaignAudienceError =
+type CampaignWriteError =
   | CampaignAudienceNotFound
-  | CampaignAudienceArchived;
+  | CampaignAudienceArchived
+  | CampaignContentInvalid;
 
 export interface ICampaignService {
   readonly list: Effect.Effect<readonly Campaign[], EffectDrizzleQueryError>;
@@ -44,7 +46,7 @@ export interface ICampaignService {
   ) => Effect.Effect<Campaign, CampaignNotFound | EffectDrizzleQueryError>;
   readonly create: (
     input: CampaignDraftInput
-  ) => Effect.Effect<Campaign, CampaignAudienceError | EffectDrizzleQueryError>;
+  ) => Effect.Effect<Campaign, CampaignWriteError | EffectDrizzleQueryError>;
   /** Edits a Draft; a campaign that left Draft is read-only. */
   readonly update: (
     input: { readonly campaignId: CampaignId } & Partial<CampaignDraftInput>
@@ -52,7 +54,7 @@ export interface ICampaignService {
     Campaign,
     | CampaignNotFound
     | CampaignReadOnly
-    | CampaignAudienceError
+    | CampaignWriteError
     | EffectDrizzleQueryError
   >;
   /** Deletes a Draft; a campaign that left Draft keeps its history. */
@@ -122,6 +124,16 @@ export class CampaignService extends Context.Service<
         }
       });
 
+      const validateContent = (
+        content: CampaignLocalizedContent | undefined
+      ) =>
+        content === undefined
+          ? Effect.void
+          : Schema.decodeEffect(CampaignLocalizedContent)(content).pipe(
+              Effect.asVoid,
+              Effect.mapError((cause) => new CampaignContentInvalid({ cause }))
+            );
+
       return {
         list: db
           .select()
@@ -130,6 +142,7 @@ export class CampaignService extends Context.Service<
           .pipe(Effect.withSpan("CampaignService.list")),
         get: Effect.fn("CampaignService.get")(get),
         create: Effect.fn("CampaignService.create")(function* (input) {
+          yield* validateContent(input.content);
           yield* ensureAssignableAudience(input.audienceId);
           const [campaign] = yield* db
             .insert(emailCampaigns)
@@ -141,6 +154,7 @@ export class CampaignService extends Context.Service<
           campaignId,
           ...changes
         }) {
+          yield* validateContent(changes.content);
           if (changes.audienceId !== undefined) {
             yield* ensureAssignableAudience(changes.audienceId);
           }
