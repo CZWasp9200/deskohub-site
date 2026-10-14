@@ -38,6 +38,8 @@ const runSubmit = (
           Layer.provide(
             Layer.succeed(EmailServiceTag, {
               send,
+              sendBatch: () =>
+                Effect.die("Contact submissions do not send batches."),
               sendTemplate: mock(() => Effect.succeed(sent("template"))),
               verify: Effect.succeed(true),
             })
