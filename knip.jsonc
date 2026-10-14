@@ -18,7 +18,6 @@
         "db/schema/index.ts",
         "db/schema/auth.ts",
         "e2e/coordination/schema.ts",
-        "e2e/account/marketing-document-hash.config.ts",
         "env.ts",
         // Command-line scripts run by path from package.json, CI, or the skills.
         "scripts/*.ts",

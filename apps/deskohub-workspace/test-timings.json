@@ -191,7 +191,6 @@
     "features/accounting/backend/invoice-payment-qr.test.ts": 240,
     "features/accounting/backend/invoice-pdf.test.tsx": 897,
     "features/accounting/backend/invoice.repository.postgres.test.ts": 536,
-    "features/accounting/backend/invoice.repository.test.ts": 292,
     "features/accounting/backend/reservation-invoice.service.test.ts": 695,
     "features/accounting/components/post-order-invoice-page.test.tsx": 538,
     "features/accounting/invoice-presentation.test.ts": 214,

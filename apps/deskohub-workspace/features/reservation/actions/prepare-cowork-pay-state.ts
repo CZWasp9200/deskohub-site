@@ -94,7 +94,7 @@ export const prepareCoworkAdvertisement = Effect.fn(
     advertisedQuote: state.quote,
     discountQuote: affirmed.discountQuote,
     ...getSubmittedCodeMetadata(affirmed),
-    requestedDiscountCode: state.requestedDiscountCode ?? state.submittedCode,
+    requestedDiscountCode: state.requestedDiscountCode,
     ...(changed && {
       changedKeys: getCheckoutSummaryChangedKeys(
         getCoworkCheckoutSummary(state.reservation.details, state.quote),

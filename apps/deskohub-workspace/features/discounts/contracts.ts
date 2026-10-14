@@ -1,4 +1,3 @@
-import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { Schema } from "effect";
 import {
   type WorkspaceProductIdentity,
@@ -9,10 +8,7 @@ import {
   nonNegativeWorkspaceMoneyCodec,
   positiveWorkspaceMoneyCodec,
 } from "@/features/checkout/workspace-money";
-import {
-  type WorkspaceProductTarget,
-  workspaceProductTargetSchema,
-} from "@/features/discounts/product-target";
+import type { WorkspaceProductTarget } from "@/features/discounts/product-target";
 import type { Locale } from "@/features/i18n";
 import type { DotyposCustomerId } from "@/features/reservation/dotypos-customer";
 import { instantStringSchema } from "@/shared/utils/temporal";
@@ -45,15 +41,6 @@ export const discountBasisPointsSchema = Schema.Int.check(
 ).annotate({
   identifier: "DiscountBasisPoints",
   description: "An exact percentage discount measured in basis points.",
-});
-
-export const discountProductTargetSchema: StandardSchemaV1<
-  unknown,
-  WorkspaceProductTarget
-> = Schema.toStandardSchemaV1(workspaceProductTargetSchema, {
-  parseOptions: {
-    onExcessProperty: "error",
-  },
 });
 
 export type DiscountAdjustment =
