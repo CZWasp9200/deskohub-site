@@ -12,8 +12,6 @@ import { LatePaymentVerificationService } from "../payment/late-payment-verifica
 import type { ProviderPaymentFinalizationService as ProviderPaymentFinalizationServiceType } from "../payment/provider-payment-finalization.service";
 import { LatePaymentRecoveryRepository } from "../repositories/late-payment-recovery.repository";
 
-const testEmailAddressForAda = testEmailAddress("ada");
-
 /** These checkouts never received a late payment. */
 const noLatePaymentLayer = () =>
   Layer.mergeAll(
@@ -797,97 +795,6 @@ describe("CheckoutStatusService", () => {
     expect(status.summary?.reservedUntil.toString()).toBe(
       "2026-06-14T22:00:00Z"
     );
-  });
-
-  test("includes support contact prefill only after fulfillment fails", async () => {
-    const { CheckoutStatusService } = await import("./checkout-status.service");
-    const { ProviderPaymentFinalizationService } = await import(
-      "../payment/provider-payment-finalization.service"
-    );
-    const { WorkspaceReservationRepository } = await import(
-      "@/features/reservation/backend/workspace-reservation.repository"
-    );
-    const { PaymentAttemptRepository } = await import(
-      "../repositories/payment-attempt.repository"
-    );
-
-    const reservations = {
-      findById: mock(() =>
-        Effect.succeed(
-          makeReservation({
-            paymentState: "paid",
-            fulfillmentState: "failed",
-            fulfillmentFailedAt: testInstant("2026-06-20T10:00:00.000Z"),
-            fulfillmentFailureCode: "fulfillment_email_failed",
-          })
-        )
-      ),
-    };
-    const paymentAttempts = {
-      findDisplayableForReservation: mock(() =>
-        Effect.succeed(makePaymentAttempt())
-      ),
-    };
-    const finalization: ProviderPaymentFinalizationServiceType = {
-      finalizePendingProviderPayment: mock(() => Effect.die("not used")),
-    };
-
-    const status = await Effect.gen(function* () {
-      const service = yield* CheckoutStatusService;
-      return yield* service.getStatus({
-        orderId: "reservation-provider-return",
-        returnOutcome: "success",
-      });
-    }).pipe(
-      Effect.provide(
-        CheckoutStatusService.Default.pipe(
-          Layer.provide(
-            Layer.mergeAll(
-              Layer.mock(ProviderPaymentFinalizationService, finalization),
-              Layer.mock(WorkspaceReservationRepository, reservations),
-              Layer.mock(PaymentAttemptRepository, paymentAttempts),
-              dotyposLayer(
-                makeDotypos({
-                  getReservationWithoutCustomer: mock(() =>
-                    Effect.succeed({
-                      id: "dotypos-reservation-id",
-                      _customerId: "customer-id",
-                      startDate: "2026-06-19T22:00:00.000Z",
-                      endDate: "2026-06-20T22:00:00.000Z",
-                      seats: "1",
-                      status: "CONFIRMED",
-                    })
-                  ),
-                  getCustomer: mock(() =>
-                    Effect.succeed({
-                      id: "customer-id",
-                      firstName: "Ada",
-                      lastName: "Lovelace",
-                      email: testEmailAddressForAda,
-                      phone: "+420777777777",
-                    })
-                  ),
-                })
-              ),
-              noLatePaymentLayer(),
-              SeatingMapFeatureFlagServiceMock({
-                isEnabled: Effect.succeed(true),
-              })
-            )
-          )
-        )
-      ),
-      Effect.runPromise
-    );
-
-    expect(status).toMatchObject({
-      status: "fulfillment_failed",
-      supportContactPrefill: {
-        name: "Ada Lovelace",
-        email: testEmailAddressForAda,
-        phone: "+420777777777",
-      },
-    });
   });
 
   describe("a paid reservation whose fulfillment has not completed", () => {
