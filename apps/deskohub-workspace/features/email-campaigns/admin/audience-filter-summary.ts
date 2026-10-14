@@ -65,12 +65,8 @@ export const describeAudienceFilter = (filter: AudienceFilter): string =>
 export const audienceSingleLocale = (
   filter: AudienceFilter
 ): Locale | undefined => {
-  const conditions =
-    filter._tag === "Group"
-      ? filter.operator === "and"
-        ? filter.filters
-        : []
-      : [filter];
+  if (filter._tag === "Group" && filter.operator === "or") return undefined;
+  const conditions = filter._tag === "Group" ? filter.filters : [filter];
   for (const condition of conditions) {
     if (condition._tag === "Locale" && condition.locales.length === 1) {
       return condition.locales[0];
