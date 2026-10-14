@@ -32,7 +32,7 @@ describe("no source-as-string contract tests", () => {
     // Every path is resolved from the repository root.
     expect(audited.length).toBeGreaterThan(0);
     expect(audited).toContain("apps/dhw/src/command.test.ts");
-    expect(audited).toContain("packages/games/src/contract.test.ts");
+    expect(audited).toContain("packages/games/src/backend/service.test.ts");
     // Tests from other apps and packages are part of the audited set.
     expect(
       audited.some((path) => !path.startsWith("apps/deskohub-workspace/"))
