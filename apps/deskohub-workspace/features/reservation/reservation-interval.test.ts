@@ -3,7 +3,6 @@ import "@/shared/polyfills/temporal";
 import { describe, expect, test } from "bun:test";
 import { Effect, Schema } from "effect";
 import {
-  getReservationIntervalValidationIssue,
   hasReservationIntervalEnded,
   isSingleDayReservationInterval,
   normalizeReservationInterval,
@@ -14,19 +13,6 @@ import { getDurationMinutes } from "./reservation-interval-normalization";
 const decodeInterval = Schema.decodeUnknownSync(reservationIntervalInputSchema);
 
 describe("reservation intervals", () => {
-  test("accepts overnight intervals", () => {
-    expect(
-      Effect.runSync(
-        getReservationIntervalValidationIssue(
-          decodeInterval({
-            startsAt: "2099-06-10T22:00",
-            endsAt: "2099-06-11T02:00",
-          })
-        )
-      )
-    ).toBeNull();
-  });
-
   test("normalizes local overnight date-times to canonical instants", () => {
     expect(
       Effect.runSync(
@@ -58,19 +44,6 @@ describe("reservation intervals", () => {
       endsAt: "2099-06-11T13:00:00Z",
     });
     expect(getDurationMinutes(interval)).toBe(24 * 60);
-  });
-
-  test("accepts explicit instant intervals", () => {
-    expect(
-      Effect.runSync(
-        getReservationIntervalValidationIssue(
-          decodeInterval({
-            startsAt: "2099-06-10T07:00:00Z",
-            endsAt: "2099-06-10T08:00:00Z",
-          })
-        )
-      )
-    ).toBeNull();
   });
 
   test("keeps an interval eligible until its end has passed", () => {

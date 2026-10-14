@@ -97,7 +97,7 @@ export const prepareMeetingRoomAdvertisement = Effect.fn(
     advertisedQuote: state.quote,
     discountQuote: affirmed.discountQuote,
     ...getSubmittedCodeMetadata(affirmed),
-    requestedDiscountCode: state.requestedDiscountCode ?? state.submittedCode,
+    requestedDiscountCode: state.requestedDiscountCode,
     ...(changed && {
       changedKeys: getCheckoutSummaryChangedKeys(
         getMeetingRoomCheckoutSummary(state.quote),
