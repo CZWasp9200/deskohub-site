@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
 import { Schema } from "effect";
 import {
+  AdministrationBookingQuery,
   AdministrationCustomerProfile,
   AdministrationCustomerQuery,
   AdministrationCustomerReservationsQuery,
@@ -13,25 +14,65 @@ import {
   AdministrationDiscountMutationResult,
   AdministrationDotyposCustomerId,
   AdministrationDotyposDiscountGroupId,
+  AdministrationDotyposReservationId,
+  AdministrationDotyposTableId,
   AdministrationInvoiceCreateInput,
   AdministrationInvoiceListItem,
+  AdministrationNexiOperationId,
+  AdministrationNexiOrderId,
+  AdministrationOperationQuery,
+  AdministrationOrderQuery,
   AdministrationPaymentAttempt,
+  AdministrationPaymentAttemptId,
+  AdministrationProviderCredentialId,
   AdministrationReservationAccessGrant,
   AdministrationReservationAccessMutation,
   AdministrationReservationLookupQuery,
   AdministrationReservationQuery,
   AdministrationReservationSummary,
+  AdministrationStandaloneAccessCodeAttemptId,
   AdministrationStandaloneAccessCodeCreateInput,
   AdministrationStandaloneAccessCodeCreateRequest,
   AdministrationStandaloneAccessCodeCreationOutcome,
+  AdministrationStandaloneAccessCodeName,
   AdministrationStandaloneAccessCodePin,
   AdministrationStandaloneAccessCodeResult,
   AdministrationVoucher,
+  AdministrationWorkspaceReservationId,
   AdministrationWorkspaceSiteLocalWholeHourDateTime,
+  CliClientName,
   isStandaloneAccessCodeWindowWithinContractDuration,
+  StartCliAuthentication,
 } from "./workspace-admin-api";
 
 const syntheticAddress = testEmailAddress("synthetic");
+
+describe("CliClientName", () => {
+  test("trims a client label", () => {
+    expect(Schema.decodeUnknownSync(CliClientName)("  Office Mac  ")).toBe(
+      "Office Mac"
+    );
+  });
+
+  test("rejects a client label longer than 80 characters", () => {
+    expect(() =>
+      Schema.decodeUnknownSync(CliClientName)("a".repeat(81))
+    ).toThrow();
+  });
+});
+
+describe("StartCliAuthentication", () => {
+  test("rejects a whitespace-only client name", () => {
+    expect(() =>
+      Schema.decodeUnknownSync(StartCliAuthentication)({
+        challenge: "a".repeat(43),
+        clientName: "   ",
+        cliVersion: "1.0.0",
+        buildTarget: "development",
+      })
+    ).toThrow();
+  });
+});
 
 describe("standalone access-code contract", () => {
   const attemptId = "01980000-0000-7000-8000-000000000042";
@@ -70,6 +111,27 @@ describe("standalone access-code contract", () => {
     ).toThrow();
   });
 
+  test("enforces trimmed name bounds up to 60 characters", () => {
+    expect(() =>
+      Schema.decodeUnknownSync(AdministrationStandaloneAccessCodeName)("")
+    ).toThrow();
+    expect(() =>
+      Schema.decodeUnknownSync(AdministrationStandaloneAccessCodeName)("   ")
+    ).toThrow();
+    expect(() =>
+      Schema.decodeUnknownSync(AdministrationStandaloneAccessCodeName)(
+        "a".repeat(61)
+      )
+    ).toThrow();
+    expect(
+      String(
+        Schema.decodeUnknownSync(AdministrationStandaloneAccessCodeName)(
+          ` ${"a".repeat(60)} `
+        )
+      )
+    ).toBe("a".repeat(60));
+  });
+
   test("rejects malformed, non-canonical, and non-whole-hour local times", () => {
     for (const value of [
       "not-a-date",
@@ -102,6 +164,16 @@ describe("standalone access-code contract", () => {
         endsAt: "2026-10-25T04:00",
       })
     ).not.toThrow();
+  });
+
+  test("rejects a reversed window through the contract duration check", () => {
+    expect(() =>
+      decodeCreateInput({
+        ...validInput,
+        startsAt: "2026-09-10T12:00",
+        endsAt: "2026-09-10T10:00",
+      })
+    ).toThrow();
   });
 
   test("discloses the PIN only through the created outcome", () => {
@@ -171,6 +243,16 @@ describe("standalone access-code contract", () => {
     ).toThrow();
     expect(() => decodeOutcome({ ...metadata, outcome: "expired" })).toThrow();
   });
+
+  test("requires a non-empty provider credential identifier", () => {
+    const decode = Schema.decodeUnknownSync(AdministrationProviderCredentialId);
+    expect(() => decode("")).toThrow();
+    expect(
+      Schema.encodeSync(AdministrationProviderCredentialId)(
+        decode("provider-credential-id")
+      )
+    ).toBe("provider-credential-id");
+  });
 });
 
 describe("standalone access-code duration contract", () => {
@@ -226,9 +308,84 @@ describe("standalone access-code duration contract", () => {
 
 describe("standalone access-code CLI endpoint contract", () => {
   const attemptId = "01980000-0000-7000-8000-000000000042";
+  const confirmedAttemptId = Schema.decodeUnknownSync(
+    AdministrationStandaloneAccessCodeAttemptId
+  )(attemptId);
   const decodeRequest = Schema.decodeUnknownSync(
     AdministrationStandaloneAccessCodeCreateRequest
   );
+
+  test("decodes one client-generated attempt identifier with the authoritative input", () => {
+    expect(
+      JSON.stringify(
+        decodeRequest({
+          attemptId,
+          input: {
+            name: "  Booth A  ",
+            startsAt: "2026-09-10T10:00",
+            endsAt: "2026-09-10T12:00",
+          },
+        })
+      )
+    ).toBe(
+      JSON.stringify({
+        attemptId,
+        input: {
+          name: "Booth A",
+          startsAt: "2026-09-10T10:00",
+          endsAt: "2026-09-10T12:00",
+        },
+      })
+    );
+  });
+
+  test("decodes the explicit at-lock cleanup confirmation for retries", () => {
+    const confirmed = decodeRequest({
+      attemptId,
+      input: {
+        name: "Booth A",
+        startsAt: "2026-09-10T10:00",
+        endsAt: "2026-09-10T12:00",
+      },
+      providerCredentialRemovedAttemptId: attemptId,
+    });
+    expect(confirmed.providerCredentialRemovedAttemptId).toBe(
+      confirmedAttemptId
+    );
+
+    const unconfirmed = decodeRequest({
+      attemptId,
+      input: {
+        name: "Booth A",
+        startsAt: "2026-09-10T10:00",
+        endsAt: "2026-09-10T12:00",
+      },
+    });
+    expect("providerCredentialRemovedAttemptId" in unconfirmed).toBe(false);
+
+    expect(() =>
+      decodeRequest({
+        attemptId,
+        input: {
+          name: "Booth A",
+          startsAt: "2026-09-10T10:00",
+          endsAt: "2026-09-10T12:00",
+        },
+        providerCredentialRemoved: true,
+      })
+    ).toThrow();
+    expect(() =>
+      decodeRequest({
+        attemptId,
+        input: {
+          name: "Booth A",
+          startsAt: "2026-09-10T10:00",
+          endsAt: "2026-09-10T12:00",
+        },
+        providerCredentialRemovedAttemptId: "not-a-uuid",
+      })
+    ).toThrow();
+  });
 
   test("rejects excess properties and invalid windows before any handler runs", () => {
     const validInput = {
@@ -415,6 +572,36 @@ describe("administration contract", () => {
         },
       })
     ).toThrow();
+  });
+
+  test("keeps branded identifiers distinct while encoding them as strings", () => {
+    const reservationId = Schema.decodeUnknownSync(
+      AdministrationWorkspaceReservationId
+    )("reservation-id");
+    const paymentAttemptId = Schema.decodeUnknownSync(
+      AdministrationPaymentAttemptId
+    )("payment-attempt-id");
+
+    // @ts-expect-error Payment-attempt IDs must not be accepted as reservation IDs.
+    const wrongReservationId: typeof reservationId = paymentAttemptId;
+    void wrongReservationId;
+
+    expect(
+      Schema.encodeSync(AdministrationWorkspaceReservationId)(reservationId)
+    ).toBe("reservation-id");
+
+    for (const identifierSchema of [
+      AdministrationWorkspaceReservationId,
+      AdministrationPaymentAttemptId,
+      AdministrationNexiOrderId,
+      AdministrationNexiOperationId,
+      AdministrationDotyposCustomerId,
+      AdministrationDotyposReservationId,
+      AdministrationDotyposTableId,
+      AdministrationDotyposDiscountGroupId,
+    ]) {
+      expect(() => Schema.decodeUnknownSync(identifierSchema)("")).toThrow();
+    }
   });
 
   test("exposes refund work without changing successful payment state", () => {
@@ -688,6 +875,48 @@ describe("administration contract", () => {
     expect(() =>
       Schema.decodeUnknownSync(AdministrationCustomerReservationsQuery)({
         page: 0,
+      })
+    ).toThrow();
+  });
+
+  test("validates booking filters", () => {
+    expect(
+      Schema.decodeUnknownSync(AdministrationBookingQuery)({
+        date: "2026-08-10",
+        page: 2,
+      })
+    ).toEqual({ date: "2026-08-10", page: 2 });
+    expect(() =>
+      Schema.decodeUnknownSync(AdministrationBookingQuery)({
+        date: "10-08-2026",
+      })
+    ).toThrow();
+    expect(() =>
+      Schema.decodeUnknownSync(AdministrationBookingQuery)({
+        date: "2026-02-30",
+      })
+    ).toThrow();
+  });
+
+  test("validates payment date filters", () => {
+    expect(
+      Schema.decodeUnknownSync(AdministrationOrderQuery)({
+        from: "2024-02-29",
+        to: "2026-08-10",
+      })
+    ).toEqual({ from: "2024-02-29", to: "2026-08-10" });
+    expect(
+      Schema.decodeUnknownSync(AdministrationOperationQuery)({
+        channel: "ECOMMERCE",
+        operationType: "CAPTURE",
+      })
+    ).toEqual({ channel: "ECOMMERCE", operationType: "CAPTURE" });
+    expect(() =>
+      Schema.decodeUnknownSync(AdministrationOrderQuery)({ from: "tomorrow" })
+    ).toThrow();
+    expect(() =>
+      Schema.decodeUnknownSync(AdministrationOrderQuery)({
+        from: "2026-02-29",
       })
     ).toThrow();
   });
