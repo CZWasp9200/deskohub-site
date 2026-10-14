@@ -100,19 +100,6 @@ export const coworkReservationIntervalSchema = reservationIntervalSchema.check(
   })
 );
 
-export const getReservationIntervalValidationIssue = (
-  interval: ReservationIntervalInput
-) =>
-  getReservationIntervalNormalization(interval).pipe(
-    Effect.as(null),
-    Effect.catch((issue) =>
-      Effect.succeed({
-        path: issue.path,
-        message: issue.message,
-      })
-    )
-  );
-
 export const getReservationIntervalNormalization = (
   interval: ReservationIntervalInput
 ) =>
