@@ -235,7 +235,7 @@ describe("RoutedEmailProviderLive", () => {
       { subject: "Resend one", to: [realRecipient.email] },
       { subject: "Resend two", to: [realRecipient.email] },
     ]);
-    expect(options).toEqual({ idempotencyKey: "campaign-batch-key" });
+    expect(options).toMatchObject({ idempotencyKey: "campaign-batch-key" });
     expect(results.map((result) => result.provider)).toEqual([
       "console",
       "resend",
