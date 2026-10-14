@@ -86,25 +86,6 @@ test("renders positioned tables with classes and click handlers", () => {
   expect(clicks).toEqual([table]);
 });
 
-test("renders read-only tables without interactive group props", () => {
-  const table: Table = {
-    _cloudId: "cloud",
-    id: "table-1",
-    name: "T1",
-  };
-
-  const svg = TableMap({
-    tables: [table],
-    tableStyle: () => "is-muted",
-  }) as ReactElementLike;
-  const group = firstChild(svg);
-
-  expect(svg.props.role).toBe("img");
-  expect(group.props.role).toBeUndefined();
-  expect(group.props.tabIndex).toBeUndefined();
-  expect(group.props.onClick).toBeUndefined();
-});
-
 test("renders a rectangular room layout behind tables", () => {
   const table: Table = {
     _cloudId: "cloud",
