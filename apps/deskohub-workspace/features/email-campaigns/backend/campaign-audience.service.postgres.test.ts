@@ -145,6 +145,52 @@ describe.skipIf(!testDatabase)(
       });
     });
 
+    const unarchiveAudience = (audienceId: CampaignAudienceId) =>
+      run(
+        CampaignAudienceService.pipe(
+          Effect.flatMap((audiences) => audiences.unarchive(audienceId))
+        )
+      );
+
+    test("unarchives an audience so new campaigns can select it again", async () => {
+      const audience = await createAudience("Returning members");
+      await run(
+        CampaignAudienceService.pipe(
+          Effect.flatMap((audiences) => audiences.archive(audience.id))
+        )
+      );
+
+      const unarchived = await unarchiveAudience(audience.id);
+      expect(Exit.isSuccess(unarchived) && unarchived.value.archivedAt).toBe(
+        null
+      );
+      const listed = await run(
+        CampaignAudienceService.pipe(
+          Effect.flatMap((audiences) =>
+            audiences.list({ includeArchived: false })
+          )
+        )
+      );
+      expect(
+        Exit.isSuccess(listed) &&
+          listed.value.some(({ id }) => id === audience.id)
+      ).toBe(true);
+      const draft = await createCampaign(audience.id);
+      expect(draft.audienceId).toBe(audience.id);
+    });
+
+    test("reports a missing audience to unarchive", async () => {
+      const missing = await createAudience("Gone before unarchive");
+      await testDatabase.pool.query(
+        "delete from email_campaign_audiences where id = $1",
+        [missing.id]
+      );
+
+      expect(failure(await unarchiveAudience(missing.id))).toMatchObject({
+        _tag: "CampaignAudienceNotFound",
+      });
+    });
+
     test("deletes an audience only sent campaigns used and keeps their snapshot", async () => {
       const audience = await createAudience("One-off");
       const campaign = await createCampaign(audience.id);
@@ -266,6 +312,24 @@ describe.skipIf(!testDatabase)(
         draftCampaignIds: [draft.id],
       });
       expect(await storedAudienceId(draft.id)).toBe(audience.id);
+    });
+
+    test("unarchives after waiting on an archive that holds the audience row", async () => {
+      const audience = await createAudience("Archived under unarchive");
+      const { result } = await raceBehind(
+        {
+          sql: "update email_campaign_audiences set archived_at = now() where id = $1",
+          values: [audience.id],
+        },
+        () => unarchiveAudience(audience.id)
+      );
+
+      expect(Exit.isSuccess(result) && result.value.archivedAt).toBe(null);
+      const { rows } = await testDatabase.pool.query(
+        "select archived_at from email_campaign_audiences where id = $1",
+        [audience.id]
+      );
+      expect(rows).toEqual([{ archived_at: null }]);
     });
 
     const heldDeletion = (audienceId: CampaignAudienceId) => ({

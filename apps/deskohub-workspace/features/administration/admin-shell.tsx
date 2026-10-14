@@ -8,6 +8,8 @@ import {
   FileText,
   Gift,
   KeyRound,
+  ListFilter,
+  Mail,
   Menu,
   SquareTerminal,
   Ticket,
@@ -63,6 +65,13 @@ const navigation = [
         icon: SquareTerminal,
         label: "CLI sessions",
       },
+    ],
+  },
+  {
+    label: "Email",
+    items: [
+      { href: "/admin/email-campaigns", icon: Mail, label: "Campaigns" },
+      { href: "/admin/email-audiences", icon: ListFilter, label: "Audiences" },
     ],
   },
 ] as const;
@@ -147,6 +156,9 @@ const breadcrumbNames = new Map([
   ["create-code", "Create discount code"],
   ["create-voucher", "Create voucher"],
   ["discounts", "Discounts"],
+  ["email-audiences", "Audiences"],
+  ["email-campaigns", "Campaigns"],
+  ["recipients", "Recipients"],
   ["invoices", "Invoices"],
   ["new", "New invoice"],
   ["authenticate", "Authenticate"],
@@ -177,6 +189,8 @@ export function AdministrationBreadcrumbs({
         codes: "Code",
         bookings: "Booking",
         customers: "Customer",
+        "email-audiences": "Audience",
+        "email-campaigns": "Campaign",
         invoices: "Invoice",
         operations: "Operation",
         orders: "Order",
@@ -243,12 +257,14 @@ export function AdminShell({
   return (
     <div className="min-h-screen bg-[#f6f6f3] text-navy-blue lg:grid lg:grid-cols-[15rem_minmax(0,1fr)]">
       <SkipLink label="Skip to main content" />
-      <aside className="hidden border-r border-navy-blue/10 bg-white px-4 py-5 lg:sticky lg:top-0 lg:block lg:h-screen">
-        <Brand />
-        <div className="mt-9">
-          <Suspense fallback={<Navigation />}>
-            <ActiveNavigation />
-          </Suspense>
+      <aside className="hidden border-r border-navy-blue/10 bg-white lg:block">
+        <div className="sticky top-0 max-h-screen overflow-y-auto px-4 py-5">
+          <Brand />
+          <div className="mt-9">
+            <Suspense fallback={<Navigation />}>
+              <ActiveNavigation />
+            </Suspense>
+          </div>
         </div>
       </aside>
 

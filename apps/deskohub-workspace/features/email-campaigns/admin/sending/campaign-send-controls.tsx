@@ -1,0 +1,48 @@
+"use client";
+
+import { Users } from "lucide-react";
+import Link from "next/link";
+import type { Locale } from "@/features/i18n";
+import { Button } from "@/shared/components/ui/button";
+import type { CampaignId } from "../../campaign-identifiers";
+import { CampaignConfirmSendDialog } from "./campaign-confirm-send-dialog";
+import { CampaignTestSendDialog } from "./campaign-test-send-dialog";
+
+export type CampaignSendControlsProps = {
+  readonly campaignId: CampaignId;
+  /** The fixed test-send recipient, from `CampaignSendPipeline.adminInbox`. */
+  readonly adminInbox: string;
+  /** Locales the saved campaign has content for. */
+  readonly contentLocales: readonly Locale[];
+  /** The composer has edits the test send would not include yet. */
+  readonly unsavedChanges: boolean;
+};
+
+/** Recipient preview, test send, and code-confirmed send for a Draft. */
+export function CampaignSendControls({
+  adminInbox,
+  campaignId,
+  contentLocales,
+  unsavedChanges,
+}: CampaignSendControlsProps) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <Button asChild size="sm" variant="ghost">
+        <Link href={`/admin/email-campaigns/${campaignId}/recipients`}>
+          <Users aria-hidden className="size-4" />
+          Preview recipients
+        </Link>
+      </Button>
+      <CampaignTestSendDialog
+        adminInbox={adminInbox}
+        campaignId={campaignId}
+        contentLocales={contentLocales}
+        unsavedChanges={unsavedChanges}
+      />
+      <CampaignConfirmSendDialog
+        campaignId={campaignId}
+        unsavedChanges={unsavedChanges}
+      />
+    </div>
+  );
+}
