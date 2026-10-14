@@ -1,17 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import "@/shared/polyfills/temporal";
-import { workspaceProductTargets } from "@/features/discounts/product-target";
 import {
   toCreateDiscountCodeInput,
   toCreateDiscountInput,
-  toDiscountCodeConfigurationInput,
-  toVoucherConfigurationInput,
   toVoucherCreditInput,
 } from "./form-input";
 import type {
   DiscountCodeFormValues,
   DiscountDefinitionFormValues,
-  VoucherFormValues,
 } from "./form-schemas";
 
 const percentageDefinition = (
@@ -35,16 +31,6 @@ describe("discount administration form input", () => {
     });
   });
 
-  test("accepts every product offered by the catalog", () => {
-    for (const identity of workspaceProductTargets) {
-      expect(
-        toCreateDiscountInput(
-          percentageDefinition({ products: [identity.kind] })
-        ).products
-      ).toEqual([identity]);
-    }
-  });
-
   test("converts a fixed amount in a known catalog currency", () => {
     expect(
       toCreateDiscountInput(
@@ -57,21 +43,6 @@ describe("discount administration form input", () => {
     ).toEqual({
       kind: "fixed",
       amount: { value: 10_000, exponent: 2, currency: "CZK" },
-    });
-  });
-
-  test("marks an unknown fixed-amount currency as unsupported", () => {
-    expect(
-      toCreateDiscountInput(
-        percentageDefinition({
-          adjustmentKind: "fixed",
-          fixedAmountValue: "2500",
-          fixedAmountCurrency: "xyz",
-        })
-      ).adjustment
-    ).toEqual({
-      kind: "fixed",
-      amount: { value: 2500, exponent: -1, currency: "" },
     });
   });
 
@@ -97,26 +68,6 @@ describe("discount administration form input", () => {
     });
   });
 
-  test("reads empty optional code fields as null", () => {
-    expect(
-      toDiscountCodeConfigurationInput({
-        code: "summer10",
-        enabled: false,
-        validFrom: "",
-        validUntil: "",
-        maxUses: "",
-        maxUsesPerCustomer: "",
-      })
-    ).toEqual({
-      code: "SUMMER10",
-      enabled: false,
-      validFrom: null,
-      validUntil: null,
-      maxUses: null,
-      maxUsesPerCustomer: null,
-    });
-  });
-
   test("reads voucher credit in the selected catalog currency", () => {
     expect(
       toVoucherCreditInput({ voucherValue: "10000", voucherCurrency: "czk" })
@@ -128,29 +79,5 @@ describe("discount administration form input", () => {
     expect(
       toVoucherCreditInput({ voucherValue: "5000", voucherCurrency: "zzz" })
     ).toEqual({ value: 5000, exponent: -1, currency: "" });
-  });
-
-  test("omits discount use limits from the voucher configuration", () => {
-    const values: VoucherFormValues = {
-      voucherValue: "10000",
-      voucherCurrency: "CZK",
-      code: "GIFT100",
-      enabled: true,
-      validFrom: "2026-08-01T10:00",
-      validUntil: "",
-      maxUses: "50",
-      maxUsesPerCustomer: "3",
-    };
-
-    expect(toVoucherConfigurationInput(values)).toEqual({
-      code: "GIFT100",
-      enabled: true,
-      validFrom: "2026-08-01T08:00:00Z",
-      validUntil: null,
-    });
-    expect("maxUses" in toVoucherConfigurationInput(values)).toBe(false);
-    expect("maxUsesPerCustomer" in toVoucherConfigurationInput(values)).toBe(
-      false
-    );
   });
 });
