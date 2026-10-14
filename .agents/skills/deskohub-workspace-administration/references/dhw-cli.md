@@ -40,6 +40,14 @@ Rules:
 
 `--product cowork` targets every cowork tier. `cowork:open-space` and `cowork:reserved-desk` target one tier and can't be combined with `cowork`. See [discounts.md](discounts.md#cowork-tier-targets).
 
+## Email campaigns
+
+- The campaign contract lives in `packages/workspace-admin-api/src/email-campaigns.ts`, and `features/admin-cli/email-campaigns-api.server.ts` serves it with the services the campaign admin UI uses.
+- Bodies cross the API as Markdown. The server parses them with `parseCampaignBodyMarkdown` and exports stored bodies with `campaignBodyToMarkdown`; `dhw` never parses Markdown itself.
+- The contract mirrors the domain `audienceFilterSchema`, and the server decodes every filter with the domain schema again. Change both together.
+- Unparsable or invalid input fails with `CliInputInvalid` (400), and state conflicts fail with `CliMutationRejected` (409). Both messages reach the operator verbatim, so keep them actionable.
+- Campaign mutations don't use the CLI mutation ledger: a confirmed send is single-use by its confirmation code, and a retried create can at worst leave an extra draft.
+
 ## Standalone access codes
 
 `dhw access-codes create` shares the server workflow in [dashboard.md](dashboard.md#standalone-access-codes). The CLI adds local state:
@@ -67,6 +75,7 @@ Run the CI-equivalent checks from `.github/workflows/dhw-ci.yml` for contract or
 bun turbo lint --filter=@deskohub/workspace-admin-api --filter=dhw
 bun turbo typecheck --filter=@deskohub/workspace-admin-api --filter=dhw
 bun --cwd apps/dhw test
+bun test packages/workspace-admin-api
 bun turbo test:admin-cli --filter=./apps/deskohub-workspace
 bun apps/dhw/src/build.ts development
 apps/dhw/dist/dhw version --json

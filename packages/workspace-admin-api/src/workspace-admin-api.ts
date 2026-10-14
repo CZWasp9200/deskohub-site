@@ -1,13 +1,13 @@
 import { Temporal } from "@js-temporal/polyfill";
 import { Context, Effect, Schema } from "effect";
 import {
-  HttpApi,
   HttpApiEndpoint,
   HttpApiGroup,
   HttpApiMiddleware,
   HttpApiSchema,
   HttpApiSecurity,
 } from "effect/unstable/httpapi";
+import { administrationCalendarDate } from "./calendar-date";
 import { WORKSPACE_SITE_TIME_ZONE } from "./site-time-zone";
 
 export const WORKSPACE_ADMIN_API_VERSION = "v1" as const;
@@ -245,6 +245,14 @@ export class CliResourceNotFound extends Schema.TaggedErrorClass<CliResourceNotF
   static schema = this.pipe(HttpApiSchema.status("NotFound"));
 }
 
+/** Request content the server can't accept, such as an unparsable body. */
+export class CliInputInvalid extends Schema.TaggedErrorClass<CliInputInvalid>()(
+  "CliInputInvalid",
+  { message: Schema.String }
+) {
+  static schema = this.pipe(HttpApiSchema.status("BadRequest"));
+}
+
 export class CliMutationRejected extends Schema.TaggedErrorClass<CliMutationRejected>()(
   "CliMutationRejected",
   { message: Schema.String }
@@ -464,20 +472,6 @@ export const AdministrationGoogleCalendarICalUid = Schema.NonEmptyString.pipe(
 });
 export type AdministrationGoogleCalendarICalUid =
   typeof AdministrationGoogleCalendarICalUid.Type;
-
-const isCalendarDate = (value: string) => {
-  try {
-    return Temporal.PlainDate.from(value).toString() === value;
-  } catch {
-    return false;
-  }
-};
-
-const administrationCalendarDate = Schema.String.check(
-  Schema.makeFilter(isCalendarDate, {
-    description: "A calendar date in YYYY-MM-DD format.",
-  })
-).annotate({ format: "date" });
 
 export const AdministrationInvoiceId = Schema.String.check(Schema.isUUID())
   .pipe(Schema.brand("AdministrationInvoiceId"))
@@ -2190,7 +2184,3 @@ export const AdminCliAdministrationApi = HttpApiGroup.make("administration")
   )
   .middleware(CliBearerAuthentication)
   .prefix("/api/v1/cli");
-
-export const WorkspaceAdminApi = HttpApi.make("workspaceAdminApi")
-  .add(AdminCliApi)
-  .add(AdminCliAdministrationApi);

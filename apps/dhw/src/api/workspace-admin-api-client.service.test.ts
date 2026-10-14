@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
 import {
   AdministrationBookingSummary,
+  AdministrationCampaignId,
   AdministrationCanonicalPromotionCode,
   AdministrationDiscountCodeId,
   AdministrationInvoiceId,
@@ -18,6 +19,7 @@ import {
   CliAuthenticationCode,
   CliAuthenticationVerifier,
   CliGrantToken,
+  CliInputInvalid,
   CliMutationRejected,
   CliMutationRequestId,
   CliMutationUncertain,
@@ -1146,6 +1148,104 @@ describe("WorkspaceAdminApiClient", () => {
           input: accessCodeInput,
           providerCredentialRemovedAttemptId: cleanupTargetAttemptId,
         },
+      });
+    } finally {
+      server.stop(true);
+    }
+  });
+});
+
+describe("WorkspaceAdminApiClient campaigns", () => {
+  test("keeps the server's input and state messages and hides other failures", async () => {
+    const accessToken = Redacted.make(
+      Schema.decodeUnknownSync(CliAccessToken)("c".repeat(43))
+    );
+    const campaignId = Schema.decodeUnknownSync(AdministrationCampaignId)(
+      "campaign-1"
+    );
+    const requests: Array<{ readonly path: string; readonly body: unknown }> =
+      [];
+    const server = Bun.serve({
+      port: 0,
+      fetch: async (request) => {
+        const path = new URL(request.url).pathname;
+        requests.push({
+          path,
+          body: request.method === "GET" ? null : await request.json(),
+        });
+        if (path === "/api/v1/cli/campaigns" && request.method === "POST") {
+          return Response.json(
+            {
+              _tag: "CliInputInvalid",
+              message: "Line 3: a button needs a label.",
+            },
+            { status: 400 }
+          );
+        }
+        if (path === `/api/v1/cli/campaigns/${campaignId}/send`) {
+          return Response.json(
+            {
+              _tag: "CliMutationRejected",
+              message: "The confirmation code is wrong or expired.",
+            },
+            { status: 409 }
+          );
+        }
+        return new Response("internal details", { status: 500 });
+      },
+    });
+
+    try {
+      const clientLayer = WorkspaceAdminApiClient.Default.pipe(
+        Layer.provide(FetchHttpClient.layer),
+        Layer.provide(
+          Layer.succeed(DhwConfig, {
+            baseUrl: new URL(`http://127.0.0.1:${server.port}`),
+            requestHeaders: {},
+            isCi: true,
+            stateDirectory: "/tmp/dhw-campaign-client-test",
+            updateChecksDisabled: true,
+          })
+        )
+      );
+      const errors = await Effect.gen(function* () {
+        const client = yield* WorkspaceAdminApiClient;
+        return [
+          yield* client
+            .createCampaign(accessToken, {
+              title: "Autumn news",
+              purpose: "marketing",
+              templateKey: "workspace",
+              audienceId: null,
+              content: {
+                "cs-CZ": {
+                  subject: "Novinky",
+                  preheader: "",
+                  bodyMarkdown: "[[button: ](https://example.com)]",
+                },
+              },
+            })
+            .pipe(Effect.flip),
+          yield* client
+            .sendCampaign(accessToken, campaignId, {
+              confirmationCode: "ABC123",
+            })
+            .pipe(Effect.flip),
+          yield* client.listCampaigns(accessToken).pipe(Effect.flip),
+        ];
+      }).pipe(Effect.provide(clientLayer), Effect.runPromise);
+
+      expect(errors[0]).toBeInstanceOf(CliInputInvalid);
+      expect(errors[0]?.message).toBe("Line 3: a button needs a label.");
+      expect(errors[1]).toBeInstanceOf(CliMutationRejected);
+      expect(errors[1]?.message).toBe(
+        "The confirmation code is wrong or expired."
+      );
+      expect(errors[2]).toBeInstanceOf(CliApiRequestError);
+      expect(errors[2]?.message).not.toContain("internal details");
+      expect(requests[1]).toEqual({
+        path: `/api/v1/cli/campaigns/${campaignId}/send`,
+        body: { confirmationCode: "ABC123" },
       });
     } finally {
       server.stop(true);
