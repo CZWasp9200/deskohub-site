@@ -12,6 +12,7 @@ import {
   Layer,
   Option,
   Order,
+  Result,
   Schema,
 } from "effect";
 import { getAdministrationReservationDateRangeBounds } from "@/features/administration/reservation-date-range";
@@ -267,22 +268,34 @@ const classifyRecipients = ({
 
 const decodeEmail = Schema.decodeUnknownOption(reservationCustomerEmailSchema);
 
+/**
+ * The email a campaign can reach a customer at, or why it can't. Resolution
+ * and delivery both apply it, so a profile that changed since the send was
+ * frozen is excluded the same way.
+ */
+export const reachableCampaignEmail = (
+  profile: Option.Option<DotyposCustomer>
+): Result.Result<string, CampaignRecipientExclusionReason> => {
+  if (Option.isNone(profile)) return Result.fail("missing-from-dotypos");
+  if (profile.value.deleted) return Result.fail("deleted-customer");
+  if (!profile.value.email?.trim()) return Result.fail("missing-email");
+  return Option.match(decodeEmail(profile.value.email), {
+    onNone: () => Result.fail("invalid-email" as const),
+    onSome: Result.succeed,
+  });
+};
+
 const classify = (
   candidate: Candidate,
   profile: Option.Option<DotyposCustomer>
-): EligibleRecipient | CampaignRecipientExclusion => {
-  const exclude = (reason: CampaignRecipientExclusionReason) => ({
-    dotyposCustomerId: candidate.dotyposCustomerId,
-    reason,
+): EligibleRecipient | CampaignRecipientExclusion =>
+  Result.match(reachableCampaignEmail(profile), {
+    onFailure: (reason) => ({
+      dotyposCustomerId: candidate.dotyposCustomerId,
+      reason,
+    }),
+    onSuccess: (email) => ({ ...candidate, email }),
   });
-  if (Option.isNone(profile)) return exclude("missing-from-dotypos");
-  if (profile.value.deleted) return exclude("deleted-customer");
-  if (!profile.value.email?.trim()) return exclude("missing-email");
-  return Option.match(decodeEmail(profile.value.email), {
-    onNone: () => exclude("invalid-email"),
-    onSome: (email) => ({ ...candidate, email }),
-  });
-};
 
 const byCustomerId = Order.mapInput(
   Order.String,

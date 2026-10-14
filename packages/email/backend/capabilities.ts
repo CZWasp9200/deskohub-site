@@ -28,11 +28,25 @@ export class EmailTemplateError extends Data.TaggedError("EmailTemplateError")<{
   }
 }
 
+/** Options of one batch request; the key stays the same across retries. */
+export interface EmailBatchOptions {
+  readonly idempotencyKey: string;
+}
+
 export interface EmailProvider {
   readonly name: string;
   readonly send: (
     message: EmailMessage
   ) => Effect.Effect<EmailSendResult, EmailSendError>;
+  /**
+   * Sends up to 100 messages in one request. Results follow the message
+   * order. A provider that accepted the key once returns the same result for
+   * a repeated request instead of sending again.
+   */
+  readonly sendBatch: (
+    messages: readonly EmailMessage[],
+    options: EmailBatchOptions
+  ) => Effect.Effect<readonly EmailSendResult[], EmailSendError>;
   readonly verify: Effect.Effect<boolean, EmailServiceError>;
 }
 

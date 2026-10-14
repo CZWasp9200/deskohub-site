@@ -16,7 +16,7 @@ const campaignAudienceIdSchema = Schema.NonEmptyString.pipe(
 });
 export type CampaignAudienceId = typeof campaignAudienceIdSchema.Type;
 
-const campaignSendIdSchema = Schema.NonEmptyString.pipe(
+export const campaignSendIdSchema = Schema.NonEmptyString.pipe(
   Schema.brand("CampaignSendId")
 ).annotate({
   identifier: "CampaignSendId",

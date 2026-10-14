@@ -1,6 +1,7 @@
 import "@/shared/testing/workspace-test-env";
 
 import { afterAll, describe, expect, test } from "bun:test";
+import { DotyposCustomerIdSchema } from "@deskohub/dotypos";
 import { NodeCrypto } from "@effect/platform-node";
 import { Cause, Effect, Exit, Layer } from "effect";
 import { TestClock } from "effect/testing";
@@ -12,12 +13,29 @@ import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace
 import { hashCampaignContent } from "../body/campaign-content-hash";
 import type { CampaignId } from "../campaign-identifiers";
 import { CampaignService } from "./campaign.service";
+import type { CampaignSendFreeze } from "./campaign-confirmation-code.service";
 import { CampaignConfirmationCodeService } from "./campaign-confirmation-code.service";
-import { campaignContentFixture } from "./email-campaigns.test-utils";
+import {
+  campaignContentFixture,
+  everyoneFilter,
+} from "./email-campaigns.test-utils";
 
 const testDatabase = await connectWorkspacePostgresTestDatabase();
 
 const issuedAt = Temporal.Instant.from("2026-10-14T10:00:00Z");
+
+const frozenSend: CampaignSendFreeze = {
+  audienceId: null,
+  audienceFilter: everyoneFilter,
+  recipients: [
+    {
+      dotyposCustomerId: DotyposCustomerIdSchema.make(
+        "campaign-confirm-recipient"
+      ),
+      locale: "cs-CZ",
+    },
+  ],
+};
 
 describe.skipIf(!testDatabase)(
   "CampaignConfirmationCodeService on disposable Postgres",
@@ -26,6 +44,10 @@ describe.skipIf(!testDatabase)(
     const campaignIds: CampaignId[] = [];
 
     afterAll(async () => {
+      await testDatabase.pool.query(
+        "delete from email_campaign_sends where campaign_id = any($1)",
+        [campaignIds]
+      );
       await testDatabase.pool.query(
         "delete from email_campaigns where id = any($1)",
         [campaignIds]
@@ -106,7 +128,9 @@ describe.skipIf(!testDatabase)(
       runAt(
         elapsed,
         CampaignConfirmationCodeService.pipe(
-          Effect.flatMap((codes) => codes.confirm({ campaignId, code }))
+          Effect.flatMap((codes) =>
+            codes.confirm({ campaignId, code, send: frozenSend })
+          )
         )
       );
 
@@ -152,10 +176,37 @@ describe.skipIf(!testDatabase)(
       const typed = ` ${code.slice(0, 4).toLowerCase()}-${code.slice(4)} `;
 
       const confirmed = await confirm(campaign.id, typed);
-      expect(Exit.isSuccess(confirmed) && confirmed.value.status).toBe(
+      expect(Exit.isSuccess(confirmed) && confirmed.value.campaign.status).toBe(
         "sending"
       );
       expect((await storedCampaign(campaign.id)).status).toBe("sending");
+      const { rows: sends } = await testDatabase.pool.query(
+        "select id, audience_filter, content_hash from email_campaign_sends where campaign_id = $1",
+        [campaign.id]
+      );
+      expect(sends).toEqual([
+        {
+          id: Exit.isSuccess(confirmed) ? confirmed.value.sendId : undefined,
+          audience_filter: everyoneFilter,
+          content_hash: hashCampaignContent({
+            purpose: campaign.purpose,
+            templateKey: campaign.templateKey,
+            locales: campaign.content,
+          }),
+        },
+      ]);
+      const { rows: recipients } = await testDatabase.pool.query(
+        "select dotypos_customer_id, locale, status, delivery_attempt from email_campaign_recipients where send_id = $1",
+        [sends[0].id]
+      );
+      expect(recipients).toEqual([
+        {
+          dotypos_customer_id: "campaign-confirm-recipient",
+          locale: "cs-CZ",
+          status: "pending",
+          delivery_attempt: 1,
+        },
+      ]);
       expect(failure(await confirm(campaign.id, code))).toMatchObject({
         _tag: "CampaignReadOnly",
         status: "sending",
