@@ -3,6 +3,7 @@ import { sql } from "drizzle-orm";
 import {
   check,
   index,
+  integer,
   jsonb,
   pgTable,
   primaryKey,
@@ -176,21 +177,27 @@ export const emailCampaignConfirmationCodes = pgTable(
       .notNull()
       .references(() => emailCampaigns.id, { onDelete: "cascade" })
       .$type<CampaignId>(),
-    code: text("code").notNull(),
+    // A keyed hash of the code; the plaintext exists only in the test email.
+    codeHash: text("code_hash").notNull(),
     contentHash: text("content_hash").notNull().$type<CampaignContentHash>(),
     issuedAt: instant("issued_at").notNull(),
     expiresAt: instant("expires_at").notNull(),
     supersededAt: instant("superseded_at"),
     confirmedAt: instant("confirmed_at"),
+    failedAttempts: integer("failed_attempts").notNull().default(0),
   },
   (t) => [
-    primaryKey({ columns: [t.campaignId, t.code] }),
+    primaryKey({ columns: [t.campaignId, t.codeHash] }),
     uniqueIndex("email_campaign_confirmation_codes_current_unique_idx")
       .on(t.campaignId)
       .where(sql`${t.supersededAt} is null`),
     check(
       "email_campaign_confirmation_codes_expiry_check",
       sql`${t.expiresAt} > ${t.issuedAt}`
+    ),
+    check(
+      "email_campaign_confirmation_codes_failed_attempts_check",
+      sql`${t.failedAttempts} >= 0`
     ),
   ]
 );
