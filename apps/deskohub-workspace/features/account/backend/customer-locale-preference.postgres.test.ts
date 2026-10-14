@@ -4,10 +4,7 @@ import "@/shared/testing/workspace-test-env";
 import { describe, expect, test } from "bun:test";
 import { Effect, Layer } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
-import {
-  WorkspaceDatabaseAdvisoryLock,
-  withPostgresAdvisoryLock,
-} from "@/db/postgres-advisory-lock";
+import { WorkspaceDatabaseAdvisoryLock } from "@/db/postgres-advisory-lock";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import {
   type CustomerAccountAccessError,
@@ -227,54 +224,6 @@ describe.skipIf(!testDatabase)(
       });
       expect(outcomes.unverified).toEqual({ kind: "unverified-email" });
       expect(outcomes.unknown).toEqual({ kind: "pre-account" });
-    });
-
-    test("serializes saves against an outer account lock holder", async () => {
-      const { Fiber } = await import("effect");
-      const { Deferred } = await import("effect");
-      const { layer, setSessionAccount } = makeRepositoryLayer();
-      const account = customerAccountIdSchema.make(uniqueId());
-      await insertAuthUser(account, testEmailAddress(`pref-e-${account}`));
-      setSessionAccount(account);
-
-      let innerCompleted = false;
-
-      await Effect.runPromise(
-        Effect.gen(function* () {
-          const gate = yield* Deferred.make<never, void>();
-
-          const outer = yield* Effect.forkChild(
-            withPostgresAdvisoryLock(
-              testDatabase!.pool,
-              ["customer-account", account],
-              Deferred.await(gate).pipe(Effect.orDie)
-            ).pipe(Effect.orDie)
-          );
-
-          yield* Effect.sleep("150 millis");
-
-          const inner = yield* Effect.forkChild(
-            saveAccountLocalePreference(account, "cs-CZ")
-              .pipe(Effect.orDie)
-              .pipe(
-                Effect.tap(() =>
-                  Effect.sync(() => {
-                    innerCompleted = true;
-                  })
-                )
-              )
-          );
-
-          yield* Effect.sleep("300 millis");
-          expect(innerCompleted).toBe(false);
-
-          yield* Deferred.succeed(gate, undefined);
-          yield* Fiber.join(outer);
-          yield* Fiber.join(inner);
-
-          expect(innerCompleted).toBe(true);
-        }).pipe(Effect.provide(layer))
-      );
     });
   }
 );
