@@ -1,10 +1,10 @@
 import "./shared/polyfills/temporal";
 
 import { initBotId } from "botid/client/core";
-import { clientEnv } from "./client-env";
+import { getClientEnv } from "./client-env";
 import { initializeWorkspaceBotId } from "./shared/bot-protection/bot-protection.policy.js";
 
-initializeWorkspaceBotId(clientEnv.NEXT_PUBLIC_VERCEL_ENV, () =>
+initializeWorkspaceBotId(getClientEnv().NEXT_PUBLIC_VERCEL_ENV, () =>
   initBotId({
     protect: [
       {

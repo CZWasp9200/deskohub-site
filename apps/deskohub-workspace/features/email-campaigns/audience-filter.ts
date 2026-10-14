@@ -16,8 +16,10 @@ const calendarDateSchema = Schema.String.check(isPlainDateString());
 /**
  * Whether the customer has (or hasn't) a Workspace reservation, optionally
  * within an inclusive calendar date range and in one admin status group.
- * `visit` dates the reservation by when the customer occupies the space (its
- * Dotypos start), `booking` by when the customer booked it in Workspace.
+ * Without a status only booked reservations count: confirmed and never
+ * cancelled, so abandoned and expired checkouts do not. `visit` dates the
+ * reservation by when the customer occupies the space (its Dotypos start),
+ * `booking` by when Workspace confirmed it.
  */
 const audienceReservationConditionSchema = Schema.TaggedStruct("Reservation", {
   presence: Schema.Literals(["has", "hasNot"]),

@@ -131,6 +131,15 @@ describe("CampaignBodyDocument", () => {
     ).toContain("A button needs a label.");
   });
 
+  test.each(["Book\rnow", "Book\r\nnow"])(
+    "rejects the button label %p, which Markdown can't keep",
+    (label) => {
+      expect(
+        failureMessage(body(cta({ label, href: "https://deskohub.cz" })))
+      ).toContain("A button label must break lines with line feeds only.");
+    }
+  );
+
   test("rejects a button without a safe URL", () => {
     expect(failureMessage(body(cta({ label: "Klik", href: null })))).toContain(
       "A button needs an https: or mailto: URL."

@@ -47,7 +47,12 @@ export interface ICampaignService {
   readonly create: (
     input: CampaignDraftInput
   ) => Effect.Effect<Campaign, CampaignWriteError | EffectDrizzleQueryError>;
-  /** Edits a Draft; a campaign that left Draft is read-only. */
+  /**
+   * Edits a Draft; a campaign that left Draft is read-only. The edit's row
+   * update waits on a confirmation's campaign row lock and then rechecks the
+   * status, so content can't change between a confirmation's content check
+   * and its move to Sending.
+   */
   readonly update: (
     input: { readonly campaignId: CampaignId } & Partial<CampaignDraftInput>
   ) => Effect.Effect<

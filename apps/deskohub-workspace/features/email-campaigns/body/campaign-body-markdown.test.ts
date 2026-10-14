@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
-import { Effect, Exit } from "effect";
+import { Effect, Exit, Schema } from "effect";
+import { CampaignBodyDocument } from "./campaign-body-document";
 import {
   campaignBodyToMarkdown,
   parseCampaignBodyMarkdown,
@@ -52,6 +53,75 @@ describe("campaign body Markdown", () => {
         attrs: { label: "Book now", href: "https://deskohub.cz/book" },
       },
     ]);
+  });
+
+  test.each([
+    ["parentheses in the URL", "Book", "https://example.com/book(foo)"],
+    ["unbalanced parentheses", "Book", "https://example.com/a)b(c"],
+    ["a closing bracket after the URL", "Book", "https://example.com/x)]"],
+    ["a space in the URL", "Book", "https://example.com/a b"],
+    ["a backslash in the URL", "Book", "https://example.com/a\\b"],
+    ["a mailto subject", "Write", "mailto:team@deskohub.cz?subject=Hi%20(you)"],
+    ["brackets in the label", "Book [now]", "https://deskohub.cz"],
+    ["unbalanced brackets", "]] Book [[", "https://deskohub.cz"],
+    [
+      "link syntax in the label",
+      "x](https://example.com)",
+      "https://deskohub.cz",
+    ],
+    ["a multiline label", "Book\nnow\n\ntoday", "https://deskohub.cz"],
+    ["whitespace around the label", "  Book\t ", "https://deskohub.cz"],
+    ["backslashes in the label", "C:\\ \\[x\\]\\", "https://deskohub.cz"],
+    [
+      "Markdown in the label",
+      "**no** _em_ `code` <b>x</b> # 1.",
+      "https://deskohub.cz",
+    ],
+  ])(
+    "keeps a button with %s through export and import",
+    async (_name, label, href) => {
+      const body = Schema.decodeUnknownSync(CampaignBodyDocument)({
+        formatVersion: 1,
+        doc: {
+          type: "doc",
+          content: [
+            { type: "paragraph", content: [{ type: "text", text: "Hi" }] },
+            { type: "ctaButton", attrs: { label, href } },
+            { type: "paragraph", content: [{ type: "text", text: "Bye" }] },
+          ],
+        },
+      });
+
+      const imported = await parse(campaignBodyToMarkdown(body));
+
+      expect(imported.doc.content?.[1]).toEqual({
+        type: "ctaButton",
+        attrs: { label, href },
+      });
+      expect(imported).toEqual(body);
+    }
+  );
+
+  test.each([
+    [
+      "balanced parentheses in the URL",
+      "[[button: Book](https://example.com/book(foo))]",
+      { label: "Book", href: "https://example.com/book(foo)" },
+    ],
+    [
+      "balanced brackets in the label",
+      "[[button: Book [now]](https://deskohub.cz)]",
+      { label: "Book [now]", href: "https://deskohub.cz" },
+    ],
+    [
+      "spaces around the label",
+      "[[button:   Book now  ](https://deskohub.cz)]  ",
+      { label: "Book now", href: "https://deskohub.cz" },
+    ],
+  ])("parses a hand-written button with %s", async (_name, markdown, attrs) => {
+    const body = await parse(markdown);
+
+    expect(body.doc.content).toEqual([{ type: "ctaButton", attrs }]);
   });
 
   test.each([

@@ -1,4 +1,5 @@
 import { Data, type Schema } from "effect";
+import type { BetterAuthSecretsMessage } from "@/features/account/backend/auth/auth-secrets";
 import type { CampaignAudienceId, CampaignId } from "./campaign-identifiers";
 import type { CampaignStatus } from "./campaign-states";
 
@@ -45,20 +46,32 @@ export class CampaignAudienceArchived extends Data.TaggedError(
 
 export type CampaignConfirmationRejection =
   | "unknown-code"
-  | "already-confirmed"
   | "superseded"
   | "expired"
-  | "content-changed";
+  | "content-changed"
+  | "too-many-attempts";
 
 /**
  * The typed confirmation code can't confirm the real send. Every rejection
- * needs a new test send except `unknown-code`, which may be a typo.
+ * needs a new test send except `unknown-code`, which may be a typo. A typed
+ * code other than the current one counts as a failed attempt against it,
+ * and the fifth failure supersedes it (`too-many-attempts`).
  */
 export class CampaignConfirmationRejected extends Data.TaggedError(
   "CampaignConfirmationRejected"
 )<{
   readonly campaignId: CampaignId;
   readonly reason: CampaignConfirmationRejection;
+}> {}
+
+/**
+ * `BETTER_AUTH_SECRETS` holds no valid signing secret to key the
+ * confirmation-code hashes with.
+ */
+export class CampaignConfirmationKeyInvalid extends Data.TaggedError(
+  "CampaignConfirmationKeyInvalid"
+)<{
+  readonly message: BetterAuthSecretsMessage;
 }> {}
 
 /**
