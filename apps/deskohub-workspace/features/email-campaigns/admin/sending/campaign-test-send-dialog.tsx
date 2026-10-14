@@ -4,8 +4,8 @@ import { effectSchemaResolver } from "@deskohub/effect-schema-resolver";
 import { FlaskConical, Lock, Plus, X } from "lucide-react";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
-import { AdministrationAlert } from "@/features/administration/notice";
 import { formatAdministrationDateTime } from "@/features/administration/formatters";
+import { AdministrationAlert } from "@/features/administration/notice";
 import type { Locale } from "@/features/i18n";
 import { Button } from "@/shared/components/ui/button";
 import {

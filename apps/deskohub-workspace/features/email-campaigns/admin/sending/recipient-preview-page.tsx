@@ -9,12 +9,12 @@ import {
 } from "@/features/administration/components";
 import { Button } from "@/shared/components/ui/button";
 import type { CampaignId } from "../../campaign-identifiers";
+import { loadRecipientPreview } from "./recipient-preview.server";
 import {
   DuplicateTable,
   ExclusionTable,
   RecipientTable,
 } from "./recipient-preview-tables";
-import { loadRecipientPreview } from "./recipient-preview.server";
 
 export async function RecipientPreviewPage({
   campaignId,

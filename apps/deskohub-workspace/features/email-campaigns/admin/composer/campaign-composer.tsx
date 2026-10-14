@@ -40,10 +40,8 @@ import type {
   CampaignPurpose,
   CampaignTemplateKey,
 } from "../../body/campaign-content";
-import type {
-  CampaignAudienceId,
-  CampaignId,
-} from "../../campaign-identifiers";
+import type { CampaignId } from "../../campaign-identifiers";
+import type { AudienceOption } from "../audiences/audience-page-data.server";
 import { CampaignBodyEditor } from "../editor/campaign-body-editor";
 import { CampaignSendControls } from "../sending/campaign-send-controls";
 import { createCampaign, updateCampaign } from "./actions";
@@ -55,7 +53,6 @@ import {
   localeContentIssues,
   toCampaignLocalizedContent,
 } from "./campaign-composer-fields";
-import type { AudienceOption } from "../audiences/audience-page-data.server";
 import { CampaignEmailPreview } from "./campaign-email-preview";
 import { CampaignTemplatePreview } from "./campaign-template-preview";
 
@@ -268,7 +265,7 @@ export function CampaignComposer({
                       <FormLabel>Purpose</FormLabel>
                       <FormControl>
                         <ToggleGroup
-                          className="grid gap-2 sm:grid-cols-2"
+                          className="grid items-stretch gap-2 sm:grid-cols-2"
                           onValueChange={(value) =>
                             value && field.onChange(value)
                           }
@@ -277,7 +274,7 @@ export function CampaignComposer({
                         >
                           {purposeOptions.map((option) => (
                             <ToggleGroupItem
-                              className="flex h-auto flex-col items-start gap-1 rounded-lg border border-navy-blue/15 bg-white p-3 text-left data-[state=on]:border-burned-orange data-[state=on]:bg-burned-orange/5"
+                              className="flex h-auto flex-col items-start justify-start gap-1 rounded-lg border border-navy-blue/15 bg-white p-3 text-left data-[state=on]:border-burned-orange data-[state=on]:bg-burned-orange/5"
                               key={option.value}
                               value={option.value}
                             >

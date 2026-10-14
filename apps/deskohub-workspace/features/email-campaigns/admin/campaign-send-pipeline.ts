@@ -1,8 +1,8 @@
 import "server-only";
 
 import type { DotyposCustomerId } from "@deskohub/dotypos";
-import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { asc, desc, eq } from "drizzle-orm";
+import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Data, Effect, Layer, Option, Schema } from "effect";
 import "@/shared/polyfills/temporal";
 import { WorkspaceDatabase } from "@/db/database.service";
@@ -12,8 +12,8 @@ import type { Locale } from "@/features/i18n";
 import { locales } from "@/features/i18n";
 import { reservationCustomerEmailSchema } from "@/features/reservation/reservation-contact";
 import type { AudienceFilter } from "../audience-filter";
-import { CampaignConfirmationCodeService } from "../backend/campaign-confirmation-code.service";
 import { CampaignService } from "../backend/campaign.service";
+import { CampaignConfirmationCodeService } from "../backend/campaign-confirmation-code.service";
 import { hashCampaignContent } from "../body/campaign-content-hash";
 import type {
   CampaignAudienceId,
@@ -44,17 +44,17 @@ export class CampaignTestRecipientInvalid extends Data.TaggedError(
 )<{ readonly email: string }> {}
 
 /** The campaign has content in no locale, so there is nothing to send. */
-export class CampaignContentMissing extends Data.TaggedError(
+class CampaignContentMissing extends Data.TaggedError(
   "CampaignContentMissing"
 )<{ readonly campaignId: CampaignId }> {}
 
 /** The email provider refused or failed the test send. */
-export class CampaignEmailDeliveryFailed extends Data.TaggedError(
+class CampaignEmailDeliveryFailed extends Data.TaggedError(
   "CampaignEmailDeliveryFailed"
 )<{ readonly cause: unknown }> {}
 
 /** The campaign has no audience to resolve recipients from. */
-export class CampaignAudienceMissing extends Data.TaggedError(
+class CampaignAudienceMissing extends Data.TaggedError(
   "CampaignAudienceMissing"
 )<{ readonly campaignId: CampaignId }> {}
 
@@ -64,9 +64,10 @@ export class CampaignNoRecipients extends Data.TaggedError(
 )<{ readonly campaignId: CampaignId }> {}
 
 /** Only a `failed` campaign can retry its undelivered recipients. */
-export class CampaignNotRetryable extends Data.TaggedError(
-  "CampaignNotRetryable"
-)<{ readonly campaignId: CampaignId; readonly status: CampaignStatus }> {}
+class CampaignNotRetryable extends Data.TaggedError("CampaignNotRetryable")<{
+  readonly campaignId: CampaignId;
+  readonly status: CampaignStatus;
+}> {}
 
 /** The stub has no real send pipeline behind it. */
 export class CampaignSendUnavailable extends Data.TaggedError(
@@ -74,24 +75,24 @@ export class CampaignSendUnavailable extends Data.TaggedError(
 )<{ readonly campaignId: CampaignId }> {}
 
 /** What a test send delivered: one email per recipient and content locale. */
-export type CampaignTestSendReceipt = {
+type CampaignTestSendReceipt = {
   readonly recipients: readonly string[];
   readonly locales: readonly Locale[];
   readonly codeExpiresAt: Temporal.Instant;
 };
 
 /** The send that froze the campaign's recipients and queued delivery. */
-export type CampaignSendReceipt = {
+type CampaignSendReceipt = {
   readonly sendId: CampaignSendId;
   readonly recipientCount: number;
 };
 
-export type CampaignRetryReceipt = {
+type CampaignRetryReceipt = {
   readonly sendId: CampaignSendId;
   readonly retriedCount: number;
 };
 
-export type CampaignSendRecipientStatus = {
+type CampaignSendRecipientStatus = {
   readonly dotyposCustomerId: DotyposCustomerId;
   readonly locale: Locale;
   readonly status: CampaignRecipientStatus;
@@ -99,7 +100,7 @@ export type CampaignSendRecipientStatus = {
 };
 
 /** The campaign's send with its frozen recipients and delivery progress. */
-export type CampaignSendStatus = {
+type CampaignSendStatus = {
   readonly sendId: CampaignSendId;
   readonly createdAt: Temporal.Instant;
   readonly completedAt: Temporal.Instant | null;

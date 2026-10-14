@@ -27,53 +27,30 @@ import {
 import { cn } from "@/shared/utils";
 import type { AudienceFilter } from "../../audience-filter";
 import type { DiscountGroupOption } from "../audience-filter-summary";
-
-export type AudienceFilterGroup = Extract<AudienceFilter, { _tag: "Group" }>;
-type AudienceCondition = Exclude<AudienceFilter, { _tag: "Group" }>;
-type ReservationCondition = Extract<AudienceFilter, { _tag: "Reservation" }>;
-type ReservationStatus = NonNullable<ReservationCondition["status"]>;
+import {
+  type AudienceCondition,
+  type AudienceFilterGroup,
+  appendFilter,
+  newCondition,
+  newNestedGroup,
+  type ReservationCondition,
+  type ReservationStatus,
+  removeFilterAt,
+  replaceFilterAt,
+  setReservationCriteria,
+  toggleLocale,
+} from "./audience-filter-editing";
 
 /** Error message React Hook Form holds for a form path, if any. */
 export type FilterErrorLookup = (path: string) => string | undefined;
 
-/** The builder always edits a group, so a bare stored condition gets an AND root. */
-export const asRootGroup = (filter: AudienceFilter): AudienceFilterGroup =>
-  filter._tag === "Group"
-    ? filter
-    : { _tag: "Group", operator: "and", filters: [filter] };
-
-const newConditions = {
-  Reservation: {
-    label: "Reservation history",
-    create: (): AudienceCondition => ({
-      _tag: "Reservation",
-      presence: "has",
-      dateBasis: "visit",
-    }),
-  },
-  Locale: {
-    label: "Locale",
-    create: (): AudienceCondition => ({ _tag: "Locale", locales: ["cs-CZ"] }),
-  },
-  DotyposTag: {
-    label: "Dotypos tag",
-    create: (): AudienceCondition => ({ _tag: "DotyposTag", tag: "" }),
-  },
-  DiscountGroup: {
-    label: "Discount group",
-    create: (): AudienceCondition => ({
-      _tag: "DiscountGroup",
-      discountGroupId: "",
-    }),
-  },
-  Account: {
-    label: "Workspace account",
-    create: (): AudienceCondition => ({ _tag: "Account", hasAccount: true }),
-  },
-} satisfies Record<
-  AudienceCondition["_tag"],
-  { label: string; create: () => AudienceCondition }
->;
+const conditionLabels: Readonly<Record<AudienceCondition["_tag"], string>> = {
+  Reservation: "Reservation history",
+  Locale: "Locale",
+  DotyposTag: "Dotypos tag",
+  DiscountGroup: "Discount group",
+  Account: "Workspace account",
+};
 
 const operatorLabels = {
   and: { match: "Match all", joiner: "and" },
@@ -160,16 +137,10 @@ function GroupEditor({
   readonly path: string;
   readonly context: BuilderContext;
 }) {
-  const setFilters = (filters: readonly AudienceFilter[]) =>
-    onChange({ ...group, filters });
   const replaceAt = (index: number, filter: AudienceFilter) =>
-    setFilters(
-      group.filters.map((current, i) => (i === index ? filter : current))
-    );
-  const removeAt = (index: number) =>
-    setFilters(group.filters.filter((_, i) => i !== index));
-  const add = (filter: AudienceFilter) =>
-    setFilters([...group.filters, filter]);
+    onChange(replaceFilterAt(group, index, filter));
+  const removeAt = (index: number) => onChange(removeFilterAt(group, index));
+  const add = (filter: AudienceFilter) => onChange(appendFilter(group, filter));
   const groupError =
     context.errorAt(path) ?? context.errorAt(`${path}.filters`);
 
@@ -263,8 +234,13 @@ function GroupEditor({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start">
-            {Object.values(newConditions).map(({ label, create }) => (
-              <DropdownMenuItem key={label} onSelect={() => add(create())}>
+            {Object.entries(conditionLabels).map(([tag, label]) => (
+              <DropdownMenuItem
+                key={tag}
+                onSelect={() =>
+                  add(newCondition(tag as AudienceCondition["_tag"]))
+                }
+              >
                 {label}
               </DropdownMenuItem>
             ))}
@@ -274,14 +250,7 @@ function GroupEditor({
           type="button"
           variant="ghost"
           size="sm"
-          onClick={() =>
-            add({
-              _tag: "Group",
-              // A nested group usually flips the parent's logic.
-              operator: group.operator === "and" ? "or" : "and",
-              filters: [],
-            })
-          }
+          onClick={() => add(newNestedGroup(group))}
         >
           <ListPlus className="h-4 w-4" aria-hidden />
           Add group
@@ -333,11 +302,13 @@ function ConditionEditor({
                   // At least one locale stays selected; the schema needs one.
                   disabled={checked && selected.length === 1}
                   onCheckedChange={(next) => {
-                    const others = selected.filter((value) => value !== locale);
-                    const [first, ...rest] =
-                      next === true ? [...others, locale] : others;
-                    if (first) {
-                      onChange({ _tag: "Locale", locales: [first, ...rest] });
+                    const nextLocales = toggleLocale(
+                      selected,
+                      locale,
+                      next === true
+                    );
+                    if (nextLocales) {
+                      onChange({ _tag: "Locale", locales: nextLocales });
                     }
                   }}
                   className="size-5"
@@ -444,7 +415,7 @@ function ConditionEditor({
     <div className="flex items-start gap-2 rounded-md border border-navy-blue/15 bg-white px-2.5 py-2 sm:gap-3 sm:px-3">
       <div className="min-w-0 flex-1 space-y-1">
         <span className="block font-semibold text-[0.7rem] text-navy-blue/55 uppercase tracking-[0.12em]">
-          {newConditions[condition._tag].label}
+          {conditionLabels[condition._tag]}
         </span>
         {body}
         {errors.map((message) => (
@@ -465,19 +436,8 @@ function ReservationEditor({
   readonly onChange: (condition: ReservationCondition) => void;
   readonly fieldError: (field: string) => string | undefined;
 }) {
-  // Optional criteria are omitted rather than stored empty.
-  const setCriteria = (changes: {
-    readonly from?: string | undefined;
-    readonly to?: string | undefined;
-    readonly status?: ReservationStatus | undefined;
-  }) => {
-    const { from, to, status, ...required } = { ...condition, ...changes };
-    let next: ReservationCondition = required;
-    if (from) next = { ...next, from };
-    if (to) next = { ...next, to };
-    if (status) next = { ...next, status };
-    onChange(next);
-  };
+  const setCriteria = (changes: Parameters<typeof setReservationCriteria>[1]) =>
+    onChange(setReservationCriteria(condition, changes));
 
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2">

@@ -1,3 +1,4 @@
+import type { CampaignRow } from "@/db/schema";
 import {
   AdministrationAlert,
   AdministrationDetailSection,
@@ -6,19 +7,18 @@ import {
   AdministrationPageHeader,
   formatAdministrationDateTime,
 } from "@/features/administration/components";
-import type { CampaignRow } from "@/db/schema";
-import { campaignLocales } from "../../recipient-locale";
 import { campaignRecipientStatuses } from "../../campaign-states";
+import { campaignLocales } from "../../recipient-locale";
 import { describeAudienceFilter } from "../audience-filter-summary";
+import { loadDiscountGroupOptions } from "../audiences/discount-group-options.server";
 import {
   CampaignPurposeBadge,
   CampaignRecipientStatusBadge,
   CampaignStatusBadge,
 } from "../campaign-list/campaign-badges";
-import { loadDiscountGroupOptions } from "../audiences/discount-group-options.server";
 import { campaignLocaleNames } from "./campaign-locale-names";
-import { SentCampaignActions } from "./sent-campaign-actions";
 import { loadSentCampaign } from "./sent-campaign.server";
+import { SentCampaignActions } from "./sent-campaign-actions";
 import { SentRecipientTable } from "./sent-recipient-table";
 
 /** The read-only view of a campaign that left Draft. */
@@ -145,12 +145,9 @@ export async function SentCampaignPage({
                 {send.recipients.length}{" "}
                 {send.recipients.length === 1 ? "recipient" : "recipients"}
               </p>
-              <ul className="mt-4 flex flex-wrap gap-3">
+              <ul className="mt-4 flex flex-wrap gap-x-6 gap-y-3">
                 {campaignRecipientStatuses.map((status) => (
-                  <li
-                    className="flex items-center gap-2 rounded-lg border border-navy-blue/10 px-3 py-2"
-                    key={status}
-                  >
+                  <li className="flex items-center gap-2" key={status}>
                     <CampaignRecipientStatusBadge status={status} />
                     <span className="text-lg font-semibold tabular-nums">
                       {send.counts[status]}

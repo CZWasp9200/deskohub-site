@@ -41,12 +41,12 @@ const recipientColumns: AdministrationDataTableColumn<Recipient>[] = [
   },
 ];
 
-const exclusionReasons: Record<Exclusion["reason"], string> = {
+const exclusionReasons = {
   "missing-from-dotypos": "Not found in Dotypos",
   "deleted-customer": "Deleted in Dotypos",
   "missing-email": "No email in Dotypos",
   "invalid-email": "Invalid email in Dotypos",
-};
+} as const satisfies Record<Exclusion["reason"], string>;
 
 const exclusionColumns: AdministrationDataTableColumn<Exclusion>[] = [
   {

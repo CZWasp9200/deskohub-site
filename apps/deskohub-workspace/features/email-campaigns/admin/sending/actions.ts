@@ -10,8 +10,8 @@ import { CampaignService } from "../../backend/campaign.service";
 import type { CampaignConfirmationRejection } from "../../errors";
 import {
   type CampaignRetryError,
-  CampaignSendPipeline,
   type CampaignSendError,
+  CampaignSendPipeline,
   type CampaignTestSendError,
 } from "../campaign-send-pipeline";
 import {
@@ -20,10 +20,7 @@ import {
   campaignTestSendStandardSchema,
 } from "./contracts";
 
-const confirmationRejectionMessages: Record<
-  CampaignConfirmationRejection,
-  string
-> = {
+const confirmationRejectionMessages = {
   "unknown-code":
     "That code doesn't match the latest test email. Check it for typos and try again.",
   superseded:
@@ -33,7 +30,7 @@ const confirmationRejectionMessages: Record<
     "The campaign changed after that test email. Send a new test email and use its code.",
   "too-many-attempts":
     "Too many wrong codes, so that code no longer works. Send a new test email to get a fresh code.",
-};
+} as const satisfies Record<CampaignConfirmationRejection, string>;
 
 const unexpectedFailureMessage = "Something went wrong. Try again in a moment.";
 

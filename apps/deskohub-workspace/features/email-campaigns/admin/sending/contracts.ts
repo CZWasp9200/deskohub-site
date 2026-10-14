@@ -6,7 +6,7 @@ const standardSchemaOptions = {
   parseOptions: { errors: "all", onExcessProperty: "error" },
 } as const;
 
-export const campaignTestSendSchema = Schema.Struct({
+const campaignTestSendSchema = Schema.Struct({
   campaignId: campaignIdSchema,
   extraRecipients: Schema.Array(reservationCustomerEmailSchema),
 });
@@ -16,7 +16,7 @@ export const campaignTestSendStandardSchema = Schema.toStandardSchemaV1(
   standardSchemaOptions
 );
 
-export const campaignSendSchema = Schema.Struct({
+const campaignSendSchema = Schema.Struct({
   campaignId: campaignIdSchema,
   confirmationCode: Schema.Trimmed.check(Schema.isNonEmpty()),
 });
@@ -26,7 +26,7 @@ export const campaignSendStandardSchema = Schema.toStandardSchemaV1(
   standardSchemaOptions
 );
 
-export const campaignReferenceSchema = Schema.Struct({
+const campaignReferenceSchema = Schema.Struct({
   campaignId: campaignIdSchema,
 });
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { Loader2 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 import type { Locale } from "@/features/i18n";
 import {
   ToggleGroup,
@@ -59,8 +59,11 @@ export function CampaignEmailPreview({
     content: toCampaignLocaleContent(fields, purpose),
   };
   const requestKey = JSON.stringify(request);
+  // Responses can arrive out of order; only the latest request's applies.
   const latestRequestKey = useRef(requestKey);
-  latestRequestKey.current = requestKey;
+  useEffect(() => {
+    latestRequestKey.current = requestKey;
+  }, [requestKey]);
 
   const render = useWorkspaceAction(previewCampaignEmail, {
     actionName: "previewCampaignEmail",
@@ -77,14 +80,14 @@ export function CampaignEmailPreview({
       setError(error.serverError ?? "The preview could not be rendered."),
   });
   // The hook returns a new `execute` on every render, including the renders
-  // its own pending state causes; a ref keeps those from rescheduling.
-  const execute = useRef(render.execute);
-  execute.current = render.execute;
+  // its own pending state causes; an effect event keeps those from
+  // rescheduling.
+  const renderLatest = useEffectEvent(() => render.execute(request));
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: requestKey captures the request.
   useEffect(() => {
     if (!hasContent) return;
-    const timer = setTimeout(() => execute.current(request), previewDelayMs);
+    const timer = setTimeout(renderLatest, previewDelayMs);
     return () => clearTimeout(timer);
   }, [requestKey, hasContent]);
 

@@ -13,11 +13,12 @@ const localeNames: Readonly<Record<Locale, string>> = {
   "en-US": "English",
 };
 
-const reservationStatusNames = {
-  in_progress: "in progress",
-  complete: "complete",
-  cancelled: "cancelled",
-  needs_refund: "needing a refund",
+/** How a status reads around "reservation": before it, or after it. */
+const reservationStatusPhrases = {
+  in_progress: { before: "", after: " in progress" },
+  complete: { before: " complete", after: "" },
+  cancelled: { before: " cancelled", after: "" },
+  needs_refund: { before: "", after: " needing a refund" },
 } as const;
 
 const describeDateRange = (from?: string, to?: string) => {
@@ -39,8 +40,9 @@ const describeCondition = (
           presence === "has" ? "have a" : "have no",
           // Without a status only booked (confirmed, never cancelled)
           // reservations count.
-          status ? ` ${reservationStatusNames[status]}` : " booked",
+          status ? reservationStatusPhrases[status].before : " booked",
           " reservation",
+          status ? reservationStatusPhrases[status].after : "",
           from || to
             ? ` ${dateBasis === "visit" ? "visiting" : "confirmed"}${describeDateRange(from, to)}`
             : "",

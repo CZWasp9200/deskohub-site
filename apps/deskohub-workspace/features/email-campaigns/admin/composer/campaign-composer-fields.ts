@@ -7,10 +7,6 @@ import {
   campaignBodyFormatVersion,
 } from "../../body/campaign-body-document";
 import {
-  campaignFallbackLocale,
-  campaignLocales,
-} from "../../recipient-locale";
-import {
   type CampaignBodyIssue,
   campaignBodyIssues,
 } from "../../body/campaign-body-rules";
@@ -20,6 +16,10 @@ import {
   CampaignPurpose,
   CampaignTemplateKey,
 } from "../../body/campaign-content";
+import {
+  campaignFallbackLocale,
+  campaignLocales,
+} from "../../recipient-locale";
 
 const CampaignComposerLocaleFields = Schema.Struct({
   subject: Schema.String,

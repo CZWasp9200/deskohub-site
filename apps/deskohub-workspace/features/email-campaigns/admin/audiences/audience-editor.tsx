@@ -47,7 +47,8 @@ import {
   type AudienceFormValues,
   audienceFormSchema,
 } from "./audience-contracts";
-import { AudienceFilterBuilder, asRootGroup } from "./audience-filter-builder";
+import { AudienceFilterBuilder } from "./audience-filter-builder";
+import { asRootGroup } from "./audience-filter-editing";
 import { AudienceStatusBadge, audienceHref } from "./audience-list";
 import type { AudienceEditorData } from "./audience-page-data.server";
 

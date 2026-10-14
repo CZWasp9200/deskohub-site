@@ -6,7 +6,6 @@ import { cn } from "@/shared/utils";
 
 const DropdownMenu = DropdownMenuPrimitive.Root;
 const DropdownMenuTrigger = DropdownMenuPrimitive.Trigger;
-const DropdownMenuGroup = DropdownMenuPrimitive.Group;
 
 function DropdownMenuContent({
   className,
@@ -42,36 +41,9 @@ function DropdownMenuItem({
   );
 }
 
-function DropdownMenuLabel({
-  className,
-  ...props
-}: React.ComponentProps<typeof DropdownMenuPrimitive.Label>) {
-  return (
-    <DropdownMenuPrimitive.Label
-      className={cn("px-2 py-1.5 font-medium text-navy-blue/60 text-xs", className)}
-      {...props}
-    />
-  );
-}
-
-function DropdownMenuSeparator({
-  className,
-  ...props
-}: React.ComponentProps<typeof DropdownMenuPrimitive.Separator>) {
-  return (
-    <DropdownMenuPrimitive.Separator
-      className={cn("-mx-1 my-1 h-px bg-navy-blue/10", className)}
-      {...props}
-    />
-  );
-}
-
 export {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuGroup,
   DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 };

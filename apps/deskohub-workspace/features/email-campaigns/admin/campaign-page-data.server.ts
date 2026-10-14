@@ -6,8 +6,8 @@ import { cache } from "react";
 import type { CampaignRow } from "@/db/schema";
 import { authorizeAdministratorPage } from "@/shared/administrator/administrator-authorization.server";
 import { runWorkspaceEffect } from "@/shared/backend/workspace-effect";
-import { CampaignAudienceService } from "../backend/campaign-audience.service";
 import { CampaignService } from "../backend/campaign.service";
+import { CampaignAudienceService } from "../backend/campaign-audience.service";
 import {
   type CampaignAudienceId,
   type CampaignId,
@@ -27,27 +27,35 @@ export const requireAudienceRouteId = (value: string): CampaignAudienceId =>
     notFound()
   );
 
-const findCampaign = cache((campaignId: CampaignId) =>
-  Effect.gen(function* () {
-    const campaigns = yield* CampaignService;
-    return yield* campaigns.get(campaignId).pipe(Effect.option);
-  }).pipe(
-    Effect.provide(CampaignService.Live),
-    runWorkspaceEffect("email-campaigns.admin.load-campaign", {
-      boundary: "route",
-    })
+const findCampaign = cache(
+  Effect.fn(
+    function* (campaignId: CampaignId) {
+      const campaigns = yield* CampaignService;
+      return yield* campaigns.get(campaignId).pipe(Effect.option);
+    },
+    (effect) =>
+      effect.pipe(
+        Effect.provide(CampaignService.Live),
+        runWorkspaceEffect("email-campaigns.admin.load-campaign", {
+          boundary: "route",
+        })
+      )
   )
 );
 
-const findAudience = cache((audienceId: CampaignAudienceId) =>
-  Effect.gen(function* () {
-    const audiences = yield* CampaignAudienceService;
-    return yield* audiences.get(audienceId).pipe(Effect.option);
-  }).pipe(
-    Effect.provide(CampaignAudienceService.Live),
-    runWorkspaceEffect("email-campaigns.admin.load-audience", {
-      boundary: "route",
-    })
+const findAudience = cache(
+  Effect.fn(
+    function* (audienceId: CampaignAudienceId) {
+      const audiences = yield* CampaignAudienceService;
+      return yield* audiences.get(audienceId).pipe(Effect.option);
+    },
+    (effect) =>
+      effect.pipe(
+        Effect.provide(CampaignAudienceService.Live),
+        runWorkspaceEffect("email-campaigns.admin.load-audience", {
+          boundary: "route",
+        })
+      )
   )
 );
 
