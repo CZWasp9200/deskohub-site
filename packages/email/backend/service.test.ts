@@ -155,37 +155,28 @@ describe("EmailService", () => {
     expect(second).toBe(first);
   });
 
-  test("retries sendBatch NetworkError under the caller's idempotency key", async () => {
-    const attemptKeys: string[] = [];
-    const sendBatch = mock(
-      (
-        _messages: readonly EmailMessage[],
-        options: { idempotencyKey: string }
-      ) =>
-        Effect.suspend(() => {
-          attemptKeys.push(options.idempotencyKey);
-          return attemptKeys.length === 1
-            ? Effect.fail(new NetworkError({ message: "timed out" }))
-            : Effect.succeed([success]);
-        })
+  test("sends a batch once and leaves an unknown outcome to the caller", async () => {
+    // The first request may have been accepted with its response lost; an
+    // internal retry refused with 429 would then hide that it was.
+    const sendBatch = mock((_messages: readonly EmailMessage[]) =>
+      Effect.fail(new NetworkError({ message: "timed out" }))
     );
-    const messages = [
-      message,
-      { ...message, to: { email: testEmailAddress("grace") } },
-    ];
 
-    await runWithEmail(
+    const result = await runWithEmail(
       Effect.gen(function* () {
         const email = yield* EmailServiceTag;
-        return yield* email.sendBatch(messages, {
-          idempotencyKey: "campaign-batch-key",
-        });
+        return yield* email
+          .sendBatch([message], { idempotencyKey: "campaign-batch-key" })
+          .pipe(Effect.result);
       }).pipe(withInstantRetryBackoff),
       makeProvider(undefined, sendBatch)
     );
 
-    expect(attemptKeys).toHaveLength(2);
-    expect(attemptKeys).toEqual(["campaign-batch-key", "campaign-batch-key"]);
+    expect(result._tag).toBe("Failure");
+    if (result._tag === "Failure") {
+      expect(result.failure._tag).toBe("NetworkError");
+    }
+    expect(sendBatch).toHaveBeenCalledTimes(1);
   });
 
   test("does not retry sendBatch EmailServiceError", async () => {

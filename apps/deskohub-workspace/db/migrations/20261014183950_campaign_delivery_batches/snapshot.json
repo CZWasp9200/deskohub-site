@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "ab9584fa-ecc0-4407-bddd-1b146d26761e",
+  "id": "f5db277f-7f69-4506-aa90-8285cad55c66",
   "prevIds": [
     "d051f00c-6f8e-40af-890c-e8ad14ba0cbe"
   ],
@@ -2110,6 +2110,32 @@
       "generated": null,
       "identity": null,
       "name": "delivery_attempt",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "email_campaign_sends"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "delivery_lease_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "email_campaign_sends"
+    },
+    {
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "delivery_lease_expires_at",
       "entityType": "columns",
       "schema": "public",
       "table": "email_campaign_sends"
@@ -8851,6 +8877,13 @@
     {
       "value": "\"delivery_attempt\" >= 1",
       "name": "email_campaign_sends_delivery_attempt_check",
+      "entityType": "checks",
+      "schema": "public",
+      "table": "email_campaign_sends"
+    },
+    {
+      "value": "(\"delivery_lease_id\" is null) = (\"delivery_lease_expires_at\" is null)",
+      "name": "email_campaign_sends_delivery_lease_check",
       "entityType": "checks",
       "schema": "public",
       "table": "email_campaign_sends"

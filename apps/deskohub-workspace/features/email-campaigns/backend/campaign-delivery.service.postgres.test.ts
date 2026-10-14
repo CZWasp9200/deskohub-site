@@ -5,6 +5,7 @@ import {
   type DotyposCustomer,
   type DotyposCustomerId,
   DotyposCustomerIdSchema,
+  NetworkError as DotyposNetworkError,
 } from "@deskohub/dotypos";
 import { DotyposServiceMock } from "@deskohub/dotypos/backend/service.mock";
 import { resendSimulatorAddress, testEmailAddress } from "@deskohub/test-email";
@@ -61,6 +62,22 @@ const acceptBatch = async (
 };
 /** A request that never answers, as when the consumer is cut off. */
 const hang = () => new Promise<BatchSendResponse>(() => {});
+const rateLimited: BatchSendResponse = {
+  data: null,
+  error: { message: "Too many requests", statusCode: 429 },
+};
+
+/** A call that stops where the test can see it until the test lets it go. */
+const pause = () => {
+  const reached = Promise.withResolvers<void>();
+  const released = Promise.withResolvers<void>();
+  return {
+    reached: reached.promise,
+    reach: () => reached.resolve(),
+    released: released.promise,
+    release: () => released.resolve(),
+  };
+};
 let batchSend =
   mock<
     (
@@ -125,10 +142,20 @@ describe.skipIf(!testDatabase)(
 
     beforeEach(() => {
       batchSend = mock(acceptBatch);
+      readCustomers = readProfiles;
       mailed = [];
     });
 
     let profiles: DotyposCustomer[] = [];
+    const readProfiles = (ids: readonly DotyposCustomerId[]) =>
+      Effect.succeed(
+        profiles.filter(
+          (customer) => customer.id !== undefined && ids.includes(customer.id)
+        )
+      );
+    let readCustomers: (
+      ids: readonly DotyposCustomerId[]
+    ) => Effect.Effect<DotyposCustomer[], DotyposNetworkError> = readProfiles;
     const profile = (
       id: DotyposCustomerId,
       overrides: Partial<DotyposCustomer> = {}
@@ -151,13 +178,7 @@ describe.skipIf(!testDatabase)(
         Layer.provide(
           Layer.mergeAll(
             DotyposServiceMock({
-              getCustomers: ({ ids }) =>
-                Effect.succeed(
-                  profiles.filter(
-                    (customer) =>
-                      customer.id !== undefined && ids.includes(customer.id)
-                  )
-                ),
+              getCustomers: ({ ids }) => readCustomers(ids),
             }),
             EmailServiceTag.Live.pipe(
               Layer.provide(
@@ -222,6 +243,21 @@ describe.skipIf(!testDatabase)(
       );
       expect(exit._tag).toBe("Failure");
     };
+
+    /** Starts a run without waiting for it; resolves to how it ended. */
+    const consumeConcurrently = (
+      message: Parameters<typeof processCampaignSendMessage>[0]
+    ) =>
+      Effect.runPromiseExit(
+        processCampaignSendMessage(message).pipe(Effect.provide(consumerLayer))
+      );
+
+    /** The run that owns the send outlives its lease, as a stalled one would. */
+    const expireLease = (sendId: string) =>
+      testDatabase.pool.query(
+        "update email_campaign_sends set delivery_lease_expires_at = now() - interval '1 second' where id = $1 and delivery_lease_id is not null",
+        [sendId]
+      );
 
     const recordWebhook = (event: {
       readonly type: string;
@@ -728,6 +764,135 @@ describe.skipIf(!testDatabase)(
       const { recipients, batches } = await stored(sendId);
       expect(statusesOf(recipients)).toEqual({ [id]: "unconfirmed" });
       expect(batches.map((batch) => batch.status)).toEqual(["unconfirmed"]);
+    });
+
+    test("replays a batch whose response was lost instead of retrying it within the run", async () => {
+      const id = customerId("lost-response");
+      profiles = [profile(id)];
+      const { sendId } = await seedSend({
+        purpose: "operational",
+        recipients: [{ dotyposCustomerId: id }],
+      });
+      // Resend accepts the batch but its response is lost; a second request
+      // in the same run would be rate limited, which says nothing about the
+      // first.
+      batchSend = mock(async (payload, options) => {
+        if (batchSend.mock.calls.length > 1) return rateLimited;
+        await acceptBatch(payload, options);
+        return {
+          data: null,
+          error: { message: "Internal server error", statusCode: 500 },
+        };
+      });
+
+      await consumeFails({ sendId, deliveryAttempt: 1 });
+
+      expect(batchSend.mock.calls).toHaveLength(1);
+      const interrupted = await stored(sendId);
+      expect(interrupted.batches.map((batch) => batch.status)).toEqual([
+        "requested",
+      ]);
+      expect(statusesOf(interrupted.recipients)).toEqual({ [id]: "pending" });
+
+      batchSend.mockImplementation(acceptBatch);
+      expect(await consume({ sendId, deliveryAttempt: 1 })).toBe("sent");
+
+      expect(requestKeys()).toEqual([
+        `email-campaign:${sendId}:attempt-1:batch-0`,
+        `email-campaign:${sendId}:attempt-1:batch-0`,
+      ]);
+      expect(mailed).toEqual([testEmailAddress(id)]);
+      const { recipients, campaign } = await stored(sendId);
+      expect(statusesOf(recipients)).toEqual({ [id]: "sent" });
+      expect(campaign.status).toBe("sent");
+    });
+
+    test("a run whose preparation fails after another run delivered its recipients records nothing", async () => {
+      const ids = [customerId("overlap-a"), customerId("overlap-b")];
+      profiles = ids.map((id) => profile(id));
+      const { sendId } = await seedSend({
+        purpose: "operational",
+        recipients: ids.map((dotyposCustomerId) => ({ dotyposCustomerId })),
+      });
+      const stalled = pause();
+      let reads = 0;
+      readCustomers = (requested) =>
+        ++reads === 1
+          ? Effect.promise(() => {
+              stalled.reach();
+              return stalled.released;
+            }).pipe(
+              Effect.andThen(
+                Effect.fail(
+                  new DotyposNetworkError({ message: "Dotypos timed out" })
+                )
+              )
+            )
+          : readProfiles(requested);
+
+      const first = consumeConcurrently({ sendId, deliveryAttempt: 1 });
+      await stalled.reached;
+
+      // While the first run owns the send, a duplicate message waits.
+      await consumeFails({ sendId, deliveryAttempt: 1 });
+      expect(batchSend.mock.calls).toHaveLength(0);
+
+      await expireLease(sendId);
+      expect(await consume({ sendId, deliveryAttempt: 1 })).toBe("sent");
+
+      // The first run's Dotypos read fails only now; it lost the send.
+      stalled.release();
+      expect((await first)._tag).toBe("Failure");
+
+      expect(mailed.sort()).toEqual(ids.map((id) => testEmailAddress(id)));
+      const { recipients, batches, campaign } = await stored(sendId);
+      expect(Object.values(statusesOf(recipients))).toEqual(["sent", "sent"]);
+      expect(batches.map((batch) => batch.status)).toEqual(["accepted"]);
+      expect(campaign.status).toBe("sent");
+    });
+
+    test("a run whose lease expired mid-request can't overwrite the run that settled its batch", async () => {
+      const id = customerId("lease-expired-mid-request");
+      profiles = [profile(id)];
+      const { sendId } = await seedSend({
+        purpose: "operational",
+        recipients: [{ dotyposCustomerId: id }],
+      });
+      const stalled = pause();
+      // The first request is accepted but answers only after its run lost
+      // the send, and then with a refusal that would fail the recipient.
+      batchSend = mock(async (payload, options) => {
+        const response = await acceptBatch(payload, options);
+        if (batchSend.mock.calls.length > 1) return response;
+        stalled.reach();
+        await stalled.released;
+        return rateLimited;
+      });
+
+      const first = consumeConcurrently({ sendId, deliveryAttempt: 1 });
+      await stalled.reached;
+      await expireLease(sendId);
+      expect(await consume({ sendId, deliveryAttempt: 1 })).toBe("sent");
+
+      stalled.release();
+      expect((await first)._tag).toBe("Failure");
+
+      expect(requestKeys()).toEqual([
+        `email-campaign:${sendId}:attempt-1:batch-0`,
+        `email-campaign:${sendId}:attempt-1:batch-0`,
+      ]);
+      expect(mailed).toEqual([testEmailAddress(id)]);
+      const { recipients, batches, campaign } = await stored(sendId);
+      expect(statusesOf(recipients)).toEqual({ [id]: "sent" });
+      expect(batches.map((batch) => batch.status)).toEqual(["accepted"]);
+      expect(campaign.status).toBe("sent");
+      const {
+        rows: [lease],
+      } = await testDatabase.pool.query(
+        "select delivery_lease_id from email_campaign_sends where id = $1",
+        [sendId]
+      );
+      expect(lease.delivery_lease_id).toBeNull();
     });
 
     test("ignores a malformed message", async () => {

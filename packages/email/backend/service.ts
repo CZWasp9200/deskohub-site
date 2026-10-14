@@ -71,9 +71,10 @@ export interface EmailService {
     message: EmailMessage
   ) => Effect.Effect<EmailSendResult, EmailSendError>;
   /**
-   * Sends up to 100 messages in one provider request, retrying transport
-   * failures under the caller's idempotency key. Results follow the message
-   * order.
+   * Sends up to 100 messages in one provider request, exactly once. A retry
+   * after an unknown outcome is the caller's: it replays the identical batch
+   * under the same idempotency key, and only it knows whether an earlier
+   * request may have been accepted. Results follow the message order.
    */
   readonly sendBatch: (
     messages: readonly EmailMessage[],
@@ -229,17 +230,6 @@ const emailServiceImplementation = Effect.gen(function* () {
             options
           )
           .pipe(
-            Effect.tapError((error) =>
-              Effect.logWarning(
-                "Email batch send failed, will retry if NetworkError",
-                {
-                  ...emailFailureLogFacts(error),
-                  willRetry: isRetryableEmailError(error),
-                  retryPolicy: getEmailRetryPolicyDescription(error),
-                }
-              )
-            ),
-            Effect.retry(emailRetryPolicy),
             Effect.tap((results) =>
               Effect.logInfo("Email batch sent successfully", {
                 size: results.length,
@@ -247,14 +237,10 @@ const emailServiceImplementation = Effect.gen(function* () {
               })
             ),
             Effect.tapError((error) =>
-              Effect.logError(
-                "Email batch send failed - all retries exhausted",
-                {
-                  ...emailFailureLogFacts(error),
-                  provider: provider.name,
-                  maxRetriesReached: true,
-                }
-              )
+              Effect.logError("Email batch send failed", {
+                ...emailFailureLogFacts(error),
+                provider: provider.name,
+              })
             )
           );
       },

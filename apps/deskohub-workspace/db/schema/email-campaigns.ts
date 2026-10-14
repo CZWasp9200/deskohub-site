@@ -125,6 +125,13 @@ export const emailCampaignSends = pgTable(
      * it, so a retry never replays an earlier attempt's batches.
      */
     deliveryAttempt: integer("delivery_attempt").notNull().default(1),
+    /**
+     * The delivery run that owns the send until the lease expires. One run
+     * at a time prepares, requests, and settles batches; a run that lost
+     * the lease writes nothing.
+     */
+    deliveryLeaseId: text("delivery_lease_id"),
+    deliveryLeaseExpiresAt: instant("delivery_lease_expires_at"),
     createdAt: instant("created_at").notNull().default(sql`now()`),
     completedAt: instant("completed_at"),
   },
@@ -133,6 +140,10 @@ export const emailCampaignSends = pgTable(
     check(
       "email_campaign_sends_delivery_attempt_check",
       sql`${t.deliveryAttempt} >= 1`
+    ),
+    check(
+      "email_campaign_sends_delivery_lease_check",
+      sql`(${t.deliveryLeaseId} is null) = (${t.deliveryLeaseExpiresAt} is null)`
     ),
   ]
 );
