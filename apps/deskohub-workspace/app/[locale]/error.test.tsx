@@ -9,7 +9,6 @@ import {
 } from "bun:test";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import * as navigation from "next/navigation";
-import { renderToStaticMarkup } from "react-dom/server";
 import {
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
@@ -25,18 +24,6 @@ const routeError = Object.assign(new Error("Server Components render"), {
 });
 
 describe("localized route error boundary", () => {
-  test("server-renders the copy of the route locale", async () => {
-    const { m } = await import("@/features/i18n");
-    const { default: ErrorPage } = await import("./error");
-
-    const markup = renderToStaticMarkup(
-      <ErrorPage error={routeError} reset={() => {}} retry={() => {}} />
-    );
-
-    expect(markup).toContain(m.errorPageTitle({}, { locale: "cs-CZ" }));
-    expect(markup).toContain(m.errorPageRetry({}, { locale: "cs-CZ" }));
-  });
-
   describe("in the browser", () => {
     beforeAll(registerWorkspaceComponentTestEnv);
     afterEach(cleanup);

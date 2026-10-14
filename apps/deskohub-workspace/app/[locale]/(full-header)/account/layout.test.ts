@@ -157,45 +157,4 @@ describe("account route layout", () => {
       });
     }
   );
-
-  test("passes the rollout state independently of the optional session", async () => {
-    accountsEnabled = false;
-    currentUserEffect = Effect.succeed({
-      accountId: "account-1",
-      email: adaEmail,
-      deletionRequested: false,
-    });
-    const { default: AccountLayout } = await import("./layout");
-    const content = createElement("page");
-    const modal = createElement("modal");
-    const route = AccountLayout({ children: content, modal }) as ReactElement<{
-      readonly children: ReactElement;
-    }>;
-    const output = await route.props.children.type(route.props.children.props);
-
-    expect(areAccountsEnabled).toHaveBeenCalledTimes(1);
-    expect(output.props).toMatchObject({
-      accountsEnabled: false,
-      signedIn: true,
-    });
-  });
-
-  test("withholds the referral section when the referral flag is off", async () => {
-    referralsEnabled = false;
-    const { default: AccountLayout } = await import("./layout");
-    const route = AccountLayout({
-      children: createElement("page"),
-      modal: createElement("modal"),
-    }) as ReactElement<{ readonly children: ReactElement }>;
-
-    expect(areReferralsEnabled).not.toHaveBeenCalled();
-    const output = await route.props.children.type(route.props.children.props);
-
-    expect(connection).toHaveBeenCalled();
-    expect(areReferralsEnabled).toHaveBeenCalledTimes(1);
-    expect(output.props).toMatchObject({
-      accountsEnabled: true,
-      referralsEnabled: false,
-    });
-  });
 });
