@@ -255,8 +255,8 @@ function InfoTooltip({
         <TooltipTrigger asChild>
           <Button
             aria-label={label}
-            className="size-8 rounded-full p-0 text-navy-blue/60"
-            size="icon"
+            size="icon-sm"
+            tone="muted"
             type="button"
             variant="ghost"
           >
@@ -312,7 +312,7 @@ function CopyableValue({
             <TooltipTrigger asChild>
               <Button
                 aria-label={label}
-                className="size-10 shrink-0 rounded-full p-0"
+                className="shrink-0"
                 onClick={copy}
                 size="icon"
                 type="button"

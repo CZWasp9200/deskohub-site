@@ -64,12 +64,7 @@ export function LegalScreen({
             </p>
           </div>
           <FutureFeatureTooltip locale={locale}>
-            <Button
-              className="h-auto min-w-0 max-w-full whitespace-normal px-4 py-2 text-left leading-5 @3xl:text-center"
-              disabled
-              type="button"
-              variant="secondary"
-            >
+            <Button disabled type="button" variant="secondary" wrap>
               <Download aria-hidden="true" className="size-4 shrink-0" />
               {m.legalScreenArchiveAction({}, { locale })}
             </Button>
