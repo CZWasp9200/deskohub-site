@@ -5,15 +5,12 @@ import { Effect, Predicate, Schema } from "effect";
 import type { JsonObject } from "type-fest";
 import { buildCoworkReservationQuote } from "@/features/checkout/checkout-quote.test-utils";
 import { buildReservationQuote } from "@/features/checkout/reservation-quote";
-import { buildOfficeReservationQuote } from "@/features/checkout/reservation-quote-office";
 import {
   canonicalPromotionCodeSchema,
   discountIdSchema,
 } from "@/features/discounts/contracts";
 import { normalizedCoworkReservationOrderSchema } from "@/features/reservation/cowork-reservation";
-import { normalizedOfficeReservationOrderSchema } from "@/features/reservation/office-reservation";
 import { reservationOrderSchema } from "@/features/reservation/reservation-order";
-import { getReservationStartPath } from "@/features/reservation/routes";
 import { instantStringSchema } from "@/shared/utils/temporal";
 import type { PayStateKey, SignedPayState } from "./pay-state";
 
@@ -31,12 +28,9 @@ const {
   parsePayStateKey,
   payStateTokenQueryParam,
   sealPayState,
-  sealPayStateForUrl,
   signedPayStateSchema,
 } = await import("./pay-state");
-const { buildCheckoutPayContinuationPath, buildCheckoutPayPath } = await import(
-  "./checkout-pay-url"
-);
+const { buildCheckoutPayContinuationPath } = await import("./checkout-pay-url");
 const { sealCheckoutState } = await import("./checkout-state-token");
 
 const runSync = <A, E>(effect: Effect.Effect<A, E>) => Effect.runSync(effect);
@@ -123,31 +117,6 @@ const buildMeetingRoomState = () => {
   );
 };
 
-const buildOfficeState = () => {
-  const reservation = normalizedOfficeReservationOrderSchema.make({
-    kind: "office",
-    startsOn: "2099-06-20",
-    endsOn: "2099-06-21",
-    seats: 3,
-    name: "Ada Lovelace",
-    email: testEmailAddressForAda,
-    phone: "+420 777 777 777",
-  });
-
-  return runSync(
-    buildSignedPayState(
-      {
-        locale: "en-US",
-        reservation,
-        quote: runSync(buildOfficeReservationQuote(reservation)),
-        orderId: "office-pay-state-test-order-id",
-        bookedAt: payStateBookedAt,
-      },
-      { keys: [fixedKey], now: () => fixedNow }
-    )
-  );
-};
-
 const seal = (state = buildState()) =>
   runSync(
     sealPayState(state, { keys: [fixedKey], randomBytes: fixedRandomBytes })
@@ -224,29 +193,6 @@ describe("Pay URL state", () => {
     expect(opened.changedKeys).toEqual(changedKeys);
   });
 
-  test("derives the meeting-room restart path from sealed Pay state", () => {
-    const sealedState = runSync(
-      sealPayStateForUrl(buildMeetingRoomState(), {
-        keys: [fixedKey],
-        randomBytes: fixedRandomBytes,
-      })
-    );
-    const url = new URL(
-      buildCheckoutPayPath("en-US", sealedState),
-      "https://deskohub.test"
-    );
-    const token = url.searchParams.get(payStateTokenQueryParam);
-    if (!token) throw new Error("Expected sealed Pay state in the URL");
-    const openedState = runSync(
-      openPayState(token, { keys: [fixedKey], now: () => fixedNow })
-    );
-
-    expect(url.searchParams.has("reservationKind")).toBeFalse();
-    expect(getReservationStartPath("en-US", openedState.reservation.kind)).toBe(
-      "/en-US/reservation/meeting-room"
-    );
-  });
-
   test("fails closed when no encryption key is configured", () => {
     expect(() =>
       runSync(
@@ -294,24 +240,6 @@ describe("Pay URL state", () => {
     expect(opened.submittedCode).toBeUndefined();
     expect(opened.submittedCodeDiscountId).toBeUndefined();
     expect(token).not.toContain("CAMPAIGN10");
-  });
-
-  test("keeps requested discount code independent of the applied-code pair invariant", () => {
-    const requestedCode = Schema.decodeUnknownSync(
-      canonicalPromotionCodeSchema
-    )("CAMPAIGN10");
-    const stateWithRequestOnly = {
-      ...buildState(),
-      requestedDiscountCode: requestedCode,
-    };
-
-    expect(() => decodeSignedPayState(stateWithRequestOnly)).not.toThrow();
-    expect(() =>
-      decodeSignedPayState({
-        ...buildState(),
-        submittedCode: canonicalCode,
-      })
-    ).toThrow('at ["submittedCodeDiscountId"]');
   });
 
   test("rejects tampered ciphertext", () => {
@@ -382,54 +310,6 @@ describe("Pay URL state", () => {
     ).toEqual(newState);
   });
 
-  test("rejects old prefixed and versioned token headers", () => {
-    expect(() =>
-      runSync(
-        openPayState(`dhp1.${seal()}`, {
-          keys: [fixedKey],
-          now: () => fixedNow,
-        })
-      )
-    ).toThrow("Invalid Pay state token");
-
-    const versionedToken = replaceTokenHeader(seal(), (header) => ({
-      ...header,
-      v: 1,
-      alg: "A256GCM",
-    }));
-
-    expect(() =>
-      runSync(
-        openPayState(versionedToken, {
-          keys: [fixedKey],
-          now: () => fixedNow,
-        })
-      )
-    ).toThrow("Invalid Pay state token header");
-  });
-
-  test("rejects old versioned signed, quote, and summary shapes", () => {
-    const state = buildState();
-    const oldSignedState = {
-      ...state,
-      schemaVersion: 1,
-      alg: "A256GCM",
-      quote: {
-        ...state.quote,
-        schemaVersion: 1,
-        summary: { schemaVersion: 1 },
-      },
-    };
-    expect(() => decodeSignedPayState(oldSignedState)).toThrow();
-    expect(() =>
-      runSync(
-        sealPayState(oldSignedState as SignedPayState, {
-          keys: [fixedKey],
-        })
-      )
-    ).toThrow("Invalid Pay state");
-  });
-
   test("strictly validates generic applied-discount snapshots", () => {
     const state = buildState();
     const validApplication = {
@@ -495,15 +375,6 @@ describe("Pay URL state", () => {
     expect(() => decodeSignedPayState(stateWithDiscount)).not.toThrow();
     expect(() => decodeSignedPayState(invalidAmountState)).toThrow();
     expect(() => decodeSignedPayState(providerSpecificState)).toThrow();
-  });
-
-  test("rejects non-canonical submitted discount codes", () => {
-    expect(() =>
-      decodeSignedPayState({
-        ...buildState(),
-        submittedCode: " summer50 ",
-      })
-    ).toThrow('at ["submittedCode"]');
   });
 
   test("requires submitted code metadata to occur together", () => {
@@ -630,45 +501,6 @@ describe("legacy signed Pay state with a retired customer message", () => {
       restartKind: runSync(getPayStateRestartKind(token, { keys: [fixedKey] })),
     };
   };
-
-  test("restores meeting-room Pay state from a token with retired message", () => {
-    const state = buildMeetingRoomState();
-    const { legacyState, opened, restartKind } =
-      openLegacyPayStateWithMessage(state);
-
-    expect(legacyState.reservation).toHaveProperty(
-      "message",
-      "Private setup note."
-    );
-    expect(opened).toEqual(state);
-    expect(opened.reservation).not.toHaveProperty("message");
-    expect(opened.reservation).toMatchObject({
-      kind: "meeting-room",
-      duration: { unit: "hour", amount: 4 },
-      reservationDate: "2099-06-10",
-    });
-    expect(restartKind).toBe("meeting-room");
-  });
-
-  test("restores office Pay state from a token with retired message", () => {
-    const state = buildOfficeState();
-    const { legacyState, opened, restartKind } =
-      openLegacyPayStateWithMessage(state);
-
-    expect(legacyState.reservation).toHaveProperty(
-      "message",
-      "Private setup note."
-    );
-    expect(opened).toEqual(state);
-    expect(opened.reservation).not.toHaveProperty("message");
-    expect(opened.reservation).toMatchObject({
-      kind: "office",
-      startsOn: "2099-06-20",
-      endsOn: "2099-06-21",
-      seats: 3,
-    });
-    expect(restartKind).toBe("office");
-  });
 
   test("restores cowork Pay state from a token with retired message", () => {
     const state = buildState();

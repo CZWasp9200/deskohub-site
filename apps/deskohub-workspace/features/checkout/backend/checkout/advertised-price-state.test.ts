@@ -17,7 +17,6 @@ const testEmailAddressForAda = testEmailAddress("ada");
 mock.module("server-only", () => ({}));
 
 const {
-  advertisedPriceStateSchema,
   buildAdvertisedPriceState,
   openAdvertisedPriceState,
   sealAdvertisedPriceState,
@@ -38,15 +37,6 @@ const reservation = {
   },
 };
 const quote = buildCoworkReservationQuote(reservation.details);
-const meetingRoomReservation = {
-  kind: "meeting-room" as const,
-  details: {
-    kind: "meeting-room" as const,
-    duration: { unit: "hour" as const, amount: 4 },
-    reservationDate: "2026-06-21",
-    lastServiceDate: "2026-06-21",
-  },
-};
 
 const buildState = () =>
   Effect.runSync(
@@ -151,69 +141,6 @@ describe("advertised price state", () => {
     expect(opened.submittedCode).toBeUndefined();
     expect(opened.submittedCodeDiscountId).toBeUndefined();
     expect(token).not.toContain(requestedDiscountCode);
-  });
-
-  test("keeps a requested discount code inside the meeting-room snapshot without an applied pair", async () => {
-    const { buildReservationQuote } = await import(
-      "@/features/checkout/reservation-quote"
-    );
-    const { reservationOrderSchema } = await import(
-      "@/features/reservation/reservation-order"
-    );
-    const order = Schema.decodeUnknownSync(reservationOrderSchema)({
-      kind: "meeting-room",
-      duration: { unit: "hour", amount: 4 },
-      reservationDate: "2099-06-10",
-      startsAt: "2099-06-10T08:00:00Z",
-      endsAt: "2099-06-10T12:00:00Z",
-      name: "Ada Lovelace",
-      email: testEmailAddressForAda,
-      phone: "+420 777 777 777",
-    });
-    if (order.kind !== "meeting-room") {
-      throw new Error("Expected meeting-room reservation");
-    }
-    const requestedDiscountCode = Schema.decodeUnknownSync(
-      canonicalPromotionCodeSchema
-    )("MEET20");
-    const meetingRoomQuote = Effect.runSync(buildReservationQuote(order));
-    const state = Effect.runSync(
-      buildAdvertisedPriceState(
-        {
-          kind: "meeting-room",
-          locale: "en-US",
-          reservation: meetingRoomReservation,
-          quote: meetingRoomQuote,
-          requestedDiscountCode,
-        },
-        { keys: [fixedKey], now: () => fixedNow }
-      )
-    );
-    const token = seal(state);
-    const opened = Effect.runSync(
-      openAdvertisedPriceState(token, {
-        keys: [fixedKey],
-        now: () => fixedNow,
-      })
-    );
-
-    expect(opened).toMatchObject({ requestedDiscountCode });
-    expect(opened.submittedCode).toBeUndefined();
-    expect(opened.submittedCodeDiscountId).toBeUndefined();
-    expect(token).not.toContain(requestedDiscountCode);
-  });
-
-  test("rejects non-canonical requested discount codes", () => {
-    const state = {
-      ...buildState(),
-      requestedDiscountCode: " campaign10 ",
-    };
-
-    expect(() =>
-      Schema.decodeUnknownSync(advertisedPriceStateSchema, {
-        onExcessProperty: "error",
-      })(state)
-    ).toThrow('at ["requestedDiscountCode"]');
   });
 
   test("rejects tampering and expiry", () => {

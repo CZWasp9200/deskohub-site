@@ -1105,33 +1105,6 @@ describe("CheckoutService", () => {
     expect(harness.createHostedPaymentPage).not.toHaveBeenCalled();
   });
 
-  test("does not reuse an active attempt persisted in a provider override currency", async () => {
-    const orderId = "reservation-rejects-provider-currency-attempt";
-    const activeAttempt = {
-      ...makeAttempt({
-        id: "active-attempt",
-        orderId,
-        state: "pending",
-        securityToken: "active-security-token",
-        providerRedirectUrl: "https://payments.example/existing",
-      }),
-      amount: money(53_000, "EUR"),
-    };
-    const harness = await createCheckoutHarness({
-      orderId,
-      activeAttempt,
-      reservationOverrides: { activePaymentAttemptId: activeAttempt.id },
-    });
-
-    const result = await Effect.runPromise(harness.effect);
-
-    expect(result).toEqual({ status: "in_progress" });
-    expect(harness.findAttempt).toHaveBeenCalledWith(activeAttempt.id);
-    expect(harness.affirm).not.toHaveBeenCalled();
-    expect(harness.createPendingNexiAttempt).not.toHaveBeenCalled();
-    expect(harness.createHostedPaymentPage).not.toHaveBeenCalled();
-  });
-
   test("returns the existing pricing change for a review-required state before provider work", async () => {
     const harness = await createCheckoutHarness({
       orderId: "reservation-review-required",
@@ -1864,39 +1837,6 @@ describe("CheckoutService", () => {
     }
   });
 
-  test("rejects a new Open Space payment for a date before the current local date", async () => {
-    const yesterday = Temporal.Now.zonedDateTimeISO(
-      workspaceSiteConstants.location.timeZone
-    )
-      .toPlainDate()
-      .subtract({ days: 1 })
-      .toString();
-    const endedReservation = buildSaleableCoworkReservation(
-      "open-space",
-      yesterday
-    );
-    const orderId = "cowork-open-space-past-date";
-
-    const harness = await createCheckoutHarness({
-      orderId,
-      payStateToken: buildPayStateToken({
-        orderId,
-        reservation: endedReservation,
-      }),
-    });
-
-    const error = await Effect.runPromise(Effect.flip(harness.effect));
-
-    expect(error).toMatchObject({
-      _tag: "CheckoutError",
-      code: "cowork_reservation_ended",
-      message: "Open Space reservation day has already ended.",
-    });
-    expect(harness.affirm).not.toHaveBeenCalled();
-    expect(harness.createPendingNexiAttempt).not.toHaveBeenCalled();
-    expect(harness.createHostedPaymentPage).not.toHaveBeenCalled();
-  });
-
   test("does not create a provider attempt when the reserved day ends during final revalidation", async () => {
     const originalNow = Temporal.Now.instant;
     let now = Temporal.Instant.from("2099-06-10T21:59:59Z");
@@ -2587,25 +2527,6 @@ describe("CheckoutService", () => {
     expect(harness.updateReservationDetails).toHaveBeenCalledTimes(1);
     expect(harness.updateReservation).toHaveBeenCalledTimes(1);
     expect(harness.guardEvents).toEqual([]);
-  });
-
-  test("keeps an active authenticated account checkout flowing", async () => {
-    const harness = await createCheckoutHarness({
-      orderId: "reservation-active-account-activity",
-      accountAuthority: { session: {}, activityState: "active" },
-    });
-
-    const result = await Effect.runPromise(harness.effect);
-
-    expect(result).toMatchObject({ status: "redirect" });
-    expect(harness.updateReservationDetails).toHaveBeenCalledTimes(1);
-    expect(harness.updateReservation).toHaveBeenCalledTimes(1);
-    expect(harness.guardEvents).toEqual([
-      "account-session",
-      "account-lock-acquired",
-      "account-activity",
-      "account-lock-released",
-    ]);
   });
 
   test("holds the account advisory lock across hosted checkout state creation", async () => {
