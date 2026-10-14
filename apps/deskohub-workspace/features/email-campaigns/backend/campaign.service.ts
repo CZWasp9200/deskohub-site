@@ -72,7 +72,11 @@ export interface ICampaignService {
     void,
     CampaignNotFound | CampaignReadOnly | EffectDrizzleQueryError
   >;
-  /** Copies a campaign of any status into a new Draft. */
+  /**
+   * Copies a campaign of any status into a new Draft. The copy keeps the
+   * source's audience only while it exists and isn't archived; otherwise the
+   * admin picks one.
+   */
   readonly duplicate: (
     campaignId: CampaignId
   ) => Effect.Effect<Campaign, CampaignNotFound | CampaignTransactionError>;
@@ -144,10 +148,7 @@ export class CampaignService extends Context.Service<
         }
       });
 
-      /**
-       * A sent source's audience may be deleted meanwhile; its copy then
-       * starts without one, as the source now has.
-       */
+      /** Keeps the source's audience only if it's still assignable. */
       const insertCopy = Effect.fn("CampaignService.insertCopy")(function* (
         tx: Transaction,
         source: Campaign
@@ -156,6 +157,10 @@ export class CampaignService extends Context.Service<
           source.audienceId === null
             ? Option.none()
             : yield* lockAudience(tx, source.audienceId);
+        const assignable = Option.exists(
+          audience,
+          ({ archivedAt }) => archivedAt === null
+        );
         const [campaign] = yield* tx
           .insert(emailCampaigns)
           .values({
@@ -163,7 +168,7 @@ export class CampaignService extends Context.Service<
             purpose: source.purpose,
             templateKey: source.templateKey,
             content: source.content,
-            audienceId: Option.isSome(audience) ? source.audienceId : null,
+            audienceId: assignable ? source.audienceId : null,
             status: "draft",
           })
           .returning();

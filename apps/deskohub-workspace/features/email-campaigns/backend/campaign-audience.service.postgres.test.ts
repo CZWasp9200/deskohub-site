@@ -338,6 +338,44 @@ describe.skipIf(!testDatabase)(
       expect(Exit.isSuccess(result) && result.value.audienceId).toBeNull();
     });
 
+    const duplicate = (campaignId: CampaignId) =>
+      run(
+        CampaignService.pipe(
+          Effect.flatMap((campaigns) => campaigns.duplicate(campaignId))
+        )
+      ).then((exit) => {
+        if (Exit.isSuccess(exit)) campaignIds.push(exit.value.id);
+        return exit;
+      });
+
+    test("duplicates a draft without its archived audience", async () => {
+      const audience = await createAudience("Archived before duplicate");
+      const draft = await createCampaign(audience.id);
+      await run(
+        CampaignAudienceService.pipe(
+          Effect.flatMap((audiences) => audiences.archive(audience.id))
+        )
+      );
+
+      const copy = await duplicate(draft.id);
+      expect(Exit.isSuccess(copy) && copy.value.audienceId).toBeNull();
+      expect(await storedAudienceId(draft.id)).toBe(audience.id);
+    });
+
+    test("duplicates a draft without the audience archived under it", async () => {
+      const audience = await createAudience("Archived under duplicate");
+      const draft = await createCampaign(audience.id);
+      const { result } = await raceBehind(
+        {
+          sql: "update email_campaign_audiences set archived_at = now() where id = $1",
+          values: [audience.id],
+        },
+        () => duplicate(draft.id)
+      );
+
+      expect(Exit.isSuccess(result) && result.value.audienceId).toBeNull();
+    });
+
     test("refuses a draft created behind the audience's archiving", async () => {
       const audience = await createAudience("Archived under create");
       const { result } = await raceBehind(
