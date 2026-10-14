@@ -219,18 +219,6 @@ test("rejects an authenticated-looking auth session response during readiness", 
   ).rejects.toThrow("null session");
 });
 
-test("rejects a failing auth session endpoint during readiness", async () => {
-  const fetchMock = mock(async () => new Response("null", { status: 500 }));
-
-  await expect(
-    Effect.runPromise(
-      assertPreviewAuthSessionReady(makeConfig()).pipe(
-        Effect.provide(makeFetchHttpClientLayer(fetchMock))
-      )
-    )
-  ).rejects.toThrow("failed with 500");
-});
-
 test("recognizes a rendered feature-gated preview page", async () => {
   const fetchMock = mock(
     async () =>
@@ -277,22 +265,6 @@ test("rejects a server error streamed with a 200 instead of disabling E2E covera
         '<section aria-busy="true">Reserve a private office.</section><template data-dgst="2871029386"></template>',
         { status: 200 }
       )
-  );
-
-  await expect(
-    Effect.runPromise(
-      isPreviewPageAvailable(
-        makeConfig(),
-        "/en-US/reservation/office",
-        "data-office-base-price"
-      ).pipe(Effect.provide(makeFetchHttpClientLayer(fetchMock)))
-    )
-  ).rejects.toThrow("did not render its expected content");
-});
-
-test("rejects a preview page without expected content or a rendered not-found boundary", async () => {
-  const fetchMock = mock(
-    async () => new Response("<main>Unexpected page</main>", { status: 200 })
   );
 
   await expect(

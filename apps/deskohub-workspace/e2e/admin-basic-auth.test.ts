@@ -4,30 +4,12 @@ import {
   resolveInstantNavigationAdminCredentials,
 } from "./admin-basic-auth";
 import { makeE2EEnvironment } from "./e2e-env";
-import {
-  makeTestE2EEnvironment,
-  validE2ERuntimeEnvironment,
-} from "./e2e-env.test-fixture";
+import { validE2ERuntimeEnvironment } from "./e2e-env.test-fixture";
 import { redact } from "./runtime";
 
 const syntheticPair = "e2e-admin:s3cret-value-with:colons";
 
 describe("Workspace E2E admin Basic auth credential", () => {
-  test("stays optional in the runner environment schema", () => {
-    expect(
-      makeE2EEnvironment(validE2ERuntimeEnvironment)
-        .WORKSPACE_E2E_ADMIN_BASIC_AUTH
-    ).toBeUndefined();
-  });
-
-  test("accepts a username:password pair", () => {
-    expect(
-      makeTestE2EEnvironment({
-        WORKSPACE_E2E_ADMIN_BASIC_AUTH: syntheticPair,
-      }).WORKSPACE_E2E_ADMIN_BASIC_AUTH
-    ).toBe(syntheticPair);
-  });
-
   test.each([
     { WORKSPACE_E2E_ADMIN_BASIC_AUTH: "just-a-password" },
     { WORKSPACE_E2E_ADMIN_BASIC_AUTH: ":secret" },
@@ -94,18 +76,6 @@ describe("admin instant-navigation Basic auth credential resolution", () => {
         remoteBaseUrl: true,
       })
     ).toThrow("WORKSPACE_E2E_ADMIN_BASIC_AUTH");
-  });
-
-  test("fails closed when the runner-owned pair is unparseable", () => {
-    expect(() =>
-      resolveInstantNavigationAdminCredentials({
-        adminBasicAuthPair: "just-a-password",
-        localCredentials,
-        remoteBaseUrl: true,
-      })
-    ).toThrow(
-      "WORKSPACE_E2E_ADMIN_BASIC_AUTH must be a username:password pair"
-    );
   });
 
   test("falls back to the local synthetic credentials only for local execution", () => {

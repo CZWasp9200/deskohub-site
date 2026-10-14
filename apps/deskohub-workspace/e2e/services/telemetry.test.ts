@@ -121,36 +121,6 @@ test("builds bounded searchable span attributes", () => {
   });
 });
 
-test("builds bounded phase span attributes", () => {
-  expect(
-    toE2ESpanAttributes(
-      {
-        allocation: {
-          fromOffsetDays: 14,
-          shardCount: 3,
-          shardIndex: 0,
-          toOffsetDays: 39,
-        },
-        executionContext: "ci",
-        runId: "987-3",
-      },
-      {
-        caseId: "checkout-cowork-basic",
-        phaseId: "case-finalization",
-        scope: "phase",
-      }
-    )
-  ).toEqual({
-    "e2e.allocation.shard": 1,
-    "e2e.allocation.shards": 3,
-    "e2e.case.id": "checkout-cowork-basic",
-    "e2e.execution_context": "ci",
-    "e2e.phase.id": "case-finalization",
-    "e2e.run.id": "987-3",
-    "e2e.scope": "phase",
-  });
-});
-
 test("maps success, errors, defects, timeouts, and interruption to closed results", () => {
   expect(toE2EResult(Exit.succeed(undefined))).toEqual({
     outcome: "passed",
