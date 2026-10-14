@@ -218,10 +218,12 @@ describe.skipIf(!testDatabase)(
         )
       );
 
-    const retry = (campaignId: CampaignId) =>
+    const retry = (campaignId: CampaignId, includeUnconfirmed?: boolean) =>
       runExit(
         CampaignSendService.pipe(
-          Effect.flatMap((sends) => sends.retryUndelivered({ campaignId }))
+          Effect.flatMap((sends) =>
+            sends.retryUndelivered({ campaignId, includeUnconfirmed })
+          )
         )
       );
 
@@ -409,6 +411,7 @@ describe.skipIf(!testDatabase)(
         "bounced",
         "complained",
         "skipped",
+        "unconfirmed",
       ];
       resolvedEmails = statuses.map((status) => testEmailAddress(status));
       const campaign = await createDraft();
@@ -417,7 +420,7 @@ describe.skipIf(!testDatabase)(
       const sendId = Exit.isSuccess(started) ? started.value.sendId : undefined;
       for (const [index, status] of statuses.entries()) {
         await testDatabase.pool.query(
-          "update email_campaign_recipients set status = $1 where send_id = $2 and dotypos_customer_id = $3",
+          "update email_campaign_recipients set status = $1, skip_reason = case when $1 = 'skipped' then 'missing-email' end where send_id = $2 and dotypos_customer_id = $3",
           [status, sendId, customerId(`recipient-${index}`)]
         );
       }
@@ -449,8 +452,32 @@ describe.skipIf(!testDatabase)(
         ["bounced", 1],
         ["complained", 1],
         ["skipped", 1],
+        ["unconfirmed", 1],
       ]);
       expect(await storedStatus(campaign.id)).toBe("sending");
+
+      // Unconfirmed recipients may have the email; only an explicit retry
+      // mails them again.
+      await testDatabase.pool.query(
+        "update email_campaigns set status = 'failed' where id = $1",
+        [campaign.id]
+      );
+      const retriedUnconfirmed = await retry(campaign.id, true);
+
+      expect(
+        Exit.isSuccess(retriedUnconfirmed) && retriedUnconfirmed.value
+      ).toEqual({ sendId: sendId!, retriedCount: 3 });
+      const { rows: afterExplicitRetry } = await testDatabase.pool.query(
+        "select status, delivery_attempt from email_campaign_recipients where send_id = $1 and status in ('pending', 'unconfirmed') order by dotypos_customer_id",
+        [sendId]
+      );
+      expect(
+        afterExplicitRetry.map((row) => [row.status, row.delivery_attempt])
+      ).toEqual([
+        ["pending", 3],
+        ["pending", 3],
+        ["pending", 3],
+      ]);
     });
   }
 );

@@ -7,7 +7,10 @@ import {
   EmailProviderTag,
 } from "./capabilities";
 import { ConsoleEmailProvider } from "./providers/console-provider";
-import { createResendProvider } from "./providers/resend-provider";
+import {
+  createResendProvider,
+  deploymentResendRequestTimeouts,
+} from "./providers/resend-provider";
 import { isTestEmailRecipient } from "./test-recipients";
 
 export type EmailRoute = "console" | "resend";
@@ -70,7 +73,9 @@ export const RoutedEmailProviderLive = Layer.effect(
   Effect.gen(function* () {
     const config = yield* EmailConfigTag;
     const apiKey = config.apiKey?.trim();
-    const resend = apiKey ? createResendProvider(apiKey) : undefined;
+    const resend = apiKey
+      ? createResendProvider(apiKey, yield* deploymentResendRequestTimeouts)
+      : undefined;
 
     const provider: EmailProvider = {
       name: "routed",

@@ -23,8 +23,12 @@ import type {
   CampaignSendId,
 } from "@/features/email-campaigns/campaign-identifiers";
 import {
+  type CampaignDeliveryBatchStatus,
+  type CampaignRecipientSkipReason,
   type CampaignRecipientStatus,
   type CampaignStatus,
+  campaignDeliveryBatchStatuses,
+  campaignRecipientSkipReasons,
   campaignRecipientStatuses,
   campaignStatuses,
 } from "@/features/email-campaigns/campaign-states";
@@ -154,11 +158,9 @@ export const emailCampaignRecipients = pgTable(
       .notNull()
       .default("pending")
       .$type<CampaignRecipientStatus>(),
-    /**
-     * The delivery attempt that last queued this recipient. An attempt's
-     * batches are its recipients in customer ID order, so redelivering a
-     * message rebuilds the same batches.
-     */
+    /** Set exactly while the status is `skipped`. */
+    skipReason: text("skip_reason").$type<CampaignRecipientSkipReason>(),
+    /** The delivery attempt that last queued this recipient. */
     deliveryAttempt: integer("delivery_attempt").notNull().default(1),
     providerMessageId: text("provider_message_id"),
     statusUpdatedAt: instant("status_updated_at").notNull().default(sql`now()`),
@@ -181,10 +183,57 @@ export const emailCampaignRecipients = pgTable(
       "email_campaign_recipients_status_check",
       sql`${t.status} in (${quotedSqlList(campaignRecipientStatuses)})`
     ),
+    check(
+      "email_campaign_recipients_skip_reason_check",
+      sql`(${t.status} = 'skipped') = (${t.skipReason} is not null) and (${t.skipReason} is null or ${t.skipReason} in (${quotedSqlList(campaignRecipientSkipReasons)}))`
+    ),
   ]
 );
 
 export type CampaignRecipientRow = typeof emailCampaignRecipients.$inferSelect;
+
+/**
+ * One provider batch of a delivery attempt, persisted before its first
+ * provider request. It fixes the batch's idempotency key (send, attempt,
+ * index), its recipients in message order, and a hash of the exact payload,
+ * so a resumed delivery replays the identical request or, when the payload
+ * can no longer be reproduced, never resends it.
+ */
+export const emailCampaignDeliveryBatches = pgTable(
+  "email_campaign_delivery_batches",
+  {
+    sendId: text("send_id")
+      .notNull()
+      .references(() => emailCampaignSends.id, { onDelete: "cascade" })
+      .$type<CampaignSendId>(),
+    deliveryAttempt: integer("delivery_attempt").notNull(),
+    batchIndex: integer("batch_index").notNull(),
+    dotyposCustomerIds: text("dotypos_customer_ids")
+      .$type<DotyposCustomerId>()
+      .array()
+      .notNull(),
+    /** SHA-256 of the provider payload; the payload itself isn't stored. */
+    payloadHash: text("payload_hash").notNull(),
+    status: text("status")
+      .notNull()
+      .default("requested")
+      .$type<CampaignDeliveryBatchStatus>(),
+    /** The first provider request; the idempotency key expires 24h later. */
+    requestedAt: instant("requested_at").notNull(),
+    settledAt: instant("settled_at"),
+  },
+  (t) => [
+    primaryKey({ columns: [t.sendId, t.deliveryAttempt, t.batchIndex] }),
+    check(
+      "email_campaign_delivery_batches_status_check",
+      sql`${t.status} in (${quotedSqlList(campaignDeliveryBatchStatuses)})`
+    ),
+    check(
+      "email_campaign_delivery_batches_settled_check",
+      sql`(${t.status} = 'requested') = (${t.settledAt} is null)`
+    ),
+  ]
+);
 
 /**
  * Codes delivered in campaign test emails. A code confirms the real send only

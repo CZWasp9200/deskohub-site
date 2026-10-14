@@ -105,6 +105,25 @@ describe.skipIf(!testDatabase)(
       });
     });
 
+    test("settles a failed, unconfirmed, or skipped recipient the provider reports delivered", async () => {
+      for (const status of ["failed", "unconfirmed", "skipped"] as const) {
+        const { sendId } = await seed(status);
+        const messageId = `msg-${run}-settles-${status}`;
+
+        expect(
+          await record({
+            type: "email.delivered",
+            providerMessageId: messageId,
+            tags: { campaignSendId: sendId, dotyposCustomerId: customerId },
+          })
+        ).toEqual({ status: "processed" });
+        expect(await stored(sendId)).toMatchObject({
+          status: "delivered",
+          provider_message_id: messageId,
+        });
+      }
+    });
+
     test("never moves a recipient back to an earlier status", async () => {
       const messageId = `msg-${run}-late`;
       const { sendId } = await seed("complained", messageId);

@@ -27,28 +27,40 @@ export interface ICampaignDeliveryStatusService {
   /**
    * Records a delivered, bounced, or complained event on the frozen
    * recipient, found by provider message ID or by its tags when the event
-   * beat the message ID into the database. Statuses only move forward, so a
-   * late `delivered` never hides a bounce or complaint. Bounces and
-   * complaints change no consent: the provider suppresses the address.
+   * beat the message ID into the database. The event is proof of delivery,
+   * so it settles a recipient in any state short of it, including one whose
+   * batch was refused, unconfirmed, or skipped by a later attempt. Statuses
+   * only move forward, so a late `delivered` never hides a bounce or
+   * complaint. Bounces and complaints change no consent: the provider
+   * suppresses the address.
    */
   readonly record: (
     event: CampaignDeliveryEvent
   ) => Effect.Effect<CampaignDeliveryEventResult, EffectDrizzleQueryError>;
 }
 
+/** Every status short of a provider-confirmed delivery. */
+const unconfirmedDeliveryStatuses = [
+  "pending",
+  "sent",
+  "failed",
+  "unconfirmed",
+  "skipped",
+] as const satisfies readonly CampaignRecipientStatus[];
+
 /** Each provider status and the earlier statuses it may replace. */
 const statusTransitions = {
   "email.delivered": {
     status: "delivered",
-    from: ["pending", "sent"],
+    from: unconfirmedDeliveryStatuses,
   },
   "email.bounced": {
     status: "bounced",
-    from: ["pending", "sent", "delivered"],
+    from: [...unconfirmedDeliveryStatuses, "delivered"],
   },
   "email.complained": {
     status: "complained",
-    from: ["pending", "sent", "delivered"],
+    from: [...unconfirmedDeliveryStatuses, "delivered"],
   },
 } as const satisfies Record<
   string,
@@ -105,6 +117,7 @@ export class CampaignDeliveryStatusService extends Context.Service<
               .update(emailCampaignRecipients)
               .set({
                 status: transition.status,
+                skipReason: null,
                 statusUpdatedAt: event.occurredAt,
                 providerMessageId: sql`coalesce(${emailCampaignRecipients.providerMessageId}, ${event.providerMessageId})`,
               })

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
-import { Effect, Fiber, Layer, Tracer } from "effect";
+import { ConfigProvider, Effect, Fiber, Layer, Tracer } from "effect";
 import { TestClock } from "effect/testing";
 
 const adaAddress = testEmailAddress("ada");
@@ -78,7 +78,8 @@ const config = {
 };
 
 const runProvider = <A, E>(
-  effect: Effect.Effect<A, E, EmailProviderRequirement>
+  effect: Effect.Effect<A, E, EmailProviderRequirement>,
+  env: Record<string, string> = {}
 ) =>
   Effect.runPromise(
     effect.pipe(
@@ -86,6 +87,10 @@ const runProvider = <A, E>(
         ResendEmailProviderLive.pipe(
           Layer.provide(Layer.succeed(EmailConfigTag, config))
         )
+      ),
+      Effect.provideService(
+        ConfigProvider.ConfigProvider,
+        ConfigProvider.fromUnknown(env)
       )
     )
   );
@@ -148,31 +153,58 @@ describe("ResendEmailProvider", () => {
     }
   });
 
-  test("maps a stalled request to NetworkError", async () => {
-    send = mock<SendImplementation>(() => new Promise(() => {}));
+  for (const [env, single, batch] of [
+    [{ VERCEL_ENV: "production" }, "5 seconds", "10 seconds"],
+    [{ VERCEL_ENV: "preview" }, "30 seconds", "30 seconds"],
+    [{}, "30 seconds", "30 seconds"],
+  ] as const) {
+    test(`times out a stalled request after ${single} (batch ${batch}) in ${env.VERCEL_ENV ?? "an unnamed deployment"}`, async () => {
+      send = mock<SendImplementation>(() => new Promise(() => {}));
+      batchSend = mock<BatchSendImplementation>(() => new Promise(() => {}));
 
-    const result = await runProvider(
-      Effect.gen(function* () {
-        const provider = yield* EmailProviderTag;
-        const fiber = yield* provider
-          .send(message)
-          .pipe(Effect.result, Effect.forkChild);
-        yield* TestClock.adjust("5 seconds");
-        return yield* Fiber.join(fiber);
-      }).pipe(Effect.provide(TestClock.layer()))
-    );
+      const stalled = <A>(
+        request: Effect.Effect<A, unknown>,
+        timeout: string
+      ) =>
+        Effect.gen(function* () {
+          const fiber = yield* request.pipe(Effect.result, Effect.forkChild);
+          yield* TestClock.adjust(timeout);
+          return yield* Fiber.join(fiber);
+        });
 
-    expect(send).toHaveBeenCalledTimes(1);
-    expect(result).toMatchObject({
-      _tag: "Failure",
-      failure: {
-        _tag: "NetworkError",
-        message: "Resend send timed out",
-      },
+      const [sent, sentBeforeBatchTimeout, sentBatch] = await runProvider(
+        Effect.gen(function* () {
+          const provider = yield* EmailProviderTag;
+          const timedOut = yield* stalled(provider.send(message), single);
+          const early = yield* provider
+            .sendBatch(batchMessages, { idempotencyKey: "stalled" })
+            .pipe(Effect.timeoutOption("1 second"), Effect.forkChild);
+          yield* TestClock.adjust("1 second");
+          const beforeBatchTimeout = yield* Fiber.join(early);
+          const batchTimedOut = yield* stalled(
+            provider.sendBatch(batchMessages, { idempotencyKey: "stalled" }),
+            batch
+          );
+          return [timedOut, beforeBatchTimeout, batchTimedOut] as const;
+        }).pipe(Effect.provide(TestClock.layer())),
+        env
+      );
+
+      expect(send).toHaveBeenCalledTimes(1);
+      for (const result of [sent, sentBatch]) {
+        expect(result).toMatchObject({
+          _tag: "Failure",
+          failure: {
+            _tag: "NetworkError",
+            message: "Resend send timed out",
+          },
+        });
+      }
+      expect(sentBeforeBatchTimeout._tag).toBe("None");
     });
-  });
+  }
 
-  test("rejects a Resend response without a valid delivery ID", async () => {
+  test("treats an accepted response without a valid delivery ID as unconfirmed", async () => {
     send = mock<SendImplementation>(async () => ({ data: { id: "" } }));
 
     const result = await runProvider(
@@ -185,9 +217,8 @@ describe("ResendEmailProvider", () => {
     expect(result._tag).toBe("Failure");
     if (result._tag === "Failure") {
       expect(result.failure).toMatchObject({
-        _tag: "EmailServiceError",
+        _tag: "NetworkError",
         message: "Resend response did not contain a valid email delivery ID",
-        provider: "resend",
       });
     }
   });
@@ -239,13 +270,17 @@ describe("ResendEmailProvider", () => {
     ]);
   });
 
-  test("maps batch 4xx errors to EmailServiceError and 5xx errors to NetworkError", async () => {
-    for (const [statusCode, expectedTag] of [
-      [400, "EmailServiceError"],
-      [500, "NetworkError"],
+  test("maps batch refusals to EmailServiceError and unknown outcomes to NetworkError", async () => {
+    for (const [statusCode, errorMessage, expectedTag] of [
+      [400, "Batch request failed", "EmailServiceError"],
+      [422, "Invalid recipient", "EmailServiceError"],
+      [429, "Too many requests", "EmailServiceError"],
+      // A reused key: an earlier request under it may have been delivered.
+      [409, "Invalid idempotent request", "NetworkError"],
+      [500, "Invalid upstream response", "NetworkError"],
     ] as const) {
       batchSend = mock<BatchSendImplementation>(async () => ({
-        error: { statusCode, message: "Batch request failed" },
+        error: { statusCode, message: errorMessage },
       }));
 
       const result = await runProvider(
@@ -264,7 +299,7 @@ describe("ResendEmailProvider", () => {
     }
   });
 
-  test("rejects a batch response with fewer IDs than messages", async () => {
+  test("treats a batch response with fewer IDs than messages as unconfirmed", async () => {
     batchSend = mock<BatchSendImplementation>(async () => ({
       data: { data: [{ id: "batch-id-1" }] },
     }));
@@ -280,7 +315,7 @@ describe("ResendEmailProvider", () => {
 
     expect(result._tag).toBe("Failure");
     if (result._tag === "Failure") {
-      expect(result.failure._tag).toBe("EmailServiceError");
+      expect(result.failure._tag).toBe("NetworkError");
     }
   });
 

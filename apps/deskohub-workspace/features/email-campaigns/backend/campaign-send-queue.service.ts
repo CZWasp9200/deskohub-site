@@ -5,8 +5,14 @@ import type { CampaignSendId } from "../campaign-identifiers";
 
 export const campaignSendQueueTopic = "workspace-email-campaign-send";
 
-/** The provider honours batch idempotency keys for 24 hours. */
-const campaignSendMessageRetentionSeconds = 24 * 60 * 60;
+/**
+ * A batch with an unknown outcome is replayed for up to 23 hours after its
+ * first request (the provider keeps its key for 24). The message outlives
+ * that window by a day, so a later run always finds the expired batch and
+ * settles its recipients as `unconfirmed` instead of leaving the campaign
+ * Sending.
+ */
+const campaignSendMessageRetentionSeconds = 48 * 60 * 60;
 
 export class CampaignSendQueueError extends Data.TaggedError(
   "CampaignSendQueueError"

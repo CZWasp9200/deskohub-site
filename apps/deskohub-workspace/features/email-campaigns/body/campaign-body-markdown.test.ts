@@ -61,7 +61,11 @@ describe("campaign body Markdown", () => {
     ["a closing bracket after the URL", "Book", "https://example.com/x)]"],
     ["a space in the URL", "Book", "https://example.com/a b"],
     ["a backslash in the URL", "Book", "https://example.com/a\\b"],
-    ["a mailto subject", "Write", "mailto:team@deskohub.cz?subject=Hi%20(you)"],
+    [
+      "a mailto subject",
+      "Write",
+      `mailto:${testEmailAddress("team")}?subject=Hi%20(you)`,
+    ],
     ["brackets in the label", "Book [now]", "https://deskohub.cz"],
     ["unbalanced brackets", "]] Book [[", "https://deskohub.cz"],
     [

@@ -1,24 +1,34 @@
 import { describe, expect, test } from "bun:test";
+import { testEmailAddress } from "@deskohub/test-email";
 import {
   campaignDeliveryBatchIdempotencyKey,
-  chunkCampaignDeliveryBatches,
+  campaignDeliveryPayloadHash,
 } from "./campaign-delivery-batches";
 import type { CampaignSendId } from "./campaign-identifiers";
 
 const sendId = "send-1" as CampaignSendId;
 
 describe("campaign delivery batches", () => {
-  test("splits recipients into batches of at most 100 in their order", () => {
-    const recipients = Array.from({ length: 250 }, (_, index) => index);
+  test("hashes equal payloads alike and any change differently", () => {
+    const message = {
+      from: { email: testEmailAddress("campaigns") },
+      to: { email: testEmailAddress("ada") },
+      subject: "Novinky",
+      html: "<p>Ahoj</p>",
+    };
+    const hash = campaignDeliveryPayloadHash([message]);
 
-    const batches = chunkCampaignDeliveryBatches(recipients);
-
-    expect(batches.map((batch) => batch.length)).toEqual([100, 100, 50]);
-    expect(batches.flat()).toEqual(recipients);
-  });
-
-  test("gives an empty attempt no batches", () => {
-    expect(chunkCampaignDeliveryBatches([])).toEqual([]);
+    expect(campaignDeliveryPayloadHash([{ ...message }])).toBe(hash);
+    expect(
+      new Set([
+        hash,
+        campaignDeliveryPayloadHash([
+          { ...message, to: { email: testEmailAddress("grace") } },
+        ]),
+        campaignDeliveryPayloadHash([{ ...message, html: "<p>Hi</p>" }]),
+        campaignDeliveryPayloadHash([message, message]),
+      ]).size
+    ).toBe(4);
   });
 
   test("keys a batch by send, attempt, and index", () => {

@@ -5,8 +5,9 @@ import {
   type DotyposCustomerId,
   DotyposService,
 } from "@deskohub/dotypos";
-import { EmailServiceTag } from "@deskohub/email";
-import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import { type EmailMessage, EmailServiceTag } from "@deskohub/email";
+import { isTestEmailRecipient } from "@deskohub/email/backend/test-recipients";
+import { and, asc, eq, inArray, isNull, notExists, sql } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Data, Duration, Effect, Layer, Option, Result } from "effect";
 import type { SqlError } from "effect/unstable/sql";
@@ -14,6 +15,7 @@ import { WorkspaceDatabase } from "@/db/database.service";
 import {
   type CampaignRow,
   customerMarketingConsents,
+  emailCampaignDeliveryBatches,
   emailCampaignRecipients,
   emailCampaignSends,
   emailCampaigns,
@@ -29,11 +31,13 @@ import {
 } from "../body/render-campaign-email";
 import {
   campaignDeliveryBatchIdempotencyKey,
-  chunkCampaignDeliveryBatches,
+  campaignDeliveryBatchReplayWindow,
+  campaignDeliveryBatchSize,
+  campaignDeliveryPayloadHash,
 } from "../campaign-delivery-batches";
 import { campaignDeliveryMessage } from "../campaign-email-message";
 import type { CampaignSendId } from "../campaign-identifiers";
-import type { CampaignRecipientStatus } from "../campaign-states";
+import type { CampaignRecipientSkipReason } from "../campaign-states";
 import { campaignFallbackLocale } from "../recipient-locale";
 import { CampaignEmailConfig } from "./campaign-email.config";
 import { reachableCampaignEmail } from "./campaign-recipient.service";
@@ -41,16 +45,24 @@ import type { CampaignDeliveryAttempt } from "./campaign-send-queue.service";
 import { CampaignUnsubscribeService } from "./campaign-unsubscribe.service";
 
 /**
- * A new batch starts only this long into an attempt. The slowest batch (a
- * Dotypos read plus a provider request with every retry) still finishes
- * inside the queue consumer's 300-second limit.
+ * A new batch starts only this long into a run. Every batch is persisted
+ * before its provider request, so a run cut short mid-request loses nothing:
+ * the redelivered message replays that batch under its key.
  */
 const deliveryStartBudget = Duration.seconds(120);
 
 /**
- * The attempt ran out of time with batches still pending. Failing the queue
- * message redelivers it, and the next run resumes at the first pending
- * batch.
+ * A run gives up this long after it starts, inside the queue consumer's
+ * 300-second limit. Its slowest batch can outlast the remaining time: a
+ * Dotypos read with every retry takes up to about 121 seconds, and a provider
+ * request with every retry about 48 seconds in production or 128 seconds
+ * elsewhere (where requests wait 30 seconds).
+ */
+const deliveryRunDeadline = Duration.seconds(270);
+
+/**
+ * The attempt has batches left or a batch whose outcome is unknown. Failing
+ * the queue message redelivers it, and the next run resumes the attempt.
  */
 class CampaignDeliveryIncomplete extends Data.TaggedError(
   "CampaignDeliveryIncomplete"
@@ -71,7 +83,10 @@ export interface ICampaignDeliveryService {
    * Delivers one attempt of a frozen send in provider batches, then marks
    * the campaign Sent, or Failed when any recipient wasn't delivered. Each
    * recipient's email (and, for marketing, consent) is re-read first; one
-   * who lost it is `skipped`.
+   * who lost it, or who is outside the email test domain outside
+   * production, is `skipped`. A batch whose outcome is unknown is replayed
+   * with its identical payload under its key while the key lasts, and its
+   * recipients become `unconfirmed` once it can't be.
    */
   readonly deliverAttempt: (
     attempt: CampaignDeliveryAttempt
@@ -81,16 +96,22 @@ export interface ICampaignDeliveryService {
   >;
 }
 
-type FrozenRecipient = {
-  readonly dotyposCustomerId: DotyposCustomerId;
-  readonly locale: Locale;
-  readonly status: CampaignRecipientStatus;
+type AttemptContext = CampaignDeliveryAttempt & {
+  readonly campaign: CampaignRow;
+  readonly startedAt: Temporal.Instant;
 };
 
+type BatchRecipient = {
+  readonly dotyposCustomerId: DotyposCustomerId;
+  readonly locale: Locale;
+};
+
+type ReachableRecipient = BatchRecipient & { readonly to: string };
+
+/** A persisted batch: its key's identity and its recipients in order. */
 type DeliveryBatch = CampaignDeliveryAttempt & {
-  readonly campaign: CampaignRow;
   readonly batchIndex: number;
-  readonly recipients: readonly FrozenRecipient[];
+  readonly dotyposCustomerIds: readonly DotyposCustomerId[];
 };
 
 /** Delivers frozen campaign sends; the campaign send queue consumer runs it. */
@@ -128,87 +149,96 @@ export class CampaignDeliveryService extends Context.Service<
             )
           );
 
-      const listAttemptRecipients = (attempt: CampaignDeliveryAttempt) =>
+      const inAttempt = (attempt: CampaignDeliveryAttempt) =>
+        and(
+          eq(emailCampaignRecipients.sendId, attempt.sendId),
+          eq(emailCampaignRecipients.deliveryAttempt, attempt.deliveryAttempt)
+        );
+
+      /** The attempt's batches with an unknown outcome, in request order. */
+      const listRequestedBatches = (attempt: CampaignDeliveryAttempt) =>
+        db
+          .select({
+            batchIndex: emailCampaignDeliveryBatches.batchIndex,
+            dotyposCustomerIds: emailCampaignDeliveryBatches.dotyposCustomerIds,
+            payloadHash: emailCampaignDeliveryBatches.payloadHash,
+            requestedAt: emailCampaignDeliveryBatches.requestedAt,
+          })
+          .from(emailCampaignDeliveryBatches)
+          .where(
+            and(
+              eq(emailCampaignDeliveryBatches.sendId, attempt.sendId),
+              eq(
+                emailCampaignDeliveryBatches.deliveryAttempt,
+                attempt.deliveryAttempt
+              ),
+              eq(emailCampaignDeliveryBatches.status, "requested")
+            )
+          )
+          .orderBy(asc(emailCampaignDeliveryBatches.batchIndex));
+
+      /** No batch of the attempt carries the recipient yet. */
+      const unbatched = notExists(
+        db
+          .select({ batchIndex: emailCampaignDeliveryBatches.batchIndex })
+          .from(emailCampaignDeliveryBatches)
+          .where(
+            and(
+              eq(
+                emailCampaignDeliveryBatches.sendId,
+                emailCampaignRecipients.sendId
+              ),
+              eq(
+                emailCampaignDeliveryBatches.deliveryAttempt,
+                emailCampaignRecipients.deliveryAttempt
+              ),
+              sql`${emailCampaignRecipients.dotyposCustomerId} = any(${emailCampaignDeliveryBatches.dotyposCustomerIds})`
+            )
+          )
+      );
+
+      /** The next pending recipients no batch carries, in customer ID order. */
+      const nextUnbatchedRecipients = (attempt: CampaignDeliveryAttempt) =>
         db
           .select({
             dotyposCustomerId: emailCampaignRecipients.dotyposCustomerId,
             locale: emailCampaignRecipients.locale,
-            status: emailCampaignRecipients.status,
           })
           .from(emailCampaignRecipients)
           .where(
             and(
-              eq(emailCampaignRecipients.sendId, attempt.sendId),
-              eq(
-                emailCampaignRecipients.deliveryAttempt,
-                attempt.deliveryAttempt
-              )
+              inAttempt(attempt),
+              eq(emailCampaignRecipients.status, "pending"),
+              unbatched
             )
           )
-          .orderBy(emailCampaignRecipients.dotyposCustomerId);
+          .orderBy(asc(emailCampaignRecipients.dotyposCustomerId))
+          .limit(campaignDeliveryBatchSize);
 
-      /** Moves still-pending recipients to `status`. */
-      const markPending = Effect.fn("CampaignDeliveryService.markPending")(
-        function* (input: {
-          readonly sendId: CampaignSendId;
-          readonly customerIds: readonly DotyposCustomerId[];
-          readonly status: "skipped" | "failed";
-        }) {
-          if (input.customerIds.length === 0) return;
-          yield* db
-            .update(emailCampaignRecipients)
-            .set({
-              status: input.status,
-              statusUpdatedAt: yield* currentInstant,
-            })
-            .where(
-              and(
-                eq(emailCampaignRecipients.sendId, input.sendId),
-                inArray(
-                  emailCampaignRecipients.dotyposCustomerId,
-                  input.customerIds
-                ),
-                eq(emailCampaignRecipients.status, "pending")
-              )
-            );
-        }
-      );
-
-      /**
-       * Records the provider's message IDs. A webhook that arrived first may
-       * already have moved a recipient past `sent`, so only `pending` moves.
-       */
-      const recordSent = Effect.fn("CampaignDeliveryService.recordSent")(
-        function* (input: {
-          readonly sendId: CampaignSendId;
-          readonly sent: readonly {
-            readonly dotyposCustomerId: DotyposCustomerId;
-            readonly providerMessageId: string;
-          }[];
-        }) {
-          const statusUpdatedAt = yield* currentInstant;
-          yield* db.transaction((tx) =>
-            Effect.forEach(input.sent, (recipient) =>
-              tx
-                .update(emailCampaignRecipients)
-                .set({
-                  providerMessageId: recipient.providerMessageId,
-                  status: sql`case when ${emailCampaignRecipients.status} = 'pending' then 'sent' else ${emailCampaignRecipients.status} end`,
-                  statusUpdatedAt,
-                })
-                .where(
-                  and(
-                    eq(emailCampaignRecipients.sendId, input.sendId),
-                    eq(
-                      emailCampaignRecipients.dotyposCustomerId,
-                      recipient.dotyposCustomerId
-                    )
-                  )
-                )
+      /** A persisted batch's recipients, in the batch's message order. */
+      const loadBatchRecipients = Effect.fn(
+        "CampaignDeliveryService.loadBatchRecipients"
+      )(function* (batch: DeliveryBatch) {
+        const rows = yield* db
+          .select({
+            dotyposCustomerId: emailCampaignRecipients.dotyposCustomerId,
+            locale: emailCampaignRecipients.locale,
+          })
+          .from(emailCampaignRecipients)
+          .where(
+            and(
+              eq(emailCampaignRecipients.sendId, batch.sendId),
+              inArray(emailCampaignRecipients.dotyposCustomerId, [
+                ...batch.dotyposCustomerIds,
+              ])
             )
           );
-        }
-      );
+        const byId = new Map(rows.map((row) => [row.dotyposCustomerId, row]));
+        return batch.dotyposCustomerIds.flatMap((id) => {
+          const row = byId.get(id);
+          return row ? [row] : [];
+        });
+      });
 
       const loadActiveConsents = (customerIds: readonly DotyposCustomerId[]) =>
         db
@@ -231,13 +261,16 @@ export class CampaignDeliveryService extends Context.Service<
           );
 
       /**
-       * Re-reads each recipient's email and, for marketing, consent. Only
-       * recipients who still qualify are mailed.
+       * Re-reads each recipient's email and, for marketing, consent, then
+       * applies the test-domain guard outside production. Each recipient
+       * gets the address to mail or why they're skipped; nothing reaches the
+       * provider without passing here.
        */
-      const selectReachable = Effect.fn(
-        "CampaignDeliveryService.selectReachable"
-      )(function* (batch: DeliveryBatch) {
-        const customerIds = batch.recipients.map(
+      const hydrate = Effect.fn("CampaignDeliveryService.hydrate")(function* (
+        context: AttemptContext,
+        recipients: readonly BatchRecipient[]
+      ) {
+        const customerIds = recipients.map(
           ({ dotyposCustomerId }) => dotyposCustomerId
         );
         const profiles = yield* dotypos.getCustomers({ ids: customerIds });
@@ -247,43 +280,46 @@ export class CampaignDeliveryService extends Context.Service<
           )
         );
         const consenting =
-          batch.campaign.purpose === "marketing"
+          context.campaign.purpose === "marketing"
             ? yield* loadActiveConsents(customerIds)
             : new Set(customerIds);
-        return batch.recipients.flatMap((recipient) =>
-          consenting.has(recipient.dotyposCustomerId)
-            ? Result.match(
-                reachableCampaignEmail(
-                  Option.fromNullishOr(
-                    profilesById.get(recipient.dotyposCustomerId)
-                  )
-                ),
-                {
-                  onFailure: () => [],
-                  onSuccess: (to) => [{ ...recipient, to }],
-                }
+        return recipients.map(
+          (
+            recipient
+          ): Result.Result<ReachableRecipient, CampaignRecipientSkipReason> => {
+            if (!consenting.has(recipient.dotyposCustomerId)) {
+              return Result.fail("consent-withdrawn");
+            }
+            return reachableCampaignEmail(
+              Option.fromNullishOr(
+                profilesById.get(recipient.dotyposCustomerId)
               )
-            : []
+            ).pipe(
+              Result.flatMap((to) =>
+                config.deploymentEnvironment === "production" ||
+                isTestEmailRecipient(to)
+                  ? Result.succeed({ ...recipient, to })
+                  : Result.fail("outside-test-domain" as const)
+              )
+            );
+          }
         );
       });
 
       const renderMessage = Effect.fn("CampaignDeliveryService.renderMessage")(
-        function* (input: {
-          readonly batch: DeliveryBatch;
-          readonly recipient: FrozenRecipient & { readonly to: string };
-        }) {
-          const { campaign, sendId } = input.batch;
-          const recipient = {
+        function* (context: AttemptContext, recipient: ReachableRecipient) {
+          const { campaign, sendId } = context;
+          const recipientTags = {
             sendId,
-            dotyposCustomerId: input.recipient.dotyposCustomerId,
+            dotyposCustomerId: recipient.dotyposCustomerId,
           };
           const unsubscribeUrl =
             campaign.purpose === "marketing"
-              ? Option.some(yield* unsubscribe.unsubscribeUrl(recipient))
+              ? Option.some(yield* unsubscribe.unsubscribeUrl(recipientTags))
               : Option.none<string>();
           const { locale, content } = campaignContentFor(
             campaign,
-            input.recipient.locale
+            recipient.locale
           );
           const rendered = yield* renderCampaignEmail({
             templateKey: campaign.templateKey,
@@ -297,122 +333,482 @@ export class CampaignDeliveryService extends Context.Service<
           });
           return campaignDeliveryMessage({
             sender: config,
-            to: input.recipient.to,
+            to: recipient.to,
             email: rendered,
             unsubscribeUrl,
-            recipient,
+            recipient: recipientTags,
             deploymentEnvironment: config.deploymentEnvironment,
           });
         }
       );
 
-      /**
-       * Sends one batch under its idempotency key. A provider or Dotypos
-       * failure that outlasts its retries fails the batch's recipients, so
-       * the campaign ends Failed and the admin can retry them.
-       */
-      const deliverBatch = Effect.fn("CampaignDeliveryService.deliverBatch")(
-        function* (batch: DeliveryBatch) {
-          const reachable = yield* selectReachable(batch);
-          const reachableIds = new Set(
-            reachable.map(({ dotyposCustomerId }) => dotyposCustomerId)
-          );
-          yield* markPending({
-            sendId: batch.sendId,
-            status: "skipped",
-            customerIds: batch.recipients
-              .map(({ dotyposCustomerId }) => dotyposCustomerId)
-              .filter((id) => !reachableIds.has(id)),
-          });
-          if (reachable.length === 0) return;
+      const renderMessages = (
+        context: AttemptContext,
+        recipients: readonly ReachableRecipient[]
+      ) =>
+        Effect.forEach(recipients, (recipient) =>
+          renderMessage(context, recipient)
+        );
 
-          const messages = yield* Effect.forEach(reachable, (recipient) =>
-            renderMessage({ batch, recipient })
+      /** Moves the given recipients that are still `pending` to `status`. */
+      const settlePendingRecipients = (
+        tx: Pick<typeof db, "update">,
+        input: {
+          readonly sendId: CampaignSendId;
+          readonly customerIds: readonly DotyposCustomerId[];
+          readonly status: "failed" | "unconfirmed";
+          readonly now: Temporal.Instant;
+        }
+      ) =>
+        tx
+          .update(emailCampaignRecipients)
+          .set({ status: input.status, statusUpdatedAt: input.now })
+          .where(
+            and(
+              eq(emailCampaignRecipients.sendId, input.sendId),
+              inArray(emailCampaignRecipients.dotyposCustomerId, [
+                ...input.customerIds,
+              ]),
+              eq(emailCampaignRecipients.status, "pending")
+            )
           );
-          const results = yield* email.sendBatch(messages, {
-            idempotencyKey: campaignDeliveryBatchIdempotencyKey(batch),
-          });
-          yield* recordSent({
-            sendId: batch.sendId,
-            sent: reachable.map((recipient, index) => ({
-              dotyposCustomerId: recipient.dotyposCustomerId,
-              providerMessageId: results[index]!.id,
-            })),
-          });
+
+      const markSkipped = (
+        tx: Pick<typeof db, "update">,
+        input: {
+          readonly sendId: CampaignSendId;
+          readonly skipped: readonly {
+            readonly dotyposCustomerId: DotyposCustomerId;
+            readonly reason: CampaignRecipientSkipReason;
+          }[];
+          readonly now: Temporal.Instant;
+        }
+      ) =>
+        Effect.forEach(input.skipped, ({ dotyposCustomerId, reason }) =>
+          tx
+            .update(emailCampaignRecipients)
+            .set({
+              status: "skipped",
+              skipReason: reason,
+              statusUpdatedAt: input.now,
+            })
+            .where(
+              and(
+                eq(emailCampaignRecipients.sendId, input.sendId),
+                eq(
+                  emailCampaignRecipients.dotyposCustomerId,
+                  dotyposCustomerId
+                ),
+                eq(emailCampaignRecipients.status, "pending")
+              )
+            )
+        );
+
+      /**
+       * Settles a batch's provider answer, or gives up on it as
+       * `unconfirmed`, together with its still-pending recipients.
+       */
+      const settleBatch = Effect.fn("CampaignDeliveryService.settleBatch")(
+        function* (
+          batch: DeliveryBatch,
+          outcome:
+            | { readonly status: "accepted"; readonly ids: readonly string[] }
+            | { readonly status: "rejected" | "unconfirmed" }
+        ) {
+          const now = yield* currentInstant;
+          yield* db.transaction(
+            Effect.fn(function* (tx) {
+              yield* tx
+                .update(emailCampaignDeliveryBatches)
+                .set({ status: outcome.status, settledAt: now })
+                .where(
+                  and(
+                    eq(emailCampaignDeliveryBatches.sendId, batch.sendId),
+                    eq(
+                      emailCampaignDeliveryBatches.deliveryAttempt,
+                      batch.deliveryAttempt
+                    ),
+                    eq(
+                      emailCampaignDeliveryBatches.batchIndex,
+                      batch.batchIndex
+                    )
+                  )
+                );
+              if (outcome.status !== "accepted") {
+                yield* settlePendingRecipients(tx, {
+                  sendId: batch.sendId,
+                  customerIds: batch.dotyposCustomerIds,
+                  status:
+                    outcome.status === "rejected" ? "failed" : "unconfirmed",
+                  now,
+                });
+                return;
+              }
+              // A webhook that arrived first may already have moved a
+              // recipient past `sent`, so only `pending` moves.
+              yield* Effect.forEach(
+                batch.dotyposCustomerIds,
+                (dotyposCustomerId, index) =>
+                  tx
+                    .update(emailCampaignRecipients)
+                    .set({
+                      providerMessageId: outcome.ids[index]!,
+                      status: sql`case when ${emailCampaignRecipients.status} = 'pending' then 'sent' else ${emailCampaignRecipients.status} end`,
+                      statusUpdatedAt: now,
+                    })
+                    .where(
+                      and(
+                        eq(emailCampaignRecipients.sendId, batch.sendId),
+                        eq(
+                          emailCampaignRecipients.dotyposCustomerId,
+                          dotyposCustomerId
+                        )
+                      )
+                    )
+              );
+            })
+          );
+        }
+      );
+
+      /**
+       * Sends a persisted batch under its key. A refusal of its first
+       * request fails its recipients, so a retry can't mail them twice. An
+       * unknown outcome leaves the batch `requested` and ends the run, so the
+       * redelivered message replays it. A replay's refusal says nothing about
+       * the earlier request, so its recipients become `unconfirmed`.
+       */
+      const requestBatch = Effect.fn("CampaignDeliveryService.requestBatch")(
+        function* (
+          batch: DeliveryBatch & { readonly replay: boolean },
+          messages: readonly EmailMessage[]
+        ) {
+          const result = yield* email
+            .sendBatch(messages, {
+              idempotencyKey: campaignDeliveryBatchIdempotencyKey(batch),
+            })
+            .pipe(Effect.result);
+          if (Result.isSuccess(result)) {
+            return yield* settleBatch(batch, {
+              status: "accepted",
+              ids: result.success.map(({ id }) => id),
+            });
+          }
+          if (result.failure._tag === "EmailServiceError") {
+            yield* Effect.logError("Campaign delivery batch refused", {
+              replay: batch.replay,
+            });
+            return yield* settleBatch(batch, {
+              status: batch.replay ? "unconfirmed" : "rejected",
+            });
+          }
+          yield* Effect.logWarning(
+            "Campaign delivery batch outcome unknown; it will be replayed"
+          );
+          return yield* incomplete(batch);
         },
         (effect, batch) =>
           effect.pipe(
-            Effect.catchTags({
-              EmailServiceError: (cause) => failBatch(batch, cause),
-              NetworkError: (cause) => failBatch(batch, cause),
-              ValidationError: (cause) => failBatch(batch, cause),
-              ExternalAPIError: (cause) => failBatch(batch, cause),
-              WorkspaceUrlConfigError: (cause) => failBatch(batch, cause),
-            }),
             Effect.annotateLogs({
-              sendId: batch.sendId,
-              deliveryAttempt: batch.deliveryAttempt,
               batchIndex: batch.batchIndex,
+              batchSize: batch.dotyposCustomerIds.length,
             })
           )
       );
 
-      const failBatch = (
-        batch: DeliveryBatch,
+      const ensureStartBudget = Effect.fn(
+        "CampaignDeliveryService.ensureStartBudget"
+      )(function* (context: AttemptContext) {
+        const now = yield* currentInstant;
+        if (
+          now.epochMilliseconds - context.startedAt.epochMilliseconds >
+          Duration.toMillis(deliveryStartBudget)
+        ) {
+          return yield* incomplete(context);
+        }
+      });
+
+      /**
+       * Replays each batch whose outcome is unknown with its identical
+       * payload under its key. A batch past the key's replay window, or
+       * whose payload can't be reproduced (a recipient's email or consent
+       * changed, or the rendering did), is never resent: its recipients
+       * become `unconfirmed`.
+       */
+      const replayRequestedBatches = Effect.fn(
+        "CampaignDeliveryService.replayRequestedBatches"
+      )(function* (context: AttemptContext) {
+        for (const requested of yield* listRequestedBatches(context)) {
+          const batch = {
+            sendId: context.sendId,
+            deliveryAttempt: context.deliveryAttempt,
+            batchIndex: requested.batchIndex,
+            dotyposCustomerIds: requested.dotyposCustomerIds,
+          };
+          const now = yield* currentInstant;
+          if (
+            now.epochMilliseconds - requested.requestedAt.epochMilliseconds >
+            Duration.toMillis(campaignDeliveryBatchReplayWindow)
+          ) {
+            yield* Effect.logWarning(
+              "Campaign delivery batch unconfirmed: its key expired",
+              { batchIndex: batch.batchIndex }
+            );
+            yield* settleBatch(batch, { status: "unconfirmed" });
+            continue;
+          }
+          yield* ensureStartBudget(context);
+
+          const messages = yield* Effect.gen(function* () {
+            const recipients = yield* loadBatchRecipients(batch);
+            const hydrated = yield* hydrate(context, recipients);
+            const reachable = hydrated.flatMap((recipient) =>
+              Result.isSuccess(recipient) ? [recipient.success] : []
+            );
+            if (
+              recipients.length !== batch.dotyposCustomerIds.length ||
+              reachable.length !== recipients.length
+            ) {
+              return Option.none();
+            }
+            const rendered = yield* renderMessages(context, reachable);
+            return campaignDeliveryPayloadHash(rendered) ===
+              requested.payloadHash
+              ? Option.some(rendered)
+              : Option.none();
+          }).pipe(
+            // Rendering fails the same way every time, so the payload can't
+            // be reproduced.
+            Effect.catchTag("EmailServiceError", () =>
+              Effect.succeed(Option.none())
+            ),
+            // The batch may have been delivered, so it waits for a replay.
+            Effect.catchTags({
+              NetworkError: () => incomplete(context),
+              ValidationError: () => incomplete(context),
+              ExternalAPIError: () => incomplete(context),
+              WorkspaceUrlConfigError: () => incomplete(context),
+            })
+          );
+          if (Option.isNone(messages)) {
+            yield* Effect.logWarning(
+              "Campaign delivery batch unconfirmed: its payload changed",
+              { batchIndex: batch.batchIndex }
+            );
+            yield* settleBatch(batch, { status: "unconfirmed" });
+            continue;
+          }
+          yield* requestBatch({ ...batch, replay: true }, messages.value);
+        }
+      });
+
+      /**
+       * Persists the next batch before its first request, with the
+       * recipients skipped while preparing it. Under the send row lock it
+       * re-checks that the attempt is current and no other run batched these
+       * recipients meanwhile.
+       */
+      const persistBatch = Effect.fn("CampaignDeliveryService.persistBatch")(
+        function* (
+          context: AttemptContext,
+          input: {
+            readonly recipients: readonly BatchRecipient[];
+            readonly reachable: readonly ReachableRecipient[];
+            readonly skipped: readonly {
+              readonly dotyposCustomerId: DotyposCustomerId;
+              readonly reason: CampaignRecipientSkipReason;
+            }[];
+            readonly payloadHash: string;
+          }
+        ) {
+          const now = yield* currentInstant;
+          return yield* db.transaction(
+            Effect.fn(function* (tx) {
+              const [send] = yield* tx
+                .select({ id: emailCampaignSends.id })
+                .from(emailCampaignSends)
+                .where(
+                  and(
+                    eq(emailCampaignSends.id, context.sendId),
+                    eq(
+                      emailCampaignSends.deliveryAttempt,
+                      context.deliveryAttempt
+                    )
+                  )
+                )
+                .for("update");
+              const customerIds = input.recipients.map(
+                ({ dotyposCustomerId }) => dotyposCustomerId
+              );
+              const [unchanged] = yield* tx
+                .select({ count: sql<number>`count(*)::int` })
+                .from(emailCampaignRecipients)
+                .where(
+                  and(
+                    inAttempt(context),
+                    inArray(emailCampaignRecipients.dotyposCustomerId, [
+                      ...customerIds,
+                    ]),
+                    eq(emailCampaignRecipients.status, "pending"),
+                    unbatched
+                  )
+                );
+              if (!send || unchanged?.count !== customerIds.length) {
+                return yield* incomplete(context);
+              }
+              yield* markSkipped(tx, {
+                sendId: context.sendId,
+                skipped: input.skipped,
+                now,
+              });
+              if (input.reachable.length === 0) return Option.none();
+              const [last] = yield* tx
+                .select({
+                  batchIndex: sql<number>`coalesce(max(${emailCampaignDeliveryBatches.batchIndex}), -1)::int`,
+                })
+                .from(emailCampaignDeliveryBatches)
+                .where(
+                  and(
+                    eq(emailCampaignDeliveryBatches.sendId, context.sendId),
+                    eq(
+                      emailCampaignDeliveryBatches.deliveryAttempt,
+                      context.deliveryAttempt
+                    )
+                  )
+                );
+              const batch: DeliveryBatch = {
+                sendId: context.sendId,
+                deliveryAttempt: context.deliveryAttempt,
+                batchIndex: (last?.batchIndex ?? -1) + 1,
+                dotyposCustomerIds: input.reachable.map(
+                  ({ dotyposCustomerId }) => dotyposCustomerId
+                ),
+              };
+              yield* tx.insert(emailCampaignDeliveryBatches).values({
+                ...batch,
+                dotyposCustomerIds: [...batch.dotyposCustomerIds],
+                payloadHash: input.payloadHash,
+                requestedAt: now,
+              });
+              return Option.some(batch);
+            })
+          );
+        }
+      );
+
+      /**
+       * Fails recipients whose batch couldn't be prepared (Dotypos or the
+       * unsubscribe link failed past their retries). Nothing was requested,
+       * so the admin can retry them safely.
+       */
+      const failUnrequested = (
+        context: AttemptContext,
+        recipients: readonly BatchRecipient[],
         cause: { readonly _tag: string }
       ) =>
-        Effect.logError("Campaign delivery batch failed", {
+        Effect.logError("Campaign delivery batch could not be prepared", {
           errorType: cause._tag,
         }).pipe(
-          Effect.andThen(
-            markPending({
-              sendId: batch.sendId,
-              status: "failed",
-              customerIds: batch.recipients.map(
+          Effect.andThen(currentInstant),
+          Effect.flatMap((now) =>
+            settlePendingRecipients(db, {
+              sendId: context.sendId,
+              customerIds: recipients.map(
                 ({ dotyposCustomerId }) => dotyposCustomerId
               ),
+              status: "failed",
+              now,
             })
-          )
+          ),
+          Effect.as(Option.none())
         );
 
       /**
-       * Delivers a batch's pending recipients unless the attempt is past its
-       * start budget. A redelivered message skips the batches already done.
+       * Prepares the next batch from the recipients no batch carries yet:
+       * re-reads and guards them, renders their emails, and persists the
+       * batch before its first request.
        */
-      const deliverPendingBatch = Effect.fn(
-        "CampaignDeliveryService.deliverPendingBatch"
+      const prepareNextBatch = Effect.fn(
+        "CampaignDeliveryService.prepareNextBatch"
       )(function* (
-        input: DeliveryBatch & { readonly startedAt: Temporal.Instant }
+        context: AttemptContext,
+        recipients: readonly BatchRecipient[]
       ) {
-        const { startedAt, ...batch } = input;
-        const pending = batch.recipients.filter(
-          ({ status }) => status === "pending"
-        );
-        if (pending.length === 0) return;
-        const now = yield* currentInstant;
-        if (
-          now.epochMilliseconds - startedAt.epochMilliseconds >
-          Duration.toMillis(deliveryStartBudget)
-        ) {
-          return yield* new CampaignDeliveryIncomplete({
-            sendId: batch.sendId,
-            deliveryAttempt: batch.deliveryAttempt,
+        return yield* Effect.gen(function* () {
+          const hydrated = yield* hydrate(context, recipients);
+          const reachable = hydrated.flatMap((recipient) =>
+            Result.isSuccess(recipient) ? [recipient.success] : []
+          );
+          const skipped = hydrated.flatMap((recipient, index) =>
+            Result.isFailure(recipient)
+              ? [
+                  {
+                    dotyposCustomerId: recipients[index]!.dotyposCustomerId,
+                    reason: recipient.failure,
+                  },
+                ]
+              : []
+          );
+          const messages = yield* renderMessages(context, reachable);
+          const batch = yield* persistBatch(context, {
+            recipients,
+            reachable,
+            skipped,
+            payloadHash: campaignDeliveryPayloadHash(messages),
           });
+          return Option.map(batch, (persisted) => ({
+            batch: persisted,
+            messages,
+          }));
+        }).pipe(
+          Effect.catchTags({
+            EmailServiceError: (cause) =>
+              failUnrequested(context, recipients, cause),
+            NetworkError: (cause) =>
+              failUnrequested(context, recipients, cause),
+            ValidationError: (cause) =>
+              failUnrequested(context, recipients, cause),
+            ExternalAPIError: (cause) =>
+              failUnrequested(context, recipients, cause),
+            WorkspaceUrlConfigError: (cause) =>
+              failUnrequested(context, recipients, cause),
+          })
+        );
+      });
+
+      /** Batches and sends the recipients no batch carries yet. */
+      const deliverUnbatched = Effect.fn(
+        "CampaignDeliveryService.deliverUnbatched"
+      )(function* (context: AttemptContext) {
+        while (true) {
+          const recipients = yield* nextUnbatchedRecipients(context);
+          if (recipients.length === 0) return;
+          yield* ensureStartBudget(context);
+          const prepared = yield* prepareNextBatch(context, recipients);
+          if (Option.isSome(prepared)) {
+            yield* requestBatch(
+              { ...prepared.value.batch, replay: false },
+              prepared.value.messages
+            );
+          }
         }
-        yield* deliverBatch({ ...batch, recipients: pending });
       });
 
       /** Marks the campaign Sent, or Failed when anyone wasn't delivered. */
       const settle = Effect.fn("CampaignDeliveryService.settle")(function* (
-        input: CampaignDeliveryAttempt & { readonly campaign: CampaignRow }
+        context: AttemptContext
       ) {
         const [undelivered] = yield* db
           .select({ count: sql<number>`count(*)::int` })
           .from(emailCampaignRecipients)
           .where(
             and(
-              eq(emailCampaignRecipients.sendId, input.sendId),
-              inArray(emailCampaignRecipients.status, ["pending", "failed"])
+              eq(emailCampaignRecipients.sendId, context.sendId),
+              inArray(emailCampaignRecipients.status, [
+                "pending",
+                "failed",
+                "unconfirmed",
+              ])
             )
           );
         const status = (undelivered?.count ?? 0) > 0 ? "failed" : "sent";
@@ -423,7 +819,7 @@ export class CampaignDeliveryService extends Context.Service<
             .set({ status, updatedAt: now })
             .where(
               and(
-                eq(emailCampaigns.id, input.campaign.id),
+                eq(emailCampaigns.id, context.campaign.id),
                 eq(emailCampaigns.status, "sending")
               )
             )
@@ -432,7 +828,7 @@ export class CampaignDeliveryService extends Context.Service<
                 tx
                   .update(emailCampaignSends)
                   .set({ completedAt: status === "sent" ? now : null })
-                  .where(eq(emailCampaignSends.id, input.sendId))
+                  .where(eq(emailCampaignSends.id, context.sendId))
               )
             )
         );
@@ -450,24 +846,22 @@ export class CampaignDeliveryService extends Context.Service<
               );
               return "stale" as const;
             }
+            const context: AttemptContext = {
+              ...attempt,
+              campaign: campaign.value,
+              startedAt,
+            };
 
-            const batches = chunkCampaignDeliveryBatches(
-              yield* listAttemptRecipients(attempt)
-            );
-            yield* Effect.forEach(batches, (recipients, batchIndex) =>
-              deliverPendingBatch({
-                ...attempt,
-                campaign: campaign.value,
-                batchIndex,
-                recipients,
-                startedAt,
-              })
-            );
-
-            return yield* settle({ ...attempt, campaign: campaign.value });
+            yield* replayRequestedBatches(context);
+            yield* deliverUnbatched(context);
+            return yield* settle(context);
           },
           (effect, attempt) =>
             effect.pipe(
+              Effect.timeoutOrElse({
+                duration: deliveryRunDeadline,
+                orElse: () => incomplete(attempt),
+              }),
               Effect.annotateLogs({
                 sendId: attempt.sendId,
                 deliveryAttempt: attempt.deliveryAttempt,
@@ -490,6 +884,14 @@ export class CampaignDeliveryService extends Context.Service<
     Layer.provide(WorkspaceDatabase.Default)
   );
 }
+
+const incomplete = (attempt: CampaignDeliveryAttempt) =>
+  Effect.fail(
+    new CampaignDeliveryIncomplete({
+      sendId: attempt.sendId,
+      deliveryAttempt: attempt.deliveryAttempt,
+    })
+  );
 
 /**
  * The content a recipient reads: their locale's, else Czech, else the

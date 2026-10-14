@@ -42,7 +42,10 @@ import type {
   CampaignId,
   CampaignSendId,
 } from "../campaign-identifiers";
-import type { CampaignRecipientStatus } from "../campaign-states";
+import type {
+  CampaignRecipientSkipReason,
+  CampaignRecipientStatus,
+} from "../campaign-states";
 import {
   CampaignAudienceMissing,
   type CampaignAudienceNotFound,
@@ -91,6 +94,8 @@ type CampaignRecipientDeliveryStatus = {
   readonly dotyposCustomerId: DotyposCustomerId;
   readonly locale: Locale;
   readonly status: CampaignRecipientStatus;
+  /** Why a `skipped` recipient wasn't mailed; null for every other status. */
+  readonly skipReason: CampaignRecipientSkipReason | null;
   readonly statusUpdatedAt: Temporal.Instant;
 };
 
@@ -152,11 +157,13 @@ export interface ICampaignSendService {
   >;
   /**
    * Queues a new delivery attempt for a Failed campaign's recipients that
-   * are still pending or failed. Delivered, bounced, complained, and
-   * skipped recipients aren't mailed again.
+   * are still pending or failed. `unconfirmed` recipients may already have
+   * the email, so they're mailed again only with `includeUnconfirmed`.
+   * Sent, delivered, bounced, complained, and skipped recipients never are.
    */
   readonly retryUndelivered: (input: {
     readonly campaignId: CampaignId;
+    readonly includeUnconfirmed?: boolean;
   }) => Effect.Effect<
     CampaignRetryStarted,
     | CampaignNotFound
@@ -272,6 +279,7 @@ export class CampaignSendService extends Context.Service<
         tx: Transaction,
         input: {
           readonly campaignId: CampaignId;
+          readonly includeUnconfirmed: boolean;
           readonly now: Temporal.Instant;
         }
       ) {
@@ -310,7 +318,12 @@ export class CampaignSendService extends Context.Service<
           .where(
             and(
               eq(emailCampaignRecipients.sendId, send!.sendId),
-              inArray(emailCampaignRecipients.status, ["pending", "failed"])
+              inArray(
+                emailCampaignRecipients.status,
+                input.includeUnconfirmed
+                  ? ["pending", "failed", "unconfirmed"]
+                  : ["pending", "failed"]
+              )
             )
           )
           .returning({
@@ -447,10 +460,10 @@ export class CampaignSendService extends Context.Service<
         }),
 
         retryUndelivered: Effect.fn("CampaignSendService.retryUndelivered")(
-          function* ({ campaignId }) {
+          function* ({ campaignId, includeUnconfirmed = false }) {
             const now = yield* currentInstant;
             const retry = yield* db.transaction((tx) =>
-              startRetry(tx, { campaignId, now })
+              startRetry(tx, { campaignId, includeUnconfirmed, now })
             );
             yield* enqueueOrFail({
               campaignId,
@@ -477,6 +490,7 @@ export class CampaignSendService extends Context.Service<
                 dotyposCustomerId: emailCampaignRecipients.dotyposCustomerId,
                 locale: emailCampaignRecipients.locale,
                 status: emailCampaignRecipients.status,
+                skipReason: emailCampaignRecipients.skipReason,
                 statusUpdatedAt: emailCampaignRecipients.statusUpdatedAt,
               })
               .from(emailCampaignRecipients)
@@ -489,6 +503,7 @@ export class CampaignSendService extends Context.Service<
               bounced: 0,
               complained: 0,
               failed: 0,
+              unconfirmed: 0,
               skipped: 0,
             } satisfies Record<CampaignRecipientStatus, number>;
             for (const recipient of recipients) counts[recipient.status] += 1;

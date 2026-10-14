@@ -90,6 +90,8 @@ export const seedCampaignSend = async (
     db.insert(emailCampaignRecipients).values(
       input.recipients.map((recipient) => ({
         ...recipient,
+        skipReason:
+          recipient.status === "skipped" ? ("missing-email" as const) : null,
         sendId: send!.id,
         locale: "cs-CZ" as const,
       }))
