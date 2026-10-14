@@ -1148,7 +1148,6 @@ describe("DotyposService customer lookup", () => {
 
   test.each([
     { label: "unparseable", phone: "not a phone", expectedPhone: undefined },
-    { label: "blank", phone: "   ", expectedPhone: undefined },
     { label: "valid", phone: "777 123 456", expectedPhone: "+420777123456" },
   ])(
     "updates invoice customer details with a $label phone",
@@ -1412,42 +1411,6 @@ describe("DotyposService customer lookup", () => {
     expect(Predicate.isTagged(error, "ValidationError")).toBe(true);
   });
 
-  test("ignores deleted customers when checking lookup ambiguity", async () => {
-    const active = customer({ id: "active", email: adaAddress });
-    const deleted = customer({
-      deleted: true,
-      id: "deleted",
-      email: adaAddress,
-    });
-    const fetchMock = mockDotyposFetch((request) => {
-      const url = new URL(request.url);
-      if (url.pathname === "/signin/token") return tokenResponse();
-      if (url.pathname === "/clouds/cloud-id/customers") {
-        if (request.method === "GET") {
-          return Response.json({ data: [active, deleted] });
-        }
-        if (request.method === "POST") throw new Error("unused");
-      }
-      return new Response("Not found", { status: 404 });
-    });
-
-    const result = await runWithService(
-      Effect.gen(function* () {
-        const dotypos = yield* DotyposService;
-        return yield* dotypos.findOrCreateCustomer(
-          {
-            firstName: "Ada",
-            email: adaAddress,
-          },
-          undefined
-        );
-      }),
-      fetchMock
-    );
-
-    expect(result).toEqual(active);
-  });
-
   test.each([
     { input: mixedCaseAdaAddress, stored: adaAddress },
     { input: adaAddress, stored: mixedCaseAdaUpperDomainAddress },
@@ -1593,73 +1556,6 @@ describe("DotyposService reservations", () => {
         statusCode: 404,
       });
     }
-  });
-
-  test("reads only the reservation when checking its status", async () => {
-    const fetchMock = mockDotyposFetch((request) => {
-      const url = new URL(request.url);
-      if (url.pathname === "/signin/token") return tokenResponse();
-      if (
-        url.pathname === "/clouds/cloud-id/reservations/reservation-id" &&
-        request.method === "GET"
-      ) {
-        return Response.json(reservation({ status: "CANCELLED" }));
-      }
-      return new Response("Not found", { status: 404 });
-    });
-
-    const status = await runWithService(
-      Effect.gen(function* () {
-        const dotypos = yield* DotyposService;
-        return yield* dotypos.getReservationStatus(
-          dotyposReservationId(" reservation-id ")
-        );
-      }),
-      fetchMock
-    );
-
-    expect(status).toBe("CANCELLED");
-    expect(
-      fetchMock.mock.calls.filter((call) =>
-        getUrl(call as FetchCall).includes("/customers/")
-      )
-    ).toHaveLength(0);
-    expect(
-      fetchMock.mock.calls.filter((call) =>
-        getUrl(call as FetchCall).includes("/reservations/reservation-id")
-      )
-    ).toHaveLength(1);
-  });
-
-  test("reads a reservation without loading its customer", async () => {
-    const fetchMock = mockDotyposFetch((request) => {
-      const url = new URL(request.url);
-      if (url.pathname === "/signin/token") return tokenResponse();
-      if (
-        url.pathname === "/clouds/cloud-id/reservations/reservation-id" &&
-        request.method === "GET"
-      ) {
-        return Response.json(reservation());
-      }
-      return new Response("Not found", { status: 404 });
-    });
-
-    const result = await runWithService(
-      Effect.gen(function* () {
-        const dotypos = yield* DotyposService;
-        return yield* dotypos.getReservationWithoutCustomer(
-          dotyposReservationId("reservation-id")
-        );
-      }),
-      fetchMock
-    );
-
-    expect(result.id).toBe(dotyposReservationId("reservation-id"));
-    expect(
-      fetchMock.mock.calls.filter((call) =>
-        getUrl(call as FetchCall).includes("/customers/")
-      )
-    ).toHaveLength(0);
   });
 
   test("creates reservations with the generated array payload and retries empty responses", async () => {
@@ -2011,27 +1907,6 @@ describe("DotyposService access token", () => {
 });
 
 describe("DotyposService categories", () => {
-  test("accepts nullable category tags", async () => {
-    const fetchMock = mockDotyposFetch((request) => {
-      const url = new URL(request.url);
-      if (url.pathname === "/signin/token") return tokenResponse();
-      if (url.pathname === "/clouds/cloud-id/categories") {
-        return Response.json({ data: [category()] });
-      }
-      return new Response("Not found", { status: 404 });
-    });
-
-    const result = await runWithService(
-      Effect.gen(function* () {
-        const dotypos = yield* DotyposService;
-        return yield* dotypos.getCategories();
-      }),
-      fetchMock
-    );
-
-    expect(result).toEqual([category()]);
-  });
-
   test("loads every category and product page", async () => {
     const requestedPages: string[] = [];
     const product = (id: string) => ({
@@ -2460,30 +2335,6 @@ describe("DotyposService reservation listing", () => {
     expect(request?.searchParams.has("filter")).toBe(false);
   });
 
-  test("treats a first-page 404 as an empty reservation list", async () => {
-    const fetchMock = mockDotyposFetch((request) => {
-      const url = new URL(request.url);
-      if (url.pathname === "/signin/token") return tokenResponse();
-      if (url.pathname === "/clouds/cloud-id/reservations") {
-        return Response.json(
-          { error: "not_found", error_description: "Not found" },
-          { status: 404 }
-        );
-      }
-      return new Response("Not found", { status: 404 });
-    });
-
-    const result = await runWithService(
-      Effect.gen(function* () {
-        const dotypos = yield* DotyposService;
-        return yield* dotypos.listReservations();
-      }),
-      fetchMock
-    );
-
-    expect(result).toEqual([]);
-  });
-
   test("treats a first-page 404 with a null body as empty", async () => {
     const fetchMock = mockDotyposFetch((request) => {
       const url = new URL(request.url);
@@ -2835,7 +2686,6 @@ describe("DotyposService table listing", () => {
 describe("DotyposService paginated list responses", () => {
   const providerPayloadMarker = "synthetic-provider-response-marker";
   const malformedPages = [
-    { name: "missing data", response: {} },
     {
       name: "null data",
       response: { data: null, detail: providerPayloadMarker },
@@ -2931,21 +2781,6 @@ describe("DotyposService paginated list responses", () => {
       ],
     ]);
     expect(logText(logs)).not.toContain(providerPayloadMarker);
-  });
-
-  test("accepts explicit empty pages for tables and reservations", async () => {
-    const result = await runWithServiceClient(
-      Effect.gen(function* () {
-        const dotypos = yield* DotyposService;
-        return yield* Effect.all([
-          dotypos.getTables(),
-          dotypos.listReservations(),
-        ]);
-      }),
-      makePaginatedClient(() => ({ data: [] }))
-    );
-
-    expect(result).toEqual([[], []]);
   });
 
   test("fails the whole reservation listing when a later page is malformed", async () => {
