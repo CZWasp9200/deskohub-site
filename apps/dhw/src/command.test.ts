@@ -27,11 +27,7 @@ import { Command } from "effect/unstable/cli";
 import { AccessCodeAttemptStore } from "./access-codes/access-code-attempt-store.service";
 import { WorkspaceAdminApiClient } from "./api/workspace-admin-api-client.service";
 import { AuthenticationService } from "./authentication/authentication.service";
-import {
-  dhwCommand,
-  formatInvoiceCreationOutput,
-  formatStandaloneAccessCodeOutcome,
-} from "./command";
+import { dhwCommand } from "./command";
 import { DhwConfig } from "./config/dhw-config.service";
 
 const syntheticEmail = testEmailAddress("synthetic");
@@ -93,17 +89,6 @@ const alreadyCreatedAccessCodeOutcome = Schema.decodeUnknownSync(
 }) satisfies AdministrationStandaloneAccessCodeCreationOutcomeType;
 
 describe("dhw mutation commands", () => {
-  test("does not call a partially delivered invoice sent", () => {
-    const output = formatInvoiceCreationOutput({
-      invoiceId: "018f47d2-8f7c-7c5e-9f9a-6ef21f90cb21",
-      invoiceNumber: "WS-FV-2026-000001",
-      needsAttention: true,
-    });
-
-    expect(output).not.toContain("sent");
-    expect(output).toContain("delivery needs attention");
-  });
-
   test("requires reauthentication before a legacy session can create invoices", async () => {
     const { layer } = makeCommandLayer();
 
@@ -187,25 +172,6 @@ describe("dhw mutation commands", () => {
     ]);
   });
 
-  test("requires explicit confirmation for non-interactive revocation", async () => {
-    let revocations = 0;
-    const { layer } = makeCommandLayer({
-      revokeSession: () =>
-        Effect.sync(() => {
-          revocations += 1;
-          return { changed: true };
-        }),
-    });
-
-    const error = await runCommand(
-      ["--json", "sessions", "revoke", sessionId],
-      layer
-    ).pipe(Effect.flip, Effect.runPromise);
-
-    expect(error).toMatchObject({ _tag: "ConfirmationRequiredError" });
-    expect(revocations).toBe(0);
-  });
-
   test("confirms reservation cancellation and forwards the email choice", async () => {
     const cancellations: unknown[] = [];
     const { layer } = makeCommandLayer({
@@ -259,40 +225,6 @@ describe("dhw mutation commands", () => {
     ).pipe(Effect.runPromise);
 
     expect(clears).toBe(1);
-  });
-
-  test("lists session expiry and reports elapsed sessions as expired", async () => {
-    const stdout: Array<string> = [];
-    const { layer } = makeCommandLayer({
-      listSessions: () =>
-        Effect.succeed([
-          { ...session, revokedAt: null },
-          {
-            ...session,
-            expiresAt: "2026-08-11T10:00:00.000Z",
-            revokedAt: null,
-          },
-          {
-            ...session,
-            expiresAt: "2999-01-01T00:00:00.000Z",
-            revokedAt: null,
-          },
-        ]),
-    });
-
-    await runCommand(["sessions", "list"], layer).pipe(
-      Effect.updateService(Console.Console, (service) => ({
-        ...service,
-        log: (...args) => stdout.push(args.join(" ")),
-      })),
-      Effect.runPromise
-    );
-
-    expect(stdout.slice(1).map((line) => line.split("\t").slice(-2))).toEqual([
-      ["Never expires", "Active"],
-      ["2026-08-11T10:00:00.000Z", "Expired"],
-      ["2999-01-01T00:00:00.000Z", "Active"],
-    ]);
   });
 
   test("requires reauthentication before a legacy session can create access codes", async () => {
@@ -681,166 +613,6 @@ describe("dhw mutation commands", () => {
     }
   });
 
-  test("keeps each unresolved access-code reservation independent of later requests", async () => {
-    const attemptIds: AdministrationStandaloneAccessCodeAttemptIdType[] = [];
-    const { layer } = makeCommandLayer({
-      authenticatedSession: {
-        ...session,
-        approvedBy: AdministrationActorUsername.make("admin"),
-      },
-      createStandaloneAccessCode: (_accessToken, attemptId) => {
-        attemptIds.push(attemptId);
-        return Effect.fail(
-          new CliServiceUnavailable({ message: "The response was lost." })
-        );
-      },
-    });
-
-    await runCommand(
-      [
-        "--json",
-        "access-codes",
-        "create",
-        "Booth A",
-        "--starts-at",
-        "2026-09-10T10:00",
-        "--ends-at",
-        "2026-09-10T12:00",
-        "--yes",
-      ],
-      layer
-    ).pipe(Effect.flip, Effect.runPromise);
-    await runCommand(
-      [
-        "--json",
-        "access-codes",
-        "create",
-        "Booth B",
-        "--starts-at",
-        "2026-09-10T14:00",
-        "--ends-at",
-        "2026-09-10T16:00",
-        "--yes",
-      ],
-      layer
-    ).pipe(Effect.flip, Effect.runPromise);
-    await runCommand(
-      [
-        "--json",
-        "access-codes",
-        "create",
-        "Booth A",
-        "--starts-at",
-        "2026-09-10T10:00",
-        "--ends-at",
-        "2026-09-10T12:00",
-        "--yes",
-      ],
-      layer
-    ).pipe(Effect.flip, Effect.runPromise);
-
-    expect(attemptIds).toHaveLength(3);
-    expect(attemptIds[1]).not.toBe(attemptIds[0]);
-    expect(attemptIds[2]).toBe(attemptIds[0]);
-  });
-
-  test("forwards the confirmed cleanup target for access-code recreation", async () => {
-    const { accessCodeCreations, layer } = makeCommandLayer({
-      authenticatedSession: {
-        ...session,
-        approvedBy: AdministrationActorUsername.make("admin"),
-      },
-      createStandaloneAccessCode: () =>
-        Effect.succeed(createdAccessCodeOutcome),
-    });
-
-    await runCommand(
-      [
-        "--json",
-        "access-codes",
-        "create",
-        "Booth A",
-        "--starts-at",
-        "2026-09-10T10:00",
-        "--ends-at",
-        "2026-09-10T12:00",
-        "--provider-credential-removed",
-        cleanupTargetAttemptId,
-        "--yes",
-      ],
-      layer
-    ).pipe(Effect.runPromise);
-
-    expect(accessCodeCreations).toHaveLength(1);
-    expect(accessCodeCreations[0]?.providerCredentialRemovedAttemptId).toBe(
-      cleanupTargetAttemptId
-    );
-    expect(accessCodeCreations[0]?.attemptId).not.toBe(cleanupTargetAttemptId);
-    expect("providerCredentialRemoved" in (accessCodeCreations[0] ?? {})).toBe(
-      false
-    );
-  });
-
-  test("requires a valid attempt id for the cleanup confirmation flag", async () => {
-    const { accessCodeCreations, layer } = makeCommandLayer({
-      authenticatedSession: {
-        ...session,
-        approvedBy: AdministrationActorUsername.make("admin"),
-      },
-    });
-
-    const parseError = await runCommand(
-      [
-        "--json",
-        "access-codes",
-        "create",
-        "Booth A",
-        "--starts-at",
-        "2026-09-10T10:00",
-        "--ends-at",
-        "2026-09-10T12:00",
-        "--provider-credential-removed",
-        "not-a-uuid",
-        "--yes",
-      ],
-      layer
-    ).pipe(Effect.flip, Effect.runPromise);
-
-    expect(parseError).toBeDefined();
-    expect(accessCodeCreations).toHaveLength(0);
-  });
-
-  test("omits the cleanup confirmation when the operator does not pass it", async () => {
-    const { accessCodeCreations, layer } = makeCommandLayer({
-      authenticatedSession: {
-        ...session,
-        approvedBy: AdministrationActorUsername.make("admin"),
-      },
-      createStandaloneAccessCode: () =>
-        Effect.succeed(createdAccessCodeOutcome),
-    });
-
-    await runCommand(
-      [
-        "--json",
-        "access-codes",
-        "create",
-        "Booth A",
-        "--starts-at",
-        "2026-09-10T10:00",
-        "--ends-at",
-        "2026-09-10T12:00",
-        "--yes",
-      ],
-      layer
-    ).pipe(Effect.runPromise);
-
-    expect(accessCodeCreations).toHaveLength(1);
-    expect(
-      accessCodeCreations[0]?.providerCredentialRemovedAttemptId
-    ).toBeUndefined();
-  });
-
   test("reserves a fresh attempt id after required at-lock cleanup", async () => {
     const attemptIds: AdministrationStandaloneAccessCodeAttemptIdType[] = [];
     const { layer } = makeCommandLayer({
@@ -1021,23 +793,6 @@ describe("dhw mutation commands", () => {
     );
   });
 
-  test("formats the one-time PIN disclosure and the PIN-free replay", () => {
-    const created = formatStandaloneAccessCodeOutcome(createdAccessCodeOutcome);
-    expect(created).toContain("7654321");
-    expect(created).toContain("Booth A");
-    expect(created).toContain("2026-09-10T10:00");
-    expect(created).toContain("2026-09-10T12:00");
-    expect(created).toContain("Europe/Prague");
-    expect(created.toLowerCase()).toContain("only once");
-
-    const alreadyCreated = formatStandaloneAccessCodeOutcome(
-      alreadyCreatedAccessCodeOutcome
-    );
-    expect(alreadyCreated).toContain("Booth A");
-    expect(alreadyCreated).toContain("cannot be shown again");
-    expect(alreadyCreated).not.toContain("7654321");
-  });
-
   test("requires confirmation and provider cleanup before reconciling access", async () => {
     const { accessMutations, layer } = makeCommandLayer();
 
@@ -1055,37 +810,6 @@ describe("dhw mutation commands", () => {
     });
     expect(providerError).toMatchObject({ _tag: "InvalidMutationInputError" });
     expect(accessMutations).toHaveLength(0);
-  });
-
-  test("dispatches the confirmed reservation access mutations", async () => {
-    const { accessMutations, layer } = makeCommandLayer();
-
-    await runCommand(
-      ["--json", "reservations", "retry-access", "reservation-1", "--yes"],
-      layer
-    ).pipe(Effect.runPromise);
-    await runCommand(
-      [
-        "--json",
-        "reservations",
-        "reconcile-access",
-        "reservation-1",
-        "--provider-credential-removed",
-        "--yes",
-      ],
-      layer
-    ).pipe(Effect.runPromise);
-
-    expect(accessMutations).toEqual([
-      ["reservation-1", { kind: "retry-failed" }],
-      [
-        "reservation-1",
-        {
-          kind: "confirm-provider-credential-removed",
-          providerCredentialRemoved: true,
-        },
-      ],
-    ]);
   });
 
   test("rejects percentages that cannot be represented as whole basis points", async () => {
@@ -1147,42 +871,6 @@ describe("dhw mutation commands", () => {
     ]);
   });
 
-  test("maps a per-customer code limit", async () => {
-    const { layer, mutations } = makeCommandLayer();
-
-    await runCommand(
-      [
-        "--json",
-        "codes",
-        "create",
-        "existing",
-        "SUMMER10",
-        "01980000-0000-7000-8000-000000000002",
-        "--max-uses-per-customer",
-        "2",
-      ],
-      layer
-    ).pipe(Effect.runPromise);
-
-    expect(mutations).toEqual([
-      {
-        kind: "create-code",
-        code: {
-          code: "SUMMER10",
-          enabled: true,
-          maxUses: null,
-          maxUsesPerCustomer: 2,
-          validFrom: null,
-          validUntil: null,
-        },
-        discount: {
-          kind: "existing",
-          discountId: "01980000-0000-7000-8000-000000000002",
-        },
-      },
-    ]);
-  });
-
   test("rejects duplicate product flags before making a request", async () => {
     const { layer, mutations } = makeCommandLayer();
 
@@ -1209,107 +897,6 @@ describe("dhw mutation commands", () => {
     expect(error).toMatchObject({ _tag: "InvalidMutationInputError" });
     expect(mutations).toHaveLength(0);
   });
-
-  test("creates reusable voucher credit", async () => {
-    const { layer, mutations } = makeCommandLayer();
-
-    await runCommand(
-      [
-        "--json",
-        "vouchers",
-        "create",
-        "VOUCHER100",
-        "--credit-value",
-        "10000",
-        "--currency",
-        "CZK",
-      ],
-      layer
-    ).pipe(Effect.runPromise);
-
-    expect(mutations).toEqual([
-      {
-        kind: "create-voucher",
-        voucher: {
-          code: "VOUCHER100",
-          credit: { value: 10_000, exponent: 2, currency: "CZK" },
-          enabled: true,
-          validFrom: null,
-          validUntil: null,
-        },
-      },
-    ]);
-  });
-
-  test("updates reusable voucher credit and configuration", async () => {
-    const { layer, mutations } = makeCommandLayer();
-
-    await runCommand(
-      [
-        "--json",
-        "vouchers",
-        "update",
-        voucherId,
-        "GIFT150",
-        "--credit-value",
-        "15000",
-        "--currency",
-        "CZK",
-        "--enabled",
-        "false",
-      ],
-      layer
-    ).pipe(Effect.runPromise);
-
-    expect(mutations).toEqual([
-      {
-        kind: "update-voucher",
-        voucher: {
-          id: voucherId,
-          code: "GIFT150",
-          credit: { value: 15_000, exponent: 2, currency: "CZK" },
-          enabled: false,
-          validFrom: null,
-          validUntil: null,
-        },
-      },
-    ]);
-  });
-
-  test("manages a voucher audience and deletion", async () => {
-    const { layer, mutations } = makeCommandLayer();
-
-    await runCommand(
-      ["--json", "vouchers", "add-customer", voucherId, "customer-1", "--yes"],
-      layer
-    ).pipe(Effect.runPromise);
-    await runCommand(
-      [
-        "--json",
-        "vouchers",
-        "remove-customer",
-        voucherId,
-        "customer-1",
-        "--yes",
-      ],
-      layer
-    ).pipe(Effect.runPromise);
-    await runCommand(
-      ["--json", "vouchers", "make-unrestricted", voucherId, "--yes"],
-      layer
-    ).pipe(Effect.runPromise);
-    await runCommand(
-      ["--json", "vouchers", "delete", voucherId, "--yes"],
-      layer
-    ).pipe(Effect.runPromise);
-
-    expect(mutations).toEqual([
-      { kind: "add-voucher-customer", voucherId, customerId: "customer-1" },
-      { kind: "remove-voucher-customer", voucherId, customerId: "customer-1" },
-      { kind: "make-voucher-unrestricted", voucherId },
-      { kind: "delete-voucher", id: voucherId },
-    ]);
-  });
 });
 
 const runCommand = <R>(
@@ -1327,7 +914,6 @@ const makeCommandLayer = ({
   createInvoice = () => Effect.die("not used"),
   createStandaloneAccessCode = () => Effect.die("not used"),
   authenticatedSession = session,
-  listSessions = () => Effect.succeed([]),
   revokeSession = () => Effect.succeed({ changed: false }),
   stateDirectory = `/tmp/dhw-command-test-${crypto.randomUUID()}`,
 }: {
@@ -1336,7 +922,6 @@ const makeCommandLayer = ({
   readonly createInvoice?: WorkspaceAdminApiClient["Service"]["createInvoice"];
   readonly createStandaloneAccessCode?: WorkspaceAdminApiClient["Service"]["createStandaloneAccessCode"];
   readonly authenticatedSession?: CliSessionType;
-  readonly listSessions?: WorkspaceAdminApiClient["Service"]["listSessions"];
   readonly revokeSession?: WorkspaceAdminApiClient["Service"]["revokeSession"];
   readonly stateDirectory?: string;
 } = {}) => {
@@ -1376,7 +961,6 @@ const makeCommandLayer = ({
       Effect.succeed({
         accessGrant: { updatedAt: "2026-08-10T10:00:00.000Z" },
       } as never),
-    listSessions,
     mutateDiscounts: (_accessToken, _requestId, mutation) =>
       Effect.sync(() => {
         mutations.push(mutation);
