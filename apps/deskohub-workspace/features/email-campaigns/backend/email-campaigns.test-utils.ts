@@ -3,8 +3,8 @@ import { Effect } from "effect";
 import type { WorkspaceDatabaseClient } from "@/db/database.service";
 import {
   emailCampaignRecipients,
-  emailCampaigns,
   emailCampaignSends,
+  emailCampaigns,
 } from "@/db/schema";
 import type { AudienceFilter } from "../audience-filter";
 import type {
@@ -100,7 +100,9 @@ export const seedCampaignSend = async (
 
 /** Deletes campaigns with their sends and recipients. */
 export const deleteCampaigns = async (
-  pool: { readonly query: (sql: string, params: unknown[]) => Promise<unknown> },
+  pool: {
+    readonly query: (sql: string, params: unknown[]) => Promise<unknown>;
+  },
   campaignIds: readonly string[]
 ) => {
   await pool.query(

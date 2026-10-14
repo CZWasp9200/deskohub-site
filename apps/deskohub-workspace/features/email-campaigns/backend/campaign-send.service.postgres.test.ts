@@ -1,6 +1,6 @@
 import "@/shared/testing/workspace-test-env";
 
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 import { DotyposCustomerIdSchema } from "@deskohub/dotypos";
 import {
   EmailDeliveryIdSchema,

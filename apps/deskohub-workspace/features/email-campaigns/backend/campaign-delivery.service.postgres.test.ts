@@ -153,7 +153,9 @@ describe.skipIf(!testDatabase)(
       Layer.provide(testDatabase.layer)
     );
 
-    const consume = (message: unknown) =>
+    const consume = (
+      message: Parameters<typeof processCampaignSendMessage>[0]
+    ) =>
       Effect.runPromise(
         processCampaignSendMessage(message).pipe(Effect.provide(consumerLayer))
       );

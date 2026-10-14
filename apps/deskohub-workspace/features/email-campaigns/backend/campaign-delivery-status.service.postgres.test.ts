@@ -31,7 +31,9 @@ describe.skipIf(!testDatabase)(
     ) => {
       const seeded = await seedCampaignSend(testDatabase.db, {
         purpose: "marketing",
-        recipients: [{ dotyposCustomerId: customerId, status, providerMessageId }],
+        recipients: [
+          { dotyposCustomerId: customerId, status, providerMessageId },
+        ],
       });
       campaignIds.push(seeded.campaignId);
       return seeded;

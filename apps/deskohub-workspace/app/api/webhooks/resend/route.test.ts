@@ -7,12 +7,12 @@ import { pathToFileURL } from "node:url";
 import { DotyposCustomerIdSchema } from "@deskohub/dotypos";
 import { EmailDeliveryIdSchema } from "@deskohub/email";
 import { Effect } from "effect";
+import { customerMarketingConsents } from "@/db/schema";
 import {
   createWorkspaceEnv,
   env,
   getAccountingDocumentSnapshotSecret,
 } from "@/env";
-import { customerMarketingConsents } from "@/db/schema";
 import {
   deleteCampaigns,
   seedCampaignSend,
