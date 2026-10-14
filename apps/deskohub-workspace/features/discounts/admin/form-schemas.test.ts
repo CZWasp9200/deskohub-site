@@ -92,6 +92,35 @@ describe("discount definition form schema", () => {
       ).toEqual(accepted ? [] : ["fixedAmountValue"]);
     }
   );
+
+  test.each([
+    [["cowork"], true],
+    [["cowork:open-space"], true],
+    [["cowork:open-space", "cowork:reserved-desk", "office"], true],
+    [["cowork", "cowork:reserved-desk"], false],
+    [["cowork:open-space", "meeting-room", "cowork"], false],
+  ] as const)(
+    "accepts product keys %p only without broad cowork beside a tier: %p",
+    async (products, accepted) => {
+      expect(
+        await failingFields(
+          discountDefinitionFormSchema,
+          discountDefinition({ products })
+        )
+      ).toEqual(accepted ? [] : ["products"]);
+    }
+  );
+
+  test("explains an incoherent cowork selection", async () => {
+    const { errors } = await effectSchemaResolver(discountDefinitionFormSchema)(
+      discountDefinition({ products: ["cowork", "cowork:open-space"] }),
+      undefined,
+      { fields: {}, shouldUseNativeValidation: false }
+    );
+    expect(errors.products?.message).toBe(
+      "Choose either all cowork tiers or specific cowork tiers, not both."
+    );
+  });
 });
 
 describe("discount code creation form schema", () => {
@@ -123,5 +152,21 @@ describe("discount code creation form schema", () => {
         discountCodeCreation({ discountKind: "new", discountId: "" })
       )
     ).toEqual([]);
+  });
+
+  test("checks the cowork selection only on the new-discount branch", async () => {
+    const products = ["cowork", "cowork:reserved-desk"] as const;
+    expect(
+      await failingFields(
+        discountCodeCreationFormSchema,
+        discountCodeCreation({ products })
+      )
+    ).toEqual([]);
+    expect(
+      await failingFields(
+        discountCodeCreationFormSchema,
+        discountCodeCreation({ discountKind: "new", products })
+      )
+    ).toEqual(["products"]);
   });
 });

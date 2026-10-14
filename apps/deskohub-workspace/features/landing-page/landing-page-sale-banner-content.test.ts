@@ -59,6 +59,32 @@ describe("getLandingPageSaleBannerLabel", () => {
     );
   });
 
+  test("describes a sale on every cowork tier as every cowork product", () => {
+    expect(
+      formatLabel([
+        { kind: "cowork", tier: "open-space" },
+        { kind: "cowork", tier: "reserved-desk" },
+      ])
+    ).toEqual(
+      summerFocusLabel(bannerTemplate(m.landingSaleBannerAllCoworkProducts))
+    );
+  });
+
+  test("uses the selected-products fallback for a single cowork tier", () => {
+    expect(formatLabel([{ kind: "cowork", tier: "reserved-desk" }])).toEqual(
+      summerFocusLabel(bannerTemplate(m.landingSaleBannerSelectedProducts))
+    );
+    expect(
+      formatLabel([
+        { kind: "cowork", tier: "open-space" },
+        meetingRoomProduct,
+        officeProduct,
+      ])
+    ).toEqual(
+      summerFocusLabel(bannerTemplate(m.landingSaleBannerSelectedProducts))
+    );
+  });
+
   test("describes a sale on every meeting-room product", () => {
     expect(formatLabel([meetingRoomProduct])).toEqual(
       summerFocusLabel(

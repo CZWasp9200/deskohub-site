@@ -39,7 +39,11 @@ Account cases run serially in `account-auth` from the catalog in `e2e/account/ca
 
 ## Discount fixtures
 
-`checkout-seed` upserts source-neutral discount definitions, targets, promotion-code registry rows, discount codes, and vouchers into the exact preview database (`e2e/integrations/discount-fixtures.ts`). It never inserts applications or claim history; only the deployed checkout lifecycle creates those. Capacity limits advance from retained audit history on reruns, and the suite never deletes application or redemption records.
+`checkout-setup` upserts source-neutral discount definitions, targets, promotion-code registry rows, discount codes, and vouchers into the exact preview database (`e2e/integrations/discount-fixtures.ts`). It never inserts applications or claim history; only the deployed checkout lifecycle creates those. Capacity limits advance from retained audit history on reruns, and the suite never deletes application or redemption records.
+
+- Write each fixture table with one multi-row statement inside the seed transaction, parents before children: the promotion-code customer sync triggers read `discount_codes`.
+- Read earlier runs' active capacity uses and voucher credit inside that transaction, so every rerun on a reused preview database still gets one capacity use and one run's credit.
+- `discount-fixtures.test.ts` records and pins the statement sequence; `discount-fixtures.postgres.test.ts` pins the rows and the rerun drift repair.
 
 - Dedicated immutable code rows cover valid, inactive, not-started, expired, customer-ineligible, and product-ineligible submissions.
 - Capacity and one-redemption-per-customer cases first complete a real zero-total checkout, then try the consumed code.
@@ -62,11 +66,13 @@ Keep malformed input, provider failures, clock boundaries, cache expiry, and cla
 
 ## Calendar sale event
 
-`GOOGLE_CALENDAR_SALES_ID` names the dedicated E2E sales calendar. Its long-lived event references the discount definition seeded with UUID `454784dd-380b-43a1-bae7-cc070bf1aec2`, which targets the cowork and meeting-room families.
+`GOOGLE_CALENDAR_SALES_ID` names the dedicated E2E sales calendar. Its long-lived event references the discount definition seeded with UUID `454784dd-380b-43a1-bae7-cc070bf1aec2`, which targets the open-space and reserved-desk cowork tiers separately, plus the meeting-room family.
 
 - Keep the event immutable and non-recurring. It must start on or before the run date and end after the 90-day candidate range. A sale applies only to bookings made during it whose last service date falls within it, so a daily recurring event would cover only same-day bookings.
-- Happy paths book open space; pricing-change cases book a reserved desk. The pricing-change case lives in `checkout-shared-fixture`, which runs after every independent case project. It removes the cowork target from the stored definition after advertisement and again after summary creation, and restores it in an interruption-safe finalizer. Never mutate meeting-room eligibility.
-- Calendar discovery caches definitions under the booking date (today), and `advertisedPricingSources` keeps advertising a removed target until revalidation. Fixture writes skip the admin mutation's tag revalidation. So bring every checkout that needs the advertised sale to that state first (or save its pay page URL to reopen), then remove eligibility once. Never wait for a restored row to show through the cache. Keep the reload-until-advertised poll only as a safety net for an earlier run's stale entry.
+- Happy paths book open space. Only the pricing-change case books a reserved desk, and it runs in the ordinary `checkout-cases` pool. It advertises both of its checkouts first (the payment-change checkout up to its captured pay page), then removes only the reserved-desk target once, and restores it in an interruption-safe finalizer. Both scenarios must show the normal `pricing_changed` state with no payment attempt. Never mutate the open-space or meeting-room targets.
+- Fixture writes skip the admin mutation's tag revalidation, and Calendar discovery caches the whole resolved definition under the booking date (today) and deployment through `use cache: remote`. An entry filled during the removal window, or served for up to one `advertisedPricingSources` revalidation after the restore, lacks only the reserved-desk target, so it still advertises the sale to every open-space and meeting-room checkout. Quote and payment revalidation read the definition straight from Postgres. Only reserved-desk advertising can go stale, and only this case reads it.
+- A family-wide target mutation would leak that stale state into every concurrent case of the family. Keep reserved desk out of every other case's checkout, or give a new mutation its own tier.
+- Bring every checkout that needs the advertised sale to that state before the single eligibility removal. Never wait for a restored row to show through the cache, which costs a full revalidation cycle. Keep the reload-until-advertised poll only as a safety net for a stale entry, such as one a retry of this case meets.
 
 ## Admin Basic auth
 

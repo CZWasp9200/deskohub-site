@@ -75,7 +75,7 @@ import type {
   PromotionCodeId,
   VoucherId,
 } from "@/features/discounts/persistence-contracts";
-import { getWorkspaceProductTarget } from "@/features/discounts/product-target";
+import { getWorkspaceProductTargetsCovering } from "@/features/discounts/product-target";
 import { getPromotionTiming } from "@/features/discounts/promotion-code";
 import type { DiscountClaimInstruction } from "@/features/discounts/provider";
 import { type Locale, m } from "@/features/i18n";
@@ -2132,15 +2132,17 @@ const validateStoredDiscountClaim = Effect.fn(
   }
 
   const [target] = yield* input.tx
-    .select({ discountId: discountProductTargets.discountId })
+    .select({
+      discountId: discountProductTargets.discountId,
+      productTarget: discountProductTargets.productTarget,
+    })
     .from(discountProductTargets)
     .where(
       and(
         eq(discountProductTargets.discountId, input.claim.storedDiscountId),
-        eq(
-          discountProductTargets.productTarget,
-          getWorkspaceProductTarget(input.claim.product)
-        )
+        inArray(discountProductTargets.productTarget, [
+          ...getWorkspaceProductTargetsCovering(input.claim.product),
+        ])
       )
     )
     .limit(1)
@@ -2160,7 +2162,7 @@ const validateStoredDiscountClaim = Effect.fn(
       productTargets: [
         {
           discountId: target.discountId,
-          productTarget: getWorkspaceProductTarget(input.claim.product),
+          productTarget: target.productTarget,
         },
       ],
     },

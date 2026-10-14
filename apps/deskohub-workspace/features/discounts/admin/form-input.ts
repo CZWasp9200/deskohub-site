@@ -1,7 +1,4 @@
-import {
-  type WorkspaceProductTarget,
-  workspaceProductTargets,
-} from "@/features/discounts/product-target";
+import type { WorkspaceProductTarget } from "@/features/discounts/product-target";
 import { findWorkspaceCurrencyDefinition } from "@/shared/money/currencies";
 import {
   localDateTimeToTemporalInstantString,
@@ -19,6 +16,7 @@ import type {
   DiscountDefinitionFormValues,
   VoucherFormValues,
 } from "./form-schemas";
+import { toDiscountProductTargets } from "./product-target-options";
 
 export const toCreateDiscountInput = (
   values: DiscountDefinitionFormValues
@@ -46,7 +44,7 @@ export const toCreateDiscountInput = (
             kind: "percentage",
             basisPoints: Math.round(Number(values.percentage) * 100),
           },
-    products: values.products.flatMap((kind) => productTargets[kind] ?? []) as [
+    products: toDiscountProductTargets(values.products) as [
       WorkspaceProductTarget,
       ...WorkspaceProductTarget[],
     ],
@@ -115,9 +113,3 @@ const toOptionalLocalDateTimeInstant = (value: string) =>
 
 const toOptionalCount = (value: string) =>
   value.length === 0 ? null : Number(value);
-
-const productTargets: Readonly<
-  Record<string, readonly WorkspaceProductTarget[]>
-> = Object.fromEntries(
-  workspaceProductTargets.map((product) => [product.kind, [product]])
-);

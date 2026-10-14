@@ -7,6 +7,7 @@ The [discount specification](../../../../apps/deskohub-workspace/docs/discount-c
 - Calendar owns occurrence timing. The trimmed event description must be exactly one discount UUID. Reject rich-text wrappers, prose, and any extra content.
 - The event title is operator metadata. Never show it to customers.
 - Postgres owns the definition: the locale-indexed label map, the adjustment, and the product targets. The label map is the only label source. Don't add a scalar or fallback label.
+- A product target names a reservation family or one saleable cowork tier. Match products only through `workspaceProductTargetMatches`, and lock claim targets through `getWorkspaceProductTargetsCovering`, both in `features/discounts/product-target.ts`. The legacy `discount_product_targets` sync triggers widened every cowork target to the whole family; migration `20261014063616_drop_legacy_discount_target_sync` dropped them, and they stay dropped.
 - Require a trimmed, non-empty label for every application locale, and reject missing or unsupported locale keys. Never fall back across languages.
 - Fixed discounts pick a currency from `shared/money/currencies.ts` and take the stored exponent from that entry. Never accept a separately entered exponent.
 - Snapshot the resolved label in checkout and application history, so later translation edits can't rewrite what a customer saw.

@@ -63,6 +63,22 @@ describe("discount administration inputs", () => {
         products: [{ kind: "cowork" }, { kind: "cowork" }],
       })
     ).toThrow();
+    expect(() =>
+      decodeDiscount({
+        ...validDiscount,
+        products: [{ kind: "cowork" }, { kind: "cowork", tier: "open-space" }],
+      })
+    ).toThrow();
+  });
+
+  test("accepts single cowork tier targets", () => {
+    const products = [
+      { kind: "cowork", tier: "open-space" },
+      { kind: "cowork", tier: "reserved-desk" },
+    ];
+    expect(decodeDiscount({ ...validDiscount, products })).toMatchObject({
+      products,
+    });
   });
 
   test("accepts only catalog currencies with their defined exponent", () => {

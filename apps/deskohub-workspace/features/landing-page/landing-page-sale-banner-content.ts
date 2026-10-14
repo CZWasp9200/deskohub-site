@@ -1,6 +1,9 @@
 import { formatDiscountAdjustment } from "@/features/checkout/format-discount-adjustment";
 import type { DiscountAdjustment } from "@/features/discounts/contracts";
-import type { WorkspaceProductTarget } from "@/features/discounts/product-target";
+import {
+  type WorkspaceProductTarget,
+  workspaceProductTargetsCoverFamily,
+} from "@/features/discounts/product-target";
 import { type Locale, m } from "@/features/i18n";
 import type { ReservationOrderData } from "@/features/reservation/reservation-order";
 import { getReservationStartPath } from "@/features/reservation/routes";
@@ -57,13 +60,15 @@ function getLandingPageSaleBannerTemplate(
   locale: Locale
 ) {
   const productKinds = new Set(products.map(({ kind }) => kind));
+  const coversAll = (kind: WorkspaceProductTarget["kind"]) =>
+    workspaceProductTargetsCoverFamily(products, kind);
   const placeholders = { title: "{title}", adjustment: "{adjustment}" };
 
-  if (productKinds.size === 3) {
+  if (coversAll("cowork") && coversAll("meeting-room") && coversAll("office")) {
     return m.landingSaleBannerAllProducts(placeholders, { locale });
   }
 
-  if (productKinds.size === 1 && productKinds.has("cowork")) {
+  if (productKinds.size === 1 && coversAll("cowork")) {
     return m.landingSaleBannerAllCoworkProducts(placeholders, { locale });
   }
 

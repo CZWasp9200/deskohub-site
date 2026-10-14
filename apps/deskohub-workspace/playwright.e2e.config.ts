@@ -10,38 +10,19 @@ import {
   workspaceE2EPlaywrightCheckoutTimeout,
 } from "./e2e/timeouts";
 
-const checkoutCaseProjects = [
-  "checkout-non-payment",
-  "checkout-payment-1",
-  "checkout-payment-2",
-  "checkout-payment-3",
-] as const;
-
 export default defineConfig({
   ...workspaceE2EPlaywrightDefaults,
   outputDir: "./e2e-artifacts/checkout",
   projects: [
-    {
-      dependencies: ["checkout-setup"],
-      name: "access-code-creation",
-      testDir: "./e2e/access-codes",
-      testMatch: "**/*.pw.ts",
-      timeout: workspaceE2EAccessCodePlaywrightTimeout,
-    },
     {
       name: "checkout-setup",
       teardown: "checkout-cleanup",
       testMatch: "setup.pw.ts",
     },
     {
-      dependencies: ["checkout-setup"],
-      name: "checkout-seed",
-      testMatch: "seed.pw.ts",
-    },
-    {
       // Playwright awaits every project of a dependency phase before the next
       // one, so the long serial account lane shares the case phase.
-      dependencies: ["checkout-plan"],
+      dependencies: ["checkout-setup"],
       name: "account-auth",
       testDir: "./e2e/account",
       testMatch: "account-lane.pw.ts",
@@ -52,57 +33,27 @@ export default defineConfig({
       },
     },
     {
-      dependencies: ["checkout-setup", "checkout-seed"],
-      name: "checkout-plan",
-      testMatch: "plan.pw.ts",
-    },
-    {
-      dependencies: ["checkout-plan"],
-      name: "checkout-non-payment",
-      testMatch: "non-payment.pw.ts",
-      // The case phase queues account-auth after every non-payment test; the
-      // cap leaves a worker free for the account lane from the first batch.
-      workers: 2,
-    },
-    {
-      dependencies: ["checkout-plan"],
-      name: "checkout-payment-1",
-      testMatch: "payment-lane-1.pw.ts",
-    },
-    {
-      dependencies: ["checkout-plan"],
-      name: "checkout-payment-2",
-      testMatch: "payment-lane-2.pw.ts",
-    },
-    {
-      dependencies: ["checkout-plan"],
-      name: "checkout-payment-3",
-      testMatch: "payment-lane-3.pw.ts",
-    },
-    {
-      // Never pays and signs its own seeded identities in, so its cases run in
-      // parallel on whichever workers the account and checkout lanes leave
-      // free. Listed after them so Playwright queues it last in the phase;
-      // the tail projects do not wait for it.
-      dependencies: ["checkout-plan"],
-      name: "checkout-referrals",
-      testMatch: "referral-lane.pw.ts",
-    },
-    {
-      dependencies: [...checkoutCaseProjects],
-      name: "checkout-shared-fixture",
-      testMatch: "shared-fixture.pw.ts",
-    },
-    {
-      // Locks the invoices table and disables its immutability trigger, so it
-      // must never overlap a paid case.
-      dependencies: [...checkoutCaseProjects],
-      name: "checkout-invoice-persistence",
-      testMatch: "invoice-persistence.pw.ts",
+      dependencies: ["checkout-setup"],
+      name: "checkout-cases",
+      testMatch: "cases.pw.ts",
+      // The hosted-payment permit, not the project, bounds Nexi sessions. The
+      // case phase may queue account-auth after every case; the cap leaves a
+      // worker free for the account lane from the first batch.
+      workers: 5,
     },
     {
       name: "checkout-cleanup",
       testMatch: "cleanup.pw.ts",
+    },
+    {
+      // Shares the case phase as its last-queued group: Playwright queues
+      // top-level projects in config order, so it takes the first worker
+      // that frees up instead of a slot of the first case batch.
+      dependencies: ["checkout-setup"],
+      name: "access-code-creation",
+      testDir: "./e2e/access-codes",
+      testMatch: "**/*.pw.ts",
+      timeout: workspaceE2EAccessCodePlaywrightTimeout,
     },
   ],
   reporter: workspaceE2EPlaywrightReporter("Workspace E2E"),

@@ -57,6 +57,32 @@ describe("stored discount definitions", () => {
     });
   });
 
+  test("decodes cowork tier targets alongside another family", async () => {
+    const result = await Effect.runPromise(
+      decode(
+        percentageRow({
+          productTargets: [
+            {
+              discountId,
+              productTarget: { kind: "cowork", tier: "open-space" },
+            },
+            {
+              discountId,
+              productTarget: { kind: "cowork", tier: "reserved-desk" },
+            },
+            { discountId, productTarget: { kind: "meeting-room" } },
+          ],
+        })
+      )
+    );
+
+    expect(result.products).toEqual([
+      { kind: "cowork", tier: "open-space" },
+      { kind: "cowork", tier: "reserved-desk" },
+      { kind: "meeting-room" },
+    ]);
+  });
+
   test.each([
     [
       "missing locale label",
@@ -81,6 +107,29 @@ describe("stored discount definitions", () => {
           "cs-CZ": "Letní sleva",
           "en-UK": "Misspelled locale",
         }),
+      }),
+    ],
+    [
+      "broad cowork target mixed with a cowork tier target",
+      percentageRow({
+        productTargets: [
+          { discountId, productTarget: { kind: "cowork" } },
+          {
+            discountId,
+            productTarget: { kind: "cowork", tier: "open-space" },
+          },
+        ],
+      }),
+    ],
+    [
+      "historical cowork tier target",
+      percentageRow({
+        productTargets: [
+          {
+            discountId,
+            productTarget: { kind: "cowork", tier: "profi" },
+          },
+        ],
       }),
     ],
     [

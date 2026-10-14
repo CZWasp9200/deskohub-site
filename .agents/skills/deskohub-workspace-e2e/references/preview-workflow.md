@@ -86,7 +86,7 @@ The preview is Ready before CI migrates it. Keep the Workspace build database-in
 
 Production-derived preview branches may hold only the inherited Better Auth login email, pending-verification email, and short-lived rate-limit IP keys. Everything else, including every fixture and all Dotypos profile and reservation data, is synthetic. Don't add a branch scrubber or an alternate parent branch.
 
-Put database integration assertions inside the normal E2E runner and use its scoped `E2EDatabase` service. Don't add a dedicated script, Turbo task, file-naming convention, environment switch, or per-case database allowlist for them. E2E code may reuse application repositories only through their injectable service contracts; importing a contract must not initialize the app database pool, load the app keyring, or validate unrelated app variables.
+Put database integration assertions inside the normal E2E runner and use its scoped `E2EDatabase` service. Don't add a dedicated script, Turbo task, file-naming convention, environment switch, or per-case database allowlist for them. Repository-level proofs that need no deployed app, such as invoice issuance, numbering, and immutability, belong in the owning repository's colocated `*.postgres.test.ts` instead: they need an exclusive database, and the shared preview branch can give them one only by serializing them after every paid case. E2E code may reuse application repositories only through their injectable service contracts; importing a contract must not initialize the app database pool, load the app keyring, or validate unrelated app variables.
 
 ## Protection and callbacks
 

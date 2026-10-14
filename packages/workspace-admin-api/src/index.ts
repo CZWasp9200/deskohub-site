@@ -256,6 +256,7 @@ export {
   type AdministrationWorkspaceReservationId as AdministrationWorkspaceReservationIdType,
   AdministrationWorkspaceSiteLocalWholeHourDateTime,
   type AdministrationWorkspaceSiteLocalWholeHourDateTime as AdministrationWorkspaceSiteLocalWholeHourDateTimeType,
+  administrationCoworkTargetTiers,
   CLI_BUILD_TARGETS,
   CliAccessToken,
   type CliAccessToken as CliAccessTokenType,

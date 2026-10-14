@@ -36,6 +36,10 @@ Rules:
 - `dhw invoices create --input <file>` decodes the file with the strict `AdministrationInvoiceCreateFileInput` schema, which rejects unknown properties at every level. The file supplies the invoice UUID, and `dhw` sends it unchanged across retries. After an uncertain attempt, rerun with the same file. The server rejects the same UUID with different input.
 - Keep invoice customer data out of the generic CLI mutation ledger.
 
+## Discount targets
+
+`--product cowork` targets every cowork tier. `cowork:open-space` and `cowork:reserved-desk` target one tier and can't be combined with `cowork`. See [discounts.md](discounts.md#cowork-tier-targets).
+
 ## Standalone access codes
 
 `dhw access-codes create` shares the server workflow in [dashboard.md](dashboard.md#standalone-access-codes). The CLI adds local state:

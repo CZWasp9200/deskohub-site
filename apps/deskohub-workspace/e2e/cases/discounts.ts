@@ -38,6 +38,7 @@ import {
   submitReservationForPayPage,
 } from "../checkout/payment";
 import type { DatasourceConfig, WorkspaceE2EConfig } from "../config";
+import type { WorkspaceE2EHostedPaymentPermitService } from "../coordination/hosted-payment-permit.service";
 import {
   isWorkspaceE2ETimeout,
   toWorkspaceE2EError,
@@ -54,7 +55,7 @@ import type { E2EDatabase } from "../integrations/database.service";
 import {
   discountCodeFixtures,
   expireDiscountCodeForE2E,
-  setE2ECalendarSaleCoworkEligibility,
+  setE2ECalendarSaleReservedDeskEligibility,
 } from "../integrations/discount-fixtures";
 import {
   changeDotyposCustomerDiscount,
@@ -321,7 +322,7 @@ export const makeDiscountE2ECases = ({
     cases.push({
       checkoutStates: [quoteChangeState, paymentChangeState],
       execute: ({ runStep, session }) =>
-        withE2ECalendarSaleCoworkEligibility(
+        withE2ECalendarSaleReservedDeskEligibility(
           executeCalendarSalePricingChanges({
             config,
             paymentChangeData,
@@ -770,7 +771,7 @@ const executeCalendarSalePricingChanges = ({
       timeoutMs: calendarSaleAdvertisementStepTimeoutMs(config),
     });
     yield* runStep({
-      execute: setE2ECalendarSaleCoworkEligibility(false),
+      execute: setE2ECalendarSaleReservedDeskEligibility(false),
       id: "remove-calendar-sale-eligibility",
       timeoutMs: config.timeouts.datasource,
     });
@@ -925,15 +926,15 @@ const executeCustomerDiscountChangesBeforePayment = ({
     log(`changed-before-payment customer discount passed for order ${orderId}`);
   });
 
-const withE2ECalendarSaleCoworkEligibility = <A>(
+const withE2ECalendarSaleReservedDeskEligibility = <A>(
   effect: Effect.Effect<A, WorkspaceE2EError, E2EDatabase>
 ): Effect.Effect<A, WorkspaceE2EError, E2EDatabase> =>
   Effect.gen(function* () {
-    yield* setE2ECalendarSaleCoworkEligibility(true);
+    yield* setE2ECalendarSaleReservedDeskEligibility(true);
     return yield* effect;
   }).pipe(
     Effect.ensuring(
-      setE2ECalendarSaleCoworkEligibility(true).pipe(Effect.orDie)
+      setE2ECalendarSaleReservedDeskEligibility(true).pipe(Effect.orDie)
     )
   );
 
@@ -1099,7 +1100,7 @@ const executeFullyConsumedVoucherCheckout = ({
 }): Effect.Effect<
   void,
   WorkspaceE2EError,
-  E2EDatabase | HttpClient.HttpClient
+  E2EDatabase | HttpClient.HttpClient | WorkspaceE2EHostedPaymentPermitService
 > =>
   Effect.gen(function* () {
     const fixture = discountCodeFixtures.voucherFull;
@@ -1180,7 +1181,7 @@ const executeDiscountCheckout = ({
 }): Effect.Effect<
   void,
   WorkspaceE2EError,
-  E2EDatabase | HttpClient.HttpClient
+  E2EDatabase | HttpClient.HttpClient | WorkspaceE2EHostedPaymentPermitService
 > =>
   executeCheckoutFlow({
     beforeReservationSubmit: reservationPageDiscounts

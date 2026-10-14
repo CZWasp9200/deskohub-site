@@ -1490,8 +1490,17 @@ export const AdministrationCustomerReservationPage = Schema.Struct({
 export type AdministrationCustomerReservationPage =
   typeof AdministrationCustomerReservationPage.Type;
 
+export const administrationCoworkTargetTiers = [
+  "open-space",
+  "reserved-desk",
+] as const;
+
+/** A cowork target without a tier covers every cowork tier. */
 export const AdministrationWorkspaceProductTarget = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("cowork") }),
+  Schema.Struct({
+    kind: Schema.Literal("cowork"),
+    tier: Schema.optional(Schema.Literals(administrationCoworkTargetTiers)),
+  }),
   Schema.Struct({ kind: Schema.Literal("meeting-room") }),
   Schema.Struct({ kind: Schema.Literal("office") }),
 ]);
@@ -1551,10 +1560,19 @@ const administrationDiscountAdjustmentInput =
 const administrationDiscountProducts = Schema.NonEmptyArray(
   AdministrationWorkspaceProductTarget
 ).check(
-  Schema.makeFilter(
-    (products) =>
-      new Set(products.map(({ kind }) => kind)).size === products.length
-  )
+  Schema.makeFilter((products) => {
+    const keys = products.map((product) =>
+      product.kind === "cowork" && product.tier !== undefined
+        ? `cowork:${product.tier}`
+        : product.kind
+    );
+    return (
+      new Set(keys).size === keys.length &&
+      !(
+        keys.includes("cowork") && keys.some((key) => key.startsWith("cowork:"))
+      )
+    );
+  })
 );
 
 export const AdministrationDiscountDefinitionInput = Schema.Struct({

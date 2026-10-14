@@ -1067,6 +1067,128 @@ describe("discount administration pages", () => {
     expect(view.queryByRole("status")).toBeNull();
   });
 
+  test("targets single cowork tiers and blocks mixing them with all cowork tiers", async () => {
+    const execute = mock();
+    workspaceUseAction.mockReturnValue({
+      execute,
+      isExecuting: false,
+      result: {},
+    });
+    const { CreateDiscountForm } = await import("./admin-tables");
+    const view = render(<CreateDiscountForm />);
+    const form = view
+      .getByRole("button", { name: "Create discount" })
+      .closest("form")!;
+
+    fireEvent.input(view.getByRole("textbox", { name: "English (en-US)" }), {
+      target: { value: "Desk week" },
+    });
+    fireEvent.input(view.getByRole("textbox", { name: "Czech (cs-CZ)" }), {
+      target: { value: "Týden u stolu" },
+    });
+    fireEvent.click(view.getByRole("checkbox", { name: "Meeting room" }));
+    fireEvent.click(view.getByRole("checkbox", { name: "Reserved Desk only" }));
+    fireEvent.submit(form);
+    await waitFor(() =>
+      expect(execute).toHaveBeenCalledWith({
+        kind: "create-discount",
+        discount: {
+          labels: { "cs-CZ": "Týden u stolu", "en-US": "Desk week" },
+          adjustment: { kind: "percentage", basisPoints: 1000 },
+          products: [
+            { kind: "cowork", tier: "reserved-desk" },
+            { kind: "meeting-room" },
+          ],
+        },
+      })
+    );
+
+    execute.mockClear();
+    fireEvent.click(view.getByRole("checkbox", { name: "All cowork tiers" }));
+    fireEvent.submit(form);
+    await waitFor(() =>
+      expect(
+        view.getByText(
+          "Choose either all cowork tiers or specific cowork tiers, not both."
+        )
+      ).toBeDefined()
+    );
+    expect(execute).not.toHaveBeenCalled();
+
+    fireEvent.click(view.getByRole("checkbox", { name: "Reserved Desk only" }));
+    fireEvent.submit(form);
+    await waitFor(() =>
+      expect(execute).toHaveBeenCalledWith({
+        kind: "create-discount",
+        discount: {
+          labels: { "cs-CZ": "Týden u stolu", "en-US": "Desk week" },
+          adjustment: { kind: "percentage", basisPoints: 1000 },
+          products: [{ kind: "cowork" }, { kind: "meeting-room" }],
+        },
+      })
+    );
+  });
+
+  test("shows and edits cowork tier targets in the code table", async () => {
+    const captured = captureWorkspaceActions(/^updateDiscount\./);
+    const [discount] = dashboard.discounts;
+    const { CodesAdministrationCollection } = await import("./components");
+    const view = render(
+      <CodesAdministrationCollection
+        dashboard={{
+          ...dashboard,
+          discounts: [
+            {
+              ...discount,
+              products: [
+                { kind: "cowork", tier: "open-space" },
+                { kind: "office" },
+              ],
+            },
+          ],
+        }}
+      />
+    );
+
+    const row = view.getByRole("link", { name: "SUMMER10" }).closest("tr")!;
+    expect(
+      within(row).getByText("Open Space only, Private office")
+    ).toBeDefined();
+    fireEvent.click(view.getByRole("button", { name: "Edit SUMMER10" }));
+    const discountForm = view
+      .getByRole("button", { name: "Save discount" })
+      .closest("form")!;
+    expect(
+      within(discountForm)
+        .getAllByRole("checkbox", { checked: true })
+        .map((checkbox) => checkbox.closest("label")?.textContent?.trim())
+    ).toEqual(["Open Space only", "Private office"]);
+
+    fireEvent.click(
+      within(discountForm).getByRole("checkbox", {
+        name: "Reserved Desk only",
+      })
+    );
+    fireEvent.submit(discountForm);
+    await waitFor(() =>
+      expect(
+        captured(`updateDiscount.${discount.id}`).execute
+      ).toHaveBeenCalledWith({
+        kind: "update-discount",
+        discount: {
+          id: discount.id,
+          labels: discount.labels,
+          adjustment: discount.adjustment,
+          products: [
+            { kind: "cowork", tier: "open-space" },
+            { kind: "cowork", tier: "reserved-desk" },
+            { kind: "office" },
+          ],
+        },
+      })
+    );
+  });
+
   test("sets and clears a customer discount group", async () => {
     const captured = captureWorkspaceActions(/^Save group$/);
     const { CustomerDiscountGroupForm } = await import(
@@ -1157,7 +1279,7 @@ describe("discount administration pages", () => {
       .getAllByRole("checkbox")
       .find(
         (checkbox) =>
-          checkbox.closest("label")?.textContent?.trim() === "Cowork"
+          checkbox.closest("label")?.textContent?.trim() === "All cowork tiers"
       );
     expect(cowork).toBeDefined();
     fireEvent.click(cowork!);

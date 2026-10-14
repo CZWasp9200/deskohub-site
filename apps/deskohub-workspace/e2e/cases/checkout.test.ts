@@ -6,6 +6,7 @@ import { testEmailAddress } from "@deskohub/test-email";
 import { Cause, Effect, Exit, Layer, Option } from "effect";
 import { FetchHttpClient } from "effect/unstable/http";
 import type { DatasourceConfig, WorkspaceE2EConfig } from "../config";
+import { makeWorkspaceE2EHostedPaymentPermitRecorder } from "../coordination/hosted-payment-permit.service.mock";
 import {
   type WorkspaceE2EError,
   workspaceE2EError,
@@ -152,8 +153,10 @@ const runCheckoutFlowSteps = async (
     "verifyPostFulfillmentPaths"
   > = {}
 ) => {
+  const hostedPaymentPermit = makeWorkspaceE2EHostedPaymentPermitRecorder();
   const observedSteps: Array<{
     readonly capacity: "provider-verification" | undefined;
+    readonly hosted: boolean;
     readonly id: string;
   }> = [];
   const orderId = "019f70bd-0131-7f30-9f8a-48e768f00292";
@@ -161,7 +164,11 @@ const runCheckoutFlowSteps = async (
     dotypos_customer_id: "dotypos-customer-paid",
   } as CheckoutRow;
   const runStep = ((step) => {
-    observedSteps.push({ capacity: step.capacity, id: step.id });
+    observedSteps.push({
+      capacity: step.capacity,
+      hosted: hostedPaymentPermit.isHolding(),
+      id: step.id,
+    });
     if (step.id === "prepare-checkout-pay-page") {
       return Effect.succeed(orderId);
     }
@@ -209,10 +216,29 @@ const runCheckoutFlowSteps = async (
       runStep,
       session: "checkout-capacity-contract",
       state,
-    }).pipe(Effect.provide(httpClientLayer)) as Effect.Effect<void>
+    }).pipe(
+      Effect.provide(Layer.mergeAll(httpClientLayer, hostedPaymentPermit.layer))
+    ) as Effect.Effect<void>
   );
   return observedSteps;
 };
+
+test("holds the hosted-payment permit from Nexi submission through the status page", async () => {
+  const observedSteps = await runCheckoutFlowSteps();
+
+  expect(
+    observedSteps.filter(({ hosted }) => hosted).map(({ id }) => id)
+  ).toEqual([
+    "start-checkout-payment",
+    "read-provider-session-row",
+    "complete-hosted-payment",
+    "reach-checkout-status-page",
+  ]);
+  // The two permits never nest, so neither can wait while holding the other.
+  expect(
+    observedSteps.find(({ id }) => id === "replay-payment-webhook")?.hosted
+  ).toBe(false);
+});
 
 test("holds the provider-verification permit only for the webhook replay", async () => {
   const observedSteps = await runCheckoutFlowSteps({
@@ -288,9 +314,12 @@ describe("Nexi sandbox payment restart", () => {
     readonly hostedPaymentFailures: Record<string, WorkspaceE2EError>;
     readonly restarted?: boolean;
   }) => {
+    const hostedPaymentPermit = makeWorkspaceE2EHostedPaymentPermitRecorder();
     const stepIds: string[] = [];
+    const stepsOutsidePermit: string[] = [];
     const runStep = ((step) => {
       stepIds.push(step.id);
+      if (!hostedPaymentPermit.isHolding()) stepsOutsidePermit.push(step.id);
       if (step.id.startsWith("start-checkout-payment"))
         return Effect.succeed(hostedPaymentPage);
       if (step.id === "read-provider-session-row")
@@ -314,21 +343,24 @@ describe("Nexi sandbox payment restart", () => {
         session: "nexi-sandbox-restart",
         state: { data },
       }).pipe(
-        Effect.provideService(E2EDatabase, E2EDatabase.of({ db: {} as never }))
+        Effect.provideService(E2EDatabase, E2EDatabase.of({ db: {} as never })),
+        Effect.provide(hostedPaymentPermit.layer)
       )
     );
-    return { result, stepIds };
+    return { result, stepIds, stepsOutsidePermit };
   };
 
   const failureOf = (exit: Exit.Exit<CheckoutRow, WorkspaceE2EError>) =>
     Exit.isFailure(exit) ? Cause.findErrorOption(exit.cause) : undefined;
 
   test("restarts a card-data rejection once and continues with the fresh attempt", async () => {
-    const { result, stepIds } = payWithSteps({
+    const { result, stepIds, stepsOutsidePermit } = payWithSteps({
       hostedPaymentFailures: { "complete-hosted-payment": sandboxRejection() },
     });
 
     expect(await result).toEqual(Exit.succeed(retryRow));
+    // One hosted-payment permit covers the rejected attempt and its restart.
+    expect(stepsOutsidePermit).toEqual([]);
     expect(stepIds).toEqual([
       "start-checkout-payment",
       "read-provider-session-row",

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { workspaceE2ENonPaymentCaseIds } from "../e2e/playwright-checkout/case-catalog";
 import { runCommand } from "./shared/command";
 import {
   findStepByName,
@@ -153,14 +154,8 @@ const trackedTurboExposures = (name: string) =>
 const projectByName = (config: PlaywrightCheckoutConfig, name: string) =>
   config.projects.find((project) => project.name === name);
 
-// Checkout case projects; the account lane never pays, so tail projects do
-// not wait for it.
-const checkoutCaseProjectNames = [
-  "checkout-non-payment",
-  "checkout-payment-1",
-  "checkout-payment-2",
-  "checkout-payment-3",
-];
+// Checkout case projects.
+const checkoutCaseProjectNames = ["checkout-cases"];
 
 const jobHasConcurrencyLock = (
   job: WorkflowJob & { readonly concurrency?: unknown }
@@ -464,36 +459,60 @@ describe("workspace E2E workflow", () => {
     ).toContain("root tasks.test.passThroughEnv");
   });
 
-  test("runs invoice persistence after the case phase of the exact-SHA Playwright graph", async () => {
-    const playwrightConfig = await playwrightConfigStructure();
-
-    // Invoice persistence locks the invoices table, so it waits for every
-    // case project instead of gating the plan or overlapping paid cases.
-    expect(
-      projectByName(playwrightConfig, "checkout-invoice-persistence")
-        ?.dependencies
-    ).toEqual(checkoutCaseProjectNames);
-    expect(
-      projectByName(playwrightConfig, "checkout-plan")?.dependencies
-    ).not.toContain("checkout-invoice-persistence");
-  });
-
   test("lets Playwright own checkout preparation, scheduling, and parallelism", async () => {
     const playwrightConfig = await playwrightConfigStructure();
 
     expect(projectByName(playwrightConfig, "checkout-setup")?.teardown).toBe(
       "checkout-cleanup"
     );
-    expect(
-      projectByName(playwrightConfig, "checkout-plan")?.dependencies
-    ).toEqual(["checkout-setup", "checkout-seed"]);
+    // Preparation is one project, so the case phase waits on one barrier.
+    const casePhaseProjects = [
+      "account-auth",
+      "access-code-creation",
+      ...checkoutCaseProjectNames,
+    ];
+    for (const name of casePhaseProjects) {
+      expect(projectByName(playwrightConfig, name)?.dependencies).toEqual([
+        "checkout-setup",
+      ]);
+    }
+    // Queued after every other case-phase project, the access-code case only
+    // takes a worker that frees up during the case phase.
+    const projectNames = playwrightConfig.projects.map(({ name }) => name);
+    for (const name of casePhaseProjects) {
+      expect(projectNames.indexOf(name)).toBeLessThanOrEqual(
+        projectNames.indexOf("access-code-creation")
+      );
+    }
   });
 
-  test("preserves discount seeding after the case phase", async () => {
+  test("leaves the account lane a worker beside the parallel case pool", async () => {
     const playwrightConfig = await playwrightConfigStructure();
+    const casePool = projectByName(playwrightConfig, "checkout-cases");
+
+    // Paid cases share the pool; the hosted-payment permit bounds Nexi.
     expect(
-      projectByName(playwrightConfig, "checkout-shared-fixture")?.dependencies
-    ).toEqual(checkoutCaseProjectNames);
+      playwrightConfig.projects.filter((project) =>
+        project.name?.startsWith("checkout-payment")
+      )
+    ).toEqual([]);
+    expect(casePool?.workers).toBe((playwrightConfig.workers as number) - 1);
+    expect(
+      projectByName(playwrightConfig, "account-auth")?.dependencies
+    ).toEqual(casePool?.dependencies);
+  });
+
+  test("runs the Calendar pricing-change case in the case phase without a tail project", async () => {
+    const playwrightConfig = await playwrightConfigStructure();
+
+    // The case only mutates the reserved-desk Calendar target, which no other
+    // case books, so it no longer needs a project after the case phase.
+    expect(
+      projectByName(playwrightConfig, "checkout-shared-fixture")
+    ).toBeUndefined();
+    expect(workspaceE2ENonPaymentCaseIds).toContain(
+      "calendar-sale-pricing-changes"
+    );
   });
 
   test("runs read-only navigation beside the checkout graph without gating it", async () => {

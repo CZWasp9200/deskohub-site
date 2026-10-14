@@ -4,7 +4,7 @@ import {
 } from "@deskohub/dotypos";
 import { and, count, eq, inArray, sql } from "drizzle-orm";
 import { Effect } from "effect";
-import type { DatabaseClient } from "@/db/database-client";
+import { excludedColumn } from "@/db/excluded-column";
 import {
   discountApplications,
   discountCodeRedemptions,
@@ -101,7 +101,13 @@ const definitions: readonly DiscountDefinitionFixture[] = [
       "cs-CZ": "E2E kalendářová sleva",
       "en-US": "E2E Calendar sale",
     },
-    products: [{ kind: "cowork" }, { kind: "meeting-room" }],
+    // Tier targets let calendar-sale-pricing-changes remove reserved-desk
+    // eligibility without touching the open-space target other cases use.
+    products: [
+      { kind: "cowork", tier: "open-space" },
+      { kind: "cowork", tier: "reserved-desk" },
+      { kind: "meeting-room" },
+    ],
   },
   {
     basisPoints: 1000,
@@ -123,6 +129,17 @@ const definitions: readonly DiscountDefinitionFixture[] = [
   },
 ];
 
+export const discountDefinitionFixtureIds = definitions.map(({ id }) => id);
+
+const voucherFixtures: readonly VoucherFixture[] = [
+  discountCodeFixtures.voucherReuse,
+  discountCodeFixtures.voucherFull,
+  discountCodeFixtures.accountReferralVoucher,
+];
+
+// One statement per table keeps the seed to a fixed number of round trips
+// inside its transaction. Parents precede children so foreign keys and the
+// promotion-code sync triggers, which read discount_codes, see their rows.
 export const seedDiscountE2EFixtures: Effect.Effect<
   void,
   WorkspaceE2EError,
@@ -132,41 +149,51 @@ export const seedDiscountE2EFixtures: Effect.Effect<
 
   yield* runDatabaseOperation(
     "seed E2E discount fixtures",
-    db.transaction((tx) =>
-      Effect.gen(function* () {
-        for (const definition of definitions) {
-          yield* tx
-            .insert(discounts)
-            .values({
+    db.transaction(
+      Effect.fn(function* (tx) {
+        const updatedAt = Temporal.Now.instant();
+        yield* tx
+          .insert(discounts)
+          .values(
+            definitions.map((definition) => ({
               id: definition.id,
               labels: definition.labels,
               percentageBasisPoints: definition.basisPoints,
-            })
-            .onConflictDoUpdate({
-              target: discounts.id,
-              set: {
-                fixedAmountCurrency: null,
-                fixedAmountExponent: null,
-                fixedAmountValue: null,
-                labels: definition.labels,
-                percentageBasisPoints: definition.basisPoints,
-                updatedAt: Temporal.Now.instant(),
-              },
-            });
-          yield* tx
-            .delete(discountProductTargets)
-            .where(eq(discountProductTargets.discountId, definition.id));
-          yield* tx
-            .insert(discountProductTargets)
-            .values(
+            }))
+          )
+          .onConflictDoUpdate({
+            target: discounts.id,
+            set: {
+              fixedAmountCurrency: null,
+              fixedAmountExponent: null,
+              fixedAmountValue: null,
+              labels: excludedColumn(discounts.labels),
+              percentageBasisPoints: excludedColumn(
+                discounts.percentageBasisPoints
+              ),
+              updatedAt,
+            },
+          });
+        yield* tx.delete(discountProductTargets).where(
+          inArray(
+            discountProductTargets.discountId,
+            definitions.map(({ id }) => id)
+          )
+        );
+        yield* tx
+          .insert(discountProductTargets)
+          .values(
+            definitions.flatMap((definition) =>
               definition.products.map((productTarget) => ({
                 discountId: definition.id,
                 productTarget,
               }))
             )
-            .onConflictDoNothing();
-        }
+          )
+          .onConflictDoNothing();
 
+        // Earlier runs' active uses stay counted, so every run on a reused
+        // preview database gets exactly one capacity use and one run's credit.
         const capacity = yield* tx
           .select({ activeUses: count() })
           .from(discountCodeRedemptions)
@@ -179,84 +206,196 @@ export const seedDiscountE2EFixtures: Effect.Effect<
               inArray(discountCodeRedemptions.state, ["reserved", "redeemed"])
             )
           );
-        const capacityLimit = (capacity[0]?.activeUses ?? 0) + 1;
-        const now = Temporal.Now.instant().epochMilliseconds;
-        const codeFixtures: readonly DiscountCodeFixture[] = [
-          {
-            ...discountCodeFixtures.partial,
-            discountId: partialCodeDiscountId,
-            enabled: true,
-          },
-          {
-            ...discountCodeFixtures.customerIneligible,
-            allowedCustomerIds: [
-              DotyposCustomerIdSchema.make("workspace-e2e-other-customer"),
-            ],
-            discountId: partialCodeDiscountId,
-            enabled: true,
-          },
-          {
-            ...discountCodeFixtures.expiresBeforePayment,
-            discountId: partialCodeDiscountId,
-            enabled: true,
-            validUntil: Temporal.Instant.fromEpochMilliseconds(
-              now + 24 * 60 * 60 * 1000
-            ),
-          },
-          {
-            ...discountCodeFixtures.zeroTotal,
-            discountId: zeroTotalDiscountId,
-            enabled: true,
-          },
-          {
-            ...discountCodeFixtures.capacityOne,
-            discountId: zeroTotalDiscountId,
-            enabled: true,
-            maxUses: capacityLimit,
-          },
-          {
-            ...discountCodeFixtures.onePerCustomer,
-            discountId: zeroTotalDiscountId,
-            enabled: true,
-            maxUsesPerCustomer: 1,
-          },
-        ];
-
-        for (const code of codeFixtures) {
-          yield* seedDiscountCode(tx, code);
-        }
-        for (const fixture of [
-          discountCodeFixtures.voucherReuse,
-          discountCodeFixtures.voucherFull,
-          discountCodeFixtures.accountReferralVoucher,
-        ]) {
-          const [voucherUsage] = yield* tx
-            .select({
-              usedValue: sql<number>`coalesce(sum(${discountApplications.appliedAmountValue}), 0)::integer`,
-            })
-            .from(voucherRedemptions)
-            .innerJoin(
-              discountApplications,
-              eq(discountApplications.id, voucherRedemptions.applicationId)
+        const voucherUsage = yield* tx
+          .select({
+            usedValue: sql<number>`coalesce(sum(${discountApplications.appliedAmountValue}), 0)::integer`,
+            voucherId: voucherRedemptions.voucherId,
+          })
+          .from(voucherRedemptions)
+          .innerJoin(
+            discountApplications,
+            eq(discountApplications.id, voucherRedemptions.applicationId)
+          )
+          .where(
+            and(
+              inArray(
+                voucherRedemptions.voucherId,
+                voucherFixtures.map(({ id }) => id)
+              ),
+              inArray(voucherRedemptions.state, ["reserved", "redeemed"])
             )
-            .where(
-              and(
-                eq(voucherRedemptions.voucherId, fixture.id),
-                inArray(voucherRedemptions.state, ["reserved", "redeemed"])
-              )
-            );
-          yield* seedVoucherCode(
-            tx,
-            fixture,
-            (voucherUsage?.usedValue ?? 0) + fixture.creditPerRun.value
-          );
+          )
+          .groupBy(voucherRedemptions.voucherId);
+        const usedValueByVoucher = new Map(
+          voucherUsage.map(({ usedValue, voucherId }) => [voucherId, usedValue])
+        );
+        const codeFixtures = makeDiscountCodeFixtures({
+          capacityLimit: (capacity[0]?.activeUses ?? 0) + 1,
+          now: Temporal.Now.instant().epochMilliseconds,
+        });
+
+        yield* tx
+          .insert(promotionCodes)
+          .values([
+            ...codeFixtures.map((fixture) => ({
+              code: fixture.code,
+              enabled: fixture.enabled,
+              id: promotionCodeIdSchema.make(fixture.id),
+              kind: "discount" as const,
+              validFrom: fixture.validFrom ?? null,
+              validUntil: fixture.validUntil ?? null,
+            })),
+            ...voucherFixtures.map((fixture) => ({
+              code: fixture.code,
+              enabled: true,
+              id: promotionCodeIdSchema.make(fixture.id),
+              kind: "voucher" as const,
+              validFrom: null,
+              validUntil: null,
+            })),
+          ])
+          .onConflictDoUpdate({
+            target: promotionCodes.code,
+            set: {
+              enabled: excludedColumn(promotionCodes.enabled),
+              kind: excludedColumn(promotionCodes.kind),
+              updatedAt,
+              validFrom: excludedColumn(promotionCodes.validFrom),
+              validUntil: excludedColumn(promotionCodes.validUntil),
+            },
+          });
+        yield* tx
+          .insert(discountCodes)
+          .values(
+            codeFixtures.map((fixture) => ({
+              code: fixture.code,
+              discountId: fixture.discountId,
+              enabled: fixture.enabled,
+              id: fixture.id,
+              maxUses: fixture.maxUses ?? null,
+              maxUsesPerCustomer: fixture.maxUsesPerCustomer ?? null,
+              promotionCodeId: promotionCodeIdSchema.make(fixture.id),
+              validFrom: fixture.validFrom ?? null,
+              validUntil: fixture.validUntil ?? null,
+            }))
+          )
+          .onConflictDoUpdate({
+            target: discountCodes.id,
+            set: {
+              code: excludedColumn(discountCodes.code),
+              discountId: excludedColumn(discountCodes.discountId),
+              enabled: excludedColumn(discountCodes.enabled),
+              maxUses: excludedColumn(discountCodes.maxUses),
+              maxUsesPerCustomer: excludedColumn(
+                discountCodes.maxUsesPerCustomer
+              ),
+              promotionCodeId: excludedColumn(discountCodes.promotionCodeId),
+              updatedAt,
+              validFrom: excludedColumn(discountCodes.validFrom),
+              validUntil: excludedColumn(discountCodes.validUntil),
+            },
+          });
+        yield* tx.delete(promotionCodeCustomers).where(
+          inArray(
+            promotionCodeCustomers.promotionCodeId,
+            [...codeFixtures, ...voucherFixtures].map(({ id }) =>
+              promotionCodeIdSchema.make(id)
+            )
+          )
+        );
+        const allowedCustomers = codeFixtures.flatMap((fixture) =>
+          (fixture.allowedCustomerIds ?? []).map((dotyposCustomerId) => ({
+            dotyposCustomerId,
+            promotionCodeId: promotionCodeIdSchema.make(fixture.id),
+          }))
+        );
+        if (allowedCustomers.length > 0) {
+          yield* tx
+            .insert(promotionCodeCustomers)
+            .values(allowedCustomers)
+            .onConflictDoNothing();
         }
+        yield* tx
+          .insert(vouchers)
+          .values(
+            voucherFixtures.map((fixture) => ({
+              id: fixture.id,
+              issuedAmountCurrency: fixture.creditPerRun.currency,
+              issuedAmountExponent: fixture.creditPerRun.exponent,
+              issuedAmountValue:
+                (usedValueByVoucher.get(fixture.id) ?? 0) +
+                fixture.creditPerRun.value,
+              promotionCodeId: promotionCodeIdSchema.make(fixture.id),
+            }))
+          )
+          .onConflictDoUpdate({
+            target: vouchers.id,
+            set: {
+              issuedAmountCurrency: excludedColumn(
+                vouchers.issuedAmountCurrency
+              ),
+              issuedAmountExponent: excludedColumn(
+                vouchers.issuedAmountExponent
+              ),
+              issuedAmountValue: excludedColumn(vouchers.issuedAmountValue),
+              promotionCodeId: excludedColumn(vouchers.promotionCodeId),
+              updatedAt,
+            },
+          });
       })
     )
   );
 
   log("Discount E2E fixtures seeded");
 });
+
+const makeDiscountCodeFixtures = ({
+  capacityLimit,
+  now,
+}: {
+  readonly capacityLimit: number;
+  readonly now: number;
+}): readonly DiscountCodeFixture[] => [
+  {
+    ...discountCodeFixtures.partial,
+    discountId: partialCodeDiscountId,
+    enabled: true,
+  },
+  {
+    ...discountCodeFixtures.customerIneligible,
+    allowedCustomerIds: [
+      DotyposCustomerIdSchema.make("workspace-e2e-other-customer"),
+    ],
+    discountId: partialCodeDiscountId,
+    enabled: true,
+  },
+  {
+    ...discountCodeFixtures.expiresBeforePayment,
+    discountId: partialCodeDiscountId,
+    enabled: true,
+    validUntil: Temporal.Instant.fromEpochMilliseconds(
+      now + 24 * 60 * 60 * 1000
+    ),
+  },
+  {
+    ...discountCodeFixtures.zeroTotal,
+    discountId: zeroTotalDiscountId,
+    enabled: true,
+  },
+  {
+    ...discountCodeFixtures.capacityOne,
+    discountId: zeroTotalDiscountId,
+    enabled: true,
+    maxUses: capacityLimit,
+  },
+  {
+    ...discountCodeFixtures.onePerCustomer,
+    discountId: zeroTotalDiscountId,
+    enabled: true,
+    maxUsesPerCustomer: 1,
+  },
+];
+
 export const expireDiscountCodeForE2E = (
   codeId: DiscountCodeId
 ): Effect.Effect<void, WorkspaceE2EError, E2EDatabase> =>
@@ -287,17 +426,24 @@ export const expireDiscountCodeForE2E = (
     }
   });
 
-export const setE2ECalendarSaleCoworkEligibility = (
+/**
+ * Adds or removes only the reserved-desk target of the E2E Calendar sale. No
+ * other case books reserved desk, so the open-space target stays put.
+ */
+export const setE2ECalendarSaleReservedDeskEligibility = (
   eligible: boolean
 ): Effect.Effect<void, WorkspaceE2EError, E2EDatabase> =>
   Effect.gen(function* () {
     const { db } = yield* E2EDatabase;
-    const product = { kind: "cowork" } satisfies WorkspaceProductTarget;
+    const product = {
+      kind: "cowork",
+      tier: "reserved-desk",
+    } satisfies WorkspaceProductTarget;
 
     yield* runRetrySafeDatabaseOperation(
       eligible
-        ? "restore E2E Calendar sale cowork eligibility"
-        : "remove E2E Calendar sale cowork eligibility",
+        ? "restore E2E Calendar sale reserved-desk eligibility"
+        : "remove E2E Calendar sale reserved-desk eligibility",
       eligible
         ? db
             .insert(discountProductTargets)
@@ -344,126 +490,3 @@ interface VoucherFixture {
   readonly creditPerRun: WorkspaceMoney;
   readonly id: VoucherId;
 }
-
-type TransactionClient = Parameters<
-  Parameters<DatabaseClient["transaction"]>[0]
->[0];
-
-const seedDiscountCode = (
-  tx: TransactionClient,
-  fixture: DiscountCodeFixture
-) =>
-  Effect.gen(function* () {
-    const promotionCodeId = promotionCodeIdSchema.make(fixture.id);
-    yield* tx
-      .insert(promotionCodes)
-      .values({
-        code: fixture.code,
-        enabled: fixture.enabled,
-        id: promotionCodeId,
-        kind: "discount",
-        validFrom: fixture.validFrom ?? null,
-        validUntil: fixture.validUntil ?? null,
-      })
-      .onConflictDoUpdate({
-        target: promotionCodes.code,
-        set: {
-          enabled: fixture.enabled,
-          kind: "discount",
-          updatedAt: Temporal.Now.instant(),
-          validFrom: fixture.validFrom ?? null,
-          validUntil: fixture.validUntil ?? null,
-        },
-      });
-    yield* tx
-      .insert(discountCodes)
-      .values({
-        code: fixture.code,
-        discountId: fixture.discountId,
-        enabled: fixture.enabled,
-        id: fixture.id,
-        maxUses: fixture.maxUses ?? null,
-        maxUsesPerCustomer: fixture.maxUsesPerCustomer ?? null,
-        promotionCodeId,
-        validFrom: fixture.validFrom ?? null,
-        validUntil: fixture.validUntil ?? null,
-      })
-      .onConflictDoUpdate({
-        target: discountCodes.id,
-        set: {
-          code: fixture.code,
-          discountId: fixture.discountId,
-          enabled: fixture.enabled,
-          maxUses: fixture.maxUses ?? null,
-          maxUsesPerCustomer: fixture.maxUsesPerCustomer ?? null,
-          promotionCodeId,
-          updatedAt: Temporal.Now.instant(),
-          validFrom: fixture.validFrom ?? null,
-          validUntil: fixture.validUntil ?? null,
-        },
-      });
-    yield* tx
-      .delete(promotionCodeCustomers)
-      .where(eq(promotionCodeCustomers.promotionCodeId, promotionCodeId));
-    const allowedCustomerIds = fixture.allowedCustomerIds ?? [];
-    if (allowedCustomerIds.length > 0) {
-      yield* tx
-        .insert(promotionCodeCustomers)
-        .values(
-          allowedCustomerIds.map((dotyposCustomerId) => ({
-            promotionCodeId,
-            dotyposCustomerId,
-          }))
-        )
-        .onConflictDoNothing();
-    }
-  });
-
-const seedVoucherCode = (
-  tx: TransactionClient,
-  fixture: VoucherFixture,
-  issuedValue: number
-) =>
-  Effect.gen(function* () {
-    const promotionCodeId = promotionCodeIdSchema.make(fixture.id);
-    yield* tx
-      .insert(promotionCodes)
-      .values({
-        code: fixture.code,
-        enabled: true,
-        id: promotionCodeId,
-        kind: "voucher",
-      })
-      .onConflictDoUpdate({
-        target: promotionCodes.code,
-        set: {
-          enabled: true,
-          kind: "voucher",
-          updatedAt: Temporal.Now.instant(),
-          validFrom: null,
-          validUntil: null,
-        },
-      });
-    yield* tx
-      .insert(vouchers)
-      .values({
-        id: fixture.id,
-        issuedAmountCurrency: fixture.creditPerRun.currency,
-        issuedAmountExponent: fixture.creditPerRun.exponent,
-        issuedAmountValue: issuedValue,
-        promotionCodeId,
-      })
-      .onConflictDoUpdate({
-        target: vouchers.id,
-        set: {
-          issuedAmountCurrency: fixture.creditPerRun.currency,
-          issuedAmountExponent: fixture.creditPerRun.exponent,
-          issuedAmountValue: issuedValue,
-          promotionCodeId,
-          updatedAt: Temporal.Now.instant(),
-        },
-      });
-    yield* tx
-      .delete(promotionCodeCustomers)
-      .where(eq(promotionCodeCustomers.promotionCodeId, promotionCodeId));
-  });
