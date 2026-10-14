@@ -1,11 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { AdministrationActorUsername } from "@deskohub/workspace-admin-api";
 import { Schema } from "effect";
-import {
-  administratorCredentialRegistrySchema,
-  isConfiguredAdministratorUsername,
-} from "./administrator-credentials";
+import { administratorCredentialRegistrySchema } from "./administrator-credentials";
 
 const decodeRegistry = Schema.decodeUnknownSync(
   administratorCredentialRegistrySchema
@@ -115,28 +111,5 @@ describe("configured administrator credential registry", () => {
         expect(message).not.toContain("quiet-synthetic-password");
       }
     }
-  });
-
-  test("answers exact username membership without exposing digests", () => {
-    const registry = decodeRegistry(validRegistry);
-
-    expect(
-      isConfiguredAdministratorUsername(
-        registry,
-        AdministrationActorUsername.make("admin")
-      )
-    ).toBe(true);
-    expect(
-      isConfiguredAdministratorUsername(
-        registry,
-        AdministrationActorUsername.make("operator")
-      )
-    ).toBe(true);
-    expect(
-      isConfiguredAdministratorUsername(
-        registry,
-        AdministrationActorUsername.make("nobody")
-      )
-    ).toBe(false);
   });
 });

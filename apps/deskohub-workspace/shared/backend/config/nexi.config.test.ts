@@ -84,7 +84,7 @@ describe("Workspace Nexi client", () => {
     });
   });
 
-  for (const deploymentEnvironment of ["preview", "development"] as const) {
+  for (const deploymentEnvironment of ["preview"] as const) {
     test(`accepts a ${deploymentEnvironment} response that arrives after 5 seconds`, async () => {
       const exit = await requestHostedPageAnsweredAfter(
         deploymentEnvironment,

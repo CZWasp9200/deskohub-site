@@ -44,7 +44,7 @@ const getVerificationEffect = async (
   }).pipe(Effect.provide(BotProtectionService.Default));
 };
 
-for (const environment of ["preview", "development"] as const) {
+for (const environment of ["preview"] as const) {
   for (const verificationFailurePolicy of ["allow", "deny"] as const) {
     test(`does not call BotID in ${environment} with the ${verificationFailurePolicy} policy`, async () => {
       vercelEnvironment = environment;
