@@ -155,7 +155,11 @@ export const audienceLocales = (filter: AudienceFilter): ReadonlySet<Locale> =>
         )
       );
     }),
-    Match.orElse(() => new Set(locales))
+    Match.tag("Reservation", () => new Set(locales)),
+    Match.tag("Account", () => new Set(locales)),
+    Match.tag("DotyposTag", () => new Set(locales)),
+    Match.tag("DiscountGroup", () => new Set(locales)),
+    Match.exhaustive
   );
 
 /**

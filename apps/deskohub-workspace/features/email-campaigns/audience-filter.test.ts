@@ -171,6 +171,11 @@ describe("audienceLocales", () => {
 
   test("allows every locale without a locale condition", () => {
     expect(localesOf(withAccount)).toEqual(["cs-CZ", "en-US"]);
+    expect(localesOf(visitedInMarch)).toEqual(["cs-CZ", "en-US"]);
+    expect(localesOf(tagged)).toEqual(["cs-CZ", "en-US"]);
+    expect(
+      localesOf({ _tag: "DiscountGroup", discountGroupId: "gold" })
+    ).toEqual(["cs-CZ", "en-US"]);
     expect(localesOf(group("and", [tagged, withAccount]))).toEqual([
       "cs-CZ",
       "en-US",
