@@ -129,7 +129,7 @@ describe.skipIf(!testDatabase)(
       ) => Effect.Effect<A, E>
     ) =>
       Effect.runPromise(
-        CampaignCandidateRepository.use(use).pipe(
+        CampaignCandidateRepository.pipe(Effect.flatMap(use)).pipe(
           Effect.provide(CampaignCandidateRepository.Default),
           Effect.provide(testDatabase.layer)
         )

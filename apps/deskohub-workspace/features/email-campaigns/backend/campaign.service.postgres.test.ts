@@ -34,14 +34,16 @@ describe.skipIf(!testDatabase)("CampaignService on disposable Postgres", () => {
 
   const createDraft = async () => {
     const exit = await run(
-      CampaignService.use((campaigns) =>
-        campaigns.create({
-          title: "Opening hours",
-          purpose: "operational",
-          templateKey: "workspace",
-          content: campaignContentFixture(),
-          audienceId: null,
-        })
+      CampaignService.pipe(
+        Effect.flatMap((campaigns) =>
+          campaigns.create({
+            title: "Opening hours",
+            purpose: "operational",
+            templateKey: "workspace",
+            content: campaignContentFixture(),
+            audienceId: null,
+          })
+        )
       )
     );
     if (Exit.isFailure(exit)) throw Cause.squash(exit.cause);
@@ -52,12 +54,14 @@ describe.skipIf(!testDatabase)("CampaignService on disposable Postgres", () => {
   test("edits a draft", async () => {
     const draft = await createDraft();
     const updated = await run(
-      CampaignService.use((campaigns) =>
-        campaigns.update({
-          campaignId: draft.id,
-          title: "New opening hours",
-          content: campaignContentFixture("Nově otevřeno"),
-        })
+      CampaignService.pipe(
+        Effect.flatMap((campaigns) =>
+          campaigns.update({
+            campaignId: draft.id,
+            title: "New opening hours",
+            content: campaignContentFixture("Nově otevřeno"),
+          })
+        )
       )
     );
     expect(Exit.isSuccess(updated) && updated.value).toMatchObject({
@@ -71,19 +75,21 @@ describe.skipIf(!testDatabase)("CampaignService on disposable Postgres", () => {
     const draft = await createDraft();
     const content = campaignContentFixture();
     const update = await run(
-      CampaignService.use((campaigns) =>
-        campaigns.update({
-          campaignId: draft.id,
-          content: {
-            "cs-CZ": {
-              ...content["cs-CZ"]!,
-              body: {
-                formatVersion: 1,
-                doc: { type: "doc", content: [{ type: "unknownNode" }] },
+      CampaignService.pipe(
+        Effect.flatMap((campaigns) =>
+          campaigns.update({
+            campaignId: draft.id,
+            content: {
+              "cs-CZ": {
+                ...content["cs-CZ"]!,
+                body: {
+                  formatVersion: 1,
+                  doc: { type: "doc", content: [{ type: "unknownNode" }] },
+                },
               },
             },
-          },
-        })
+          })
+        )
       )
     );
     expect(failure(update)).toMatchObject({ _tag: "CampaignContentInvalid" });
@@ -97,8 +103,10 @@ describe.skipIf(!testDatabase)("CampaignService on disposable Postgres", () => {
     );
 
     const update = await run(
-      CampaignService.use((campaigns) =>
-        campaigns.update({ campaignId: campaign.id, title: "Changed" })
+      CampaignService.pipe(
+        Effect.flatMap((campaigns) =>
+          campaigns.update({ campaignId: campaign.id, title: "Changed" })
+        )
       )
     );
     expect(failure(update)).toMatchObject({
@@ -106,11 +114,15 @@ describe.skipIf(!testDatabase)("CampaignService on disposable Postgres", () => {
       status: "sent",
     });
     const deletion = await run(
-      CampaignService.use((campaigns) => campaigns.delete(campaign.id))
+      CampaignService.pipe(
+        Effect.flatMap((campaigns) => campaigns.delete(campaign.id))
+      )
     );
     expect(failure(deletion)).toMatchObject({ _tag: "CampaignReadOnly" });
     const stored = await run(
-      CampaignService.use((campaigns) => campaigns.get(campaign.id))
+      CampaignService.pipe(
+        Effect.flatMap((campaigns) => campaigns.get(campaign.id))
+      )
     );
     expect(Exit.isSuccess(stored) && stored.value.title).toBe("Opening hours");
   });
@@ -122,7 +134,9 @@ describe.skipIf(!testDatabase)("CampaignService on disposable Postgres", () => {
       [campaign.id]
     );
     const copy = await run(
-      CampaignService.use((campaigns) => campaigns.duplicate(campaign.id))
+      CampaignService.pipe(
+        Effect.flatMap((campaigns) => campaigns.duplicate(campaign.id))
+      )
     );
     if (Exit.isFailure(copy)) throw Cause.squash(copy.cause);
     campaignIds.push(copy.value.id);
@@ -140,11 +154,15 @@ describe.skipIf(!testDatabase)("CampaignService on disposable Postgres", () => {
   test("deletes a draft and reports a missing campaign", async () => {
     const draft = await createDraft();
     const deletion = await run(
-      CampaignService.use((campaigns) => campaigns.delete(draft.id))
+      CampaignService.pipe(
+        Effect.flatMap((campaigns) => campaigns.delete(draft.id))
+      )
     );
     expect(Exit.isSuccess(deletion)).toBe(true);
     const lookup = await run(
-      CampaignService.use((campaigns) => campaigns.get(draft.id))
+      CampaignService.pipe(
+        Effect.flatMap((campaigns) => campaigns.get(draft.id))
+      )
     );
     expect(failure(lookup)).toMatchObject({ _tag: "CampaignNotFound" });
   });

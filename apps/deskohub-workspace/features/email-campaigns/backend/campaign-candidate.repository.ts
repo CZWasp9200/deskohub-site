@@ -4,7 +4,7 @@ import type {
   DotyposCustomerId,
   DotyposReservationId,
 } from "@deskohub/dotypos";
-import { and, eq, gte, inArray, isNull, lt, max, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, lt, max, sql } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Effect, Layer } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";

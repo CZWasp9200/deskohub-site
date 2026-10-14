@@ -55,14 +55,16 @@ describe.skipIf(!testDatabase)(
     const createDraft = async () => {
       const exit = await runAt(
         { seconds: 0 },
-        CampaignService.use((campaigns) =>
-          campaigns.create({
-            title: "Price update",
-            purpose: "operational",
-            templateKey: "workspace",
-            content: campaignContentFixture(),
-            audienceId: null,
-          })
+        CampaignService.pipe(
+          Effect.flatMap((campaigns) =>
+            campaigns.create({
+              title: "Price update",
+              purpose: "operational",
+              templateKey: "workspace",
+              content: campaignContentFixture(),
+              audienceId: null,
+            })
+          )
         )
       );
       if (Exit.isFailure(exit)) throw Cause.squash(exit.cause);
@@ -75,15 +77,17 @@ describe.skipIf(!testDatabase)(
     ) => {
       const exit = await runAt(
         { seconds: 0 },
-        CampaignConfirmationCodeService.use((codes) =>
-          codes.issue({
-            campaignId: campaign.id,
-            contentHash: hashCampaignContent({
-              purpose: campaign.purpose,
-              templateKey: campaign.templateKey,
-              locales: campaign.content,
-            }),
-          })
+        CampaignConfirmationCodeService.pipe(
+          Effect.flatMap((codes) =>
+            codes.issue({
+              campaignId: campaign.id,
+              contentHash: hashCampaignContent({
+                purpose: campaign.purpose,
+                templateKey: campaign.templateKey,
+                locales: campaign.content,
+              }),
+            })
+          )
         )
       );
       if (Exit.isFailure(exit)) throw Cause.squash(exit.cause);
@@ -97,8 +101,8 @@ describe.skipIf(!testDatabase)(
     ) =>
       runAt(
         elapsed,
-        CampaignConfirmationCodeService.use((codes) =>
-          codes.confirm({ campaignId, code })
+        CampaignConfirmationCodeService.pipe(
+          Effect.flatMap((codes) => codes.confirm({ campaignId, code }))
         )
       );
 
@@ -152,11 +156,13 @@ describe.skipIf(!testDatabase)(
       const { code } = await issueFor(campaign);
       await runAt(
         { minutes: 1 },
-        CampaignService.use((campaigns) =>
-          campaigns.update({
-            campaignId: campaign.id,
-            content: campaignContentFixture("Změněno"),
-          })
+        CampaignService.pipe(
+          Effect.flatMap((campaigns) =>
+            campaigns.update({
+              campaignId: campaign.id,
+              content: campaignContentFixture("Změněno"),
+            })
+          )
         )
       );
       expect(failure(await confirm(campaign.id, code))).toMatchObject({

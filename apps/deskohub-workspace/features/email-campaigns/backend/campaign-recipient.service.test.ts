@@ -77,11 +77,13 @@ const resolve = (input: {
       )
   );
   const exit = Effect.runSyncExit(
-    CampaignRecipientService.use((service) =>
-      service.resolve({
-        purpose: input.purpose ?? "operational",
-        filter: input.filter ?? everyone,
-      })
+    CampaignRecipientService.pipe(
+      Effect.flatMap((service) =>
+        service.resolve({
+          purpose: input.purpose ?? "operational",
+          filter: input.filter ?? everyone,
+        })
+      )
     ).pipe(
       Effect.provide(
         CampaignRecipientService.Default.pipe(

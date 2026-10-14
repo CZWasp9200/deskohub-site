@@ -50,8 +50,10 @@ describe.skipIf(!testDatabase)(
 
     const createAudience = async (title: string) => {
       const exit = await run(
-        CampaignAudienceService.use((audiences) =>
-          audiences.create({ title, filter: everyoneFilter })
+        CampaignAudienceService.pipe(
+          Effect.flatMap((audiences) =>
+            audiences.create({ title, filter: everyoneFilter })
+          )
         )
       );
       if (Exit.isFailure(exit)) throw Cause.squash(exit.cause);
@@ -61,14 +63,16 @@ describe.skipIf(!testDatabase)(
 
     const createCampaign = async (audienceId: CampaignAudienceId) => {
       const exit = await run(
-        CampaignService.use((campaigns) =>
-          campaigns.create({
-            title: "Spring news",
-            purpose: "marketing",
-            templateKey: "workspace",
-            content: campaignContentFixture(),
-            audienceId,
-          })
+        CampaignService.pipe(
+          Effect.flatMap((campaigns) =>
+            campaigns.create({
+              title: "Spring news",
+              purpose: "marketing",
+              templateKey: "workspace",
+              content: campaignContentFixture(),
+              audienceId,
+            })
+          )
         )
       );
       if (Exit.isFailure(exit)) throw Cause.squash(exit.cause);
@@ -81,8 +85,8 @@ describe.skipIf(!testDatabase)(
       const draft = await createCampaign(audience.id);
 
       const deletion = await run(
-        CampaignAudienceService.use((audiences) =>
-          audiences.delete(audience.id)
+        CampaignAudienceService.pipe(
+          Effect.flatMap((audiences) => audiences.delete(audience.id))
         )
       );
       expect(failure(deletion)).toMatchObject({
@@ -91,8 +95,8 @@ describe.skipIf(!testDatabase)(
       });
 
       const archived = await run(
-        CampaignAudienceService.use((audiences) =>
-          audiences.archive(audience.id)
+        CampaignAudienceService.pipe(
+          Effect.flatMap((audiences) => audiences.archive(audience.id))
         )
       );
       expect(
@@ -100,8 +104,10 @@ describe.skipIf(!testDatabase)(
       ).toBeTruthy();
 
       const listed = await run(
-        CampaignAudienceService.use((audiences) =>
-          audiences.list({ includeArchived: false })
+        CampaignAudienceService.pipe(
+          Effect.flatMap((audiences) =>
+            audiences.list({ includeArchived: false })
+          )
         )
       );
       expect(
@@ -113,19 +119,21 @@ describe.skipIf(!testDatabase)(
     test("refuses to assign an archived audience to a campaign", async () => {
       const audience = await createAudience("Former members");
       await run(
-        CampaignAudienceService.use((audiences) =>
-          audiences.archive(audience.id)
+        CampaignAudienceService.pipe(
+          Effect.flatMap((audiences) => audiences.archive(audience.id))
         )
       );
       const creation = await run(
-        CampaignService.use((campaigns) =>
-          campaigns.create({
-            title: "Win-back",
-            purpose: "operational",
-            templateKey: "workspace",
-            content: campaignContentFixture(),
-            audienceId: audience.id,
-          })
+        CampaignService.pipe(
+          Effect.flatMap((campaigns) =>
+            campaigns.create({
+              title: "Win-back",
+              purpose: "operational",
+              templateKey: "workspace",
+              content: campaignContentFixture(),
+              audienceId: audience.id,
+            })
+          )
         )
       );
       expect(failure(creation)).toMatchObject({
@@ -146,8 +154,8 @@ describe.skipIf(!testDatabase)(
       );
 
       const deletion = await run(
-        CampaignAudienceService.use((audiences) =>
-          audiences.delete(audience.id)
+        CampaignAudienceService.pipe(
+          Effect.flatMap((audiences) => audiences.delete(audience.id))
         )
       );
       expect(Exit.isSuccess(deletion)).toBe(true);
@@ -166,8 +174,10 @@ describe.skipIf(!testDatabase)(
 
     test("reports a missing audience", async () => {
       const deletion = await run(
-        CampaignAudienceService.use((audiences) =>
-          audiences.delete("missing" as CampaignAudienceId)
+        CampaignAudienceService.pipe(
+          Effect.flatMap((audiences) =>
+            audiences.delete("missing" as CampaignAudienceId)
+          )
         )
       );
       expect(failure(deletion)).toMatchObject({
