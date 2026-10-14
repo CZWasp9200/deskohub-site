@@ -28,10 +28,12 @@ export const describeAudienceFilter = (filter: AudienceFilter): string =>
       Reservation: ({ presence, dateBasis, from, to, status }) =>
         [
           presence === "has" ? "has a" : "has no",
-          status ? ` ${reservationStatusNames[status]}` : "",
+          // Without a status only booked (confirmed, never cancelled)
+          // reservations count.
+          status ? ` ${reservationStatusNames[status]}` : " booked",
           " reservation",
           from || to
-            ? ` ${dateBasis === "visit" ? "visiting" : "booked"}${describeDateRange(from, to)}`
+            ? ` ${dateBasis === "visit" ? "visiting" : "confirmed"}${describeDateRange(from, to)}`
             : "",
         ].join(""),
       Locale: ({ locales }) =>

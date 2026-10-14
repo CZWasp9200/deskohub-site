@@ -531,7 +531,8 @@ function ReservationEditor({
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value={anyReservationStatus}>Any status</SelectItem>
+          {/* Without a status only booked reservations count. */}
+          <SelectItem value={anyReservationStatus}>Any booked</SelectItem>
           {Object.entries(reservationStatusLabels).map(([status, label]) => (
             <SelectItem key={status} value={status}>
               {label}
