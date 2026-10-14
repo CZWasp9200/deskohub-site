@@ -1,32 +1,10 @@
 import { Badge } from "@/shared/components/ui/badge";
-import {
-  StatusBadge,
-  type StatusTone,
-} from "@/shared/components/ui/status-badge";
+import { StatusBadge } from "@/shared/components/ui/status-badge";
 import type { CampaignPurpose } from "../../body/campaign-content";
 import type {
   CampaignRecipientStatus,
   CampaignStatus,
 } from "../../campaign-states";
-
-// The shared progress tone pairs a yellow fill with navy text; campaign pills
-// keep every tone's text in its own colour family.
-function CampaignStatusPill({
-  children,
-  tone,
-}: {
-  readonly children: string;
-  readonly tone: StatusTone;
-}) {
-  return (
-    <StatusBadge
-      className={tone === "progress" ? "text-sunset-yellow-ink" : undefined}
-      tone={tone}
-    >
-      {children}
-    </StatusBadge>
-  );
-}
 
 export function CampaignStatusBadge({
   status,
@@ -34,7 +12,7 @@ export function CampaignStatusBadge({
   readonly status: CampaignStatus;
 }) {
   return (
-    <CampaignStatusPill
+    <StatusBadge
       tone={
         (
           {
@@ -51,7 +29,7 @@ export function CampaignStatusBadge({
           status
         ]
       }
-    </CampaignStatusPill>
+    </StatusBadge>
   );
 }
 
@@ -73,7 +51,7 @@ export function CampaignRecipientStatusBadge({
   readonly status: CampaignRecipientStatus;
 }) {
   return (
-    <CampaignStatusPill
+    <StatusBadge
       tone={
         (
           {
@@ -83,6 +61,7 @@ export function CampaignRecipientStatusBadge({
             bounced: "attention",
             complained: "attention",
             failed: "attention",
+            unconfirmed: "attention",
             skipped: "neutral",
           } as const
         )[status]
@@ -96,9 +75,10 @@ export function CampaignRecipientStatusBadge({
           bounced: "Bounced",
           complained: "Complained",
           failed: "Failed",
+          unconfirmed: "Unconfirmed",
           skipped: "Skipped",
         }[status]
       }
-    </CampaignStatusPill>
+    </StatusBadge>
   );
 }

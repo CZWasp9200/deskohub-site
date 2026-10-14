@@ -3,6 +3,7 @@ import "server-only";
 import { Effect } from "effect";
 import { authorizeAdministratorPage } from "@/shared/administrator/administrator-authorization.server";
 import { runWorkspaceEffect } from "@/shared/backend/workspace-effect";
+import { CampaignEmailConfig } from "../../backend/campaign-email.config";
 import { campaignBodyFormatVersion } from "../../body/campaign-body-document";
 import type { CampaignLocaleContent } from "../../body/campaign-content";
 import { campaignTemplates } from "../../body/campaign-templates";
@@ -11,7 +12,6 @@ import {
   renderCampaignEmail,
 } from "../../body/render-campaign-email";
 import { loadAudienceOptions } from "../audiences/audience-page-data.server";
-import { CampaignSendPipeline } from "../campaign-send-pipeline";
 import type { CampaignComposerTemplate } from "./campaign-composer";
 
 /** Placeholder content that shows a template's typography and footer. */
@@ -92,12 +92,12 @@ const loadComposerOptions = () =>
     {
       templates: loadTemplates,
       adminInbox: Effect.gen(function* () {
-        return (yield* CampaignSendPipeline).adminInbox;
+        return (yield* CampaignEmailConfig).adminInbox;
       }),
     },
     { concurrency: "unbounded" }
   ).pipe(
-    Effect.provide(CampaignSendPipeline.Live),
+    Effect.provide(CampaignEmailConfig.Default),
     runWorkspaceEffect("email-campaigns.admin.load-composer", {
       boundary: "route",
     })

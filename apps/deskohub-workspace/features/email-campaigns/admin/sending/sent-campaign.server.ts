@@ -4,8 +4,8 @@ import { Effect, Layer, Option } from "effect";
 import { cache } from "react";
 import { runWorkspaceEffect } from "@/shared/backend/workspace-effect";
 import { CampaignAudienceService } from "../../backend/campaign-audience.service";
+import { CampaignSendService } from "../../backend/campaign-send.service";
 import type { CampaignId } from "../../campaign-identifiers";
-import { CampaignSendPipeline } from "../campaign-send-pipeline";
 
 /**
  * The campaign's send status and the current title of the audience it
@@ -14,9 +14,9 @@ import { CampaignSendPipeline } from "../campaign-send-pipeline";
 export const loadSentCampaign = cache(
   Effect.fn(
     function* (campaignId: CampaignId) {
-      const pipeline = yield* CampaignSendPipeline;
+      const sending = yield* CampaignSendService;
       const audiences = yield* CampaignAudienceService;
-      const send = yield* pipeline.getSendStatus({ campaignId });
+      const send = yield* sending.getSendStatus({ campaignId });
       const audienceId = Option.flatMapNullishOr(
         send,
         (status) => status.audienceId
@@ -34,10 +34,7 @@ export const loadSentCampaign = cache(
     (effect) =>
       effect.pipe(
         Effect.provide(
-          Layer.mergeAll(
-            CampaignSendPipeline.Live,
-            CampaignAudienceService.Live
-          )
+          Layer.mergeAll(CampaignSendService.Live, CampaignAudienceService.Live)
         ),
         runWorkspaceEffect("email-campaigns.admin.load-sent-campaign", {
           boundary: "route",

@@ -2,8 +2,9 @@
 
 import { Copy, RotateCw } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { Button } from "@/shared/components/ui/button";
+import { Checkbox } from "@/shared/components/ui/checkbox";
 import { useWorkspaceAction } from "@/shared/utils/use-workspace-action";
 import type { CampaignId } from "../../campaign-identifiers";
 import {
@@ -11,15 +12,22 @@ import {
   retryUndeliveredCampaignRecipients,
 } from "./actions";
 
-/** Duplicate for any sent campaign, plus Retry undelivered once it failed. */
+/**
+ * Duplicate for any sent campaign, plus Retry undelivered once it failed.
+ * The retry skips unconfirmed recipients unless the admin opts them in.
+ */
 export function SentCampaignActions({
   campaignId,
   retryable,
+  unconfirmedCount,
 }: {
   readonly campaignId: CampaignId;
   readonly retryable: boolean;
+  readonly unconfirmedCount: number;
 }) {
   const router = useRouter();
+  const includeUnconfirmedId = useId();
+  const [includeUnconfirmed, setIncludeUnconfirmed] = useState(false);
   const [feedback, setFeedback] = useState<{
     readonly kind: "error" | "success";
     readonly message: string;
@@ -62,7 +70,10 @@ export function SentCampaignActions({
             disabled={busy}
             onClick={() => {
               setFeedback(null);
-              retry.execute({ campaignId });
+              retry.execute({
+                campaignId,
+                includeUnconfirmed: unconfirmedCount > 0 && includeUnconfirmed,
+              });
             }}
             size="sm"
             type="button"
@@ -85,6 +96,22 @@ export function SentCampaignActions({
           {duplicate.isExecuting ? "Duplicating…" : "Duplicate"}
         </Button>
       </div>
+      {retryable && unconfirmedCount > 0 && (
+        <label
+          className="flex items-center gap-2 text-sm"
+          htmlFor={includeUnconfirmedId}
+        >
+          <Checkbox
+            checked={includeUnconfirmed}
+            disabled={busy}
+            id={includeUnconfirmedId}
+            onCheckedChange={(checked) =>
+              setIncludeUnconfirmed(checked === true)
+            }
+          />
+          Also resend to unconfirmed recipients (they may receive it twice)
+        </label>
+      )}
       <p className="text-sm font-semibold" role="status">
         {feedback?.kind === "success" && (
           <span className="text-aquamarine-ink">{feedback.message}</span>

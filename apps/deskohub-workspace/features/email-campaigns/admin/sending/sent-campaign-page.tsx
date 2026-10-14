@@ -41,6 +41,7 @@ export async function SentCampaignPage({
           <SentCampaignActions
             campaignId={campaign.id}
             retryable={campaign.status === "failed"}
+            unconfirmedCount={send?.counts.unconfirmed ?? 0}
           />
         }
         eyebrow="Email campaign"
@@ -155,6 +156,13 @@ export async function SentCampaignPage({
                   </li>
                 ))}
               </ul>
+              {send.counts.unconfirmed > 0 && (
+                <p className="mt-4 max-w-prose text-sm text-navy-blue/65">
+                  Unconfirmed recipients may already have the email: the
+                  provider never confirmed their batch. Retry undelivered skips
+                  them unless you also choose to resend to them.
+                </p>
+              )}
             </AdministrationDetailSection>
             <AdministrationDetailSection title="Recipients">
               <SentRecipientTable
@@ -162,6 +170,7 @@ export async function SentCampaignPage({
                   dotyposCustomerId: recipient.dotyposCustomerId,
                   locale: recipient.locale,
                   status: recipient.status,
+                  skipReason: recipient.skipReason,
                   statusUpdatedAt: recipient.statusUpdatedAt.toString(),
                 }))}
               />

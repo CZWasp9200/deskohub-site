@@ -4,18 +4,16 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { Effect, Layer } from "effect";
 import { SqlError } from "effect/unstable/sql";
 import type { ICampaignService } from "../../backend/campaign.service";
+import type { ICampaignSendService } from "../../backend/campaign-send.service";
 import { campaignIdSchema } from "../../campaign-identifiers";
-import {
-  CampaignConfirmationRejected,
-  CampaignNotFound,
-  CampaignReadOnly,
-  CampaignRecipientsOutsideTestDomain,
-} from "../../errors";
-import type { ICampaignSendPipeline } from "../campaign-send-pipeline";
+import { CampaignConfirmationRejected } from "../../errors";
 
 const revalidatePath = mock((_path: string) => undefined);
 
-mock.module("next/cache", () => ({ revalidatePath }));
+mock.module("next/cache", () => ({
+  revalidatePath,
+  revalidateTag: () => undefined,
+}));
 mock.module("next/server", () => ({
   after: () => undefined,
   connection: async () => undefined,
@@ -31,7 +29,7 @@ mock.module("next/headers", () => ({
   headers: async () => new Headers({ referer: "https://deskohub.test/en-US" }),
 }));
 
-const pipelineModule = await import("../campaign-send-pipeline");
+const sendServiceModule = await import("../../backend/campaign-send.service");
 const campaignServiceModule = await import("../../backend/campaign.service");
 const realAuthorizationModule = await import(
   "@/shared/administrator/administrator-authorization.server"
@@ -64,24 +62,24 @@ let duplicateResult: Effect.Effect<unknown, unknown> = Effect.succeed({
   id: duplicateCampaignId,
 });
 
-const testSendCalls: Parameters<ICampaignSendPipeline["testSend"]>[0][] = [];
-const sendCalls: Parameters<ICampaignSendPipeline["send"]>[0][] = [];
-const retryCalls: Parameters<ICampaignSendPipeline["retryUndelivered"]>[0][] =
+const testSendCalls: Parameters<ICampaignSendService["testSend"]>[0][] = [];
+const sendCalls: Parameters<ICampaignSendService["send"]>[0][] = [];
+const retryCalls: Parameters<ICampaignSendService["retryUndelivered"]>[0][] =
   [];
 const duplicateCalls: Parameters<ICampaignService["duplicate"]>[0][] = [];
 
 const testSend = mock(
-  (input: Parameters<ICampaignSendPipeline["testSend"]>[0]) => {
+  (input: Parameters<ICampaignSendService["testSend"]>[0]) => {
     testSendCalls.push(input);
     return testSendResult;
   }
 );
-const send = mock((input: Parameters<ICampaignSendPipeline["send"]>[0]) => {
+const send = mock((input: Parameters<ICampaignSendService["send"]>[0]) => {
   sendCalls.push(input);
   return sendResult;
 });
 const retryUndelivered = mock(
-  (input: Parameters<ICampaignSendPipeline["retryUndelivered"]>[0]) => {
+  (input: Parameters<ICampaignSendService["retryUndelivered"]>[0]) => {
     retryCalls.push(input);
     return retryResult;
   }
@@ -93,9 +91,9 @@ const duplicate = mock(
   }
 );
 
-const pipelineLive = Layer.succeed(
-  pipelineModule.CampaignSendPipeline,
-  pipelineModule.CampaignSendPipeline.of({
+const sendServiceLive = Layer.succeed(
+  sendServiceModule.CampaignSendService,
+  sendServiceModule.CampaignSendService.of({
     adminInbox: "synthetic-inbox",
     testSend,
     send,
@@ -104,13 +102,13 @@ const pipelineLive = Layer.succeed(
   } as never)
 );
 
-class StubCampaignSendPipeline extends pipelineModule.CampaignSendPipeline {
-  static override Live = pipelineLive;
+class StubCampaignSendService extends sendServiceModule.CampaignSendService {
+  static override Live = sendServiceLive;
 }
 
-mock.module("../campaign-send-pipeline", () => ({
-  ...pipelineModule,
-  CampaignSendPipeline: StubCampaignSendPipeline,
+mock.module("../../backend/campaign-send.service", () => ({
+  ...sendServiceModule,
+  CampaignSendService: StubCampaignSendService,
 }));
 
 const campaignServiceLive = Layer.succeed(
@@ -127,6 +125,8 @@ mock.module("../../backend/campaign.service", () => ({
   CampaignService: StubCampaignService,
 }));
 
+// Every tag's copy is covered in campaign-sending-failure.test.ts; these
+// cases prove the actions route typed failures through that mapping.
 const sendFailureCases = [
   {
     name: "unknown confirmation code",
@@ -136,84 +136,6 @@ const sendFailureCases = [
     }),
     serverError:
       "That code doesn't match the latest test email. Check it for typos and try again.",
-  },
-  {
-    name: "superseded confirmation code",
-    error: new CampaignConfirmationRejected({
-      campaignId,
-      reason: "superseded",
-    }),
-    serverError:
-      "A newer test email replaced that code. Use the code from the latest test email.",
-  },
-  {
-    name: "expired confirmation code",
-    error: new CampaignConfirmationRejected({
-      campaignId,
-      reason: "expired",
-    }),
-    serverError:
-      "That code expired. Send a new test email to get a fresh code.",
-  },
-  {
-    name: "changed campaign content",
-    error: new CampaignConfirmationRejected({
-      campaignId,
-      reason: "content-changed",
-    }),
-    serverError:
-      "The campaign changed after that test email. Send a new test email and use its code.",
-  },
-  {
-    name: "confirmation attempts exceeded",
-    error: new CampaignConfirmationRejected({
-      campaignId,
-      reason: "too-many-attempts",
-    }),
-    serverError:
-      "Too many wrong codes, so that code no longer works. Send a new test email to get a fresh code.",
-  },
-  {
-    name: "campaign not found",
-    error: new CampaignNotFound({ campaignId }),
-    serverError: "This campaign no longer exists.",
-  },
-  {
-    name: "campaign is read only",
-    error: new CampaignReadOnly({ campaignId, status: "sent" }),
-    serverError:
-      "This campaign already left Draft. Duplicate it to send a new copy.",
-  },
-  {
-    name: "invalid test recipient",
-    error: new pipelineModule.CampaignTestRecipientInvalid({
-      email: "invalid-synthetic-address",
-    }),
-    serverError: "invalid-synthetic-address isn't a valid email address.",
-  },
-  {
-    name: "one recipient outside the test domain",
-    error: new CampaignRecipientsOutsideTestDomain({ recipientCount: 1 }),
-    serverError:
-      "Outside production, campaign email can only go to @deskohub.test addresses, and 1 address is outside it. Nothing was sent.",
-  },
-  {
-    name: "multiple recipients outside the test domain",
-    error: new CampaignRecipientsOutsideTestDomain({ recipientCount: 3 }),
-    serverError:
-      "Outside production, campaign email can only go to @deskohub.test addresses, and 3 addresses are outside it. Nothing was sent.",
-  },
-  {
-    name: "no reachable recipients",
-    error: new pipelineModule.CampaignNoRecipients({ campaignId }),
-    serverError:
-      "The audience has no reachable recipients right now, so nothing was sent.",
-  },
-  {
-    name: "send unavailable",
-    error: new pipelineModule.CampaignSendUnavailable({ campaignId }),
-    serverError:
-      "Sending isn't available in this build yet. Nothing was sent and the code still works.",
   },
   {
     name: "SQL failure",
@@ -243,7 +165,7 @@ beforeEach(() => {
 });
 
 describe("email campaign sending actions", () => {
-  test("maps the real administrator authorization error and skips the pipeline", async () => {
+  test("maps the real administrator authorization error and skips the send service", async () => {
     authorizationResult = Effect.fail(realUnauthorizedError);
 
     const { sendCampaign } = await import("./actions");
@@ -261,7 +183,7 @@ describe("email campaign sending actions", () => {
     expect(retryCalls).toHaveLength(0);
   });
 
-  test("validates input before authorization or pipeline calls", async () => {
+  test("validates input before authorization or send service calls", async () => {
     const { sendCampaign } = await import("./actions");
 
     const malformedCampaign = await sendCampaign({
@@ -316,6 +238,50 @@ describe("email campaign sending actions", () => {
       ["/admin/email-campaigns"],
       [`/admin/email-campaigns/${campaignId}`],
     ]);
+  });
+
+  test.each([
+    ["excludes", false],
+    ["includes", true],
+  ] as const)(
+    "retries undelivered recipients and %s unconfirmed ones as chosen",
+    async (_, includeUnconfirmed) => {
+      retryResult = Effect.succeed({
+        sendId: "synthetic-send",
+        retriedCount: 3,
+      });
+
+      const { retryUndeliveredCampaignRecipients } = await import("./actions");
+      const result = await retryUndeliveredCampaignRecipients({
+        campaignId,
+        includeUnconfirmed,
+      });
+
+      expect(result?.data).toEqual({
+        sendId: "synthetic-send",
+        retriedCount: 3,
+      });
+      expect(retryCalls).toEqual([{ campaignId, includeUnconfirmed }]);
+      expect(revalidatePath.mock.calls).toEqual([
+        ["/admin/email-campaigns"],
+        [`/admin/email-campaigns/${campaignId}`],
+      ]);
+    }
+  );
+
+  test("requires an explicit unconfirmed-recipient choice to retry", async () => {
+    const { retryUndeliveredCampaignRecipients } = await import("./actions");
+
+    const result = await retryUndeliveredCampaignRecipients({
+      campaignId,
+    } as never);
+
+    expect(result).toMatchObject({
+      validationErrors: {
+        fieldErrors: { includeUnconfirmed: expect.any(Array) },
+      },
+    });
+    expect(retryCalls).toHaveLength(0);
   });
 
   test("returns the duplicate campaign ID and revalidates the campaign list", async () => {
