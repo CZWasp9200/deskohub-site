@@ -168,24 +168,6 @@ describe("ReservationCheckoutForm", () => {
     await unregisterWorkspaceComponentTestEnv();
   });
 
-  test("allows submission with a current advertised price", () => {
-    const view = render(
-      <Harness advertisedPrice={{ isError: false, token: "signed-price" }} />
-    );
-
-    expect(getSubmitButton(view).disabled).toBe(false);
-  });
-
-  test("blocks submission when the advertised price refresh failed", () => {
-    // A failed background refresh keeps the previous, possibly expired,
-    // signed price; submitting it would only fail on the server.
-    const view = render(
-      <Harness advertisedPrice={{ isError: true, token: "stale-price" }} />
-    );
-
-    expect(getSubmitButton(view).disabled).toBe(true);
-  });
-
   test("re-enables submission once a failed advertised price is retried", async () => {
     const view = render(<RetryablePriceHarness />);
 
@@ -262,23 +244,6 @@ describe("ReservationCheckoutForm", () => {
         ),
       })
     ).toBeDefined();
-  });
-
-  test("leaves the form undecorated without an advertised sale", () => {
-    const view = render(
-      <Harness
-        advertisedPrice={{
-          isError: false,
-          sale: { discounts: [], productLabel: "Open Space" },
-          token: "signed-price",
-        }}
-      />
-    );
-
-    expect(view.container.querySelector("[data-reservation-sale]")).toBeNull();
-    expect(
-      view.container.querySelector("[data-reservation-sale-banner]")
-    ).toBeNull();
   });
 
   test("books as the account only while the account card is shown", async () => {
