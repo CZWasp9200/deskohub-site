@@ -208,7 +208,7 @@ function AudienceForm({
               In plain English
             </p>
             <p className="mt-1 text-sm leading-6">
-              Customers who {describeAudienceFilter(filter)}.
+              {describeAudienceFilter(filter)}.
             </p>
             {singleLocale ? (
               <p className="mt-1 text-navy-blue/62 text-sm">

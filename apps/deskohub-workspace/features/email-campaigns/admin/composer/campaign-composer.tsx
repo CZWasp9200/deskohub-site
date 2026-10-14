@@ -365,7 +365,7 @@ export function CampaignComposer({
                       </SelectContent>
                     </Select>
                     <p className="text-navy-blue/55 text-xs">
-                      {audience && `Customers who ${audience.summary}.`}
+                      {audience && `${audience.summary}.`}
                       {!audience &&
                         audiences.length > 0 &&
                         "Choose who receives the campaign before sending it."}

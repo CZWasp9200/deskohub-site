@@ -21,13 +21,13 @@ const describeDateRange = (from?: string, to?: string) => {
   return "";
 };
 
-/** One line of plain English for an audience filter tree. */
-export const describeAudienceFilter = (filter: AudienceFilter): string =>
+/** What a customer must satisfy, as a plural predicate ("speak Czech and …"). */
+const describeCondition = (filter: AudienceFilter): string =>
   Match.value(filter).pipe(
     Match.tagsExhaustive({
       Reservation: ({ presence, dateBasis, from, to, status }) =>
         [
-          presence === "has" ? "has a" : "has no",
+          presence === "has" ? "have a" : "have no",
           // Without a status only booked (confirmed, never cancelled)
           // reservations count.
           status ? ` ${reservationStatusNames[status]}` : " booked",
@@ -37,25 +37,35 @@ export const describeAudienceFilter = (filter: AudienceFilter): string =>
             : "",
         ].join(""),
       Locale: ({ locales }) =>
-        `speaks ${locales.map((locale) => localeNames[locale]).join(" or ")}`,
+        `speak ${locales.map((locale) => localeNames[locale]).join(" or ")}`,
       Account: ({ hasAccount }) =>
-        hasAccount ? "has a Workspace account" : "has no Workspace account",
-      DotyposTag: ({ tag }) => `is tagged “${tag}”`,
+        hasAccount ? "have a Workspace account" : "have no Workspace account",
+      DotyposTag: ({ tag }) => `are tagged “${tag}”`,
       DiscountGroup: ({ discountGroupId }) =>
-        `is in discount group ${discountGroupId}`,
+        `are in discount group ${discountGroupId}`,
       Group: ({ operator, filters }) => {
         if (filters.length === 0) {
-          return operator === "and" ? "every known customer" : "nobody";
+          return operator === "and" ? "match anything" : "match nothing";
         }
         const parts = filters.map((child) =>
           child._tag === "Group" && child.filters.length > 1
-            ? `(${describeAudienceFilter(child)})`
-            : describeAudienceFilter(child)
+            ? `(${describeCondition(child)})`
+            : describeCondition(child)
         );
         return parts.join(operator === "and" ? " and " : " or ");
       },
     })
   );
+
+/** One sentence of plain English for an audience filter tree. */
+export const describeAudienceFilter = (filter: AudienceFilter): string => {
+  if (filter._tag === "Group" && filter.filters.length === 0) {
+    return filter.operator === "and"
+      ? "Every customer Workspace knows"
+      : "Nobody";
+  }
+  return `Customers who ${describeCondition(filter)}`;
+};
 
 /**
  * The single locale every recipient of the audience has, when the filter
