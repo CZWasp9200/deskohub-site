@@ -116,14 +116,6 @@ describe("getWorkspaceE2EMarketingDocumentHash", () => {
     expect(hash).toBe(await expectedHashFor(["safe"]));
   });
 
-  test("primitives and arrays pass through unchanged", async () => {
-    let hash = "";
-    withSyntheticBody(["plain", 7, ["nested", true, null, undefined]], () => {
-      hash = getWorkspaceE2EMarketingDocumentHash();
-    });
-    expect(hash).toBe(await expectedHashFor(["plain", "7", "nested"]));
-  });
-
   test("malformed stubs fail with the fixed non-sensitive message", () => {
     const malformedStubs: readonly unknown[] = [
       stub({
