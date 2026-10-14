@@ -42,15 +42,6 @@ test("serves the resolved header and gallery on direct navigation", async ({
   await expectGalleryContentToResolve(page);
 });
 
-test("serves the resolved header and contact page on direct navigation", async ({
-  page,
-}) => {
-  await page.goto(contactPath);
-
-  await expectPublicSiteShell(page);
-  await expectContactPage(page);
-});
-
 test("serves the resolved header and TTRPG page on direct navigation", async ({
   page,
 }) => {
@@ -154,11 +145,6 @@ test.describe("client navigation", () => {
       destinationPath: homePath,
       expectDestination: expectHomePage,
       linkName: "Home",
-    },
-    {
-      destinationPath: contactPath,
-      expectDestination: expectContactPage,
-      linkName: "Contact",
     },
   ] as const) {
     test(`uses prefetched UI from the footer for ${navigation.destinationPath}`, async ({

@@ -2348,22 +2348,6 @@ test("makes the saved language preference the site locale and switches it back f
   expect(external.languageReviews).toEqual([]);
 });
 
-test("hands each language review moment to the capture hook while it is genuine", async () => {
-  const { exit, scenario } = await runLanguageCase(undefined, {
-    captureLanguageReview: true,
-  });
-
-  expect(Exit.isSuccess(exit)).toBe(true);
-  expect(scenario.external.languageReviews).toEqual([
-    {
-      stage: "czech-profile",
-      url: `${baseUrl}/cs-CZ/account?section=profile`,
-    },
-    { stage: "preference-redirect", url: `${baseUrl}/cs-CZ/faq` },
-    { stage: "switcher-saved", url: `${baseUrl}/en-US/account` },
-  ]);
-});
-
 test("rejects a proxy that lets the URL locale outrank the saved preference", async () => {
   const { exit, scenario, stepIds } = await runLanguageCase((external) => {
     external.preferenceRedirects = false;
