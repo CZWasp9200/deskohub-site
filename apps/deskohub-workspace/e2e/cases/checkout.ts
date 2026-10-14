@@ -49,6 +49,7 @@ import {
 } from "../checkout/payment";
 import { reservationCookieIsolationStep } from "../checkout/reservation-cookie-isolation";
 import type { DatasourceConfig, WorkspaceE2EConfig } from "../config";
+import { WorkspaceE2EHostedPaymentPermitService } from "../coordination/hosted-payment-permit.service";
 import { tryWorkspaceE2ESync, type WorkspaceE2EError } from "../errors";
 import {
   type ExpectedDiscountApplication,
@@ -118,7 +119,7 @@ export const executeCheckoutFlow = ({
 }): Effect.Effect<
   void,
   WorkspaceE2EError,
-  E2EDatabase | HttpClient.HttpClient
+  E2EDatabase | HttpClient.HttpClient | WorkspaceE2EHostedPaymentPermitService
 > =>
   Effect.gen(function* () {
     const httpClient = yield* HttpClient.HttpClient;
@@ -291,28 +292,39 @@ type HostedPaymentAttempt =
 
 // Pays on the Nexi hosted page. The shared Nexi sandbox sometimes rejects a
 // payment on its own side; when that happened before Nexi could authorize
-// anything, the payment restarts once through a fresh payment attempt.
+// anything, the payment restarts once through a fresh payment attempt. The
+// hosted-payment permit covers both attempts and ends at the status page.
 export const completeHostedCheckoutPayment = (
   options: HostedCheckoutPaymentOptions
-): Effect.Effect<CheckoutRow, WorkspaceE2EError, E2EDatabase> =>
+): Effect.Effect<
+  CheckoutRow,
+  WorkspaceE2EError,
+  E2EDatabase | WorkspaceE2EHostedPaymentPermitService
+> =>
   Effect.gen(function* () {
-    const first = yield* runHostedPaymentAttempt(options);
-    if (first.kind === "completed") return first.row;
+    const hostedPaymentPermit = yield* WorkspaceE2EHostedPaymentPermitService;
+    return yield* hostedPaymentPermit.withPermit(
+      options.session,
+      Effect.gen(function* () {
+        const first = yield* runHostedPaymentAttempt(options);
+        if (first.kind === "completed") return first.row;
 
-    const restarted = yield* options.runStep({
-      execute: restartSandboxRejectedPayment(options, first),
-      id: "restart-sandbox-rejected-payment",
-      timeoutMs:
-        options.config.timeouts.datasource +
-        nexiSandboxRetryDelayMs +
-        options.config.timeouts.browserNavigation,
-    });
-    if (!restarted) return yield* first.error;
+        const restarted = yield* options.runStep({
+          execute: restartSandboxRejectedPayment(options, first),
+          id: "restart-sandbox-rejected-payment",
+          timeoutMs:
+            options.config.timeouts.datasource +
+            nexiSandboxRetryDelayMs +
+            options.config.timeouts.browserNavigation,
+        });
+        if (!restarted) return yield* first.error;
 
-    // The restarted attempt never restarts again, so it completes or fails.
-    const retry = yield* runHostedPaymentAttempt(options, first.row);
-    if (retry.kind === "sandbox-rejected") return yield* retry.error;
-    return retry.row;
+        // The restarted attempt never restarts again, so it completes or fails.
+        const retry = yield* runHostedPaymentAttempt(options, first.row);
+        if (retry.kind === "sandbox-rejected") return yield* retry.error;
+        return retry.row;
+      })
+    );
   });
 
 const runHostedPaymentAttempt = (

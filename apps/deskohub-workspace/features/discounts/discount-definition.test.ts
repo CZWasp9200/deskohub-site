@@ -95,6 +95,32 @@ describe("stored discount definitions", () => {
     expect(result.products).toEqual([{ kind: "meeting-room" }]);
   });
 
+  test("decodes cowork tier targets alongside another family", async () => {
+    const result = await Effect.runPromise(
+      decode(
+        percentageRow({
+          productTargets: [
+            {
+              discountId,
+              productTarget: { kind: "cowork", tier: "open-space" },
+            },
+            {
+              discountId,
+              productTarget: { kind: "cowork", tier: "reserved-desk" },
+            },
+            { discountId, productTarget: { kind: "meeting-room" } },
+          ],
+        })
+      )
+    );
+
+    expect(result.products).toEqual([
+      { kind: "cowork", tier: "open-space" },
+      { kind: "cowork", tier: "reserved-desk" },
+      { kind: "meeting-room" },
+    ]);
+  });
+
   test.each([
     [
       "missing locale label",
@@ -138,6 +164,44 @@ describe("stored discount definitions", () => {
         productTargets: [
           { discountId, productTarget: { kind: "cowork" } },
           { discountId, productTarget: { kind: "cowork" } },
+        ],
+      }),
+    ],
+    [
+      "duplicate cowork tier targets",
+      percentageRow({
+        productTargets: [
+          {
+            discountId,
+            productTarget: { kind: "cowork", tier: "reserved-desk" },
+          },
+          {
+            discountId,
+            productTarget: { kind: "cowork", tier: "reserved-desk" },
+          },
+        ],
+      }),
+    ],
+    [
+      "broad cowork target mixed with a cowork tier target",
+      percentageRow({
+        productTargets: [
+          { discountId, productTarget: { kind: "cowork" } },
+          {
+            discountId,
+            productTarget: { kind: "cowork", tier: "open-space" },
+          },
+        ],
+      }),
+    ],
+    [
+      "historical cowork tier target",
+      percentageRow({
+        productTargets: [
+          {
+            discountId,
+            productTarget: { kind: "cowork", tier: "profi" },
+          },
         ],
       }),
     ],

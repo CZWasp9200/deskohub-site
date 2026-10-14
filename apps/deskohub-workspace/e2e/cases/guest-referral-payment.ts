@@ -106,7 +106,7 @@ export const getGuestReferralDiscounts = (
 
 /**
  * Plans the paid guest-referral checkout on its own cowork date, after every
- * other case has planned its dates. The payment lane binds the run-scoped
+ * other case has planned its dates. The case pool binds the run-scoped
  * identities before the case runs.
  */
 export const planGuestReferralPaymentCase = ({
@@ -139,7 +139,7 @@ export const planGuestReferralPaymentCase = ({
       execute: () =>
         Effect.fail(
           workspaceE2EError(
-            `${guestReferralPaymentCaseId} must be bound to its run-scoped identities by its payment lane`,
+            `${guestReferralPaymentCaseId} must be bound to its run-scoped identities by the case pool`,
             { operation: "bind guest referral payment case" }
           )
         ),

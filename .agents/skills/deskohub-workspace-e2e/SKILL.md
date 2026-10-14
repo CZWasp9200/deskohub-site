@@ -19,12 +19,12 @@ If a reference disagrees with the runner, follow the runner and fix the referenc
 ## Read the reference for your task
 
 - Running E2E, CI workflow, preview target, environment variables, preview database, local checks: [preview workflow](references/preview-workflow.md).
-- Playwright projects, lanes, workers, fail-fast cleanup, date shards, coordination database, provider permit, Dotypos capacity, trace contract: [suite orchestration](references/suite-orchestration.md).
+- Playwright projects, case pool, account lane, workers, hosted-payment permit, fail-fast cleanup, date shards, coordination database, webhook replay permit, Dotypos capacity, trace contract: [suite orchestration](references/suite-orchestration.md).
 - Discount, Calendar, customer, account, email, admin, or access-code fixtures and synthetic data: [fixtures](references/fixtures.md).
 - Writing browser steps (hydration, forms, tooltips, streamed pages, assertions): [browser driving](references/browser-driving.md).
 - Diagnosing a failed run or a known provider failure: [failure triage](references/failure-triage.md).
 - Hosted payment page, sandbox restart, currency override: [Nexi sandbox](references/nexi-sandbox.md).
-- Referral lane, seeded sessions, referral cookie, account identity journals, share-link account case: [referral lane](references/referral-lane.md).
+- Referral cases, seeded sessions, referral cookie, account identity journals, share-link account case: [referral cases](references/referral-lane.md).
 - Checkout persistence and lifecycle: [checkout lifecycle](../deskohub-workspace-checkout/references/lifecycle.md).
 
 Before you inspect production or provider logs, read [operations diagnostics](../deskohub-workspace-operations/references/diagnostics.md) and apply its redaction rules.

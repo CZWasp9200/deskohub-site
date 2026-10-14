@@ -325,6 +325,115 @@ describe("CalendarDiscountProvider", () => {
     ).not.toContain(discountIdB);
   });
 
+  test("applies a tier-targeted sale only to that tier and a broad sale to every tier", async () => {
+    const listEvents = mock(() =>
+      Effect.succeed([
+        saleEvent({ id: "sale-a", description: discountIdA }),
+        saleEvent({ id: "sale-b", description: discountIdB }),
+      ])
+    );
+    const definitions = new Map<StoredDiscountId, DiscountDefinition>([
+      [
+        discountIdA,
+        definition(discountIdA, {
+          labels: { "en-US": "Reserved desk sale", "cs-CZ": "Sleva na stůl" },
+          products: [{ kind: "cowork", tier: "reserved-desk" }],
+        }),
+      ],
+      [
+        discountIdB,
+        definition(discountIdB, {
+          labels: { "en-US": "Cowork sale", "cs-CZ": "Sleva na cowork" },
+          products: [coworkTarget],
+        }),
+      ],
+    ]);
+    const input = (tier: "open-space" | "reserved-desk") => ({
+      locale: "en-US" as const,
+      product: { kind: "cowork" as const, tier },
+      lastServiceDate: "2026-07-20",
+      bookedAt: bookedAtOn("2026-07-20"),
+    });
+
+    const labels = await runWithProvider(
+      Effect.gen(function* () {
+        const provider = yield* CalendarDiscountProvider;
+        const toLabels = (
+          candidates: readonly { discount: { label: string } }[]
+        ) => candidates.map(({ discount }) => discount.label).toSorted();
+        return {
+          openSpace: toLabels(yield* provider.discover(input("open-space"))),
+          reservedDesk: toLabels(
+            yield* provider.discover(input("reserved-desk"))
+          ),
+          revalidatedOpenSpace: toLabels(
+            yield* revalidateCandidates(provider, input("open-space"))
+          ),
+          revalidatedReservedDesk: toLabels(
+            yield* revalidateCandidates(provider, input("reserved-desk"))
+          ),
+        };
+      }),
+      listEvents,
+      ({ discountId }) => Effect.succeed(definitions.get(discountId)!)
+    );
+
+    expect(labels).toEqual({
+      openSpace: ["Cowork sale"],
+      reservedDesk: ["Cowork sale", "Reserved desk sale"],
+      revalidatedOpenSpace: ["Cowork sale"],
+      revalidatedReservedDesk: ["Cowork sale", "Reserved desk sale"],
+    });
+  });
+
+  test("keeps other tiers eligible while one tier target is removed", async () => {
+    const listEvents = mock(() => Effect.succeed([saleEvent()]));
+    let products: DiscountDefinition["products"] = [
+      { kind: "cowork", tier: "open-space" },
+      { kind: "cowork", tier: "reserved-desk" },
+    ];
+    const input = (tier: "open-space" | "reserved-desk") => ({
+      locale: "en-US" as const,
+      product: { kind: "cowork" as const, tier },
+      lastServiceDate: "2026-07-20",
+      bookedAt: bookedAtOn("2026-07-20"),
+    });
+
+    const counts = await runWithProvider(
+      Effect.gen(function* () {
+        const provider = yield* CalendarDiscountProvider;
+        products = [{ kind: "cowork", tier: "open-space" }];
+        // The discovery source is cached here, while reserved desk is removed.
+        const openSpace = yield* provider.discover(input("open-space"));
+        const reservedDesk = yield* provider.discover(input("reserved-desk"));
+        products = [
+          { kind: "cowork", tier: "open-space" },
+          { kind: "cowork", tier: "reserved-desk" },
+        ];
+        const cachedOpenSpace = yield* provider.discover(input("open-space"));
+        const revalidatedReservedDesk = yield* revalidateCandidates(
+          provider,
+          input("reserved-desk")
+        );
+        return {
+          openSpace: openSpace.length,
+          reservedDesk: reservedDesk.length,
+          cachedOpenSpace: cachedOpenSpace.length,
+          revalidatedReservedDesk: revalidatedReservedDesk.length,
+        };
+      }),
+      listEvents,
+      ({ discountId }) => Effect.succeed(definition(discountId, { products }))
+    );
+
+    expect(counts).toEqual({
+      openSpace: 1,
+      reservedDesk: 0,
+      cachedOpenSpace: 1,
+      revalidatedReservedDesk: 1,
+    });
+  });
+
   test("ignores cancelled events and events without a description", async () => {
     const loadById = mock(defaultLoadById);
     const result = await runWithProvider(

@@ -6,7 +6,9 @@ Every discount defines one customer benefit:
 
 - a positive percentage reduction or a positive fixed-money reduction;
 - a complete customer-facing label in every supported language; and
-- one or more eligible product families: cowork, meeting room, or office.
+- one or more eligible products: a whole family (cowork, meeting room, or office) or a single current cowork offer (Open Space or Reserved Desk).
+
+A whole-cowork target covers every cowork offer, including historical tiers in stored reservations; existing whole-cowork discounts keep that meaning. A single-offer target covers only that offer. One discount either targets the whole cowork family or lists individual cowork offers, never both.
 
 The label shown to a customer is preserved with the completed checkout so later wording changes cannot rewrite history. A missing or blank required translation makes that discount unavailable; labels never fall back from one language to another.
 

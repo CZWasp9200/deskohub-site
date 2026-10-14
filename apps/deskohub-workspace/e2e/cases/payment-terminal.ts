@@ -13,6 +13,7 @@ import {
   submitPaymentAndWaitForHostedPage,
 } from "../checkout/payment";
 import type { WorkspaceE2EConfig } from "../config";
+import { WorkspaceE2EHostedPaymentPermitService } from "../coordination/hosted-payment-permit.service";
 import type { WorkspaceE2EError } from "../errors";
 import {
   assertPaymentTerminalRow,
@@ -65,8 +66,13 @@ export const assertPaymentTerminalPath = ({
   session: string;
   state: CheckoutFlowState;
   submitReservationScript: string;
-}): Effect.Effect<void, WorkspaceE2EError, E2EDatabase> =>
+}): Effect.Effect<
+  void,
+  WorkspaceE2EError,
+  E2EDatabase | WorkspaceE2EHostedPaymentPermitService
+> =>
   Effect.gen(function* () {
+    const hostedPaymentPermit = yield* WorkspaceE2EHostedPaymentPermitService;
     state.startedAt = new Date();
     const orderId = yield* runStep({
       execute: prepareCheckoutPaymentAttempt({
@@ -83,32 +89,36 @@ export const assertPaymentTerminalPath = ({
       timeoutMs: config.timeouts.checkoutStart,
     });
     state.orderId = orderId;
-    yield* Effect.suspend(() =>
-      runStep({
-        execute: submitPaymentAndWaitForHostedPage({
-          run,
-          session,
-          timeouts: config.timeouts,
-        }).pipe(
-          Effect.tap(({ checkoutTabId }) =>
-            switchToBrowserTab(run, session, checkoutTabId)
-          )
-        ),
-        id: "start-hosted-payment",
-        timeoutMs: config.timeouts.providerTransition,
+    // The hosted session ends once the attempt reaches its terminal state.
+    yield* hostedPaymentPermit.withPermit(
+      session,
+      Effect.gen(function* () {
+        yield* runStep({
+          execute: submitPaymentAndWaitForHostedPage({
+            run,
+            session,
+            timeouts: config.timeouts,
+          }).pipe(
+            Effect.tap(({ checkoutTabId }) =>
+              switchToBrowserTab(run, session, checkoutTabId)
+            )
+          ),
+          id: "start-hosted-payment",
+          timeoutMs: config.timeouts.providerTransition,
+        });
+        log(`Started hosted payment attempt for order ${orderId}`);
+        yield* runStep({
+          execute: preparePaymentTerminalState({
+            orderId,
+            scenario,
+            state,
+            timeoutMs: config.timeouts.browserAction,
+          }),
+          id: `prepare-${scenario.state}-payment-state`,
+          timeoutMs: config.timeouts.datasource,
+        });
       })
     );
-    log(`Started hosted payment attempt for order ${orderId}`);
-    yield* runStep({
-      execute: preparePaymentTerminalState({
-        orderId,
-        scenario,
-        state,
-        timeoutMs: config.timeouts.browserAction,
-      }),
-      id: `prepare-${scenario.state}-payment-state`,
-      timeoutMs: config.timeouts.datasource,
-    });
     yield* runStep({
       execute: assertTerminalStatusPage({
         config,

@@ -65,7 +65,7 @@ export const planWorkspaceE2EReferralCases = ({
     const unbound = (id: WorkspaceE2EReferralCaseId) => () =>
       Effect.fail(
         workspaceE2EError(
-          `Referral case ${id} must be bound to its seeded identities by the referral lane`,
+          `Referral case ${id} must be bound to its seeded identities by the case pool`,
           { operation: "bind referral case" }
         )
       );

@@ -3,6 +3,7 @@
 ## Contents
 
 - [Project graph](#project-graph)
+- [Hosted-payment permit](#hosted-payment-permit)
 - [Processes and browsers](#processes-and-browsers)
 - [Fail-fast and cleanup](#fail-fast-and-cleanup)
 - [Date shards and the coordination database](#date-shards-and-the-coordination-database)
@@ -17,27 +18,37 @@ Playwright Test owns ordering, scheduling, workers, browsers, and fail-fast admi
 
 ```text
 checkout-setup (teardown: checkout-cleanup)
-  ├─ access-code-creation
-  └─ checkout-seed
-       └─ checkout-plan
-            ├─ checkout-non-payment (workers: 2)
-            ├─ checkout-payment-1 / -2 / -3 (serial lanes)
-            ├─ account-auth (serial account lane)
-            └─ checkout-referrals (referral lane, unpaid; see referral-lane.md)
-                 checkout-shared-fixture        ← depends on all four checkout case projects
-                 checkout-invoice-persistence   ← depends on all four checkout case projects
+  ├─ checkout-cases (workers: 5; paid, non-payment, and referral cases)
+  ├─ account-auth (serial account lane)
+  └─ access-code-creation (last in config, so queued last)
 ```
 
-- Keep the global worker ceiling at six.
-- Register every checkout case statically in `e2e/playwright-checkout/case-catalog.ts`. `plan.pw.ts` asserts the prepared plan matches `workspaceE2ECaseIds`.
-- Put every hosted-payment case in one of the three serial payment lanes, so a suite runs at most three hosted sessions. Balance lanes on median deployed case durations; the slowest lane bounds the case phase.
-- Dependency phases are barriers: Playwright awaits every project in a phase before advancing. `account-auth` depends on `checkout-plan` so it shares the case phase. Playwright queues it behind every `checkout-non-payment` test in that phase, which is why `checkout-non-payment` keeps its `workers` cap. Prove a graph change with the real scheduler harness, not only a graph assertion.
-- `checkout-seed` writes discount fixtures before `checkout-plan`, because Calendar availability reads the seeded definitions. The plan project then runs cowork, meeting-room, and office availability preparation and provider preparation concurrently in one test.
-- `checkout-invoice-persistence` takes an `ACCESS EXCLUSIVE` lock and disables the `invoices_immutable` trigger. It must never overlap a paid case, and the plan must not wait for it.
-- `access-code-creation` sits outside the checkout case catalog and planner. Never add its case to `workspaceE2ECaseIds`. It combines Playwright `page` and `context` fixtures with the shared `runtimeTest` fixtures (`runEffect`, `E2EDatabase`).
-- Keep Effect inside each Playwright test for domain workflows, semantic steps, tracing, provider coordination, cleanup, and finalizers. Don't reintroduce an Effect case aggregate, a suite-local hosted semaphore, a reservation priority pool, or a custom browser launcher.
+- Keep the global worker ceiling at six. It bounds whole cases, replacing the old reservation-start permit pool.
+- Dependency phases are barriers: every phase boundary stops all workers and starts new ones. Prepare the run in the one `checkout-setup` test, never in separate dependency projects, because each extra preparation project delays the case phase. Every case-phase project depends on `checkout-setup`, and `checkout-cleanup` reconciles as its teardown.
+- Inside `checkout-setup`, write the run context first. Then run preview readiness and fixture seeding concurrently, start cowork, meeting-room, and office availability preparation only after both finish (Calendar availability reads the seeded definitions), overlap provider preparation with all of them, and build and verify the plan last. Each keeps its own phase span.
+- Register every checkout case statically in `e2e/playwright-checkout/case-catalog.ts`. `checkout-setup` asserts the prepared plan matches `workspaceE2ECaseIds`.
+- Paid and non-payment cases share the one `checkout-cases` pool. The [hosted-payment permit](#hosted-payment-permit), not serial Playwright lanes, bounds Nexi sessions.
+- Referral cases are non-payment pool cases. `cases.pw.ts` binds them and the paid `checkout-guest-referral` to their seeded run-scoped identities through `registerWorkspaceE2ECases`' `bindCase`; see [referral cases](referral-lane.md).
+- Keep `checkout-cases` one worker below the global ceiling. Playwright can queue `account-auth` behind every `checkout-cases` test in the phase, and the cap leaves the account lane a worker from the first batch.
+- Register `checkout-cases` cases alternating paid and non-payment, each longest median first, so about three hosted sessions are in demand at a time. Re-sort by deployed medians when you add cases.
+- `access-code-creation` sits outside the checkout case catalog and planner. Never add its case to `workspaceE2ECaseIds`. It combines Playwright `page` and `context` fixtures with the shared `runtimeTest` fixtures (`runEffect`, `E2EDatabase`). It is the last project in the config, and Playwright queues top-level projects in config order, so it takes the first worker that frees up (today the account lane's) rather than a first-batch slot. Under `maxFailures: 1`, a case failure stops its admission; it keeps its own interruption-safe cleanup.
+- Keep Effect inside each Playwright test for domain workflows, semantic steps, tracing, provider coordination, cleanup, and finalizers. Don't reintroduce an Effect case aggregate, a reservation priority pool, or a custom browser launcher.
 
-Run the synthetic scheduler harness from `apps/deskohub-workspace` with `bun run test scripts/workspace-e2e-scheduling.test.ts`. It runs the real graph once to pass and once with a checkout failure. Synthetic results aren't deployed-run evidence.
+Run the synthetic scheduler harness from `apps/deskohub-workspace` with `bun run test scripts/workspace-e2e-scheduling.test.ts`. It runs the real graph once to pass and once with a checkout failure, and asserts the account lane and access-code queueing. Prove a graph change with it, not only a graph assertion. Synthetic results aren't deployed-run evidence.
+
+## Hosted-payment permit
+
+Unbounded hosted sessions produced Nexi sandbox error pages, and a one-session bound stretched the case phase past the case watchdog. Three sessions per suite is the measured operating bound, not a provider guarantee; three overlapping suites hold at most nine.
+
+- Bound only the Nexi hosted portion of a paid case, never the whole case. Paid cases run their preparation and post-payment validation in the shared pool.
+- Wrap the span from payment submission through the return to the checkout status page (for failed and cancelled cases, through the terminal-state preparation) in `WorkspaceE2EHostedPaymentPermitService.withPermit` (`e2e/coordination/hosted-payment-permit.service.ts`). The single [sandbox restart](nexi-sandbox.md#sandbox-restart) stays inside the same hold. Release it before `replay-payment-webhook` so it never nests with the webhook replay permit.
+- Playwright workers are separate processes, so the permit is a FIFO ticket queue in the run's `e2e-artifacts/checkout/hosted-payment-permit/` directory, keyed by run ID. It doesn't use the coordination database, so manual and local runs enforce it too.
+- `checkout-setup` creates the queue and its generation marker. The permit never recreates them; a missing or replaced marker fails every waiting and holding case.
+- A finalizer releases the ticket after success, failure, timeout, or interruption, including while waiting.
+- Reclaim a ticket only when its holder process is gone: the PID no longer runs, is a zombie, or has a different procfs start time (a recycled PID). Never reclaim on time; a frozen holder keeps its slot until the case watchdog or Playwright ends it.
+- Any queue read or write failure, including the release, fails the case.
+- The wait counts toward the case watchdog but not the hosted steps' semantic timeouts. Every admission logs `HOSTED PAYMENT PERMIT <operation> admitted after <s>s`; read those waits before you blame Nexi or the scheduler.
+- Changing the capacity or widening the boundary needs the same five concurrent exact-SHA soak rounds as any provider-boundary change (see [Dotypos capacity](#dotypos-capacity-and-stale-reservations)).
 
 ## Processes and browsers
 
@@ -88,7 +99,7 @@ The synthetic `replay-payment-webhook` step confirms the Dotypos hold and sends 
 - Admit one replay across all suites with a transaction-scoped PostgreSQL advisory lock in the coordination database, through `WORKSPACE_E2E_PROVIDER_PERMIT_DATABASE_URL`.
 - Treat the permit as load control, not provider-side fencing. A lost coordinator connection releases the lock while the replay's HTTP request may still run, so keep unique order and idempotency identities on every protected operation.
 - Hold the lock for a one-second quiet cooldown after every success, failure, or interruption, so two emails per fulfillment can't form a shared Resend team burst. Never retry the webhook.
-- Each worker runs one lock query at a time (worker-local semaphore), leaving a second pool connection free for interruption cancellation.
+- Each worker runs one lock query at a time (worker-local semaphore), leaving a second pool connection free for interruption cancellation. The six-worker ceiling bounds the run-wide queue.
 - CI sets `WORKSPACE_E2E_PROVIDER_PERMIT_REQUIRED=true`. Every parallel checkout run, including manual runs, fails closed without the permit URL; a worker-local fallback can't bound a suite-wide limit.
 - The semantic step timeout starts after admission. The step span includes the wait, and the case watchdog bounds both.
 - Keep hosted payment, genuine webhook delivery, work after the replay response, and unrelated provider calls outside the permit. Don't key it on step-name strings, extend it to later stages, or change its capacity without exact-run evidence.
@@ -130,7 +141,7 @@ Before you raise supported concurrency or loosen a provider boundary:
 
 The wrapper exports an OTLP trace to PostHog under service `deskohub-workspace-e2e` and propagates its context to every worker.
 
-- One root `e2e.run` span, fixed `e2e.phase` spans (readiness, fixture seeding, invoice persistence, provider and cowork, meeting-room, and office availability preparation, case construction, per-case finalization, suite cleanup), one `e2e.case` per case, and one `e2e.step` per semantic step.
+- One root `e2e.run` span, fixed `e2e.phase` spans (readiness, fixture seeding, provider and cowork, meeting-room, and office availability preparation, case construction, per-case finalization, suite cleanup). The preparation phases all run inside the one `checkout-setup` test and stay separate spans, one `e2e.case` per case, and one `e2e.step` per semantic step.
 - Fixed low-cardinality span names, code-owned IDs, native span duration, and `e2e.timeout_ms` for the configured timeout.
 - Closed outcomes `passed`, `failed`, `timed_out`, `cancelled`; closed failure kinds `error`, `defect`, `timeout`. `e2e.execution_context` is `manual` or `ci`. `e2e.run.id` is `<GITHUB_RUN_ID>-<GITHUB_RUN_ATTEMPT>`.
 - A failed replay step may add `e2e.failure.code` only after decoding it against the route's fixed error allowlist. Discard unknown bodies.

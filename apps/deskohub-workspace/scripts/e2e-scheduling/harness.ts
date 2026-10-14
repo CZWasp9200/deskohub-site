@@ -7,17 +7,9 @@ import { z } from "zod";
 const appDir = resolve(import.meta.dir, "../..");
 const artifactDirectory = resolve(appDir, "e2e-artifacts", "scheduling");
 const childTimeoutMs = 30_000;
-const checkoutProjects = [
-  "checkout-non-payment",
-  "checkout-payment-1",
-  "checkout-payment-2",
-  "checkout-payment-3",
-] as const;
-const preparationProjects = [
-  "checkout-setup",
-  "checkout-seed",
-  "checkout-plan",
-] as const;
+const checkoutProjects = ["checkout-cases"] as const;
+const preparationProjects = ["checkout-setup"] as const;
+const accessCodeProject = "access-code-creation";
 const scenarios = ["candidate", "candidate-checkout-failure"] as const;
 type Scenario = (typeof scenarios)[number];
 
@@ -63,7 +55,6 @@ type Run = {
 type FailFast = readonly [
   failedTests: number,
   failedTestsAdmitted: number,
-  sharedFixtureAdmitted: boolean,
   cleanupAdmitted: boolean,
   lateAdmissions: number,
 ];
@@ -163,17 +154,15 @@ const eventDirectory = process.env.WORKSPACE_E2E_SCHEDULING_EVENT_DIR;
 const scenario = process.env.WORKSPACE_E2E_SCHEDULING_SCENARIO;
 // Stays below the Playwright test timeout so a stuck rendezvous reports itself.
 const rendezvousTimeoutMs = 8_000;
-const checkoutFirstSignals = [
-  "checkout-non-payment-first-started",
-  "checkout-payment-1-first-started",
-  "checkout-payment-2-first-started",
-  "checkout-payment-3-first-started",
-];
-// Failures wait until both capped non-payment workers are busy, so the whole
-// first case batch is admitted before maxFailures stops the run.
+const checkoutFirstSignals = ["checkout-cases-first-started"];
+// Failures wait until every capped case worker is busy, so the whole first
+// case batch is admitted before maxFailures stops the run.
 const firstBatchSignals = [
   ...checkoutFirstSignals,
-  "checkout-non-payment-second-started",
+  "checkout-cases-2-started",
+  "checkout-cases-3-started",
+  "checkout-cases-4-started",
+  "checkout-cases-5-started",
 ];
 const checkoutFailure = scenario === "candidate-checkout-failure";
 
@@ -259,25 +248,16 @@ const runSyntheticTest = async (info, testName, body) => {
   }
 };
 const durationFor = (project) =>
-  project === "checkout-non-payment" || project.startsWith("checkout-payment-")
+  project === "checkout-cases"
     ? 250
     : project.startsWith("checkout-")
       ? 180
       : 40;
-// Non-payment cases are independent and outnumber the free workers, like the
-// deployed suite, so they would queue the account lane without a worker cap.
-// The referral lane's cases are just as independent and uncapped.
-const parallelCases =
-  syntheticProject === "checkout-non-payment" ||
-  syntheticProject === "checkout-referrals";
+// Cases are independent and outnumber the workers, like the deployed suite,
+// so they would queue the account lane without a worker cap.
+const parallelCases = syntheticProject === "checkout-cases";
 const testCount =
-  syntheticProject === "account-auth"
-    ? 9
-    : parallelCases
-      ? 4
-      : syntheticProject.startsWith("checkout-payment-")
-        ? 2
-        : 1;
+  syntheticProject === "account-auth" ? 9 : parallelCases ? 8 : 1;
 
 test.describe.configure({ mode: parallelCases ? "parallel" : "serial" });
 for (let step = 1; step <= testCount; step += 1) {
@@ -288,14 +268,14 @@ for (let step = 1; step <= testCount; step += 1) {
         if (step === 1) {
           await signal(syntheticProject + "-first-started");
         }
-        if (parallelCases && step === 2) {
-          await signal(syntheticProject + "-second-started");
+        if (parallelCases && step > 1) {
+          await signal(syntheticProject + "-" + step + "-started");
         }
         const caseProject = checkoutFirstSignals.includes(
           syntheticProject + "-first-started"
         );
         if (caseProject && (step === 1 || parallelCases)) {
-          if (checkoutFailure && syntheticProject === "checkout-payment-1") {
+          if (checkoutFailure && step === 1) {
             await waitForSignals(info, testName, [
               "account-auth-first-started",
               ...firstBatchSignals,
@@ -441,9 +421,6 @@ function summarize(
   return {
     wallSpanMs,
     maxActiveTests: peakOverlap(items),
-    maxPaymentTests: peakOverlap(items, (item) =>
-      item.start.project.startsWith("checkout-payment-")
-    ),
     fixtureFinalizedOwnershipCount: events.filter(
       (event) => event.event === "fixture-finalizer-complete"
     ).length,
@@ -453,7 +430,6 @@ function summarize(
         (event) => event.event === "test-end" && event.outcome === "failed"
       )
       .map(testKey),
-    sharedFixtureAdmitted: Boolean(range(items, "checkout-shared-fixture")),
     cleanupAdmitted: Boolean(range(items, "checkout-cleanup")),
     lateAdmissions:
       failureAt === undefined
@@ -582,8 +558,8 @@ function assertRunCompletion(run: Run) {
     `${run.scenario} did not interrupt a pending test body`
   );
   must(
-    run.summary.maxActiveTests <= 6 && run.summary.maxPaymentTests <= 3,
-    `${run.scenario} exceeded worker or payment limits`
+    run.summary.maxActiveTests <= 6,
+    `${run.scenario} exceeded the worker limit`
   );
 }
 
@@ -612,14 +588,10 @@ function assertInterruptedFailure(run: Run, graph: Graph) {
     run.summary.lateAdmissions === 0,
     `${run.scenario} admitted a later test`
   );
-  must(
-    !run.summary.sharedFixtureAdmitted,
-    `${run.scenario} admitted shared fixture`
-  );
   must(!run.summary.cleanupAdmitted, `${run.scenario} admitted cleanup`);
   must(
-    !range(run.intervals, "checkout-invoice-persistence"),
-    `${run.scenario} admitted invoice persistence`
+    !range(run.intervals, accessCodeProject),
+    `${run.scenario} admitted the access-code case`
   );
   assertOnlyFirstBatch(run, graph);
   for (const project of ["account-auth", ...checkoutProjects]) {
@@ -637,7 +609,6 @@ function failFast(run: Run): FailFast {
     failedTests.length,
     failedTests.filter((test) => run.summary.startedTests.includes(test))
       .length,
-    run.summary.sharedFixtureAdmitted,
     run.summary.cleanupAdmitted,
     run.summary.lateAdmissions,
   ];
@@ -668,6 +639,13 @@ function verify(graph: Graph, runs: readonly Run[]) {
       `candidate ${name} started after account`
     );
   }
+  // The access-code case shares the case phase but is queued last, so it
+  // only takes a worker that frees up after the first case batch started.
+  must(
+    requiredRange(candidate.intervals, accessCodeProject, "candidate").start >
+      candidateAccount.start,
+    "candidate access-code case took a first case-batch worker"
+  );
   const firstCaseEnd = Math.min(
     ...candidate.intervals
       .filter((item) =>
@@ -679,19 +657,6 @@ function verify(graph: Graph, runs: readonly Run[]) {
     candidateAccount.start < firstCaseEnd,
     "candidate account-auth did not start in the first case batch"
   );
-  // The referral lane only fills workers the first case batch leaves free.
-  const candidateReferrals = requiredRange(
-    candidate.intervals,
-    "checkout-referrals",
-    "candidate"
-  );
-  for (const name of ["account-auth", ...checkoutProjects]) {
-    must(
-      requiredRange(candidate.intervals, name, "candidate").start <=
-        candidateReferrals.start,
-      `candidate checkout-referrals started before ${name}`
-    );
-  }
   const quietStart = requiredEventAt(
     candidate.events,
     ["account-quiet-start"],
@@ -714,7 +679,7 @@ function verify(graph: Graph, runs: readonly Run[]) {
     );
   }
   assertInterruptedFailure(checkoutFailure, graph);
-  const expectedFailFast: FailFast = [1, 1, false, false, 0];
+  const expectedFailFast: FailFast = [1, 1, false, 0];
   must(
     JSON.stringify(failFast(checkoutFailure)) ===
       JSON.stringify(expectedFailFast),

@@ -85,4 +85,4 @@ Preview E2E shares the Cloudinary quota with production, and decorative provider
 
 ### Discount errors on a fresh preview database
 
-A fresh preview database logs `DiscountProviderError` or `DiscountDefinitionNotFoundError` during its first run, because instant navigation resolves the Calendar sale before `checkout-seed` inserts the definition. `PromotionCodeUnavailableError` comes from the negative discount-code cases. Neither explains a checkout failure.
+A fresh preview database logs `DiscountProviderError` or `DiscountDefinitionNotFoundError` during its first run, because instant navigation resolves the Calendar sale before `checkout-setup` seeds the definition. `PromotionCodeUnavailableError` comes from the negative discount-code cases. Neither explains a checkout failure.

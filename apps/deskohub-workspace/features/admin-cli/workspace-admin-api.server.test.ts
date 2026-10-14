@@ -407,7 +407,10 @@ describe("Workspace Admin API", () => {
       id: discountId,
       labels: { "en-US": "Summer sale", "cs-CZ": "Letní sleva" },
       adjustment: { kind: "percentage" as const, basisPoints: 1000 },
-      products: [{ kind: "cowork" as const }],
+      products: [
+        { kind: "cowork" as const, tier: "reserved-desk" as const },
+        { kind: "office" as const },
+      ],
       codeCount: 1,
       createdAt: Temporal.Instant.from(timestamp),
       updatedAt: Temporal.Instant.from(timestamp),
@@ -770,6 +773,10 @@ describe("Workspace Admin API", () => {
     expect(result.customer.profile).toBeNull();
     expect(result.customer.activity.stats.reservationCount).toBe(1);
     expect(result.customerReservations.page).toBe(5);
+    expect(result.discountDashboardResult.discounts[0]?.products).toEqual([
+      { kind: "cowork", tier: "reserved-desk" },
+      { kind: "office" },
+    ]);
     expect(result.discountDashboardResult.codes[0]?.createdAt).toBe(
       Temporal.Instant.from(timestamp).toString()
     );
@@ -817,7 +824,10 @@ describe("Workspace Admin API", () => {
     const discountDefinition = {
       labels: { "cs-CZ": "Léto", "en-US": "Summer" },
       adjustment: { kind: "percentage" as const, basisPoints: 1000 },
-      products: [{ kind: "cowork" as const }] as const,
+      products: [
+        { kind: "cowork" as const, tier: "open-space" as const },
+        { kind: "meeting-room" as const },
+      ] as const,
     };
     const codeConfiguration = {
       code,
@@ -931,6 +941,9 @@ describe("Workspace Admin API", () => {
 
     expect(result.mutationResults).toHaveLength(mutations.length);
     expect(result.mutationResults[0]?.createdDiscountId).toBe(discountId);
+    expect(
+      calls.find(([name]) => name === "createDiscount")?.[1]
+    ).toMatchObject({ products: discountDefinition.products });
     expect(result.mutationResults[3]?.createdCodeId).toBe(codeId);
     expect(result.renamed).toEqual({ changed: true });
     expect(result.revoked).toEqual({ changed: true });

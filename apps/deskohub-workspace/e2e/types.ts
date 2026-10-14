@@ -22,6 +22,7 @@ import type {
 } from "../features/reservation/persistence-contracts";
 import type { ReservationInterval } from "../features/reservation/reservation-interval";
 import type { DatasourceConfig, WorkspaceE2EConfig } from "./config";
+import type { WorkspaceE2EHostedPaymentPermitService } from "./coordination/hosted-payment-permit.service";
 import type { WorkspaceE2EError } from "./errors";
 import type { E2EDatabase } from "./integrations/database.service";
 
@@ -126,7 +127,11 @@ export type WorkspaceE2ECase = {
   readonly execute: (context: {
     readonly runStep: WorkspaceE2EStepRunner;
     readonly session: string;
-  }) => Effect.Effect<void, WorkspaceE2EError, E2EDatabase>;
+  }) => Effect.Effect<
+    void,
+    WorkspaceE2EError,
+    E2EDatabase | WorkspaceE2EHostedPaymentPermitService
+  >;
 };
 
 export type WorkspaceE2EStep<A, R = never> = {

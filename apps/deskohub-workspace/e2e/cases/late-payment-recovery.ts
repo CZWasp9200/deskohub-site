@@ -12,6 +12,7 @@ import {
   submitPaymentAndWaitForHostedPage,
 } from "../checkout/payment";
 import type { DatasourceConfig, WorkspaceE2EConfig } from "../config";
+import { WorkspaceE2EHostedPaymentPermitService } from "../coordination/hosted-payment-permit.service";
 import { tryWorkspaceE2ESync, type WorkspaceE2EError } from "../errors";
 import {
   markPreviewFulfillmentDeliveredForE2E,
@@ -79,10 +80,11 @@ export const executeLatePaymentRecovery = ({
 }): Effect.Effect<
   void,
   WorkspaceE2EError,
-  E2EDatabase | HttpClient.HttpClient
+  E2EDatabase | HttpClient.HttpClient | WorkspaceE2EHostedPaymentPermitService
 > =>
   Effect.gen(function* () {
     const httpClient = yield* HttpClient.HttpClient;
+    const hostedPaymentPermit = yield* WorkspaceE2EHostedPaymentPermitService;
     state.startedAt = new Date();
 
     const orderId = yield* runStep({
@@ -101,96 +103,107 @@ export const executeLatePaymentRecovery = ({
     });
     state.orderId = orderId;
 
-    const hostedPaymentPage = yield* runStep({
-      execute: submitPaymentAndWaitForHostedPage({
-        run,
+    // The hosted session stays open while the original hold is released, so
+    // the hosted-payment permit spans submission through the status page.
+    const { originalDotyposReservationId, providerSessionRow } =
+      yield* hostedPaymentPermit.withPermit(
         session,
-        timeouts: config.timeouts,
-      }),
-      id: "start-late-payment",
-      timeoutMs: config.timeouts.providerTransition,
-    });
-    const providerSessionRow = yield* runStep({
-      execute: requireProviderSessionRowAfterRedirect(orderId, {
-        onRow: (row) => {
-          state.checkoutRow = row;
-        },
-        timeoutMs: config.timeouts.browserAction,
-      }),
-      id: "read-late-payment-provider-session",
-      timeoutMs: config.timeouts.datasource,
-    });
-    const originalDotyposReservationId = yield* tryWorkspaceE2ESync(
-      "read original late-payment reservation",
-      () => {
-        assert(
-          providerSessionRow.dotypos_reservation_id,
-          "original Dotypos reservation missing"
-        );
-        return providerSessionRow.dotypos_reservation_id;
-      }
-    );
+        Effect.gen(function* () {
+          const hostedPaymentPage = yield* runStep({
+            execute: submitPaymentAndWaitForHostedPage({
+              run,
+              session,
+              timeouts: config.timeouts,
+            }),
+            id: "start-late-payment",
+            timeoutMs: config.timeouts.providerTransition,
+          });
+          const providerSessionRow = yield* runStep({
+            execute: requireProviderSessionRowAfterRedirect(orderId, {
+              onRow: (row) => {
+                state.checkoutRow = row;
+              },
+              timeoutMs: config.timeouts.browserAction,
+            }),
+            id: "read-late-payment-provider-session",
+            timeoutMs: config.timeouts.datasource,
+          });
+          const originalDotyposReservationId = yield* tryWorkspaceE2ESync(
+            "read original late-payment reservation",
+            () => {
+              assert(
+                providerSessionRow.dotypos_reservation_id,
+                "original Dotypos reservation missing"
+              );
+              return providerSessionRow.dotypos_reservation_id;
+            }
+          );
 
-    yield* runStep({
-      execute: cancelDotyposReservation(
-        datasourceConfig,
-        originalDotyposReservationId
-      ).pipe(
-        Effect.andThen(
-          waitForCancelledDotyposReservations(
-            datasourceConfig,
-            [originalDotyposReservationId],
-            getWorkspaceE2EDateInterval({
-              fromDate: data.date,
-              toDate: data.date,
-            })
-          )
-        ),
-        Effect.tap(() =>
-          Effect.sync(() => {
-            state.cleanupComplete = true;
-            state.completedDotyposReservationId = originalDotyposReservationId;
-          })
-        )
-      ),
-      id: "release-original-late-payment-reservation",
-      timeoutMs: config.timeouts.datasource,
-    });
-    const releasedRow = yield* runStep({
-      execute: releaseReservationForLatePaymentRecoveryE2E(
-        orderId,
-        providerSessionRow.payment_attempt_id,
-        {
-          removeAccountingSnapshot: scenario.removeAccountingSnapshot,
-        }
-      ),
-      id: "persist-released-late-payment-state",
-      timeoutMs: config.timeouts.datasource,
-    });
-    state.checkoutRow = releasedRow;
+          yield* runStep({
+            execute: cancelDotyposReservation(
+              datasourceConfig,
+              originalDotyposReservationId
+            ).pipe(
+              Effect.andThen(
+                waitForCancelledDotyposReservations(
+                  datasourceConfig,
+                  [originalDotyposReservationId],
+                  getWorkspaceE2EDateInterval({
+                    fromDate: data.date,
+                    toDate: data.date,
+                  })
+                )
+              ),
+              Effect.tap(() =>
+                Effect.sync(() => {
+                  state.cleanupComplete = true;
+                  state.completedDotyposReservationId =
+                    originalDotyposReservationId;
+                })
+              )
+            ),
+            id: "release-original-late-payment-reservation",
+            timeoutMs: config.timeouts.datasource,
+          });
+          const releasedRow = yield* runStep({
+            execute: releaseReservationForLatePaymentRecoveryE2E(
+              orderId,
+              providerSessionRow.payment_attempt_id,
+              {
+                removeAccountingSnapshot: scenario.removeAccountingSnapshot,
+              }
+            ),
+            id: "persist-released-late-payment-state",
+            timeoutMs: config.timeouts.datasource,
+          });
+          state.checkoutRow = releasedRow;
 
-    yield* runStep({
-      execute: completeNexiHostedPayment({
-        data,
-        hostedPaymentPage,
-        run,
-        session,
-        timeouts: config.timeouts,
-      }),
-      id: "complete-late-hosted-payment",
-      timeoutMs: config.timeouts.hostedPayment,
-    });
-    yield* runStep({
-      execute: waitForBrowserUrl({
-        description: "late-payment checkout status page",
-        matches: (url) => isExpectedCheckoutStatusUrl(url, config.expectedHost),
-        run,
-        session,
-        timeoutMs: config.timeouts.providerTransition,
-      }).pipe(Effect.asVoid),
-      id: "reach-late-payment-status-page",
-      timeoutMs: config.timeouts.providerTransition,
-    });
+          yield* runStep({
+            execute: completeNexiHostedPayment({
+              data,
+              hostedPaymentPage,
+              run,
+              session,
+              timeouts: config.timeouts,
+            }),
+            id: "complete-late-hosted-payment",
+            timeoutMs: config.timeouts.hostedPayment,
+          });
+          yield* runStep({
+            execute: waitForBrowserUrl({
+              description: "late-payment checkout status page",
+              matches: (url) =>
+                isExpectedCheckoutStatusUrl(url, config.expectedHost),
+              run,
+              session,
+              timeoutMs: config.timeouts.providerTransition,
+            }).pipe(Effect.asVoid),
+            id: "reach-late-payment-status-page",
+            timeoutMs: config.timeouts.providerTransition,
+          });
+          return { originalDotyposReservationId, providerSessionRow };
+        })
+      );
 
     yield* runStep({
       capacity: "provider-verification",
