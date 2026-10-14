@@ -4,7 +4,7 @@ import {
   AudienceFilter as audienceFilterSchema,
 } from "@deskohub/workspace-admin-api";
 import { Match, Option } from "effect";
-import type { Locale } from "@/features/i18n";
+import { type Locale, locales } from "@/features/i18n";
 
 /**
  * The filter tree a campaign audience selects its recipients with. The
@@ -137,19 +137,34 @@ const combineOutcomes = (
 };
 
 /**
- * The single locale every recipient of the audience has, when the filter
- * requires one: a one-locale condition at the root or directly inside the
- * root AND group. Campaign content then needs only that locale.
+ * The locales a recipient of the audience can have. Only locale conditions
+ * narrow it: an AND group keeps the locales all its filters allow and an OR
+ * group the locales any of them allows. An empty AND group matches everyone
+ * and an empty OR group nobody, as {@link evaluateAudienceFilter} decides.
+ */
+export const audienceLocales = (filter: AudienceFilter): ReadonlySet<Locale> =>
+  Match.value(filter).pipe(
+    Match.tag("Locale", ({ locales: selected }) => new Set(selected)),
+    Match.tag("Group", ({ operator, filters }) => {
+      const allowed = filters.map(audienceLocales);
+      return new Set(
+        locales.filter((locale) =>
+          operator === "and"
+            ? allowed.every((group) => group.has(locale))
+            : allowed.some((group) => group.has(locale))
+        )
+      );
+    }),
+    Match.orElse(() => new Set(locales))
+  );
+
+/**
+ * The single locale every recipient of the audience has, when its filter
+ * allows only one. Campaign content then needs only that locale.
  */
 export const audienceSingleLocale = (
   filter: AudienceFilter
 ): Locale | undefined => {
-  if (filter._tag === "Group" && filter.operator === "or") return undefined;
-  const conditions = filter._tag === "Group" ? filter.filters : [filter];
-  for (const condition of conditions) {
-    if (condition._tag === "Locale" && condition.locales.length === 1) {
-      return condition.locales[0];
-    }
-  }
-  return undefined;
+  const [locale, ...others] = audienceLocales(filter);
+  return others.length === 0 ? locale : undefined;
 };

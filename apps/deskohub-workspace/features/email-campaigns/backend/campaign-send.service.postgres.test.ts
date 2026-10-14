@@ -520,6 +520,25 @@ describe.skipIf(!testDatabase)(
       expect(sentEmails).toEqual([]);
     });
 
+    test("sends English-only content to a nested English-only audience", async () => {
+      const campaign = await createDraft({
+        content: englishOnlyContent,
+        audienceFilter: {
+          _tag: "Group",
+          operator: "and",
+          filters: [
+            { _tag: "Group", operator: "and", filters: [englishOnlyFilter] },
+          ],
+        },
+      });
+
+      expect(Exit.isSuccess(await testSend(campaign.id))).toBe(true);
+      const sent = await send(campaign.id, mailedCode());
+
+      expect(Exit.isSuccess(sent) && sent.value.recipientCount).toBe(2);
+      expect(await storedStatus(campaign.id)).toBe("sending");
+    });
+
     test("checks the current audience before the send consumes the code", async () => {
       const campaign = await createDraft({
         content: englishOnlyContent,

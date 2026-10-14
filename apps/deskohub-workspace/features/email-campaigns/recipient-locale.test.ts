@@ -81,11 +81,23 @@ describe("campaignContentCoversAudience", () => {
   });
 
   test("accepts English-only content for an English-only audience", () => {
-    expect(
-      campaignContentCoversAudience({
-        content: englishOnly,
-        audienceFilter: audience(["en-US"]),
-      })
-    ).toBe(true);
+    const english: AudienceFilter = { _tag: "Locale", locales: ["en-US"] };
+    for (const audienceFilter of [
+      audience(["en-US"]),
+      Option.some<AudienceFilter>({
+        _tag: "Group",
+        operator: "and",
+        filters: [{ _tag: "Group", operator: "and", filters: [english] }],
+      }),
+      Option.some<AudienceFilter>({
+        _tag: "Group",
+        operator: "or",
+        filters: [english],
+      }),
+    ]) {
+      expect(
+        campaignContentCoversAudience({ content: englishOnly, audienceFilter })
+      ).toBe(true);
+    }
   });
 });

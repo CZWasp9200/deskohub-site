@@ -10,6 +10,7 @@ import {
   type AudienceFilter,
   type AudienceReservationMatches,
   audienceFilterSchema,
+  audienceLocales,
   audienceSingleLocale,
   collectReservationCriteria,
   evaluateAudienceFilter,
@@ -162,29 +163,78 @@ describe("audienceFilterSchema", () => {
   });
 });
 
+describe("audienceLocales", () => {
+  const english = { _tag: "Locale", locales: ["en-US"] } as const;
+  const both = { _tag: "Locale", locales: ["cs-CZ", "en-US"] } as const;
+  const localesOf = (filter: AudienceFilter) =>
+    [...audienceLocales(filter)].toSorted();
+
+  test("allows every locale without a locale condition", () => {
+    expect(localesOf(withAccount)).toEqual(["cs-CZ", "en-US"]);
+    expect(localesOf(group("and", [tagged, withAccount]))).toEqual([
+      "cs-CZ",
+      "en-US",
+    ]);
+  });
+
+  test("intersects AND groups at any depth", () => {
+    expect(localesOf(group("and", [group("and", [english])]))).toEqual([
+      "en-US",
+    ]);
+    expect(localesOf(group("and", [both, group("and", [czech])]))).toEqual([
+      "cs-CZ",
+    ]);
+    expect(localesOf(group("and", [withAccount, english]))).toEqual(["en-US"]);
+  });
+
+  test("unites OR groups and lets an unconstrained filter allow every locale", () => {
+    expect(localesOf(group("or", [english]))).toEqual(["en-US"]);
+    expect(localesOf(group("or", [english, english]))).toEqual(["en-US"]);
+    expect(localesOf(group("or", [english, czech]))).toEqual([
+      "cs-CZ",
+      "en-US",
+    ]);
+    expect(localesOf(group("or", [english, withAccount]))).toEqual([
+      "cs-CZ",
+      "en-US",
+    ]);
+    expect(
+      localesOf(
+        group("or", [group("and", [english, tagged]), group("and", [english])])
+      )
+    ).toEqual(["en-US"]);
+  });
+
+  test("allows no locale when the audience matches nobody", () => {
+    expect(localesOf(group("and", [english, czech]))).toEqual([]);
+    expect(localesOf(group("or", []))).toEqual([]);
+    expect(localesOf(group("and", []))).toEqual(["cs-CZ", "en-US"]);
+  });
+});
+
 describe("audienceSingleLocale", () => {
   const english = { _tag: "Locale", locales: ["en-US"] } as const;
 
-  test("finds a one-locale condition at the root", () => {
+  test("finds the only locale a nested filter allows", () => {
     expect(audienceSingleLocale(english)).toBe("en-US");
-  });
-
-  test("finds a one-locale condition in the root AND group", () => {
     expect(audienceSingleLocale(group("and", [withAccount, czech]))).toBe(
       "cs-CZ"
     );
+    expect(audienceSingleLocale(group("and", [group("and", [english])]))).toBe(
+      "en-US"
+    );
+    expect(audienceSingleLocale(group("or", [english, english]))).toBe("en-US");
   });
 
-  test("ignores conditions that allow several locales", () => {
+  test("has none when the filter allows several locales or none", () => {
     expect(
       audienceSingleLocale({ _tag: "Locale", locales: ["cs-CZ", "en-US"] })
     ).toBeUndefined();
-  });
-
-  test("ignores a root OR group and nested groups", () => {
-    expect(audienceSingleLocale(group("or", [czech]))).toBeUndefined();
     expect(
-      audienceSingleLocale(group("and", [group("and", [czech])]))
+      audienceSingleLocale(group("or", [english, withAccount]))
+    ).toBeUndefined();
+    expect(
+      audienceSingleLocale(group("and", [english, czech]))
     ).toBeUndefined();
   });
 });
