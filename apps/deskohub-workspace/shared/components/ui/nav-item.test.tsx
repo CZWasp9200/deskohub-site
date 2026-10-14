@@ -49,3 +49,25 @@ test("asChild renders a link with the requested aria-current kind", () => {
   expect(link.getAttribute("aria-current")).toBe("location");
   expect(link.hasAttribute("type")).toBe(false);
 });
+
+test("inverse items highlight the active entry in sunset yellow", () => {
+  const view = render(
+    <nav>
+      <NavItem active asChild caps tone="inverse">
+        <a href="/en-US/account">Account</a>
+      </NavItem>
+      <NavItem aria-label="Contact" layout="icon" tone="inverse">
+        <svg />
+      </NavItem>
+    </nav>
+  );
+  const active = view.getByRole("link", { name: "Account" });
+  const inactive = view.getByRole("button", { name: "Contact" });
+
+  expect(active.className).toContain("text-sunset-yellow");
+  expect(active.className).toContain("uppercase");
+  expect(active.getAttribute("aria-current")).toBe("page");
+  expect(inactive.className).toContain("text-white/80");
+  expect(inactive.className).toContain("size-10");
+  expect(inactive.className.split(" ")).not.toContain("text-sunset-yellow");
+});
