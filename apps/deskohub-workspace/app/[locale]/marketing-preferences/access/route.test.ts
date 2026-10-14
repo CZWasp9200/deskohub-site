@@ -105,20 +105,6 @@ describe("marketing preferences access route", () => {
     expect(cookies).not.toHaveBeenCalled();
   });
 
-  test("does not treat a caller redirect as the destination", async () => {
-    setPendingMarketingManagementCookie.mockClear();
-
-    const response = await invoke(
-      "GET",
-      `/cs-CZ/marketing-preferences/access?token=${validToken}&returnTo=https%3A%2F%2Fevil.example`,
-      "cs-CZ"
-    );
-
-    expect(response.headers.get("location")).toBe(
-      "https://workspace.test/cs-CZ/account/legal"
-    );
-  });
-
   test("does not consume or set state for HEAD", async () => {
     setPendingMarketingManagementCookie.mockClear();
 

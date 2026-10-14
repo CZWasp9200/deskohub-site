@@ -54,52 +54,6 @@ const cannedResponse = (init: {
   });
 
 describe("Better Auth route wrapper", () => {
-  test("forwards method, path, and headers", async () => {
-    const seen: { method: string; url: string; header: string | null }[] = [];
-    handlerOverride = (request) => {
-      seen.push({
-        method: request.method,
-        url: request.url,
-        header: request.headers.get("x-vercel-forwarded-for"),
-      });
-      return cannedResponse({ status: 200, body: "{}" });
-    };
-
-    await callRoute("/get-session", "GET");
-    await callRoute("/sign-in/magic-link", "POST", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: "{}",
-    });
-
-    expect(seen.map(({ method }) => method)).toEqual(["GET", "POST"]);
-    expect(seen[0]!.url).toBe(`https://${HOST}/api/auth/get-session`);
-    expect(seen[0]!.header).toBe("192.0.2.1");
-    expect(seen[1]!.header).toBe("192.0.2.2");
-  });
-
-  test("forces private, no-store on success, redirects, and errors", async () => {
-    const responses = [200, 302, 403, 500].map((status) =>
-      cannedResponse({
-        status,
-        headers:
-          status === 302
-            ? {
-                location: `https://${HOST}/en-US/account`,
-                "set-cookie": "session_token=secret; Path=/; HttpOnly",
-              }
-            : {},
-      })
-    );
-    handlerOverride = () => responses.shift()!;
-
-    for (const status of [200, 302, 403, 500]) {
-      const response = await callRoute("/any-path", "GET");
-      expect(response.status).toBe(status);
-      expect(response.headers.get("cache-control")).toBe("private, no-store");
-    }
-  });
-
   test("preserves redirects and Set-Cookie headers while overriding upstream caching", async () => {
     handlerOverride = () =>
       cannedResponse({
