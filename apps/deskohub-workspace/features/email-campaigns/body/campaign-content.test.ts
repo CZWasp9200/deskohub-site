@@ -43,3 +43,38 @@ describe("CampaignLocaleContent", () => {
     }
   );
 });
+
+describe("campaign content without Cloudinary config", () => {
+  test("imports, decodes, and converts an image-free body", async () => {
+    // A fresh process without the test preload, as scripts and CLI contracts
+    // import these modules.
+    const script = `
+      const { Effect, Schema } = await import("effect");
+      const { CampaignContent } = await import("./campaign-content.ts");
+      const { campaignBodyToMarkdown, parseCampaignBodyMarkdown } = await import("./campaign-body-markdown.ts");
+      const body = await Effect.runPromise(parseCampaignBodyMarkdown("Dobrý den\\n\\n[[button: Rezervovat](https://deskohub.cz/book)]"));
+      Schema.decodeUnknownSync(CampaignContent)({
+        purpose: "operational",
+        templateKey: "workspace",
+        locales: { "cs-CZ": { subject: "S", preheader: "P", body } },
+      });
+      console.log(campaignBodyToMarkdown(body));
+    `;
+    const child = Bun.spawn([process.execPath, "-e", script], {
+      cwd: import.meta.dir,
+      env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "" },
+      stderr: "pipe",
+      stdout: "pipe",
+    });
+    const [exitCode, stdout, stderr] = await Promise.all([
+      child.exited,
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+    ]);
+
+    expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
+    expect(stdout).toContain(
+      "[[button: Rezervovat](https://deskohub.cz/book)]"
+    );
+  });
+});
