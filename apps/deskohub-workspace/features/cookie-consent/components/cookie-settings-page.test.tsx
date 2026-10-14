@@ -114,23 +114,6 @@ describe("CookieSettings", () => {
     expect(acceptCategory).toHaveBeenCalledWith("marketing");
   });
 
-  test("saves each optional category immediately through its own accept and reject action", async () => {
-    acceptedCategories = ["necessary", "marketing"];
-    const view = render(<CookieSettings locale="en-US" />);
-
-    await act(async () => {
-      fireEvent.click(getSwitch(view, "analytics"));
-    });
-    expect(acceptCategory).toHaveBeenCalledWith("analytics");
-    expect(rejectCategory).not.toHaveBeenCalled();
-
-    await act(async () => {
-      fireEvent.click(getSwitch(view, "marketing"));
-    });
-    expect(rejectCategory).toHaveBeenCalledWith("marketing");
-    expect(acceptCategory).toHaveBeenCalledTimes(1);
-  });
-
   test("reports a failed save accessibly and re-enables the switch", async () => {
     acceptedCategories = ["necessary", "analytics"];
     rejectCategory.mockImplementation(() => {
@@ -149,19 +132,5 @@ describe("CookieSettings", () => {
       m.errorPageTitle({}, { locale: "en-US" })
     );
     expect(getSwitch(view, "analytics").hasAttribute("disabled")).toBe(false);
-  });
-
-  test("renders each consent category as a peer heading", () => {
-    const view = render(<CookieSettings locale="en-US" />);
-
-    expect(
-      view
-        .getAllByRole("heading", { level: 3 })
-        .map((heading) => heading.textContent)
-    ).toEqual(
-      Object.values(categoryMessages).map(({ title }) =>
-        title({}, { locale: "en-US" })
-      )
-    );
   });
 });

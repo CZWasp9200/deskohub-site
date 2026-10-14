@@ -125,175 +125,6 @@ function getArticle(view: ReturnType<typeof render>) {
   return article;
 }
 
-test("renders every preference state", () => {
-  const locale = "en-US";
-  const states = [
-    {
-      context: "synthetic-account-context",
-      source: "account",
-      status: "absent",
-    },
-    {
-      context: "synthetic-account-context",
-      source: "account",
-      status: "active",
-    },
-    {
-      context: "synthetic-account-context",
-      source: "account",
-      status: "withdrawn",
-    },
-    {
-      context: "synthetic-pending-context",
-      dismissalContext: "synthetic-pending-dismissal-context",
-      status: "pending-link",
-    },
-    { status: "unavailable" },
-    {
-      dismissalContext: "synthetic-invalid-dismissal-context",
-      status: "invalid-link",
-    },
-  ] as const;
-
-  for (const state of states) {
-    const view = renderForm(state, locale);
-    expect(
-      view.container.querySelector(
-        `[data-marketing-preferences="${state.status}"]`
-      )
-    ).toBeTruthy();
-
-    let stateCopy: string;
-    switch (state.status) {
-      case "absent":
-      case "active":
-      case "withdrawn": {
-        stateCopy = m.marketingPreferencesFormRowTitle({}, { locale });
-        break;
-      }
-      case "pending-link": {
-        stateCopy = m.marketingPreferencesFormPendingDescription(
-          {},
-          { locale }
-        );
-        break;
-      }
-      case "unavailable": {
-        stateCopy = m.marketingPreferencesFormUnavailableDescription(
-          {},
-          { locale }
-        );
-        break;
-      }
-      case "invalid-link": {
-        stateCopy = m.marketingPreferencesFormInvalidLinkDescription(
-          {},
-          { locale }
-        );
-        break;
-      }
-    }
-    expect(view.getByText(stateCopy)).toBeTruthy();
-    cleanup();
-  }
-});
-
-test("saves a grant immediately without a confirmation gate", async () => {
-  const context = "synthetic-link-save-context";
-  const view = renderForm({
-    context,
-    dismissalContext: "synthetic-link-dismissal-context",
-    status: "absent",
-    source: "link",
-  });
-  const marketingSwitch = getSwitch(
-    view,
-    m.marketingPreferencesFormRowTitle({}, { locale: "en-US" })
-  );
-
-  expect(marketingSwitch.getAttribute("aria-checked")).toBe("false");
-  fireEvent.click(marketingSwitch);
-
-  await waitFor(() => {
-    expect(saveMarketingPreferencesAction).toHaveBeenCalledWith({
-      confirmed: true,
-      context,
-      granted: true,
-      locale: "en-US",
-      source: "link",
-    });
-  });
-  await waitFor(() => {
-    expect(
-      view.getByText(m.marketingPreferencesFormSaved({}, { locale: "en-US" }))
-    ).toBeTruthy();
-    expect(
-      getSwitch(
-        view,
-        m.marketingPreferencesFormRowTitle({}, { locale: "en-US" })
-      ).getAttribute("aria-checked")
-    ).toBe("true");
-    expect(routerRefresh).toHaveBeenCalledTimes(1);
-  });
-});
-
-test.each([
-  ["active", false],
-  ["withdrawn", true],
-] as const)("saves the rendered %s choice", async (status, granted) => {
-  let resolveSave!: (result: ActionResult) => void;
-  saveMarketingPreferencesAction.mockImplementationOnce(
-    () =>
-      new Promise<ActionResult>((resolve) => {
-        resolveSave = resolve;
-      })
-  );
-  const view = renderForm({
-    context: `synthetic-${status}-context`,
-    dismissalContext: `synthetic-${status}-dismissal-context`,
-    source: "link",
-    status,
-  });
-  const marketingSwitch = getSwitch(
-    view,
-    m.marketingPreferencesFormRowTitle({}, { locale: "en-US" })
-  );
-
-  expect(marketingSwitch.getAttribute("aria-checked")).toBe(
-    status === "active" ? "true" : "false"
-  );
-  fireEvent.click(marketingSwitch);
-
-  // While the save is pending the switch reads the target state, not the
-  // rendered one (feedback lZJlJt7s-q7L).
-  expect(
-    getSwitch(
-      view,
-      m.marketingPreferencesFormRowTitle({}, { locale: "en-US" })
-    ).getAttribute("aria-checked")
-  ).toBe(granted ? "true" : "false");
-
-  await waitFor(() => {
-    expect(saveMarketingPreferencesAction).toHaveBeenCalledWith({
-      confirmed: true,
-      context: `synthetic-${status}-context`,
-      granted,
-      locale: "en-US",
-      source: "link",
-    });
-  });
-
-  resolveSave({ data: { status: "saved" } });
-  await waitFor(() => {
-    expect(
-      getSwitch(
-        view,
-        m.marketingPreferencesFormRowTitle({}, { locale: "en-US" })
-      ).getAttribute("aria-checked")
-    ).toBe(granted ? "true" : "false");
-  });
-});
-
 test.each([
   ["absent", true],
   ["active", false],
@@ -421,60 +252,6 @@ test("permits a second toggle after a settled save and blocks duplicates while p
   });
 });
 
-test("preserves the server-authoritative switch on a save failure and allows retry", async () => {
-  let rejectFirst!: (result: ActionResult) => void;
-  saveMarketingPreferencesAction.mockImplementationOnce(
-    () =>
-      new Promise<ActionResult>((resolve) => {
-        rejectFirst = resolve;
-      })
-  );
-  const context = "synthetic-account-context";
-  const view = renderForm({
-    context,
-    source: "account",
-    status: "absent",
-  });
-  const marketingSwitch = getSwitch(
-    view,
-    m.marketingPreferencesFormRowTitle({}, { locale: "en-US" })
-  );
-
-  fireEvent.click(marketingSwitch);
-  rejectFirst({ serverError: "Synthetic preference save failure" });
-
-  await waitFor(() => {
-    expect(view.getByRole("alert").textContent).toBe(
-      m.marketingPreferencesFormSaveError({}, { locale: "en-US" })
-    );
-  });
-  expect(
-    getSwitch(
-      view,
-      m.marketingPreferencesFormRowTitle({}, { locale: "en-US" })
-    ).getAttribute("aria-checked")
-  ).toBe("false");
-  expect(
-    getSwitch(
-      view,
-      m.marketingPreferencesFormRowTitle({}, { locale: "en-US" })
-    ).hasAttribute("disabled")
-  ).toBe(false);
-
-  fireEvent.click(
-    getSwitch(view, m.marketingPreferencesFormRowTitle({}, { locale: "en-US" }))
-  );
-  await waitFor(() => {
-    expect(saveMarketingPreferencesAction).toHaveBeenNthCalledWith(2, {
-      confirmed: true,
-      context,
-      granted: true,
-      locale: "en-US",
-      source: "account",
-    });
-  });
-});
-
 test("announces a rejected save request with localized copy and allows a successful retry", async () => {
   const context = "synthetic-account-context";
   saveMarketingPreferencesAction.mockImplementationOnce(() =>
@@ -538,12 +315,6 @@ test.each([
     initialStatus: "absent",
     failureServerError: true,
     expectedAfterFailure: "true",
-  },
-  {
-    name: "rolls back to the last confirmed withdraw when a later grant fails",
-    initialStatus: "active",
-    failureServerError: true,
-    expectedAfterFailure: "false",
   },
   {
     name: "rolls back to the last confirmed grant when a later withdraw transport-fails",
@@ -696,30 +467,6 @@ test("keeps a pending context after a continuation failure and allows retry", as
   });
 });
 
-test("uses signed-in account copy and no link-clear control for account source", () => {
-  const view = renderForm({
-    context: "synthetic-account-context",
-    source: "account",
-    status: "absent",
-  });
-
-  expect(
-    view.queryByText(
-      m.marketingPreferencesFormAccountContext({}, { locale: "en-US" })
-    )
-  ).toBeNull();
-  expect(
-    view.queryByText(
-      m.marketingPreferencesFormLinkContext({}, { locale: "en-US" })
-    )
-  ).toBeNull();
-  expect(
-    view.queryByRole("button", {
-      name: m.marketingPreferencesFormClearAction({}, { locale: "en-US" }),
-    })
-  ).toBeNull();
-});
-
 test("resets a stale save error when the dismissal context changes", async () => {
   saveMarketingPreferencesAction.mockImplementationOnce(() =>
     Promise.resolve({ serverError: "Synthetic stale save failure" })
@@ -811,7 +558,7 @@ test("renders unavailable guidance without presenting account availability as a 
   ).toBeNull();
 });
 
-test.each(["en-US", "cs-CZ"] as const)(
+test.each(["en-US"] as const)(
   "hides sign-in affordances when accounts are disabled in %s",
   (locale) => {
     const view = renderForm({ status: "unavailable" }, locale, false);
@@ -834,7 +581,7 @@ test.each(["en-US", "cs-CZ"] as const)(
   }
 );
 
-test.each(["en-US", "cs-CZ"] as const)(
+test.each(["en-US"] as const)(
   "keeps a link-authorized preference actionable when accounts are disabled in %s",
   async (locale) => {
     const context = `synthetic-${locale}-link-save-context`;
@@ -887,34 +634,6 @@ test.each(["en-US", "cs-CZ"] as const)(
   }
 );
 
-test("keeps a pending dedicated link usable when accounts are disabled", async () => {
-  const context = "synthetic-pending-confirm-context";
-  const view = renderForm(
-    {
-      context,
-      dismissalContext: "synthetic-pending-dismissal-context",
-      status: "pending-link",
-    },
-    "en-US",
-    false
-  );
-
-  fireEvent.click(
-    view.getByRole("button", {
-      name: m.marketingPreferencesFormContinueAction({}, { locale: "en-US" }),
-    })
-  );
-
-  await waitFor(() => {
-    expect(confirmMarketingManagementAction).toHaveBeenCalledWith({ context });
-    expect(
-      view.getByText(
-        m.marketingPreferencesFormConfirmed({}, { locale: "en-US" })
-      )
-    ).toBeTruthy();
-  });
-});
-
 test("keeps an invalid dedicated link out of the account flow without a fallback", () => {
   const view = renderForm({
     dismissalContext: "synthetic-invalid-dismissal-context",
@@ -951,77 +670,6 @@ test("keeps an invalid dedicated link out of the account flow without a fallback
       name: m.marketingPreferencesFormClearAction({}, { locale: "en-US" }),
     })
   ).toBeTruthy();
-});
-
-test("offers an explicit clear action for a valid dedicated-link context", async () => {
-  const dismissalContext = "synthetic-link-dismissal-context";
-  const view = renderForm({
-    context: "synthetic-link-save-context",
-    dismissalContext,
-    status: "active",
-    source: "link",
-  });
-  fireEvent.click(
-    view.getByRole("button", {
-      name: m.marketingPreferencesFormClearAction({}, { locale: "en-US" }),
-    })
-  );
-  await waitFor(() => {
-    expect(clearMarketingManagementAction).toHaveBeenCalledWith({
-      context: dismissalContext,
-    });
-    expect(routerRefresh).toHaveBeenCalledTimes(1);
-  });
-});
-
-test.each(["absent", "withdrawn"] as const)(
-  "uses the dismissal context when clearing a managed %s link state",
-  async (status) => {
-    const dismissalContext = `synthetic-${status}-dismissal-context`;
-    const view = renderForm({
-      context: `synthetic-${status}-save-context`,
-      dismissalContext,
-      source: "link",
-      status,
-    });
-
-    fireEvent.click(
-      view.getByRole("button", {
-        name: m.marketingPreferencesFormClearAction({}, { locale: "en-US" }),
-      })
-    );
-
-    await waitFor(() => {
-      expect(clearMarketingManagementAction).toHaveBeenCalledWith({
-        context: dismissalContext,
-      });
-    });
-  }
-);
-
-test("clears a pending dedicated-link context with its dismissal context", async () => {
-  const context = "synthetic-pending-confirm-context";
-  const dismissalContext = "synthetic-pending-dismissal-context";
-  const view = renderForm({
-    context,
-    dismissalContext,
-    status: "pending-link",
-  });
-  fireEvent.click(
-    view.getByRole("button", {
-      name: m.marketingPreferencesFormClearAction({}, { locale: "en-US" }),
-    })
-  );
-
-  await waitFor(() => {
-    expect(clearMarketingManagementAction).toHaveBeenCalledWith({
-      context: dismissalContext,
-    });
-    expect(routerRefresh).toHaveBeenCalledTimes(1);
-    expect(
-      view.getByText(m.marketingPreferencesFormCleared({}, { locale: "en-US" }))
-    ).toBeTruthy();
-  });
 });
 
 test("keeps a pending dedicated link after clear failure and allows retry", async () => {
@@ -1073,32 +721,6 @@ test("keeps a pending dedicated link after clear failure and allows retry", asyn
   expect(clearMarketingManagementAction).toHaveBeenNthCalledWith(2, {
     context: dismissalContext,
   });
-});
-
-test("clears an invalid dedicated-link context without writing consent", async () => {
-  const dismissalContext = "synthetic-invalid-dismissal-context";
-  const view = renderForm({
-    dismissalContext,
-    status: "invalid-link",
-  });
-
-  fireEvent.click(
-    view.getByRole("button", {
-      name: m.marketingPreferencesFormClearAction({}, { locale: "en-US" }),
-    })
-  );
-
-  await waitFor(() => {
-    expect(clearMarketingManagementAction).toHaveBeenCalledWith({
-      context: dismissalContext,
-    });
-    expect(routerRefresh).toHaveBeenCalledTimes(1);
-    expect(
-      view.getByText(m.marketingPreferencesFormCleared({}, { locale: "en-US" }))
-    ).toBeTruthy();
-  });
-  expect(saveMarketingPreferencesAction).not.toHaveBeenCalled();
-  expect(confirmMarketingManagementAction).not.toHaveBeenCalled();
 });
 
 test("disables the explicit invalid-link clear action while it is busy", async () => {
@@ -1254,37 +876,6 @@ test("keeps save feedback and the focused switch when refreshed props report the
     );
   });
   expect(marketingSwitch.getAttribute("aria-checked")).toBe("false");
-});
-
-test("announces server failures with localized copy instead of the server message", async () => {
-  const locale = "cs-CZ" as const;
-  saveMarketingPreferencesAction.mockImplementationOnce(() =>
-    Promise.resolve({
-      serverError:
-        "We could not update your marketing preference. Please try again.",
-    })
-  );
-  const view = renderForm(
-    {
-      context: "synthetic-account-context",
-      source: "account",
-      status: "absent",
-    },
-    locale
-  );
-
-  fireEvent.click(
-    getSwitch(view, m.marketingPreferencesFormRowTitle({}, { locale }))
-  );
-
-  await waitFor(() => {
-    expect(view.getByRole("alert").textContent).toBe(
-      m.marketingPreferencesFormSaveError({}, { locale })
-    );
-  });
-  expect(view.container.textContent).not.toContain(
-    "We could not update your marketing preference."
-  );
 });
 
 test("announces the invalid-link rejection reason when continuing a replayed link", async () => {

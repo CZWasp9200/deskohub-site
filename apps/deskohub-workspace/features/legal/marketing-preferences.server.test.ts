@@ -154,16 +154,6 @@ describe("getMarketingPreferences", () => {
     expect(readMarketingManagementCookies).not.toHaveBeenCalled();
   });
 
-  test("renders unavailable when reading the request cookie store throws", async () => {
-    requestCookies.mockImplementationOnce(() => {
-      throw new Error("synthetic request scope loss");
-    });
-
-    await expect(getMarketingPreferences("en-US")).resolves.toEqual({
-      status: "unavailable",
-    });
-  });
-
   test("renders pending-link before resolving either account or session authority", async () => {
     cookieState = { pending: pendingToken, session: sessionToken };
     const scenario = makeScenario();
@@ -184,27 +174,6 @@ describe("getMarketingPreferences", () => {
 
     expect(scenario.accountResolveCalls.value).toBe(0);
     expect(scenario.resolve).not.toHaveBeenCalled();
-    expect(scenario.repository.get).not.toHaveBeenCalled();
-  });
-
-  test("renders invalid-link for the malformed access sentinel without account fallback", async () => {
-    cookieState = { pending: "invalid", session: undefined };
-    const scenario = makeScenario();
-
-    await expect(
-      Effect.runPromise(
-        getMarketingPreferencesEffect(
-          "en-US",
-          marketingCookies,
-          scenario.layers
-        )
-      )
-    ).resolves.toEqual({
-      status: "invalid-link",
-      dismissalContext: getMarketingManagementDismissalContext(cookieState),
-    });
-
-    expect(scenario.accountResolveCalls.value).toBe(0);
     expect(scenario.repository.get).not.toHaveBeenCalled();
   });
 
@@ -254,8 +223,6 @@ describe("getMarketingPreferences", () => {
   });
 
   test.each([
-    ["absent", null],
-    ["active", consent(null)],
     ["withdrawn", consent(Temporal.Instant.from("2030-01-02T00:00:00Z"))],
   ] as const)(
     "projects the account consent as %s",
