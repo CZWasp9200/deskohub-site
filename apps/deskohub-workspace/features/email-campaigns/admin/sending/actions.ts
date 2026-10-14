@@ -1,118 +1,28 @@
 "use server";
 
-import { Effect, Match } from "effect";
-import type { SqlError } from "effect/unstable/sql";
+import { Effect } from "effect";
 import { revalidatePath } from "next/cache";
 import { requireAdministratorAuthorization } from "@/shared/administrator/administrator-authorization.server";
 import { defineWorkspaceAction } from "@/shared/backend/workspace-action";
 import { PublicSafeActionError } from "@/shared/utils/safe-action-client";
 import { CampaignService } from "../../backend/campaign.service";
-import type { CampaignConfirmationRejection } from "../../errors";
+import { CampaignSendService } from "../../backend/campaign-send.service";
 import {
-  type CampaignRetryError,
-  type CampaignSendError,
-  CampaignSendPipeline,
-  type CampaignTestSendError,
-} from "../campaign-send-pipeline";
+  type CampaignSendingFailure,
+  describeCampaignSendingFailure,
+} from "./campaign-sending-failure";
 import {
   campaignReferenceStandardSchema,
+  campaignRetryStandardSchema,
   campaignSendStandardSchema,
   campaignTestSendStandardSchema,
 } from "./contracts";
 
-const confirmationRejectionMessages = {
-  "unknown-code":
-    "That code doesn't match the latest test email. Check it for typos and try again.",
-  superseded:
-    "A newer test email replaced that code. Use the code from the latest test email.",
-  expired: "That code expired. Send a new test email to get a fresh code.",
-  "content-changed":
-    "The campaign changed after that test email. Send a new test email and use its code.",
-  "too-many-attempts":
-    "Too many wrong codes, so that code no longer works. Send a new test email to get a fresh code.",
-} as const satisfies Record<CampaignConfirmationRejection, string>;
-
-const unexpectedFailureMessage = "Something went wrong. Try again in a moment.";
-
-/** Admin copy for every failure the send pipeline reports. */
-const describeSendFailure = (
-  cause:
-    | Effect.Error<typeof requireAdministratorAuthorization>
-    | CampaignTestSendError
-    | CampaignSendError
-    | CampaignRetryError
-    | SqlError.SqlError
-) =>
-  Match.value(cause).pipe(
-    Match.tag(
-      "AdministratorUnauthorizedError",
-      () =>
-        "Your admin sign-in is no longer valid. Reload the page and sign in again."
-    ),
-    Match.tag("CampaignNotFound", () => "This campaign no longer exists."),
-    Match.tag(
-      "CampaignReadOnly",
-      () => "This campaign already left Draft. Duplicate it to send a new copy."
-    ),
-    Match.tag(
-      "CampaignConfirmationRejected",
-      ({ reason }) => confirmationRejectionMessages[reason]
-    ),
-    Match.tag(
-      "CampaignTestRecipientInvalid",
-      ({ email }) => `${email} isn't a valid email address.`
-    ),
-    Match.tag(
-      "CampaignContentMissing",
-      () => "Add a subject and body in at least one language first."
-    ),
-    Match.tag(
-      "CampaignEmailDeliveryFailed",
-      () =>
-        "The email provider didn't accept the test email. Try again in a moment."
-    ),
-    Match.tag(
-      "CampaignConfirmationKeyInvalid",
-      () =>
-        "Confirmation codes can't be issued because the signing secret is misconfigured. Ask a developer to check BETTER_AUTH_SECRETS."
-    ),
-    Match.tag(
-      "CampaignAudienceMissing",
-      () => "Choose an audience for this campaign before sending it."
-    ),
-    Match.tag(
-      "CampaignRecipientResolutionError",
-      () =>
-        "Recipients couldn't be resolved because Dotypos is unavailable. Nothing was sent and the code still works; try again in a moment."
-    ),
-    Match.tag(
-      "CampaignRecipientsOutsideTestDomain",
-      ({ recipientCount }) =>
-        `Outside production, campaign email can only go to @deskohub.test addresses, and ${recipientCount} ${recipientCount === 1 ? "address is" : "addresses are"} outside it. Nothing was sent.`
-    ),
-    Match.tag(
-      "CampaignNoRecipients",
-      () =>
-        "The audience has no reachable recipients right now, so nothing was sent."
-    ),
-    Match.tag(
-      "CampaignNotRetryable",
-      () => "Only a failed campaign can retry undelivered recipients."
-    ),
-    Match.tag(
-      "CampaignSendUnavailable",
-      () =>
-        "Sending isn't available in this build yet. Nothing was sent and the code still works."
-    ),
-    Match.tag("EffectDrizzleQueryError", () => unexpectedFailureMessage),
-    Match.tag("SqlError", () => unexpectedFailureMessage),
-    Match.exhaustive
-  );
-
-// Failures outside the pipeline's typed errors, such as a layer that can't
-// be built, reach the action client's generic server error.
-const toPublicSendError = (cause: Parameters<typeof describeSendFailure>[0]) =>
-  new PublicSafeActionError({ message: describeSendFailure(cause), cause });
+const toPublicSendingError = (cause: CampaignSendingFailure) =>
+  new PublicSafeActionError({
+    message: describeCampaignSendingFailure(cause),
+    cause,
+  });
 
 const campaignPath = (campaignId: string) =>
   `/admin/email-campaigns/${campaignId}`;
@@ -126,8 +36,8 @@ const testSendAction = defineWorkspaceAction(
   Effect.fn(
     function* ({ campaignId, extraRecipients }) {
       yield* requireAdministratorAuthorization;
-      const pipeline = yield* CampaignSendPipeline;
-      const receipt = yield* pipeline.testSend({
+      const sending = yield* CampaignSendService;
+      const receipt = yield* sending.testSend({
         campaignId,
         extraRecipients,
       });
@@ -139,8 +49,8 @@ const testSendAction = defineWorkspaceAction(
     },
     (effect) =>
       effect.pipe(
-        Effect.mapError(toPublicSendError),
-        Effect.provide(CampaignSendPipeline.Live)
+        Effect.provide(CampaignSendService.Live),
+        Effect.mapError(toPublicSendingError)
       )
   )
 );
@@ -154,13 +64,13 @@ const sendAction = defineWorkspaceAction(
   Effect.fn(
     function* ({ campaignId, confirmationCode }) {
       yield* requireAdministratorAuthorization;
-      const pipeline = yield* CampaignSendPipeline;
-      return yield* pipeline.send({ campaignId, confirmationCode });
+      const sending = yield* CampaignSendService;
+      return yield* sending.send({ campaignId, confirmationCode });
     },
     (effect) =>
       effect.pipe(
-        Effect.mapError(toPublicSendError),
-        Effect.provide(CampaignSendPipeline.Live)
+        Effect.provide(CampaignSendService.Live),
+        Effect.mapError(toPublicSendingError)
       )
   )
 );
@@ -168,18 +78,21 @@ const sendAction = defineWorkspaceAction(
 const retryUndeliveredAction = defineWorkspaceAction(
   {
     operation: "email-campaigns.retry-undelivered",
-    schema: campaignReferenceStandardSchema,
+    schema: campaignRetryStandardSchema,
   },
   Effect.fn(
-    function* ({ campaignId }) {
+    function* ({ campaignId, includeUnconfirmed }) {
       yield* requireAdministratorAuthorization;
-      const pipeline = yield* CampaignSendPipeline;
-      return yield* pipeline.retryUndelivered({ campaignId });
+      const sending = yield* CampaignSendService;
+      return yield* sending.retryUndelivered({
+        campaignId,
+        includeUnconfirmed,
+      });
     },
     (effect) =>
       effect.pipe(
-        Effect.mapError(toPublicSendError),
-        Effect.provide(CampaignSendPipeline.Live)
+        Effect.provide(CampaignSendService.Live),
+        Effect.mapError(toPublicSendingError)
       )
   )
 );
@@ -198,8 +111,8 @@ const duplicateAction = defineWorkspaceAction(
     },
     (effect) =>
       effect.pipe(
-        Effect.mapError(toPublicSendError),
-        Effect.provide(CampaignService.Live)
+        Effect.provide(CampaignService.Live),
+        Effect.mapError(toPublicSendingError)
       )
   )
 );

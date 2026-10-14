@@ -8,7 +8,10 @@ import {
 import { EmptyState } from "@/features/administration/empty-state";
 import { formatAdministrationDateTime } from "@/features/administration/formatters";
 import type { Locale } from "@/features/i18n";
-import type { CampaignRecipientStatus } from "../../campaign-states";
+import type {
+  CampaignRecipientSkipReason,
+  CampaignRecipientStatus,
+} from "../../campaign-states";
 import { CampaignRecipientStatusBadge } from "../campaign-list/campaign-badges";
 import { campaignLocaleNames } from "./campaign-locale-names";
 
@@ -16,9 +19,20 @@ export type SentRecipientRow = {
   readonly dotyposCustomerId: string;
   readonly locale: Locale;
   readonly status: CampaignRecipientStatus;
+  /** Why a `skipped` recipient wasn't mailed; null for other statuses. */
+  readonly skipReason: CampaignRecipientSkipReason | null;
   /** ISO instant. */
   readonly statusUpdatedAt: string;
 };
+
+const skipReasonLabels = {
+  "missing-from-dotypos": "No longer in Dotypos",
+  "deleted-customer": "Customer deleted",
+  "missing-email": "No email address",
+  "invalid-email": "Invalid email address",
+  "consent-withdrawn": "Marketing consent withdrawn",
+  "outside-test-domain": "Outside the test email domain",
+} as const satisfies Record<CampaignRecipientSkipReason, string>;
 
 const columns: AdministrationDataTableColumn<SentRecipientRow>[] = [
   {
@@ -44,6 +58,12 @@ const columns: AdministrationDataTableColumn<SentRecipientRow>[] = [
     cell: ({ row }) => (
       <CampaignRecipientStatusBadge status={row.original.status} />
     ),
+  },
+  {
+    accessorFn: (recipient) =>
+      recipient.skipReason && skipReasonLabels[recipient.skipReason],
+    id: "skipReason",
+    header: "Skip reason",
   },
   {
     accessorKey: "statusUpdatedAt",
@@ -83,6 +103,11 @@ export function SentRecipientTable({
                 </Link>
                 <CampaignRecipientStatusBadge status={recipient.status} />
               </p>
+              {recipient.skipReason && (
+                <p className="text-navy-blue/65">
+                  Skipped: {skipReasonLabels[recipient.skipReason]}
+                </p>
+              )}
               <p className="text-navy-blue/65">
                 {campaignLocaleNames[recipient.locale]} · since{" "}
                 {formatAdministrationDateTime(recipient.statusUpdatedAt)}

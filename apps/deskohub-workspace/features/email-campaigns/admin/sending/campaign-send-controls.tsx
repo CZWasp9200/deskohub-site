@@ -10,7 +10,7 @@ import { CampaignTestSendDialog } from "./campaign-test-send-dialog";
 
 export type CampaignSendControlsProps = {
   readonly campaignId: CampaignId;
-  /** The fixed test-send recipient, from `CampaignSendPipeline.adminInbox`. */
+  /** The fixed test-send recipient, from `CampaignEmailConfig.adminInbox`. */
   readonly adminInbox: string;
   /** Locales the saved campaign has content for. */
   readonly contentLocales: readonly Locale[];

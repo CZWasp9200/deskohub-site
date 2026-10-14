@@ -35,6 +35,17 @@ export const campaignReferenceStandardSchema = Schema.toStandardSchemaV1(
   standardSchemaOptions
 );
 
+const campaignRetrySchema = Schema.Struct({
+  campaignId: campaignIdSchema,
+  /** Also mail `unconfirmed` recipients, who may already have the email. */
+  includeUnconfirmed: Schema.Boolean,
+});
+
+export const campaignRetryStandardSchema = Schema.toStandardSchemaV1(
+  campaignRetrySchema,
+  standardSchemaOptions
+);
+
 /** One extra test-send address as typed into the dialog. */
 export const testRecipientFieldSchema = Schema.Struct({
   email: reservationCustomerEmailSchema,
