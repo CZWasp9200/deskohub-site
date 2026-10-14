@@ -45,7 +45,7 @@ Account cases run serially in `account-auth` from the catalog in `e2e/account/ca
 - Read earlier runs' active capacity uses and voucher credit inside that transaction, so every rerun on a reused preview database still gets one capacity use and one run's credit.
 - `discount-fixtures.test.ts` records and pins the statement sequence; `discount-fixtures.postgres.test.ts` pins the rows and the rerun drift repair.
 
-- Dedicated immutable code rows cover valid, inactive, not-started, expired, customer-ineligible, and product-ineligible submissions.
+- Dedicated immutable code rows cover valid and customer-ineligible submissions; an unknown code needs no row. Inactive, not-started, expired, and product-ineligible codes show the same generic error, so their reason classification stays in `features/discounts/promotion-code-provider.service.test.ts`.
 - Capacity and one-redemption-per-customer cases first complete a real zero-total checkout, then try the consumed code.
 - The voucher case issues credit for two zero-total reservations, spends it twice, checks two `voucher_redemptions` rows totaling the issued credit, and then expects the unavailable error. Its fixture derives issued credit from earlier applications so reruns keep audit history.
 - Customer fixtures come from the normal Dotypos customer API. The runner picks an active partial-percentage group, derives the expected discount from its real percentage, and assigns customers with an ETag-protected patch. Cases change only their own customer's group, never the group definition.
@@ -54,10 +54,10 @@ Browser E2E proves customer-visible behavior and the persisted lifecycle state:
 
 | Scenario | Browser evidence |
 | --- | --- |
-| Calendar, customer, or code alone, or any combination | Completed payment, generic label, applications persisted in source-neutral order |
+| Calendar sale alone, with a code, or with a customer discount and a code | Completed payment, generic label, applications persisted in source-neutral order |
 | Code brings the total to zero | Internal paid attempt, redeemed claim, fulfillment, no Nexi page |
 | Voucher partly spent, reused, exhausted | Two internal paid attempts, two claims totaling the credit, then the unavailable error |
-| Invalid, unknown, inactive, not-started, expired, or ineligible code | One generic field error; summary still usable; no payment state, application, or claim |
+| Unknown or customer-ineligible code | One generic field error; summary still usable; no payment state, application, or claim |
 | Capacity exhausted or already redeemed | A real first redemption, then the rejected attempt |
 | Code, Calendar sale, or customer discount changes after summary, before Pay | `pricing_changed`; no payment attempt, application, or claim |
 | Calendar sale disappears after advertisement, before quote | Refreshed summary with `pricing_changed` |

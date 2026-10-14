@@ -449,6 +449,15 @@ describe("invoice administration sorting", () => {
 describe("invoice administration payment status", () => {
   const manual = makeTestManualInvoiceDocument("en-US");
 
+  test("keeps reservation invoices paid", () => {
+    expect(
+      getInvoiceAdministrationPaymentStatus(
+        makeCoworkInvoiceDocument("en-US"),
+        "2099-01-01"
+      )
+    ).toBe("paid");
+  });
+
   test("derives manual status from the Prague calendar date", () => {
     expect(getInvoiceAdministrationPaymentStatus(manual, "2026-08-31")).toBe(
       "issued"
@@ -459,6 +468,18 @@ describe("invoice administration payment status", () => {
     expect(getInvoiceAdministrationPaymentStatus(manual, "2026-09-02")).toBe(
       "overdue"
     );
+  });
+
+  test("keeps an already-paid manual invoice paid", () => {
+    expect(
+      getInvoiceAdministrationPaymentStatus(
+        makeTestManualInvoiceDocument("en-US", "450", {
+          status: "paid",
+          date: "2026-08-20",
+        }),
+        "2099-01-01"
+      )
+    ).toBe("paid");
   });
 
   test("keeps zero and negative manual totals issued after their due date", () => {

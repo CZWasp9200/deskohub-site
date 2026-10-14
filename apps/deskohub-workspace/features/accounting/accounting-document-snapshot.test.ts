@@ -175,6 +175,35 @@ describe("accounting document snapshot", () => {
     expect(decoded.billing).toBeUndefined();
   });
 
+  test("rejects schema-version metadata from stored snapshots", async () => {
+    const snapshot = makeSnapshot();
+
+    await expect(
+      Effect.runPromise(
+        decodeStoredAccountingDocumentSnapshot({
+          ...snapshot,
+          schemaVersion: 1,
+        })
+      )
+    ).rejects.toBeDefined();
+    await expect(
+      Effect.runPromise(
+        decodeStoredAccountingDocumentSnapshot({
+          ...snapshot,
+          unexpected: true,
+        })
+      )
+    ).rejects.toBeDefined();
+    await expect(
+      Effect.runPromise(
+        decodeStoredAccountingDocumentSnapshot({
+          ...snapshot,
+          schemaVersion: 2,
+        })
+      )
+    ).rejects.toBeDefined();
+  });
+
   test("parameterizes both plaintext and key in pgcrypto SQL", () => {
     const plaintextSentinel = "PRIVATE-INVOICE-SNAPSHOT-SENTINEL";
     const keySentinel = "PRIVATE-INVOICE-KEY-SENTINEL-123456789";
