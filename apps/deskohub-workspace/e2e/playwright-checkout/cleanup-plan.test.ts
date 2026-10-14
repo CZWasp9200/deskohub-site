@@ -47,7 +47,7 @@ test("records a failed suite-cleanup phase after reconciling the account lane", 
   const exit = await Effect.runPromiseExit(
     traceWorkspaceE2ESuiteCleanup({
       cleanupCheckout: Effect.succeed(checkoutError),
-      reconcileAccountLane: Effect.sync(() => {
+      reconcileAccountJournals: Effect.sync(() => {
         accountLaneReconciled = true;
       }),
     }).pipe(Effect.provide(makeE2ETelemetryMock(observations)))
@@ -71,7 +71,7 @@ test("records a passed suite-cleanup phase when checkout cleanup succeeds", asyn
   await Effect.runPromise(
     traceWorkspaceE2ESuiteCleanup({
       cleanupCheckout: Effect.succeed(undefined),
-      reconcileAccountLane: Effect.void,
+      reconcileAccountJournals: Effect.void,
     }).pipe(Effect.provide(makeE2ETelemetryMock(observations)))
   );
 
@@ -83,14 +83,14 @@ test("records a passed suite-cleanup phase when checkout cleanup succeeds", asyn
 test.each([
   {
     failure: "invalid account lane journal",
-    readAccountLaneJournal: async () => {
+    readAccountJournals: async () => {
       throw new Error("invalid account lane journal");
     },
     readCheckoutCleanup: async () => emptyCheckoutCleanup(),
   },
   {
     failure: "Workspace checkout cleanup recipient ownership mismatch",
-    readAccountLaneJournal: async () => undefined,
+    readAccountJournals: async () => [],
     readCheckoutCleanup: async (): Promise<PreparedCheckoutFlowCleanup> => {
       throw new Error(
         "Workspace checkout cleanup recipient ownership mismatch"
@@ -99,12 +99,12 @@ test.each([
   },
 ])(
   "does not start cleanup when preparing a candidate fails ($failure)",
-  async ({ failure, readAccountLaneJournal, readCheckoutCleanup }) => {
+  async ({ failure, readAccountJournals, readCheckoutCleanup }) => {
     let cleanupStarted = false;
 
     await expect(
       runWorkspaceE2ECleanupWithPreparedCandidates({
-        readAccountLaneJournal,
+        readAccountJournals,
         readCheckoutCleanup,
         reconcile: async () => {
           cleanupStarted = true;
@@ -127,14 +127,14 @@ test("passes both prepared candidates to the cleanup unchanged", async () => {
   let candidates: WorkspaceE2ECleanupCandidates | undefined;
 
   await runWorkspaceE2ECleanupWithPreparedCandidates({
-    readAccountLaneJournal: async () => accountLaneJournal,
+    readAccountJournals: async () => [accountLaneJournal],
     readCheckoutCleanup: async () => checkoutCleanup,
     reconcile: async (prepared) => {
       candidates = prepared;
     },
   });
 
-  expect(candidates?.accountLaneJournal).toBe(accountLaneJournal);
+  expect(candidates?.accountJournals).toEqual([accountLaneJournal]);
   expect(candidates?.checkoutCleanup).toBe(checkoutCleanup);
 });
 
@@ -149,7 +149,7 @@ test("rejects a parsed account candidate owned by another run before checkout cl
 
   await expect(
     runWorkspaceE2ECleanupWithPreparedCandidates({
-      readAccountLaneJournal: async () =>
+      readAccountJournals: async () => [
         validateWorkspaceE2EAccountLaneJournalOwnership({
           journal: parsedJournal,
           recipientEmails: new Set([sourceRunRecipientEmail]),
@@ -159,6 +159,7 @@ test("rejects a parsed account candidate owned by another run before checkout cl
           customerOwners: new Map(),
           reservationOwners: new Map(),
         }),
+      ],
       readCheckoutCleanup: async () => emptyCheckoutCleanup(),
       reconcile: async () => {
         checkoutCleanupStarted = true;
@@ -229,9 +230,10 @@ test("rejects a present account profile without email before either cleanup scop
 
   await expect(
     runWorkspaceE2ECleanupWithPreparedCandidates({
-      readAccountLaneJournal: () =>
+      readAccountJournals: () =>
         Effect.runPromise(
           accountPreparation.pipe(
+            Effect.map((prepared) => (prepared ? [prepared] : [])),
             Effect.provideService(
               E2EDatabase,
               E2EDatabase.of({ db: {} as never })
@@ -292,9 +294,10 @@ test("does not treat a present account reservation with a missing customer as ab
 
   await expect(
     runWorkspaceE2ECleanupWithPreparedCandidates({
-      readAccountLaneJournal: () =>
+      readAccountJournals: () =>
         Effect.runPromise(
           accountPreparation.pipe(
+            Effect.map((prepared) => (prepared ? [prepared] : [])),
             Effect.provideService(
               E2EDatabase,
               E2EDatabase.of({ db: {} as never })
@@ -377,7 +380,7 @@ test("rejects an unrelated fallback owner before checkout or account mutation", 
 
   await expect(
     runWorkspaceE2ECleanupWithPreparedCandidates({
-      readAccountLaneJournal: async () => undefined,
+      readAccountJournals: async () => [],
       readCheckoutCleanup: () =>
         Effect.runPromise(
           checkoutPreparation.pipe(

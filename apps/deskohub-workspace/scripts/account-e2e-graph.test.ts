@@ -16,12 +16,24 @@ const loadPlaywrightConfigStructure =
         "-e",
         'const config = (await import("./playwright.e2e.config")).default; console.log(JSON.stringify(config));',
       ],
-      { cwd: new URL("..", import.meta.url).pathname }
+      { cwd: new URL("..", import.meta.url).pathname, timeoutMs: 15_000 }
     );
-    if (result.exitCode !== 0) {
-      throw new Error(result.stderr);
+    if (result.timedOut) {
+      throw new Error("actual Playwright config loader timed out");
     }
-    return JSON.parse(result.stdout) as PlaywrightCheckoutConfig;
+    if (result.signalCode !== null) {
+      throw new Error("actual Playwright config loader was interrupted");
+    }
+    if (result.exitCode !== 0) {
+      throw new Error(
+        `actual Playwright config loader exited with status ${result.exitCode}`
+      );
+    }
+    try {
+      return JSON.parse(result.stdout) as PlaywrightCheckoutConfig;
+    } catch {
+      throw new Error("actual Playwright config loader emitted invalid JSON");
+    }
   };
 
 let cachedConfigStructure: Promise<PlaywrightCheckoutConfig> | undefined;

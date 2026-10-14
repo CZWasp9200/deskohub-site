@@ -39,7 +39,7 @@ For failed `/fe/build/` responses, the failure `network.har` keeps only provider
 The `restart-sandbox-rejected-payment` step:
 
 1. Logs the diagnostic code and the code-only Nexi failure lines.
-2. Retires the rejected attempt with `retireRejectedPaymentAttemptForE2E`: marks the attempt and reservation payment state `failed` and releases its discount-code and voucher claims, keeping the hold so cleanup is unchanged.
+2. Retires the rejected attempt with `retireRejectedPaymentAttemptForE2E`: marks the attempt and reservation payment state `failed` and releases its discount-code, voucher, and referral invitation claims, keeping the hold so cleanup is unchanged.
 3. Closes the hosted tab and waits `nexiSandboxRetryDelayMs`.
 4. Reopens the saved checkout pay page URL, whose `payState` value is registered for redaction.
 

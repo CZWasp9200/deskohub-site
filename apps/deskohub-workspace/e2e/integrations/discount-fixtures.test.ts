@@ -82,6 +82,18 @@ test("seeds every fixture table with one statement in one transaction", async ()
   expect(issuedValue(discountCodeFixtures.voucherFull.id)).toBe(
     discountCodeFixtures.voucherFull.creditPerRun.value
   );
+  expect(issuedValue(discountCodeFixtures.accountReferralVoucher.id)).toBe(
+    discountCodeFixtures.accountReferralVoucher.creditPerRun.value
+  );
+});
+
+test("keeps account referral voucher credit isolated from parallel checkout vouchers", () => {
+  const fixture = discountCodeFixtures.accountReferralVoucher;
+  expect(fixture.code).toBe("E2E_REFERRAL_VOUCHER");
+  expect(fixture.id).not.toBe(discountCodeFixtures.voucherReuse.id);
+  expect(fixture.id).not.toBe(discountCodeFixtures.voucherFull.id);
+  expect(fixture.code).not.toBe(discountCodeFixtures.voucherReuse.code);
+  expect(fixture.code).not.toBe(discountCodeFixtures.voucherFull.code);
 });
 
 const statementShape = (sql: string) => {

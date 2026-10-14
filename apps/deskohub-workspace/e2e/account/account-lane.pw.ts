@@ -8,6 +8,7 @@ import { Effect } from "effect";
 import { WorkspaceE2EError, workspaceE2EError } from "../errors";
 import { writeWorkspaceE2EFailureAnnotation } from "../github-actions";
 import type { E2EDatabase } from "../integrations/database.service";
+import { readWorkspaceE2ERunPlan } from "../playwright-checkout/run-plan";
 import { runtimeTest } from "../playwright-checkout/runtime-fixtures";
 import { makePlaywrightBrowserRunner, type Runner } from "../runtime";
 import { workspaceE2ETimeouts } from "../timeouts";
@@ -18,7 +19,10 @@ import {
   findLinkedDotyposCustomerId,
 } from "./auth-rows";
 import { withCallbackHandoffReview } from "./callback-handoff";
-import { workspaceE2EAccountCaseIds } from "./catalog";
+import {
+  type WorkspaceE2EAccountCaseId,
+  workspaceE2EAccountCaseIds,
+} from "./catalog";
 import {
   getAccountE2EConfig,
   makeWorkspaceE2EAccountRecipient,
@@ -33,6 +37,7 @@ import { verifyWorkspaceE2EMarketingPreferences } from "./marketing-preferences"
 import { workspaceE2EAccountProfileName } from "./profile-fixture";
 import { verifyProfileNavigation } from "./profile-navigation";
 import { makeMagicLinkRateBudget } from "./rate-budget";
+import { waitForReferralStats } from "./referral-review";
 import { verifyReservationExistingCustomer } from "./reservation-existing-customer";
 import { withWorkspaceE2EReservationHistoryFixture } from "./reservation-history-fixture";
 import {
@@ -79,6 +84,7 @@ type WorkspaceE2EAccountLane = {
     }) => Promise<void>;
   };
   readonly rateBudget: ReturnType<typeof makeMagicLinkRateBudget>;
+  readonly runPlan: Awaited<ReturnType<typeof readWorkspaceE2ERunPlan>>;
   readonly run: Runner;
   readonly session: string;
 };
@@ -100,6 +106,7 @@ const accountTest = runtimeTest.extend<
   accountLane: [
     async ({ browser, environment, runContext, runEffect }, applyFixture) => {
       const config = getAccountE2EConfig(environment, runContext.runId);
+      const runPlan = await readWorkspaceE2ERunPlan();
       const run = makePlaywrightBrowserRunner(browser, { recordHar: false });
       const lifecycleHandoff: WorkspaceE2EAccountLifecycleHandoff = {};
       let journal = emptyWorkspaceE2EAccountJournal();
@@ -143,6 +150,7 @@ const accountTest = runtimeTest.extend<
                   journalRef,
                   previewLogs,
                   rateBudget: makeMagicLinkRateBudget(),
+                  runPlan,
                   run,
                   session: `workspace-account-e2e-${runContext.runId}`,
                 })
@@ -310,6 +318,13 @@ for (const caseId of workspaceE2EAccountCaseIds) {
                   verifyAccountLayoutNavigation(
                     page,
                     async (section) => {
+                      if (section === "referrals") {
+                        await waitForReferralStats({
+                          count: 0,
+                          locale: "en-US",
+                          page,
+                        });
+                      }
                       await captureAccountReview(
                         page,
                         accountLane.config.review,

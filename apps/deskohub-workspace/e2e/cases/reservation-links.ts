@@ -12,8 +12,10 @@ import {
 } from "@/features/discounts/persistence-contracts";
 import { discountCodeQueryParam } from "@/features/discounts/promotion-code";
 import { type Locale, m } from "@/features/i18n";
+import { referralCodeQueryParam } from "@/features/referrals/client";
 import { getMeetingRoomReservationDurationKey } from "@/features/reservation/meeting-room-reservation-duration";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
+import { makeUnusableReferralCode } from "../account/referral-fixture";
 import {
   activateHydratedBrowserElement,
   captureBrowserScreenshot,
@@ -36,7 +38,10 @@ import {
   makeMeetingRoomCheckoutData,
   reuseMeetingRoomCheckoutContact,
 } from "../checkout/data";
-import { submitDiscountCode } from "../checkout/discount-code";
+import {
+  assertRequestedOnlyDiscountCode,
+  submitDiscountCode,
+} from "../checkout/discount-code";
 import { submitReservationForPayPage } from "../checkout/payment";
 import type { DatasourceConfig, WorkspaceE2EConfig } from "../config";
 import {
@@ -143,6 +148,8 @@ export const makeReservationLinkE2ECases = ({
     const zeroTotalCode = discountCodeFixtures.zeroTotal.code;
     addRedaction(zeroTotalCode, true);
     addRedaction(unknownLinkCode, true);
+    const unusableReferralCode = makeUnusableReferralCode();
+    addRedaction(unusableReferralCode, true);
 
     const enZeroTotalData = makeReservationLinkCheckoutData(
       config.baseUrl,
@@ -163,7 +170,8 @@ export const makeReservationLinkE2ECases = ({
       unknownCodeSlot,
       "meeting-room-link-unknown-code-en-US",
       "en-US",
-      unknownLinkCode
+      unknownLinkCode,
+      unusableReferralCode
     );
     // The replacement resubmission must target a different free interval,
     // like the existing reservation-replacement flows, because the first
@@ -263,7 +271,8 @@ const makeReservationLinkCheckoutData = (
   slot: MeetingRoomCheckoutSlot,
   flowId: string,
   locale: LinkLocale,
-  discountCode: CanonicalPromotionCode
+  discountCode: CanonicalPromotionCode,
+  referralCode?: string
 ): CheckoutData => {
   const base = makeMeetingRoomCheckoutData(checkoutBaseUrl, slot, flowId);
   assert(base.meetingRoom, "reservation-link checkout interval missing");
@@ -277,6 +286,9 @@ const makeReservationLinkCheckoutData = (
     phone: base.phone,
     startDateTime: slot.startDateTime,
   });
+  if (referralCode !== undefined) {
+    params.set(referralCodeQueryParam, referralCode);
+  }
   return {
     ...base,
     checkoutUrl: `${checkoutBaseUrl}/${locale}/reservation/meeting-room?${params}`,
@@ -521,6 +533,8 @@ const runReservationLinkUnknownCodeCase = ({
       id: "assert-signed-unknown-code-pay-url",
       timeoutMs: config.timeouts.browserAction,
     });
+    // The link's unusable referral code neither blocks the booking nor
+    // replaces the requested discount code in the code box.
     yield* runStep({
       execute: assertRequestedOnlyDiscountCode({
         code: unknownLinkCode,
@@ -734,6 +748,7 @@ export const validateSignedPayUrl = ({
     "message",
     "name",
     "phone",
+    referralCodeQueryParam,
     "startDateTime",
   ]) {
     assert(
@@ -789,33 +804,6 @@ const assertHeldRowHasNoPaymentOrFulfillment = (row: CheckoutRow) => {
     "held reservation has a fulfilled timestamp"
   );
 };
-
-const assertRequestedOnlyDiscountCode = ({
-  code,
-  config,
-  run,
-  session,
-}: {
-  readonly code: CanonicalPromotionCode;
-  readonly config: WorkspaceE2EConfig;
-  readonly run: Runner;
-  readonly session: string;
-}) =>
-  waitForBrowserCondition(
-    run,
-    session,
-    "requested-only discount code input",
-    `
-(() => {
-  const form = document.querySelector('#checkout-discount-code-form');
-  if (!(form instanceof HTMLFormElement)) return false;
-  if (form.querySelector('output')) return false;
-  const input = form.querySelector('#checkout-discount-code');
-  return input instanceof HTMLInputElement && input.value === ${JSON.stringify(code)};
-})()
-`,
-    { timeoutMs: config.timeouts.uiTransition }
-  );
 
 const appliedDiscountMessage = (locale: Locale) =>
   m.checkoutDiscountCodeApplied(

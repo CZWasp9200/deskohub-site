@@ -14,6 +14,7 @@ import type {
   CustomerProfileInput,
 } from "@/features/account/contracts";
 import { m } from "@/features/i18n";
+import { formatReferralInvitationDiscount } from "@/features/referrals/client";
 import { workspaceRouterRefresh } from "@/shared/testing/workspace-component-module-mocks";
 import {
   registerWorkspaceComponentTestEnv,
@@ -57,6 +58,9 @@ const removeCustomerAvatar = mock(() =>
 );
 
 mock.module("@/features/account/actions", () => ({
+  acknowledgeSignupReferralNotice: mock(() =>
+    Promise.resolve({ data: { status: "acknowledged" } })
+  ),
   updateLocalePreference: () => Promise.resolve({ data: { status: "saved" } }),
   lookupAresBusiness: () =>
     Promise.resolve({ data: { status: "not-found", message: "" } }),
@@ -303,6 +307,123 @@ describe("ProfileForm", () => {
     expect(JSON.stringify(input)).not.toContain("email");
     expect(workspaceRouterRefresh).toHaveBeenCalledTimes(1);
     await view.findByText("Your customer profile was created and linked.");
+  });
+
+  test("offers an optional referral code only during first-time completion", async () => {
+    const { ProfileForm } = await import("./profile-form");
+    const { parseReferralCode } = await import("@/features/referrals/client");
+
+    const view = render(
+      <ProfileForm
+        mode="complete"
+        locale="en-US"
+        email={adaAddress}
+        referralCode={parseReferralCode("RFL12345")}
+        referralsEnabled
+      />
+    );
+    const field = view.getByLabelText(
+      m.accountProfileReferralCodeLabel({}, { locale: "en-US" })
+    ) as HTMLInputElement;
+    expect(field.id).toBe("profile-referral-code");
+    expect(field.name).toBe("referralCode");
+    expect(field.value).toBe("RFL12345");
+    expect(field.required).toBe(false);
+    expect(field.className).toContain("uppercase");
+    expect(
+      view.getByText(
+        m.accountProfileReferralCodeHint(
+          { discount: formatReferralInvitationDiscount("en-US") },
+          { locale: "en-US" }
+        )
+      )
+    ).toBeTruthy();
+
+    fireEvent.change(view.getByLabelText("First name"), {
+      target: { value: "Ada" },
+    });
+    await act(async () => {
+      fireEvent.submit(view.container.querySelector("#account-profile-form")!);
+    });
+
+    expect(completeCustomerProfile.mock.calls[0]![0]).toEqual({
+      firstName: "Ada",
+      referralCode: "RFL12345",
+      prefilledReferralCode: "RFL12345",
+    });
+    view.unmount();
+
+    const edit = render(
+      <ProfileForm
+        mode="edit"
+        locale="en-US"
+        email={adaAddress}
+        profile={editProfile}
+      />
+    );
+    expect(edit.container.querySelector("#profile-referral-code")).toBeNull();
+  });
+
+  test("offers no referral code field while the referral program is withheld", async () => {
+    const { ProfileForm } = await import("./profile-form");
+
+    const view = render(
+      <ProfileForm
+        mode="complete"
+        locale="en-US"
+        email={adaAddress}
+        referralsEnabled={false}
+      />
+    );
+
+    expect(view.container.querySelector("#profile-referral-code")).toBeNull();
+    expect(
+      view.queryByLabelText(
+        m.accountProfileReferralCodeLabel({}, { locale: "en-US" })
+      )
+    ).toBeNull();
+  });
+
+  test("shows an unavailable referral code on its field without completing", async () => {
+    completeCustomerProfile.mockImplementationOnce(() =>
+      Promise.resolve({ data: { status: "referral-code-unavailable" } })
+    );
+    const { ProfileForm } = await import("./profile-form");
+
+    const view = render(
+      <ProfileForm
+        mode="complete"
+        locale="cs-CZ"
+        email={adaAddress}
+        referralsEnabled
+      />
+    );
+    fireEvent.change(view.getByLabelText("Jméno"), {
+      target: { value: "Ada" },
+    });
+    const field = view.container.querySelector(
+      "#profile-referral-code"
+    ) as HTMLInputElement;
+    fireEvent.change(field, { target: { value: "rflgone1" } });
+    await act(async () => {
+      fireEvent.submit(view.container.querySelector("#account-profile-form")!);
+    });
+
+    expect(completeCustomerProfile.mock.calls[0]![0]).toEqual({
+      firstName: "Ada",
+      referralCode: "rflgone1",
+    });
+    expect(
+      await view.findByText(
+        m.accountProfileReferralCodeUnavailable({}, { locale: "cs-CZ" })
+      )
+    ).toBeTruthy();
+    expect(field.getAttribute("aria-invalid")).toBe("true");
+    expect(
+      view.queryByText(m.accountCompletionSaved({}, { locale: "cs-CZ" }))
+    ).toBeNull();
+    expect(workspaceRouterRefresh).not.toHaveBeenCalled();
+    expect(view.container.querySelector("#profile-referral-code")).toBeTruthy();
   });
 
   test("keeps the full edit snapshot and drafts across identity and billing sections", async () => {

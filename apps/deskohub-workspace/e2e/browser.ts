@@ -18,7 +18,7 @@ import {
 } from "./errors";
 import { pollUntil } from "./polling";
 import type { Runner } from "./runtime";
-import { log, redact } from "./runtime";
+import { log, redact, redactJsonValue } from "./runtime";
 import { workspaceE2EPollIntervalMs } from "./timeouts";
 
 const isPlaywrightTimeout = (cause: unknown): boolean =>
@@ -343,6 +343,66 @@ export const waitForBrowserReactFormSubmit = (
     }
   ).pipe(Effect.asVoid);
 };
+
+/**
+ * Adds one HTTP-only cookie for the preview origin to the session's own
+ * browser context. The value travels on the command input, never in logged
+ * arguments; callers register it with the redactor first.
+ */
+export const setBrowserCookie = (
+  run: Runner,
+  session: string,
+  cookie: {
+    readonly name: string;
+    readonly url: string;
+    readonly value: string;
+  }
+) =>
+  runBrowserCommand(
+    "set browser cookie",
+    run,
+    session,
+    ["cookie", "set", "--stdin"],
+    {
+      input: JSON.stringify(cookie),
+      logOutput: false,
+    }
+  ).pipe(Effect.asVoid);
+
+export type BrowserCookieDescription = ReturnType<
+  typeof import("./runtime").describeCookie
+>;
+
+/**
+ * Reads one cookie of the session's browser context for an origin: its
+ * attributes and whether it holds the expected value, never the value.
+ */
+export const readBrowserCookie = (
+  run: Runner,
+  session: string,
+  query: {
+    readonly name: string;
+    readonly url: string;
+    readonly value?: string;
+  }
+) =>
+  runBrowserCommand(
+    "read browser cookie",
+    run,
+    session,
+    ["cookie", "get", "--stdin"],
+    {
+      input: JSON.stringify(query),
+      logOutput: false,
+    }
+  ).pipe(
+    Effect.flatMap(({ stdout }) =>
+      tryWorkspaceE2ESync(
+        "parse browser cookie",
+        () => JSON.parse(stdout) as BrowserCookieDescription
+      )
+    )
+  );
 
 export const evalBrowserScript = (
   operation: string,
@@ -676,12 +736,7 @@ export const captureBrowserFailureArtifacts = ({
           "read browser HAR artifact",
           () => readFile(rawHarPath, "utf8")
         );
-        yield* tryWorkspaceE2EPromise("write network.har artifact", () =>
-          writeFile(
-            resolve(artifactDir, "network.har"),
-            `${sanitizeHarArtifact(har)}\n`
-          )
-        );
+        yield* writeSanitizedHarArtifact(artifactDir, sanitizeHarArtifact(har));
       }).pipe(
         Effect.ensuring(
           tryWorkspaceE2EPromise("remove raw browser HAR artifact", () =>
@@ -755,6 +810,14 @@ const writeTextArtifact = (
       resolve(artifactDir, fileName),
       `${sanitizeArtifactText(text.trim())}\n`
     )
+  );
+
+const writeSanitizedHarArtifact = (
+  artifactDir: string,
+  text: string
+): Effect.Effect<void, WorkspaceE2EError> =>
+  tryWorkspaceE2EPromise("write network.har artifact", () =>
+    writeFile(resolve(artifactDir, "network.har"), `${text.trim()}\n`)
   );
 
 // Best-effort switch for cleanup and diagnostics; a failed switch is ignored.
@@ -855,23 +918,10 @@ export const sanitizeHarArtifact = (text: string) => {
       sanitizeHarResponse(asRecord(record.response), requestUrl);
     }
 
-    return JSON.stringify(sanitizeJsonStrings(har), null, 2);
+    return JSON.stringify(redactJsonValue(har, sanitizeArtifactText), null, 2);
   } catch {
     return sanitizeArtifactText(text);
   }
-};
-
-const sanitizeJsonStrings = (value: unknown): unknown => {
-  if (typeof value === "string") return sanitizeArtifactText(value);
-  if (Array.isArray(value)) return value.map(sanitizeJsonStrings);
-  const record = asRecord(value);
-  if (!record) return value;
-  return Object.fromEntries(
-    Object.entries(record).map(([key, item]) => [
-      key,
-      sanitizeJsonStrings(item),
-    ])
-  );
 };
 
 const sanitizeHarRequest = (request: Record<string, unknown> | undefined) => {

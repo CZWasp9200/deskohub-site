@@ -41,6 +41,7 @@ export type PreparedOfficePayState = PayStateSubmittedCodeMetadata & {
   readonly reservation: NormalizedOfficeReservationOrder;
   readonly quote: OfficeReservationQuote;
   readonly requestedDiscountCode?: CanonicalPromotionCode;
+  readonly referralCode?: CanonicalPromotionCode;
 };
 
 export const prepareOfficeAdvertisement = Effect.fn(

@@ -6,6 +6,17 @@ import { Effect, Layer } from "effect";
 
 mock.module("server-only", () => ({}));
 
+// The referral code this browser remembers from a shared link.
+let rememberedReferralCode: string | undefined;
+let forgottenReferralCodes = 0;
+mock.module("@/features/referrals/remembered-referral-code.server", () => ({
+  readRememberedReferralCode: Effect.sync(() => rememberedReferralCode),
+  forgetRememberedReferralCode: async () => {
+    forgottenReferralCodes += 1;
+    rememberedReferralCode = undefined;
+  },
+}));
+
 const input = {
   locale: "en-US" as const,
   payStateToken: "pay-state-token",
@@ -18,6 +29,8 @@ const runSubmitReservation = async (options?: {
   readonly verifyHuman?: ReturnType<typeof mock>;
   readonly createHostedPaymentCheckout?: ReturnType<typeof mock>;
   readonly writeReservationAccessCookie?: ReturnType<typeof mock>;
+  readonly bookerCustomerId?: string;
+  readonly hasSettledReferral?: ReturnType<typeof mock>;
 }) => {
   const { CheckoutService } = await import(
     "@/features/checkout/backend/checkout"
@@ -31,6 +44,12 @@ const runSubmitReservation = async (options?: {
   const { ReservationAccessCookieWriter } = await import(
     "@/features/reservation/backend/reservation-access-cookie.server"
   );
+  const { CustomerAccountContactService } = await import("@/features/account");
+  const { ReferralServiceMock } = await import(
+    "@/features/referrals/referral.service.mock"
+  );
+  const hasSettledReferral =
+    options?.hasSettledReferral ?? mock(() => Effect.succeed(false));
 
   const verifyHuman = options?.verifyHuman ?? mock(() => Effect.void);
   const createHostedPaymentCheckout =
@@ -57,7 +76,18 @@ const runSubmitReservation = async (options?: {
         }),
         Layer.succeed(ReservationAccessCookieWriter, {
           write: writeReservationAccessCookie,
-        })
+        }),
+        Layer.mock(CustomerAccountContactService, {
+          currentLinkedAccount: Effect.succeed(
+            options?.bookerCustomerId === undefined
+              ? null
+              : ({
+                  accountId: "booker-account",
+                  dotyposCustomerId: options.bookerCustomerId,
+                } as never)
+          ),
+        }),
+        ReferralServiceMock({ hasSettledReferral: hasSettledReferral as never })
       )
     )
   );
@@ -196,6 +226,92 @@ describe("submitWorkspaceReservation", () => {
       );
     }
   );
+
+  test.each(["zero-total", "already-paid"] as const)(
+    "forgets the remembered referral code once the %s checkout is paid",
+    async (label) => {
+      rememberedReferralCode = "RFL12345";
+      const redirectUrl = `/en-US/reservation/status/reservation-${label}?outcome=success`;
+      const scenario = await runSubmitReservation({
+        createHostedPaymentCheckout: mock(() =>
+          Effect.succeed({
+            status: "redirect" as const,
+            redirectUrl,
+            paid: true,
+          })
+        ),
+      });
+
+      await expect(Effect.runPromise(scenario.effect)).resolves.toEqual({
+        message: "Checkout started successfully",
+        status: "redirect",
+        redirectUrl,
+        paid: true,
+      });
+      expect(rememberedReferralCode).toBeUndefined();
+    }
+  );
+
+  test.each([
+    ["a settled friend keeps the booker's code", false, "RFL12345"],
+    ["a settled booker clears the booker's code", true, undefined],
+  ] as const)(
+    "checks the signed-in booker's own customer after a paid checkout: %s",
+    async (_label, bookerSettled, codeAfter) => {
+      rememberedReferralCode = "RFL12345";
+      const hasSettledReferral = mock(() => Effect.succeed(bookerSettled));
+      const scenario = await runSubmitReservation({
+        createHostedPaymentCheckout: mock(() =>
+          Effect.succeed({
+            status: "redirect" as const,
+            redirectUrl: "/en-US/reservation/status/reservation-friend",
+            paid: true,
+          })
+        ),
+        bookerCustomerId: "booker-customer",
+        hasSettledReferral,
+      });
+
+      await Effect.runPromise(scenario.effect);
+
+      expect(hasSettledReferral.mock.calls).toEqual([
+        [{ dotyposCustomerId: "booker-customer" }],
+      ]);
+      expect(rememberedReferralCode).toBe(codeAfter);
+    }
+  );
+
+  test("checks no referral after a paid checkout while referrals are withheld", async () => {
+    // While the program is withheld the remembered-code reader reports none,
+    // so even a paid guest checkout settles and clears nothing.
+    rememberedReferralCode = undefined;
+    forgottenReferralCodes = 0;
+    const hasSettledReferral = mock(() => Effect.succeed(true));
+    const scenario = await runSubmitReservation({
+      createHostedPaymentCheckout: mock(() =>
+        Effect.succeed({
+          status: "redirect" as const,
+          redirectUrl: "/en-US/reservation/status/reservation-withheld",
+          paid: true,
+        })
+      ),
+      bookerCustomerId: "booker-customer",
+      hasSettledReferral,
+    });
+    await Effect.runPromise(scenario.effect);
+
+    expect(hasSettledReferral).not.toHaveBeenCalled();
+    expect(forgottenReferralCodes).toBe(0);
+  });
+
+  test("keeps the remembered referral code while a hosted payment is pending", async () => {
+    rememberedReferralCode = "RFL12345";
+    const scenario = await runSubmitReservation();
+
+    await Effect.runPromise(scenario.effect);
+
+    expect(rememberedReferralCode).toBe("RFL12345");
+  });
 
   test("rejects a classified bot before creating checkout", async () => {
     const { BotDetectedError } = await import(

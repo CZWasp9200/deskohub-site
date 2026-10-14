@@ -1,4 +1,5 @@
 import { Effect } from "effect";
+import type { DiscountCodeRejection } from "@/features/checkout/discount-code-rejection";
 import type { Locale } from "@/features/i18n";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import type { CheckoutStateCryptoOptions } from "./checkout-state-token";
@@ -15,7 +16,7 @@ export const discountCodeErrorQueryParam = "discountCodeError" as const;
 export const discountCodeErrorIdQueryParam = "discountCodeErrorId" as const;
 
 type CheckoutPayPathOptions = {
-  readonly discountCodeError?: "unavailable";
+  readonly discountCodeError?: DiscountCodeRejection;
   readonly discountCodeErrorId?: string;
   readonly orderId?: WorkspaceReservationId;
 };

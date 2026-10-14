@@ -10,10 +10,22 @@ import {
 } from "@/db/postgres-advisory-lock";
 import { customerAccountLinks } from "@/db/schema";
 import { authUser } from "@/db/schema/auth";
+import {
+  insertReferralSignupIntent,
+  type ReferralSignupIntent,
+} from "@/features/referrals/signup-intent.repository";
 import type { CustomerAccountId } from "../customer-account";
 
+/**
+ * `created` is true only for the claim that inserted the link; a claim that
+ * found this account already linked to the customer reports false.
+ */
 export type CustomerAccountLinkClaim =
-  | { readonly kind: "linked"; readonly customerId: DotyposCustomerId }
+  | {
+      readonly kind: "linked";
+      readonly customerId: DotyposCustomerId;
+      readonly created: boolean;
+    }
   | { readonly kind: "claimed" };
 
 /**
@@ -29,7 +41,7 @@ export type CustomerAccountLinkError =
   | EffectDrizzleQueryError
   | SqlError.SqlError;
 
-const accountLockKey = (
+export const customerAccountLockKey = (
   accountId: CustomerAccountId
 ): PostgresAdvisoryLockKey => ["customer-account", accountId];
 
@@ -37,9 +49,14 @@ interface ICustomerAccountLinkRepository {
   readonly find: (
     accountId: CustomerAccountId
   ) => Effect.Effect<DotyposCustomerId | null, CustomerAccountLinkError>;
+  /**
+   * A signup referral is written in the link's transaction and only when this
+   * claim creates the link, so it belongs to exactly one completion.
+   */
   readonly claim: (
     accountId: CustomerAccountId,
-    customerId: DotyposCustomerId
+    customerId: DotyposCustomerId,
+    signupReferral?: ReferralSignupIntent
   ) => Effect.Effect<CustomerAccountLinkClaim, CustomerAccountLinkError>;
   readonly findActivityState: (
     accountId: CustomerAccountId
@@ -78,35 +95,56 @@ export class CustomerAccountLinkRepository extends Context.Service<
       const performClaim = Effect.fn("CustomerAccountLinkRepository.claim")(
         function* (
           accountId: CustomerAccountId,
-          customerId: DotyposCustomerId
+          customerId: DotyposCustomerId,
+          signupReferral: ReferralSignupIntent | undefined
         ) {
-          const [inserted] = yield* db
-            .insert(customerAccountLinks)
-            .values({
-              customerAccountId: accountId,
-              dotyposCustomerId: customerId,
+          const inserted = yield* db.transaction(
+            Effect.fn(function* (tx) {
+              const [link] = yield* tx
+                .insert(customerAccountLinks)
+                .values({
+                  customerAccountId: accountId,
+                  dotyposCustomerId: customerId,
+                })
+                .onConflictDoNothing()
+                .returning({
+                  customerId: customerAccountLinks.dotyposCustomerId,
+                });
+              if (link && signupReferral) {
+                yield* insertReferralSignupIntent(
+                  tx,
+                  accountId,
+                  signupReferral
+                );
+              }
+              return link;
             })
-            .onConflictDoNothing()
-            .returning({ customerId: customerAccountLinks.dotyposCustomerId });
+          );
           if (inserted) {
             return {
               kind: "linked",
               customerId: inserted.customerId,
+              created: true,
             } as const;
           }
 
           const racedLink = yield* find(accountId);
           return racedLink
-            ? ({ kind: "linked", customerId: racedLink } as const)
+            ? ({
+                kind: "linked",
+                customerId: racedLink,
+                created: false,
+              } as const)
             : ({ kind: "claimed" } as const);
         }
       );
 
       const claim: ICustomerAccountLinkRepository["claim"] = (
         accountId,
-        customerId
+        customerId,
+        signupReferral
       ) =>
-        performClaim(accountId, customerId).pipe(
+        performClaim(accountId, customerId, signupReferral).pipe(
           Effect.tap(() => Effect.logDebug("Account link claim completed"))
         );
 
@@ -137,7 +175,7 @@ export class CustomerAccountLinkRepository extends Context.Service<
 
       const withAccountLock: ICustomerAccountLinkRepository["withAccountLock"] =
         (accountId, effect) =>
-          advisoryLock.withLock(accountLockKey(accountId), effect);
+          advisoryLock.withLock(customerAccountLockKey(accountId), effect);
 
       return {
         claim,

@@ -20,9 +20,9 @@ const rollbackSql = "rollback";
 const toSqlError = (cause: unknown) =>
   new SqlError.SqlError({ reason: new SqlError.UnknownError({ cause }) });
 
-const acquireTransactionLock = Effect.fn(function* (
+const acquireTransactionLocks = Effect.fn(function* (
   pool: PostgresAdvisoryLockPool,
-  key: PostgresAdvisoryLockKey
+  keys: readonly PostgresAdvisoryLockKey[]
 ) {
   const client = yield* Effect.tryPromise({
     try: () => pool.connect(),
@@ -31,7 +31,9 @@ const acquireTransactionLock = Effect.fn(function* (
   yield* Effect.tryPromise({
     try: async () => {
       await client.query(beginSql);
-      await client.query(lockSql, [...key]);
+      for (const key of keys) {
+        await client.query(lockSql, [...key]);
+      }
     },
     catch: toSqlError,
   }).pipe(
@@ -89,15 +91,38 @@ export const withPostgresAdvisoryLock = <A, E, R>(
   key: PostgresAdvisoryLockKey,
   effect: Effect.Effect<A, E, R>
 ): Effect.Effect<A, E | SqlError.SqlError, R> =>
+  withPostgresAdvisoryLocks(pool, [key], effect);
+
+/**
+ * Acquires multiple transaction-scoped advisory locks on one pinned client
+ * and under one pool permit. Callers provide a deterministic global order.
+ */
+export const withPostgresAdvisoryLocks = <A, E, R>(
+  pool: PostgresAdvisoryLockPool,
+  keys: readonly PostgresAdvisoryLockKey[],
+  effect: Effect.Effect<A, E, R>
+): Effect.Effect<A, E | SqlError.SqlError, R> =>
   Effect.acquireUseRelease(
-    acquireTransactionLock(pool, key),
+    acquireTransactionLocks(pool, keys),
     () => effect,
     releaseTransactionLock
   );
 
 interface IWorkspaceDatabaseAdvisoryLock {
+  /**
+   * Reserves the shared advisory-lock pool permit around work that performs
+   * its advisory locking and local queries inside one database transaction.
+   * The effect must open that transaction only after this permit is acquired.
+   */
+  readonly withTransactionPermit: <A, E, R>(
+    effect: Effect.Effect<A, E, R>
+  ) => Effect.Effect<A, E | SqlError.SqlError, R>;
   readonly withLock: <A, E, R>(
     key: PostgresAdvisoryLockKey,
+    effect: Effect.Effect<A, E, R>
+  ) => Effect.Effect<A, E | SqlError.SqlError, R>;
+  readonly withLocks: <A, E, R>(
+    keys: readonly PostgresAdvisoryLockKey[],
     effect: Effect.Effect<A, E, R>
   ) => Effect.Effect<A, E | SqlError.SqlError, R>;
 }
@@ -110,6 +135,13 @@ export class WorkspaceDatabaseAdvisoryLock extends Context.Service<
     const semaphore = makeAdvisoryLockSemaphore(pool);
 
     return Layer.succeed(this, {
+      withTransactionPermit: (effect) => {
+        if (semaphore === undefined) {
+          return Effect.fail(advisoryLockPoolCapacityError);
+        }
+
+        return semaphore.withPermits(1)(effect);
+      },
       withLock: (key, effect) => {
         if (semaphore === undefined) {
           return Effect.fail(advisoryLockPoolCapacityError);
@@ -117,6 +149,15 @@ export class WorkspaceDatabaseAdvisoryLock extends Context.Service<
 
         return semaphore.withPermits(1)(
           withPostgresAdvisoryLock(pool, key, effect)
+        );
+      },
+      withLocks: (keys, effect) => {
+        if (semaphore === undefined) {
+          return Effect.fail(advisoryLockPoolCapacityError);
+        }
+
+        return semaphore.withPermits(1)(
+          withPostgresAdvisoryLocks(pool, keys, effect)
         );
       },
     });

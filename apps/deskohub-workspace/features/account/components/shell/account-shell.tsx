@@ -3,12 +3,14 @@
 import {
   CalendarDays,
   CreditCard,
+  Gift,
   ShieldCheck,
   TriangleAlert,
   UserRound,
 } from "lucide-react";
 import { type ReactNode, useEffect, useId, useRef } from "react";
 import { Button } from "@/shared/components/ui/button";
+import { cn } from "@/shared/utils";
 import { AccountFrame } from "./account-frame";
 
 /*
@@ -21,10 +23,17 @@ import { AccountFrame } from "./account-frame";
 
 export type AccountSection =
   | "reservations"
+  | "referrals"
   | "profile"
   | "billing"
   | "legal"
   | "danger";
+
+export interface AccountNavigationBadge {
+  readonly text: string;
+  /** Spoken in place of the text, such as "15% referral discount". */
+  readonly label: string;
+}
 
 export interface AccountShellProps {
   readonly activeSection: AccountSection;
@@ -38,16 +47,22 @@ export interface AccountShellProps {
     readonly sections: Readonly<Record<AccountSection, string>>;
   };
   readonly reservationCount?: number;
+  /** Badge beside Referrals, such as "-15%"; hidden when absent. */
+  readonly referralBadge?: AccountNavigationBadge;
   readonly sidebarFooter?: ReactNode;
   readonly disabledSections?: readonly AccountSection[];
+  /** Sections left out of the navigation entirely. */
+  readonly hiddenSections?: readonly AccountSection[];
 }
 
 export function AccountShell({
   activeSection,
   children,
   disabledSections = [],
+  hiddenSections = [],
   labels,
   onSectionChange,
+  referralBadge,
   reservationCount,
   sidebarFooter,
   signOut,
@@ -61,13 +76,16 @@ export function AccountShell({
     reservationCount >= 0
       ? reservationCount
       : undefined;
-  const sections = [
-    { icon: CalendarDays, key: "reservations" },
-    { icon: UserRound, key: "profile" },
-    { icon: CreditCard, key: "billing" },
-    { icon: ShieldCheck, key: "legal" },
-    { icon: TriangleAlert, key: "danger" },
-  ] as const;
+  const sections = (
+    [
+      { icon: CalendarDays, key: "reservations" },
+      { icon: Gift, key: "referrals" },
+      { icon: UserRound, key: "profile" },
+      { icon: CreditCard, key: "billing" },
+      { icon: ShieldCheck, key: "legal" },
+      { icon: TriangleAlert, key: "danger" },
+    ] as const
+  ).filter((section) => !hiddenSections.includes(section.key));
   const mobileNavigationRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -104,7 +122,12 @@ export function AccountShell({
     return () => resizeObserver.disconnect();
   }, [activeSection]);
   const handleSectionChange = (section: AccountSection) => {
-    if (disabledSections.includes(section)) return;
+    if (
+      disabledSections.includes(section) ||
+      hiddenSections.includes(section)
+    ) {
+      return;
+    }
     onSectionChange(section);
   };
 
@@ -207,10 +230,20 @@ export function AccountShell({
                     </span>
                     {section.key === "reservations" &&
                       validReservationCount !== undefined && (
-                        <span className="ml-auto min-w-9 rounded-full bg-[#b06147] px-2.5 py-1 text-center text-sm font-bold leading-none text-white [font-family:var(--font-sculpin,Arial),sans-serif]">
+                        <NavigationBadge section="reservations">
                           {validReservationCount}
-                        </span>
+                        </NavigationBadge>
                       )}
+                    {section.key === "referrals" && referralBadge && (
+                      <NavigationBadge
+                        active={isActive}
+                        label={referralBadge.label}
+                        section="referrals"
+                        tone="positive"
+                      >
+                        {referralBadge.text}
+                      </NavigationBadge>
+                    )}
                   </Button>
                 );
               })}
@@ -224,5 +257,40 @@ export function AccountShell({
     >
       {children}
     </AccountFrame>
+  );
+}
+
+function NavigationBadge({
+  active = false,
+  children,
+  label,
+  section,
+  tone = "count",
+}: {
+  readonly active?: boolean;
+  readonly children: ReactNode;
+  /** Replaces the visible text for screen readers when set. */
+  readonly label?: string;
+  readonly section: AccountSection;
+  readonly tone?: "count" | "positive";
+}) {
+  return (
+    <span
+      data-account-navigation-badge={section}
+      className={cn(
+        "ml-auto min-w-9 shrink-0 whitespace-nowrap rounded-full px-2.5 py-1 text-center text-sm font-bold leading-none text-white [font-family:var(--font-sculpin,Arial),sans-serif]",
+        tone === "positive" ? "bg-aquamarine-ink" : "bg-[#b06147]",
+        tone === "positive" && active && "ring-1 ring-white/40"
+      )}
+    >
+      {label === undefined ? (
+        children
+      ) : (
+        <>
+          <span aria-hidden="true">{children}</span>
+          <span className="sr-only">{label}</span>
+        </>
+      )}
+    </span>
   );
 }

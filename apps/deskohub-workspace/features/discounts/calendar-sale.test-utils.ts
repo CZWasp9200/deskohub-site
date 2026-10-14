@@ -13,6 +13,7 @@ import { DiscountDefinitionRepositoryMock } from "@/features/discounts/discount-
 import { DiscountReleaseGateServiceMock } from "@/features/discounts/discount-release-gate.service.mock";
 import { storedDiscountIdSchema } from "@/features/discounts/persistence-contracts";
 import { PromotionCodeProviderMock } from "@/features/discounts/promotion-code-provider.service.mock";
+import { ReferralServiceMock } from "@/features/referrals/referral.service.mock";
 import {
   CalendarResourceConfig,
   salesCalendarIdSchema,
@@ -86,6 +87,7 @@ export const calendarSaleDiscountServiceLayer = (input: {
         ),
         CustomerDiscountProviderMock({ resolve: () => Effect.succeed([]) }),
         PromotionCodeProviderMock({ revalidate: () => Effect.succeed([]) }),
+        ReferralServiceMock(),
         DiscountReleaseGateServiceMock({
           evaluate: () =>
             Effect.succeed({

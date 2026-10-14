@@ -18,7 +18,7 @@ Playwright Test owns ordering, scheduling, workers, browsers, and fail-fast admi
 
 ```text
 checkout-setup (teardown: checkout-cleanup)
-  ├─ checkout-cases (workers: 5; paid and non-payment cases)
+  ├─ checkout-cases (workers: 5; paid, non-payment, and referral cases)
   ├─ account-auth (serial account lane)
   └─ access-code-creation (last in config, so queued last)
 ```
@@ -28,6 +28,7 @@ checkout-setup (teardown: checkout-cleanup)
 - Inside `checkout-setup`, write the run context first. Then run preview readiness and fixture seeding concurrently, start cowork, meeting-room, and office availability preparation only after both finish (Calendar availability reads the seeded definitions), overlap provider preparation with all of them, and build and verify the plan last. Each keeps its own phase span.
 - Register every checkout case statically in `e2e/playwright-checkout/case-catalog.ts`. `checkout-setup` asserts the prepared plan matches `workspaceE2ECaseIds`.
 - Paid and non-payment cases share the one `checkout-cases` pool. The [hosted-payment permit](#hosted-payment-permit), not serial Playwright lanes, bounds Nexi sessions.
+- Referral cases are non-payment pool cases. `cases.pw.ts` binds them and the paid `checkout-guest-referral` to their seeded run-scoped identities through `registerWorkspaceE2ECases`' `bindCase`; see [referral cases](referral-lane.md).
 - Keep `checkout-cases` one worker below the global ceiling. Playwright can queue `account-auth` behind every `checkout-cases` test in the phase, and the cap leaves the account lane a worker from the first batch.
 - Register `checkout-cases` cases alternating paid and non-payment, each longest median first, so about three hosted sessions are in demand at a time. Re-sort by deployed medians when you add cases.
 - `access-code-creation` sits outside the checkout case catalog and planner. Never add its case to `workspaceE2ECaseIds`. It combines Playwright `page` and `context` fixtures with the shared `runtimeTest` fixtures (`runEffect`, `E2EDatabase`). It is the last project in the config, and Playwright queues top-level projects in config order, so it takes the first worker that frees up (today the account lane's) rather than a first-batch slot. Under `maxFailures: 1`, a case failure stops its admission; it keeps its own interruption-safe cleanup.

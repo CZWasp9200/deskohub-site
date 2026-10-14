@@ -75,7 +75,7 @@ const CustomerAuthCallbackSession = async ({
   );
 };
 
-export default function CustomerAuthCallbackPage() {
+export default async function CustomerAuthCallbackPage() {
   return runWithRequestLocale((locale) => (
     <Suspense fallback={<AuthCallbackLoading locale={locale} />}>
       <CustomerAuthCallbackSession locale={locale} />

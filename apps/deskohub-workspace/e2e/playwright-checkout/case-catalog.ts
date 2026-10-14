@@ -3,15 +3,20 @@
 export const workspaceE2ENonPaymentCaseIds = [
   "voucher-reuse-and-exhaustion",
   "discount-code-capacity-reached",
+  "referral-profile-completion-checkout",
   "reservation-link-meeting-room-zero-total-en-US",
   "discount-code-already-redeemed",
+  "referral-checkout-code-entry",
   "checkout-meeting-room-zero-total-four-hours",
   "reservation-replacement",
+  "referral-referrer-screen",
   "meeting-room-reservation-replacement",
   "checkout-zero-total",
   "calendar-sale-pricing-changes",
   "reservation-link-meeting-room-unknown-code-en-US",
+  "referral-share-link-checkout",
   "reservation-link-meeting-room-zero-total-cs-CZ",
+  "referral-auto-linked-sign-in",
   "discount-code-expires-before-payment",
   "customer-discount-changes-before-payment",
   "locale-switch",
@@ -21,6 +26,7 @@ export const workspaceE2ENonPaymentCaseIds = [
   "discount-code-not-started",
   "discount-code-customer-ineligible",
   "discount-code-product-ineligible",
+  "referral-profile-completion-unusable-link",
   "contact-form",
   "discount-code-invalid-syntax",
 ] as const;
@@ -31,6 +37,7 @@ export const workspaceE2ENonPaymentCaseIds = [
 const workspaceE2EPaidCaseIds = [
   "checkout-calendar-sale-and-code",
   "checkout-calendar-sale",
+  "checkout-guest-referral",
   "payment-late-recovery-recreated",
   "checkout-meeting-room-paid-one-hour",
   "checkout-customer-discount-and-code",
@@ -47,6 +54,28 @@ const workspaceE2EPaidCaseIds = [
   "payment-meeting-room-cancelled",
   "payment-cancelled",
 ] as const;
+
+/**
+ * Referral cases that seed and sign in their own synthetic identities, so no
+ * case spends a magic link or shares an account. They never pay and sit in the
+ * non-payment list above by duration; this list keeps their planning order.
+ */
+export const workspaceE2EReferralCaseIds = [
+  "referral-referrer-screen",
+  "referral-profile-completion-checkout",
+  "referral-checkout-code-entry",
+  "referral-share-link-checkout",
+  "referral-auto-linked-sign-in",
+  "referral-profile-completion-unusable-link",
+] as const satisfies readonly (typeof workspaceE2ENonPaymentCaseIds)[number][];
+
+export type WorkspaceE2EReferralCaseId =
+  (typeof workspaceE2EReferralCaseIds)[number];
+
+export const isWorkspaceE2EReferralCaseId = (
+  value: string
+): value is WorkspaceE2EReferralCaseId =>
+  (workspaceE2EReferralCaseIds as readonly string[]).includes(value);
 
 export const workspaceE2ECaseIds = [
   ...workspaceE2ENonPaymentCaseIds,

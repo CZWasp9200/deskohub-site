@@ -2,6 +2,7 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
 import { Context, Effect, Layer } from "effect";
 import { createElement, type ReactElement, type ReactNode } from "react";
+import { ReferralFeatureFlagService } from "@/features/referrals/referral-feature-flag.service";
 
 const adaEmail = testEmailAddress("ada");
 
@@ -14,6 +15,7 @@ type TestSession = {
 type AccountLayoutShellProps = {
   readonly accountsEnabled: boolean;
   readonly locale: "en-US";
+  readonly referralsEnabled: boolean;
   readonly signedIn: boolean;
   readonly children: ReactNode;
 };
@@ -49,6 +51,8 @@ Object.assign(Authentication, { Default: AuthenticationLayer });
 const connection = mock(() => Promise.resolve());
 let accountsEnabled = true;
 const areAccountsEnabled = mock(() => Promise.resolve(accountsEnabled));
+let referralsEnabled = true;
+const areReferralsEnabled = mock(() => Promise.resolve(referralsEnabled));
 const runWithRequestLocale = mock(
   (callback: (locale: "en-US") => unknown): unknown => callback("en-US")
 );
@@ -56,6 +60,14 @@ const runWithRequestLocale = mock(
 mock.module("next/server", () => ({ connection }));
 mock.module("@/features/account/server/account-feature-flag.server", () => ({
   areAccountsEnabled,
+}));
+mock.module("@/features/referrals/referral-feature-flag.server", () => ({
+  areReferralsEnabled,
+  ReferralFeatureFlagRequest: Layer.unwrap(
+    Effect.promise(areReferralsEnabled).pipe(
+      Effect.map(ReferralFeatureFlagService.fromDecision)
+    )
+  ),
 }));
 mock.module(
   "@/features/account/backend/customer-authentication.service",
@@ -82,8 +94,10 @@ describe("account route layout", () => {
   afterEach(() => {
     connection.mockClear();
     areAccountsEnabled.mockClear();
+    areReferralsEnabled.mockClear();
     runWithRequestLocale.mockClear();
     accountsEnabled = true;
+    referralsEnabled = true;
     currentUserEffect = Effect.succeed(null);
   });
 
@@ -133,10 +147,12 @@ describe("account route layout", () => {
 
       expect(connection).toHaveBeenCalled();
       expect(areAccountsEnabled).toHaveBeenCalledTimes(1);
+      expect(areReferralsEnabled).toHaveBeenCalledTimes(1);
       expect(output.type).toBe(AccountLayoutShell);
       expect(output.props).toMatchObject({
         accountsEnabled: true,
         locale: "en-US",
+        referralsEnabled: true,
         signedIn: expectedSignedIn,
       });
     }
@@ -161,6 +177,25 @@ describe("account route layout", () => {
     expect(output.props).toMatchObject({
       accountsEnabled: false,
       signedIn: true,
+    });
+  });
+
+  test("withholds the referral section when the referral flag is off", async () => {
+    referralsEnabled = false;
+    const { default: AccountLayout } = await import("./layout");
+    const route = AccountLayout({
+      children: createElement("page"),
+      modal: createElement("modal"),
+    }) as ReactElement<{ readonly children: ReactElement }>;
+
+    expect(areReferralsEnabled).not.toHaveBeenCalled();
+    const output = await route.props.children.type(route.props.children.props);
+
+    expect(connection).toHaveBeenCalled();
+    expect(areReferralsEnabled).toHaveBeenCalledTimes(1);
+    expect(output.props).toMatchObject({
+      accountsEnabled: true,
+      referralsEnabled: false,
     });
   });
 });

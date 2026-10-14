@@ -1,9 +1,13 @@
 import { afterEach, expect, mock, setSystemTime, test } from "bun:test";
 import type { Customer } from "@deskohub/dotypos/generated";
-import { Effect, Exit } from "effect";
+import { Effect, Exit, Layer, Option } from "effect";
+import { FetchHttpClient } from "effect/unstable/http";
+import { referralCodeCookieName } from "@/features/referrals/referral-code-cookie";
 import type { DatasourceConfig } from "../config";
 import type { WorkspaceE2EError } from "../errors";
+import { E2EDatabase } from "../integrations/database.service";
 import type { BrowserCommandResult, Runner } from "../runtime";
+import { makeE2ETelemetryMock } from "../services/telemetry.mock";
 import { workspaceE2ETimeouts } from "../timeouts";
 import type { WorkspaceE2EStep, WorkspaceE2EStepRunner } from "../types";
 import {
@@ -15,6 +19,7 @@ import {
   makeWorkspaceE2EAccountRecipient,
   type WorkspaceE2EAccountConfig,
   workspaceE2EAccountMainRecipientLabel,
+  workspaceE2EReferralOwnerRecipientLabel,
 } from "./config";
 import type { WorkspaceE2EAccountJournal } from "./journal";
 import {
@@ -40,6 +45,8 @@ const acceptedTitle = "Check your inbox";
 const acceptedBody =
   "If the address can receive mail, a single-use link will arrive shortly. The link works once and expires in 10 minutes.";
 const completionTitle = "Complete your profile";
+const completionReferralApplied =
+  "Your referral code was applied. You’ll get 15% off your first paid booking.";
 const deletionPendingTitle = "Account deletion is pending";
 const czechDeletionPendingTitle = "Smazání účtu čeká na dokončení";
 const deletionReauthLinkSent =
@@ -62,6 +69,8 @@ const deleteTriggerSelector = "#delete-account-trigger";
 const deleteReauthSendSelector = "#delete-account-reauth-send";
 const deleteConfirmCheckboxSelector = "#confirm-account-deletion";
 const deleteConfirmSelector = "#delete-account-confirm";
+const syntheticReferralCode = "RFLSYNTHETIC1";
+const referralOwnerCustomerId = "customer-referral-owner";
 const profileFirstNameSelector = "#account-profile-first-name";
 const profileLastNameSelector = "#account-profile-last-name";
 const profilePhoneSelector = "#account-profile-phone";
@@ -121,7 +130,8 @@ type FakeEvent = {
     | "ambiguity"
     | "provider-expire"
     | "provider-reactivate"
-    | "provider-create";
+    | "provider-create"
+    | "referral-owner-seed";
   readonly customerId?: string;
   readonly id?: string;
   readonly kind?: FakeMessageKind;
@@ -204,6 +214,13 @@ class FakeAccountExternalState {
   readonly providerCalls: string[] = [];
   readonly messagesByRecipient = new Map<string, FakeMessage[]>();
   readonly profiles = new Map<string, FakeProfile>();
+  /** Recorded referral attributions: invited customer to referrer. */
+  readonly referralAttributions = new Map<string, string>();
+  readonly referralOwnerSeeds: Array<{
+    readonly accountId: string;
+    readonly dotyposCustomerId: string;
+    readonly email: string;
+  }> = [];
   readonly usersByEmail = new Map<string, FakeUser>();
   readonly usersById = new Map<string, FakeUser>();
   readonly linksByUserId = new Map<string, string>();
@@ -253,7 +270,8 @@ class FakeAccountExternalState {
   constructor(
     readonly config: WorkspaceE2EAccountConfig,
     readonly mainRecipient: string,
-    readonly acceptedBRecipient: string
+    readonly acceptedBRecipient: string,
+    readonly referralOwnerRecipient: string
   ) {}
 
   recordBrowserAction(action: FakeBrowserAction) {
@@ -316,9 +334,10 @@ class FakeAccountExternalState {
   /**
    * The profile form submit: the first submit completes the profile by
    * creating and linking the retained provider profile; later submits save
-   * the optional profile and billing drafts to it.
+   * the optional profile and billing drafts to it. A completion that submits
+   * a seeded owner's code records the referral.
    */
-  submitProfile(): "completed" | "saved" {
+  submitProfile(referralCode: string | undefined): "completed" | "saved" {
     const userId = this.currentAuthUserId;
     if (!userId) throw new Error("the profile form was submitted signed out");
     const linkedCustomerId = this.linksByUserId.get(userId);
@@ -331,6 +350,13 @@ class FakeAccountExternalState {
       retained.lastName = "";
       this.profiles.set(retained.id, retained);
       this.linksByUserId.set(userId, retained.id);
+      if (referralCode !== undefined) {
+        const owner = this.referralOwnerSeeds[0];
+        if (!owner || referralCode !== syntheticReferralCode) {
+          throw new Error("the completion submitted an unknown referral code");
+        }
+        this.referralAttributions.set(retained.id, owner.dotyposCustomerId);
+      }
       return "completed";
     }
     const profile = this.requireProfile(linkedCustomerId);
@@ -383,8 +409,11 @@ class FakeAccountExternalState {
   }
 
   createProfile(input: { readonly email: string; readonly firstName: string }) {
-    this.duplicateProfileSequence += 1;
-    const customerId = `customer-duplicate-${this.duplicateProfileSequence}`;
+    let customerId = referralOwnerCustomerId;
+    if (input.email !== this.referralOwnerRecipient) {
+      this.duplicateProfileSequence += 1;
+      customerId = `customer-duplicate-${this.duplicateProfileSequence}`;
+    }
     const profile = this.makeProfile({
       email: input.email,
       firstName: input.firstName,
@@ -432,6 +461,26 @@ class FakeAccountExternalState {
     );
     if (found)
       throw new Error("the synthetic profile exists before verification");
+  }
+
+  seedReferralOwner(input: {
+    readonly accountId: string;
+    readonly dotyposCustomerId: string;
+    readonly email: string;
+  }) {
+    if (!this.profiles.has(input.dotyposCustomerId)) {
+      throw new Error("the referral owner was seeded without its profile");
+    }
+    this.referralOwnerSeeds.push({
+      accountId: input.accountId,
+      dotyposCustomerId: input.dotyposCustomerId,
+      email: input.email,
+    });
+    this.events.push({
+      customerId: input.dotyposCustomerId,
+      type: "referral-owner-seed",
+    });
+    return { code: syntheticReferralCode, promotionCodeId: "promotion-owner" };
   }
 
   findAuthUserId(email: string) {
@@ -572,7 +621,10 @@ class FakeAccountExternalState {
           type: "consume",
           userId: "auth-original",
         });
-        return { destination: "/en-US/account", text: completionTitle };
+        return {
+          destination: "/en-US/account",
+          text: completionTitle,
+        };
       }
       case "reauthentication": {
         const user = this.requireUser("auth-original");
@@ -756,7 +808,8 @@ class FakeAccountExternalState {
     this.messageSequence += 1;
     const id = `message-${this.messageSequence}`;
     const token = `synthetic-token-${this.messageSequence}`;
-    const link = `${this.config.baseUrl}/api/auth/magic-link/verify?token=${token}&callbackURL=${encodeURIComponent(`/${this.config.locale}/auth/callback`)}`;
+    const callbackURL = `/${this.config.locale}/auth/callback`;
+    const link = `${this.config.baseUrl}/api/auth/magic-link/verify?token=${token}&callbackURL=${encodeURIComponent(callbackURL)}`;
     const message = {
       createdAt: fixedNowMs,
       id,
@@ -815,6 +868,9 @@ class FakeBrowser {
   private emailValue = "";
   private nativeValidationBlocked = false;
   private formReady = false;
+  private referralFieldValue: string | undefined;
+  /** The proxy's first-party referral cookie: the first shared link wins. */
+  referralCookie: string | undefined;
   private selectedSection = "";
   private languageListboxOpen = false;
   private focusedSelector = "";
@@ -872,9 +928,16 @@ class FakeBrowser {
       kind: "open",
       selectorOrDestination: parsed.pathname,
     });
+    this.referralFieldValue = undefined;
+    const sharedCode = parsed.searchParams.get("ref");
+    if (sharedCode !== null && this.referralCookie === undefined) {
+      this.referralCookie = sharedCode;
+    }
+    // The proxy keeps the query while it adds the browser's locale.
+    if (parsed.pathname === "/account") parsed.pathname = "/en-US/account";
     this.external.lastDestination =
       parsed.pathname.replace(/^\/en-US/, "") || "/";
-    this.navigate(url);
+    this.navigate(parsed.toString());
   }
 
   /** Places a lane browser that an earlier case left on a page. */
@@ -913,6 +976,8 @@ class FakeBrowser {
         `${this.external.config.baseUrl}${result.destination}`,
         locale
       );
+      // Redirects and the account page carry no code; completion prefills
+      // the remembered one.
       const profile =
         parsed.searchParams.get("section") === "profile" &&
         !result.destination.endsWith("/auth/sign-in");
@@ -928,6 +993,11 @@ class FakeBrowser {
       this.languageControlLabel = profile ? this.profileLabel(locale) : null;
       if (profile) this.selectedSection = "profile";
       this.formReady = result.destination.endsWith("/auth/sign-in");
+      this.emailValue = "";
+      this.nativeValidationBlocked = false;
+      if (result.text === completionTitle) {
+        this.referralFieldValue = this.referralCookie;
+      }
       return;
     }
     if (locale !== undefined && suffix === "/faq") {
@@ -957,6 +1027,8 @@ class FakeBrowser {
       this.currentUrl = this.withLocale(landing, landingLocale);
       this.pageText = this.localizedText(result.text, landingLocale);
       this.formReady = false;
+      this.referralFieldValue =
+        result.text === completionTitle ? this.referralCookie : undefined;
       return;
     }
     throw new Error("unknown synthetic browser destination");
@@ -1057,7 +1129,7 @@ class FakeBrowser {
       return;
     }
     if (selector.includes("Send another link")) {
-      this.currentUrl = `${this.external.config.baseUrl}/en-US/auth/sign-in`;
+      // The accepted card resets the form in place; the URL keeps its query.
       this.pageText = "Sign in";
       this.formReady = true;
       this.emailValue = "";
@@ -1123,10 +1195,18 @@ class FakeBrowser {
       return;
     }
     if (selector === profileSubmitSelector) {
-      this.pageText =
-        this.external.submitProfile() === "completed"
-          ? "Save profile"
-          : "Profile updated.";
+      if (this.external.submitProfile(this.referralFieldValue) === "saved") {
+        this.pageText = "Profile updated.";
+        return;
+      }
+      // The linked account shows the applied referral notice, and the
+      // recorded referral uses up the remembered code.
+      const referralApplied = this.referralFieldValue !== undefined;
+      this.referralFieldValue = undefined;
+      if (referralApplied) this.referralCookie = undefined;
+      this.pageText = referralApplied
+        ? `Save profile\n${completionReferralApplied}`
+        : "Save profile";
       return;
     }
     if (selector.includes("Billing & Invoices")) {
@@ -1319,6 +1399,18 @@ class FakeBrowser {
       }
       return;
     }
+    if (condition.includes("#profile-referral-code")) {
+      const expected = /input\.value === ("(?:[^"\\]|\\.)*")/.exec(
+        condition
+      )?.[1];
+      if (
+        expected === undefined ||
+        this.referralFieldValue !== JSON.parse(expected)
+      ) {
+        throw new Error("the completion referral field holds another value");
+      }
+      return;
+    }
     if (description === "reauthentication dialog") {
       if (!this.external.reauthenticationDialog) {
         throw new Error("the reauthentication dialog is missing");
@@ -1423,6 +1515,8 @@ const requireBrowser = () => {
   return activeBrowser;
 };
 
+const realBrowserModule = await import("../browser");
+
 const browserResult = (stdout = ""): BrowserCommandResult => ({
   exitCode: 0,
   stderr: "",
@@ -1435,6 +1529,7 @@ const browserResult = (stdout = ""): BrowserCommandResult => ({
  * steps remain the implementation under test.
  */
 mock.module("../browser", () => ({
+  ...realBrowserModule,
   activateHydratedBrowserElement: (
     _run: Runner,
     _session: string,
@@ -1467,6 +1562,25 @@ mock.module("../browser", () => ({
     Effect.sync(() => requireBrowser().press(key)),
   readBrowserText: (_run: Runner, _session: string) =>
     Effect.sync(() => requireBrowser().text()),
+  readBrowserCookie: (
+    _run: Runner,
+    _session: string,
+    query: { readonly name: string; readonly value?: string }
+  ) =>
+    Effect.sync(() => {
+      const value = requireBrowser().referralCookie;
+      return query.name !== referralCodeCookieName || value === undefined
+        ? { present: false as const }
+        : {
+            httpOnly: false,
+            lifetimeDays: 30,
+            matches: query.value === undefined ? null : query.value === value,
+            path: "/",
+            present: true as const,
+            sameSite: "Lax",
+            secure: true,
+          };
+    }),
   readBrowserUrl: (_run: Runner, _session: string) =>
     Effect.sync(() => requireBrowser().url()),
   waitForBrowserCondition: (
@@ -1561,6 +1675,21 @@ mock.module("./fixtures", () => ({
   ) => Effect.sync(() => requireExternal().readProfile(customerId)),
 }));
 
+const realReferralFixtureModule = await import("./referral-fixture");
+
+mock.module("./referral-fixture", () => ({
+  ...realReferralFixtureModule,
+  seedWorkspaceE2EReferralOwner: (input: {
+    readonly accountId: string;
+    readonly dotyposCustomerId: string;
+    readonly email: string;
+  }) => Effect.sync(() => requireExternal().seedReferralOwner(input)),
+  findWorkspaceE2EReferralReferrer: (invitedDotyposCustomerId: string) =>
+    Effect.sync(() =>
+      requireExternal().referralAttributions.get(invitedDotyposCustomerId)
+    ),
+}));
+
 const makeConfig = (): WorkspaceE2EAccountConfig => ({
   baseUrl,
   review: { baseUrl, screenshots: false },
@@ -1583,10 +1712,15 @@ const makeScenario = () => {
     config,
     "accepted-b"
   );
+  const referralOwnerRecipient = makeWorkspaceE2EAccountRecipient(
+    config,
+    workspaceE2EReferralOwnerRecipientLabel
+  );
   const external = new FakeAccountExternalState(
     config,
     mainRecipient,
-    acceptedBRecipient
+    acceptedBRecipient,
+    referralOwnerRecipient
   );
   const browser = new FakeBrowser(external);
   activeExternal = external;
@@ -1652,11 +1786,31 @@ const makeScenario = () => {
   };
 };
 
-const executeCase = async (
+const rejectUnexpectedHttp = Object.assign(
+  async (..._args: Parameters<typeof fetch>) => {
+    throw new Error("HTTP must not execute");
+  },
+  {
+    preconnect: (..._args: Parameters<typeof fetch.preconnect>) => undefined,
+  }
+);
+
+const httpClientLayer = FetchHttpClient.layer.pipe(
+  Layer.provide(Layer.succeed(FetchHttpClient.Fetch, rejectUnexpectedHttp))
+);
+
+const accountCaseTestLayer = Layer.mergeAll(
+  makeE2ETelemetryMock([]),
+  Layer.succeed(E2EDatabase, E2EDatabase.of({ db: {} as never })),
+  httpClientLayer
+);
+
+const makeCaseExecution = (
   testCase: WorkspaceE2EAccountCase,
   scenario: ReturnType<typeof makeScenario>,
-  stepIds: string[]
-) => {
+  stepIds: string[],
+  verifyPage?: WorkspaceE2EStep<void>
+): Effect.Effect<void, WorkspaceE2EError> => {
   const runStep: WorkspaceE2EStepRunner = <A, R>(
     step: WorkspaceE2EStep<A, R>
   ) => {
@@ -1665,13 +1819,43 @@ const executeCase = async (
     // boundary models its dependencies; it does not replace semantic steps.
     return step.execute;
   };
-  const effect = testCase.execute({
-    journalRef: scenario.journalRef,
-    runStep,
-    session,
-  });
-  await Effect.runPromise(effect as Effect.Effect<void, WorkspaceE2EError>);
+  return Effect.acquireUseRelease(
+    Effect.interruptible(
+      testCase.execute({
+        journalRef: scenario.journalRef,
+        runStep,
+        session,
+      })
+    ),
+    () =>
+      Option.match(Option.fromNullishOr(verifyPage), {
+        onNone: () => Effect.void,
+        onSome: runStep,
+      }),
+    (completion, useExit) =>
+      completion.cleanup.pipe(
+        Effect.exit,
+        Effect.flatMap((cleanupExit) =>
+          Exit.match(useExit, {
+            onFailure: () => Effect.void,
+            onSuccess: () =>
+              Exit.match(cleanupExit, {
+                onFailure: (cause) => Effect.failCause(cause),
+                onSuccess: () => Effect.void,
+              }),
+          })
+        )
+      )
+  ).pipe(Effect.provide(accountCaseTestLayer));
 };
+
+const executeCase = async (
+  testCase: WorkspaceE2EAccountCase,
+  scenario: ReturnType<typeof makeScenario>,
+  stepIds: string[],
+  verifyPage?: WorkspaceE2EStep<void>
+) =>
+  Effect.runPromise(makeCaseExecution(testCase, scenario, stepIds, verifyPage));
 
 const buildCase = async (
   makeCases: typeof import("./cases").makeWorkspaceE2EAccountCases,
@@ -1731,6 +1915,39 @@ test("executes every account lane case within the magic-link ledger", async () =
 
   expect(stepIds.length).toBeGreaterThan(0);
   expect(scenario.lifecycleHandoff.firstAcceptedRequestedAt).toEqual(fixedNow);
+  expect(scenario.lifecycleHandoff.referralInvitation).toEqual({
+    code: syntheticReferralCode,
+    referrerCustomerId: referralOwnerCustomerId,
+  });
+
+  // The referrer exists before any sign-in request, and the first accepted
+  // request starts anonymously from the locale-free share link: no direct
+  // sign-in page visit precedes it.
+  const firstSendIndex = scenario.external.events.findIndex(
+    ({ type }) => type === "send"
+  );
+  expect(
+    scenario.external.events.findIndex(
+      ({ type }) => type === "referral-owner-seed"
+    )
+  ).toBeLessThan(firstSendIndex);
+  expect(scenario.external.referralOwnerSeeds).toEqual([
+    {
+      accountId: expect.stringMatching(/^account-referral-owner-/),
+      dotyposCustomerId: referralOwnerCustomerId,
+      email: scenario.external.referralOwnerRecipient,
+    },
+  ]);
+  const firstSendClick = scenario.external.browserActions.findIndex(
+    ({ kind, selectorOrDestination }) =>
+      kind === "click" && selectorOrDestination === signInSubmitSelector
+  );
+  expect(
+    scenario.external.browserActions
+      .slice(0, firstSendClick)
+      .filter(({ kind }) => kind === "open")
+      .map(({ selectorOrDestination }) => selectorOrDestination)
+  ).toEqual(["/account"]);
 
   // Each case spent exactly its ledger entry, so an undeclared operation
   // fails even while the lane total still fits the budget.
@@ -1781,6 +1998,13 @@ test("executes every account lane case within the magic-link ledger", async () =
     "reauthentication",
     "reactivation",
   ]);
+  // The shared code travels in the remembered cookie, never in a link, and
+  // the completed profile records the referral, which uses up the cookie.
+  expect(mainMessages.some(({ link }) => link.includes("ref"))).toBe(false);
+  expect(scenario.external.referralAttributions).toEqual(
+    new Map([["customer-retained", referralOwnerCustomerId]])
+  );
+  expect(scenario.browser.referralCookie).toBeUndefined();
   expect(mainMessages[0]?.consumed).toBe(true);
   expect(mainMessages[1]?.consumed).toBe(true);
   expect(mainMessages[2]?.consumed).toBe(true);
@@ -1893,10 +2117,12 @@ test("executes every account lane case within the magic-link ledger", async () =
   // equal index still proves it was persisted before the ambiguity navigation.
   expect(duplicateJournal?.eventIndex).toBeLessThanOrEqual(ambiguityEventIndex);
   expect(scenario.external.journal.authUserIds).toEqual([
+    scenario.external.referralOwnerSeeds[0]?.accountId,
     "auth-original",
     "auth-reactivated",
   ]);
   expect(scenario.external.journal.dotyposCustomerIds).toEqual([
+    referralOwnerCustomerId,
     "customer-retained",
     "customer-duplicate-1",
   ]);
@@ -1916,18 +2142,8 @@ test("fails closed before external side effects when the accepted request handof
     scenario
   );
   const stepIds: string[] = [];
-  const runStep: WorkspaceE2EStepRunner = <A, R>(
-    step: WorkspaceE2EStep<A, R>
-  ) => {
-    stepIds.push(step.id);
-    return step.execute;
-  };
   const exit = await Effect.runPromiseExit(
-    selected.execute({
-      journalRef: scenario.journalRef,
-      runStep,
-      session,
-    }) as Effect.Effect<void, WorkspaceE2EError>
+    makeCaseExecution(selected, scenario, stepIds)
   );
 
   expect(Exit.isFailure(exit)).toBe(true);
@@ -1942,6 +2158,28 @@ test("fails closed before external side effects when the accepted request handof
   expect(scenario.retries).toEqual([]);
 });
 
+test("fails closed before any sign-in request when the share-link handoff is missing", async () => {
+  setSystemTime(fixedNow);
+  const { makeWorkspaceE2EAccountCases } = await import("./cases");
+  const scenario = makeScenario();
+  const selected = await buildCase(
+    makeWorkspaceE2EAccountCases,
+    "account-sign-in-form",
+    scenario
+  );
+  const stepIds: string[] = [];
+  const exit = await Effect.runPromiseExit(
+    makeCaseExecution(selected, scenario, stepIds)
+  );
+
+  expect(Exit.isFailure(exit)).toBe(true);
+  expect(stepIds).toEqual(["requires the share-link sign-in handoff"]);
+  expect(scenario.external.browserActions).toEqual([]);
+  expect(scenario.external.events).toEqual([]);
+  expect(scenario.operations).toEqual([]);
+  expect(scenario.lifecycleHandoff.firstAcceptedRequestedAt).toBeUndefined();
+});
+
 test("fails closed before external side effects when the reauthentication handoff is missing", async () => {
   setSystemTime(fixedNow);
   const { makeWorkspaceE2EAccountCases } = await import("./cases");
@@ -1952,18 +2190,8 @@ test("fails closed before external side effects when the reauthentication handof
     scenario
   );
   const stepIds: string[] = [];
-  const runStep: WorkspaceE2EStepRunner = <A, R>(
-    step: WorkspaceE2EStep<A, R>
-  ) => {
-    stepIds.push(step.id);
-    return step.execute;
-  };
   const exit = await Effect.runPromiseExit(
-    selected.execute({
-      journalRef: scenario.journalRef,
-      runStep,
-      session,
-    }) as Effect.Effect<void, WorkspaceE2EError>
+    makeCaseExecution(selected, scenario, stepIds)
   );
 
   expect(Exit.isFailure(exit)).toBe(true);
@@ -1996,18 +2224,8 @@ test("fails when the reauthentication handoff names a different linked customer"
     scenario
   );
   const stepIds: string[] = [];
-  const runStep: WorkspaceE2EStepRunner = <A, R>(
-    step: WorkspaceE2EStep<A, R>
-  ) => {
-    stepIds.push(step.id);
-    return step.execute;
-  };
   const exit = await Effect.runPromiseExit(
-    selected.execute({
-      journalRef: scenario.journalRef,
-      runStep,
-      session,
-    }) as Effect.Effect<void, WorkspaceE2EError>
+    makeCaseExecution(selected, scenario, stepIds)
   );
 
   expect(Exit.isFailure(exit)).toBe(true);

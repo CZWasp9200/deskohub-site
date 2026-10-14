@@ -6,13 +6,21 @@ import { RedirectType, redirect } from "next/navigation";
 import { env } from "@/env";
 import {
   buildCheckoutPayPathFromToken,
+  CheckoutReferralService,
   PayableReservationService,
 } from "@/features/checkout/backend/checkout";
 import { CheckoutPricingService } from "@/features/checkout/backend/checkout/checkout-pricing.service";
+import { addCheckoutReferralAppliedMarker } from "@/features/checkout/checkout-referral-notice";
+import type { DiscountCodeRejection } from "@/features/checkout/discount-code-rejection";
 import { defaultLocale, isLocale, type Locale } from "@/features/i18n";
+import { ReferralService } from "@/features/referrals";
+import { parseSharedReferralCode } from "@/features/referrals/referral-code-cookie";
+import { ReferralFeatureFlagRequest } from "@/features/referrals/referral-feature-flag.server";
+import { rememberReferralCode } from "@/features/referrals/remembered-referral-code.server";
 import { defineWorkspaceAction } from "@/shared/backend/workspace-action";
 import { applyDiscountCodeSchema } from "./apply-discount-code-input";
 import {
+  type ApplyDiscountCodeResult,
   applyDiscountCodeToPayState,
   getApplyDiscountCodeDeadline,
 } from "./apply-discount-code-to-pay-state";
@@ -26,7 +34,12 @@ const applyDiscountCodeAction = defineWorkspaceAction(
   (input) =>
     applyDiscountCodeToPayState(input).pipe(
       Effect.provide(
-        Layer.merge(CheckoutPricingService.Live, PayableReservationService.Live)
+        Layer.mergeAll(
+          CheckoutPricingService.Live,
+          PayableReservationService.Live,
+          ReferralService.Live,
+          CheckoutReferralService.Live
+        ).pipe(Layer.provideMerge(ReferralFeatureFlagRequest))
       )
     )
 );
@@ -36,6 +49,14 @@ const applyDiscountCode: typeof applyDiscountCodeAction = async (
 ) => {
   "use server";
   return await applyDiscountCodeAction(...args);
+};
+
+const getDiscountCodeRejection = (
+  status: ApplyDiscountCodeResult["status"] | undefined
+): DiscountCodeRejection => {
+  if (status === "already_attributed") return "referral-already-attributed";
+  if (status === "ineligible") return "referral-ineligible";
+  return "unavailable";
 };
 
 export async function applyDiscountCodeForm(
@@ -49,16 +70,26 @@ export async function applyDiscountCodeForm(
     payStateToken,
     submittedCode: Predicate.isString(submittedCode) ? submittedCode : "",
   });
+  const data = result.data;
+  const freshPayUrl =
+    data && "freshPayUrl" in data ? data.freshPayUrl : undefined;
 
   if (
-    result.data?.status === "applied" ||
-    result.data?.status === "pricing_changed"
+    freshPayUrl &&
+    (data?.status === "accepted" || data?.status === "already_accepted")
   ) {
-    redirect(result.data.freshPayUrl, RedirectType.replace);
+    const acceptedCode = parseSharedReferralCode(
+      Predicate.isString(submittedCode) ? submittedCode : undefined
+    );
+    if (acceptedCode) await rememberReferralCode(acceptedCode);
+    redirect(
+      addCheckoutReferralAppliedMarker(freshPayUrl, locale) ?? freshPayUrl,
+      RedirectType.replace
+    );
   }
 
-  if (result.data?.status === "unavailable" && result.data.freshPayUrl) {
-    redirect(result.data.freshPayUrl, RedirectType.replace);
+  if (freshPayUrl) {
+    redirect(freshPayUrl, RedirectType.replace);
   }
 
   // Server Action arguments are client-controlled, so never build a redirect
@@ -68,7 +99,7 @@ export async function applyDiscountCodeForm(
       isLocale(locale) ? locale : defaultLocale,
       payStateToken,
       {
-        discountCodeError: "unavailable",
+        discountCodeError: getDiscountCodeRejection(data?.status),
         discountCodeErrorId: randomUUID(),
       }
     ),

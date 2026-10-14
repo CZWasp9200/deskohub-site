@@ -24,4 +24,6 @@ Read the reference for the task:
 
 Memoize a page gate with React `cache` and provide the memoized lookup to the page's Effect consumers, so metadata, page content, and nested loaders such as advertised prices share one evaluation per render. `features/office/backend/office-reservation-feature-flag.server.ts` is the pattern.
 
+React `cache` doesn't memoize inside a Server Action or route handler. There, evaluate a gate once per run (build its decision as one Layer, as `ReferralFeatureFlagRequest` does) and have helpers read the provided service, never re-evaluate. `WorkspaceFeatureFlagService` can't run in `proxy.ts`: its classification is a `"use cache"` function, which the proxy doesn't support.
+
 A gate may read the request subject. On a Cache Components page, evaluate it inside the Suspense boundary after `connection()`, never in the component that builds the static shell; a shell-level read makes the route dynamic and breaks `instant = true`. Also check the gate in `generateMetadata`, so crawlers and a constant-off flag get a real 404 while browsers get the streamed not-found boundary.

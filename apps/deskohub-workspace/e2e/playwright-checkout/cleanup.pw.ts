@@ -1,12 +1,15 @@
 import {
-  prepareWorkspaceE2EAccountLaneReconciliation,
-  reconcileWorkspaceE2EAccountLane,
+  prepareWorkspaceE2EAccountJournalReconciliations,
+  reconcileWorkspaceE2EAccountJournals,
+  workspaceE2EAccountLaneJournalOwner,
 } from "../account/reconcile";
+import { guestReferralPaymentJournalOwner } from "../cases/guest-referral-payment";
 import {
   cleanupPreparedCheckoutFlowStates,
   prepareCheckoutFlowCleanup,
 } from "../cleanup";
 import { getDatasourceConfig } from "../config";
+import { workspaceE2EReferralJournalOwners } from "../referrals/journal-owners";
 import { workspaceE2ECaseIds } from "./case-catalog";
 import {
   runWorkspaceE2ECleanupWithPreparedCandidates,
@@ -22,11 +25,16 @@ test("reconcile workspace checkout reservations", async ({
 }) => {
   const datasourceConfig = getDatasourceConfig(environment);
   await runWorkspaceE2ECleanupWithPreparedCandidates({
-    readAccountLaneJournal: () =>
+    readAccountJournals: () =>
       runEffect(
-        prepareWorkspaceE2EAccountLaneReconciliation(
+        prepareWorkspaceE2EAccountJournalReconciliations(
           datasourceConfig,
-          runContext.runId
+          runContext.runId,
+          [
+            workspaceE2EAccountLaneJournalOwner,
+            ...workspaceE2EReferralJournalOwners,
+            guestReferralPaymentJournalOwner,
+          ]
         )
       ),
     readCheckoutCleanup: async () => {
@@ -36,7 +44,7 @@ test("reconcile workspace checkout reservations", async ({
         prepareCheckoutFlowCleanup({ datasourceConfig, flowStates })
       );
     },
-    reconcile: ({ accountLaneJournal, checkoutCleanup }) =>
+    reconcile: ({ accountJournals, checkoutCleanup }) =>
       runEffect(
         traceWorkspaceE2ESuiteCleanup({
           cleanupCheckout: cleanupPreparedCheckoutFlowStates({
@@ -44,9 +52,9 @@ test("reconcile workspace checkout reservations", async ({
             prepared: checkoutCleanup,
             workflowError: undefined,
           }),
-          reconcileAccountLane: reconcileWorkspaceE2EAccountLane(
+          reconcileAccountJournals: reconcileWorkspaceE2EAccountJournals(
             datasourceConfig,
-            accountLaneJournal
+            accountJournals
           ),
         })
       ),

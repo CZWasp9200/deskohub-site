@@ -2,7 +2,8 @@ import "@/shared/polyfills/temporal";
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, mock, test } from "bun:test";
-import { Duration } from "effect";
+import { Duration, Effect } from "effect";
+import { payStateTokenQueryParam } from "@/features/checkout/backend/checkout/pay-state";
 import type { WorkspaceActionOptions } from "@/shared/backend/workspace-action";
 import type { ApplyDiscountCodeResult } from "./apply-discount-code-to-pay-state";
 
@@ -36,18 +37,31 @@ mock.module("@/shared/backend/workspace-action", () => ({
 
 let operationResult: ApplyDiscountCodeResult;
 
+// The referral code this browser remembers; an accepted typed code replaces it.
+let rememberedReferralCode: string | undefined;
+mock.module("@/features/referrals/remembered-referral-code.server", () => ({
+  readRememberedReferralCode: Effect.sync(() => rememberedReferralCode),
+  forgetRememberedReferralCode: async () => {
+    rememberedReferralCode = undefined;
+  },
+  rememberReferralCode: async (code: string) => {
+    rememberedReferralCode = code;
+  },
+}));
+
 const runForm = async (
   result: ApplyDiscountCodeResult,
   input: {
     readonly locale?: string;
     readonly payStateToken: string;
+    readonly submittedCode?: string;
   }
 ) => {
   operationResult = result;
   redirectMock.mockClear();
   const { applyDiscountCodeForm } = await import("./apply-discount-code");
   const formData = new FormData();
-  formData.set("submittedCode", "save20");
+  formData.set("submittedCode", input.submittedCode ?? "save20");
 
   let redirectError: unknown;
   try {
@@ -68,6 +82,73 @@ const runForm = async (
 };
 
 describe("applyDiscountCodeForm", () => {
+  test.each(["accepted", "already_accepted"] as const)(
+    "redirects a referral %s result to its fresh signed summary",
+    async (status) => {
+      const freshPayUrl = "/en-US/checkout/pay?payState=fresh-referral-state";
+      const redirectedUrl = await runForm(
+        { status, freshPayUrl },
+        { payStateToken: "original-token", submittedCode: "RFL12345" }
+      );
+
+      expect(redirectedUrl).toBe(`${freshPayUrl}&referralApplied=1`);
+    }
+  );
+
+  test.each(["applied", "pricing_changed"] as const)(
+    "does not carry referral feedback onto an ordinary %s URL",
+    async (status) => {
+      const freshPayUrl = "/en-US/checkout/pay?payState=fresh-ordinary-state";
+      const redirectedUrl = await runForm(
+        { status, freshPayUrl },
+        { payStateToken: "original-token", submittedCode: "SAVE20" }
+      );
+
+      expect(redirectedUrl).toBe(freshPayUrl);
+    }
+  );
+
+  test.each(["accepted", "already_accepted"] as const)(
+    "remembers a typed referral code once it is %s, replacing the stored one",
+    async (status) => {
+      rememberedReferralCode = "RFLSHARED";
+      await runForm(
+        {
+          status,
+          freshPayUrl: "/en-US/checkout/pay?payState=fresh-referral-state",
+        },
+        { payStateToken: "original-token", submittedCode: " rfl12345 " }
+      );
+
+      expect(rememberedReferralCode).toBe("RFL12345");
+    }
+  );
+
+  test.each([
+    { status: "already_attributed" },
+    { status: "ineligible" },
+    { status: "unavailable" },
+    {
+      status: "applied",
+      freshPayUrl: "/en-US/checkout/pay?payState=ordinary-state",
+    },
+    {
+      status: "pricing_changed",
+      freshPayUrl: "/en-US/checkout/pay?payState=changed-state",
+    },
+  ] as const)(
+    "keeps the stored code when a typed code is not accepted as a referral: $status",
+    async (result) => {
+      rememberedReferralCode = "RFLSHARED";
+      await runForm(result as ApplyDiscountCodeResult, {
+        payStateToken: "original-token",
+        submittedCode: "RFL12345",
+      });
+
+      expect(rememberedReferralCode).toBe("RFLSHARED");
+    }
+  );
+
   test("redirects an unavailable code to the replacement pay URL", async () => {
     const freshPayUrl = "/en-US/checkout/pay?payState=replacement-token";
 
@@ -89,6 +170,29 @@ describe("applyDiscountCodeForm", () => {
     expect(redirectedUrl).toContain("discountCodeError=unavailable");
     expect(redirectedUrl).toContain("discountCodeErrorId=");
   });
+
+  test.each([
+    ["already_attributed", "referral-already-attributed"],
+    ["ineligible", "referral-ineligible"],
+  ] as const)(
+    "routes the %s referral rejection to its explained field error",
+    async (status, discountCodeError) => {
+      const redirectedUrl = await runForm(
+        { status },
+        { payStateToken: "original-token", submittedCode: "RFL12345" }
+      );
+      const url = new URL(redirectedUrl, "https://deskohub.test");
+
+      expect(url.pathname).toBe("/en-US/checkout/pay");
+      expect(url.searchParams.get(payStateTokenQueryParam)).toBe(
+        "original-token"
+      );
+      expect(url.searchParams.get("discountCodeError")).toBe(discountCodeError);
+      expect(url.searchParams.get("discountCodeErrorId")).toBeTruthy();
+      expect(url.searchParams.has("referralApplied")).toBe(false);
+      expect(redirectedUrl).not.toContain("RFL12345");
+    }
+  );
 
   test("never redirects off-site when the action is invoked with a tampered locale", async () => {
     const redirectedUrl = await runForm(

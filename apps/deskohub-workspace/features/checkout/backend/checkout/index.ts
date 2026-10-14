@@ -14,6 +14,7 @@ export {
   discountCodeErrorQueryParam,
 } from "./checkout-pay-url";
 export { CheckoutPricingService } from "./checkout-pricing.service";
+export { CheckoutReferralService } from "./checkout-referral.service";
 export {
   type CheckoutCoworkStatusSummary,
   type CheckoutMeetingRoomStatusSummary,

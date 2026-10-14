@@ -29,8 +29,11 @@ import {
 import {
   readWorkspaceE2EAccountJournal,
   type WorkspaceE2EAccountJournal,
+  type WorkspaceE2EAccountJournalOwnerId,
+  workspaceE2EAccountLaneId,
   writeWorkspaceE2EAccountJournal,
 } from "./journal";
+import { removeWorkspaceE2EReferralRows } from "./referral-fixture";
 
 type WorkspaceE2EAccountCleanupIds = Pick<
   WorkspaceE2EAccountJournal,
@@ -70,6 +73,20 @@ const reconcileWorkspaceE2EAccountJournal = ({
 }): Effect.Effect<void, WorkspaceE2EError, E2EDatabase> =>
   Effect.gen(function* () {
     const failures: WorkspaceE2EError[] = [];
+
+    const referralRowsExit = yield* Effect.exit(
+      removeWorkspaceE2EReferralRows({
+        syntheticDotyposCustomerIds:
+          journal.dotyposCustomerIds as DotyposCustomerId[],
+        syntheticDotyposReservationIds:
+          journal.dotyposReservationIds as DotyposReservationId[],
+      })
+    );
+    if (Exit.isFailure(referralRowsExit)) {
+      failures.push(
+        toWorkspaceE2EFailure(Cause.squash(referralRowsExit.cause))
+      );
+    }
 
     const reservationExit = yield* Effect.exit(
       reconcileReservations(datasourceConfig, candidates.dotyposReservationIds)
@@ -121,25 +138,62 @@ const reconcileWorkspaceE2EAccountJournal = ({
   });
 
 /**
- * Reconciles the account lane journal during suite cleanup. A missing
- * journal means the lane never admitted a case; an existing journal is
- * always reconciled because every step is idempotent for the exact owned
- * IDs, even when the lane already finished.
+ * Reconciles every prepared account identity journal during suite cleanup.
+ * A missing journal means its owner never admitted a case; an existing
+ * journal is always reconciled because every step is idempotent for the
+ * exact owned IDs, even when the owner already finished. Every journal is
+ * attempted before the first failure is reported.
  */
-export const reconcileWorkspaceE2EAccountLane = (
+export const reconcileWorkspaceE2EAccountJournals = (
   datasourceConfig: DatasourceConfig,
-  prepared: WorkspaceE2EAccountLaneReconciliation | undefined
+  prepared: readonly WorkspaceE2EAccountLaneReconciliation[]
 ): Effect.Effect<void, WorkspaceE2EError, E2EDatabase> =>
   Effect.gen(function* () {
-    if (!prepared) return;
-    yield* reconcileWorkspaceE2EAccountJournal({
-      datasourceConfig,
-      candidates: prepared,
-      journal: prepared.journal,
-    });
+    const failures: WorkspaceE2EError[] = [];
+    for (const candidates of prepared) {
+      const exit = yield* Effect.exit(
+        reconcileWorkspaceE2EAccountJournal({
+          datasourceConfig,
+          candidates,
+          journal: candidates.journal,
+        })
+      );
+      if (Exit.isFailure(exit)) {
+        failures.push(toWorkspaceE2EFailure(Cause.squash(exit.cause)));
+      }
+    }
+    if (failures.length === 1 && failures[0]) return yield* failures[0];
+    if (failures.length > 1) {
+      return yield* workspaceE2EError(
+        "Workspace account e2e journal reconciliation failed",
+        {
+          causes: failures,
+          operation: "reconcile workspace account e2e journals",
+        }
+      );
+    }
   });
 
-const accountLaneRecipientLabels = ["main", "accepted-b"] as const;
+const accountLaneRecipientLabels = [
+  "main",
+  "accepted-b",
+  "referral-owner",
+] as const;
+
+/**
+ * One account identity journal owner and the exact run-scoped recipient
+ * labels whose synthetic identities it may own.
+ */
+export type WorkspaceE2EAccountJournalOwner = {
+  readonly ownerId: WorkspaceE2EAccountJournalOwnerId;
+  readonly recipientLabels: readonly string[];
+};
+
+export const workspaceE2EAccountLaneJournalOwner: WorkspaceE2EAccountJournalOwner =
+  {
+    ownerId: workspaceE2EAccountLaneId,
+    recipientLabels: accountLaneRecipientLabels,
+  };
 
 type AccountLanePreparationDependencies = {
   readonly readJournal: typeof readWorkspaceE2EAccountJournal;
@@ -211,15 +265,19 @@ export const validateWorkspaceE2EAccountLaneJournalOwnership = ({
   };
 };
 
-export const prepareWorkspaceE2EAccountLaneReconciliation = (
-  datasourceConfig: DatasourceConfig,
-  runId: WorkspaceE2ERunId,
-  dependencies: AccountLanePreparationDependencies = {
+const defaultAccountLanePreparationDependencies: AccountLanePreparationDependencies =
+  {
     readJournal: readWorkspaceE2EAccountJournal,
     findAuthUserEmailById,
     readSyntheticCustomerProfile,
     readReservationOwner: readAccountReservationOwner,
-  }
+  };
+
+export const prepareWorkspaceE2EAccountLaneReconciliation = (
+  datasourceConfig: DatasourceConfig,
+  runId: WorkspaceE2ERunId,
+  dependencies: AccountLanePreparationDependencies = defaultAccountLanePreparationDependencies,
+  owner: WorkspaceE2EAccountJournalOwner = workspaceE2EAccountLaneJournalOwner
 ): Effect.Effect<
   WorkspaceE2EAccountLaneReconciliation | undefined,
   WorkspaceE2EError,
@@ -232,12 +290,12 @@ export const prepareWorkspaceE2EAccountLaneReconciliation = (
           cause,
           operation: "read workspace account e2e lane journal",
         }),
-      try: () => dependencies.readJournal(),
+      try: () => dependencies.readJournal(owner.ownerId),
     });
     if (!journal) return undefined;
 
     const recipientEmails = new Set(
-      accountLaneRecipientLabels.map((label) =>
+      owner.recipientLabels.map((label) =>
         makeWorkspaceE2EAccountRecipientForRunId(runId, label)
       )
     );
@@ -287,6 +345,35 @@ export const prepareWorkspaceE2EAccountLaneReconciliation = (
       );
     }
   });
+
+/**
+ * Prepares every account identity journal that exists for the given owners,
+ * each validated against its own recipient labels.
+ */
+export const prepareWorkspaceE2EAccountJournalReconciliations = (
+  datasourceConfig: DatasourceConfig,
+  runId: WorkspaceE2ERunId,
+  owners: readonly WorkspaceE2EAccountJournalOwner[]
+): Effect.Effect<
+  readonly WorkspaceE2EAccountLaneReconciliation[],
+  WorkspaceE2EError,
+  E2EDatabase
+> =>
+  Effect.forEach(owners, (owner) =>
+    prepareWorkspaceE2EAccountLaneReconciliation(
+      datasourceConfig,
+      runId,
+      defaultAccountLanePreparationDependencies,
+      owner
+    )
+  ).pipe(
+    Effect.map((prepared) =>
+      prepared.filter(
+        (entry): entry is WorkspaceE2EAccountLaneReconciliation =>
+          entry !== undefined
+      )
+    )
+  );
 
 const isNotFound =
   (operation: string) =>

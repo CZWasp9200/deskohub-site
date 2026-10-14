@@ -29,6 +29,7 @@ import { meetingRoomE2EDurations } from "./cases/meeting-room";
 import { selectCoworkDates } from "./checkout/data";
 import type { DatasourceConfig, WorkspaceE2EConfig } from "./config";
 import type { E2EDotyposDiscountGroup } from "./integrations/dotypos";
+import { workspaceE2EReferralCheckoutCaseIds } from "./referrals/plan";
 import type { Runner } from "./runtime";
 import { workspaceE2ETimeouts } from "./timeouts";
 
@@ -110,7 +111,7 @@ test("wires the case-plan per-date maximums through the real case builders", asy
   const reservedDeskMaximum =
     workspaceE2EMaximumSameDateCoworkReservations["reserved-desk"];
   const openSpaceDates = Array.from(
-    { length: 10 },
+    { length: 11 },
     (_, index) => `2099-08-${String(index + 1).padStart(2, "0")}`
   );
   const openSpaceDateSet = new Set(openSpaceDates);
@@ -162,6 +163,12 @@ test("wires the case-plan per-date maximums through the real case builders", asy
 
   expect(cases.length).toBeGreaterThan(0);
   expect(cases.some(({ id }) => id === "checkout-discount-code")).toBe(true);
+  const referralCheckouts = cases.filter(({ id }) =>
+    (workspaceE2EReferralCheckoutCaseIds as readonly string[]).includes(id)
+  );
+  expect(
+    referralCheckouts.map(({ checkoutStates }) => checkoutStates.length)
+  ).toEqual(workspaceE2EReferralCheckoutCaseIds.map(() => 1));
   const plannedDates = cases.flatMap(({ checkoutStates }) =>
     checkoutStates.map(({ data }) => data.date)
   );

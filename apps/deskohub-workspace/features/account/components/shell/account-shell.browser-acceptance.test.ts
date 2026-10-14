@@ -12,6 +12,7 @@ const locale = "en-US" as const;
 const navigationLabel = m.accountNavigationLabel({}, { locale });
 const sectionLabels = {
   reservations: m.accountSectionReservations({}, { locale }),
+  referrals: m.accountSectionReferrals({}, { locale }),
   profile: m.accountSectionProfile({}, { locale }),
   billing: m.accountSectionBilling({}, { locale }),
   legal: m.accountSectionLegal({}, { locale }),

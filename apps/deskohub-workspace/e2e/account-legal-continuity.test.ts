@@ -848,7 +848,7 @@ const assertSignedInRolloutOffLegalRoute = async (
 };
 
 describe("account legal continuity browser fixture", () => {
-  const requireFixture = registerAccountLegalFixture({ port: 3168 });
+  const requireFixture = registerAccountLegalFixture();
 
   for (const locale of supportedLocales) {
     for (const { height, name, width } of viewports) {

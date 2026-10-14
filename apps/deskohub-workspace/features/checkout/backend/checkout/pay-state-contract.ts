@@ -34,6 +34,12 @@ export const signedPayStateEnvelopeSchema = Schema.Struct({
   submittedCode: Schema.optional(canonicalPromotionCodeSchema),
   submittedCodeDiscountId: Schema.optional(discountIdSchema),
   requestedDiscountCode: Schema.optional(canonicalPromotionCodeSchema),
+  /**
+   * Referral code applied for this order. It prices the invitation while it
+   * stays eligible, and its attribution is recorded only when the order is
+   * paid.
+   */
+  referralCode: Schema.optional(canonicalPromotionCodeSchema),
   changedKeys: Schema.optional(checkoutSummaryChangedKeysSchema),
 });
 
@@ -46,6 +52,7 @@ type BuildSignedPayStateBaseInput = {
   readonly bookedAt: Instant;
   readonly checkoutSessionId?: typeof checkoutSessionIdSchema.Type;
   readonly requestedDiscountCode?: CanonicalPromotionCode;
+  readonly referralCode?: CanonicalPromotionCode;
   readonly changedKeys?: CheckoutSummaryChangedKeys;
   readonly ttlMilliseconds?: number;
 };
@@ -78,6 +85,7 @@ export const buildSignedPayStateEnvelope = (
     | "submittedCode"
     | "submittedCodeDiscountId"
     | "requestedDiscountCode"
+    | "referralCode"
     | "changedKeys"
   >,
   input: BuildSignedPayStateCommonInput,
@@ -96,6 +104,9 @@ export const buildSignedPayStateEnvelope = (
   }),
   ...(input.requestedDiscountCode !== undefined && {
     requestedDiscountCode: input.requestedDiscountCode,
+  }),
+  ...(input.referralCode !== undefined && {
+    referralCode: input.referralCode,
   }),
   ...(input.changedKeys !== undefined && {
     changedKeys: {

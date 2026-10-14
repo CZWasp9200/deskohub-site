@@ -1,8 +1,9 @@
 "use server";
 
-import { Effect, Schema } from "effect";
+import { Effect, Layer, Schema } from "effect";
 import { advertisedPriceRequestsSchema } from "@/features/checkout/advertised-price";
 import { CheckoutPricingService } from "@/features/checkout/backend/checkout/checkout-pricing.service";
+import { ReferralFeatureFlagRequest } from "@/features/referrals/referral-feature-flag.server";
 import { loadAdvertisedPrices } from "@/features/reservation/backend/advertised-prices.server";
 import { defineWorkspaceAction } from "@/shared/backend/workspace-action";
 
@@ -15,7 +16,11 @@ const getAdvertisedPricesAction = defineWorkspaceAction(
   },
   (requests) =>
     loadAdvertisedPrices(requests).pipe(
-      Effect.provide(CheckoutPricingService.Live),
+      Effect.provide(
+        CheckoutPricingService.Live.pipe(
+          Layer.provideMerge(ReferralFeatureFlagRequest)
+        )
+      ),
       Effect.scoped
     )
 );

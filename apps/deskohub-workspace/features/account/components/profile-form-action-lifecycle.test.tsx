@@ -50,6 +50,9 @@ mock.module("next/navigation", () => ({
 }));
 
 mock.module("@/features/account/actions", () => ({
+  acknowledgeSignupReferralNotice: mock(() =>
+    Promise.resolve({ data: { status: "acknowledged" } })
+  ),
   updateLocalePreference: () => Promise.resolve({ data: { status: "saved" } }),
   lookupAresBusiness: () =>
     Promise.resolve({ data: { status: "not-found", message: "" } }),

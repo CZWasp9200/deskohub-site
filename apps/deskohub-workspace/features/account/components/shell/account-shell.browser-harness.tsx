@@ -7,6 +7,7 @@ import { type AccountSection, AccountShell } from "./account-shell";
 const locale = "en-US" as const;
 const sections = [
   "reservations",
+  "referrals",
   "profile",
   "billing",
   "legal",
@@ -14,6 +15,7 @@ const sections = [
 ] as const satisfies readonly AccountSection[];
 const sectionLabels = {
   reservations: m.accountSectionReservations({}, { locale }),
+  referrals: m.accountSectionReferrals({}, { locale }),
   profile: m.accountSectionProfile({}, { locale }),
   billing: m.accountSectionBilling({}, { locale }),
   legal: m.accountSectionLegal({}, { locale }),

@@ -66,12 +66,12 @@ describe("PostHog feature flag override environment schema", () => {
       expect(
         decodeFeatureFlagOverrideEnvironment({
           POSTHOG_FEATURE_FLAG_OVERRIDES:
-            '{"discount_codes":true,"referrals":true,"seasonal_menu":"synthetic-variant"}',
+            '{"discount_codes":true,"loyalty_points":true,"seasonal_menu":"synthetic-variant"}',
           VERCEL_ENV,
         }).POSTHOG_FEATURE_FLAG_OVERRIDES
       ).toEqual({
         discount_codes: true,
-        referrals: true,
+        loyalty_points: true,
         seasonal_menu: "synthetic-variant",
       });
     }
@@ -80,7 +80,7 @@ describe("PostHog feature flag override environment schema", () => {
   test("rejects unknown keys in production", () => {
     expect(() =>
       decodeFeatureFlagOverrideEnvironment({
-        POSTHOG_FEATURE_FLAG_OVERRIDES: '{"referrals":true}',
+        POSTHOG_FEATURE_FLAG_OVERRIDES: '{"loyalty_points":true}',
         VERCEL_ENV: "production",
       })
     ).toThrow();

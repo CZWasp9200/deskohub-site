@@ -30,12 +30,24 @@ const loadPlaywrightConfigStructure = async <Config>(
       "-e",
       `const config = (await import(${JSON.stringify(configModule)})).default; console.log(JSON.stringify(config));`,
     ],
-    { cwd: resolve(import.meta.dir, "..") }
+    { cwd: resolve(import.meta.dir, ".."), timeoutMs: 15_000 }
   );
-  if (result.exitCode !== 0) {
-    throw new Error(result.stderr);
+  if (result.timedOut) {
+    throw new Error("actual Playwright config loader timed out");
   }
-  return JSON.parse(result.stdout) as Config;
+  if (result.signalCode !== null) {
+    throw new Error("actual Playwright config loader was interrupted");
+  }
+  if (result.exitCode !== 0) {
+    throw new Error(
+      `actual Playwright config loader exited with status ${result.exitCode}`
+    );
+  }
+  try {
+    return JSON.parse(result.stdout) as Config;
+  } catch {
+    throw new Error("actual Playwright config loader emitted invalid JSON");
+  }
 };
 
 let cachedConfigStructure: Promise<PlaywrightCheckoutConfig> | undefined;
@@ -86,6 +98,58 @@ const stepsBetweenNames = (
 
 const readTrackedJson = <T>(path: string): T =>
   JSON.parse(readFileSync(resolve(import.meta.dir, path), "utf8")) as T;
+
+type TurboConfig = {
+  readonly globalEnv?: readonly string[];
+  readonly globalPassThroughEnv?: readonly string[];
+  readonly tasks?: Readonly<
+    Record<
+      string,
+      {
+        readonly env?: readonly string[];
+        readonly passThroughEnv?: readonly string[];
+      }
+    >
+  >;
+};
+
+const turboEnvEntryMatches = (entry: string, name: string) =>
+  entry.endsWith("*") ? name.startsWith(entry.slice(0, -1)) : entry === name;
+
+/**
+ * Every Turborepo env list, global or per task, that would hand the named
+ * variable to a task, including wildcard entries.
+ */
+const turboSecretExposures = (
+  configs: Readonly<Record<string, TurboConfig>>,
+  name: string
+) =>
+  Object.entries(configs).flatMap(([label, turbo]) => {
+    const lists: [string, readonly string[] | undefined][] = [
+      ["globalEnv", turbo.globalEnv],
+      ["globalPassThroughEnv", turbo.globalPassThroughEnv],
+      ...Object.entries(turbo.tasks ?? {}).flatMap(
+        ([task, definition]): [string, readonly string[] | undefined][] => [
+          [`tasks.${task}.env`, definition.env],
+          [`tasks.${task}.passThroughEnv`, definition.passThroughEnv],
+        ]
+      ),
+    ];
+    return lists
+      .filter(([, entries]) =>
+        (entries ?? []).some((entry) => turboEnvEntryMatches(entry, name))
+      )
+      .map(([path]) => `${label} ${path}`);
+  });
+
+const trackedTurboExposures = (name: string) =>
+  turboSecretExposures(
+    {
+      app: readTrackedJson<TurboConfig>("../turbo.json"),
+      root: readTrackedJson<TurboConfig>("../../../turbo.json"),
+    },
+    name
+  );
 
 const projectByName = (config: PlaywrightCheckoutConfig, name: string) =>
   config.projects.find((project) => project.name === name);
@@ -264,6 +328,7 @@ describe("workspace E2E workflow", () => {
     expect(environment).toContain("WORKSPACE_E2E_PROVIDER_PERMIT_REQUIRED");
     expect(environment).toContain("WORKSPACE_E2E_VERCEL_TOKEN");
     expect(environment).toContain("WORKSPACE_E2E_VERCEL_PROJECT");
+    expect(environment).toContain("WORKSPACE_E2E_BETTER_AUTH_SECRETS");
     expect(environment).not.toContain("WORKSPACE_E2E_RESEND_API_KEY");
   });
 
@@ -345,12 +410,53 @@ describe("workspace E2E workflow", () => {
     expect(serializedProductionWorkflow.includes("EMAIL_API_KEY")).toBe(false);
     expect(serializedProductionWorkflow.includes("BETTER_AUTH")).toBe(false);
 
-    const turbo = readTrackedJson("../../../turbo.json") as {
-      readonly global?: { readonly passThroughEnv?: string[] };
-    };
-    const turboGlobal = turbo.global?.passThroughEnv ?? [];
-    expect(turboGlobal).not.toContain("WORKSPACE_E2E_VERCEL_TOKEN");
-    expect(turboGlobal).not.toContain("WORKSPACE_E2E_RESEND_API_KEY");
+    expect(trackedTurboExposures("WORKSPACE_E2E_VERCEL_TOKEN")).toEqual([
+      "root tasks.test:e2e.passThroughEnv",
+    ]);
+    expect(trackedTurboExposures("WORKSPACE_E2E_RESEND_API_KEY")).toEqual([]);
+  });
+
+  test("keeps the preview session-signing secret inside the checkout Playwright execution only", () => {
+    expect(
+      stepByName("Run checkout E2E").env?.WORKSPACE_E2E_BETTER_AUTH_SECRETS
+    ).toBe(`\${{ secrets.WORKSPACE_E2E_BETTER_AUTH_SECRETS }}`);
+    expect(
+      serializedWorkflow.split("WORKSPACE_E2E_BETTER_AUTH_SECRETS").length - 1
+    ).toBe(2);
+    expect(serializedProductionWorkflow.includes("BETTER_AUTH")).toBe(false);
+
+    expect(trackedTurboExposures("WORKSPACE_E2E_BETTER_AUTH_SECRETS")).toEqual([
+      "root tasks.test:e2e.passThroughEnv",
+    ]);
+  });
+
+  test("the Turborepo secret guard finds global and wildcard exposures", () => {
+    const root = readTrackedJson<TurboConfig>("../../../turbo.json");
+    const secret = "WORKSPACE_E2E_BETTER_AUTH_SECRETS";
+    const injected = (mutate: (turbo: TurboConfig) => TurboConfig) =>
+      turboSecretExposures({ root: mutate(structuredClone(root)) }, secret);
+
+    expect(
+      injected((turbo) => ({
+        ...turbo,
+        globalPassThroughEnv: [...(turbo.globalPassThroughEnv ?? []), secret],
+      }))
+    ).toContain("root globalPassThroughEnv");
+    expect(
+      injected((turbo) => ({
+        ...turbo,
+        globalEnv: [...(turbo.globalEnv ?? []), "WORKSPACE_E2E_*"],
+      }))
+    ).toContain("root globalEnv");
+    expect(
+      injected((turbo) => ({
+        ...turbo,
+        tasks: {
+          ...turbo.tasks,
+          test: { ...turbo.tasks?.test, passThroughEnv: [secret] },
+        },
+      }))
+    ).toContain("root tasks.test.passThroughEnv");
   });
 
   test("lets Playwright own checkout preparation, scheduling, and parallelism", async () => {

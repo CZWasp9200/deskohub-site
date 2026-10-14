@@ -42,7 +42,8 @@ export type CustomerAccountFailureCode =
   | "account.deletion-state"
   | "authentication.session"
   | "dotypos.customer-expiration"
-  | "dotypos.customer-lookup";
+  | "dotypos.customer-lookup"
+  | "referral.signup-acknowledge";
 
 export class CustomerAccountFailureCause extends Data.TaggedError(
   "CustomerAccountFailureCause"
