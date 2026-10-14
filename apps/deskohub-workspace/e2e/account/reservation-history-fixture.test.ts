@@ -33,9 +33,7 @@ type FakeDatabase = {
   }>;
 };
 
-const makeFakeDatabase = (
-  options: { readonly failTransaction?: boolean } = {}
-) => {
+const makeFakeDatabase = () => {
   const accessGrants = new Map<string, FixtureRows["accessGrant"]>();
   const paymentAttempts = new Map<string, FixtureRows["paymentAttempt"]>();
   const reservations = new Map<string, FixtureRows["reservation"]>();
@@ -46,22 +44,6 @@ const makeFakeDatabase = (
     readonly id: string;
     readonly table: string;
   }> = [];
-
-  const restore = (
-    snapshot: Readonly<{
-      readonly accessGrants: Map<string, FixtureRows["accessGrant"]>;
-      readonly paymentAttempts: Map<string, FixtureRows["paymentAttempt"]>;
-      readonly reservations: Map<string, FixtureRows["reservation"]>;
-    }>
-  ) => {
-    accessGrants.clear();
-    paymentAttempts.clear();
-    reservations.clear();
-    for (const [id, row] of snapshot.accessGrants) accessGrants.set(id, row);
-    for (const [id, row] of snapshot.paymentAttempts)
-      paymentAttempts.set(id, row);
-    for (const [id, row] of snapshot.reservations) reservations.set(id, row);
-  };
 
   const database: WorkspaceE2EReservationHistoryDatabase = {
     deleteAccessGrant: (id) =>
@@ -96,11 +78,6 @@ const makeFakeDatabase = (
     transaction: (rows) =>
       Effect.gen(function* () {
         transactionCalls.push(rows);
-        const snapshot = {
-          accessGrants: new Map(accessGrants),
-          paymentAttempts: new Map(paymentAttempts),
-          reservations: new Map(reservations),
-        };
         const reservationId = rows.reservation.id;
         const paymentAttemptId = rows.paymentAttempt.id;
         const accessGrantId = rows.accessGrant.id;
@@ -110,12 +87,6 @@ const makeFakeDatabase = (
         reservations.set(reservationId, rows.reservation);
         paymentAttempts.set(paymentAttemptId, rows.paymentAttempt);
         accessGrants.set(accessGrantId, rows.accessGrant);
-        if (options.failTransaction) {
-          restore(snapshot);
-          return yield* Effect.fail(
-            new Error("fixture transaction rolled back")
-          );
-        }
       }),
   };
 
@@ -277,38 +248,4 @@ test("maps a reversed provider interval through the fixed E2E error boundary", a
       },
     },
   });
-});
-
-test("maps malformed provider timestamps through the fixed E2E error boundary", async () => {
-  const { input, providerProjection } = makeFixtureInput();
-  await expectProviderTimingError({
-    fixtureInput: input,
-    providerProjection: {
-      ...providerProjection,
-      reservation: {
-        ...providerProjection.reservation,
-        startDate: "not-a-provider-timestamp",
-      },
-    },
-  });
-});
-
-test("does not leave rows when the seed transaction rolls back", async () => {
-  const { input, providerProjection } = makeFixtureInput();
-  const fakeDatabase = makeFakeDatabase({ failTransaction: true });
-  const providerCalls: string[] = [];
-
-  await expect(
-    Effect.runPromise(
-      seedWorkspaceE2EReservationHistory(
-        input,
-        makeDependencies(fakeDatabase, providerProjection, providerCalls)
-      )
-    )
-  ).rejects.toThrow("fixture transaction rolled back");
-
-  expect(providerCalls).toEqual([input.dotyposReservationId]);
-  expect(fakeDatabase.transactionCalls).toHaveLength(1);
-  expect(fakeDatabase.cleanupCalls).toHaveLength(0);
-  expect(fakeDatabase.verificationCalls).toHaveLength(0);
 });

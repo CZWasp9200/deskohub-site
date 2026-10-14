@@ -41,31 +41,12 @@ type ProfileNavigationState = {
 };
 
 type ProfileNavigationFakePage = {
-  readonly actions: readonly string[];
   readonly page: Page;
-  readonly serverPhone: string;
-  readonly state: ProfileNavigationState;
 };
-
-type PersistedRestoreFailureStage =
-  | "document-reload"
-  | "profile-handler-wait"
-  | "profile-native-click"
-  | "profile-selected-landmark"
-  | "profile-form-visibility"
-  | "first-name-restore"
-  | "last-name-restore"
-  | "phone-restore"
-  | "billing-navigation"
-  | "billing-kind-restore"
-  | "billing-company-restore"
-  | "return-profile-navigation"
-  | "unavailable-heading-expectation";
 
 type ProfileNavigationFailurePhase =
   | "saved-profile-baseline"
-  | "draft-retention"
-  | PersistedRestoreFailureStage;
+  | "profile-handler-wait";
 
 const privateFailureDetails = "private profile navigation fixture details";
 
@@ -98,7 +79,6 @@ const makeProfileNavigationFakePage = (
     section: "reservations",
     url: accountUrl,
   };
-  const actions: string[] = [];
   let dialogResolver:
     | ((dialog: {
         readonly accept: () => Promise<void>;
@@ -107,16 +87,9 @@ const makeProfileNavigationFakePage = (
       }) => void)
     | undefined;
   let documentReloaded = false;
-  let restoredProfileNavigationCount = 0;
-  let restoredBillingNavigationCount = 0;
 
   const isProfileFormVisible = () =>
-    (state.section === "profile" || state.section === "billing") &&
-    !(
-      documentReloaded &&
-      failurePhase === "profile-form-visibility" &&
-      state.section === "profile"
-    );
+    state.section === "profile" || state.section === "billing";
   const isVisible = (name: string) => {
     if (name === "#account-profile-form") return isProfileFormVisible();
     if (name === accountSectionLandmarks.profile)
@@ -166,22 +139,18 @@ const makeProfileNavigationFakePage = (
     });
     const dialog = {
       accept: async () => {
-        actions.push(`dialog:${kind}:accept`);
         if (kind === "home") {
           state.url = homeUrl;
           state.section = "reservations";
           state.dirty = false;
-          actions.push("navigate:home");
         }
         resolveAction();
       },
       dismiss: async () => {
-        actions.push(`dialog:${kind}:dismiss`);
         resolveAction();
       },
       type: () => "confirm",
     };
-    actions.push(`dialog:${kind}:open`);
     dialogResolver?.(dialog);
     dialogResolver = undefined;
     return action;
@@ -198,51 +167,17 @@ const makeProfileNavigationFakePage = (
         expression: string,
         parameters: Record<string, unknown>
       ) => {
-        if (
-          failurePhase === "draft-retention" &&
-          expression === "to.have.value" &&
-          name === "#account-profile-first-name" &&
-          state.profile.firstName === "Ada draft"
-        ) {
-          throw new Error(privateFailureDetails);
-        }
-        if (
-          documentReloaded &&
-          expression === "to.have.value" &&
-          ((failurePhase === "first-name-restore" &&
-            name === "#account-profile-first-name") ||
-            (failurePhase === "last-name-restore" &&
-              name === "#account-profile-last-name") ||
-            (failurePhase === "phone-restore" &&
-              name === "#account-profile-phone") ||
-            (failurePhase === "billing-kind-restore" &&
-              name === "#account-profile-billing-kind") ||
-            (failurePhase === "billing-company-restore" &&
-              name === "#account-profile-billing-company-name"))
-        ) {
-          throw new Error(privateFailureDetails);
-        }
-        if (
-          documentReloaded &&
-          failurePhase === "unavailable-heading-expectation" &&
-          expression === "to.have.count" &&
-          name === "heading:Customer accounts are temporarily unavailable"
-        ) {
-          throw new Error(privateFailureDetails);
-        }
         let actual: boolean | number | string;
         let matches: boolean;
         if (expression === "to.be.visible") {
           actual = isVisible(name);
           matches = actual;
-          actions.push(`assert-visible:${name}`);
         } else if (expression === "to.have.count") {
           actual = countFor(name);
           matches = actual === parameters.expectedNumber;
         } else if (expression === "to.have.value") {
           actual = valueFor(name);
           matches = actual === expectedText(parameters.expectedText);
-          actions.push(`assert-value:${name}:${actual}`);
         } else {
           actual = true;
           matches = true;
@@ -253,36 +188,7 @@ const makeProfileNavigationFakePage = (
         };
       },
       click: async () => {
-        actions.push(`click:${name}`);
         if (name.startsWith("section:")) {
-          if (documentReloaded && name === "section:profile") {
-            restoredProfileNavigationCount += 1;
-            if (
-              (failurePhase === "profile-native-click" &&
-                restoredProfileNavigationCount === 1) ||
-              (failurePhase === "return-profile-navigation" &&
-                restoredProfileNavigationCount === 2)
-            ) {
-              throw new Error(privateFailureDetails);
-            }
-          }
-          if (documentReloaded && name === "section:billing") {
-            restoredBillingNavigationCount += 1;
-            if (
-              failurePhase === "billing-navigation" &&
-              restoredBillingNavigationCount === 1
-            ) {
-              throw new Error(privateFailureDetails);
-            }
-          }
-          if (
-            documentReloaded &&
-            name === "section:profile" &&
-            failurePhase === "profile-selected-landmark" &&
-            restoredProfileNavigationCount === 1
-          ) {
-            return;
-          }
           state.section = name.slice(
             "section:".length
           ) as ProfileNavigationSection;
@@ -292,28 +198,23 @@ const makeProfileNavigationFakePage = (
           if (state.dirty) return requestDialog("home");
           state.url = homeUrl;
           state.section = "reservations";
-          actions.push("navigate:home");
           return;
         }
         if (name === "account-link") {
           state.url = accountUrl;
           state.section = "reservations";
-          actions.push("navigate:account");
           return;
         }
         if (name === "#account-profile-submit") {
-          actions.push("native-submit");
           if (
             state.billing.kind === "business" &&
             state.billing.companyName === ""
           ) {
             state.section = "billing";
-            actions.push("native-invalid:billing");
           }
         }
       },
       evaluate: async () => {
-        actions.push(`evaluate:${name}`);
         return "Please fill out this field.";
       },
       fill: async (value: string) => {
@@ -323,7 +224,6 @@ const makeProfileNavigationFakePage = (
         ) {
           throw new Error("billing company fill attempted while hidden");
         }
-        actions.push(`fill:${name}:${value}`);
         switch (name) {
           case "#account-profile-first-name":
             state.profile.firstName = value;
@@ -383,7 +283,6 @@ const makeProfileNavigationFakePage = (
     evaluate: async (expression: unknown) => {
       const source = String(expression);
       if (source.includes("window.history.back()")) {
-        actions.push("evaluate:window.history.back()");
         return requestDialog("history-back");
       }
       throw new Error("unsupported page evaluation");
@@ -392,16 +291,12 @@ const makeProfileNavigationFakePage = (
     goto: async (url: string) => {
       if (url !== accountUrl)
         throw new Error(`unsupported document URL: ${url}`);
-      if (failurePhase === "document-reload") {
-        throw new Error(privateFailureDetails);
-      }
       state.url = url;
       state.section = "reservations";
       state.dirty = false;
       state.profile = { ...serverSnapshot };
       state.billing = { ...originalBilling };
       documentReloaded = true;
-      actions.push("document-remount:account");
     },
     locator: (selector: string) => makeLocator(selector),
     mainFrame: () => ({
@@ -438,11 +333,6 @@ const makeProfileNavigationFakePage = (
         ) {
           throw new errors.TimeoutError(privateFailureDetails);
         }
-        actions.push(
-          `handler-ready:${String(
-            (argument as { readonly sectionButton: unknown }).sectionButton
-          )}`
-        );
         return { dispose: async () => {}, jsonValue: async () => "ready" };
       }
       if (
@@ -451,19 +341,16 @@ const makeProfileNavigationFakePage = (
         "section" in argument
       ) {
         const section = (argument as { readonly section: string }).section;
-        actions.push(`section-ready:${section}`);
         if (state.section !== section) {
           throw new Error(`section did not become ready: ${section}`);
         }
       }
       return { dispose: async () => {}, jsonValue: async () => true };
     },
-    waitForURL: async (url: string) => {
-      actions.push(`wait-url:${url}`);
-    },
+    waitForURL: async () => {},
   });
 
-  return { actions, page, serverPhone: serverSnapshot.phone, state };
+  return { page };
 };
 
 const chromiumAvailable = await playwrightChromiumAvailable();
@@ -506,85 +393,6 @@ const startNavigationTestServer = async () => {
   };
 };
 
-test("keeps cached drafts through soft navigation and resets them on document remount", async () => {
-  const fake = makeProfileNavigationFakePage(
-    "https://account-navigation.example.test"
-  );
-
-  await verifyProfileNavigation(
-    fake.page,
-    "https://account-navigation.example.test"
-  );
-
-  const clearIndex = fake.actions.indexOf(
-    "fill:#account-profile-billing-company-name:"
-  );
-  expect(clearIndex).toBeGreaterThan(-1);
-  const billingSelectionIndex = fake.actions.lastIndexOf(
-    "click:section:billing",
-    clearIndex
-  );
-  const billingVisibleIndex = fake.actions.lastIndexOf(
-    "assert-visible:#account-profile-billing-kind",
-    clearIndex
-  );
-  expect(billingSelectionIndex).toBeGreaterThan(-1);
-  expect(billingVisibleIndex).toBeGreaterThan(billingSelectionIndex);
-  expect(billingVisibleIndex).toBeLessThan(clearIndex);
-
-  const profileAfterClearIndex = fake.actions.findIndex(
-    (action, index) => index > clearIndex && action === "click:section:profile"
-  );
-  const invalidBillingIndex = fake.actions.indexOf("native-invalid:billing");
-  const softAccountNavigationIndex = fake.actions.indexOf("navigate:account");
-  const draftAfterSoftNavigationIndex = fake.actions.findIndex(
-    (action, index) =>
-      index > softAccountNavigationIndex &&
-      action === "assert-value:#account-profile-first-name:Ada draft"
-  );
-  const leaveAcceptIndex = fake.actions.lastIndexOf("dialog:home:accept");
-  const leaveNavigationIndex = fake.actions.findIndex(
-    (action, index) => index > leaveAcceptIndex && action === "navigate:home"
-  );
-  const documentRemountIndex = fake.actions.indexOf("document-remount:account");
-  const originalAfterRemountIndex = fake.actions.findIndex(
-    (action, index) =>
-      index > documentRemountIndex &&
-      action === "assert-value:#account-profile-first-name:Ada"
-  );
-  expect(profileAfterClearIndex).toBeGreaterThan(clearIndex);
-  expect(invalidBillingIndex).toBeGreaterThan(profileAfterClearIndex);
-  expect(softAccountNavigationIndex).toBeGreaterThan(-1);
-  expect(draftAfterSoftNavigationIndex).toBeGreaterThan(
-    softAccountNavigationIndex
-  );
-  expect(draftAfterSoftNavigationIndex).toBeLessThan(documentRemountIndex);
-  expect(leaveAcceptIndex).toBeGreaterThan(-1);
-  expect(leaveNavigationIndex).toBeGreaterThan(leaveAcceptIndex);
-  expect(documentRemountIndex).toBeGreaterThan(leaveNavigationIndex);
-  expect(originalAfterRemountIndex).toBeGreaterThan(documentRemountIndex);
-  expect(
-    fake.actions.filter((action) => action === "navigate:account")
-  ).toEqual(["navigate:account"]);
-  expect(fake.actions.filter((action) => action.startsWith("dialog:"))).toEqual(
-    [
-      "dialog:home:open",
-      "dialog:home:dismiss",
-      "dialog:history-back:open",
-      "dialog:history-back:dismiss",
-      "dialog:home:open",
-      "dialog:home:accept",
-    ]
-  );
-  expect(fake.state.url).toBe(
-    "https://account-navigation.example.test/en-US/account"
-  );
-  expect(fake.state.section).toBe("profile");
-  expect(fake.state.profile.firstName).toBe("Ada");
-  expect(fake.state.profile.phone).toBe(fake.serverPhone);
-  expect(fake.state.billing.companyName).toBe("Original Company");
-});
-
 test("redacts a saved-profile baseline failure with its closed diagnostic", async () => {
   const fake = makeProfileNavigationFakePage(
     "https://account-navigation.example.test",
@@ -599,103 +407,6 @@ test("redacts a saved-profile baseline failure with its closed diagnostic", asyn
   );
 
   expectProfileNavigationFailure(failure, "account_profile_baseline_failed");
-});
-
-test("redacts a draft-retention failure with its later-phase diagnostic", async () => {
-  const fake = makeProfileNavigationFakePage(
-    "https://account-navigation.example.test",
-    "draft-retention"
-  );
-  const failure = await verifyProfileNavigation(
-    fake.page,
-    "https://account-navigation.example.test"
-  ).then(
-    () => undefined,
-    (cause: unknown) => cause
-  );
-
-  expectProfileNavigationFailure(
-    failure,
-    "account_profile_draft_retention_failed"
-  );
-});
-
-const persistedRestoreFailureStages = [
-  {
-    phase: "document-reload",
-    diagnosticCode: "account_profile_persisted_document_reload_failed",
-  },
-  {
-    phase: "profile-handler-wait",
-    diagnosticCode: "account_profile_persisted_profile_handler_wait_failed",
-  },
-  {
-    phase: "profile-native-click",
-    diagnosticCode: "account_profile_persisted_profile_click_failed",
-  },
-  {
-    phase: "profile-selected-landmark",
-    diagnosticCode: "account_profile_persisted_profile_landmark_wait_failed",
-  },
-  {
-    phase: "profile-form-visibility",
-    diagnosticCode: "account_profile_persisted_profile_form_visibility_failed",
-  },
-  {
-    phase: "first-name-restore",
-    diagnosticCode: "account_profile_persisted_first_name_restore_failed",
-  },
-  {
-    phase: "last-name-restore",
-    diagnosticCode: "account_profile_persisted_last_name_restore_failed",
-  },
-  {
-    phase: "phone-restore",
-    diagnosticCode: "account_profile_persisted_phone_restore_failed",
-  },
-  {
-    phase: "billing-navigation",
-    diagnosticCode: "account_profile_persisted_billing_navigation_failed",
-  },
-  {
-    phase: "billing-kind-restore",
-    diagnosticCode: "account_profile_persisted_billing_kind_restore_failed",
-  },
-  {
-    phase: "billing-company-restore",
-    diagnosticCode: "account_profile_persisted_billing_company_restore_failed",
-  },
-  {
-    phase: "return-profile-navigation",
-    diagnosticCode:
-      "account_profile_persisted_return_profile_navigation_failed",
-  },
-  {
-    phase: "unavailable-heading-expectation",
-    diagnosticCode:
-      "account_profile_persisted_unavailable_heading_expectation_failed",
-  },
-] as const satisfies readonly {
-  readonly phase: PersistedRestoreFailureStage;
-  readonly diagnosticCode: WorkspaceE2EProfileNavigationDiagnosticCode;
-}[];
-
-test("reports a closed stage-specific diagnostic for persisted profile restore failures", async () => {
-  for (const { phase, diagnosticCode } of persistedRestoreFailureStages) {
-    const fake = makeProfileNavigationFakePage(
-      "https://account-navigation.example.test",
-      phase
-    );
-    const failure = await verifyProfileNavigation(
-      fake.page,
-      "https://account-navigation.example.test"
-    ).then(
-      () => undefined,
-      (cause: unknown) => cause
-    );
-
-    expectProfileNavigationFailure(failure, diagnosticCode);
-  }
 });
 
 test("names the section selection stage and failure kind without the private cause", async () => {

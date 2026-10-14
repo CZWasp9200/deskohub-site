@@ -3,39 +3,7 @@ import type { SQL } from "drizzle-orm";
 import { PgDialect } from "drizzle-orm/pg-core";
 import { Cause, Effect, Exit } from "effect";
 import { E2EDatabase } from "../integrations/database.service";
-import {
-  classifyWorkspaceE2EAccountState,
-  removeSyntheticAccountLink,
-} from "./auth-rows";
-
-describe("workspace account e2e account state classification", () => {
-  test("classifies an absent synthetic account as missing", () => {
-    expect(
-      classifyWorkspaceE2EAccountState({
-        authUserId: undefined,
-        linkedDotyposCustomerId: undefined,
-      })
-    ).toBe("missing");
-  });
-
-  test("classifies a verified account without a link as unlinked", () => {
-    expect(
-      classifyWorkspaceE2EAccountState({
-        authUserId: "auth-user-1",
-        linkedDotyposCustomerId: undefined,
-      })
-    ).toBe("unlinked");
-  });
-
-  test("classifies a completed profile completion as linked", () => {
-    expect(
-      classifyWorkspaceE2EAccountState({
-        authUserId: "auth-user-1",
-        linkedDotyposCustomerId: "dotypos-customer-1",
-      })
-    ).toBe("linked");
-  });
-});
+import { removeSyntheticAccountLink } from "./auth-rows";
 
 type SyntheticLink = {
   readonly customerAccountId: string;

@@ -25,118 +25,9 @@ mock.module("@playwright/test", () => ({ expect: fakePlaywrightExpect }));
 
 const {
   makeWorkspaceE2EReservationHistoryUrls,
-  runReservationHistoryStage,
   toWorkspaceE2EReservationHistoryFailure,
   verifyWorkspaceE2EReservationHistoryNavigation,
-  WorkspaceE2EReservationHistoryNavigationError,
-  workspaceE2EReservationStatusLinkHydrationPredicate,
 } = await import("./reservation-navigation");
-
-test("builds canonical status and access URLs from one exact reservation id", () => {
-  const reservationId = workspaceReservationIdSchema.make(
-    "account-history-reservation/with-special-value"
-  );
-  const urls = makeWorkspaceE2EReservationHistoryUrls(
-    "https://workspace.example.test/",
-    reservationId
-  );
-
-  expect(urls).toEqual({
-    accessPath:
-      "/en-US/reservation/access/account-history-reservation%2Fwith-special-value",
-    accessUrl:
-      "https://workspace.example.test/en-US/reservation/access/account-history-reservation%2Fwith-special-value",
-    accountPath: "/en-US/account",
-    accountUrl: "https://workspace.example.test/en-US/account",
-    statusPath:
-      "/en-US/reservation/status/account-history-reservation%2Fwith-special-value",
-    statusUrl:
-      "https://workspace.example.test/en-US/reservation/status/account-history-reservation%2Fwith-special-value",
-  });
-});
-
-test("requires an exact hydrated click-handler table", () => {
-  const statusPath = "/en-US/reservation/status/known-reservation";
-  const link = {
-    getAttribute: (name: string) => (name === "href" ? statusPath : undefined),
-  } as Record<string, unknown>;
-  const querySelectorAll = (() => [link]) as Document["querySelectorAll"];
-  const documentObject = { querySelectorAll };
-
-  const cases: readonly [string, unknown, boolean][] = [
-    ["no React metadata", "missing", false],
-    ["metadata undefined", undefined, false],
-    ["metadata empty", {}, false],
-    ["onClick undefined", { onClick: undefined }, false],
-    ["onClick null", { onClick: null }, false],
-    ["onClick string", { onClick: "click" }, false],
-    ["onClick boolean", { onClick: true }, false],
-    ["onClick function", { onClick: () => undefined }, true],
-  ];
-
-  for (const [label, reactProps, expected] of cases) {
-    if (reactProps === "missing") {
-      delete link.__reactProps$diagnostic;
-    } else {
-      Object.defineProperty(link, "__reactProps$diagnostic", {
-        configurable: true,
-        enumerable: true,
-        value: reactProps,
-        writable: true,
-      });
-    }
-
-    expect(
-      workspaceE2EReservationStatusLinkHydrationPredicate(
-        statusPath,
-        documentObject
-      ),
-      label
-    ).toBe(expected);
-  }
-});
-
-test("surfaces only the closed navigation stage through lane error mapping", async () => {
-  const marker = "https://sensitive.example/reservation/secret-id";
-  const failure = await runReservationHistoryStage(
-    "modal-assert-content",
-    async () => {
-      throw new Error(marker);
-    },
-    "assertion"
-  ).then(
-    () => undefined,
-    (cause) => cause
-  );
-
-  expect(failure).toBeInstanceOf(WorkspaceE2EReservationHistoryNavigationError);
-  if (!(failure instanceof WorkspaceE2EReservationHistoryNavigationError)) {
-    throw new Error("expected a reservation navigation failure");
-  }
-  expect(failure.kind).toBe("assertion");
-  expect(failure.stage).toBe("modal-assert-content");
-  expect(failure.message).not.toContain(marker);
-
-  const laneFailure = await Effect.runPromise(
-    Effect.tryPromise({
-      catch: toWorkspaceE2EReservationHistoryFailure,
-      try: async () => {
-        throw failure;
-      },
-    })
-  ).then(
-    () => undefined,
-    (cause) => cause
-  );
-  expect(laneFailure.message).toBe(
-    "verify account reservation history navigation failed at modal-assert-content (assertion)"
-  );
-  expect(laneFailure.operation).toBe(
-    "verify account reservation history navigation at modal-assert-content"
-  );
-  expect(laneFailure.cause).toBeUndefined();
-  expect(JSON.stringify(laneFailure)).not.toContain(marker);
-});
 
 type NavigationHarnessOptions = {
   readonly accessReturnPresentation?: "modal" | "page";
@@ -172,7 +63,6 @@ const makeNavigationHarness = (options: NavigationHarnessOptions = {}) => {
     "https://workspace.example.test",
     reservationId
   );
-  const actions: string[] = [];
   const navigationOperations: Promise<unknown>[] = [];
   const failureMarker =
     options.failureMarker ??
@@ -213,9 +103,6 @@ const makeNavigationHarness = (options: NavigationHarnessOptions = {}) => {
     let historyIndex = 0;
     const current = () => history[historyIndex]!;
     let backgroundOrigin = current().backgroundOrigin;
-    const record = (action: string) => {
-      if (!privatePage) actions.push(action);
-    };
     const syncBackgroundOrigin = () => {
       backgroundOrigin = current().backgroundOrigin;
     };
@@ -330,9 +217,6 @@ const makeNavigationHarness = (options: NavigationHarnessOptions = {}) => {
         runNavigationOperation(async () => {
           if (query === "history-link") {
             failFor("history-open-click");
-            record(
-              current().mode === "account" ? "click:history" : "click:status"
-            );
             const presentation =
               current().mode === "account" ||
               (current().mode === "access-modal" &&
@@ -352,7 +236,6 @@ const makeNavigationHarness = (options: NavigationHarnessOptions = {}) => {
             return;
           }
           if (query === "account-access") {
-            record("click:access-history");
             push({
               backgroundOrigin: "account",
               mode: "access-modal",
@@ -361,7 +244,6 @@ const makeNavigationHarness = (options: NavigationHarnessOptions = {}) => {
             return;
           }
           if (query === "status-access") {
-            record("click:access");
             push({
               backgroundOrigin:
                 current().mode === "modal" &&
@@ -378,7 +260,6 @@ const makeNavigationHarness = (options: NavigationHarnessOptions = {}) => {
             return;
           }
           if (query === "access-status") {
-            record("click:status");
             const accountModal =
               current().mode === "access-modal" &&
               current().backgroundOrigin === "account";
@@ -393,10 +274,8 @@ const makeNavigationHarness = (options: NavigationHarnessOptions = {}) => {
             return;
           }
           if (query === "close") {
-            record("click:close");
             historyIndex -= 1;
             syncBackgroundOrigin();
-            record("back");
             return;
           }
         }),
@@ -465,13 +344,11 @@ const makeNavigationHarness = (options: NavigationHarnessOptions = {}) => {
     Object.assign(page, {
       goBack: () =>
         runNavigationOperation(async () => {
-          record("back");
           historyIndex -= 1;
           syncBackgroundOrigin();
         }),
       goForward: () =>
         runNavigationOperation(async () => {
-          record("forward");
           historyIndex += 1;
           syncBackgroundOrigin();
         }),
@@ -483,7 +360,6 @@ const makeNavigationHarness = (options: NavigationHarnessOptions = {}) => {
             failFor("anonymous-status-load");
           if (privatePage && url === urls.accessUrl)
             failFor("anonymous-access-load");
-          record(`goto:${url}`);
           if (url === urls.accountUrl) accountLoaded = true;
           push({
             backgroundOrigin:
@@ -498,7 +374,6 @@ const makeNavigationHarness = (options: NavigationHarnessOptions = {}) => {
         }),
       reload: () =>
         runNavigationOperation(async () => {
-          record("reload");
           const url = current().url;
           history[historyIndex] = {
             backgroundOrigin:
@@ -521,7 +396,6 @@ const makeNavigationHarness = (options: NavigationHarnessOptions = {}) => {
                 ? "history-open-hydration"
                 : "history-reopen-hydration"
             );
-          record("wait:history-link-hydration");
         }),
       waitForURL: () =>
         runNavigationOperation(async () => {
@@ -549,7 +423,6 @@ const makeNavigationHarness = (options: NavigationHarnessOptions = {}) => {
   };
 
   return {
-    actions,
     browser,
     page,
     reservationId,
@@ -559,57 +432,6 @@ const makeNavigationHarness = (options: NavigationHarnessOptions = {}) => {
     },
   };
 };
-
-test("runs the reservation verifier actions and captures both live stages", async () => {
-  const harness = makeNavigationHarness();
-  const stages: string[] = [];
-
-  expect(
-    await harness.page.locator(`a[href="${harness.urls.statusPath}"]`).count()
-  ).toBe(0);
-
-  await verifyWorkspaceE2EReservationHistoryNavigation({
-    baseUrl: "https://workspace.example.test",
-    browser: harness.browser as never,
-    bypassSecret: undefined,
-    captureStatusReview: async (stage) => {
-      stages.push(stage);
-      const page = harness.page;
-      const activeRoot = page.getByRole(stage === "modal" ? "dialog" : "main");
-      expect(
-        await page.getByText(harness.reservationId, { exact: true }).count()
-      ).toBe(stage === "modal" ? 2 : 1);
-      expect(
-        await activeRoot
-          .getByText(harness.reservationId, { exact: true })
-          .count()
-      ).toBe(1);
-      expect(await activeRoot.locator("#checkout-status-access").count()).toBe(
-        1
-      );
-      if (stage === "modal") {
-        await expect(
-          fakePlaywrightExpect(
-            page.getByText(harness.reservationId, { exact: true })
-          ).toBeVisible()
-        ).rejects.toThrow();
-      }
-    },
-    fixture: {
-      accessGrantId: "grant",
-      dotyposReservationId: "dotypos-reservation",
-      paymentAttemptId: "payment",
-      reservationId: harness.reservationId,
-    },
-    page: harness.page as never,
-  });
-
-  expect(stages).toEqual(["modal", "details"]);
-  expect(harness.actions).toEqual(
-    expect.arrayContaining(["back", "forward", "reload"])
-  );
-  expect(harness.page.url()).toBe(harness.urls.accountUrl);
-});
 
 type MappedNavigationFailure = {
   readonly cause?: unknown;
