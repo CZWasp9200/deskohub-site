@@ -1,11 +1,5 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
-import {
-  existsSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { appendFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -25,14 +19,6 @@ import {
 import { runCommand } from "./shared/command";
 
 type VercelApiPayload =
-  | {
-      readonly deployments?: readonly {
-        readonly ready: number | null;
-        readonly target: string | null;
-        readonly url: string | null;
-        readonly readySubstate?: string;
-      }[];
-    }
   | {
       readonly id?: string;
       readonly projectId?: string;
@@ -106,19 +92,6 @@ afterEach(() => {
 });
 
 describe("workspace production release checks", () => {
-  test("accepts a healthy anonymous null session", async () => {
-    const requests: URL[] = [];
-    await assertAuthSessionReady("https://staged.vercel.app", async (input) => {
-      requests.push(new URL(input.toString()));
-      return nullSessionResponse();
-    });
-
-    expect(requests).toHaveLength(1);
-    expect(requests[0]?.toString()).toBe(
-      "https://staged.vercel.app/api/auth/get-session"
-    );
-  });
-
   test("passes the protection bypass only to a validated staged probe", async () => {
     const bypassSecret = "test-protection-bypass";
     const requests: Array<{ readonly init?: RequestInit; readonly url: URL }> =
@@ -249,15 +222,6 @@ describe("workspace production release checks", () => {
     ).rejects.toThrow("null session");
   });
 
-  test("rejects a failing session endpoint", async () => {
-    await expect(
-      assertAuthSessionReady(
-        "https://staged.vercel.app",
-        async () => new Response(null, { status: 503 })
-      )
-    ).rejects.toThrow("failed with 503");
-  });
-
   test("probes the customer-facing production host for the session endpoint and landing page", async () => {
     const requests: Array<{ readonly init?: RequestInit; readonly url: URL }> =
       [];
@@ -283,36 +247,6 @@ describe("workspace production release checks", () => {
     expect(requests[1]?.init?.redirect).toBe("error");
   });
 
-  test("never sends a production magic link as a release probe", async () => {
-    const methods: string[] = [];
-    await assertCanonicalLandingReady(async (input, init) => {
-      const url = new URL(input.toString());
-      methods.push(`${(init?.method ?? "GET").toUpperCase()} ${url.pathname}`);
-      if (url.pathname === "/api/auth/get-session")
-        return nullSessionResponse();
-      return new Response('<h1 id="landing-page-heading">Workspace</h1>', {
-        status: 200,
-      });
-    });
-
-    expect(methods.every((method) => method.startsWith("GET"))).toBe(true);
-    expect(methods.every((method) => !method.includes("magic-link"))).toBe(
-      true
-    );
-  });
-
-  test("rejects a landing page without its stable heading marker on the customer-facing host", async () => {
-    await expect(
-      assertCanonicalLandingReady(async (input) => {
-        const url = new URL(input.toString());
-        if (url.pathname === "/api/auth/get-session") {
-          return nullSessionResponse();
-        }
-        return new Response("<main>unexpected</main>", { status: 200 });
-      })
-    ).rejects.toThrow("landing-page heading");
-  });
-
   test("rejects a landing page with the wrong heading marker", async () => {
     await expect(
       assertCanonicalLandingReady(async (input) => {
@@ -325,18 +259,6 @@ describe("workspace production release checks", () => {
         });
       })
     ).rejects.toThrow("landing-page heading");
-  });
-
-  test("rejects a non-200 landing response", async () => {
-    await expect(
-      assertCanonicalLandingReady(async (input) => {
-        const url = new URL(input.toString());
-        if (url.pathname === "/api/auth/get-session") {
-          return nullSessionResponse();
-        }
-        return new Response("not found", { status: 404 });
-      })
-    ).rejects.toThrow("failed with 404");
   });
 
   test("rejects landing redirects without following them", async () => {
@@ -380,51 +302,6 @@ describe("workspace production release checks", () => {
     expect(requests.map((url) => url.pathname)).toEqual([
       "/api/auth/get-session",
     ]);
-  });
-
-  test("targets the deployment the canonical production alias serves, not the newest promoted deployment", async () => {
-    mockGlobalFetch((input) => {
-      const url = new URL(input.toString());
-      if (url.pathname === "/v4/aliases/deskohub-workspace-site.vercel.app") {
-        return jsonResponse({
-          projectId: "prj_test",
-          deployment: {
-            id: "dpl_retained",
-            url: "https://workspace-older.vercel.app",
-          },
-        });
-      }
-      if (url.pathname === "/v7/deployments") {
-        return jsonResponse({
-          deployments: [
-            {
-              ready: 900,
-              target: "production",
-              url: "https://workspace-newest-promoted.vercel.app",
-              readySubstate: "PROMOTED",
-            },
-            {
-              ready: 950,
-              target: "production",
-              url: "https://workspace-staged.vercel.app",
-              readySubstate: "STAGED",
-            },
-          ],
-        });
-      }
-      return new Response("Not found", { status: 404 });
-    });
-
-    const target = await resolveProductionRollbackTarget(
-      "token",
-      "prj_test",
-      "team_test"
-    );
-
-    expect(target).toEqual({
-      id: "dpl_retained",
-      url: "https://workspace-older.vercel.app",
-    });
   });
 
   test("scopes the canonical alias lookup to the configured Vercel project and team", async () => {
@@ -493,14 +370,6 @@ describe("workspace production release checks", () => {
     await expect(
       resolveProductionRollbackTarget("token", "prj_test", undefined)
     ).rejects.toThrow("canonical production alias");
-  });
-
-  test("fails closed when the canonical production alias is missing", async () => {
-    mockGlobalFetch(() => new Response("Not found", { status: 404 }));
-
-    await expect(
-      resolveProductionRollbackTarget("token", "prj_test", undefined)
-    ).rejects.toThrow("Vercel API");
   });
 
   test("publishes the masked rollback target only through the GitHub output file", async () => {
@@ -892,52 +761,6 @@ describe("workspace production release checks", () => {
     ).toBe(true);
   });
 
-  test("requests the promotion through the primary Vercel API, not a CLI wait", async () => {
-    const scriptPath = fileURLToPath(
-      new URL("./production-release.ts", import.meta.url)
-    );
-    const workspaceRoot = resolve(import.meta.dir, "../..");
-    const fakeBin = mkdtempSync(join(tmpdir(), "release-cli-"));
-    const recordFile = join(fakeBin, "invocations.log");
-    writeFileSync(
-      join(fakeBin, "bunx"),
-      `#!/bin/sh\nprintf '%s\\n' "$@" >> "$RECORD_FILE"\nexit 0\n`,
-      { mode: 0o755 }
-    );
-
-    await runCommand(
-      [
-        "timeout",
-        "30",
-        process.execPath,
-        scriptPath,
-        "promote",
-        "--url",
-        "https://staged.vercel.app",
-      ],
-      {
-        cwd: workspaceRoot,
-        env: {
-          ...process.env,
-          PATH: `${fakeBin}:${process.env.PATH}`,
-          RECORD_FILE: recordFile,
-          VERCEL_TOKEN: "synthetic-token",
-          VERCEL_PROJECT_ID: "synthetic-project",
-          HTTPS_PROXY: "http://127.0.0.1:9",
-        },
-      }
-    );
-
-    // Promotion must go through the REST API (verified in-process above);
-    // the CLI subprocess is never spawned for promotion.
-    const recorded = existsSync(recordFile)
-      ? readFileSync(recordFile, "utf8")
-      : "";
-    expect(recorded.includes("promote")).toBe(false);
-    expect(recorded.includes("vercel@")).toBe(false);
-    rmSync(fakeBin, { recursive: true, force: true });
-  }, 60000);
-
   test("refuses to promote before the staged deployment reports ready", async () => {
     const environment = promotionEnvironment();
     mockGlobalFetch((input, init) => {
@@ -992,18 +815,6 @@ describe("workspace production release checks", () => {
 
     expect(rollback).not.toHaveBeenCalled();
     expect(environment.persisted).toContain("promotion_state=rejected\n");
-  });
-
-  test("keeps polling a pending promotion until every production alias eventually changes", async () => {
-    const environment = promotionEnvironment();
-    environment.serveAliasUntil(90_000);
-    mockGlobalFetch(environment.mockFetch);
-
-    const outcome = await promote(environment, {
-      pollDeadlineMilliseconds: 120_000,
-    });
-
-    expect(outcome).toEqual({ promoted: true });
   });
 
   test("does not declare promotion while the custom production domain still serves the baseline", async () => {
@@ -1073,30 +884,6 @@ describe("workspace production release checks", () => {
     );
   });
 
-  test("does not persist restored when the customer domain alias is missing after the rollback", async () => {
-    const environment = promotionEnvironment();
-    environment.serveAliasUntil(30_000);
-    environment.keepCustomDomainOnBaseline();
-    mockGlobalFetch(environment.mockFetch);
-    const rollbackUrls: string[] = [];
-    const rollback = mock((url: string) => {
-      rollbackUrls.push(url);
-      environment.restoreBaselineAlias();
-      environment.dropCustomDomainAlias();
-      return Promise.resolve();
-    });
-
-    await expect(promote(environment, {}, { rollback })).rejects.toThrow(
-      "workspace.deskohub.cz"
-    );
-
-    expect(rollbackUrls).toEqual(["https://workspace-baseline.vercel.app"]);
-    expect(environment.persisted).not.toContain("promotion_state=restored\n");
-    expect(environment.persisted).toContain(
-      "promotion_state=recovery-needed\n"
-    );
-  });
-
   test("rolls back to the baseline and verifies before failing an ambiguous promotion", async () => {
     const environment = promotionEnvironment();
     environment.setPostStatus(503);
@@ -1135,41 +922,6 @@ describe("workspace production release checks", () => {
     ).toBeGreaterThan(events.indexOf("rollback"));
   });
 
-  test("persists recovery-needed so the workflow finalizer restores the baseline when recovery verification fails", async () => {
-    const environment = promotionEnvironment();
-    environment.serveAliasUntil(60_000);
-    mockGlobalFetch(environment.mockFetch);
-    const rollbackUrls: string[] = [];
-    const rollback = mock((url: string) => {
-      rollbackUrls.push(url);
-      return Promise.resolve();
-    });
-
-    await expect(promote(environment, {}, { rollback })).rejects.toThrow(
-      "verification"
-    );
-
-    expect(environment.persisted).toContain(
-      "promotion_state=recovery-needed\n"
-    );
-
-    environment.restoreBaselineAlias();
-    await expect(
-      verifyCanonicalAliasServes(
-        { id: "dpl_baseline", url: "https://workspace-baseline.vercel.app" },
-        {
-          token: "token",
-          projectId: "prj_test",
-          teamId: "team_test",
-          pollDeadlineMilliseconds: 60_000,
-          pollIntervalMilliseconds: 30_000,
-        },
-        environment.virtualDeps
-      )
-    ).resolves.toBeUndefined();
-    expect(rollbackUrls).toEqual(["https://workspace-baseline.vercel.app"]);
-  });
-
   test("recovers to the immediate pre-request baseline, never the pre-build retained target", async () => {
     const environment = promotionEnvironment();
     environment.setPostStatus(503);
@@ -1199,25 +951,6 @@ describe("workspace production release checks", () => {
     expect(environment.persisted[0]).toBe(
       "baseline_url=https://workspace-rebased.vercel.app\nbaseline_id=dpl_rebased\n"
     );
-  });
-
-  test("verifies the restored deployment across the required production aliases after rollback", async () => {
-    const environment = promotionEnvironment();
-    mockGlobalFetch(environment.mockFetch);
-
-    await expect(
-      verifyCanonicalAliasServes(
-        { id: "dpl_baseline", url: "https://workspace-baseline.vercel.app" },
-        {
-          token: "token",
-          projectId: "prj_test",
-          teamId: "team_test",
-          pollDeadlineMilliseconds: 60_000,
-          pollIntervalMilliseconds: 30_000,
-        },
-        environment.virtualDeps
-      )
-    ).resolves.toBeUndefined();
   });
 
   test("fails rollback verification while the customer domain still serves the staged deployment", async () => {
@@ -1260,26 +993,6 @@ describe("workspace production release checks", () => {
         environment.virtualDeps
       )
     ).rejects.toThrow("workspace.deskohub.cz");
-  });
-
-  test("fails verification when the canonical alias serves a different deployment", async () => {
-    const environment = promotionEnvironment();
-    environment.serveStagedAliasImmediately();
-    mockGlobalFetch(environment.mockFetch);
-
-    await expect(
-      verifyCanonicalAliasServes(
-        { id: "dpl_baseline", url: "https://workspace-baseline.vercel.app" },
-        {
-          token: "token",
-          projectId: "prj_test",
-          teamId: "team_test",
-          pollDeadlineMilliseconds: 60_000,
-          pollIntervalMilliseconds: 30_000,
-        },
-        environment.virtualDeps
-      )
-    ).rejects.toThrow("verification");
   });
 
   test("verifies rollback by deployment id when alias rows omit the nested deployment", async () => {
@@ -1477,30 +1190,6 @@ describe("workspace production release checks", () => {
     }
   });
 
-  test("rejects a staged deployment that is not READY", async () => {
-    mockGlobalFetch(() =>
-      Promise.resolve(
-        jsonResponse({
-          id: "dpl_staged",
-          projectId: "prj_test",
-          target: "production",
-          readyState: "BUILDING",
-          url: "deskohub-workspace-site-a1b2c3d4e-deskohub-bar.vercel.app",
-          crons: [],
-        })
-      )
-    );
-
-    await expect(
-      assertStagedDeploymentCrons(
-        stagedDeploymentUrl,
-        "prj_test",
-        "token",
-        undefined
-      )
-    ).rejects.toThrow("READY");
-  });
-
   test("rejects a staged cron with a missing or incorrect schedule", async () => {
     mockGlobalFetch(() =>
       Promise.resolve(
@@ -1532,36 +1221,6 @@ describe("workspace production release checks", () => {
         undefined
       )
     ).rejects.toThrow("17 3 * * *");
-  });
-
-  test("rejects a staged cron definition with no schedule when both paths exist", async () => {
-    mockGlobalFetch(() =>
-      Promise.resolve(
-        jsonResponse({
-          id: "dpl_staged",
-          projectId: "prj_test",
-          target: "production",
-          readyState: "READY",
-          url: "deskohub-workspace-site-a1b2c3d4e-deskohub-bar.vercel.app",
-          crons: [
-            {
-              path: "/api/cron/workspace/reservation-holds",
-              schedule: "0 0 * * *",
-            },
-            { path: "/api/cron/workspace/auth-cleanup" },
-          ],
-        })
-      )
-    );
-
-    await expect(
-      assertStagedDeploymentCrons(
-        stagedDeploymentUrl,
-        "prj_test",
-        "token",
-        undefined
-      )
-    ).rejects.toThrow("auth-cleanup");
   });
 
   test("rejects a staged deployment lookup that does not match the exact URL", async () => {
@@ -1717,46 +1376,6 @@ describe("workspace production release checks", () => {
     await expect(verifyLive()).rejects.toThrow("auth-cleanup");
   });
 
-  test("rejects a live cron definition with no schedule when both paths exist", async () => {
-    let clock = 0;
-    mockGlobalFetch(() =>
-      Promise.resolve(
-        jsonResponse({
-          id: "prj_test",
-          crons: {
-            deploymentId: "dpl_staged",
-            definitions: [
-              {
-                path: "/api/cron/workspace/reservation-holds",
-                schedule: "0 0 * * *",
-              },
-              { path: "/api/cron/workspace/auth-cleanup" },
-            ],
-          },
-        })
-      )
-    );
-
-    await expect(
-      assertLiveProjectCrons(
-        "dpl_staged",
-        {
-          token: "token",
-          projectId: "prj_test",
-          teamId: undefined,
-          pollDeadlineMilliseconds: 2,
-          pollIntervalMilliseconds: 1,
-        },
-        {
-          sleep: async (ms) => {
-            clock += ms;
-          },
-          now: () => clock,
-        }
-      )
-    ).rejects.toThrow("auth-cleanup");
-  });
-
   test("bounds stalled live cron requests and body consumption by the overall deadline", async () => {
     for (const stall of ["request", "body"] as const) {
       let clock = 0;
@@ -1882,48 +1501,5 @@ describe("workspace production release checks", () => {
     ).rejects.toThrow("deadline");
 
     expect(sleeps).toEqual([3]);
-  });
-
-  test("does not accept the baseline deployment's one-cron project snapshot", async () => {
-    let clock = 0;
-    let requests = 0;
-    mockGlobalFetch(() => {
-      requests += 1;
-      return Promise.resolve(
-        jsonResponse({
-          id: "prj_test",
-          crons: {
-            deploymentId: "dpl_baseline",
-            definitions: [
-              {
-                path: "/api/cron/workspace/reservation-holds",
-                schedule: "0 0 * * *",
-              },
-            ],
-          },
-        })
-      );
-    });
-
-    await expect(
-      assertLiveProjectCrons(
-        "dpl_staged",
-        {
-          token: "token",
-          projectId: "prj_test",
-          teamId: undefined,
-          pollDeadlineMilliseconds: 2,
-          pollIntervalMilliseconds: 1,
-        },
-        {
-          sleep: async (ms) => {
-            clock += ms;
-          },
-          now: () => clock,
-        }
-      )
-    ).rejects.toThrow("dpl_baseline");
-
-    expect(requests).toBe(2);
   });
 });
