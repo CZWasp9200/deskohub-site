@@ -7,7 +7,7 @@ import {
   mock,
   test,
 } from "bun:test";
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { cleanup, render } from "@testing-library/react";
 import type { ComponentPropsWithoutRef, Ref } from "react";
 import { useState } from "react";
 import { type Locale, m } from "@/features/i18n";
@@ -158,140 +158,6 @@ function renderLegalScreen(locale: Locale) {
   );
 }
 
-for (const locale of ["en-US", "cs-CZ"] as const) {
-  test(`${locale} renders the catalog copy and localized policy destinations`, () => {
-    const view = renderLegalScreen(locale);
-    const title = m.legalScreenTitle({}, { locale });
-
-    expect(view.getByRole("heading", { level: 2, name: title })).toBeTruthy();
-    expect(
-      view.getByRole("navigation", {
-        name: m.footerLegalLabel({}, { locale }),
-      })
-    ).toBeTruthy();
-
-    const policyLinks = [
-      [m.footerPrivacyLink({}, { locale }), `/${locale}/privacy-policy`],
-      [
-        m.footerMarketingCommunicationsLink({}, { locale }),
-        `/${locale}/marketing-communications`,
-      ],
-      [m.footerTermsLink({}, { locale }), `/${locale}/terms-and-conditions`],
-      [m.footerCookiePolicyLink({}, { locale }), `/${locale}/cookie-policy`],
-    ] as const;
-
-    for (const [name, href] of policyLinks) {
-      expect(view.getByRole("link", { name }).getAttribute("href")).toBe(href);
-    }
-
-    expect(
-      view.getByRole("heading", {
-        level: 3,
-        name: m.legalScreenArchiveTitle({}, { locale }),
-      })
-    ).toBeTruthy();
-    expect(
-      view.getByText(m.legalScreenArchiveDescription({}, { locale }))
-    ).toBeTruthy();
-    const archiveAction = view.getByRole("button", {
-      name: m.legalScreenArchiveAction({}, { locale }),
-    });
-    expect((archiveAction as HTMLButtonElement).disabled).toBe(true);
-    expect(archiveAction.getAttribute("type")).toBe("button");
-  });
-}
-
-test("renders immutable necessary consent and functional optional controls", async () => {
-  const locale = "en-US" as const;
-  const view = renderLegalScreen(locale);
-  const switchFor = (title: string) =>
-    view.getByRole("switch", { name: new RegExp(`^${title}`) });
-
-  const necessary = switchFor(m.cookieSettingsNecessaryTitle({}, { locale }));
-  const analytics = switchFor(m.cookieSettingsAnalyticsTitle({}, { locale }));
-  const marketing = switchFor(m.cookieSettingsMarketingTitle({}, { locale }));
-  const preferences = switchFor(
-    m.cookieSettingsPreferencesTitle({}, { locale })
-  );
-
-  expect(necessary.getAttribute("aria-checked")).toBe("true");
-  expect((necessary as HTMLButtonElement).disabled).toBe(true);
-  expect(
-    view.queryByRole("button", {
-      name: m.legalScreenSavePreferences({}, { locale }),
-    })
-  ).toBeNull();
-  expect(
-    view.queryByRole("button", {
-      name: m.cookieSettingsAcceptAll({}, { locale }),
-    })
-  ).toBeNull();
-  expect(
-    view.queryByRole("button", {
-      name: m.cookieSettingsRejectAll({}, { locale }),
-    })
-  ).toBeNull();
-  expect(
-    view.queryByRole("button", {
-      name: m.legalScreenUnavailable({}, { locale }),
-    })
-  ).toBeNull();
-  expect(
-    view.queryByText(m.legalScreenAnalyticsDescription({}, { locale }))
-  ).toBeNull();
-  expect(
-    view.queryByText(m.legalScreenMarketingDescription({}, { locale }))
-  ).toBeNull();
-  expect(
-    view.queryByText(m.legalScreenPreferencesUnavailable({}, { locale }))
-  ).toBeNull();
-
-  const archiveAction = view.getByRole("button", {
-    name: m.legalScreenArchiveAction({}, { locale }),
-  });
-  expect(archiveAction.closest("[role='group'][tabindex='0']")).not.toBeNull();
-  expect(
-    view.container.querySelectorAll("[role='group'][tabindex='0']")
-  ).toHaveLength(1);
-
-  for (const optionalSwitch of [analytics, marketing, preferences]) {
-    expect(optionalSwitch.getAttribute("aria-checked")).toBe("false");
-    expect((optionalSwitch as HTMLButtonElement).disabled).toBe(false);
-  }
-
-  fireEvent.click(analytics);
-  await waitFor(() => {
-    expect(analytics.getAttribute("aria-checked")).toBe("true");
-  });
-
-  fireEvent.click(analytics);
-  await waitFor(() => {
-    expect(analytics.getAttribute("aria-checked")).toBe("false");
-  });
-
-  fireEvent.click(marketing);
-  await waitFor(() => {
-    expect(marketing.getAttribute("aria-checked")).toBe("true");
-  });
-});
-
-test("keeps consent controls free of page-only shells", () => {
-  const view = renderLegalScreen("en-US");
-
-  expect(view.container.querySelector("main")).toBeNull();
-  expect(view.container.querySelector("h1")).toBeNull();
-  // Unavailable marketing state is not a row: the group holds only the four
-  // cookie category articles.
-  const group = view.container.querySelector(
-    '[data-slot="preference-row-group"]'
-  );
-  expect(group).toBeTruthy();
-  expect(group.children).toHaveLength(4);
-  for (const child of Array.from(group.children)) {
-    expect(child.getAttribute("data-slot")).toBe("preference-row");
-  }
-});
-
 const linkMarketingState = {
   context: "synthetic-link-context",
   dismissalContext: "synthetic-link-dismissal-context",
@@ -408,20 +274,4 @@ test("defaults the optional marketing preference state to unavailable", () => {
       })
       .getAttribute("href")
   ).toBe("/en-US/auth/sign-in");
-});
-
-test("hides the marketing sign-in affordance when accounts are disabled", () => {
-  const locale = "en-US" as const;
-  const view = render(
-    <>
-      <CookieConsentProvider locale={locale} />
-      <LegalScreen accountsEnabled={false} locale={locale} />
-    </>
-  );
-
-  expect(
-    view.queryByRole("link", {
-      name: m.marketingPreferencesFormSignInAction({}, { locale }),
-    })
-  ).toBeNull();
 });

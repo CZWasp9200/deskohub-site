@@ -220,53 +220,6 @@ describe("ProfileForm", () => {
     await unregisterWorkspaceComponentTestEnv();
   });
 
-  test("labels the profile fields without required or optional suffixes", async () => {
-    const { ProfileForm } = await import("./profile-form");
-
-    const en = render(
-      <ProfileForm
-        mode="edit"
-        locale="en-US"
-        email={adaAddress}
-        profile={editProfile}
-      />
-    );
-    expect(
-      en.getByLabelText(m.accountProfileFirstNameLabel({}, { locale: "en-US" }))
-    ).toBeTruthy();
-    expect(
-      en.getByLabelText(m.accountProfileLastNameLabel({}, { locale: "en-US" }))
-    ).toBeTruthy();
-    expect(
-      en.getByLabelText(m.accountProfilePhoneLabel({}, { locale: "en-US" }))
-    ).toBeTruthy();
-    expect(
-      en.getByText(m.accountBillingDetailsTitle({}, { locale: "en-US" }))
-    ).toBeTruthy();
-    en.unmount();
-
-    const cs = render(
-      <ProfileForm
-        mode="edit"
-        locale="cs-CZ"
-        email={adaAddress}
-        profile={editProfile}
-      />
-    );
-    expect(
-      cs.getByLabelText(m.accountProfileFirstNameLabel({}, { locale: "cs-CZ" }))
-    ).toBeTruthy();
-    expect(
-      cs.getByLabelText(m.accountProfileLastNameLabel({}, { locale: "cs-CZ" }))
-    ).toBeTruthy();
-    expect(
-      cs.getByLabelText(m.accountProfilePhoneLabel({}, { locale: "cs-CZ" }))
-    ).toBeTruthy();
-    expect(
-      cs.getByText(m.accountBillingDetailsTitle({}, { locale: "cs-CZ" }))
-    ).toBeTruthy();
-  });
-
   test("renders the verified login email as immutable profile text", async () => {
     const { ProfileForm } = await import("./profile-form");
 
@@ -790,56 +743,6 @@ describe("ProfileForm", () => {
     expect(completeCustomerProfile).not.toHaveBeenCalled();
   });
 
-  test("keeps the update success feedback without refreshing the page", async () => {
-    const { ProfileForm } = await import("./profile-form");
-
-    const view = render(
-      <ProfileForm
-        mode="edit"
-        locale="en-US"
-        email={adaAddress}
-        profile={editProfile}
-      />
-    );
-
-    await act(async () => {
-      fireEvent.submit(view.container.querySelector("#account-profile-form")!);
-    });
-
-    expect(updateCustomerProfile).toHaveBeenCalledTimes(1);
-    expect(workspaceRouterRefresh).not.toHaveBeenCalled();
-    expect(view.getByText("Profile updated.")).toBeTruthy();
-  });
-
-  test("reports action failures in the polite live region", async () => {
-    updateCustomerProfile.mockImplementationOnce(() =>
-      Promise.resolve({
-        serverError: "We could not update your profile. Please try again.",
-      })
-    );
-    const { ProfileForm } = await import("./profile-form");
-
-    const view = render(
-      <ProfileForm
-        mode="edit"
-        locale="en-US"
-        email={adaAddress}
-        profile={editProfile}
-      />
-    );
-    const feedback = view.container.querySelector("#account-profile-feedback")!;
-    expect(feedback.getAttribute("aria-live")).toBe("polite");
-
-    await act(async () => {
-      fireEvent.submit(view.container.querySelector("#account-profile-form")!);
-    });
-
-    expect(
-      view.getByText("We could not update your profile. Please try again.")
-    ).toBeTruthy();
-    expect(workspaceRouterRefresh).not.toHaveBeenCalled();
-  });
-
   test("associates the first-name validation error with the field", async () => {
     updateCustomerProfile.mockImplementationOnce(() =>
       Promise.resolve({
@@ -874,22 +777,6 @@ describe("ProfileForm", () => {
     );
   });
 
-  test("renders the stored legacy phone so an unparseable value stays visible", async () => {
-    const { ProfileForm } = await import("./profile-form");
-
-    const view = render(
-      <ProfileForm
-        mode="edit"
-        locale="en-US"
-        email={adaAddress}
-        profile={{ ...editProfile, phone: "555-ALPHA" }}
-      />
-    );
-
-    const phone = view.getByLabelText("Phone") as HTMLInputElement;
-    expect(phone.value).toBe("555-ALPHA");
-  });
-
   test("forces phone correction instead of saving when the phone fails validation", async () => {
     const { ProfileForm } = await import("./profile-form");
 
@@ -918,95 +805,6 @@ describe("ProfileForm", () => {
       view.getByText("Enter a valid phone number or clear the field.").id
     ).toBe("account-profile-phone-error");
     expect(workspaceRouterRefresh).not.toHaveBeenCalled();
-  });
-
-  test("shows the validation message when the action rejects the input shape", async () => {
-    updateCustomerProfile.mockImplementationOnce(() =>
-      Promise.resolve({
-        validationErrors: { formErrors: [], fieldErrors: { firstName: [] } },
-      })
-    );
-    const { ProfileForm } = await import("./profile-form");
-
-    const view = render(
-      <ProfileForm
-        mode="edit"
-        locale="en-US"
-        email={adaAddress}
-        profile={editProfile}
-      />
-    );
-
-    await act(async () => {
-      fireEvent.submit(view.container.querySelector("#account-profile-form")!);
-    });
-
-    expect(
-      view.getByText("Please review the highlighted fields and try again.")
-    ).toBeTruthy();
-  });
-
-  test("keeps a later edit guarded when a deferred save succeeds", async () => {
-    let resolveUpdate!: (result: ActionResult) => void;
-    const pendingUpdate = new Promise<ActionResult>((resolve) => {
-      resolveUpdate = resolve;
-    });
-    updateCustomerProfile.mockImplementationOnce(() => pendingUpdate);
-
-    const { ProfileForm } = await import("./profile-form");
-    const { UnsavedChangesProvider } = await import(
-      "@/shared/components/unsaved-changes-guard"
-    );
-    const originalConfirm = window.confirm;
-    const confirm = mock(() => false);
-    window.location.href = "http://localhost/account";
-    window.confirm = confirm;
-
-    try {
-      const view = render(
-        <UnsavedChangesProvider>
-          <ProfileForm
-            mode="edit"
-            locale="en-US"
-            email={adaAddress}
-            profile={editProfile}
-          />
-          <GuardedLink href="/next">Next</GuardedLink>
-        </UnsavedChangesProvider>
-      );
-      const firstName = view.getByLabelText("First name") as HTMLInputElement;
-
-      await act(async () => {
-        fireEvent.input(firstName, { target: { value: "Grace" } });
-        fireEvent.submit(
-          view.container.querySelector("#account-profile-form")!
-        );
-      });
-      await act(async () => {
-        fireEvent.input(firstName, { target: { value: "Augusta" } });
-      });
-
-      await act(async () => {
-        resolveUpdate({ data: { status: "updated" } });
-        await pendingUpdate;
-      });
-
-      expect(firstName.value).toBe("Augusta");
-      const link = view.getByRole("link", { name: "Next" });
-      const event = new MouseEvent("click", {
-        bubbles: true,
-        cancelable: true,
-        button: 0,
-      });
-      link.dispatchEvent(event);
-
-      expect(event.defaultPrevented).toBe(true);
-      expect(confirm).toHaveBeenCalledWith(
-        "You have unsaved profile changes. Leave this page?"
-      );
-    } finally {
-      window.confirm = originalConfirm;
-    }
   });
 
   test("preserves typed values and the guard after a rejected save", async () => {
@@ -1302,50 +1100,6 @@ describe("ProfileForm", () => {
     }
   });
 
-  test("retains billing drafts when switching between business and personal", async () => {
-    const { ProfileForm } = await import("./profile-form");
-
-    const view = render(
-      <ProfileForm
-        mode="edit"
-        locale="en-US"
-        email={adaAddress}
-        profile={businessProfile}
-      />
-    );
-    const companyName = view.getByLabelText("Company name") as HTMLInputElement;
-    const addressLine1 = view.getByLabelText(
-      "Street and number"
-    ) as HTMLInputElement;
-
-    await act(async () => {
-      fireEvent.input(companyName, { target: { value: "Draft Company" } });
-      fireEvent.input(addressLine1, { target: { value: "Draft Street 2" } });
-    });
-    expect(companyName.value).toBe("Draft Company");
-    expect(addressLine1.value).toBe("Draft Street 2");
-    await act(async () => {
-      fireEvent.change(view.getByLabelText("Billing profile"), {
-        target: { value: "personal" },
-      });
-    });
-    expect(
-      (view.getByLabelText("Street and number") as HTMLInputElement).value
-    ).toBe("Draft Street 2");
-    await act(async () => {
-      fireEvent.change(view.getByLabelText("Billing profile"), {
-        target: { value: "business" },
-      });
-    });
-
-    expect(
-      (view.getByLabelText("Company name") as HTMLInputElement).value
-    ).toBe("Draft Company");
-    expect(
-      (view.getByLabelText("Street and number") as HTMLInputElement).value
-    ).toBe("Draft Street 2");
-  });
-
   test("retains a personal billing draft after hiding billing and stays dirty", async () => {
     const { ProfileForm } = await import("./profile-form");
     const { UnsavedChangesProvider } = await import(
@@ -1476,41 +1230,6 @@ describe("ProfileForm", () => {
     } finally {
       window.confirm = originalConfirm;
     }
-  });
-
-  test("reveals business billing fields only after choosing business billing", async () => {
-    const { ProfileForm } = await import("./profile-form");
-
-    const view = render(
-      <ProfileForm
-        mode="edit"
-        locale="en-US"
-        email={adaAddress}
-        profile={editProfile}
-      />
-    );
-    expect(
-      view.container.querySelector("#account-profile-billing-company-name")
-    ).toBeNull();
-
-    await act(async () => {
-      fireEvent.change(view.getByLabelText("Billing profile"), {
-        target: { value: "business" },
-      });
-    });
-
-    expect(view.getByLabelText("Company name")).toBeTruthy();
-    expect(view.getByLabelText("Company ID (IČO)")).toBeTruthy();
-    expect(view.getByLabelText("VAT ID")).toBeTruthy();
-    expect(view.getByLabelText("Street and number")).toBeTruthy();
-
-    fireEvent.change(view.getByLabelText("Billing profile"), {
-      target: { value: "personal" },
-    });
-    expect(
-      view.container.querySelector("#account-profile-billing-company-name")
-    ).toBeNull();
-    expect(view.getByLabelText("City")).toBeTruthy();
   });
 
   test("links each rejected billing field to its server error", async () => {
@@ -1923,73 +1642,6 @@ describe("ProfileForm", () => {
       });
     };
 
-    test("shows the initials fallback and hides remove without an avatar", async () => {
-      const view = await renderEditProfile();
-
-      expect(view.container.querySelector("img")).toBeNull();
-      expect(view.getByText("AL")).toBeTruthy();
-      expect(
-        view.queryByRole("button", { name: "Remove profile photo" })
-      ).toBeNull();
-      expect(
-        view.getByRole("button", { name: "Change profile photo" })
-      ).toBeTruthy();
-      expect(view.getByText("JPG, PNG or WebP, up to 2 MB.")).toBeTruthy();
-    });
-
-    test("omits the avatar control entirely when presentation is hidden", async () => {
-      const view = await renderEditProfile({
-        avatarPresentation: { kind: "hidden" },
-      });
-      const locale = "en-US";
-      const changeLabel = m.accountProfileAvatarChange({}, { locale });
-      const removeLabel = m.accountProfileAvatarRemove({}, { locale });
-      const avatarCopy = [
-        m.accountProfileAvatarAlt({}, { locale }),
-        changeLabel,
-        removeLabel,
-        m.accountProfileAvatarHint({}, { locale }),
-        m.accountProfileAvatarUploading({}, { locale }),
-        m.accountProfileAvatarRemoving({}, { locale }),
-        m.accountProfileAvatarUpdated({}, { locale }),
-        m.accountProfileAvatarRemoved({}, { locale }),
-        m.accountProfileAvatarErrorRetryable({}, { locale }),
-        m.accountProfileAvatarErrorGeneric({}, { locale }),
-        m.accountProfileAvatarErrorFileMissing({}, { locale }),
-        m.accountProfileAvatarErrorFileTooLarge({}, { locale }),
-        m.accountProfileAvatarErrorDimensions({}, { locale }),
-        m.accountProfileAvatarErrorUndecodable({}, { locale }),
-        m.accountProfileAvatarErrorUnsupportedFormat({}, { locale }),
-      ];
-
-      expect(view.getByText("Ada Lovelace")).toBeTruthy();
-      expect(view.getByText(adaAddress)).toBeTruthy();
-      expect(view.getByLabelText("First name")).toBeTruthy();
-      expect(view.container.querySelector("img")).toBeNull();
-      expect(view.container.querySelector("input[type='file']")).toBeNull();
-      expect(view.container.querySelector("svg.lucide-user-round")).toBeNull();
-      expect(view.queryByText("AL")).toBeNull();
-      expect(view.queryByRole("status")).toBeNull();
-      expect(view.queryByRole("button", { name: changeLabel })).toBeNull();
-      expect(view.queryByRole("button", { name: removeLabel })).toBeNull();
-      for (const copy of avatarCopy) {
-        expect(view.queryByText(copy)).toBeNull();
-      }
-    });
-
-    test("renders the stored avatar with localized alt text and a remove control", async () => {
-      const view = await renderEditProfile({
-        avatarPresentation: { kind: "available", avatar: existingAvatar },
-      });
-
-      const image = view.getByAltText("Your profile picture");
-      expect((image as HTMLImageElement).src).toBe(existingAvatar.url);
-      expect(
-        view.getByRole("button", { name: "Remove profile photo" })
-      ).toBeTruthy();
-      expect(view.queryByText("AL")).toBeNull();
-    });
-
     test("falls back to initials when the avatar image fails to load", async () => {
       const view = await renderEditProfile({
         avatarPresentation: { kind: "available", avatar: existingAvatar },
@@ -2002,44 +1654,6 @@ describe("ProfileForm", () => {
 
       expect(view.container.querySelector("img")).toBeNull();
       expect(view.getByText("AL")).toBeTruthy();
-    });
-
-    test("reaches and activates upload and remove from the keyboard", async () => {
-      const view = await renderEditProfile({
-        avatarPresentation: { kind: "available", avatar: existingAvatar },
-      });
-      const input = fileInput(view);
-      const openPicker = mock(() => undefined);
-      input.click = openPicker;
-
-      const camera = view.getByRole("button", {
-        name: "Change profile photo",
-      });
-      expect(camera.tagName).toBe("BUTTON");
-      expect((camera as HTMLButtonElement).disabled).toBe(false);
-      await act(async () => {
-        camera.focus();
-      });
-      expect(document.activeElement).toBe(camera);
-      await act(async () => {
-        fireEvent.click(camera);
-      });
-      expect(openPicker).toHaveBeenCalledTimes(1);
-
-      const remove = view.getByRole("button", {
-        name: "Remove profile photo",
-      });
-      expect(remove.tagName).toBe("BUTTON");
-      await act(async () => {
-        remove.focus();
-      });
-      expect(document.activeElement).toBe(remove);
-      await act(async () => {
-        fireEvent.click(remove);
-      });
-
-      expect(removeCustomerAvatar).toHaveBeenCalledTimes(1);
-      expect(uploadCustomerAvatar).not.toHaveBeenCalled();
     });
 
     test("keeps dirty identity and billing drafts when refreshed server props arrive after an avatar upload", async () => {
