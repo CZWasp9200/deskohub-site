@@ -4,6 +4,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { NodeCrypto } from "@effect/platform-node";
 import { Cause, Effect, Exit, Layer } from "effect";
 import { TestClock } from "effect/testing";
+import { waitForPostgresLockWaiter } from "@/shared/testing/workspace-postgres-lock-waiters.test-utils";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import { hashCampaignContent } from "../body/campaign-content-hash";
 import type { CampaignId } from "../campaign-identifiers";
@@ -113,16 +114,160 @@ describe.skipIf(!testDatabase)(
       expect(issued.expiresAt).toEqual(issuedAt.add({ hours: 24 }));
     });
 
-    test("confirms the code as typed, once", async () => {
+    const updateContent = (campaignId: CampaignId, text: string) =>
+      runAt(
+        { minutes: 1 },
+        CampaignService.pipe(
+          Effect.flatMap((campaigns) =>
+            campaigns.update({
+              campaignId,
+              content: campaignContentFixture(text),
+            })
+          )
+        )
+      );
+
+    const storedCampaign = async (campaignId: CampaignId) => {
+      const { rows } = await testDatabase.pool.query(
+        "select status, content from email_campaigns where id = $1",
+        [campaignId]
+      );
+      return rows[0];
+    };
+
+    const storedCodes = async (campaignId: CampaignId) => {
+      const { rows } = await testDatabase.pool.query(
+        "select * from email_campaign_confirmation_codes where campaign_id = $1 order by issued_at",
+        [campaignId]
+      );
+      return rows;
+    };
+
+    /** A raw connection holding a transaction open on the campaign row. */
+    const holdCampaignRow = async (sql: string, values: unknown[]) => {
+      const client = await testDatabase.pool.connect();
+      const {
+        rows: [{ pid }],
+      } = await client.query("select pg_backend_pid() as pid");
+      await client.query("begin");
+      await client.query(sql, values);
+      return {
+        pid: pid as number,
+        commit: async () => {
+          await client.query("commit");
+          client.release();
+        },
+      };
+    };
+
+    test("confirms the code as typed and moves the campaign to Sending", async () => {
       const campaign = await createDraft();
       const { code } = await issueFor(campaign);
       const typed = ` ${code.slice(0, 4).toLowerCase()}-${code.slice(4)} `;
 
-      expect(Exit.isSuccess(await confirm(campaign.id, typed))).toBe(true);
+      const confirmed = await confirm(campaign.id, typed);
+      expect(Exit.isSuccess(confirmed) && confirmed.value.status).toBe(
+        "sending"
+      );
+      expect((await storedCampaign(campaign.id)).status).toBe("sending");
       expect(failure(await confirm(campaign.id, code))).toMatchObject({
-        _tag: "CampaignConfirmationRejected",
-        reason: "already-confirmed",
+        _tag: "CampaignReadOnly",
+        status: "sending",
       });
+    });
+
+    test("stores only a keyed hash of the code", async () => {
+      const campaign = await createDraft();
+      const { code } = await issueFor(campaign);
+      const [row] = await storedCodes(campaign.id);
+      expect(row.code_hash).toMatch(/^[0-9a-f]{64}$/);
+      expect(JSON.stringify(row)).not.toContain(code);
+    });
+
+    test("counts a wrong code as a failed attempt", async () => {
+      const campaign = await createDraft();
+      await issueFor(campaign);
+      expect(failure(await confirm(campaign.id, "AAAAAAAA"))).toMatchObject({
+        reason: "unknown-code",
+      });
+      const [row] = await storedCodes(campaign.id);
+      expect(row.failed_attempts).toBe(1);
+      expect(row.superseded_at).toBeNull();
+    });
+
+    test("supersedes the code on the fifth failed attempt", async () => {
+      const campaign = await createDraft();
+      const { code } = await issueFor(campaign);
+      for (const _ of [1, 2, 3, 4]) {
+        expect(failure(await confirm(campaign.id, "AAAAAAAA"))).toMatchObject({
+          reason: "unknown-code",
+        });
+      }
+      expect(failure(await confirm(campaign.id, "AAAAAAAA"))).toMatchObject({
+        reason: "too-many-attempts",
+      });
+      const [row] = await storedCodes(campaign.id);
+      expect(row.failed_attempts).toBe(5);
+      expect(row.superseded_at).not.toBeNull();
+
+      expect(failure(await confirm(campaign.id, code))).toMatchObject({
+        reason: "too-many-attempts",
+      });
+      expect((await storedCampaign(campaign.id)).status).toBe("draft");
+    });
+
+    test("rejects a confirmation waiting on an uncommitted edit as stale", async () => {
+      const campaign = await createDraft();
+      const { code } = await issueFor(campaign);
+      const edit = await holdCampaignRow(
+        "update email_campaigns set content = $2 where id = $1",
+        [campaign.id, campaignContentFixture("Změněno")]
+      );
+
+      const confirmation = confirm(campaign.id, code);
+      await waitForPostgresLockWaiter(testDatabase.pool, {
+        condition: "$1 = any(pg_blocking_pids(pid))",
+        values: [edit.pid],
+        description: "the confirmation to wait on the edit",
+      });
+      await edit.commit();
+
+      expect(failure(await confirmation)).toMatchObject({
+        reason: "content-changed",
+      });
+      expect((await storedCampaign(campaign.id)).status).toBe("draft");
+    });
+
+    test("rejects an edit queued behind a confirmation as read-only", async () => {
+      const campaign = await createDraft();
+      const { code } = await issueFor(campaign);
+      const blocker = await holdCampaignRow(
+        "select 1 from email_campaigns where id = $1 for update",
+        [campaign.id]
+      );
+
+      const confirmation = confirm(campaign.id, code);
+      await waitForPostgresLockWaiter(testDatabase.pool, {
+        condition: "$1 = any(pg_blocking_pids(pid))",
+        values: [blocker.pid],
+        description: "the confirmation to wait on the campaign row",
+      });
+      const edit = updateContent(campaign.id, "Změněno");
+      await waitForPostgresLockWaiter(testDatabase.pool, {
+        condition:
+          "locktype = 'tuple' and relation = 'email_campaigns'::regclass",
+        description: "the edit to queue behind the confirmation",
+      });
+      await blocker.commit();
+
+      expect(Exit.isSuccess(await confirmation)).toBe(true);
+      expect(failure(await edit)).toMatchObject({
+        _tag: "CampaignReadOnly",
+        status: "sending",
+      });
+      expect((await storedCampaign(campaign.id)).content).toEqual(
+        campaign.content
+      );
     });
 
     test("rejects an unknown code", async () => {
@@ -154,17 +299,7 @@ describe.skipIf(!testDatabase)(
     test("rejects a code after the content changed", async () => {
       const campaign = await createDraft();
       const { code } = await issueFor(campaign);
-      await runAt(
-        { minutes: 1 },
-        CampaignService.pipe(
-          Effect.flatMap((campaigns) =>
-            campaigns.update({
-              campaignId: campaign.id,
-              content: campaignContentFixture("Změněno"),
-            })
-          )
-        )
-      );
+      await updateContent(campaign.id, "Změněno");
       expect(failure(await confirm(campaign.id, code))).toMatchObject({
         reason: "content-changed",
       });
