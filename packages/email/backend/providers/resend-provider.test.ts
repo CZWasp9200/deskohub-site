@@ -17,7 +17,7 @@ type SendResponse =
     };
 type SendImplementation = (
   payload?: unknown,
-  options?: { readonly idempotencyKey?: string }
+  options?: { readonly idempotencyKey?: string; readonly signal?: AbortSignal }
 ) => Promise<SendResponse>;
 type BatchSendResponse =
   | {
@@ -33,7 +33,7 @@ type BatchSendResponse =
     };
 type BatchSendImplementation = (
   payload?: unknown,
-  options?: { readonly idempotencyKey?: string }
+  options?: { readonly idempotencyKey?: string; readonly signal?: AbortSignal }
 ) => Promise<BatchSendResponse>;
 type ListDomainsResponse =
   | { readonly data: readonly unknown[]; readonly error?: never }
@@ -204,6 +204,38 @@ describe("ResendEmailProvider", () => {
     });
   }
 
+  test("aborts a stalled request when its timeout releases it", async () => {
+    const signals: (AbortSignal | undefined)[] = [];
+    send = mock<SendImplementation>((_, options) => {
+      signals.push(options?.signal);
+      return new Promise(() => {});
+    });
+    batchSend = mock<BatchSendImplementation>((_, options) => {
+      signals.push(options?.signal);
+      return new Promise(() => {});
+    });
+
+    await runProvider(
+      Effect.gen(function* () {
+        const provider = yield* EmailProviderTag;
+        const single = yield* provider
+          .send(message)
+          .pipe(Effect.result, Effect.forkChild);
+        const batch = yield* provider
+          .sendBatch(batchMessages, { idempotencyKey: "stalled" })
+          .pipe(Effect.result, Effect.forkChild);
+        yield* TestClock.adjust("30 seconds");
+        yield* Fiber.join(single);
+        yield* Fiber.join(batch);
+      }).pipe(Effect.provide(TestClock.layer()))
+    );
+
+    expect(signals).toHaveLength(2);
+    for (const signal of signals) {
+      expect(signal?.aborted).toBe(true);
+    }
+  });
+
   test("treats an accepted response without a valid delivery ID as unconfirmed", async () => {
     send = mock<SendImplementation>(async () => ({ data: { id: "" } }));
 
@@ -239,7 +271,11 @@ describe("ResendEmailProvider", () => {
       })
     );
 
-    expect(send.mock.calls.map(([, options]) => options)).toEqual([
+    expect(
+      send.mock.calls.map(([, options]) => ({
+        idempotencyKey: options?.idempotencyKey,
+      }))
+    ).toEqual([
       { idempotencyKey: "invoice-resend-attempt-2" },
       { idempotencyKey: "k".repeat(256) },
       { idempotencyKey: undefined },
@@ -263,7 +299,10 @@ describe("ResendEmailProvider", () => {
     expect(batchSend).toHaveBeenCalledTimes(1);
     const [payload, options] = batchSend.mock.calls[0] ?? [];
     expect(payload).toHaveLength(batchMessages.length);
-    expect(options).toEqual({ idempotencyKey: "campaign-batch-key" });
+    expect(options).toEqual({
+      idempotencyKey: "campaign-batch-key",
+      signal: expect.any(AbortSignal),
+    });
     expect(results.map((result) => result.id)).toEqual([
       "batch-id-1",
       "batch-id-2",

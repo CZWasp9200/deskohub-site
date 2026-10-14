@@ -95,15 +95,17 @@ const isResendRefusal = (statusCode: number) =>
  * the outcome is unknown (a timeout, a transport or server failure, a reused
  * key, or an unreadable response to an accepted request), so the caller may
  * retry under the same idempotency key. The raw provider failure is
- * discarded so spans and logs never carry its message.
+ * discarded so spans and logs never carry its message. The request gets
+ * Effect's abort signal, so a timeout or interrupt cancels it in flight
+ * instead of leaving it to overlap a later attempt.
  */
 const requestResend = <A>(
-  request: () => Promise<ResendResponse<A>>,
+  request: (signal: AbortSignal) => Promise<ResendResponse<A>>,
   timeout: Duration.Input
 ) =>
   Effect.tryPromise({
-    try: async () => {
-      const response = await request();
+    try: async (signal) => {
+      const response = await request(signal);
       const resendError = response.error;
       if (resendError) {
         const errorMessage = getResendErrorMessage(resendError);
@@ -212,7 +214,7 @@ export const createResendProvider = (
         });
 
         const data = yield* requestResend(
-          () =>
+          (signal) =>
             resend.emails.send(
               {
                 ...toResendEmail(message),
@@ -225,6 +227,7 @@ export const createResendProvider = (
               },
               {
                 idempotencyKey: getResendIdempotencyKey(message.idempotencyKey),
+                signal,
               }
             ),
           timeouts.send
@@ -280,9 +283,10 @@ export const createResendProvider = (
         });
 
         const data = yield* requestResend(
-          () =>
+          (signal) =>
             resend.batch.send(messages.map(toResendEmail), {
               idempotencyKey: getResendIdempotencyKey(options.idempotencyKey),
+              signal,
             }),
           timeouts.batch
         );
