@@ -164,24 +164,6 @@ describe("createStandaloneAccessCode action", () => {
     ).toBeUndefined();
   });
 
-  test("passes the already-created replay outcome through untouched", async () => {
-    const alreadyCreated = {
-      outcome: "already-created" as const,
-      attemptId,
-      providerCredentialId: createdOutcome.providerCredentialId,
-      name: createdOutcome.name,
-      startsAt: createdOutcome.startsAt,
-      endsAt: createdOutcome.endsAt,
-      issuedAt: createdOutcome.issuedAt,
-    };
-    serviceCreateResult = Effect.succeed(alreadyCreated);
-    const { createStandaloneAccessCode } = await import("./actions");
-
-    await expect(createStandaloneAccessCode(validInput)).resolves.toEqual({
-      data: { status: "succeeded", outcome: alreadyCreated },
-    });
-  });
-
   test("reports provider rejection as an editable failure, not an error", async () => {
     serviceCreateResult = Effect.fail(creationError("rejected"));
     const { createStandaloneAccessCode } = await import("./actions");

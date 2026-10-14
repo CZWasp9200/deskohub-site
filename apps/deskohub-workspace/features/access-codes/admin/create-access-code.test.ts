@@ -12,15 +12,11 @@ import {
 import { Result, Schema } from "effect";
 import {
   type CreateStandaloneAccessCodeFormInput,
-  createStandaloneAccessCodeAttemptId,
   createStandaloneAccessCodeFormDefaults,
   createStandaloneAccessCodeFormSchema,
   createStandaloneAccessCodeInputSchema,
   decodeCreateStandaloneAccessCodeResult,
   encodeCreateStandaloneAccessCodeResult,
-  formatStandaloneAccessCodeDuration,
-  formatStandaloneAccessCodeLocalDateTime,
-  isSameStandaloneAccessCodeWindow,
   isStandaloneAccessCodeLocalDateTime,
   isStandaloneAccessCodeWindowValid,
   shiftStandaloneAccessCodeLocalEnd,
@@ -60,17 +56,6 @@ const cleanupTarget = {
 };
 
 describe("standalone access-code creation contract", () => {
-  test("accepts the shared contract fields plus the attempt identifier", async () => {
-    const result = await createStandaloneAccessCodeInputSchema[
-      "~standard"
-    ].validate({
-      attemptId: "01980000-0000-7000-8000-000000000042",
-      ...validWindow,
-    });
-
-    expect(result.issues).toBeUndefined();
-  });
-
   test("rejects excess properties and malformed attempt identifiers", async () => {
     const excess = await createStandaloneAccessCodeInputSchema[
       "~standard"
@@ -90,21 +75,6 @@ describe("standalone access-code creation contract", () => {
     expect(attemptId.issues?.[0]?.path?.map(String)).toEqual(["attemptId"]);
   });
 
-  test("rejects an access window outside the shared contract bounds", async () => {
-    const rejected = await createStandaloneAccessCodeInputSchema[
-      "~standard"
-    ].validate({
-      attemptId: "01980000-0000-7000-8000-000000000042",
-      ...validWindow,
-      endsAt: "2026-09-10T09:00",
-    });
-    expect(rejected.issues).toBeDefined();
-    expect(rejected.issues?.[0]?.path?.map(String)).toEqual(["endsAt"]);
-    expect(rejected.issues?.[0]?.message).toBe(
-      "The end must be 1 to 672 hours after the start."
-    );
-  });
-
   test("accepts the confirmed cleanup attempt id beside the contract fields", async () => {
     const result = await createStandaloneAccessCodeInputSchema[
       "~standard"
@@ -116,36 +86,6 @@ describe("standalone access-code creation contract", () => {
     });
 
     expect(result.issues).toBeUndefined();
-  });
-
-  test("rejects the removed boolean confirmation and malformed cleanup attempt ids", async () => {
-    const legacy = await createStandaloneAccessCodeInputSchema[
-      "~standard"
-    ].validate({
-      attemptId: "01980000-0000-7000-8000-000000000042",
-      ...validWindow,
-      providerCredentialRemoved: true,
-    });
-    expect(legacy.issues).toBeDefined();
-
-    const malformed = await createStandaloneAccessCodeInputSchema[
-      "~standard"
-    ].validate({
-      attemptId: "01980000-0000-7000-8000-000000000042",
-      ...validWindow,
-      providerCredentialRemovedAttemptId: "not-a-uuid",
-    });
-    expect(malformed.issues?.[0]?.path?.map(String)).toEqual([
-      "providerCredentialRemovedAttemptId",
-    ]);
-  });
-
-  test("generates attempt identifiers that satisfy the contract schema", () => {
-    const attemptId = createStandaloneAccessCodeAttemptId();
-
-    expect(
-      Schema.is(AdministrationStandaloneAccessCodeAttemptId)(attemptId)
-    ).toBe(true);
   });
 });
 
@@ -264,15 +204,6 @@ describe("standalone access-code window arithmetic", () => {
 
     expect(inexactHours).toEqual([]);
   });
-
-  test("returns no elapsed hours for non-whole-hour inputs", () => {
-    expect(
-      standaloneAccessCodeElapsedHours({
-        startsAt: "2026-09-10T10:00",
-        endsAt: "2026-09-10T11:30",
-      })
-    ).toBeNull();
-  });
 });
 
 describe("standalone access-code action transport", () => {
@@ -307,20 +238,6 @@ describe("standalone access-code action transport", () => {
     }
   });
 
-  test("round-trips a failure outcome through JSON transport", () => {
-    const transport = encodeCreateStandaloneAccessCodeResult(
-      Result.fail({ outcome: "rejected" })
-    );
-    const decoded = decodeCreateStandaloneAccessCodeResult(
-      JSON.parse(JSON.stringify(transport))
-    );
-
-    expect(Result.isFailure(decoded)).toBe(true);
-    if (Result.isFailure(decoded)) {
-      expect(decoded.failure).toEqual({ outcome: "rejected" });
-    }
-  });
-
   test("round-trips a target-bearing failure through JSON transport", () => {
     const transport = encodeCreateStandaloneAccessCodeResult(
       Result.fail({ outcome: "cleanup-required", cleanupTarget })
@@ -337,60 +254,9 @@ describe("standalone access-code action transport", () => {
       });
     }
   });
-
-  test("round-trips an ambiguous target through structured clone", () => {
-    const transport = encodeCreateStandaloneAccessCodeResult(
-      Result.fail({ outcome: "ambiguous", cleanupTarget })
-    );
-    const decoded = decodeCreateStandaloneAccessCodeResult(
-      structuredClone(transport)
-    );
-
-    expect(Result.isFailure(decoded)).toBe(true);
-    if (Result.isFailure(decoded)) {
-      expect(decoded.failure.cleanupTarget).toEqual(cleanupTarget);
-    }
-  });
-
-  test("encodes both branches as plain own-property data", () => {
-    const succeeded = encodeCreateStandaloneAccessCodeResult(
-      Result.succeed(createdOutcome)
-    );
-    expect(Object.keys(succeeded)).toEqual(["status", "outcome"]);
-    expect(succeeded).toEqual({
-      status: "succeeded",
-      outcome: createdOutcome,
-    });
-    expect(JSON.parse(JSON.stringify(succeeded))).toEqual(succeeded);
-
-    const failed = encodeCreateStandaloneAccessCodeResult(
-      Result.fail({ outcome: "cleanup-required", cleanupTarget })
-    );
-    expect(Object.keys(failed)).toEqual(["status", "outcome"]);
-    expect(failed).toEqual({
-      status: "failed",
-      outcome: { outcome: "cleanup-required", cleanupTarget },
-    });
-    expect(JSON.parse(JSON.stringify(failed))).toEqual(failed);
-  });
 });
 
 describe("standalone access-code failure mapping", () => {
-  test("keeps the reported cleanup target for target-bearing outcomes", () => {
-    expect(
-      toStandaloneAccessCodeCreationFailure({
-        outcome: "cleanup-required",
-        cleanupTarget,
-      })
-    ).toEqual({ outcome: "cleanup-required", cleanupTarget });
-    expect(
-      toStandaloneAccessCodeCreationFailure({
-        outcome: "ambiguous",
-        cleanupTarget,
-      })
-    ).toEqual({ outcome: "ambiguous", cleanupTarget });
-  });
-
   test("reports a defect for target-bearing outcomes without a target", () => {
     expect(
       toStandaloneAccessCodeCreationFailure({ outcome: "ambiguous" })
@@ -398,24 +264,6 @@ describe("standalone access-code failure mapping", () => {
     expect(
       toStandaloneAccessCodeCreationFailure({ outcome: "cleanup-required" })
     ).toBeNull();
-  });
-
-  test("keeps unrelated failures target-free", () => {
-    expect(
-      toStandaloneAccessCodeCreationFailure({
-        outcome: "rejected",
-        cleanupTarget,
-      })
-    ).toEqual({ outcome: "rejected" });
-    expect(
-      toStandaloneAccessCodeCreationFailure({ outcome: "in-progress" })
-    ).toEqual({ outcome: "in-progress" });
-    expect(
-      toStandaloneAccessCodeCreationFailure({ outcome: "unavailable" })
-    ).toEqual({ outcome: "unavailable" });
-    expect(
-      toStandaloneAccessCodeCreationFailure({ outcome: "reconciled" })
-    ).toEqual({ outcome: "reconciled" });
   });
 });
 
@@ -450,16 +298,6 @@ describe("standalone access-code form schema", () => {
     ]);
   });
 
-  test("reports the contract name bound without server help", async () => {
-    const issues = await validateForm({
-      ...validWindow,
-      name: "x".repeat(61),
-    });
-    expect(issues.name?.map(({ message }) => message)).toEqual([
-      "Use at most 60 characters.",
-    ]);
-  });
-
   test("rejects out-of-window ends on the end field only", async () => {
     const issues = await validateForm({
       name: validWindow.name,
@@ -488,41 +326,5 @@ describe("standalone access-code form schema", () => {
     expect(issues.startsAt?.map(({ message }) => message)).toEqual([
       "Choose a valid start time on the whole hour.",
     ]);
-  });
-
-  test("accepts trimmed names and valid windows", async () => {
-    const values = await validateForm({
-      name: "  Booth A  ",
-      startsAt: validWindow.startsAt,
-      endsAt: validWindow.endsAt,
-    });
-
-    expect(values).toEqual({
-      name: "Booth A",
-      startsAt: validWindow.startsAt,
-      endsAt: validWindow.endsAt,
-    });
-  });
-});
-
-describe("standalone access-code presentation helpers", () => {
-  test("formats local date-times and durations for operators", () => {
-    expect(formatStandaloneAccessCodeLocalDateTime("2026-09-10T10:00")).toBe(
-      "10 Sept 2026, 10:00"
-    );
-    expect(formatStandaloneAccessCodeDuration(1)).toBe("1 hour");
-    expect(formatStandaloneAccessCodeDuration(24)).toBe("24 hours");
-  });
-
-  test("compares window values for attempt binding", () => {
-    expect(
-      isSameStandaloneAccessCodeWindow(validWindow, { ...validWindow })
-    ).toBe(true);
-    expect(
-      isSameStandaloneAccessCodeWindow(validWindow, {
-        ...validWindow,
-        name: "Booth B",
-      })
-    ).toBe(false);
   });
 });

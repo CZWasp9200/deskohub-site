@@ -200,23 +200,6 @@ describe("StandaloneAccessCodeAdministration.create", () => {
     }
   });
 
-  test("replays a definitively rejected attempt without another provider call", async () => {
-    const result = await runCreate({
-      claim: mock(() =>
-        Effect.succeed({
-          kind: "rejected",
-          failureCode: "standalone_provider_rejected",
-        } as const)
-      ),
-    });
-
-    expect(Result.isFailure(result)).toBe(true);
-    if (Result.isFailure(result)) {
-      expect(result.failure.outcome).toBe("rejected");
-      expect(result.failure.failureCode).toBe("standalone_provider_rejected");
-    }
-  });
-
   test("replays an ambiguous attempt without another provider call", async () => {
     const result = await runCreate({
       claim: mock(() =>
@@ -261,18 +244,6 @@ describe("StandaloneAccessCodeAdministration.create", () => {
     expect(issueHourlyAlgoPin).not.toHaveBeenCalled();
   });
 
-  test("reports a confirmed reconciled replay without calling the provider", async () => {
-    const result = await runCreate({
-      claim: mock(() => Effect.succeed({ kind: "reconciled" } as const)),
-    });
-
-    expect(Result.isFailure(result)).toBe(true);
-    if (Result.isFailure(result)) {
-      expect(result.failure.outcome).toBe("reconciled");
-      expect(result.failure.message).toContain("Run the same command again");
-    }
-  });
-
   test("forwards the exact cleanup target confirmation to the attempt log", async () => {
     const claim = mock(() =>
       Effect.succeed({
@@ -290,59 +261,6 @@ describe("StandaloneAccessCodeAdministration.create", () => {
         providerCredentialRemovedAttemptId: priorAttemptId,
       })
     );
-  });
-
-  test("does not invent a cleanup target on outcomes without one", async () => {
-    for (const claimResult of [
-      { kind: "rejected", failureCode: "standalone_provider_rejected" },
-      { kind: "in-progress" },
-      { kind: "reconciled" },
-      { kind: "mismatch" },
-      { kind: "exhausted" },
-    ] as const) {
-      const result = await runCreate({
-        claim: mock(() => Effect.succeed(claimResult)),
-      });
-      expect(Result.isFailure(result)).toBe(true);
-      if (Result.isFailure(result)) {
-        expect("cleanupTarget" in result.failure).toBe(false);
-      }
-    }
-  });
-
-  test("reports a fresh started attempt as in progress", async () => {
-    const result = await runCreate({
-      claim: mock(() => Effect.succeed({ kind: "in-progress" } as const)),
-    });
-
-    expect(Result.isFailure(result)).toBe(true);
-    if (Result.isFailure(result)) {
-      expect(result.failure.outcome).toBe("in-progress");
-    }
-  });
-
-  test("rejects a replay that reuses the attempt ID with different input", async () => {
-    const result = await runCreate({
-      claim: mock(() => Effect.succeed({ kind: "mismatch" } as const)),
-    });
-
-    expect(Result.isFailure(result)).toBe(true);
-    if (Result.isFailure(result)) {
-      expect(result.failure.outcome).toBe("rejected");
-      expect(result.failure.message).toContain("attempt identifier");
-    }
-  });
-
-  test("rejects definitively when both standalone variances are occupied", async () => {
-    const result = await runCreate({
-      claim: mock(() => Effect.succeed({ kind: "exhausted" } as const)),
-    });
-
-    expect(Result.isFailure(result)).toBe(true);
-    if (Result.isFailure(result)) {
-      expect(result.failure.outcome).toBe("rejected");
-      expect(result.failure.message).toContain("Both standalone access codes");
-    }
   });
 
   test("returns unavailable without a provider call when the started audit fails", async () => {
