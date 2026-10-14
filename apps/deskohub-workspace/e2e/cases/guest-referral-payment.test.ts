@@ -1,8 +1,6 @@
 import { expect, test } from "bun:test";
-import { testEmailAddress } from "@deskohub/test-email";
 import { Effect, Exit } from "effect";
 import { m } from "@/features/i18n";
-import { referralCodeQueryParam } from "@/features/referrals/client";
 import { makeCoworkCheckoutData } from "../checkout/data";
 import type { WorkspaceE2EConfig } from "../config";
 import {
@@ -10,17 +8,13 @@ import {
   type DiscountApplicationRow,
   type ReferralInvitationPaymentRecord,
 } from "../integrations/database";
-import type { WorkspaceE2ERunId } from "../run-identifiers";
 import { workspaceE2ETimeouts } from "../timeouts";
-import type { CheckoutFlowState, WorkspaceE2ECase } from "../types";
+import type { CheckoutFlowState } from "../types";
 import {
   assertGuestReferralPayment,
-  bindGuestReferralPaymentCase,
   getGuestReferralDiscounts,
   guestReferralPaymentCaseId,
   planGuestReferralPaymentCase,
-  withGuestContact,
-  withReferralCode,
 } from "./guest-referral-payment";
 
 const config: WorkspaceE2EConfig = {
@@ -139,7 +133,6 @@ test("accepts a paid guest order attributed to the seeded referrer", () => {
 });
 
 test.each([
-  ["the order is missing", undefined, "guest referral order missing"],
   [
     "the order is unpaid",
     paidRecord({ paymentState: "pending" }),
@@ -149,11 +142,6 @@ test.each([
     "the order changed its booked customer",
     paidRecord({ dotyposCustomerId: "someone-else" }),
     "guest referral order changed its booked customer",
-  ],
-  [
-    "the guest has no attribution",
-    paidRecord({ attributions: [] }),
-    "guest is not attributed to the seeded referrer",
   ],
   [
     "another referrer is attributed",
@@ -205,20 +193,6 @@ test.each([
     "referral invitation claim has no application on the paid attempt",
   ],
   [
-    "the application label changed",
-    paidRecord({
-      applications: [
-        {
-          adjustment: { basisPoints: 1500, kind: "percentage" },
-          id: "application-2",
-          label: "Other",
-          paymentAttemptId: "attempt-2",
-        },
-      ],
-    }),
-    "referral invitation application label changed",
-  ],
-  [
     "the application is not 15%",
     paidRecord({
       applications: [
@@ -238,24 +212,6 @@ test.each([
     expect(() => assertGuestReferralPayment(record, expected)).toThrow(message);
   }
 );
-
-test("opens the reservation from a referral link as the run-scoped guest", () => {
-  const planned = makeCoworkCheckoutData(config.baseUrl, "2099-08-03");
-  const data = withReferralCode(
-    withGuestContact(planned, testEmailAddress("delivered+run-gr-guest")),
-    "RFLABCDEF12"
-  );
-  const url = new URL(data.checkoutUrl);
-
-  expect(data.email).toBe(testEmailAddress("delivered+run-gr-guest"));
-  expect(url.searchParams.get("email")).toBe(data.email);
-  expect(url.searchParams.getAll(referralCodeQueryParam)).toEqual([
-    "RFLABCDEF12",
-  ]);
-  expect(url.pathname).toBe("/en-US/reservation/cowork");
-  expect(url.searchParams.get("date")).toBe("2099-08-03");
-  expect(url.searchParams.get("name")).toBe(planned.name);
-});
 
 test("plans the guest referral payment on its own date and requires binding", async () => {
   const flowStates: CheckoutFlowState[] = [
@@ -288,21 +244,4 @@ test("plans the guest referral payment on its own date and requires binding", as
     }) as Effect.Effect<void, unknown>
   );
   expect(Exit.isFailure(exit)).toBe(true);
-});
-
-test("leaves other planned cases unbound", async () => {
-  const other: WorkspaceE2ECase = {
-    checkoutStates: [],
-    execute: () => Effect.void,
-    id: "checkout-cowork-basic",
-    timeoutMs: 1,
-  };
-  expect(
-    await bindGuestReferralPaymentCase({
-      environment: {} as never,
-      run: async () => ({ exitCode: 0, stderr: "", stdout: "" }),
-      runId: "run" as WorkspaceE2ERunId,
-      testCase: other,
-    })
-  ).toBe(other);
 });

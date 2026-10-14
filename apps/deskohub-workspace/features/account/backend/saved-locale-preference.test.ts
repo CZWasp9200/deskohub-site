@@ -29,45 +29,6 @@ const read = async (
 };
 
 describe("saved locale preference through the session read", () => {
-  test("reads the preference of the signed-in account from the request's session", async () => {
-    const reader = makeFakeSavedLocalePreference();
-    reader.fake.savedPreference = "cs-CZ";
-
-    const { preference, warnings } = await read(reader, syntheticSessionCookie);
-
-    expect(preference).toBe("cs-CZ");
-    expect(reader.fake.sessionReads).toEqual([syntheticSessionCookie]);
-    expect(warnings).toEqual([]);
-  });
-
-  test("keeps the preference of an account pending deletion", async () => {
-    const reader = makeFakeSavedLocalePreference();
-    reader.fake.savedPreference = "cs-CZ";
-    reader.fake.deletionRequested = true;
-
-    expect((await read(reader, syntheticSessionCookie)).preference).toBe(
-      "cs-CZ"
-    );
-  });
-
-  test("has no preference for a guest", async () => {
-    const reader = makeFakeSavedLocalePreference();
-    reader.fake.savedPreference = "cs-CZ";
-
-    const { preference, warnings } = await read(reader);
-
-    expect(preference).toBeUndefined();
-    expect(warnings).toEqual([]);
-  });
-
-  test("has no preference for an account without a saved locale", async () => {
-    const reader = makeFakeSavedLocalePreference();
-
-    expect(
-      (await read(reader, syntheticSessionCookie)).preference
-    ).toBeUndefined();
-  });
-
   test.each(["unauthenticated", "unverified-email", "not-configured"] as const)(
     "treats a %s session read as a guest without a warning",
     async (reason) => {

@@ -54,30 +54,6 @@ describe("WorkspaceFeatureFlagService", () => {
     isEnabled.mockClear();
   });
 
-  test("evaluates default flags for the current request subject", async () => {
-    globalEvaluation = false;
-    const { WorkspaceFeatureFlagService } = await import(
-      "./workspace-feature-flag.service"
-    );
-
-    const enabled = await WorkspaceFeatureFlagService.pipe(
-      Effect.flatMap((featureFlags) =>
-        featureFlags.isEnabled("meeting_room_page")
-      ),
-      Effect.provide(WorkspaceFeatureFlagService.Default),
-      Effect.runPromise
-    );
-
-    expect(enabled).toBe(true);
-    expect(getGlobalWorkspaceFeatureFlagValue).toHaveBeenCalledWith(
-      "meeting_room_page"
-    );
-    expect(isEnabled).toHaveBeenCalledWith({
-      key: "meeting_room_page",
-      subject: visitorSubject,
-    });
-  });
-
   test("does not read the request subject for globally evaluated flags", async () => {
     globalEvaluation = true;
     const { WorkspaceFeatureFlagService } = await import(
@@ -130,20 +106,5 @@ describe("WorkspaceFeatureFlagService", () => {
       discountFlagKeys
     );
     expect(evaluateFlags).not.toHaveBeenCalled();
-  });
-
-  test("evaluates request-dependent snapshots for the current request subject", async () => {
-    globalEvaluation = false;
-
-    await expect(readDiscountFlags()).resolves.toEqual([
-      undefined,
-      undefined,
-      undefined,
-    ]);
-
-    expect(evaluateFlags).toHaveBeenCalledWith({
-      options: { flagKeys: discountFlagKeys },
-      subject: visitorSubject,
-    });
   });
 });

@@ -82,7 +82,7 @@ const officeAdvertisedPriceStateSchema = Schema.Struct({
   ...requestedDiscountCodeSchemaField,
 });
 
-export const advertisedPriceStateSchema = Schema.Union([
+const advertisedPriceStateSchema = Schema.Union([
   Schema.Struct({
     ...coworkAdvertisedPriceStateSchema.fields,
     ...absentSubmittedCodeMetadataSchema.fields,

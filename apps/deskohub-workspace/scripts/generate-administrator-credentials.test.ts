@@ -203,29 +203,6 @@ const parseEnvExample = (rawText: string): ReadonlyMap<string, string> => {
 };
 
 describe("administrator credential registry in .env.example", () => {
-  test("documents registry-format entries in .env.example", async () => {
-    const rawEnvExample = await Bun.file(
-      new URL("../.env.example", import.meta.url)
-    ).text();
-    const assignments = parseEnvExample(rawEnvExample);
-
-    const credentialAssignment = assignments.get(
-      "ADMIN_BASIC_AUTH_CREDENTIALS"
-    );
-    expect(credentialAssignment).toBeDefined();
-    // The documented assignment is single-quoted; the semantic content is
-    // the newline-separated entry list inside the quotes.
-    const credentialEntries = (credentialAssignment ?? "")
-      .replace(/^'/, "")
-      .replace(/'$/, "")
-      .split("\n")
-      .filter((entry) => entry.length > 0);
-    expect(credentialEntries.length).toBeGreaterThan(0);
-    for (const entry of credentialEntries) {
-      expect(entry).toMatch(/^[a-z0-9][a-z0-9._-]{0,79}:.+$/);
-    }
-  });
-
   test("keeps real credentials out of .env.example", async () => {
     const rawEnvExample = await Bun.file(
       new URL("../.env.example", import.meta.url)

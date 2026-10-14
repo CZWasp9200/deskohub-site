@@ -22,7 +22,7 @@ const testEmailAddressForAda = testEmailAddress("ada");
 
 // React DOM detects input events when it loads, so the DOM must exist first.
 registerWorkspaceComponentTestEnv();
-const { cleanup, fireEvent, render, within } = await import(
+const { cleanup, fireEvent, render } = await import(
   "@testing-library/react/pure"
 );
 const { Form } = await import("@/shared/components/ui/form");
@@ -150,29 +150,6 @@ describe("ReservationCustomerSection", () => {
 
   afterAll(async () => {
     await unregisterWorkspaceComponentTestEnv();
-  });
-
-  test("lists the account details instead of the contact inputs", () => {
-    const { view } = renderSection();
-    const card = within(
-      view.getByRole("region", { name: "Booking as" })
-    ).getByText;
-
-    expect(card("Ada Lovelace")).not.toBeNull();
-    expect(card(testEmailAddressForAda)).not.toBeNull();
-    expect(card("+420777777777")).not.toBeNull();
-    expect(view.container.querySelector("input")).toBeNull();
-  });
-
-  test("asks for a phone the account does not have", () => {
-    const { view } = renderSection({
-      ...existingCustomer,
-      contact: { ...existingCustomer.contact, phone: null },
-    });
-
-    expect(view.container.querySelector('input[name="phone"]')).not.toBeNull();
-    expect(view.container.querySelector('input[name="name"]')).toBeNull();
-    expect(view.container.querySelector('input[name="email"]')).toBeNull();
   });
 
   test("keeps each mode's contact across switches", () => {

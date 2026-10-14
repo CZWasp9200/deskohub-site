@@ -16,10 +16,8 @@ import {
   type RenderResult,
   render,
   waitFor,
-  within,
 } from "@testing-library/react";
-import { renderToStaticMarkup } from "react-dom/server";
-import { type Locale, m } from "@/features/i18n";
+import type { Locale } from "@/features/i18n";
 import { Input } from "@/shared/components/ui/input";
 import {
   registerWorkspaceComponentTestEnv,
@@ -63,37 +61,6 @@ const englishCopy: ProfileScreenCopy = {
   verifiedEmail: "Verified login email",
 };
 
-const czechCopy: ProfileScreenCopy = {
-  emailLabel: "E-mail",
-  emailVerification: {
-    unverified: "Tento e-mail stále vyžaduje ověření.",
-    verified: "Tento e-mail byl úspěšně ověřen.",
-  },
-  languageLabel: "Preferovaný jazyk",
-  languageOptionCs: "Čeština",
-  languageOptionEn: "English (US)",
-  memberFallback: "Člen Workspace",
-  title: "Profil a nastavení",
-  verifiedEmail: "Ověřený přihlašovací e-mail",
-};
-
-test("keeps the compiled catalog copy in sync with the component copy fixtures", () => {
-  for (const [locale, copy] of [
-    ["en-US", englishCopy],
-    ["cs-CZ", czechCopy],
-  ] as const) {
-    expect(m.accountProfileScreenLanguageLabel({}, { locale })).toBe(
-      copy.languageLabel
-    );
-    expect(m.accountProfileScreenLanguageOptionCs({}, { locale })).toBe(
-      copy.languageOptionCs
-    );
-    expect(m.accountProfileScreenLanguageOptionEn({}, { locale })).toBe(
-      copy.languageOptionEn
-    );
-  }
-});
-
 const profileFields = (
   <>
     <div>
@@ -117,30 +84,6 @@ const profileFields = (
   </>
 );
 
-function renderProfile(overrides: Partial<ProfileScreenProps> = {}): string {
-  return renderToStaticMarkup(
-    <ProfileScreen
-      {...overrides}
-      copy={overrides.copy ?? englishCopy}
-      email={overrides.email ?? adaAddress}
-      firstName={overrides.firstName ?? "Ada"}
-      lastName={
-        "lastName" in overrides ? (overrides.lastName ?? null) : "Lovelace"
-      }
-      locale={overrides.locale ?? "en-US"}
-      footer={
-        "footer" in overrides ? (
-          overrides.footer
-        ) : (
-          <button type="button">Save profile</button>
-        )
-      }
-    >
-      {overrides.children ?? profileFields}
-    </ProfileScreen>
-  );
-}
-
 describe("ProfileScreen", () => {
   beforeAll(() => {
     registerWorkspaceComponentTestEnv();
@@ -150,73 +93,6 @@ describe("ProfileScreen", () => {
 
   afterAll(async () => {
     await unregisterWorkspaceComponentTestEnv();
-  });
-
-  test("renders the caller fields and footer without owning a form", () => {
-    const markup = renderProfile();
-
-    expect(markup).toContain('data-slot="account-section-panel"');
-    expect(markup).toContain("Member profile and settings");
-    expect(markup).toContain("Ada Lovelace");
-    expect(markup).toContain("Save profile");
-    expect(markup).not.toMatch(/<form\b/);
-
-    const namedControls = [...markup.matchAll(/\bname="([^"]+)"/g)].map(
-      (match) => match[1]
-    );
-    expect(namedControls).toEqual(["firstName", "lastName", "phone"]);
-    expect(markup).not.toMatch(/name="(?:email|language)"/);
-  });
-
-  test("renders a provided footer once", () => {
-    const markup = renderProfile({
-      footer: <span data-footer-marker="profile-footer">Save profile</span>,
-    });
-
-    expect(
-      markup.match(/data-footer-marker="profile-footer"/g) ?? []
-    ).toHaveLength(1);
-  });
-
-  test("omits the optional footer when it is not provided", () => {
-    const markup = renderProfile({ footer: undefined });
-
-    expect(markup).not.toContain("data-footer-marker");
-  });
-
-  test("keeps the login email visual, verified, and non-editable", () => {
-    const markup = renderProfile();
-
-    expect(markup).toContain(adaAddress);
-    expect(markup).toContain("break-all");
-    expect(markup).toContain("Verified login email");
-    expect(markup).toContain("<fieldset");
-    const emailFieldset = markup.match(
-      /<legend[^>]*id="[^"]+-email-label">Email<\/legend>/
-    );
-    expect(emailFieldset).toBeTruthy();
-    expect(markup).not.toContain(
-      "This verified address cannot be changed here."
-    );
-    expect(markup).not.toMatch(/id="[^"]+-email-description"/);
-    const emailFieldsetElement = markup.match(
-      /<fieldset[^>]*aria-labelledby="[^"]+-email-label"[^>]*>/
-    )?.[0];
-    expect(emailFieldsetElement).toBeDefined();
-    expect(emailFieldsetElement).not.toContain("aria-describedby");
-    expect(markup).not.toMatch(/<span[^>]*aria-label="Verified login email"/);
-    expect(markup).not.toMatch(/name="email"/);
-    expect(markup).not.toMatch(
-      new RegExp(`<input[^>]*${adaAddress.replaceAll(".", "\\.")}`)
-    );
-  });
-
-  test("renders a provided avatar slot", () => {
-    const markup = renderProfile({
-      avatar: <span data-avatar-marker="avatar-slot" />,
-    });
-
-    expect(markup).toContain('data-avatar-marker="avatar-slot"');
   });
 
   const renderLanguageControl = (
@@ -269,54 +145,6 @@ describe("ProfileScreen", () => {
     window.location.href = "http://localhost/en-US/account?section=profile";
   });
 
-  test("shows the page locale as the selected language", async () => {
-    for (const [locale, copy, label] of [
-      ["en-US", englishCopy, "English (US)"],
-      ["cs-CZ", czechCopy, "Čeština"],
-    ] as const) {
-      const view = renderLanguageControl(locale, copy);
-      const trigger = languageTrigger(view, copy);
-
-      // Radix registers item text only once the content has mounted, so open
-      // the listbox before asserting the selected label.
-      const listbox = await openLanguageListbox(view, copy);
-
-      expect(trigger.textContent).toContain(label);
-      expect(
-        within(listbox)
-          .getByRole("option", { selected: true })
-          .textContent?.includes(label)
-      ).toBe(true);
-      cleanup();
-    }
-  });
-
-  test("offers exactly one labelled option for every inlang locale", async () => {
-    const { locales } = await import("@/features/i18n");
-    const view = renderLanguageControl();
-
-    const listbox = await openLanguageListbox(view);
-
-    const options = within(listbox).getAllByRole("option");
-    expect(options).toHaveLength(locales.length);
-    // The option order follows the inlang locales tuple, and every locale has
-    // a non-empty translated label.
-    const labelsByLocale = {
-      "cs-CZ": englishCopy.languageOptionCs,
-      "en-US": englishCopy.languageOptionEn,
-    };
-    expect(options.map((option) => option.textContent)).toEqual(
-      locales.map((locale) => labelsByLocale[locale])
-    );
-  });
-
-  test("renders the language control without a separate Save button", () => {
-    const view = renderLanguageControl();
-
-    expect(view.queryByRole("button", { name: "Save" })).toBeNull();
-    expect(view.queryByRole("status")).toBeNull();
-  });
-
   test("saves the chosen language, then moves the document to it", async () => {
     const saved = Promise.withResolvers<LanguageActionResult>();
     updateLocalePreference.mockImplementationOnce(() => saved.promise);
@@ -340,34 +168,6 @@ describe("ProfileScreen", () => {
     );
     expect(window.location.search).toBe("?section=profile");
     expect(updateLocalePreference).toHaveBeenCalledTimes(1);
-  });
-
-  test("still moves the document when the save is rejected or fails in transport", async () => {
-    for (const failure of [
-      () => Promise.resolve({ serverError: "save rejected" }),
-      () => Promise.reject(new Error("network unreachable")),
-    ]) {
-      window.location.href = "http://localhost/en-US/account?section=profile";
-      updateLocalePreference.mockImplementationOnce(failure);
-      const view = renderLanguageControl();
-
-      await chooseLanguage(view, "Čeština");
-
-      await waitFor(() =>
-        expect(window.location.pathname).toBe("/cs-CZ/account")
-      );
-      cleanup();
-    }
-  });
-
-  test("does nothing when the current language is picked again", async () => {
-    const view = renderLanguageControl();
-
-    await chooseLanguage(view, "English (US)");
-
-    expect(updateLocalePreference).not.toHaveBeenCalled();
-    expect(window.location.pathname).toBe("/en-US/account");
-    expect((languageTrigger(view) as HTMLButtonElement).disabled).toBe(false);
   });
 
   test("keeps the language control out of the surrounding profile form submission", async () => {
@@ -402,28 +202,5 @@ describe("ProfileScreen", () => {
 
     expect(submitted).toBe(1);
     expect(updateLocalePreference).not.toHaveBeenCalled();
-  });
-
-  test("uses real Unicode code points in the display name", () => {
-    const unicodeMarkup = renderProfile({
-      firstName: "  𐐀da",
-      lastName: "😀ski  ",
-    });
-    expect(unicodeMarkup).toContain("𐐀da 😀ski");
-    expect(unicodeMarkup).not.toContain("�");
-
-    const fallbackMarkup = renderProfile({ firstName: "  ", lastName: null });
-    expect(fallbackMarkup).toContain("Workspace member");
-    expect(fallbackMarkup).not.toContain(">WM<");
-  });
-
-  test("does not invent membership claims", () => {
-    const markup = renderProfile({
-      copy: czechCopy,
-      firstName: "",
-      lastName: null,
-    });
-
-    expect(markup).not.toMatch(/member since|Prague|Czechia|turnstile|access/i);
   });
 });

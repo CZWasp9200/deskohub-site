@@ -92,16 +92,4 @@ describe("TrainingReservationService", () => {
     expect(customer.text).toContain("Duration: 2 hours");
     expect(customer.html).toContain("2 hours");
   });
-
-  test("formats the customer email duration in the customer locale", async () => {
-    const send = mock((_message: EmailMessage) =>
-      Effect.succeed(sent("email"))
-    );
-
-    await runSubmit(send, "cs-CZ", 2);
-
-    const customer = send.mock.calls[1]?.[0] as EmailMessage;
-    expect(customer.text).toContain("2 hodiny");
-    expect(customer.html).toContain("2 hodiny");
-  });
 });

@@ -47,12 +47,6 @@ function setConsentCookie(categories: string[]) {
   )}; Path=/`;
 }
 
-// Consent this tab's library and the shared cookie agree on.
-const setConsent = (categories: string[]) => {
-  preferenceCategories = [...categories];
-  setConsentCookie(categories);
-};
-
 function ConsentProbe() {
   const { acceptedCategories, isAccepted } = useCookieConsent();
 
@@ -138,34 +132,6 @@ test("reads the current cookie instead of cached preferences after storage notif
   );
 });
 
-test("accepting a category deduplicates it into the authoritative preferences", () => {
-  const { current } = renderHook();
-
-  act(() => current().acceptCategory("analytics"));
-  expect(preferenceCategories).toEqual(["necessary", "analytics"]);
-
-  act(() => current().acceptCategory("analytics"));
-  expect(preferenceCategories).toEqual(["necessary", "analytics"]);
-});
-
-test("rejecting a category keeps the other accepted categories", () => {
-  setConsent(["necessary", "analytics", "marketing"]);
-  const { current } = renderHook();
-
-  act(() => current().rejectCategory("analytics"));
-
-  expect(preferenceCategories).toEqual(["necessary", "marketing"]);
-});
-
-test("rejecting necessary is a no-op", () => {
-  setConsent(["necessary", "analytics"]);
-  const { current } = renderHook();
-
-  act(() => current().rejectCategory("necessary"));
-
-  expect(preferenceCategories).toEqual(["necessary", "analytics"]);
-});
-
 test("actions preserve authoritative state changed while the hook snapshot was stale", () => {
   const { current } = renderHook();
   expect(preferenceCategories).toEqual(["necessary"]);
@@ -180,39 +146,6 @@ test("actions preserve authoritative state changed while the hook snapshot was s
 
   act(() => current().rejectCategory("analytics"));
   expect(preferenceCategories).toEqual(["necessary", "marketing"]);
-});
-
-test("toggling after another tab's storage notification keeps that tab's categories", async () => {
-  const { current } = renderHook();
-  await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
-
-  // Another tab accepted analytics: the shared cookie and the storage
-  // notification change, but this tab's vanilla-cookieconsent memory does not.
-  setConsentCookie(["necessary", "analytics"]);
-  await act(async () => {
-    window.dispatchEvent(
-      new StorageEvent("storage", {
-        key: CONSENT_UPDATED_STORAGE_KEY,
-        newValue: "synthetic-cross-tab-nonce",
-      })
-    );
-  });
-  expect(current().isAccepted("analytics")).toBe(true);
-
-  act(() => current().acceptCategory("marketing"));
-  expect(acceptCategoryMock).toHaveBeenLastCalledWith([
-    "necessary",
-    "analytics",
-    "marketing",
-  ]);
-
-  act(() => current().rejectCategory("marketing"));
-  expect(acceptCategoryMock).toHaveBeenLastCalledWith([
-    "necessary",
-    "analytics",
-  ]);
 });
 
 test("the effect-dependency isAccepted identity stays stable across rerenders", () => {

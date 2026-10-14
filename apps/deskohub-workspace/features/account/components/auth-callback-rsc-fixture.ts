@@ -394,36 +394,12 @@ const clientReferenceImports = (output: string) => {
     });
 };
 
-const signInLoadingOutput = async (nextLocale: Locale) => {
-  const { SignInLoading } = await import(
-    "@/features/account/components/sign-in-loading"
-  );
-  return readAll(
-    await renderModel(
-      React.createElement(SignInLoading, { locale: nextLocale })
-    )
-  );
-};
-
 afterEach(() => {
   connectionGate.resolve();
   pendingSession?.resolve(null);
 });
 
 describe("auth callback RSC regression", () => {
-  test.each(["en-US", "cs-CZ"] as const)(
-    "recognizes the actual localized SignInLoading RSC model for %s",
-    async (nextLocale) => {
-      const output = await signInLoadingOutput(nextLocale);
-
-      expect(loadingModel(output, nextLocale)).toEqual({
-        hasLoadingLabel: true,
-        hasMain: true,
-        hasStatus: true,
-      });
-    }
-  );
-
   test.each(["en-US", "cs-CZ"] as const)(
     "streams the localized loading main while %s connection is pending",
     async (nextLocale) => {

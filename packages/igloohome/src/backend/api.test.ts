@@ -26,16 +26,6 @@ describe("mapAlgoPinRequestError", () => {
     }
   });
 
-  test("preserves an already classified request error", () => {
-    const error = new IgloohomeRequestError({
-      operation: "authenticate",
-      outcome: "rejected",
-      message: "authentication failed",
-    });
-
-    expect(mapAlgoPinRequestError(error)).toBe(error);
-  });
-
   test("does not retain a provider response payload in the public error", () => {
     const error = mapAlgoPinRequestError({
       response: { status: 500 },

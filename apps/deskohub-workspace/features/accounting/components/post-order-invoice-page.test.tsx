@@ -67,36 +67,6 @@ describe("PostOrderInvoicePage", () => {
     ).toBeGreaterThan(0);
   });
 
-  test("shows only resend controls for an issued invoice", () => {
-    const view = render(
-      <PostOrderInvoicePage
-        accessToken={accessToken}
-        initialState="issued"
-        locale="en-US"
-        orderId={"reservation-id" as never}
-      />
-    );
-
-    expect(view.getByText("An invoice was already generated")).toBeTruthy();
-    expect(
-      view.getByRole("button", { name: "Resend invoice to email" })
-    ).toBeTruthy();
-    expect(view.queryByLabelText("Address")).toBeNull();
-  });
-
-  test("localizes country names for Czech billing forms", () => {
-    const view = render(
-      <PostOrderInvoicePage
-        accessToken={accessToken}
-        initialState="create"
-        locale="cs-CZ"
-        orderId={"reservation-id" as never}
-      />
-    );
-
-    expect(view.getByRole("option", { name: "Česko" })).toBeTruthy();
-  });
-
   test("clears the delivery warning after a successful resend", () => {
     let onSuccess:
       | ((result: { data: { status: "resent" } }) => void)

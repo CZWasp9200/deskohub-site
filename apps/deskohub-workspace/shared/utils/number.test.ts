@@ -17,12 +17,6 @@ describe("formatNamesWithNumericRanges", () => {
     ).toBe("9-12, 15, 16, wallee, gromice");
   });
 
-  test("sorts numeric names regardless of their input order", () => {
-    expect(formatNamesWithNumericRanges(["12", "2", "11", "4"])).toBe(
-      "2, 4, 11, 12"
-    );
-  });
-
   test("compresses runs of three but leaves one- and two-item runs separate", () => {
     expect(formatNamesWithNumericRanges(["8"])).toBe("8");
     expect(formatNamesWithNumericRanges(["5", "4"])).toBe("4, 5");

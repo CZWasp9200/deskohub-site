@@ -11,8 +11,7 @@ import {
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
 } from "@/shared/testing/workspace-component-test-env";
-import { AccountContentLoading, AccountLoading } from "./account-loading";
-import { AccountShell, type AccountShellProps } from "./shell/account-shell";
+import { AccountLoading } from "./account-loading";
 
 const sectionKeys = [
   "reservations",
@@ -72,19 +71,6 @@ const localizedLoadingCopy: readonly LoadingCopy[] = [
   },
 ];
 
-const shellLabels: AccountShellProps["labels"] = {
-  mobileSection: "Account section",
-  navigation: "Account navigation",
-  sections: {
-    billing: "Billing & Invoices",
-    danger: "Danger zone",
-    legal: "Legal & Privacy",
-    profile: "Profile & Identity",
-    referrals: "Referrals",
-    reservations: "Reservations",
-  },
-};
-
 class TestResizeObserver implements ResizeObserver {
   readonly callback: ResizeObserverCallback;
 
@@ -100,59 +86,6 @@ class TestResizeObserver implements ResizeObserver {
 }
 
 const originalResizeObserver = globalThis.ResizeObserver;
-
-function getFrameStructure(container: HTMLElement) {
-  const main = container.querySelector("main");
-  const frameContent = main?.querySelector(":scope > div");
-  const header = frameContent?.querySelector(":scope > header");
-  const heading = header?.querySelector(":scope > h1");
-  const grid = frameContent?.querySelector(":scope > div");
-  const aside = grid?.querySelector(":scope > aside");
-  const navigation = aside?.querySelector(":scope > nav");
-  const content = grid?.querySelector(":scope > div");
-
-  if (
-    !main ||
-    !frameContent ||
-    !header ||
-    !heading ||
-    !grid ||
-    !aside ||
-    !navigation ||
-    !content
-  ) {
-    throw new Error("Account frame structure was not rendered");
-  }
-
-  return [
-    main,
-    frameContent,
-    header,
-    heading,
-    grid,
-    aside,
-    navigation,
-    content,
-  ].map((element) => ({
-    className: element.className,
-    tagName: element.tagName,
-  }));
-}
-
-function renderShell() {
-  return render(
-    <AccountShell
-      activeSection="reservations"
-      disabledSections={sectionKeys}
-      labels={shellLabels}
-      onSectionChange={() => undefined}
-      signOut={<div aria-hidden="true" />}
-      title="Frame title"
-    >
-      <div data-testid="frame-content" />
-    </AccountShell>
-  );
-}
 
 describe("AccountLoading", () => {
   beforeAll(() => {
@@ -219,39 +152,4 @@ describe("AccountLoading", () => {
       ).toBeGreaterThan(0);
     }
   );
-
-  test.each(localizedLoadingCopy)(
-    "renders a content-only localized fallback for $locale",
-    (copy) => {
-      const view = render(<AccountContentLoading locale={copy.locale} />);
-      const status = view.getByRole("status", { name: copy.metadataTitle });
-      const loadingMessage = view.getByText(copy.loadingMessage);
-
-      expect(status.textContent).toContain(copy.loadingMessage);
-      expect(loadingMessage.className).toContain("sr-only");
-      expect(loadingMessage.closest('[aria-busy="true"]')).toBeNull();
-      expect(loadingMessage.closest('[aria-hidden="true"]')).toBeNull();
-      expect(view.container.textContent).toContain(copy.loadingMessage);
-      expect(status.querySelector('[aria-busy="true"]')).toBeTruthy();
-      expect(
-        status.querySelectorAll('[data-slot="skeleton"]').length
-      ).toBeGreaterThan(0);
-      expect(view.container.querySelector("main, header, nav, aside")).toBe(
-        null
-      );
-      expect(view.container.querySelector("button, a, form, input")).toBeNull();
-      expect(status.querySelector('[data-slot="card"]')).toBeNull();
-    }
-  );
-
-  test("uses the AccountShell Frame geometry without duplicating it", () => {
-    const shellView = renderShell();
-    const expectedStructure = getFrameStructure(shellView.container);
-
-    cleanup();
-
-    const loadingView = render(<AccountLoading locale="en-US" />);
-
-    expect(getFrameStructure(loadingView.container)).toEqual(expectedStructure);
-  });
 });

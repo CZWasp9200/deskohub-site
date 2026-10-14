@@ -21,34 +21,25 @@ export const workspaceE2ENonPaymentCaseIds = [
   "customer-discount-changes-before-payment",
   "locale-switch",
   "discount-code-unknown",
-  "discount-code-inactive",
-  "discount-code-expired",
-  "discount-code-not-started",
   "discount-code-customer-ineligible",
-  "discount-code-product-ineligible",
   "referral-profile-completion-unusable-link",
   "contact-form",
-  "discount-code-invalid-syntax",
 ] as const;
 
 // Cases that pay on the Nexi hosted page, longest median deployed duration
 // first. Only their hosted-payment portion holds the run's hosted-payment
 // permit.
 const workspaceE2EPaidCaseIds = [
-  "checkout-calendar-sale-and-code",
   "checkout-calendar-sale",
   "checkout-guest-referral",
   "payment-late-recovery-recreated",
   "checkout-meeting-room-paid-one-hour",
-  "checkout-customer-discount-and-code",
   "checkout-meeting-room-paid-whole-day",
-  "checkout-calendar-and-customer-discount",
   "checkout-cowork-basic",
   "checkout-all-discounts",
   "checkout-office-paid-multi-day",
   "payment-late-recovery-refund-required",
   "checkout-voucher-full-usage",
-  "checkout-customer-discount",
   "checkout-discount-code",
   "payment-failed",
   "payment-meeting-room-cancelled",

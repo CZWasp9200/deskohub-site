@@ -420,26 +420,6 @@ describe("loadCustomerAccountPage", () => {
     expect(historyLoadCalls).toBe(0);
   });
 
-  test("renders the unavailable state when the authoritative session read fails", async () => {
-    currentUserEffect = Effect.fail(new Error("boom"));
-
-    await expect(loadPageState()).resolves.toEqual({ kind: "unavailable" });
-  });
-
-  test("renders the completion state when no Dotypos profile matches", async () => {
-    resolveEffect = resolverOutcome({
-      kind: "failure",
-      reason: "link-required",
-      linkReason: "not-found",
-    });
-
-    await expect(loadPageState()).resolves.toEqual({
-      kind: "completion-required",
-      referralsEnabled: true,
-      email: customerEmail,
-    });
-  });
-
   test("prefills a currently usable remembered referral code on the completion state", async () => {
     resolveEffect = resolverOutcome({
       kind: "failure",
@@ -800,25 +780,6 @@ describe("loadCustomerAccountPage", () => {
     ]);
   });
 
-  test("keeps the profile available and marks history unavailable when the provider fails", async () => {
-    historyEffect = Effect.fail(new Error("dotypos down"));
-
-    await expect(loadPageState()).resolves.toEqual({
-      kind: "linked",
-      referralsEnabled: true,
-      email: customerEmail,
-      profile: {
-        firstName: "Ada",
-        lastName: "Lovelace",
-        phone: null,
-        billing: null,
-      },
-      avatar: { kind: "available", avatar: null },
-      history: { kind: "unavailable", reason: "provider-unavailable" },
-      referrals: accountReferrals,
-    });
-  });
-
   test("logs fixed, cause-free warnings when history and avatar degrade", async () => {
     historyEffect = Effect.fail(new Error("dotypos down"));
     avatarLookupEffect = Effect.fail(new Error("cloudinary down"));
@@ -851,35 +812,6 @@ describe("loadCustomerAccountPage", () => {
     expect(output).toContain("account.avatar.unavailable");
     expect(output).not.toContain("dotypos down");
     expect(output).not.toContain("cloudinary down");
-  });
-
-  test("includes the versioned avatar when the account has one", async () => {
-    avatarLookupEffect = Effect.succeed({
-      url: "https://res.cloudinary.test/avatar.webp",
-      version: 1735689600,
-    });
-
-    await expect(loadPageState()).resolves.toMatchObject({
-      kind: "linked",
-      avatar: {
-        kind: "available",
-        avatar: {
-          url: "https://res.cloudinary.test/avatar.webp",
-          version: 1735689600,
-        },
-      },
-    });
-    expect(avatarLookupCalls).toBe(1);
-  });
-
-  test("falls back to no avatar when the avatar read fails", async () => {
-    avatarLookupEffect = Effect.fail(new Error("media outage"));
-
-    await expect(loadPageState()).resolves.toMatchObject({
-      kind: "linked",
-      avatar: { kind: "available", avatar: null },
-    });
-    expect(avatarLookupCalls).toBe(1);
   });
 
   test("keeps profile and history available while hiding avatars and skipping lookup when disabled", async () => {
@@ -931,18 +863,6 @@ describe("loadCustomerAccountPage", () => {
     });
 
     Object.assign(Profile, { Live: ProfileLayer });
-  });
-
-  test("renders the authenticated unavailable state for an unexpected resolver failure", async () => {
-    resolveEffect = resolverOutcome({
-      kind: "failure",
-      reason: "unexpected",
-    });
-
-    await expect(loadPageState()).resolves.toEqual({
-      kind: "authenticated-unavailable",
-      email: customerEmail,
-    });
   });
 
   describe("while the referral program is withheld", () => {

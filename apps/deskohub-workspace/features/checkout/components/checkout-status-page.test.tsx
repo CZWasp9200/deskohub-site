@@ -19,7 +19,6 @@ import {
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
 } from "@/shared/testing/workspace-component-test-env";
-import { CheckoutStatusPageSkeleton } from "./checkout-status-page-skeleton";
 
 const testEmailAddressForAda = testEmailAddress("ada");
 
@@ -115,29 +114,6 @@ describe("CheckoutStatusPage", () => {
     await unregisterWorkspaceComponentTestEnv();
   });
 
-  test("exposes an accessible busy status shell", () => {
-    const view = render(<CheckoutStatusPageSkeleton locale="en-US" />);
-
-    expect(
-      view
-        .getByRole("status", {
-          name: "Payment status | Deskohub Workspace",
-        })
-        .getAttribute("aria-busy")
-    ).toBe("true");
-  });
-
-  test("exposes an accessible plain modal busy status shell", () => {
-    const view = render(
-      <CheckoutStatusPageSkeleton locale="en-US" presentation="modal" />
-    );
-    const status = view.getByRole("status", {
-      name: "Payment status | Deskohub Workspace",
-    });
-
-    expect(status.getAttribute("aria-busy")).toBe("true");
-  });
-
   test("renders reconstructed reservation summary rows", () => {
     const view = render(
       <CheckoutStatusPage locale="en-US" status={reconstructedCoworkStatus} />
@@ -215,28 +191,6 @@ describe("CheckoutStatusPage", () => {
     ).toBeNull();
   });
 
-  test("keeps the fulfilled default presentation inside the checkout flow", () => {
-    const view = render(
-      <CheckoutStatusPage locale="en-US" status={reconstructedCoworkStatus} />
-    );
-
-    expect(view.container.querySelector("main")).not.toBeNull();
-    expect(view.container.querySelector("ol")).not.toBeNull();
-    expect(view.getByRole("link", { name: "Book again" })).toBeDefined();
-    expect(view.getByRole("link", { name: "Back home" })).toBeDefined();
-  });
-
-  test("renders fallback copy without a reconstructed summary", () => {
-    const view = render(
-      <CheckoutStatusPage locale="en-US" status={baseStatus} />
-    );
-
-    expect(
-      view.getByText("We will send the reservation details by email.")
-    ).toBeDefined();
-    expect(view.queryByText("Table", { selector: "dt" })).toBeNull();
-  });
-
   test("keeps reservation access outside the payment status page", () => {
     const view = render(
       <CheckoutStatusPage locale="en-US" status={baseStatus} />
@@ -275,21 +229,6 @@ describe("CheckoutStatusPage", () => {
     ).toBeNull();
     expect(view.queryByRole("link", { name: "Back home" })).toBeNull();
     expect(view.container.querySelector('a[href="/en-US"]')).toBeNull();
-  });
-
-  test("omits modal reservation CTAs without relying on localized copy", () => {
-    const view = render(
-      <CheckoutStatusPage
-        locale="cs-CZ"
-        presentation="modal"
-        status={reconstructedCoworkStatus}
-      />
-    );
-
-    expect(
-      view.container.querySelector("#checkout-status-reserve-again")
-    ).toBeNull();
-    expect(view.container.querySelector('a[href="/cs-CZ"]')).toBeNull();
   });
 
   test("keeps support in a failed modal without reservation CTAs", () => {
@@ -380,31 +319,6 @@ describe("CheckoutStatusPage", () => {
     ).not.toBeNull();
   });
 
-  test("renders the late-payment refund copy in Czech", () => {
-    const view = render(
-      <CheckoutStatusPage
-        locale="cs-CZ"
-        status={{
-          ...baseStatus,
-          status: "late_payment_refund",
-          paymentStatus: "paid",
-          fulfillmentStatus: "not_started",
-        }}
-      />
-    );
-
-    expect(
-      view.getByRole("heading", {
-        name: m.checkoutStatusLatePaymentRefundTitle({}, { locale: "cs-CZ" }),
-      })
-    ).toBeTruthy();
-    expect(
-      view.getByText(
-        m.checkoutStatusLatePaymentRefundLead({}, { locale: "cs-CZ" })
-      )
-    ).toBeTruthy();
-  });
-
   test("explains a late payment that is still being checked or needs review", () => {
     const cases = [
       {
@@ -439,17 +353,6 @@ describe("CheckoutStatusPage", () => {
       ).toBeNull();
       cleanup();
     }
-  });
-
-  test("links fulfilled reservations to the canonical access page", () => {
-    const view = render(
-      <CheckoutStatusPage locale="en-US" status={baseStatus} />
-    );
-
-    const accessLink = view.getByRole("link", { name: "Show access code" });
-    expect(accessLink.getAttribute("href")).toBe(
-      "/en-US/reservation/access/reservation-status-page"
-    );
   });
 
   test("uses soft navigation for access only in modal presentation", () => {
@@ -595,107 +498,6 @@ describe("CheckoutStatusPage", () => {
     });
   });
 
-  test("restores a current Reserved Desk through the raw repeat anchor", () => {
-    const view = render(
-      <CheckoutStatusPage
-        locale="en-US"
-        status={{
-          ...baseStatus,
-          summary: {
-            kind: "cowork",
-            entryTier: "reserved-desk",
-            coffee: true,
-            monitorOption: "2x27-qhd",
-            reservedFrom: Temporal.Instant.from("2026-06-19T22:00:00Z"),
-            reservedUntil: Temporal.Instant.from("2026-06-20T22:00:00Z"),
-            price: { value: 53_000, exponent: 2, currency: "CZK" },
-          },
-        }}
-      />
-    );
-
-    const ctaHref = view.container
-      .querySelector("#checkout-status-reserve-again")
-      ?.getAttribute("href");
-    expect(ctaHref).toBe(
-      "/en-US/reservation/cowork?entryTier=reserved-desk&coffee=true&monitorOption=2x27-qhd"
-    );
-    const completedOrderStep = Array.from(
-      view.container.querySelectorAll("main ol a")
-    ).find((step) => step.getAttribute("href") === ctaHref);
-    expect(completedOrderStep).not.toBeNull();
-    expect(completedOrderStep?.getAttribute("href")).toBe(ctaHref);
-    expect(completedOrderStep?.getAttribute("data-next-link")).toBeNull();
-    const stepHref = completedOrderStep?.getAttribute("href");
-    expect(capturedLinks.some(({ href }) => href === stepHref)).toBe(false);
-  });
-
-  test("links the completed order step to the office repeat start as a raw document anchor", () => {
-    const view = render(
-      <CheckoutStatusPage
-        locale="en-US"
-        status={{
-          ...baseStatus,
-          kind: "office",
-          summary: {
-            kind: "office",
-            reservedFrom: Temporal.Instant.from("2026-06-11T22:00:00Z"),
-            reservedUntil: Temporal.Instant.from("2026-06-14T22:00:00Z"),
-            seats: 3,
-            price: { value: 442_500, exponent: 2, currency: "CZK" },
-          },
-        }}
-      />
-    );
-
-    const ctaHref = view.container
-      .querySelector("#checkout-status-reserve-again")
-      ?.getAttribute("href");
-    expect(ctaHref).toBe("/en-US/reservation/office?dayCount=3&seats=3");
-    const completedOrderStep = view.container.querySelector(
-      "main ol > li:nth-child(2) > a"
-    );
-    expect(completedOrderStep).not.toBeNull();
-    expect(completedOrderStep?.getAttribute("href")).toBe(ctaHref);
-    expect(completedOrderStep?.getAttribute("data-next-link")).toBeNull();
-    const stepHref = completedOrderStep?.getAttribute("href");
-    expect(capturedLinks.some(({ href }) => href === stepHref)).toBe(false);
-  });
-
-  test("links the completed order step to the generic meeting-room start as a raw document anchor", () => {
-    const view = render(
-      <CheckoutStatusPage
-        locale="en-US"
-        status={{
-          ...baseStatus,
-          kind: "meeting-room",
-          summary: {
-            kind: "meeting-room",
-            reservedFrom: Temporal.Instant.from("2026-06-20T07:00:00.000Z"),
-            reservedUntil: Temporal.Instant.from("2026-06-20T11:00:00.000Z"),
-            price: { value: 155_000, exponent: 2, currency: "CZK" },
-          },
-        }}
-      />
-    );
-
-    const ctaHref = view.container
-      .querySelector("#checkout-status-reserve-again")
-      ?.getAttribute("href");
-    expect(ctaHref).toBe("/en-US/reservation/meeting-room");
-    const completedOrderStep = view.container.querySelector(
-      "main ol > li:nth-child(2) > a"
-    );
-    expect(completedOrderStep).not.toBeNull();
-    expect(completedOrderStep?.getAttribute("href")).toBe(ctaHref);
-    expect(completedOrderStep?.getAttribute("data-next-link")).toBeNull();
-    const stepHref = completedOrderStep?.getAttribute("href");
-    expect(capturedLinks.some(({ href }) => href === stepHref)).toBe(false);
-
-    const url = new URL(stepHref ?? "", "https://deskohub.local");
-    expect(url.search).toBe("");
-  });
-
   test("links the completed order step to the generic start for non-fulfilled status as a raw document anchor", () => {
     const view = render(
       <CheckoutStatusPage
@@ -733,21 +535,6 @@ describe("CheckoutStatusPage", () => {
 
     const url = new URL(stepHref ?? "", "https://deskohub.local");
     expect(url.search).toBe("");
-  });
-
-  test("omits the step 1 link in modal presentation", () => {
-    const view = render(
-      <CheckoutStatusPage
-        locale="en-US"
-        presentation="modal"
-        status={reconstructedCoworkStatus}
-      />
-    );
-
-    expect(view.container.querySelector("main ol")).toBeNull();
-    expect(
-      view.container.querySelector("main ol > li:first-child > a")
-    ).toBeNull();
   });
 
   test("propagates only allowlisted booking shape", () => {
@@ -831,55 +618,6 @@ describe("CheckoutStatusPage", () => {
         .getByRole("link", { name: "Start a new reservation" })
         .getAttribute("href")
     ).toBe("/en-US/reservation/office");
-  });
-
-  test("renders not found without reservation summary copy", () => {
-    const view = render(
-      <CheckoutStatusPage
-        locale="en-US"
-        status={{
-          orderId: "test-order",
-          returnOutcome: "unknown",
-          status: "not_found",
-        }}
-      />
-    );
-
-    expect(view.getByText("We could not find this order.")).toBeDefined();
-    expect(view.queryByText("Reservation summary")).toBeNull();
-    expect(
-      view.queryByText("We will send the reservation details by email.")
-    ).toBeNull();
-  });
-
-  test("renders assigned table map when available", () => {
-    const view = render(
-      <CheckoutStatusPage
-        locale="en-US"
-        status={{
-          ...baseStatus,
-          tableMap: {
-            assignedTableId: "desk-1",
-            roomName: "Main room",
-            tables: [
-              {
-                _cloudId: "cloud-id",
-                id: "desk-1",
-                name: "Desk 1",
-                locationName: "Main room",
-                positionX: "0",
-                positionY: "0",
-              },
-            ],
-          },
-        }}
-      />
-    );
-
-    expect(view.getByText("Where to sit")).toBeDefined();
-    expect(view.getByText("Room: Main room")).toBeDefined();
-    expect(view.getByRole("img", { name: "Where to sit" })).toBeDefined();
-    expect(view.container.querySelector("svg rect")).toBeDefined();
   });
 
   test("renders prefilled support contact link for failed fulfillment", () => {

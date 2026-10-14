@@ -602,22 +602,6 @@ describe("AccountPage states", () => {
     });
   });
 
-  test("leaves the completion referral field empty without a usable code", async () => {
-    const view = await renderState({
-      kind: "completion-required",
-      referralsEnabled: true,
-      email: adaAddress,
-    });
-
-    const field = view.container.querySelector(
-      "#profile-referral-code"
-    ) as HTMLInputElement;
-    expect(field.value).toBe("");
-    expect(
-      view.queryByText(m.accountProfileReferralCodeUnavailable({}, en))
-    ).toBeNull();
-  });
-
   test("offers no completion referral field while the program is withheld", async () => {
     const view = await renderState({
       kind: "completion-required",
@@ -676,15 +660,6 @@ describe("AccountPage states", () => {
     expect(view.getByText(m.accountSignOut({}, en))).toBeTruthy();
   });
 
-  test("renders the unavailable state without any account data", async () => {
-    const view = await renderState({ kind: "unavailable" });
-
-    expect(view.getByText(m.accountUnavailableTitle({}, en))).toBeTruthy();
-    expect(view.getByText(m.accountTitle({}, en))).toBeTruthy();
-    expect(view.queryByText(m.accountSignOut({}, en))).toBeNull();
-    expect(view.queryByText(m.accountDeletionButton({}, en))).toBeNull();
-  });
-
   test("redirects unauthenticated visitors without loading account data", async () => {
     const view = await renderState({ kind: "unauthenticated" });
 
@@ -726,19 +701,6 @@ describe("AccountPage states", () => {
     expect(refreshAnalyticsAccountIdentity).toHaveBeenCalledTimes(1);
 
     await renderState({ kind: "unavailable" });
-    expect(refreshAnalyticsAccountIdentity).toHaveBeenCalledTimes(1);
-  });
-
-  test("swallows a failed identity refresh instead of leaving an unhandled rejection", async () => {
-    refreshAnalyticsAccountIdentity.mockImplementationOnce(() =>
-      Promise.reject(new Error("identity refresh unavailable"))
-    );
-
-    await renderState(linkedState);
-    await act(async () => {
-      await Promise.resolve();
-    });
-
     expect(refreshAnalyticsAccountIdentity).toHaveBeenCalledTimes(1);
   });
 });

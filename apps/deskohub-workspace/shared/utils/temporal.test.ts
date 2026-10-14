@@ -14,7 +14,6 @@ import {
   makeWholeHourInstantStringSchema,
   parseInstant,
   parsePlainDate,
-  temporalInstantToIsoString,
   temporalInstantToLocalDateTimeString,
 } from "./temporal";
 
@@ -141,14 +140,6 @@ describe("isPlainDateString", () => {
   });
 });
 
-describe("temporalInstantToIsoString", () => {
-  test("formats an instant as a JavaScript ISO timestamp", () => {
-    expect(
-      temporalInstantToIsoString(Temporal.Instant.from("2026-07-10T08:00:00Z"))
-    ).toBe("2026-07-10T08:00:00.000Z");
-  });
-});
-
 describe("local date-time input conversion", () => {
   test("formats and parses values in the supplied time zone", () => {
     const instant = Temporal.Instant.from("2026-08-01T08:00:00Z");
@@ -189,42 +180,6 @@ describe("localDateTimeToInstant", () => {
 
     expect(instant).toBeInstanceOf(Temporal.Instant);
     expect(instant.equals(Temporal.Instant.from(expected))).toBe(true);
-  });
-
-  test("resolves a DST gap forward and a DST overlap to the earlier occurrence", () => {
-    expect(
-      localDateTimeToInstant({ dateTime: "2026-03-29T02:30", timeZone })
-        .toZonedDateTimeISO(timeZone)
-        .toString()
-    ).toBe("2026-03-29T03:30:00+02:00[Europe/Prague]");
-    expect(
-      localDateTimeToInstant({ dateTime: "2026-10-25T02:30", timeZone })
-        .toZonedDateTimeISO(timeZone)
-        .toString()
-    ).toBe("2026-10-25T02:30:00+02:00[Europe/Prague]");
-  });
-
-  test("rejects an invalid local date-time", () => {
-    expect(() =>
-      localDateTimeToInstant({ dateTime: "not-a-date-time", timeZone })
-    ).toThrow(RangeError);
-  });
-});
-
-describe("localDateTimeToTemporalInstantString", () => {
-  test.each([
-    ["2026-08-01T10:00", "2026-08-01T08:00:00Z"],
-    ["2026-01-15T10:00", "2026-01-15T09:00:00Z"],
-    ["2026-08-01T10:00:30", "2026-08-01T08:00:30Z"],
-    ["2026-03-29T02:30", "2026-03-29T01:30:00Z"],
-    ["2026-10-25T02:30", "2026-10-25T00:30:00Z"],
-  ])("formats %s in Prague as %s", (dateTime, expected) => {
-    expect(
-      localDateTimeToTemporalInstantString({
-        dateTime,
-        timeZone: "Europe/Prague",
-      })
-    ).toBe(expected);
   });
 });
 

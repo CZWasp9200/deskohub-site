@@ -206,7 +206,7 @@ export const assertNoAuthRows = (
  */
 export type WorkspaceE2EAccountState = "linked" | "missing" | "unlinked";
 
-export const classifyWorkspaceE2EAccountState = (input: {
+const classifyWorkspaceE2EAccountState = (input: {
   readonly authUserId: string | undefined;
   readonly linkedDotyposCustomerId: string | undefined;
 }): WorkspaceE2EAccountState => {

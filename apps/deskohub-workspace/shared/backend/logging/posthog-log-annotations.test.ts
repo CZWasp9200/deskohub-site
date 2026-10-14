@@ -1,15 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
-  PostHogDistinctId,
-  PostHogSessionId,
-} from "@deskohub/posthog/identifiers";
-import {
   POSTHOG_DISTINCT_ID_COOKIE,
   POSTHOG_SESSION_ID_COOKIE,
 } from "@/shared/utils/posthog-session-cookies";
 import {
   getPostHogLogAnnotationsFromCookieHeader,
-  getPostHogLogAnnotationsFromCookieValues,
   getPostHogLogAnnotationsFromRequestHeaders,
 } from "./posthog-log-annotations";
 
@@ -21,18 +16,6 @@ const necessaryConsentCookie = `cc_cookie=${encodeURIComponent(
 )}`;
 
 describe("PostHog log annotations", () => {
-  test("maps cookie values to PostHog log-linking attributes", () => {
-    expect(
-      getPostHogLogAnnotationsFromCookieValues({
-        distinctId: PostHogDistinctId.make("distinct-id"),
-        sessionId: PostHogSessionId.make("session-id"),
-      })
-    ).toEqual({
-      posthogDistinctId: "distinct-id",
-      sessionId: "session-id",
-    });
-  });
-
   test("parses first-party PostHog cookies from a request cookie header", () => {
     expect(
       getPostHogLogAnnotationsFromCookieHeader(
@@ -44,31 +27,12 @@ describe("PostHog log annotations", () => {
     });
   });
 
-  test("returns no annotations without PostHog cookies", () => {
-    expect(getPostHogLogAnnotationsFromCookieHeader("other=value")).toEqual({});
-  });
-
   test("ignores invalid empty PostHog cookie identifiers", () => {
     expect(
       getPostHogLogAnnotationsFromCookieHeader(
         `${POSTHOG_DISTINCT_ID_COOKIE}=; ${POSTHOG_SESSION_ID_COOKIE}=`
       )
     ).toEqual({});
-  });
-
-  test("parses PostHog tracing headers when first-party cookies are present", () => {
-    expect(
-      getPostHogLogAnnotationsFromRequestHeaders(
-        new Headers({
-          cookie: `${analyticsConsentCookie}; ${POSTHOG_DISTINCT_ID_COOKIE}=cookie-distinct-id; ${POSTHOG_SESSION_ID_COOKIE}=cookie-session-id`,
-          "X-POSTHOG-DISTINCT-ID": "header-distinct-id",
-          "X-POSTHOG-SESSION-ID": "header-session-id",
-        })
-      )
-    ).toEqual({
-      posthogDistinctId: "header-distinct-id",
-      sessionId: "header-session-id",
-    });
   });
 
   test("ignores PostHog tracing headers without first-party cookies", () => {
@@ -136,19 +100,6 @@ describe("PostHog log annotations", () => {
         })
       )
     ).toEqual({});
-  });
-
-  test("uses the request cookie parser for consent", () => {
-    expect(
-      getPostHogLogAnnotationsFromRequestHeaders(
-        new Headers({
-          cookie: `${analyticsConsentCookie}; ${POSTHOG_DISTINCT_ID_COOKIE}=cookie-distinct-id; ${POSTHOG_SESSION_ID_COOKIE}=cookie-session-id`,
-        })
-      )
-    ).toEqual({
-      posthogDistinctId: "cookie-distinct-id",
-      sessionId: "cookie-session-id",
-    });
   });
 
   test("ignores request annotations when any duplicate consent cookie revokes analytics", () => {

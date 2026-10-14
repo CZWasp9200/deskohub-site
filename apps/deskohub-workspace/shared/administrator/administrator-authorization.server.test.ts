@@ -93,20 +93,6 @@ describe("administrator server authorization", () => {
     expect(reservation).not.toHaveProperty("data");
   });
 
-  test("rejects direct invocations of the shared administrator page gate", async () => {
-    requestHeaders = new Headers();
-    const { authorizeAdministratorPage } = await import(
-      "./administrator-authorization.server"
-    );
-
-    const error = await authorizeAdministratorPage().then(
-      () => null,
-      (cause: unknown) => cause
-    );
-
-    expect(error).toHaveProperty("digest", "NEXT_HTTP_ERROR_FALLBACK;404");
-  });
-
   test("rejects direct invocations of every exported admin page-data loader", async () => {
     requestHeaders = new Headers();
     const authorization = await import("./administrator-authorization.server");

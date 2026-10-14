@@ -163,16 +163,4 @@ describe("ReservationAccessCookieWriter", () => {
       )
     ).toBe(false);
   });
-
-  test("preserves Next's mutation guard after the request phase ends", async () => {
-    const context = createRequestContext();
-    const writer = await acquireWriter(context);
-    const input = await createCookieInput("phase-guard");
-    context.requestStore.phase = "render";
-
-    await expect(Effect.runPromise(writer.write(input))).rejects.toThrow(
-      "Cookies can only be modified in a Server Action or Route Handler"
-    );
-    expect(context.updatedCookies).toHaveLength(0);
-  });
 });

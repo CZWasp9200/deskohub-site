@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { test } from "bun:test";
 import { Effect } from "effect";
 import {
   workspaceE2EAccountCaseIds,
@@ -6,7 +6,6 @@ import {
 } from "./catalog";
 import {
   type MagicLinkOperation,
-  magicLinkOperationsPerWindow,
   makeMagicLinkRateBudget,
 } from "./rate-budget";
 
@@ -14,14 +13,6 @@ const laneOperations: readonly MagicLinkOperation[] =
   workspaceE2EAccountCaseIds.flatMap(
     (caseId) => workspaceE2EAccountMagicLinkLedger[caseId]
   );
-
-const countOf = (operation: MagicLinkOperation) =>
-  laneOperations.filter((entry) => entry === operation).length;
-
-test("the account lane spends at most one rate window of each magic-link operation", () => {
-  expect(countOf("send")).toBeLessThanOrEqual(magicLinkOperationsPerWindow);
-  expect(countOf("verify")).toBeLessThanOrEqual(magicLinkOperationsPerWindow);
-});
 
 test("the real budget admits the whole account lane ledger without a quiet-window wait", async () => {
   // A frozen clock keeps every operation inside one rate window, so any

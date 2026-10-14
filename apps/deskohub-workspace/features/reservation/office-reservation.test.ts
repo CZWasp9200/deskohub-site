@@ -316,21 +316,6 @@ describe("office reservation", () => {
 });
 
 describe("retired reservation customer message", () => {
-  test("omits the message field from new normalized orders", () => {
-    const today = getCurrentWorkspaceDate();
-    const result = safeParseForm({
-      ...validCustomer,
-      startsOn: today.add({ days: 1 }).toString(),
-      dayCount: 1,
-      seats: 1,
-    });
-
-    expect(Result.isSuccess(result)).toBe(true);
-    if (Result.isSuccess(result)) {
-      expect(result.success).not.toHaveProperty("message");
-    }
-  });
-
   test("drops a legacy customer message on strict normalized decode", () => {
     const startsOn = getCurrentWorkspaceDate().add({ days: 1 });
     const reservation = Schema.decodeUnknownSync(

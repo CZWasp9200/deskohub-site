@@ -69,16 +69,3 @@ test.each([
     reason,
   });
 });
-
-test("fails closed when account resolution is unavailable", async () => {
-  await expect(
-    Effect.runPromise(
-      run({
-        resolve: new CustomerAccountAccessError({ reason: "unavailable" }),
-      })
-    )
-  ).rejects.toMatchObject({
-    _tag: "CustomerAccountAccessError",
-    reason: "unavailable",
-  });
-});

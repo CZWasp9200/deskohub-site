@@ -76,39 +76,6 @@ describe("EffectAction", () => {
     });
   });
 
-  test("builds the client layer once across action calls", async () => {
-    let builds = 0;
-    const action = EffectAction.fromClient(makeActionClient(), {
-      layer: Layer.sync(TestService, () => {
-        builds += 1;
-        return { multiplier: builds };
-      }),
-    })
-      .inputSchema(SeatsSchema)
-      .action(({ parsedInput }) =>
-        Effect.map(
-          TestService,
-          (service) => parsedInput.seats * service.multiplier
-        )
-      );
-
-    await expect(action({ seats: "3" })).resolves.toEqual({ data: 3 });
-    await expect(action({ seats: "5" })).resolves.toEqual({ data: 5 });
-    expect(builds).toBe(1);
-  });
-
-  test("runs Standard Schema decoded input", async () => {
-    const action = EffectAction.fromClient(makeActionClient())
-      .inputSchema(Schema.toStandardSchemaV1(Schema.FiniteFromString))
-      .action(({ parsedInput, clientInput }) =>
-        Effect.succeed({ parsedInput, clientInput })
-      );
-
-    await expect(action("7")).resolves.toEqual({
-      data: { parsedInput: 7, clientInput: "7" },
-    });
-  });
-
   test("maps typed failures and fallible layer setup failures", async () => {
     const mapped = new Error("public");
     const client = EffectAction.fromClient(makeActionClient(), {

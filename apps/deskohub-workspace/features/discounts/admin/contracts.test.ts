@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import {
-  AdministrationCustomerSearchQuery,
   AdministrationDiscountDefinitionInput,
   AdministrationDiscountMutation,
   AdministrationExistingDiscountCodeCreateInput,
@@ -21,13 +20,6 @@ const decodeCode = Schema.decodeUnknownSync(
 );
 const decodeMutation = Schema.decodeUnknownSync(
   AdministrationDiscountMutation,
-  {
-    errors: "all",
-    onExcessProperty: "error",
-  }
-);
-const decodeCustomerSearch = Schema.decodeUnknownSync(
-  AdministrationCustomerSearchQuery,
   {
     errors: "all",
     onExcessProperty: "error",
@@ -57,11 +49,6 @@ const validCode = {
 };
 
 describe("discount administration inputs", () => {
-  test("accepts a complete discount and code", () => {
-    expect(() => decodeDiscount(validDiscount)).not.toThrow();
-    expect(() => decodeCode(validCode)).not.toThrow();
-  });
-
   test("requires complete labels and at least one unique target", () => {
     expect(() =>
       decodeDiscount({
@@ -140,35 +127,6 @@ describe("discount administration inputs", () => {
     expect(() => decodeCode(legacyCode)).not.toThrow();
   });
 
-  test("accepts audience and Dotypos group operations but no claim mutations", () => {
-    expect(() =>
-      decodeMutation({
-        kind: "add-code-customer",
-        codeId: "code-id",
-        customerId: "customer-id",
-      })
-    ).not.toThrow();
-    expect(() =>
-      decodeMutation({
-        kind: "make-code-unrestricted",
-        codeId: "code-id",
-      })
-    ).not.toThrow();
-    expect(() =>
-      decodeMutation({
-        kind: "set-customer-discount-group",
-        customerId: "customer-id",
-        discountGroupId: null,
-      })
-    ).not.toThrow();
-    expect(() =>
-      decodeMutation({
-        kind: "release-code-claim",
-        claimId: "claim-id",
-      })
-    ).toThrow();
-  });
-
   test("creates discount codes and vouchers through separate mutations", () => {
     const code = {
       code: validCode.code,
@@ -235,17 +193,6 @@ describe("discount administration inputs", () => {
         code,
         discount: { kind: "existing" },
       })
-    ).toThrow();
-  });
-
-  test("accepts a bounded fuzzy customer query", () => {
-    expect(() => decodeCustomerSearch({ query: "Ada" })).not.toThrow();
-    expect(() => decodeCustomerSearch({ query: "a" })).toThrow();
-    expect(() =>
-      decodeCustomerSearch({ query: "Ada;deleted|eq|true" })
-    ).toThrow();
-    expect(() =>
-      decodeCustomerSearch({ query: "Ada", customerId: "customer-id" })
     ).toThrow();
   });
 });

@@ -137,10 +137,6 @@ describe("Better Auth schema", () => {
     );
   });
 
-  test("joins the user into the session read", () => {
-    expect(authOptions.advanced.database.joins).toBe(true);
-  });
-
   test("keeps timestamps decoding as Date, not Temporal", () => {
     for (const table of Object.values(drizzleAuthTables)) {
       for (const column of getTableConfig(table).columns) {

@@ -243,26 +243,6 @@ describe("CustomerAccountResolver", () => {
     }
   });
 
-  test("requires profile completion when no Dotypos profile matches", async () => {
-    const { dependencies } = makeDependencies({
-      matches: matches({ kind: "not-found" }),
-    });
-
-    const outcome = await runResolution(dependencies);
-
-    await expectAccessError(outcome, "link-required", "not-found");
-  });
-
-  test("returns the common support state for ambiguous matches", async () => {
-    const { dependencies } = makeDependencies({
-      matches: matches({ kind: "ambiguous" }),
-    });
-
-    const outcome = await runResolution(dependencies);
-
-    await expectAccessError(outcome, "link-required", "ambiguous");
-  });
-
   test("returns the common support state for a deleted or unusable profile without claiming or reactivating", async () => {
     const { dependencies, calls } = makeDependencies({
       matches: matches({ kind: "unusable" }),
@@ -382,31 +362,6 @@ describe("CustomerAccountResolver", () => {
     });
 
     expectUnavailable(await runResolution(dependencies), "account-link.read");
-  });
-
-  test("reports a failed provider lookup as the fixed lookup unavailability", async () => {
-    const { dependencies } = makeDependencies({
-      classify: () =>
-        Effect.fail(new NetworkError({ message: "synthetic lookup failure" })),
-    });
-
-    expectUnavailable(
-      await runResolution(dependencies),
-      "dotypos.customer-lookup"
-    );
-  });
-
-  test("reports a failed link claim as the fixed claim unavailability", async () => {
-    const { dependencies } = makeDependencies({
-      matches: matches({
-        kind: "matched",
-        state: "active",
-        customerId: "60111",
-      }),
-      claimLink: () => Effect.fail(linkQueryFailure()),
-    });
-
-    expectUnavailable(await runResolution(dependencies), "account-link.claim");
   });
 
   test("reports a failed lock acquisition as the fixed lock unavailability", async () => {

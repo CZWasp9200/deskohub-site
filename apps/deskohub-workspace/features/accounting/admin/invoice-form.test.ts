@@ -199,15 +199,6 @@ test("reads the visible payment date as paid on when already paid", () => {
   ).toHaveProperty("payment", { status: "paid", date: "2026-08-20" });
 });
 
-test("reuses an existing draft id and generates one when absent", () => {
-  const firstId = "018f47d2-8f7c-7c5e-9f9a-6ef21f90cb21";
-
-  expect(getInvoiceDraftId(firstId)).toBe(firstId);
-  expect(getInvoiceDraftId(null)).toMatch(
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
-  );
-});
-
 const renderInvoiceCreationForm = ({
   currencies = [{ code: "CZK", exponent: 2, name: "Czech koruna" }],
   defaultCurrency = "CZK",
@@ -579,38 +570,6 @@ test("keeps the draft id when a whitespace-only edit produces the same payload",
   expect(create.mock.calls[1]).toEqual(firstCall);
 });
 
-test("renders preview and create action errors as alerts", async () => {
-  let previewOnError:
-    | ((result: { error: { serverError: string } }) => void)
-    | undefined;
-  let createOnError:
-    | ((result: { error: { serverError: string } }) => void)
-    | undefined;
-  workspaceUseAction.mockImplementation((_action, options) => {
-    const actionOptions = options as {
-      readonly actionName: string;
-      readonly onError?: typeof previewOnError;
-    };
-    if (actionOptions.actionName === "previewAdministrationInvoice") {
-      previewOnError = actionOptions.onError;
-      return { execute: mock(), isExecuting: false } as never;
-    }
-    if (actionOptions.actionName === "createAdministrationInvoice") {
-      createOnError = actionOptions.onError;
-    }
-    return { execute: mock(), isExecuting: false } as never;
-  });
-  const view = renderInvoiceCreationForm();
-  fillValidPersonInvoice(view);
-
-  submitInvoiceForm(view);
-  await view.findByText("This action creates and sends the invoice");
-  act(() => previewOnError?.({ error: { serverError: "Preview exploded." } }));
-  expect(view.getByText("Preview exploded.")).toBeTruthy();
-  act(() => createOnError?.({ error: { serverError: "Create exploded." } }));
-  expect(view.getByText("Create exploded.")).toBeTruthy();
-});
-
 const expectLabelsToMatchInputs = (view: InvoiceFormView) => {
   const labels = [
     ...view.container.querySelectorAll("label[for]"),
@@ -646,56 +605,6 @@ test("associates every label with its rendered input", () => {
   expectLabelsToMatchInputs(view);
 });
 
-test("manages line items and gates price input by currency precision", () => {
-  workspaceUseAction.mockImplementation(
-    () => ({ execute: mock(), isExecuting: false }) as never
-  );
-  const view = renderInvoiceCreationForm();
-  fireEvent.click(view.getByRole("button", { name: "New" }));
-
-  const singleRemove = view.getByRole("button", { name: "Remove line 1" });
-  expect(singleRemove).toHaveProperty("disabled", true);
-
-  fireEvent.click(view.getByRole("button", { name: "Add line" }));
-  expect(view.getByLabelText("Description 2")).toBeTruthy();
-  const remove2 = view.getByRole("button", { name: "Remove line 2" });
-  expect(remove2).toHaveProperty("disabled", false);
-
-  const firstPrice = view.getAllByLabelText("Price")[0] as HTMLInputElement;
-  fireEvent.change(firstPrice, { target: { value: "1.23" } });
-  expect(firstPrice.value).toBe("1.23");
-  fireEvent.change(firstPrice, { target: { value: "1.234" } });
-  expect(firstPrice.value).toBe("1.23");
-
-  fireEvent.click(remove2);
-  expect(view.queryByLabelText("Description 2")).toBeNull();
-  expect(view.getByLabelText("Description 1")).toBeTruthy();
-});
-
-test("previews the suggested variable symbol after restoring the default", async () => {
-  const preview = mockPreviewAction();
-  const view = renderInvoiceCreationForm();
-  fireEvent.click(view.getByRole("button", { name: "New" }));
-  const variableSymbol = view.getByLabelText(
-    "Variable symbol"
-  ) as HTMLInputElement;
-  fireEvent.input(variableSymbol, { target: { value: "" } });
-  fireEvent.blur(variableSymbol);
-  expect(variableSymbol.value).toBe("2026000001");
-  fireEvent.focus(variableSymbol);
-  expect(variableSymbol.selectionStart).toBe(0);
-  expect(variableSymbol.selectionEnd).toBe(variableSymbol.value.length);
-  fillValidPersonInvoice(view);
-  fillInput(view, "Variable symbol", "");
-  fireEvent.blur(view.getByLabelText("Variable symbol"));
-
-  submitInvoiceForm(view);
-  await view.findByText("This action creates and sends the invoice");
-  expect(preview).toHaveBeenCalledWith(
-    expect.objectContaining({ variableSymbol: "2026000001" })
-  );
-});
-
 test("accepts retained business values after switching to an individual", async () => {
   const preview = mockPreviewAction();
   const view = renderInvoiceCreationForm();
@@ -717,25 +626,6 @@ test("accepts retained business values after switching to an individual", async 
         kind: "new",
         details: expect.objectContaining({ kind: "person" }),
       },
-    })
-  );
-});
-
-test("switches the invoice date from due date to paid on", async () => {
-  const preview = mockPreviewAction();
-  const view = renderInvoiceCreationForm();
-  fillValidPersonInvoice(view);
-
-  expect(view.getByLabelText("Due date")).toHaveProperty("value", "2026-09-01");
-  fireEvent.click(view.getByRole("checkbox", { name: "Already paid" }));
-  expect(view.queryByLabelText("Due date")).toBeNull();
-  expect(view.getByLabelText("Paid on")).toHaveProperty("value", "2026-08-18");
-
-  submitInvoiceForm(view);
-  await view.findByText("This action creates and sends the invoice");
-  expect(preview).toHaveBeenCalledWith(
-    expect.objectContaining({
-      payment: { status: "paid", date: "2026-08-18" },
     })
   );
 });

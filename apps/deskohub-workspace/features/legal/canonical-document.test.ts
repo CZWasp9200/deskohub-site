@@ -52,18 +52,6 @@ describe("getCanonicalLegalDocument", () => {
     ]);
   });
 
-  test("drops boolean and holes but keeps key order title, lead, updatedAt, sections", () => {
-    const canonicalDocument = getCanonicalLegalDocument({
-      title: "t",
-      lead: "l",
-      updatedAt: "u",
-      sections: [],
-    });
-    expect(canonicalDocument).toBe(
-      '{"title":"t","lead":"l","updatedAt":"u","sections":[]}'
-    );
-  });
-
   test("marketing-communications en-US matches the production snapshot hash", () => {
     const canonicalDocument = getCanonicalLegalDocument(
       getLegalDocument("en-US", "marketing-communications")

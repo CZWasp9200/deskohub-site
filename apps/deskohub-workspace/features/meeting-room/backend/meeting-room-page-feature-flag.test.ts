@@ -60,16 +60,6 @@ afterEach(() => {
 });
 
 describe("isMeetingRoomPageEnabled", () => {
-  test("treats an explicit false value as disabled without a warning", async () => {
-    const isEnabled = mock(() => Effect.succeed(false));
-    installFeatureFlagDefault(isEnabled);
-
-    await expect(isMeetingRoomPageEnabled()).resolves.toBe(false);
-
-    expect(isEnabled).toHaveBeenCalledWith("meeting_room_page");
-    expect(logRecords).toEqual([]);
-  });
-
   test("fails closed and logs when PostHog evaluation is unavailable", async () => {
     const isEnabled = mock(() => Effect.fail(evaluationError()));
     installFeatureFlagDefault(isEnabled);

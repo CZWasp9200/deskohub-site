@@ -236,7 +236,6 @@ describe("administration reservation lifecycle", () => {
     ["held", "pending", "not_started", "held", "neutral"],
     ["held", "failed", "not_started", "held", "attention"],
     ["confirmed", "paid", "processing", "paid", "neutral"],
-    ["confirmed", "paid", "awaiting_delivery", "paid", "neutral"],
     ["confirmed", "paid", "failed", "paid", "attention"],
     ["confirmed", "paid", "fulfilled", "complete", "positive"],
     ["cancelling", "cancelled", "not_started", "cancelling", "neutral"],

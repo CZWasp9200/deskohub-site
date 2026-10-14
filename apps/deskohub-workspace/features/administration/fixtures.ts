@@ -9,7 +9,6 @@ import { paymentAttemptIdSchema } from "@/features/checkout/checkout-identifiers
 import { discountApplicationIdSchema } from "@/features/discounts/persistence-contracts";
 import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
 import type {
-  AdministrationBookingPage,
   AdministrationBookingSummary,
   AdministrationPaymentAttempt,
   AdministrationReservationDetail,
@@ -291,27 +290,6 @@ export const loadFixtureReservations = (
     dateSortUnavailable: false,
   };
 };
-
-export const loadFixtureBookings = (input?: {
-  readonly date?: string;
-  readonly page?: number;
-}): AdministrationBookingPage => {
-  const items = makeBookings().filter(
-    (booking) => !input?.date || getFixtureDate(booking.startsAt) === input.date
-  );
-  return {
-    items,
-    page: input?.page ?? 1,
-    pageCount: 1,
-    total: items.length,
-  };
-};
-
-const getFixtureDate = (value: string) =>
-  Temporal.Instant.from(value)
-    .toZonedDateTimeISO(timeZone)
-    .toPlainDate()
-    .toString();
 
 export const loadFixtureReservation = (
   id: string

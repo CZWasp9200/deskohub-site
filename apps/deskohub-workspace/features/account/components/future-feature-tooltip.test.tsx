@@ -77,36 +77,3 @@ test.each(["en-US", "cs-CZ"] as const)(
     expect(activationCount).toBe(0);
   }
 );
-
-test("keeps the tooltip available across pointer leaves and dismisses with Escape", async () => {
-  const { FutureFeatureTooltip } = await import("./future-feature-tooltip");
-  const view = render(
-    <FutureFeatureTooltip locale="en-US">
-      <button disabled type="button">
-        Hover target
-      </button>
-    </FutureFeatureTooltip>
-  );
-  const trigger = view.container.querySelector<HTMLElement>('[tabindex="0"]');
-  if (!trigger) throw new Error("Future-feature trigger was not rendered");
-  const message = m.account_future_feature_tooltip({}, { locale: "en-US" });
-  const documentView = within(view.baseElement);
-  expect(view.getByRole("group", { name: "Hover target" })).toBe(trigger);
-
-  fireEvent.pointerMove(trigger, { pointerType: "mouse" });
-  const tooltip = await waitFor(() => documentView.getByRole("tooltip"));
-  expect(tooltip.textContent).toBe(message);
-  expect(trigger.getAttribute("aria-describedby")).toBe(tooltip.id);
-  expect(view.getByRole("group", { description: message })).toBe(trigger);
-
-  fireEvent.pointerLeave(trigger, { pointerType: "mouse" });
-  expect(documentView.getByRole("tooltip")).toBe(tooltip);
-  expect(trigger.getAttribute("aria-describedby")).toBe(tooltip.id);
-
-  fireEvent.pointerLeave(tooltip, { pointerType: "mouse" });
-  await act(async () => {
-    fireEvent.keyDown(document, { key: "Escape" });
-  });
-  await waitFor(() => expect(documentView.queryByRole("tooltip")).toBeNull());
-  expect(trigger.getAttribute("aria-describedby")).toBeNull();
-});

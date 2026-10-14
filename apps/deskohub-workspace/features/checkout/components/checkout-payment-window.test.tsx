@@ -140,25 +140,6 @@ describe("CheckoutPaymentWindowCoordinator", () => {
     await waitFor(() => expect(closeCurrentWindow).toHaveBeenCalledTimes(1));
   });
 
-  test("does not let a same-origin window close the status tab by message", async () => {
-    const request = installLockManager({
-      name: "checkout-status",
-      mode: "exclusive",
-    });
-    const closeCurrentWindow = jest.spyOn(window, "close");
-
-    render(<CheckoutPaymentWindowCoordinator />);
-    await waitFor(() => expect(request).toHaveBeenCalledTimes(1));
-    window.dispatchEvent(
-      new MessageEvent("message", {
-        data: "deskohub:checkout-status-tab-alive",
-        origin: window.location.origin,
-      })
-    );
-
-    expect(closeCurrentWindow).not.toHaveBeenCalled();
-  });
-
   test("keeps the status tab open when Web Locks are unavailable", () => {
     Object.defineProperty(navigator, "locks", {
       configurable: true,

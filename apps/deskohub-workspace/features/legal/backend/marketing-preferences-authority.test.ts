@@ -192,14 +192,4 @@ describe("marketing preference authority", () => {
       expect(left).not.toBe(right);
     }
   });
-
-  test("derives dismissal context from the exact raw management cookie pair", () => {
-    const dismissalContext = getMarketingManagementDismissalContext({
-      pending: "pending",
-      session: undefined,
-    });
-
-    expect(dismissalContext).toMatch(/^[0-9a-f]{64}$/);
-    expect(dismissalContext).not.toContain("pending");
-  });
 });

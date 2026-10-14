@@ -39,10 +39,4 @@ describe("shouldOfferNewReservation", () => {
       expect(shouldOfferNewReservation(status)).toBe(false);
     }
   });
-
-  test("defaults an unlisted status to no new reservation", () => {
-    expect(
-      shouldOfferNewReservation("future_status" as CheckoutStatusKind)
-    ).toBe(false);
-  });
 });

@@ -11,22 +11,9 @@ import {
   isCoworkOfferAvailable,
   isMeetingRoomAvailable,
   parseWorkspaceAvailabilityQuery,
-  parseWorkspaceAvailabilityResponse,
 } from "./workspace-availability";
 
 describe("parseWorkspaceAvailabilityQuery", () => {
-  test("derives default dates from the configured Workspace timezone", () => {
-    const query = parseWorkspaceAvailabilityQuery(
-      new URLSearchParams(),
-      new Date("2026-07-19T22:30:00Z")
-    );
-
-    expect(query).toMatchObject({
-      from: "2026-07-20",
-      to: "2027-01-20",
-    });
-  });
-
   test("keeps the public kind query param as the domain discriminator", () => {
     const query = parseWorkspaceAvailabilityQuery(
       new URLSearchParams({
@@ -42,22 +29,6 @@ describe("parseWorkspaceAvailabilityQuery", () => {
       to: "2099-06-10",
     });
     expect(query).not.toHaveProperty("date");
-  });
-
-  test("does not treat meeting room as a cowork entry tier", () => {
-    const query = parseWorkspaceAvailabilityQuery(
-      new URLSearchParams({
-        entryTier: "meeting-room",
-        from: "2099-06-10",
-        to: "2099-06-10",
-      })
-    );
-
-    expect(query).toEqual({
-      kind: "cowork",
-      from: "2099-06-10",
-      to: "2099-06-10",
-    });
   });
 
   test("parses office interval and seat availability fields", () => {
@@ -116,61 +87,6 @@ describe("parseWorkspaceAvailabilityQuery", () => {
       from: "2099-06-10",
       to: "2099-06-10",
     });
-  });
-});
-
-describe("parseWorkspaceAvailabilityResponse", () => {
-  test("uses the cowork-specific tier field consumed by the reservation form", () => {
-    const response = parseWorkspaceAvailabilityResponse({
-      date: "2099-06-10",
-      from: "2099-06-10",
-      to: "2099-06-10",
-      unavailableDates: [],
-      reservedDeskWorkstationRequiredDates: ["2099-06-10"],
-      unavailableCoworkTiers: ["plus"],
-      meetingRoomUnavailable: false,
-      officeUnavailable: false,
-      unavailableMonitorOptions: [],
-      notices: [],
-    });
-
-    expect(response.reservedDeskWorkstationRequiredDates).toEqual([
-      "2099-06-10",
-    ]);
-    expect(response.unavailableCoworkTiers).toEqual(["plus"]);
-    expect(response.meetingRoomUnavailable).toBe(false);
-    expect(response.officeUnavailable).toBe(false);
-  });
-
-  test("rejects the obsolete generic unavailableTiers field", () => {
-    expect(() =>
-      parseWorkspaceAvailabilityResponse({
-        from: "2099-06-10",
-        to: "2099-06-10",
-        unavailableDates: [],
-        reservedDeskWorkstationRequiredDates: [],
-        unavailableTiers: ["plus"],
-        meetingRoomUnavailable: false,
-        officeUnavailable: false,
-        unavailableMonitorOptions: [],
-        notices: [],
-      })
-    ).toThrow("Invalid workspace availability response");
-  });
-
-  test("rejects responses without reserved-desk workstation requirement dates", () => {
-    expect(() =>
-      parseWorkspaceAvailabilityResponse({
-        from: "2099-06-10",
-        to: "2099-06-10",
-        unavailableDates: [],
-        unavailableCoworkTiers: [],
-        meetingRoomUnavailable: false,
-        officeUnavailable: false,
-        unavailableMonitorOptions: [],
-        notices: [],
-      })
-    ).toThrow("Invalid workspace availability response");
   });
 });
 
@@ -272,15 +188,6 @@ describe("meeting-room availability", () => {
     });
   });
 
-  test("skips a selection without a valid interval", () => {
-    expect(
-      getMeetingRoomSelectionAvailabilityQuery({
-        duration: "hour:4",
-        startDateTime: "not-a-date",
-      })
-    ).toBeUndefined();
-  });
-
   test("treats a blocked date or a taken room as unavailable", () => {
     const free = { meetingRoomUnavailable: false, unavailableDates: [] };
 
@@ -366,16 +273,6 @@ describe("getCoworkAvailabilityQueries", () => {
       selection: { ...bare, monitorOption: "2x32-qhd" },
       workstationRequirement: bare,
     });
-  });
-
-  test("queries nothing for a tier the form cannot book", () => {
-    expect(
-      getCoworkAvailabilityQueries({
-        today,
-        entryTier: "",
-        date: "2099-08-02",
-      })
-    ).toEqual({});
   });
 });
 

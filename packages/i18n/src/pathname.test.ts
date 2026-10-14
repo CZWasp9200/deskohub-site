@@ -1,10 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
   getLocaleFromPathname,
-  getLocalizedPathVariants,
   parseLocalizedPathname,
   pathnameHasLocale,
-  prefixPathnameWithLocale,
   replaceLocaleInPathname,
   stripLocaleFromPathname,
 } from "./pathname";
@@ -53,21 +51,5 @@ describe("replace, prefix, and variants", () => {
     );
     expect(replaceLocaleInPathname("/zh-Hant-HK", "fr", locales)).toBe("/fr");
     expect(replaceLocaleInPathname("/", "fr", locales)).toBe("/fr");
-  });
-
-  test("prefixes locale for rooted and unrooted pathnames", () => {
-    expect(prefixPathnameWithLocale("/", "en")).toBe("/en");
-    expect(prefixPathnameWithLocale("/products", "en")).toBe("/en/products");
-    expect(prefixPathnameWithLocale("products", "en")).toBe("/en/products");
-  });
-
-  test("builds localized path variants for every locale", () => {
-    const variants = getLocalizedPathVariants("/fr/products/item", locales);
-
-    expect(Object.fromEntries(variants)).toEqual({
-      en: "/en/products/item",
-      fr: "/fr/products/item",
-      "zh-Hant-HK": "/zh-Hant-HK/products/item",
-    });
   });
 });

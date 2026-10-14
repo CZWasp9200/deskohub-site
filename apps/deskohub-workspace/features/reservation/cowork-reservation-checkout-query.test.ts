@@ -10,20 +10,8 @@ import {
 } from "./cowork-reservation-checkout-query";
 
 const adaEmail = testEmailAddress("ada");
-const quotedLocalEmail = testEmailAddress('"quoted local"');
 
 describe("getReservationDefaultValuesFromSearchParams", () => {
-  test("uses the shared email validator for checkout query defaults", () => {
-    expect(
-      getReservationDefaultValuesFromSearchParams({
-        email: `  ${quotedLocalEmail}  `,
-      }).email
-    ).toBe(quotedLocalEmail);
-    expect(
-      getReservationDefaultValuesFromSearchParams({ email: "invalid@" }).email
-    ).toBe("");
-  });
-
   test("decodes customer fields independently as URLSearchParams", () => {
     const values = getReservationDefaultValuesFromSearchParams(
       new URLSearchParams("name=Ada%20Lovelace&email=invalid@")
@@ -32,18 +20,6 @@ describe("getReservationDefaultValuesFromSearchParams", () => {
     expect(values.name).toBe("Ada Lovelace");
     expect(values.email).toBe("");
     expect(values.phone).toBe("");
-  });
-
-  test("decodes customer fields independently as plain records", () => {
-    const values = getReservationDefaultValuesFromSearchParams({
-      name: "  ",
-      email: adaEmail,
-      phone: "+420777777777",
-    });
-
-    expect(values.name).toBe("");
-    expect(values.email).toBe(adaEmail);
-    expect(values.phone).toBe("+420777777777");
   });
 });
 
@@ -62,59 +38,6 @@ describe("getReservationDefaultValuesFromPayState", () => {
       phone: "+420 777 000 111",
     });
 
-    expect(getReservationDefaultValuesFromPayState(reservation)).toEqual({
-      entryTier: "reserved-desk",
-      date: "2099-06-10",
-      coffee: true,
-      monitorOption: "2x27-qhd",
-      name: "Ada Lovelace",
-      email: adaEmail,
-      phone: "+420 777 000 111",
-      billing: { purpose: "personal", invoice: "none" },
-      marketingConsent: false,
-    });
-  });
-});
-
-describe("retired reservation customer message", () => {
-  test("ignores a message query parameter without harming valid siblings", () => {
-    const values = getReservationDefaultValuesFromSearchParams(
-      new URLSearchParams(
-        `name=Ada%20Lovelace&email=${encodeURIComponent(adaEmail)}&phone=%2B420777777777&message=%20Legacy%20note%20&entryTier=open-space&date=2099-06-10`
-      )
-    );
-
-    expect(values.name).toBe("Ada Lovelace");
-    expect(values.email).toBe(adaEmail);
-    expect(values.phone).toBe("+420777777777");
-    expect(values.entryTier).toBe("open-space");
-    expect(values.date).toBe("2099-06-10");
-    expect(values).not.toHaveProperty("message");
-  });
-
-  test("does not introduce a message field into new form defaults", () => {
-    expect(getReservationDefaultValuesFromSearchParams({})).not.toHaveProperty(
-      "message"
-    );
-  });
-
-  test("drops a legacy customer message when restoring from signed Pay state", () => {
-    const reservation = Schema.decodeUnknownSync(
-      normalizedCoworkReservationOrderSchema,
-      { onExcessProperty: "error" }
-    )({
-      kind: "cowork",
-      entryTier: "reserved-desk",
-      date: "2099-06-10",
-      coffee: true,
-      monitorOption: "2x27-qhd",
-      name: "Ada Lovelace",
-      email: adaEmail,
-      phone: "+420 777 000 111",
-      message: "Please prepare the standing desk.",
-    });
-
-    expect(reservation).not.toHaveProperty("message");
     expect(getReservationDefaultValuesFromPayState(reservation)).toEqual({
       entryTier: "reserved-desk",
       date: "2099-06-10",

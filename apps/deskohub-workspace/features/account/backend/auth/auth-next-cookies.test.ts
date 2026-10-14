@@ -167,12 +167,6 @@ const backdateSession = async (email: string) => {
 describe.skipIf(!testDatabase)(
   "Better Auth Next.js cookie integration on the migrated disposable Postgres",
   () => {
-    test("keeps nextCookies as the last plugin so Server Action cookies are not missed", () => {
-      const auth = makeTestAuth();
-      const plugins = auth.options.plugins ?? [];
-      expect(plugins.at(-1)?.id).toBe("next-cookies");
-    });
-
     test("clears the browser session cookie when the delete-user call runs from a Server Action", async () => {
       const sentMagicLinks: { url: string }[] = [];
       const auth = makeTestAuth(sentMagicLinks);

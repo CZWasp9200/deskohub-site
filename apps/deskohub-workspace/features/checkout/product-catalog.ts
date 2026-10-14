@@ -9,10 +9,7 @@ import {
 } from "@/features/reservation/meeting-room-reservation-duration";
 import { workspaceMeetingRoomProductsByDurationKey } from "./meeting-room-product-catalog";
 
-export {
-  workspaceMeetingRoomCatalog,
-  workspaceMeetingRoomProductsByDurationKey,
-} from "./meeting-room-product-catalog";
+export { workspaceMeetingRoomCatalog } from "./meeting-room-product-catalog";
 
 export const workspaceCoworkHistoricalTiers = [
   "basic",
@@ -129,25 +126,12 @@ const workspaceCoworkProductsByTier = {
   },
 } satisfies Record<WorkspaceCoworkProductTier, WorkspaceProductCatalogItem>;
 
-export const workspaceCoworkCatalog = workspaceCoworkTiers.map(
-  (tier) => workspaceCoworkProductsByTier[tier]
-);
-
-export const workspaceProductCoffeePrice: WorkspaceMoney = currencyCZK(5000);
+const workspaceProductCoffeePrice: WorkspaceMoney = currencyCZK(5000);
 const workspaceOfficeBaseDailyPrice: WorkspaceMoney = currencyCZK(53_000);
 const workspaceOfficeSeatDailyPrice: WorkspaceMoney = currencyCZK(31_500);
 
 export function getWorkspaceProductByTier(tier: WorkspaceProductTier) {
   return workspaceCoworkProductsByTier[tier];
-}
-
-export function isWorkspaceProductTier(
-  value: string | undefined
-): value is WorkspaceProductTier {
-  return (
-    value !== undefined &&
-    workspaceCoworkTiers.includes(value as WorkspaceCoworkProductTier)
-  );
 }
 
 export function isWorkspaceProductMonitorOption(

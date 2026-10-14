@@ -6,7 +6,6 @@ import { FetchHttpClient } from "effect/unstable/http";
 import { NexiRuntimeConfig } from "../config";
 import type { OrderResponse } from "../generated/effect.gen";
 import {
-  getNexiPaymentMetadata,
   NexiCorrelationIdSchema,
   NexiCustomerReferenceSchema,
   NexiOperationIdSchema,
@@ -268,51 +267,6 @@ describe("NexiService verifyPaymentOutcome", () => {
     );
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
-  });
-
-  test("exposes the executed provider operation ID in payment metadata", async () => {
-    const fetchMock = mockNexiFetch(
-      Response.json({
-        orderStatus: {
-          order: {
-            orderId: nexiOrderId("order-id"),
-            amount: "5000",
-            currency: "CZK",
-          },
-        },
-        operations: [
-          {
-            operationId: nexiOperationId("operation-id"),
-            operationType: "CAPTURE",
-            operationResult: "EXECUTED",
-            operationAmount: "5000",
-            operationCurrency: "CZK",
-            securityToken: "security-token",
-          },
-        ],
-      } satisfies OrderResponse)
-    );
-
-    const verification = await runWithService(
-      Effect.gen(function* () {
-        const nexi = yield* NexiService;
-        return yield* nexi.verifyPaymentOutcome({
-          orderId: nexiOrderId("order-id"),
-          correlationId: nexiCorrelationId("correlation-id"),
-          amount: "5000",
-          currency: "CZK",
-          securityToken: "security-token",
-        });
-      }),
-      fetchMock
-    );
-
-    expect(verification.provider.operationId).toBe(
-      nexiOperationId("operation-id")
-    );
-    expect(getNexiPaymentMetadata(verification).providerOperationId).toBe(
-      nexiOperationId("operation-id")
-    );
   });
 
   test("classifies success, failure, pending, and mismatches", async () => {

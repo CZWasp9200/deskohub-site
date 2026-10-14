@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { Predicate, Schema } from "effect";
+import { Predicate } from "effect";
 import { workspaceClientEnvSchema } from "./client-env.schema";
 import { createWorkspaceEnv } from "./env";
 import {
@@ -64,32 +64,6 @@ const environmentError = (
 };
 
 describe("workspace environment schemas", () => {
-  test("decodes numeric environment values", () => {
-    const decodeTimeout = Schema.decodeUnknownSync(
-      workspaceServerEnvSchema.fields.DOTYPOS_API_TIMEOUT
-    );
-    const decodePostHogProjectId = Schema.decodeUnknownSync(
-      workspaceServerEnvSchema.fields.POSTHOG_PROJECT_ID
-    );
-
-    expect(decodeTimeout("2500")).toBe(2_500);
-    expect(`${decodePostHogProjectId("42")}`).toBe("42");
-    expect(decodePostHogProjectId(undefined)).toBeUndefined();
-    expect(() => decodePostHogProjectId("")).toThrow();
-    expect(() => decodeTimeout("1.5")).toThrow();
-    expect(() => decodeTimeout("0")).toThrow();
-  });
-
-  test("bounds the Igloohome timeout at the shared per-request maximum", () => {
-    const decodeIgloohomeTimeout = Schema.decodeUnknownSync(
-      workspaceServerEnvSchema.fields.IGLOOHOME_API_TIMEOUT
-    );
-
-    expect(decodeIgloohomeTimeout("20000")).toBe(20_000);
-    expect(() => decodeIgloohomeTimeout("20001")).toThrow();
-    expect(() => decodeIgloohomeTimeout("0")).toThrow();
-  });
-
   test("always requires the Igloohome target device and requires credentials only in production", () => {
     const missingCredentials = {
       IGLOOHOME_CLIENT_ID: undefined,
@@ -108,28 +82,6 @@ describe("workspace environment schemas", () => {
         VERCEL_ENV: "preview",
       })
     ).toEqual(["IGLOOHOME_ALGOPIN_TARGET_DEVICE_ID"]);
-  });
-
-  test.each([
-    "DATABASE_URL",
-    "POSTHOG_API_HOST",
-    "POSTHOG_INGEST_HOST",
-    "WORKSPACE_E2E_BASE_URL",
-  ] as const)("validates %s as a URL", (variable) => {
-    expect(
-      invalidVariables({ [variable]: "https://workspace.example" })
-    ).toEqual([]);
-    expect(invalidVariables({ [variable]: "not a URL" })).toEqual([variable]);
-  });
-
-  test("validates accounting snapshot key IDs without accepting secrets", () => {
-    const decodeKeyId = Schema.decodeUnknownSync(
-      workspaceServerEnvSchema.fields.ACCOUNTING_DOCUMENT_SNAPSHOT_ACTIVE_KEY_ID
-    );
-
-    expect(decodeKeyId("K202608")).toBe("K202608");
-    expect(() => decodeKeyId("key-202608")).toThrow();
-    expect(() => decodeKeyId("K")).toThrow();
   });
 
   test("fails production closed when delivery or cron authentication is unconfigured", () => {

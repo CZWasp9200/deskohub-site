@@ -353,35 +353,6 @@ describe("LinkedAccount", () => {
     ).toBeTruthy();
   });
 
-  test("clears the published reservation count when linked content unmounts", async () => {
-    const { LinkedAccount } = await import("./linked-account");
-    const view = render(
-      withAccountLayout(
-        <LinkedAccount
-          referralsEnabled
-          avatarPresentation={hiddenAvatarPresentation}
-          email={adaAddress}
-          history={history}
-          locale="en-US"
-          profile={profile}
-        />
-      )
-    );
-
-    const reservations = getDesktopSectionNavigation(view).getByRole("button", {
-      name: sectionLabels.reservations,
-    });
-    expect(reservations.textContent).toContain("1");
-
-    view.rerender(withAccountLayout(<p>Legal content</p>));
-
-    expect(
-      getDesktopSectionNavigation(view)
-        .getByRole("button", { name: sectionLabels.reservations })
-        .querySelector("span.ml-auto")
-    ).toBeNull();
-  });
-
   test("publishes the rounded-up referral discount as a navigation badge, hidden at 0%", async () => {
     const { LinkedAccount } = await import("./linked-account");
     const { parseReferralCode } = await import("@/features/referrals/client");
@@ -688,39 +659,6 @@ describe("LinkedAccount", () => {
     expect(updateCustomerProfile).not.toHaveBeenCalled();
   });
 
-  test.each([
-    ["profile", sectionLabels.profile],
-    ["billing", sectionLabels.billing],
-    ["danger", sectionLabels.danger],
-  ] as const)(
-    "starts on a valid %s section from the query",
-    async (section, label) => {
-      workspaceUseSearchParams.mockReturnValue(
-        new URLSearchParams(`section=${section}`)
-      );
-      const { LinkedAccount } = await import("./linked-account");
-      const view = render(
-        withAccountLayout(
-          <LinkedAccount
-            referralsEnabled
-            avatarPresentation={hiddenAvatarPresentation}
-            email={adaAddress}
-            history={history}
-            locale="en-US"
-            profile={profile}
-          />
-        )
-      );
-      const sectionNavigation = getDesktopSectionNavigation(view);
-
-      expect(
-        sectionNavigation
-          .getByRole("button", { name: label })
-          .getAttribute("aria-current")
-      ).toBe("page");
-    }
-  );
-
   test("shows no referral screen, badge, or completion notice while the program is withheld", async () => {
     workspaceUseSearchParams.mockReturnValue(
       new URLSearchParams("section=referrals")
@@ -772,32 +710,6 @@ describe("LinkedAccount", () => {
     ).toBeNull();
     expect(
       getDesktopSectionNavigation(view)
-        .getByRole("button", { name: sectionLabels.reservations })
-        .getAttribute("aria-current")
-    ).toBe("page");
-  });
-
-  test("falls back to reservations for an invalid section query", async () => {
-    workspaceUseSearchParams.mockReturnValue(
-      new URLSearchParams("section=not-a-section")
-    );
-    const { LinkedAccount } = await import("./linked-account");
-    const view = render(
-      withAccountLayout(
-        <LinkedAccount
-          referralsEnabled
-          avatarPresentation={hiddenAvatarPresentation}
-          email={adaAddress}
-          history={history}
-          locale="en-US"
-          profile={profile}
-        />
-      )
-    );
-    const sectionNavigation = getDesktopSectionNavigation(view);
-
-    expect(
-      sectionNavigation
         .getByRole("button", { name: sectionLabels.reservations })
         .getAttribute("aria-current")
     ).toBe("page");

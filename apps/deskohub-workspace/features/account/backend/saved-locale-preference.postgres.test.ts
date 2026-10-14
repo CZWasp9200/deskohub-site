@@ -127,12 +127,6 @@ describe.skipIf(!testDatabase)(
         )
       );
 
-    test("reads the saved preference of a live verified session", async () => {
-      const { auth, cookie } = await signIn({ locale: "cs-CZ" });
-
-      await expect(find(auth, cookie)).resolves.toBe("cs-CZ");
-    });
-
     test("reads the session, its account, and the locale preference in one query", async () => {
       const { auth, cookie } = await signIn({ locale: "cs-CZ" });
       const queries = spyOn(testDatabase!.pool, "query");

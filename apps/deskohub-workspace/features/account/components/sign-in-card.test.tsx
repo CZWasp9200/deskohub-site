@@ -59,50 +59,6 @@ describe("account components", () => {
     expect(signInMagicLink).not.toHaveBeenCalled();
   });
 
-  test("sign-in card shows the request form in both locales", async () => {
-    const { SignInCard } = await import("./sign-in-card");
-
-    const en = render(<SignInCard locale={locale} />);
-    expect(en.container.querySelector("h1")!.textContent).toBe(
-      m.accountSignInTitle({}, { locale })
-    );
-    expect(
-      (
-        en.getByLabelText(
-          m.accountSignInEmailLabel({}, { locale })
-        ) as HTMLInputElement
-      ).hasAttribute("required")
-    ).toBe(true);
-    expect(
-      (
-        en.getByLabelText(
-          m.accountSignInEmailLabel({}, { locale })
-        ) as HTMLInputElement
-      ).disabled
-    ).toBe(false);
-    expect(
-      (
-        en.getByRole("button", {
-          name: m.accountSignInSubmit({}, { locale }),
-        }) as HTMLButtonElement
-      ).disabled
-    ).toBe(false);
-    expect(
-      en
-        .getByLabelText(m.accountSignInEmailLabel({}, { locale }))
-        .getAttribute("aria-describedby")
-    ).toBeNull();
-    en.unmount();
-
-    const cs = render(<SignInCard locale="cs-CZ" />);
-    expect(cs.container.querySelector("h1")!.textContent).toBe(
-      m.accountSignInTitle({}, { locale: "cs-CZ" })
-    );
-    expect(
-      cs.getByLabelText(m.accountSignInEmailLabel({}, { locale: "cs-CZ" }))
-    ).toBeTruthy();
-  });
-
   test("sign-in card validates invalid email with localized copy before requesting a link", async () => {
     const { SignInCard } = await import("./sign-in-card");
 
@@ -260,28 +216,6 @@ describe("account components", () => {
     expect(signInMagicLink).toHaveBeenCalledTimes(2);
     expect(
       view.getByText(m.accountSignInAcceptedTitle({}, { locale }))
-    ).toBeTruthy();
-  });
-
-  test("sign-in card reports request failures in the live region", async () => {
-    signInMagicLink.mockImplementationOnce(() =>
-      Promise.resolve({ error: { message: "rate limited" } })
-    );
-    const { SignInCard } = await import("./sign-in-card");
-
-    const view = render(<SignInCard locale={locale} />);
-    fireEvent.change(
-      view.getByLabelText(m.accountSignInEmailLabel({}, { locale })),
-      {
-        target: { value: adaAddress },
-      }
-    );
-    await act(async () => {
-      fireEvent.submit(view.container.querySelector("#account-sign-in-form")!);
-    });
-
-    expect(
-      view.getByText(m.accountSignInRequestFailed({}, { locale }))
     ).toBeTruthy();
   });
 

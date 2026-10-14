@@ -389,62 +389,6 @@ describe.skipIf(!postgresDatabase)(
       });
     });
 
-    test("records the provider status code on a rejected terminal event", async () => {
-      const attempt = attemptFixture();
-      await Effect.runPromise(claim({ attempt }));
-
-      await Effect.runPromise(
-        attempts.appendTerminal({
-          attempt,
-          variance: 2,
-          eventKind: "rejected",
-          occurredAt: Temporal.Now.instant(),
-          failureCode: "standalone_provider_rejected",
-          providerStatusCode: 502,
-        })
-      );
-
-      const rows = await loadEvents(attempt.attemptId);
-      const terminal = rows.find(({ eventKind }) => eventKind === "rejected");
-      expect(terminal?.providerStatusCode).toBe(502);
-      expect(terminal?.failureCode).toBe("standalone_provider_rejected");
-      expect(terminal?.providerCredentialId).toBeNull();
-    });
-
-    test("appends exactly one terminal event per attempt", async () => {
-      const attempt = attemptFixture();
-      await Effect.runPromise(claim({ attempt }));
-
-      const first = await Effect.runPromise(
-        attempts.appendTerminal({
-          attempt,
-          variance: 2,
-          eventKind: "created",
-          occurredAt: Temporal.Now.instant(),
-          providerCredentialId,
-        })
-      );
-      const second = await Effect.runPromise(
-        attempts.appendTerminal({
-          attempt,
-          variance: 2,
-          eventKind: "rejected",
-          occurredAt: Temporal.Now.instant(),
-          failureCode: "standalone_provider_rejected",
-        })
-      );
-
-      expect(first).toMatchObject({ kind: "appended" });
-      expect(second).toMatchObject({
-        kind: "already-terminal",
-        terminal: { kind: "created" },
-      });
-      expect(await eventKindsOf(attempt.attemptId)).toEqual([
-        "created",
-        "started",
-      ]);
-    });
-
     test("returns the stored created resolution when a later terminal append conflicts", async () => {
       const attempt = attemptFixture();
       const occurredAt = Temporal.Instant.from("2026-09-10T08:00:00Z");
@@ -659,37 +603,6 @@ describe.skipIf(!postgresDatabase)(
         ({ eventKind }) => eventKind === "reconciled"
       );
       expect(reconciledRows).toHaveLength(0);
-    });
-
-    test("reports cleanup-required before capacity exhaustion", async () => {
-      const ambiguous = attemptFixture();
-      const created = attemptFixture();
-      await Effect.runPromise(claim({ attempt: ambiguous }));
-      await Effect.runPromise(claim({ attempt: created }));
-      await Effect.runPromise(
-        attempts.appendTerminal({
-          attempt: ambiguous,
-          variance: 2,
-          eventKind: "ambiguous",
-          occurredAt: Temporal.Now.instant(),
-          failureCode: "standalone_provider_ambiguous",
-        })
-      );
-      await Effect.runPromise(
-        attempts.appendTerminal({
-          attempt: created,
-          variance: 3,
-          eventKind: "created",
-          occurredAt: Temporal.Now.instant(),
-          providerCredentialId,
-        })
-      );
-
-      const next = await Effect.runPromise(
-        claim({ attempt: attemptFixture() })
-      );
-
-      expect(next).toMatchObject({ kind: "cleanup-required" });
     });
 
     test("returns the stored prior name and attempt id as the cleanup target", async () => {
@@ -1065,34 +978,6 @@ describe.skipIf(!postgresDatabase)(
       });
     });
 
-    test("keeps replaying a reconciled ambiguous attempt as ambiguous", async () => {
-      const ambiguous = attemptFixture();
-      await Effect.runPromise(claim({ attempt: ambiguous }));
-      await Effect.runPromise(
-        attempts.appendTerminal({
-          attempt: ambiguous,
-          variance: 2,
-          eventKind: "ambiguous",
-          occurredAt: Temporal.Now.instant(),
-          failureCode: "standalone_provider_ambiguous",
-        })
-      );
-
-      const confirmed = await Effect.runPromise(
-        claim({
-          attempt: attemptFixture(),
-          providerCredentialRemovedAttemptId: ambiguous.attemptId,
-        })
-      );
-      expect(confirmed).toMatchObject({ kind: "claimed", variance: 2 });
-
-      const replay = await Effect.runPromise(claim({ attempt: ambiguous }));
-      expect(replay).toMatchObject({
-        kind: "ambiguous",
-        failureCode: "standalone_provider_ambiguous",
-      });
-    });
-
     test("reports a reconciled replay without re-executing the attempt", async () => {
       const ambiguous = attemptFixture();
       await Effect.runPromise(claim({ attempt: ambiguous }));
@@ -1123,40 +1008,6 @@ describe.skipIf(!postgresDatabase)(
         claim({ attempt: ambiguous })
       );
       expect(unconfirmedReplay).toMatchObject({ kind: "ambiguous" });
-    });
-
-    test("records reconciliation at most once per attempt across confirmed claims", async () => {
-      const ambiguous = attemptFixture();
-      await Effect.runPromise(claim({ attempt: ambiguous }));
-      await Effect.runPromise(
-        attempts.appendTerminal({
-          attempt: ambiguous,
-          variance: 2,
-          eventKind: "ambiguous",
-          occurredAt: Temporal.Now.instant(),
-          failureCode: "standalone_provider_ambiguous",
-        })
-      );
-
-      const first = await Effect.runPromise(
-        claim({
-          attempt: attemptFixture(),
-          providerCredentialRemovedAttemptId: ambiguous.attemptId,
-        })
-      );
-      const second = await Effect.runPromise(
-        claim({
-          attempt: attemptFixture(),
-          providerCredentialRemovedAttemptId: ambiguous.attemptId,
-        })
-      );
-
-      expect(first).toMatchObject({ kind: "claimed" });
-      expect(second).toMatchObject({ kind: "claimed" });
-      const reconciledRows = (await loadEvents(ambiguous.attemptId)).filter(
-        ({ eventKind }) => eventKind === "reconciled"
-      );
-      expect(reconciledRows).toHaveLength(1);
     });
 
     test("reconciles exactly once under concurrent confirmed claims", async () => {

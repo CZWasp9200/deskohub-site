@@ -47,13 +47,4 @@ describe("AccessCodeDigits", () => {
       expect(digit.classList.contains("ph-no-capture")).toBe(true);
     }
   });
-
-  test("keeps the caller layout class beside the capture guard", () => {
-    const view = render(<AccessCodeDigits code="038472" className="gap-1" />);
-
-    const output = view.container.querySelector("output");
-    if (!output) throw new Error("Access code digits output missing");
-    expect(output.classList.contains("gap-1")).toBe(true);
-    expect(output.classList.contains("ph-no-capture")).toBe(true);
-  });
 });

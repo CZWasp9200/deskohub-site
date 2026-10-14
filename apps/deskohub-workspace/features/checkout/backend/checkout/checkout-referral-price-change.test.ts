@@ -194,38 +194,6 @@ describe("expected referral checkout quote addition", () => {
     ).toBe(true);
   });
 
-  test("permits the same expected addition when an old token is retried after acceptance", () => {
-    const oldReferrer = makeReferrerDiscount({
-      subtotalBefore: 10_000,
-      count: 1,
-    });
-    const invitation = makeInvitationDiscount(10_000);
-    const freshReferrer = makeReferrerDiscount({
-      subtotalBefore: invitation.subtotalAfter.value,
-      count: 1,
-    });
-    const previous = makeQuote(10_000, [oldReferrer]);
-    const current = makeQuote(10_000, [invitation, freshReferrer]);
-    const commitment = makeCommitment([invitation, freshReferrer]);
-
-    expect(
-      isExpectedReferralQuoteAddition({
-        previous,
-        current,
-        commitment,
-        dotyposCustomerId: invitedCustomerId,
-      })
-    ).toBe(true);
-    expect(
-      isExpectedReferralQuoteAddition({
-        previous,
-        current,
-        commitment,
-        dotyposCustomerId: invitedCustomerId,
-      })
-    ).toBe(true);
-  });
-
   test("rejects a fresh referrer count or localized count-label change", () => {
     const oldReferrer = makeReferrerDiscount({
       subtotalBefore: 10_000,

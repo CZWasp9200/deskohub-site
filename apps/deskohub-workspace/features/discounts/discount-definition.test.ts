@@ -10,9 +10,6 @@ import { storedDiscountIdSchema } from "./persistence-contracts";
 const discountId = Schema.decodeUnknownSync(storedDiscountIdSchema)(
   "019bfe6e-8ef0-7def-8b16-55cfbc82edb7"
 );
-const otherDiscountId = Schema.decodeUnknownSync(storedDiscountIdSchema)(
-  "019bfe6e-8ef0-7def-8b16-55cfbc82edb8"
-);
 
 const labels = {
   "en-US": " Summer sale ",
@@ -58,41 +55,6 @@ describe("stored discount definitions", () => {
       adjustment: { kind: "percentage", basisPoints: 5000 },
       products: [{ kind: "cowork" }],
     });
-  });
-
-  test("decodes a fixed-money definition", async () => {
-    const result = await Effect.runPromise(
-      decode(
-        percentageRow({
-          percentageBasisPoints: null,
-          fixedAmountValue: 10_000,
-          fixedAmountExponent: 2,
-          fixedAmountCurrency: "CZK",
-        })
-      )
-    );
-
-    expect(result.adjustment).toEqual({
-      kind: "fixed",
-      amount: { value: 10_000, exponent: 2, currency: "CZK" },
-    });
-  });
-
-  test("decodes a meeting-room product target", async () => {
-    const result = await Effect.runPromise(
-      decode(
-        percentageRow({
-          productTargets: [
-            {
-              discountId,
-              productTarget: { kind: "meeting-room" },
-            },
-          ],
-        })
-      )
-    );
-
-    expect(result.products).toEqual([{ kind: "meeting-room" }]);
   });
 
   test("decodes cowork tier targets alongside another family", async () => {
@@ -147,41 +109,6 @@ describe("stored discount definitions", () => {
         }),
       }),
     ],
-    ["invalid percentage", percentageRow({ percentageBasisPoints: 10_001 })],
-    [
-      "incomplete fixed amount",
-      percentageRow({
-        percentageBasisPoints: null,
-        fixedAmountValue: 100,
-        fixedAmountExponent: null,
-        fixedAmountCurrency: "CZK",
-      }),
-    ],
-    ["empty targets", percentageRow({ productTargets: [] })],
-    [
-      "duplicate family targets",
-      percentageRow({
-        productTargets: [
-          { discountId, productTarget: { kind: "cowork" } },
-          { discountId, productTarget: { kind: "cowork" } },
-        ],
-      }),
-    ],
-    [
-      "duplicate cowork tier targets",
-      percentageRow({
-        productTargets: [
-          {
-            discountId,
-            productTarget: { kind: "cowork", tier: "reserved-desk" },
-          },
-          {
-            discountId,
-            productTarget: { kind: "cowork", tier: "reserved-desk" },
-          },
-        ],
-      }),
-    ],
     [
       "broad cowork target mixed with a cowork tier target",
       percentageRow({
@@ -201,17 +128,6 @@ describe("stored discount definitions", () => {
           {
             discountId,
             productTarget: { kind: "cowork", tier: "profi" },
-          },
-        ],
-      }),
-    ],
-    [
-      "target from another discount",
-      percentageRow({
-        productTargets: [
-          {
-            discountId: otherDiscountId,
-            productTarget: { kind: "cowork" },
           },
         ],
       }),

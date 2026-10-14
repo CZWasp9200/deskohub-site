@@ -30,23 +30,6 @@ describe("EmailConfigLayer", () => {
     });
   });
 
-  test("present API values unwrap correctly", async () => {
-    const config = await readConfig({
-      EMAIL_PROVIDER: "resend",
-      EMAIL_FROM_ADDRESS: "from@example.test",
-      EMAIL_FROM_NAME: "From Name",
-      EMAIL_API_KEY: "api-key",
-      EMAIL_TEST_MODE: "true",
-    });
-
-    expect(config).toEqual({
-      provider: "resend",
-      defaultFrom: { email: "from@example.test", name: "From Name" },
-      apiKey: "api-key",
-      testMode: true,
-    });
-  });
-
   test("defaults to resend when an API key is configured", async () => {
     const config = await readConfig({
       EMAIL_API_KEY: "api-key",

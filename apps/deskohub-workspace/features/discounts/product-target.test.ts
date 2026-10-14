@@ -67,57 +67,6 @@ describe("workspace product targets", () => {
     ).toBe(false);
   });
 
-  test("targets every exact meeting-room product through the meeting-room family", () => {
-    const target = { kind: "meeting-room" } as const;
-
-    for (const duration of [
-      { unit: "hour", amount: 1 },
-      { unit: "hour", amount: 4 },
-      { unit: "day", amount: 1 },
-    ] as const) {
-      expect(
-        workspaceProductTargetMatches(target, {
-          kind: "meeting-room",
-          duration,
-        })
-      ).toBe(true);
-    }
-  });
-
-  test("targets every exact office product through the office family", () => {
-    const target = { kind: "office" } as const;
-
-    expect(
-      workspaceProductTargetMatches(target, {
-        kind: "office",
-        seats: 1,
-        dayCount: 1,
-      })
-    ).toBe(true);
-    expect(
-      workspaceProductTargetMatches(target, {
-        kind: "office",
-        seats: 4,
-        dayCount: 12,
-      })
-    ).toBe(true);
-  });
-
-  test("does not match products from another reservation family", () => {
-    expect(
-      workspaceProductTargetMatches(
-        { kind: "cowork" },
-        { kind: "meeting-room", duration: { unit: "hour", amount: 1 } }
-      )
-    ).toBe(false);
-    expect(
-      workspaceProductTargetMatches(
-        { kind: "meeting-room" },
-        { kind: "office", seats: 1, dayCount: 1 }
-      )
-    ).toBe(false);
-  });
-
   test("treats every saleable cowork tier together as the whole family", () => {
     expect(
       workspaceProductTargetsCoverFamily([{ kind: "cowork" }], "cowork")

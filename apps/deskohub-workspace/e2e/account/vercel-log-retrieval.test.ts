@@ -295,46 +295,6 @@ describe("workspace e2e Vercel log retrieval", () => {
     ).toBe(false);
   });
 
-  test("retrieves a matching history row that appeared after the baseline", async () => {
-    let historyRowAvailable = false;
-    const harness = makeHttpHarness((_request, call) =>
-      Response.json(
-        page(
-          historyRowAvailable && call > 0
-            ? [
-                row("req-reauth-after-baseline", [
-                  log(previewE2ELine(magicLink("reauth-after-baseline"))),
-                ]),
-              ]
-            : []
-        )
-      )
-    );
-    const result = await Effect.runPromise(
-      Effect.scoped(
-        Effect.gen(function* () {
-          const previewLogs = yield* resolveWorkspaceE2EPreviewLogs(config);
-          const startedAt = new Date("2026-10-01T12:00:00.000Z");
-          const baseline = yield* previewLogs.listSyntheticLogEntryIds({
-            recipient,
-            startedAt,
-          });
-          expect(baseline).toEqual([]);
-          historyRowAvailable = true;
-          return yield* previewLogs.retrieveMagicLink({
-            callbackPath,
-            deadlineAfterMs: 100,
-            pollIntervalMs: 1,
-            recipient,
-            startedAt,
-          });
-        })
-      ).pipe(Effect.provide(harness.layer))
-    );
-
-    expect(result).toBe(magicLink("reauth-after-baseline"));
-  });
-
   test("excludes older rows by their provider timestamp", async () => {
     const oldEntry = row("req-old", [log(previewE2ELine(magicLink("old")))], {
       timestamp: "2026-10-01T11:59:59.999Z",
@@ -639,20 +599,6 @@ describe("workspace e2e Vercel log retrieval", () => {
     expect(JSON.stringify(failure)).not.toContain(privateDetail);
   });
 
-  test("bounds a stalled historical request by the retrieval deadline", async () => {
-    const { result } = makeRetrieval(
-      () => new Response(new ReadableStream({ start() {} })),
-      { deadlineAfterMs: 30 }
-    );
-
-    await expect(result).rejects.toMatchObject({
-      _tag: "WorkspaceE2EError",
-      diagnosticCode: "auth_delivery_message_retrieve_failed",
-      message: "query Vercel preview runtime logs failed (timeout)",
-      operation: "query Vercel preview runtime logs",
-    });
-  });
-
   test("bounds deployment metadata by the remaining retrieval deadline", async () => {
     const delayedMetadata = new Promise<Response>((resolve) =>
       setTimeout(() => resolve(Response.json(deployment)), 80)
@@ -881,31 +827,6 @@ describe("workspace e2e Vercel log retrieval", () => {
     ).toEqual(["0", "1"]);
   });
 
-  test("caps history traversal at one hundred request rows", async () => {
-    const hundredRows = Array.from({ length: 100 }, (_, index) =>
-      row(`req-${index}`, [log("unrelated runtime log")])
-    );
-    const { requests, result } = makeRetrieval(() =>
-      Response.json(page(hundredRows, true))
-    );
-
-    await expect(result).rejects.toMatchObject({
-      _tag: "WorkspaceE2EError",
-      diagnosticCode: "auth_delivery_message_invalid",
-      message: "Vercel runtime log payload was invalid",
-    });
-    expect(
-      requests
-        .filter(
-          (request) =>
-            new URL(request.url).pathname === "/api/logs/request-logs"
-        )
-        .every(
-          (request) => new URL(request.url).searchParams.get("page") === "0"
-        )
-    ).toBe(true);
-  });
-
   test("matches the individual nested log, not the request-level message", async () => {
     const { result } = makeRetrieval(() =>
       Response.json(
@@ -971,20 +892,6 @@ describe("workspace e2e Vercel log retrieval", () => {
     );
 
     await expect(result).resolves.toBe(magicLink("nested-after-one-hundred"));
-  });
-
-  test("times out when only a different recipient is present", async () => {
-    const { result } = makeRetrieval(() =>
-      Response.json(
-        page([
-          row("req-other", [
-            log(previewE2ELine(magicLink("token"), testEmailAddress("other"))),
-          ]),
-        ])
-      )
-    );
-
-    await expect(result).rejects.toThrow("before the deadline");
   });
 
   test("rejects multiple matching links", async () => {

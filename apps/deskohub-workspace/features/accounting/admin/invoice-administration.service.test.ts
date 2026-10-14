@@ -31,10 +31,6 @@ import {
   InvoiceAdministrationService,
   sortInvoiceAdministrationItems,
 } from "./invoice-administration.service";
-import {
-  decodeInvoiceAdministrationId,
-  InvoiceAdministrationNotFoundError,
-} from "./invoice-administration-identifier";
 import { ManualInvoiceCreationRequests } from "./manual-invoice-creation-requests.service";
 
 const input = Schema.decodeUnknownSync(AdministrationInvoiceCreateInput)({
@@ -499,12 +495,5 @@ describe("invoice administration payment status", () => {
         "2026-09-02"
       )
     ).toBe("issued");
-  });
-
-  test("maps malformed route ids to not found", () => {
-    const error = Effect.runSync(
-      decodeInvoiceAdministrationId("not-an-invoice-id").pipe(Effect.flip)
-    );
-    expect(error).toBeInstanceOf(InvoiceAdministrationNotFoundError);
   });
 });

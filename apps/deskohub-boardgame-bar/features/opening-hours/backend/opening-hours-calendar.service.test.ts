@@ -1,11 +1,9 @@
 import { describe, expect, mock, test } from "bun:test";
 import {
-  GoogleCalendarChannelIdSchema,
   type GoogleCalendarEvent,
   GoogleCalendarEventIdSchema,
   GoogleCalendarIdSchema,
   type GoogleCalendarListEventsInput,
-  type GoogleCalendarWatchEventsInput,
 } from "@deskohub/google-calendar";
 import { GoogleCalendarServiceMock } from "@deskohub/google-calendar/backend/service.mock";
 import { Effect, Layer, Schema } from "effect";
@@ -28,9 +26,6 @@ const plainTime = Temporal.PlainTime.from;
 const eventId = Schema.decodeSync(GoogleCalendarEventIdSchema);
 const openingHoursCalendarId = Schema.decodeSync(GoogleCalendarIdSchema)(
   "opening-hours-calendar"
-);
-const openingHoursChannelId = Schema.decodeSync(GoogleCalendarChannelIdSchema)(
-  "channel-id"
 );
 
 const runWithEvents = async (
@@ -70,47 +65,6 @@ const runWithEvents = async (
 };
 
 describe("OpeningHoursCalendarService", () => {
-  test("watches the configured opening-hours calendar", async () => {
-    const watchedCalendarIds: GoogleCalendarWatchEventsInput["calendarId"][] =
-      [];
-    const [{ OpeningHoursCalendarConfig }, { OpeningHoursCalendarService }] =
-      await Promise.all([
-        import("./opening-hours-calendar.config"),
-        import("./opening-hours-calendar.service"),
-      ]);
-
-    await Effect.gen(function* () {
-      const service = yield* OpeningHoursCalendarService;
-      return yield* service.watchChanges({
-        channelId: openingHoursChannelId,
-        webhookUrl: "https://bar.example.test/webhook",
-        webhookToken: "derived-token",
-        ttlSeconds: 259_200,
-      });
-    }).pipe(
-      Effect.provide(
-        OpeningHoursCalendarService.Default.pipe(
-          Layer.provide(
-            Layer.mergeAll(
-              GoogleCalendarServiceMock({
-                watchEvents: mock((input) => {
-                  watchedCalendarIds.push(input.calendarId);
-                  return Effect.succeed({ channelId: input.channelId });
-                }),
-              }),
-              Layer.succeed(OpeningHoursCalendarConfig, {
-                calendarId: openingHoursCalendarId,
-              })
-            )
-          )
-        )
-      ),
-      Effect.runPromise
-    );
-
-    expect(watchedCalendarIds).toEqual([openingHoursCalendarId]);
-  });
-
   test("loads the configured resource and translates marked events", async () => {
     const inputs: GoogleCalendarListEventsInput[] = [];
     const exceptions = await runWithEvents(

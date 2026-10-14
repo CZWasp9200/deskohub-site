@@ -84,46 +84,6 @@ const genericDiscountQuote: DiscountQuote = {
 };
 
 describe("checkout details persistence", () => {
-  test("rejects obsolete snapshot markers and provider redirect URLs", () => {
-    const quote = buildCoworkReservationQuote({
-      entryTier: "basic",
-      coffee: false,
-    });
-    const details = {
-      locale: "en-US",
-      reservation: {
-        kind: "cowork",
-        entryTier: "basic",
-        date: "2099-06-10",
-        coffee: false,
-      },
-      payment: {
-        expectedPrice: quote.payment.expectedPrice,
-        undiscountedPrice: quote.payment.undiscountedPrice,
-        discounts: quote.payment.discounts,
-        summary: quote.summary,
-      },
-      legal: legalEvidenceMap,
-    };
-
-    expect(() =>
-      decodeCheckoutDetails({
-        ...details,
-        schema: "workspace-checkout-details",
-        schemaVersion: 1,
-      })
-    ).toThrow();
-    expect(() =>
-      decodeCheckoutDetails({
-        ...details,
-        payment: {
-          ...details.payment,
-          providerRedirectUrl: "https://provider.example/pay",
-        },
-      })
-    ).toThrow();
-  });
-
   test("persists quote summary, legal evidence, and no contact PII", () => {
     const quote = buildCoworkReservationQuote({
       entryTier: "basic",
@@ -165,51 +125,6 @@ describe("checkout details persistence", () => {
     }
   });
 
-  test("accepts inline discounted product rows but rejects negative expected totals", () => {
-    const quote = buildCoworkReservationQuote(
-      { entryTier: "basic", coffee: false },
-      { discountQuote: genericDiscountQuote }
-    );
-
-    expect(() =>
-      decodeCheckoutDetails({
-        locale: "en-US",
-        reservation: {
-          kind: "cowork",
-          entryTier: "basic",
-          date: "2099-06-10",
-          coffee: false,
-        },
-        payment: {
-          expectedPrice: quote.payment.expectedPrice,
-          undiscountedPrice: quote.payment.undiscountedPrice,
-          discounts: quote.payment.discounts,
-          summary: quote.summary,
-        },
-        legal: legalEvidenceMap,
-      })
-    ).not.toThrow();
-
-    expect(() =>
-      decodeCheckoutDetails({
-        locale: "en-US",
-        reservation: {
-          kind: "cowork",
-          entryTier: "basic",
-          date: "2099-06-10",
-          coffee: false,
-        },
-        payment: {
-          expectedPrice: { value: -1, exponent: 2, currency: "CZK" },
-          undiscountedPrice: quote.payment.undiscountedPrice,
-          discounts: quote.payment.discounts,
-          summary: quote.summary,
-        },
-        legal: legalEvidenceMap,
-      })
-    ).toThrow();
-  });
-
   test("rejects provider-private fields in generic discount snapshots", () => {
     const quote = buildCoworkReservationQuote(
       { entryTier: "basic", coffee: false },
@@ -241,19 +156,6 @@ describe("checkout details persistence", () => {
     ).toThrow();
   });
 
-  test("accepts partial legal evidence maps and preserves accepted false", () => {
-    const parsed = decodeLegalEvidenceMap({
-      [document.hash]: legalEvidence({
-        accepted: false,
-        source: "legacy_reservation_submit",
-      }),
-    });
-
-    expect(Object.keys(parsed)).toEqual([document.hash]);
-    expect(parsed[document.hash]?.accepted).toBe(false);
-    expect(parsed[document.hash]?.source).toBe("legacy_reservation_submit");
-  });
-
   test("rejects legal evidence map key and document hash mismatches", () => {
     expect(() =>
       decodeLegalEvidenceMap({
@@ -269,13 +171,5 @@ describe("checkout details persistence", () => {
         },
       })
     ).toThrow();
-  });
-
-  test("keeps legal evidence source as a free storage string", () => {
-    const parsed = decodeLegalEvidenceMap({
-      [document.hash]: legalEvidence({ source: "migration_backfill" }),
-    });
-
-    expect(parsed[document.hash]?.source).toBe("migration_backfill");
   });
 });

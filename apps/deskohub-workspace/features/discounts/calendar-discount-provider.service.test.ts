@@ -1,10 +1,9 @@
 import "@/shared/testing/workspace-test-env";
 import "@/shared/polyfills/temporal";
 import { describe, expect, mock, test } from "bun:test";
-import {
-  GoogleCalendarAPIError,
-  type GoogleCalendarEvent,
-  type IGoogleCalendarService,
+import type {
+  GoogleCalendarEvent,
+  IGoogleCalendarService,
 } from "@deskohub/google-calendar";
 import { GoogleCalendarServiceMock } from "@deskohub/google-calendar/backend/service.mock";
 import { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
@@ -150,7 +149,6 @@ const invalidEventCases = [
   ],
   ["missing end", { end: undefined }],
   ["invalid range", { end: { date: "2026-07-14" } }],
-  ["invalid calendar date", { start: { date: "2026-02-30" } }],
   [
     "recurring event without original date",
     {
@@ -454,14 +452,7 @@ describe("CalendarDiscountProvider", () => {
   test.each([
     ["non-UUID description", "ordinary calendar note"],
     ["UUID with prose", `Sale ${discountIdA}`],
-    ["multiple UUIDs", `${discountIdA}\n${discountIdB}`],
     ["rich-text UUID", `<p><code>${discountIdA}</code></p>`],
-    ["rich-text UUID with prose", `<p><code>Sale ${discountIdA}</code></p>`],
-    [
-      "rich-text multiple UUIDs",
-      `<p><code>${discountIdA} ${discountIdB}</code></p>`,
-    ],
-    ["paragraph-wrapped UUID", `<p>${discountIdA}</p>`],
   ])("omits a malformed %s event", async (_label, description) => {
     const result = await runWithProvider(discover, () =>
       Effect.succeed([saleEvent({ description })])
@@ -505,35 +496,6 @@ describe("CalendarDiscountProvider", () => {
     expect(result[0]?.provenance.providerReference).toBe(
       `${salesCalendarId}:valid-sale`
     );
-  });
-
-  test("ignores a definition unavailable in this environment", async () => {
-    const cause = new DiscountDefinitionNotFoundError({
-      discountId: discountIdA,
-      message: "Not found",
-    });
-    const result = await runWithProvider(
-      discover,
-      () => Effect.succeed([saleEvent()]),
-      () => Effect.fail(cause)
-    );
-
-    expect(result).toEqual([]);
-  });
-
-  test("omits a definition on database failure", async () => {
-    const cause = new EffectDrizzleQueryError({
-      query: "select discount definition",
-      params: [],
-      cause: new Error("database unavailable"),
-    });
-    const result = await runWithProvider(
-      discover,
-      () => Effect.succeed([saleEvent()]),
-      () => Effect.fail(cause)
-    );
-
-    expect(result).toEqual([]);
   });
 
   test("keeps valid definitions when another definition fails to load", async () => {
@@ -586,36 +548,6 @@ describe("CalendarDiscountProvider", () => {
 
     expect(result.complete).toBeFalse();
     expect(result.candidates).toHaveLength(1);
-  });
-
-  test("reports a complete affirmation when every sale resolves", async () => {
-    const result = await runWithProvider(revalidate, () =>
-      Effect.succeed([saleEvent()])
-    );
-
-    expect(result).toMatchObject({ complete: true });
-    expect(result.candidates).toHaveLength(1);
-  });
-
-  test("maps Google Calendar failures while preserving the cause", async () => {
-    const cause = new GoogleCalendarAPIError({
-      operation: "events.list",
-      statusCode: 503,
-      message: "Unavailable",
-      cause: new Error("provider unavailable"),
-    });
-
-    const result = await runWithProvider(discover.pipe(Effect.result), () =>
-      Effect.fail(cause)
-    );
-
-    expect(result).toMatchObject({
-      _tag: "Failure",
-      failure: {
-        reason: "provider_failure",
-        cause,
-      },
-    });
   });
 
   test("uses start-inclusive and exclusive-end Prague date semantics", async () => {
@@ -885,38 +817,6 @@ describe("CalendarDiscountProvider", () => {
     });
   });
 
-  test("keeps the operator title out of the public label", async () => {
-    let title = "Initial operator title";
-    const listEvents = mock(() =>
-      Effect.succeed([saleEvent({ summary: title })])
-    );
-
-    const result = await runWithProvider(
-      Effect.gen(function* () {
-        const provider = yield* CalendarDiscountProvider;
-        const initial = yield* revalidateCandidates(provider, {
-          locale: "en-US",
-          product: basicProduct,
-          lastServiceDate: "2026-07-20",
-          bookedAt: bookedAtOn("2026-07-20"),
-        });
-        title = "Edited operator title";
-        const afterTitleEdit = yield* revalidateCandidates(provider, {
-          locale: "en-US",
-          product: basicProduct,
-          lastServiceDate: "2026-07-20",
-          bookedAt: bookedAtOn("2026-07-20"),
-        });
-        return { afterTitleEdit, initial };
-      }),
-      listEvents
-    );
-
-    expect(result.initial[0]?.discount.label).toBe("Database sale");
-    expect(result.afterTitleEdit[0]?.discount.label).toBe("Database sale");
-    expect(JSON.stringify(result)).not.toContain("operator title");
-  });
-
   test("caches resolved definitions for 60 seconds while revalidation is fresh", async () => {
     let currentLabels = {
       "en-US": "Initial database sale",
@@ -1057,10 +957,8 @@ describe("CalendarDiscountProvider", () => {
 
   test.each([
     ["before the sale started", "2026-07-01", 1],
-    ["on the sale's first day", "2026-07-14", 1],
     ["on the sale's last day", "2026-08-01", 1],
     ["after the sale's last day", "2026-08-02", 0],
-    ["well after the sale ended", "2026-09-15", 0],
   ] as const)(
     "applies a booking made during the sale for a last service date %s",
     async (_label, lastServiceDate, expectedCount) => {

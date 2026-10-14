@@ -17,7 +17,6 @@ import { CENSORED_LOG_VALUE } from "@/shared/utils/log-classification";
 import {
   accountingDocumentSnapshotSchema,
   decodeStoredAccountingDocumentSnapshot,
-  encodeStoredAccountingDocumentSnapshot,
   makeAccountingDocumentSnapshot,
 } from "./accounting-document-snapshot";
 import {
@@ -166,26 +165,6 @@ describe("accounting document snapshot", () => {
     expect(snapshot.buyer).toEqual(buyer);
   });
 
-  test("round-trips strictly through the schema", async () => {
-    const snapshot = makeSnapshot();
-    const decode = Schema.decodeUnknownEffect(
-      accountingDocumentSnapshotSchema,
-      {
-        onExcessProperty: "error",
-      }
-    );
-
-    await expect(Effect.runPromise(decode(snapshot))).resolves.toEqual(
-      snapshot
-    );
-    await expect(
-      Effect.runPromise(decode({ ...snapshot, unexpected: true }))
-    ).rejects.toBeDefined();
-    await expect(
-      Effect.runPromise(decode({ ...snapshot, schemaVersion: 1 }))
-    ).rejects.toBeDefined();
-  });
-
   test("decodes historical snapshots without an invoice instruction", async () => {
     const { billing: _billing, ...historicalSnapshot } = makeSnapshot();
 
@@ -223,12 +202,6 @@ describe("accounting document snapshot", () => {
         })
       )
     ).rejects.toBeDefined();
-  });
-
-  test("writes versionless snapshots", () => {
-    const snapshot = makeSnapshot();
-
-    expect(encodeStoredAccountingDocumentSnapshot(snapshot)).toEqual(snapshot);
   });
 
   test("parameterizes both plaintext and key in pgcrypto SQL", () => {

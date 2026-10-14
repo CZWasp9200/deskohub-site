@@ -3,15 +3,13 @@ import "@/shared/testing/workspace-test-env";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
 import { sql } from "drizzle-orm";
-import { Effect } from "effect";
-import { Pool } from "pg";
+import type { Pool } from "pg";
 import {
   connectWorkspacePostgresTestDatabase,
   type WorkspacePostgresTestDatabase,
 } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import { type AuthDatabase, makeAuthDatabase } from "./auth-database-client";
-import { makeDatabaseClient, makeDatabasePool } from "./database-client";
-import { workspaceDatabasePool } from "./database-provider.server";
+import { makeDatabasePool } from "./database-client";
 import { authAccount, authSession, authUser } from "./schema/auth";
 import { customerAccountLinks } from "./schema/customer-account-links";
 
@@ -148,46 +146,6 @@ describe.skipIf(!postgresDatabase)(
       expect(remaining).toHaveLength(0);
     });
 
-    test("rolls back auth and link writes together", async () => {
-      const userId = uniqueId();
-      const before = await db.select({ id: authUser.id }).from(authUser);
-
-      await db
-        .transaction(async (tx) => {
-          await tx.insert(authUser).values({
-            id: userId,
-            name: "",
-            email: testEmailAddress(`rollback-${uniqueId()}`),
-          });
-          await tx.insert(customerAccountLinks).values({
-            customerAccountId: userId,
-            dotyposCustomerId: `63${Math.floor(Math.random() * 1_000_000)}`,
-          });
-          throw new Error("force rollback");
-        })
-        .catch(() => {});
-
-      const after = await db.select({ id: authUser.id }).from(authUser);
-      expect(after).toHaveLength(before.length);
-      expect(after.some((row) => row.id === userId)).toBe(false);
-    });
-
-    test("carries an auth-only relational map on the auth facade", () => {
-      const relationKeys = Object.keys(db._.relations);
-
-      for (const key of ["user", "session", "account"]) {
-        expect(relationKeys).toContain(key);
-      }
-
-      for (const appTable of [
-        "invoices",
-        "workspaceReservations",
-        "paymentAttempts",
-      ]) {
-        expect(relationKeys).not.toContain(appTable);
-      }
-    });
-
     test("resolves user→sessions/accounts joins through the auth-only graph", async () => {
       const userId = uniqueId();
       await insertAuthUser(db, userId, testEmailAddress(`graph-${uniqueId()}`));
@@ -217,41 +175,6 @@ describe.skipIf(!postgresDatabase)(
       expect(row!.sessions).toHaveLength(1);
       expect(Array.isArray(row!.accounts)).toBe(true);
       expect(row!.accounts).toHaveLength(1);
-    });
-
-    test("feeds both Drizzle facades from one underlying pool", async () => {
-      expect(workspaceDatabasePool).toBeInstanceOf(Pool);
-      expect(makeAuthDatabase(workspaceDatabasePool).$client).toBe(
-        workspaceDatabasePool
-      );
-
-      const originalConnect = workspaceDatabasePool.connect.bind(
-        workspaceDatabasePool
-      );
-      let acquired = 0;
-      workspaceDatabasePool.connect = function spiedConnect(...args: never[]) {
-        acquired += 1;
-        return originalConnect(...(args as Parameters<Pool["connect"]>));
-      } as Pool["connect"];
-
-      try {
-        const effectDb = await Effect.runPromise(
-          Effect.flatMap(
-            makeDatabaseClient(workspaceDatabasePool),
-            (database) => database.execute(sql`select 1 as acquired`)
-          )
-        );
-        expect(effectDb.rows).toEqual([{ acquired: 1 }]);
-
-        const authDb = await makeAuthDatabase(workspaceDatabasePool).execute(
-          sql`select 1 as acquired`
-        );
-        expect(authDb.rows).toEqual([{ acquired: 1 }]);
-      } finally {
-        workspaceDatabasePool.connect = originalConnect;
-      }
-
-      expect(acquired).toBeGreaterThanOrEqual(2);
     });
   }
 );

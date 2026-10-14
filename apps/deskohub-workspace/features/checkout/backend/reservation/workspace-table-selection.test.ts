@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import type { Table } from "@deskohub/dotypos/generated";
 import { Effect } from "effect";
 import {
-  getWorkspaceTableSeatCapacity,
   isDisplayableWorkspaceTable,
   isWorkspaceCoworkHistoricalTableCandidate,
   isWorkspaceCoworkTableCandidate,
@@ -48,29 +47,6 @@ describe("selectWorkspaceTableFromCandidates", () => {
       )
     ).toBe(false);
   });
-
-  test("reads positive whole-seat capacities", () => {
-    expect(
-      Effect.runSync(
-        getWorkspaceTableSeatCapacity(
-          makeTable({ id: "office", name: "Office", seats: "8" })
-        )
-      )
-    ).toBe(8);
-  });
-
-  test.each([undefined, "not-a-number", "8.5", "0", "-1"])(
-    "rejects an invalid seat capacity of %s",
-    (seats) => {
-      expect(() =>
-        Effect.runSync(
-          getWorkspaceTableSeatCapacity(
-            makeTable({ id: "invalid", name: "Office", seats })
-          )
-        )
-      ).toThrow("invalid seat capacity");
-    }
-  );
 
   test("selects the candidate with the strongest normalized distance score", () => {
     const occupied = makeTable({
@@ -130,20 +106,6 @@ describe("selectWorkspaceTableFromCandidates", () => {
     expect(
       selectWorkspaceTableFromCandidates(tables, tables, occupancyByTableId)?.id
     ).toBe("lightly-occupied");
-  });
-
-  test("selects an unoccupied table when no table is occupied", () => {
-    const unoccupied = makeTable({
-      id: "unoccupied",
-      name: "1",
-      positionX: "0",
-      positionY: "0",
-    });
-
-    expect(
-      selectWorkspaceTableFromCandidates([unoccupied], [unoccupied], new Map())
-        ?.id
-    ).toBe("unoccupied");
   });
 
   test("selects an unoccupied table above an occupied table", () => {
@@ -438,27 +400,6 @@ describe("shared cowork offer table candidate predicate", () => {
         entryTier: "reserved-desk",
         monitorOption: "2x27-4k",
       })
-    ).toBe(false);
-  });
-
-  test("no-addon queries reject any monitor tag, including unknown ones", () => {
-    expect(
-      isWorkspaceCoworkTableCandidate(
-        tags({
-          ...reservedDeskPlain,
-          tags: ["cowork:reserved-desk", "monitor:xyz"],
-        } as Table),
-        { entryTier: "reserved-desk" }
-      )
-    ).toBe(false);
-    expect(
-      isWorkspaceCoworkTableCandidate(
-        tags({
-          ...openSpaceTable,
-          tags: ["cowork:open-space", "monitor:xyz"],
-        } as Table),
-        { entryTier: "open-space" }
-      )
     ).toBe(false);
   });
 

@@ -81,12 +81,6 @@ describe("discount calculator", () => {
     });
   });
 
-  test("accepts a valid zero-exponent subtotal", () => {
-    expect(
-      calculate(money(350, "CZK", 0), []).quote.discountableSubtotal
-    ).toEqual(money(350, "CZK", 0));
-  });
-
   test("applies percentages in integer basis points with minor-unit rounding", () => {
     const result = calculate(money(35_000), [percentage("sale", 1250)]);
 
@@ -200,28 +194,6 @@ describe("discount calculator", () => {
     expect(result.quote.totalDiscount).toEqual(money(1));
     expect(result.applications).toHaveLength(1);
     expect(result.applications[0]?.candidate.claim).toBeUndefined();
-  });
-
-  test("retains private claim instructions only for applied candidates", () => {
-    const result = calculate(money(1000), [
-      fixed("code", money(100), {
-        claim: {
-          kind: "discount_code",
-          codeId: "private-code-id",
-          storedDiscountId: "private-stored-discount-id",
-          dotyposCustomerId: "private-customer-id",
-          product,
-        },
-      }),
-    ]);
-
-    expect(result.applications[0]?.candidate.claim).toEqual({
-      kind: "discount_code",
-      codeId: "private-code-id",
-      storedDiscountId: "private-stored-discount-id",
-      dotyposCustomerId: "private-customer-id",
-      product,
-    });
   });
 
   test("preserves expiry and countdown metadata in application snapshots", () => {

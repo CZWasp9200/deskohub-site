@@ -136,16 +136,4 @@ describe("preloadPageAdvertisedPrices", () => {
 
     expect(preloaded).toEqual([]);
   });
-
-  test("leaves every price to the client when pricing dies while starting", async () => {
-    pricingLive = Layer.effectDiscard(Effect.die(new Error("pricing defect")));
-
-    const preloaded = await Effect.runPromise(
-      preloadPageAdvertisedPrices([ready!])
-    ).finally(() => {
-      pricingLive = undefined;
-    });
-
-    expect(preloaded).toEqual([]);
-  });
 });

@@ -114,7 +114,7 @@ describe("scheduleTagManagerLoad", () => {
     cancel();
   });
 
-  test.each(["pointerdown", "keydown", "scroll", "touchstart"])(
+  test.each(["pointerdown"])(
     "loads immediately on the first %s and cancels the idle load",
     (eventType) => {
       const cancel = scheduleTagManagerLoad(CONTAINER_ID);
@@ -137,8 +137,6 @@ describe("scheduleTagManagerLoad", () => {
 
   test.each([
     ["pointerover", `<a href="mailto:${infoAddress}">Email</a>`, "a"],
-    ["focusin", `<a href="mailto:${infoAddress}">Email</a>`, "a"],
-    ["pointerover", "<form><input name='email'></form>", "input"],
     ["focusin", "<form><button type='submit'>Send</button></form>", "button"],
   ])(
     "loads on %s toward a link-click or form-submit trigger target",

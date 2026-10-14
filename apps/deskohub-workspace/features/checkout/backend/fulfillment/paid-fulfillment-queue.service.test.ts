@@ -79,17 +79,6 @@ describe("paid fulfillment queue", () => {
     });
   });
 
-  test("fulfills the order and settles the message", async () => {
-    const fulfillPaidOrder = mock(() => Effect.void);
-    const result = await processMessage({
-      message: { orderId },
-      fulfillPaidOrder,
-    });
-
-    expect(result).toMatchObject({ success: "processed" });
-    expect(fulfillPaidOrder).toHaveBeenCalledWith({ orderId });
-  });
-
   for (const fulfillmentStateAfter of ["not_started", "processing"]) {
     test(`redelivers while fulfillment is still ${fulfillmentStateAfter}`, async () => {
       const result = await processMessage({

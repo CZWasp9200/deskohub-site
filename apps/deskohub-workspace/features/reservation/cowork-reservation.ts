@@ -353,7 +353,7 @@ const profiCoworkAdvertisedPriceDetailsSchema = Schema.Struct({
   date: coworkReservationDetailsDateSchema,
 });
 
-export const coworkAdvertisedPriceDetailsSchema = Schema.Union([
+const coworkAdvertisedPriceDetailsSchema = Schema.Union([
   openSpaceCoworkAdvertisedPriceDetailsSchema,
   reservedDeskCoworkAdvertisedPriceDetailsSchema,
   basicCoworkAdvertisedPriceDetailsSchema,

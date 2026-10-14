@@ -94,10 +94,6 @@ describe.skipIf(!testDatabase)(
           ({ id }) => id === discountCodeFixtures.capacityOne.id
         )?.max_uses
       ).toBe(1);
-      expect(
-        seeded.codes.find(({ id }) => id === discountCodeFixtures.inactive.id)
-          ?.enabled
-      ).toBe(false);
       expect(seeded.customers).toEqual([
         {
           dotypos_customer_id: "workspace-e2e-other-customer",

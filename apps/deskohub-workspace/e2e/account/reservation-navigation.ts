@@ -88,7 +88,7 @@ export type WorkspaceE2EReservationHistoryFailureKind =
   | "timeout"
   | "error";
 
-export class WorkspaceE2EReservationHistoryNavigationError extends Data.TaggedError(
+class WorkspaceE2EReservationHistoryNavigationError extends Data.TaggedError(
   "WorkspaceE2EReservationHistoryNavigationError"
 )<{
   readonly kind: WorkspaceE2EReservationHistoryFailureKind;
@@ -111,7 +111,7 @@ const classifyReservationHistoryFailure = (
 ): WorkspaceE2EReservationHistoryFailureKind =>
   cause instanceof Error && cause.name === "TimeoutError" ? "timeout" : "error";
 
-export const runReservationHistoryStage = async <A>(
+const runReservationHistoryStage = async <A>(
   stage: WorkspaceE2EReservationHistorySubstage,
   operation: () => Promise<A>,
   kind?: WorkspaceE2EReservationHistoryFailureKind
@@ -186,7 +186,7 @@ export const makeWorkspaceE2EReservationHistoryUrls = (
 
 type WorkspaceE2EReservationStatusPresentation = "modal" | "page";
 
-export const workspaceE2EReservationStatusLinkHydrationPredicate = (
+const workspaceE2EReservationStatusLinkHydrationPredicate = (
   expectedStatusPath: string,
   documentObject: Pick<Document, "querySelectorAll"> = document
 ): boolean => {

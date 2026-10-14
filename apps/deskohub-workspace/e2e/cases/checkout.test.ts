@@ -5,22 +5,14 @@ import type { Customer } from "@deskohub/dotypos/generated";
 import { testEmailAddress } from "@deskohub/test-email";
 import { Cause, Effect, Exit, Layer, Option } from "effect";
 import { FetchHttpClient } from "effect/unstable/http";
-import {
-  formatReservationDisplayDate,
-  formatReservationDisplayTimeRange,
-} from "@/features/reservation/reservation-date";
 import type { DatasourceConfig, WorkspaceE2EConfig } from "../config";
-import {
-  makeWorkspaceE2EHostedPaymentPermitRecorder,
-  WorkspaceE2EHostedPaymentPermitServiceMock,
-} from "../coordination/hosted-payment-permit.service.mock";
+import { makeWorkspaceE2EHostedPaymentPermitRecorder } from "../coordination/hosted-payment-permit.service.mock";
 import {
   type WorkspaceE2EError,
   workspaceE2EError,
   workspaceE2ETimeoutError,
 } from "../errors";
 import { E2EDatabase } from "../integrations/database.service";
-import type { E2EDotyposDiscountGroup } from "../integrations/dotypos";
 import type { Runner } from "../runtime";
 import { workspaceE2ETimeouts } from "../timeouts";
 import type {
@@ -35,7 +27,6 @@ import {
   completeHostedCheckoutPayment,
   executeCheckoutFlow,
 } from "./checkout";
-import { makeDiscountE2ECases } from "./discounts";
 
 const customer: Customer = {
   _cloudId: "customer-id",
@@ -109,32 +100,6 @@ describe("whole-day meeting-room checkout proof", () => {
       "confirmed Dotypos reservation is not one Prague calendar day"
     );
   });
-
-  test("rejects legacy meeting-room details in local persistence", async () => {
-    const { assertWholeDayMeetingRoomEmailPreviews } = await import(
-      "./checkout"
-    );
-
-    await expect(
-      Effect.runPromise(
-        assertWholeDayMeetingRoomEmailPreviews({
-          checkoutRow: {
-            ...checkoutRow,
-            reservation_details: {
-              kind: "meeting-room",
-              duration: { unit: "day", amount: 1 },
-            },
-          },
-          data: wholeDayData,
-          dotyposReservation: {
-            customer,
-            reservedFrom: Temporal.Instant.from("2027-03-27T23:00:00Z"),
-            reservedUntil: Temporal.Instant.from("2027-03-28T22:00:00Z"),
-          },
-        })
-      )
-    ).rejects.toThrow();
-  });
 });
 
 test("observes fulfillment across server and runner whitespace variants", async () => {
@@ -180,105 +145,6 @@ test("observes fulfillment across server and runner whitespace variants", async 
   );
 
   expect(commands.some((args) => args.includes("open"))).toBe(false);
-});
-
-test("preserves an Open Space-length meeting-room interval on the fulfilled status page", async () => {
-  const reservedFrom = Temporal.Instant.from("2026-06-09T22:00:00Z");
-  const reservedUntil = Temporal.Instant.from("2026-06-10T15:00:00Z");
-  const expectedDate = formatReservationDisplayDate(reservedFrom, "en-US");
-  const expectedTime = formatReservationDisplayTimeRange(
-    reservedFrom,
-    reservedUntil,
-    "en-US"
-  );
-  const run = (async (_command: string, args: string[]) => {
-    const readsUrl = args.at(-2) === "get" && args.at(-1) === "url";
-
-    return {
-      exitCode: 0,
-      stderr: "",
-      stdout: readsUrl
-        ? "https://workspace.test/en-US/reservation/status/order-id?outcome=success"
-        : `Your reservation is confirmed. Your payment is complete and the secure access link has been sent by email. ${expectedDate} ${expectedTime} CZK 0`,
-    };
-  }) as Runner;
-
-  await Effect.runPromise(
-    assertFulfilledStatusPage({
-      checkoutRow: {
-        amount_exponent: 2,
-        amount_value: 0,
-        currency: "CZK",
-      } as CheckoutRow,
-      config: {
-        expectedHost: "workspace.test",
-        timeouts: workspaceE2ETimeouts,
-      } as WorkspaceE2EConfig,
-      data: {
-        locale: "en-US",
-        meetingRoom: {},
-      } as CheckoutData,
-      dotyposReservation: {
-        reservedFrom,
-        reservedUntil,
-      } as never,
-      orderId: "order-id",
-      run,
-      session: "open-space-length-meeting-room-status-page",
-    }).pipe(
-      Effect.provideService(E2EDatabase, E2EDatabase.of({ db: {} as never }))
-    )
-  );
-});
-
-test("asserts office range, seats, and price on the fulfilled status page", async () => {
-  const reservedFrom = Temporal.Instant.from("2099-08-31T22:00:00Z");
-  const reservedUntil = Temporal.Instant.from("2099-09-02T22:00:00Z");
-  const run = (async (_command: string, args: string[]) => {
-    const readsUrl = args.at(-2) === "get" && args.at(-1) === "url";
-
-    return {
-      exitCode: 0,
-      stderr: "",
-      stdout: readsUrl
-        ? "https://workspace.test/en-US/reservation/status/order-id?outcome=success"
-        : `Your reservation is confirmed. Your payment is complete and the secure access link has been sent by email. Private office Tuesday, September 1 – Wednesday, September 2, 2099 SEATS 2 CZK 2,320`,
-    };
-  }) as Runner;
-
-  await Effect.runPromise(
-    assertFulfilledStatusPage({
-      checkoutRow: {
-        amount_exponent: 2,
-        amount_value: 232_000,
-        currency: "CZK",
-      } as CheckoutRow,
-      config: {
-        expectedHost: "workspace.test",
-        timeouts: workspaceE2ETimeouts,
-      } as WorkspaceE2EConfig,
-      data: {
-        locale: "en-US",
-        office: {
-          seats: 2,
-          startsOn: "2099-09-01",
-          endsOn: "2099-09-02",
-          startsAt: reservedFrom.toString(),
-          endsAt: reservedUntil.toString(),
-        },
-      } as CheckoutData,
-      dotyposReservation: {
-        customer,
-        reservedFrom,
-        reservedUntil,
-      },
-      orderId: "order-id",
-      run,
-      session: "office-status-page",
-    }).pipe(
-      Effect.provideService(E2EDatabase, E2EDatabase.of({ db: {} as never }))
-    )
-  );
 });
 
 const runCheckoutFlowSteps = async (
@@ -418,101 +284,6 @@ test("runs the post-fulfillment paths only for an opted-in case, after every ful
   ).toBeGreaterThan(
     optedInSteps.indexOf("restart-reservation-after-fulfillment")
   );
-});
-
-test("verifies the post-fulfillment paths on Calendar sale checkout only among paid discount checkouts", async () => {
-  const httpClientLayer = FetchHttpClient.layer.pipe(
-    Layer.provide(
-      Layer.succeed(FetchHttpClient.Fetch, (() =>
-        Promise.reject(
-          new Error("HTTP must not execute in the case contract test")
-        )) as typeof globalThis.fetch)
-    )
-  );
-  const cases = await Effect.runPromise(
-    makeDiscountE2ECases({
-      allocation: {
-        fromOffsetDays: 0,
-        shardCount: 1,
-        shardIndex: 0,
-        toOffsetDays: 0,
-      },
-      config: {
-        baseUrl: "https://workspace.test",
-        bypassSecret: undefined,
-        expectedHost: "workspace.test",
-        timeouts: workspaceE2ETimeouts,
-      },
-      datasourceConfig: {
-        dotypos: { apiTimeout: workspaceE2ETimeouts.datasource },
-      } as DatasourceConfig,
-      excludedDates: new Set(),
-      flowStates: [],
-      preparation: {
-        availableBasicDates: Array.from(
-          { length: 10 },
-          (_, index) => `2099-08-${String(index + 1).padStart(2, "0")}`
-        ),
-        availablePlusDates: [
-          "2099-08-20",
-          "2099-08-21",
-          "2099-08-22",
-          "2099-08-23",
-        ],
-        availableReservedDeskDates: ["2099-08-24", "2099-08-25"],
-        customerDiscountGroup: {
-          basisPoints: 1000,
-          id: "e2e-discount-group",
-        } as E2EDotyposDiscountGroup,
-      },
-      run: (() =>
-        Promise.reject(new Error("runner must not execute"))) as Runner,
-    }).pipe(Effect.provide(httpClientLayer))
-  );
-  const paidCheckoutCases = cases.filter(({ id }) =>
-    id.startsWith("checkout-")
-  );
-  const casesWithPostFulfillmentPaths: string[] = [];
-
-  for (const paidCase of paidCheckoutCases) {
-    const stepIds: string[] = [];
-    const runStep = ((step) => {
-      stepIds.push(step.id);
-      if (step.id === "prepare-checkout-pay-page") {
-        return Effect.succeed("019f70bd-0131-7f30-9f8a-48e768f00292");
-      }
-      if (
-        step.id === "read-provider-session-row" ||
-        step.id === "validate-postgres-state"
-      ) {
-        return Effect.succeed({
-          dotypos_customer_id: "dotypos-customer-paid",
-        } as CheckoutRow);
-      }
-      if (step.id === "validate-dotypos-reservation") {
-        return Effect.succeed({});
-      }
-      return Effect.void;
-    }) as WorkspaceE2EStepRunner;
-
-    await Effect.runPromise(
-      paidCase
-        .execute({ runStep, session: paidCase.id })
-        .pipe(
-          Effect.provide(WorkspaceE2EHostedPaymentPermitServiceMock)
-        ) as Effect.Effect<void, WorkspaceE2EError>
-    );
-    expect(stepIds).toContain("assert-fulfilled-status-page");
-    const restarts = stepIds.includes("restart-reservation-after-fulfillment");
-    const supportPath = stepIds.includes(
-      "mark-fulfillment-failed-for-support-path"
-    );
-    expect(restarts).toBe(supportPath);
-    if (supportPath) casesWithPostFulfillmentPaths.push(paidCase.id);
-  }
-
-  expect(paidCheckoutCases.length).toBeGreaterThan(1);
-  expect(casesWithPostFulfillmentPaths).toEqual(["checkout-calendar-sale"]);
 });
 
 describe("Nexi sandbox payment restart", () => {

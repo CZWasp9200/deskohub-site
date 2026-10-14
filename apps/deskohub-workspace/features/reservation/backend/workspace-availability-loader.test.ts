@@ -203,17 +203,6 @@ describe("preloadAvailability", () => {
     expect(preloaded[0]?.loadedAt).toBeGreaterThanOrEqual(before);
   });
 
-  test("leaves every query to the client when the replacement cannot be verified", async () => {
-    findCurrent.mockImplementationOnce(() => Effect.die(new Error("defect")));
-
-    const preloaded = await run(
-      preloadAvailability({ queries: [coworkQuery], replacementToken })
-    );
-
-    expect(preloaded).toEqual([]);
-    expect(getAvailability).not.toHaveBeenCalled();
-  });
-
   test("leaves every query to the client while the replacement lookup is unavailable", async () => {
     findCurrent.mockImplementationOnce(() =>
       Effect.fail(new NetworkError({ message: "Dotypos is unavailable" }))

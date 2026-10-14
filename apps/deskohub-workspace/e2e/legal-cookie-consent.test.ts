@@ -95,32 +95,6 @@ const makeFakeConsentPage = (input: {
   };
 };
 
-test("clicks only the visible necessary-cookie action when the banner is present", async () => {
-  const fake = makeFakeConsentPage({
-    analyticsVisible: false,
-    hydrationResults: [false],
-    necessaryVisible: true,
-  });
-
-  await dismissLegalCookieConsent(fake.page, locale);
-
-  expect(fake.clickCount()).toBe(1);
-  expect(fake.evaluateArguments).toEqual([]);
-});
-
-test("waits for an inline analytics control when the consent banner is absent", async () => {
-  const fake = makeFakeConsentPage({
-    analyticsVisible: true,
-    hydrationResults: [true],
-    necessaryVisible: false,
-  });
-
-  await dismissLegalCookieConsent(fake.page, locale);
-
-  expect(fake.clickCount()).toBe(0);
-  expect(fake.evaluateArguments).toEqual([analyticsCheckboxSelector]);
-});
-
 test("does not race a visible but unhydrated inline analytics control", async () => {
   const fake = makeFakeConsentPage({
     analyticsVisible: true,

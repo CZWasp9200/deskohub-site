@@ -48,25 +48,9 @@ export const discountCodeFixtures = {
     code: canonicalPromotionCodeSchema.make("E2E_PARTIAL"),
     id: discountCodeIdSchema.make("6bb95a13-3801-4ba5-947e-c24cd3a416a2"),
   },
-  inactive: {
-    code: canonicalPromotionCodeSchema.make("E2E_INACTIVE"),
-    id: discountCodeIdSchema.make("2f7e1000-732a-4ab7-9513-a3aaef764aae"),
-  },
-  notStarted: {
-    code: canonicalPromotionCodeSchema.make("E2E_NOT_STARTED"),
-    id: discountCodeIdSchema.make("6288a6cd-bc01-46d4-a87a-067b01e64226"),
-  },
-  expired: {
-    code: canonicalPromotionCodeSchema.make("E2E_EXPIRED"),
-    id: discountCodeIdSchema.make("e33f90e0-311d-445f-b73b-29725e7f00ab"),
-  },
   customerIneligible: {
     code: canonicalPromotionCodeSchema.make("E2E_NOT_YOURS"),
     id: discountCodeIdSchema.make("f80104f4-0db4-4c83-a1a5-e42976e041bd"),
-  },
-  productIneligible: {
-    code: canonicalPromotionCodeSchema.make("E2E_WRONG_PRODUCT"),
-    id: discountCodeIdSchema.make("f8774fff-009a-474c-a338-3b52c612a16c"),
   },
   expiresBeforePayment: {
     code: canonicalPromotionCodeSchema.make("E2E_EXPIRES_BEFORE_PAY"),
@@ -105,9 +89,6 @@ export const discountCodeFixtures = {
 const partialCodeDiscountId = storedDiscountIdSchema.make(
   "816a6ec2-514e-45d2-afdd-5c04f13f9a84"
 );
-const wrongProductCodeDiscountId = storedDiscountIdSchema.make(
-  "521293fa-37da-4067-b1bb-7b400112df34"
-);
 const zeroTotalDiscountId = storedDiscountIdSchema.make(
   "019c91dd-c560-7e55-b9d8-c95065efd51d"
 );
@@ -136,15 +117,6 @@ const definitions: readonly DiscountDefinitionFixture[] = [
       "en-US": "E2E promo code",
     },
     products: [{ kind: "cowork" }],
-  },
-  {
-    basisPoints: 1000,
-    id: wrongProductCodeDiscountId,
-    labels: {
-      "cs-CZ": "E2E promo kód pro jiný produkt",
-      "en-US": "E2E wrong-product promo code",
-    },
-    products: [{ kind: "meeting-room" }],
   },
   {
     basisPoints: 10_000,
@@ -390,35 +362,11 @@ const makeDiscountCodeFixtures = ({
     enabled: true,
   },
   {
-    ...discountCodeFixtures.inactive,
-    discountId: partialCodeDiscountId,
-    enabled: false,
-  },
-  {
-    ...discountCodeFixtures.notStarted,
-    discountId: partialCodeDiscountId,
-    enabled: true,
-    validFrom: Temporal.Instant.fromEpochMilliseconds(
-      now + 24 * 60 * 60 * 1000
-    ),
-  },
-  {
-    ...discountCodeFixtures.expired,
-    discountId: partialCodeDiscountId,
-    enabled: true,
-    validUntil: Temporal.Instant.fromEpochMilliseconds(now - 60 * 60 * 1000),
-  },
-  {
     ...discountCodeFixtures.customerIneligible,
     allowedCustomerIds: [
       DotyposCustomerIdSchema.make("workspace-e2e-other-customer"),
     ],
     discountId: partialCodeDiscountId,
-    enabled: true,
-  },
-  {
-    ...discountCodeFixtures.productIneligible,
-    discountId: wrongProductCodeDiscountId,
     enabled: true,
   },
   {

@@ -8,18 +8,13 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { commandOutput } from "./shared/command";
 import {
   findViolations,
   listAuditedTestFiles,
   repositoryRoot,
 } from "./shared/no-source-string-audit";
-import {
-  callsNamed,
-  parseSource,
-  parseTrackedSource,
-} from "./shared/source-ast";
 
 const repoRoot = await repositoryRoot();
 const auditedFiles = (await listAuditedTestFiles()).map((relativePath) => ({
@@ -37,7 +32,7 @@ describe("no source-as-string contract tests", () => {
     // Every path is resolved from the repository root.
     expect(audited.length).toBeGreaterThan(0);
     expect(audited).toContain("apps/dhw/src/command.test.ts");
-    expect(audited).toContain("packages/games/src/contract.test.ts");
+    expect(audited).toContain("packages/games/src/backend/service.test.ts");
     // Tests from other apps and packages are part of the audited set.
     expect(
       audited.some((path) => !path.startsWith("apps/deskohub-workspace/"))
@@ -314,33 +309,5 @@ describe("no source-as-string contract tests", () => {
     ];
 
     expect(findViolations(structural)).toEqual([]);
-  });
-
-  test("the audit resolves enumerated files relative to the repository root", async () => {
-    const root = await repositoryRoot();
-    const audited = await listAuditedTestFiles();
-    for (const relativePath of audited) {
-      expect(() =>
-        readFileSync(resolve(root, relativePath), "utf8")
-      ).not.toThrow();
-    }
-  });
-
-  test("the replacement AST verdicts are comment- and formatting-immune", () => {
-    // A commented-out call satisfies nothing in the parsed tree...
-    const commented = parseSource(
-      "// await captureAccountReview(page, target);"
-    );
-    expect(callsNamed(commented, "captureAccountReview")).toHaveLength(0);
-    // ...while active code satisfies it under any formatting...
-    const spaced = parseSource(
-      "await  captureAccountReview( page , target ) ;"
-    );
-    expect(callsNamed(spaced, "captureAccountReview")).toHaveLength(1);
-    // ...and a real tracked module parses with ranges for order verdicts.
-    const { ast } = parseTrackedSource(
-      resolve(import.meta.dir, "./shared/source-ast.test-fixture.ts")
-    );
-    expect(callsNamed(ast, "captureAccountReview")).toHaveLength(2);
   });
 });

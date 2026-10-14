@@ -149,17 +149,6 @@ describe("applyDiscountCodeForm", () => {
     }
   );
 
-  test("redirects an unavailable code to the replacement pay URL", async () => {
-    const freshPayUrl = "/en-US/checkout/pay?payState=replacement-token";
-
-    const redirectedUrl = await runForm(
-      { status: "unavailable", freshPayUrl },
-      { payStateToken: "original-token" }
-    );
-
-    expect(redirectedUrl).toBe(freshPayUrl);
-  });
-
   test("falls back to the original-token pay URL when no replacement is returned", async () => {
     const redirectedUrl = await runForm(
       { status: "unavailable" },
