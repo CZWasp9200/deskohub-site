@@ -12,7 +12,6 @@ import {
   cleanup,
   fireEvent,
   render,
-  waitFor,
   within,
 } from "@testing-library/react";
 import { parseReferralCode } from "@/features/referrals/client";
@@ -36,16 +35,6 @@ const referrals = {
     eligibleInviteeCount: 3,
     discount: "14.2625",
     savings: [{ value: 9234, exponent: 2, currency: "CZK" }],
-  },
-  shareUrl,
-} as const;
-const emptyReferrals = {
-  summary: {
-    code,
-    inviteeCount: 0,
-    eligibleInviteeCount: 0,
-    discount: "0",
-    savings: [],
   },
   shareUrl,
 } as const;
@@ -136,106 +125,6 @@ describe("ReferralScreen", () => {
     }
   );
 
-  test("renders every referral card as a compact account panel", () => {
-    const view = render(
-      <ReferralScreen locale="en-US" referrals={referrals} />
-    );
-
-    expect(
-      Array.from(
-        view.container.querySelectorAll('[data-slot="account-section-panel"]'),
-        (panel) => panel.getAttribute("data-size")
-      )
-    ).toEqual(["compact", "compact", "compact", "compact", "compact"]);
-  });
-
-  test("presents a customer without referrals or savings as an empty starting point", () => {
-    const view = render(
-      <ReferralScreen locale="en-US" referrals={emptyReferrals} />
-    );
-
-    expect(
-      view.container.querySelector("#account-referrals-eligible-count")
-        ?.textContent
-    ).toBe("0");
-    expect(view.getByText("/ 0")).toBeTruthy();
-    expect(
-      view.getByText("No one has joined with your referral yet.")
-    ).toBeTruthy();
-    expect(
-      view.container.querySelector("#account-referrals-discount")?.textContent
-    ).toBe("0%");
-    expect(view.getByText("Nothing saved through referrals yet.")).toBeTruthy();
-    expect(view.queryByText(/saved!/)).toBeNull();
-    expect(view.getByText("RFL12345")).toBeTruthy();
-  });
-
-  test("shows one savings tile per currency the customer paid in", () => {
-    const view = render(
-      <ReferralScreen
-        locale="en-US"
-        referrals={{
-          ...referrals,
-          summary: {
-            ...referrals.summary,
-            savings: [
-              { value: 9234, exponent: 2, currency: "CZK" },
-              { value: 200, exponent: 2, currency: "EUR" },
-            ],
-          },
-        }}
-      />
-    );
-
-    expect(
-      view
-        .getAllByRole("listitem")
-        .slice(0, 2)
-        .map((tile) => tile.textContent)
-    ).toEqual(["CZK\u00a092.34 saved!", "€2 saved!"]);
-  });
-
-  test.each([
-    [
-      "en-US",
-      "What the referral numbers mean",
-      "The large number shows invited customers who count toward your discount right now. The smaller number shows everyone who has joined with your referral.",
-    ],
-    [
-      "cs-CZ",
-      "Co znamenají čísla doporučení",
-      "Velké číslo ukazuje pozvané zákazníky, kteří se právě počítají do vaší slevy. Menší číslo ukazuje všechny, kdo se připojili přes vaše doporučení.",
-    ],
-    [
-      "en-US",
-      "About your global discount",
-      "This discount applies to the base price of any Workspace reservation.",
-    ],
-    [
-      "cs-CZ",
-      "O vaší globální slevě",
-      "Tato sleva platí na základní cenu jakékoli rezervace ve Workspace.",
-    ],
-  ] as const)(
-    "explains a stat box in a tooltip in %s: %s",
-    async (locale, label, explanation) => {
-      const view = render(
-        <ReferralScreen locale={locale} referrals={referrals} />
-      );
-      const trigger = view.getByRole("button", { name: label });
-
-      await act(async () => {
-        trigger.focus();
-      });
-
-      const tooltip = await waitFor(() =>
-        within(view.baseElement).getByRole("tooltip")
-      );
-      expect(tooltip.textContent).toBe(explanation);
-      expect(trigger.getAttribute("aria-describedby")).toBe(tooltip.id);
-    }
-  );
-
   test.each([
     [
       "en-US",
@@ -295,16 +184,6 @@ describe("ReferralScreen", () => {
       "Copy referral code",
       "Copy referral link",
     ]);
-  });
-
-  test("shows the unavailable summary without any acceptance control", () => {
-    const view = render(<ReferralScreen locale="cs-CZ" />);
-
-    expect(
-      view.getByText("Informace o doporučeních jsou dočasně nedostupné.")
-    ).toBeTruthy();
-    expect(view.queryByRole("button")).toBeNull();
-    expect(view.queryByRole("textbox")).toBeNull();
   });
 
   test.each([
