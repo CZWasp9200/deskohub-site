@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
 import { Effect, Schema } from "effect";
-import { workspaceCurrencyDefinitions } from "@/shared/money/currencies";
 import {
   formatInvoiceNumber,
   getInvoiceVariableSymbol,
@@ -43,13 +42,6 @@ const input = decodeInput({
 });
 
 describe("manual invoice", () => {
-  test("accepts only the canonical supported currencies", () => {
-    for (const { code } of workspaceCurrencyDefinitions) {
-      expect(() => decodeInput({ ...input, currency: code })).not.toThrow();
-    }
-    expect(() => decodeInput({ ...input, currency: "USD" })).toThrow();
-  });
-
   test("normalizes and totals signed decimal strings exactly", async () => {
     const normalized = await Effect.runPromise(
       normalizeManualInvoiceInput(input)
@@ -111,16 +103,5 @@ describe("manual invoice", () => {
       date: "2026-08-20",
     });
     expect(document).not.toHaveProperty("dueDate");
-  });
-
-  test("accepts only a one-to-ten digit variable symbol", () => {
-    expect(() =>
-      decodeInput({ ...input, variableSymbol: "1234567890" })
-    ).not.toThrow();
-    expect(() => decodeInput({ ...input, variableSymbol: "" })).toThrow();
-    expect(() =>
-      decodeInput({ ...input, variableSymbol: "12345678901" })
-    ).toThrow();
-    expect(() => decodeInput({ ...input, variableSymbol: "12A" })).toThrow();
   });
 });

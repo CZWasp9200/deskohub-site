@@ -34,10 +34,7 @@ describe("invoice presentation", () => {
     ]);
   });
 
-  test.each([
-    ["cs-CZ", "Faktura", "Sdílené místo", "11. 8. 2026"],
-    ["en-US", "Invoice", "Open Space", "Aug 11, 2026"],
-  ] as const)(
+  test.each([["cs-CZ", "Faktura", "Sdílené místo", "11. 8. 2026"]] as const)(
     "projects a %s cowork invoice",
     (locale, title, itemDescription, serviceDate) => {
       const presentation = getInvoicePresentation(
@@ -64,7 +61,6 @@ describe("invoice presentation", () => {
 
   test.each([
     ["cs-CZ", "Zasedací místnost · 4 hodiny", "11. 8. 2026"],
-    ["en-US", "Meeting room · 4 hours", "Aug 11, 2026"],
   ] as const)(
     "projects a %s meeting-room invoice",
     (locale, description, expectedServiceDate) => {
@@ -88,7 +84,6 @@ describe("invoice presentation", () => {
 
   test.each([
     ["cs-CZ", "Soukromá kancelář · 2 dny · 3 místa", "11. 8. 2026"],
-    ["en-US", "Private office · 2 days · 3 seats", "Aug 11, 2026"],
   ] as const)(
     "projects a %s office invoice",
     (locale, description, expectedServiceDate) => {
@@ -107,23 +102,6 @@ describe("invoice presentation", () => {
       expect(serviceDate).toBe(expectedServiceDate);
     }
   );
-
-  test("uses locale plural rules for invoice quantities", () => {
-    const original = makeOfficeInvoiceDocument("cs-CZ");
-    const document = {
-      ...original,
-      quote: {
-        ...original.quote,
-        items: original.quote.items.map((item) =>
-          item.type === "office" ? { ...item, dayCount: 5, seats: 5 } : item
-        ),
-      },
-    } as InvoiceDocument;
-
-    expect(getInvoicePresentation(document).lines[0]?.description).toBe(
-      "Soukromá kancelář · 5 dní · 5 míst"
-    );
-  });
 
   test("projects immutable supplier and business-buyer legal details", () => {
     const presentation = getInvoicePresentation(

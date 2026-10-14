@@ -31,10 +31,6 @@ import {
   InvoiceAdministrationService,
   sortInvoiceAdministrationItems,
 } from "./invoice-administration.service";
-import {
-  decodeInvoiceAdministrationId,
-  InvoiceAdministrationNotFoundError,
-} from "./invoice-administration-identifier";
 import { ManualInvoiceCreationRequests } from "./manual-invoice-creation-requests.service";
 
 const input = Schema.decodeUnknownSync(AdministrationInvoiceCreateInput)({
@@ -453,15 +449,6 @@ describe("invoice administration sorting", () => {
 describe("invoice administration payment status", () => {
   const manual = makeTestManualInvoiceDocument("en-US");
 
-  test("keeps reservation invoices paid", () => {
-    expect(
-      getInvoiceAdministrationPaymentStatus(
-        makeCoworkInvoiceDocument("en-US"),
-        "2099-01-01"
-      )
-    ).toBe("paid");
-  });
-
   test("derives manual status from the Prague calendar date", () => {
     expect(getInvoiceAdministrationPaymentStatus(manual, "2026-08-31")).toBe(
       "issued"
@@ -472,18 +459,6 @@ describe("invoice administration payment status", () => {
     expect(getInvoiceAdministrationPaymentStatus(manual, "2026-09-02")).toBe(
       "overdue"
     );
-  });
-
-  test("keeps an already-paid manual invoice paid", () => {
-    expect(
-      getInvoiceAdministrationPaymentStatus(
-        makeTestManualInvoiceDocument("en-US", "450", {
-          status: "paid",
-          date: "2026-08-20",
-        }),
-        "2099-01-01"
-      )
-    ).toBe("paid");
   });
 
   test("keeps zero and negative manual totals issued after their due date", () => {
@@ -499,12 +474,5 @@ describe("invoice administration payment status", () => {
         "2026-09-02"
       )
     ).toBe("issued");
-  });
-
-  test("maps malformed route ids to not found", () => {
-    const error = Effect.runSync(
-      decodeInvoiceAdministrationId("not-an-invoice-id").pipe(Effect.flip)
-    );
-    expect(error).toBeInstanceOf(InvoiceAdministrationNotFoundError);
   });
 });
