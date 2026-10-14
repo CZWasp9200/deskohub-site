@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "d051f00c-6f8e-40af-890c-e8ad14ba0cbe",
+  "id": "904c0f78-7f0c-4940-a86d-c17aac5955b7",
   "prevIds": [
     "74b5ee93-20d7-4036-a753-7459ea8af8f3"
   ],
@@ -97,6 +97,12 @@
     {
       "isRlsEnabled": false,
       "name": "email_campaign_confirmation_codes",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "email_campaign_delivery_batches",
       "entityType": "tables",
       "schema": "public"
     },
@@ -1833,6 +1839,110 @@
       "name": "send_id",
       "entityType": "columns",
       "schema": "public",
+      "table": "email_campaign_delivery_batches"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "delivery_attempt",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "email_campaign_delivery_batches"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "batch_index",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "email_campaign_delivery_batches"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 1,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "dotypos_customer_ids",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "email_campaign_delivery_batches"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "payload_hash",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "email_campaign_delivery_batches"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'requested'",
+      "generated": null,
+      "identity": null,
+      "name": "status",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "email_campaign_delivery_batches"
+    },
+    {
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "requested_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "email_campaign_delivery_batches"
+    },
+    {
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "settled_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "email_campaign_delivery_batches"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "send_id",
+      "entityType": "columns",
+      "schema": "public",
       "table": "email_campaign_recipients"
     },
     {
@@ -1870,6 +1980,32 @@
       "generated": null,
       "identity": null,
       "name": "status",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "email_campaign_recipients"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "skip_reason",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "email_campaign_recipients"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "1",
+      "generated": null,
+      "identity": null,
+      "name": "delivery_attempt",
       "entityType": "columns",
       "schema": "public",
       "table": "email_campaign_recipients"
@@ -1961,6 +2097,45 @@
       "generated": null,
       "identity": null,
       "name": "content_hash",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "email_campaign_sends"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "1",
+      "generated": null,
+      "identity": null,
+      "name": "delivery_attempt",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "email_campaign_sends"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "delivery_lease_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "email_campaign_sends"
+    },
+    {
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "delivery_lease_expires_at",
       "entityType": "columns",
       "schema": "public",
       "table": "email_campaign_sends"
@@ -5750,6 +5925,41 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "send_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "delivery_attempt",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "dotypos_customer_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "email_campaign_recipients_attempt_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "email_campaign_recipients"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
           "value": "campaign_id",
           "isExpression": false,
           "asc": true,
@@ -7352,6 +7562,23 @@
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
+      "name": "email_campaign_delivery_batches_Cu1Bq88TyIQk_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "email_campaign_delivery_batches"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "send_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "email_campaign_sends",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
       "name": "email_campaign_recipients_send_id_email_campaign_sends_id_fkey",
       "entityType": "fks",
       "schema": "public",
@@ -7837,6 +8064,18 @@
       "entityType": "pks",
       "schema": "public",
       "table": "email_campaign_confirmation_codes"
+    },
+    {
+      "columns": [
+        "send_id",
+        "delivery_attempt",
+        "batch_index"
+      ],
+      "nameExplicit": false,
+      "name": "email_campaign_delivery_batches_pkey",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "email_campaign_delivery_batches"
     },
     {
       "columns": [
@@ -8601,6 +8840,20 @@
       "table": "email_campaign_confirmation_codes"
     },
     {
+      "value": "\"status\" in ('requested', 'accepted', 'rejected', 'unconfirmed')",
+      "name": "email_campaign_delivery_batches_status_check",
+      "entityType": "checks",
+      "schema": "public",
+      "table": "email_campaign_delivery_batches"
+    },
+    {
+      "value": "(\"status\" = 'requested') = (\"settled_at\" is null)",
+      "name": "email_campaign_delivery_batches_settled_check",
+      "entityType": "checks",
+      "schema": "public",
+      "table": "email_campaign_delivery_batches"
+    },
+    {
       "value": "\"locale\" in ('en-US', 'cs-CZ')",
       "name": "email_campaign_recipients_locale_check",
       "entityType": "checks",
@@ -8608,11 +8861,32 @@
       "table": "email_campaign_recipients"
     },
     {
-      "value": "\"status\" in ('pending', 'sent', 'delivered', 'bounced', 'complained', 'failed', 'skipped')",
+      "value": "\"status\" in ('pending', 'sent', 'delivered', 'bounced', 'complained', 'failed', 'unconfirmed', 'skipped')",
       "name": "email_campaign_recipients_status_check",
       "entityType": "checks",
       "schema": "public",
       "table": "email_campaign_recipients"
+    },
+    {
+      "value": "(\"status\" = 'skipped') = (\"skip_reason\" is not null) and (\"skip_reason\" is null or \"skip_reason\" in ('missing-from-dotypos', 'deleted-customer', 'missing-email', 'invalid-email', 'consent-withdrawn', 'outside-test-domain'))",
+      "name": "email_campaign_recipients_skip_reason_check",
+      "entityType": "checks",
+      "schema": "public",
+      "table": "email_campaign_recipients"
+    },
+    {
+      "value": "\"delivery_attempt\" >= 1",
+      "name": "email_campaign_sends_delivery_attempt_check",
+      "entityType": "checks",
+      "schema": "public",
+      "table": "email_campaign_sends"
+    },
+    {
+      "value": "(\"delivery_lease_id\" is null) = (\"delivery_lease_expires_at\" is null)",
+      "name": "email_campaign_sends_delivery_lease_check",
+      "entityType": "checks",
+      "schema": "public",
+      "table": "email_campaign_sends"
     },
     {
       "value": "btrim(\"title\") <> ''",
