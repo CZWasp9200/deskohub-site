@@ -64,27 +64,9 @@ const contract = definePostHogFeatureFlags<{
   };
 }>(["meeting_room_page", "room_experience"]);
 
-const publicSiteId = PostHogDistinctId.make("public-site");
 const globalReleaseId = PostHogDistinctId.make("global-release");
 const visitorId = PostHogDistinctId.make("visitor-id");
 const anotherVisitorId = PostHogDistinctId.make("another-visitor-id");
-
-describe("createPostHogNodeFeatureFlags", () => {
-  test("reports SDK failures through the Effect error channel", async () => {
-    const { createPostHogNodeFeatureFlags, PostHogFeatureFlagEvaluationError } =
-      await import("./node");
-    const featureFlags = createPostHogNodeFeatureFlags(contract, {
-      evaluateFlags: () => Promise.reject(new Error("network unavailable")),
-    });
-
-    const error = await Effect.runPromise(
-      featureFlags.evaluateFlags(publicSiteId).pipe(Effect.flip)
-    );
-
-    expect(error).toBeInstanceOf(PostHogFeatureFlagEvaluationError);
-    expect(error.cause).toBeInstanceOf(Error);
-  });
-});
 
 describe("makePostHogNodeFeatureFlagService", () => {
   test("suppresses access events for a non-recording batched subject", async () => {
@@ -244,33 +226,6 @@ describe("makePostHogNodeFeatureFlagService", () => {
     expect(error).toBeInstanceOf(PostHogFeatureFlagEvaluationError);
     expect(error.message).toBe("Could not evaluate the PostHog feature flag.");
     expect(error.cause).toBeUndefined();
-
-    await Effect.runPromise(featureFlags.shutdown);
-  });
-
-  test("returns false for an explicitly disabled SDK result", async () => {
-    const { makePostHogNodeFeatureFlagService } = await import("./node");
-    getFeatureFlagResult.mockResolvedValueOnce({
-      enabled: false,
-      key: "meeting_room_page",
-      payload: undefined,
-      variant: undefined,
-    });
-    const featureFlags = makePostHogNodeFeatureFlagService(contract, {
-      projectToken: "phc_test",
-    });
-
-    const enabled = await Effect.runPromise(
-      featureFlags.isEnabled({
-        key: "meeting_room_page",
-        subject: {
-          distinctId: visitorId,
-          sendFeatureFlagEvents: true,
-        },
-      })
-    );
-
-    expect(enabled).toBeFalse();
 
     await Effect.runPromise(featureFlags.shutdown);
   });

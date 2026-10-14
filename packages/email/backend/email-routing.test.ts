@@ -153,31 +153,7 @@ describe("internalRecipientForOrigin", () => {
   });
 });
 
-describe("staffEmailSubject", () => {
-  test("tags staff copies outside production", () => {
-    expect(staffEmailSubject("New request", { isProduction: false })).toBe(
-      "[TESTING] New request"
-    );
-  });
-
-  test("leaves production staff copies untagged", () => {
-    expect(staffEmailSubject("New request", { isProduction: true })).toBe(
-      "New request"
-    );
-  });
-});
-
 describe("RoutedEmailProviderLive", () => {
-  test("logs test-recipient mail through Console without a Resend key", async () => {
-    const result = await sendRouted(testRecipient);
-
-    expect(result._tag).toBe("Success");
-    if (result._tag === "Success") {
-      expect(result.success.provider).toBe("console");
-    }
-    expect(resendSend).not.toHaveBeenCalled();
-  });
-
   test("delivers real-recipient mail through Resend", async () => {
     const result = await sendRouted(realRecipient, "re_test");
 

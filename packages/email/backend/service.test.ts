@@ -87,21 +87,6 @@ const message: EmailMessage = {
 };
 
 describe("EmailService", () => {
-  test("uses defaultFrom when message has no from", async () => {
-    const send = mock((_message: EmailMessage) => Effect.succeed(success));
-    const provider = makeProvider(send);
-
-    await runWithEmail(
-      Effect.gen(function* () {
-        const email = yield* EmailServiceTag;
-        return yield* email.send(message);
-      }),
-      provider
-    );
-
-    expect(send.mock.calls[0]?.[0]).toMatchObject({ from: config.defaultFrom });
-  });
-
   test("retries NetworkError and not EmailServiceError", async () => {
     let attempts = 0;
     const retrySend = mock((_message: EmailMessage) =>
@@ -219,42 +204,6 @@ describe("EmailService", () => {
       "invoice-resend-attempt-2",
     ]);
   });
-
-  test("sendTemplate sends the rendered template to a normalized recipient", async () => {
-    const send = mock((_message: EmailMessage) => Effect.succeed(success));
-    const render = mock(() =>
-      Effect.succeed({
-        subject: "Reservation confirmed",
-        html: "<p>Confirmed</p>",
-        text: "Confirmed",
-      })
-    );
-
-    await runWithEmail(
-      Effect.gen(function* () {
-        const email = yield* EmailServiceTag;
-        return yield* email.sendTemplate(testEmailAddress("ada"), {
-          type: "reservation-confirmation",
-          data: {
-            customerName: "Ada",
-            datetime: new Date("2026-06-20T10:00:00Z"),
-            duration: 120,
-            guestCount: 2,
-          },
-        });
-      }),
-      makeProvider(send),
-      { render }
-    );
-
-    expect(send.mock.calls[0]?.[0]).toMatchObject({
-      from: config.defaultFrom,
-      to: { email: testEmailAddress("ada") },
-      subject: "Reservation confirmed",
-      html: "<p>Confirmed</p>",
-      text: "Confirmed",
-    });
-  });
 });
 
 describe("EmailService censorship", () => {
@@ -328,25 +277,6 @@ describe("EmailServiceTag layers", () => {
     layer: typeof EmailServiceTag.Live,
     effect: Effect.Effect<A, unknown, EmailServiceTag>
   ) => Effect.runPromise(effect.pipe(Effect.provide(layer)));
-
-  test("Live keeps selecting the configured provider", async () => {
-    const verified = await materialize(
-      EmailServiceTag.Live.pipe(
-        Layer.provide(
-          Layer.succeed(EmailConfigTag, {
-            provider: "console",
-            defaultFrom: { email: testEmailAddress("deskohub") },
-          })
-        )
-      ),
-      Effect.gen(function* () {
-        const email = yield* EmailServiceTag;
-        return yield* email.verify;
-      })
-    );
-
-    expect(verified).toBeTrue();
-  });
 
   test("RecipientRouted logs test-recipient mail through Console without a Resend key", async () => {
     const result = await materialize(

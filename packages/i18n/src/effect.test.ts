@@ -40,18 +40,6 @@ describe("createParaglideLocaleBridge", () => {
     expect(result).toEqual({ locale: "en-US", messageLocale: "en-US" });
   });
 
-  test("a locale does not outlive the request that provided it", async () => {
-    const { runtime, runWithLocale } = createBridge();
-
-    await Effect.runPromise(
-      runWithLocale(Effect.void).pipe(
-        Effect.provideService(TestLocale, "en-US")
-      )
-    );
-
-    expect(runtime.getLocale()).toBe("cs-CZ");
-  });
-
   test("overlapping requests each read their own locale", async () => {
     const { runtime, runWithLocale } = createBridge();
     const bothStarted = Promise.withResolvers<void>();

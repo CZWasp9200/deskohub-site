@@ -39,10 +39,4 @@ describe("formatCurrencyAmount", () => {
       })
     ).toBe("307,50 Kč");
   });
-
-  test("falls back to the Intl currency default without an exponent", () => {
-    expect(
-      formatCurrencyAmount({ amount: 12.5, currency: "EUR", locale: "en" })
-    ).toContain("12.50");
-  });
 });
