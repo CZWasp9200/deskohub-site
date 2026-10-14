@@ -44,6 +44,27 @@ describe("hashCampaignContent", () => {
     );
   });
 
+  test("treats an undefined field like an absent one", () => {
+    const withUndefined: CampaignContent = {
+      ...content,
+      locales: {
+        ...content.locales,
+        "en-US": {
+          subject: "Hello",
+          preheader: "News",
+          body: {
+            formatVersion: 1,
+            doc: { ...body("Hi").doc, attrs: undefined },
+          },
+        },
+      },
+    };
+
+    expect(hashCampaignContent(withUndefined)).toBe(
+      hashCampaignContent(content)
+    );
+  });
+
   test("ignores key order", () => {
     const reordered: CampaignContent = {
       locales: {
