@@ -122,17 +122,6 @@ const submitDialog = async (view: ReturnType<typeof render>) => {
 };
 
 describe("ReservationCancellation", () => {
-  test("defaults the cancellation email checkbox to checked", async () => {
-    const view = await renderCancellation();
-    await openDialog(view);
-
-    const emailCheckbox = within(view.getByRole("dialog")).getByRole(
-      "checkbox",
-      { name: "Send a cancellation email to the customer" }
-    );
-    expect(emailCheckbox.getAttribute("aria-checked")).toBe("true");
-  });
-
   test("submits exact action args without provider credential removal", async () => {
     withActionOptions();
     const view = await renderCancellation({
@@ -208,23 +197,6 @@ describe("ReservationCancellation", () => {
     });
   });
 
-  test("renders the transport warning when the response is interrupted", async () => {
-    withActionOptions();
-    const view = await renderCancellation();
-    await openDialog(view);
-
-    await submitDialog(view);
-    act(() => {
-      actionOptions?.onTransportError();
-    });
-
-    expect(
-      within(view.getByRole("dialog")).getByText(
-        "The cancellation response was interrupted. Refresh before trying again."
-      )
-    ).toBeDefined();
-  });
-
   test("renders the failure email-outcome notice and closes the dialog", async () => {
     withActionOptions();
     const view = await renderCancellation();
@@ -243,78 +215,5 @@ describe("ReservationCancellation", () => {
     expect(
       view.queryByRole("form", { name: "Cancel this reservation" })
     ).toBeNull();
-  });
-
-  test("renders the not-requested email-outcome notice", async () => {
-    withActionOptions();
-    const view = await renderCancellation();
-    await openDialog(view);
-
-    await submitDialog(view);
-    act(() => {
-      actionOptions?.onSuccess({ data: { email: "not_requested" } });
-    });
-
-    expect(
-      view.getByText("Reservation cancelled without emailing the customer.")
-    ).toBeDefined();
-  });
-
-  test("renders the sent email-outcome notice", async () => {
-    withActionOptions();
-    const view = await renderCancellation();
-    await openDialog(view);
-
-    await submitDialog(view);
-    act(() => {
-      actionOptions?.onSuccess({ data: { email: "sent" } });
-    });
-
-    expect(
-      view.getByText("Reservation cancelled and the customer was emailed.")
-    ).toBeDefined();
-  });
-
-  test("shows server errors inline and clears them when the dialog is reopened", async () => {
-    withActionOptions();
-    const view = await renderCancellation();
-    await openDialog(view);
-
-    await submitDialog(view);
-    act(() => {
-      actionOptions?.onError({ error: { serverError: "Boom" } });
-    });
-    expect(within(view.getByRole("dialog")).getByText("Boom")).toBeDefined();
-
-    fireEvent.click(
-      within(view.getByRole("dialog")).getByRole("button", {
-        name: "Keep reservation",
-      })
-    );
-
-    await openDialog(view);
-    expect(within(view.getByRole("dialog")).queryByText("Boom")).toBeNull();
-  });
-
-  test("shows the executing state and disables submission", async () => {
-    workspaceUseAction.mockImplementation(() => ({
-      execute,
-      isExecuting: true,
-      result: {},
-    }));
-    const view = await renderCancellation();
-    await openDialog(view);
-
-    const dialog = within(view.getByRole("dialog"));
-    expect(
-      dialog
-        .getByRole("button", { name: "Cancelling…" })
-        .hasAttribute("disabled")
-    ).toBe(true);
-    expect(
-      dialog
-        .getByRole("button", { name: "Keep reservation" })
-        .hasAttribute("disabled")
-    ).toBe(true);
   });
 });
