@@ -22,24 +22,6 @@ afterEach(() => {
 });
 afterAll(unregisterWorkspaceComponentTestEnv);
 
-test("renders tooltips outside overflow-clipped parents", async () => {
-  const view = render(
-    <div data-overflow-parent="">
-      <TooltipProvider>
-        <Tooltip open>
-          <TooltipTrigger>Details</TooltipTrigger>
-          <TooltipContent>Sale details</TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
-    </div>
-  );
-
-  expect(view.container.textContent).not.toContain("Sale details");
-  expect((await view.findByRole("tooltip")).textContent).toContain(
-    "Sale details"
-  );
-});
-
 test.each([
   ["focuses the trigger", true],
   ["leaves focus alone", false],

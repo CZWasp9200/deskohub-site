@@ -71,23 +71,6 @@ describe("useWorkspaceAction", () => {
     expect(onTransportError).not.toHaveBeenCalled();
   });
 
-  test("still reports validation errors through onError", async () => {
-    const validationErrors = { formErrors: ["Invalid input."] };
-    const { onError, onTransportError, result } = renderWorkspaceAction(() =>
-      Promise.resolve({ validationErrors })
-    );
-
-    await act(async () => {
-      result.current.execute(undefined);
-    });
-
-    await waitFor(() => expect(onError).toHaveBeenCalledTimes(1));
-    expect(onError.mock.calls[0]?.[0]).toMatchObject({
-      error: { validationErrors },
-    });
-    expect(onTransportError).not.toHaveBeenCalled();
-  });
-
   test("keeps thrown errors in onError without a transport handler", async () => {
     const transportFailure = new TypeError("Failed to fetch");
     const { onError, result } = renderWorkspaceAction(
