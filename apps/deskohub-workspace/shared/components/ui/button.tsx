@@ -1,58 +1,299 @@
 import { Slot } from "@radix-ui/react-slot";
-import { cva, type VariantProps } from "class-variance-authority";
+import { cva } from "class-variance-authority";
 import type * as React from "react";
 import { cn } from "@/shared/utils";
 
-const buttonVariants = cva(
-  "cursor-pointer inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-full text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-burned-orange focus-visible:ring-offset-2 disabled:pointer-events-none disabled:bg-none disabled:opacity-50 disabled:shadow-none",
+/**
+ * Colours each variant accepts. A primary tone sets the fill, its hover and
+ * the glow together; secondary, ghost and link tones set text, edge and hover.
+ * `inverse` is for dark backgrounds, `danger` for destructive actions.
+ */
+interface ButtonTones {
+  primary:
+    | "burned-orange"
+    | "burned-orange-ink"
+    | "navy-blue"
+    | "chilean-fire"
+    | "danger";
+  secondary: "navy-blue" | "burned-orange" | "inverse";
+  ghost: "navy-blue" | "muted" | "inverse" | "success" | "warning";
+  link: "burned-orange" | "inverse";
+}
+
+type ButtonVariant = keyof ButtonTones;
+
+type ButtonAppearance =
+  | { readonly variant?: undefined; readonly tone?: ButtonTones["primary"] }
+  | {
+      [Variant in ButtonVariant]: {
+        readonly variant: Variant;
+        readonly tone?: ButtonTones[Variant];
+      };
+    }[ButtonVariant];
+
+const defaultTones = {
+  primary: "burned-orange",
+  secondary: "navy-blue",
+  ghost: "navy-blue",
+  link: "burned-orange",
+} as const satisfies { [Variant in ButtonVariant]: ButtonTones[Variant] };
+
+const buttonClasses = cva(
+  "cursor-pointer inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-burned-orange focus-visible:ring-offset-2 disabled:pointer-events-none disabled:bg-none disabled:opacity-50 disabled:shadow-none",
   {
     variants: {
       variant: {
         primary:
-          "bg-burned-orange bg-linear-to-b from-white/15 to-transparent px-6 py-3 text-white shadow-button-raised hover:bg-burned-orange/90 active:translate-y-px active:shadow-button-pressed",
+          "bg-linear-to-b from-white/15 to-transparent px-6 py-3 shadow-button-raised active:translate-y-px active:shadow-button-pressed",
         secondary:
-          "border border-navy-blue/20 bg-white bg-linear-to-b from-transparent to-navy-blue/4 px-6 py-3 text-navy-blue shadow-button-raised-subtle hover:border-navy-blue/50 active:translate-y-px active:shadow-button-pressed-subtle",
-        ghost: "px-3 py-2 text-navy-blue hover:bg-navy-blue/5",
+          "border bg-white bg-linear-to-b from-transparent to-navy-blue/4 px-6 py-3 shadow-button-raised-subtle active:translate-y-px active:shadow-button-pressed-subtle",
+        ghost: "px-3 py-2",
+        link: "underline underline-offset-4",
+      },
+      tone: {
+        "burned-orange": "",
+        "burned-orange-ink": "",
+        "chilean-fire": "",
+        danger: "",
+        inverse: "",
+        muted: "",
+        "navy-blue": "",
+        success: "",
+        warning: "",
       },
       size: {
-        default: "h-11",
-        sm: "h-9 px-4 text-xs",
-        icon: "h-10 w-10 rounded-md p-0",
+        sm: "h-9 min-h-9 px-4 text-xs",
+        md: "h-10 min-h-10 px-4 text-xs",
+        default: "h-11 min-h-11",
+        lg: "h-12 min-h-12 px-6",
+        xl: "h-13 min-h-13 px-8",
+        "2xl": "h-14 min-h-14 px-8 text-base",
+        "icon-sm": "size-8 min-h-8 p-0",
+        icon: "size-10 min-h-10 p-0",
+        "icon-lg": "size-11 min-h-11 p-0",
+      },
+      shape: {
+        pill: "rounded-full",
+        rounded: "rounded-xl",
+      },
+      caps: {
+        true: "uppercase tracking-[0.08em]",
+        false: "",
+      },
+      wrap: {
+        true: "h-auto min-w-0 max-w-full whitespace-normal py-2 text-center leading-5",
+        false: "",
+      },
+      fullWidth: {
+        true: "w-full",
+        false: "",
       },
     },
+    compoundVariants: [
+      {
+        variant: "primary",
+        tone: "burned-orange",
+        class:
+          "bg-burned-orange text-white [--button-tint:var(--color-burned-orange)] hover:bg-burned-orange/90",
+      },
+      {
+        variant: "primary",
+        tone: "burned-orange-ink",
+        class:
+          "bg-burned-orange-ink text-white [--button-tint:var(--color-burned-orange-ink)] hover:bg-burned-orange-ink/90",
+      },
+      {
+        variant: "primary",
+        tone: "navy-blue",
+        class:
+          "bg-navy-blue text-white [--button-tint:var(--color-navy-blue)] hover:bg-navy-blue/90",
+      },
+      {
+        variant: "primary",
+        tone: "chilean-fire",
+        class:
+          "bg-chilean-fire text-navy-blue [--button-tint:var(--color-chilean-fire)] hover:bg-chilean-fire/90",
+      },
+      {
+        variant: "primary",
+        tone: "danger",
+        class:
+          "bg-red-800 text-white [--button-tint:var(--color-red-800)] hover:bg-red-900",
+      },
+      {
+        variant: "secondary",
+        tone: "navy-blue",
+        class: "border-navy-blue/20 text-navy-blue hover:border-navy-blue/50",
+      },
+      {
+        variant: "secondary",
+        tone: "burned-orange",
+        class:
+          "border-burned-orange/50 text-burned-orange hover:border-burned-orange",
+      },
+      {
+        variant: "secondary",
+        tone: "inverse",
+        class: "border-white/12 text-navy-blue hover:bg-sunset-yellow",
+      },
+      {
+        variant: "ghost",
+        tone: "navy-blue",
+        class: "text-navy-blue hover:bg-navy-blue/5",
+      },
+      {
+        variant: "ghost",
+        tone: "muted",
+        class: "text-navy-blue/60 hover:bg-navy-blue/5",
+      },
+      {
+        variant: "ghost",
+        tone: "inverse",
+        class:
+          "border border-white/12 bg-white/6 text-white hover:bg-white/12 hover:text-white",
+      },
+      {
+        variant: "ghost",
+        tone: "success",
+        class: "text-emerald-800 hover:bg-emerald-50",
+      },
+      {
+        variant: "ghost",
+        tone: "warning",
+        class: "text-amber-800 hover:bg-amber-50",
+      },
+      {
+        variant: "link",
+        tone: "burned-orange",
+        class: "text-burned-orange hover:text-chilean-fire",
+      },
+      {
+        variant: "link",
+        tone: "inverse",
+        class: "text-white/82 hover:text-white",
+      },
+      { size: "xl", caps: true, class: "tracking-[0.18em]" },
+      {
+        variant: "link",
+        class: "h-auto min-h-0 rounded-none px-0 py-0",
+      },
+    ],
     defaultVariants: {
       variant: "primary",
       size: "default",
+      shape: "pill",
+      caps: false,
+      wrap: false,
+      fullWidth: false,
     },
   }
 );
 
-interface ButtonProps
-  extends React.ButtonHTMLAttributes<HTMLButtonElement>,
-    VariantProps<typeof buttonVariants> {
-  asChild?: boolean;
-  ref?: React.Ref<HTMLButtonElement>;
+type ButtonSize =
+  | "sm"
+  | "md"
+  | "default"
+  | "lg"
+  | "xl"
+  | "2xl"
+  | "icon-sm"
+  | "icon"
+  | "icon-lg";
+
+type ButtonStyleOptions = ButtonAppearance & {
+  /** Height, padding and type scale. `icon*` sizes are square. */
+  readonly size?: ButtonSize;
+  /** `pill` (default) is fully round; `rounded` uses the card radius. */
+  readonly shape?: "pill" | "rounded";
+  /** Uppercase, letter-spaced label, as used by marketing and form CTAs. */
+  readonly caps?: boolean;
+  /** Lets a long label wrap onto several lines instead of overflowing. */
+  readonly wrap?: boolean;
+  /** Stretches the button to its container's width. */
+  readonly fullWidth?: boolean;
+};
+
+/**
+ * Class names for an element that must look like a Button but can't render
+ * one, such as react-day-picker's navigation. Prefer `<Button asChild>`.
+ */
+function buttonVariants({
+  variant = "primary",
+  tone,
+  ...options
+}: ButtonStyleOptions = {}) {
+  return cn(
+    buttonClasses({ variant, tone: tone ?? defaultTones[variant], ...options })
+  );
 }
 
+type ButtonProps = Omit<
+  React.ButtonHTMLAttributes<HTMLButtonElement>,
+  "className"
+> &
+  ButtonStyleOptions & {
+    /** Renders the child element (usually a link) with the Button's styling. */
+    readonly asChild?: boolean;
+    /**
+     * Marks an action in progress: disables the button and sets `aria-busy`.
+     * Callers keep their own pending label.
+     */
+    readonly pending?: boolean;
+    readonly ref?: React.Ref<HTMLButtonElement>;
+    /**
+     * Parent layout only: margin, self/grid placement, position, z-index,
+     * order, responsive width (`sm:w-auto`) and responsive visibility
+     * (`lg:hidden`). Express colour, size, radius, typography and states
+     * through the props above instead.
+     */
+    readonly className?: string;
+  };
+
+/**
+ * The Workspace action button: CTAs, submits, icon-only actions and links
+ * styled as buttons (`asChild`). Controls with other semantics have their own
+ * primitives: `NavItem` (current page), `SegmentedControl` (one of several
+ * options), `ChoiceCard` (radio or checkbox card), `DisclosureButton`
+ * (expands content) and `UnstyledButton` (custom visuals such as carousel dots
+ * or image tiles).
+ */
 function Button({
-  className,
-  variant,
-  size,
   asChild = false,
+  caps,
+  className,
+  disabled,
+  fullWidth,
+  pending,
   ref,
+  shape,
+  size,
+  tone,
+  variant,
+  wrap,
   ...props
 }: ButtonProps) {
   const Comp = asChild ? Slot : "button";
 
   return (
     <Comp
-      className={cn(buttonVariants({ variant, size, className }))}
+      aria-busy={pending || undefined}
+      className={cn(
+        buttonVariants({
+          caps,
+          fullWidth,
+          shape,
+          size,
+          wrap,
+          ...({ variant, tone } as ButtonAppearance),
+        }),
+        className
+      )}
+      disabled={disabled || pending}
       ref={ref}
       {...props}
     />
   );
 }
 
-Button.displayName = "Button";
-
+export type { ButtonProps };
 export { Button, buttonVariants };

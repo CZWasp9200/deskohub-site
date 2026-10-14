@@ -1,0 +1,187 @@
+import { afterAll, afterEach, expect, test } from "bun:test";
+import { cleanup, fireEvent, render } from "@testing-library/react";
+import {
+  registerWorkspaceComponentTestEnv,
+  unregisterWorkspaceComponentTestEnv,
+} from "@/shared/testing/workspace-component-test-env";
+
+registerWorkspaceComponentTestEnv();
+
+const { Button, buttonVariants } = await import("./button");
+
+afterEach(cleanup);
+afterAll(unregisterWorkspaceComponentTestEnv);
+
+const classesOf = (element: HTMLElement) => element.className.split(" ");
+
+test("defaults to a raised burned-orange pill whose glow follows the fill", () => {
+  const view = render(<Button>Reserve</Button>);
+  const classes = classesOf(view.getByRole("button", { name: "Reserve" }));
+
+  expect(classes).toEqual(
+    expect.arrayContaining([
+      "bg-burned-orange",
+      "shadow-button-raised",
+      "rounded-full",
+      "h-11",
+      "[--button-tint:var(--color-burned-orange)]",
+    ])
+  );
+});
+
+test.each([
+  ["navy-blue", "bg-navy-blue", "[--button-tint:var(--color-navy-blue)]"],
+  ["danger", "bg-red-800", "[--button-tint:var(--color-red-800)]"],
+  [
+    "chilean-fire",
+    "bg-chilean-fire",
+    "[--button-tint:var(--color-chilean-fire)]",
+  ],
+] as const)(
+  "primary tone %s sets the fill and glow together",
+  (tone, fill, tint) => {
+    const view = render(<Button tone={tone}>Go</Button>);
+    const classes = classesOf(view.getByRole("button"));
+
+    expect(classes).toEqual(expect.arrayContaining([fill, tint]));
+    expect(classes).not.toContain("bg-burned-orange");
+  }
+);
+
+test("secondary and ghost tones replace the default text colour", () => {
+  const view = render(
+    <>
+      <Button tone="burned-orange" variant="secondary">
+        Secondary
+      </Button>
+      <Button tone="muted" variant="ghost">
+        Ghost
+      </Button>
+    </>
+  );
+  const secondary = classesOf(view.getByRole("button", { name: "Secondary" }));
+  const ghost = classesOf(view.getByRole("button", { name: "Ghost" }));
+
+  expect(secondary).toEqual(
+    expect.arrayContaining([
+      "text-burned-orange",
+      "shadow-button-raised-subtle",
+    ])
+  );
+  expect(secondary).not.toContain("text-navy-blue");
+  expect(ghost).toContain("text-navy-blue/60");
+  expect(ghost).not.toContain("shadow-button-raised");
+});
+
+test("shape, caps, wrap and fullWidth map to first-class classes", () => {
+  const view = render(
+    <Button caps fullWidth shape="rounded" size="xl" wrap>
+      Pay
+    </Button>
+  );
+  const classes = classesOf(view.getByRole("button"));
+
+  expect(classes).toEqual(
+    expect.arrayContaining([
+      "rounded-xl",
+      "uppercase",
+      "tracking-[0.18em]",
+      "w-full",
+      "h-auto",
+      "min-h-13",
+      "whitespace-normal",
+    ])
+  );
+  expect(classes).not.toContain("rounded-full");
+  expect(classes).not.toContain("h-13");
+  expect(classes).not.toContain("whitespace-nowrap");
+});
+
+test("caps keeps the regular letter spacing below the xl size", () => {
+  const view = render(
+    <Button caps size="lg">
+      Book
+    </Button>
+  );
+  expect(classesOf(view.getByRole("button"))).toContain("tracking-[0.08em]");
+});
+
+test("icon sizes are square and round", () => {
+  const view = render(
+    <Button aria-label="Close" size="icon-sm" variant="ghost">
+      x
+    </Button>
+  );
+  expect(classesOf(view.getByRole("button", { name: "Close" }))).toEqual(
+    expect.arrayContaining(["size-8", "p-0", "rounded-full"])
+  );
+});
+
+test("pending disables the action and marks it busy", () => {
+  const view = render(<Button pending>Saving</Button>);
+  const button = view.getByRole("button", { name: "Saving" });
+
+  expect(button).toHaveProperty("disabled", true);
+  expect(button.getAttribute("aria-busy")).toBe("true");
+});
+
+test("an idle button is neither disabled nor busy", () => {
+  const view = render(<Button>Save</Button>);
+  const button = view.getByRole("button", { name: "Save" });
+
+  expect(button).toHaveProperty("disabled", false);
+  expect(button.hasAttribute("aria-busy")).toBe(false);
+});
+
+test("asChild styles a link without turning it into a button", () => {
+  const view = render(
+    <Button asChild variant="secondary">
+      <a href="/en-US/contact">Contact</a>
+    </Button>
+  );
+  const link = view.getByRole("link", { name: "Contact" });
+
+  expect(link.getAttribute("href")).toBe("/en-US/contact");
+  expect(classesOf(link)).toContain("shadow-button-raised-subtle");
+  expect(view.queryByRole("button")).toBeNull();
+});
+
+test("className adds parent layout without replacing the treatment", () => {
+  const view = render(<Button className="mt-8 sm:w-auto">Retry</Button>);
+  expect(classesOf(view.getByRole("button"))).toEqual(
+    expect.arrayContaining(["mt-8", "sm:w-auto", "bg-burned-orange"])
+  );
+});
+
+test("the link variant drops the button box", () => {
+  const view = render(<Button variant="link">Use account details</Button>);
+  const classes = classesOf(view.getByRole("button"));
+
+  expect(classes).toEqual(
+    expect.arrayContaining([
+      "underline",
+      "h-auto",
+      "px-0",
+      "text-burned-orange",
+    ])
+  );
+  expect(classes).not.toContain("h-11");
+});
+
+test("buttonVariants matches the rendered Button", () => {
+  const view = render(
+    <Button size="icon-sm" variant="ghost">
+      x
+    </Button>
+  );
+  expect(view.getByRole("button").className).toBe(
+    buttonVariants({ size: "icon-sm", variant: "ghost" })
+  );
+});
+
+test("clicks reach the handler", () => {
+  let clicks = 0;
+  const view = render(<Button onClick={() => clicks++}>Go</Button>);
+  fireEvent.click(view.getByRole("button"));
+  expect(clicks).toBe(1);
+});

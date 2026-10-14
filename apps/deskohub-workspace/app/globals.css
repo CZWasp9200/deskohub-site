@@ -97,11 +97,6 @@
   --radius: 0.65rem;
 }
 
-/* Glow colour for a filled Button whose fill overrides the variant colour. */
-@utility button-tint-* {
-  --button-tint: --value(--color-*);
-}
-
 html {
   scroll-behavior: smooth;
 }
