@@ -74,6 +74,13 @@ const nodeIssues = (
         path: [...path, "attrs", "label"],
         issue: "A button needs a label.",
       });
+    } else if (String(node.attrs?.label).includes("\r")) {
+      // Markdown turns carriage returns into line breaks, so the label could
+      // not survive a Markdown export.
+      own.push({
+        path: [...path, "attrs", "label"],
+        issue: "A button label must break lines with line feeds only.",
+      });
     }
     if (!isCampaignLinkHref(node.attrs?.href)) {
       own.push({
