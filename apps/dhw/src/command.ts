@@ -44,8 +44,6 @@ import {
   CliMutationUncertain,
   type CliSessionAdministrationType,
   CliSessionId,
-  type CliSessionType,
-  CliSessionUnauthorized,
   CliStandaloneAccessCodeCleanupRequired,
   CliStandaloneAccessCodeReconciled,
   makeCliAuthenticationChallenge,
@@ -66,7 +64,7 @@ import {
   Schema,
   SchemaGetter,
 } from "effect";
-import { Argument, Command, Flag, Prompt } from "effect/unstable/cli";
+import { Argument, Command, Flag } from "effect/unstable/cli";
 import { AccessCodeAttemptStore } from "./access-codes/access-code-attempt-store.service";
 import { WorkspaceAdminApiClient } from "./api/workspace-admin-api-client.service";
 import { AuthenticationService } from "./authentication/authentication.service";
@@ -77,22 +75,21 @@ import {
 } from "./authentication/authentication-output";
 import { ClientIdentity } from "./authentication/client-identity.service";
 import { DHW_BUILD_TARGET, DHW_VERSION, isReleaseBuild } from "./build-info";
+import { campaignsCommand } from "./campaigns/campaigns.command";
+import {
+  AuthenticationRequiredError,
+  confirmationFlag,
+  confirmChange,
+  confirmUpdate,
+  InvalidMutationInputError,
+  installAndReport,
+  reportCancellation,
+  rootCommand,
+  runAuthenticatedCommand,
+  runCommand,
+} from "./command-runtime";
 import { DhwConfig } from "./config/dhw-config.service";
 import { UpdateService } from "./update/update.service";
-import type { AvailableUpdate } from "./update/update-state-store.service";
-
-const rootCommand = Command.make("dhw").pipe(
-  Command.withSharedFlags({
-    json: Flag.boolean("json").pipe(
-      Flag.withDescription("Print machine-readable JSON output")
-    ),
-  }),
-  Command.withDescription("Deskohub Workspace administration")
-);
-
-const confirmationFlag = Flag.boolean("yes").pipe(
-  Flag.withDescription("Apply the change without prompting for confirmation")
-);
 
 const versionCommand = Command.make("version", {}, () =>
   runCommand((json) =>
@@ -2272,6 +2269,7 @@ export const dhwCommand = rootCommand.pipe(
     apiCommand,
     authCommand,
     bookingsCommand,
+    campaignsCommand,
     codesCommand,
     customersCommand,
     discountsCommand,
@@ -2338,64 +2336,9 @@ class AuthenticationFlowError extends Data.TaggedError(
   "AuthenticationFlowError"
 )<{ readonly message: string }> {}
 
-class AuthenticationRequiredError extends Data.TaggedError(
-  "AuthenticationRequiredError"
-)<{ readonly message: string }> {}
-
-class ConfirmationRequiredError extends Data.TaggedError(
-  "ConfirmationRequiredError"
-)<{ readonly message: string }> {}
-
-class InvalidMutationInputError extends Data.TaggedError(
-  "InvalidMutationInputError"
-)<{ readonly message: string }> {}
-
 class AccessCodeAttemptReservationError extends Data.TaggedError(
   "AccessCodeAttemptReservationError"
 )<{ readonly message: string }> {}
-
-const runCommand = <A, E, R>(
-  operation: (json: boolean) => Effect.Effect<A, E, R>
-) =>
-  Effect.gen(function* () {
-    const { json } = yield* rootCommand;
-    const result = yield* operation(json);
-    yield* offerAutomaticUpdate(json);
-    return result;
-  });
-
-const runAuthenticatedCommand = <A, E, R>(
-  operation: (
-    api: WorkspaceAdminApiClient["Service"],
-    accessToken: Redacted.Redacted<CliAccessTokenType>,
-    json: boolean,
-    session: CliSessionType
-  ) => Effect.Effect<A, E, R>
-) =>
-  runCommand((json) =>
-    Effect.gen(function* () {
-      const authentication = yield* AuthenticationService;
-      const current = yield* authentication.current;
-      if (Option.isNone(current)) {
-        return yield* new AuthenticationRequiredError({
-          message: "Run dhw auth before using administration commands.",
-        });
-      }
-      const api = yield* WorkspaceAdminApiClient;
-      return yield* operation(
-        api,
-        current.value.accessToken,
-        json,
-        current.value.session
-      ).pipe(
-        Effect.tapError((cause) =>
-          cause instanceof CliSessionUnauthorized
-            ? authentication.clear.pipe(Effect.asVoid)
-            : Effect.void
-        )
-      );
-    })
-  );
 
 const readInvoiceCreateInput = Effect.fn("dhw.invoices.readCreateInput")(
   function* (path: string) {
@@ -2626,19 +2569,6 @@ const formatMutationResult = (
   return createdId === null ? notice : `${notice} ${createdId}`;
 };
 
-const confirmChange = (yes: boolean, json: boolean, message: string) => {
-  if (yes) return Effect.succeed(true);
-  if (json || process.stdin.isTTY !== true || process.stdout.isTTY !== true) {
-    return new ConfirmationRequiredError({
-      message: "Confirmation is required. Pass --yes to apply this change.",
-    });
-  }
-  return Prompt.confirm({ message, initial: false }).pipe(Prompt.run);
-};
-
-const reportCancellation = (json: boolean) =>
-  Console.log(json ? JSON.stringify({ status: "cancelled" }) : "Cancelled.");
-
 const formatOverviewMetric = (
   label: string,
   metric: AdministrationOverviewMetricType
@@ -2674,46 +2604,3 @@ const formatDiscountAdjustment = (
   adjustment.kind === "percentage"
     ? `${adjustment.basisPoints / 100}%`
     : formatMoney(adjustment.amount);
-
-const offerAutomaticUpdate = (json: boolean) =>
-  Effect.gen(function* () {
-    const config = yield* DhwConfig;
-
-    if (
-      json ||
-      config.isCi ||
-      process.stdin.isTTY !== true ||
-      process.stdout.isTTY !== true
-    ) {
-      return;
-    }
-
-    const updateService = yield* UpdateService;
-    const available = yield* updateService
-      .check(false)
-      .pipe(Effect.orElseSucceed(() => Option.none<AvailableUpdate>()));
-
-    if (Option.isNone(available)) return;
-
-    const shouldInstall = yield* confirmUpdate(available.value);
-    if (shouldInstall) {
-      yield* installAndReport(available.value, false);
-    }
-  });
-
-const confirmUpdate = (update: AvailableUpdate) =>
-  Prompt.confirm({
-    message: `Update dhw ${DHW_VERSION} to ${update.version}?`,
-    initial: true,
-  }).pipe(Prompt.run);
-
-const installAndReport = (update: AvailableUpdate, json: boolean) =>
-  Effect.gen(function* () {
-    const updateService = yield* UpdateService;
-    yield* updateService.install(update);
-    yield* Console.log(
-      json
-        ? JSON.stringify({ status: "updated", version: update.version })
-        : `Updated dhw to ${update.version}.`
-    );
-  });
