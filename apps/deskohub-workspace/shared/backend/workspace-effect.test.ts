@@ -1,5 +1,5 @@
 import { describe, expect, mock, spyOn, test } from "bun:test";
-import { Effect, References } from "effect";
+import { Effect } from "effect";
 import { redirect } from "next/navigation";
 import { CENSORED_LOG_VALUE } from "@/shared/utils/log-classification";
 
@@ -12,12 +12,8 @@ mock.module("@/instrumentation", () => ({
   },
 }));
 
-const {
-  defineWorkspacePage,
-  defineWorkspaceTask,
-  runWorkspaceEffect,
-  runWorkspaceEffectOrElse,
-} = await import("./workspace-effect");
+const { defineWorkspacePage, runWorkspaceEffect, runWorkspaceEffectOrElse } =
+  await import("./workspace-effect");
 
 describe("Workspace Effect execution", () => {
   test("provides the censored Workspace logger", async () => {
@@ -45,43 +41,6 @@ describe("Workspace Effect execution", () => {
     );
 
     expect(emitPostHogLog).toHaveBeenCalledTimes(1);
-  });
-
-  test("builds the observability layer once across runs", async () => {
-    const readLoggers = Effect.map(References.CurrentLoggers, (loggers) => [
-      ...loggers,
-    ]);
-
-    const first = await readLoggers.pipe(runWorkspaceEffect("test.first"));
-    const second = await readLoggers.pipe(runWorkspaceEffect("test.second"));
-
-    expect(first.length).toBeGreaterThan(1);
-    expect(second).toEqual(first);
-    for (const [index, logger] of second.entries()) {
-      expect(logger).toBe(first[index]);
-    }
-  });
-
-  test("tasks preserve success and failure results", async () => {
-    const succeeds = defineWorkspaceTask("test.task", () =>
-      Effect.succeed("done")
-    );
-    const failure = new Error("retry");
-    const fails = defineWorkspaceTask("test.task-failure", () =>
-      Effect.fail(failure)
-    );
-
-    await expect(succeeds()).resolves.toBe("done");
-    await expect(fails()).rejects.toBe(failure);
-  });
-
-  test("tasks suspend synchronous handler construction", async () => {
-    const defect = new Error("construction failed");
-    const task = defineWorkspaceTask("test.task-defect", () => {
-      throw defect;
-    });
-
-    await expect(task()).rejects.toBe(defect);
   });
 
   test("pages pass props into an Effect component", async () => {

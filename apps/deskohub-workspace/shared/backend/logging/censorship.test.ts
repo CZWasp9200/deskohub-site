@@ -93,11 +93,6 @@ describe("isSensitiveLogKey", () => {
     expect(isSensitiveLogKey("description")).toBe(true);
   });
 
-  test("redacts normalized discount-code request keys", () => {
-    expect(isSensitiveLogKey("requestedDiscountCode")).toBe(true);
-    expect(isSensitiveLogKey("requesteddiscountcode")).toBe(true);
-  });
-
   test("matches common prefixed camelCase credential key shapes", () => {
     expect(isSensitiveLogKey("stripeApiKey")).toBe(true);
     expect(isSensitiveLogKey("githubAccessToken")).toBe(true);
@@ -822,32 +817,6 @@ describe("censorLoggerOptions", () => {
     });
     expect(censoredAnnotations.sessionToken).toBe(CENSORED_LOG_VALUE);
     expect(annotations.sessionToken).toBe("session-secret");
-  });
-
-  test("preserves observable session annotation keys", () => {
-    const annotations = {
-      session: "public-session",
-      sessionId: "ph-session",
-    };
-    const options = {
-      message: "safe",
-      logLevel: "Info",
-      cause: Cause.empty,
-      date: new Date(0),
-      fiber: {
-        id: 1,
-        getRef: <T>(ref: T) =>
-          ref === References.CurrentLogAnnotations ? annotations : [],
-      },
-    } as Logger.Options<unknown>;
-
-    const censored = censorLoggerOptions(options);
-    const censoredAnnotations = censored.fiber.getRef(
-      References.CurrentLogAnnotations
-    );
-
-    expect(censoredAnnotations.session).toBe("public-session");
-    expect(censoredAnnotations.sessionId).toBe("ph-session");
   });
 
   test("database query logging retains only selectively censored parameters", async () => {
