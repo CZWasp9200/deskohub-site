@@ -3,6 +3,7 @@ import "server-only";
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Effect, Layer } from "effect";
+import type { SqlError } from "effect/unstable/sql";
 import { WorkspaceDatabase } from "@/db/database.service";
 import {
   type CampaignAudienceRow,
@@ -54,7 +55,10 @@ export interface ICampaignAudienceService {
     audienceId: CampaignAudienceId
   ) => Effect.Effect<
     void,
-    CampaignAudienceNotFound | CampaignAudienceInUse | EffectDrizzleQueryError
+    | CampaignAudienceNotFound
+    | CampaignAudienceInUse
+    | EffectDrizzleQueryError
+    | SqlError.SqlError
   >;
 }
 
@@ -75,8 +79,10 @@ export class CampaignAudienceService extends Context.Service<
             ? Effect.succeed(rows[0])
             : Effect.fail(new CampaignAudienceNotFound({ audienceId }));
 
-      const draftsUsing = (audienceId: CampaignAudienceId) =>
-        db
+      type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+      const draftsUsing = (tx: Transaction, audienceId: CampaignAudienceId) =>
+        tx
           .select({ id: emailCampaigns.id })
           .from(emailCampaigns)
           .where(
@@ -86,6 +92,34 @@ export class CampaignAudienceService extends Context.Service<
             )
           )
           .orderBy(asc(emailCampaigns.id));
+
+      /**
+       * Waits for campaigns assigning the audience to commit; they share-lock
+       * its row first. Drafts are checked after the lock, so none can slip in
+       * and be detached by the delete.
+       */
+      const deleteUnused = Effect.fn("CampaignAudienceService.deleteUnused")(
+        function* (tx: Transaction, audienceId: CampaignAudienceId) {
+          const [audience] = yield* tx
+            .select({ id: emailCampaignAudiences.id })
+            .from(emailCampaignAudiences)
+            .where(eq(emailCampaignAudiences.id, audienceId))
+            .for("update");
+          if (!audience) {
+            return yield* new CampaignAudienceNotFound({ audienceId });
+          }
+          const drafts = yield* draftsUsing(tx, audienceId);
+          if (drafts.length > 0) {
+            return yield* new CampaignAudienceInUse({
+              audienceId,
+              draftCampaignIds: drafts.map(({ id }) => id),
+            });
+          }
+          yield* tx
+            .delete(emailCampaignAudiences)
+            .where(eq(emailCampaignAudiences.id, audienceId));
+        }
+      );
 
       return {
         list: Effect.fn("CampaignAudienceService.list")(function* ({
@@ -145,32 +179,8 @@ export class CampaignAudienceService extends Context.Service<
               .pipe(Effect.flatMap(requireUpdated(audienceId)));
           }
         ),
-        delete: Effect.fn("CampaignAudienceService.delete")(
-          function* (audienceId) {
-            const deleted = yield* db
-              .delete(emailCampaignAudiences)
-              .where(
-                and(
-                  eq(emailCampaignAudiences.id, audienceId),
-                  sql`not exists (
-                    select 1 from ${emailCampaigns}
-                    where ${emailCampaigns.audienceId} = ${emailCampaignAudiences.id}
-                      and ${emailCampaigns.status} = 'draft'
-                  )`
-                )
-              )
-              .returning({ id: emailCampaignAudiences.id });
-            if (deleted.length > 0) return;
-
-            const drafts = yield* draftsUsing(audienceId);
-            if (drafts.length > 0) {
-              return yield* new CampaignAudienceInUse({
-                audienceId,
-                draftCampaignIds: drafts.map(({ id }) => id),
-              });
-            }
-            return yield* new CampaignAudienceNotFound({ audienceId });
-          }
+        delete: Effect.fn("CampaignAudienceService.delete")((audienceId) =>
+          db.transaction((tx) => deleteUnused(tx, audienceId))
         ),
       } satisfies ICampaignAudienceService;
     })
