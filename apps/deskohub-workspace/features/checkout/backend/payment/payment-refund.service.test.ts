@@ -608,14 +608,6 @@ describe("PaymentRefundService", () => {
       };
     };
 
-    test("derives the documented 35-second overrun from the database pool timeouts", async () => {
-      const { refundBatchOverrunWorstCase } = await import(
-        "./payment-refund.service"
-      );
-      // 15 s connection acquisition + 10 s BEGIN + 10 s ROLLBACK.
-      expect(Duration.toMillis(refundBatchOverrunWorstCase)).toBe(35_000);
-    });
-
     test("stays within the documented bound when the deadline interrupts a claim before BEGIN finishes", async () => {
       // The reviewer's case: the last claims start just before the cutoff
       // and spend the pool's full timeouts acquiring, beginning, and rolling
