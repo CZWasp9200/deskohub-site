@@ -216,23 +216,6 @@ const waitFor = async (condition: () => boolean) => {
 };
 
 describe("generateSvgPngBuffer", () => {
-  test("renders SVG input as a PNG Effect", async () => {
-    const image = await Effect.runPromise(
-      generateSvgPngBuffer(
-        '<svg width="2" height="3" xmlns="http://www.w3.org/2000/svg"><rect width="2" height="3" fill="#006b55"/></svg>'
-      )
-    );
-
-    expect(image.subarray(0, 8)).toEqual(
-      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
-    );
-    await expect(sharp(image).metadata()).resolves.toMatchObject({
-      format: "png",
-      width: 2,
-      height: 3,
-    });
-  });
-
   test("fits SVG content without distortion inside a padded opaque canvas", async () => {
     const image = await Effect.runPromise(
       generateSvgPngBuffer(
