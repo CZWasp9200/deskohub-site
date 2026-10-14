@@ -46,7 +46,7 @@ Rules:
 - Bodies cross the API as Markdown. The server parses them with `parseCampaignBodyMarkdown` and exports stored bodies with `campaignBodyToMarkdown`; `dhw` never parses Markdown itself.
 - `AudienceFilter` in the contract is the only audience filter schema. Workspace re-exports it from `features/email-campaigns/audience-filter.ts` as `audienceFilterSchema`. On its own it ignores excess properties, so stored filters keep decoding. The strict API inputs that embed it reject them, and `dhw` decodes filter files with the same strict parse options. Keep its encoded form stable: `email-campaigns.test.ts` pins the stored wire format byte for byte.
 - Unparsable or invalid input fails with `CliInputInvalid` (400), and state conflicts fail with `CliMutationRejected` (409). Both messages reach the operator verbatim, so keep them actionable.
-- Campaign mutations don't use the CLI mutation ledger: a confirmed send is single-use by its confirmation code, and a retried create can at worst leave an extra draft.
+- Campaign create, campaign duplicate, and audience create go through the CLI mutation ledger (`applyCliMutationOnce`), so a retried request replays its first response instead of leaving an extra row. Updates, archive, and unarchive are idempotent; a confirmed send is single-use by its confirmation code, and retry needs a Failed campaign.
 
 ## Standalone access codes
 
