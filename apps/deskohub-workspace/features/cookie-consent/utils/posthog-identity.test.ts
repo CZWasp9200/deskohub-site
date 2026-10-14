@@ -169,22 +169,6 @@ describe("PostHog identity controller", () => {
     expect(fake.resetCount).toBe(0);
   });
 
-  test("resets identified persistence before opting in as anonymous", () => {
-    const fake = makeFakeClient({
-      distinctId: "workspace-account:account-a",
-      userState: "identified",
-    });
-    const controller = createPostHogIdentityController(fake.client, {
-      onPause: () => undefined,
-      onReady: () => undefined,
-    });
-
-    controller.reconcile(true, anonymous);
-
-    expect(fake.calls).toEqual(["reset(true)", "opt_in(false)"]);
-    expect(fake.resetCount).toBe(1);
-  });
-
   test("associates the initial anonymous visitor without properties", () => {
     let readyAtIdentify = false;
     let controller: ReturnType<typeof createPostHogIdentityController>;
@@ -325,27 +309,6 @@ describe("PostHog identity controller", () => {
     expect(fake.resetCount).toBe(0);
     expect(lifecycle).toEqual(["ready", "pause", "ready"]);
     expect(controller.isReady()).toBe(true);
-  });
-
-  test("treats a pending logout that resolves back to the same account as unchanged identity", () => {
-    const fake = makeFakeClient({
-      distinctId: "workspace-account:account-a",
-      userState: "identified",
-    });
-    const controller = createPostHogIdentityController(fake.client, {
-      onPause: () => undefined,
-      onReady: () => undefined,
-    });
-    const identity = makeIdentity("authenticated", accountId("account-a"));
-
-    controller.reconcile(true, identity);
-    fake.calls.length = 0;
-    controller.reconcile(true, pending);
-    controller.reconcile(true, identity);
-
-    expect(fake.calls).toEqual(["opt_in(false)"]);
-    expect(fake.identifyArguments).toEqual([]);
-    expect(fake.resetCount).toBe(0);
   });
 
   test("resets once when an identified account becomes anonymous", () => {

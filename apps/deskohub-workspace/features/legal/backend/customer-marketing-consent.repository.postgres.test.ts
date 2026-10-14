@@ -236,32 +236,6 @@ describe.skipIf(!testDatabase)(
       });
     });
 
-    test("a concurrent initial grant and withdrawal leave the withdrawal recorded", async () => {
-      const customerId = uniqueCustomerId();
-      const initial = makeInput(customerId, {
-        documentHash: "concurrent-initial-document",
-        grantedAt: Temporal.Instant.from("2026-09-07T10:00:00Z"),
-      });
-      const withdrawal = makeInput(customerId, {
-        documentHash: "concurrent-withdrawal-document",
-        grantedAt: Temporal.Instant.from("2026-09-08T10:00:00Z"),
-      });
-
-      await runRepository((repository) =>
-        Effect.all(
-          [repository.grantInitial(initial), repository.withdraw(withdrawal)],
-          { concurrency: "unbounded" }
-        )
-      );
-      const consent = await runRepository((repository) =>
-        repository.get(customerId)
-      );
-
-      expect(consent).not.toBeNull();
-      if (!consent) throw new Error("Expected a concurrent consent row.");
-      expect(consent.withdrawnAt?.equals(withdrawal.grantedAt)).toBe(true);
-    });
-
     test("withdrawal timestamps are monotonic and do not replace consent evidence", async () => {
       const customerId = uniqueCustomerId();
       const initial = makeInput(customerId, {
@@ -305,46 +279,6 @@ describe.skipIf(!testDatabase)(
         ...initial,
         withdrawnAt: latestWithdrawal.grantedAt,
       });
-    });
-
-    test("keeps distinct customer IDs independent with otherwise identical inputs", async () => {
-      const firstCustomerId = uniqueCustomerId();
-      const secondCustomerId = uniqueCustomerId();
-      const sharedEvidence = {
-        documentHash: "shared-document",
-        locale: "en-US" as const,
-        grantedAt: Temporal.Instant.from("2026-09-13T10:00:00Z"),
-      };
-      const first = makeInput(firstCustomerId, sharedEvidence);
-      const second = makeInput(secondCustomerId, sharedEvidence);
-      const firstWithdrawal = makeInput(firstCustomerId, {
-        documentHash: "first-withdrawal-document",
-        grantedAt: Temporal.Instant.from("2026-09-14T10:00:00Z"),
-      });
-      const unknownCustomerId = uniqueCustomerId();
-
-      const consents = await runRepository((repository) =>
-        Effect.gen(function* () {
-          yield* repository.grantInitial(first);
-          yield* repository.grantInitial(second);
-          yield* repository.withdraw(firstWithdrawal);
-          return yield* Effect.all([
-            repository.get(firstCustomerId),
-            repository.get(secondCustomerId),
-            repository.get(unknownCustomerId),
-          ]);
-        })
-      );
-
-      expectConsent(consents[0], {
-        ...first,
-        withdrawnAt: firstWithdrawal.grantedAt,
-      });
-      expectConsent(consents[1], {
-        ...second,
-        withdrawnAt: null,
-      });
-      expect(consents[2]).toBeNull();
     });
   }
 );

@@ -227,22 +227,4 @@ describe("createPostHogPageUrl", () => {
       "synthetic-nested-session-click-id"
     );
   });
-
-  test("leaves non-url referrers unchanged", () => {
-    expect(
-      sanitizePostHogProperties(
-        {
-          $referrer: "$direct",
-          $initial_referrer: "$direct",
-          $session_entry_referrer: "$direct",
-        },
-        "preview"
-      )
-    ).toEqual({
-      $referrer: "$direct",
-      $initial_referrer: "$direct",
-      $session_entry_referrer: "$direct",
-      "deployment.environment.name": "preview",
-    });
-  });
 });

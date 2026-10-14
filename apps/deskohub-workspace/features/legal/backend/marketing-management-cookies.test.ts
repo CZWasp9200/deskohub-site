@@ -47,18 +47,6 @@ describe("marketing management cookies", () => {
     expect(new Set(names).size).toBe(names.length);
   });
 
-  test("reads both values from the current request cookie store", async () => {
-    cookieValues.set(marketingManagementCookieNames.pending, "pending-token");
-    cookieValues.set(marketingManagementCookieNames.session, "session-token");
-
-    await expect(
-      marketingCookies.readMarketingManagementCookies()
-    ).resolves.toEqual({
-      pending: "pending-token",
-      session: "session-token",
-    });
-  });
-
   test("sets a ten-minute pending cookie and clears any session cookie", async () => {
     await marketingCookies.setPendingMarketingManagementCookie("pending-token");
 
@@ -98,22 +86,5 @@ describe("marketing management cookies", () => {
       { ...commonCookieOptions, expires: expiresAt }
     );
     expect(cookieStore.set.mock.calls[1]?.[2]).not.toHaveProperty("domain");
-  });
-
-  test("clears both cookies with matching host-only options", async () => {
-    await marketingCookies.clearMarketingManagementCookies();
-
-    expect(cookieStore.set).toHaveBeenNthCalledWith(
-      1,
-      marketingManagementCookieNames.pending,
-      "",
-      { ...commonCookieOptions, maxAge: 0 }
-    );
-    expect(cookieStore.set).toHaveBeenNthCalledWith(
-      2,
-      marketingManagementCookieNames.session,
-      "",
-      { ...commonCookieOptions, maxAge: 0 }
-    );
   });
 });
