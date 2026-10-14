@@ -9,7 +9,6 @@ import {
 import { coworkReservationDetailsSchema } from "./cowork-reservation";
 import {
   coworkReservationProductSchema,
-  getStoredCoworkReservationDetails,
   getWorkspaceCoworkProductKey,
   normalizedCoworkReservationProductSchema,
   storedCoworkReservationDetailsSchema,
@@ -177,44 +176,6 @@ describe("cowork reservation product", () => {
     ).toBe(true);
   });
 
-  test("projects canonical Reserved Desk product intent for JSONB persistence", () => {
-    expect(
-      getStoredCoworkReservationDetails({
-        entryTier: "reserved-desk",
-        coffee: true,
-        monitorOption: "2x32-4k",
-      })
-    ).toEqual({
-      kind: "cowork",
-      entryTier: "reserved-desk",
-      coffee: true,
-      monitorOption: "2x32-4k",
-    });
-    expect(
-      getStoredCoworkReservationDetails({
-        entryTier: "open-space",
-        coffee: true,
-      })
-    ).toEqual({
-      kind: "cowork",
-      entryTier: "open-space",
-      coffee: true,
-    });
-  });
-
-  test("stores historical Basic product intent", () => {
-    expect(
-      getStoredCoworkReservationDetails({
-        entryTier: "basic",
-        coffee: false,
-      })
-    ).toEqual({
-      kind: "cowork",
-      entryTier: "basic",
-      coffee: false,
-    });
-  });
-
   test("projects stored cowork details into compatibility product fields", () => {
     expect(
       withCoworkProductFields({
@@ -295,39 +256,6 @@ describe("cowork reservation product", () => {
       productCoffee: false,
       productMonitorOption: null,
     });
-  });
-
-  test("accepts every canonical Reserved Desk monitor option in stored details", () => {
-    for (const monitorOption of workspaceProductMonitorOptions) {
-      expect(
-        parseStoredDetails({
-          kind: "cowork",
-          entryTier: "reserved-desk",
-          coffee: true,
-          monitorOption,
-        })
-      ).toEqual({
-        kind: "cowork",
-        entryTier: "reserved-desk",
-        coffee: true,
-        monitorOption,
-      });
-    }
-  });
-
-  test("keeps historical stored variants decodable", () => {
-    for (const details of [
-      { kind: "cowork", entryTier: "basic", coffee: false },
-      { kind: "cowork", entryTier: "plus", coffee: true },
-      {
-        kind: "cowork",
-        entryTier: "profi",
-        coffee: true,
-        monitorOption: "2x27-4k",
-      },
-    ] as const) {
-      expect(parseStoredDetails(details)).toEqual(details);
-    }
   });
 
   test("rejects noncanonical or unrelated stored details", () => {

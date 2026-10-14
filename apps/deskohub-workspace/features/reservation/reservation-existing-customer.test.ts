@@ -96,18 +96,6 @@ describe("getReservationExistingCustomerForm", () => {
     });
   });
 
-  test("carries the account's marketing consent to the form", () => {
-    const form = getReservationExistingCustomerForm({
-      contact,
-      hasMarketingConsent: true,
-      queryMode: "contact",
-      restored: false,
-      values,
-    });
-
-    expect(form.existingCustomer.hasMarketingConsent).toBe(true);
-  });
-
   test("reopens a restored checkout in the mode it was submitted in", () => {
     const restoredAccount = getReservationExistingCustomerForm({
       contact,

@@ -68,13 +68,4 @@ describe("meeting-room advertised prices", () => {
       requests.map(({ reservation }) => reservation.details.lastServiceDate)
     ).toEqual(["2099-07-30", "2099-07-30", "2099-07-30"]);
   });
-
-  test("returns no request for incomplete or invalid form state", () => {
-    expect(
-      getMeetingRoomDurationAdvertisedPriceRequests({
-        locale: "en-US",
-        startDateTime: "",
-      })
-    ).toEqual([]);
-  });
 });

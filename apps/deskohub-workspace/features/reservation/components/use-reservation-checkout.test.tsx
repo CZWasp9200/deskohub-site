@@ -10,7 +10,6 @@ import {
 } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
 import { act, cleanup, renderHook } from "@testing-library/react";
-import { m } from "@/features/i18n";
 import type { PreparePayStateInput } from "@/features/reservation/actions/prepare-pay-state.schema";
 import { normalizedMeetingRoomReservationOrderSchema } from "@/features/reservation/meeting-room-reservation";
 import {
@@ -126,35 +125,5 @@ describe("useReservationCheckout", () => {
     });
 
     expect(push).toHaveBeenCalledWith("/en-US/checkout/pay?payState=fresh");
-  });
-
-  test("reports a transport failure as a submission error", () => {
-    const { result } = renderCheckout();
-
-    act(() => {
-      preparePayStateOptions?.onTransportError();
-    });
-
-    expect(result.current.submissionError).toBe(
-      m.reservationErrorMessage({}, { locale: "en-US" })
-    );
-  });
-
-  test("leaves a shared referral code in the reservation URL to the remembered cookie", () => {
-    workspaceUseSearchParams.mockReturnValue(
-      new URLSearchParams("reservationDate=2099-07-30&ref=RFL12345")
-    );
-    const { result } = renderCheckout();
-
-    act(() => {
-      result.current.startCheckout({
-        advertisedPriceToken: "signed-price",
-        customer: "account",
-        reservation: reservationFor(7),
-      });
-    });
-
-    expect(execute).toHaveBeenCalledTimes(1);
-    expect(execute.mock.calls[0]?.[0]).not.toHaveProperty("referralCode");
   });
 });

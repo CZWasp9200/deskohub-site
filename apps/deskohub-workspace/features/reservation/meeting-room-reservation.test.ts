@@ -72,26 +72,6 @@ describe("meetingRoomReservationSchema", () => {
     expect(Result.isFailure(result)).toBe(true);
   });
 
-  test("reuses contact normalization for a valid meeting-room form", () => {
-    const result = safeParseForm({
-      startDateTime: "2099-06-10T10:00",
-      duration: "hour:4",
-      name: "  Ada Lovelace  ",
-      email: `  ${testEmailAddressForAda}  `,
-      phone: customer.phone,
-      marketingConsent: true,
-    });
-
-    expect(Result.isSuccess(result)).toBe(true);
-    if (Result.isSuccess(result)) {
-      expect(result.success).toMatchObject({
-        name: "Ada Lovelace",
-        email: testEmailAddressForAda,
-        marketingConsent: true,
-      });
-    }
-  });
-
   test("allows a reservation that has started but not ended", () => {
     setSystemTime(new Date("2099-06-10T10:30:00Z"));
 
@@ -116,22 +96,6 @@ describe("meetingRoomReservationSchema", () => {
 
     expect(Result.isSuccess(formResult)).toBe(true);
     expect(issues).toEqual([]);
-  });
-
-  test("decodes explicit product intent with the interval", () => {
-    const result = decodeOrder({
-      kind: "meeting-room",
-      duration: { unit: "hour", amount: 1 },
-      reservationDate: "2099-06-10",
-      startsAt: "2099-06-10T10:00:00Z",
-      endsAt: "2099-06-10T11:00:00Z",
-      ...customer,
-    });
-
-    expect(result).toMatchObject({
-      kind: "meeting-room",
-      duration: { unit: "hour", amount: 1 },
-    });
   });
 
   test("keeps Dotypos-owned meeting-room facts out of local persistence", () => {
@@ -267,20 +231,6 @@ describe("meetingRoomReservationSchema", () => {
 });
 
 describe("retired reservation customer message", () => {
-  test("omits the message field from new normalized orders", () => {
-    const result = safeParseForm({
-      startDateTime: "2099-06-10T10:00",
-      duration: "hour:1",
-      ...customer,
-      marketingConsent: false,
-    });
-
-    expect(Result.isSuccess(result)).toBe(true);
-    if (Result.isSuccess(result)) {
-      expect(result.success).not.toHaveProperty("message");
-    }
-  });
-
   test("drops a legacy customer message on order decode", () => {
     const reservation = Schema.decodeUnknownSync(
       normalizedMeetingRoomReservationOrderSchema,

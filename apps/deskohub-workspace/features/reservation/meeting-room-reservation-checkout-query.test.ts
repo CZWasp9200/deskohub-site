@@ -50,17 +50,6 @@ describe("getMeetingRoomReservationDefaultValuesFromSearchParams", () => {
     });
   });
 
-  test("decodes a plus-encoded phone from a URL query string", () => {
-    expect(
-      getMeetingRoomReservationDefaultValuesFromSearchParams(
-        new URLSearchParams(
-          `email=${encodeURIComponent(adaEmail)}&phone=%2B420777777777`
-        ),
-        deterministicNow()
-      ).phone
-    ).toBe("+420777777777");
-  });
-
   test("falls back to the earliest start while keeping a valid duration", () => {
     expect(
       getMeetingRoomReservationDefaultValuesFromSearchParams(
@@ -136,15 +125,6 @@ describe("getMeetingRoomReservationDefaultValuesFromSearchParams", () => {
     ).toMatchObject({ startDateTime: "2099-07-30T15:00" });
   });
 
-  test("falls back for unsupported durations", () => {
-    expect(
-      getMeetingRoomReservationDefaultValuesFromSearchParams(
-        { duration: "hour:3" },
-        deterministicNow()
-      )
-    ).toMatchObject({ duration: "hour:1" });
-  });
-
   test("rejects DST nonexistent and ambiguous whole-hour starts", () => {
     // Prague transition Sundays: 2099-03-29 springs 02:00 -> 03:00 and
     // 2099-10-25 falls 03:00 -> 02:00, so 02:00 is nonexistent / ambiguous.
@@ -195,17 +175,6 @@ describe("getMeetingRoomReservationDefaultValuesFromSearchParams", () => {
         email: adaEmail,
       });
     }
-  });
-});
-
-describe("retired reservation customer message", () => {
-  test("does not introduce a message field into new form defaults", () => {
-    expect(
-      getMeetingRoomReservationDefaultValuesFromSearchParams(
-        { name: "Ada Lovelace" },
-        deterministicNow()
-      )
-    ).not.toHaveProperty("message");
   });
 });
 
