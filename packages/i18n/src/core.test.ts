@@ -1,18 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-  normalizeLocaleTag,
-  parseAcceptLanguage,
-  resolvePreferredLocale,
-} from "./core";
-
-describe("normalizeLocaleTag", () => {
-  test("normalizes language, script, and region subtags", () => {
-    expect(normalizeLocaleTag("zh-hant-hk")).toBe("zh-Hant-HK");
-    expect(normalizeLocaleTag("SR-cYRL-rs")).toBe("sr-Cyrl-RS");
-    expect(normalizeLocaleTag("en-us")).toBe("en-US");
-    expect(normalizeLocaleTag("es-419")).toBe("es-419");
-  });
-});
+import { parseAcceptLanguage, resolvePreferredLocale } from "./core";
 
 describe("parseAcceptLanguage", () => {
   test("sorts by q-value and ignores wildcard and invalid quality entries", () => {

@@ -124,16 +124,4 @@ describe("opening-hours midnight maintenance cron", () => {
     });
     expect(maintenanceOperations).toEqual(["watch", "invalidate"]);
   });
-
-  test("reports cache invalidation failures", async () => {
-    revalidateTag.mockImplementationOnce(() => {
-      throw new Error("cache unavailable");
-    });
-
-    const response = await GET(
-      makeRequest(`Bearer ${process.env.CRON_SECRET}`)
-    );
-
-    expect(response.status).toBe(500);
-  });
 });

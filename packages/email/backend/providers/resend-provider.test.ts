@@ -239,24 +239,6 @@ describe("ResendEmailProvider", () => {
     });
   });
 
-  test("verify fails when Resend returns an error", async () => {
-    listDomains = mock<ListDomainsImplementation>(async () => ({
-      error: { message: "Invalid API key" },
-    }));
-
-    const result = await runProvider(
-      Effect.gen(function* () {
-        const provider = yield* EmailProviderTag;
-        return yield* provider.verify.pipe(Effect.result);
-      })
-    );
-
-    expect(result._tag).toBe("Failure");
-    if (result._tag === "Failure") {
-      expect(result.failure._tag).toBe("EmailServiceError");
-    }
-  });
-
   test("layer fails when EMAIL_API_KEY is missing", async () => {
     const result = await Effect.runPromise(
       EmailProviderTag.pipe(

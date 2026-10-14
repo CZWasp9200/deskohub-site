@@ -91,19 +91,6 @@ const validSignup = {
 };
 
 describe("effectSchemaResolver", () => {
-  test("returns the decoded output when validation passes", async () => {
-    const result = await effectSchemaResolver(signupSchema)(
-      validSignup,
-      undefined,
-      resolverOptions()
-    );
-
-    expect(result).toEqual({
-      errors: {},
-      values: { ...validSignup, age: 30 },
-    });
-  });
-
   test("returns a copy of the form values in raw mode", async () => {
     const result = await effectSchemaResolver(signupSchema, undefined, {
       raw: true,

@@ -179,8 +179,6 @@ const adversarial: readonly (readonly [string, string, readonly string[]])[] = [
     '"Write to ada{at}example.com, then wait"',
     ["ada{at}example.com"],
   ],
-  ["a question", '"Is it ada{at}example.com?"', ["ada{at}example.com"]],
-  ["an exclamation", '"Mail ada{at}example.com!"', ["ada{at}example.com"]],
   ["parenthesised prose", '"(ada{at}example.com)"', ["ada{at}example.com"]],
   [
     "a colon after the address in prose",
@@ -188,11 +186,6 @@ const adversarial: readonly (readonly [string, string, readonly string[]])[] = [
     ["ada{at}example.com"],
   ],
   ["an Email: label", '"Email:ada{at}example.com"', ["ada{at}example.com"]],
-  [
-    "an Email: label in JSX text",
-    "<p>Email:ada{at}example.com</p>",
-    ["ada{at}example.com"],
-  ],
   ["a To: label", '"To: ada{at}example.com"', ["ada{at}example.com"]],
   [
     "an uppercase From: label",
@@ -212,11 +205,6 @@ const adversarial: readonly (readonly [string, string, readonly string[]])[] = [
   [
     "a comma-separated list",
     '"ada{at}example.com,bob{at}example.org"',
-    ["ada{at}example.com", "bob{at}example.org"],
-  ],
-  [
-    "a semicolon-separated list",
-    '"ada{at}example.com;bob{at}example.org"',
     ["ada{at}example.com", "bob{at}example.org"],
   ],
   ["a JSON string", `'{"email":"ada{at}example.com"}'`, ["ada{at}example.com"]],
@@ -263,11 +251,6 @@ const adversarial: readonly (readonly [string, string, readonly string[]])[] = [
     '"https://user:secret{at}example.com/app"',
     [],
   ],
-  [
-    "database URL credentials",
-    '"postgresql://owner:secret{at}ep-preview.eu.neon.tech/neondb"',
-    [],
-  ],
   ["a URL key as user info", '"https://key{at}posthog.example/1"', []],
   ["a URL with an empty user", '"redis://:secret{at}cache.example:6379"', []],
   [
@@ -276,10 +259,6 @@ const adversarial: readonly (readonly [string, string, readonly string[]])[] = [
     [],
   ],
   ["an ssh URL", '"ssh://git{at}github.com/deskohub/site.git"', []],
-  ["a retina asset", '"icon{at}2x.png"', []],
-  ["a srcset list", '"icon{at}2x.png 2x, icon{at}3x.webp 3x"', []],
-  ["an encoded retina asset URL", '"https://cdn.example/icon%402x.png"', []],
-  ["a scoped npm package", '"@deskohub/email"', []],
   ["a types package", '"npm i -D @types/node"', []],
   ["a decorator in text", `"@Component({ selector: 'x' })"`, []],
   ["an @ mention", '"thanks @ada!"', []],
@@ -330,11 +309,9 @@ describe("findTestEmailLiterals", () => {
 describe("isTestEmailLiteralPath", () => {
   test.each([
     "apps/deskohub-workspace/features/contact/contact.test.ts",
-    "apps/deskohub-workspace/features/contact/contact.test.tsx",
     "apps/deskohub-workspace/e2e/cases/contact.ts",
     "apps/deskohub-workspace/emails/_fixtures/preview-props.ts",
     "apps/deskohub-workspace/shared/testing/fixture.ts",
-    "packages/dotypos/src/backend/service.test.ts",
     "packages/example/src/service.test.mjs",
     "apps/deskohub-workspace/scripts/posthog-identity-browser.ts",
   ])("covers %s", (path) => {

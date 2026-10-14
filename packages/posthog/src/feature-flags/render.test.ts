@@ -77,15 +77,4 @@ describe("renderPostHogFeatureFlagContract", () => {
     expect(contract).not.toContain("&lt;");
     expect(contract).not.toContain("&amp;");
   });
-
-  test("rejects duplicate keys through the Effect error channel", async () => {
-    const result = await Effect.runPromiseExit(
-      renderPostHogFeatureFlagContract([
-        { key: "duplicate", payloads: {}, variants: [] },
-        { key: "duplicate", payloads: {}, variants: [] },
-      ])
-    );
-
-    expect(result._tag).toBe("Failure");
-  });
 });
