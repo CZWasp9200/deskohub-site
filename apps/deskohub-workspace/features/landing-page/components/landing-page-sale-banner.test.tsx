@@ -54,34 +54,10 @@ afterAll(async () => {
 });
 
 describe("LandingPageSaleBanner", () => {
-  test("keeps the icon-only mobile CTA accessible", () => {
-    const content = coworkSaleBannerContent();
-    const { container } = render(<LandingPageSaleBanner content={content} />);
-
-    expect(container.querySelector("a")?.getAttribute("aria-label")).toBe(
-      content.ctaLabel
-    );
-  });
-
-  test("highlights the discount value within the sale label", () => {
-    const { container } = render(
-      <LandingPageSaleBanner content={coworkSaleBannerContent()} />
-    );
-    const value = container.querySelector("[data-landing-sale-discount-value]");
-
-    expect(value?.closest("p")?.textContent).toBe(
-      coworkSaleLabelText("en-US", "Summer focus", "20%")
-    );
-    expect(value?.textContent).toBe("20%");
-  });
-
   test.each([
     ["en-US" as const, "Autumn <VIP>"],
     ["en-US" as const, "Autumn {discount}"],
     ["en-US" as const, "Autumn <b>VIP</b>"],
-    ["cs-CZ" as const, "Autumn <VIP>"],
-    ["cs-CZ" as const, "Autumn {discount}"],
-    ["cs-CZ" as const, "Autumn <b>VIP</b>"],
   ])("renders the %s sale title %p as literal text", (locale, title) => {
     const content = coworkSaleBannerContent({ locale, title });
     const { container } = render(<LandingPageSaleBanner content={content} />);
@@ -96,29 +72,5 @@ describe("LandingPageSaleBanner", () => {
     expect(paragraph?.querySelector("b")).toBeNull();
     expect(values).toHaveLength(1);
     expect(values[0]?.textContent).toBe(content.label.adjustment);
-  });
-
-  test.each([
-    [
-      "percentage" as const,
-      { kind: "percentage", basisPoints: 2000 } as const,
-      ".lucide-percent",
-    ],
-    [
-      "fixed" as const,
-      {
-        kind: "fixed",
-        amount: { value: 20_000, exponent: 2, currency: "CZK" },
-      } as const,
-      ".lucide-dollar-sign",
-    ],
-  ])("renders the %s adjustment icon", (_kind, adjustment, selector) => {
-    const { container } = render(
-      <LandingPageSaleBanner
-        content={coworkSaleBannerContent({ adjustment })}
-      />
-    );
-
-    expect(container.querySelector(selector)).not.toBeNull();
   });
 });

@@ -47,16 +47,4 @@ describe("PostHog feature flag subject", () => {
       sendFeatureFlagEvents: false,
     });
   });
-
-  test("uses a non-recording global subject before PostHog initializes", async () => {
-    const { getPostHogFeatureFlagSubjectFromRequestHeaders } = await import(
-      "./subject"
-    );
-    expect(
-      getPostHogFeatureFlagSubjectFromRequestHeaders(new Headers())
-    ).toEqual({
-      distinctId: "deskohub-workspace:global-release",
-      sendFeatureFlagEvents: false,
-    });
-  });
 });

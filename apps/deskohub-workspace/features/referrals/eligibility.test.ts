@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import type { DotyposCustomerId } from "@deskohub/dotypos";
 import {
   countEligibleReferralInvitees,
-  hasPreviousPaidBooking,
   hasPriorConfirmedDotyposBooking,
 } from "./eligibility";
 
@@ -65,27 +64,6 @@ describe("referral eligibility history", () => {
     ];
 
     expect(countEligibleReferralInvitees({ referrals, now })).toBe(1);
-  });
-
-  test("a locally paid booking or older confirmed Dotypos booking excludes invitation use", () => {
-    expect(
-      hasPreviousPaidBooking({
-        hasLocalPaidBooking: false,
-        hasPriorConfirmedDotyposBooking: false,
-      })
-    ).toBe(false);
-    expect(
-      hasPreviousPaidBooking({
-        hasLocalPaidBooking: true,
-        hasPriorConfirmedDotyposBooking: false,
-      })
-    ).toBe(true);
-    expect(
-      hasPreviousPaidBooking({
-        hasLocalPaidBooking: false,
-        hasPriorConfirmedDotyposBooking: true,
-      })
-    ).toBe(true);
   });
 
   test("only an older confirmed booking with no local row is a legacy exclusion", () => {

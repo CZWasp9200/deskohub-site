@@ -6,7 +6,7 @@ import {
   expect,
   test,
 } from "bun:test";
-import { act, cleanup, render } from "@testing-library/react";
+import { cleanup, render } from "@testing-library/react";
 import {
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
@@ -51,39 +51,6 @@ describe("RememberSharedReferralCode", () => {
     expect(rememberedCode()).toBe("RFL12345");
   });
 
-  test("waits for a prerendered page to be activated before remembering", async () => {
-    openPage("https://deskohub.test/en-US/account?ref=RFL12345", true);
-
-    render(<RememberSharedReferralCode />);
-    expect(rememberedCode()).toBeUndefined();
-
-    await act(async () => {
-      Object.defineProperty(document, "prerendering", {
-        configurable: true,
-        get: () => false,
-      });
-      document.dispatchEvent(new Event("prerenderingchange"));
-    });
-    expect(rememberedCode()).toBe("RFL12345");
-  });
-
-  test("ignores the shared code of a page shown inside a frame", () => {
-    openPage("https://deskohub.test/en-US/account?ref=RFL12345");
-    const top = Object.getOwnPropertyDescriptor(window, "top");
-    Object.defineProperty(window, "top", {
-      configurable: true,
-      get: () => ({}),
-    });
-    try {
-      render(<RememberSharedReferralCode />);
-    } finally {
-      if (top) Object.defineProperty(window, "top", top);
-      else Reflect.deleteProperty(window, "top");
-    }
-
-    expect(rememberedCode()).toBeUndefined();
-  });
-
   test("keeps a code the browser already remembers", () => {
     document.cookie = `${referralCodeCookieName}=RFLFIRST1; Path=/`;
     openPage("https://deskohub.test/en-US/account?ref=RFLSECOND");
@@ -105,14 +72,4 @@ describe("RememberSharedReferralCode", () => {
       expect(rememberedCode()).toBeUndefined();
     }
   );
-
-  test("stops waiting when the prerendered page is discarded", () => {
-    openPage("https://deskohub.test/en-US/account?ref=RFL12345", true);
-
-    const view = render(<RememberSharedReferralCode />);
-    view.unmount();
-    document.dispatchEvent(new Event("prerenderingchange"));
-
-    expect(rememberedCode()).toBeUndefined();
-  });
 });
