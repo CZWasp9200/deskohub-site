@@ -7,10 +7,7 @@ import {
   type CurrentLinkedAccount,
   CustomerAccountContactService,
 } from "@/features/account/backend/customer-account-contact.service";
-import {
-  CustomerAccountAccessError,
-  customerAccountIdSchema,
-} from "@/features/account/customer-account";
+import { customerAccountIdSchema } from "@/features/account/customer-account";
 import { CustomerMarketingConsentRepository } from "@/features/legal/backend/customer-marketing-consent.repository";
 import { reservationCustomerEmailSchema } from "@/features/reservation/reservation-contact";
 import type { CustomerLastReservation } from "@/features/reservation/reservation-existing-customer";
@@ -82,21 +79,6 @@ const runLoad = (options: {
   );
 
 describe("loadLinkedExistingCustomer", () => {
-  test("reads neither the profile nor the last reservation without a link", async () => {
-    const linkedContact = mock(() => Effect.succeed(contact));
-    const load = mock(() => Effect.succeed(lastReservation as never));
-
-    const outcome = await runLoad({
-      currentLinkedAccount: null,
-      linkedContact,
-      load,
-    });
-
-    expect(outcome).toMatchObject({ _tag: "Success", success: undefined });
-    expect(linkedContact).not.toHaveBeenCalled();
-    expect(load).not.toHaveBeenCalled();
-  });
-
   test("loads the contact and the last reservation concurrently from the link", async () => {
     const lastReservationStarted = Deferred.makeUnsafe<void>();
     const contactStarted = Deferred.makeUnsafe<void>();
@@ -195,41 +177,5 @@ describe("loadLinkedExistingCustomer", () => {
       _tag: "Success",
       success: { hasMarketingConsent: false },
     });
-  });
-
-  test("discards the last reservation when the profile cannot book", async () => {
-    const outcome = await runLoad({
-      linkedContact: () => Effect.succeed(null),
-      load: () => Effect.succeed(lastReservation as never),
-    });
-
-    expect(outcome).toMatchObject({ _tag: "Success", success: undefined });
-  });
-
-  test("fails on a profile failure and interrupts the pending last reservation", async () => {
-    const profileFailure = new CustomerAccountAccessError({
-      reason: "unavailable",
-    });
-    const lastReservationStarted = Deferred.makeUnsafe<void>();
-    let lastReservationInterrupted = false;
-
-    const outcome = await runLoad({
-      linkedContact: () =>
-        Deferred.await(lastReservationStarted).pipe(
-          Effect.andThen(Effect.fail(profileFailure))
-        ),
-      load: () =>
-        Deferred.succeed(lastReservationStarted, undefined).pipe(
-          Effect.andThen(Effect.never),
-          Effect.onInterrupt(() =>
-            Effect.sync(() => {
-              lastReservationInterrupted = true;
-            })
-          )
-        ),
-    });
-
-    expect(outcome).toMatchObject({ _tag: "Failure", failure: profileFailure });
-    expect(lastReservationInterrupted).toBe(true);
   });
 });

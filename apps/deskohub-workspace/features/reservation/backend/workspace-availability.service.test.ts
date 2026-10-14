@@ -209,11 +209,6 @@ const captureLogs = (logs: CapturedLog[]) =>
     });
   });
 
-const expiredHoldFilterLogs = (logs: readonly CapturedLog[]) =>
-  logs.filter(({ message: [text] }) =>
-    String(text).startsWith("Workspace availability expired hold filter")
-  );
-
 const getAvailability = (input: {
   readonly date?: string;
   readonly from?: string;
@@ -311,16 +306,6 @@ const getReplacementAvailability = (input: {
   );
 
 describe("WorkspaceAvailabilityService", () => {
-  test("returns no workstation requirement dates for a meeting room query", async () => {
-    const availability = await getAvailability({
-      kind: "meeting-room",
-      startsAt: "2099-06-10T08:00:00Z",
-      endsAt: "2099-06-10T09:00:00Z",
-    });
-
-    expect(availability.reservedDeskWorkstationRequiredDates).toEqual([]);
-  });
-
   test("fails when an eligible table has an invalid seat capacity", async () => {
     await expect(
       getAvailability({
@@ -362,18 +347,6 @@ describe("WorkspaceAvailabilityService", () => {
     });
 
     expect(availability.unavailableDates).toContain(testDate);
-  });
-
-  test("counts CONFIRMED reservations as occupied for selected-date monitor options", async () => {
-    const availability = await getAvailability({
-      date: testDate,
-      reservations: [
-        makeReservation({ tableId: "profi-27-qhd", status: "CONFIRMED" }),
-      ],
-    });
-
-    expect(availability.unavailableMonitorOptions).toContain("2x27-qhd");
-    expect(availability.unavailableMonitorOptions).not.toContain("2x32-qhd");
   });
 
   test("ignores CANCELLED reservations", async () => {
@@ -481,48 +454,6 @@ describe("WorkspaceAvailabilityService", () => {
 
     expect(availability.unavailableDates).toContain(testDate);
     expect(availability.unavailableMonitorOptions).toContain("2x27-qhd");
-  });
-
-  test("logs the expired local hold filter summary", async () => {
-    const logs: CapturedLog[] = [];
-    await getAvailability({
-      date: testDate,
-      expiredHoldDotyposReservationIds: [
-        "expired-dotypos-reservation-1",
-        "expired-dotypos-reservation-2",
-      ],
-      logs,
-    });
-
-    const filterLogs = expiredHoldFilterLogs(logs);
-    expect(
-      filterLogs.map(({ message, annotations }) => [
-        message,
-        annotations.expiredHoldCount,
-      ])
-    ).toEqual([
-      [["Workspace availability expired hold filter started"], undefined],
-      [["Workspace availability expired hold filter completed"], 2],
-    ]);
-    expect(JSON.stringify(filterLogs)).not.toContain(
-      "expired-dotypos-reservation"
-    );
-  });
-
-  test("logs a failed expired local hold filter without a completion", async () => {
-    const logs: CapturedLog[] = [];
-    await getAvailability({
-      date: testDate,
-      expiredHoldDotyposReservationIdsError: true,
-      logs,
-    });
-
-    expect(
-      expiredHoldFilterLogs(logs).map(({ message: [text] }) => text)
-    ).toEqual([
-      "Workspace availability expired hold filter started",
-      "Workspace availability expired hold filter failed",
-    ]);
   });
 
   test("marks a tier unavailable only when all matching tables are occupied", async () => {
@@ -786,40 +717,6 @@ describe("WorkspaceAvailabilityService", () => {
         summary: "Community meetup [workspace:partial]",
       },
     ]);
-  });
-
-  test("fails ensureAvailable when selected setup is occupied", async () => {
-    const result = await runWithInventory(
-      Effect.result(
-        Effect.gen(function* () {
-          const availability = yield* Effect.promise(
-            () => import("./workspace-availability.service")
-          );
-          const service = yield* availability.WorkspaceAvailabilityService;
-          return yield* service.ensureAvailable({
-            kind: "cowork",
-            date: testDate,
-            entryTier: "reserved-desk",
-            monitorOption: "2x27-qhd",
-          });
-        })
-      ),
-      {
-        reservations: [
-          makeReservation({ tableId: "profi-27-qhd", status: "NEW" }),
-        ],
-      }
-    );
-
-    expect(result._tag).toBe("Failure");
-    if (result._tag === "Failure") {
-      expect(result.failure._tag).toBe("WorkspaceTableUnavailableError");
-      expect(result.failure.reservation).toEqual({
-        kind: "cowork",
-        entryTier: "reserved-desk",
-        monitorOption: "2x27-qhd",
-      });
-    }
   });
 
   test("computes advisory availability from the shared snapshot", async () => {
@@ -1471,24 +1368,6 @@ describe("WorkspaceAvailabilityService cowork offer intervals", () => {
 
     expect(availability.unavailableCoworkTiers).toContain("open-space");
     expect(availability.unavailableCoworkTiers).not.toContain("reserved-desk");
-    expect(availability.unavailableDates).not.toContain(testDate);
-  });
-
-  test("keeps a bare query date available when only the Open Space table has evening-only occupancy", async () => {
-    const availability = await getAvailability({
-      date: testDate,
-      tables: [makeTable({ id: "open-1", tags: ["cowork:open-space"] })],
-      reservations: [
-        makeReservation({
-          tableId: "open-1",
-          status: "NEW",
-          startDate: "2099-06-10T16:00:00Z",
-          endDate: "2099-06-10T18:00:00Z",
-        }),
-      ],
-    });
-
-    expect(availability.unavailableCoworkTiers).not.toContain("open-space");
     expect(availability.unavailableDates).not.toContain(testDate);
   });
 

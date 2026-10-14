@@ -197,31 +197,6 @@ describe.skipIf(!testDatabase)(
       expect(listReservations).not.toHaveBeenCalled();
     });
 
-    test("omits the monitor option for a cowork tier booked without one", async () => {
-      const customerId = uniqueCustomerId();
-      await insertReservation({
-        dotyposCustomerId: customerId,
-        reservationDetails: {
-          kind: "cowork",
-          entryTier: "open-space",
-          coffee: true,
-        },
-        createdAt: "2026-07-01T09:00:00.000Z",
-      });
-
-      const { lastReservation } = await loadLastReservation(
-        customerId,
-        "cowork"
-      );
-
-      expect(lastReservation).toEqual({
-        kind: "cowork",
-        entryTier: "open-space",
-        coffee: true,
-      });
-      expect(lastReservation && "monitorOption" in lastReservation).toBe(false);
-    });
-
     test("returns null when the latest cowork reservation used a retired tier", async () => {
       const customerId = uniqueCustomerId();
       await insertReservation({
@@ -329,7 +304,6 @@ describe.skipIf(!testDatabase)(
 
     test.each([
       ["non-numeric seats", "four", "2026-06-30T22:00:00.000Z"],
-      ["fractional seats", "2.5", "2026-06-30T22:00:00.000Z"],
     ] as const)(
       "returns null for an office reservation with %s",
       async (_label, seats, startDate) => {

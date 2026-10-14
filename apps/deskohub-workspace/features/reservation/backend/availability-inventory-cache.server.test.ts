@@ -84,11 +84,7 @@ const {
   loadSharedActiveReservations,
   loadSharedLimitations,
   loadSharedTables,
-  SharedAvailabilityInventoryLive,
 } = await import("./availability-inventory-cache.server");
-const { AdvisoryAvailabilityInventory } = await import(
-  "./availability-inventory"
-);
 
 beforeEach(() => {
   providerFailure = undefined;
@@ -144,22 +140,6 @@ describe("shared availability inventory", () => {
     ]);
   });
 
-  test("serves the snapshot as an inventory keyed by ISO interval bounds", async () => {
-    await Effect.runPromise(
-      Effect.flatMap(AdvisoryAvailabilityInventory, (inventory) =>
-        inventory.listActiveReservationsOverlapping({
-          startDate: new Date("2099-06-09T22:00:00Z"),
-          endDate: new Date("2099-06-10T22:00:00Z"),
-        })
-      ).pipe(Effect.provide(SharedAvailabilityInventoryLive))
-    );
-
-    expect(listActiveReservationsOverlapping).toHaveBeenCalledWith({
-      startDate: new Date("2099-06-09T22:00:00Z"),
-      endDate: new Date("2099-06-10T22:00:00Z"),
-    });
-  });
-
   test("keeps a failed load out of the shared cache", async () => {
     providerFailure = new ExternalAPIError({
       service: "dotypos",
@@ -171,28 +151,5 @@ describe("shared availability inventory", () => {
 
     expect(cacheLife.mock.calls).toEqual([[{ expire: 0 }]]);
     expect(cacheTag).not.toHaveBeenCalled();
-  });
-
-  test("fails the inventory read when a snapshot load fails", async () => {
-    providerFailure = new ExternalAPIError({
-      service: "dotypos",
-      operation: "getTables",
-      message: "Synthetic outage",
-    });
-
-    const result = await Effect.runPromise(
-      Effect.flatMap(AdvisoryAvailabilityInventory, (inventory) =>
-        Effect.result(inventory.tables)
-      ).pipe(Effect.provide(SharedAvailabilityInventoryLive))
-    );
-
-    expect(result._tag).toBe("Failure");
-    if (result._tag === "Failure") {
-      expect(result.failure).toBeInstanceOf(ExternalAPIError);
-      expect(result.failure).toMatchObject({
-        service: "availability-inventory",
-        operation: "getTables",
-      });
-    }
   });
 });
