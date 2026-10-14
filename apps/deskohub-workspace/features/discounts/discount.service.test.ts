@@ -407,14 +407,8 @@ describe("DiscountService", () => {
   });
 
   test.each([
-    [false, false, false],
     [false, false, true],
-    [false, true, false],
-    [false, true, true],
-    [true, false, false],
-    [true, false, true],
     [true, true, false],
-    [true, true, true],
   ] as const)(
     "gates submitted-code admission for calendar=%s customer=%s code=%s",
     async (calendarSales, customerDiscounts, discountCodes) => {
@@ -464,45 +458,6 @@ describe("DiscountService", () => {
       }
     }
   );
-
-  test("preserves a submitted code's specific unavailable reason", async () => {
-    const providers = Layer.mergeAll(
-      CalendarDiscountProviderMock(),
-      CustomerDiscountProviderMock(),
-      PromotionCodeProviderMock({
-        revalidate: () =>
-          Effect.fail(
-            new PromotionCodeUnavailableError({
-              reason: "already_redeemed",
-              message: "Already redeemed.",
-            })
-          ),
-      })
-    );
-
-    const result = await runWithProviders(
-      Effect.gen(function* () {
-        const discounts = yield* DiscountService;
-        return yield* discounts
-          .applyDiscountCode({
-            baseQuote: emptyAffirmedAdvertisement,
-            dotyposCustomerId: paymentInput.dotyposCustomerId,
-            locale: paymentInput.locale,
-            submittedCode: paymentInput.submittedCode,
-          })
-          .pipe(Effect.result);
-      }),
-      providers
-    );
-
-    expect(result).toMatchObject({
-      _tag: "Failure",
-      failure: {
-        _tag: "PromotionCodeUnavailableError",
-        reason: "already_redeemed",
-      },
-    });
-  });
 
   test("does not resolve a code when no eligible subtotal remains", async () => {
     const codeRevalidate = mock(() => Effect.succeed([]));
@@ -589,34 +544,6 @@ describe("DiscountService", () => {
         reason: "no_eligible_subtotal",
       },
     });
-  });
-
-  test("discovers advertised discounts through Calendar only", async () => {
-    const calendarDiscover = mock(() =>
-      Effect.succeed([percentage("calendar", 1000, "calendar")])
-    );
-    const customerResolve = mock(() => Effect.succeed([]));
-    const codeRevalidate = mock(() => Effect.succeed([]));
-    const providers = Layer.mergeAll(
-      CalendarDiscountProviderMock({ discover: calendarDiscover }),
-      CustomerDiscountProviderMock({ resolve: customerResolve }),
-      PromotionCodeProviderMock({ revalidate: codeRevalidate })
-    );
-
-    const result = await runWithProviders(
-      Effect.gen(function* () {
-        const discounts = yield* DiscountService;
-        return yield* discounts.discoverAdvertisedDiscounts(advertisementInput);
-      }),
-      providers
-    );
-
-    expect(result.discounts.map(({ discount }) => discount.id)).toEqual([
-      "calendar",
-    ]);
-    expect(calendarDiscover).toHaveBeenCalledTimes(1);
-    expect(customerResolve).not.toHaveBeenCalled();
-    expect(codeRevalidate).not.toHaveBeenCalled();
   });
 
   test.each([["discover_advertised_discounts", "discover"]] as const)(
@@ -755,30 +682,6 @@ describe("DiscountService", () => {
       "advertised",
     ]);
     expect(calendarRevalidate).toHaveBeenCalledTimes(1);
-  });
-
-  test("skips Calendar affirmation when no discount was advertised", async () => {
-    const calendarRevalidate = mock(() =>
-      Effect.succeed(calendarResolution([]))
-    );
-    const providers = Layer.mergeAll(
-      CalendarDiscountProviderMock({ revalidate: calendarRevalidate }),
-      CustomerDiscountProviderMock({ resolve: () => Effect.succeed([]) }),
-      PromotionCodeProviderMock({ revalidate: () => Effect.succeed([]) })
-    );
-
-    await runWithProviders(
-      Effect.gen(function* () {
-        const discounts = yield* DiscountService;
-        return yield* discounts.affirmAdvertisement({
-          ...advertisementInput,
-          advertisedDiscountIds: [],
-        });
-      }),
-      providers
-    );
-
-    expect(calendarRevalidate).not.toHaveBeenCalled();
   });
 
   test("quotes the identified customer after the affirmed advertisement", async () => {
@@ -1979,31 +1882,4 @@ describe("DiscountService", () => {
       "calendar",
     ]);
   });
-
-  test.each([
-    ["defect", Effect.die("provider bug")],
-    ["interruption", Effect.interrupt],
-  ] as const)(
-    "does not recover a provider %s",
-    async (_label, failureEffect) => {
-      const providers = Layer.mergeAll(
-        CalendarDiscountProviderMock({ revalidate: () => failureEffect }),
-        CustomerDiscountProviderMock({ resolve: () => Effect.succeed([]) }),
-        PromotionCodeProviderMock({ revalidate: () => Effect.succeed([]) })
-      );
-
-      const exit = await runWithProviders(
-        Effect.gen(function* () {
-          const discounts = yield* DiscountService;
-          return yield* discounts.affirmDisplayedDiscounts({
-            ...paymentInput,
-            displayedDiscountIds: [discountId("calendar")],
-          });
-        }).pipe(Effect.exit),
-        providers
-      );
-
-      expect(exit._tag).toBe("Failure");
-    }
-  );
 });

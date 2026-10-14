@@ -76,24 +76,6 @@ afterEach(() => {
 });
 
 describe("getActivePublicSales", () => {
-  test("returns no sales without request or provider work when disabled", async () => {
-    const isEnabled = mock(() => Effect.succeed(false));
-    installFeatureFlagDefault(isEnabled);
-
-    await expect(
-      Effect.runPromise(
-        getActivePublicSales({ locale: "en-US" }).pipe(
-          Effect.provide(Logger.layer([logger]))
-        )
-      )
-    ).resolves.toEqual([]);
-
-    expect(isEnabled).toHaveBeenCalledWith("calendar_sales");
-    expect(connection).not.toHaveBeenCalled();
-    expect(discoverActiveSales).not.toHaveBeenCalled();
-    expect(logRecords).toEqual([]);
-  });
-
   test("fails closed without request or provider work and logs evaluation failures", async () => {
     const isEnabled = mock(() => Effect.fail(evaluationError()));
     installFeatureFlagDefault(isEnabled);

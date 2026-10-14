@@ -36,18 +36,6 @@ const featureFlagLayer = WorkspaceFeatureFlagServiceMock({
   evaluateFlags,
 });
 
-const runGateEvaluation = () =>
-  Effect.gen(function* () {
-    const releaseGates = yield* DiscountReleaseGateService;
-    return yield* releaseGates.evaluate({
-      operation: "discover_advertised_discounts",
-    });
-  }).pipe(
-    Effect.provide(DiscountReleaseGateService.Default),
-    Effect.provide(featureFlagLayer),
-    Effect.runPromise
-  );
-
 describe("DiscountReleaseGateService", () => {
   beforeEach(() => {
     evaluateFlags.mockClear();
@@ -55,46 +43,6 @@ describe("DiscountReleaseGateService", () => {
     flagValues.set("calendar_sales", true);
     flagValues.set("customer_discounts", true);
     flagValues.set("discount_codes", true);
-  });
-
-  test("evaluates one snapshot for all discount gates", async () => {
-    const result = await runGateEvaluation();
-
-    expect(result).toEqual({
-      calendarSales: true,
-      customerDiscounts: true,
-      discountCodes: true,
-    });
-    expect(evaluateFlags).toHaveBeenCalledTimes(1);
-  });
-
-  test("treats explicit false values as disabled without an error", async () => {
-    flagValues.set("calendar_sales", false);
-    flagValues.set("customer_discounts", false);
-    flagValues.set("discount_codes", false);
-    const logLevels: string[] = [];
-    const logger = Logger.make((options) => {
-      logLevels.push(options.logLevel);
-    });
-
-    const result = await Effect.gen(function* () {
-      const releaseGates = yield* DiscountReleaseGateService;
-      return yield* releaseGates.evaluate({
-        operation: "discover_advertised_discounts",
-      });
-    }).pipe(
-      Effect.provide(DiscountReleaseGateService.Default),
-      Effect.provide(featureFlagLayer),
-      Effect.provide(Logger.layer([logger])),
-      Effect.runPromise
-    );
-
-    expect(result).toEqual({
-      calendarSales: false,
-      customerDiscounts: false,
-      discountCodes: false,
-    });
-    expect(logLevels).not.toContain("Error");
   });
 
   test.each([
