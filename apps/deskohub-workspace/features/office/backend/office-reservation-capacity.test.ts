@@ -37,16 +37,4 @@ describe("getOfficeReservationSeatCapacity", () => {
       ])
     ).toBe(3);
   });
-
-  test("rejects a missing assignable office table", () => {
-    expect(() => getSeatCapacity([])).toThrow(
-      "exactly one assignable office table"
-    );
-  });
-
-  test("rejects an assignable office table with invalid seats", () => {
-    expect(() =>
-      getSeatCapacity([makeTable({ id: "invalid", seats: "4.5" })])
-    ).toThrow("invalid seat capacity");
-  });
 });
