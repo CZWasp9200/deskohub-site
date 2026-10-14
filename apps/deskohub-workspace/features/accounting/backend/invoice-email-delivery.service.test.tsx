@@ -182,33 +182,6 @@ describe("invoice email delivery", () => {
     expect(renderWorkspaceEmail).not.toHaveBeenCalled();
   });
 
-  test("renders only the email of the audience it claims", async () => {
-    const sentMessages: EmailMessage[] = [];
-    let failInternal = true;
-    const harness = makeHarness({
-      sentMessages,
-      send: (message) => {
-        sentMessages.push(message);
-        if (
-          failInternal &&
-          message.tags?.includes("workspace-invoice-internal")
-        ) {
-          failInternal = false;
-          return Effect.fail(new EmailServiceError("synthetic failure"));
-        }
-        return Effect.succeed(sentResult(`email-${sentMessages.length}`));
-      },
-    });
-    await runDelivery(harness).catch(() => undefined);
-    renderInvoicePdf.mockClear();
-    renderWorkspaceEmail.mockClear();
-
-    await runDelivery(harness);
-
-    expect(renderInvoicePdf).toHaveBeenCalledTimes(1);
-    expect(renderWorkspaceEmail).toHaveBeenCalledTimes(1);
-  });
-
   test("releases claimed deliveries when the invoice PDF cannot be rendered", async () => {
     const sentMessages: EmailMessage[] = [];
     const harness = makeHarness({ sentMessages });

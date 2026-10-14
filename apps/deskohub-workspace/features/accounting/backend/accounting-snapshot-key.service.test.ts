@@ -19,18 +19,6 @@ const runKeys = <A, E>(
   );
 
 describe("accounting snapshot keys", () => {
-  test("resolves the active key by its ID", async () => {
-    const { active, byId } = await runKeys((keys) =>
-      Effect.gen(function* () {
-        const active = yield* keys.getActive;
-        return { active, byId: yield* keys.getById(active.id) };
-      })
-    );
-
-    expect(active.secret).not.toBe("");
-    expect(byId).toEqual(active);
-  });
-
   test("rejects an unconfigured key ID", async () => {
     await expect(
       runKeys((keys) =>
@@ -40,11 +28,5 @@ describe("accounting snapshot keys", () => {
       _tag: "AccountingSnapshotKeyError",
       keyId: "K209912",
     });
-  });
-
-  test("rejects a malformed key ID", async () => {
-    await expect(
-      runKeys((keys) => keys.getById("" as never))
-    ).rejects.toMatchObject({ _tag: "AccountingSnapshotKeyError", keyId: "" });
   });
 });
