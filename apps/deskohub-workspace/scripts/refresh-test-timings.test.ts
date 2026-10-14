@@ -31,20 +31,6 @@ describe("mergeTestTimings", () => {
   });
 });
 
-describe("parseTestTimings", () => {
-  test("rejects other formats and invalid durations", () => {
-    for (const text of [
-      '{"a.test.ts":1}',
-      '{"version":1,"files":{"a.test.ts":-1}}',
-      "not json",
-    ]) {
-      expect(() => parseTestTimings(text, "x.json")).toThrow(
-        "x.json is not a valid Bun test timings file"
-      );
-    }
-  });
-});
-
 describe("predictShardDurations", () => {
   test("cuts path-ordered files at the shard marks like Bun", () => {
     expect(

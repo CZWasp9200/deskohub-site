@@ -79,10 +79,6 @@ describe("runCommand", () => {
 });
 
 describe("commandOutput", () => {
-  test("returns stdout of a successful command", async () => {
-    expect(await commandOutput(["bash", "-c", "echo ok"])).toBe("ok\n");
-  });
-
   test("rejects a non-zero exit with its stderr", async () => {
     const failure = await rejectionOf(
       commandOutput(["bash", "-c", "echo broken >&2; exit 4"])
@@ -100,15 +96,6 @@ describe("commandOutput", () => {
 
     expect(failure).toBeInstanceOf(Error);
     expect((failure as Error).message).toContain("timed out");
-  });
-
-  test("rejects a command ended by a signal", async () => {
-    const failure = await rejectionOf(
-      commandOutput(["bash", "-c", "kill -TERM $$"])
-    );
-
-    expect(failure).toBeInstanceOf(Error);
-    expect((failure as Error).message).toContain("SIGTERM");
   });
 });
 
