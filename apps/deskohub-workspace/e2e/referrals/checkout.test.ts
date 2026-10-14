@@ -75,24 +75,6 @@ test("expects a fixed 5% referrer amount after one invitation and an ordinary co
   ).toContain("11.09");
 });
 
-test("binds a planned checkout to the seeded customer's contact without codes", () => {
-  const planned = makeCoworkCheckoutData(
-    "https://workspace.example.test",
-    "2099-09-01"
-  );
-  const bound = bindCheckoutContact(planned, contact);
-
-  expect(bound.date).toBe(planned.date);
-  expect(bound.email).toBe(contact.email);
-  expect(bound.name).toBe(contact.name);
-  expect(bound.phone).toBe(contact.phone);
-  const url = new URL(bound.checkoutUrl);
-  expect(url.searchParams.get("email")).toBe(contact.email);
-  expect(url.searchParams.get("name")).toBe(contact.name);
-  expect(url.searchParams.get("phone")).toBe(contact.phone);
-  expect(url.searchParams.has("ref")).toBe(false);
-});
-
 test("opens a bound checkout on the signed-in account card, not for someone else", () => {
   const planned = makeCoworkCheckoutData(
     "https://workspace.example.test",

@@ -11,7 +11,7 @@ import { workspaceE2EPollIntervalMs } from "../timeouts";
  * The remembered referral cookie a shared link sets: first-party, readable by
  * the page, sent on top-level navigations, and kept for the program's window.
  */
-export const isRememberedReferralCookie = (cookie: BrowserCookieDescription) =>
+const isRememberedReferralCookie = (cookie: BrowserCookieDescription) =>
   cookie.present &&
   cookie.matches === true &&
   !cookie.httpOnly &&

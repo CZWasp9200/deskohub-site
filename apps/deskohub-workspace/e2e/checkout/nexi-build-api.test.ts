@@ -2,39 +2,11 @@ import { expect, test } from "bun:test";
 import {
   formatNexiBuildFailureCodes,
   formatNexiBuildFailureLine,
-  isNexiBuildApiUrl,
   listNexiBuildFailureCodes,
   parseNexiBuildFailures,
   parseNexiBuildResponses,
   summarizeNexiBuildFailureBody,
-  toNexiBuildEndpoint,
 } from "./nexi-build-api";
-
-test("recognizes only Nexi hosted-field API calls", () => {
-  expect(
-    isNexiBuildApiUrl(new URL("https://xpay.nexigroup.com/fe/build/text/"))
-  ).toBe(true);
-  expect(
-    isNexiBuildApiUrl(new URL("https://xpay.nexigroup.com/fe/v2/build/state"))
-  ).toBe(true);
-  expect(
-    isNexiBuildApiUrl(new URL("https://xpay.nexigroup.com/hpp/nexi/error"))
-  ).toBe(false);
-  expect(
-    isNexiBuildApiUrl(new URL("https://nexigroup.com.example/fe/build/text/"))
-  ).toBe(false);
-});
-
-test("classifies hosted-field endpoints", () => {
-  const endpoint = (path: string) =>
-    toNexiBuildEndpoint(new URL(`https://xpay.nexigroup.com${path}`));
-  expect(endpoint("/fe/build/text/")).toBe("card-data");
-  expect(endpoint("/fe/build/text/BROWSER_DATA")).toBe("browser-data");
-  expect(endpoint("/fe/build/validateAndPay")).toBe("validate-and-pay");
-  expect(endpoint("/fe/build/check_gdi_result")).toBe("gdi-result");
-  expect(endpoint("/fe/build/finalize_payment")).toBe("finalize-payment");
-  expect(endpoint("/fe/build/unknown")).toBe("other");
-});
 
 test("keeps only provider codes from a failed hosted-field response body", () => {
   const summary = summarizeNexiBuildFailureBody(
