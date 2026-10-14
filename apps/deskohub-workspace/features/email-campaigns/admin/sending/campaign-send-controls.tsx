@@ -1,7 +1,12 @@
 "use client";
 
+import { Users } from "lucide-react";
+import Link from "next/link";
 import type { Locale } from "@/features/i18n";
+import { Button } from "@/shared/components/ui/button";
 import type { CampaignId } from "../../campaign-identifiers";
+import { CampaignConfirmSendDialog } from "./campaign-confirm-send-dialog";
+import { CampaignTestSendDialog } from "./campaign-test-send-dialog";
 
 export type CampaignSendControlsProps = {
   readonly campaignId: CampaignId;
@@ -13,10 +18,31 @@ export type CampaignSendControlsProps = {
   readonly unsavedChanges: boolean;
 };
 
-/**
- * Placeholder: the sending stream replaces this module with the recipient
- * preview link, the test-send dialog, and the code-confirmed send dialog.
- */
-export function CampaignSendControls(_props: CampaignSendControlsProps) {
-  return null;
+/** Recipient preview, test send, and code-confirmed send for a Draft. */
+export function CampaignSendControls({
+  adminInbox,
+  campaignId,
+  contentLocales,
+  unsavedChanges,
+}: CampaignSendControlsProps) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <Button asChild size="sm" variant="ghost">
+        <Link href={`/admin/email-campaigns/${campaignId}/recipients`}>
+          <Users aria-hidden className="size-4" />
+          Preview recipients
+        </Link>
+      </Button>
+      <CampaignTestSendDialog
+        adminInbox={adminInbox}
+        campaignId={campaignId}
+        contentLocales={contentLocales}
+        unsavedChanges={unsavedChanges}
+      />
+      <CampaignConfirmSendDialog
+        campaignId={campaignId}
+        unsavedChanges={unsavedChanges}
+      />
+    </div>
+  );
 }
