@@ -1,4 +1,3 @@
-import { AssertionError } from "node:assert";
 import { deepStrictEqual, equal, ok } from "node:assert/strict";
 import {
   type BrowserContext,
@@ -6,11 +5,24 @@ import {
   type Page,
   type Request,
 } from "@playwright/test";
-import { Cause, Effect, Exit, Option } from "effect";
+import { Effect } from "effect";
 import type { AdministrationStandaloneAccessCodeName } from "@deskohub/workspace-admin-api";
 import { eq } from "drizzle-orm";
 import { makeWorkspaceE2EAdminCredential } from "../admin-basic-auth";
-import { toWorkspaceE2EError, WorkspaceE2EError, workspaceE2EError } from "../errors";
+import {
+  type ActionResponseOutcome,
+  awaitActionQuiescence,
+  openAdminBrowserPage,
+  primePreviewBypass,
+  reportAdminCaseFailure,
+  runFinalizedCase,
+  sanitizedBrowserOperation,
+} from "../admin-case";
+import {
+  toWorkspaceE2EError,
+  type WorkspaceE2EError,
+  workspaceE2EError,
+} from "../errors";
 import { writeWorkspaceE2EFailureAnnotation } from "../github-actions";
 import { E2EDatabase } from "../integrations/database.service";
 import { pollUntil, withinWorkspaceE2EDeadline } from "../polling";
@@ -28,13 +40,8 @@ import type { DatabaseClient } from "@/db/database-client";
 import { standaloneAccessCodeAttemptEvents } from "@/db/schema";
 import {
   type AccessCodeCreationPlan,
-  type ActionResponseOutcome,
-  awaitActionQuiescence,
   makeSyntheticAccessCodeName,
   planAccessCodeCreationAttempt,
-  runFinalizedCase,
-  sanitizedBrowserOperation,
-  sanitizedBrowserFailure,
   selectActionReplayHeaders,
 } from "./access-code-case";
 
@@ -58,40 +65,15 @@ test(
       environment.WORKSPACE_E2E_ADMIN_BASIC_AUTH
     );
     addRedaction(environment.VERCEL_AUTOMATION_BYPASS_SECRET);
-    if (!baseURL) {
-      throw workspaceE2EError(
-        "Playwright baseURL is required for the access code creation case",
-        { operation: "start the access code creation case" }
-      );
-    }
-    const origin = new URL(baseURL).origin;
     const plan = planAccessCodeCreationAttempt({
       name: makeSyntheticAccessCodeName(),
     });
-    let context: BrowserContext;
-    try {
-      context = await browser.newContext({
-        baseURL,
-        httpCredentials: {
-          origin,
-          password: credential.password,
-          send: "always",
-          username: credential.username,
-        },
-        viewport: { height: 900, width: 1440 },
-      });
-    } catch {
-      throw sanitizedBrowserFailure(
-        "start the access code creation browser context"
-      )();
-    }
-    const page = await context
-      .newPage()
-      .catch(() => {
-        throw sanitizedBrowserFailure(
-          "open the access code creation page"
-        )();
-      });
+    const { context, origin, page } = await openAdminBrowserPage({
+      baseURL,
+      browser,
+      caseName: "access code creation",
+      credential,
+    });
     try {
       await runEffect(
         runAccessCodeCreationCase({
@@ -527,67 +509,15 @@ const runAccessCodeCreationCase = (input: {
           effect,
           timeoutMs: workspaceE2ETimeouts.accessCodeCase,
         }),
-      onExit: (exit) => {
-        if (Exit.isSuccess(exit) || !input.reportFailure) return;
-        if (Cause.hasInterruptsOnly(exit.cause)) return;
-        const result = toE2EResult(exit);
-        if (result.outcome !== "failed" && result.outcome !== "timed_out") {
-          return;
-        }
-        const error = Cause.findErrorOption(exit.cause);
-        try {
-          input.reportFailure({
-            caseId: accessCodeCreationCaseId,
-            ...(Option.isSome(error) &&
-            error.value instanceof WorkspaceE2EError &&
-            error.value.diagnosticCode
-              ? { diagnosticCode: error.value.diagnosticCode }
-              : {}),
-            failureKind: result.failureKind,
-            outcome: result.outcome,
-            ...(terminalStepId ? { stepId: terminalStepId } : {}),
-          });
-        } catch {
-          // The annotation must never mask the case outcome.
-        }
-      },
+      onExit: reportAdminCaseFailure({
+        caseId: accessCodeCreationCaseId,
+        reportFailure: input.reportFailure,
+        terminalStepId: () => terminalStepId,
+      }),
     });
 
     yield* finalized;
   });
-
-const primePreviewBypass = (input: {
-  readonly bypassSecret: string | undefined;
-  readonly context: BrowserContext;
-  readonly origin: string;
-}) => {
-  const bypassSecret = input.bypassSecret;
-  if (!bypassSecret) return Effect.void;
-  return sanitizedBrowserOperation(
-    "prime the Vercel protection bypass cookie",
-    async () => {
-      const response = await input.context.request.get(
-        new URL("/favicon.svg", input.origin).toString(),
-        {
-          headers: {
-            "x-vercel-protection-bypass": bypassSecret,
-            "x-vercel-set-bypass-cookie": "true",
-          },
-          timeout: workspaceE2ETimeouts.browserAction,
-        }
-      );
-      try {
-        if (!response.ok()) {
-          throw new Error(
-            `The Vercel protection bypass probe failed with ${response.status()}`
-          );
-        }
-      } finally {
-        await response.dispose();
-      }
-    }
-  );
-};
 
 const readSyntheticAttemptEvents = (
   db: DatabaseClient,

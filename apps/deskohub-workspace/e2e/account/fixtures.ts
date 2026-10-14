@@ -66,18 +66,36 @@ export const createSyntheticCustomerProfile = (
 
 export const expireSyntheticCustomerProfile = (
   config: DatasourceConfig,
-  customerId: DotyposCustomerId
+  customerId: DotyposCustomerId,
+  options: { readonly clearTags?: boolean } = {}
 ): Effect.Effect<void, WorkspaceE2EError> =>
   Effect.gen(function* () {
     const dotypos = yield* DotyposService;
     yield* dotypos.patchCustomer(customerId, {
       expireDate: new Date(Date.now() - 60_000).toISOString(),
+      ...(options.clearTags ? { tags: [] } : {}),
     });
     log("Synthetic Dotypos profile expired");
   }).pipe(
     Effect.provide(getDotyposLayer(config)),
     Effect.mapError((cause) =>
       toWorkspaceE2EError("expire synthetic Dotypos profile", cause)
+    )
+  );
+
+export const setSyntheticCustomerProfileTags = (
+  config: DatasourceConfig,
+  customerId: DotyposCustomerId,
+  tags: readonly string[]
+): Effect.Effect<void, WorkspaceE2EError> =>
+  Effect.gen(function* () {
+    const dotypos = yield* DotyposService;
+    yield* dotypos.patchCustomer(customerId, { tags });
+    log("Synthetic Dotypos profile tags set");
+  }).pipe(
+    Effect.provide(getDotyposLayer(config)),
+    Effect.mapError((cause) =>
+      toWorkspaceE2EError("set synthetic Dotypos profile tags", cause)
     )
   );
 

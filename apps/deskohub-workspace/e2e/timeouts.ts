@@ -30,6 +30,7 @@ export const workspaceE2ETimeouts = {
   cleanupAction: 30 * SECOND + dotyposApiTimeoutDefaultMilliseconds,
   contactCase: 2 * MINUTE,
   datasource: 2 * MINUTE,
+  emailCampaignCase: 4 * MINUTE,
   hostedPayment: 3 * MINUTE,
   localeCase: 3 * MINUTE,
   paymentTerminalCase: 4 * MINUTE,
@@ -74,6 +75,21 @@ export const workspaceE2EAccessCodeCleanupTimeout =
 
 export const workspaceE2EAccessCodePlaywrightTimeout =
   workspaceE2ETimeouts.accessCodeCase + workspaceE2EAccessCodeCleanupTimeout;
+
+// Cleanup waits on one completion barrier per state-creating admin action
+// (audience save, campaign draft creation), each with a bounded fallback that
+// converges on the persisted row, then clears the Dotypos profile's tags,
+// expires it, and deletes the synthetic rows.
+export const workspaceE2EEmailCampaignMutationBarrierCount = 2;
+
+export const workspaceE2EEmailCampaignCleanupTimeout =
+  (workspaceE2ETimeouts.uiTransition + workspaceE2ETimeouts.datasource) *
+    workspaceE2EEmailCampaignMutationBarrierCount +
+  workspaceE2ETimeouts.cleanupAction * 2;
+
+export const workspaceE2EEmailCampaignPlaywrightTimeout =
+  workspaceE2ETimeouts.emailCampaignCase +
+  workspaceE2EEmailCampaignCleanupTimeout;
 
 export type WorkspaceE2ETimeouts = Readonly<
   Record<keyof typeof workspaceE2ETimeouts, number>

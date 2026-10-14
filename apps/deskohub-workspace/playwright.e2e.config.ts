@@ -7,6 +7,7 @@ import {
 } from "./e2e/playwright-defaults";
 import {
   workspaceE2EAccessCodePlaywrightTimeout,
+  workspaceE2EEmailCampaignPlaywrightTimeout,
   workspaceE2EPlaywrightCheckoutTimeout,
 } from "./e2e/timeouts";
 
@@ -44,6 +45,15 @@ export default defineConfig({
     {
       name: "checkout-cleanup",
       testMatch: "cleanup.pw.ts",
+    },
+    {
+      // Queued after the case pools like the access-code case, so it takes a
+      // worker that frees up instead of a slot of the first case batch.
+      dependencies: ["checkout-setup"],
+      name: "email-campaign-recipient-preview",
+      testDir: "./e2e/email-campaigns",
+      testMatch: "**/*.pw.ts",
+      timeout: workspaceE2EEmailCampaignPlaywrightTimeout,
     },
     {
       // Shares the case phase as its last-queued group: Playwright queues
