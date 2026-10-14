@@ -13,10 +13,10 @@ import {
 const testDatabase = await connectWorkspacePostgresTestDatabase();
 
 const codeIds = Object.values(discountCodeFixtures).map(({ id }) => id);
-const voucherIds = [
-  discountCodeFixtures.voucherReuse.id,
-  discountCodeFixtures.voucherFull.id,
-];
+// Vouchers are the fixtures with per-run credit; they have no discount code.
+const voucherIds: readonly string[] = Object.values(discountCodeFixtures)
+  .filter((fixture) => "creditPerRun" in fixture)
+  .map(({ id }) => id);
 const discountCodeIds = codeIds.filter((id) => !voucherIds.includes(id));
 
 describe.skipIf(!testDatabase)(
