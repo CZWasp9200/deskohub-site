@@ -183,7 +183,7 @@ describe.skipIf(!testDatabase)("CampaignService on disposable Postgres", () => {
     if (Exit.isFailure(copy)) throw Cause.squash(copy.cause);
     campaignIds.push(copy.value.id);
     expect(copy.value).toMatchObject({
-      title: campaign.title,
+      title: `Copy of ${campaign.title}`,
       purpose: campaign.purpose,
       templateKey: campaign.templateKey,
       content: campaign.content,

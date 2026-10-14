@@ -3,7 +3,6 @@
 import { Effect, Match, Schema } from "effect";
 import { revalidatePath } from "next/cache";
 import { locales } from "@/features/i18n";
-import { getRuntimeMarketingPreferencesAccessUrl } from "@/features/legal/marketing-preferences-access-url";
 import { requireAdministratorAuthorization } from "@/shared/administrator/administrator-authorization.server";
 import { defineWorkspaceAction } from "@/shared/backend/workspace-action";
 import { PublicSafeActionError } from "@/shared/utils/safe-action-client";
@@ -18,13 +17,10 @@ import {
   CampaignTemplateKey,
 } from "../../body/campaign-content";
 import {
-  CampaignEmailFooter,
-  renderCampaignEmail,
-} from "../../body/render-campaign-email";
-import {
   campaignAudienceIdSchema,
   campaignIdSchema,
 } from "../../campaign-identifiers";
+import { renderCampaignEmailPreview } from "../email-preview/render-campaign-email-preview";
 
 const parseOptions = {
   errors: "all",
@@ -151,10 +147,6 @@ const CampaignPreviewRequest = Schema.Struct({
   }),
 });
 
-/** The real footer link carries the recipient's token; the preview has none. */
-const previewMarketingPreferencesUrl =
-  getRuntimeMarketingPreferencesAccessUrl("preview");
-
 const previewCampaignEmailAction = defineWorkspaceAction(
   {
     operation: "email-campaigns.admin.preview",
@@ -165,18 +157,7 @@ const previewCampaignEmailAction = defineWorkspaceAction(
   },
   (input) =>
     requireAdministratorAuthorization.pipe(
-      Effect.andThen(previewMarketingPreferencesUrl),
-      Effect.flatMap((marketingPreferencesUrl) =>
-        renderCampaignEmail({
-          templateKey: input.templateKey,
-          locale: input.locale,
-          content: input.content,
-          footer:
-            input.purpose === "marketing"
-              ? CampaignEmailFooter.Marketing({ marketingPreferencesUrl })
-              : CampaignEmailFooter.Operational(),
-        })
-      ),
+      Effect.andThen(renderCampaignEmailPreview(input)),
       Effect.map(({ html, subject }) => ({ html, subject })),
       Effect.mapError(
         (cause) =>

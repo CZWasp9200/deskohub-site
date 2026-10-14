@@ -73,8 +73,8 @@ export interface ICampaignService {
     CampaignNotFound | CampaignReadOnly | EffectDrizzleQueryError
   >;
   /**
-   * Copies a campaign of any status into a new Draft. The copy keeps the
-   * source's audience only while it exists and isn't archived; otherwise the
+   * Copies a campaign of any status into a new Draft titled "Copy of …". The
+   * copy keeps the source's audience only while it exists and isn't archived; otherwise the
    * admin picks one.
    */
   readonly duplicate: (
@@ -164,7 +164,7 @@ export class CampaignService extends Context.Service<
         const [campaign] = yield* tx
           .insert(emailCampaigns)
           .values({
-            title: source.title,
+            title: `Copy of ${source.title}`,
             purpose: source.purpose,
             templateKey: source.templateKey,
             content: source.content,

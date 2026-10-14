@@ -899,7 +899,7 @@ describe.skipIf(!testDatabase)(
     const countRows = async (table: string, title: string) => {
       const result = (await testDatabase.pool.query(
         `select count(*)::int as count from ${table} where title like $1`,
-        [`${title}%`]
+        [`%${title}%`]
       )) as { rows: Array<{ count: number }> };
       return result.rows[0]?.count;
     };
