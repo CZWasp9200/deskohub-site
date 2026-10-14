@@ -8,6 +8,7 @@ import {
   confirmationFlag,
   confirmChange,
   InvalidMutationInputError,
+  makeMutationRequestId,
   reportCancellation,
   runAuthenticatedCommand,
 } from "../command-runtime";
@@ -113,10 +114,11 @@ const audiencesCreateCommand = Command.make(
             message: "Pass the audience filter with --filter-file or --filter.",
           });
         }
-        const audience = yield* api.createCampaignAudience(accessToken, {
-          title: audienceTitle,
-          filter: decodedFilter.value,
-        });
+        const audience = yield* api.createCampaignAudience(
+          accessToken,
+          yield* makeMutationRequestId,
+          { title: audienceTitle, filter: decodedFilter.value }
+        );
         yield* reportAudience(json, "Created", audience);
       })
     )
@@ -186,6 +188,23 @@ const audiencesArchiveCommand = Command.make(
     )
 ).pipe(Command.withDescription("Archive a campaign audience"));
 
+const audiencesUnarchiveCommand = Command.make(
+  "unarchive",
+  { audienceId: audienceIdArgument },
+  ({ audienceId }) =>
+    runAuthenticatedCommand((api, accessToken, json) =>
+      Effect.gen(function* () {
+        const audience = yield* api.unarchiveCampaignAudience(
+          accessToken,
+          audienceId
+        );
+        yield* reportAudience(json, "Unarchived", audience);
+      })
+    )
+).pipe(
+  Command.withDescription("Make an archived campaign audience selectable again")
+);
+
 const audiencesDeleteCommand = Command.make(
   "delete",
   { audienceId: audienceIdArgument, yes: confirmationFlag },
@@ -220,6 +239,7 @@ export const campaignAudiencesCommand = Command.make("audiences").pipe(
     audiencesCreateCommand,
     audiencesUpdateCommand,
     audiencesArchiveCommand,
+    audiencesUnarchiveCommand,
     audiencesDeleteCommand,
   ])
 );

@@ -1,5 +1,10 @@
 import type {
   AdministrationActorUsernameType,
+  AdministrationCampaignAudienceInputType,
+  AdministrationCampaignAudienceType,
+  AdministrationCampaignCreateInputType,
+  AdministrationCampaignDetailType,
+  AdministrationCampaignIdType,
   AdministrationDiscountMutationResultType,
   AdministrationDiscountMutationType,
   AdministrationReservationAccessGrantType,
@@ -217,12 +222,26 @@ export type CliStoredMutation =
       readonly kind: "standalone-access-code";
       readonly request: AdministrationStandaloneAccessCodeCreateInputType;
       readonly providerCredentialRemovedAttemptId?: AdministrationStandaloneAccessCodeAttemptIdType;
+    }
+  | {
+      readonly kind: "campaign-audience-create";
+      readonly audience: AdministrationCampaignAudienceInputType;
+    }
+  | {
+      readonly kind: "campaign-create";
+      readonly campaign: AdministrationCampaignCreateInputType;
+    }
+  | {
+      readonly kind: "campaign-duplicate";
+      readonly campaignId: AdministrationCampaignIdType;
     };
 
 export type CliStoredMutationResult =
   | AdministrationDiscountMutationResultType
   | AdministrationReservationAccessGrantType
-  | AdministrationStandaloneAccessCodeResultType;
+  | AdministrationStandaloneAccessCodeResultType
+  | AdministrationCampaignAudienceType
+  | AdministrationCampaignDetailType;
 
 export type CliSessionRow = typeof cliSessions.$inferSelect;
 export type CliAuthenticationRequestRow =

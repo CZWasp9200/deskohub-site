@@ -12,6 +12,7 @@ import {
   type AdministrationCampaignEmailPreviewType,
   type AdministrationCampaignIdType,
   type AdministrationCampaignRecipientPreviewType,
+  type AdministrationCampaignRetryInputType,
   type AdministrationCampaignRetryResultType,
   type AdministrationCampaignSendInputType,
   type AdministrationCampaignSendResultType,
@@ -408,8 +409,10 @@ interface IWorkspaceAdminApiClient {
     accessToken: Redacted.Redacted<CliAccessTokenType>,
     audienceId: AdministrationCampaignAudienceIdType
   ) => Effect.Effect<AdministrationCampaignAudienceType, CampaignRequestError>;
+  /** Retries under `requestId` replay the first creation. */
   readonly createCampaignAudience: (
     accessToken: Redacted.Redacted<CliAccessTokenType>,
+    requestId: CliMutationRequestIdType,
     input: AdministrationCampaignAudienceInputType
   ) => Effect.Effect<AdministrationCampaignAudienceType, CampaignRequestError>;
   readonly updateCampaignAudience: (
@@ -418,6 +421,10 @@ interface IWorkspaceAdminApiClient {
     input: AdministrationCampaignAudienceUpdateType
   ) => Effect.Effect<AdministrationCampaignAudienceType, CampaignRequestError>;
   readonly archiveCampaignAudience: (
+    accessToken: Redacted.Redacted<CliAccessTokenType>,
+    audienceId: AdministrationCampaignAudienceIdType
+  ) => Effect.Effect<AdministrationCampaignAudienceType, CampaignRequestError>;
+  readonly unarchiveCampaignAudience: (
     accessToken: Redacted.Redacted<CliAccessTokenType>,
     audienceId: AdministrationCampaignAudienceIdType
   ) => Effect.Effect<AdministrationCampaignAudienceType, CampaignRequestError>;
@@ -452,8 +459,10 @@ interface IWorkspaceAdminApiClient {
     accessToken: Redacted.Redacted<CliAccessTokenType>,
     campaignId: AdministrationCampaignIdType
   ) => Effect.Effect<AdministrationCampaignDetailType, CampaignRequestError>;
+  /** Retries under `requestId` replay the first creation. */
   readonly createCampaign: (
     accessToken: Redacted.Redacted<CliAccessTokenType>,
+    requestId: CliMutationRequestIdType,
     input: AdministrationCampaignCreateInputType
   ) => Effect.Effect<AdministrationCampaignDetailType, CampaignRequestError>;
   readonly updateCampaign: (
@@ -461,8 +470,10 @@ interface IWorkspaceAdminApiClient {
     campaignId: AdministrationCampaignIdType,
     input: AdministrationCampaignUpdateInputType
   ) => Effect.Effect<AdministrationCampaignDetailType, CampaignRequestError>;
+  /** Retries under `requestId` replay the first duplication. */
   readonly duplicateCampaign: (
     accessToken: Redacted.Redacted<CliAccessTokenType>,
+    requestId: CliMutationRequestIdType,
     campaignId: AdministrationCampaignIdType
   ) => Effect.Effect<AdministrationCampaignDetailType, CampaignRequestError>;
   readonly deleteCampaign: (
@@ -497,7 +508,8 @@ interface IWorkspaceAdminApiClient {
   >;
   readonly retryCampaign: (
     accessToken: Redacted.Redacted<CliAccessTokenType>,
-    campaignId: AdministrationCampaignIdType
+    campaignId: AdministrationCampaignIdType,
+    input: AdministrationCampaignRetryInputType
   ) => Effect.Effect<
     AdministrationCampaignRetryResultType,
     CampaignRequestError
@@ -515,6 +527,7 @@ interface IWorkspaceAdminApiClient {
 type CampaignRequestError =
   | CliApiRequestError
   | CliInputInvalid
+  | CliMutationInProgress
   | CliMutationRejected
   | CliResourceNotFound
   | CliSessionUnauthorized
@@ -629,14 +642,7 @@ const makeWorkspaceAdminApiClient = Effect.gen(function* () {
             payload: { requestId, mutation },
           })
         ),
-        Effect.retry({
-          schedule: Schedule.spaced("250 millis"),
-          times: 20,
-          while: (cause) =>
-            cause instanceof CliMutationInProgress ||
-            cause instanceof CliServiceUnavailable ||
-            HttpClientError.isHttpClientError(cause),
-        }),
+        retryLedgerMutation(20),
         Effect.mapError(sanitizeMutationError)
       )
     ),
@@ -876,14 +882,7 @@ const makeWorkspaceAdminApiClient = Effect.gen(function* () {
           Effect.flatMap((authorized) =>
             authorized.administration.createInvoice({ payload: input })
           ),
-          Effect.retry({
-            schedule: Schedule.spaced("250 millis"),
-            times: 240,
-            while: (cause) =>
-              cause instanceof CliMutationInProgress ||
-              cause instanceof CliServiceUnavailable ||
-              HttpClientError.isHttpClientError(cause),
-          }),
+          retryLedgerMutation(240),
           Effect.mapError(sanitizeInvoiceCreationError)
         )
     ),
@@ -919,14 +918,7 @@ const makeWorkspaceAdminApiClient = Effect.gen(function* () {
               },
             })
           ),
-          Effect.retry({
-            schedule: Schedule.spaced("250 millis"),
-            times: 240,
-            while: (cause) =>
-              cause instanceof CliMutationInProgress ||
-              cause instanceof CliServiceUnavailable ||
-              HttpClientError.isHttpClientError(cause),
-          }),
+          retryLedgerMutation(240),
           Effect.mapError(sanitizeAccessCodeCreationError)
         )
     ),
@@ -951,14 +943,7 @@ const makeWorkspaceAdminApiClient = Effect.gen(function* () {
               payload: { requestId, mutation: input },
             })
           ),
-          Effect.retry({
-            schedule: Schedule.spaced("250 millis"),
-            times: 20,
-            while: (cause) =>
-              cause instanceof CliMutationInProgress ||
-              cause instanceof CliServiceUnavailable ||
-              HttpClientError.isHttpClientError(cause),
-          }),
+          retryLedgerMutation(20),
           Effect.mapError(sanitizeMutationError)
         )
     ),
@@ -1021,12 +1006,16 @@ const makeWorkspaceAdminApiClient = Effect.gen(function* () {
     )(
       (
         accessToken: Redacted.Redacted<CliAccessTokenType>,
+        requestId: CliMutationRequestIdType,
         input: AdministrationCampaignAudienceInputType
       ) =>
         makeClient(accessToken).pipe(
           Effect.flatMap((authorized) =>
-            authorized.campaigns.createCampaignAudience({ payload: input })
+            authorized.campaigns.createCampaignAudience({
+              payload: { requestId, audience: input },
+            })
           ),
+          retryLedgerMutation(20),
           Effect.mapError(sanitizeCampaignError)
         )
     ),
@@ -1058,6 +1047,22 @@ const makeWorkspaceAdminApiClient = Effect.gen(function* () {
         makeClient(accessToken).pipe(
           Effect.flatMap((authorized) =>
             authorized.campaigns.archiveCampaignAudience({
+              params: { audienceId },
+            })
+          ),
+          Effect.mapError(sanitizeCampaignError)
+        )
+    ),
+    unarchiveCampaignAudience: Effect.fn(
+      "WorkspaceAdminApiClient.unarchiveCampaignAudience"
+    )(
+      (
+        accessToken: Redacted.Redacted<CliAccessTokenType>,
+        audienceId: AdministrationCampaignAudienceIdType
+      ) =>
+        makeClient(accessToken).pipe(
+          Effect.flatMap((authorized) =>
+            authorized.campaigns.unarchiveCampaignAudience({
               params: { audienceId },
             })
           ),
@@ -1141,12 +1146,16 @@ const makeWorkspaceAdminApiClient = Effect.gen(function* () {
     createCampaign: Effect.fn("WorkspaceAdminApiClient.createCampaign")(
       (
         accessToken: Redacted.Redacted<CliAccessTokenType>,
+        requestId: CliMutationRequestIdType,
         input: AdministrationCampaignCreateInputType
       ) =>
         makeClient(accessToken).pipe(
           Effect.flatMap((authorized) =>
-            authorized.campaigns.createCampaign({ payload: input })
+            authorized.campaigns.createCampaign({
+              payload: { requestId, campaign: input },
+            })
           ),
+          retryLedgerMutation(20),
           Effect.mapError(sanitizeCampaignError)
         )
     ),
@@ -1169,12 +1178,17 @@ const makeWorkspaceAdminApiClient = Effect.gen(function* () {
     duplicateCampaign: Effect.fn("WorkspaceAdminApiClient.duplicateCampaign")(
       (
         accessToken: Redacted.Redacted<CliAccessTokenType>,
+        requestId: CliMutationRequestIdType,
         campaignId: AdministrationCampaignIdType
       ) =>
         makeClient(accessToken).pipe(
           Effect.flatMap((authorized) =>
-            authorized.campaigns.duplicateCampaign({ params: { campaignId } })
+            authorized.campaigns.duplicateCampaign({
+              params: { campaignId },
+              payload: { requestId },
+            })
           ),
+          retryLedgerMutation(20),
           Effect.mapError(sanitizeCampaignError)
         )
     ),
@@ -1241,11 +1255,15 @@ const makeWorkspaceAdminApiClient = Effect.gen(function* () {
     retryCampaign: Effect.fn("WorkspaceAdminApiClient.retryCampaign")(
       (
         accessToken: Redacted.Redacted<CliAccessTokenType>,
-        campaignId: AdministrationCampaignIdType
+        campaignId: AdministrationCampaignIdType,
+        input: AdministrationCampaignRetryInputType
       ) =>
         makeClient(accessToken).pipe(
           Effect.flatMap((authorized) =>
-            authorized.campaigns.retryCampaign({ params: { campaignId } })
+            authorized.campaigns.retryCampaign({
+              params: { campaignId },
+              payload: input,
+            })
           ),
           Effect.mapError(sanitizeCampaignError)
         )
@@ -1268,6 +1286,25 @@ const makeWorkspaceAdminApiClient = Effect.gen(function* () {
     ),
   };
 });
+
+/**
+ * Resends a mutation under the same request ID while its outcome is unknown
+ * or another attempt is still applying it; the server's mutation ledger
+ * replays a completed one instead of applying it again.
+ */
+const retryLedgerMutation =
+  (times: number) =>
+  <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+    effect.pipe(
+      Effect.retry({
+        schedule: Schedule.spaced("250 millis"),
+        times,
+        while: (cause) =>
+          cause instanceof CliMutationInProgress ||
+          cause instanceof CliServiceUnavailable ||
+          HttpClientError.isHttpClientError(cause),
+      })
+    );
 
 export class CliApiRequestError extends Data.TaggedError("CliApiRequestError")<{
   readonly message: string;
@@ -1409,6 +1446,7 @@ const sanitizeAccessCodeCreationError = (
 const sanitizeCampaignError = (
   cause:
     | CliInputInvalid
+    | CliMutationInProgress
     | CliMutationRejected
     | CliResourceNotFound
     | CliServiceUnavailable
@@ -1416,6 +1454,8 @@ const sanitizeCampaignError = (
     | HttpClientError.HttpClientError
     | Schema.SchemaError
 ) =>
-  cause instanceof CliInputInvalid || cause instanceof CliMutationRejected
+  cause instanceof CliInputInvalid ||
+  cause instanceof CliMutationInProgress ||
+  cause instanceof CliMutationRejected
     ? cause
     : sanitizeResourceError(cause);

@@ -17,6 +17,7 @@ import {
   confirmationFlag,
   confirmChange,
   InvalidMutationInputError,
+  makeMutationRequestId,
   reportCancellation,
   runAuthenticatedCommand,
 } from "../command-runtime";
@@ -208,13 +209,17 @@ const campaignsCreateCommand = Command.make(
       Effect.gen(function* () {
         const campaignTitle = yield* requireText("title", title);
         const campaignContent = yield* makeCampaignContent(content);
-        const campaign = yield* api.createCampaign(accessToken, {
-          title: campaignTitle,
-          purpose,
-          templateKey: template,
-          audienceId: Option.getOrNull(audience),
-          content: campaignContent,
-        });
+        const campaign = yield* api.createCampaign(
+          accessToken,
+          yield* makeMutationRequestId,
+          {
+            title: campaignTitle,
+            purpose,
+            templateKey: template,
+            audienceId: Option.getOrNull(audience),
+            content: campaignContent,
+          }
+        );
         yield* reportCampaign(json, "Created", campaign);
       })
     )
@@ -306,7 +311,11 @@ const campaignsDuplicateCommand = Command.make(
   ({ campaignId }) =>
     runAuthenticatedCommand((api, accessToken, json) =>
       Effect.gen(function* () {
-        const campaign = yield* api.duplicateCampaign(accessToken, campaignId);
+        const campaign = yield* api.duplicateCampaign(
+          accessToken,
+          yield* makeMutationRequestId,
+          campaignId
+        );
         yield* reportCampaign(json, "Created draft", campaign);
       })
     )
@@ -457,20 +466,32 @@ const campaignsSendCommand = Command.make(
 
 const campaignsRetryCommand = Command.make(
   "retry",
-  { campaignId: campaignIdArgument, yes: confirmationFlag },
-  ({ campaignId, yes }) =>
+  {
+    campaignId: campaignIdArgument,
+    includeUnconfirmed: Flag.boolean("include-unconfirmed").pipe(
+      Flag.withDescription(
+        "Also mail unconfirmed recipients, who may already have the email"
+      )
+    ),
+    yes: confirmationFlag,
+  },
+  ({ campaignId, includeUnconfirmed, yes }) =>
     runAuthenticatedCommand((api, accessToken, json) =>
       Effect.gen(function* () {
         const confirmed = yield* confirmChange(
           yes,
           json,
-          `Retry the failed recipients of campaign ${campaignId}?`
+          includeUnconfirmed
+            ? `Retry the undelivered recipients of campaign ${campaignId}, including unconfirmed ones who may already have the email?`
+            : `Retry the pending and failed recipients of campaign ${campaignId}?`
         );
         if (!confirmed) {
           yield* reportCancellation(json);
           return;
         }
-        const result = yield* api.retryCampaign(accessToken, campaignId);
+        const result = yield* api.retryCampaign(accessToken, campaignId, {
+          includeUnconfirmed,
+        });
         yield* Console.log(
           json
             ? JSON.stringify(result)
@@ -478,7 +499,11 @@ const campaignsRetryCommand = Command.make(
         );
       })
     )
-).pipe(Command.withDescription("Retry a sent campaign's failed recipients"));
+).pipe(
+  Command.withDescription(
+    "Retry a failed campaign's pending and failed recipients"
+  )
+);
 
 const campaignsStatusCommand = Command.make(
   "status",
@@ -521,7 +546,9 @@ const formatSendStatus = (send: AdministrationCampaignSendStatusType) =>
       [
         recipient.customerId,
         recipient.locale,
-        recipient.status,
+        recipient.skipReason === null
+          ? recipient.status
+          : `${recipient.status} (${recipient.skipReason})`,
         recipient.statusUpdatedAt,
       ].join("\t")
     ),

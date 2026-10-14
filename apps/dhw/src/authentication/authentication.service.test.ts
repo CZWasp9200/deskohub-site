@@ -59,6 +59,7 @@ describe("AuthenticationService", () => {
       createCampaignAudience: () => Effect.die("not used"),
       updateCampaignAudience: () => Effect.die("not used"),
       archiveCampaignAudience: () => Effect.die("not used"),
+      unarchiveCampaignAudience: () => Effect.die("not used"),
       deleteCampaignAudience: () => Effect.die("not used"),
       listCampaignTemplates: () => Effect.die("not used"),
       previewCampaignTemplate: () => Effect.die("not used"),

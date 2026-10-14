@@ -112,18 +112,39 @@ const sendStatus = Schema.decodeUnknownSync(
       bounced: 0,
       complained: 0,
       failed: 1,
-      skipped: 0,
+      unconfirmed: 3,
+      skipped: 1,
     },
     recipients: [
       {
         customerId: "101",
         locale: "cs-CZ",
         status: "delivered",
+        skipReason: null,
+        statusUpdatedAt: timestamp,
+      },
+      {
+        customerId: "102",
+        locale: "en-US",
+        status: "unconfirmed",
+        skipReason: null,
+        statusUpdatedAt: timestamp,
+      },
+      {
+        customerId: "103",
+        locale: "cs-CZ",
+        status: "skipped",
+        skipReason: "consent-withdrawn",
         statusUpdatedAt: timestamp,
       },
     ],
   },
 });
+
+/** Each creation sends a fresh request ID the client retries under. */
+const anyRequestId = expect.stringMatching(
+  /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}$/
+);
 
 const temporaryDirectories: string[] = [];
 
@@ -148,6 +169,7 @@ type CampaignApi = Pick<
   | "createCampaignAudience"
   | "updateCampaignAudience"
   | "archiveCampaignAudience"
+  | "unarchiveCampaignAudience"
   | "deleteCampaignAudience"
   | "listCampaignTemplates"
   | "previewCampaignTemplate"
@@ -183,10 +205,10 @@ const makeCampaignLayer = (overrides: Partial<CampaignApi> = {}) => {
       archivedAudience,
     ]),
     getCampaignAudience: record("getCampaignAudience", () => activeAudience),
-    createCampaignAudience: record("createCampaignAudience", (input) => ({
-      ...activeAudience,
-      ...input,
-    })),
+    createCampaignAudience: record(
+      "createCampaignAudience",
+      (_requestId, input) => ({ ...activeAudience, ...input })
+    ),
     updateCampaignAudience: record(
       "updateCampaignAudience",
       (_audienceId, input) => ({ ...activeAudience, ...input })
@@ -195,6 +217,10 @@ const makeCampaignLayer = (overrides: Partial<CampaignApi> = {}) => {
       ...activeAudience,
       archivedAt: timestamp,
     })),
+    unarchiveCampaignAudience: record(
+      "unarchiveCampaignAudience",
+      () => archivedAudience
+    ),
     deleteCampaignAudience: record("deleteCampaignAudience", (audienceId) => ({
       id: audienceId,
     })),
@@ -322,6 +348,7 @@ describe("dhw campaigns create and update", () => {
     expect(calls).toEqual([
       [
         "createCampaign",
+        anyRequestId,
         {
           title: "Autumn news",
           purpose: "operational",
@@ -511,6 +538,26 @@ describe("dhw campaigns create and update", () => {
   });
 });
 
+describe("dhw campaigns duplicate", () => {
+  test("sends a fresh request ID for each duplication", async () => {
+    const { calls, layer, output } = makeCampaignLayer();
+
+    await run(["campaigns", "duplicate", "campaign-1"], layer).pipe(
+      Effect.runPromise
+    );
+    await run(["campaigns", "duplicate", "campaign-1"], layer).pipe(
+      Effect.runPromise
+    );
+
+    expect(calls).toEqual([
+      ["duplicateCampaign", anyRequestId, "campaign-1"],
+      ["duplicateCampaign", anyRequestId, "campaign-1"],
+    ]);
+    expect(calls[0]?.[1]).not.toBe(calls[1]?.[1]);
+    expect(output[0]).toBe("Created draft campaign Autumn news (campaign-1).");
+  });
+});
+
 describe("dhw campaigns inspection", () => {
   test("lists campaigns as rows and as JSON", async () => {
     const human = makeCampaignLayer();
@@ -609,7 +656,13 @@ describe("dhw campaigns inspection", () => {
     expect(text).toContain("in progress");
     expect(text).toContain("delivered\t2\n");
     expect(text).toContain("failed\t1\n");
+    expect(text).toContain("unconfirmed\t3\n");
+    expect(text).toContain("skipped\t1\n");
     expect(text).toContain(`101\tcs-CZ\tdelivered\t${timestamp}`);
+    expect(text).toContain(`102\ten-US\tunconfirmed\t${timestamp}`);
+    expect(text).toContain(
+      `103\tcs-CZ\tskipped (consent-withdrawn)\t${timestamp}`
+    );
   });
 
   test("reports an unsent campaign", async () => {
@@ -742,6 +795,19 @@ describe("dhw campaigns sending", () => {
     }
   });
 
+  test("retries unconfirmed recipients only when asked", async () => {
+    const { calls, layer } = makeCampaignLayer();
+
+    await run(
+      ["campaigns", "retry", "campaign-1", "--include-unconfirmed", "--yes"],
+      layer
+    ).pipe(Effect.runPromise);
+
+    expect(calls).toEqual([
+      ["retryCampaign", "campaign-1", { includeUnconfirmed: true }],
+    ]);
+  });
+
   test("deletes and retries with --yes", async () => {
     const { calls, layer, output } = makeCampaignLayer();
 
@@ -754,7 +820,7 @@ describe("dhw campaigns sending", () => {
 
     expect(calls).toEqual([
       ["deleteCampaign", "campaign-1"],
-      ["retryCampaign", "campaign-1"],
+      ["retryCampaign", "campaign-1", { includeUnconfirmed: false }],
     ]);
     expect(output).toEqual([
       "Deleted campaign campaign-1.",
@@ -825,9 +891,32 @@ describe("dhw campaigns audiences", () => {
     ).pipe(Effect.runPromise);
 
     expect(calls).toEqual([
-      ["createCampaignAudience", { title: "Czech visitors", filter }],
+      [
+        "createCampaignAudience",
+        anyRequestId,
+        { title: "Czech visitors", filter },
+      ],
     ]);
     expect(output).toEqual(["Created audience Czech visitors (audience-1)."]);
+  });
+
+  test("unarchives an audience", async () => {
+    const human = makeCampaignLayer();
+    await run(
+      ["campaigns", "audiences", "unarchive", "audience-2"],
+      human.layer
+    ).pipe(Effect.runPromise);
+    expect(human.calls).toEqual([["unarchiveCampaignAudience", "audience-2"]]);
+    expect(human.output).toEqual([
+      "Unarchived audience Old list (audience-2).",
+    ]);
+
+    const json = makeCampaignLayer();
+    await run(
+      ["--json", "campaigns", "audiences", "unarchive", "audience-2"],
+      json.layer
+    ).pipe(Effect.runPromise);
+    expect(JSON.parse(json.output.join(""))).toEqual(archivedAudience);
   });
 
   test("updates only the given audience fields", async () => {

@@ -1,9 +1,10 @@
 import {
   type CliAccessTokenType,
+  CliMutationRequestId,
   type CliSessionType,
   CliSessionUnauthorized,
 } from "@deskohub/workspace-admin-api";
-import { Console, Data, Effect, Option, type Redacted } from "effect";
+import { Console, Crypto, Data, Effect, Option, type Redacted } from "effect";
 import { Command, Flag, Prompt } from "effect/unstable/cli";
 import { WorkspaceAdminApiClient } from "./api/workspace-admin-api-client.service";
 import { AuthenticationService } from "./authentication/authentication.service";
@@ -23,6 +24,12 @@ export const rootCommand = Command.make("dhw").pipe(
 
 export const confirmationFlag = Flag.boolean("yes").pipe(
   Flag.withDescription("Apply the change without prompting for confirmation")
+);
+
+/** A fresh ID for one mutation; the client retries it under the same ID. */
+export const makeMutationRequestId = Crypto.Crypto.pipe(
+  Effect.flatMap((crypto) => crypto.randomUUIDv7),
+  Effect.map(CliMutationRequestId.make)
 );
 
 export class AuthenticationRequiredError extends Data.TaggedError(

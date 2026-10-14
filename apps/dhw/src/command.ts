@@ -40,7 +40,6 @@ import {
   type CliAccessTokenType,
   CliClientName,
   CliMutationRejected,
-  CliMutationRequestId,
   CliMutationUncertain,
   type CliSessionAdministrationType,
   CliSessionId,
@@ -54,7 +53,6 @@ import {
   BigDecimal,
   Clock,
   Console,
-  Crypto,
   Data,
   Effect,
   FileSystem,
@@ -83,6 +81,7 @@ import {
   confirmUpdate,
   InvalidMutationInputError,
   installAndReport,
+  makeMutationRequestId,
   reportCancellation,
   rootCommand,
   runAuthenticatedCommand,
@@ -2484,8 +2483,7 @@ const runConfirmedReservationAccessMutation = ({
         yield* reportCancellation(json);
         return;
       }
-      const crypto = yield* Crypto.Crypto;
-      const requestId = CliMutationRequestId.make(yield* crypto.randomUUIDv7);
+      const requestId = yield* makeMutationRequestId;
       const grant = yield* api.mutateReservationAccess(
         accessToken,
         requestId,
@@ -2516,8 +2514,7 @@ const executeAndReportDiscountMutation = (
           })
       )
     );
-    const crypto = yield* Crypto.Crypto;
-    const requestId = CliMutationRequestId.make(yield* crypto.randomUUIDv7);
+    const requestId = yield* makeMutationRequestId;
     const result = yield* api.mutateDiscounts(
       accessToken,
       requestId,

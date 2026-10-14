@@ -1,6 +1,8 @@
 import {
+  AdministrationCampaignAudience,
   type AdministrationCampaignAudienceType,
   type AdministrationCampaignContentType,
+  AdministrationCampaignDetail,
   type AdministrationCampaignDetailType,
   type AdministrationCampaignLocaleContentChangeType,
   type AdministrationCampaignLocaleContentType,
@@ -11,11 +13,16 @@ import {
   CliMutationRejected,
   CliResourceNotFound,
   CliServiceUnavailable,
+  CurrentCliSession,
   WorkspaceAdminApi,
 } from "@deskohub/workspace-admin-api";
 import { Effect, Layer, Match, Option, Schema } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
-import type { CampaignAudienceRow, CampaignRow } from "@/db/schema";
+import type {
+  CampaignAudienceRow,
+  CampaignRow,
+  CliStoredMutationResult,
+} from "@/db/schema";
 import {
   type AudienceFilter,
   audienceFilterSchema,
@@ -62,6 +69,11 @@ import {
   makeServiceUnavailable,
   mapAdministrationApiFailure,
 } from "./administration-api-failure";
+import {
+  applyCliMutationOnce,
+  CliMutationIdempotency,
+  type CliMutationRequest,
+} from "./cli-mutation-idempotency.service";
 
 /** Every failure a campaign endpoint maps to its public API error. */
 type CampaignApiCause =
@@ -99,7 +111,12 @@ const confirmationRejectionMessages = {
 
 const toCampaignApiFailure = (cause: CampaignApiCause) =>
   Match.value(cause).pipe(
-    Match.tag("CliInputInvalid", "CliMutationRejected", (failure) => failure),
+    Match.tag(
+      "CliInputInvalid",
+      "CliMutationInProgress",
+      "CliMutationRejected",
+      (failure) => failure
+    ),
     Match.tag(
       "CampaignNotFound",
       () => new CliResourceNotFound({ message: "The campaign was not found." })
@@ -211,6 +228,33 @@ const toCampaignApiFailure = (cause: CampaignApiCause) =>
   );
 
 const mapCampaignFailure = mapAdministrationApiFailure(toCampaignApiFailure);
+
+/**
+ * Creations aren't idempotent, so they go through the CLI mutation ledger: a
+ * retried request replays the first result instead of creating again. A
+ * failure the API answers with a 4xx applied nothing and frees the request.
+ */
+const applyCampaignMutationOnce = <
+  A extends CliStoredMutationResult,
+  E extends CampaignApiCause,
+  R,
+>(
+  ledger: CliMutationIdempotency["Service"],
+  request: Omit<CliMutationRequest, "sessionId">,
+  result: Schema.Decoder<A>,
+  apply: Effect.Effect<A, E, R>
+) =>
+  CurrentCliSession.pipe(
+    Effect.flatMap((session) =>
+      applyCliMutationOnce(ledger, {
+        request: { ...request, sessionId: session.id },
+        result,
+        apply,
+        releaseOn: (cause) =>
+          !(toCampaignApiFailure(cause) instanceof CliServiceUnavailable),
+      })
+    )
+  );
 
 /** The locales a per-locale record has a value for, in locale order. */
 const localeEntries = <Value>(
@@ -401,6 +445,7 @@ export const AdminCliCampaignsApiHandlers = HttpApiBuilder.group(
     const campaigns = yield* CampaignService;
     const recipients = yield* CampaignRecipientService;
     const sending = yield* CampaignSendService;
+    const ledger = yield* CliMutationIdempotency;
 
     const loadPreviewSource = Effect.fn("CampaignsApi.loadPreviewSource")(
       function* (input: AdministrationCampaignTemplatePreviewInputType) {
@@ -433,14 +478,23 @@ export const AdminCliCampaignsApiHandlers = HttpApiBuilder.group(
           .get(params.audienceId)
           .pipe(Effect.map(toCliAudience), mapCampaignFailure)
       )
-      .handle("createCampaignAudience", ({ payload }) =>
-        decodeAudienceFilter(payload.filter).pipe(
-          Effect.flatMap((filter) =>
-            audiences.create({ title: payload.title, filter })
-          ),
-          Effect.map(toCliAudience),
-          mapCampaignFailure
-        )
+      .handle(
+        "createCampaignAudience",
+        ({ payload: { audience, requestId } }) =>
+          applyCampaignMutationOnce(
+            ledger,
+            {
+              requestId,
+              mutation: { kind: "campaign-audience-create", audience },
+            },
+            AdministrationCampaignAudience,
+            decodeAudienceFilter(audience.filter).pipe(
+              Effect.flatMap((filter) =>
+                audiences.create({ title: audience.title, filter })
+              ),
+              Effect.map(toCliAudience)
+            )
+          ).pipe(mapCampaignFailure)
       )
       .handle(
         "updateCampaignAudience",
@@ -460,6 +514,11 @@ export const AdminCliCampaignsApiHandlers = HttpApiBuilder.group(
       .handle("archiveCampaignAudience", ({ params }) =>
         audiences
           .archive(params.audienceId)
+          .pipe(Effect.map(toCliAudience), mapCampaignFailure)
+      )
+      .handle("unarchiveCampaignAudience", ({ params }) =>
+        audiences
+          .unarchive(params.audienceId)
           .pipe(Effect.map(toCliAudience), mapCampaignFailure)
       )
       .handle("deleteCampaignAudience", ({ params }) =>
@@ -499,19 +558,24 @@ export const AdminCliCampaignsApiHandlers = HttpApiBuilder.group(
           .get(params.campaignId)
           .pipe(Effect.map(toCliCampaignDetail), mapCampaignFailure)
       )
-      .handle(
-        "createCampaign",
-        Effect.fn(function* ({ payload }) {
-          const content = yield* toLocalizedContent(payload.content);
-          const campaign = yield* campaigns.create({
-            title: payload.title,
-            purpose: payload.purpose,
-            templateKey: payload.templateKey,
-            audienceId: payload.audienceId,
-            content,
-          });
-          return toCliCampaignDetail(campaign);
-        }, mapCampaignFailure)
+      .handle("createCampaign", ({ payload: { campaign, requestId } }) =>
+        applyCampaignMutationOnce(
+          ledger,
+          { requestId, mutation: { kind: "campaign-create", campaign } },
+          AdministrationCampaignDetail,
+          toLocalizedContent(campaign.content).pipe(
+            Effect.flatMap((content) =>
+              campaigns.create({
+                title: campaign.title,
+                purpose: campaign.purpose,
+                templateKey: campaign.templateKey,
+                audienceId: campaign.audienceId,
+                content,
+              })
+            ),
+            Effect.map(toCliCampaignDetail)
+          )
+        ).pipe(mapCampaignFailure)
       )
       .handle(
         "updateCampaign",
@@ -531,10 +595,16 @@ export const AdminCliCampaignsApiHandlers = HttpApiBuilder.group(
           ).pipe(Effect.map(toCliCampaignDetail), mapCampaignFailure);
         }
       )
-      .handle("duplicateCampaign", ({ params }) =>
-        campaigns
-          .duplicate(params.campaignId)
-          .pipe(Effect.map(toCliCampaignDetail), mapCampaignFailure)
+      .handle("duplicateCampaign", ({ params: { campaignId }, payload }) =>
+        applyCampaignMutationOnce(
+          ledger,
+          {
+            requestId: payload.requestId,
+            mutation: { kind: "campaign-duplicate", campaignId },
+          },
+          AdministrationCampaignDetail,
+          campaigns.duplicate(campaignId).pipe(Effect.map(toCliCampaignDetail))
+        ).pipe(mapCampaignFailure)
       )
       .handle("deleteCampaign", ({ params }) =>
         campaigns
@@ -596,9 +666,12 @@ export const AdminCliCampaignsApiHandlers = HttpApiBuilder.group(
           })
           .pipe(mapCampaignFailure)
       )
-      .handle("retryCampaign", ({ params }) =>
+      .handle("retryCampaign", ({ params, payload }) =>
         sending
-          .retryUndelivered({ campaignId: params.campaignId })
+          .retryUndelivered({
+            campaignId: params.campaignId,
+            includeUnconfirmed: payload.includeUnconfirmed,
+          })
           .pipe(mapCampaignFailure)
       )
       .handle("getCampaignSendStatus", ({ params }) =>
@@ -617,6 +690,7 @@ export const AdminCliCampaignsApiHandlers = HttpApiBuilder.group(
                   customerId: recipient.dotyposCustomerId,
                   locale: recipient.locale,
                   status: recipient.status,
+                  skipReason: recipient.skipReason,
                   statusUpdatedAt: recipient.statusUpdatedAt.toString(),
                 })),
               }),

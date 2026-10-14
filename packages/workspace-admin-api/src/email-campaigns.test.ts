@@ -1,9 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { Result, Schema } from "effect";
 import {
+  AdministrationCampaignAudienceCreateRequest,
   AdministrationCampaignAudienceInput,
   AdministrationCampaignAudienceUpdate,
   AdministrationCampaignCreateInput,
+  AdministrationCampaignCreateRequest,
+  AdministrationCampaignDuplicateRequest,
+  AdministrationCampaignRetryInput,
   AdministrationCampaignSendInput,
   AdministrationCampaignSendStatusResult,
   AdministrationCampaignTemplatePreviewInput,
@@ -205,5 +209,111 @@ describe("campaign admin API contract", () => {
         send: null,
       })
     ).toEqual({ send: null });
+  });
+
+  const localeFilter = { _tag: "Locale", locales: ["cs-CZ"] };
+
+  test("reports unconfirmed recipients and why a recipient was skipped", () => {
+    const recipient = {
+      customerId: "101",
+      locale: "cs-CZ",
+      statusUpdatedAt: "2026-10-14T10:00:00Z",
+    };
+    const status = (
+      recipients: ReadonlyArray<Record<string, unknown>>
+    ): unknown => ({
+      send: {
+        sendId: "send-1",
+        createdAt: "2026-10-14T10:00:00Z",
+        completedAt: null,
+        audienceId: null,
+        audienceFilter: localeFilter,
+        counts: {
+          pending: 0,
+          sent: 0,
+          delivered: 0,
+          bounced: 0,
+          complained: 0,
+          failed: 0,
+          unconfirmed: 1,
+          skipped: 1,
+        },
+        recipients,
+      },
+    });
+
+    expect(
+      decodes(
+        AdministrationCampaignSendStatusResult,
+        status([
+          { ...recipient, status: "unconfirmed", skipReason: null },
+          {
+            ...recipient,
+            status: "skipped",
+            skipReason: "outside-test-domain",
+          },
+        ])
+      )
+    ).toBe(true);
+    expect(
+      decodes(
+        AdministrationCampaignSendStatusResult,
+        status([{ ...recipient, status: "skipped", skipReason: "bored" }])
+      )
+    ).toBe(false);
+  });
+
+  test("states whether a retry includes unconfirmed recipients", () => {
+    expect(
+      decodes(AdministrationCampaignRetryInput, { includeUnconfirmed: true })
+    ).toBe(true);
+    expect(decodes(AdministrationCampaignRetryInput, {})).toBe(false);
+    expect(
+      decodes(AdministrationCampaignRetryInput, {
+        includeUnconfirmed: false,
+        includeSkipped: true,
+      })
+    ).toBe(false);
+  });
+
+  test("carries a request ID on every creation", () => {
+    const requestId = "01990000-0000-7000-8000-000000000010";
+    const campaign = {
+      title: "News",
+      purpose: "marketing",
+      templateKey: "workspace",
+      audienceId: null,
+      content: {},
+    };
+    const audience = { title: "Everyone", filter: localeFilter };
+
+    expect(
+      decodes(AdministrationCampaignCreateRequest, { requestId, campaign })
+    ).toBe(true);
+    expect(decodes(AdministrationCampaignCreateRequest, { campaign })).toBe(
+      false
+    );
+    expect(
+      decodes(AdministrationCampaignCreateRequest, {
+        requestId: "not-a-uuid",
+        campaign,
+      })
+    ).toBe(false);
+    expect(
+      decodes(AdministrationCampaignAudienceCreateRequest, {
+        requestId,
+        audience,
+      })
+    ).toBe(true);
+    expect(
+      decodes(AdministrationCampaignAudienceCreateRequest, {
+        requestId,
+        ...audience,
+      })
+    ).toBe(false);
+    expect(decodes(AdministrationCampaignDuplicateRequest, { requestId })).toBe(
+      true
+    );
+    expect(decodes(AdministrationCampaignDuplicateRequest, {})).toBe(false);
   });
 });

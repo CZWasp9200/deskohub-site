@@ -1163,6 +1163,9 @@ describe("WorkspaceAdminApiClient campaigns", () => {
     const campaignId = Schema.decodeUnknownSync(AdministrationCampaignId)(
       "campaign-1"
     );
+    const requestId = CliMutationRequestId.make(
+      "01990000-0000-7000-8000-000000000010"
+    );
     const requests: Array<{ readonly path: string; readonly body: unknown }> =
       [];
     const server = Bun.serve({
@@ -1212,7 +1215,7 @@ describe("WorkspaceAdminApiClient campaigns", () => {
         const client = yield* WorkspaceAdminApiClient;
         return [
           yield* client
-            .createCampaign(accessToken, {
+            .createCampaign(accessToken, requestId, {
               title: "Autumn news",
               purpose: "marketing",
               templateKey: "workspace",
@@ -1247,6 +1250,96 @@ describe("WorkspaceAdminApiClient campaigns", () => {
         path: `/api/v1/cli/campaigns/${campaignId}/send`,
         body: { confirmationCode: "ABC123" },
       });
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("resends a creation under the same request ID until the server answers", async () => {
+    const accessToken = Redacted.make(
+      Schema.decodeUnknownSync(CliAccessToken)("c".repeat(43))
+    );
+    const campaignId = Schema.decodeUnknownSync(AdministrationCampaignId)(
+      "campaign-1"
+    );
+    const requestId = CliMutationRequestId.make(
+      "01990000-0000-7000-8000-000000000011"
+    );
+    const detail = {
+      id: "campaign-2",
+      title: "Autumn news",
+      purpose: "operational",
+      templateKey: "workspace",
+      status: "draft",
+      audienceId: null,
+      locales: [],
+      createdAt: "2026-10-14T10:00:00.000Z",
+      updatedAt: "2026-10-14T10:00:00.000Z",
+      content: {},
+    };
+    const requests: Array<{ readonly path: string; readonly body: unknown }> =
+      [];
+    const server = Bun.serve({
+      port: 0,
+      fetch: async (request) => {
+        const path = new URL(request.url).pathname;
+        requests.push({ path, body: await request.json() });
+        if (path.endsWith("/duplicate")) {
+          // The first attempt is still being applied; the retry replays it.
+          return requests.length === 1
+            ? Response.json(
+                {
+                  _tag: "CliMutationInProgress",
+                  message: "This mutation is still being applied.",
+                  requestId,
+                },
+                { status: 409 }
+              )
+            : Response.json(detail);
+        }
+        return Response.json({ sendId: "send-1", retriedCount: 2 });
+      },
+    });
+
+    try {
+      const clientLayer = WorkspaceAdminApiClient.Default.pipe(
+        Layer.provide(FetchHttpClient.layer),
+        Layer.provide(
+          Layer.succeed(DhwConfig, {
+            baseUrl: new URL(`http://127.0.0.1:${server.port}`),
+            requestHeaders: {},
+            isCi: true,
+            stateDirectory: "/tmp/dhw-campaign-client-test",
+            updateChecksDisabled: true,
+          })
+        )
+      );
+      const [duplicated, retried] = await Effect.gen(function* () {
+        const client = yield* WorkspaceAdminApiClient;
+        return [
+          yield* client.duplicateCampaign(accessToken, requestId, campaignId),
+          yield* client.retryCampaign(accessToken, campaignId, {
+            includeUnconfirmed: true,
+          }),
+        ] as const;
+      }).pipe(Effect.provide(clientLayer), Effect.runPromise);
+
+      expect(String(duplicated.id)).toBe(detail.id);
+      expect(retried.retriedCount).toBe(2);
+      expect(requests).toEqual([
+        {
+          path: `/api/v1/cli/campaigns/${campaignId}/duplicate`,
+          body: { requestId },
+        },
+        {
+          path: `/api/v1/cli/campaigns/${campaignId}/duplicate`,
+          body: { requestId },
+        },
+        {
+          path: `/api/v1/cli/campaigns/${campaignId}/retry`,
+          body: { includeUnconfirmed: true },
+        },
+      ]);
     } finally {
       server.stop(true);
     }
