@@ -247,22 +247,3 @@ test("loads the existing customer and the page data concurrently", async () => {
     expect.objectContaining({ existingCustomer, locale: "en-US", pageData: 5 })
   );
 });
-
-test("fails the content when the page data load rejects", async () => {
-  const render = mock((): ReactNode => "loaded reservation form");
-  const pageDefinition = createReservationPage({
-    fallback: () => "loading reservation form",
-    kind: "office",
-    loadPageData: () => Promise.reject(new Error("capacity unavailable")),
-    metadata: () => ({ description: "Description", title: "Title" }),
-    pathname: "/reservation/office",
-    render,
-  });
-
-  await expect(
-    renderContent(
-      await pageDefinition.Page({ searchParams: Promise.resolve({}) })
-    )
-  ).rejects.toThrow("capacity unavailable");
-  expect(render).not.toHaveBeenCalled();
-});

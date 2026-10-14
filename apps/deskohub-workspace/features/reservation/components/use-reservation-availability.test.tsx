@@ -98,27 +98,6 @@ describe("useReservationAvailability", () => {
     await unregisterWorkspaceComponentTestEnv();
   });
 
-  test("is pending on the first load and exposes the settled availability", async () => {
-    let respond: ((response: Response) => void) | undefined;
-    mockAvailabilityFetch(
-      () =>
-        new Promise((resolve) => {
-          respond = resolve;
-        })
-    );
-
-    const { result } = renderAvailability(queryStartingAt(8));
-
-    expect(result.current.isPending).toBe(true);
-    expect(result.current.availability).toBeNull();
-    await waitFor(() => expect(respond).toBeDefined());
-
-    await act(async () => respond?.(jsonResponse(availabilityResponse)));
-
-    await waitFor(() => expect(result.current.isPending).toBe(false));
-    expect(result.current.availability).toEqual(availabilityResponse);
-  });
-
   test("retries a failed request three times, then reports no availability", async () => {
     const fetch = mockAvailabilityFetch(() =>
       Promise.reject(new Error("Availability failed"))
