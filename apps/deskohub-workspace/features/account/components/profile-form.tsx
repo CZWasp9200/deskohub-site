@@ -739,10 +739,12 @@ export function ProfileForm({
                 />
                 <div className="flex flex-wrap items-center gap-3">
                   <Button
-                    className="rounded-xl bg-navy-blue px-4 text-xs uppercase tracking-[0.08em] button-tint-navy-blue hover:bg-navy-blue/90"
+                    caps
                     disabled={lookupAres.isExecuting}
                     onClick={handleAresLookup}
+                    shape="rounded"
                     size="sm"
+                    tone="navy-blue"
                     type="button"
                   >
                     {aresButtonLabel}
@@ -848,19 +850,14 @@ export function ProfileForm({
       </div>
 
       <Button
-        className={
-          isComplete
-            ? undefined
-            : {
-                billing:
-                  "rounded-xl bg-navy-blue px-4 text-xs uppercase tracking-[0.08em] button-tint-navy-blue hover:bg-navy-blue/90",
-                profile:
-                  "rounded-xl bg-burned-orange px-4 text-xs uppercase tracking-[0.08em] hover:bg-burned-orange/90",
-              }[section]
-        }
+        caps={!isComplete}
         disabled={isExecuting || isRefreshPending}
         id="account-profile-submit"
+        shape={isComplete ? "pill" : "rounded"}
         size={isComplete ? "default" : "sm"}
+        tone={
+          !isComplete && section === "billing" ? "navy-blue" : "burned-orange"
+        }
         type="submit"
       >
         {isExecuting ? m.accountProfileSaving({}, { locale }) : submitLabel}
@@ -1049,19 +1046,21 @@ function AresReviewPanel({
       </dl>
       <div className="flex flex-wrap gap-2">
         <Button
-          className="rounded-xl bg-burned-orange px-4 text-xs uppercase tracking-[0.08em] hover:bg-burned-orange/90"
+          caps
           onClick={ares.onApply}
+          shape="rounded"
           size="sm"
           type="button"
         >
           {m.accountAresLookupApply({}, { locale })}
         </Button>
         <Button
-          className="rounded-xl border border-navy-blue/14 px-4 text-xs uppercase tracking-[0.08em] text-navy-blue hover:bg-navy-blue/5"
+          caps
           onClick={ares.onDismiss}
+          shape="rounded"
           size="sm"
           type="button"
-          variant="ghost"
+          variant="secondary"
         >
           {m.accountAresLookupDismiss({}, { locale })}
         </Button>

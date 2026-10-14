@@ -25,12 +25,7 @@ const noopSectionChange: AccountShellProps["onSectionChange"] = () => undefined;
 function AccountSignOutLoading({ locale }: { readonly locale: Locale }) {
   return (
     <div className="flex flex-col items-end gap-2">
-      <Button
-        id="account-sign-out"
-        type="button"
-        disabled
-        className="max-w-full whitespace-normal bg-red-800 hover:bg-red-900"
-      >
+      <Button id="account-sign-out" type="button" disabled tone="danger" wrap>
         <LogOut aria-hidden className="size-4" />
         {m.accountSignOut({}, { locale })}
       </Button>

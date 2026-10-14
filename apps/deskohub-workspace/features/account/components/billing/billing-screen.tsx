@@ -5,6 +5,7 @@ import { FutureFeatureTooltip } from "@/features/account/components/future-featu
 import { AccountSectionPanel } from "@/features/account/components/shell/account-section-panel";
 import type { Locale } from "@/features/i18n";
 import { Button } from "@/shared/components/ui/button";
+import { UnstyledButton } from "@/shared/components/ui/unstyled-button";
 
 /*
  * THESIS: Billing stays honest about unavailable account capabilities instead of
@@ -68,11 +69,9 @@ export function BillingScreen({
         </h3>
         <div className="mt-4 grid min-w-0 gap-4 @xl:grid-cols-2">
           <FutureFeatureTooltip locale={locale}>
-            <Button
-              className="flex h-auto min-h-[9rem] min-w-0 w-full flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-[#cbd7e5] bg-[#fbfcfd] px-4 py-6 text-center text-[#53657f] whitespace-normal hover:bg-[#fbfcfd] disabled:pointer-events-none disabled:opacity-100 disabled:text-[#53657f]"
+            <UnstyledButton
+              className="flex min-h-[9rem] w-full min-w-0 flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-[#cbd7e5] bg-[#fbfcfd] px-4 py-6 text-center text-sm font-semibold text-[#53657f]"
               disabled
-              type="button"
-              variant="ghost"
             >
               <Plus
                 aria-hidden="true"
@@ -81,7 +80,7 @@ export function BillingScreen({
               <span className="min-w-0 max-w-full break-words">
                 {copy.addPaymentCard}
               </span>
-            </Button>
+            </UnstyledButton>
           </FutureFeatureTooltip>
         </div>
       </section>
@@ -112,11 +111,11 @@ export function BillingScreen({
             <FutureFeatureTooltip locale={locale}>
               <Button
                 aria-describedby={invoiceHistoryUnavailableId}
-                className="h-auto max-w-full whitespace-normal text-left text-[#53657f] disabled:pointer-events-none disabled:opacity-100 disabled:text-[#53657f]"
                 disabled
                 size="sm"
                 type="button"
                 variant="secondary"
+                wrap
               >
                 <Download aria-hidden="true" className="size-4 shrink-0" />
                 <span className="min-w-0 break-words">
@@ -127,11 +126,11 @@ export function BillingScreen({
             <FutureFeatureTooltip locale={locale}>
               <Button
                 aria-describedby={invoiceHistoryUnavailableId}
-                className="h-auto max-w-full whitespace-normal text-left text-[#53657f] disabled:pointer-events-none disabled:opacity-100 disabled:text-[#53657f]"
                 disabled
                 size="sm"
                 type="button"
                 variant="secondary"
+                wrap
               >
                 <FileDown aria-hidden="true" className="size-4 shrink-0" />
                 <span className="min-w-0 break-words">

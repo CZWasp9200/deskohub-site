@@ -206,7 +206,7 @@ describe("account components", () => {
       name: m.accountSignInSubmit({}, { locale }),
     }) as HTMLButtonElement;
     expect(submit.disabled).toBe(false);
-    expect(submit.getAttribute("aria-busy")).toBe("false");
+    expect(submit.getAttribute("aria-busy")).toBeNull();
 
     await act(async () => {
       fireEvent.submit(form);

@@ -64,9 +64,10 @@ export function ProfileCompletionReferralNotice({
           </p>
           {outcome.status !== "pending" && (
             <Button
-              className="h-auto shrink-0 rounded-full px-3 py-1 text-sm"
+              className="shrink-0"
               disabled={dismiss.isExecuting}
               onClick={() => dismiss.execute({})}
+              size="sm"
               type="button"
               variant="ghost"
             >

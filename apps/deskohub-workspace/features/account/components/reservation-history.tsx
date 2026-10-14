@@ -340,7 +340,8 @@ function FeaturedReservationItem({
           <div className="flex min-w-0 flex-col gap-2 @3xl:flex-row @3xl:flex-wrap @4xl:col-start-1 @4xl:row-start-2">
             <FutureFeatureTooltip locale={locale}>
               <Button
-                className="w-full @3xl:w-auto"
+                className="@3xl:w-auto"
+                fullWidth
                 disabled
                 size="sm"
                 type="button"
@@ -352,7 +353,8 @@ function FeaturedReservationItem({
             {reservation.workspaceReservationId ? (
               <Button
                 asChild
-                className="w-full @3xl:w-auto"
+                className="@3xl:w-auto"
+                fullWidth
                 size="sm"
                 variant="secondary"
               >
@@ -365,7 +367,8 @@ function FeaturedReservationItem({
             ) : (
               <div className="min-w-0">
                 <Button
-                  className="w-full @3xl:w-auto"
+                  className="@3xl:w-auto"
+                  fullWidth
                   disabled
                   size="sm"
                   type="button"
@@ -697,12 +700,9 @@ function ReservationDetailLink({
 
   if (presentation === "text") {
     return (
-      <GuardedLink
-        className="inline-flex min-w-0 max-w-full break-words whitespace-normal text-sm font-semibold leading-5 text-burned-orange underline-offset-4 transition-colors hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-burned-orange focus-visible:ring-offset-2"
-        href={href}
-      >
-        {copy.viewReservation}
-      </GuardedLink>
+      <Button asChild variant="link" wrap>
+        <GuardedLink href={href}>{copy.viewReservation}</GuardedLink>
+      </Button>
     );
   }
 

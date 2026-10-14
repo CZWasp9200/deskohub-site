@@ -207,7 +207,6 @@ export function AvatarControl({
         <span className="absolute -right-1 -bottom-1 inline-flex size-10">
           <Button
             aria-label={m.accountProfileAvatarChange({}, { locale })}
-            className="size-10 rounded-full border border-[#dfe4ec] bg-white p-0 text-[#344258] shadow-[0_3px_10px_rgba(0,2,79,0.14)] focus-visible:ring-2 focus-visible:ring-burned-orange focus-visible:ring-offset-2"
             disabled={isPending}
             onClick={openFilePicker}
             size="icon"
@@ -229,12 +228,14 @@ export function AvatarControl({
       </div>
       {displayAvatar !== null && (
         <Button
-          className="h-auto min-h-8 whitespace-normal rounded-xl border border-[#dfe4ec] bg-white px-3 text-left text-xs uppercase leading-4 tracking-[0.08em] text-[#344258] hover:bg-[#f8fafc] focus-visible:ring-2 focus-visible:ring-burned-orange focus-visible:ring-offset-2"
+          caps
           disabled={isPending}
           onClick={handleRemove}
+          shape="rounded"
           size="sm"
           type="button"
           variant="secondary"
+          wrap
         >
           {remove.isExecuting
             ? m.accountProfileAvatarRemoving({}, { locale })
