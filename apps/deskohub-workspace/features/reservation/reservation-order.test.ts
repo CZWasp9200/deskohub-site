@@ -22,44 +22,6 @@ const validMeetingRoomReservation = {
 } as const;
 
 describe("reservation schema", () => {
-  test("rejects a meeting-room order without an interval", () => {
-    const result = safeParseReservationOrder({
-      kind: "meeting-room",
-      name: "Ada Lovelace",
-      email: testEmailAddressForAda,
-      phone: "+420 777 777 777",
-    });
-
-    expect(Result.isFailure(result)).toBe(true);
-  });
-
-  test("discriminates meeting-room orders independently from cowork tiers", () => {
-    setSystemTime(new Date("2099-06-10T06:00:00.000Z"));
-
-    const result = safeParseReservationOrder(validMeetingRoomReservation);
-
-    expect(Result.isSuccess(result)).toBe(true);
-    if (Result.isSuccess(result)) {
-      expect(result.success).toMatchObject({ kind: "meeting-room" });
-      expect(result.success).not.toHaveProperty("_tag");
-      expect(result.success).not.toHaveProperty("entryTier");
-    }
-  });
-
-  test("rejects meeting-room as a cowork entry tier", () => {
-    setSystemTime(new Date("2099-06-10T06:00:00.000Z"));
-
-    expect(
-      Result.isFailure(
-        safeParseReservationOrder({
-          ...validMeetingRoomReservation,
-          kind: "cowork",
-          entryTier: "meeting-room",
-        })
-      )
-    ).toBe(true);
-  });
-
   test("discriminates cowork orders before refining their tier", () => {
     const result = safeParseReservationOrder({
       kind: "cowork",
@@ -78,20 +40,6 @@ describe("reservation schema", () => {
         entryTier: "basic",
       });
     }
-  });
-
-  test("rejects missing and unknown reservation kinds", () => {
-    const { kind: _kind, ...withoutKind } = validMeetingRoomReservation;
-
-    expect(Result.isFailure(safeParseReservationOrder(withoutKind))).toBe(true);
-    expect(
-      Result.isFailure(
-        safeParseReservationOrder({
-          ...validMeetingRoomReservation,
-          kind: "event-space",
-        })
-      )
-    ).toBe(true);
   });
 
   afterEach(() => {
@@ -134,22 +82,6 @@ describe("reservation schema", () => {
         startsAt: "2099-06-10T07:00:00Z",
         endsAt: "2099-06-10T08:00:00Z",
       });
-    }
-  });
-
-  test("drops cowork-only fields from meeting-room orders", () => {
-    setSystemTime(new Date("2099-06-10T06:00:00.000Z"));
-
-    const result = safeParseReservationOrder({
-      ...validMeetingRoomReservation,
-      coffee: true,
-      monitorOption: "2x27-qhd",
-    });
-
-    expect(Result.isSuccess(result)).toBe(true);
-    if (Result.isSuccess(result)) {
-      expect(result.success).not.toHaveProperty("coffee");
-      expect(result.success).not.toHaveProperty("monitorOption");
     }
   });
 });

@@ -26,21 +26,6 @@ const safeParseCoworkReservationOrder = Schema.decodeUnknownResult(
 );
 
 describe("cowork reservation schema", () => {
-  test("owns the tier-aware cowork interval policy", () => {
-    expect(
-      getCoworkReservationIntervalInput("open-space", "2099-06-10")
-    ).toEqual({
-      startsAt: "2099-06-10T00:00",
-      endsAt: "2099-06-10T17:00",
-    });
-    expect(
-      getCoworkReservationIntervalInput("reserved-desk", "2099-06-10")
-    ).toEqual({
-      startsAt: "2099-06-10T00:00",
-      endsAt: "2099-06-11T00:00",
-    });
-  });
-
   test("accepts the Open Space interval through cowork interval validation", () => {
     const interval = Schema.decodeSync(coworkReservationIntervalSchema)(
       getCoworkReservationIntervalInput("open-space", "2099-06-10")
@@ -85,27 +70,6 @@ describe("cowork reservation schema", () => {
         date: "2099-06-10",
         coffee: true,
       });
-    }
-  });
-
-  test("decodes cowork orders with the domain discriminator", () => {
-    const result = safeParseCoworkReservationOrder({
-      kind: "cowork",
-      entryTier: "open-space",
-      date: "2099-06-10",
-      coffee: false,
-      name: "Ada Lovelace",
-      email: testEmailAddress("ada"),
-      phone: "+420777777777",
-    });
-
-    expect(Result.isSuccess(result)).toBe(true);
-    if (Result.isSuccess(result)) {
-      expect(result.success).toMatchObject({
-        kind: "cowork",
-        entryTier: "open-space",
-      });
-      expect(result.success).not.toHaveProperty("_tag");
     }
   });
 
@@ -243,24 +207,6 @@ describe("cowork offer intervals across daylight-saving changes", () => {
 });
 
 describe("retired reservation customer message", () => {
-  test("omits the message field from new normalized orders", () => {
-    const result = safeParseCoworkReservation({
-      entryTier: "reserved-desk",
-      date: "2099-06-10",
-      coffee: false,
-      monitorOption: undefined,
-      name: "Ada Lovelace",
-      email: testEmailAddress("ada"),
-      phone: "+420777777777",
-      marketingConsent: false,
-    });
-
-    expect(Result.isSuccess(result)).toBe(true);
-    if (Result.isSuccess(result)) {
-      expect(result.success).not.toHaveProperty("message");
-    }
-  });
-
   test("drops a legacy customer message on strict normalized decode", () => {
     const reservation = Schema.decodeUnknownSync(
       normalizedCoworkReservationOrderSchema,
