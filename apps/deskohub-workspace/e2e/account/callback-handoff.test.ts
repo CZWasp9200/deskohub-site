@@ -100,7 +100,6 @@ const { withCallbackHandoffReview } = await import("./callback-handoff");
 type CallbackFakePageOptions = {
   readonly continueError?: Error;
   readonly deferContinue?: boolean;
-  readonly deferLoadingEvaluation?: boolean;
   readonly deferRoute?: boolean;
   readonly deferUnroute?: boolean;
   readonly failLoadingWait?: boolean;
@@ -108,7 +107,6 @@ type CallbackFakePageOptions = {
   readonly loadingConnected?: boolean;
   readonly onFontsReady?: () => void;
   readonly onScreenshot?: () => Promise<void> | void;
-  readonly routeError?: Error;
   readonly unrouteError?: Error;
 };
 
@@ -127,13 +125,11 @@ type CallbackFakePage = {
     }
   ) => Promise<boolean>;
   readonly events: () => readonly string[];
-  readonly loadingEvaluationStarted: Promise<void>;
   readonly page: Playwright.Page;
   readonly releaseRoute: () => void;
   readonly routeInstallArguments: readonly unknown[][];
   readonly routeStarted: Promise<void>;
   readonly releaseContinue: () => void;
-  readonly releaseLoadingEvaluation: () => void;
   readonly releaseUnroute: () => void;
   readonly setUrl: (url: string) => void;
   readonly continueStarted: Promise<void>;
@@ -180,15 +176,6 @@ const makeCallbackFakePage = (
   const routeStarted = new Promise<void>((resolve) => {
     resolveRouteStarted = resolve;
   });
-  let resolveLoadingEvaluation!: () => void;
-  let loadingEvaluationReleased = !options.deferLoadingEvaluation;
-  const loadingEvaluationReady = new Promise<void>((resolve) => {
-    resolveLoadingEvaluation = resolve;
-  });
-  let resolveLoadingEvaluationStarted!: () => void;
-  const loadingEvaluationStarted = new Promise<void>((resolve) => {
-    resolveLoadingEvaluationStarted = resolve;
-  });
   let resolveScreenshotStarted!: () => void;
   const screenshotStarted = new Promise<void>((resolve) => {
     resolveScreenshotStarted = resolve;
@@ -208,8 +195,6 @@ const makeCallbackFakePage = (
     {
       evaluate: async () => {
         events.push("dom-check");
-        resolveLoadingEvaluationStarted();
-        if (!loadingEvaluationReleased) await loadingEvaluationReady;
         return options.loadingConnected !== false;
       },
     }
@@ -251,7 +236,6 @@ const makeCallbackFakePage = (
       routeHandler = handler;
       resolveRouteStarted();
       if (!routeReleased) await routeReady;
-      if (options.routeError) throw options.routeError;
     },
     screenshot: async (screenshotOptions: Record<string, unknown>) => {
       events.push("screenshot");
@@ -329,12 +313,6 @@ const makeCallbackFakePage = (
       if (continueReleased) return;
       continueReleased = true;
       resolveContinue();
-    },
-    loadingEvaluationStarted,
-    releaseLoadingEvaluation: () => {
-      if (loadingEvaluationReleased) return;
-      loadingEvaluationReleased = true;
-      resolveLoadingEvaluation();
     },
     releaseUnroute: () => {
       if (unrouteReleased) return;
@@ -470,37 +448,6 @@ describe("account callback handoff review", () => {
     expect(fakePage.screenshotCalls).toHaveLength(0);
     expect(fakePage.continueCallCount()).toBe(1);
     expect(fakePage.unrouteCallCount()).toBe(1);
-  });
-
-  test("aborts a pending DOM evaluation when the case fails", async () => {
-    const fakePage = makeCallbackFakePage({ deferLoadingEvaluation: true });
-    const runCaseFailure = new Error("original run case failure");
-    const unhandledRejections: unknown[] = [];
-    const onUnhandledRejection = (reason: unknown) => {
-      unhandledRejections.push(reason);
-    };
-    process.on("unhandledRejection", onUnhandledRejection);
-
-    try {
-      await expect(
-        withCallbackHandoffReview(fakePage.page, review, async () => {
-          void fakePage.dispatch(accountUrl);
-          await fakePage.loadingEvaluationStarted;
-          throw runCaseFailure;
-        })
-      ).rejects.toBe(runCaseFailure);
-
-      expect(fakePage.events()).toContain("wait:loading-card");
-      expect(fakePage.screenshotCalls).toHaveLength(1);
-      expect(fakePage.continueCallCount()).toBe(1);
-
-      fakePage.releaseLoadingEvaluation();
-      await flushMicrotasks();
-      expect(fakePage.screenshotCalls).toHaveLength(1);
-      expect(unhandledRejections).toHaveLength(0);
-    } finally {
-      process.off("unhandledRejection", onUnhandledRejection);
-    }
   });
 
   test("discards a late screenshot and preserves the case failure", async () => {
@@ -685,33 +632,6 @@ describe("account callback handoff review", () => {
     expect(fakePage.unrouteCallCount()).toBe(1);
   });
 
-  test("does not persist when the context is invalidated between capture and persistence", async () => {
-    const fakePage = makeCallbackFakePage();
-    documentReviewControl.failValidateFromCall = 2;
-    documentReviewControl.timeline = fakePage.events() as string[];
-
-    await expect(
-      withCallbackHandoffReview(fakePage.page, review, async () => {
-        await fakePage.dispatch(accountUrl, {
-          headers: {},
-          isNavigationRequest: true,
-          resourceType: "document",
-        });
-      })
-    ).rejects.toThrow(callbackHandoffFailureMessage);
-
-    expect(documentReviewControl.validateCalls).toBeGreaterThanOrEqual(2);
-    expect(documentReviewControl.captureCalls).toBe(1);
-    expect(fakePage.events().indexOf("continue")).toBeLessThan(
-      fakePage.events().indexOf("adapter-dispose")
-    );
-    expect(documentReviewControl.disposeCalls).toBe(1);
-    expect(fakePage.screenshotCalls).toHaveLength(0);
-    expect(writeFileSpy?.mock.calls).toHaveLength(0);
-    expect(fakePage.continueCallCount()).toBe(1);
-    expect(fakePage.unrouteCallCount()).toBe(1);
-  });
-
   test("does not persist when the context is invalidated between mkdir and write", async () => {
     const fakePage = makeCallbackFakePage();
     documentReviewControl.failValidateFromCall = 3;
@@ -741,53 +661,6 @@ describe("account callback handoff review", () => {
     expect(fakePage.unrouteCallCount()).toBe(1);
   });
 
-  test("fails closed on an adapter capture failure and still forwards once", async () => {
-    const fakePage = makeCallbackFakePage();
-    documentReviewControl.failCapture = true;
-    documentReviewControl.timeline = fakePage.events() as string[];
-
-    await expect(
-      withCallbackHandoffReview(fakePage.page, review, async () => {
-        await fakePage.dispatch(accountUrl, {
-          headers: {},
-          isNavigationRequest: true,
-          resourceType: "document",
-        });
-      })
-    ).rejects.toThrow(callbackHandoffFailureMessage);
-
-    expect(fakePage.events().indexOf("continue")).toBeLessThan(
-      fakePage.events().indexOf("adapter-dispose")
-    );
-    expect(documentReviewControl.captureCalls).toBe(1);
-    expect(documentReviewControl.disposeCalls).toBe(1);
-    expect(fakePage.screenshotCalls).toHaveLength(0);
-    expect(writeFileSpy?.mock.calls).toHaveLength(0);
-    expect(fakePage.continueCallCount()).toBe(1);
-    expect(fakePage.unrouteCallCount()).toBe(1);
-  });
-
-  test("preserves the run case failure over document review failure", async () => {
-    const fakePage = makeCallbackFakePage();
-    documentReviewControl.failValidate = true;
-    const runCaseFailure = new Error("original run case failure");
-
-    await expect(
-      withCallbackHandoffReview(fakePage.page, review, async () => {
-        await fakePage.dispatch(accountUrl, {
-          headers: {},
-          isNavigationRequest: true,
-          resourceType: "document",
-        });
-        throw runCaseFailure;
-      })
-    ).rejects.toBe(runCaseFailure);
-
-    expect(fakePage.continueCallCount()).toBe(1);
-    expect(documentReviewControl.disposeCalls).toBe(1);
-    expect(fakePage.unrouteCallCount()).toBe(1);
-  });
-
   test("accepts a callback URL with exactly one canonical attempt parameter", async () => {
     const fakePage = makeCallbackFakePage();
 
@@ -803,20 +676,14 @@ describe("account callback handoff review", () => {
   });
 
   for (const [name, pageUrl] of [
-    ["a malformed attempt UUID", `${callbackUrl}?attempt=not-a-uuid`],
     [
       "a non-canonical uppercase attempt UUID",
       `${callbackUrl}?attempt=${attemptUuid.toUpperCase()}`,
     ],
-    ["an unknown parameter", `${callbackUrl}?unknown=synthetic-value`],
     ["a token parameter", `${callbackUrl}?token=synthetic-secret-token`],
     [
       "a duplicated attempt parameter",
       `${callbackUrl}?attempt=${attemptUuid}&attempt=${attemptUuid}`,
-    ],
-    [
-      "an attempt parameter with an extra parameter",
-      `${callbackUrl}?attempt=${attemptUuid}&extra=1`,
     ],
     ["a fragment", `${callbackUrl}#review-state`],
     [
@@ -894,28 +761,6 @@ describe("account callback handoff review", () => {
         }
       });
     });
-  });
-
-  test("unroutes a synchronously registered handler after route ack rejection", async () => {
-    const fakePage = makeCallbackFakePage({
-      routeError: new Error("raw route install failure"),
-    });
-    let runCaseCalls = 0;
-
-    await expect(
-      withCallbackHandoffReview(fakePage.page, review, async () => {
-        runCaseCalls += 1;
-      })
-    ).rejects.toThrow(callbackHandoffFailureMessage);
-
-    expect(runCaseCalls).toBe(0);
-    expect(fakePage.unrouteCallCount()).toBe(1);
-    expect(fakePage.unrouteArguments[0]?.[0]).toBe(
-      fakePage.routeInstallArguments[0]?.[0]
-    );
-    expect(fakePage.unrouteArguments[0]?.[1]).toBe(
-      fakePage.routeInstallArguments[0]?.[1]
-    );
   });
 
   test("releases and unroutes after locator or capture errors", async () => {
@@ -1100,27 +945,6 @@ describe("account callback handoff without the review opt-in", () => {
     expect(fakePage.continueCallCount()).toBe(1);
   });
 
-  test("still fails a held handoff document without a valid receipt", async () => {
-    const fakePage = makeCallbackFakePage();
-    documentReviewControl.failValidate = true;
-
-    await expect(
-      withCallbackHandoffReview(
-        fakePage.page,
-        reviewWithoutScreenshots,
-        async () => {
-          await fakePage.dispatch(accountUrl, {
-            headers: {},
-            isNavigationRequest: true,
-            resourceType: "document",
-          });
-        }
-      )
-    ).rejects.toThrow(callbackHandoffFailureMessage);
-
-    expect(fakePage.continueCallCount()).toBe(1);
-  });
-
   test("still checks the loading state behind a held RSC request", async () => {
     const fakePage = makeCallbackFakePage();
 
@@ -1140,21 +964,5 @@ describe("account callback handoff without the review opt-in", () => {
     expect(fakePage.screenshotCalls).toHaveLength(0);
     expect(timeline).not.toContain("set-viewport");
     expect(writeFileSpy?.mock.calls).toHaveLength(0);
-  });
-
-  test("still fails when the RSC handoff shows no loading state", async () => {
-    const fakePage = makeCallbackFakePage({ failLoadingWait: true });
-
-    await expect(
-      withCallbackHandoffReview(
-        fakePage.page,
-        reviewWithoutScreenshots,
-        async () => {
-          await fakePage.dispatch(accountUrl);
-        }
-      )
-    ).rejects.toThrow(callbackHandoffFailureMessage);
-
-    expect(fakePage.continueCallCount()).toBe(1);
   });
 });

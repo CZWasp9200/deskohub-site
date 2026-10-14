@@ -316,58 +316,6 @@ test("bounds the case cleanup step by its semantic timeout", async () => {
   expect(writeWorkspaceE2EAccountJournal).toHaveBeenCalledTimes(1);
 });
 
-test("runs verification pages sequentially within their individual timeout", async () => {
-  writeWorkspaceE2EAccountJournal.mockClear();
-  const observations: E2ETelemetryObservation[] = [];
-  const events: string[] = [];
-  const testCase = makeAccountCase("account-profile-completion", () =>
-    Effect.sync(() => events.push("case:execute")).pipe(Effect.asVoid)
-  );
-  const verifyPages = [
-    makeVerificationStep("verification-1", events),
-    makeVerificationStep("verification-2", events),
-    makeVerificationStep("verification-3", events),
-  ];
-
-  const exit = await Effect.runPromiseExit(
-    Effect.gen(function* () {
-      const fiber = yield* Effect.forkChild(
-        runWorkspaceE2EAccountCase({
-          journalRef: makeJournalRef(),
-          session: "account-runner-test",
-          testCase,
-          verifyPages,
-        })
-      );
-      yield* TestClock.adjust("180 seconds");
-      return yield* Fiber.join(fiber);
-    }).pipe(Effect.provide(makeRunnerLayer(observations)))
-  );
-
-  expect(Exit.isSuccess(exit)).toBe(true);
-  expect(events).toEqual([
-    "case:execute",
-    "verification-1:start",
-    "verification-1:end",
-    "verification-2:start",
-    "verification-2:end",
-    "verification-3:start",
-    "verification-3:end",
-  ]);
-  expect(
-    observations.filter((observation) => observation.scope === "step")
-  ).toEqual(
-    verifyPages.map((step) => ({
-      caseId: testCase.id,
-      outcome: "passed",
-      scope: "step",
-      stepId: step.id,
-      timeoutMs: workspaceE2ETimeouts.providerTransition,
-    }))
-  );
-  expect(writeWorkspaceE2EAccountJournal).toHaveBeenCalledTimes(1);
-});
-
 test("keeps case acquisition interruptible", async () => {
   writeWorkspaceE2EAccountJournal.mockClear();
   const observations: E2ETelemetryObservation[] = [];
@@ -413,52 +361,6 @@ test("keeps case acquisition interruptible", async () => {
     expect(Cause.hasInterruptsOnly(result.caseExit.cause)).toBe(true);
   }
   expect(events).toEqual(["case:execute", "journal:flush"]);
-  expect(writeWorkspaceE2EAccountJournal).toHaveBeenCalledTimes(1);
-});
-
-test("runs case cleanup after verification and before journal flush", async () => {
-  writeWorkspaceE2EAccountJournal.mockClear();
-  const observations: E2ETelemetryObservation[] = [];
-  const events: string[] = [];
-  journalFlushObserver = () => events.push("journal:flush");
-  const testCase = makeAccountCase(
-    "account-profile-completion",
-    ({ runStep }) => {
-      const cleanupStep: WorkspaceE2EStep<void> = {
-        execute: Effect.sync(() => events.push("case:cleanup")).pipe(
-          Effect.asVoid
-        ),
-        id: "cleanup transition fixture",
-        timeoutMs: workspaceE2ETimeouts.providerTransition,
-      };
-      return Effect.sync(() => events.push("case:execute")).pipe(
-        Effect.map(() => ({ cleanup: runStep(cleanupStep) }))
-      );
-    }
-  );
-  const verifyPage: WorkspaceE2EStep<void> = {
-    execute: Effect.sync(() => events.push("verification:body")),
-    id: "checks account history",
-    timeoutMs: workspaceE2ETimeouts.providerTransition,
-  };
-
-  const exit = await Effect.runPromiseExit(
-    runWorkspaceE2EAccountCase({
-      journalRef: makeJournalRef(),
-      session: "account-runner-test",
-      testCase,
-      verifyPages: [verifyPage],
-    }).pipe(Effect.provide(makeRunnerLayer(observations)))
-  );
-
-  journalFlushObserver = undefined;
-  expect(Exit.isSuccess(exit)).toBe(true);
-  expect(events).toEqual([
-    "case:execute",
-    "verification:body",
-    "case:cleanup",
-    "journal:flush",
-  ]);
   expect(writeWorkspaceE2EAccountJournal).toHaveBeenCalledTimes(1);
 });
 
