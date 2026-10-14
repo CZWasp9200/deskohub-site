@@ -35,6 +35,8 @@ import {
 import { generatePromotionCode } from "@/features/discounts/promotion-code";
 import type { DotyposCustomerId } from "@/features/reservation/dotypos-customer";
 import { Button } from "@/shared/components/ui/button";
+import { ChoiceCard } from "@/shared/components/ui/choice-card";
+import { DisclosureButton } from "@/shared/components/ui/disclosure-button";
 import {
   Form,
   FormControl,
@@ -526,10 +528,9 @@ export function CalendarSalesAdminTable({
               </a>
             </Button>
             {discount && (
-              <Button
-                aria-expanded={expanded}
+              <DisclosureButton
                 aria-label={`Edit discount for ${event.title}`}
-                aria-pressed={expanded}
+                expanded={expanded}
                 onClick={() =>
                   setExpandedReference(
                     expanded
@@ -542,7 +543,7 @@ export function CalendarSalesAdminTable({
                 variant="ghost"
               >
                 <Pencil aria-hidden className="size-4" />
-              </Button>
+              </DisclosureButton>
             )}
           </div>
         );
@@ -681,17 +682,15 @@ function RowActions({
           mutation={onDelete}
         />
       )}
-      <Button
+      <DisclosureButton
         aria-label={editLabel}
-        aria-expanded={expanded}
-        aria-pressed={expanded}
+        expanded={expanded}
         onClick={onEdit}
         size="icon"
-        type="button"
         variant="ghost"
       >
         <Pencil aria-hidden className="size-4" />
-      </Button>
+      </DisclosureButton>
     </div>
   );
 }
@@ -903,12 +902,8 @@ function MutationForm<Input extends FieldValues, Values = Input>({
         <div className="mt-6 flex items-center justify-between border-t border-navy-blue/10 pt-5">
           <div>{deleteControl}</div>
           <Button
-            className={
-              isDirty
-                ? "bg-burned-orange-ink shadow-[0_7px_18px_rgba(174,69,26,0.24)] hover:bg-burned-orange-ink/90"
-                : ""
-            }
             disabled={disabled}
+            tone={isDirty ? "burned-orange-ink" : "burned-orange"}
             type="submit"
           >
             {submitIcon}
@@ -958,7 +953,6 @@ function DeleteButton({
     <>
       <Button
         aria-label={label}
-        className="border-burned-orange/25 text-burned-orange-ink hover:border-burned-orange"
         disabled={isExecuting}
         onClick={() => {
           setError(null);
@@ -967,6 +961,7 @@ function DeleteButton({
           }
         }}
         size={iconOnly ? "icon" : "default"}
+        tone="burned-orange"
         type="button"
         variant="secondary"
       >
@@ -1174,10 +1169,7 @@ export function DiscountDefinitionFields({
               </legend>
               <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                 {discountProductTargetOptions.map((option) => (
-                  <label
-                    className="flex cursor-pointer items-center gap-3 rounded-xl bg-navy-blue/[0.045] px-4 py-3 text-sm font-medium hover:bg-navy-blue/[0.075]"
-                    key={option.key}
-                  >
+                  <ChoiceCard align="center" key={option.key}>
                     <input
                       checked={field.value.includes(option.key)}
                       className="size-4 accent-[var(--brand-burned-orange)]"
@@ -1193,8 +1185,8 @@ export function DiscountDefinitionFields({
                       type="checkbox"
                       value={option.key}
                     />
-                    {option.label}
-                  </label>
+                    <span className="text-sm font-medium">{option.label}</span>
+                  </ChoiceCard>
                 ))}
               </div>
             </fieldset>
@@ -1295,15 +1287,15 @@ export function DiscountCodeConfigurationFields({
             </FormItem>
           )}
         />
-        <label className="flex min-h-12 cursor-pointer items-center gap-3 self-end rounded-[1.1rem] bg-navy-blue/[0.045] px-4 py-3 text-sm font-semibold">
+        <ChoiceCard align="center" className="self-end">
           <input
             {...register("enabled")}
             className="size-4 accent-[var(--brand-burned-orange)]"
             defaultChecked={code?.enabled ?? true}
             type="checkbox"
           />
-          Enabled
-        </label>
+          <span className="text-sm font-semibold">Enabled</span>
+        </ChoiceCard>
       </div>
       <div
         className={`grid gap-4 ${showMaxUses ? "md:grid-cols-4" : "md:grid-cols-2"}`}
