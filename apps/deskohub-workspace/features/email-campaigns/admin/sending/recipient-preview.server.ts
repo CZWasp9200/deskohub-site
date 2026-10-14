@@ -5,13 +5,16 @@ import { redirect } from "next/navigation";
 import type { CampaignRow } from "@/db/schema";
 import { runWorkspaceEffect } from "@/shared/backend/workspace-effect";
 import { CampaignAudienceService } from "../../backend/campaign-audience.service";
-import { CampaignRecipientService } from "../../backend/campaign-recipient.service";
+import {
+  CampaignRecipientService,
+  type ICampaignRecipientService,
+} from "../../backend/campaign-recipient.service";
 import type { CampaignId } from "../../campaign-identifiers";
 import { describeAudienceFilter } from "../audience-filter-summary";
 import { loadAdminCampaign } from "../campaign-page-data.server";
 
 export type CampaignRecipientResolution = Effect.Success<
-  ReturnType<CampaignRecipientService["resolve"]>
+  ReturnType<ICampaignRecipientService["resolve"]>
 >;
 
 export type RecipientPreview =

@@ -6,9 +6,13 @@ import { requireAdministratorAuthorization } from "@/shared/administrator/admini
 import { defineWorkspaceAction } from "@/shared/backend/workspace-action";
 import { PublicSafeActionError } from "@/shared/utils/safe-action-client";
 import { CampaignService } from "../../backend/campaign.service";
-import type { CampaignId } from "../../campaign-identifiers";
 import type { CampaignConfirmationRejection } from "../../errors";
-import { CampaignSendPipeline } from "../campaign-send-pipeline";
+import {
+  type CampaignRetryError,
+  CampaignSendPipeline,
+  type CampaignSendError,
+  type CampaignTestSendError,
+} from "../campaign-send-pipeline";
 import {
   campaignReferenceStandardSchema,
   campaignSendStandardSchema,
@@ -31,9 +35,21 @@ const confirmationRejectionMessages: Record<
     "Too many wrong codes, so that code no longer works. Send a new test email to get a fresh code.",
 };
 
+const unexpectedFailureMessage = "Something went wrong. Try again in a moment.";
+
 /** Admin copy for every failure the send pipeline reports. */
-const describeSendFailure = (cause: unknown) =>
+const describeSendFailure = (
+  cause:
+    | Effect.Error<typeof requireAdministratorAuthorization>
+    | CampaignTestSendError
+    | CampaignSendError
+    | CampaignRetryError
+) =>
   Match.value(cause).pipe(
+    Match.tag(
+      "AdministratorUnauthorizedError",
+      () => "Your admin sign-in is no longer valid. Reload the page and sign in again."
+    ),
     Match.tag("CampaignNotFound", () => "This campaign no longer exists."),
     Match.tag(
       "CampaignReadOnly",
@@ -90,13 +106,17 @@ const describeSendFailure = (cause: unknown) =>
       () =>
         "Sending isn't available in this build yet. Nothing was sent and the code still works."
     ),
-    Match.orElse(() => "Something went wrong. Try again in a moment.")
+    Match.tag("EffectDrizzleQueryError", () => unexpectedFailureMessage),
+    Match.exhaustive
   );
 
-const toPublicSendError = (cause: unknown) =>
-  new PublicSafeActionError({ message: describeSendFailure(cause), cause });
+// Failures outside the pipeline's typed errors, such as a layer that can't
+// be built, reach the action client's generic server error.
+const toPublicSendError = (
+  cause: Parameters<typeof describeSendFailure>[0]
+) => new PublicSafeActionError({ message: describeSendFailure(cause), cause });
 
-const campaignPath = (campaignId: CampaignId) =>
+const campaignPath = (campaignId: string) =>
   `/admin/email-campaigns/${campaignId}`;
 
 const testSendAction = defineWorkspaceAction(
@@ -121,8 +141,8 @@ const testSendAction = defineWorkspaceAction(
     },
     (effect) =>
       effect.pipe(
-        Effect.provide(CampaignSendPipeline.Live),
-        Effect.mapError(toPublicSendError)
+        Effect.mapError(toPublicSendError),
+        Effect.provide(CampaignSendPipeline.Live)
       )
   )
 );
@@ -141,8 +161,8 @@ const sendAction = defineWorkspaceAction(
     },
     (effect) =>
       effect.pipe(
-        Effect.provide(CampaignSendPipeline.Live),
-        Effect.mapError(toPublicSendError)
+        Effect.mapError(toPublicSendError),
+        Effect.provide(CampaignSendPipeline.Live)
       )
   )
 );
@@ -160,8 +180,8 @@ const retryUndeliveredAction = defineWorkspaceAction(
     },
     (effect) =>
       effect.pipe(
-        Effect.provide(CampaignSendPipeline.Live),
-        Effect.mapError(toPublicSendError)
+        Effect.mapError(toPublicSendError),
+        Effect.provide(CampaignSendPipeline.Live)
       )
   )
 );
@@ -180,8 +200,8 @@ const duplicateAction = defineWorkspaceAction(
     },
     (effect) =>
       effect.pipe(
-        Effect.provide(CampaignService.Live),
-        Effect.mapError(toPublicSendError)
+        Effect.mapError(toPublicSendError),
+        Effect.provide(CampaignService.Live)
       )
   )
 );
