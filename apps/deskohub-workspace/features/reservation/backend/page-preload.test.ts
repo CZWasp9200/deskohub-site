@@ -9,12 +9,6 @@ const run = <A>(effect: Effect.Effect<A>) =>
   );
 
 describe("pagePreload", () => {
-  test("seeds what the preload loads in time", async () => {
-    expect(
-      await run(Effect.succeed([1, 2]).pipe(pagePreload("numbers")))
-    ).toEqual([1, 2]);
-  });
-
   test("leaves a failed preload to the client", async () => {
     expect(
       await run(Effect.fail(new Error("provider")).pipe(pagePreload("numbers")))

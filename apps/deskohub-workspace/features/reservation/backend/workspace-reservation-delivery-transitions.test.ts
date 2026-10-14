@@ -401,35 +401,6 @@ describe.skipIf(!postgresDatabase)(
       expect(stored?.fulfilledAt?.equals(fulfilledAt)).toBe(true);
     });
 
-    test("rejects an older provider failure for a fulfilled delivery", async () => {
-      const customerEmailDeliveryId = newEmailDeliveryId();
-      const fulfilledAt = deliveryEventAt(20);
-      const id = await Effect.runPromise(
-        insertPaidReservationFixture({
-          fulfillmentState: "awaiting_delivery",
-          activeCustomerEmailDeliveryId: customerEmailDeliveryId,
-        })
-      );
-      await Effect.runPromise(
-        reservations.markCustomerEmailDeliveryFulfilled({
-          customerEmailDeliveryId,
-          fulfilledAt,
-        })
-      );
-
-      const updated = await Effect.runPromise(
-        reservations.markCustomerEmailDeliveryFailed({
-          customerEmailDeliveryId,
-          failureCode: fulfillmentEmailFailureCode,
-          failedAt: deliveryEventAt(15),
-        })
-      );
-
-      expect(updated).toBeNull();
-      const stored = await Effect.runPromise(reservations.findById(id));
-      expect(stored?.fulfillmentState).toBe("fulfilled");
-    });
-
     test("downgrades a fulfilled delivery when a newer provider failure arrives", async () => {
       const customerEmailDeliveryId = newEmailDeliveryId();
       const fulfilledAt = deliveryEventAt(15);

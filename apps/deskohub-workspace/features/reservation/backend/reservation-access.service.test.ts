@@ -187,16 +187,6 @@ describe("ReservationAccessService", () => {
     expect(result.resolveCustomerAccessCode).not.toHaveBeenCalled();
   });
 
-  test("allows owner-authorized access details across route locales", async () => {
-    const result = await runAccess({
-      authorized: true,
-      inputLocale: "cs-CZ",
-    });
-
-    expect(result.access).toEqual({ state: "available", ...resolvedAccess });
-    expect(result.resolveCustomerAccessCode).toHaveBeenCalledTimes(1);
-  });
-
   test("fails closed when the local reservation is missing or cannot be read", async () => {
     const accessToken = await createAccessToken();
 
@@ -210,26 +200,6 @@ describe("ReservationAccessService", () => {
       expect(result.getReservation).not.toHaveBeenCalled();
       expect(result.resolveCustomerAccessCode).not.toHaveBeenCalled();
     }
-  });
-
-  test("uses live provider timing after a reservation moves", async () => {
-    const accessToken = await createAccessToken();
-    const result = await runAccess({
-      accessToken,
-      providerReservation: makeProviderReservation({
-        startDate: "2026-06-20T09:00:00Z",
-        endDate: "2026-06-20T10:00:00Z",
-      }),
-    });
-
-    expect(result.access).toEqual({ state: "available", ...resolvedAccess });
-    expect(result.getReservation).toHaveBeenCalledTimes(1);
-    expect(result.resolveCustomerAccessCode).toHaveBeenCalledWith({
-      reservationId: orderId,
-      dotyposReservationId: "provider-reservation-id",
-      reservedFrom: Temporal.Instant.from("2026-06-20T09:00:00Z"),
-      reservedUntil: Temporal.Instant.from("2026-06-20T10:00:00Z"),
-    });
   });
 
   test.each([

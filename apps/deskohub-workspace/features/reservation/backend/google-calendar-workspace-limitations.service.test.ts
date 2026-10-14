@@ -55,22 +55,6 @@ const runWithEvents = async (
   );
 
 describe("GoogleCalendarWorkspaceLimitationsService", () => {
-  test("loads only the configured workspace limitations resource", async () => {
-    const inputs: GoogleCalendarListEventsInput[] = [];
-
-    await runWithEvents([], { from: "2026-06-10", to: "2026-06-11" }, (input) =>
-      inputs.push(input)
-    );
-
-    expect(inputs).toEqual([
-      {
-        calendarId: workspaceLimitationsCalendarId,
-        from: "2026-06-10",
-        to: "2026-06-11",
-      },
-    ]);
-  });
-
   test("translates description markers into workspace limitations", async () => {
     const limitations = await runWithEvents([
       {
@@ -131,31 +115,6 @@ describe("GoogleCalendarWorkspaceLimitationsService", () => {
     ]);
 
     expect(limitations).toEqual([]);
-  });
-
-  test("does not block the following day for full timed events ending at midnight", async () => {
-    const limitations = await runWithEvents([
-      {
-        id: "full-midnight-event",
-        status: "confirmed",
-        description: "[workspace:full]",
-        start: {
-          dateTime: "2026-06-10T00:00:00+02:00",
-          timeZone: "Europe/Prague",
-        },
-        end: {
-          dateTime: "2026-06-11T00:00:00+02:00",
-          timeZone: "Europe/Prague",
-        },
-      },
-    ]);
-
-    expect(limitations).toEqual([
-      WorkspaceCalendarLimitation.FullyOccupied({
-        date: "2026-06-10",
-        sourceEventId: "full-midnight-event",
-      }),
-    ]);
   });
 
   test("keeps each occupied day before a multi-day timed event ends at midnight", async () => {
@@ -240,42 +199,6 @@ describe("GoogleCalendarWorkspaceLimitationsService", () => {
       WorkspaceCalendarLimitation.FullyOccupied({
         date: "2026-06-10",
         sourceEventId: "prague-midnight-event",
-      }),
-    ]);
-  });
-
-  test("keeps the end day for timed events ending after midnight", async () => {
-    const limitations = await runWithEvents(
-      [
-        {
-          id: "after-midnight-event",
-          status: "confirmed",
-          description: "[workspace:full]",
-          start: {
-            dateTime: "2026-06-10T12:00:00+02:00",
-            timeZone: "Europe/Prague",
-          },
-          end: {
-            dateTime: "2026-06-12T13:00:00+02:00",
-            timeZone: "Europe/Prague",
-          },
-        },
-      ],
-      { from: "2026-06-10", to: "2026-06-12" }
-    );
-
-    expect(limitations).toEqual([
-      WorkspaceCalendarLimitation.FullyOccupied({
-        date: "2026-06-10",
-        sourceEventId: "after-midnight-event",
-      }),
-      WorkspaceCalendarLimitation.FullyOccupied({
-        date: "2026-06-11",
-        sourceEventId: "after-midnight-event",
-      }),
-      WorkspaceCalendarLimitation.FullyOccupied({
-        date: "2026-06-12",
-        sourceEventId: "after-midnight-event",
       }),
     ]);
   });

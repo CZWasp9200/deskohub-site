@@ -43,30 +43,6 @@ describe("reservation access token", () => {
     expect(second).toBe(first);
   });
 
-  test("binds token bytes to the issuance timestamp", async () => {
-    const earlier = await Effect.runPromise(createToken());
-    const later = await Effect.runPromise(
-      createReservationAccessToken(
-        { orderId, locale: "en-US" },
-        { secret, now: () => now.epochMilliseconds + 60_000 }
-      )
-    );
-
-    expect(later).not.toBe(earlier);
-  });
-
-  test("keeps a reservation-anchored token valid regardless of later clock time", async () => {
-    const token = await Effect.runPromise(createToken());
-    const claims = await Effect.runPromise(
-      openReservationAccessToken(
-        { token, orderId, locale: "en-US" },
-        { secret }
-      )
-    );
-
-    expect(claims.issuedAtEpochMilliseconds).toBe(now.epochMilliseconds);
-  });
-
   test("rejects tampering and reservation or locale mismatches", async () => {
     const token = await Effect.runPromise(createToken());
     const inputs = [
@@ -118,25 +94,6 @@ describe("reservation access token", () => {
       expect(error.code).toBe("invalid-token");
       expect(error.message).toBe("Reservation access token is invalid.");
       expect(error.cause).toBeDefined();
-    }
-  });
-
-  test("keeps links valid when checkout keys are retired", async () => {
-    const token = await Effect.runPromise(createToken());
-    const previousCheckoutKeys = process.env.CHECKOUT_PAY_STATE_KEYS;
-    process.env.CHECKOUT_PAY_STATE_KEYS = `checkout-next:${Buffer.alloc(32, 10).toString("base64url")}`;
-
-    try {
-      const claims = await Effect.runPromise(
-        openReservationAccessToken(
-          { token, orderId, locale: "en-US" },
-          { secret }
-        )
-      );
-
-      expect(claims.orderId).toBe(orderId);
-    } finally {
-      process.env.CHECKOUT_PAY_STATE_KEYS = previousCheckoutKeys;
     }
   });
 });

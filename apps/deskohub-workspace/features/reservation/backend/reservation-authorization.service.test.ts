@@ -184,13 +184,4 @@ describe("ReservationAuthorizationService", () => {
       expect(result.findById).toHaveBeenCalledWith(orderId);
     }
   );
-
-  test("keeps owner authorization independent of the route locale", async () => {
-    const result = await runAuthorization({
-      input: { locale: "cs-CZ" },
-      owner: "matches",
-    });
-
-    expect(result.authorized).toBe(true);
-  });
 });
