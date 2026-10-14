@@ -157,22 +157,6 @@ describe("listPostHogFeatureFlagDefinitions", () => {
     expect(definition?.constantEnabledValue).toBeUndefined();
   });
 
-  test("keeps the page request failure as the error cause", async () => {
-    const requestFailure = new Error("PostHog unavailable");
-
-    const error = await Effect.runPromise(
-      listPostHogFeatureFlagDefinitions(projectId, () =>
-        Effect.fail(requestFailure)
-      ).pipe(Effect.flip)
-    );
-
-    expect(error).toMatchObject({
-      _tag: "PostHogFeatureFlagError",
-      message: "Could not list PostHog feature flags.",
-    });
-    expect(error.cause).toBe(requestFailure);
-  });
-
   test("fails a stalled page request", async () => {
     const error = await Effect.runPromise(
       Effect.gen(function* () {

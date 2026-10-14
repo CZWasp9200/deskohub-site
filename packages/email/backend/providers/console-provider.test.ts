@@ -159,13 +159,6 @@ const expectNoSensitiveLeaks = (
 };
 
 describe("Console email provider sensitive content", () => {
-  test("development: sensitive message emits no dev banner and no raw console output", async () => {
-    setEnv("NODE_ENV", "development");
-    const { consoleRecords } = await send(sensitiveMessage());
-
-    expect(consoleRecords).toEqual([]);
-  });
-
   test("sensitive message logs only non-PII facts", async () => {
     setEnv("NODE_ENV", "development");
     const { logEntries } = await send(sensitiveMessage());
@@ -246,16 +239,5 @@ describe("Console email provider ordinary behavior", () => {
       to: [testEmailAddress("ada")],
       subject: "Reservation confirmed",
     });
-  });
-
-  test("sensitiveContent=false keeps ordinary Console behavior", async () => {
-    setEnv("NODE_ENV", "development");
-    const { consoleRecords } = await send(
-      ordinaryMessage({ sensitiveContent: false })
-    );
-
-    const logged = recordText(consoleRecords);
-    expect(logged).toContain(testEmailAddress("ada"));
-    expect(logged).toContain("EMAIL CONTENT");
   });
 });

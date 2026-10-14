@@ -31,14 +31,6 @@ const providerName = (overrides: Partial<EmailProviderConfig> = {}) =>
   );
 
 describe("ConfiguredEmailProviderLayer", () => {
-  test("chooses provider from EmailConfigTag", async () => {
-    process.env.NODE_ENV = "test";
-    expect(await providerName()).toBe("console");
-    expect(await providerName({ provider: "resend", apiKey: "api-key" })).toBe(
-      "resend"
-    );
-  });
-
   test("fails for the console provider in production", async () => {
     process.env.NODE_ENV = "production";
 

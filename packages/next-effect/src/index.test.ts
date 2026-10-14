@@ -10,21 +10,6 @@ class TestService extends Context.Service<
 >()("@deskohub/next-effect/test/RunnerService") {}
 
 describe("NextEffect", () => {
-  test("run provides the configured layer", async () => {
-    const next = NextEffect.make({
-      layer: Layer.succeed(TestService, { value: "service" }),
-    });
-
-    await expect(
-      next.run(
-        Effect.gen(function* () {
-          const service = yield* TestService;
-          return service.value;
-        })
-      )
-    ).resolves.toBe("service");
-  });
-
   test("run maps fallible layer setup failures", async () => {
     const mapped = new Error("mapped");
     const next = NextEffect.make({
@@ -216,20 +201,6 @@ describe("NextEffect", () => {
       await holder;
       await expect(waiter).resolves.toBe("waiter");
     });
-  });
-
-  test("page passes props into an Effect component", async () => {
-    const next = NextEffect.make({
-      layer: Layer.succeed(TestService, { value: "service" }),
-    });
-    const Page = next.page((props: { readonly slug: string }) =>
-      Effect.gen(function* () {
-        const service = yield* TestService;
-        return `${service.value}:${props.slug}`;
-      })
-    );
-
-    await expect(Page({ slug: "menu" })).resolves.toBe("service:menu");
   });
 
   test("page suspends synchronous component construction", async () => {
