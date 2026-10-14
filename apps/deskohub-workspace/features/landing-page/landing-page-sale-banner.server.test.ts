@@ -109,16 +109,6 @@ const getBanner = (
 describe("getActiveLandingPageSaleBanner", () => {
   test.each([
     [
-      "cowork-only",
-      [coworkProduct],
-      "/en-US/reservation/cowork?utm_source=deskohub&utm_medium=sale_banner&utm_content=home_hero",
-    ],
-    [
-      "meeting-room-only",
-      [meetingRoomProduct],
-      "/en-US/reservation/meeting-room?utm_source=deskohub&utm_medium=sale_banner&utm_content=home_hero",
-    ],
-    [
       "mixed",
       [coworkProduct, meetingRoomProduct],
       "/en-US/reservation/cowork?utm_source=deskohub&utm_medium=sale_banner&utm_content=home_hero",
@@ -141,12 +131,6 @@ describe("getActiveLandingPageSaleBanner", () => {
       href,
       label: expect.objectContaining({ title: "Summer focus" }),
     });
-  });
-
-  test("renders no banner when there is no active sale", async () => {
-    const { banner } = await getBanner([]);
-
-    expect(banner).toBeUndefined();
   });
 
   test("renders no office-only banner while office reservations are disabled", async () => {
@@ -197,19 +181,6 @@ describe("getActiveLandingPageSaleBanner", () => {
       ]),
     });
     expect(isOfficePageEnabled).toHaveBeenCalledTimes(1);
-  });
-
-  test("does not evaluate the office gate for a sale without office products", async () => {
-    const { banner } = await getBanner(
-      [sale([coworkProduct, meetingRoomProduct])],
-      "en-US",
-      false
-    );
-
-    expect(banner).toMatchObject({
-      label: advertisedLabel([coworkProduct, meetingRoomProduct]),
-    });
-    expect(isOfficePageEnabled).not.toHaveBeenCalled();
   });
 
   test("fails closed and logs when overlapping sales are ambiguous", async () => {

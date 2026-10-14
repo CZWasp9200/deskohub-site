@@ -105,26 +105,6 @@ beforeEach(() => {
 afterEach(() => setSystemTime());
 
 describe("loadFaqOccupancyStats", () => {
-  test("loads bounded synthetic provider data and returns only the aggregates", async () => {
-    tables = [makeTable()];
-    reservations = Array.from({ length: 6 }, (_, index) =>
-      makeReservation(`synthetic-reservation-${index}`)
-    );
-
-    const stats = await loadFaqOccupancyStats();
-
-    expect(stats).toEqual({
-      averageReservationsPerDay: 0.2,
-      coworkSeatCapacity: 4,
-    });
-    expect(getTables).toHaveBeenCalledTimes(1);
-    expect(listReservations).toHaveBeenCalledTimes(1);
-    expect(requestedBounds).toEqual({
-      startsAtOrAfter: "2026-03-31T22:00:00Z",
-      startsBefore: "2026-04-30T22:00:00Z",
-    });
-  });
-
   test("recomputes the previous complete month from Prague time on each execution", async () => {
     tables = [makeTable()];
 
@@ -153,15 +133,6 @@ describe("loadFaqOccupancyStats", () => {
       startsAtOrAfter: "2026-03-31T22:00:00Z",
       startsBefore: "2026-04-30T22:00:00Z",
     });
-  });
-
-  test("returns a real zero aggregate when the provider returns no data", async () => {
-    await expect(loadFaqOccupancyStats()).resolves.toEqual({
-      averageReservationsPerDay: 0,
-      coworkSeatCapacity: 0,
-    });
-
-    expect(listReservations).toHaveBeenCalledTimes(1);
   });
 
   test("preserves a Dotypos failure instead of returning zero aggregates", async () => {

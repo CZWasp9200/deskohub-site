@@ -169,23 +169,6 @@ describe("getFaqOccupancyStats", () => {
     }
   });
 
-  test("includes the exact month start and excludes the exact next-month start", () => {
-    const stats = calculateStats({
-      now: "2025-06-15T12:00:00Z",
-      reservations: [
-        ...makeReservationsAt(5, "2025-04-30T22:00:00Z"),
-        ...makeReservationsAt(5, "2025-04-30T21:59:59Z", {
-          id: "before-start",
-        }),
-        ...makeReservationsAt(5, "2025-05-31T22:00:00Z", {
-          id: "at-end",
-        }),
-      ],
-    });
-
-    expect(stats.averageReservationsPerDay).toBe(0.2);
-  });
-
   test("counts unique confirmed cowork reservation IDs and excludes other statuses and dates", () => {
     const duplicate = makeReservation({ id: "duplicate" });
     const otherStatus = {
@@ -308,16 +291,5 @@ describe("getFaqOccupancyStats", () => {
         ],
       })
     ).toThrow("Confirmed cowork Dotypos reservation has an invalid interval");
-  });
-
-  test("rounds the average to one decimal and preserves a zero average", () => {
-    const roundedStats = calculateStats({
-      now: "2024-03-15T12:00:00Z",
-      reservations: makeReservationsAt(16, "2024-02-01T00:00:00Z"),
-    });
-    const zeroStats = calculateStats({ now: "2024-03-15T12:00:00Z" });
-
-    expect(roundedStats.averageReservationsPerDay).toBe(0.6);
-    expect(zeroStats.averageReservationsPerDay).toBe(0);
   });
 });

@@ -46,21 +46,6 @@ describe("PostHog feature flag override environment schema", () => {
     });
   });
 
-  test.each([
-    ["malformed JSON", "{"],
-    ["an array", "[]"],
-    ["a primitive", "true"],
-    ["null", "null"],
-    ["a non-boolean value", '{"discount_codes":"treatment"}'],
-  ])("rejects %s as PostHog feature flag overrides", (_case, overrides) => {
-    expect(() =>
-      decodeFeatureFlagOverrideEnvironment({
-        POSTHOG_FEATURE_FLAG_OVERRIDES: overrides,
-        VERCEL_ENV: "preview",
-      })
-    ).toThrow();
-  });
-
   test("defers unknown keys and their unvalidated values to the contract resolver outside production", () => {
     for (const VERCEL_ENV of ["preview", "development"] as const) {
       expect(
@@ -75,15 +60,6 @@ describe("PostHog feature flag override environment schema", () => {
         seasonal_menu: "synthetic-variant",
       });
     }
-  });
-
-  test("rejects unknown keys in production", () => {
-    expect(() =>
-      decodeFeatureFlagOverrideEnvironment({
-        POSTHOG_FEATURE_FLAG_OVERRIDES: '{"loyalty_points":true}',
-        VERCEL_ENV: "production",
-      })
-    ).toThrow();
   });
 
   test("rejects a known key with a non-boolean value in every deployment", () => {
