@@ -1,6 +1,7 @@
 "use server";
 
 import { Effect, Match } from "effect";
+import type { SqlError } from "effect/unstable/sql";
 import { revalidatePath } from "next/cache";
 import { requireAdministratorAuthorization } from "@/shared/administrator/administrator-authorization.server";
 import { defineWorkspaceAction } from "@/shared/backend/workspace-action";
@@ -44,6 +45,7 @@ const describeSendFailure = (
     | CampaignTestSendError
     | CampaignSendError
     | CampaignRetryError
+    | SqlError.SqlError
 ) =>
   Match.value(cause).pipe(
     Match.tag(
@@ -107,6 +109,7 @@ const describeSendFailure = (
         "Sending isn't available in this build yet. Nothing was sent and the code still works."
     ),
     Match.tag("EffectDrizzleQueryError", () => unexpectedFailureMessage),
+    Match.tag("SqlError", () => unexpectedFailureMessage),
     Match.exhaustive
   );
 
