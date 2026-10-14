@@ -172,6 +172,25 @@ describe("dhw mutation commands", () => {
     ]);
   });
 
+  test("requires explicit confirmation for non-interactive revocation", async () => {
+    let revocations = 0;
+    const { layer } = makeCommandLayer({
+      revokeSession: () =>
+        Effect.sync(() => {
+          revocations += 1;
+          return { changed: true };
+        }),
+    });
+
+    const error = await runCommand(
+      ["--json", "sessions", "revoke", sessionId],
+      layer
+    ).pipe(Effect.flip, Effect.runPromise);
+
+    expect(error).toMatchObject({ _tag: "ConfirmationRequiredError" });
+    expect(revocations).toBe(0);
+  });
+
   test("confirms reservation cancellation and forwards the email choice", async () => {
     const cancellations: unknown[] = [];
     const { layer } = makeCommandLayer({
