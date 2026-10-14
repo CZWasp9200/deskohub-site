@@ -37,6 +37,17 @@ export {
   vouchers,
 } from "./discounts";
 export {
+  type CampaignAudienceRow,
+  type CampaignRecipientRow,
+  type CampaignRow,
+  type CampaignSendRow,
+  emailCampaignAudiences,
+  emailCampaignConfirmationCodes,
+  emailCampaignRecipients,
+  emailCampaignSends,
+  emailCampaigns,
+} from "./email-campaigns";
+export {
   invoiceEmailDeliveries,
   invoiceEmailDeliveryAudiences,
   invoiceEmailDeliveryStates,

@@ -1,0 +1,339 @@
+import "server-only";
+
+import {
+  type DotyposCustomer,
+  type DotyposCustomerId,
+  DotyposService,
+} from "@deskohub/dotypos";
+import {
+  Array as Arr,
+  Context,
+  Effect,
+  Layer,
+  Option,
+  Order,
+  Schema,
+} from "effect";
+import { getAdministrationReservationDateRangeBounds } from "@/features/administration/reservation-date-range";
+import type { Locale } from "@/features/i18n";
+import { reservationCustomerEmailSchema } from "@/features/reservation/reservation-contact";
+import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
+import {
+  type AudienceCandidate,
+  type AudienceFilter,
+  type AudienceReservationCriteria,
+  type AudienceReservationMatches,
+  collectReservationCriteria,
+  evaluateAudienceFilter,
+  reservationConditionKey,
+} from "../audience-filter";
+import type { CampaignPurpose } from "../body/campaign-content";
+import { CampaignRecipientResolutionError } from "../errors";
+import { resolveRecipientLocale } from "../recipient-locale";
+import {
+  type CampaignCandidateFacts,
+  CampaignCandidateRepository,
+} from "./campaign-candidate.repository";
+
+/** Dotypos customers requested per hydration call. */
+const hydrationChunkSize = 100;
+
+/** A customer the campaign reaches, with the Dotypos profile email. */
+export type CampaignRecipient = {
+  readonly dotyposCustomerId: DotyposCustomerId;
+  readonly locale: Locale;
+  readonly email: string;
+};
+
+export type CampaignRecipientExclusionReason =
+  | "missing-from-dotypos"
+  | "deleted-customer"
+  | "missing-email"
+  | "invalid-email";
+
+/** A customer the audience matches whom the campaign can't reach. */
+export type CampaignRecipientExclusion = {
+  readonly dotyposCustomerId: DotyposCustomerId;
+  readonly reason: CampaignRecipientExclusionReason;
+};
+
+/**
+ * Customers sharing one email address (compared trimmed and lowercased). The
+ * campaign mails `recipientCustomerId` only.
+ */
+export type CampaignRecipientDuplicate = {
+  readonly email: string;
+  readonly recipientCustomerId: DotyposCustomerId;
+  readonly duplicateCustomerIds: readonly DotyposCustomerId[];
+};
+
+export type CampaignRecipientResolution = {
+  readonly recipients: readonly CampaignRecipient[];
+  readonly exclusions: readonly CampaignRecipientExclusion[];
+  readonly duplicates: readonly CampaignRecipientDuplicate[];
+};
+
+export interface ICampaignRecipientService {
+  /**
+   * Resolves an audience filter to campaign recipients. It never returns a
+   * partial list: an unavailable source fails the whole resolution.
+   */
+  readonly resolve: (input: {
+    readonly purpose: CampaignPurpose;
+    readonly filter: AudienceFilter;
+  }) => Effect.Effect<
+    CampaignRecipientResolution,
+    CampaignRecipientResolutionError
+  >;
+}
+
+type Candidate = AudienceCandidate & {
+  readonly latestReservationAt: Temporal.Instant | null;
+};
+
+type EligibleRecipient = CampaignRecipient & Candidate;
+
+export class CampaignRecipientService extends Context.Service<
+  CampaignRecipientService,
+  ICampaignRecipientService
+>()("@deskohub-workspace/email-campaigns/CampaignRecipientService") {
+  static Default = Layer.effect(
+    this,
+    Effect.gen(function* () {
+      const candidates = yield* CampaignCandidateRepository;
+      const dotypos = yield* DotyposService;
+
+      const reservationCustomers = (criteria: AudienceReservationCriteria) => {
+        const range = { from: criteria.from, to: criteria.to };
+        const hasRange =
+          criteria.from !== undefined || criteria.to !== undefined;
+        if (criteria.dateBasis === "booking" || !hasRange) {
+          const bounds = getAdministrationReservationDateRangeBounds(range);
+          return candidates
+            .listReservationCustomers({
+              status: criteria.status,
+              bookedAtOrAfter:
+                bounds.startsAtOrAfter === undefined
+                  ? undefined
+                  : Temporal.Instant.from(bounds.startsAtOrAfter),
+              bookedBefore:
+                bounds.startsBefore === undefined
+                  ? undefined
+                  : Temporal.Instant.from(bounds.startsBefore),
+            })
+            .pipe(Effect.mapError(CampaignRecipientResolutionError.database));
+        }
+        return dotypos
+          .listReservations(getAdministrationReservationDateRangeBounds(range))
+          .pipe(
+            Effect.mapError(CampaignRecipientResolutionError.dotypos),
+            Effect.flatMap((reservations) =>
+              candidates
+                .listReservationCustomers({
+                  status: criteria.status,
+                  dotyposReservationIds: reservations.flatMap(({ id }) =>
+                    id === undefined ? [] : [id]
+                  ),
+                })
+                .pipe(
+                  Effect.mapError(CampaignRecipientResolutionError.database)
+                )
+            )
+          );
+      };
+
+      const loadReservationMatches = (filter: AudienceFilter) =>
+        Effect.forEach(collectReservationCriteria(filter), (criteria) =>
+          reservationCustomers(criteria).pipe(
+            Effect.map(
+              (customers) =>
+                [reservationConditionKey(criteria), customers] as const
+            )
+          )
+        ).pipe(
+          Effect.map((entries): AudienceReservationMatches => new Map(entries))
+        );
+
+      const hydrate = (ids: readonly DotyposCustomerId[]) =>
+        Effect.forEach(Arr.chunksOf(ids, hydrationChunkSize), (chunk) =>
+          dotypos.getCustomers({ ids: chunk })
+        ).pipe(
+          Effect.map(
+            (pages) =>
+              new Map(
+                pages
+                  .flat()
+                  .flatMap((customer) =>
+                    customer.id === undefined
+                      ? []
+                      : [[customer.id, customer] as const]
+                  )
+              )
+          ),
+          Effect.mapError(CampaignRecipientResolutionError.dotypos)
+        );
+
+      return {
+        resolve: Effect.fn("CampaignRecipientService.resolve")(
+          (input: {
+            readonly purpose: CampaignPurpose;
+            readonly filter: AudienceFilter;
+          }) =>
+            Effect.succeed(input).pipe(
+              Effect.bind("facts", ({ purpose }) =>
+                candidates
+                  .listCandidates({ purpose })
+                  .pipe(
+                    Effect.mapError(CampaignRecipientResolutionError.database)
+                  )
+              ),
+              Effect.bind("reservationMatches", ({ filter }) =>
+                loadReservationMatches(filter)
+              ),
+              Effect.let("localMatches", selectLocalMatches),
+              Effect.bind("profiles", ({ localMatches }) =>
+                hydrate(
+                  localMatches.map(({ dotyposCustomerId }) => dotyposCustomerId)
+                )
+              ),
+              Effect.map(classifyRecipients)
+            )
+        ),
+      } satisfies ICampaignRecipientService;
+    })
+  );
+
+  static Live = this.Default.pipe(
+    Layer.provide(
+      Layer.mergeAll(CampaignCandidateRepository.Live, WorkspaceDotyposLayer)
+    )
+  );
+}
+
+const toCandidate = (facts: CampaignCandidateFacts): Candidate => ({
+  dotyposCustomerId: facts.dotyposCustomerId,
+  hasAccount: facts.hasAccount,
+  latestReservationAt: facts.latestReservationAt,
+  locale: resolveRecipientLocale(facts),
+});
+
+type Evaluation = {
+  readonly filter: AudienceFilter;
+  readonly reservationMatches: AudienceReservationMatches;
+};
+
+/** Drops candidates the local conditions already rule out. */
+const selectLocalMatches = ({
+  facts,
+  ...evaluation
+}: Evaluation & { readonly facts: readonly CampaignCandidateFacts[] }) =>
+  facts.map(toCandidate).filter(
+    (candidate) =>
+      evaluateAudienceFilter({
+        ...evaluation,
+        candidate,
+        profile: Option.none(),
+      }) !== "noMatch"
+  );
+
+const classifyRecipients = ({
+  localMatches,
+  profiles,
+  ...evaluation
+}: Evaluation & {
+  readonly localMatches: readonly Candidate[];
+  readonly profiles: ReadonlyMap<DotyposCustomerId, DotyposCustomer>;
+}): CampaignRecipientResolution => {
+  const classified = localMatches.flatMap((candidate) => {
+    const profile = Option.fromNullishOr(
+      profiles.get(candidate.dotyposCustomerId)
+    );
+    return evaluateAudienceFilter({ ...evaluation, candidate, profile }) ===
+      "noMatch"
+      ? []
+      : [classify(candidate, profile)];
+  });
+  return {
+    ...deduplicate(
+      classified.filter(
+        (entry): entry is EligibleRecipient => !("reason" in entry)
+      )
+    ),
+    exclusions: classified
+      .filter((entry): entry is CampaignRecipientExclusion => "reason" in entry)
+      .sort(byCustomerId),
+  };
+};
+
+const decodeEmail = Schema.decodeUnknownOption(reservationCustomerEmailSchema);
+
+const classify = (
+  candidate: Candidate,
+  profile: Option.Option<DotyposCustomer>
+): EligibleRecipient | CampaignRecipientExclusion => {
+  const exclude = (reason: CampaignRecipientExclusionReason) => ({
+    dotyposCustomerId: candidate.dotyposCustomerId,
+    reason,
+  });
+  if (Option.isNone(profile)) return exclude("missing-from-dotypos");
+  if (profile.value.deleted) return exclude("deleted-customer");
+  if (!profile.value.email?.trim()) return exclude("missing-email");
+  return Option.match(decodeEmail(profile.value.email), {
+    onNone: () => exclude("invalid-email"),
+    onSome: (email) => ({ ...candidate, email }),
+  });
+};
+
+const byCustomerId = Order.mapInput(
+  Order.String,
+  ({ dotyposCustomerId }: { readonly dotyposCustomerId: DotyposCustomerId }) =>
+    dotyposCustomerId
+);
+
+/**
+ * Prefers the customer who reserved most recently, then the lowest
+ * customer ID, so the same audience always mails the same record.
+ */
+const byRecipientPreference = Order.combine(
+  Order.flip(
+    Order.mapInput(
+      Order.Number,
+      ({ latestReservationAt }: EligibleRecipient) =>
+        latestReservationAt?.epochMilliseconds ?? Number.NEGATIVE_INFINITY
+    )
+  ),
+  byCustomerId
+);
+
+const deduplicate = (eligible: readonly EligibleRecipient[]) => {
+  const groups = Map.groupBy(eligible, ({ email }) => email.toLowerCase());
+  const recipients: CampaignRecipient[] = [];
+  const duplicates: CampaignRecipientDuplicate[] = [];
+  for (const [email, group] of groups) {
+    const [recipient, ...others] = group.toSorted(byRecipientPreference);
+    if (!recipient) continue;
+    recipients.push({
+      dotyposCustomerId: recipient.dotyposCustomerId,
+      locale: recipient.locale,
+      email: recipient.email,
+    });
+    if (others.length > 0) {
+      duplicates.push({
+        email,
+        recipientCustomerId: recipient.dotyposCustomerId,
+        duplicateCustomerIds: others
+          .map(({ dotyposCustomerId }) => dotyposCustomerId)
+          .toSorted(),
+      });
+    }
+  }
+  return {
+    recipients: recipients.sort(byCustomerId),
+    duplicates: duplicates.sort(
+      Order.mapInput(
+        Order.String,
+        ({ email }: CampaignRecipientDuplicate) => email
+      )
+    ),
+  };
+};
