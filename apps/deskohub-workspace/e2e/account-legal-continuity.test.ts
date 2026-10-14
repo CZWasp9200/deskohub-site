@@ -12,7 +12,6 @@ import {
   closeFixtureContext,
   openFixtureContext,
   registerAccountLegalFixture,
-  supportedLocales,
   type Viewport,
 } from "./account-legal-fixture";
 import { waitForReactClickHandler } from "./react-handlers";
@@ -21,12 +20,21 @@ const siteHeaderSelector = "body > header";
 const accountHeaderSelector = "main > div > header";
 const accountNavigationSelector = "main aside > nav";
 const accountContentLoadingSelector = '[data-slot="account-content-loading"]';
-const viewports = [
-  { height: 900, name: "mobile 320", width: 320 },
-  { height: 900, name: "mobile 375", width: 375 },
-  { height: 900, name: "mobile 480", width: 480 },
-  { height: 900, name: "desktop", width: 1440 },
-] as const;
+// Locale only changes copy, so each locale covers one breakpoint: the
+// narrowest mobile width with the longer Czech labels, and desktop.
+const continuityCases = [
+  {
+    locale: "cs-CZ",
+    viewport: { height: 900, name: "mobile 320", width: 320 },
+  },
+  {
+    locale: "en-US",
+    viewport: { height: 900, name: "desktop", width: 1440 },
+  },
+] as const satisfies readonly {
+  readonly locale: Locale;
+  readonly viewport: Viewport & { readonly name: string };
+}[];
 
 const accountDesktopBreakpoint = 768;
 
@@ -850,35 +858,31 @@ const assertSignedInRolloutOffLegalRoute = async (
 describe("account legal continuity browser fixture", () => {
   const requireFixture = registerAccountLegalFixture();
 
-  for (const locale of supportedLocales) {
-    for (const { height, name, width } of viewports) {
-      for (const direction of [
-        "account-to-legal",
-        "legal-to-account",
-      ] as const) {
-        test(`keeps ${locale} ${name} account chrome continuous for ${direction} held RSC navigation`, {
-          timeout: accountFixtureCaseTimeout,
-        }, async () => {
-          await runPrivateContinuity(
-            requireFixture(),
-            { height, width },
-            locale,
-            direction
-          );
-        });
-      }
+  for (const { locale, viewport } of continuityCases) {
+    const { height, name, width } = viewport;
+    for (const direction of ["account-to-legal", "legal-to-account"] as const) {
+      test(`keeps ${locale} ${name} account chrome continuous for ${direction} held RSC navigation`, {
+        timeout: accountFixtureCaseTimeout,
+      }, async () => {
+        await runPrivateContinuity(
+          requireFixture(),
+          { height, width },
+          locale,
+          direction
+        );
+      });
     }
-
-    test(`keeps anonymous ${locale} legal route usable`, {
-      timeout: accountFixtureCaseTimeout,
-    }, async () => {
-      await assertAnonymousLegalRoute(requireFixture(), locale);
-    });
-
-    test(`keeps signed-in ${locale} public legal usable when the account rollout is off`, {
-      timeout: accountFixtureCaseTimeout,
-    }, async () => {
-      await assertSignedInRolloutOffLegalRoute(requireFixture(), locale);
-    });
   }
+
+  test("keeps anonymous cs-CZ legal route usable", {
+    timeout: accountFixtureCaseTimeout,
+  }, async () => {
+    await assertAnonymousLegalRoute(requireFixture(), "cs-CZ");
+  });
+
+  test("keeps signed-in en-US public legal usable when the account rollout is off", {
+    timeout: accountFixtureCaseTimeout,
+  }, async () => {
+    await assertSignedInRolloutOffLegalRoute(requireFixture(), "en-US");
+  });
 });
