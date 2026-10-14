@@ -8,7 +8,6 @@ import {
   formatAdministrationDateTime,
 } from "@/features/administration/components";
 import { campaignRecipientStatuses } from "../../campaign-states";
-import { campaignLocales } from "../../recipient-locale";
 import { describeAudienceFilter } from "../audience-filter-summary";
 import { loadDiscountGroupOptions } from "../audiences/discount-group-options.server";
 import {
@@ -16,9 +15,10 @@ import {
   CampaignRecipientStatusBadge,
   CampaignStatusBadge,
 } from "../campaign-list/campaign-badges";
-import { campaignLocaleNames } from "./campaign-locale-names";
 import { loadSentCampaign } from "./sent-campaign.server";
 import { SentCampaignActions } from "./sent-campaign-actions";
+import { loadSentCampaignEmails } from "./sent-campaign-email.server";
+import { SentCampaignEmailPreview } from "./sent-campaign-email-preview";
 import { SentRecipientTable } from "./sent-recipient-table";
 
 /** The read-only view of a campaign that left Draft. */
@@ -27,13 +27,11 @@ export async function SentCampaignPage({
 }: {
   readonly campaign: CampaignRow;
 }) {
-  const [{ send, audienceTitle }, discountGroups] = await Promise.all([
+  const [{ send, audienceTitle }, discountGroups, emails] = await Promise.all([
     loadSentCampaign(campaign.id),
     loadDiscountGroupOptions(),
+    loadSentCampaignEmails(campaign),
   ]);
-  const contentLocales = campaignLocales.filter(
-    (locale) => campaign.content[locale] !== undefined
-  );
   return (
     <AdministrationPage>
       <AdministrationPageHeader
@@ -116,28 +114,7 @@ export async function SentCampaignPage({
           )}
         </AdministrationDetailSection>
         <AdministrationDetailSection title="Content">
-          <dl className="grid gap-5 md:grid-cols-2">
-            {contentLocales.map((locale) => (
-              <div
-                className="rounded-lg border border-navy-blue/10 p-4"
-                key={locale}
-              >
-                <p className="mb-3 text-sm font-semibold">
-                  {campaignLocaleNames[locale]}
-                </p>
-                <div className="space-y-3">
-                  <AdministrationFact
-                    label="Subject"
-                    value={campaign.content[locale]?.subject}
-                  />
-                  <AdministrationFact
-                    label="Preheader"
-                    value={campaign.content[locale]?.preheader || "None"}
-                  />
-                </div>
-              </div>
-            ))}
-          </dl>
+          <SentCampaignEmailPreview emails={emails} />
         </AdministrationDetailSection>
         {send && (
           <>
