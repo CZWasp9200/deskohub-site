@@ -116,6 +116,10 @@ import {
   getAdministrationReservationLifecycle,
   getAdministrationReservationStatus,
 } from "./reservation-status";
+import {
+  reservationStatusCondition,
+  successfulReservationCondition,
+} from "./reservation-status-condition";
 
 const reservationPageSize = 24;
 const bookingPageSize = 24;
@@ -850,77 +854,15 @@ const getDateRangeBounds = (startDate: string, endDate: string) => {
   };
 };
 
-const getInclusiveDateRangeBounds = (
-  range: AdministrationReservationDateRange
-) => ({
-  ...(range.from && {
-    startsAtOrAfter: Temporal.PlainDate.from(range.from)
-      .toZonedDateTime({
-        plainTime: Temporal.PlainTime.from("00:00"),
-        timeZone: workspaceSiteConstants.location.timeZone,
-      })
-      .toInstant()
-      .toString(),
-  }),
-  ...(range.to && {
-    startsBefore: Temporal.PlainDate.from(range.to)
-      .add({ days: 1 })
-      .toZonedDateTime({
-        plainTime: Temporal.PlainTime.from("00:00"),
-        timeZone: workspaceSiteConstants.location.timeZone,
-      })
-      .toInstant()
-      .toString(),
-  }),
-});
-
 const getDateBounds = (date: string) => {
   const plainDate = Temporal.PlainDate.from(date);
   return getDateRangeBounds(date, plainDate.add({ days: 1 }).toString());
 };
 
-const successfulReservationCondition = and(
-  sql`${workspaceReservations.fulfillmentState} = 'fulfilled'`,
-  sql`${workspaceReservations.reservationState} not in ('cancelled', 'cancelling', 'cancellation_failed')`
-)!;
-
 const successfulReservationCount =
   sql<number>`count(*) filter (where ${successfulReservationCondition})`.mapWith(
     Number
   );
-
-const needsRefundCondition = sql`exists (
-  select 1 from ${paymentAttempts}
-  where ${paymentAttempts.workspaceReservationId} = ${workspaceReservations.id}
-    and ${paymentAttempts.refundState} = 'required'
-)`;
-
-const statusCondition = (
-  status: AdministrationReservationStatusFilter
-): SQL => {
-  if (status === "needs_refund") {
-    return needsRefundCondition;
-  }
-  if (status === "complete") {
-    return successfulReservationCondition;
-  }
-  if (status === "cancelled") {
-    return and(
-      sql`${workspaceReservations.fulfillmentState} <> 'failed'`,
-      sql`${workspaceReservations.fulfillmentState} <> 'fulfilled'`,
-      sql`${workspaceReservations.reservationState} <> 'cancellation_failed'`,
-      or(
-        eq(workspaceReservations.reservationState, "cancelled"),
-        eq(workspaceReservations.reservationState, "hold_expired")
-      )
-    )!;
-  }
-  return and(
-    sql`${workspaceReservations.fulfillmentState} <> 'failed'`,
-    sql`${workspaceReservations.fulfillmentState} <> 'fulfilled'`,
-    sql`${workspaceReservations.reservationState} not in ('cancelled', 'hold_expired', 'cancellation_failed')`
-  )!;
-};
 
 const reservationStatusSort = sql<string>`case
   when ${workspaceReservations.fulfillmentState} = 'failed' then 'Confirmation issue'
@@ -1577,7 +1519,7 @@ export class AdministrationService extends Context.Service<
         if (!range) return Effect.succeed(undefined);
         return dotypos
           .listReservations({
-            ...getInclusiveDateRangeBounds(range),
+            ...getAdministrationReservationDateRangeBounds(range),
             order: "startDateAscending",
           })
           .pipe(
@@ -1671,7 +1613,8 @@ export class AdministrationService extends Context.Service<
             eq(workspaceReservations.dotyposCustomerId, input.customerId)
           );
         }
-        if (input.status) conditions.push(statusCondition(input.status));
+        if (input.status)
+          conditions.push(reservationStatusCondition(input.status));
         if (input.type) {
           conditions.push(
             sql`${workspaceReservations.reservationDetails}->>'kind' = ${input.type}`
@@ -2698,7 +2641,7 @@ export class AdministrationService extends Context.Service<
         const reservations = yield* dotypos
           .listReservations({
             customerId,
-            ...getInclusiveDateRangeBounds({
+            ...getAdministrationReservationDateRangeBounds({
               from: from.toString(),
               to: to.toString(),
             }),
@@ -2813,7 +2756,7 @@ export class AdministrationService extends Context.Service<
         };
         const reservations = yield* dotypos
           .listReservations({
-            ...getInclusiveDateRangeBounds(overviewRange),
+            ...getAdministrationReservationDateRangeBounds(overviewRange),
             order: "startDateAscending",
           })
           .pipe(
