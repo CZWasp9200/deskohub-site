@@ -1,11 +1,22 @@
-import { and, eq, or, type SQL, sql } from "drizzle-orm";
+import { and, eq, isNotNull, or, type SQL, sql } from "drizzle-orm";
 import { paymentAttempts, workspaceReservations } from "@/db/schema";
 import type { AdministrationReservationStatusFilter } from "./administration.service";
+
+const notCancelledCondition = sql`${workspaceReservations.reservationState} not in ('cancelled', 'cancelling', 'cancellation_failed')`;
 
 /** A reservation the customer received: fulfilled and never cancelled. */
 export const successfulReservationCondition = and(
   sql`${workspaceReservations.fulfillmentState} = 'fulfilled'`,
-  sql`${workspaceReservations.reservationState} not in ('cancelled', 'cancelling', 'cancellation_failed')`
+  notCancelledCondition
+)!;
+
+/**
+ * A reservation the customer booked: confirmed and never cancelled, whether or
+ * not fulfillment succeeded. Abandoned and expired checkouts never confirm.
+ */
+export const bookedReservationCondition = and(
+  isNotNull(workspaceReservations.reservationConfirmedAt),
+  notCancelledCondition
 )!;
 
 const needsRefundCondition = sql`exists (

@@ -10,14 +10,16 @@ CREATE TABLE "email_campaign_audiences" (
 --> statement-breakpoint
 CREATE TABLE "email_campaign_confirmation_codes" (
 	"campaign_id" text,
-	"code" text,
+	"code_hash" text,
 	"content_hash" text NOT NULL,
 	"issued_at" timestamp with time zone NOT NULL,
 	"expires_at" timestamp with time zone NOT NULL,
 	"superseded_at" timestamp with time zone,
 	"confirmed_at" timestamp with time zone,
-	CONSTRAINT "email_campaign_confirmation_codes_pkey" PRIMARY KEY("campaign_id","code"),
-	CONSTRAINT "email_campaign_confirmation_codes_expiry_check" CHECK ("expires_at" > "issued_at")
+	"failed_attempts" integer DEFAULT 0 NOT NULL,
+	CONSTRAINT "email_campaign_confirmation_codes_pkey" PRIMARY KEY("campaign_id","code_hash"),
+	CONSTRAINT "email_campaign_confirmation_codes_expiry_check" CHECK ("expires_at" > "issued_at"),
+	CONSTRAINT "email_campaign_confirmation_codes_failed_attempts_check" CHECK ("failed_attempts" >= 0)
 );
 --> statement-breakpoint
 CREATE TABLE "email_campaign_recipients" (
