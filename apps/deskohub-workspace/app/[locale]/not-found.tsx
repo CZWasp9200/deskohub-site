@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { m } from "@/features/i18n";
 import { getRequestLocale } from "@/features/i18n/server/request-locale";
+import { Button } from "@/shared/components/ui/button";
 
 export default async function NotFoundPage() {
   const locale = await getRequestLocale();
@@ -17,12 +18,9 @@ export default async function NotFoundPage() {
         <p className="mt-5 text-lg leading-8 text-navy-blue/70">
           {m.notFoundDescription({}, { locale })}
         </p>
-        <Link
-          href={`/${locale}`}
-          className="mt-8 inline-flex min-h-11 items-center rounded-full bg-burned-orange px-6 py-3 font-semibold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-burned-orange"
-        >
-          {m.notFoundHomeLink({}, { locale })}
-        </Link>
+        <Button asChild className="mt-8">
+          <Link href={`/${locale}`}>{m.notFoundHomeLink({}, { locale })}</Link>
+        </Button>
       </div>
     </main>
   );

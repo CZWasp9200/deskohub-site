@@ -57,19 +57,12 @@ export function LandingPageContactSection({
             </div>
 
             <div className="flex flex-col gap-3 sm:flex-row">
-              <Button
-                asChild
-                className="h-12 px-7 text-sm uppercase tracking-[0.08em]"
-              >
+              <Button asChild size="lg" caps>
                 <Link href={contactHref}>
                   {m.landingFooterContactCta({}, { locale })}
                 </Link>
               </Button>
-              <Button
-                asChild
-                variant="secondary"
-                className="h-12 border-white/12 bg-white text-sm uppercase tracking-[0.08em] text-navy-blue hover:bg-sunset-yellow"
-              >
+              <Button asChild variant="secondary" tone="inverse" size="lg" caps>
                 <a href={deskohubBarCtaHref}>
                   {m.landingFooterBarCta({}, { locale })}
                 </a>

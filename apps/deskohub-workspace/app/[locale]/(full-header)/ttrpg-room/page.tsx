@@ -112,10 +112,7 @@ export function TtrpgRoomPage({
                 {room.title}
               </h2>
               <p className="mt-5 text-2xl text-navy-blue/74">{room.seats}</p>
-              <Button
-                asChild
-                className="mt-8 h-12 px-7 uppercase tracking-[0.08em]"
-              >
+              <Button asChild size="lg" caps className="mt-8">
                 <Link href={room.href}>{room.cta}</Link>
               </Button>
             </article>

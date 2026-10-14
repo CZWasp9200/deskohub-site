@@ -143,10 +143,7 @@ export function CheckoutPayPage({
       {variant === "pay" && discountCodeForm}
 
       {isPricingChanged ? (
-        <Button
-          asChild
-          className="h-13 w-full rounded-full text-sm uppercase tracking-[0.18em]"
-        >
+        <Button asChild size="xl" caps fullWidth>
           <Link
             href={freshPayUrl ?? getCoworkReservationPath(locale)}
             prefetch={false}
