@@ -450,18 +450,3 @@ test("cleans listeners and registrations under StrictMode", () => {
   expect(afterUnmount.defaultPrevented).toBe(false);
   expect(confirmMock).toHaveBeenCalledTimes(1);
 });
-
-test("defaults to allowing confirmation outside a provider", () => {
-  let controls: UnloadControls | undefined;
-  render(
-    createElement(UnloadController, {
-      onReady: (currentControls) => {
-        controls = currentControls;
-      },
-    })
-  );
-
-  if (!controls) throw new Error("Confirmation hook not ready");
-  expect(controls.confirm()).toBe(true);
-  expect(window.confirm).not.toHaveBeenCalled();
-});

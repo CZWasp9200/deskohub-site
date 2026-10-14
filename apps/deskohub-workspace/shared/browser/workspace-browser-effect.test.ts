@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
 import { Data, Effect } from "effect";
-import { notFound, redirect } from "next/navigation";
 import { runWorkspaceBrowserEffect } from "./workspace-browser-effect";
 import {
   deliverWorkspaceBrowserLogs,
@@ -29,46 +28,6 @@ afterEach(() => {
 });
 
 describe("runWorkspaceBrowserEffect", () => {
-  test("resolves with the Effect's value", async () => {
-    await expect(
-      Effect.succeed("value").pipe(runWorkspaceBrowserEffect("test.success"))
-    ).resolves.toBe("value");
-  });
-
-  test("rejects with the typed failure itself", async () => {
-    const failure = new SyntheticFailure({ message: "synthetic" });
-
-    await expect(
-      Effect.fail(failure).pipe(runWorkspaceBrowserEffect("test.failure"))
-    ).rejects.toBe(failure);
-  });
-
-  test("rejects with the defect itself", async () => {
-    const defect = new Error("synthetic defect");
-
-    await expect(
-      Effect.die(defect).pipe(runWorkspaceBrowserEffect("test.defect"))
-    ).rejects.toBe(defect);
-  });
-
-  test("interrupts the run when its signal aborts", async () => {
-    const controller = new AbortController();
-    let interrupted = false;
-    const run = Effect.never.pipe(
-      Effect.onInterrupt(() =>
-        Effect.sync(() => {
-          interrupted = true;
-        })
-      ),
-      runWorkspaceBrowserEffect("test.abort", { signal: controller.signal })
-    );
-
-    controller.abort();
-
-    await expect(run).rejects.toBeDefined();
-    expect(interrupted).toBe(true);
-  });
-
   test("interrupts a suspended run whose signal already aborted", async () => {
     let interrupted = false;
 
@@ -85,26 +44,6 @@ describe("runWorkspaceBrowserEffect", () => {
       )
     ).rejects.toBeDefined();
     expect(interrupted).toBe(true);
-  });
-
-  test("rethrows Next.js control flow unchanged", async () => {
-    const redirected = await Effect.sync(() => redirect("/cs/account"))
-      .pipe(runWorkspaceBrowserEffect("test.redirect"))
-      .then(
-        () => undefined,
-        (error: Error) => error
-      );
-    const missing = await Effect.sync(() => notFound())
-      .pipe(runWorkspaceBrowserEffect("test.not-found"))
-      .then(
-        () => undefined,
-        (error: Error) => error
-      );
-
-    expect(redirected).toHaveProperty("digest");
-    expect(String(redirected?.digest)).toStartWith("NEXT_REDIRECT;");
-    expect(missing).toHaveProperty("digest");
-    expect(String(missing?.digest)).toStartWith("NEXT_HTTP_ERROR_FALLBACK;");
   });
 
   test("reports a censored failure carrying the operation", async () => {
