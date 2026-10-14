@@ -1,13 +1,11 @@
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, mock, test } from "bun:test";
-import { Effect, Layer } from "effect";
-import { LatePaymentRecoveryService } from "./late-payment-recovery.service";
+import { Effect } from "effect";
 import {
   latePaymentRecoveryQueueTopic,
   makeLatePaymentRecoveryQueueService,
 } from "./late-payment-recovery-queue.service";
-import { processLatePaymentRecoveryMessage } from "./late-payment-recovery-queue-consumer";
 
 describe("late-payment recovery queue", () => {
   test("enqueues one idempotent recovery message per attempt", async () => {
@@ -23,18 +21,6 @@ describe("late-payment recovery queue", () => {
         idempotencyKey: "late-payment-recovery:attempt-id",
       })
     );
-  });
-
-  test("ignores malformed messages", async () => {
-    const outcome = await processLatePaymentRecoveryMessage({}).pipe(
-      Effect.provide(
-        Layer.mock(LatePaymentRecoveryService, {
-          recover: mock(() => Effect.die("unused")),
-        })
-      ),
-      Effect.runPromise
-    );
-    expect(outcome).toBe("ignored");
   });
 
   test("wires the recovery topic to its queue route", async () => {

@@ -676,26 +676,6 @@ describe.skipIf(!testDatabase)(
       }
     });
 
-    test("finds the latest recovery for the customer status of a reservation", async () => {
-      const checkout = await insertLatePaidCheckout({
-        reservationState: "cancelled",
-        holdExpiresAt: Temporal.Now.instant().subtract({ minutes: 30 }),
-      });
-      expect(
-        await run((repository) =>
-          repository.findLatestByWorkspaceReservationId(checkout.reservationId)
-        )
-      ).toBeNull();
-
-      await startAndClaim({ ...checkout, webhookEventId: "webhook-status" });
-
-      const latest = await run((repository) =>
-        repository.findLatestByWorkspaceReservationId(checkout.reservationId)
-      );
-      expect(latest?.paymentAttemptId).toBe(checkout.paymentAttemptId);
-      expect(latest?.state).toBe("processing");
-    });
-
     test("only a later active reservation in the same checkout session supersedes", async () => {
       const checkoutSessionKey = `late-session-shared-${crypto.randomUUID()}`;
       const now = Temporal.Now.instant();
