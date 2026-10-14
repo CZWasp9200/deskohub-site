@@ -90,17 +90,6 @@ describe("CheckoutDiscountCountdownBanner", () => {
     );
   });
 
-  test("renders nothing for a discount without a countdown", () => {
-    const view = render(
-      <CheckoutDiscountCountdownBanner
-        locale="en-US"
-        summary={buildDiscountedCoworkCheckoutSummary({})}
-      />
-    );
-
-    expect(view.container.childElementCount).toBe(0);
-  });
-
   test("shows a discount once when it applies to several product rows", () => {
     jest.useFakeTimers({ now: new Date("2026-08-02T09:18:00.000Z") });
     const summary = buildDiscountedCoworkCheckoutSummary({

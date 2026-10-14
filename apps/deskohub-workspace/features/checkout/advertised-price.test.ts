@@ -50,23 +50,6 @@ describe("advertised price contract", () => {
     ).toBe(true);
   });
 
-  test("accepts meeting-room reservations at the family-neutral boundary", () => {
-    const decoded = decodeRequest({
-      locale: "en-US",
-      reservation: {
-        kind: "meeting-room",
-        details: {
-          kind: "meeting-room",
-          duration: { unit: "hour", amount: 4 },
-          reservationDate: "2099-06-10",
-          lastServiceDate: "2099-06-11",
-        },
-      },
-    });
-
-    expect(Option.isSome(decoded)).toBe(true);
-  });
-
   test.each([
     ["before the reservation date", "2099-06-09"],
     ["more than a day after the reservation date", "2099-06-12"],

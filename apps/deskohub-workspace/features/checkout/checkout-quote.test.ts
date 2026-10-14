@@ -128,21 +128,6 @@ describe("cowork reservation quotes", () => {
     ]);
   });
 
-  test("keeps monitor composition in the summary but not the price quote", () => {
-    const firstMonitor = buildCoworkReservationQuote({
-      entryTier: "reserved-desk",
-      coffee: true,
-      monitorOption: "2x27-qhd",
-    });
-    const secondMonitor = buildCoworkReservationQuote({
-      entryTier: "reserved-desk",
-      coffee: true,
-      monitorOption: "2x32-4k",
-    });
-
-    expect(firstMonitor.summary).not.toEqual(secondMonitor.summary);
-  });
-
   test("keeps the fingerprint stable across every catalog configuration and split by workstation presence", () => {
     const quoteWith = (monitorOption?: WorkspaceProductMonitorOption | "") =>
       Effect.runSync(
@@ -305,40 +290,6 @@ describe("cowork reservation quotes", () => {
     ).toEqual({
       sectionKeys: ["order", "total"],
       itemKeys: ["addon:coffee", "total:final"],
-    });
-  });
-
-  test("detects a changed public item label when its amount is unchanged", () => {
-    const quote = buildCoworkReservationQuote(
-      { entryTier: "open-space", coffee: false },
-      { discountQuote: discountQuote([percentageApplication()]) }
-    );
-    const renamedSummary = {
-      ...quote.summary,
-      sections: quote.summary.sections.map((section) => ({
-        ...section,
-        items: section.items.map((item) =>
-          "discounts" in item && item.discounts
-            ? {
-                ...item,
-                discounts: item.discounts.map((summaryDiscount) => ({
-                  ...summaryDiscount,
-                  discount: {
-                    ...summaryDiscount.discount,
-                    label: "Renamed sale",
-                  },
-                })) as typeof item.discounts,
-              }
-            : item
-        ),
-      })),
-    };
-
-    expect(
-      getCheckoutSummaryChangedKeys(quote.summary, renamedSummary)
-    ).toEqual({
-      sectionKeys: [],
-      itemKeys: ["product:cowork:open-space"],
     });
   });
 

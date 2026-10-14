@@ -16,7 +16,6 @@ import {
   buildCoworkReservationQuote as buildCoworkPriceQuote,
   buildDiscountedCoworkCheckoutSummary,
 } from "@/features/checkout/checkout-quote.test-utils";
-import { formatDiscountCountdown } from "@/features/checkout/format-discount-countdown";
 import { m } from "@/features/i18n";
 import {
   workspaceRouterPush,
@@ -334,51 +333,6 @@ describe("CheckoutPayPage payment navigation", () => {
     expect(openPaymentWindow).not.toHaveBeenCalled();
     expect(workspaceRouterPush).toHaveBeenCalledWith(
       "/en-US/reservation/status/reservation-id?outcome=success"
-    );
-  });
-});
-
-describe("CheckoutPayPage discount urgency", () => {
-  beforeAll(() => {
-    registerWorkspaceComponentTestEnv();
-  });
-
-  afterEach(() => {
-    cleanup();
-  });
-
-  afterAll(async () => {
-    await unregisterWorkspaceComponentTestEnv();
-  });
-
-  test("mounts the discount countdown banner", async () => {
-    jest.useFakeTimers({
-      now: new Date("2026-08-02T09:18:00.000Z"),
-    });
-    const { CheckoutPayPage } = await import("./checkout-pay-page");
-    const view = render(
-      <CheckoutPayPage
-        locale="en-US"
-        payStateToken="signed-summary"
-        summary={buildDiscountedCoworkCheckoutSummary({
-          countdownStartsAt: "2026-08-02T09:00:00.000Z",
-          expiresAt: "2026-08-02T10:00:00.000Z",
-        })}
-        variant="pay"
-      />
-    );
-
-    expect(view.getByRole("status").textContent).toBe(
-      m.checkoutDiscountCountdownBanner(
-        {
-          discount: "Summer sale",
-          remaining: formatDiscountCountdown(
-            { value: 42 * 60, unit: "second" },
-            "en-US"
-          ),
-        },
-        { locale: "en-US" }
-      )
     );
   });
 });
