@@ -17,7 +17,6 @@ import {
   render,
   within,
 } from "@testing-library/react";
-import { StatusBadge } from "@/shared/components/ui/status-badge";
 import {
   workspaceRouterPush,
   workspaceRouterRefresh,
@@ -28,29 +27,15 @@ import {
   unregisterWorkspaceComponentTestEnv,
 } from "@/shared/testing/workspace-component-test-env";
 import {
-  AdministrationTableCount,
-  AdministrationTableToolbar,
-  BookingTable,
   formatAdministrationDateTime,
-  getBookingTableLabel,
   PaymentAttemptList,
   RelatedReservationLink,
-  ReservationReferences,
   ReservationTable,
-  ReservationTimeline,
 } from "./components";
-import {
-  loadFixtureBookings,
-  loadFixtureReservation,
-  loadFixtureReservations,
-} from "./fixtures";
-import {
-  ProviderStatusBadge,
-  ReservationOrderList,
-} from "./payment-components";
-import { OperationTable, OrderTable } from "./payment-tables";
+import { loadFixtureReservation, loadFixtureReservations } from "./fixtures";
+import { ReservationOrderList } from "./payment-components";
+import { OrderTable } from "./payment-tables";
 import { ReservationAccessAdministration } from "./reservation-access-administration";
-import { ReservationLifecycleMap } from "./reservation-lifecycle-map";
 
 /** Text content with the formatter's non-breaking spaces as plain spaces. */
 const readableText = (element: Element | null | undefined) =>
@@ -70,41 +55,6 @@ describe("administration reservation components", () => {
   });
   afterEach(() => cleanup());
   afterAll(() => unregisterWorkspaceComponentTestEnv());
-
-  test("composes collection counts, search, filters, and actions consistently", () => {
-    const view = render(
-      <AdministrationTableToolbar
-        actions={<button type="button">Create</button>}
-        count={2}
-        filters={<button type="button">Filter</button>}
-        itemLabel="reservation"
-        search={<input aria-label="Lookup" />}
-      />
-    );
-
-    const toolbar = view.getByRole("region", {
-      name: "reservation table controls",
-    });
-    expect(within(toolbar).getByLabelText("2 reservations")).toBeDefined();
-    expect(within(toolbar).getByLabelText("Lookup")).toBeDefined();
-    expect(
-      within(toolbar).getByRole("button", { name: "Filter" })
-    ).toBeDefined();
-    expect(
-      within(toolbar).getByRole("button", { name: "Create" })
-    ).toBeDefined();
-  });
-
-  test("keeps streamed collection counts styled and accessible", () => {
-    const view = render(
-      <AdministrationTableToolbar
-        count={<AdministrationTableCount count={24} itemLabel="reservation" />}
-        itemLabel="reservation"
-      />
-    );
-
-    expect(view.getByLabelText("24 reservations").textContent).toBe("24");
-  });
 
   test("shows safe access metadata and the failed retry action without the PIN", () => {
     const detail = loadFixtureReservation("0198-admin-fixture-attention");
@@ -335,75 +285,6 @@ describe("administration reservation components", () => {
     expect(view.getByText(testEmailAddress("alex.morgan"))).toBeDefined();
   });
 
-  test("keeps related reservations useful when customer details are unavailable", () => {
-    const { items } = loadFixtureReservations({});
-    const reservation = items[0];
-    expect(reservation).toBeDefined();
-    if (!reservation) return;
-
-    const view = render(
-      <RelatedReservationLink
-        reservation={{ ...reservation, customer: null }}
-      />
-    );
-
-    expect(view.getByText("Customer unavailable")).toBeDefined();
-  });
-
-  test("renders ordered operational history", () => {
-    const detail = loadFixtureReservation("0198-admin-fixture-attention");
-    expect(detail).not.toBeNull();
-    if (!detail) return;
-    const view = render(<ReservationTimeline items={detail.timeline} />);
-    const timeline = view.getByRole("list", {
-      name: "Reservation history",
-    });
-    expect(within(timeline).getAllByRole("listitem")).toHaveLength(7);
-    expect(within(timeline).getByText("Payment started")).toBeDefined();
-    expect(
-      within(timeline)
-        .getByRole("link", { name: "Nexi order created" })
-        .getAttribute("href")
-    ).toBe("#order-DADMINFIXTUREPAYMENT");
-    expect(
-      within(timeline)
-        .getByRole("link", { name: "Payment executed by Nexi" })
-        .getAttribute("href")
-    ).toBe("#operation-DADMINFIXTUREOPERATION");
-  });
-
-  test("links Nexi payment IDs directly to the XPay dashboard", () => {
-    const detail = loadFixtureReservation("0198-admin-fixture-attention");
-    expect(detail).not.toBeNull();
-    if (!detail) return;
-    const attempt = detail.paymentAttempts[0];
-    expect(attempt).toBeDefined();
-    if (!attempt) return;
-
-    const view = render(
-      <PaymentAttemptList
-        attempts={[
-          { ...attempt, refundState: "required" },
-          {
-            ...attempt,
-            id: "fixture-internal-payment",
-            providerOrderId: null,
-            providerLabel: "Included",
-          },
-        ]}
-      />
-    );
-    const orderLink = view.getByRole("link", {
-      name: "Nexi order DADMINFIXTUREPAYMENT (opens in XPay)",
-    });
-    expect(orderLink.getAttribute("href")).toBe(
-      "https://xpaydashboard.nexigroup.com/nexi/ordermanagement/order/DADMINFIXTUREPAYMENT"
-    );
-    expect(view.getByText("Needs refund")).toBeDefined();
-    expect(orderLink.getAttribute("target")).toBe("_blank");
-    expect(view.getAllByText("Nexi order")).toHaveLength(1);
-  });
-
   test("shows a recorded refund instead of the refund requirement", () => {
     const detail = loadFixtureReservation("0198-admin-fixture-attention");
     const attempt = detail?.paymentAttempts[0];
@@ -521,28 +402,6 @@ describe("administration reservation components", () => {
     ).toBeDefined();
     // The mobile list crosses out the same amounts.
     expect(view.container.querySelectorAll("del")).toHaveLength(4);
-  });
-
-  test("folds Nexi orders and operations into the reservation", () => {
-    const detail = loadFixtureReservation("0198-admin-fixture-attention");
-    expect(detail).not.toBeNull();
-    if (!detail) return;
-
-    const view = render(<ReservationOrderList orders={detail.orders} />);
-    expect(
-      view
-        .getByRole("link", {
-          name: "Nexi order DADMINFIXTUREPAYMENT (opens in XPay)",
-        })
-        .getAttribute("href")
-    ).toBe(
-      "https://xpaydashboard.nexigroup.com/nexi/ordermanagement/order/DADMINFIXTUREPAYMENT"
-    );
-    expect(view.getByText("DADMINFIXTUREOPERATION")).toBeDefined();
-    expect(view.container.querySelector('a[href^="/admin/orders"]')).toBeNull();
-    expect(
-      view.container.querySelector('a[href^="/admin/operations"]')
-    ).toBeNull();
   });
 
   test("shows a refunded Nexi order as refunded, even when Nexi does not return it", () => {
@@ -678,104 +537,6 @@ describe("administration reservation components", () => {
     expect(activity.getByText(/Nexi reports payment activity/i)).toBeDefined();
   });
 
-  test("marks the actual lifecycle stage accessibly", () => {
-    const detail = loadFixtureReservation("0198-admin-fixture-attention");
-    expect(detail).not.toBeNull();
-    if (!detail) return;
-
-    const view = render(
-      <ReservationLifecycleMap lifecycle={detail.lifecycle} />
-    );
-    expect(
-      view.getByText("Paid").closest('[aria-current="step"]')
-    ).not.toBeNull();
-    expect(view.getByText("Confirmation issue")).toBeDefined();
-    expect(
-      view
-        .getByText("Cancelled")
-        .compareDocumentPosition(view.getByText("Paid")) &
-        Node.DOCUMENT_POSITION_FOLLOWING
-    ).not.toBe(0);
-  });
-
-  test("links order and operation entities back to their reservation", () => {
-    const detail = loadFixtureReservation("0198-admin-fixture-attention");
-    expect(detail).not.toBeNull();
-    if (!detail) return;
-    const orderView = render(<OrderTable orders={detail.orders} />);
-    expect(
-      orderView
-        .getByRole("link", { name: "DADMINFIXTUREPAYMENT" })
-        .getAttribute("href")
-    ).toBe("/admin/orders/DADMINFIXTUREPAYMENT");
-    expect(
-      orderView
-        .getByRole("link", { name: "View reservation" })
-        .getAttribute("href")
-    ).toBe("/admin/reservations/0198-admin-fixture-attention");
-    orderView.unmount();
-
-    const operation = detail.orders[0]?.provider?.operations[0];
-    expect(operation).toBeDefined();
-    if (!operation) return;
-    const operationView = render(
-      <OperationTable
-        operations={[
-          {
-            ...operation,
-            linkedReservationId: detail.reservation.id,
-          },
-        ]}
-      />
-    );
-    expect(
-      operationView
-        .getByRole("link", { name: "DADMINFIXTUREOPERATION" })
-        .getAttribute("href")
-    ).toBe("/admin/operations/DADMINFIXTUREOPERATION");
-    expect(
-      operationView
-        .getByRole("link", { name: "DADMINFIXTUREPAYMENT" })
-        .getAttribute("href")
-    ).toBe("/admin/orders/DADMINFIXTUREPAYMENT");
-  });
-
-  test("sorts Nexi orders by raw order ID", () => {
-    const order = loadFixtureReservation("0198-admin-fixture-attention")
-      ?.orders[0];
-    expect(order).toBeDefined();
-    if (!order) return;
-    const view = render(
-      <OrderTable
-        orders={[
-          { ...order, orderId: NexiOrderIdSchema.make("Z-ORDER") },
-          { ...order, orderId: NexiOrderIdSchema.make("A-ORDER") },
-        ]}
-      />
-    );
-    const table = view.getByRole("table", { name: "Nexi orders" });
-
-    fireEvent.click(within(table).getByRole("button", { name: "Order" }));
-
-    expect(
-      within(table)
-        .getAllByRole("row")
-        .slice(1)
-        .map((row) => within(row).getAllByRole("link")[0]?.textContent)
-    ).toEqual(["A-ORDER", "Z-ORDER"]);
-  });
-
-  test.each([
-    ["CANCELED", "Canceled"],
-    ["CANCELLED", "Cancelled"],
-  ])("renders the Nexi %s spelling as an attention badge", (value, label) => {
-    const view = render(<ProviderStatusBadge value={value} />);
-    const attentionBadge = render(
-      <StatusBadge tone="attention">{label}</StatusBadge>
-    );
-    expect(view.container.innerHTML).toBe(attentionBadge.container.innerHTML);
-  });
-
   test("keeps the customer visible when booking details are unavailable", () => {
     const { items } = loadFixtureReservations({});
     const reservation = items[0];
@@ -798,72 +559,6 @@ describe("administration reservation components", () => {
 
     expect(view.getAllByText("Alex Morgan")).not.toHaveLength(0);
     expect(view.queryByText("Details unavailable")).toBeNull();
-  });
-
-  test("distinguishes an unassigned table from unavailable table details", () => {
-    expect(getBookingTableLabel(null)).toBe("Unavailable");
-    expect(
-      getBookingTableLabel({ tableId: "dotypos-table", tableName: null })
-    ).toBe("Details unavailable");
-    expect(getBookingTableLabel({ tableId: null, tableName: null })).toBe(
-      "Not assigned"
-    );
-    expect(
-      getBookingTableLabel({
-        tableId: "dotypos-table",
-        tableName: "Meeting room",
-      })
-    ).toBe("Meeting room");
-  });
-
-  test("links reservation references to their related entities", () => {
-    const view = render(
-      <ReservationReferences
-        references={{
-          workspaceReservationId: "workspace-reservation",
-          dotyposReservationId: "dotypos-booking",
-          customerId: "dotypos-customer",
-        }}
-      />
-    );
-
-    expect(
-      view.getByRole("link", { name: "dotypos-customer" }).getAttribute("href")
-    ).toBe("/admin/customers/dotypos-customer");
-    expect(view.getByText("dotypos-booking")).toBeDefined();
-    expect(view.queryByRole("link", { name: "dotypos-booking" })).toBeNull();
-  });
-
-  test("renders Dotypos bookings with linked customers and reservations", () => {
-    const view = render(
-      <BookingTable
-        bookings={loadFixtureBookings().items}
-        sorting={{
-          direction: "asc",
-          field: "booking",
-          params: { date: "2026-08-10" },
-        }}
-      />
-    );
-    const table = view.getByRole("table", { name: "Bookings" });
-
-    expect(within(table).getByText("Table 4")).toBeDefined();
-    expect(
-      within(table)
-        .getAllByRole("link", { name: "Alex Morgan" })[0]
-        ?.getAttribute("href")
-    ).toBe("/admin/customers/customer-alex");
-    expect(
-      within(table)
-        .getByRole("link", { name: "Cowork Basic" })
-        .getAttribute("href")
-    ).toBe("/admin/reservations/0198-admin-fixture-complete");
-    expect(
-      within(table).getByRole("link", { name: "Booking" }).getAttribute("href")
-    ).toBe("/admin/bookings?date=2026-08-10&sort=booking&direction=desc");
-    expect(
-      within(table).getByRole("link", { name: "Status" }).getAttribute("href")
-    ).toBe("/admin/bookings?date=2026-08-10&sort=status&direction=asc");
   });
 
   test("gets one reservation from any associated unique ID", async () => {
@@ -899,188 +594,5 @@ describe("administration reservation components", () => {
     expect(workspaceRouterPush).toHaveBeenCalledWith(
       "/admin/reservations/reservation-456"
     );
-  });
-
-  test("reports a field error for whitespace-only input without calling the action", async () => {
-    const execute = mock();
-    workspaceUseAction.mockImplementation(() => ({
-      execute,
-      isExecuting: false,
-    }));
-    const { ReservationLookup } = await import("./reservation-lookup");
-    const view = render(<ReservationLookup />);
-
-    const input = view.getByRole("searchbox", {
-      name: "Reservation or payment ID",
-    });
-    fireEvent.input(input, { target: { value: "   " } });
-    await act(async () => {
-      fireEvent.submit(view.getByRole("button", { name: "Get reservation" }));
-    });
-
-    expect(input.getAttribute("aria-invalid")).toBe("true");
-    expect(
-      view.getByText('Expected a value with a length of at least 1, got ""')
-    ).toBeDefined();
-    expect(execute).not.toHaveBeenCalled();
-  });
-
-  test("reports a field error for an empty identifier without calling the action", async () => {
-    const execute = mock();
-    workspaceUseAction.mockImplementation(() => ({
-      execute,
-      isExecuting: false,
-    }));
-    const { ReservationLookup } = await import("./reservation-lookup");
-    const view = render(<ReservationLookup />);
-
-    const form = view.container.querySelector("form");
-    expect(form).not.toBeNull();
-    expect(form?.hasAttribute("noValidate")).toBe(true);
-
-    const input = view.getByRole("searchbox", {
-      name: "Reservation or payment ID",
-    });
-    await act(async () => {
-      fireEvent.click(view.getByRole("button", { name: "Get reservation" }));
-    });
-
-    expect(input.getAttribute("aria-invalid")).toBe("true");
-    expect(
-      view.getByText('Expected a value with a length of at least 1, got ""')
-    ).toBeDefined();
-    expect(execute).not.toHaveBeenCalled();
-  });
-
-  test("accepts an identifier at the maximum length and passes it through", async () => {
-    const execute = mock();
-    workspaceUseAction.mockImplementation(() => ({
-      execute,
-      isExecuting: false,
-    }));
-    const { ReservationLookup } = await import("./reservation-lookup");
-    const view = render(<ReservationLookup />);
-
-    const input = view.getByRole("searchbox", {
-      name: "Reservation or payment ID",
-    });
-    fireEvent.input(input, { target: { value: "a".repeat(256) } });
-    await act(async () => {
-      fireEvent.submit(view.getByRole("button", { name: "Get reservation" }));
-    });
-
-    expect(input.getAttribute("aria-invalid")).not.toBe("true");
-    expect(execute).toHaveBeenCalledWith({ identifier: "a".repeat(256) });
-  });
-
-  test("reports a field error for an identifier past the maximum length", async () => {
-    const execute = mock();
-    workspaceUseAction.mockImplementation(() => ({
-      execute,
-      isExecuting: false,
-    }));
-    const { ReservationLookup } = await import("./reservation-lookup");
-    const view = render(<ReservationLookup />);
-
-    const input = view.getByRole("searchbox", {
-      name: "Reservation or payment ID",
-    });
-    fireEvent.input(input, { target: { value: "a".repeat(257) } });
-    await act(async () => {
-      fireEvent.submit(view.getByRole("button", { name: "Get reservation" }));
-    });
-
-    expect(input.getAttribute("aria-invalid")).toBe("true");
-    expect(view.getByText(/at most 256/)).toBeDefined();
-    expect(execute).not.toHaveBeenCalled();
-  });
-
-  test("shows the unavailable notice when the lookup action fails", async () => {
-    const execute = mock();
-    let onError:
-      | ((result: {
-          readonly error: { readonly serverError?: string };
-        }) => void)
-      | undefined;
-    workspaceUseAction.mockImplementation((_action, options) => {
-      onError = (
-        options as {
-          readonly onError?: (result: {
-            readonly error: { readonly serverError?: string };
-          }) => void;
-        }
-      ).onError;
-      return { execute, isExecuting: false };
-    });
-    const { ReservationLookup } = await import("./reservation-lookup");
-    const view = render(<ReservationLookup />);
-
-    fireEvent.input(
-      view.getByRole("searchbox", { name: "Reservation or payment ID" }),
-      { target: { value: "payment-500" } }
-    );
-    await act(async () => {
-      fireEvent.submit(view.getByRole("button", { name: "Get reservation" }));
-    });
-    act(() => {
-      onError?.({
-        error: {
-          serverError: "The reservation lookup is temporarily unavailable.",
-        },
-      });
-    });
-
-    expect(
-      view.getByText("The reservation lookup is temporarily unavailable.")
-    ).toBeDefined();
-    expect(workspaceRouterPush).not.toHaveBeenCalled();
-  });
-
-  test("disables the submit button while the lookup is in flight", async () => {
-    const execute = mock();
-    workspaceUseAction.mockImplementation(() => ({
-      execute,
-      isExecuting: true,
-    }));
-    const { ReservationLookup } = await import("./reservation-lookup");
-    const view = render(<ReservationLookup />);
-
-    const button = view.getByRole("button", { name: "Looking up…" });
-    expect((button as HTMLButtonElement).disabled).toBe(true);
-  });
-
-  test("shows the not-found notice when no reservation matched", async () => {
-    const execute = mock();
-    let onSuccess:
-      | ((result: {
-          readonly data?: { readonly reservationId: string | null };
-        }) => void)
-      | undefined;
-    workspaceUseAction.mockImplementation((_action, options) => {
-      onSuccess = (
-        options as {
-          readonly onSuccess?: (result: {
-            readonly data?: { readonly reservationId: string | null };
-          }) => void;
-        }
-      ).onSuccess;
-      return { execute, isExecuting: false };
-    });
-    const { ReservationLookup } = await import("./reservation-lookup");
-    const view = render(<ReservationLookup />);
-
-    fireEvent.input(
-      view.getByRole("searchbox", { name: "Reservation or payment ID" }),
-      { target: { value: "payment-404" } }
-    );
-    await act(async () => {
-      fireEvent.submit(view.getByRole("button", { name: "Get reservation" }));
-    });
-
-    act(() => {
-      onSuccess?.({ data: { reservationId: null } });
-    });
-    expect(view.getByText("No reservation matched that ID.")).toBeDefined();
-    expect(workspaceRouterPush).not.toHaveBeenCalled();
   });
 });

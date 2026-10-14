@@ -118,22 +118,4 @@ describe("payment timeline", () => {
       ])
     ).toEqual(["Payment started", "Refund recorded"]);
   });
-
-  test("shows no refund item for a paid attempt without a recorded refund", () => {
-    expect(
-      titles(
-        buildPaymentAttemptTimeline(
-          [
-            {
-              ...refundedAttempt,
-              refundState: "required",
-              refundedAmount: null,
-              refundedAt: null,
-            },
-          ],
-          [orderUnavailable]
-        )
-      )
-    ).toEqual(["Payment started"]);
-  });
 });

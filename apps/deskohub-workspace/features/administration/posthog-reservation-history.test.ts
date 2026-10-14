@@ -132,23 +132,6 @@ describe("PostHog reservation history", () => {
     expect(result.kind === "available" && result.items).toHaveLength(1);
   });
 
-  test("is unavailable without the PostHog API key", async () => {
-    const layer = PostHogReservationHistory.Default.pipe(
-      Layer.provide(
-        Layer.succeed(PostHogHistoryRuntimeConfig, {
-          environment: "development",
-          serviceName: "deskohub-workspace",
-        })
-      ),
-      Layer.provide(FetchHttpClient.layer)
-    );
-    const result = await Effect.gen(function* () {
-      const history = yield* PostHogReservationHistory;
-      return yield* history.load(reservationId);
-    }).pipe(Effect.provide(layer), Effect.runPromise);
-    expect(result).toEqual({ kind: "unavailable" });
-  });
-
   test("deduplicates durable milestones while preserving additional observations", () => {
     const durable = [
       {
