@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { EMAIL_TEST_DOMAIN } from "@deskohub/test-email";
 import { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Config, ConfigProvider, Effect, PlatformError, Schema } from "effect";
 import { SqlError } from "effect/unstable/sql";
@@ -160,14 +161,12 @@ const failureCases = [
   {
     name: "one recipient outside the test domain",
     error: new CampaignRecipientsOutsideTestDomain({ recipientCount: 1 }),
-    message:
-      "Outside production, campaign email can only go to @deskohub.test addresses, and 1 address is outside it. Nothing was sent.",
+    message: `Outside production, campaign email can only go to @${EMAIL_TEST_DOMAIN} addresses, and 1 address is outside it. Nothing was sent.`,
   },
   {
     name: "multiple recipients outside the test domain",
     error: new CampaignRecipientsOutsideTestDomain({ recipientCount: 3 }),
-    message:
-      "Outside production, campaign email can only go to @deskohub.test addresses, and 3 addresses are outside it. Nothing was sent.",
+    message: `Outside production, campaign email can only go to @${EMAIL_TEST_DOMAIN} addresses, and 3 addresses are outside it. Nothing was sent.`,
   },
   {
     name: "no reachable recipients",

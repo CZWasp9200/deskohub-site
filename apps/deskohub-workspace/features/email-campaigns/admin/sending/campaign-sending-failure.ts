@@ -1,3 +1,4 @@
+import { EMAIL_TEST_DOMAIN } from "@deskohub/test-email";
 import { type Effect, type Layer, Match } from "effect";
 import type { requireAdministratorAuthorization } from "@/shared/administrator/administrator-authorization.server";
 import type {
@@ -96,7 +97,7 @@ export const describeCampaignSendingFailure = (cause: CampaignSendingFailure) =>
     Match.tag(
       "CampaignRecipientsOutsideTestDomain",
       ({ recipientCount }) =>
-        `Outside production, campaign email can only go to @deskohub.test addresses, and ${recipientCount} ${recipientCount === 1 ? "address is" : "addresses are"} outside it. Nothing was sent.`
+        `Outside production, campaign email can only go to @${EMAIL_TEST_DOMAIN} addresses, and ${recipientCount} ${recipientCount === 1 ? "address is" : "addresses are"} outside it. Nothing was sent.`
     ),
     Match.tag(
       "CampaignNoRecipients",
