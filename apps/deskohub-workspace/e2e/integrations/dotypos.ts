@@ -272,7 +272,7 @@ export const validateDotypos = (
     );
   });
 
-export const waitForConfirmedDotyposReservation = <
+const waitForConfirmedDotyposReservation = <
   A extends {
     readonly reservation: {
       readonly status?: string | null;
@@ -519,7 +519,7 @@ export const changeDotyposCustomerDiscount = (
     )
   );
 
-export const waitForDotyposCustomerDiscountGroup = <
+const waitForDotyposCustomerDiscountGroup = <
   A extends { readonly _discountGroupId?: string | null },
   E,
   R,

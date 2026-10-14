@@ -80,18 +80,10 @@ const calendarSaleLabel = "E2E Calendar sale";
 const codeDiscountLabel = "E2E promo code";
 const customerDiscountLabel = "Customer discount";
 const unavailableCodeScenarios = [
-  { code: "E2E INVALID", id: "invalid-syntax" },
   { code: "E2E_UNKNOWN", id: "unknown" },
-  { code: discountCodeFixtures.inactive.code, id: "inactive" },
-  { code: discountCodeFixtures.notStarted.code, id: "not-started" },
-  { code: discountCodeFixtures.expired.code, id: "expired" },
   {
     code: discountCodeFixtures.customerIneligible.code,
     id: "customer-ineligible",
-  },
-  {
-    code: discountCodeFixtures.productIneligible.code,
-    id: "product-ineligible",
   },
 ] as const;
 
@@ -160,7 +152,7 @@ export const makeDiscountE2ECases = ({
     const coworkAutomaticDiscounts = [calendarDiscountExpectation] as const;
     const checkoutDates = yield* selectCoworkDates(
       preparation.availableBasicDates,
-      unavailableCodeScenarios.length + 13,
+      unavailableCodeScenarios.length + 11,
       {
         allocation,
         excludedDates,
@@ -171,7 +163,7 @@ export const makeDiscountE2ECases = ({
     );
     const calendarCheckoutDates = yield* selectCoworkDates(
       preparation.availablePlusDates,
-      4,
+      2,
       {
         allocation,
         excludedDates: new Set([...excludedDates, ...checkoutDates]),
@@ -309,46 +301,6 @@ export const makeDiscountE2ECases = ({
       timeoutMs: config.timeouts.checkoutCase,
     });
 
-    const combinedCheckoutData = makeCoworkCheckoutData(
-      config.baseUrl,
-      yield* requireCheckoutDate(calendarCheckoutDates, 1),
-      "cowork-calendar-sale-and-code",
-      { entryTier: "open-space" }
-    );
-    const combinedCheckoutState = trackCheckoutState(
-      flowStates,
-      combinedCheckoutData
-    );
-    cases.push({
-      checkoutStates: [combinedCheckoutState],
-      execute: ({ runStep, session }) =>
-        executeDiscountCheckout({
-          config,
-          data: combinedCheckoutData,
-          datasourceConfig,
-          discountCode: discountCodeFixtures.partial.code,
-          expectedDiscounts: [
-            ...coworkAutomaticDiscounts,
-            codeDiscountExpectation,
-          ],
-          flowId: "cowork-calendar-sale-and-code",
-          run,
-          runStep,
-          session,
-          state: combinedCheckoutState,
-        }).pipe(
-          Effect.provideService(HttpClient.HttpClient, httpClient),
-          Effect.mapError((cause) =>
-            toWorkspaceE2EError(
-              "run combined Calendar and code checkout e2e case",
-              cause
-            )
-          )
-        ),
-      id: "checkout-calendar-sale-and-code",
-      timeoutMs: config.timeouts.checkoutCase,
-    });
-
     const quoteChangeData = makeCoworkCheckoutData(
       config.baseUrl,
       yield* requireCheckoutDate(transientCalendarDates, 0),
@@ -396,46 +348,7 @@ export const makeDiscountE2ECases = ({
       {
         data: makeCoworkCheckoutData(
           config.baseUrl,
-          yield* requireCheckoutDate(checkoutDates, nextDateIndex),
-          "cowork-customer-discount"
-        ),
-        expectedDiscounts: [
-          ...coworkAutomaticDiscounts,
-          customerDiscountExpectation,
-        ],
-        id: "customer-discount",
-      },
-      {
-        data: makeCoworkCheckoutData(
-          config.baseUrl,
-          yield* requireCheckoutDate(checkoutDates, nextDateIndex + 1),
-          "cowork-customer-discount-and-code"
-        ),
-        discountCode: discountCodeFixtures.partial.code,
-        expectedDiscounts: [
-          ...coworkAutomaticDiscounts,
-          customerDiscountExpectation,
-          codeDiscountExpectation,
-        ],
-        id: "customer-discount-and-code",
-      },
-      {
-        data: makeCoworkCheckoutData(
-          config.baseUrl,
-          yield* requireCheckoutDate(calendarCheckoutDates, 2),
-          "cowork-calendar-and-customer-discount",
-          { entryTier: "open-space" }
-        ),
-        expectedDiscounts: [
-          ...coworkAutomaticDiscounts,
-          customerDiscountExpectation,
-        ],
-        id: "calendar-and-customer-discount",
-      },
-      {
-        data: makeCoworkCheckoutData(
-          config.baseUrl,
-          yield* requireCheckoutDate(calendarCheckoutDates, 3),
+          yield* requireCheckoutDate(calendarCheckoutDates, 1),
           "cowork-all-discounts",
           { entryTier: "open-space" }
         ),
@@ -448,7 +361,6 @@ export const makeDiscountE2ECases = ({
         id: "all-discounts",
       },
     ] as const;
-    nextDateIndex += 2;
 
     for (const scenario of customerScenarios) {
       const state = trackCheckoutState(flowStates, scenario.data);

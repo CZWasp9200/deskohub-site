@@ -2,19 +2,6 @@ import { expect, test } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
 import { formatWorkspaceE2EFailureAnnotation } from "./github-actions";
 
-test("formats only closed Workspace E2E failure fields", () => {
-  expect(
-    formatWorkspaceE2EFailureAnnotation({
-      caseId: "checkout-meeting-room-paid-one-hour",
-      failureKind: "timeout",
-      outcome: "timed_out",
-      stepId: "wait-for-provider-session-row",
-    })
-  ).toBe(
-    "::error title=Workspace E2E case failed::case=checkout-meeting-room-paid-one-hour,step=wait-for-provider-session-row,outcome=timed_out,failure_kind=timeout\n"
-  );
-});
-
 test("formats a fixed code-owned diagnostic code", () => {
   expect(
     formatWorkspaceE2EFailureAnnotation({

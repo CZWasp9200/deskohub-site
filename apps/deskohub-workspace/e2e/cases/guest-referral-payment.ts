@@ -189,7 +189,7 @@ export const bindGuestReferralPaymentCase: WorkspaceE2ECaseBinder = async ({
   };
 };
 
-export const withGuestContact = (
+const withGuestContact = (
   data: CheckoutData,
   email: string
 ): CheckoutData => {
@@ -199,7 +199,7 @@ export const withGuestContact = (
 };
 
 /** The reservation URL a guest opens from a shared referral link. */
-export const withReferralCode = (
+const withReferralCode = (
   data: CheckoutData,
   code: string
 ): CheckoutData => {

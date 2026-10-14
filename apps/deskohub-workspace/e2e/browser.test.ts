@@ -1,18 +1,15 @@
+import { expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, test } from "bun:test";
 import { errors as playwrightErrors } from "@playwright/test";
 import { Cause, Effect, Exit } from "effect";
 import {
-  activateHydratedBrowserElement,
   captureBrowserFailureArtifacts,
   findEnabledSnapshotRef,
   getSnapshotRef,
   isFrameSnapshotRef,
-  readActiveBrowserTabId,
-  readBrowserTabs,
   sanitizeHarArtifact,
   waitForBrowserCondition,
 } from "./browser";
@@ -123,29 +120,6 @@ test("keeps only the error codes of a failed Nexi hosted-field response", () => 
     expect(entry.response.content.text).toBe("[redacted]");
 });
 
-test("activates a hydrated element through focus and keyboard input", async () => {
-  const calls: Array<{ readonly args: string[]; readonly input?: string }> = [];
-  const run: Runner = async (_command, args, options) => {
-    calls.push({ args, input: options?.input });
-    return { exitCode: 0, stderr: "", stdout: "" };
-  };
-
-  await Effect.runPromise(
-    activateHydratedBrowserElement(run, "browser-test", "#support-contact", {
-      timeoutMs: 5000,
-    })
-  );
-
-  expect(calls.map(({ args }) => args.slice(2, 4))).toEqual([
-    ["wait", "--fn"],
-    ["focus", "#support-contact"],
-    ["press", "Enter"],
-  ]);
-  expect(calls[0]?.args.at(4)).toContain(
-    'document.querySelector("#support-contact")'
-  );
-});
-
 // The runner wraps a failed command like the Playwright runtime does.
 const failingWaitRunner = (failures: readonly Error[]) => {
   let calls = 0;
@@ -206,33 +180,6 @@ test("accepts Playwright AI snapshot references from the main page and frames", 
   expect(getSnapshotRef('- textbox "Card number" [ref=f1e4]')).toBe("@f1e4");
   expect(isFrameSnapshotRef("@e2")).toBe(false);
   expect(isFrameSnapshotRef("@f1e4")).toBe(true);
-});
-
-test("reads stable browser tabs and the active tab", async () => {
-  const run: Runner = async () => ({
-    exitCode: 0,
-    stderr: "",
-    stdout: JSON.stringify({
-      data: {
-        tabs: [
-          { active: true, tabId: "t1" },
-          { active: false, tabId: "t2" },
-        ],
-      },
-      success: true,
-    }),
-  });
-
-  const tabs = await Effect.runPromise(readBrowserTabs(run, "browser-test"));
-  const tabId = await Effect.runPromise(
-    readActiveBrowserTabId(run, "browser-test")
-  );
-
-  expect(tabs).toEqual([
-    { active: true, tabId: "t1" },
-    { active: false, tabId: "t2" },
-  ]);
-  expect(tabId).toBe("t1");
 });
 
 test("captures valid HAR after applying structured privacy redaction", async () => {

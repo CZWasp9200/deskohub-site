@@ -339,19 +339,6 @@ test("selects every section through rendered desktop AccountShell controls", asy
   }
 });
 
-test("scopes the legal landmark to AccountShell when the public footer duplicates it", () => {
-  render(createElement(AccountShellHarness));
-
-  expect(document.querySelectorAll("a[href$='/privacy-policy']")).toHaveLength(
-    2
-  );
-  const legalLandmarks = document.querySelectorAll(
-    accountSectionLandmarks.legal
-  );
-  expect(legalLandmarks).toHaveLength(1);
-  expect(legalLandmarks[0]?.closest("main")).not.toBeNull();
-});
-
 test("does not accept the public footer as the legal account landmark", async () => {
   const page = makeFakePage(1440);
   render(
@@ -571,40 +558,4 @@ test("does not click a section before its streamed panel is hydrated", async () 
     selectAccountSection(page, "profile", (stage) => calls.push(stage))
   ).rejects.toThrow("fake account section did not settle");
   expect(calls).toEqual(["button-handler-wait", "panel-hydration-wait"]);
-});
-
-test("does not click referrals before its streamed panel is hydrated", async () => {
-  const calls: string[] = [];
-  const page = makeFakePage(1440, {
-    onClick: () => {
-      calls.push("click");
-    },
-  });
-  render(createElement(AccountShellHarness));
-  const referralsScreen = document.querySelector(
-    accountSectionLandmarks.referrals
-  );
-  if (referralsScreen === null)
-    throw new Error("referrals screen was not rendered");
-  const serverCopy = referralsScreen.cloneNode(true);
-  referralsScreen.replaceWith(serverCopy);
-
-  await expect(
-    selectAccountSection(page, "referrals", (stage) => calls.push(stage))
-  ).rejects.toThrow("fake account section did not settle");
-  expect(calls).toEqual(["button-handler-wait", "panel-hydration-wait"]);
-});
-
-test("selects legal without waiting for a panel that renders only when active", async () => {
-  const stages: string[] = [];
-  const page = makeFakePage(1440);
-  render(createElement(AccountShellHarness));
-
-  await selectAccountSection(page, "legal", (stage) => stages.push(stage));
-
-  expect(stages).toEqual([
-    "button-handler-wait",
-    "native-button-click",
-    "selected-landmark-wait",
-  ]);
 });

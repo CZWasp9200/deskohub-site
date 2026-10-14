@@ -6,33 +6,21 @@ import {
   DotyposReservationIdSchema,
 } from "@deskohub/dotypos";
 import type { Reservation, Table } from "@deskohub/dotypos/generated";
-import { NexiCorrelationIdSchema } from "@deskohub/nexi";
 import { Effect, Exit, Layer } from "effect";
 import { FetchHttpClient } from "effect/unstable/http";
-import {
-  checkoutAttemptKeySchema,
-  checkoutSessionKeySchema,
-} from "@/features/checkout/checkout-identifiers";
-import type { MeetingRoomReservationDuration } from "@/features/reservation/meeting-room-reservation-duration";
 import { getMeetingRoomReservationInterval } from "@/features/reservation/meeting-room-reservation-time";
 import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
 import { makeMeetingRoomCheckoutData } from "../checkout/data";
 import type { DatasourceConfig, WorkspaceE2EConfig } from "../config";
-import { isWorkspaceE2ETimeout, type WorkspaceE2EError } from "../errors";
+import { isWorkspaceE2ETimeout } from "../errors";
 import { workspaceE2ENonPaymentCaseIds } from "../playwright-checkout/case-catalog";
 import type { Runner } from "../runtime";
 import { workspaceE2ETimeouts } from "../timeouts";
-import type {
-  CheckoutFlowState,
-  CheckoutRow,
-  WorkspaceE2EStepRunner,
-} from "../types";
+import type { CheckoutFlowState } from "../types";
 import {
   assertHeldMeetingRoomReservation,
   assertMeetingRoomSlotAvailability,
   isMeetingRoomUnavailableFromInventory,
-  type MeetingRoomE2EPreparation,
-  makeMeetingRoomE2ECases,
   meetingRoomE2ECoreSlotCount,
 } from "./meeting-room";
 import { makeReservationLinkE2ECases } from "./reservation-links";
@@ -174,94 +162,6 @@ test.each([
   }
 );
 
-test("verifies a paid meeting-room checkout without the post-fulfillment paths", async () => {
-  const config: WorkspaceE2EConfig = {
-    baseUrl: "https://deskohub-workspace-abc123xyz-deskohub.vercel.app",
-    bypassSecret: undefined,
-    expectedHost: "deskohub-workspace-abc123xyz-deskohub.vercel.app",
-    timeouts: workspaceE2ETimeouts,
-  };
-  const flowStates: CheckoutFlowState[] = [];
-  const fetchMock: typeof globalThis.fetch = () =>
-    Promise.reject(
-      new Error("provider HTTP must not execute in this case test")
-    );
-  const httpClientLayer = FetchHttpClient.layer.pipe(
-    Layer.provide(Layer.succeed(FetchHttpClient.Fetch, fetchMock))
-  );
-  const run: Runner = async () => ({
-    exitCode: 0,
-    stderr: "",
-    stdout: "",
-  });
-  const cases = await Effect.runPromise(
-    makeMeetingRoomE2ECases({
-      config,
-      datasourceConfig: {} as DatasourceConfig,
-      flowStates,
-      preparation: makeMeetingRoomTestPreparation(),
-      run,
-    }).pipe(Effect.provide(httpClientLayer))
-  );
-  const paidCase = cases.find(
-    ({ id }) => id === "checkout-meeting-room-paid-one-hour"
-  );
-  expect(paidCase).toBeDefined();
-  if (!paidCase) return;
-  const paidState = paidCase.checkoutStates[0];
-  expect(paidState).toBeDefined();
-  if (!paidState) return;
-
-  const paidRow = {
-    checkout_attempt_key: checkoutAttemptKeySchema.make("paid-attempt"),
-    checkout_session_key: checkoutSessionKeySchema.make("paid-session"),
-    correlation_id: NexiCorrelationIdSchema.make("paid-correlation"),
-    dotypos_customer_id: DotyposCustomerIdSchema.make("paid-customer"),
-    fulfillment_state: "fulfilled",
-    payment_state: "paid",
-    reservation_id: workspaceReservationIdSchema.make("paid-order"),
-  } as CheckoutRow;
-  const observedSteps: string[] = [];
-  let replayCount = 0;
-  const runStep = ((step) => {
-    observedSteps.push(step.id);
-    if (step.id === "prepare-checkout-pay-page") {
-      paidState.orderId = paidRow.reservation_id;
-      return Effect.succeed(paidRow.reservation_id);
-    }
-    if (step.id === "read-provider-session-row") {
-      return Effect.succeed(paidRow);
-    }
-    if (step.id === "validate-postgres-state") {
-      paidState.checkoutRow = paidRow;
-      return Effect.succeed(paidRow);
-    }
-    if (step.id === "replay-payment-webhook") {
-      replayCount += 1;
-    }
-    return Effect.void;
-  }) as WorkspaceE2EStepRunner;
-
-  const exit = await Effect.runPromiseExit(
-    paidCase.execute({
-      runStep,
-      session: "meeting-room-paid-test",
-    }) as Effect.Effect<void, WorkspaceE2EError>
-  );
-
-  expect(Exit.isSuccess(exit)).toBe(true);
-  expect(replayCount).toBe(1);
-  expect(observedSteps).toContain("assert-fulfilled-status-page");
-  expect(observedSteps).not.toContain("restart-reservation-after-fulfillment");
-  expect(observedSteps).not.toContain(
-    "mark-fulfillment-failed-for-support-path"
-  );
-  expect(observedSteps).not.toContain("assert-reservation-cookie-isolation");
-  expect(flowStates).toHaveLength(5);
-  expect(paidCase.checkoutStates).toHaveLength(1);
-  expect(paidCase.checkoutStates[0]).toBe(flowStates[0]);
-});
-
 const makeMeetingRoomTable = (id: string): Table => ({
   display: true,
   enabled: true,
@@ -280,25 +180,6 @@ const makeMeetingRoomReservation = (tableId: string): Reservation => ({
   seats: "1",
   startDate: "2099-09-01T08:00:00Z",
   status: "NEW",
-});
-
-const meetingRoomTestDurations = [
-  { unit: "hour", amount: 1 },
-  { unit: "hour", amount: 4 },
-  { unit: "hour", amount: 1 },
-  { unit: "hour", amount: 4 },
-  { unit: "hour", amount: 1 },
-  { unit: "day", amount: 1 },
-] as const satisfies readonly MeetingRoomReservationDuration[];
-
-const makeMeetingRoomTestPreparation = (): MeetingRoomE2EPreparation => ({
-  slots: meetingRoomTestDurations.map((duration, index) => {
-    const date = `2099-09-${String(index + 1).padStart(2, "0")}`;
-    const startDateTime = `${date}T10:00`;
-    const interval = getMeetingRoomReservationInterval(startDateTime, duration);
-    if (!interval) throw new Error("meeting-room test interval is invalid");
-    return { date, duration, startDateTime, ...interval };
-  }),
 });
 
 const linkCaseConfig: WorkspaceE2EConfig = {

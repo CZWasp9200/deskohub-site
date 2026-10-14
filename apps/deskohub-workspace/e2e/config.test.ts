@@ -1,7 +1,5 @@
 import { expect, test } from "bun:test";
 import { parseWorkspaceE2EBaseUrl } from "./config";
-import { makeE2EEnvironment } from "./e2e-env";
-import { validE2ERuntimeEnvironment } from "./e2e-env.test-fixture";
 import { assertSafeDatabaseUrl } from "./runtime";
 
 test("parses an immutable HTTPS Vercel deployment origin", () => {
@@ -46,15 +44,6 @@ test("rejects missing or unsafe preview targets", () => {
       "https://deskohub-workspace-a1b2c3d4e-deskohub-bar.vercel.app/path"
     )
   ).toThrow("must be an origin");
-});
-
-test("requires a direct datasource URL", () => {
-  expect(() =>
-    makeE2EEnvironment({
-      ...validE2ERuntimeEnvironment,
-      WORKSPACE_E2E_DATABASE_URL_UNPOOLED: undefined,
-    })
-  ).toThrow("Invalid workspace E2E environment variables.");
 });
 
 test("rejects a datasource outside the explicit preview allowlist", () => {

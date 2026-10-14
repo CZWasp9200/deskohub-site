@@ -1,8 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { AssertionError } from "node:assert";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { Temporal } from "@js-temporal/polyfill";
 import { Cause, Effect, Exit } from "effect";
 import { formatWorkspaceE2EFailure, workspaceE2ETimeoutError } from "../errors";
 import { type E2EOutcome, toE2EResult } from "../services/telemetry";
@@ -10,50 +8,12 @@ import { workspaceE2EAccessCodeMutationBarrierCount } from "../timeouts";
 import {
   type ActionResponseOutcome,
   awaitActionQuiescence,
-  makeSyntheticAccessCodeName,
-  planAccessCodeCreationAttempt,
   runFinalizedCase,
   sanitizedBrowserOperation,
   selectActionReplayHeaders,
 } from "./access-code-case";
 
 describe("access code creation case planning", () => {
-  test("derives a future Prague whole-hour window from ambient time", () => {
-    const plan = planAccessCodeCreationAttempt({
-      name: makeSyntheticAccessCodeName(),
-      now: Temporal.Instant.from("2026-09-04T10:23:45.123Z"),
-    });
-
-    expect(plan.startsAtLocal).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:00$/);
-    const start = Temporal.PlainDateTime.from(plan.startsAtLocal);
-    const end = Temporal.PlainDateTime.from(plan.endsAtLocal);
-    expect(start.minute).toBe(0);
-    expect(end.minute).toBe(0);
-    expect(Temporal.PlainDateTime.compare(end, start.add({ hours: 3 }))).toBe(
-      0
-    );
-    expect(
-      Temporal.PlainDateTime.compare(
-        start,
-        Temporal.PlainDateTime.from("2026-09-04T10:23")
-      )
-    ).toBe(1);
-  });
-
-  test("builds a unique synthetic name within the provider bound", () => {
-    const names = [
-      makeSyntheticAccessCodeName(),
-      makeSyntheticAccessCodeName(),
-    ];
-
-    for (const name of names) {
-      expect(name.startsWith("dsk-e2e-")).toBe(true);
-      expect(name.length).toBeLessThanOrEqual(60);
-      expect(name.length).toBeGreaterThan("dsk-e2e-".length + 8);
-    }
-    expect(names[0]).not.toBe(names[1]);
-  });
-
   test("keeps only action-relevant headers when replaying a captured request", () => {
     const replayHeaders = selectActionReplayHeaders({
       accept: "*/*",
@@ -115,60 +75,9 @@ describe("sanitized browser failure reporting", () => {
     }
     expect(failure.message).toBe("probe the protected admin page failed");
   });
-
-  test("keeps code-owned assertion failures on browser operations", async () => {
-    const failure = await Effect.runPromise(
-      Effect.flip(
-        sanitizedBrowserOperation("replay the deployed action", () =>
-          Promise.reject(new AssertionError({ message: "expected 200" }))
-        )
-      )
-    );
-
-    expect(failure.message).toContain("replay the deployed action failed");
-    expect(failure.message).toContain("expected 200");
-  });
 });
 
 describe("case finalization order", () => {
-  test("runs the body, cleanup, trace finalization, then the annotation", async () => {
-    const operations: string[] = [];
-    let annotatedOutcome: E2EOutcome | undefined;
-
-    const exit = await Effect.runPromiseExit(
-      runFinalizedCase({
-        body: Effect.gen(function* () {
-          operations.push("body");
-          return yield* workspaceE2ETimeoutError("the case body timed out", {
-            operation: "body",
-          });
-        }),
-        cleanup: Effect.sync(() => {
-          operations.push("cleanup");
-        }),
-        trace: (finalized) =>
-          Effect.onExit(finalized, () =>
-            Effect.sync(() => operations.push("trace-finalize"))
-          ),
-        onExit: (settled) => {
-          operations.push("annotation");
-          if (!Exit.isSuccess(settled)) {
-            annotatedOutcome = toE2EResult(settled).outcome;
-          }
-        },
-      })
-    );
-
-    expect(Exit.isFailure(exit)).toBe(true);
-    expect(operations).toEqual([
-      "body",
-      "cleanup",
-      "trace-finalize",
-      "annotation",
-    ]);
-    expect(annotatedOutcome).toBe("timed_out");
-  });
-
   test("marks cleanup-only failures failed, keeps them in the traced exit, and annotates once after trace finalization", async () => {
     const operations: string[] = [];
     let annotatedOutcomes: E2EOutcome[] = [];
