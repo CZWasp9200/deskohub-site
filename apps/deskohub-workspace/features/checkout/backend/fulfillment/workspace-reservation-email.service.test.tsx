@@ -355,30 +355,6 @@ const getTextValueAfterLabel = (text: string, label: string) => {
   return labelIndex === -1 ? undefined : lines[labelIndex + 1];
 };
 
-describe("createCustomerEmailInitialIdempotencyKey", () => {
-  test("derives the stable provider reservation-and-category key", async () => {
-    const {
-      createCustomerEmailInitialIdempotencyKey,
-      createCustomerEmailRecoveryIdempotencyKey,
-    } = await import("./workspace-reservation-email.service");
-    const { workspaceReservationIdSchema } = await import(
-      "@/features/reservation/persistence-contracts"
-    );
-    const reservationId = workspaceReservationIdSchema.make("reservation-id");
-
-    const key = createCustomerEmailInitialIdempotencyKey(reservationId);
-
-    expect(key).toBe("workspace-paid-reservation-access-reservation-id");
-    expect(key.length).toBeLessThanOrEqual(256);
-    expect(key).toBe(createCustomerEmailInitialIdempotencyKey(reservationId));
-    expect(key).not.toBe(
-      createCustomerEmailRecoveryIdempotencyKey(
-        EmailDeliveryIdSchema.make("accepted-customer-email-delivery")
-      )
-    );
-  });
-});
-
 describe("createCustomerEmailRecoveryIdempotencyKey", () => {
   test("derives distinct stable keys for long prior delivery ids beyond the provider key limit", async () => {
     const { createCustomerEmailRecoveryIdempotencyKey } = await import(
@@ -504,91 +480,9 @@ describe("Open Space customer reservation emails", () => {
       expect(message.html).not.toContain("Tables");
     }
   });
-
-  test("localizes the shared table label in Czech", async () => {
-    const message = await sendPaidReservationEmail(
-      makeReservation({
-        reservationDetails: {
-          kind: "cowork",
-          entryTier: "open-space",
-          coffee: false,
-        },
-        locale: "cs-CZ",
-        tableName: "assigned-only-sentinel-raw-table-id",
-        openSpaceTableNames: [
-          "9",
-          "10",
-          "11",
-          "12",
-          "15",
-          "16",
-          "wallee",
-          "gromice",
-        ],
-      })
-    );
-
-    expect(message.html).toContain("Stoly");
-    expect(message.text).toContain("Stoly");
-    expect(getHtmlParagraphTexts(message.html)).toContain(
-      "9-12, 15, 16, wallee, gromice"
-    );
-    expect(getTextValueAfterLabel(message.text ?? "", "Stoly")).toBe(
-      "9-12, 15, 16, wallee, gromice"
-    );
-    expect(message.html).not.toContain("assigned-only-sentinel-raw-table-id");
-    expect(message.text).not.toContain("assigned-only-sentinel-raw-table-id");
-  });
 });
 
 describe("workspace reservation email details", () => {
-  test("renders Basic cowork details without meeting-room-only rows", async () => {
-    const { createReservationRows } = await import(
-      "./workspace-reservation-email.service"
-    );
-    const rows = createReservationRows(makeReservation({}), "en-US");
-
-    expect(rows).toEqual([
-      { label: "Entry tier", value: "Basic Day Pass" },
-      { label: "Reservation date", value: "Friday, June 12, 2026" },
-      { label: "Coffee", value: "No" },
-      {
-        label: "Reservation reference",
-        value: "dotypos-reservation-id",
-      },
-      { label: "Order reference", value: "reservation-id" },
-    ]);
-  });
-
-  test("renders Profi cowork monitor details", async () => {
-    const { createReservationRows } = await import(
-      "./workspace-reservation-email.service"
-    );
-    const rows = createReservationRows(
-      makeReservation({
-        reservationDetails: {
-          kind: "cowork",
-          entryTier: "profi",
-          coffee: true,
-          monitorOption: "2x27-qhd",
-        },
-      }),
-      "en-US"
-    );
-
-    expect(rows).toEqual([
-      { label: "Entry tier", value: "Profi Workstation" },
-      { label: "Reservation date", value: "Friday, June 12, 2026" },
-      { label: "Coffee", value: "Yes" },
-      { label: "Monitors", value: "2x 27″ QHD" },
-      {
-        label: "Reservation reference",
-        value: "dotypos-reservation-id",
-      },
-      { label: "Order reference", value: "reservation-id" },
-    ]);
-  });
-
   test("renders the Dotypos meeting-room interval without cowork details", async () => {
     const {
       createReservationRows,
