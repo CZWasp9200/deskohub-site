@@ -4,7 +4,10 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { NodeCrypto } from "@effect/platform-node";
 import { Cause, Effect, Exit, Layer } from "effect";
 import { TestClock } from "effect/testing";
-import { waitForPostgresLockWaiter } from "@/shared/testing/workspace-postgres-lock-waiters.test-utils";
+import {
+  holdPostgresTransaction,
+  waitForPostgresLockWaiter,
+} from "@/shared/testing/workspace-postgres-lock-waiters.test-utils";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import { hashCampaignContent } from "../body/campaign-content-hash";
 import type { CampaignId } from "../campaign-identifiers";
@@ -143,23 +146,6 @@ describe.skipIf(!testDatabase)(
       return rows;
     };
 
-    /** A raw connection holding a transaction open on the campaign row. */
-    const holdCampaignRow = async (sql: string, values: unknown[]) => {
-      const client = await testDatabase.pool.connect();
-      const {
-        rows: [{ pid }],
-      } = await client.query("select pg_backend_pid() as pid");
-      await client.query("begin");
-      await client.query(sql, values);
-      return {
-        pid: pid as number,
-        commit: async () => {
-          await client.query("commit");
-          client.release();
-        },
-      };
-    };
-
     test("confirms the code as typed and moves the campaign to Sending", async () => {
       const campaign = await createDraft();
       const { code } = await issueFor(campaign);
@@ -219,7 +205,8 @@ describe.skipIf(!testDatabase)(
     test("rejects a confirmation waiting on an uncommitted edit as stale", async () => {
       const campaign = await createDraft();
       const { code } = await issueFor(campaign);
-      const edit = await holdCampaignRow(
+      const edit = await holdPostgresTransaction(
+        testDatabase.pool,
         "update email_campaigns set content = $2 where id = $1",
         [campaign.id, campaignContentFixture("Změněno")]
       );
@@ -241,7 +228,8 @@ describe.skipIf(!testDatabase)(
     test("rejects an edit queued behind a confirmation as read-only", async () => {
       const campaign = await createDraft();
       const { code } = await issueFor(campaign);
-      const blocker = await holdCampaignRow(
+      const blocker = await holdPostgresTransaction(
+        testDatabase.pool,
         "select 1 from email_campaigns where id = $1 for update",
         [campaign.id]
       );

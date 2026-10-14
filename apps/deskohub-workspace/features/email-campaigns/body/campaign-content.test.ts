@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Option, Schema } from "effect";
+import { runCommand } from "@/scripts/shared/command";
 import { CampaignLocaleContent } from "./campaign-content";
 
 const localeContent = {
@@ -60,17 +61,13 @@ describe("campaign content without Cloudinary config", () => {
       });
       console.log(campaignBodyToMarkdown(body));
     `;
-    const child = Bun.spawn([process.execPath, "-e", script], {
-      cwd: import.meta.dir,
-      env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "" },
-      stderr: "pipe",
-      stdout: "pipe",
-    });
-    const [exitCode, stdout, stderr] = await Promise.all([
-      child.exited,
-      new Response(child.stdout).text(),
-      new Response(child.stderr).text(),
-    ]);
+    const { exitCode, stdout, stderr } = await runCommand(
+      [process.execPath, "-e", script],
+      {
+        cwd: import.meta.dir,
+        env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "" },
+      }
+    );
 
     expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
     expect(stdout).toContain(

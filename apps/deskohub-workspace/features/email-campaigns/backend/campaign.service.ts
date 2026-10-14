@@ -3,6 +3,7 @@ import "server-only";
 import { and, desc, eq } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Effect, Layer, Option, Schema } from "effect";
+import type { SqlError } from "effect/unstable/sql";
 import { WorkspaceDatabase } from "@/db/database.service";
 import {
   type CampaignRow,
@@ -39,6 +40,8 @@ type CampaignWriteError =
   | CampaignAudienceArchived
   | CampaignContentInvalid;
 
+type CampaignTransactionError = EffectDrizzleQueryError | SqlError.SqlError;
+
 export interface ICampaignService {
   readonly list: Effect.Effect<readonly Campaign[], EffectDrizzleQueryError>;
   readonly get: (
@@ -46,7 +49,7 @@ export interface ICampaignService {
   ) => Effect.Effect<Campaign, CampaignNotFound | EffectDrizzleQueryError>;
   readonly create: (
     input: CampaignDraftInput
-  ) => Effect.Effect<Campaign, CampaignWriteError | EffectDrizzleQueryError>;
+  ) => Effect.Effect<Campaign, CampaignWriteError | CampaignTransactionError>;
   /**
    * Edits a Draft; a campaign that left Draft is read-only. The edit's row
    * update waits on a confirmation's campaign row lock and then rechecks the
@@ -60,7 +63,7 @@ export interface ICampaignService {
     | CampaignNotFound
     | CampaignReadOnly
     | CampaignWriteError
-    | EffectDrizzleQueryError
+    | CampaignTransactionError
   >;
   /** Deletes a Draft; a campaign that left Draft keeps its history. */
   readonly delete: (
@@ -69,10 +72,14 @@ export interface ICampaignService {
     void,
     CampaignNotFound | CampaignReadOnly | EffectDrizzleQueryError
   >;
-  /** Copies a campaign of any status into a new Draft. */
+  /**
+   * Copies a campaign of any status into a new Draft. The copy keeps the
+   * source's audience only while it exists and isn't archived; otherwise the
+   * admin picks one.
+   */
   readonly duplicate: (
     campaignId: CampaignId
-  ) => Effect.Effect<Campaign, CampaignNotFound | EffectDrizzleQueryError>;
+  ) => Effect.Effect<Campaign, CampaignNotFound | CampaignTransactionError>;
 }
 
 /** Campaign drafts and the read-only record of sent campaigns. */
@@ -113,20 +120,59 @@ export class CampaignService extends Context.Service<
         return yield* new CampaignReadOnly({ campaignId, status });
       });
 
-      const ensureAssignableAudience = Effect.fn(
-        "CampaignService.ensureAssignableAudience"
-      )(function* (audienceId: CampaignAudienceId | null) {
-        if (audienceId === null) return;
-        const [audience] = yield* db
+      type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+      /**
+       * Share-locks the audience row for the rest of the transaction, so the
+       * audience can't be archived or deleted before the campaign that
+       * references it commits.
+       */
+      const lockAudience = (tx: Transaction, audienceId: CampaignAudienceId) =>
+        tx
           .select({ archivedAt: emailCampaignAudiences.archivedAt })
           .from(emailCampaignAudiences)
-          .where(eq(emailCampaignAudiences.id, audienceId));
-        if (!audience) {
+          .where(eq(emailCampaignAudiences.id, audienceId))
+          .for("share")
+          .pipe(Effect.map((rows) => Option.fromNullishOr(rows[0])));
+
+      const lockAssignableAudience = Effect.fn(
+        "CampaignService.lockAssignableAudience"
+      )(function* (tx: Transaction, audienceId: CampaignAudienceId | null) {
+        if (audienceId === null) return;
+        const audience = yield* lockAudience(tx, audienceId);
+        if (Option.isNone(audience)) {
           return yield* new CampaignAudienceNotFound({ audienceId });
         }
-        if (audience.archivedAt !== null) {
+        if (audience.value.archivedAt !== null) {
           return yield* new CampaignAudienceArchived({ audienceId });
         }
+      });
+
+      /** Keeps the source's audience only if it's still assignable. */
+      const insertCopy = Effect.fn("CampaignService.insertCopy")(function* (
+        tx: Transaction,
+        source: Campaign
+      ) {
+        const audience =
+          source.audienceId === null
+            ? Option.none()
+            : yield* lockAudience(tx, source.audienceId);
+        const assignable = Option.exists(
+          audience,
+          ({ archivedAt }) => archivedAt === null
+        );
+        const [campaign] = yield* tx
+          .insert(emailCampaigns)
+          .values({
+            title: source.title,
+            purpose: source.purpose,
+            templateKey: source.templateKey,
+            content: source.content,
+            audienceId: assignable ? source.audienceId : null,
+            status: "draft",
+          })
+          .returning();
+        return campaign!;
       });
 
       const validateContent = (
@@ -148,32 +194,41 @@ export class CampaignService extends Context.Service<
         get: Effect.fn("CampaignService.get")(get),
         create: Effect.fn("CampaignService.create")(function* (input) {
           yield* validateContent(input.content);
-          yield* ensureAssignableAudience(input.audienceId);
-          const [campaign] = yield* db
-            .insert(emailCampaigns)
-            .values({ ...input, status: "draft" })
-            .returning();
-          return campaign!;
+          return yield* db.transaction((tx) =>
+            lockAssignableAudience(tx, input.audienceId).pipe(
+              Effect.andThen(
+                tx
+                  .insert(emailCampaigns)
+                  .values({ ...input, status: "draft" })
+                  .returning()
+              ),
+              Effect.map(([campaign]) => campaign!)
+            )
+          );
         }),
         update: Effect.fn("CampaignService.update")(function* ({
           campaignId,
           ...changes
         }) {
           yield* validateContent(changes.content);
-          if (changes.audienceId !== undefined) {
-            yield* ensureAssignableAudience(changes.audienceId);
-          }
           const updatedAt = yield* currentInstant;
-          const [campaign] = yield* db
-            .update(emailCampaigns)
-            .set({ ...changes, updatedAt })
-            .where(
-              and(
-                eq(emailCampaigns.id, campaignId),
-                eq(emailCampaigns.status, "draft")
-              )
+          const [campaign] = yield* db.transaction((tx) =>
+            Effect.andThen(
+              changes.audienceId === undefined
+                ? Effect.void
+                : lockAssignableAudience(tx, changes.audienceId),
+              tx
+                .update(emailCampaigns)
+                .set({ ...changes, updatedAt })
+                .where(
+                  and(
+                    eq(emailCampaigns.id, campaignId),
+                    eq(emailCampaigns.status, "draft")
+                  )
+                )
+                .returning()
             )
-            .returning();
+          );
           return campaign ?? (yield* draftWriteRejection(campaignId));
         }),
         delete: Effect.fn("CampaignService.delete")(function* (campaignId) {
@@ -193,18 +248,7 @@ export class CampaignService extends Context.Service<
         duplicate: Effect.fn("CampaignService.duplicate")(
           function* (campaignId) {
             const source = yield* get(campaignId);
-            const [campaign] = yield* db
-              .insert(emailCampaigns)
-              .values({
-                title: source.title,
-                purpose: source.purpose,
-                templateKey: source.templateKey,
-                content: source.content,
-                audienceId: source.audienceId,
-                status: "draft",
-              })
-              .returning();
-            return campaign!;
+            return yield* db.transaction((tx) => insertCopy(tx, source));
           }
         ),
       } satisfies ICampaignService;
