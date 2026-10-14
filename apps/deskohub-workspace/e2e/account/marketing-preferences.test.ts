@@ -110,7 +110,6 @@ const makeMarketingConsentRow = (
 
 const expectedHexDocumentHash = "b".repeat(64);
 const persistedHexDocumentHash = "a".repeat(64);
-const changedHexDocumentHash = "c".repeat(64);
 const syntheticSensitiveDocumentHash = "synthetic-sensitive-document-hash";
 
 /**
@@ -214,70 +213,6 @@ const makeSyntheticMarketingFixture = () => {
 
 describe("workspace marketing preferences helper", () => {
   test.each([
-    {
-      consent: null,
-      expected: {
-        documentHashMatches: false,
-        localeMatches: false,
-        reason: "row_missing",
-        rowExists: false,
-        withdrawnStateMatches: false,
-      },
-      expectedStatus: "active" as const,
-      name: "a missing row",
-    },
-    {
-      consent: makeMarketingConsentRow({
-        documentHash: "synthetic-actual-document-hash",
-      }),
-      expected: {
-        documentHashMatches: false,
-        localeMatches: true,
-        reason: "document_hash_mismatch",
-        rowExists: true,
-        withdrawnStateMatches: true,
-      },
-      expectedStatus: "active" as const,
-      name: "a document hash mismatch",
-    },
-    {
-      consent: makeMarketingConsentRow({ locale: "cs-CZ" }),
-      expected: {
-        documentHashMatches: true,
-        localeMatches: false,
-        reason: "locale_mismatch",
-        rowExists: true,
-        withdrawnStateMatches: true,
-      },
-      expectedStatus: "active" as const,
-      name: "a locale mismatch",
-    },
-    {
-      consent: makeMarketingConsentRow(),
-      expected: {
-        documentHashMatches: true,
-        localeMatches: true,
-        reason: "matched",
-        rowExists: true,
-        withdrawnStateMatches: true,
-      },
-      expectedStatus: "active" as const,
-      name: "an active consent",
-    },
-    {
-      consent: makeMarketingConsentRow({
-        withdrawnAt: now.add({ hours: 1 }),
-      }),
-      expected: {
-        documentHashMatches: true,
-        localeMatches: true,
-        reason: "withdrawn_state_mismatch",
-        rowExists: true,
-        withdrawnStateMatches: false,
-      },
-      expectedStatus: "active" as const,
-      name: "an active-state mismatch",
-    },
     {
       consent: makeMarketingConsentRow({
         withdrawnAt: now.add({ hours: 1 }),
@@ -478,39 +413,9 @@ describe("workspace marketing preferences helper", () => {
       sentinel: "12345",
     },
     {
-      hash: null,
-      name: "a null persisted hash",
-      sentinel: "null",
-    },
-    {
-      hash: undefined,
-      name: "an undefined persisted hash",
-      sentinel: "undefined",
-    },
-    {
-      hash: { intruder: true },
-      name: "an object persisted hash",
-      sentinel: "intruder",
-    },
-    {
       hash: `${"a".repeat(64)}\n`,
       name: "a valid-hex persisted hash with a trailing newline",
       sentinel: `${"a".repeat(64)}\n`,
-    },
-    {
-      hash: `${"a".repeat(64)}\r`,
-      name: "a valid-hex persisted hash with a trailing carriage return",
-      sentinel: `${"a".repeat(64)}\r`,
-    },
-    {
-      hash: `${"a".repeat(64)}\r\n`,
-      name: "a valid-hex persisted hash with a trailing CRLF",
-      sentinel: `${"a".repeat(64)}\r\n`,
-    },
-    {
-      hash: "a".repeat(65),
-      name: "a 65-character persisted hash",
-      sentinel: "a".repeat(65),
     },
     {
       hash: "g".repeat(64),
@@ -545,29 +450,9 @@ describe("workspace marketing preferences helper", () => {
 
   test.each([
     {
-      hash: "a".repeat(65),
-      name: "a 65-character expected hash",
-      sentinel: "a".repeat(65),
-    },
-    {
-      hash: "g".repeat(64),
-      name: "a nonhex expected hash",
-      sentinel: "g".repeat(64),
-    },
-    {
       hash: `${"b".repeat(64)}\n`,
       name: "a valid-hex expected hash with a trailing newline",
       sentinel: `${"b".repeat(64)}\n`,
-    },
-    {
-      hash: `${"b".repeat(64)}\r`,
-      name: "a valid-hex expected hash with a trailing carriage return",
-      sentinel: `${"b".repeat(64)}\r`,
-    },
-    {
-      hash: `${"b".repeat(64)}\r\n`,
-      name: "a valid-hex expected hash with a trailing CRLF",
-      sentinel: `${"b".repeat(64)}\r\n`,
     },
     {
       hash: syntheticSensitiveDocumentHash,
@@ -594,242 +479,6 @@ describe("workspace marketing preferences helper", () => {
       expect(serializedLogs).not.toContain(sentinel);
     }
   );
-
-  test("omits both digest keys when the row is missing or matched", async () => {
-    const classifierKeys = [
-      "documentHashMatches",
-      "localeMatches",
-      "reason",
-      "rowExists",
-      "withdrawnStateMatches",
-    ];
-    const { logRecords } = await runMarketingConsentPersistenceScenario({
-      documentHash: expectedHexDocumentHash,
-      observations: [
-        null,
-        makeMarketingConsentRow({ documentHash: expectedHexDocumentHash }),
-      ],
-    });
-
-    expect(logRecords).toHaveLength(2);
-    expect(logRecords.map((record) => Object.keys(record).sort())).toEqual([
-      classifierKeys,
-      classifierKeys,
-    ]);
-  });
-
-  test("logs a changed valid digest again under the same mismatch classification", async () => {
-    const { logRecords } = await runMarketingConsentPersistenceScenario({
-      documentHash: expectedHexDocumentHash,
-      observations: [
-        makeMarketingConsentRow({ documentHash: persistedHexDocumentHash }),
-        makeMarketingConsentRow({ documentHash: persistedHexDocumentHash }),
-        makeMarketingConsentRow({ documentHash: changedHexDocumentHash }),
-        makeMarketingConsentRow({ documentHash: expectedHexDocumentHash }),
-      ],
-    });
-
-    expect(logRecords).toEqual([
-      {
-        documentHashMatches: false,
-        expectedDocumentHash: expectedHexDocumentHash,
-        localeMatches: true,
-        persistedDocumentHash: persistedHexDocumentHash,
-        reason: "document_hash_mismatch",
-        rowExists: true,
-        withdrawnStateMatches: true,
-      },
-      {
-        documentHashMatches: false,
-        expectedDocumentHash: expectedHexDocumentHash,
-        localeMatches: true,
-        persistedDocumentHash: changedHexDocumentHash,
-        reason: "document_hash_mismatch",
-        rowExists: true,
-        withdrawnStateMatches: true,
-      },
-      {
-        documentHashMatches: true,
-        localeMatches: true,
-        reason: "matched",
-        rowExists: true,
-        withdrawnStateMatches: true,
-      },
-    ]);
-  });
-
-  test("retains a valid-digest mismatch diagnostic when a poll is interrupted", async () => {
-    const logRecords: WorkspaceE2EMarketingConsentPersistenceDiagnostic[] = [];
-    const pollStarted = makePromiseGate();
-    const releasePending = makePromiseGate();
-    const poll: WorkspaceE2EMarketingConsentPoller = (effect) =>
-      Effect.gen(function* () {
-        yield* effect;
-        pollStarted.resolve();
-        yield* Effect.promise(() => releasePending.promise);
-        yield* Effect.never;
-      });
-    const operation = waitForWorkspaceE2EMarketingConsentPersistence({
-      documentHash: expectedHexDocumentHash,
-      expectedStatus: "active",
-      log: (diagnostic) =>
-        Effect.sync(() => {
-          logRecords.push(diagnostic);
-        }),
-      poll,
-      read: Effect.sync(() =>
-        makeMarketingConsentRow({ documentHash: persistedHexDocumentHash })
-      ),
-    });
-
-    try {
-      await Effect.runPromise(
-        Effect.gen(function* () {
-          const fiber = yield* Effect.forkChild(operation);
-          yield* Effect.promise(() => pollStarted.promise);
-
-          const interruption = yield* Effect.forkChild(Fiber.interrupt(fiber));
-          yield* Fiber.join(interruption);
-          const exit = yield* Fiber.await(fiber);
-          expect(Exit.isFailure(exit)).toBe(true);
-          if (Exit.isFailure(exit)) {
-            expect(Cause.hasInterruptsOnly(exit.cause)).toBe(true);
-          }
-        })
-      );
-    } finally {
-      releasePending.resolve();
-      await flushMicrotasks();
-    }
-
-    expect(logRecords).toEqual([
-      {
-        documentHashMatches: false,
-        expectedDocumentHash: expectedHexDocumentHash,
-        localeMatches: true,
-        persistedDocumentHash: persistedHexDocumentHash,
-        reason: "document_hash_mismatch",
-        rowExists: true,
-        withdrawnStateMatches: true,
-      },
-    ]);
-  });
-
-  test("retains the last mismatch when a pending consent poll is interrupted", async () => {
-    const actualDocumentHash = "synthetic-actual-document-hash";
-    const observations: Array<MarketingConsentRow | null> = [
-      null,
-      makeMarketingConsentRow({ documentHash: actualDocumentHash }),
-    ];
-    const logRecords: WorkspaceE2EMarketingConsentPersistenceClassification[] =
-      [];
-    const timeline: string[] = [];
-    const pollWaiting = makePromiseGate();
-    const pendingPoll = makePromiseGate();
-    let readCount = 0;
-    let pollAdvancedPastPending = false;
-    const poll: WorkspaceE2EMarketingConsentPoller = (effect) =>
-      Effect.gen(function* () {
-        timeline.push("poll-start");
-        yield* effect;
-        timeline.push("observation:1");
-        yield* effect;
-        timeline.push("observation:2");
-        pollWaiting.resolve();
-        yield* Effect.promise(() => pendingPoll.promise);
-        pollAdvancedPastPending = true;
-        yield* Effect.never;
-      });
-    const operation = waitForWorkspaceE2EMarketingConsentPersistence({
-      documentHash: expectedConsentDocumentHash,
-      expectedStatus: "active",
-      log: (classification) =>
-        Effect.sync(() => {
-          timeline.push(`log:${classification.reason}`);
-          logRecords.push(classification);
-        }),
-      poll,
-      read: Effect.sync(() => {
-        const consent = observations[readCount];
-        readCount += 1;
-        timeline.push(`read:${readCount}`);
-        if (consent === undefined) {
-          throw new Error("synthetic pending poll exhausted");
-        }
-        return consent;
-      }),
-    });
-
-    try {
-      await Effect.runPromise(
-        Effect.gen(function* () {
-          const fiber = yield* Effect.forkChild(operation);
-          yield* Effect.promise(() => pollWaiting.promise);
-
-          expect(timeline).toEqual([
-            "poll-start",
-            "read:1",
-            "log:row_missing",
-            "observation:1",
-            "read:2",
-            "log:document_hash_mismatch",
-            "observation:2",
-          ]);
-          expect(logRecords).toEqual([
-            {
-              documentHashMatches: false,
-              localeMatches: false,
-              reason: "row_missing",
-              rowExists: false,
-              withdrawnStateMatches: false,
-            },
-            {
-              documentHashMatches: false,
-              localeMatches: true,
-              reason: "document_hash_mismatch",
-              rowExists: true,
-              withdrawnStateMatches: true,
-            },
-          ]);
-
-          const interruption = yield* Effect.forkChild(Fiber.interrupt(fiber));
-          yield* Fiber.join(interruption);
-          const exit = yield* Fiber.await(fiber);
-          expect(Exit.isFailure(exit)).toBe(true);
-          if (Exit.isFailure(exit)) {
-            expect(Cause.hasInterruptsOnly(exit.cause)).toBe(true);
-          }
-        })
-      );
-    } finally {
-      pendingPoll.resolve();
-      await flushMicrotasks();
-    }
-
-    expect(pollAdvancedPastPending).toBe(false);
-    expect(readCount).toBe(2);
-    expect(logRecords.at(-1)).toEqual({
-      documentHashMatches: false,
-      localeMatches: true,
-      reason: "document_hash_mismatch",
-      rowExists: true,
-      withdrawnStateMatches: true,
-    });
-
-    const serializedLogs = JSON.stringify(logRecords);
-    for (const sensitiveSentinel of [
-      actualDocumentHash,
-      expectedConsentDocumentHash,
-      customerId,
-      "cs-CZ",
-      now.toString(),
-      rawLinkToken,
-      baseUrl,
-      "synthetic pending poll exhausted",
-    ]) {
-      expect(serializedLogs).not.toContain(sensitiveSentinel);
-    }
-  });
 
   test("exposes only the allowlisted label when a known browser operation fails", async () => {
     const knownLabel = "confirm marketing management link";

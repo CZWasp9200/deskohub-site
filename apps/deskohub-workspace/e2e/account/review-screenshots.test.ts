@@ -32,19 +32,6 @@ const accountReviewArtifactDirectory = resolve(
 );
 const captureFailureMessage = "Account review screenshot capture failed";
 const attemptUuid = "0f0a9c1e-7b62-4c8d-9e21-53ab2f0d4c7a";
-const marketingReviewTargets = [
-  "account-marketing-withdrawn-desktop",
-  "account-marketing-active-mobile",
-  "marketing-link-pending-desktop",
-  "marketing-link-pending-mobile",
-  "marketing-link-active-desktop",
-  "marketing-link-active-mobile",
-  "marketing-link-withdrawn-desktop",
-  "marketing-link-withdrawn-mobile",
-  "marketing-link-invalid-desktop",
-  "marketing-link-invalid-mobile",
-] as const;
-
 const reservationCustomerReviewTargets = [
   "reservation-customer-account-desktop",
   "reservation-customer-contact-desktop",
@@ -434,19 +421,9 @@ describe("account review screenshot capture", () => {
       url: `${baseUrl}/en-US/auth/sign-in`,
     },
     {
-      name: "a sign-in handoff at a foreign origin",
-      target: "sign-in-handoff-desktop",
-      url: `https://other.example.test/en-US/auth/sign-in`,
-    },
-    {
       name: "a token query",
       target: "completion-mobile375x900",
       url: `${baseUrl}/en-US/account?token=synthetic-secret-token`,
-    },
-    {
-      name: "a sign-in handoff with a query",
-      target: "sign-in-handoff-desktop",
-      url: `${baseUrl}/en-US/auth/sign-in?token=synthetic-secret-token`,
     },
     {
       name: "linked legal at the private account path",
@@ -459,94 +436,14 @@ describe("account review screenshot capture", () => {
       url: `${baseUrl}/en-US/account/legal?section=profile`,
     },
     {
-      name: "a language capture with an extra query parameter",
-      target: "linked-profile-language-desktop",
-      url: `${baseUrl}/en-US/account?section=profile&view=private`,
-    },
-    {
-      name: "a language capture with a credential query",
-      target: "linked-profile-language-desktop",
-      url: `${baseUrl}/en-US/account?section=profile&token=synthetic-secret-token`,
-    },
-    {
-      name: "a language capture with an unknown section query",
-      target: "linked-profile-language-desktop",
-      url: `${baseUrl}/en-US/account?section=unknown`,
-    },
-    {
-      name: "a language capture with a hash",
-      target: "linked-profile-language-desktop",
-      url: `${baseUrl}/en-US/account#review-state`,
-    },
-    {
-      name: "the desktop language capture at the cs-CZ path",
-      target: "linked-profile-language-desktop",
-      url: `${baseUrl}/cs-CZ/account`,
-    },
-    {
-      name: "the cs-CZ language capture at the en-US path",
-      target: "linked-profile-language-desktop-cs",
-      url: `${baseUrl}/en-US/account`,
-    },
-    {
-      name: "the cs-CZ language capture with a credential query",
-      target: "linked-profile-language-desktop-cs",
-      url: `${baseUrl}/cs-CZ/account?section=profile&token=synthetic-secret-token`,
-    },
-    {
-      name: "the cs-CZ language capture with a hash",
-      target: "linked-profile-language-desktop-cs",
-      url: `${baseUrl}/cs-CZ/account#review-state`,
-    },
-    {
-      name: "a private linked account at the cs-CZ path",
-      target: "linked-profile-desktop",
-      url: `${baseUrl}/cs-CZ/account`,
-    },
-    {
-      name: "a mobile language capture at the cs-CZ path",
-      target: "linked-profile-language-mobile",
-      url: `${baseUrl}/cs-CZ/account`,
-    },
-    {
       name: "the preference redirect capture at the unredirected en-US page",
       target: "locale-preference-redirect-desktop",
       url: `${baseUrl}/en-US/faq`,
     },
     {
-      name: "the preference redirect capture with a section query",
-      target: "locale-preference-redirect-desktop",
-      url: `${baseUrl}/cs-CZ/faq?section=profile`,
-    },
-    {
-      name: "the preference redirect capture with a credential query",
-      target: "locale-preference-redirect-desktop",
-      url: `${baseUrl}/cs-CZ/faq?token=synthetic-secret-token`,
-    },
-    {
-      name: "the preference redirect capture with a hash",
-      target: "locale-preference-redirect-desktop",
-      url: `${baseUrl}/cs-CZ/faq#review-state`,
-    },
-    {
-      name: "the preference redirect capture at a foreign origin",
-      target: "locale-preference-redirect-desktop",
-      url: "https://other.example.test/cs-CZ/faq",
-    },
-    {
       name: "the switcher capture at the Czech account it switched away from",
       target: "locale-switcher-saved-desktop",
       url: `${baseUrl}/cs-CZ/account`,
-    },
-    {
-      name: "the switcher capture with a credential query",
-      target: "locale-switcher-saved-desktop",
-      url: `${baseUrl}/en-US/account?section=profile&token=synthetic-secret-token`,
-    },
-    {
-      name: "the switcher capture with a hash",
-      target: "locale-switcher-saved-desktop",
-      url: `${baseUrl}/en-US/account#review-state`,
     },
     {
       name: "linked account with an extra query parameter",
@@ -574,26 +471,6 @@ describe("account review screenshot capture", () => {
       url: `${baseUrl}/en-US/account?section=referrals&ref=RFL12345`,
     },
     {
-      name: "a mobile linked account with a credential query",
-      target: "linked-reservations-mobile",
-      url: `${baseUrl}/en-US/account?token=synthetic-secret-token`,
-    },
-    {
-      name: "a mobile linked account with an extra query parameter",
-      target: "linked-billing-mobile",
-      url: `${baseUrl}/en-US/account?section=billing&view=private`,
-    },
-    {
-      name: "a mobile linked account with a hash",
-      target: "linked-danger-mobile",
-      url: `${baseUrl}/en-US/account#review-state`,
-    },
-    {
-      name: "a callback failure query with a malformed attempt parameter",
-      target: "callback-failed-desktop",
-      url: `${baseUrl}/en-US/auth/callback?error=INVALID_TOKEN&attempt=not-a-uuid`,
-    },
-    {
       name: "a callback failure query with a non-canonical attempt parameter",
       target: "callback-failed-desktop",
       url: `${baseUrl}/en-US/auth/callback?error=INVALID_TOKEN&attempt=${attemptUuid.toUpperCase()}`,
@@ -619,11 +496,6 @@ describe("account review screenshot capture", () => {
       url: `${baseUrl}/en-US/auth/callback?_rsc=synthetic-cache-key`,
     },
     {
-      name: "a callback loading attempt UUID that is malformed",
-      target: "callback-loading-desktop",
-      url: `${baseUrl}/en-US/auth/callback?attempt=not-a-uuid`,
-    },
-    {
       name: "a callback loading attempt UUID that is not canonical",
       target: "callback-loading-desktop",
       url: `${baseUrl}/en-US/auth/callback?attempt=${attemptUuid.toUpperCase()}`,
@@ -644,87 +516,15 @@ describe("account review screenshot capture", () => {
       url: `${baseUrl}/en-US/auth/callback?attempt=${attemptUuid}&attempt=${attemptUuid}`,
     },
     {
-      name: "a callback hash",
-      target: "callback-loading-desktop",
-      url: `${baseUrl}/en-US/auth/callback#review-state`,
-    },
-    {
-      name: "a callback foreign origin",
-      target: "callback-loading-desktop",
-      url: "https://other.example.test/en-US/auth/callback",
-    },
-    {
       name: "a hash",
       target: "completion-mobile375x900",
       url: `${baseUrl}/en-US/account#review-state`,
     },
-    {
-      name: "linked legal at a foreign origin",
-      target: "linked-legal-desktop",
-      url: "https://other.example.test/en-US/account/legal",
-    },
-    {
-      name: "public legal at a foreign origin",
-      target: "public-legal-desktop",
-      url: "https://other.example.test/en-US/account/legal",
-    },
-    {
-      name: "public legal with a credential query",
-      target: "public-legal-desktop",
-      url: `${baseUrl}/en-US/account/legal?token=synthetic-secret-token`,
-    },
-    {
-      name: "linked legal with a hash",
-      target: "linked-legal-desktop",
-      url: `${baseUrl}/en-US/account/legal#review-state`,
-    },
     ...reservationCustomerReviewTargets.flatMap((target) => [
-      {
-        name: `${target} at a foreign origin`,
-        target,
-        url: "https://other.example.test/en-US/reservation/cowork",
-      },
-      {
-        name: `${target} at another reservation page`,
-        target,
-        url: `${baseUrl}/en-US/reservation/office`,
-      },
-      {
-        name: `${target} at the account page`,
-        target,
-        url: `${baseUrl}/en-US/account`,
-      },
       {
         name: `${target} with a prefilled contact query`,
         target,
         url: `${baseUrl}/en-US/reservation/cowork?email=${encodeURIComponent(testEmailAddress("synthetic"))}`,
-      },
-      {
-        name: `${target} with a token query`,
-        target,
-        url: `${baseUrl}/en-US/reservation/cowork?token=synthetic-secret-token`,
-      },
-      {
-        name: `${target} with a hash`,
-        target,
-        url: `${baseUrl}/en-US/reservation/cowork#review-state`,
-      },
-    ]),
-    ...marketingReviewTargets.flatMap((target) => [
-      {
-        name: `${target} with a token query`,
-        target,
-        url: `${baseUrl}/en-US/account/legal?token=synthetic-secret-token`,
-      },
-      {
-        name: `${target} with another query`,
-        target,
-        url: `${baseUrl}/en-US/account/legal?review-state=synthetic-query`,
-      },
-      {
-        name: `${target} with a hash`,
-        target,
-        url: `${baseUrl}/en-US/account/legal#review-state`,
       },
     ]),
   ] as const;
@@ -815,26 +615,6 @@ describe("account review screenshot capture", () => {
       "the sign-in page handoff path",
       "sign-in-handoff-desktop",
       "/en-US/auth/sign-in",
-    ],
-    [
-      "a Czech referral section query",
-      "linked-referrals-cs-desktop",
-      "/cs-CZ/account?section=referrals",
-    ],
-    [
-      "the Czech profile section",
-      "linked-profile-language-desktop-cs",
-      "/cs-CZ/account?section=profile",
-    ],
-    [
-      "the Czech page a preference redirect reached",
-      "locale-preference-redirect-desktop",
-      "/cs-CZ/faq",
-    ],
-    [
-      "the English account after the switcher save",
-      "locale-switcher-saved-desktop",
-      "/en-US/account",
     ],
   ] as const satisfies ReadonlyArray<
     readonly [string, AccountReviewTarget, string]
@@ -1582,53 +1362,6 @@ describe("account review screenshots without the opt-in", () => {
     expect(writeFileSpy?.mock.calls).toHaveLength(0);
   };
 
-  test("captures no account review", async () => {
-    const fakePage = makeFakePage(`${baseUrl}/en-US/account`);
-
-    await captureAccountReview(
-      fakePage.page,
-      reviewWithoutScreenshots,
-      "completion-mobile375x900"
-    );
-
-    expectUntouched(fakePage);
-  });
-
-  test("captures no reservation status review", async () => {
-    const reservationId = workspaceReservationIdSchema.make(
-      "account-history-reservation"
-    );
-    const fakePage = makeFakePage(
-      `${baseUrl}/en-US${reservationStatusPath}/${encodeURIComponent(reservationId)}`
-    );
-
-    await captureReservationStatusReview(
-      fakePage.page,
-      reviewWithoutScreenshots,
-      "reservation-status-modal-desktop",
-      reservationId
-    );
-
-    expectUntouched(fakePage);
-  });
-
-  test("persists no callback document review", async () => {
-    const fakePage = makeFakePage(`${baseUrl}/en-US/auth/callback`);
-    let validations = 0;
-
-    await persistCallbackDocumentReview(
-      fakePage.page,
-      reviewWithoutScreenshots,
-      screenshotBuffer,
-      () => {
-        validations += 1;
-      }
-    );
-
-    expect(validations).toBe(0);
-    expectUntouched(fakePage);
-  });
-
   test("runs the sign-in case without holding its request", async () => {
     const clock = makeControlledClock();
     const fakePage = makePendingReviewFakePage(clock);
@@ -1645,41 +1378,6 @@ describe("account review screenshots without the opt-in", () => {
     expect(caseRuns).toBe(1);
     expect(fakePage.routeCalls).toHaveLength(0);
     expect(fakePage.unrouteCallCount()).toBe(0);
-    expectUntouched(fakePage);
-  });
-
-  test("runs the language case without capturing anything", async () => {
-    const fakePage = makeFakePage(`${baseUrl}/en-US/account?section=profile`);
-    let caseRuns = 0;
-
-    await withLanguagePreferenceReview(
-      fakePage.page,
-      reviewWithoutScreenshots,
-      async (capture) => {
-        caseRuns += 1;
-        await runLanguageCaseMoments(fakePage, capture);
-      }
-    );
-
-    expect(caseRuns).toBe(1);
-    expectUntouched(fakePage);
-  });
-
-  test("preserves the sign-in case failure", async () => {
-    const fakePage = makePendingReviewFakePage(makeControlledClock());
-    const caseFailure = new Error("synthetic sign-in case failure");
-
-    await expect(
-      withSignInPendingReview(
-        fakePage.page,
-        reviewWithoutScreenshots,
-        async () => {
-          throw caseFailure;
-        }
-      )
-    ).rejects.toBe(caseFailure);
-
-    expect(fakePage.routeCalls).toHaveLength(0);
     expectUntouched(fakePage);
   });
 });

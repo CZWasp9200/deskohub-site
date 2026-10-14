@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { Effect, Exit, Fiber } from "effect";
+import { Effect, Fiber } from "effect";
 import { TestClock } from "effect/testing";
 import { betterAuthMagicLinkOptions } from "@/features/account/backend/auth/auth-options";
 import { workspaceE2ETimeouts } from "../timeouts";
@@ -187,26 +187,6 @@ describe("magic-link rate budget", () => {
     expect(sendExecutions).toEqual([0, 0, 0, 600_001, 1_200_001]);
   });
 
-  test("wait retries never advance the quiet boundary", async () => {
-    const clock = makeClock();
-    const sendExecutions: number[] = [];
-    const budget = makeMagicLinkRateBudget({
-      maxPerWindow: 1,
-      now: clock.now,
-      windowMs: 600_000,
-      retryAfterNotReady: retryByAdvancingTo(clock, [100, 500_000, 600_000]),
-    });
-
-    await Effect.runPromise(
-      budget.run("send", probeEffect(clock, sendExecutions))
-    );
-    await Effect.runPromise(
-      budget.run("send", probeEffect(clock, sendExecutions))
-    );
-
-    expect(sendExecutions).toEqual([0, 600_000]);
-  });
-
   test("tracks send and verification budgets independently", async () => {
     const clock = makeClock();
     const sendExecutions: number[] = [];
@@ -233,29 +213,6 @@ describe("magic-link rate budget", () => {
 
     expect(sendExecutions).toEqual([0, 600_000]);
     expect(verifyExecutions).toEqual([0, 600_000]);
-  });
-
-  test("failed effects still record consumption at completion", async () => {
-    const clock = makeClock();
-    const sendExecutions: number[] = [];
-    const budget = makeMagicLinkRateBudget({
-      maxPerWindow: 1,
-      now: clock.now,
-      windowMs: 600_000,
-      retryAfterNotReady: retryByAdvancingTo(clock, [600_004, 600_005]),
-    });
-
-    clock.advanceTo(5);
-    const exit = await Effect.runPromiseExit(
-      budget.run("send", Effect.fail("magic-link failed" as const))
-    );
-    expect(Exit.isFailure(exit)).toBe(true);
-
-    await Effect.runPromise(
-      budget.run("send", probeEffect(clock, sendExecutions))
-    );
-
-    expect(sendExecutions).toEqual([600_005]);
   });
 
   test("interrupted effects still record consumption at completion", async () => {

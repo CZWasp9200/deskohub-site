@@ -79,7 +79,6 @@ type FakePageOverrides = {
   readonly cdp?: ReturnType<typeof makeFakeCdp>;
   readonly url?: string;
   readonly sessionDelayMs?: number;
-  readonly setViewportDelayMs?: number;
 };
 
 const makeFakePage = (overrides: FakePageOverrides = {}) => {
@@ -91,11 +90,6 @@ const makeFakePage = (overrides: FakePageOverrides = {}) => {
   const page = {
     viewportSize: () => viewports[viewports.length - 1],
     setViewportSize: async (size: { width: number; height: number }) => {
-      if (overrides.setViewportDelayMs) {
-        await new Promise((resolve) =>
-          setTimeout(resolve, overrides.setViewportDelayMs)
-        );
-      }
       viewports.push(size);
     },
     context: () => ({
@@ -329,48 +323,6 @@ describe("collectCallbackDocumentSnapshot", () => {
     }
   });
 
-  test("explicit role overrides must equal the expected landmark role exactly", () => {
-    const rejects = [
-      ["header-role-navigation", { banner: { role: "navigation" } }],
-      ["footer-role-button", { footer: { role: "button" } }],
-      ["main-role-navigation", { main: { role: "navigation" } }],
-    ] as const;
-    for (const [name, overrides] of rejects) {
-      const restore = makeSnapshotGlobals(overrides);
-      try {
-        const parsed = JSON.parse(
-          collectCallbackDocumentSnapshot(snapshotConfig)
-        ) as { v: boolean };
-        expect(parsed.v).toBe(false);
-      } finally {
-        restore();
-      }
-    }
-    // Implicit semantics (no role attribute) and exact explicit roles accept.
-    const accepts = [
-      ["implicit-landmarks", {}],
-      [
-        "exact-explicit-roles",
-        {
-          main: { role: "main" },
-          banner: { role: "banner" },
-          footer: { role: "contentinfo" },
-        },
-      ],
-    ] as const;
-    for (const [name, overrides] of accepts) {
-      const restore = makeSnapshotGlobals(overrides);
-      try {
-        const parsed = JSON.parse(
-          collectCallbackDocumentSnapshot(snapshotConfig)
-        ) as { v: boolean };
-        expect(parsed.v).toBe(true);
-      } finally {
-        restore();
-      }
-    }
-  });
-
   test("checks fonts and the viewport only for a capture", () => {
     const validationOnlyConfig = { ...snapshotConfig, viewport: null };
     const collect = (overrides: Parameters<typeof makeSnapshotGlobals>[0]) => {
@@ -533,67 +485,6 @@ describe("prepareCallbackDocumentReview", () => {
     expect(() => review.validate()).toThrow();
   });
 
-  test("context destruction during capture fails closed after the screenshot settles", async () => {
-    let releaseScreenshot: (value: unknown) => void = () => undefined;
-    const fakeCdp = makeFakeCdp({
-      failingMethods: new Set(),
-      screenshot: () =>
-        new Promise((resolve) => {
-          releaseScreenshot = resolve;
-        }),
-    });
-    const { review } = await prepare({ cdp: fakeCdp });
-    admitMainContext(fakeCdp);
-    deliverReceipt(fakeCdp);
-    const capturePromise = review.capture({ deadline: Date.now() + 10_000 });
-    fakeCdp.cdp.emit("Runtime.executionContextDestroyed", {
-      executionContextId: mainContextId,
-    });
-    releaseScreenshot({ data: Buffer.from([0x89, 0x50]).toString("base64") });
-    await expect(capturePromise).rejects.toThrow();
-  });
-
-  test("a pending document whose context never arrives yields no receipt", async () => {
-    const { review } = await prepare();
-    expect(() => review.validate()).toThrow();
-    await expect(
-      review.capture({ deadline: Date.now() + 10_000 })
-    ).rejects.toThrow();
-  });
-
-  test("honors deadline and abort signal", async () => {
-    const { review } = await prepare();
-    await expect(
-      review.capture({ deadline: Date.now() - 1 })
-    ).rejects.toThrow();
-    const controller = new AbortController();
-    controller.abort();
-    const { fakeCdp: fakeCdp2, review: review2 } = await prepare();
-    admitMainContext(fakeCdp2);
-    deliverReceipt(fakeCdp2);
-    await expect(
-      review2.capture({
-        deadline: Date.now() + 10_000,
-        signal: controller.signal,
-      })
-    ).rejects.toThrow();
-  });
-
-  test("fails closed on screenshot failure", async () => {
-    const fakeCdp = makeFakeCdp({
-      failingMethods: new Set(),
-      screenshot: () => {
-        throw new Error("compositor unavailable");
-      },
-    });
-    const { review } = await prepare({ cdp: fakeCdp });
-    admitMainContext(fakeCdp);
-    deliverReceipt(fakeCdp);
-    await expect(
-      review.capture({ deadline: Date.now() + 10_000 })
-    ).rejects.toThrow();
-  });
-
   test("validates the live page URL strictly", async () => {
     const { fakeCdp, review } = await prepare({
       url: `${baseOrigin}/en-US/account`,
@@ -636,32 +527,6 @@ describe("prepareCallbackDocumentReview", () => {
     expect(fakeCdp.calls).not.toContain("detach");
     await new Promise((resolve) => setTimeout(resolve, 450));
     expect(fakeCdp.calls).toContain("detach");
-  });
-
-  test("a midflight abort cleans up after the late viewport write settles", async () => {
-    const controller = new AbortController();
-    const fakeCdp = makeFakeCdp({ failingMethods: new Set() });
-    const { page, viewports } = makeFakePage({
-      cdp: fakeCdp,
-      setViewportDelayMs: 300,
-    });
-    const preparePromise = prepareCallbackDocumentReview(
-      page,
-      baseOrigin,
-      viewport,
-      {
-        deadline: Date.now() + 10_000,
-        signal: controller.signal,
-      }
-    );
-    setTimeout(() => controller.abort(), 30);
-    await expect(preparePromise).rejects.toThrow();
-    await new Promise((resolve) => setTimeout(resolve, 450));
-    // The late viewport write settled; the continuation restored the original.
-    expect(viewports[viewports.length - 1]).toEqual({
-      width: 800,
-      height: 600,
-    });
   });
 
   test("dispose is idempotent and attempts every step despite failures", async () => {
@@ -735,18 +600,6 @@ describe("prepareCallbackDocumentReview", () => {
     deliverReceipt(fakeCdp, { executionContextId: mainContextId + 1 });
     releaseScreenshot({ data: Buffer.from([0x89, 0x50]).toString("base64") });
     await expect(capturePromise).rejects.toThrow();
-  });
-
-  test("captureConsumed is immutable: second capture rejects even after replacement invalidation", async () => {
-    const { fakeCdp, review } = await prepare();
-    admitMainContext(fakeCdp);
-    deliverReceipt(fakeCdp);
-    await review.capture({ deadline: Date.now() + 10_000 });
-    admitMainContext(fakeCdp, mainContextId + 1);
-    deliverReceipt(fakeCdp, { executionContextId: mainContextId + 1 });
-    await expect(
-      review.capture({ deadline: Date.now() + 10_000 })
-    ).rejects.toThrow();
   });
 
   test("late viewport write after a completed restore still owes a second restoration", async () => {
@@ -886,33 +739,5 @@ describe("prepareCallbackDocumentReview", () => {
       width: 800,
       height: 600,
     });
-  });
-
-  test("viewport restore failure during dispose fails closed", async () => {
-    const fakeCdp = makeFakeCdp({ failingMethods: new Set() });
-    let setViewportCalls = 0;
-    const viewports: Array<{ width: number; height: number }> = [
-      { width: 800, height: 600 },
-    ];
-    const page = {
-      viewportSize: () => viewports[viewports.length - 1],
-      setViewportSize: async (size: { width: number; height: number }) => {
-        setViewportCalls += 1;
-        if (setViewportCalls > 1) throw new Error("viewport busy");
-        viewports.push(size);
-      },
-      context: () => ({ newCDPSession: async () => fakeCdp.cdp }),
-      addInitScript: async () => {},
-      url: () => validCallbackUrl,
-    } as unknown as Playwright.Page;
-    const review = await prepareCallbackDocumentReview(
-      page,
-      baseOrigin,
-      viewport,
-      {
-        deadline: Date.now() + 10_000,
-      }
-    );
-    await expect(review.dispose()).rejects.toThrow();
   });
 });

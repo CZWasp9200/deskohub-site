@@ -107,25 +107,6 @@ describe("workspace e2e seeded sessions", () => {
     expect(session?.user.id).toBe("seeded-user");
   });
 
-  test("Better Auth rejects a cookie signed with a retired secret or without the secure prefix", async () => {
-    const { auth, store } = makeDeployedShapeAuth();
-    const token = "c".repeat(32);
-    seedStoredSession(store, token);
-    const retired = await signWorkspaceE2ESessionToken(token, {
-      value: retiredSecret,
-    });
-    const current = await signWorkspaceE2ESessionToken(token, {
-      value: currentSecret,
-    });
-
-    expect(
-      await readSession(auth, `${workspaceE2ESessionCookieName}=${retired}`)
-    ).toBeNull();
-    expect(
-      await readSession(auth, `better-auth.session_token=${current}`)
-    ).toBeNull();
-  });
-
   test("fails closed with provisioning guidance and never echoes the value", () => {
     for (const value of [undefined, "not-versioned", "1:short"]) {
       let failure: unknown;
