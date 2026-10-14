@@ -12,6 +12,7 @@ import {
 import { and, eq, isNull, lte } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Effect, Layer, Match, Schema } from "effect";
+import type { SqlError } from "effect/unstable/sql/SqlError";
 import { WorkspaceDatabase } from "@/db/database.service";
 import {
   type CliStoredMutation,
@@ -34,7 +35,34 @@ export type CliMutationRequest = {
   readonly mutation: CliStoredMutation;
 };
 
+type CliDatabaseMutation<A extends CliStoredMutationResult, E, R> = {
+  readonly request: CliMutationRequest;
+  readonly result: Schema.Decoder<A>;
+  /** Writes only through the Workspace database; it joins the transaction. */
+  readonly apply: Effect.Effect<A, E, R>;
+};
+
 interface ICliMutationIdempotency {
+  /**
+   * Applies a database-only CLI mutation at most once per session and
+   * request ID. The claim, the mutation and the stored result commit in
+   * one transaction, so a failure or crash anywhere leaves no trace and
+   * the request ID free for a retry. A retry after the commit replays the
+   * stored result; a concurrent retry waits on the claim's row until the
+   * first commits or rolls back.
+   */
+  readonly applyOnce: <A extends CliStoredMutationResult, E, R>(
+    mutation: CliDatabaseMutation<A, E, R>
+  ) => Effect.Effect<
+    A,
+    | E
+    | CliMutationInProgress
+    | CliMutationRejected
+    | EffectDrizzleQueryError
+    | Schema.SchemaError
+    | SqlError,
+    R
+  >;
   readonly claim: (
     request: CliMutationRequest
   ) => Effect.Effect<
@@ -177,7 +205,43 @@ export class CliMutationIdempotency extends Context.Service<
             .pipe(Effect.map((rows) => rows.length > 0))
       );
 
+      const claimAndApply = Effect.fn("CliMutationIdempotency.applyOnce")(
+        function* <A extends CliStoredMutationResult, E, R>(
+          mutation: CliDatabaseMutation<A, E, R>
+        ) {
+          const claimed = yield* claim(mutation.request);
+          return yield* Match.value(claimed).pipe(
+            Match.discriminatorsExhaustive("kind")({
+              claimed: () =>
+                mutation.apply.pipe(
+                  Effect.tap((result) =>
+                    complete({ ...mutation.request, result })
+                  )
+                ),
+              completed: ({ result }) =>
+                Schema.decodeUnknownEffect(mutation.result)(result),
+              "in-progress": () =>
+                new CliMutationInProgress({
+                  requestId: mutation.request.requestId,
+                  message:
+                    "This mutation is still being applied. Retrying with the same request identifier is safe.",
+                }),
+              mismatch: () =>
+                new CliMutationRejected({
+                  message:
+                    "This mutation request identifier was already used for different input.",
+                }),
+            })
+          );
+        }
+      );
+
+      const applyOnce = <A extends CliStoredMutationResult, E, R>(
+        mutation: CliDatabaseMutation<A, E, R>
+      ) => db.transaction(() => claimAndApply(mutation));
+
       return {
+        applyOnce,
         claim,
         complete,
         reclaimStale,
@@ -188,50 +252,3 @@ export class CliMutationIdempotency extends Context.Service<
 
   static Live = this.Default.pipe(Layer.provide(WorkspaceDatabase.Default));
 }
-
-/**
- * Applies a CLI mutation at most once per session and request ID. A retry
- * replays the stored result. A failure that `releaseOn` accepts proves
- * nothing was applied, so it frees the request ID for a corrected retry;
- * any other failure keeps the claim, and retries report it in progress.
- */
-export const applyCliMutationOnce = <A extends CliStoredMutationResult, E, R>(
-  ledger: CliMutationIdempotency["Service"],
-  input: {
-    readonly request: CliMutationRequest;
-    readonly result: Schema.Decoder<A>;
-    readonly apply: Effect.Effect<A, E, R>;
-    readonly releaseOn: (cause: E) => boolean;
-  }
-) =>
-  Effect.gen(function* () {
-    const claim = yield* ledger.claim(input.request);
-    return yield* Match.value(claim).pipe(
-      Match.discriminatorsExhaustive("kind")({
-        claimed: () =>
-          input.apply.pipe(
-            Effect.tapError((cause) =>
-              input.releaseOn(cause)
-                ? ledger.release(input.request).pipe(Effect.ignore)
-                : Effect.void
-            ),
-            Effect.tap((result) =>
-              ledger.complete({ ...input.request, result })
-            )
-          ),
-        completed: ({ result }) =>
-          Schema.decodeUnknownEffect(input.result)(result),
-        "in-progress": () =>
-          new CliMutationInProgress({
-            requestId: input.request.requestId,
-            message:
-              "This mutation is still being applied. Retrying with the same request identifier is safe.",
-          }),
-        mismatch: () =>
-          new CliMutationRejected({
-            message:
-              "This mutation request identifier was already used for different input.",
-          }),
-      })
-    );
-  });

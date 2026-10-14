@@ -77,6 +77,7 @@ const UnusedReservationAdministration = Layer.succeed(
   {} as ReservationAdministrationService["Service"]
 );
 const ClaimEveryCliMutation = Layer.succeed(CliMutationIdempotency, {
+  applyOnce: () => Effect.die("Unused CLI mutation ledger"),
   claim: () => Effect.succeed({ kind: "claimed" as const }),
   complete: () => Effect.void,
   reclaimStale: () => Effect.succeed(false),
@@ -395,6 +396,7 @@ describe("Workspace Admin API", () => {
     const completed = new Map<string, unknown>();
     const claims = new Set<string>();
     const idempotency = Layer.succeed(CliMutationIdempotency, {
+      applyOnce: () => Effect.die("Unused CLI mutation ledger"),
       claim: ({ requestId: claimedRequestId }) =>
         Effect.sync(() => {
           if (
@@ -749,6 +751,7 @@ describe("Workspace Admin API", () => {
       createdVoucherId: null,
     };
     const idempotency = Layer.succeed(CliMutationIdempotency, {
+      applyOnce: () => Effect.die("Unused CLI mutation ledger"),
       claim: ({ requestId }) =>
         Effect.sync(() => {
           if (requestId === replayRequestId) {
@@ -934,6 +937,7 @@ describe("standalone access-code CLI endpoint", () => {
         }),
     });
     const idempotency = Layer.succeed(CliMutationIdempotency, {
+      applyOnce: () => Effect.die("Unused CLI mutation ledger"),
       claim: ({ requestId }) =>
         Effect.sync(() => {
           if (completedResults.has(requestId)) {
@@ -1005,6 +1009,7 @@ describe("standalone access-code CLI endpoint", () => {
       create: () => Effect.succeed(createdOutcome),
     });
     const idempotency = Layer.succeed(CliMutationIdempotency, {
+      applyOnce: () => Effect.die("Unused CLI mutation ledger"),
       claim: () => Effect.succeed({ kind: "claimed" as const }),
       complete: () =>
         Effect.fail(
@@ -1048,6 +1053,7 @@ describe("standalone access-code CLI endpoint", () => {
   test("rejects a legacy CLI session before claiming the mutation ledger", async () => {
     let claims = 0;
     const idempotency = Layer.succeed(CliMutationIdempotency, {
+      applyOnce: () => Effect.die("Unused CLI mutation ledger"),
       claim: () =>
         Effect.sync(() => {
           claims += 1;
@@ -1081,6 +1087,7 @@ describe("standalone access-code CLI endpoint", () => {
         }),
     });
     const idempotency = Layer.succeed(CliMutationIdempotency, {
+      applyOnce: () => Effect.die("Unused CLI mutation ledger"),
       claim: () => Effect.succeed({ kind: "mismatch" as const }),
       complete: () => Effect.void,
       reclaimStale: () => Effect.succeed(false),
@@ -1116,6 +1123,7 @@ describe("standalone access-code CLI endpoint", () => {
         ),
     });
     const idempotency = Layer.succeed(CliMutationIdempotency, {
+      applyOnce: () => Effect.die("Unused CLI mutation ledger"),
       claim: () => Effect.succeed({ kind: "claimed" as const }),
       complete: () =>
         Effect.sync(() => {
@@ -1153,6 +1161,7 @@ describe("standalone access-code CLI endpoint", () => {
         ),
     });
     const idempotency = Layer.succeed(CliMutationIdempotency, {
+      applyOnce: () => Effect.die("Unused CLI mutation ledger"),
       claim: () => Effect.succeed({ kind: "claimed" as const }),
       complete: () => Effect.void,
       reclaimStale: () => Effect.succeed(false),
@@ -1192,6 +1201,7 @@ describe("standalone access-code CLI endpoint", () => {
         ),
     });
     const idempotency = Layer.succeed(CliMutationIdempotency, {
+      applyOnce: () => Effect.die("Unused CLI mutation ledger"),
       claim: () => Effect.succeed({ kind: "claimed" as const }),
       complete: () =>
         Effect.sync(() => {
@@ -1236,6 +1246,7 @@ describe("standalone access-code CLI endpoint", () => {
         ),
     });
     const idempotency = Layer.succeed(CliMutationIdempotency, {
+      applyOnce: () => Effect.die("Unused CLI mutation ledger"),
       claim: () => Effect.succeed({ kind: "claimed" as const }),
       complete: () => Effect.void,
       reclaimStale: () => Effect.succeed(false),
@@ -1267,6 +1278,7 @@ describe("standalone access-code CLI endpoint", () => {
         }),
     });
     const idempotency = Layer.succeed(CliMutationIdempotency, {
+      applyOnce: () => Effect.die("Unused CLI mutation ledger"),
       claim: () => Effect.succeed({ kind: "in-progress" as const }),
       complete: () => Effect.void,
       reclaimStale: () =>
@@ -1303,6 +1315,7 @@ describe("standalone access-code CLI endpoint", () => {
         ),
     });
     const idempotency = Layer.succeed(CliMutationIdempotency, {
+      applyOnce: () => Effect.die("Unused CLI mutation ledger"),
       claim: () => Effect.succeed({ kind: "claimed" as const }),
       complete: () => Effect.void,
       reclaimStale: () => Effect.succeed(false),
@@ -1347,6 +1360,7 @@ describe("standalone access-code CLI endpoint", () => {
         ),
     });
     const idempotency = Layer.succeed(CliMutationIdempotency, {
+      applyOnce: () => Effect.die("Unused CLI mutation ledger"),
       claim: () => Effect.succeed({ kind: "claimed" as const }),
       complete: () => Effect.void,
       reclaimStale: () => Effect.succeed(false),
@@ -1380,6 +1394,7 @@ describe("standalone access-code CLI endpoint", () => {
         ),
     } as never);
     const idempotency = Layer.succeed(CliMutationIdempotency, {
+      applyOnce: () => Effect.die("Unused CLI mutation ledger"),
       claim: () => Effect.succeed({ kind: "claimed" as const }),
       complete: () => Effect.void,
       reclaimStale: () => Effect.succeed(false),
@@ -1451,6 +1466,7 @@ describe("standalone access-code CLI endpoint", () => {
       Layer.provide(Layer.mergeAll(attemptLog, igloohome))
     );
     const idempotency = Layer.succeed(CliMutationIdempotency, {
+      applyOnce: () => Effect.die("Unused CLI mutation ledger"),
       claim: () => Effect.succeed({ kind: "in-progress" as const }),
       complete: ({ result }) =>
         Effect.sync(() => {
@@ -1527,6 +1543,7 @@ describe("standalone access-code CLI endpoint", () => {
       incoming: CliStoredMutation
     ) => JSON.stringify(stored) === JSON.stringify(incoming);
     const idempotency = Layer.succeed(CliMutationIdempotency, {
+      applyOnce: () => Effect.die("Unused CLI mutation ledger"),
       claim: (request) =>
         Effect.sync(() => {
           claims.push(request.mutation);

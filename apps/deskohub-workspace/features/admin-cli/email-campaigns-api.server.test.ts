@@ -119,6 +119,7 @@ const mutationRequestId = (n: number) =>
 
 /** Every mutation is new; the Postgres suite below covers replays. */
 const ClaimEveryCliMutation = Layer.succeed(CliMutationIdempotency, {
+  applyOnce: ({ apply }) => apply,
   claim: () => Effect.succeed({ kind: "claimed" as const }),
   complete: () => Effect.void,
   reclaimStale: () => Effect.succeed(false),

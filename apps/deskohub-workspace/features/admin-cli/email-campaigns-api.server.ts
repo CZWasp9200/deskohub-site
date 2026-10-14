@@ -70,7 +70,6 @@ import {
   mapAdministrationApiFailure,
 } from "./administration-api-failure";
 import {
-  applyCliMutationOnce,
   CliMutationIdempotency,
   type CliMutationRequest,
 } from "./cli-mutation-idempotency.service";
@@ -231,8 +230,9 @@ const mapCampaignFailure = mapAdministrationApiFailure(toCampaignApiFailure);
 
 /**
  * Creations aren't idempotent, so they go through the CLI mutation ledger: a
- * retried request replays the first result instead of creating again. A
- * failure the API answers with a 4xx applied nothing and frees the request.
+ * retried request replays the first result instead of creating again. The
+ * creation commits together with its ledger entry, so a failed one frees the
+ * request for a retry.
  */
 const applyCampaignMutationOnce = <
   A extends CliStoredMutationResult,
@@ -246,12 +246,10 @@ const applyCampaignMutationOnce = <
 ) =>
   CurrentCliSession.pipe(
     Effect.flatMap((session) =>
-      applyCliMutationOnce(ledger, {
+      ledger.applyOnce({
         request: { ...request, sessionId: session.id },
         result,
         apply,
-        releaseOn: (cause) =>
-          !(toCampaignApiFailure(cause) instanceof CliServiceUnavailable),
       })
     )
   );
