@@ -47,7 +47,8 @@ export function CampaignTestSendDialog({
   contentLocales,
   unsavedChanges,
 }: {
-  readonly adminInbox: string;
+  /** Null where campaign email isn't configured; a test send reports it. */
+  readonly adminInbox: string | null;
   readonly campaignId: CampaignId;
   readonly contentLocales: readonly Locale[];
   readonly unsavedChanges: boolean;
@@ -80,7 +81,7 @@ export function CampaignTestSendDialog({
   const addRecipient = (email: string) => {
     const normalized = email.toLowerCase();
     if (
-      normalized === adminInbox.toLowerCase() ||
+      normalized === adminInbox?.toLowerCase() ||
       extraRecipients.includes(normalized)
     ) {
       form.setError("email", { message: "That address is already included." });
@@ -161,13 +162,15 @@ export function CampaignTestSendDialog({
             <div>
               <p className="mb-2 text-sm font-semibold">Recipients</p>
               <ul className="flex flex-wrap gap-2" aria-label="Test recipients">
-                <li className="inline-flex items-center gap-1.5 rounded-full border border-navy-blue/15 bg-navy-blue/5 px-3 py-1 text-sm">
-                  <Lock aria-hidden className="size-3.5 text-navy-blue/55" />
-                  {adminInbox}
-                  <span className="sr-only">
-                    (admin inbox, always included)
-                  </span>
-                </li>
+                {adminInbox !== null && (
+                  <li className="inline-flex items-center gap-1.5 rounded-full border border-navy-blue/15 bg-navy-blue/5 px-3 py-1 text-sm">
+                    <Lock aria-hidden className="size-3.5 text-navy-blue/55" />
+                    {adminInbox}
+                    <span className="sr-only">
+                      (admin inbox, always included)
+                    </span>
+                  </li>
+                )}
                 {extraRecipients.map((recipient) => (
                   <li
                     className="inline-flex items-center gap-1 rounded-full border border-navy-blue/15 bg-white py-1 pl-3 pr-1 text-sm"

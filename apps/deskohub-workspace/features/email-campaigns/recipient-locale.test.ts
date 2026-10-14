@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { resolveRecipientLocale } from "./recipient-locale";
+import { Option } from "effect";
+import type { AudienceFilter } from "./audience-filter";
+import { campaignContentFixture } from "./backend/email-campaigns.test-utils";
+import {
+  campaignContentCoversAudience,
+  resolveRecipientLocale,
+} from "./recipient-locale";
 
 describe("resolveRecipientLocale", () => {
   const none = {
@@ -37,5 +43,49 @@ describe("resolveRecipientLocale", () => {
       })
     ).toBe("cs-CZ");
     expect(resolveRecipientLocale(none)).toBe("cs-CZ");
+  });
+});
+
+describe("campaignContentCoversAudience", () => {
+  const czechOnly = campaignContentFixture();
+  const englishOnly = { "en-US": czechOnly["cs-CZ"] };
+  const audience = (
+    locales: Extract<AudienceFilter, { readonly _tag: "Locale" }>["locales"]
+  ) => Option.some<AudienceFilter>({ _tag: "Locale", locales });
+
+  test("accepts Czech content for any audience", () => {
+    expect(
+      campaignContentCoversAudience({
+        content: czechOnly,
+        audienceFilter: Option.none(),
+      })
+    ).toBe(true);
+    expect(
+      campaignContentCoversAudience({
+        content: czechOnly,
+        audienceFilter: audience(["en-US"]),
+      })
+    ).toBe(true);
+  });
+
+  test("rejects English-only content for an audience that can reach Czech fallback recipients", () => {
+    for (const audienceFilter of [
+      Option.none(),
+      audience(["cs-CZ", "en-US"]),
+      audience(["cs-CZ"]),
+    ]) {
+      expect(
+        campaignContentCoversAudience({ content: englishOnly, audienceFilter })
+      ).toBe(false);
+    }
+  });
+
+  test("accepts English-only content for an English-only audience", () => {
+    expect(
+      campaignContentCoversAudience({
+        content: englishOnly,
+        audienceFilter: audience(["en-US"]),
+      })
+    ).toBe(true);
   });
 });

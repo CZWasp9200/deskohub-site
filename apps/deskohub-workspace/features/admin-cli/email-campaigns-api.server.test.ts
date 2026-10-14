@@ -1,6 +1,7 @@
 import "@/shared/testing/workspace-test-env";
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { EmailServiceTag } from "@deskohub/email";
 import { testEmailAddress } from "@deskohub/test-email";
 import {
   AdministrationActorUsername,
@@ -24,6 +25,7 @@ import {
 import { NodeCrypto, NodeHttpServer } from "@effect/platform-node";
 import { Effect, Layer, Option } from "effect";
 import { HttpApiTest } from "effect/unstable/httpapi";
+import { WorkspaceDatabase } from "@/db/database.service";
 import {
   type CampaignAudienceRow,
   type CampaignRow,
@@ -31,14 +33,22 @@ import {
 } from "@/db/schema";
 import { CampaignService } from "@/features/email-campaigns/backend/campaign.service";
 import { CampaignAudienceService } from "@/features/email-campaigns/backend/campaign-audience.service";
+import { CampaignConfirmationCodeService } from "@/features/email-campaigns/backend/campaign-confirmation-code.service";
+import {
+  CampaignEmailConfig,
+  resolveCampaignEmailConfig,
+} from "@/features/email-campaigns/backend/campaign-email.config";
 import { CampaignRecipientService } from "@/features/email-campaigns/backend/campaign-recipient.service";
 import { CampaignSendService } from "@/features/email-campaigns/backend/campaign-send.service";
+import { CampaignSendQueueService } from "@/features/email-campaigns/backend/campaign-send-queue.service";
+import { CampaignSendStatusService } from "@/features/email-campaigns/backend/campaign-send-status.service";
 import { parseCampaignBodyMarkdown } from "@/features/email-campaigns/body/campaign-body-markdown";
 import type { CampaignLocalizedContent } from "@/features/email-campaigns/body/campaign-content";
 import {
   CampaignAudienceInUse,
   CampaignAudienceNotFound,
   CampaignConfirmationRejected,
+  CampaignFallbackContentMissing,
   CampaignNotFound,
   CampaignRecipientResolutionError,
   CampaignTestRecipientInvalid,
@@ -90,6 +100,9 @@ type CampaignServiceOverrides = {
   readonly campaigns?: Partial<CampaignService["Service"]>;
   readonly recipients?: Partial<CampaignRecipientService["Service"]>;
   readonly sending?: Partial<CampaignSendService["Service"]>;
+  readonly sendStatus?: Partial<CampaignSendStatusService["Service"]>;
+  /** Replaces the `sending` stub with a fully built send service. */
+  readonly sendingLayer?: Layer.Layer<CampaignSendService>;
 };
 
 const campaignServices = (overrides: CampaignServiceOverrides) =>
@@ -106,9 +119,14 @@ const campaignServices = (overrides: CampaignServiceOverrides) =>
       ...({} as CampaignRecipientService["Service"]),
       ...overrides.recipients,
     }),
-    Layer.succeed(CampaignSendService, {
-      ...({} as CampaignSendService["Service"]),
-      ...overrides.sending,
+    overrides.sendingLayer ??
+      Layer.succeed(CampaignSendService, {
+        ...({} as CampaignSendService["Service"]),
+        ...overrides.sending,
+      }),
+    Layer.succeed(CampaignSendStatusService, {
+      ...({} as CampaignSendStatusService["Service"]),
+      ...overrides.sendStatus,
     })
   );
 
@@ -554,13 +572,13 @@ describe("campaign admin API", () => {
   test("reports the send status, or none before the send", async () => {
     const notSent = await callCampaignsApi(
       (client) => client.getCampaignSendStatus({ params: { campaignId } }),
-      { sending: { getSendStatus: () => Effect.succeed(Option.none()) } }
+      { sendStatus: { get: () => Effect.succeed(Option.none()) } }
     );
     const sent = await callCampaignsApi(
       (client) => client.getCampaignSendStatus({ params: { campaignId } }),
       {
-        sending: {
-          getSendStatus: () =>
+        sendStatus: {
+          get: () =>
             Effect.succeed(
               Option.some({
                 sendId: AdministrationCampaignSendId.make("send-1"),
@@ -623,6 +641,99 @@ describe("campaign admin API", () => {
         },
       ],
     });
+  });
+
+  test("explains that English-only content can't reach Czech fallback recipients", async () => {
+    const result = await callCampaignsApi(
+      (client) =>
+        client
+          .sendCampaign({
+            params: { campaignId },
+            payload: { confirmationCode: "ABC123" },
+          })
+          .pipe(Effect.flip),
+      {
+        sending: {
+          send: () =>
+            Effect.fail(new CampaignFallbackContentMissing({ campaignId })),
+        },
+      }
+    );
+
+    expect(result).toBeInstanceOf(CliMutationRejected);
+    expect(result.message).toContain("add Czech (cs-CZ) content");
+  });
+
+  test("keeps other endpoints and the send status working when production campaign email isn't configured", async () => {
+    const UnconfiguredCampaignSending = CampaignSendService.perOperation(
+      CampaignSendService.Default.pipe(
+        Layer.provide(
+          Layer.mergeAll(
+            Layer.effect(
+              CampaignEmailConfig,
+              resolveCampaignEmailConfig({
+                deploymentEnvironment: "production",
+                EMAIL_CAMPAIGN_FROM: undefined,
+                EMAIL_CAMPAIGN_REPLY_TO: undefined,
+                EMAIL_CAMPAIGN_ADMIN_INBOX: undefined,
+              })
+            ),
+            Layer.mock(WorkspaceDatabase, {}),
+            Layer.mock(CampaignService, {}),
+            Layer.mock(CampaignAudienceService, {}),
+            Layer.mock(CampaignRecipientService, {}),
+            Layer.mock(CampaignConfirmationCodeService, {}),
+            Layer.mock(CampaignSendQueueService, {}),
+            Layer.mock(EmailServiceTag, {})
+          )
+        )
+      )
+    );
+    const call = <A, E>(
+      request: (client: CampaignsClient) => Effect.Effect<A, E>
+    ) =>
+      callCampaignsApi((client) => request(client).pipe(Effect.result), {
+        sendingLayer: UnconfiguredCampaignSending,
+        campaigns: { list: Effect.succeed([campaignRow()]) },
+        sendStatus: { get: () => Effect.succeed(Option.none()) },
+      });
+
+    const listed = await call((client) => client.listCampaigns());
+    const status = await call((client) =>
+      client.getCampaignSendStatus({ params: { campaignId } })
+    );
+    const sendingFailures = await Promise.all([
+      call((client) =>
+        client.testSendCampaign({
+          params: { campaignId },
+          payload: { recipients: [] },
+        })
+      ),
+      call((client) =>
+        client.sendCampaign({
+          params: { campaignId },
+          payload: { confirmationCode: "ABC123" },
+        })
+      ),
+      call((client) =>
+        client.retryCampaign({
+          params: { campaignId },
+          payload: { includeUnconfirmed: false },
+        })
+      ),
+    ]);
+
+    expect(listed).toMatchObject({ _tag: "Success" });
+    expect(status).toMatchObject({ _tag: "Success", success: { send: null } });
+    for (const result of sendingFailures) {
+      expect(result._tag).toBe("Failure");
+      const failure = result._tag === "Failure" ? result.failure : null;
+      expect(failure).toBeInstanceOf(CliServiceUnavailable);
+      expect(failure?.message).toContain(
+        "Campaign email isn't configured for this deployment"
+      );
+      expect(failure?.message).toContain("EMAIL_CAMPAIGN_ADMIN_INBOX");
+    }
   });
 
   test("keeps an audience that drafts use and names those drafts", async () => {
@@ -887,6 +998,10 @@ describe.skipIf(!testDatabase)(
             Layer.succeed(
               CampaignSendService,
               {} as CampaignSendService["Service"]
+            ),
+            Layer.succeed(
+              CampaignSendStatusService,
+              {} as CampaignSendStatusService["Service"]
             )
           ).pipe(Layer.provide(testDatabase.layer))
         ),

@@ -5,10 +5,7 @@ import type {
   CampaignService,
   ICampaignService,
 } from "../../backend/campaign.service";
-import type {
-  CampaignSendService,
-  ICampaignSendService,
-} from "../../backend/campaign-send.service";
+import type { ICampaignSendService } from "../../backend/campaign-send.service";
 import type { CampaignConfirmationRejection } from "../../errors";
 
 const confirmationRejectionMessages = {
@@ -32,98 +29,52 @@ export type CampaignSendingFailure =
   | Effect.Error<ReturnType<ICampaignSendService["send"]>>
   | Effect.Error<ReturnType<ICampaignSendService["retryUndelivered"]>>
   | Effect.Error<ReturnType<ICampaignService["duplicate"]>>
-  | Layer.Error<typeof CampaignSendService.Live>
   | Layer.Error<typeof CampaignService.Live>;
 
 /** Admin copy for every failure a sending action reports. */
 export const describeCampaignSendingFailure = (cause: CampaignSendingFailure) =>
   Match.value(cause).pipe(
-    Match.tag(
-      "AdministratorUnauthorizedError",
-      () =>
-        "Your admin sign-in is no longer valid. Reload the page and sign in again."
-    ),
-    Match.tag("CampaignNotFound", () => "This campaign no longer exists."),
-    Match.tag(
-      "CampaignReadOnly",
-      () => "This campaign already left Draft. Duplicate it to send a new copy."
-    ),
-    Match.tag(
-      "CampaignConfirmationRejected",
-      ({ reason }) => confirmationRejectionMessages[reason]
-    ),
-    Match.tag(
-      "CampaignTestRecipientInvalid",
-      ({ email }) => `${email} isn't a valid email address.`
-    ),
-    Match.tag(
-      "CampaignContentMissing",
-      () => "Add a subject and body in at least one language first."
-    ),
-    Match.tag(
-      "CampaignEmailDeliveryFailed",
-      () =>
-        "The email provider didn't accept the test email. Try again in a moment."
-    ),
-    Match.tag(
-      "CampaignSigningKeyInvalid",
-      () =>
-        "Confirmation codes can't be issued because the signing secret is misconfigured. Ask a developer to check BETTER_AUTH_SECRETS."
-    ),
-    Match.tag(
-      "CampaignEmailNotConfigured",
-      ({ variables }) =>
-        `Campaign email isn't configured for this deployment. Ask a developer to set ${variables.join(", ")}.`
-    ),
-    Match.tag(
-      "WorkspaceUrlConfigError",
-      () =>
-        "The test email couldn't be built because the site URL isn't configured. Ask a developer to check the deployment's URL settings."
-    ),
-    Match.tag(
-      "CampaignAudienceMissing",
-      () => "Choose an audience for this campaign before sending it."
-    ),
-    Match.tag(
-      "CampaignAudienceNotFound",
-      () =>
-        "This campaign's audience no longer exists. Choose another audience; nothing was sent and the code still works."
-    ),
-    Match.tag(
-      "CampaignRecipientResolutionError",
-      ({ source }) =>
-        `Recipients couldn't be resolved because ${{ dotypos: "Dotypos", database: "the database" }[source]} is unavailable. Nothing was sent and the code still works; try again in a moment.`
-    ),
-    Match.tag(
-      "CampaignRecipientsOutsideTestDomain",
-      ({ recipientCount }) =>
-        `Outside production, campaign email can only go to @${EMAIL_TEST_DOMAIN} addresses, and ${recipientCount} ${recipientCount === 1 ? "address is" : "addresses are"} outside it. Nothing was sent.`
-    ),
-    Match.tag(
-      "CampaignNoRecipients",
-      () =>
-        "The audience has no reachable recipients right now, so nothing was sent."
-    ),
-    Match.tag(
-      "CampaignDeliveryQueueFailed",
-      () =>
-        "Delivery couldn't be queued, so the campaign is marked Failed. Retry undelivered recipients in a moment."
-    ),
-    Match.tag(
-      "CampaignNotRetryable",
-      () => "Only a failed campaign can retry undelivered recipients."
-    ),
-    Match.tag(
-      "ConfigError",
-      () =>
-        "Campaign sending isn't configured correctly for this deployment. Ask a developer to check its environment variables."
-    ),
-    Match.tag(
-      "PlatformError",
-      "SchemaError",
-      "EffectDrizzleQueryError",
-      "SqlError",
-      () => unexpectedFailureMessage
-    ),
-    Match.exhaustive
+    Match.tagsExhaustive({
+      AdministratorUnauthorizedError: () =>
+        "Your admin sign-in is no longer valid. Reload the page and sign in again.",
+      CampaignNotFound: () => "This campaign no longer exists.",
+      CampaignReadOnly: () =>
+        "This campaign already left Draft. Duplicate it to send a new copy.",
+      CampaignConfirmationRejected: ({ reason }) =>
+        confirmationRejectionMessages[reason],
+      CampaignTestRecipientInvalid: ({ email }) =>
+        `${email} isn't a valid email address.`,
+      CampaignContentMissing: () =>
+        "Add a subject and body in at least one language first.",
+      CampaignFallbackContentMissing: () =>
+        "Customers without content in their language get the Czech version, so add Czech content, or restrict the audience to one language this campaign has. Nothing was sent.",
+      CampaignEmailDeliveryFailed: () =>
+        "The email provider didn't accept the test email. Try again in a moment.",
+      CampaignSigningKeyInvalid: () =>
+        "Confirmation codes can't be issued because the signing secret is misconfigured. Ask a developer to check BETTER_AUTH_SECRETS.",
+      CampaignEmailNotConfigured: ({ variables }) =>
+        `Campaign email isn't configured for this deployment. Ask a developer to set ${variables.join(", ")}.`,
+      WorkspaceUrlConfigError: () =>
+        "The test email couldn't be built because the site URL isn't configured. Ask a developer to check the deployment's URL settings.",
+      CampaignAudienceMissing: () =>
+        "Choose an audience for this campaign before sending it.",
+      CampaignAudienceNotFound: () =>
+        "This campaign's audience no longer exists. Choose another audience; nothing was sent and the code still works.",
+      CampaignRecipientResolutionError: ({ source }) =>
+        `Recipients couldn't be resolved because ${{ dotypos: "Dotypos", database: "the database" }[source]} is unavailable. Nothing was sent and the code still works; try again in a moment.`,
+      CampaignRecipientsOutsideTestDomain: ({ recipientCount }) =>
+        `Outside production, campaign email can only go to @${EMAIL_TEST_DOMAIN} addresses, and ${recipientCount} ${recipientCount === 1 ? "address is" : "addresses are"} outside it. Nothing was sent.`,
+      CampaignNoRecipients: () =>
+        "The audience has no reachable recipients right now, so nothing was sent.",
+      CampaignDeliveryQueueFailed: () =>
+        "Delivery couldn't be queued, so the campaign is marked Failed. Retry undelivered recipients in a moment.",
+      CampaignNotRetryable: () =>
+        "Only a failed campaign can retry undelivered recipients.",
+      ConfigError: () =>
+        "Campaign sending isn't configured correctly for this deployment. Ask a developer to check its environment variables.",
+      PlatformError: () => unexpectedFailureMessage,
+      SchemaError: () => unexpectedFailureMessage,
+      EffectDrizzleQueryError: () => unexpectedFailureMessage,
+      SqlError: () => unexpectedFailureMessage,
+    })
   );

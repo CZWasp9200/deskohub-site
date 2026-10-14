@@ -87,17 +87,21 @@ const loadTemplates = Effect.forEach(
     )
 );
 
+/**
+ * The fixed test-send inbox, or null where campaign email isn't configured:
+ * the composer still loads, and a test send reports the missing settings.
+ */
+const loadAdminInbox = CampaignEmailConfig.pipe(
+  Effect.map((config) => config.adminInbox),
+  Effect.provide(CampaignEmailConfig.Default),
+  Effect.catchTag("CampaignEmailNotConfigured", () => Effect.succeed(null))
+);
+
 const loadComposerOptions = () =>
   Effect.all(
-    {
-      templates: loadTemplates,
-      adminInbox: Effect.gen(function* () {
-        return (yield* CampaignEmailConfig).adminInbox;
-      }),
-    },
+    { templates: loadTemplates, adminInbox: loadAdminInbox },
     { concurrency: "unbounded" }
   ).pipe(
-    Effect.provide(CampaignEmailConfig.Default),
     runWorkspaceEffect("email-campaigns.admin.load-composer", {
       boundary: "route",
     })

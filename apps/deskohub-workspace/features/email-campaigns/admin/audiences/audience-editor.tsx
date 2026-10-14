@@ -31,9 +31,9 @@ import {
 } from "@/shared/components/ui/form";
 import { Input } from "@/shared/components/ui/input";
 import { useWorkspaceAction } from "@/shared/utils/use-workspace-action";
+import { audienceSingleLocale } from "../../audience-filter";
 import type { CampaignAudienceId } from "../../campaign-identifiers";
 import {
-  audienceSingleLocale,
   type DiscountGroupOption,
   describeAudienceFilter,
 } from "../audience-filter-summary";

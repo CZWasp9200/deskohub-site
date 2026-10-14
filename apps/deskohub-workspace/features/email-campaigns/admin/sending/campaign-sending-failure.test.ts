@@ -16,6 +16,7 @@ import {
   CampaignDeliveryQueueFailed,
   CampaignEmailDeliveryFailed,
   CampaignEmailNotConfigured,
+  CampaignFallbackContentMissing,
   CampaignNoRecipients,
   CampaignNotFound,
   CampaignNotRetryable,
@@ -104,6 +105,12 @@ const failureCases = [
     name: "missing content",
     error: new CampaignContentMissing({ campaignId }),
     message: "Add a subject and body in at least one language first.",
+  },
+  {
+    name: "Czech fallback content missing",
+    error: new CampaignFallbackContentMissing({ campaignId }),
+    message:
+      "Customers without content in their language get the Czech version, so add Czech content, or restrict the audience to one language this campaign has. Nothing was sent.",
   },
   {
     name: "test email refused",

@@ -11,7 +11,7 @@ const campaignTestEmailCategory = "email-campaign-test";
 
 const testSubjectPrefix = "[TEST]";
 
-type RenderedCampaignEmail = {
+export type RenderedCampaignEmail = {
   readonly subject: string;
   readonly html: string;
   readonly text: string;

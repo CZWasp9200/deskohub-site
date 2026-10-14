@@ -94,11 +94,9 @@ const duplicate = mock(
 const sendServiceLive = Layer.succeed(
   sendServiceModule.CampaignSendService,
   sendServiceModule.CampaignSendService.of({
-    adminInbox: "synthetic-inbox",
     testSend,
     send,
     retryUndelivered,
-    getSendStatus: () => Effect.succeed(undefined),
   } as never)
 );
 

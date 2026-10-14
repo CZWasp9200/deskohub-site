@@ -31,6 +31,7 @@ import { CampaignService } from "@/features/email-campaigns/backend/campaign.ser
 import { CampaignAudienceService } from "@/features/email-campaigns/backend/campaign-audience.service";
 import { CampaignRecipientService } from "@/features/email-campaigns/backend/campaign-recipient.service";
 import { CampaignSendService } from "@/features/email-campaigns/backend/campaign-send.service";
+import { CampaignSendStatusService } from "@/features/email-campaigns/backend/campaign-send-status.service";
 import {
   campaignBodyToMarkdown,
   parseCampaignBodyMarkdown,
@@ -55,12 +56,15 @@ import type {
   CampaignContentMissing,
   CampaignDeliveryQueueFailed,
   CampaignEmailDeliveryFailed,
+  CampaignEmailNotConfigured,
+  CampaignFallbackContentMissing,
   CampaignNoRecipients,
   CampaignNotFound,
   CampaignNotRetryable,
   CampaignReadOnly,
   CampaignRecipientResolutionError,
   CampaignRecipientsOutsideTestDomain,
+  CampaignSigningKeyInvalid,
   CampaignTestRecipientInvalid,
 } from "@/features/email-campaigns/errors";
 import { type Locale, locales } from "@/features/i18n";
@@ -88,12 +92,15 @@ type CampaignApiCause =
   | CampaignContentMissing
   | CampaignDeliveryQueueFailed
   | CampaignEmailDeliveryFailed
+  | CampaignEmailNotConfigured
+  | CampaignFallbackContentMissing
   | CampaignNoRecipients
   | CampaignNotFound
   | CampaignNotRetryable
   | CampaignReadOnly
   | CampaignRecipientResolutionError
   | CampaignRecipientsOutsideTestDomain
+  | CampaignSigningKeyInvalid
   | CampaignTestRecipientInvalid
   | { readonly _tag: string };
 
@@ -182,6 +189,14 @@ const toCampaignApiFailure = (cause: CampaignApiCause) =>
         })
     ),
     Match.tag(
+      "CampaignFallbackContentMissing",
+      () =>
+        new CliMutationRejected({
+          message:
+            "Customers without content in their language get the Czech version, so add Czech (cs-CZ) content, or restrict the audience to one locale the campaign has content for. Nothing was sent.",
+        })
+    ),
+    Match.tag(
       "CampaignAudienceMissing",
       () =>
         new CliMutationRejected({
@@ -222,6 +237,27 @@ const toCampaignApiFailure = (cause: CampaignApiCause) =>
         new CliServiceUnavailable({
           message:
             "The send was confirmed, but its delivery couldn't be queued. The campaign is now failed; retry its undelivered recipients.",
+        })
+    ),
+    Match.orElse(toCampaignSetupFailure)
+  );
+
+/** Campaign sending setup the deployment lacks, else a generic outage. */
+const toCampaignSetupFailure = (cause: CampaignApiCause) =>
+  Match.value(cause).pipe(
+    Match.tag(
+      "CampaignEmailNotConfigured",
+      ({ variables }) =>
+        new CliServiceUnavailable({
+          message: `Campaign email isn't configured for this deployment, so it can't send campaign mail. Ask a developer to set ${variables.join(", ")}.`,
+        })
+    ),
+    Match.tag(
+      "CampaignSigningKeyInvalid",
+      () =>
+        new CliServiceUnavailable({
+          message:
+            "Confirmation codes can't be issued or checked because the signing secret is misconfigured. Ask a developer to check BETTER_AUTH_SECRETS.",
         })
     ),
     Match.orElse(makeServiceUnavailable)
@@ -445,6 +481,7 @@ export const AdminCliCampaignsApiHandlers = HttpApiBuilder.group(
     const campaigns = yield* CampaignService;
     const recipients = yield* CampaignRecipientService;
     const sending = yield* CampaignSendService;
+    const sendStatus = yield* CampaignSendStatusService;
     const ledger = yield* CliMutationIdempotency;
 
     const loadPreviewSource = Effect.fn("CampaignsApi.loadPreviewSource")(
@@ -675,7 +712,7 @@ export const AdminCliCampaignsApiHandlers = HttpApiBuilder.group(
           .pipe(mapCampaignFailure)
       )
       .handle("getCampaignSendStatus", ({ params }) =>
-        sending.getSendStatus({ campaignId: params.campaignId }).pipe(
+        sendStatus.get({ campaignId: params.campaignId }).pipe(
           Effect.map((status) => ({
             send: Option.match(status, {
               onNone: () => null,
@@ -707,5 +744,6 @@ export const EmailCampaignsApiServicesLive = Layer.mergeAll(
   CampaignAudienceService.Live,
   CampaignService.Live,
   CampaignRecipientService.Live,
-  CampaignSendService.Live
+  CampaignSendService.Live,
+  CampaignSendStatusService.Live
 );

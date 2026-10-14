@@ -10,6 +10,7 @@ import {
   type AudienceFilter,
   type AudienceReservationMatches,
   audienceFilterSchema,
+  audienceSingleLocale,
   collectReservationCriteria,
   evaluateAudienceFilter,
   reservationConditionKey,
@@ -158,5 +159,32 @@ describe("audienceFilterSchema", () => {
       true
     );
     expect(Option.isNone(decode({ _tag: "Locale", locales: [] }))).toBe(true);
+  });
+});
+
+describe("audienceSingleLocale", () => {
+  const english = { _tag: "Locale", locales: ["en-US"] } as const;
+
+  test("finds a one-locale condition at the root", () => {
+    expect(audienceSingleLocale(english)).toBe("en-US");
+  });
+
+  test("finds a one-locale condition in the root AND group", () => {
+    expect(audienceSingleLocale(group("and", [withAccount, czech]))).toBe(
+      "cs-CZ"
+    );
+  });
+
+  test("ignores conditions that allow several locales", () => {
+    expect(
+      audienceSingleLocale({ _tag: "Locale", locales: ["cs-CZ", "en-US"] })
+    ).toBeUndefined();
+  });
+
+  test("ignores a root OR group and nested groups", () => {
+    expect(audienceSingleLocale(group("or", [czech]))).toBeUndefined();
+    expect(
+      audienceSingleLocale(group("and", [group("and", [czech])]))
+    ).toBeUndefined();
   });
 });

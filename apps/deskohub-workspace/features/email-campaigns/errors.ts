@@ -115,6 +115,17 @@ export class CampaignContentMissing extends Data.TaggedError(
   readonly campaignId: CampaignId;
 }> {}
 
+/**
+ * Recipients outside the content's locales would get the Czech fallback,
+ * which the campaign lacks: it needs Czech content unless its audience is
+ * restricted to a single locale it has content for.
+ */
+export class CampaignFallbackContentMissing extends Data.TaggedError(
+  "CampaignFallbackContentMissing"
+)<{
+  readonly campaignId: CampaignId;
+}> {}
+
 /** A real send needs an audience to resolve recipients from. */
 export class CampaignAudienceMissing extends Data.TaggedError(
   "CampaignAudienceMissing"
