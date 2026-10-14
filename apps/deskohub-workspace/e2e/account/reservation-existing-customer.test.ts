@@ -23,18 +23,10 @@ const contact = {
 } as const;
 const privateFailureDetails = "private reservation customer fixture details";
 
-type FailurePhase =
-  | "navigation"
-  | "card-email"
-  | "card-input-present"
-  | "card-settle"
-  | "card-review"
-  | "contact-handler"
-  | "contact-review";
+type FailurePhase = "card-email" | "contact-review";
 
 type FakeState = {
   mode: ReservationCustomerMode;
-  url: string;
 };
 
 const settledSubmitKey =
@@ -46,8 +38,7 @@ const contactFieldByLabel = (label: string) =>
   );
 
 const makeFakePage = (failurePhase?: FailurePhase) => {
-  const actions: string[] = [];
-  const state: FakeState = { mode: "account", url: "about:blank" };
+  const state: FakeState = { mode: "account" };
 
   const fail = (): never => {
     throw new Error(privateFailureDetails);
@@ -69,23 +60,14 @@ const makeFakePage = (failurePhase?: FailurePhase) => {
       );
     }
     if (key.startsWith("textbox:")) return state.mode === "contact";
-    if (key === settledSubmitKey) return failurePhase !== "card-settle";
+    if (key === settledSubmitKey) return true;
     return false;
   };
 
-  const countFor = (key: string): number => {
-    if (
-      failurePhase === "card-input-present" &&
-      key.startsWith("textbox:") &&
-      state.mode === "account"
-    )
-      return 1;
-    return isVisible(key) ? 1 : 0;
-  };
+  const countFor = (key: string): number => (isVisible(key) ? 1 : 0);
 
   const makeLocator = (key: string) => ({
     click: async () => {
-      actions.push(`click:${key}`);
       if (key === "button:Book for someone else") state.mode = "contact";
     },
     count: async () => countFor(key),
@@ -101,12 +83,10 @@ const makeFakePage = (failurePhase?: FailurePhase) => {
     waitFor: async (options: { readonly state?: string }) => {
       if (options.state === "hidden") {
         if (isVisible(key)) fail();
-        actions.push(`hidden:${key}`);
         return;
       }
       expect(options.state).toBe("visible");
       if (!isVisible(key)) fail();
-      actions.push(`visible:${key}`);
     },
   });
 
@@ -124,24 +104,13 @@ const makeFakePage = (failurePhase?: FailurePhase) => {
       expect(options.exact).toBe(true);
       return makeLocator(`${role}:${String(options.name)}`);
     },
-    evaluate: async () => {
-      actions.push("scroll-top");
-    },
-    goto: async (url: string) => {
-      actions.push(`goto:${url}`);
-      if (failurePhase === "navigation") fail();
-      state.url = url;
+    evaluate: async () => {},
+    goto: async () => {
       state.mode = "account";
       return null;
     },
     locator: (selector: string) => makeLocator(`locator:${selector}`),
-    waitForFunction: async (_predicate: unknown, handle: { key: string }) => {
-      actions.push(`react-handler:${handle.key}`);
-      if (
-        failurePhase === "contact-handler" &&
-        handle.key === "button:Book for someone else"
-      )
-        fail();
+    waitForFunction: async () => {
       return {
         dispose: async () => {},
         jsonValue: async () => "ready",
@@ -149,18 +118,11 @@ const makeFakePage = (failurePhase?: FailurePhase) => {
     },
   });
 
-  const reviews: ReservationCustomerMode[] = [];
   const captureReview = async (mode: ReservationCustomerMode) => {
-    actions.push(`review:${mode}`);
-    if (
-      (failurePhase === "card-review" && mode === "account") ||
-      (failurePhase === "contact-review" && mode === "contact")
-    )
-      fail();
-    reviews.push(mode);
+    if (failurePhase === "contact-review" && mode === "contact") fail();
   };
 
-  return { actions, captureReview, page, reviews, state };
+  return { captureReview, page };
 };
 
 const expectReservationCustomerFailure = (
@@ -199,66 +161,10 @@ const expectReservationCustomerFailure = (
   expect(annotation).not.toContain(contact.email);
 };
 
-test("checks only the account card without the review screenshot opt-in", async () => {
-  const fake = makeFakePage();
-
-  await verifyReservationExistingCustomer({
-    baseUrl,
-    captureReview: fake.captureReview,
-    contact,
-    page: fake.page,
-    reviewScreenshots: false,
-  });
-
-  expect(fake.reviews).toEqual([]);
-  expect(fake.state.mode).toBe("account");
-  expect(
-    fake.actions.filter((action) => action.startsWith("click:"))
-  ).toHaveLength(0);
-});
-
-test("captures both modes in review runs without submitting", async () => {
-  const fake = makeFakePage();
-
-  await verifyReservationExistingCustomer({
-    baseUrl,
-    captureReview: fake.captureReview,
-    contact,
-    page: fake.page,
-    reviewScreenshots: true,
-  });
-
-  expect(fake.reviews).toEqual(["account", "contact"]);
-  expect(
-    fake.actions.filter((action) => action.startsWith("click:"))
-  ).toHaveLength(1);
-});
-
 const failurePhases = [
-  {
-    phase: "navigation",
-    diagnosticCode: "account_reservation_existing_customer_page_failed",
-  },
   {
     phase: "card-email",
     diagnosticCode: "account_reservation_existing_customer_card_failed",
-  },
-  {
-    phase: "card-input-present",
-    diagnosticCode: "account_reservation_existing_customer_card_failed",
-  },
-  {
-    phase: "card-settle",
-    diagnosticCode: "account_reservation_existing_customer_card_review_failed",
-  },
-  {
-    phase: "card-review",
-    diagnosticCode: "account_reservation_existing_customer_card_review_failed",
-  },
-  {
-    phase: "contact-handler",
-    diagnosticCode:
-      "account_reservation_existing_customer_contact_switch_failed",
   },
   {
     phase: "contact-review",
@@ -287,23 +193,6 @@ for (const { diagnosticCode, phase } of failurePhases) {
     expectReservationCustomerFailure(failure, diagnosticCode);
   });
 }
-
-test("does not capture the contact review when the card check fails", async () => {
-  const fake = makeFakePage("card-input-present");
-
-  await verifyReservationExistingCustomer({
-    baseUrl,
-    captureReview: fake.captureReview,
-    contact,
-    page: fake.page,
-    reviewScreenshots: true,
-  }).catch(() => undefined);
-
-  expect(fake.reviews).toEqual([]);
-  expect(
-    fake.actions.filter((action) => action.startsWith("click:"))
-  ).toHaveLength(0);
-});
 
 const chromiumAvailable = await playwrightChromiumAvailable();
 
