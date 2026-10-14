@@ -1,11 +1,8 @@
 "use server";
 
-import { CloudinaryPublicIdSchema } from "@deskohub/cloudinary";
-import { CloudinaryService } from "@deskohub/cloudinary/server";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { Effect, Schema } from "effect";
-import { env } from "@/env";
-import { WorkspaceCloudinaryLayer } from "@/features/gallery/backend/cloudinary.service";
+import { Effect } from "effect";
+import { CampaignImageService } from "@/features/email-campaigns/backend/campaign-image.service";
 import { requireAdministratorAuthorization } from "@/shared/administrator/administrator-authorization.server";
 import { defineWorkspaceAction } from "@/shared/backend/workspace-action";
 import { PublicSafeActionError } from "@/shared/utils/safe-action-client";
@@ -50,22 +47,6 @@ const campaignImageUploadSchema: StandardSchemaV1<
   },
 };
 
-const uploadCampaignBodyImage = Effect.fn("CampaignComposer.uploadImage")(
-  function* (file: File) {
-    const cloudinary = yield* CloudinaryService;
-    const bytes = yield* Effect.promise(() => file.arrayBuffer());
-    const publicId = yield* Schema.decodeEffect(CloudinaryPublicIdSchema)(
-      crypto.randomUUID()
-    );
-    const asset = yield* cloudinary.uploadImage({
-      bytes: new Uint8Array(bytes),
-      publicId,
-      folder: `email-campaigns/${env.VERCEL_ENV}`,
-    });
-    return { url: asset.secure_url };
-  }
-);
-
 const uploadCampaignImageAction = defineWorkspaceAction(
   {
     operation: "email-campaigns.admin.upload-image",
@@ -74,8 +55,8 @@ const uploadCampaignImageAction = defineWorkspaceAction(
   },
   ({ file }) =>
     requireAdministratorAuthorization.pipe(
-      Effect.andThen(uploadCampaignBodyImage(file)),
-      Effect.provide(WorkspaceCloudinaryLayer),
+      Effect.andThen(CampaignImageService.use((images) => images.upload(file))),
+      Effect.provide(CampaignImageService.Live),
       Effect.mapError(
         (cause) =>
           new PublicSafeActionError({
