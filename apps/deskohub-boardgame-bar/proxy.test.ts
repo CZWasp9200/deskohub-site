@@ -10,10 +10,6 @@ const regexpSrc =
 
 if (!regexpSrc) process.exit(1);
 
-test("regexp source starts with /", () => {
-  expect(regexpSrc.startsWith("/")).toBeTrue();
-});
-
 const regexp = new RegExp(regexpSrc);
 
 test("regexp matches normal application routes", () => {

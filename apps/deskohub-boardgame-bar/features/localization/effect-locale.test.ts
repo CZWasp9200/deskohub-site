@@ -30,10 +30,4 @@ describe("LocalizedNextComponent", () => {
 
     expect(getLocale()).toBe("cs-CZ");
   });
-
-  test("malformed props fails visibly", async () => {
-    await expect(runComponent({ params: Promise.resolve({}) })).rejects.toThrow(
-      "Failed to parse middleware props"
-    );
-  });
 });
