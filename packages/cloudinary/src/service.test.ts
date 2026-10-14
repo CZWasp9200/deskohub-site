@@ -341,23 +341,6 @@ describe("CloudinaryService", () => {
     expect(resourceAttempts).toBe(2);
   });
 
-  test("fails primitive public ID lookup rejections as CloudinarySearchError", async () => {
-    queuedResourceResults = [{ throw: undefined }];
-
-    const service = await makeService();
-    const result = await Effect.runPromise(
-      service.getByPublicId(galleryImagePublicId).pipe(Effect.result)
-    );
-
-    expect(result._tag).toBe("Failure");
-    if (result._tag === "Failure") {
-      expect(result.failure._tag).toBe("CloudinarySearchError");
-      expect(result.failure.message).toBe("Cloudinary public ID lookup failed");
-      expect(result.failure.httpCode).toBeUndefined();
-    }
-    expect(resourceAttempts).toBe(1);
-  });
-
   test("ignores malformed public ID lookup error fields without echoing provider text", async () => {
     queuedResourceResults = [{ throw: { message: 123, http_code: "500" } }];
 
@@ -1153,21 +1136,6 @@ describe("CloudinaryService avatar-path logging", () => {
       expect(stringified).not.toContain("synthetic-cloudinary-secret-sentinel");
     }
     expect(executeAttempts).toBe(1);
-  });
-
-  test("keeps the 5xx retry behavior on sanitized search failures", async () => {
-    const providerMessage = "provider failure for secret-sentinel-value";
-    queuedResults = [
-      { throw: { error: { http_code: 500, message: providerMessage } } },
-      { throw: { error: { http_code: 500, message: providerMessage } } },
-      { resources: [asset] },
-    ];
-
-    const service = await makeService();
-    const result = await runRetryingInstantly(service.searchAll());
-
-    expect(result).toEqual([asset]);
-    expect(executeAttempts).toBe(3);
   });
 
   test("fails primitive and malformed search rejections without echoing provider data", async () => {

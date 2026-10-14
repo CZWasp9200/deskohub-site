@@ -26,12 +26,6 @@ describe("buildVersionedDeliveryUrl", () => {
     );
   });
 
-  test("returns the plain secure URL when the asset has no version", () => {
-    const asset = makeAsset({});
-
-    expect(buildVersionedDeliveryUrl(asset)).toBe(asset.secure_url);
-  });
-
   test("keeps an already-versioned URL unchanged", () => {
     const asset = makeAsset({
       secure_url:

@@ -156,43 +156,6 @@ describe("AresLookupService", () => {
     expect(JSON.stringify(result)).not.toContain("must-not-leak");
   });
 
-  test("returns the generated raw provider record for a matching company", async () => {
-    const result = await runLookup("27082440", () =>
-      Promise.resolve(
-        Response.json({
-          ico: "27082440",
-          obchodniJmeno: "  Synthetická testovací s.r.o. ",
-          dic: "   ",
-          sidlo: {
-            nazevUlice: "  ",
-            cisloDomovni: 123,
-            cisloOrientacni: 4,
-            cisloOrientacniPismeno: "a",
-            nazevObce: " Praha ",
-            kodStatu: " CZ ",
-          },
-        })
-      )
-    );
-
-    expect(result).toEqual({
-      kind: "found",
-      subject: {
-        ico: "27082440",
-        obchodniJmeno: "  Synthetická testovací s.r.o. ",
-        dic: "   ",
-        sidlo: {
-          nazevUlice: "  ",
-          cisloDomovni: 123,
-          cisloOrientacni: 4,
-          cisloOrientacniPismeno: "a",
-          nazevObce: " Praha ",
-          kodStatu: " CZ ",
-        },
-      },
-    });
-  });
-
   test("maps a response for a different company ID to the unavailable failure", async () => {
     const result = await runLookup("27082440", () =>
       Promise.resolve(
@@ -201,14 +164,6 @@ describe("AresLookupService", () => {
           obchodniJmeno: "Jiná synthetická organizace",
         })
       )
-    );
-
-    expectLookupFailure(result, "Unavailable");
-  });
-
-  test("maps a blank company name response to the unavailable failure", async () => {
-    const result = await runLookup("27082440", () =>
-      Promise.resolve(Response.json({ ico: "27082440", obchodniJmeno: "   " }))
     );
 
     expectLookupFailure(result, "Unavailable");

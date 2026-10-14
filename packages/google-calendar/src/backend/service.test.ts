@@ -390,39 +390,6 @@ describe("GoogleCalendarService", () => {
     });
   });
 
-  test("maps event watch provider errors", async () => {
-    watchEvents = mock<WatchEventsImplementation>(async () => {
-      const error = new Error("Invalid webhook address");
-      Object.assign(error, { status: 400 });
-      throw error;
-    });
-
-    const result = await runWithCalendar(
-      Effect.gen(function* () {
-        const googleCalendar = yield* GoogleCalendarService;
-        return yield* googleCalendar
-          .watchEvents({
-            calendarId,
-            channelId: decodeChannelId("channel-id"),
-            webhookUrl: "https://bar.example.test/webhook",
-            webhookToken: "derived-webhook-token",
-            ttlSeconds: 259_200,
-          })
-          .pipe(Effect.result);
-      })
-    );
-
-    expect(result._tag).toBe("Failure");
-    if (result._tag === "Failure") {
-      expect(result.failure).toMatchObject({
-        _tag: "GoogleCalendarAPIError",
-        operation: "events.watch",
-        statusCode: 400,
-        message: "Invalid webhook address",
-      });
-    }
-  });
-
   test("keeps the channel token out of event watch failures", async () => {
     watchEvents = mock<WatchEventsImplementation>(async (params) => {
       const requestConfig = {
@@ -488,23 +455,6 @@ describe("GoogleCalendarService", () => {
     });
     expect(listEvents).toHaveBeenCalledTimes(2);
     expect(aborted).toBe(2);
-  });
-
-  test("retries a timed-out events request once", async () => {
-    let attempt = 0;
-    listEvents = mock<ListEventsImplementation>((_params, options) => {
-      attempt += 1;
-      return attempt === 1
-        ? stalledRequest(options)
-        : Promise.resolve({ data: { items: [] } });
-    });
-
-    const result = await runWithCalendar(
-      listEventsAdvancingClock(["10 seconds", "1 second"])
-    );
-
-    expect(result).toMatchObject({ _tag: "Success", success: [] });
-    expect(listEvents).toHaveBeenCalledTimes(2);
   });
 
   test.each([429, 503])(

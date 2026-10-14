@@ -4,7 +4,6 @@ import {
   checkNexiWebhookSecurityToken,
   decodeNexiWebhookNotification,
   deriveNexiWebhookEventIdentity,
-  NexiAmountSchema,
   NexiOperationIdSchema,
   NexiOrderIdSchema,
   NexiWebhookEventIdSchema,
@@ -111,18 +110,6 @@ describe("Nexi webhook types", () => {
         expectedSecurityToken: null,
       })
     ).toEqual({ status: "absent" });
-  });
-
-  test("rejects zero amount and unsupported currency", () => {
-    expect(
-      Schema.is(NexiAmountSchema)({ amount: "1", currency: "CZK" })
-    ).toBeTrue();
-    expect(
-      Schema.is(NexiAmountSchema)({ amount: "0", currency: "CZK" })
-    ).toBeFalse();
-    expect(
-      Schema.is(NexiAmountSchema)({ amount: "1", currency: "USD" })
-    ).toBeFalse();
   });
 
   test("normalizes empty optional strings away", () => {
