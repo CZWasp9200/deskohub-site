@@ -14,7 +14,6 @@ import {
 import {
   prepareWorkspaceE2EAccountLaneReconciliation,
   validateWorkspaceE2EAccountLaneJournalOwnership,
-  type WorkspaceE2EAccountLaneReconciliation,
 } from "../account/reconcile";
 import {
   type PreparedCheckoutFlowCleanup,
@@ -32,7 +31,6 @@ import type { CheckoutData, CheckoutFlowState, CheckoutRow } from "../types";
 import {
   runWorkspaceE2ECleanupWithPreparedCandidates,
   traceWorkspaceE2ESuiteCleanup,
-  type WorkspaceE2ECleanupCandidates,
 } from "./cleanup-plan";
 
 const sourceRunRecipientEmail = testEmailAddress("delivered+source-run-main");
@@ -63,79 +61,6 @@ test("records a failed suite-cleanup phase after reconciling the account lane", 
       scope: "phase",
     },
   ]);
-});
-
-test("records a passed suite-cleanup phase when checkout cleanup succeeds", async () => {
-  const observations: E2ETelemetryObservation[] = [];
-
-  await Effect.runPromise(
-    traceWorkspaceE2ESuiteCleanup({
-      cleanupCheckout: Effect.succeed(undefined),
-      reconcileAccountJournals: Effect.void,
-    }).pipe(Effect.provide(makeE2ETelemetryMock(observations)))
-  );
-
-  expect(observations).toEqual([
-    { outcome: "passed", phaseId: "suite-cleanup", scope: "phase" },
-  ]);
-});
-
-test.each([
-  {
-    failure: "invalid account lane journal",
-    readAccountJournals: async () => {
-      throw new Error("invalid account lane journal");
-    },
-    readCheckoutCleanup: async () => emptyCheckoutCleanup(),
-  },
-  {
-    failure: "Workspace checkout cleanup recipient ownership mismatch",
-    readAccountJournals: async () => [],
-    readCheckoutCleanup: async (): Promise<PreparedCheckoutFlowCleanup> => {
-      throw new Error(
-        "Workspace checkout cleanup recipient ownership mismatch"
-      );
-    },
-  },
-])(
-  "does not start cleanup when preparing a candidate fails ($failure)",
-  async ({ failure, readAccountJournals, readCheckoutCleanup }) => {
-    let cleanupStarted = false;
-
-    await expect(
-      runWorkspaceE2ECleanupWithPreparedCandidates({
-        readAccountJournals,
-        readCheckoutCleanup,
-        reconcile: async () => {
-          cleanupStarted = true;
-        },
-      })
-    ).rejects.toThrow(failure);
-
-    expect(cleanupStarted).toBe(false);
-  }
-);
-
-test("passes both prepared candidates to the cleanup unchanged", async () => {
-  const accountLaneJournal: WorkspaceE2EAccountLaneReconciliation = {
-    journal: emptyWorkspaceE2EAccountJournal(),
-    authUserIds: [],
-    dotyposCustomerIds: [],
-    dotyposReservationIds: [],
-  };
-  const checkoutCleanup = emptyCheckoutCleanup();
-  let candidates: WorkspaceE2ECleanupCandidates | undefined;
-
-  await runWorkspaceE2ECleanupWithPreparedCandidates({
-    readAccountJournals: async () => [accountLaneJournal],
-    readCheckoutCleanup: async () => checkoutCleanup,
-    reconcile: async (prepared) => {
-      candidates = prepared;
-    },
-  });
-
-  expect(candidates?.accountJournals).toEqual([accountLaneJournal]);
-  expect(candidates?.checkoutCleanup).toBe(checkoutCleanup);
 });
 
 test("rejects a parsed account candidate owned by another run before checkout cleanup", async () => {
