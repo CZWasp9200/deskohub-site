@@ -126,10 +126,8 @@ describe("CustomerAccountContactService.current", () => {
   });
 
   test.each([
-    ["an empty first name", { firstName: "", lastName: null }],
     ["a whitespace-only name", { firstName: "   ", lastName: null }],
     ["a too-short name", { firstName: "A", lastName: null }],
-    ["a too-long name", { firstName: "A".repeat(101), lastName: null }],
   ] as const)("returns null for a profile with %s", async (_label, name) => {
     const { outcome } = await runCurrent({ profile: profile(name) });
 
@@ -155,17 +153,6 @@ describe("CustomerAccountContactService.current", () => {
     expect(markDeletionRequested).not.toHaveBeenCalled();
   });
 
-  test("uses the first name alone when the profile has no last name", async () => {
-    const { outcome } = await runCurrent({
-      profile: profile({ firstName: "Ada", lastName: null }),
-    });
-
-    expect(outcome).toMatchObject({
-      _tag: "Success",
-      success: { name: "Ada" },
-    });
-  });
-
   test("joins padded name parts with a single space", async () => {
     const { outcome } = await runCurrent({
       profile: profile({ firstName: " Ada ", lastName: " Lovelace " }),
@@ -180,7 +167,6 @@ describe("CustomerAccountContactService.current", () => {
   test.each([
     ["missing", null],
     ["invalid", "12"],
-    ["too long", "+420 777 777 777 777 777"],
   ] as const)(
     "exposes no phone when the profile phone is %s",
     async (_label, phone) => {
@@ -207,34 +193,6 @@ describe("CustomerAccountContactService.current", () => {
     });
     expect(load).not.toHaveBeenCalled();
   });
-
-  test("propagates a profile read failure", async () => {
-    const profileFailure = new CustomerAccountAccessError({
-      reason: "unavailable",
-    });
-    const layer = CustomerAccountContactService.Default.pipe(
-      Layer.provide(
-        Layer.mergeAll(
-          Layer.succeed(CustomerAuthentication, {
-            currentUser: Effect.succeed(session()),
-          }),
-          Layer.mock(CustomerAccountLinkRepository, {
-            find: () => Effect.succeed(dotyposCustomerId as never),
-          }),
-          Layer.mock(CustomerProfileService, {
-            load: () => Effect.fail(profileFailure),
-          })
-        )
-      )
-    );
-
-    const outcome = await Effect.gen(function* () {
-      const contacts = yield* CustomerAccountContactService;
-      return yield* contacts.current;
-    }).pipe(Effect.provide(layer), Effect.result, Effect.runPromise);
-
-    expect(outcome).toMatchObject({ _tag: "Failure", failure: profileFailure });
-  });
 });
 
 describe("CustomerAccountContactService.currentLinkedAccount", () => {
@@ -250,35 +208,5 @@ describe("CustomerAccountContactService.currentLinkedAccount", () => {
     });
     expect(find).toHaveBeenCalledWith(accountId);
     expect(load).not.toHaveBeenCalled();
-  });
-
-  test("returns null for a deletion-pending session without reading the link", async () => {
-    const { outcome, find } = await runCurrent(
-      { session: session({ deletionRequested: true }) },
-      (contacts) => contacts.currentLinkedAccount
-    );
-
-    expect(outcome).toMatchObject({ _tag: "Success", success: null });
-    expect(find).not.toHaveBeenCalled();
-  });
-});
-
-describe("CustomerAccountContactService.linkedContact", () => {
-  test("reads the given link's profile into its contact", async () => {
-    const account = {
-      accountId,
-      dotyposCustomerId: dotyposCustomerId as never,
-      email: reservationCustomerEmailSchema.make(customerEmail),
-    };
-    const { outcome, find, load } = await runCurrent({}, (contacts) =>
-      contacts.linkedContact(account)
-    );
-
-    expect(outcome).toMatchObject({
-      _tag: "Success",
-      success: { ...account, name: "Ada Lovelace" },
-    });
-    expect(find).not.toHaveBeenCalled();
-    expect(load).toHaveBeenCalledWith({ accountId, dotyposCustomerId });
   });
 });

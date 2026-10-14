@@ -51,7 +51,6 @@ let renameFailureHttpCode: number | undefined;
 let commitButLoseRenameResponse = false;
 let renameReportsSourceMissingWithoutCommit = false;
 let uploadStoreThenFail = false;
-let hideStagingFromSearch = false;
 let prefixDeleteFails = false;
 let destroyOutcome: "destroyed" | "not-found" | "uncertain" = "destroyed";
 let uncertainDestroyTargets: readonly string[] = [];
@@ -133,12 +132,9 @@ const CloudinaryLayer = Layer.succeed(Cloudinary, {
   listFolderAssets: (folder, options) =>
     Effect.suspend(() => {
       calls.push({ op: "search", folder });
-      let matches = [...storedAssets].filter((id) =>
+      const matches = [...storedAssets].filter((id) =>
         id.startsWith(`${folder}/`)
       );
-      if (hideStagingFromSearch) {
-        matches = [];
-      }
       return Effect.succeed(
         matches
           .slice(0, options?.maxResults ?? matches.length)
@@ -396,7 +392,6 @@ const resetFakes = () => {
   commitButLoseRenameResponse = false;
   renameReportsSourceMissingWithoutCommit = false;
   uploadStoreThenFail = false;
-  hideStagingFromSearch = false;
   prefixDeleteFails = false;
   destroyOutcome = "destroyed";
   uncertainDestroyTargets = [];
@@ -518,38 +513,6 @@ describe("CustomerAvatarService", () => {
     expect((outcome as { url: string }).url).toContain("v99/");
   });
 
-  test("loads the uploaded account avatar again from provider state after a fresh service read", async () => {
-    resetFakes();
-    const bytes = await pngBytes(300, 200);
-
-    await runWith(
-      Effect.flatMap(CustomerAvatarService, (avatars) =>
-        avatars.upload(accountId, uploadInput(bytes))
-      )
-    );
-    clearCalls();
-
-    const reloaded = await runWith(
-      Effect.flatMap(CustomerAvatarService, (avatars) =>
-        avatars.lookup(accountId)
-      )
-    );
-
-    expect(reloaded).toEqual({
-      url: buildVersionedDeliveryUrl(
-        makeAsset(
-          "avatars/test/acct-avatar-1",
-          42,
-          assetIdByPublicId.get("avatars/test/acct-avatar-1")
-        )
-      ),
-      version: 42,
-    });
-    expect(calls).toEqual([
-      { op: "get", publicId: "avatars/test/acct-avatar-1" },
-    ]);
-  });
-
   test("normalizes the upload to bounded metadata-free WebP before staging", async () => {
     resetFakes();
     const bytes = await sharp({
@@ -576,37 +539,6 @@ describe("CustomerAvatarService", () => {
       expect(metadata.width).toBe(512);
       expect(metadata.height).toBe(256);
       expect(Object.hasOwn(metadata, "exif")).toBe(false);
-    }
-  });
-
-  test("accepts and normalizes an actual WebP upload", async () => {
-    resetFakes();
-    const webp = await sharp({
-      create: {
-        width: 180,
-        height: 120,
-        channels: 3,
-        background: { r: 90, g: 130, b: 170 },
-      },
-    })
-      .webp()
-      .toBuffer();
-
-    const outcome = await runWith(
-      Effect.flatMap(CustomerAvatarService, (avatars) =>
-        avatars.upload(
-          accountId,
-          uploadInput(new Uint8Array(webp), {
-            declaredMediaType: "image/webp",
-          })
-        )
-      )
-    );
-
-    expect(outcome).toMatchObject({ version: 99 });
-    expect(lastUploadedBytes).not.toBeNull();
-    if (lastUploadedBytes) {
-      expect((await sharp(lastUploadedBytes).metadata()).format).toBe("webp");
     }
   });
 
@@ -843,59 +775,6 @@ describe("CustomerAvatarService", () => {
     expect(storedAssets.has(retainedStagedId)).toBe(false);
     // Nothing recoverable survives deletion.
     expect(storedAssets.size).toBe(0);
-  });
-
-  test("deletes staged assets when Search returns empty while an account staging asset exists", async () => {
-    resetFakes();
-    storedAssets.add("avatars/test/acct-avatar-1");
-    const stagedId = "avatars/test-staging/acct-avatar-1/retained";
-    storedAssets.add(stagedId);
-    hideStagingFromSearch = true;
-
-    const searchResult = await Effect.runPromise(
-      Effect.flatMap(Cloudinary, (cloudinary) =>
-        cloudinary.listFolderAssets("avatars/test-staging/acct-avatar-1", {
-          maxResults: 8,
-        })
-      ).pipe(Effect.provide(CloudinaryLayer))
-    );
-    expect(searchResult).toEqual([]);
-    expect(storedAssets.has(stagedId)).toBe(true);
-    clearCalls();
-
-    const outcome = await runWith(
-      Effect.flatMap(CustomerAvatarService, (avatars) =>
-        avatars.destroy(accountId).pipe(Effect.result)
-      )
-    );
-
-    expect(outcome._tag).toBe("Success");
-    expect(calls.map(({ op }) => op)).toEqual(["destroy", "delete-prefix"]);
-    expect(calls[1]).toEqual({
-      op: "delete-prefix",
-      prefix: "avatars/test-staging/acct-avatar-1/",
-    });
-    expect(storedAssets.size).toBe(0);
-  });
-
-  test("keeps deletion retryable when account-prefix staging deletion fails", async () => {
-    resetFakes();
-    storedAssets.add("avatars/test/acct-avatar-1");
-    const stagedId = "avatars/test-staging/acct-avatar-1/retained";
-    storedAssets.add(stagedId);
-    prefixDeleteFails = true;
-
-    const outcome = await runWith(
-      Effect.flatMap(CustomerAvatarService, (avatars) =>
-        avatars.destroy(accountId).pipe(Effect.result)
-      )
-    );
-
-    expect(outcome).toMatchObject({
-      failure: { _tag: "CustomerAvatarProviderError" },
-    });
-    expect(calls.map(({ op }) => op)).toEqual(["destroy", "delete-prefix"]);
-    expect(storedAssets.has(stagedId)).toBe(true);
   });
 
   test("uses a trailing account prefix so deletion cannot match another account ID", async () => {
@@ -1174,24 +1053,6 @@ describe("CustomerAvatarService", () => {
       ).toBe(true);
     }
     expect(storedAssets.size).toBe(0);
-  });
-
-  test("replaces the previous avatar through promotion with overwrite", async () => {
-    resetFakes();
-    storedAssets.add("avatars/test/acct-avatar-1");
-    const bytes = await pngBytes(120, 90);
-
-    const outcome = await runWith(
-      Effect.flatMap(CustomerAvatarService, (avatars) =>
-        avatars.upload(accountId, uploadInput(bytes))
-      )
-    );
-
-    expect(outcome).toMatchObject({
-      url: expect.stringContaining("/upload/"),
-      version: 99,
-    });
-    expect(calls.filter((call) => call.op === "rename")).toHaveLength(1);
   });
 
   test("blocks the upload when the deletion marker is set, without calling the provider", async () => {

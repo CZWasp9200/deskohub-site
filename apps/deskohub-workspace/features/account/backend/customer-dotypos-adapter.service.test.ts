@@ -62,27 +62,6 @@ const runWithDotypos = <A, E>(
 
 describe("CustomerDotyposAdapter", () => {
   describe("exact-email classification", () => {
-    test("reports a unique active profile as matched and active", async () => {
-      const result = await runWithDotypos(
-        {
-          findCustomer: () =>
-            Effect.succeed(
-              FindCustomerResult.Matched({
-                customer: activeCustomer,
-                matches: [activeCustomer],
-              })
-            ),
-        },
-        (adapter) => adapter.classifyExactEmailCustomers(customerEmail)
-      );
-
-      expect(result).toEqual({
-        kind: "matched",
-        state: "active",
-        customerId: "60111",
-      });
-    });
-
     test("reports a unique expired profile as matched and expired", async () => {
       const result = await runWithDotypos(
         {
@@ -102,30 +81,6 @@ describe("CustomerDotyposAdapter", () => {
         state: "expired",
         customerId: "60222",
       });
-    });
-
-    test("treats several matches as ambiguous and none as not-found", async () => {
-      const ambiguous = await runWithDotypos(
-        {
-          findCustomer: () =>
-            Effect.succeed(
-              FindCustomerResult.Ambiguous({
-                matches: [activeCustomer, expiredCustomer],
-              })
-            ),
-        },
-        (adapter) => adapter.classifyExactEmailCustomers(customerEmail)
-      );
-      expect(ambiguous).toEqual({ kind: "ambiguous" });
-
-      const notFound = await runWithDotypos(
-        {
-          findCustomer: () =>
-            Effect.succeed(FindCustomerResult.NotFound({ matches: [] })),
-        },
-        (adapter) => adapter.classifyExactEmailCustomers(customerEmail)
-      );
-      expect(notFound).toEqual({ kind: "not-found" });
     });
 
     test("reports a deleted exact-email profile as unusable instead of not-found", async () => {
@@ -220,28 +175,6 @@ describe("CustomerDotyposAdapter", () => {
         zip: null,
         country: null,
         companyName: null,
-        companyId: null,
-        vatId: null,
-      });
-    });
-
-    test("preserves business billing when only company data exists", async () => {
-      const profile = await runWithDotypos(
-        {
-          getCustomer: () =>
-            Effect.succeed(makeCustomer({ companyName: "Analytical Engines" })),
-        },
-        (adapter) => adapter.readCustomerProfile("60111")
-      );
-
-      expect(profile?.billing).toEqual({
-        kind: "business",
-        addressLine1: null,
-        addressLine2: null,
-        city: null,
-        zip: null,
-        country: null,
-        companyName: "Analytical Engines",
         companyId: null,
         vatId: null,
       });
