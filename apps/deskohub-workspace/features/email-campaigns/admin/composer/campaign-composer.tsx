@@ -104,7 +104,7 @@ export function CampaignComposer({
   initialFields,
   templates,
 }: {
-  readonly adminInbox: string;
+  readonly adminInbox: string | null;
   readonly audiences: readonly AudienceOption[];
   readonly draft: CampaignComposerDraft | undefined;
   readonly initialFields: CampaignComposerFields;

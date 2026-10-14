@@ -1,4 +1,7 @@
+import { Option } from "effect";
 import { isLocale, type Locale, locales } from "@/features/i18n";
+import { type AudienceFilter, audienceSingleLocale } from "./audience-filter";
+import type { CampaignLocalizedContent } from "./body/campaign-content";
 
 /** Locale for recipients without a known or covered preference. */
 export const campaignFallbackLocale: Locale = "cs-CZ";
@@ -26,3 +29,20 @@ export const resolveRecipientLocale = (sources: {
     sources.consentLocale,
   ].find((locale): locale is Locale => locale !== null && isLocale(locale)) ??
   campaignFallbackLocale;
+
+/**
+ * Whether every recipient the audience can reach gets content meant for
+ * them. A recipient in a locale without content gets the Czech fallback, so
+ * the campaign needs Czech content unless the audience is restricted to a
+ * single locale it has content for. A campaign without an audience is
+ * unrestricted.
+ */
+export const campaignContentCoversAudience = (input: {
+  readonly content: CampaignLocalizedContent;
+  readonly audienceFilter: Option.Option<AudienceFilter>;
+}): boolean =>
+  input.content[campaignFallbackLocale] !== undefined ||
+  input.audienceFilter.pipe(
+    Option.flatMapNullishOr(audienceSingleLocale),
+    Option.exists((locale) => input.content[locale] !== undefined)
+  );

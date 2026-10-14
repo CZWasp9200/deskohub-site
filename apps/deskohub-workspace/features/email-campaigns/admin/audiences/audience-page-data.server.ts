@@ -6,13 +6,13 @@ import type { CampaignAudienceRow } from "@/db/schema";
 import type { Locale } from "@/features/i18n";
 import { authorizeAdministratorPage } from "@/shared/administrator/administrator-authorization.server";
 import { runWorkspaceEffect } from "@/shared/backend/workspace-effect";
-import type { AudienceFilter } from "../../audience-filter";
+import {
+  type AudienceFilter,
+  audienceSingleLocale,
+} from "../../audience-filter";
 import { CampaignAudienceService } from "../../backend/campaign-audience.service";
 import type { CampaignAudienceId } from "../../campaign-identifiers";
-import {
-  audienceSingleLocale,
-  describeAudienceFilter,
-} from "../audience-filter-summary";
+import { describeAudienceFilter } from "../audience-filter-summary";
 import { loadDiscountGroupOptions } from "./discount-group-options.server";
 
 /** An audience a campaign can select. */

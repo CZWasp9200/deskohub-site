@@ -1,9 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { AudienceFilter } from "../audience-filter";
-import {
-  audienceSingleLocale,
-  describeAudienceFilter,
-} from "./audience-filter-summary";
+import { describeAudienceFilter } from "./audience-filter-summary";
 
 const and = (...filters: AudienceFilter[]): AudienceFilter => ({
   _tag: "Group",
@@ -16,7 +13,6 @@ const or = (...filters: AudienceFilter[]): AudienceFilter => ({
   filters,
 });
 const czech: AudienceFilter = { _tag: "Locale", locales: ["cs-CZ"] };
-const english: AudienceFilter = { _tag: "Locale", locales: ["en-US"] };
 
 describe("describeAudienceFilter", () => {
   test("describes empty groups", () => {
@@ -112,28 +108,5 @@ describe("describeAudienceFilter", () => {
     expect(describeAudienceFilter(and(czech, or()))).toBe(
       "Customers who speak Czech and match nothing"
     );
-  });
-});
-
-describe("audienceSingleLocale", () => {
-  test("finds a one-locale condition at the root", () => {
-    expect(audienceSingleLocale(english)).toBe("en-US");
-  });
-
-  test("finds a one-locale condition in the root AND group", () => {
-    expect(
-      audienceSingleLocale(and({ _tag: "Account", hasAccount: true }, czech))
-    ).toBe("cs-CZ");
-  });
-
-  test("ignores conditions that allow several locales", () => {
-    expect(
-      audienceSingleLocale({ _tag: "Locale", locales: ["cs-CZ", "en-US"] })
-    ).toBeUndefined();
-  });
-
-  test("ignores a root OR group and nested groups", () => {
-    expect(audienceSingleLocale(or(czech))).toBeUndefined();
-    expect(audienceSingleLocale(and(and(czech)))).toBeUndefined();
   });
 });

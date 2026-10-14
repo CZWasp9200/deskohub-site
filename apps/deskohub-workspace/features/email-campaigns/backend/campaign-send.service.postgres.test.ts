@@ -12,9 +12,11 @@ import { resendSimulatorAddress, testEmailAddress } from "@deskohub/test-email";
 import { NodeCrypto } from "@effect/platform-node";
 import { Cause, Effect, Exit, Layer, Option } from "effect";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
+import type { AudienceFilter } from "../audience-filter";
 import type { CampaignLocalizedContent } from "../body/campaign-content";
 import type { CampaignId } from "../campaign-identifiers";
 import type { CampaignRecipientStatus } from "../campaign-states";
+import { CampaignFallbackContentMissing } from "../errors";
 import { CampaignService } from "./campaign.service";
 import { CampaignAudienceService } from "./campaign-audience.service";
 import { CampaignConfirmationCodeService } from "./campaign-confirmation-code.service";
@@ -26,6 +28,7 @@ import {
   CampaignSendQueueError,
   CampaignSendQueueService,
 } from "./campaign-send-queue.service";
+import { CampaignSendStatusService } from "./campaign-send-status.service";
 import {
   campaignContentFixture,
   everyoneFilter,
@@ -38,21 +41,30 @@ const customerId = (name: string) =>
   DotyposCustomerIdSchema.make(`send-${run}-${name}`);
 const adminInbox = testEmailAddress("campaign-admin");
 
-const bilingualContent: CampaignLocalizedContent = {
-  ...campaignContentFixture(),
-  "en-US": {
-    subject: "News",
-    preheader: "What's new",
-    body: {
-      formatVersion: 1,
-      doc: {
-        type: "doc",
-        content: [
-          { type: "paragraph", content: [{ type: "text", text: "Hi" }] },
-        ],
-      },
+const englishContent: CampaignLocalizedContent["en-US"] = {
+  subject: "News",
+  preheader: "What's new",
+  body: {
+    formatVersion: 1,
+    doc: {
+      type: "doc",
+      content: [{ type: "paragraph", content: [{ type: "text", text: "Hi" }] }],
     },
   },
+};
+
+const englishOnlyContent: CampaignLocalizedContent = {
+  "en-US": englishContent,
+};
+
+const englishOnlyFilter: AudienceFilter = {
+  _tag: "Locale",
+  locales: ["en-US"],
+};
+
+const bilingualContent: CampaignLocalizedContent = {
+  ...campaignContentFixture(),
+  "en-US": englishContent,
 };
 
 describe.skipIf(!testDatabase)(
@@ -92,6 +104,9 @@ describe.skipIf(!testDatabase)(
     const services = Layer.mergeAll(
       CampaignService.Default,
       CampaignAudienceService.Default,
+      CampaignSendStatusService.Default.pipe(
+        Layer.provide(CampaignService.Default)
+      ),
       CampaignSendService.Default.pipe(
         Layer.provide(
           Layer.mergeAll(
@@ -150,7 +165,10 @@ describe.skipIf(!testDatabase)(
       effect: Effect.Effect<
         A,
         E,
-        CampaignSendService | CampaignService | CampaignAudienceService
+        | CampaignSendService
+        | CampaignSendStatusService
+        | CampaignService
+        | CampaignAudienceService
       >
     ) => Effect.runPromiseExit(effect.pipe(Effect.provide(services)));
 
@@ -158,7 +176,10 @@ describe.skipIf(!testDatabase)(
       effect: Effect.Effect<
         A,
         E,
-        CampaignSendService | CampaignService | CampaignAudienceService
+        | CampaignSendService
+        | CampaignSendStatusService
+        | CampaignService
+        | CampaignAudienceService
       >
     ) => {
       const exit = await runExit(effect);
@@ -173,12 +194,16 @@ describe.skipIf(!testDatabase)(
       input: {
         readonly content?: CampaignLocalizedContent;
         readonly withAudience?: boolean;
+        readonly audienceFilter?: AudienceFilter;
       } = {}
     ) => {
       const audience = await runOk(
         CampaignAudienceService.pipe(
           Effect.flatMap((audiences) =>
-            audiences.create({ title: "Everyone", filter: everyoneFilter })
+            audiences.create({
+              title: "Everyone",
+              filter: input.audienceFilter ?? everyoneFilter,
+            })
           )
         )
       );
@@ -229,8 +254,8 @@ describe.skipIf(!testDatabase)(
 
     const sendStatus = (campaignId: CampaignId) =>
       runOk(
-        CampaignSendService.pipe(
-          Effect.flatMap((sends) => sends.getSendStatus({ campaignId }))
+        CampaignSendStatusService.pipe(
+          Effect.flatMap((sendStatus) => sendStatus.get({ campaignId }))
         )
       );
 
@@ -478,6 +503,54 @@ describe.skipIf(!testDatabase)(
         ["pending", 3],
         ["pending", 3],
       ]);
+    });
+
+    test("refuses English-only content when the audience can reach Czech fallback recipients", async () => {
+      const unrestricted = await createDraft({ content: englishOnlyContent });
+      const withoutAudience = await createDraft({
+        content: englishOnlyContent,
+        withAudience: false,
+      });
+
+      for (const campaign of [unrestricted, withoutAudience]) {
+        expect(failure(await testSend(campaign.id))).toBeInstanceOf(
+          CampaignFallbackContentMissing
+        );
+      }
+      expect(sentEmails).toEqual([]);
+    });
+
+    test("checks the current audience before the send consumes the code", async () => {
+      const campaign = await createDraft({
+        content: englishOnlyContent,
+        audienceFilter: englishOnlyFilter,
+      });
+      const updateAudienceFilter = (filter: AudienceFilter) =>
+        runOk(
+          CampaignAudienceService.pipe(
+            Effect.flatMap((audiences) =>
+              audiences.update({ audienceId: campaign.audienceId!, filter })
+            )
+          )
+        );
+
+      expect(Exit.isSuccess(await testSend(campaign.id))).toBe(true);
+      const code = mailedCode();
+      // Audience changes keep the code; the send checks the audience as it
+      // is now.
+      await updateAudienceFilter(everyoneFilter);
+      const refused = await send(campaign.id, code);
+
+      expect(failure(refused)).toBeInstanceOf(CampaignFallbackContentMissing);
+      expect(await storedStatus(campaign.id)).toBe("draft");
+      expect(await sendCount(campaign.id)).toBe(0);
+      expect(enqueued).toEqual([]);
+
+      await updateAudienceFilter(englishOnlyFilter);
+      const sent = await send(campaign.id, code);
+
+      expect(Exit.isSuccess(sent) && sent.value.recipientCount).toBe(2);
+      expect(await storedStatus(campaign.id)).toBe("sending");
     });
   }
 );

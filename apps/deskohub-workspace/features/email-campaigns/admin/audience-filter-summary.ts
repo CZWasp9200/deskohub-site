@@ -87,21 +87,3 @@ export const describeAudienceFilter = (
   }
   return `Customers who ${describeCondition(filter, discountGroups)}`;
 };
-
-/**
- * The single locale every recipient of the audience has, when the filter
- * requires one: a one-locale condition at the root or directly inside the
- * root AND group. Campaign content then needs only that locale.
- */
-export const audienceSingleLocale = (
-  filter: AudienceFilter
-): Locale | undefined => {
-  if (filter._tag === "Group" && filter.operator === "or") return undefined;
-  const conditions = filter._tag === "Group" ? filter.filters : [filter];
-  for (const condition of conditions) {
-    if (condition._tag === "Locale" && condition.locales.length === 1) {
-      return condition.locales[0];
-    }
-  }
-  return undefined;
-};
