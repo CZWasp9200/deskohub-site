@@ -1,10 +1,13 @@
 import { testEmailAddress } from "@deskohub/test-email";
+import { createElement } from "react";
+import { CampaignBodyContent } from "@/features/email-campaigns/body/campaign-body-content";
 import { workspaceSiteConstants } from "@/shared/utils";
 import type { ContactBusinessEmailProps } from "../contact-business";
 import type { ContactConfirmationEmailProps } from "../contact-confirmation";
 import type { CustomerReservationEmailProps } from "../customer-reservation";
 import type { InvoiceDeliveryEmailProps } from "../invoice-delivery";
 import type { ReservationNotificationEmailProps } from "../reservation-notification";
+import type { WorkspaceCampaignEmailProps } from "../workspace-campaign";
 
 const customerEmail = testEmailAddress("customer");
 
@@ -115,3 +118,58 @@ export const invoiceDeliveryPreviewProps = {
   heading: "Your invoice is attached",
   body: "Invoice WS-FV-2026-000003 for order reservation-3 is attached as a PDF.",
 } satisfies InvoiceDeliveryEmailProps;
+
+const text = (value: string) => ({ type: "text", text: value });
+
+const paragraph = (value: string) => ({
+  type: "paragraph",
+  content: [text(value)],
+});
+
+export const workspaceCampaignPreviewProps = {
+  locale: "cs-CZ",
+  preview: "Nové zasedačky a podzimní akce ve Workspace",
+  body: createElement(CampaignBodyContent, {
+    body: {
+      formatVersion: 1,
+      doc: {
+        type: "doc",
+        content: [
+          {
+            type: "heading",
+            attrs: { level: 1 },
+            content: [text("Podzim ve Workspace")],
+          },
+          paragraph(
+            "Otevřeli jsme dvě nové zasedací místnosti a prodloužili otevírací dobu."
+          ),
+          {
+            type: "bulletList",
+            content: [
+              {
+                type: "listItem",
+                content: [paragraph("Zasedačka pro 8 lidí")],
+              },
+              { type: "listItem", content: [paragraph("Otevřeno do 22:00")] },
+            ],
+          },
+          { type: "horizontalRule" },
+          {
+            type: "ctaButton",
+            attrs: {
+              label: "Rezervovat",
+              href: `https://${workspaceSiteConstants.brand.domain}/cs-CZ/meeting-room`,
+            },
+          },
+        ],
+      },
+    },
+  }),
+  footer: {
+    note: "Tento e-mail dostáváte, protože jste souhlasili se zasíláním marketingových sdělení od Deskohub Workspace.",
+    link: {
+      label: "Odhlásit odběr nebo změnit nastavení",
+      href: `https://${workspaceSiteConstants.brand.domain}/cs-CZ/marketing-preferences/access?token=preview`,
+    },
+  },
+} satisfies WorkspaceCampaignEmailProps;

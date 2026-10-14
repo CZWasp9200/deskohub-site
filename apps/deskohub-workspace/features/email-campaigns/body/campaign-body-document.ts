@@ -1,4 +1,5 @@
 import { Schema } from "effect";
+import { campaignBodyIssues } from "./campaign-body-rules";
 
 /**
  * Version of the stored body format. Bump it, and migrate stored bodies, when
@@ -13,6 +14,8 @@ const CampaignBodyAttributeValue = Schema.Union([
   Schema.Null,
 ]);
 
+export type CampaignBodyAttributeValue = typeof CampaignBodyAttributeValue.Type;
+
 const CampaignBodyAttributes = Schema.Record(
   Schema.String,
   CampaignBodyAttributeValue
@@ -20,35 +23,45 @@ const CampaignBodyAttributes = Schema.Record(
 
 const CampaignBodyMark = Schema.Struct({
   type: Schema.String,
-  attrs: Schema.optionalKey(CampaignBodyAttributes),
+  attrs: Schema.optional(CampaignBodyAttributes),
 });
 
 // A type alias, not an interface, so the node stays assignable to JSON types.
 export type CampaignBodyNode = {
   readonly type: string;
-  readonly attrs?: typeof CampaignBodyAttributes.Type;
-  readonly content?: ReadonlyArray<CampaignBodyNode>;
-  readonly marks?: ReadonlyArray<typeof CampaignBodyMark.Type>;
-  readonly text?: string;
+  readonly attrs?: typeof CampaignBodyAttributes.Type | undefined;
+  readonly content?: ReadonlyArray<CampaignBodyNode> | undefined;
+  readonly marks?: ReadonlyArray<typeof CampaignBodyMark.Type> | undefined;
+  readonly text?: string | undefined;
 };
 
-/** A ProseMirror JSON node, as TipTap stores it. */
+/**
+ * A ProseMirror JSON node, as TipTap stores it. TipTap leaves unset optional
+ * fields as `undefined`, which JSON drops.
+ */
 export const CampaignBodyNode: Schema.Codec<CampaignBodyNode> = Schema.Struct({
   type: Schema.String,
-  attrs: Schema.optionalKey(CampaignBodyAttributes),
-  content: Schema.optionalKey(
+  attrs: Schema.optional(CampaignBodyAttributes),
+  content: Schema.optional(
     Schema.Array(
       Schema.suspend((): Schema.Codec<CampaignBodyNode> => CampaignBodyNode)
     )
   ),
-  marks: Schema.optionalKey(Schema.Array(CampaignBodyMark)),
-  text: Schema.optionalKey(Schema.String),
+  marks: Schema.optional(Schema.Array(CampaignBodyMark)),
+  text: Schema.optional(Schema.String),
 });
 
-/** One locale's campaign body: a versioned TipTap document. */
+/**
+ * One locale's campaign body: a versioned TipTap document. Decoding checks the
+ * document against the campaign content set.
+ */
 export const CampaignBodyDocument = Schema.Struct({
   formatVersion: Schema.Literal(campaignBodyFormatVersion),
-  doc: CampaignBodyNode,
+  doc: CampaignBodyNode.check(
+    Schema.makeFilter((doc) =>
+      campaignBodyIssues(doc).map(({ path, issue }) => ({ path, issue }))
+    )
+  ),
 }).annotate({
   identifier: "CampaignBodyDocument",
   description: "A campaign email body stored as versioned TipTap JSON.",

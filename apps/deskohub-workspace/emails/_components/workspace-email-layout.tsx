@@ -15,12 +15,15 @@ export type WorkspaceEmailLocale = "cs-CZ" | "en-US";
 
 type WorkspaceEmailLayoutProps = {
   readonly children: ReactNode;
+  /** Content below the address line, such as a campaign footer. */
+  readonly footer?: ReactNode;
   readonly locale: WorkspaceEmailLocale;
   readonly preview: string;
 };
 
 export function WorkspaceEmailLayout({
   children,
+  footer,
   locale,
   preview,
 }: WorkspaceEmailLayoutProps) {
@@ -68,6 +71,7 @@ export function WorkspaceEmailLayout({
             <Text className="m-0 px-5 pt-5 text-center text-[12px] leading-[18px] text-[#666983]">
               Deskohub Workspace · Turnovská 430/10 · Praha 8
             </Text>
+            {footer}
           </Container>
         </Body>
       </Tailwind>
