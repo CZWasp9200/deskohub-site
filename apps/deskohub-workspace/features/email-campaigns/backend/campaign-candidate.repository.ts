@@ -15,7 +15,10 @@ import {
 } from "@/db/schema";
 import { authUser } from "@/db/schema/auth";
 import type { AdministrationReservationStatusFilter } from "@/features/administration/administration.service";
-import { reservationStatusCondition } from "@/features/administration/reservation-status-condition";
+import {
+  bookedReservationCondition,
+  reservationStatusCondition,
+} from "@/features/administration/reservation-status-condition";
 import type { CampaignPurpose } from "../body/campaign-content";
 
 /** What Workspace stores about one customer it knows. */
@@ -29,8 +32,9 @@ export type CampaignCandidateFacts = {
 };
 
 export type CampaignReservationCustomerQuery = {
+  /** Admin status group; without one, only booked reservations match. */
   readonly status?: AdministrationReservationStatusFilter;
-  /** Booking (Workspace creation) instant bounds; the end is exclusive. */
+  /** Booking (confirmation) instant bounds; the end is exclusive. */
   readonly bookedAtOrAfter?: Temporal.Instant;
   readonly bookedBefore?: Temporal.Instant;
   /** Limits the match to these Dotypos reservations (visit-date filters). */
@@ -49,7 +53,11 @@ export interface ICampaignCandidateRepository {
     readonly CampaignCandidateFacts[],
     EffectDrizzleQueryError
   >;
-  /** Customers with at least one Workspace reservation matching the query. */
+  /**
+   * Customers with at least one Workspace reservation matching the query.
+   * Booking-date bounds apply to the confirmation instant, so reservations
+   * that never confirmed fall outside every booking-date range.
+   */
   readonly listReservationCustomers: (
     query: CampaignReservationCustomerQuery
   ) => Effect.Effect<ReadonlySet<DotyposCustomerId>, EffectDrizzleQueryError>;
@@ -149,11 +157,19 @@ export class CampaignCandidateRepository extends Context.Service<
             .from(workspaceReservations)
             .where(
               and(
-                query.status && reservationStatusCondition(query.status),
+                query.status
+                  ? reservationStatusCondition(query.status)
+                  : bookedReservationCondition,
                 query.bookedAtOrAfter &&
-                  gte(workspaceReservations.createdAt, query.bookedAtOrAfter),
+                  gte(
+                    workspaceReservations.reservationConfirmedAt,
+                    query.bookedAtOrAfter
+                  ),
                 query.bookedBefore &&
-                  lt(workspaceReservations.createdAt, query.bookedBefore),
+                  lt(
+                    workspaceReservations.reservationConfirmedAt,
+                    query.bookedBefore
+                  ),
                 query.dotyposReservationIds &&
                   inArray(workspaceReservations.dotyposReservationId, [
                     ...query.dotyposReservationIds,

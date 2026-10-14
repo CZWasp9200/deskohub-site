@@ -1,5 +1,5 @@
 import { Predicate, Result } from "effect";
-import { clientEnv } from "@/client-env";
+import { getClientEnv } from "@/client-env";
 import { formatError } from "@/shared/utils/error-formatting";
 import type {
   CampaignBodyAttributeValue,
@@ -24,7 +24,10 @@ const isCampaignLinkHref = (
   Predicate.isString(href) &&
   campaignLinkProtocols.has(URL.parse(href)?.protocol ?? "");
 
-/** Images must be delivered from our own Cloudinary account. */
+/**
+ * Images must be delivered from our own Cloudinary account. The account is
+ * read only here, so bodies without images validate without Cloudinary config.
+ */
 const isCampaignImageSource = (
   source: CampaignBodyAttributeValue | undefined
 ): source is string => {
@@ -35,7 +38,7 @@ const isCampaignImageSource = (
     url?.protocol === "https:" &&
     url.hostname === "res.cloudinary.com" &&
     url.pathname.startsWith(
-      `/${clientEnv.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME}/image/`
+      `/${getClientEnv().NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME}/image/`
     )
   );
 };
@@ -70,6 +73,13 @@ const nodeIssues = (
       own.push({
         path: [...path, "attrs", "label"],
         issue: "A button needs a label.",
+      });
+    } else if (String(node.attrs?.label).includes("\r")) {
+      // Markdown turns carriage returns into line breaks, so the label could
+      // not survive a Markdown export.
+      own.push({
+        path: [...path, "attrs", "label"],
+        issue: "A button label must break lines with line feeds only.",
       });
     }
     if (!isCampaignLinkHref(node.attrs?.href)) {

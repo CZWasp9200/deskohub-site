@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "f3758ba9-a0c1-4af2-8ca5-fecceeb801e3",
+  "id": "d051f00c-6f8e-40af-890c-e8ad14ba0cbe",
   "prevIds": [
     "74b5ee93-20d7-4036-a753-7459ea8af8f3"
   ],
@@ -1739,7 +1739,7 @@
       "default": null,
       "generated": null,
       "identity": null,
-      "name": "code",
+      "name": "code_hash",
       "entityType": "columns",
       "schema": "public",
       "table": "email_campaign_confirmation_codes"
@@ -1805,6 +1805,19 @@
       "generated": null,
       "identity": null,
       "name": "confirmed_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "email_campaign_confirmation_codes"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "failed_attempts",
       "entityType": "columns",
       "schema": "public",
       "table": "email_campaign_confirmation_codes"
@@ -7817,7 +7830,7 @@
     {
       "columns": [
         "campaign_id",
-        "code"
+        "code_hash"
       ],
       "nameExplicit": false,
       "name": "email_campaign_confirmation_codes_pkey",
@@ -8576,6 +8589,13 @@
     {
       "value": "\"expires_at\" > \"issued_at\"",
       "name": "email_campaign_confirmation_codes_expiry_check",
+      "entityType": "checks",
+      "schema": "public",
+      "table": "email_campaign_confirmation_codes"
+    },
+    {
+      "value": "\"failed_attempts\" >= 0",
+      "name": "email_campaign_confirmation_codes_failed_attempts_check",
       "entityType": "checks",
       "schema": "public",
       "table": "email_campaign_confirmation_codes"
