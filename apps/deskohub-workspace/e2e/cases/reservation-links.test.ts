@@ -7,7 +7,12 @@ import {
 } from "@/features/checkout/workspace-money";
 import { discountCodeQueryParam } from "@/features/discounts/promotion-code";
 import { m } from "@/features/i18n";
+import {
+  parseReferralCode,
+  referralCodeQueryParam,
+} from "@/features/referrals/client";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
+import { makeUnusableReferralCode } from "../account/referral-fixture";
 import type { CheckoutData } from "../types";
 import {
   getAppliedZeroTotalPaySummaryCondition,
@@ -324,6 +329,7 @@ test.each([
   "message",
   "name",
   "phone",
+  referralCodeQueryParam,
   "startDateTime",
 ] as const)("rejects leaked public query parameter %s", (key: string) => {
   expect(
@@ -334,4 +340,12 @@ test.each([
       "required"
     )
   ).toThrow(`signed pay URL leaked public query parameter ${key}`);
+});
+
+test("makes a fresh well-formed referral code for the unusable link", () => {
+  const first = makeUnusableReferralCode();
+  const second = makeUnusableReferralCode();
+  expect(first).toMatch(/^RFL[0-9A-F]{12}$/);
+  expect(parseReferralCode(first)).toBe(first);
+  expect(second).not.toBe(first);
 });

@@ -7,6 +7,8 @@ import { ProfileForm } from "@/features/account/components/profile-form";
 import { SessionRefresh } from "@/features/account/components/session-refresh";
 import type { CustomerAccountPageState } from "@/features/account/page-data.server";
 import { type Locale, m } from "@/features/i18n";
+import type { ReferralCode } from "@/features/referrals/client";
+import { ForgetRememberedReferralCode } from "@/features/referrals/forget-remembered-referral-code";
 import { Card, CardContent } from "@/shared/components/ui/card";
 
 const cardClassName =
@@ -26,12 +28,16 @@ export function AccountPage({
     return (
       <>
         <SessionRefresh />
+        {state.rememberedReferralCodeUsed && <ForgetRememberedReferralCode />}
         <LinkedAccount
           avatarPresentation={state.avatar}
           email={state.email}
           history={state.history}
           locale={locale}
           profile={state.profile}
+          referrals={state.referrals}
+          referralsEnabled={state.referralsEnabled}
+          signupReferral={state.signupReferral}
         />
       </>
     );
@@ -67,7 +73,14 @@ function renderState(
         </div>
       );
     case "completion-required":
-      return <CompletionCard email={state.email} locale={locale} />;
+      return (
+        <CompletionCard
+          email={state.email}
+          locale={locale}
+          referralCode={state.referralCode}
+          referralsEnabled={state.referralsEnabled}
+        />
+      );
     case "support-required":
       return <SupportRequiredCard email={state.email} locale={locale} />;
     case "deletion-pending":
@@ -99,9 +112,13 @@ function UnavailableCard({ locale }: { readonly locale: Locale }) {
 function CompletionCard({
   email,
   locale,
+  referralCode,
+  referralsEnabled,
 }: {
   readonly email: string;
   readonly locale: Locale;
+  readonly referralCode?: ReferralCode;
+  readonly referralsEnabled: boolean;
 }) {
   return (
     <div className="grid items-start gap-6">
@@ -114,7 +131,13 @@ function CompletionCard({
             {m.accountCompletionBody({}, { locale })}
           </p>
           <div className="mt-8">
-            <ProfileForm mode="complete" locale={locale} email={email} />
+            <ProfileForm
+              email={email}
+              locale={locale}
+              mode="complete"
+              referralCode={referralCode}
+              referralsEnabled={referralsEnabled}
+            />
           </div>
         </CardContent>
       </Card>

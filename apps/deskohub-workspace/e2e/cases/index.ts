@@ -11,9 +11,14 @@ import {
   selectCoworkDates,
 } from "../checkout/data";
 import type { DatasourceConfig, WorkspaceE2EConfig } from "../config";
-import { toWorkspaceE2EError, type WorkspaceE2EError } from "../errors";
+import {
+  toWorkspaceE2EError,
+  type WorkspaceE2EError,
+  workspaceE2EError,
+} from "../errors";
 import { discountCodeFixtures } from "../integrations/discount-fixtures";
 import type { E2EDotyposDiscountGroup } from "../integrations/dotypos";
+import { planWorkspaceE2EReferralCases } from "../referrals/plan";
 import type { Runner } from "../runtime";
 import { log } from "../runtime";
 import { E2ETelemetryService } from "../services/telemetry";
@@ -29,6 +34,7 @@ import {
   type DiscountAvailabilityE2EPreparation,
   makeDiscountE2ECases,
 } from "./discounts";
+import { planGuestReferralPaymentCase } from "./guest-referral-payment";
 import {
   executeLatePaymentRecovery,
   latePaymentRecoveryScenarios,
@@ -308,6 +314,15 @@ export const makeWorkspaceE2ECases = ({
         });
       }
 
+      const referralPlan = yield* planWorkspaceE2EReferralCases({
+        allocation,
+        availableBasicDates: discountPreparation.availableBasicDates,
+        config,
+        excludedDates: new Set(checkoutDates),
+        trackCheckoutState: (data) => trackCheckoutState(flowStates, data),
+      });
+      cases.push(...referralPlan.cases);
+
       cases.push(
         ...(yield* makeMeetingRoomE2ECases({
           config,
@@ -343,11 +358,20 @@ export const makeWorkspaceE2ECases = ({
           allocation,
           config,
           datasourceConfig,
-          excludedDates: new Set(checkoutDates),
+          excludedDates: new Set([...checkoutDates, ...referralPlan.dates]),
           flowStates,
           preparation: discountPreparation,
           run,
         }))
+      );
+
+      cases.push(
+        yield* planGuestReferralPaymentCase({
+          allocation,
+          availableBasicDates: discountPreparation.availableBasicDates,
+          config,
+          flowStates,
+        })
       );
 
       return cases;

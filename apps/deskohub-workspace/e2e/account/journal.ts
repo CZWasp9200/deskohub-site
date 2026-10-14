@@ -2,20 +2,37 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { workspaceDir } from "../runtime";
 
+// Referral-lane owners are checkout case IDs, so these journals keep their own
+// directory: sharing the checkout case journals' `<case id>.json` names let
+// each kind overwrite the other.
 const journalRoot = resolve(
   workspaceDir,
   "e2e-artifacts",
   "checkout",
-  "cleanup-journals"
+  "account-journals"
 );
-const laneJournalPath = resolve(journalRoot, "account-lane.json");
 const formatVersion = 1;
-const workspaceE2EAccountLaneId = "account-lane";
+export const workspaceE2EAccountLaneId = "account-lane";
 
 /**
- * Ownership unit for the serial account lane: every synthetic provider and
- * identity row the lane created is journaled here by exact ID as soon as it
- * exists, so the suite cleanup reconciles the lane even after an interrupted
+ * The owner of one account identity journal: the serial account lane, or one
+ * referral-lane case whose synthetic identities never cross into another case.
+ */
+export type WorkspaceE2EAccountJournalOwnerId = string;
+
+const ownerIdPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+const journalPath = (ownerId: WorkspaceE2EAccountJournalOwnerId) => {
+  if (!ownerIdPattern.test(ownerId)) {
+    throw new Error("Invalid workspace E2E account journal owner");
+  }
+  return resolve(journalRoot, `${ownerId}.json`);
+};
+
+/**
+ * Ownership unit for synthetic account identities: every synthetic provider
+ * and identity row the owner created is journaled here by exact ID as soon as
+ * it exists, so the suite cleanup reconciles it even after an interrupted
  * case. The journal never contains recipients, message bodies, URLs,
  * tokens, or cookies.
  */
@@ -27,40 +44,83 @@ export type WorkspaceE2EAccountJournal = {
   readonly dotyposCustomerIds: readonly string[];
   /** Exact synthetic Dotypos reservations; finalizers cancel and converge. */
   readonly dotyposReservationIds: readonly string[];
-  readonly laneId: typeof workspaceE2EAccountLaneId;
+  readonly laneId: WorkspaceE2EAccountJournalOwnerId;
   readonly startedAt: string;
   readonly version: typeof formatVersion;
 };
 
-export const emptyWorkspaceE2EAccountJournal =
-  (): WorkspaceE2EAccountJournal => ({
-    authUserIds: [],
-    completed: false,
-    dotyposCustomerIds: [],
-    dotyposReservationIds: [],
-    laneId: workspaceE2EAccountLaneId,
-    startedAt: new Date().toISOString(),
-    version: formatVersion,
-  });
+export const emptyWorkspaceE2EAccountJournal = (
+  ownerId: WorkspaceE2EAccountJournalOwnerId = workspaceE2EAccountLaneId
+): WorkspaceE2EAccountJournal => ({
+  authUserIds: [],
+  completed: false,
+  dotyposCustomerIds: [],
+  dotyposReservationIds: [],
+  laneId: ownerId,
+  startedAt: new Date().toISOString(),
+  version: formatVersion,
+});
 
 export const writeWorkspaceE2EAccountJournal = async (
   journal: WorkspaceE2EAccountJournal
 ) => {
   await mkdir(journalRoot, { recursive: true });
-  const temporaryPath = `${laneJournalPath}.${process.pid}.${crypto.randomUUID()}.tmp`;
+  const path = journalPath(journal.laneId);
+  const temporaryPath = `${path}.${process.pid}.${crypto.randomUUID()}.tmp`;
   await writeFile(temporaryPath, `${JSON.stringify(journal, null, 2)}\n`, {
     encoding: "utf8",
     mode: 0o600,
   });
-  await rename(temporaryPath, laneJournalPath);
+  await rename(temporaryPath, path);
 };
 
-export const readWorkspaceE2EAccountJournal = async (): Promise<
-  WorkspaceE2EAccountJournal | undefined
-> => {
+type WorkspaceE2EAccountJournalIds = Pick<
+  WorkspaceE2EAccountJournal,
+  "authUserIds" | "dotyposCustomerIds" | "dotyposReservationIds"
+>;
+
+/**
+ * Accumulates one owner's exact IDs and persists the whole journal after every
+ * addition, so an interrupted case still leaves every row it created behind
+ * for suite cleanup.
+ */
+export const makeWorkspaceE2EAccountJournalRecorder = (
+  ownerId: WorkspaceE2EAccountJournalOwnerId
+) => {
+  let journal = emptyWorkspaceE2EAccountJournal(ownerId);
+  const merge = (
+    existing: readonly string[],
+    added: readonly string[] = []
+  ) => [...new Set([...existing, ...added])];
+  return {
+    get journal(): WorkspaceE2EAccountJournal {
+      return journal;
+    },
+    record: async (update: Partial<WorkspaceE2EAccountJournalIds>) => {
+      journal = {
+        ...journal,
+        authUserIds: merge(journal.authUserIds, update.authUserIds),
+        dotyposCustomerIds: merge(
+          journal.dotyposCustomerIds,
+          update.dotyposCustomerIds
+        ),
+        dotyposReservationIds: merge(
+          journal.dotyposReservationIds,
+          update.dotyposReservationIds
+        ),
+      };
+      await writeWorkspaceE2EAccountJournal(journal);
+    },
+  };
+};
+
+export const readWorkspaceE2EAccountJournal = async (
+  ownerId: WorkspaceE2EAccountJournalOwnerId = workspaceE2EAccountLaneId
+): Promise<WorkspaceE2EAccountJournal | undefined> => {
   try {
     return parseWorkspaceE2EAccountJournal(
-      await readFile(laneJournalPath, "utf8")
+      await readFile(journalPath(ownerId), "utf8"),
+      ownerId
     );
   } catch (cause) {
     if (cause instanceof Error && "code" in cause && cause.code === "ENOENT") {
@@ -71,20 +131,21 @@ export const readWorkspaceE2EAccountJournal = async (): Promise<
 };
 
 export const parseWorkspaceE2EAccountJournal = (
-  serialized: string
+  serialized: string,
+  ownerId: WorkspaceE2EAccountJournalOwnerId = workspaceE2EAccountLaneId
 ): WorkspaceE2EAccountJournal => {
   const value: unknown = JSON.parse(serialized);
   if (
     !isRecord(value) ||
     value.version !== formatVersion ||
-    value.laneId !== workspaceE2EAccountLaneId ||
+    value.laneId !== ownerId ||
     typeof value.startedAt !== "string" ||
     typeof value.completed !== "boolean" ||
     !isStringArray(value.authUserIds) ||
     !isStringArray(value.dotyposCustomerIds) ||
     !isStringArray(value.dotyposReservationIds)
   ) {
-    throw new Error("Invalid workspace E2E account lane journal");
+    throw new Error("Invalid workspace E2E account journal");
   }
   return {
     authUserIds: value.authUserIds,

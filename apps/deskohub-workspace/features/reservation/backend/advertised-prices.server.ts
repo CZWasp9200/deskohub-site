@@ -1,6 +1,6 @@
 import "server-only";
 
-import { Effect, Exit } from "effect";
+import { Effect, Exit, Layer } from "effect";
 import {
   type AdvertisedPriceRequest,
   advertisedPriceRequestEquals,
@@ -9,6 +9,7 @@ import {
 import { buildAdvertisedPrice } from "@/features/checkout/backend/checkout/advertised-price.server";
 import { CheckoutPricingService } from "@/features/checkout/backend/checkout/checkout-pricing.service";
 import { OfficeReservationFeatureFlagRenderLayer } from "@/features/office/backend/office-reservation-feature-flag.server";
+import { ReferralFeatureFlagRequest } from "@/features/referrals/referral-feature-flag.server";
 import { pagePreload } from "./page-preload";
 
 export const loadAdvertisedPrices = Effect.fn(
@@ -56,7 +57,11 @@ export const preloadPageAdvertisedPrices = (
   requests: ReadonlyArray<AdvertisedPriceRequest>
 ) =>
   loadAdvertisedPrices(requests).pipe(
-    Effect.provide(CheckoutPricingService.Live),
+    Effect.provide(
+      CheckoutPricingService.Live.pipe(
+        Layer.provideMerge(ReferralFeatureFlagRequest)
+      )
+    ),
     Effect.scoped,
     pagePreload("advertised prices")
   );

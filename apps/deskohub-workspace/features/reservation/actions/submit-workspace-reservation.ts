@@ -1,6 +1,11 @@
 import { Effect, Match } from "effect";
 import { CheckoutService } from "@/features/checkout/backend/checkout";
+import { isBookerReferralSettled } from "@/features/checkout/backend/checkout/booker-referral-settlement";
 import { m } from "@/features/i18n";
+import {
+  forgetRememberedReferralCode,
+  readRememberedReferralCode,
+} from "@/features/referrals/remembered-referral-code.server";
 import type { SubmitReservationInput } from "@/features/reservation/actions/submit-reservation-input";
 import {
   createReservationAccessCookieCapability,
@@ -12,6 +17,26 @@ import { WorkspaceTableUnavailableError } from "@/features/reservation/backend/w
 import { getReservationAvailabilityUnavailableMessage } from "@/features/reservation/reservation.i18n";
 import { BotProtectionService } from "@/shared/backend/bot-protection/bot-protection.service";
 import { PublicSafeActionError } from "@/shared/utils/safe-action-client";
+
+/**
+ * A paid order records any carried referral, and the booker's first paid
+ * order closes their referral window, so the browser's remembered code is of
+ * no further use once the booker's own referral is settled. Booking for
+ * someone else keeps it. The payment already succeeded, so a failure here is
+ * only logged.
+ */
+const forgetUsedReferralCode = Effect.gen(function* () {
+  const rememberedCode = yield* readRememberedReferralCode;
+  if (!rememberedCode) return;
+  if (!(yield* isBookerReferralSettled({ paid: true }))) return;
+  yield* Effect.tryPromise(() => forgetRememberedReferralCode());
+}).pipe(
+  Effect.catch((cause) =>
+    Effect.logWarning("Remembered referral code could not be forgotten", {
+      cause,
+    })
+  )
+);
 
 export const submitWorkspaceReservation = Effect.fn(
   "submitWorkspaceReservation"
@@ -49,6 +74,7 @@ export const submitWorkspaceReservation = Effect.fn(
         locale,
       });
       yield* cookieWriter.write({ orderId, capability });
+      if (checkout.paid) yield* forgetUsedReferralCode;
     }
 
     yield* Effect.logInfo("Workspace checkout started");

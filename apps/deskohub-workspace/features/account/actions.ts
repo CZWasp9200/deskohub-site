@@ -9,6 +9,7 @@ import { WorkspaceDatabase } from "@/db/database.service";
 import {
   accountActionError,
   requireAccountsEnabled,
+  requireReferralsEnabled,
   requireVerifiedSession,
 } from "@/features/account/account-action-guards";
 import type { AresBusinessBillingDraft } from "@/features/account/backend/ares-business-draft";
@@ -19,22 +20,43 @@ import { CustomerAccountResolver } from "@/features/account/backend/customer-acc
 import { CustomerAuthentication } from "@/features/account/backend/customer-authentication.service";
 import { saveAccountLocalePreference } from "@/features/account/backend/customer-locale-preference";
 import { CustomerProfileService } from "@/features/account/backend/customer-profile.service";
+import { completeNewCustomerProfile } from "@/features/account/backend/profile-completion";
+import { isRememberedReferralCodeUsed } from "@/features/account/backend/remembered-referral-code";
+import { acknowledgeSignupReferral } from "@/features/account/backend/signup-referral";
 import {
   type CustomerProfileInput,
+  completeCustomerProfileStandardSchema,
   updateCustomerProfileStandardSchema,
 } from "@/features/account/contracts";
-import type { CustomerAccountId } from "@/features/account/customer-account";
-import { CustomerAccountAccessError } from "@/features/account/customer-account";
+import {
+  CustomerAccountAccessError,
+  type CustomerAccountId,
+  type LinkedCustomerAccount,
+  mapCustomerAccountFailure,
+} from "@/features/account/customer-account";
 import { getAccountPath } from "@/features/account/routes";
 import type { Locale } from "@/features/i18n";
 import { locales, m } from "@/features/i18n";
 import { localeCookieName } from "@/features/i18n/routing";
+import { ReferralService } from "@/features/referrals";
+import { ReferralFeatureFlagRequest } from "@/features/referrals/referral-feature-flag.server";
+import { ReferralFeatureFlagService } from "@/features/referrals/referral-feature-flag.service";
+import {
+  forgetRememberedReferralCode,
+  readRememberedReferralCode,
+} from "@/features/referrals/remembered-referral-code.server";
+import { ReferralSignupIntentRepository } from "@/features/referrals/signup-intent.repository";
 import { defineWorkspaceAction } from "@/shared/backend/workspace-action";
 
 const deleteCustomerAccountConfirmedSchema = Schema.toStandardSchemaV1(
   Schema.Struct({ confirmed: Schema.Literal(true) }),
   { parseOptions: { errors: "all", onExcessProperty: "error" } }
 );
+
+type ProfileCompletionReferral = {
+  readonly code: string | undefined;
+  readonly prefilledCode: string | undefined;
+};
 
 /**
  * The selectable locale preferences, derived from the Inlang `locales` tuple
@@ -52,10 +74,15 @@ const localePreferenceSchema = Schema.toStandardSchemaV1(
  * updates it. Both paths run under the authoritative session, re-check the
  * deletion marker under the account lock, and never accept an email: the
  * profile input has no email field and the verified login email is read only
- * from the session.
+ * from the session. A referral code counts only when this save creates the
+ * customer; an already-linked account ignores it.
  */
 const saveCustomerProfile = Effect.fn(
-  function* (input: CustomerProfileInput, _locale: Locale) {
+  function* (
+    input: CustomerProfileInput,
+    referral: ProfileCompletionReferral | undefined,
+    _locale: Locale
+  ) {
     const user = yield* requireVerifiedSession;
     const resolution = yield* CustomerAccountResolver.pipe(
       Effect.flatMap((resolver) => resolver.resolve),
@@ -63,9 +90,10 @@ const saveCustomerProfile = Effect.fn(
     );
 
     if (Result.isSuccess(resolution)) {
-      return yield* Effect.flatMap(CustomerProfileService, (profile) =>
+      yield* Effect.flatMap(CustomerProfileService, (profile) =>
         profile.update(resolution.success, input)
       );
+      return { status: "saved", account: resolution.success } as const;
     }
 
     const failure = resolution.failure;
@@ -73,24 +101,51 @@ const saveCustomerProfile = Effect.fn(
       failure.reason === "link-required" &&
       failure.linkReason === "not-found"
     ) {
-      return yield* Effect.flatMap(CustomerProfileService, (profile) =>
-        profile.create(user.accountId, user.email, input)
+      return yield* completeNewCustomerProfile(
+        user,
+        input,
+        referral ?? { code: undefined, prefilledCode: undefined }
       );
     }
     return yield* failure;
   },
-  (effect, _input, locale) =>
+  (effect, _input, _referral, locale) =>
     effect.pipe(
       Effect.mapError(accountActionError(locale)),
       Effect.provide(
         Layer.mergeAll(
           CustomerAuthentication.Default,
           CustomerAccountResolver.Live,
-          CustomerProfileService.Live
+          CustomerProfileService.Live,
+          ReferralService.Live,
+          ReferralSignupIntentRepository.Live
         )
       )
     )
 );
+
+/**
+ * Forgets the referral code this browser remembers once the customer's
+ * referral is settled, whether by this completion or earlier. The completion
+ * field, not the remembered code, decides which code this save records. A
+ * withheld referral program neither checks nor forgets the code.
+ */
+const forgetUsedRememberedReferralCode = (account: LinkedCustomerAccount) =>
+  readRememberedReferralCode.pipe(
+    // Forgetting is best effort; an unreadable cookie keeps the code.
+    Effect.orElseSucceed(() => undefined),
+    Effect.flatMap((rememberedCode) =>
+      isRememberedReferralCodeUsed(rememberedCode, account)
+    ),
+    Effect.flatMap((used) =>
+      used ? Effect.promise(forgetRememberedReferralCode) : Effect.void
+    ),
+    Effect.when(
+      Effect.flatMap(ReferralFeatureFlagService, (flag) => flag.isEnabled)
+    ),
+    Effect.asVoid,
+    Effect.provide(ReferralService.Live)
+  );
 
 /**
  * Saves the locale preference of the verified account under
@@ -119,16 +174,26 @@ const saveLocalePreference = (accountId: CustomerAccountId, locale: Locale) =>
 const completeCustomerProfileAction = defineWorkspaceAction(
   {
     operation: "account.complete-profile",
-    schema: updateCustomerProfileStandardSchema,
+    schema: completeCustomerProfileStandardSchema,
     logInput: false,
   },
-  (input, { locale }) =>
-    Effect.andThen(
-      requireAccountsEnabled(locale),
-      Effect.as(saveCustomerProfile(input, locale), {
-        status: "completed" as const,
-      })
-    )
+  Effect.fn(function* (
+    { referralCode, prefilledReferralCode, ...input },
+    { locale }
+  ) {
+    yield* requireAccountsEnabled(locale);
+    const outcome = yield* saveCustomerProfile(
+      input,
+      { code: referralCode, prefilledCode: prefilledReferralCode },
+      locale
+    );
+    if (outcome.status === "referral-code-unavailable") return outcome;
+
+    yield* forgetUsedRememberedReferralCode(outcome.account);
+    return outcome.status === "completed" && outcome.referral
+      ? { status: "completed" as const, referral: outcome.referral }
+      : { status: "completed" as const };
+  }, Effect.provide(ReferralFeatureFlagRequest))
 );
 
 const updateCustomerProfileAction = defineWorkspaceAction(
@@ -140,10 +205,53 @@ const updateCustomerProfileAction = defineWorkspaceAction(
   (input, { locale }) =>
     Effect.andThen(
       requireAccountsEnabled(locale),
-      Effect.as(saveCustomerProfile(input, locale), {
+      Effect.as(saveCustomerProfile(input, undefined, locale), {
         status: "updated" as const,
       })
-    )
+    ).pipe(Effect.provide(ReferralFeatureFlagRequest))
+);
+
+const acknowledgeSignupReferralNoticeSchema = Schema.toStandardSchemaV1(
+  Schema.Struct({}),
+  { parseOptions: { errors: "all", onExcessProperty: "error" } }
+);
+
+/**
+ * Hides the settled outcome of the referral code entered at profile
+ * completion. The notice shows from stored state until this runs. A withheld
+ * referral program shows no notice and leaves the stored outcome untouched.
+ */
+const acknowledgeSignupReferralNoticeAction = defineWorkspaceAction(
+  {
+    operation: "account.acknowledge-signup-referral",
+    schema: acknowledgeSignupReferralNoticeSchema,
+    logInput: false,
+  },
+  (_input, { locale }) =>
+    Effect.andThen(
+      Effect.andThen(
+        requireAccountsEnabled(locale),
+        requireReferralsEnabled(locale)
+      ),
+      CustomerAccountResolver.pipe(
+        Effect.flatMap((resolver) => resolver.resolve),
+        Effect.flatMap((account) =>
+          acknowledgeSignupReferral(account).pipe(
+            Effect.mapError(
+              mapCustomerAccountFailure("referral.signup-acknowledge")
+            )
+          )
+        ),
+        Effect.as({ status: "acknowledged" as const }),
+        Effect.mapError(accountActionError(locale)),
+        Effect.provide(
+          Layer.mergeAll(
+            CustomerAccountResolver.Live,
+            ReferralSignupIntentRepository.Live
+          )
+        )
+      )
+    ).pipe(Effect.provide(ReferralFeatureFlagRequest))
 );
 
 const updateLocalePreferenceAction = defineWorkspaceAction(
@@ -359,3 +467,9 @@ export const deleteCustomerAccount: typeof deleteCustomerAccountAction = async (
   "use server";
   return await deleteCustomerAccountAction(...args);
 };
+
+export const acknowledgeSignupReferralNotice: typeof acknowledgeSignupReferralNoticeAction =
+  async (...args: Parameters<typeof acknowledgeSignupReferralNoticeAction>) => {
+    "use server";
+    return await acknowledgeSignupReferralNoticeAction(...args);
+  };

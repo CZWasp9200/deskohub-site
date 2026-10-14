@@ -5,7 +5,10 @@
 - `CustomerAccountResolver` is the replaceable identity-to-customer capability
   for authenticated route composition and provider-independent tests.
   `resolveCurrentCustomerAccount` is its Live-wired page convenience. Both
-  return only `CustomerAccountId` and `DotyposCustomerId`.
+  return only `CustomerAccountId` and `DotyposCustomerId`; the convenience
+  adds `autoLinked`, true only when this resolution claimed the link to an
+  existing exact-email customer, which the account page uses to record a
+  remembered referral. Keep other callers on `resolve`.
 - Require the authoritative current session and a verified email, then resolve
   in this order:
   1. An existing durable link wins.
@@ -17,7 +20,9 @@
   5. Ambiguous, deleted, unusable, or already-claimed profiles return the
      common support state.
 - Claim links through database uniqueness and conflict rereads, so same-account
-  races converge and a customer claimed by another account is rejected.
+  races converge and a customer claimed by another account is rejected. Only
+  the call that inserted a link reports `created`. A signup referral passed to
+  the claim is written in the link's transaction (referrals skill).
 - Never create a Dotypos customer from auth data alone; it needs the profile
   completion input.
 
@@ -56,6 +61,10 @@
   session. The `/account` client redirect stays only for direct or stale
   navigations.
 - Use one magic-link form for sign-in and implicit sign-up.
+- Pass a section withheld by a release flag (Referrals behind `referrals`) to
+  `AccountShell` as `hiddenSections`: it leaves both navigations, and its
+  `?section=` falls back like an unknown section. The static loading skeleton
+  renders before any flag is known, so it never shows a flagged section.
 
 ## Profile
 

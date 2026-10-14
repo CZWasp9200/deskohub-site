@@ -21,6 +21,14 @@ export type AccountReviewTarget =
   | "sign-in-handoff-desktop"
   | "linked-reservations-desktop"
   | "linked-reservations-mobile"
+  | "linked-referrals-desktop"
+  | "linked-referrals-mobile"
+  | "linked-referrals-cs-desktop"
+  | "linked-referrals-cs-mobile"
+  | "referral-overview-positive-desktop"
+  | "referral-overview-positive-mobile"
+  | "referral-overview-positive-cs-desktop"
+  | "referral-overview-positive-cs-mobile"
   | "linked-profile-desktop"
   | "linked-profile-language-desktop"
   | "linked-profile-language-desktop-cs"
@@ -100,6 +108,46 @@ const accountReviewTargetMetadata = {
   "linked-reservations-mobile": {
     filename: "linked-reservations-mobile.png",
     path: "/en-US/account",
+    viewport: { height: 900, width: 375 },
+  },
+  "linked-referrals-desktop": {
+    filename: "linked-referrals-desktop.png",
+    path: "/en-US/account",
+    viewport: { height: 1000, width: 1440 },
+  },
+  "linked-referrals-mobile": {
+    filename: "linked-referrals-mobile.png",
+    path: "/en-US/account",
+    viewport: { height: 900, width: 375 },
+  },
+  "linked-referrals-cs-desktop": {
+    filename: "linked-referrals-cs-desktop.png",
+    path: "/cs-CZ/account",
+    viewport: { height: 1000, width: 1440 },
+  },
+  "linked-referrals-cs-mobile": {
+    filename: "linked-referrals-cs-mobile.png",
+    path: "/cs-CZ/account",
+    viewport: { height: 900, width: 375 },
+  },
+  "referral-overview-positive-desktop": {
+    filename: "referral-overview-positive-desktop.png",
+    path: "/en-US/account",
+    viewport: { height: 1000, width: 1440 },
+  },
+  "referral-overview-positive-mobile": {
+    filename: "referral-overview-positive-mobile.png",
+    path: "/en-US/account",
+    viewport: { height: 900, width: 375 },
+  },
+  "referral-overview-positive-cs-desktop": {
+    filename: "referral-overview-positive-cs-desktop.png",
+    path: "/cs-CZ/account",
+    viewport: { height: 1000, width: 1440 },
+  },
+  "referral-overview-positive-cs-mobile": {
+    filename: "referral-overview-positive-cs-mobile.png",
+    path: "/cs-CZ/account",
     viewport: { height: 900, width: 375 },
   },
   "linked-profile-desktop": {
@@ -290,14 +338,33 @@ const callbackLoadingSelector =
   '[data-slot="auth-callback-loading"][role="status"][aria-busy="true"]';
 const privateLinkedAccountSections = [
   "reservations",
+  "referrals",
   "profile",
   "billing",
   "danger",
 ] as const;
+const referralReviewTargets = new Set<ReviewTarget>([
+  "linked-referrals-desktop",
+  "linked-referrals-mobile",
+  "linked-referrals-cs-desktop",
+  "linked-referrals-cs-mobile",
+  "referral-overview-positive-desktop",
+  "referral-overview-positive-mobile",
+  "referral-overview-positive-cs-desktop",
+  "referral-overview-positive-cs-mobile",
+]);
 
 const isPrivateLinkedAccountTarget = (target: ReviewTarget): boolean =>
   target === "linked-reservations-desktop" ||
   target === "linked-reservations-mobile" ||
+  target === "linked-referrals-desktop" ||
+  target === "linked-referrals-mobile" ||
+  target === "linked-referrals-cs-desktop" ||
+  target === "linked-referrals-cs-mobile" ||
+  target === "referral-overview-positive-desktop" ||
+  target === "referral-overview-positive-mobile" ||
+  target === "referral-overview-positive-cs-desktop" ||
+  target === "referral-overview-positive-cs-mobile" ||
   target === "linked-profile-desktop" ||
   target === "linked-profile-language-desktop" ||
   target === "linked-profile-language-desktop-cs" ||
@@ -438,6 +505,15 @@ const captureAccountReviewPixels = async (
       page.screenshot({
         animations: "disabled",
         fullPage: metadata.fullPage ?? true,
+        ...(referralReviewTargets.has(target)
+          ? {
+              mask: [
+                page.locator(
+                  '[data-screen="referrals-screen"] code, [data-screen="referrals-screen"] a[href*="ref="]'
+                ),
+              ],
+            }
+          : {}),
         timeout: screenshotTimeout,
       }),
     deadline,

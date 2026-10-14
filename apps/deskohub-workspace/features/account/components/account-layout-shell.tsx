@@ -12,6 +12,7 @@ import {
 } from "react";
 import { getAccountScreenCopy } from "@/features/account/components/account-screen-copy";
 import {
+  type AccountNavigationBadge,
   type AccountSection,
   AccountShell,
 } from "@/features/account/components/shell/account-shell";
@@ -23,6 +24,8 @@ import { useConfirmDiscardChanges } from "@/shared/components/unsaved-changes-gu
 export type AccountLayoutShellProps = {
   readonly accountsEnabled: boolean;
   readonly locale: Locale;
+  /** Whether the referral program is released; withheld, it has no section. */
+  readonly referralsEnabled: boolean;
   readonly signedIn: boolean;
   readonly children: ReactNode;
 };
@@ -32,6 +35,9 @@ export type AccountLayoutContextValue = {
   readonly activeSection: AccountSection;
   readonly changeSection: (section: AccountSection) => void;
   readonly setReservationCount: (count: number | undefined) => void;
+  readonly setReferralBadge: (
+    badge: AccountNavigationBadge | undefined
+  ) => void;
 };
 
 const AccountLayoutContext = createContext<AccountLayoutContextValue | null>(
@@ -40,13 +46,21 @@ const AccountLayoutContext = createContext<AccountLayoutContextValue | null>(
 
 const anonymousDisabledSections = [
   "reservations",
+  "referrals",
   "profile",
   "billing",
   "danger",
 ] as const;
 
-function sectionFromQuery(value: string | null): AccountSection {
+const withheldReferralSections = ["referrals"] as const;
+
+function sectionFromQuery(
+  value: string | null,
+  referralsEnabled: boolean
+): AccountSection | undefined {
   switch (value) {
+    case "referrals":
+      return referralsEnabled ? value : undefined;
     case "reservations":
     case "profile":
     case "billing":
@@ -54,7 +68,7 @@ function sectionFromQuery(value: string | null): AccountSection {
     case "danger":
       return value;
     default:
-      return "reservations";
+      return undefined;
   }
 }
 
@@ -90,6 +104,7 @@ export function AccountLayoutShell({
   accountsEnabled,
   children,
   locale,
+  referralsEnabled,
   signedIn,
 }: AccountLayoutShellProps) {
   const pathname = usePathname();
@@ -103,9 +118,9 @@ export function AccountLayoutShell({
     normalizedPathname?.endsWith("/account/legal") ?? false;
   const isDeletedPathname =
     normalizedPathname?.endsWith("/account/deleted") ?? false;
-  const routeSection = isLegalPathname
-    ? "legal"
-    : sectionFromQuery(requestedSection);
+  let routeSection =
+    sectionFromQuery(requestedSection, referralsEnabled) ?? "reservations";
+  if (isLegalPathname) routeSection = "legal";
   const routeKey = `${normalizedPathname ?? ""}|${requestedSection ?? ""}`;
   const [localNavigation, setLocalNavigation] = useState(() => ({
     activeSection: routeSection,
@@ -113,6 +128,9 @@ export function AccountLayoutShell({
   }));
   const [reservationCount, setReservationCountState] = useState<
     number | undefined
+  >();
+  const [referralBadge, setReferralBadge] = useState<
+    AccountNavigationBadge | undefined
   >();
   if (localNavigation.routeKey !== routeKey) {
     setLocalNavigation({ activeSection: routeSection, routeKey });
@@ -132,6 +150,7 @@ export function AccountLayoutShell({
       }
 
       if (!privateNavigationEnabled) return;
+      if (section === "referrals" && !referralsEnabled) return;
       if (isLegalPathname) {
         if (!confirmDiscardChanges()) return;
         router.push(`/${locale}/account?section=${section}`);
@@ -145,6 +164,7 @@ export function AccountLayoutShell({
       isLegalPathname,
       locale,
       privateNavigationEnabled,
+      referralsEnabled,
       routeKey,
       router,
     ]
@@ -162,6 +182,7 @@ export function AccountLayoutShell({
       activeSection,
       changeSection,
       setReservationCount,
+      setReferralBadge,
     }),
     [accountsEnabled, activeSection, changeSection, setReservationCount]
   );
@@ -178,8 +199,10 @@ export function AccountLayoutShell({
       disabledSections={
         privateNavigationEnabled ? undefined : anonymousDisabledSections
       }
+      hiddenSections={referralsEnabled ? undefined : withheldReferralSections}
       labels={copy.shell}
       onSectionChange={changeSection}
+      referralBadge={referralsEnabled ? referralBadge : undefined}
       reservationCount={reservationCount}
       signOut={signedIn ? <SignOutButton locale={locale} /> : null}
       sidebarFooter={<AccountHelp locale={locale} />}

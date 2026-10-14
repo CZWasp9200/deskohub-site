@@ -38,6 +38,7 @@ export type PreparedCoworkPayState = PayStateSubmittedCodeMetadata & {
   readonly reservation: NormalizedCoworkReservationOrder;
   readonly quote: CoworkReservationQuote;
   readonly requestedDiscountCode?: CanonicalPromotionCode;
+  readonly referralCode?: CanonicalPromotionCode;
 };
 
 export const prepareCoworkAdvertisement = Effect.fn(

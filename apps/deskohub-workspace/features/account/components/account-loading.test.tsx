@@ -22,7 +22,7 @@ const sectionKeys = [
   "danger",
 ] as const;
 
-type AccountSectionKey = (typeof sectionKeys)[number];
+type AccountSectionKey = (typeof sectionKeys)[number] | "referrals";
 
 type LoadingCopy = {
   readonly accountTitle: string;
@@ -48,6 +48,7 @@ const localizedLoadingCopy: readonly LoadingCopy[] = [
       danger: "Danger zone",
       legal: "Legal & Privacy",
       profile: "Profile & Identity",
+      referrals: "Referrals",
       reservations: "Reservations",
     },
     signOut: "Sign out",
@@ -64,6 +65,7 @@ const localizedLoadingCopy: readonly LoadingCopy[] = [
       danger: "Nebezpečná zóna",
       legal: "Právní informace a soukromí",
       profile: "Profil a identita",
+      referrals: "Doporučení",
       reservations: "Rezervace",
     },
     signOut: "Odhlásit se",
@@ -78,6 +80,7 @@ const shellLabels: AccountShellProps["labels"] = {
     danger: "Danger zone",
     legal: "Legal & Privacy",
     profile: "Profile & Identity",
+    referrals: "Referrals",
     reservations: "Reservations",
   },
 };
@@ -165,7 +168,7 @@ describe("AccountLoading", () => {
   });
 
   test.each(localizedLoadingCopy)(
-    "renders the localized account frame and disabled navigation for $locale",
+    "renders the localized account frame and disabled navigation without the referral section for $locale",
     (copy) => {
       const view = render(<AccountLoading locale={copy.locale} />);
       const status = view.getByRole("status", { name: copy.metadataTitle });
@@ -198,8 +201,9 @@ describe("AccountLoading", () => {
         }
       }
 
+      expect(navigation.textContent).not.toContain(copy.sections.referrals);
       const buttons = Array.from(view.container.querySelectorAll("button"));
-      expect(buttons).toHaveLength(11);
+      expect(buttons).toHaveLength(sectionKeys.length * 2 + 1);
       expect(buttons.every((button) => button.disabled)).toBe(true);
       expect(view.getByRole("button", { name: copy.signOut })).toHaveProperty(
         "disabled",

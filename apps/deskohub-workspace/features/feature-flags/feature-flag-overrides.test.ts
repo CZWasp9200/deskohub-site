@@ -16,11 +16,18 @@ describe("resolveFeatureFlagOverrides", () => {
     expect(warn).not.toHaveBeenCalled();
   });
 
+  test("honors the referrals override, which the generated contract knows", () => {
+    expect(
+      resolveFeatureFlagOverrides({ referrals: true, discount_codes: true })
+    ).toEqual({ referrals: true, discount_codes: true });
+    expect(warn).not.toHaveBeenCalled();
+  });
+
   test("drops keys missing from the generated contract and names only the keys", () => {
     expect(
       resolveFeatureFlagOverrides({
         discount_codes: true,
-        referrals: false,
+        loyalty_points: false,
         seasonal_menu: true,
       })
     ).toEqual({ discount_codes: true });
@@ -28,7 +35,7 @@ describe("resolveFeatureFlagOverrides", () => {
 
     const [message] = warn.mock.calls[0] ?? [];
     expect(message).toBe(
-      "Ignoring PostHog feature flag overrides for keys missing from the generated contract: referrals, seasonal_menu"
+      "Ignoring PostHog feature flag overrides for keys missing from the generated contract: loyalty_points, seasonal_menu"
     );
     expect(String(message)).not.toContain("false");
     expect(String(message)).not.toContain("true");
@@ -50,7 +57,9 @@ describe("resolveFeatureFlagOverrides", () => {
   });
 
   test("resolves a map of only unknown keys to no overrides", () => {
-    expect(resolveFeatureFlagOverrides({ referrals: true })).toBeUndefined();
+    expect(
+      resolveFeatureFlagOverrides({ loyalty_points: true })
+    ).toBeUndefined();
     expect(warn).toHaveBeenCalledTimes(1);
   });
 });

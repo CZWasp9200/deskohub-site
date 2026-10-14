@@ -64,6 +64,9 @@ const updateCustomerProfile = mock((input: CustomerProfileInput) => {
 let legalScreenMountCount = 0;
 
 mock.module("@/features/account/actions", () => ({
+  acknowledgeSignupReferralNotice: mock(() =>
+    Promise.resolve({ data: { status: "acknowledged" } })
+  ),
   updateLocalePreference: () => Promise.resolve({ data: { status: "saved" } }),
   lookupAresBusiness: () =>
     Promise.resolve({ data: { status: "not-found", message: "" } }),
@@ -112,6 +115,10 @@ mock.module("@/features/account/components/legal/legal-screen", () => ({
       </>
     );
   },
+}));
+
+mock.module("@/features/account/components/referral-screen", () => ({
+  ReferralScreen: () => <div data-testid="referral-screen-mock" />,
 }));
 
 mock.module("@/shared/utils/use-workspace-action", () => ({
@@ -211,7 +218,12 @@ const { AccountLayoutShell, useAccountLayout } = await import(
 
 function withAccountLayout(children: React.ReactNode) {
   return (
-    <AccountLayoutShell accountsEnabled locale="en-US" signedIn>
+    <AccountLayoutShell
+      accountsEnabled
+      locale="en-US"
+      referralsEnabled
+      signedIn
+    >
       {children}
     </AccountLayoutShell>
   );
@@ -253,6 +265,7 @@ describe("LinkedAccount", () => {
     const view = render(
       withAccountLayout(
         <LinkedAccount
+          referralsEnabled
           avatarPresentation={hiddenAvatarPresentation}
           email={adaAddress}
           history={history}
@@ -345,6 +358,7 @@ describe("LinkedAccount", () => {
     const view = render(
       withAccountLayout(
         <LinkedAccount
+          referralsEnabled
           avatarPresentation={hiddenAvatarPresentation}
           email={adaAddress}
           history={history}
@@ -368,6 +382,52 @@ describe("LinkedAccount", () => {
     ).toBeNull();
   });
 
+  test("publishes the rounded-up referral discount as a navigation badge, hidden at 0%", async () => {
+    const { LinkedAccount } = await import("./linked-account");
+    const { parseReferralCode } = await import("@/features/referrals/client");
+    const code = parseReferralCode("RFL12345");
+    if (code === undefined) throw new Error("Invalid referral test code");
+    const referralsWith = (discount: string) => ({
+      summary: {
+        code,
+        inviteeCount: 5,
+        eligibleInviteeCount: discount === "0" ? 0 : 3,
+        discount,
+        savings: [],
+      },
+      shareUrl: "https://workspace.example/account?ref=RFL12345",
+    });
+    const renderLinked = (discount: string) =>
+      withAccountLayout(
+        <LinkedAccount
+          referralsEnabled
+          avatarPresentation={hiddenAvatarPresentation}
+          email={adaAddress}
+          history={history}
+          locale="en-US"
+          profile={profile}
+          referrals={referralsWith(discount)}
+        />
+      );
+    const referralBadge = () =>
+      getDesktopSectionNavigation(view)
+        .getByRole("button", {
+          name: new RegExp(`^${m.accountSectionReferrals({}, { locale })}`),
+        })
+        .querySelector("span.ml-auto");
+    const view = render(renderLinked("14.2625"));
+
+    expect(referralBadge()?.textContent).toBe("-15%15% referral discount");
+
+    view.rerender(renderLinked("0"));
+    expect(referralBadge()).toBeNull();
+
+    view.rerender(renderLinked("5"));
+    expect(referralBadge()?.textContent).toBe("-5%5% referral discount");
+    view.rerender(withAccountLayout(<p>Legal content</p>));
+    expect(referralBadge()).toBeNull();
+  });
+
   test("mounts legal only for the active section, including the legacy query", async () => {
     const { LinkedAccount } = await import("./linked-account");
 
@@ -383,6 +443,7 @@ describe("LinkedAccount", () => {
       const view = render(
         withAccountLayout(
           <LinkedAccount
+            referralsEnabled
             avatarPresentation={hiddenAvatarPresentation}
             email={adaAddress}
             history={history}
@@ -402,6 +463,7 @@ describe("LinkedAccount", () => {
     render(
       withAccountLayout(
         <LinkedAccount
+          referralsEnabled
           avatarPresentation={hiddenAvatarPresentation}
           email={adaAddress}
           history={history}
@@ -430,6 +492,7 @@ describe("LinkedAccount", () => {
       const privateAccount = (
         <div data-testid="cached-private-account">
           <LinkedAccount
+            referralsEnabled
             avatarPresentation={hiddenAvatarPresentation}
             email={adaAddress}
             history={history}
@@ -501,6 +564,7 @@ describe("LinkedAccount", () => {
         <UnsavedChangesProvider>
           {withAccountLayout(
             <LinkedAccount
+              referralsEnabled
               avatarPresentation={hiddenAvatarPresentation}
               email={adaAddress}
               history={history}
@@ -568,6 +632,7 @@ describe("LinkedAccount", () => {
       <UnsavedChangesProvider>
         {withAccountLayout(
           <LinkedAccount
+            referralsEnabled
             avatarPresentation={hiddenAvatarPresentation}
             email={adaAddress}
             history={history}
@@ -637,6 +702,7 @@ describe("LinkedAccount", () => {
       const view = render(
         withAccountLayout(
           <LinkedAccount
+            referralsEnabled
             avatarPresentation={hiddenAvatarPresentation}
             email={adaAddress}
             history={history}
@@ -655,6 +721,62 @@ describe("LinkedAccount", () => {
     }
   );
 
+  test("shows no referral screen, badge, or completion notice while the program is withheld", async () => {
+    workspaceUseSearchParams.mockReturnValue(
+      new URLSearchParams("section=referrals")
+    );
+    const { LinkedAccount } = await import("./linked-account");
+    const { parseReferralCode } = await import("@/features/referrals/client");
+    const code = parseReferralCode("RFL12345");
+    if (code === undefined) throw new Error("Invalid referral test code");
+    const view = render(
+      <AccountLayoutShell
+        accountsEnabled
+        locale="en-US"
+        referralsEnabled={false}
+        signedIn
+      >
+        <LinkedAccount
+          avatarPresentation={hiddenAvatarPresentation}
+          email={adaAddress}
+          history={history}
+          locale="en-US"
+          profile={profile}
+          referrals={{
+            summary: {
+              code,
+              inviteeCount: 5,
+              eligibleInviteeCount: 3,
+              discount: "14.2625",
+              savings: [],
+            },
+            shareUrl: "https://workspace.example/account?ref=RFL12345",
+          }}
+          referralsEnabled={false}
+          signupReferral={{ status: "applied" }}
+        />
+      </AccountLayoutShell>
+    );
+
+    expect(view.queryByTestId("referral-screen-mock")).toBeNull();
+    expect(view.queryByText(/-15%/)).toBeNull();
+    expect(
+      view.queryByRole("button", {
+        name: m.accountProfileReferralNoticeDismiss({}, { locale }),
+      })
+    ).toBeNull();
+    expect(
+      getDesktopSectionNavigation(view).queryByRole("button", {
+        name: new RegExp(`^${m.accountSectionReferrals({}, { locale })}`),
+      })
+    ).toBeNull();
+    expect(
+      getDesktopSectionNavigation(view)
+        .getByRole("button", { name: sectionLabels.reservations })
+        .getAttribute("aria-current")
+    ).toBe("page");
+  });
+
   test("falls back to reservations for an invalid section query", async () => {
     workspaceUseSearchParams.mockReturnValue(
       new URLSearchParams("section=not-a-section")
@@ -663,6 +785,7 @@ describe("LinkedAccount", () => {
     const view = render(
       withAccountLayout(
         <LinkedAccount
+          referralsEnabled
           avatarPresentation={hiddenAvatarPresentation}
           email={adaAddress}
           history={history}
@@ -694,6 +817,7 @@ describe("LinkedAccount", () => {
         <UnsavedChangesProvider>
           {withAccountLayout(
             <LinkedAccount
+              referralsEnabled
               avatarPresentation={hiddenAvatarPresentation}
               email={adaAddress}
               history={history}

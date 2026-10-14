@@ -8,14 +8,13 @@ import {
   test,
 } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
-import {
-  act,
-  cleanup,
-  fireEvent,
-  render,
-  within,
-} from "@testing-library/react";
+import { useState } from "react";
+import type { CustomerProfileInput } from "@/features/account/contracts";
 import { type Locale, m } from "@/features/i18n";
+import {
+  formatReferralInvitationDiscount,
+  parseReferralCode,
+} from "@/features/referrals/client";
 import {
   workspaceRouterPush,
   workspaceRouterRefresh,
@@ -29,6 +28,11 @@ import {
 } from "@/shared/testing/workspace-component-test-env";
 import type { CustomerAccountPageState } from "../page-data.server";
 
+registerWorkspaceComponentTestEnv();
+const { act, cleanup, fireEvent, render, waitFor, within } = await import(
+  "@testing-library/react"
+);
+
 const adaAddress = testEmailAddress("ada");
 
 const signInMagicLink = mock(() => Promise.resolve({ error: null }));
@@ -36,6 +40,13 @@ const getSession = mock(() => Promise.resolve({ data: null, error: null }));
 const beginAnalyticsAccountTransition = mock(() => undefined);
 const completeAnalyticsAccountSignOut = mock(() => undefined);
 const refreshAnalyticsAccountIdentity = mock(() => Promise.resolve());
+const acknowledgeSignupReferralNotice = mock(() =>
+  Promise.resolve({ data: { status: "acknowledged" } } as never)
+);
+const completeCustomerProfile = mock((_input: CustomerProfileInput) =>
+  Promise.resolve({ data: { status: "completed" } })
+);
+const executedWorkspaceActionNames: string[] = [];
 mock.module("@/features/account/analytics-identity", () => ({
   beginAnalyticsAccountTransition,
   completeAnalyticsAccountSignOut,
@@ -56,19 +67,49 @@ mock.module("next/navigation", () => ({
   useSearchParams: workspaceUseSearchParams,
 }));
 mock.module("@/shared/utils/use-workspace-action", () => ({
-  useWorkspaceAction: () => ({
-    execute: () => undefined,
-    isExecuting: false,
-    result: {},
-    reset: () => undefined,
-  }),
+  useWorkspaceAction: (
+    action: (input: never) => Promise<unknown>,
+    options?: {
+      readonly actionName?: string;
+      readonly onSuccess?: (args: { readonly data?: unknown }) => void;
+    }
+  ) => {
+    const [result, setResult] = useState<{
+      readonly data?: unknown;
+      readonly serverError?: string;
+      readonly validationErrors?: unknown;
+    }>({});
+    const [isExecuting, setExecuting] = useState(false);
+    return {
+      result,
+      isExecuting,
+      execute: (input: never) => {
+        if (options?.actionName !== undefined) {
+          executedWorkspaceActionNames.push(options.actionName);
+        }
+        setExecuting(true);
+        void action(input).then((outcome) => {
+          setExecuting(false);
+          const nextResult = outcome as {
+            readonly data?: unknown;
+            readonly serverError?: string;
+            readonly validationErrors?: unknown;
+          };
+          setResult(nextResult);
+          if (!nextResult.serverError && !nextResult.validationErrors) {
+            options?.onSuccess?.({ data: nextResult.data });
+          }
+        });
+      },
+      reset: () => setResult({}),
+    };
+  },
 }));
-
 mock.module("@/features/account/actions", () => ({
+  acknowledgeSignupReferralNotice,
   lookupAresBusiness: () =>
     Promise.resolve({ data: { status: "not-found", message: "" } }),
-  completeCustomerProfile: () =>
-    Promise.resolve({ data: { status: "completed" } }),
+  completeCustomerProfile,
   updateCustomerProfile: () => Promise.resolve({ data: { status: "updated" } }),
   updateLocalePreference: () => Promise.resolve({ data: { status: "saved" } }),
   deleteCustomerAccount: () => Promise.resolve({ data: { status: "deleted" } }),
@@ -159,6 +200,7 @@ const linkedState = {
     groups: { current: [], past: [], unavailable: [] },
   },
   avatar: { kind: "hidden" },
+  referralsEnabled: true,
 } as const;
 
 describe("AccountPage states", () => {
@@ -169,7 +211,10 @@ describe("AccountPage states", () => {
 
   afterEach(() => {
     cleanup();
+    completeCustomerProfile.mockClear();
+    executedWorkspaceActionNames.length = 0;
     workspaceRouterRefresh.mockClear();
+    workspaceRouterRefresh.mockImplementation(() => undefined);
     workspaceRouterReplace.mockClear();
     beginAnalyticsAccountTransition.mockClear();
     completeAnalyticsAccountSignOut.mockClear();
@@ -198,7 +243,12 @@ describe("AccountPage states", () => {
     const signedIn =
       state.kind !== "unauthenticated" && state.kind !== "unavailable";
     const view = render(
-      <AccountLayoutShell accountsEnabled locale={locale} signedIn={signedIn}>
+      <AccountLayoutShell
+        accountsEnabled
+        locale={locale}
+        referralsEnabled
+        signedIn={signedIn}
+      >
         <AccountPage locale={locale} state={state} />
       </AccountLayoutShell>
     );
@@ -220,6 +270,7 @@ describe("AccountPage states", () => {
   test("asks for profile completion with the read-only verified email", async () => {
     const view = await renderState({
       kind: "completion-required",
+      referralsEnabled: true,
       email: adaAddress,
     });
 
@@ -280,6 +331,310 @@ describe("AccountPage states", () => {
     );
     expect(view.getByText(m.accountBillingDetailsTitle({}, en))).toBeTruthy();
     expect(view.getByText(m.accountProfileSave({}, en))).toBeTruthy();
+  });
+
+  test("submits the remembered referral code with completion and shows its outcome after the refresh", async () => {
+    completeCustomerProfile.mockImplementationOnce(() =>
+      Promise.resolve({
+        data: { status: "completed", referral: { status: "applied" } },
+      } as never)
+    );
+    const referralCode = parseReferralCode("RFL12345");
+    if (referralCode === undefined) throw new Error("invalid referral code");
+    let refreshLinkedAccount!: () => void;
+    function ProfileCompletionRefreshJourney() {
+      const [state, setState] = useState<CustomerAccountPageState>({
+        kind: "completion-required",
+        referralsEnabled: true,
+        email: adaAddress,
+        referralCode,
+      });
+      refreshLinkedAccount = () =>
+        setState({ ...linkedState, signupReferral: { status: "applied" } });
+
+      return (
+        <AccountLayoutShell accountsEnabled locale="en-US" signedIn>
+          <AccountPage locale="en-US" state={state} />
+        </AccountLayoutShell>
+      );
+    }
+
+    const { AccountLayoutShell } = await import("./account-layout-shell");
+    const { AccountPage } = await import("./account-page");
+    workspaceRouterRefresh.mockImplementation(() => refreshLinkedAccount());
+    const view = render(<ProfileCompletionRefreshJourney />);
+    const field = view.container.querySelector(
+      "#profile-referral-code"
+    ) as HTMLInputElement;
+    expect(field.value).toBe("RFL12345");
+
+    fireEvent.change(
+      view.getByLabelText(m.accountProfileFirstNameLabel({}, en)),
+      { target: { value: "Ada" } }
+    );
+    await act(async () => {
+      fireEvent.submit(view.container.querySelector("#account-profile-form")!);
+    });
+
+    await waitFor(() => {
+      expect(completeCustomerProfile).toHaveBeenCalledWith({
+        firstName: "Ada",
+        referralCode: "RFL12345",
+        prefilledReferralCode: "RFL12345",
+      });
+      expect(workspaceRouterRefresh).toHaveBeenCalledTimes(1);
+    });
+    await waitFor(() => {
+      expect(
+        view.container.querySelector('[data-screen="referrals-screen"]')
+      ).toBeTruthy();
+    });
+    expect(
+      view.getByText(
+        m.accountProfileReferralApplied(
+          { discount: formatReferralInvitationDiscount(en.locale) },
+          en
+        )
+      )
+    ).toBeTruthy();
+    expect(view.container.querySelector("#profile-referral-code")).toBeNull();
+    expect(view.queryByRole("button", { name: /accept/i })).toBeNull();
+  });
+
+  test("supersedes pending completion feedback when the refresh settles the stored code", async () => {
+    completeCustomerProfile.mockImplementationOnce(() =>
+      Promise.resolve({
+        data: { status: "completed", referral: { status: "pending" } },
+      } as never)
+    );
+    let refreshLinkedAccount!: () => void;
+    function PendingCompletionJourney() {
+      const [state, setState] = useState<CustomerAccountPageState>({
+        kind: "completion-required",
+        referralsEnabled: true,
+        email: adaAddress,
+      });
+      refreshLinkedAccount = () =>
+        setState((current) =>
+          current.kind === "linked"
+            ? linkedState
+            : { ...linkedState, signupReferral: { status: "applied" } }
+        );
+
+      return (
+        <AccountLayoutShell accountsEnabled locale="en-US" signedIn>
+          <AccountPage locale="en-US" state={state} />
+        </AccountLayoutShell>
+      );
+    }
+
+    const { AccountLayoutShell } = await import("./account-layout-shell");
+    const { AccountPage } = await import("./account-page");
+    workspaceRouterRefresh.mockImplementation(() => refreshLinkedAccount());
+    const view = render(<PendingCompletionJourney />);
+    fireEvent.change(
+      view.getByLabelText(m.accountProfileFirstNameLabel({}, en)),
+      { target: { value: "Ada" } }
+    );
+    fireEvent.change(view.container.querySelector("#profile-referral-code")!, {
+      target: { value: "RFLTYPED1" },
+    });
+    await act(async () => {
+      fireEvent.submit(view.container.querySelector("#account-profile-form")!);
+    });
+
+    await waitFor(() => {
+      expect(
+        view.container.querySelector('[data-screen="referrals-screen"]')
+      ).toBeTruthy();
+    });
+    expect(
+      view.getByText(
+        m.accountProfileReferralApplied(
+          { discount: formatReferralInvitationDiscount(en.locale) },
+          en
+        )
+      )
+    ).toBeTruthy();
+    expect(
+      view.queryByText(m.accountProfileReferralPending({}, en))
+    ).toBeNull();
+
+    // A later refresh with no stored outcome (it was acknowledged) never
+    // brings back the completion's pending feedback.
+    await act(async () => {
+      refreshLinkedAccount();
+    });
+    expect(
+      view.queryByText(m.accountProfileReferralPending({}, en))
+    ).toBeNull();
+    expect(view.getByRole("status").textContent).toBe("");
+  });
+
+  test.each([
+    [
+      "applied",
+      { status: "applied" },
+      () =>
+        m.accountProfileReferralApplied(
+          { discount: formatReferralInvitationDiscount(en.locale) },
+          en
+        ),
+    ],
+    [
+      "rejected",
+      { status: "not-applied", reason: "not-eligible" },
+      () => m.accountProfileReferralNotEligible({}, en),
+    ],
+  ] as const)(
+    "shows a stored code settled as %s from server state, and nothing once acknowledged",
+    async (_name, signupReferral, message) => {
+      const settlingVisit = await renderState({
+        ...linkedState,
+        signupReferral,
+      });
+      expect(settlingVisit.getByText(message())).toBeTruthy();
+      settlingVisit.unmount();
+
+      const freshVisit = await renderState(linkedState);
+      expect(freshVisit.queryByText(message())).toBeNull();
+      expect(freshVisit.getByRole("status").textContent).toBe("");
+    }
+  );
+
+  test("forgets the remembered referral code only on a linked visit that used it", async () => {
+    const { referralCodeCookieName } = await import(
+      "@/features/referrals/referral-code-cookie"
+    );
+    const rememberedCookie = `${referralCodeCookieName}=RFL12345`;
+    const originalUrl = window.location.href;
+    window.happyDOM.setURL("https://deskohub.test/en-US/account");
+    try {
+      // biome-ignore lint/suspicious/noDocumentCookie: The browser test needs to remember a code synchronously.
+      document.cookie = `${rememberedCookie}; Path=/`;
+
+      const openVisit = await renderState(linkedState);
+      await act(async () => undefined);
+      expect(document.cookie).toContain(rememberedCookie);
+      openVisit.unmount();
+
+      await renderState({ ...linkedState, rememberedReferralCodeUsed: true });
+      await act(async () => undefined);
+      expect(document.cookie).not.toContain(referralCodeCookieName);
+    } finally {
+      // biome-ignore lint/suspicious/noDocumentCookie: The browser test needs to clear the code synchronously.
+      document.cookie = `${referralCodeCookieName}=; Path=/; Max-Age=0`;
+      window.happyDOM.setURL(originalUrl);
+    }
+  });
+
+  test.each([
+    [
+      "applied",
+      { status: "applied" },
+      () =>
+        m.accountProfileReferralApplied(
+          { discount: formatReferralInvitationDiscount(en.locale) },
+          en
+        ),
+    ],
+    [
+      "rejected",
+      { status: "not-applied", reason: "not-eligible" },
+      () => m.accountProfileReferralNotEligible({}, en),
+    ],
+  ] as const)(
+    "never revives pending feedback on a mounted notice after the code settles as %s",
+    async (_name, settled, message) => {
+      const { AccountLayoutShell } = await import("./account-layout-shell");
+      const { AccountPage } = await import("./account-page");
+      const page = (state: CustomerAccountPageState) => (
+        <AccountLayoutShell accountsEnabled locale="en-US" signedIn>
+          <AccountPage locale="en-US" state={state} />
+        </AccountLayoutShell>
+      );
+      const pendingMessage = m.accountProfileReferralPending({}, en);
+      const view = render(
+        page({ ...linkedState, signupReferral: { status: "pending" } })
+      );
+      expect(view.getByText(pendingMessage)).toBeTruthy();
+      expect(
+        view.queryByRole("button", {
+          name: m.accountProfileReferralNoticeDismiss({}, en),
+        })
+      ).toBeNull();
+
+      view.rerender(page({ ...linkedState, signupReferral: settled }));
+      expect(view.getByText(message())).toBeTruthy();
+
+      // A later refresh, such as after an avatar change, still loads the
+      // stored outcome.
+      view.rerender(page({ ...linkedState, signupReferral: settled }));
+      expect(view.getByText(message())).toBeTruthy();
+      expect(view.queryByText(pendingMessage)).toBeNull();
+
+      // Once acknowledged, a refresh carries no outcome and nothing returns.
+      view.rerender(page(linkedState));
+      expect(view.queryByText(message())).toBeNull();
+      expect(view.queryByText(pendingMessage)).toBeNull();
+    }
+  );
+
+  test("dismisses a settled outcome through the account and reloads its state", async () => {
+    acknowledgeSignupReferralNotice.mockClear();
+    workspaceRouterRefresh.mockClear();
+    const view = await renderState({
+      ...linkedState,
+      signupReferral: { status: "not-applied", reason: "already-referred" },
+    });
+
+    await act(async () => {
+      fireEvent.click(
+        view.getByRole("button", {
+          name: m.accountProfileReferralNoticeDismiss({}, en),
+        })
+      );
+    });
+
+    await waitFor(() => {
+      expect(acknowledgeSignupReferralNotice).toHaveBeenCalledWith({});
+      expect(workspaceRouterRefresh).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  test("leaves the completion referral field empty without a usable code", async () => {
+    const view = await renderState({
+      kind: "completion-required",
+      referralsEnabled: true,
+      email: adaAddress,
+    });
+
+    const field = view.container.querySelector(
+      "#profile-referral-code"
+    ) as HTMLInputElement;
+    expect(field.value).toBe("");
+    expect(
+      view.queryByText(m.accountProfileReferralCodeUnavailable({}, en))
+    ).toBeNull();
+  });
+
+  test("offers no completion referral field while the program is withheld", async () => {
+    const view = await renderState({
+      kind: "completion-required",
+      referralsEnabled: false,
+      email: adaAddress,
+    });
+
+    expect(
+      view.getByRole("heading", {
+        level: 2,
+        name: m.accountCompletionTitle({}, en),
+      })
+    ).toBeTruthy();
+    expect(view.container.querySelector("#profile-referral-code")).toBeNull();
+    expect(
+      view.queryByText(m.accountProfileReferralCodeLabel({}, en))
+    ).toBeNull();
   });
 
   test("renders the support state with the contact destination and no profile data", async () => {

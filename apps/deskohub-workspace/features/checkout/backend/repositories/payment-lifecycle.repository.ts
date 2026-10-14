@@ -7,7 +7,7 @@ import type {
   NexiOrderId,
   NexiWebhookEventId,
 } from "@deskohub/nexi";
-import { and, count, eq, inArray, sql } from "drizzle-orm";
+import { and, count, eq, inArray, ne, sql } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Data, Effect, Layer, Match, Option, Schema } from "effect";
 import type { SqlError } from "effect/unstable/sql/SqlError";
@@ -26,6 +26,8 @@ import {
   paymentAttempts,
   promotionCodeCustomers,
   promotionCodes,
+  referralAttributions,
+  referralInvitationClaims,
   voucherRedemptions,
   vouchers,
   workspaceReservations,
@@ -70,12 +72,20 @@ import { deriveOpaqueDiscountId } from "@/features/discounts/opaque-discount-id"
 import type {
   DiscountApplicationId,
   DiscountCodeId,
+  PromotionCodeId,
   VoucherId,
 } from "@/features/discounts/persistence-contracts";
 import { getWorkspaceProductTarget } from "@/features/discounts/product-target";
 import { getPromotionTiming } from "@/features/discounts/promotion-code";
 import type { DiscountClaimInstruction } from "@/features/discounts/provider";
 import { type Locale, m } from "@/features/i18n";
+import {
+  referralAdvisoryLockStatement,
+  referralFirstBookingLockStatement,
+  referralGraphAdvisoryLockKey,
+} from "@/features/referrals/advisory-locks";
+import { evaluateReferralAttribution } from "@/features/referrals/attribution";
+import { getReferralInvitationDiscountId } from "@/features/referrals/discount-identifiers";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import { sensitiveDatabaseParameter } from "@/shared/backend/logging/database-query-parameter-classifier";
 import {
@@ -224,12 +234,37 @@ export class PaymentLifecycleRepository extends Context.Service<
             )
           );
         const commitment = getDiscountCommitmentPayload(input.commitment);
-        const claimedApplication =
+        const claimedApplications =
           yield* validateDiscountCommitment(commitment);
 
         return yield* db
           .transaction(
             Effect.fn(function* (tx) {
+              const [reservationIdentity] = yield* tx
+                .select({
+                  dotyposCustomerId: workspaceReservations.dotyposCustomerId,
+                })
+                .from(workspaceReservations)
+                .where(
+                  eq(workspaceReservations.id, input.workspaceReservationId)
+                )
+                .limit(1);
+              if (!reservationIdentity) {
+                return yield* lifecycleStateError(
+                  "createPendingNexiAttempt",
+                  {
+                    type: "workspaceReservationId",
+                    id: input.workspaceReservationId,
+                  },
+                  "The payment reservation was not found."
+                );
+              }
+              yield* tx.execute(
+                referralFirstBookingLockStatement(
+                  reservationIdentity.dotyposCustomerId
+                )
+              );
+
               const [reservation] = yield* tx
                 .select({
                   id: workspaceReservations.id,
@@ -274,6 +309,14 @@ export class PaymentLifecycleRepository extends Context.Service<
                     "Payment attempts can only be created for a current held reservation.",
                 });
               }
+
+              yield* validateFirstBookingPaymentAdmission({
+                tx,
+                dotyposCustomerId: reservation.dotyposCustomerId,
+                workspaceReservationId: input.workspaceReservationId,
+                hasReferralClaim: claimedApplications.referral !== undefined,
+                operation: "createPendingNexiAttempt",
+              });
 
               yield* validateAccountingDocumentSnapshotProviderIdentity({
                 snapshot: accountingSnapshot,
@@ -353,11 +396,12 @@ export class PaymentLifecycleRepository extends Context.Service<
                 paymentAttemptId: attemptRow.id,
                 workspaceReservationId: input.workspaceReservationId,
               });
-              yield* reserveCommittedCodeClaim({
+              yield* reserveCommittedClaims({
                 tx,
-                claimedApplication,
+                claimedApplications,
                 applicationRows,
                 paymentAttemptId: attemptRow.id,
+                workspaceReservationId: input.workspaceReservationId,
                 locale: input.locale,
                 reservationCustomerId: reservation.dotyposCustomerId,
                 reservationExpiresAt: reservation.reservationHoldExpiresAt,
@@ -395,7 +439,7 @@ export class PaymentLifecycleRepository extends Context.Service<
             },
           });
         const commitment = getDiscountCommitmentPayload(input.commitment);
-        const claimedApplication = yield* validateInternalPaymentCommitment(
+        const claimedApplications = yield* validateInternalPaymentCommitment(
           commitment,
           input.amount
         );
@@ -414,6 +458,37 @@ export class PaymentLifecycleRepository extends Context.Service<
         return yield* db
           .transaction(
             Effect.fn(function* (tx) {
+              const [reservationIdentity] = yield* tx
+                .select({
+                  dotyposCustomerId: workspaceReservations.dotyposCustomerId,
+                })
+                .from(workspaceReservations)
+                .where(
+                  eq(workspaceReservations.id, input.workspaceReservationId)
+                )
+                .limit(1);
+              if (!reservationIdentity) {
+                return yield* lifecycleStateError(
+                  "completeInternalPayment",
+                  {
+                    type: "workspaceReservationId",
+                    id: input.workspaceReservationId,
+                  },
+                  "The payment reservation was not found."
+                );
+              }
+              yield* lockReferralFirstBooking({
+                tx,
+                dotyposCustomerId: reservationIdentity.dotyposCustomerId,
+                recordsAttribution: claimedApplications.referral !== undefined,
+                // Checkout completes an internal payment inside the account
+                // guard, whose account lock is held on another connection.
+                // acceptReferral takes the graph lock before account locks,
+                // so an unbounded wait here could hang both; a bounded one
+                // fails this payment instead and the customer retries.
+                boundedGraphWait: true,
+              });
+
               const [reservation] = yield* tx
                 .select({
                   id: workspaceReservations.id,
@@ -495,6 +570,14 @@ export class PaymentLifecycleRepository extends Context.Service<
                   "Internal payments can only complete a current held unpaid reservation."
                 );
               }
+
+              yield* validateFirstBookingPaymentAdmission({
+                tx,
+                dotyposCustomerId: reservation.dotyposCustomerId,
+                workspaceReservationId: input.workspaceReservationId,
+                hasReferralClaim: claimedApplications.referral !== undefined,
+                operation: "completeInternalPayment",
+              });
 
               yield* validateAccountingDocumentSnapshotProviderIdentity({
                 snapshot: accountingSnapshot,
@@ -589,17 +672,26 @@ export class PaymentLifecycleRepository extends Context.Service<
                 paymentAttemptId: attemptRow.id,
                 workspaceReservationId: input.workspaceReservationId,
               });
-              const claimedAt = yield* reserveCommittedCodeClaim({
+              const claimedAt = yield* reserveCommittedClaims({
                 tx,
-                claimedApplication,
+                claimedApplications,
                 applicationRows,
                 paymentAttemptId: attemptRow.id,
+                workspaceReservationId: input.workspaceReservationId,
                 locale: input.locale,
                 reservationCustomerId: reservation.dotyposCustomerId,
                 reservationExpiresAt: reservation.reservationHoldExpiresAt,
               });
-              if (claimedAt) {
-                yield* redeemCodeClaim(tx, attemptRow.id, claimedAt);
+              if (claimedAt.code) {
+                yield* redeemCodeClaim(tx, attemptRow.id, claimedAt.code);
+              }
+              if (claimedAt.referral) {
+                yield* redeemReferralInvitationClaim(
+                  tx,
+                  attemptRow.id,
+                  input.workspaceReservationId,
+                  claimedAt.referral
+                );
               }
 
               return {
@@ -667,6 +759,37 @@ export class PaymentLifecycleRepository extends Context.Service<
         }) {
           return yield* db.transaction(
             Effect.fn(function* (tx) {
+              const [reservationIdentity] = yield* tx
+                .select({
+                  dotyposCustomerId: workspaceReservations.dotyposCustomerId,
+                })
+                .from(workspaceReservations)
+                .where(
+                  eq(workspaceReservations.id, input.workspaceReservationId)
+                )
+                .limit(1);
+              if (!reservationIdentity) {
+                return yield* lifecycleStateError(
+                  "markPaid",
+                  {
+                    type: "workspaceReservationId",
+                    id: input.workspaceReservationId,
+                  },
+                  "The payment reservation was not found."
+                );
+              }
+              yield* lockReferralFirstBooking({
+                tx,
+                dotyposCustomerId: reservationIdentity.dotyposCustomerId,
+                recordsAttribution: yield* attemptRecordsReferral(tx, input.id),
+              });
+              yield* ensureReferralFirstPaidTransition({
+                tx,
+                dotyposCustomerId: reservationIdentity.dotyposCustomerId,
+                workspaceReservationId: input.workspaceReservationId,
+                paymentAttemptId: input.id,
+              });
+
               const [attempt] = yield* tx
                 .update(paymentAttempts)
                 .set({
@@ -721,6 +844,12 @@ export class PaymentLifecycleRepository extends Context.Service<
 
               if (reservation) {
                 yield* redeemCodeClaim(tx, input.id, input.paidAt);
+                yield* redeemReferralInvitationClaim(
+                  tx,
+                  input.id,
+                  input.workspaceReservationId,
+                  input.paidAt
+                );
                 return {
                   attempt: toPaymentAttempt(attempt),
                   changed: true,
@@ -749,6 +878,12 @@ export class PaymentLifecycleRepository extends Context.Service<
               }
 
               yield* redeemCodeClaim(tx, input.id, input.paidAt);
+              yield* redeemReferralInvitationClaim(
+                tx,
+                input.id,
+                input.workspaceReservationId,
+                input.paidAt
+              );
               return {
                 attempt: toPaymentAttempt(attempt),
                 changed: false,
@@ -778,6 +913,31 @@ export class PaymentLifecycleRepository extends Context.Service<
 
           return yield* db.transaction(
             Effect.fn(function* (tx) {
+              const [reservationIdentity] = yield* tx
+                .select({
+                  dotyposCustomerId: workspaceReservations.dotyposCustomerId,
+                })
+                .from(workspaceReservations)
+                .where(
+                  eq(workspaceReservations.id, input.workspaceReservationId)
+                )
+                .limit(1);
+              if (!reservationIdentity) {
+                return yield* lifecycleStateError(
+                  "markTerminal",
+                  {
+                    type: "workspaceReservationId",
+                    id: input.workspaceReservationId,
+                  },
+                  "The payment reservation was not found."
+                );
+              }
+              yield* tx.execute(
+                referralFirstBookingLockStatement(
+                  reservationIdentity.dotyposCustomerId
+                )
+              );
+
               const [attempt] = yield* tx
                 .update(paymentAttempts)
                 .set({
@@ -835,6 +995,12 @@ export class PaymentLifecycleRepository extends Context.Service<
                   terminalAt,
                   input.failureCode
                 );
+                yield* releaseReferralInvitationClaim(
+                  tx,
+                  input.id,
+                  terminalAt,
+                  input.failureCode
+                );
                 return {
                   attempt: toPaymentAttempt(attempt),
                   changed: true,
@@ -868,6 +1034,12 @@ export class PaymentLifecycleRepository extends Context.Service<
                 terminalAt,
                 input.failureCode
               );
+              yield* releaseReferralInvitationClaim(
+                tx,
+                input.id,
+                terminalAt,
+                input.failureCode
+              );
               return {
                 attempt: toPaymentAttempt(attempt),
                 changed: false,
@@ -894,25 +1066,13 @@ type CommitmentPayload = ReturnType<typeof getDiscountCommitmentPayload>;
 export const validateDiscountCommitment = Effect.fn(
   "PaymentLifecycle.validateDiscountCommitment"
 )(function* (commitment: CommitmentPayload) {
-  const claimedApplicationIndex = commitment.applications.findIndex(
-    ({ claim }) => claim !== undefined
-  );
+  let codeClaimedApplication: OrdinaryClaimedApplication | undefined;
+  let referralClaimedApplication: ReferralClaimedApplication | undefined;
 
-  if (
-    claimedApplicationIndex >= 0 &&
-    commitment.applications.some(
-      ({ claim }, index) =>
-        index > claimedApplicationIndex && claim !== undefined
-    )
-  ) {
-    return yield* new DiscountClaimError({
-      operation: "reserve",
-      reason: "claim_conflict",
-      message: "A payment attempt can reserve at most one discount code.",
-    });
-  }
-
-  for (const { application, claim } of commitment.applications) {
+  for (const [
+    index,
+    { application, claim },
+  ] of commitment.applications.entries()) {
     const amountInSubtotalUnit = workspaceMoneyWithValue(
       application.amount.value,
       application.subtotalBefore
@@ -934,29 +1094,48 @@ export const validateDiscountCommitment = Effect.fn(
       });
     }
 
-    if (
-      claim?.kind === "discount_code" &&
-      getWorkspaceProductKey(claim.product) !==
+    if (claim) {
+      if (claim.kind === "referral_invitation") {
+        if (referralClaimedApplication) {
+          return yield* claimError(
+            "reserve",
+            "claim_conflict",
+            "A payment attempt can reserve one referral invitation claim.",
+            claim
+          );
+        }
+        referralClaimedApplication = { index, application, claim };
+      } else {
+        if (codeClaimedApplication) {
+          return yield* claimError(
+            "reserve",
+            "claim_conflict",
+            "A payment attempt can reserve one ordinary promotion claim.",
+            claim
+          );
+        }
+        codeClaimedApplication = { index, application, claim };
+      }
+    }
+
+    if (claim?.kind === "discount_code") {
+      if (
+        getWorkspaceProductKey(claim.product) !==
         getWorkspaceProductKey(commitment.product)
-    ) {
-      return yield* claimError(
-        "reserve",
-        "product_ineligible",
-        "The discount-code claim targets a different product.",
-        claim
-      );
+      ) {
+        return yield* claimError(
+          "reserve",
+          "product_ineligible",
+          "The discount-code claim targets a different product.",
+          claim
+        );
+      }
     }
   }
 
-  if (claimedApplicationIndex < 0) return undefined;
-
-  const claimedApplication = commitment.applications[claimedApplicationIndex];
-  if (!claimedApplication?.claim) return undefined;
-
   return {
-    index: claimedApplicationIndex,
-    application: claimedApplication.application,
-    claim: claimedApplication.claim,
+    code: codeClaimedApplication,
+    referral: referralClaimedApplication,
   };
 });
 
@@ -1009,6 +1188,7 @@ const getPromotionClaimId = (claim: DiscountClaimInstruction | undefined) => {
     Match.discriminatorsExhaustive("kind")({
       discount_code: ({ codeId }) => codeId,
       voucher: ({ voucherId }) => voucherId,
+      referral_invitation: () => undefined,
     })
   );
 };
@@ -1030,6 +1210,264 @@ const discountAdjustmentsEqual = (
 type TransactionClient = Parameters<
   Parameters<WorkspaceDatabaseClient["transaction"]>[0]
 >[0];
+
+/**
+ * Takes the invited customer's first-booking lock. A transition that may
+ * record a referral attribution takes the referral graph lock first, matching
+ * acceptReferral's graph → accounts → first-booking order.
+ */
+export const lockReferralFirstBooking = Effect.fn(
+  "PaymentLifecycle.lockReferralFirstBooking"
+)(function* (input: {
+  readonly tx: TransactionClient;
+  readonly dotyposCustomerId: DotyposCustomerId;
+  readonly recordsAttribution: boolean;
+  readonly boundedGraphWait?: boolean;
+}) {
+  if (input.recordsAttribution) {
+    if (input.boundedGraphWait) {
+      yield* input.tx.execute(sql`set local lock_timeout = '5s'`);
+    }
+    yield* input.tx.execute(
+      referralAdvisoryLockStatement(referralGraphAdvisoryLockKey)
+    );
+    if (input.boundedGraphWait) {
+      yield* input.tx.execute(sql`set local lock_timeout to default`);
+    }
+  }
+  yield* input.tx.execute(
+    referralFirstBookingLockStatement(input.dotyposCustomerId)
+  );
+});
+
+/**
+ * Whether the attempt reserved an invitation from a checkout referral, whose
+ * attribution its paid transition records. Claim referral columns are
+ * written once at admission, so this read is stable before any lock.
+ */
+export const attemptRecordsReferral = Effect.fn(
+  "PaymentLifecycle.attemptRecordsReferral"
+)(function* (tx: TransactionClient, paymentAttemptId: PaymentAttemptId) {
+  const [claim] = yield* tx
+    .select({
+      referrerDotyposCustomerId:
+        referralInvitationClaims.referrerDotyposCustomerId,
+    })
+    .from(referralInvitationClaims)
+    .where(eq(referralInvitationClaims.paymentAttemptId, paymentAttemptId))
+    .limit(1);
+  return claim?.referrerDotyposCustomerId != null;
+});
+
+const findActiveInvitationClaim = (
+  tx: TransactionClient,
+  dotyposCustomerId: DotyposCustomerId,
+  exceptPaymentAttemptId?: PaymentAttemptId
+) =>
+  tx
+    .select({ id: referralInvitationClaims.id })
+    .from(referralInvitationClaims)
+    .where(
+      and(
+        eq(
+          referralInvitationClaims.invitedDotyposCustomerId,
+          dotyposCustomerId
+        ),
+        inArray(referralInvitationClaims.state, ["reserved", "redeemed"]),
+        exceptPaymentAttemptId === undefined
+          ? undefined
+          : ne(
+              referralInvitationClaims.paymentAttemptId,
+              exceptPaymentAttemptId
+            )
+      )
+    )
+    .limit(1)
+    .pipe(Effect.map(([claim]) => claim));
+
+/**
+ * A customer is invited once attributed or once a checkout referral holds
+ * their invitation. An invited customer's first paid booking is admitted one
+ * attempt at a time so an ordinary payment cannot race past the invitation.
+ */
+const validateFirstBookingPaymentAdmission = Effect.fn(
+  "PaymentLifecycle.validateFirstBookingPaymentAdmission"
+)(function* (input: {
+  readonly tx: TransactionClient;
+  readonly dotyposCustomerId: DotyposCustomerId;
+  readonly workspaceReservationId: WorkspaceReservationId;
+  readonly hasReferralClaim: boolean;
+  readonly operation: "createPendingNexiAttempt" | "completeInternalPayment";
+}) {
+  const [attribution] = yield* input.tx
+    .select({
+      invitedDotyposCustomerId: referralAttributions.invitedDotyposCustomerId,
+    })
+    .from(referralAttributions)
+    .where(
+      eq(referralAttributions.invitedDotyposCustomerId, input.dotyposCustomerId)
+    )
+    .limit(1);
+  const activeClaim = yield* findActiveInvitationClaim(
+    input.tx,
+    input.dotyposCustomerId
+  );
+
+  if (!attribution && !activeClaim && !input.hasReferralClaim) return;
+
+  const [previousPayment] = yield* input.tx
+    .select({ id: workspaceReservations.id })
+    .from(workspaceReservations)
+    .where(
+      and(
+        eq(workspaceReservations.dotyposCustomerId, input.dotyposCustomerId),
+        eq(workspaceReservations.paymentState, "paid"),
+        ne(workspaceReservations.id, input.workspaceReservationId)
+      )
+    )
+    .limit(1);
+
+  if (previousPayment) {
+    if (input.hasReferralClaim) {
+      return yield* new DiscountClaimError({
+        operation: "reserve",
+        reason: "claim_conflict",
+        message:
+          "Referral invitation is only available for a first paid booking.",
+      });
+    }
+    return;
+  }
+
+  if (activeClaim) {
+    if (input.hasReferralClaim) {
+      return yield* new DiscountClaimError({
+        operation: "reserve",
+        reason: "claim_conflict",
+        message: "Another payment already holds this referral invitation.",
+      });
+    }
+    return yield* lifecycleStateError(
+      input.operation,
+      { type: "workspaceReservationId", id: input.workspaceReservationId },
+      "An invited customer's first payment is already admitted."
+    );
+  }
+
+  const [pendingPayment] = yield* input.tx
+    .select({ id: workspaceReservations.id })
+    .from(workspaceReservations)
+    .where(
+      and(
+        eq(workspaceReservations.dotyposCustomerId, input.dotyposCustomerId),
+        eq(workspaceReservations.paymentState, "pending"),
+        ne(workspaceReservations.id, input.workspaceReservationId)
+      )
+    )
+    .limit(1);
+  if (pendingPayment) {
+    if (input.hasReferralClaim) {
+      return yield* new DiscountClaimError({
+        operation: "reserve",
+        reason: "claim_conflict",
+        message: "Another payment already holds this referral invitation.",
+      });
+    }
+    return yield* lifecycleStateError(
+      input.operation,
+      { type: "workspaceReservationId", id: input.workspaceReservationId },
+      "An invited customer's first payment is already admitted."
+    );
+  }
+});
+
+export const ensureReferralFirstPaidTransition = Effect.fn(
+  "PaymentLifecycle.ensureReferralFirstPaidTransition"
+)(function* (input: {
+  readonly tx: TransactionClient;
+  readonly dotyposCustomerId: DotyposCustomerId;
+  readonly workspaceReservationId: WorkspaceReservationId;
+  readonly paymentAttemptId: PaymentAttemptId;
+}) {
+  const [claim] = yield* input.tx
+    .select({
+      state: referralInvitationClaims.state,
+      referrerDotyposCustomerId:
+        referralInvitationClaims.referrerDotyposCustomerId,
+    })
+    .from(referralInvitationClaims)
+    .where(
+      eq(referralInvitationClaims.paymentAttemptId, input.paymentAttemptId)
+    )
+    .limit(1)
+    .for("update");
+  if (claim?.state === "redeemed") return;
+
+  const [attribution] = yield* input.tx
+    .select({
+      invitedDotyposCustomerId: referralAttributions.invitedDotyposCustomerId,
+    })
+    .from(referralAttributions)
+    .where(
+      eq(referralAttributions.invitedDotyposCustomerId, input.dotyposCustomerId)
+    )
+    .limit(1);
+  const otherActiveClaim = yield* findActiveInvitationClaim(
+    input.tx,
+    input.dotyposCustomerId,
+    input.paymentAttemptId
+  );
+  if (!attribution && !claim && !otherActiveClaim) return;
+  // An older claim relied on an attribution accepted before payment; a
+  // checkout referral claim records its own attribution when redeemed.
+  if (!attribution && claim && claim.referrerDotyposCustomerId === null) {
+    return yield* new DiscountClaimError({
+      operation: "redeem",
+      reason: "claim_conflict",
+      message: "The accepted referral attribution is no longer available.",
+    });
+  }
+
+  const [previousPayment] = yield* input.tx
+    .select({ id: workspaceReservations.id })
+    .from(workspaceReservations)
+    .where(
+      and(
+        eq(workspaceReservations.dotyposCustomerId, input.dotyposCustomerId),
+        eq(workspaceReservations.paymentState, "paid"),
+        ne(workspaceReservations.id, input.workspaceReservationId)
+      )
+    )
+    .limit(1);
+  if (previousPayment) {
+    if (!claim) return;
+    return yield* new DiscountClaimError({
+      operation: "redeem",
+      reason: "claim_conflict",
+      message:
+        "Referral invitation is only available for a first paid booking.",
+    });
+  }
+
+  const [otherPendingPayment] = yield* input.tx
+    .select({ id: workspaceReservations.id })
+    .from(workspaceReservations)
+    .where(
+      and(
+        eq(workspaceReservations.dotyposCustomerId, input.dotyposCustomerId),
+        eq(workspaceReservations.paymentState, "pending"),
+        ne(workspaceReservations.id, input.workspaceReservationId)
+      )
+    )
+    .limit(1);
+  if (otherActiveClaim || otherPendingPayment) {
+    return yield* new DiscountClaimError({
+      operation: "redeem",
+      reason: "claim_conflict",
+      message: "Another first booking is already admitted for this invitee.",
+    });
+  }
+});
 
 const decodeAccountingDocumentSnapshot = Schema.decodeUnknownEffect(
   accountingDocumentSnapshotSchema,
@@ -1163,10 +1601,26 @@ const persistAccountingDocumentSnapshot = Effect.fn(
     );
 });
 
-type ClaimedApplication = {
+type ClaimedApplication<Claim extends DiscountClaimInstruction> = {
   readonly index: number;
   readonly application: AppliedDiscount;
-  readonly claim: DiscountClaimInstruction;
+  readonly claim: Claim;
+};
+
+type OrdinaryPromotionClaim = Exclude<
+  DiscountClaimInstruction,
+  { readonly kind: "referral_invitation" }
+>;
+type ReferralInvitationClaim = Extract<
+  DiscountClaimInstruction,
+  { readonly kind: "referral_invitation" }
+>;
+type OrdinaryClaimedApplication = ClaimedApplication<OrdinaryPromotionClaim>;
+type ReferralClaimedApplication = ClaimedApplication<ReferralInvitationClaim>;
+
+type ClaimedApplications = {
+  readonly code: OrdinaryClaimedApplication | undefined;
+  readonly referral: ReferralClaimedApplication | undefined;
 };
 
 type PersistedApplication = {
@@ -1223,48 +1677,178 @@ const persistDiscountApplications = Effect.fn(
     });
 });
 
-const reserveCommittedCodeClaim = Effect.fn(
-  "PaymentLifecycle.reserveCommittedCodeClaim"
+const reserveCommittedClaims = Effect.fn(
+  "PaymentLifecycle.reserveCommittedClaims"
 )(function* (input: {
   readonly tx: TransactionClient;
-  readonly claimedApplication: ClaimedApplication | undefined;
+  readonly claimedApplications: ClaimedApplications;
   readonly applicationRows: readonly PersistedApplication[];
   readonly paymentAttemptId: PaymentAttemptId;
+  readonly workspaceReservationId: WorkspaceReservationId;
   readonly locale: Locale;
   readonly reservationCustomerId: DotyposCustomerId;
   readonly reservationExpiresAt: Temporal.Instant;
 }) {
-  if (!input.claimedApplication) return;
+  const findApplicationId = (
+    claimed: ClaimedApplication<DiscountClaimInstruction>
+  ) =>
+    input.applicationRows.find(({ sequence }) => sequence === claimed.index)
+      ?.id;
 
-  const applicationId = input.applicationRows.find(
-    (application) => application.sequence === input.claimedApplication?.index
-  )?.id;
+  let code: Temporal.Instant | undefined;
+  if (input.claimedApplications.code) {
+    const claimed = input.claimedApplications.code;
+    const applicationId = findApplicationId(claimed);
+    if (!applicationId) {
+      return yield* claimError(
+        "reserve",
+        "claim_conflict",
+        "The claimed discount application was not persisted.",
+        claimed.claim
+      );
+    }
+    code = yield* reserveCodeClaim({
+      tx: input.tx,
+      claim: claimed.claim,
+      application: claimed.application,
+      applicationId,
+      paymentAttemptId: input.paymentAttemptId,
+      locale: input.locale,
+      reservationCustomerId: input.reservationCustomerId,
+      reservationExpiresAt: input.reservationExpiresAt,
+    });
+  }
 
-  if (!applicationId) {
+  let referral: Temporal.Instant | undefined;
+  if (input.claimedApplications.referral) {
+    const claimed = input.claimedApplications.referral;
+    const applicationId = findApplicationId(claimed);
+    if (!applicationId) {
+      return yield* claimError(
+        "reserve",
+        "claim_conflict",
+        "The referral application was not persisted.",
+        claimed.claim
+      );
+    }
+    referral = yield* reserveReferralInvitationClaim({
+      tx: input.tx,
+      claim: claimed.claim,
+      application: claimed.application,
+      applicationId,
+      paymentAttemptId: input.paymentAttemptId,
+      reservationCustomerId: input.reservationCustomerId,
+      reservationExpiresAt: input.reservationExpiresAt,
+      locale: input.locale,
+    });
+  }
+
+  return { code, referral };
+});
+
+const reserveReferralInvitationClaim = Effect.fn(
+  "PaymentLifecycle.reserveReferralInvitationClaim"
+)(function* (input: {
+  readonly tx: TransactionClient;
+  readonly claim: ReferralInvitationClaim;
+  readonly application: AppliedDiscount;
+  readonly applicationId: DiscountApplicationId;
+  readonly paymentAttemptId: PaymentAttemptId;
+  readonly reservationCustomerId: DotyposCustomerId;
+  readonly reservationExpiresAt: Temporal.Instant;
+  readonly locale: Locale;
+}) {
+  if (input.reservationCustomerId !== input.claim.invitedDotyposCustomerId) {
     return yield* claimError(
       "reserve",
-      "claim_conflict",
-      "The claimed discount application was not persisted.",
-      input.claimedApplication.claim
+      "customer_ineligible",
+      "The referral invitation customer does not match the reservation.",
+      input.claim
     );
   }
 
-  return yield* reserveCodeClaim({
-    tx: input.tx,
-    claim: input.claimedApplication.claim,
-    application: input.claimedApplication.application,
-    applicationId,
+  // The first-booking lock serializes this with acceptReferral, so an
+  // attribution recorded since pricing is seen here.
+  const [attribution] = yield* input.tx
+    .select({
+      referrerDotyposCustomerId: referralAttributions.referrerDotyposCustomerId,
+      promotionCodeId: referralAttributions.promotionCodeId,
+    })
+    .from(referralAttributions)
+    .where(
+      eq(
+        referralAttributions.invitedDotyposCustomerId,
+        input.claim.invitedDotyposCustomerId
+      )
+    )
+    .limit(1)
+    .for("update");
+  if (
+    attribution &&
+    (attribution.referrerDotyposCustomerId !==
+      input.claim.referrerDotyposCustomerId ||
+      attribution.promotionCodeId !== input.claim.promotionCodeId)
+  ) {
+    return yield* claimError(
+      "reserve",
+      "claim_conflict",
+      "The customer is attributed to a different referral.",
+      input.claim
+    );
+  }
+
+  const adjustment = input.application.discount.adjustment;
+  if (
+    input.claim.invitedDotyposCustomerId ===
+      input.claim.referrerDotyposCustomerId ||
+    input.application.discount.id !==
+      getReferralInvitationDiscountId(input.claim.invitedDotyposCustomerId) ||
+    input.application.discount.label !==
+      m.checkoutSummaryItemReferralInvitationDiscount(
+        {},
+        {
+          locale: input.locale,
+        }
+      ) ||
+    adjustment.kind !== "percentage" ||
+    adjustment.basisPoints !== 1_500 ||
+    input.application.amount.value <= 0
+  ) {
+    return yield* claimError(
+      "reserve",
+      "claim_conflict",
+      "The accepted referral invitation benefit changed before payment.",
+      input.claim
+    );
+  }
+
+  const reservedAt = Temporal.Now.instant();
+  if (Temporal.Instant.compare(input.reservationExpiresAt, reservedAt) <= 0) {
+    return yield* lifecycleStateError(
+      "reserveReferralInvitationClaim",
+      { type: "paymentAttemptId", id: input.paymentAttemptId },
+      "Referral claims can only be reserved for a current held reservation."
+    );
+  }
+
+  yield* input.tx.insert(referralInvitationClaims).values({
+    invitedDotyposCustomerId: input.claim.invitedDotyposCustomerId,
+    referrerDotyposCustomerId: input.claim.referrerDotyposCustomerId,
+    promotionCodeId: input.claim.promotionCodeId,
+    applicationId: input.applicationId,
     paymentAttemptId: input.paymentAttemptId,
-    locale: input.locale,
-    reservationCustomerId: input.reservationCustomerId,
+    state: "reserved",
     reservationExpiresAt: input.reservationExpiresAt,
+    reservedAt,
+    updatedAt: reservedAt,
   });
+  return reservedAt;
 });
 
 const reserveCodeClaim = Effect.fn("PaymentLifecycle.reserveCodeClaim")(
   function* (input: {
     readonly tx: TransactionClient;
-    readonly claim: DiscountClaimInstruction;
+    readonly claim: OrdinaryPromotionClaim;
     readonly application: AppliedDiscount;
     readonly applicationId: DiscountApplicationId;
     readonly paymentAttemptId: PaymentAttemptId;
@@ -1877,6 +2461,148 @@ export const redeemCodeClaim = Effect.fn("PaymentLifecycle.redeemCodeClaim")(
   }
 );
 
+export const redeemReferralInvitationClaim = Effect.fn(
+  "PaymentLifecycle.redeemReferralInvitationClaim"
+)(function* (
+  tx: TransactionClient,
+  paymentAttemptId: PaymentAttemptId,
+  workspaceReservationId: WorkspaceReservationId,
+  redeemedAt: Temporal.Instant,
+  allowReleased = false
+) {
+  const [claim] = yield* tx
+    .select({
+      invitedDotyposCustomerId:
+        referralInvitationClaims.invitedDotyposCustomerId,
+      referrerDotyposCustomerId:
+        referralInvitationClaims.referrerDotyposCustomerId,
+      promotionCodeId: referralInvitationClaims.promotionCodeId,
+      state: referralInvitationClaims.state,
+    })
+    .from(referralInvitationClaims)
+    .where(eq(referralInvitationClaims.paymentAttemptId, paymentAttemptId))
+    .limit(1)
+    .for("update");
+
+  if (!claim || claim.state === "redeemed") return;
+  if (claim.state === "released" && !allowReleased) {
+    return yield* new DiscountClaimError({
+      operation: "redeem",
+      reason: "claim_conflict",
+      message: "A released referral invitation cannot be redeemed.",
+    });
+  }
+
+  if (claim.state === "released") {
+    const [previousPayment] = yield* tx
+      .select({ id: workspaceReservations.id })
+      .from(workspaceReservations)
+      .where(
+        and(
+          eq(
+            workspaceReservations.dotyposCustomerId,
+            claim.invitedDotyposCustomerId
+          ),
+          eq(workspaceReservations.paymentState, "paid"),
+          ne(workspaceReservations.id, workspaceReservationId)
+        )
+      )
+      .limit(1);
+    const [otherActiveClaim] = yield* tx
+      .select({ id: referralInvitationClaims.id })
+      .from(referralInvitationClaims)
+      .where(
+        and(
+          eq(
+            referralInvitationClaims.invitedDotyposCustomerId,
+            claim.invitedDotyposCustomerId
+          ),
+          ne(referralInvitationClaims.paymentAttemptId, paymentAttemptId),
+          inArray(referralInvitationClaims.state, ["reserved", "redeemed"])
+        )
+      )
+      .limit(1);
+    if (previousPayment || otherActiveClaim) {
+      return yield* new DiscountClaimError({
+        operation: "redeem",
+        reason: "claim_conflict",
+        message:
+          "The referral invitation was consumed by another paid booking.",
+      });
+    }
+  }
+
+  const claimableStates = allowReleased
+    ? (["reserved", "released"] as const)
+    : (["reserved"] as const);
+  yield* tx
+    .update(referralInvitationClaims)
+    .set({
+      state: "redeemed",
+      redeemedAt,
+      releasedAt: null,
+      releaseReason: null,
+      updatedAt: redeemedAt,
+    })
+    .where(
+      and(
+        eq(referralInvitationClaims.paymentAttemptId, paymentAttemptId),
+        inArray(referralInvitationClaims.state, claimableStates)
+      )
+    );
+
+  if (claim.referrerDotyposCustomerId && claim.promotionCodeId) {
+    yield* recordClaimAttribution(tx, {
+      invitedDotyposCustomerId: claim.invitedDotyposCustomerId,
+      referrerDotyposCustomerId: claim.referrerDotyposCustomerId,
+      promotionCodeId: claim.promotionCodeId,
+    });
+  }
+});
+
+/**
+ * Records the attribution a checkout referral claim carries, in the
+ * transaction that redeems it. The caller holds the referral graph lock. A
+ * different referrer or a cycle that appeared since admission keeps the
+ * existing graph; the paid booking itself is never undone.
+ */
+const recordClaimAttribution = Effect.fn(
+  "PaymentLifecycle.recordClaimAttribution"
+)(function* (
+  tx: TransactionClient,
+  referral: {
+    readonly invitedDotyposCustomerId: DotyposCustomerId;
+    readonly referrerDotyposCustomerId: DotyposCustomerId;
+    readonly promotionCodeId: PromotionCodeId;
+  }
+) {
+  const graph = yield* tx
+    .select({
+      invitedDotyposCustomerId: referralAttributions.invitedDotyposCustomerId,
+      referrerDotyposCustomerId: referralAttributions.referrerDotyposCustomerId,
+    })
+    .from(referralAttributions);
+  const decision = evaluateReferralAttribution({
+    invitedCustomerId: referral.invitedDotyposCustomerId,
+    referrerCustomerId: referral.referrerDotyposCustomerId,
+    existingReferrerByInvitee: new Map(
+      graph.map((row) => [
+        row.invitedDotyposCustomerId,
+        row.referrerDotyposCustomerId,
+      ])
+    ),
+  });
+  if (decision.kind === "already_accepted") return;
+  if (decision.kind !== "accepted") {
+    yield* Effect.logWarning(
+      "Paid referral invitation kept the existing referral graph",
+      { reason: decision.kind }
+    );
+    return;
+  }
+  yield* tx.insert(referralAttributions).values(referral);
+});
+
 export const releaseCodeClaim = Effect.fn("PaymentLifecycle.releaseCodeClaim")(
   function* (
     tx: TransactionClient,
@@ -1955,6 +2681,47 @@ export const releaseCodeClaim = Effect.fn("PaymentLifecycle.releaseCodeClaim")(
   }
 );
 
+const releaseReferralInvitationClaim = Effect.fn(
+  "PaymentLifecycle.releaseReferralInvitationClaim"
+)(function* (
+  tx: TransactionClient,
+  paymentAttemptId: PaymentAttemptId,
+  releasedAt: Temporal.Instant,
+  releaseReason: string
+) {
+  const [claim] = yield* tx
+    .select({ state: referralInvitationClaims.state })
+    .from(referralInvitationClaims)
+    .where(eq(referralInvitationClaims.paymentAttemptId, paymentAttemptId))
+    .limit(1)
+    .for("update");
+  if (!claim) return;
+  if (claim.state === "redeemed") {
+    return yield* new DiscountClaimError({
+      operation: "release",
+      reason: "claim_conflict",
+      message: "A redeemed referral invitation cannot be released.",
+    });
+  }
+  if (claim.state === "released") return;
+
+  yield* tx
+    .update(referralInvitationClaims)
+    .set({
+      state: "released",
+      releasedAt,
+      releaseReason,
+      updatedAt: releasedAt,
+    })
+    .where(
+      and(
+        eq(referralInvitationClaims.paymentAttemptId, paymentAttemptId),
+        eq(referralInvitationClaims.state, "reserved")
+      )
+    )
+    .pipe(Effect.asVoid);
+});
+
 const selectStoredPromotionClaim = <
   DiscountClaim extends { readonly id: DiscountCodeId; readonly state: string },
   VoucherClaim extends { readonly id: VoucherId; readonly state: string },
@@ -1973,6 +2740,9 @@ const activeClaimConstraints = new Set([
   "voucher_redemptions_active_customer_unique_idx",
   "voucher_redemptions_application_unique_idx",
   "voucher_redemptions_attempt_unique_idx",
+  "referral_invitation_claims_active_customer_unique_idx",
+  "referral_invitation_claims_application_unique_idx",
+  "referral_invitation_claims_attempt_unique_idx",
 ]);
 
 /**

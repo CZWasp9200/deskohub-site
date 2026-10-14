@@ -227,7 +227,6 @@ const runRealCookieConsentContinuity = async (
 
 describe("account legal continuity real cookie consent fixture", () => {
   const requireFixture = registerAccountLegalFixture({
-    port: 3169,
     realCookieConsent: true,
   });
 

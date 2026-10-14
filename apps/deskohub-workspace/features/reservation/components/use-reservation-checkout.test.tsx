@@ -11,10 +11,12 @@ import {
 import { testEmailAddress } from "@deskohub/test-email";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { m } from "@/features/i18n";
+import type { PreparePayStateInput } from "@/features/reservation/actions/prepare-pay-state.schema";
 import { normalizedMeetingRoomReservationOrderSchema } from "@/features/reservation/meeting-room-reservation";
 import {
   workspaceRouterPush as push,
   workspaceUseAction,
+  workspaceUseSearchParams,
 } from "@/shared/testing/workspace-component-module-mocks";
 import {
   registerWorkspaceComponentTestEnv,
@@ -31,9 +33,7 @@ type PreparePayStateOptions = {
   readonly onTransportError: () => void;
 };
 
-const execute = mock(
-  (_input: { readonly checkoutAttemptId: string }) => undefined
-);
+const execute = mock((_input: PreparePayStateInput) => undefined);
 let preparePayStateOptions: PreparePayStateOptions | undefined;
 
 mock.module("@/features/cookie-consent", () => ({
@@ -81,6 +81,7 @@ describe("useReservationCheckout", () => {
     execute.mockClear();
     push.mockClear();
     workspaceUseAction.mockReset();
+    workspaceUseSearchParams.mockReturnValue(new URLSearchParams());
     preparePayStateOptions = undefined;
   });
 
@@ -137,5 +138,23 @@ describe("useReservationCheckout", () => {
     expect(result.current.submissionError).toBe(
       m.reservationErrorMessage({}, { locale: "en-US" })
     );
+  });
+
+  test("leaves a shared referral code in the reservation URL to the remembered cookie", () => {
+    workspaceUseSearchParams.mockReturnValue(
+      new URLSearchParams("reservationDate=2099-07-30&ref=RFL12345")
+    );
+    const { result } = renderCheckout();
+
+    act(() => {
+      result.current.startCheckout({
+        advertisedPriceToken: "signed-price",
+        customer: "account",
+        reservation: reservationFor(7),
+      });
+    });
+
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(execute.mock.calls[0]?.[0]).not.toHaveProperty("referralCode");
   });
 });

@@ -12,6 +12,7 @@ import type { AccountReviewTarget } from "./review-screenshots";
  */
 export const accountReviewTargetBySection = {
   reservations: "linked-reservations-desktop",
+  referrals: "linked-referrals-desktop",
   profile: "linked-profile-desktop",
   billing: "linked-billing-desktop",
   legal: "linked-legal-desktop",
@@ -22,6 +23,7 @@ export const mobileAccountReviewTargetBySection: Readonly<
   Record<AccountSection, AccountReviewTarget | undefined>
 > = {
   reservations: "linked-reservations-mobile",
+  referrals: "linked-referrals-mobile",
   billing: "linked-billing-mobile",
   danger: "linked-danger-mobile",
   profile: "linked-profile-language-mobile",

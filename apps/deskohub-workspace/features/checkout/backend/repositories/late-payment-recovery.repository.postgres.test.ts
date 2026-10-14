@@ -28,6 +28,7 @@ import {
   promotionCodeIdSchema,
   storedDiscountIdSchema,
 } from "@/features/discounts/persistence-contracts";
+import { referralFirstBookingLockKey } from "@/features/referrals/advisory-locks";
 import {
   type WorkspaceReservationId,
   workspaceReservationIdSchema,
@@ -118,6 +119,7 @@ describe.skipIf(!testDatabase)(
       readonly createdAt?: Temporal.Instant;
     }) => {
       const id = crypto.randomUUID();
+      const dotyposCustomerId = DotyposCustomerIdSchema.make(`customer-${id}`);
       const reservationId = workspaceReservationIdSchema.make(
         `late-reservation-${id}`
       );
@@ -130,7 +132,7 @@ describe.skipIf(!testDatabase)(
           id: reservationId,
           checkoutSessionKey: input.checkoutSessionKey ?? `late-session-${id}`,
           checkoutAttemptKey: checkoutAttemptKeySchema.make(`attempt-${id}`),
-          dotyposCustomerId: DotyposCustomerIdSchema.make(`customer-${id}`),
+          dotyposCustomerId,
           dotyposReservationId: DotyposReservationIdSchema.make(
             `dotypos-original-${id}`
           ),
@@ -174,6 +176,7 @@ describe.skipIf(!testDatabase)(
       return {
         reservationId,
         paymentAttemptId,
+        dotyposCustomerId,
         id,
         dotyposReservationId: DotyposReservationIdSchema.make(
           `dotypos-original-${id}`
@@ -359,6 +362,117 @@ describe.skipIf(!testDatabase)(
       const { recoveries } = await readRows(checkout);
       expect(recoveries).toHaveLength(1);
       expect(recoveries[0]?.state).toBe("pending");
+    });
+
+    test("recovery start waits on the first-booking lock before attempt rows while settlement serializes", {
+      timeout: 12_000,
+    }, async () => {
+      const checkout = await insertLatePaidCheckout({
+        reservationState: "cancelled",
+        holdExpiresAt: Temporal.Now.instant().subtract({ minutes: 30 }),
+      });
+      await startAndClaim(checkout);
+
+      const [namespace, lockKey] = referralFirstBookingLockKey(
+        checkout.dotyposCustomerId
+      );
+      const blocker = await testDatabase.pool.connect();
+      let waitersObserved = false;
+      let attemptRowAvailable = false;
+      let operations:
+        | Promise<
+            [
+              Awaited<ReturnType<typeof runResult>>,
+              Awaited<ReturnType<typeof runResult>>,
+            ]
+          >
+        | undefined;
+
+      try {
+        await blocker.query("begin");
+        await blocker.query(
+          "select pg_advisory_xact_lock(hashtext($1), hashtext($2))",
+          [namespace, lockKey]
+        );
+        await blocker.query(
+          "select payment_attempt_id from late_payment_recoveries where payment_attempt_id = $1 for update",
+          [checkout.paymentAttemptId]
+        );
+        const lockIdentity = await blocker.query(
+          "select hashtext($1)::oid as classid, hashtext($2)::oid as objid",
+          [namespace, lockKey]
+        );
+        const classId = lockIdentity.rows[0]?.classid;
+        const objectId = lockIdentity.rows[0]?.objid;
+
+        operations = Promise.all([
+          runResult((repository) =>
+            repository.start({
+              paymentAttemptId: checkout.paymentAttemptId,
+              workspaceReservationId: checkout.reservationId,
+              webhookEventId: NexiWebhookEventIdSchema.make(
+                `late-webhook-${checkout.id}`
+              ),
+              providerStatus: "EXECUTED",
+              verifiedPaidAt: Temporal.Now.instant(),
+            })
+          ),
+          runResult((repository) =>
+            repository.requireRefund({
+              paymentAttemptId: checkout.paymentAttemptId,
+              workspaceReservationId: checkout.reservationId,
+              failureCode: "late_payment_reservation_unavailable",
+              completedAt: Temporal.Now.instant(),
+            })
+          ),
+        ]);
+
+        const waitDeadline = Date.now() + 3_000;
+        while (Date.now() < waitDeadline) {
+          const waiters = await blocker.query(
+            "select count(*)::int as count from pg_locks where locktype = 'advisory' and database = (select oid from pg_database where datname = current_database()) and classid = $1::oid and objid = $2::oid and objsubid = 2 and not granted",
+            [classId, objectId]
+          );
+          if ((waiters.rows[0]?.count ?? 0) >= 2) {
+            waitersObserved = true;
+            break;
+          }
+          await Bun.sleep(10);
+        }
+
+        const attemptProbe = await testDatabase.pool.connect();
+        try {
+          await attemptProbe.query("begin");
+          await attemptProbe.query("set local lock_timeout = '750ms'");
+          await attemptProbe.query(
+            "select id from payment_attempts where id = $1 for update",
+            [checkout.paymentAttemptId]
+          );
+          attemptRowAvailable = true;
+        } catch {
+          attemptRowAvailable = false;
+        } finally {
+          await attemptProbe.query("rollback").catch(() => undefined);
+          attemptProbe.release();
+        }
+      } finally {
+        await blocker.query("rollback").catch(() => undefined);
+        blocker.release();
+      }
+
+      const outcomes = await operations;
+      expect(waitersObserved).toBe(true);
+      expect(attemptRowAvailable).toBe(true);
+      expect(outcomes?.[0]?._tag).toBe("Success");
+      expect(outcomes?.[1]?._tag).toBe("Success");
+
+      const { attempt, recoveries } = await readRows(checkout);
+      expect(recoveries).toHaveLength(1);
+      expect(recoveries[0]?.state).toBe("refund_required");
+      expect(attempt?.refundState).toBe("required");
+      expect(attempt?.lastWebhookEventId).toBe(
+        NexiWebhookEventIdSchema.make(`late-webhook-${checkout.id}`)
+      );
     });
 
     test("a verification-started recovery keeps the attempt's last webhook event", async () => {

@@ -6,6 +6,7 @@ import { areAccountsEnabled } from "@/features/account/server/account-feature-fl
 import { isCustomerSignedIn } from "@/features/account/server/customer-session.server";
 import type { Locale } from "@/features/i18n";
 import { runWithRequestLocale } from "@/features/i18n/server/request-locale";
+import { areReferralsEnabled } from "@/features/referrals/referral-feature-flag.server";
 import { PageNavigationBoundary } from "@/shared/components/page-navigation-boundary";
 
 type AccountLayoutProps = {
@@ -30,8 +31,9 @@ async function AccountLayoutContent({
 }: AccountLayoutProps & { readonly locale: Locale }) {
   await connection();
 
-  const [accountsEnabled, signedIn] = await Promise.all([
+  const [accountsEnabled, referralsEnabled, signedIn] = await Promise.all([
     areAccountsEnabled(),
+    areReferralsEnabled(),
     isCustomerSignedIn(),
   ]);
 
@@ -39,6 +41,7 @@ async function AccountLayoutContent({
     <AccountLayoutShell
       accountsEnabled={accountsEnabled}
       locale={locale}
+      referralsEnabled={referralsEnabled}
       signedIn={signedIn}
     >
       <PageNavigationBoundary>

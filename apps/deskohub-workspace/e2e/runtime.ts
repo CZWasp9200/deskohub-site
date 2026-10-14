@@ -329,6 +329,22 @@ class PlaywrightRuntime {
         throw new Error(
           `Unsupported Playwright network operation: ${commandArgs.join(" ")}`
         );
+      case "cookie": {
+        if (commandArgs[1] !== "--stdin" || input === undefined)
+          throw new Error("Playwright cookie input is required");
+        if (commandArgs[0] === "set") {
+          await session.context.addCookies([parseHttpsOnlyCookie(input)]);
+          return "";
+        }
+        if (commandArgs[0] === "get") {
+          const query = parseCookieQuery(input);
+          const cookie = (await session.context.cookies(query.url)).find(
+            ({ name }) => name === query.name
+          );
+          return JSON.stringify(describeCookie(cookie, query.value));
+        }
+        throw new Error("Unsupported Playwright cookie operation");
+      }
       case "close":
         await this.closeSession(session);
         if (session.rawHarPath) await rm(session.rawHarPath, { force: true });
@@ -426,6 +442,97 @@ class PlaywrightRuntime {
     });
   }
 }
+
+/**
+ * Decodes one cookie for the session's own context. Cookie values never
+ * travel in command arguments, which the runner logs; only an HTTP-only,
+ * Secure, Lax cookie bound to one HTTPS origin is accepted.
+ */
+export const parseHttpsOnlyCookie = (input: string) => {
+  const value: unknown = JSON.parse(input);
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    !("name" in value) ||
+    !("url" in value) ||
+    !("value" in value) ||
+    typeof value.name !== "string" ||
+    typeof value.url !== "string" ||
+    typeof value.value !== "string" ||
+    value.name === "" ||
+    value.value === ""
+  ) {
+    throw new Error("Playwright cookie input is invalid");
+  }
+  const url = new URL(value.url);
+  if (url.protocol !== "https:" || url.pathname !== "/" || url.search) {
+    throw new Error("Playwright cookies require an HTTPS origin");
+  }
+  return {
+    httpOnly: true,
+    name: value.name,
+    sameSite: "Lax" as const,
+    secure: true,
+    url: url.origin,
+    value: value.value,
+  };
+};
+
+const parseCookieQuery = (input: string) => {
+  const value: unknown = JSON.parse(input);
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    !("name" in value) ||
+    !("url" in value) ||
+    typeof value.name !== "string" ||
+    typeof value.url !== "string" ||
+    ("value" in value &&
+      value.value !== undefined &&
+      typeof value.value !== "string")
+  ) {
+    throw new Error("Playwright cookie query is invalid");
+  }
+  return {
+    name: value.name,
+    url: new URL(value.url).origin,
+    value: "value" in value ? (value.value as string | undefined) : undefined,
+  };
+};
+
+/**
+ * A cookie's attributes and whether it holds an expected value. The value
+ * itself never leaves the browser context, so it cannot reach a log.
+ */
+export const describeCookie = (
+  cookie:
+    | {
+        readonly expires: number;
+        readonly httpOnly: boolean;
+        readonly path: string;
+        readonly sameSite: string;
+        readonly secure: boolean;
+        readonly value: string;
+      }
+    | undefined,
+  expectedValue: string | undefined,
+  nowSeconds = Date.now() / 1000
+) =>
+  cookie === undefined
+    ? { present: false as const }
+    : {
+        httpOnly: cookie.httpOnly,
+        lifetimeDays:
+          cookie.expires < 0
+            ? null
+            : Math.round((cookie.expires - nowSeconds) / 86_400),
+        matches:
+          expectedValue === undefined ? null : cookie.value === expectedValue,
+        path: cookie.path,
+        present: true as const,
+        sameSite: cookie.sameSite,
+        secure: cookie.secure,
+      };
 
 const parseBrowserCommand = (args: string[]) => {
   let cursor = 0;
@@ -705,6 +812,34 @@ export const redact = (text: string) => {
         : output.replaceAll(secret, "[redacted]");
   }
   return output;
+};
+
+export const redactJsonValue = (
+  value: unknown,
+  sanitizeText: (text: string) => string = redact
+): unknown => {
+  if (typeof value === "string") return sanitizeText(value);
+  if (typeof value === "number") {
+    const text = String(value);
+    const sanitized = sanitizeText(text);
+    return sanitized === text ? value : sanitized;
+  }
+  if (Array.isArray(value))
+    return value.map((item) => redactJsonValue(item, sanitizeText));
+  if (value === null || typeof value !== "object") return value;
+
+  const sanitized: Record<string, unknown> = Object.create(null);
+  for (const [key, item] of Object.entries(value)) {
+    const sanitizedKey = sanitizeText(key);
+    let uniqueKey = sanitizedKey;
+    let ordinal = 2;
+    while (Object.hasOwn(sanitized, uniqueKey)) {
+      uniqueKey = `${sanitizedKey}#${ordinal}`;
+      ordinal += 1;
+    }
+    sanitized[uniqueKey] = redactJsonValue(item, sanitizeText);
+  }
+  return sanitized;
 };
 
 export function assert(condition: unknown, message: string): asserts condition {

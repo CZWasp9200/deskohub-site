@@ -80,6 +80,15 @@ export default defineConfig({
       testMatch: "payment-lane-3.pw.ts",
     },
     {
+      // Never pays and signs its own seeded identities in, so its cases run in
+      // parallel on whichever workers the account and checkout lanes leave
+      // free. Listed after them so Playwright queues it last in the phase;
+      // the tail projects do not wait for it.
+      dependencies: ["checkout-plan"],
+      name: "checkout-referrals",
+      testMatch: "referral-lane.pw.ts",
+    },
+    {
       dependencies: [...checkoutCaseProjects],
       name: "checkout-shared-fixture",
       testMatch: "shared-fixture.pw.ts",

@@ -151,6 +151,8 @@ Each Nexi request times out after 5 seconds in production and 30 seconds elsewhe
 3. Verify with `GET /orders/{orderId}`. Only that verification moves payment state.
 4. In one transaction, mark attempt and reservation paid and redeem the claim; then fulfill synchronously.
 
+A checkout referral's invitation claim stores its referrer and code. Every paid transaction that redeems it (including the zero-total internal payment and late-recovery settlement) records the referral attribution, whatever the `referrals` flag says; a conflicting referrer or a cycle keeps the existing graph and never fails the payment. Lock order is in the referrals skill. The paid status page and the zero-total payment action clear the remembered referral-code cookie.
+
 Never store the notification body, token, `customerInfo`, warnings, `additionalData`, or card data.
 
 Status-page and cleanup reconciliation go through provider payment finalization. After marking an attempt paid, or finding a paid order whose fulfillment is `not_started` or `processing`, it enqueues one `workspace-paid-fulfillment` message with idempotency key `paid-fulfillment:<orderId>`, and fulfills inline only when the enqueue is rejected. An order already in `awaiting_delivery`, `fulfilled`, or `failed` triggers no work from the status page.

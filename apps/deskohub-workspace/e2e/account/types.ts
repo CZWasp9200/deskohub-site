@@ -19,6 +19,14 @@ export type WorkspaceE2EAccountRequirement =
  */
 export type WorkspaceE2EAccountLifecycleHandoff = {
   firstAcceptedRequestedAt?: Date;
+  /**
+   * The synthetic referrer's share code, which the main account follows from
+   * its first anonymous visit through sign-in into profile completion.
+   */
+  referralInvitation?: {
+    readonly code: string;
+    readonly referrerCustomerId: string;
+  };
   reauthentication?: {
     link: string;
     userId: string;
@@ -38,12 +46,24 @@ export type WorkspaceE2EAccountJournalRef = {
   ) => Promise<void>;
 };
 
+export type WorkspaceE2EAccountCaseCompletion = {
+  readonly cleanup: Effect.Effect<
+    void,
+    WorkspaceE2EError,
+    WorkspaceE2EAccountRequirement
+  >;
+};
+
 export type WorkspaceE2EAccountCase = {
   readonly execute: (context: {
     readonly journalRef: WorkspaceE2EAccountJournalRef;
     readonly runStep: WorkspaceE2EStepRunner;
     readonly session: string;
-  }) => Effect.Effect<void, WorkspaceE2EError, WorkspaceE2EAccountRequirement>;
+  }) => Effect.Effect<
+    WorkspaceE2EAccountCaseCompletion,
+    WorkspaceE2EError,
+    WorkspaceE2EAccountRequirement
+  >;
   readonly id: WorkspaceE2EAccountCaseId;
   readonly timeoutMs: number;
 };

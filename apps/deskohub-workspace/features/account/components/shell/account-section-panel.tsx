@@ -17,14 +17,20 @@ export interface AccountSectionPanelProps
   /** Content rendered on the trailing side of the header row. */
   readonly actions?: ReactNode;
   readonly footer?: ReactNode;
+  /** Classes for the body below the header, such as centering its content. */
+  readonly bodyClassName?: string;
   readonly variant?: "default" | "destructive";
+  /** `compact` sets a smaller title and tighter header for dense dashboards. */
+  readonly size?: "default" | "compact";
 }
 
 export function AccountSectionPanel({
   actions,
+  bodyClassName,
   children,
   className,
   footer,
+  size = "default",
   title,
   titleId,
   variant = "default",
@@ -33,6 +39,7 @@ export function AccountSectionPanel({
   const generatedTitleId = useId();
   const headingId = titleId ?? generatedTitleId;
   const destructive = variant === "destructive";
+  const compact = size === "compact";
 
   return (
     <section
@@ -40,21 +47,27 @@ export function AccountSectionPanel({
       className={cn(
         "min-w-0 rounded-2xl border bg-white p-5 text-navy-blue shadow-[0_18px_40px_-28px_rgba(0,2,79,0.45)] @xl:p-8 [&_input]:scroll-mb-[calc(12rem+env(safe-area-inset-bottom))] [&_select]:scroll-mb-[calc(12rem+env(safe-area-inset-bottom))]",
         destructive ? "border-rose-200" : "border-[#dfe4ec]",
+        compact && "pb-4 @xl:pb-5",
         className
       )}
       {...rest}
       data-slot="account-section-panel"
+      data-size={size}
       data-variant={variant}
     >
       <header
         className={cn(
-          "flex min-w-0 flex-wrap items-start justify-between gap-x-4 gap-y-3 border-b pb-5",
+          "flex min-w-0 flex-wrap justify-between gap-x-4 gap-y-3 border-b",
+          compact ? "items-center pb-4" : "items-start pb-5",
           destructive ? "border-rose-200" : "border-[#e6ebf1]"
         )}
       >
         <h2
           className={cn(
-            "min-w-0 break-words text-[26px] font-bold leading-tight tracking-[-0.025em]",
+            "min-w-0 break-words font-bold leading-tight",
+            compact
+              ? "text-xl tracking-[-0.02em]"
+              : "text-[26px] tracking-[-0.025em]",
             destructive ? "text-rose-900" : "text-[#00024f]"
           )}
           id={headingId}
@@ -64,7 +77,15 @@ export function AccountSectionPanel({
         {actions && <div className="shrink-0">{actions}</div>}
       </header>
 
-      <div className="min-w-0 pt-7">{children}</div>
+      <div
+        className={cn(
+          "min-w-0",
+          compact ? "pt-4 @xl:pt-8" : "pt-7",
+          bodyClassName
+        )}
+      >
+        {children}
+      </div>
 
       {footer !== undefined && (
         <div

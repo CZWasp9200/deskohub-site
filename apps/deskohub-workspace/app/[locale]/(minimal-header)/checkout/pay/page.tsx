@@ -14,10 +14,15 @@ import {
   payStateContinuesOn,
   payStateTokenQueryParam,
 } from "@/features/checkout/backend/checkout";
+import {
+  checkoutReferralAppliedQueryParam,
+  hasCheckoutReferralAppliedNotice,
+} from "@/features/checkout/checkout-referral-notice";
 import { CheckoutDiscountCodeForm } from "@/features/checkout/components/checkout-discount-code-form";
 import { CheckoutFlowLayout } from "@/features/checkout/components/checkout-flow-layout";
 import { CheckoutPayPage } from "@/features/checkout/components/checkout-pay-page";
 import { CheckoutPayPageSkeleton } from "@/features/checkout/components/checkout-pay-page-skeleton";
+import { parseDiscountCodeRejection } from "@/features/checkout/discount-code-rejection";
 import { getDiscountCodeEntryEnabled } from "@/features/discounts/discount-code-entry.server";
 import { type Locale, locales, m } from "@/features/i18n";
 import { runWithRequestLocale } from "@/features/i18n/server/request-locale";
@@ -115,9 +120,9 @@ async function CheckoutPayContent({
     resolvedSearchParams,
     payStateTokenQueryParam
   );
-  const discountCodeError =
-    getSearchParam(resolvedSearchParams, discountCodeErrorQueryParam) ===
-    "unavailable";
+  const discountCodeRejection = parseDiscountCodeRejection(
+    getSearchParam(resolvedSearchParams, discountCodeErrorQueryParam)
+  );
   const discountCodeErrorId = getSearchParam(
     resolvedSearchParams,
     discountCodeErrorIdQueryParam
@@ -177,7 +182,7 @@ async function CheckoutPayContent({
   const state = openedPayState.state;
   const loadedPayState = await Effect.Do.pipe(
     Effect.bind("payableReservations", () => PayableReservationService),
-    Effect.tap(({ payableReservations }) =>
+    Effect.bind("currentReservation", ({ payableReservations }) =>
       payableReservations.requireCurrent({
         orderId: state.orderId,
         checkoutSessionId: state.checkoutSessionId,
@@ -190,10 +195,13 @@ async function CheckoutPayContent({
         Effect.map(Option.getOrUndefined)
       )
     ),
-    Effect.map(({ discountCodeEntryEnabled, freshPayUrl }) => ({
-      discountCodeEntryEnabled,
-      freshPayUrl,
-    })),
+    Effect.map(
+      ({ currentReservation, discountCodeEntryEnabled, freshPayUrl }) => ({
+        currentReservation,
+        discountCodeEntryEnabled,
+        freshPayUrl,
+      })
+    ),
     Effect.provide(PayableReservationService.Live),
     Effect.catch((cause) =>
       Effect.logWarning("Checkout pay state could not be loaded", {
@@ -210,15 +218,19 @@ async function CheckoutPayContent({
     ));
   }
 
-  const { discountCodeEntryEnabled, freshPayUrl } = loadedPayState;
+  const { currentReservation, discountCodeEntryEnabled, freshPayUrl } =
+    loadedPayState;
+  const referralApplied = hasCheckoutReferralAppliedNotice({
+    discounts: state.quote.payment.discounts,
+    dotyposCustomerId: currentReservation.dotyposCustomerId,
+    marker: resolvedSearchParams[checkoutReferralAppliedQueryParam],
+  });
   const submittedCodeApplication =
     getSignedPayStateSubmittedCodeApplication(state);
   const orderPath = getReservationStartPath(
     locale,
     state.reservation.kind,
-    new URLSearchParams({
-      [payStateTokenQueryParam]: payStateToken,
-    })
+    new URLSearchParams({ [payStateTokenQueryParam]: payStateToken })
   );
   const earlyPerformanceRequestRequired = isEarlyPerformanceRequestRequired({
     reservation: state.reservation,
@@ -255,9 +267,10 @@ async function CheckoutPayContent({
             enabled={
               discountCodeEntryEnabled && state.submittedCode === undefined
             }
-            fieldError={discountCodeError}
             locale={locale}
             payStateToken={payStateToken}
+            referralApplied={referralApplied}
+            rejection={discountCodeRejection}
             rejectionId={discountCodeErrorId}
           />
         }

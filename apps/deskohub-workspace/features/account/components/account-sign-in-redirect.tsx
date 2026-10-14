@@ -8,18 +8,17 @@ import { SignInLoading } from "./sign-in-loading";
 
 export function AccountSignInRedirect({ locale }: { readonly locale: Locale }) {
   const router = useRouter();
+  const signInPath = getAccountSignInPath(locale);
 
   useEffect(() => {
-    router.replace(getAccountSignInPath(locale));
-  }, [locale, router]);
+    router.replace(signInPath);
+  }, [router, signInPath]);
 
   return (
     <>
       <SignInLoading locale={locale} />
       <noscript>
-        <a href={getAccountSignInPath(locale)}>
-          {m.accountSignInTitle({}, { locale })}
-        </a>
+        <a href={signInPath}>{m.accountSignInTitle({}, { locale })}</a>
       </noscript>
     </>
   );

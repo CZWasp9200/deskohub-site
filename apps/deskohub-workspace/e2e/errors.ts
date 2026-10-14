@@ -64,6 +64,30 @@ const workspaceE2EProfileNavigationDiagnosticCodes = [
 export type WorkspaceE2EProfileNavigationDiagnosticCode =
   (typeof workspaceE2EProfileNavigationDiagnosticCodes)[number];
 
+const accountLayoutNavigationPhases = [
+  "select",
+  "landmark",
+  "capture",
+] as const;
+const accountLayoutSections = [
+  "reservations",
+  "referrals",
+  "profile",
+  "billing",
+  "legal",
+  "danger",
+] as const;
+
+type AccountLayoutNavigationDiagnosticCode =
+  `account_layout_${(typeof accountLayoutNavigationPhases)[number]}_${(typeof accountLayoutSections)[number]}_failed`;
+
+const accountLayoutNavigationDiagnosticCodes =
+  accountLayoutNavigationPhases.flatMap((phase) =>
+    accountLayoutSections.map(
+      (section) => `account_layout_${phase}_${section}_failed` as const
+    )
+  ) as AccountLayoutNavigationDiagnosticCode[];
+
 const workspaceE2EReservationExistingCustomerDiagnosticCodes = [
   "account_reservation_existing_customer_page_failed",
   "account_reservation_existing_customer_card_failed",
@@ -88,6 +112,7 @@ const workspaceE2EAccountDiagnosticCodes = [
   "postgres_account_fixture_convergence_failed",
   "dotypos_account_fixture_mutation_failed",
   ...workspaceE2EProfileNavigationDiagnosticCodes,
+  ...accountLayoutNavigationDiagnosticCodes,
   ...workspaceE2EReservationExistingCustomerDiagnosticCodes,
 ] as const;
 

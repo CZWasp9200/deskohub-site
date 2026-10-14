@@ -35,6 +35,12 @@ import { PromotionCodeUnavailableError } from "@/features/discounts/errors";
 import { WorkspaceFeatureFlagServiceMock } from "@/features/feature-flags/backend/workspace-feature-flag.service.mock";
 import type { ICustomerMarketingConsentRepository } from "@/features/legal/backend/customer-marketing-consent.repository";
 import { OfficeReservationFeatureFlagService } from "@/features/office/backend/office-reservation-feature-flag.service";
+import { ReferralError } from "@/features/referrals/contracts";
+import type { ReferralService } from "@/features/referrals/referral.service";
+import {
+  ReferralServiceMock,
+  WithheldReferralService,
+} from "@/features/referrals/referral.service.mock";
 import type { IWorkspaceAvailabilityService } from "@/features/reservation/backend/workspace-availability.service";
 import { meetingRoomAdvertisedPriceReservationSchema } from "@/features/reservation/meeting-room-reservation";
 import { getSlowestSuccessfulCalendarLoad } from "@/shared/backend/config/google-calendar.config.test-utils";
@@ -70,6 +76,15 @@ mock.module("next/headers", () => ({
   headers: async () => new Headers({ referer: "https://deskohub.test/en-US" }),
 }));
 
+// The referral code this browser remembers from a shared link.
+let rememberedReferralCode: string | undefined;
+mock.module("@/features/referrals/remembered-referral-code.server", () => ({
+  readRememberedReferralCode: Effect.sync(() => rememberedReferralCode),
+  forgetRememberedReferralCode: async () => {
+    rememberedReferralCode = undefined;
+  },
+}));
+
 // Format of the checkout lookup keys new rows store: the active key's
 // key-ID-prefixed digest.
 const storedLookupKeyPattern = /^test:[a-f0-9]{64}$/;
@@ -101,7 +116,8 @@ const meetingRoomReservationInput = {
 const buildAdvertisedPriceToken = async (
   quote: CoworkReservationQuote = buildCoworkReservationQuote(reservation),
   ttlMilliseconds?: number,
-  locale: "en-US" | "cs-CZ" = "en-US"
+  locale: "en-US" | "cs-CZ" = "en-US",
+  requestedDiscountCode?: string
 ) => {
   const { buildAdvertisedPriceState, sealAdvertisedPriceState } = await import(
     "@/features/checkout/backend/checkout"
@@ -121,6 +137,11 @@ const buildAdvertisedPriceToken = async (
       },
       quote,
       ttlMilliseconds,
+      ...(requestedDiscountCode !== undefined && {
+        requestedDiscountCode: Schema.decodeUnknownSync(
+          canonicalPromotionCodeSchema
+        )(requestedDiscountCode),
+      }),
     });
     return yield* sealAdvertisedPriceState(state);
   }).pipe(Effect.runPromise);
@@ -337,6 +358,13 @@ const runReusableReservationScenario = async (input: {
   readonly accountAuthority?: Parameters<typeof accountAuthorityFixture>[0];
   readonly customer?: "account";
   readonly accountContact?: CustomerAccountContactService["Service"]["current"];
+  readonly linkedAccount?: CustomerAccountContactService["Service"]["currentLinkedAccount"];
+  readonly rememberedReferralCode?: string;
+  readonly evaluateCheckoutReferral?: ReturnType<typeof mock>;
+  readonly findAvailableCode?: ReturnType<typeof mock>;
+  readonly hasSettledReferral?: ReturnType<typeof mock>;
+  /** Replaces the mocked referral operations above. */
+  readonly referralService?: Layer.Layer<ReferralService>;
   readonly checkContactEmailDomain?: ReturnType<typeof mock>;
 }) => {
   const { prepareWorkspacePayState } = await import("./prepare-pay-state");
@@ -418,11 +446,31 @@ const runReusableReservationScenario = async (input: {
     () =>
       input.accountContact ?? Effect.die("the account contact must not be read")
   );
+  // Without a fixture the session has no linked account, as for a guest.
+  const readLinkedAccount = mock(
+    () => input.linkedAccount ?? Effect.succeed(null)
+  );
+  const evaluateCheckoutReferral =
+    input.evaluateCheckoutReferral ??
+    mock(() => Effect.die("a referral must not be evaluated"));
+  const findAvailableCode =
+    input.findAvailableCode ??
+    mock(() => Effect.die("a referral code must not be looked up"));
+  const hasSettledReferral =
+    input.hasSettledReferral ?? mock(() => Effect.succeed(false));
+  rememberedReferralCode = input.rememberedReferralCode;
   const testLayer = Layer.mergeAll(
     accountAuthority.layer,
     Layer.mock(CustomerAccountContactService, {
       current: Effect.suspend(() => readAccountContact()),
+      currentLinkedAccount: Effect.suspend(() => readLinkedAccount()),
     }),
+    input.referralService ??
+      ReferralServiceMock({
+        evaluateCheckoutReferral: evaluateCheckoutReferral as never,
+        findAvailableCode: findAvailableCode as never,
+        hasSettledReferral: hasSettledReferral as never,
+      }),
     CheckoutPricingServiceMock({
       affirmCoworkAdvertisement: affirmAdvertisement,
       quoteForCustomer: quoteForCustomerResult as never,
@@ -512,6 +560,11 @@ const runReusableReservationScenario = async (input: {
     findOrCreateCustomer,
     updateCustomerBillingDetails,
     readAccountContact,
+    readLinkedAccount,
+    evaluateCheckoutReferral,
+    findAvailableCode,
+    hasSettledReferral,
+    rememberedReferralCodeAfter: rememberedReferralCode,
     checkContactEmailDomain,
   };
 };
@@ -1681,6 +1734,450 @@ describe("prepareWorkspacePayState", () => {
       });
       expect(scenario.findOrCreateCustomer).not.toHaveBeenCalled();
       expect(scenario.createDraft).not.toHaveBeenCalled();
+    });
+
+    describe("with a remembered referral code", () => {
+      const accountId = "5b6f31d0-2c1a-4f0e-9a3d-6c7b8e2f1a01";
+      const linkedAccount = () =>
+        Effect.succeed({
+          accountId,
+          dotyposCustomerId: accountDotyposCustomerId,
+          email: testEmailAddressForGrace,
+        } as never);
+      const signedStateOf = async (
+        result: { readonly redirectUrl?: string } | object | undefined
+      ) => {
+        const { openPayState, payStateTokenQueryParam } = await import(
+          "@/features/checkout/backend/checkout"
+        );
+        const redirectUrl =
+          result && "redirectUrl" in result ? result.redirectUrl : undefined;
+        const token = new URL(
+          redirectUrl ?? "",
+          "https://deskohub.test"
+        ).searchParams.get(payStateTokenQueryParam);
+        return token ? Effect.runSync(openPayState(token)) : undefined;
+      };
+      const referralAppliedOf = (redirectUrl: string | undefined) =>
+        new URL(redirectUrl ?? "", "https://deskohub.test").searchParams.get(
+          "referralApplied"
+        );
+
+      test.each(["eligible", "already_accepted"] as const)(
+        "carries an %s referral in the first Pay state without attributing it, and marks it",
+        async (kind) => {
+          const lockProbe = { held: false };
+          const order: string[] = [];
+          const quotedReferralCodes: unknown[] = [];
+          const evaluateCheckoutReferral = mock(() =>
+            Effect.sync(() => {
+              order.push(
+                lockProbe.held ? "evaluate:locked" : "evaluate:unlocked"
+              );
+              return kind === "eligible"
+                ? { kind, code: "RFL12345" }
+                : { kind };
+            })
+          );
+          const scenario = await runReusableReservationScenario({
+            findByAttemptKeys: mock(() => Effect.succeed(null)),
+            createDraft: createFreshDraft(),
+            accountAuthority: {
+              session: {},
+              activityState: "active",
+              lockProbe,
+            },
+            customer: "account",
+            accountContact: accountContact(),
+            linkedAccount: linkedAccount(),
+            rememberedReferralCode: "RFL12345",
+            evaluateCheckoutReferral,
+            quoteForCustomer: mock(
+              ({ affirmedAdvertisement, referralCode }) => {
+                order.push("quote");
+                quotedReferralCodes.push(referralCode);
+                return Effect.succeed(
+                  buildQuoteFromAdvertisement(affirmedAdvertisement)
+                );
+              }
+            ),
+          });
+
+          expect(scenario.result?.status).toBe("ready");
+          expect(evaluateCheckoutReferral).toHaveBeenCalledTimes(1);
+          expect(evaluateCheckoutReferral.mock.calls[0]?.[0]).toEqual({
+            code: "RFL12345",
+            dotyposCustomerId: accountDotyposCustomerId,
+          });
+          expect(order).toEqual(["evaluate:unlocked", "quote"]);
+          const carried = kind === "eligible" ? "RFL12345" : undefined;
+          expect(quotedReferralCodes).toEqual([carried]);
+          expect((await signedStateOf(scenario.result))?.referralCode).toBe(
+            carried
+          );
+          expect(
+            referralAppliedOf(
+              scenario.result && "redirectUrl" in scenario.result
+                ? scenario.result.redirectUrl
+                : undefined
+            )
+          ).toBe("1");
+        }
+      );
+
+      test.each([
+        "already_attributed",
+        "ineligible",
+        "self_referral",
+        "unavailable",
+        "invalid_code",
+        "account_unavailable",
+      ] as const)(
+        "continues checkout silently without the code when evaluation fails as %s",
+        async (reason) => {
+          const scenario = await runReusableReservationScenario({
+            findByAttemptKeys: mock(() => Effect.succeed(null)),
+            createDraft: createFreshDraft(),
+            accountAuthority: { session: {}, activityState: "active" },
+            customer: "account",
+            accountContact: accountContact(),
+            linkedAccount: linkedAccount(),
+            rememberedReferralCode: "RFL12345",
+            evaluateCheckoutReferral: mock(() =>
+              Effect.fail(new ReferralError({ reason }))
+            ),
+          });
+
+          expect(scenario.result?.status).toBe("ready");
+          expect(scenario.evaluateCheckoutReferral).toHaveBeenCalledTimes(1);
+          expect(scenario.createDraft).toHaveBeenCalledTimes(1);
+          expect(
+            (await signedStateOf(scenario.result))?.referralCode
+          ).toBeUndefined();
+          expect(
+            referralAppliedOf(
+              scenario.result && "redirectUrl" in scenario.result
+                ? scenario.result.redirectUrl
+                : undefined
+            )
+          ).toBeNull();
+        }
+      );
+
+      test("continues checkout when the linked account cannot be read", async () => {
+        const scenario = await runReusableReservationScenario({
+          findByAttemptKeys: mock(() => Effect.succeed(null)),
+          createDraft: createFreshDraft(),
+          accountAuthority: { session: {}, activityState: "active" },
+          customer: "account",
+          accountContact: accountContact(),
+          linkedAccount: Effect.fail(
+            new CustomerAccountAccessError({ reason: "unavailable" })
+          ),
+          rememberedReferralCode: "RFL12345",
+        });
+
+        expect(scenario.result?.status).toBe("ready");
+        expect(scenario.evaluateCheckoutReferral).not.toHaveBeenCalled();
+        expect(scenario.createDraft).toHaveBeenCalledTimes(1);
+      });
+
+      test("skips acceptance for a session without a linked account", async () => {
+        const scenario = await runReusableReservationScenario({
+          findByAttemptKeys: mock(() => Effect.succeed(null)),
+          createDraft: createFreshDraft(),
+          accountAuthority: { session: {}, activityState: "active" },
+          customer: "account",
+          accountContact: accountContact(),
+          linkedAccount: Effect.succeed(null),
+          rememberedReferralCode: "RFL12345",
+        });
+
+        expect(scenario.result?.status).toBe("ready");
+        expect(scenario.evaluateCheckoutReferral).not.toHaveBeenCalled();
+      });
+
+      type PreparedResult = Awaited<
+        ReturnType<typeof runReusableReservationScenario>
+      >["result"];
+      const redirectUrlOf = (result: PreparedResult) =>
+        result && "redirectUrl" in result ? result.redirectUrl : undefined;
+      const requestedCodeOf = async (result: PreparedResult) => {
+        const { openPayState, payStateTokenQueryParam } = await import(
+          "@/features/checkout/backend/checkout"
+        );
+        const token = new URL(
+          redirectUrlOf(result) ?? "",
+          "https://deskohub.test"
+        ).searchParams.get(payStateTokenQueryParam);
+        return Effect.runSync(openPayState(token ?? "")).requestedDiscountCode;
+      };
+
+      test.each([
+        ["an anonymous guest", { session: null }],
+        ["a contact booking", { session: {}, activityState: "active" }],
+      ] as const)(
+        "prefills a usable code for %s without accepting it",
+        async (_label, accountAuthority) => {
+          const findAvailableCode = mock(() => Effect.succeed("RFL12345"));
+          const scenario = await runReusableReservationScenario({
+            findByAttemptKeys: mock(() => Effect.succeed(null)),
+            createDraft: createFreshDraft(),
+            accountAuthority,
+            rememberedReferralCode: "RFL12345",
+            findAvailableCode,
+          });
+
+          expect(scenario.result?.status).toBe("ready");
+          expect(findAvailableCode.mock.calls).toEqual([
+            [{ code: "RFL12345" }],
+          ]);
+          expect(scenario.evaluateCheckoutReferral).not.toHaveBeenCalled();
+          expect(await requestedCodeOf(scenario.result)).toBe("RFL12345");
+          expect(redirectUrlOf(scenario.result)).not.toContain("RFL12345");
+          expect(referralAppliedOf(redirectUrlOf(scenario.result))).toBeNull();
+        }
+      );
+
+      test.each([
+        ["unusable", () => Effect.succeed(undefined)],
+        [
+          "unreadable",
+          () => Effect.fail(new ReferralError({ reason: "unavailable" })),
+        ],
+      ] as const)(
+        "continues a guest checkout without a prefill for an %s code",
+        async (_label, lookup) => {
+          const scenario = await runReusableReservationScenario({
+            findByAttemptKeys: mock(() => Effect.succeed(null)),
+            createDraft: createFreshDraft(),
+            accountAuthority: { session: null },
+            rememberedReferralCode: "RFL12345",
+            findAvailableCode: mock(lookup),
+          });
+
+          expect(scenario.result?.status).toBe("ready");
+          expect(scenario.evaluateCheckoutReferral).not.toHaveBeenCalled();
+          expect(await requestedCodeOf(scenario.result)).toBeUndefined();
+        }
+      );
+
+      test("keeps an explicitly requested discount code over the referral prefill", async () => {
+        const scenario = await runReusableReservationScenario({
+          findByAttemptKeys: mock(() => Effect.succeed(null)),
+          createDraft: createFreshDraft(),
+          accountAuthority: { session: null },
+          advertisedPriceToken: await buildAdvertisedPriceToken(
+            undefined,
+            undefined,
+            undefined,
+            "CAMPAIGN10"
+          ),
+          rememberedReferralCode: "RFL12345",
+          findAvailableCode: mock(() => Effect.succeed("RFL12345")),
+        });
+
+        expect(scenario.result?.status).toBe("ready");
+        expect(await requestedCodeOf(scenario.result)).toBe("CAMPAIGN10");
+      });
+
+      test("does not prefill an account booking's referral code", async () => {
+        const scenario = await runReusableReservationScenario({
+          findByAttemptKeys: mock(() => Effect.succeed(null)),
+          createDraft: createFreshDraft(),
+          accountAuthority: { session: {}, activityState: "active" },
+          customer: "account",
+          accountContact: accountContact(),
+          linkedAccount: linkedAccount(),
+          rememberedReferralCode: "RFL12345",
+          evaluateCheckoutReferral: mock(() =>
+            Effect.fail(new ReferralError({ reason: "already_attributed" }))
+          ),
+        });
+
+        expect(scenario.result?.status).toBe("ready");
+        expect(scenario.findAvailableCode).not.toHaveBeenCalled();
+        expect(await requestedCodeOf(scenario.result)).toBeUndefined();
+      });
+
+      test.each([
+        ["an anonymous guest", { session: null }],
+        ["an account booking", { session: {}, activityState: "active" }],
+      ] as const)(
+        "does nothing for %s without a remembered code",
+        async (_label, accountAuthority) => {
+          const scenario = await runReusableReservationScenario({
+            findByAttemptKeys: mock(() => Effect.succeed(null)),
+            createDraft: createFreshDraft(),
+            accountAuthority,
+            ...(accountAuthority.session && {
+              customer: "account" as const,
+              accountContact: accountContact(),
+              linkedAccount: linkedAccount(),
+            }),
+          });
+
+          expect(scenario.result?.status).toBe("ready");
+          expect(scenario.evaluateCheckoutReferral).not.toHaveBeenCalled();
+          expect(scenario.findAvailableCode).not.toHaveBeenCalled();
+          expect(scenario.hasSettledReferral).not.toHaveBeenCalled();
+          expect(
+            (await signedStateOf(scenario.result))?.referralCode
+          ).toBeUndefined();
+          expect(await requestedCodeOf(scenario.result)).toBeUndefined();
+        }
+      );
+
+      test("keeps the remembered code for an unusable guest code", async () => {
+        const scenario = await runReusableReservationScenario({
+          findByAttemptKeys: mock(() => Effect.succeed(null)),
+          createDraft: createFreshDraft(),
+          accountAuthority: { session: null },
+          rememberedReferralCode: "RFL12345",
+          findAvailableCode: mock(() => Effect.succeed(undefined)),
+        });
+
+        expect(scenario.result?.status).toBe("ready");
+        expect(await requestedCodeOf(scenario.result)).toBeUndefined();
+        expect(scenario.rememberedReferralCodeAfter).toBe("RFL12345");
+      });
+
+      test.each([
+        [
+          "a guest",
+          {
+            accountAuthority: { session: null },
+            findAvailableCode: mock(() => Effect.succeed(undefined)),
+          },
+          "customer-id",
+        ],
+        [
+          "the signed-in account",
+          {
+            accountAuthority: { session: {}, activityState: "active" },
+            customer: "account" as const,
+            accountContact: accountContact(),
+            linkedAccount: linkedAccount(),
+            evaluateCheckoutReferral: mock(() =>
+              Effect.succeed({ kind: "already_accepted" as const })
+            ),
+          },
+          accountDotyposCustomerId,
+        ],
+      ] as const)(
+        "forgets the remembered code once %s booked customer is settled",
+        async (_label, booking, dotyposCustomerId) => {
+          const hasSettledReferral = mock(() => Effect.succeed(true));
+          const scenario = await runReusableReservationScenario({
+            findByAttemptKeys: mock(() => Effect.succeed(null)),
+            createDraft: createFreshDraft(),
+            ...booking,
+            rememberedReferralCode: "RFL12345",
+            hasSettledReferral,
+          });
+
+          expect(scenario.result?.status).toBe("ready");
+          expect(hasSettledReferral.mock.calls).toEqual([
+            [{ dotyposCustomerId }],
+          ]);
+          expect(scenario.rememberedReferralCodeAfter).toBeUndefined();
+        }
+      );
+
+      test.each([
+        ["a settled friend leaves the booker's code", false, true],
+        ["a settled booker clears the booker's code", true, false],
+      ] as const)(
+        "checks the booker, not the friend, when booking for someone else: %s",
+        async (_label, bookerSettled, kept) => {
+          // The friend booked for is always settled; only the booker's own
+          // customer decides whether the booker's remembered code is used.
+          const hasSettledReferral = mock(
+            ({ dotyposCustomerId }: { readonly dotyposCustomerId: string }) =>
+              Effect.succeed(
+                dotyposCustomerId === accountDotyposCustomerId
+                  ? bookerSettled
+                  : true
+              )
+          );
+          const scenario = await runReusableReservationScenario({
+            findByAttemptKeys: mock(() => Effect.succeed(null)),
+            createDraft: createFreshDraft(),
+            accountAuthority: { session: {}, activityState: "active" },
+            linkedAccount: linkedAccount(),
+            rememberedReferralCode: "RFL12345",
+            findAvailableCode: mock(() => Effect.succeed(undefined)),
+            hasSettledReferral,
+          });
+
+          expect(scenario.result?.status).toBe("ready");
+          expect(hasSettledReferral.mock.calls).toEqual([
+            [{ dotyposCustomerId: accountDotyposCustomerId }],
+          ]);
+          expect(scenario.rememberedReferralCodeAfter).toBe(
+            kept ? "RFL12345" : undefined
+          );
+        }
+      );
+
+      test.each([
+        ["unsettled", () => Effect.succeed(false)],
+        [
+          "unknown",
+          () => Effect.fail(new ReferralError({ reason: "unavailable" })),
+        ],
+      ] as const)(
+        "keeps the remembered code while the booked customer is %s",
+        async (_label, settled) => {
+          const scenario = await runReusableReservationScenario({
+            findByAttemptKeys: mock(() => Effect.succeed(null)),
+            createDraft: createFreshDraft(),
+            accountAuthority: { session: null },
+            rememberedReferralCode: "RFL12345",
+            findAvailableCode: mock(() => Effect.succeed("RFL12345")),
+            hasSettledReferral: mock(settled),
+          });
+
+          expect(scenario.result?.status).toBe("ready");
+          expect(scenario.hasSettledReferral).toHaveBeenCalledTimes(1);
+          expect(await requestedCodeOf(scenario.result)).toBe("RFL12345");
+          expect(scenario.rememberedReferralCodeAfter).toBe("RFL12345");
+        }
+      );
+
+      // The remembered-code reader already reports nothing while the program
+      // is withheld; even a code that still reaches preparation stays inert.
+      test.each([
+        ["an anonymous guest", { accountAuthority: { session: null } }],
+        [
+          "the signed-in account",
+          {
+            accountAuthority: { session: {}, activityState: "active" },
+            customer: "account" as const,
+            accountContact: accountContact(),
+            linkedAccount: linkedAccount(),
+          },
+        ],
+      ] as const)(
+        "carries, prefills, and forgets nothing for %s while referrals are withheld",
+        async (_label, booking) => {
+          const scenario = await runReusableReservationScenario({
+            findByAttemptKeys: mock(() => Effect.succeed(null)),
+            createDraft: createFreshDraft(),
+            ...booking,
+            rememberedReferralCode: "RFL12345",
+            referralService: WithheldReferralService,
+          });
+
+          expect(scenario.result?.status).toBe("ready");
+          expect(
+            (await signedStateOf(scenario.result))?.referralCode
+          ).toBeUndefined();
+          expect(await requestedCodeOf(scenario.result)).toBeUndefined();
+          expect(referralAppliedOf(redirectUrlOf(scenario.result))).toBeNull();
+          expect(scenario.rememberedReferralCodeAfter).toBe("RFL12345");
+        }
+      );
     });
 
     test("resolves the Dotypos customer from the submitted contact without an account booking", async () => {

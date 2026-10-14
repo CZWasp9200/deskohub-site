@@ -22,7 +22,8 @@ checkout-setup (teardown: checkout-cleanup)
        └─ checkout-plan
             ├─ checkout-non-payment (workers: 2)
             ├─ checkout-payment-1 / -2 / -3 (serial lanes)
-            └─ account-auth (serial account lane)
+            ├─ account-auth (serial account lane)
+            └─ checkout-referrals (referral lane, unpaid; see referral-lane.md)
                  checkout-shared-fixture        ← depends on all four checkout case projects
                  checkout-invoice-persistence   ← depends on all four checkout case projects
 ```

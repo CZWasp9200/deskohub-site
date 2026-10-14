@@ -8,13 +8,16 @@ import {
   mock,
   test,
 } from "bun:test";
+import { DotyposCustomerIdSchema } from "@deskohub/dotypos";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
   buildCoworkCheckoutSummary,
   buildCoworkReservationQuote as buildCoworkPriceQuote,
 } from "@/features/checkout/checkout-quote.test-utils";
+import { hasCheckoutReferralAppliedNotice } from "@/features/checkout/checkout-referral-notice";
 import { m } from "@/features/i18n";
+import { formatReferralInvitationDiscount } from "@/features/referrals/client";
 import { workspaceUseAction } from "@/shared/testing/workspace-component-module-mocks";
 import {
   registerWorkspaceComponentTestEnv,
@@ -52,6 +55,7 @@ describe("CheckoutDiscountCodeForm", () => {
 
   beforeEach(() => {
     analyticsAccepted = true;
+    applyDiscountCodeForm.mockClear();
     capture.mockClear();
     applyDiscountCodeForm.mockClear();
     applyDiscountCodeForm.mockImplementation(async () => {});
@@ -78,7 +82,6 @@ describe("CheckoutDiscountCodeForm", () => {
       <CheckoutDiscountCodeForm
         defaultCode="SUMMER10"
         enabled
-        fieldError={false}
         locale="en-US"
         payStateToken="signed-state"
       />
@@ -90,6 +93,10 @@ describe("CheckoutDiscountCodeForm", () => {
       name: m.checkoutDiscountCodeApply({}, { locale: "en-US" }),
     });
     expect(applyButton).toHaveProperty("disabled", false);
+    expect(view.queryByRole("alert")).toBeNull();
+    expect(codeInput.getAttribute("aria-invalid")).toBeNull();
+    expect(applyDiscountCodeForm).not.toHaveBeenCalled();
+    expect(capture).not.toHaveBeenCalled();
   });
 
   test("renders the rejected code in server markup before hydration", async () => {
@@ -101,7 +108,7 @@ describe("CheckoutDiscountCodeForm", () => {
       <CheckoutDiscountCodeForm
         defaultCode={rejectedCode}
         enabled
-        fieldError
+        rejection="unavailable"
         locale="en-US"
         payStateToken="signed-state"
       />
@@ -121,7 +128,6 @@ describe("CheckoutDiscountCodeForm", () => {
       <CheckoutDiscountCodeForm
         defaultCode="SUMMER10"
         enabled
-        fieldError={false}
         locale="en-US"
         payStateToken="signed-state"
       />
@@ -131,7 +137,6 @@ describe("CheckoutDiscountCodeForm", () => {
       <CheckoutDiscountCodeForm
         defaultCode="WINTER20"
         enabled
-        fieldError={false}
         locale="en-US"
         payStateToken="signed-state"
       />
@@ -150,7 +155,6 @@ describe("CheckoutDiscountCodeForm", () => {
       <CheckoutDiscountCodeForm
         defaultCode="SUMMER10"
         enabled
-        fieldError={false}
         locale="en-US"
         payStateToken="signed-state"
       />
@@ -162,13 +166,86 @@ describe("CheckoutDiscountCodeForm", () => {
       <CheckoutDiscountCodeForm
         defaultCode="SUMMER10"
         enabled
-        fieldError={false}
         locale="en-US"
         payStateToken="signed-state"
       />
     );
 
     expect(view.getByRole("textbox")).toHaveProperty("value", "MYCODE");
+  });
+
+  test("clears the ordinary code after referral acceptance refreshes pay state", async () => {
+    const { CheckoutDiscountCodeForm } = await import(
+      "./checkout-discount-code-form"
+    );
+    const view = render(
+      <CheckoutDiscountCodeForm
+        enabled
+        locale="en-US"
+        payStateToken="before-referral"
+      />
+    );
+
+    const codeInput = view.getByRole("textbox");
+    fireEvent.input(codeInput, { target: { value: "ORDINARY10" } });
+    fireEvent.click(
+      view.getByRole("button", {
+        name: m.checkoutDiscountCodeApply({}, { locale: "en-US" }),
+      })
+    );
+
+    await waitFor(() => expect(applyDiscountCodeForm).toHaveBeenCalledTimes(1));
+    const [firstLocale, firstToken, firstFormData] =
+      applyDiscountCodeForm.mock.calls[0] ?? [];
+    expect(firstLocale).toBe("en-US");
+    expect(firstToken).toBe("before-referral");
+    expect(firstFormData?.get("submittedCode")).toBe("ORDINARY10");
+
+    view.rerender(
+      <CheckoutDiscountCodeForm
+        enabled
+        locale="en-US"
+        payStateToken="after-referral"
+        referralApplied
+      />
+    );
+
+    await waitFor(() =>
+      expect(view.getByRole("textbox")).toHaveProperty("value", "")
+    );
+    expect(
+      view.getByText(
+        m.checkoutReferralDiscountApplied(
+          { discount: formatReferralInvitationDiscount("en-US") },
+          { locale: "en-US" }
+        )
+      )
+    ).toBeDefined();
+    expect(
+      view.getByRole("button", {
+        name: m.checkoutDiscountCodeApply({}, { locale: "en-US" }),
+      })
+    ).toHaveProperty("disabled", false);
+    expect(
+      view.container.querySelector("form")?.getAttribute("action")
+    ).toBeTruthy();
+    expect(applyDiscountCodeForm).toHaveBeenCalledTimes(1);
+
+    fireEvent.input(view.getByRole("textbox"), {
+      target: { value: "NEXTCODE" },
+    });
+    fireEvent.click(
+      view.getByRole("button", {
+        name: m.checkoutDiscountCodeApply({}, { locale: "en-US" }),
+      })
+    );
+
+    await waitFor(() => expect(applyDiscountCodeForm).toHaveBeenCalledTimes(2));
+    const [nextLocale, nextToken, nextFormData] =
+      applyDiscountCodeForm.mock.calls[1] ?? [];
+    expect(nextLocale).toBe("en-US");
+    expect(nextToken).toBe("after-referral");
+    expect(nextFormData?.get("submittedCode")).toBe("NEXTCODE");
   });
 
   test("shows the applied adjustment instead of a prefilled code field", async () => {
@@ -180,7 +257,6 @@ describe("CheckoutDiscountCodeForm", () => {
         appliedAdjustment={{ kind: "percentage", basisPoints: 2000 }}
         defaultCode="SUMMER10"
         enabled={false}
-        fieldError={false}
         locale="en-US"
         payStateToken="signed-state"
       />
@@ -192,6 +268,81 @@ describe("CheckoutDiscountCodeForm", () => {
     expect(view.queryByRole("textbox")).toBeNull();
   });
 
+  test.each(["en-US", "cs-CZ"] as const)(
+    "shows the %s referral confirmation and leaves the ordinary code form available",
+    async (locale) => {
+      const { CheckoutDiscountCodeForm } = await import(
+        "./checkout-discount-code-form"
+      );
+      const view = render(
+        <CheckoutDiscountCodeForm
+          enabled
+          locale={locale}
+          payStateToken="signed-state"
+          referralApplied
+        />
+      );
+
+      // Compare raw text: cs-CZ percentages contain a no-break space that
+      // getByText's whitespace normalization would collapse.
+      expect(
+        view.container.querySelector("[data-checkout-referral-applied]")
+          ?.textContent
+      ).toBe(
+        m.checkoutReferralDiscountApplied(
+          { discount: formatReferralInvitationDiscount(locale) },
+          { locale }
+        )
+      );
+      const codeInput = view.getByRole("textbox") as HTMLInputElement;
+      expect(codeInput.name).toBe("submittedCode");
+      expect(codeInput.disabled).toBe(false);
+      expect(
+        view.getByRole("button", {
+          name: m.checkoutDiscountCodeApply({}, { locale }),
+        })
+      ).toHaveProperty("disabled", false);
+    }
+  );
+
+  test.each([
+    { discounts: [], marker: "1" },
+    { discounts: [], marker: "unknown" },
+    { discounts: [], marker: ["1"] },
+  ])(
+    "does not show referral feedback for an invalid marker or absent signed invitation discount",
+    async ({ discounts, marker }) => {
+      const { CheckoutDiscountCodeForm } = await import(
+        "./checkout-discount-code-form"
+      );
+      const referralApplied = hasCheckoutReferralAppliedNotice({
+        discounts,
+        dotyposCustomerId: DotyposCustomerIdSchema.make(
+          "checkout-referral-notice-customer"
+        ),
+        marker,
+      });
+      const view = render(
+        <CheckoutDiscountCodeForm
+          enabled
+          locale="en-US"
+          payStateToken="signed-state"
+          referralApplied={referralApplied}
+        />
+      );
+
+      expect(
+        view.queryByText(
+          m.checkoutReferralDiscountApplied(
+            { discount: formatReferralInvitationDiscount("en-US") },
+            { locale: "en-US" }
+          )
+        )
+      ).toBeNull();
+      expect(view.getByRole("textbox")).toBeDefined();
+    }
+  );
+
   test("stays hidden while its server-evaluated release gate is disabled", async () => {
     const { CheckoutDiscountCodeForm } = await import(
       "./checkout-discount-code-form"
@@ -199,7 +350,6 @@ describe("CheckoutDiscountCodeForm", () => {
     const view = render(
       <CheckoutDiscountCodeForm
         enabled={false}
-        fieldError={false}
         locale="en-US"
         payStateToken="signed-state"
       />
@@ -215,7 +365,6 @@ describe("CheckoutDiscountCodeForm", () => {
     const view = render(
       <CheckoutDiscountCodeForm
         enabled
-        fieldError={false}
         locale="en-US"
         payStateToken="signed-state"
       />
@@ -253,7 +402,7 @@ describe("CheckoutDiscountCodeForm", () => {
       <CheckoutDiscountCodeForm
         defaultCode="SAVE20"
         enabled
-        fieldError
+        rejection="unavailable"
         locale="en-US"
         payStateToken="signed-state"
       />
@@ -264,6 +413,7 @@ describe("CheckoutDiscountCodeForm", () => {
       m.checkoutDiscountCodeUnavailable({}, { locale: "en-US" })
     );
     expect(view.getByRole("textbox").getAttribute("aria-invalid")).toBe("true");
+    expect(applyDiscountCodeForm).not.toHaveBeenCalled();
     expect(view.getByRole("textbox")).toHaveProperty("value", "SAVE20");
     await waitFor(() => {
       expect(capture).toHaveBeenCalledWith("pre-payment outcome", {
@@ -271,6 +421,39 @@ describe("CheckoutDiscountCodeForm", () => {
       });
     });
   });
+
+  test.each([
+    ["referral-already-attributed", m.checkoutReferralCodeAlreadyAttributed],
+    ["referral-ineligible", m.checkoutReferralCodeIneligible],
+  ] as const)(
+    "explains the %s rejection in the field alert",
+    async (rejection, message) => {
+      const { CheckoutDiscountCodeForm } = await import(
+        "./checkout-discount-code-form"
+      );
+      const view = render(
+        <CheckoutDiscountCodeForm
+          defaultCode="RFL12345"
+          enabled
+          rejection={rejection}
+          locale="cs-CZ"
+          payStateToken="signed-state"
+        />
+      );
+
+      const error = view.getByRole("alert");
+      expect(error.id).toBe("checkout-discount-code-error");
+      expect(error.textContent).toBe(message({}, { locale: "cs-CZ" }));
+      expect(view.getByRole("textbox").getAttribute("aria-invalid")).toBe(
+        "true"
+      );
+      await waitFor(() => {
+        expect(capture).toHaveBeenCalledWith("pre-payment outcome", {
+          outcome: "discount_rejected",
+        });
+      });
+    }
+  );
 
   test("does not capture a rejection that occurred before analytics consent", async () => {
     analyticsAccepted = false;
@@ -281,7 +464,7 @@ describe("CheckoutDiscountCodeForm", () => {
       <CheckoutDiscountCodeForm
         defaultCode="SAVE20"
         enabled
-        fieldError
+        rejection="unavailable"
         locale="en-US"
         payStateToken="signed-state"
       />
@@ -294,7 +477,7 @@ describe("CheckoutDiscountCodeForm", () => {
       <CheckoutDiscountCodeForm
         defaultCode="SAVE20"
         enabled
-        fieldError
+        rejection="unavailable"
         locale="en-US"
         payStateToken="signed-state"
       />
@@ -311,7 +494,7 @@ describe("CheckoutDiscountCodeForm", () => {
       <CheckoutDiscountCodeForm
         defaultCode="SAVE20"
         enabled
-        fieldError
+        rejection="unavailable"
         locale="en-US"
         payStateToken="signed-state"
         rejectionId="synthetic-rejection-one"
@@ -324,7 +507,7 @@ describe("CheckoutDiscountCodeForm", () => {
       <CheckoutDiscountCodeForm
         defaultCode="WINTER20"
         enabled
-        fieldError
+        rejection="unavailable"
         locale="en-US"
         payStateToken="signed-state"
         rejectionId="synthetic-rejection-two"
@@ -358,7 +541,6 @@ describe("CheckoutDiscountCodeForm", () => {
         discountCodeForm={
           <CheckoutDiscountCodeForm
             enabled
-            fieldError={false}
             locale="en-US"
             payStateToken="signed-state"
           />

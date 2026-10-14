@@ -12,6 +12,7 @@ import { CheckoutFlowLayout } from "@/features/checkout/components/checkout-flow
 import { CheckoutPaymentWindowCoordinator } from "@/features/checkout/components/checkout-payment-window";
 import { CheckoutStatusPage } from "@/features/checkout/components/checkout-status-page";
 import { CheckoutStatusPageSkeleton } from "@/features/checkout/components/checkout-status-page-skeleton";
+import { CheckoutStatusReferralCodeSettlement } from "@/features/checkout/components/checkout-status-referral-code-settlement";
 import type { Locale } from "@/features/i18n";
 import { runWithRequestLocale } from "@/features/i18n/server/request-locale";
 import { readReservationAccessCookie } from "@/features/reservation/backend/reservation-access-cookie";
@@ -117,6 +118,7 @@ async function CheckoutStatusContent({
         <RouteAutoRefresh
           enabled={shouldAutoRefreshCheckoutStatus(status.status)}
         />
+        <CheckoutStatusReferralCodeSettlement status={status.status} />
         <CheckoutStatusPage
           locale={locale}
           presentation={presentation}

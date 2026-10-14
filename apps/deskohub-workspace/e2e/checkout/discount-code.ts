@@ -1,8 +1,10 @@
 import { Effect } from "effect";
+import type { CanonicalPromotionCode } from "@/features/discounts/persistence-contracts";
 import {
   fillBrowserField,
   focusBrowserElement,
   pressBrowserKey,
+  waitForBrowserCondition,
   waitForBrowserReactFormSubmit,
   waitForBrowserTextContent,
 } from "../browser";
@@ -47,7 +49,7 @@ export const applyUnavailableDiscountCode = ({
       waitForBrowserTextContent(
         run,
         session,
-        "That discount code or voucher isn’t available. Check it and try again, or continue with the current price.",
+        "That discount, voucher, or referral code isn’t available. Check it and try again, or continue with the current price.",
         { timeoutMs: config.timeouts.uiTransition }
       )
     )
@@ -86,3 +88,31 @@ export const submitDiscountCode = ({
       timeoutMs: config.timeouts.browserAction,
     });
   });
+
+/** The code box holds a requested code without having applied it. */
+export const assertRequestedOnlyDiscountCode = ({
+  code,
+  config,
+  run,
+  session,
+}: {
+  readonly code: CanonicalPromotionCode;
+  readonly config: WorkspaceE2EConfig;
+  readonly run: Runner;
+  readonly session: string;
+}) =>
+  waitForBrowserCondition(
+    run,
+    session,
+    "requested-only discount code input",
+    `
+(() => {
+  const form = document.querySelector('#checkout-discount-code-form');
+  if (!(form instanceof HTMLFormElement)) return false;
+  if (form.querySelector('output')) return false;
+  const input = form.querySelector('#checkout-discount-code');
+  return input instanceof HTMLInputElement && input.value === ${JSON.stringify(code)};
+})()
+`,
+    { timeoutMs: config.timeouts.uiTransition }
+  );

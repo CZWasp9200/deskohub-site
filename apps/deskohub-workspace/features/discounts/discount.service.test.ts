@@ -13,6 +13,15 @@ import {
 import type { WorkspaceProductIdentity } from "@/features/checkout/product-identity";
 import type { WorkspaceMoney } from "@/features/checkout/workspace-money";
 import { WorkspaceFeatureFlagServiceMock } from "@/features/feature-flags/backend/workspace-feature-flag.service.mock";
+import type { ReferralService as ReferralServiceTag } from "@/features/referrals";
+import {
+  getReferralInvitationDiscountId,
+  getReferralReferrerDiscountId,
+} from "@/features/referrals/discount-identifiers";
+import {
+  ReferralServiceMock,
+  WithheldReferralService,
+} from "@/features/referrals/referral.service.mock";
 import { CalendarDiscountProviderMock } from "./calendar-discount-provider.service.mock";
 import { getDiscountCommitmentPayload } from "./commitment";
 import { PromotionCodeProviderMock } from "./promotion-code-provider.service.mock";
@@ -44,7 +53,9 @@ import {
 } from "./errors";
 import {
   discountCodeIdSchema,
+  promotionCodeIdSchema,
   storedDiscountIdSchema,
+  voucherIdSchema,
 } from "./persistence-contracts";
 import type {
   DiscountCandidate,
@@ -146,12 +157,13 @@ const runWithProviders = <A, E>(
   >,
   releaseGates: Layer.Layer<
     import("./discount-release-gate.service").DiscountReleaseGateService
-  > = allReleaseGatesEnabled
+  > = allReleaseGatesEnabled,
+  referralService: Layer.Layer<ReferralServiceTag> = ReferralServiceMock()
 ) =>
   effect.pipe(
     Effect.provide(
       DiscountService.Default.pipe(
-        Layer.provide(Layer.mergeAll(providers, releaseGates))
+        Layer.provide(Layer.mergeAll(providers, releaseGates, referralService))
       )
     ),
     Effect.runPromise
@@ -1250,6 +1262,425 @@ describe("DiscountService", () => {
     expect(JSON.stringify(result.quote)).not.toContain(
       paymentInput.submittedCode
     );
+  });
+
+  test("applies invitation after ordinary discounts and sizes referrer money from the remaining subtotal", async () => {
+    const invitedCustomerId = paymentInput.dotyposCustomerId;
+    const referrerCustomerId = "referrer-1" as typeof invitedCustomerId;
+    const promotionCodeId = promotionCodeIdSchema.make("referral-promotion");
+    const invitation: DiscountCandidate = {
+      discount: {
+        id: getReferralInvitationDiscountId(invitedCustomerId),
+        label: "Invitation discount",
+        adjustment: { kind: "percentage", basisPoints: 1_500 },
+      },
+      provenance: {
+        providerNamespace: "referral-invitation",
+        providerReference: promotionCodeId,
+      },
+      claim: {
+        kind: "referral_invitation",
+        invitedDotyposCustomerId: invitedCustomerId,
+        referrerDotyposCustomerId: referrerCustomerId,
+        promotionCodeId,
+      },
+    };
+    const referrer: DiscountCandidate = {
+      discount: {
+        id: getReferralReferrerDiscountId(invitedCustomerId),
+        label: "Referrer discount",
+        adjustment: { kind: "fixed", amount: money(551) },
+      },
+      provenance: {
+        providerNamespace: "referral-referrer",
+        providerReference: invitedCustomerId,
+      },
+    };
+    let referrerSubtotal: WorkspaceMoney | undefined;
+    const referralService = ReferralServiceMock({
+      resolveInvitationCandidate: () => Effect.succeed(invitation),
+      resolveReferrerCandidate: (input) => {
+        referrerSubtotal = input.remainingSubtotal;
+        return Effect.succeed(referrer);
+      },
+    });
+    const providers = Layer.mergeAll(
+      CalendarDiscountProviderMock({
+        discover: () => Effect.succeed([percentage("sale", 1_000, "calendar")]),
+      }),
+      CustomerDiscountProviderMock({
+        resolve: () =>
+          Effect.succeed([percentage("customer", 1_000, "customer")]),
+      }),
+      PromotionCodeProviderMock({
+        revalidate: () => Effect.succeed([percentage("code", 2_000, "code")]),
+      })
+    );
+
+    const quote = await runWithProviders(
+      Effect.gen(function* () {
+        const discounts = yield* DiscountService;
+        return yield* discounts.quote({
+          ...advertisementInput,
+          dotyposCustomerId: invitedCustomerId,
+          submittedCode: paymentInput.submittedCode,
+        });
+      }),
+      providers,
+      allReleaseGatesEnabled,
+      referralService
+    );
+
+    expect(referrerSubtotal).toEqual(money(5_508));
+    expect(quote.discounts.map(({ discount }) => discount.id)).toEqual([
+      "sale",
+      "customer",
+      "code",
+      getReferralInvitationDiscountId(invitedCustomerId),
+      getReferralReferrerDiscountId(invitedCustomerId),
+    ]);
+    expect(
+      quote.discounts.map(({ subtotalBefore }) => subtotalBefore.value)
+    ).toEqual([10_000, 9_000, 8_100, 6_480, 5_508]);
+    expect(quote.discountedSubtotal).toEqual(money(4_957));
+  });
+
+  test("prices the invitation from the checkout's carried referral code", async () => {
+    const referralCode = canonicalPromotionCodeSchema.make("RFL12345");
+    const invitationInputs: unknown[] = [];
+    const referralService = ReferralServiceMock({
+      resolveInvitationCandidate: (input) =>
+        Effect.sync(() => {
+          invitationInputs.push(input.referralCode);
+          return undefined;
+        }),
+    });
+    const providers = Layer.mergeAll(
+      CalendarDiscountProviderMock({
+        discover: () => Effect.succeed([]),
+        revalidate: () => Effect.succeed(calendarResolution([])),
+      }),
+      CustomerDiscountProviderMock({ resolve: () => Effect.succeed([]) }),
+      PromotionCodeProviderMock({ revalidate: () => Effect.succeed([]) })
+    );
+
+    await runWithProviders(
+      Effect.gen(function* () {
+        const discounts = yield* DiscountService;
+        yield* discounts.quote({
+          ...advertisementInput,
+          dotyposCustomerId: paymentInput.dotyposCustomerId,
+          referralCode,
+        });
+        yield* discounts.affirmDisplayedDiscounts({
+          ...paymentInput,
+          submittedCode: undefined,
+          displayedDiscountIds: [],
+          referralCode,
+        });
+        yield* discounts.affirmDisplayedDiscounts({
+          ...paymentInput,
+          submittedCode: undefined,
+          displayedDiscountIds: [],
+        });
+      }),
+      providers,
+      allReleaseGatesEnabled,
+      referralService
+    );
+
+    expect(invitationInputs).toEqual([referralCode, referralCode, undefined]);
+  });
+
+  test("applies referral benefits before voucher credit and keeps the voucher claim", async () => {
+    const invitedCustomerId = paymentInput.dotyposCustomerId;
+    const referrerCustomerId = "referrer-1" as typeof invitedCustomerId;
+    const referralPromotionCodeId = promotionCodeIdSchema.make(
+      "referral-before-voucher"
+    );
+    const voucherId = voucherIdSchema.make("voucher-credit-1");
+    const voucherCandidate: DiscountCandidate = {
+      discount: {
+        id: discountId("voucher-credit"),
+        label: "Voucher credit",
+        adjustment: { kind: "fixed", amount: money(2_000) },
+      },
+      provenance: {
+        providerNamespace: "database-voucher",
+        providerReference: voucherId,
+        details: { voucherId },
+      },
+      claim: {
+        kind: "voucher",
+        voucherId,
+        availableAmount: money(2_000),
+        dotyposCustomerId: invitedCustomerId,
+      },
+    };
+    const invitation: DiscountCandidate = {
+      discount: {
+        id: getReferralInvitationDiscountId(invitedCustomerId),
+        label: "Invitation discount",
+        adjustment: { kind: "percentage", basisPoints: 1_500 },
+      },
+      provenance: {
+        providerNamespace: "referral-invitation",
+        providerReference: referralPromotionCodeId,
+      },
+      claim: {
+        kind: "referral_invitation",
+        invitedDotyposCustomerId: invitedCustomerId,
+        referrerDotyposCustomerId: referrerCustomerId,
+        promotionCodeId: referralPromotionCodeId,
+      },
+    };
+    let referrerSubtotal: WorkspaceMoney | undefined;
+    const referralService = ReferralServiceMock({
+      resolveInvitationCandidate: () => Effect.succeed(invitation),
+      resolveReferrerCandidate: (input) => {
+        referrerSubtotal = input.remainingSubtotal;
+        const amount = money(Math.round(input.remainingSubtotal.value / 20));
+        return Effect.succeed({
+          discount: {
+            id: getReferralReferrerDiscountId(invitedCustomerId),
+            label: "Referral discount (1 eligible people)",
+            adjustment: { kind: "fixed", amount },
+          },
+          provenance: {
+            providerNamespace: "referral-referrer",
+            providerReference: invitedCustomerId,
+          },
+        });
+      },
+    });
+    const providers = Layer.mergeAll(
+      CalendarDiscountProviderMock({
+        discover: () => Effect.succeed([]),
+        revalidate: () => Effect.succeed(calendarResolution([])),
+      }),
+      CustomerDiscountProviderMock({ resolve: () => Effect.succeed([]) }),
+      PromotionCodeProviderMock({
+        revalidate: () => Effect.succeed([voucherCandidate]),
+      })
+    );
+    const baseQuote = discountQuoteCodec.make({
+      product,
+      discountableSubtotal: money(10_000),
+      discounts: [],
+      totalDiscount: money(0),
+      discountedSubtotal: money(10_000),
+    });
+
+    const result = await runWithProviders(
+      Effect.gen(function* () {
+        const discounts = yield* DiscountService;
+        return yield* discounts.applyDiscountCode({
+          baseQuote,
+          dotyposCustomerId: invitedCustomerId,
+          locale: paymentInput.locale,
+          submittedCode: paymentInput.submittedCode,
+        });
+      }),
+      providers,
+      allReleaseGatesEnabled,
+      referralService
+    );
+
+    expect(referrerSubtotal).toEqual(money(8_500));
+    expect(result.quote.discounts.map(({ discount }) => discount.id)).toEqual([
+      getReferralInvitationDiscountId(invitedCustomerId),
+      getReferralReferrerDiscountId(invitedCustomerId),
+      voucherCandidate.discount.id,
+    ]);
+    expect(result.quote.discounts.map(({ amount }) => amount)).toEqual([
+      money(1_500),
+      money(425),
+      money(2_000),
+    ]);
+    expect(
+      result.quote.discounts.map(({ subtotalBefore }) => subtotalBefore)
+    ).toEqual([money(10_000), money(8_500), money(8_075)]);
+    expect(result.quote.discountedSubtotal).toEqual(money(6_075));
+    expect(result.application).toEqual(result.quote.discounts[2]);
+
+    const quoted = await runWithProviders(
+      Effect.gen(function* () {
+        const discounts = yield* DiscountService;
+        return yield* discounts.quote({
+          ...advertisementInput,
+          dotyposCustomerId: invitedCustomerId,
+          submittedCode: paymentInput.submittedCode,
+        });
+      }),
+      providers,
+      allReleaseGatesEnabled,
+      referralService
+    );
+    expect(quoted.discounts.map(({ discount }) => discount.id)).toEqual([
+      getReferralInvitationDiscountId(invitedCustomerId),
+      getReferralReferrerDiscountId(invitedCustomerId),
+      voucherCandidate.discount.id,
+    ]);
+    expect(quoted.discounts.map(({ amount }) => amount.value)).toEqual([
+      1_500, 425, 2_000,
+    ]);
+    expect(quoted.discountedSubtotal).toEqual(money(6_075));
+
+    const customerQuote = await runWithProviders(
+      Effect.gen(function* () {
+        const discounts = yield* DiscountService;
+        return yield* discounts.applyCustomerDiscount({
+          affirmedAdvertisement: emptyAffirmedAdvertisement,
+          dotyposCustomerId: invitedCustomerId,
+          locale: paymentInput.locale,
+          submittedCode: paymentInput.submittedCode,
+          submittedCodeDiscountId: voucherCandidate.discount.id,
+        });
+      }),
+      providers,
+      allReleaseGatesEnabled,
+      referralService
+    );
+    expect(customerQuote.discounts.map(({ discount }) => discount.id)).toEqual([
+      getReferralInvitationDiscountId(invitedCustomerId),
+      getReferralReferrerDiscountId(invitedCustomerId),
+      voucherCandidate.discount.id,
+    ]);
+    expect(customerQuote.discounts.map(({ amount }) => amount.value)).toEqual([
+      1_500, 425, 2_000,
+    ]);
+    expect(customerQuote.discountedSubtotal).toEqual(money(6_075));
+
+    const affirmed = await runWithProviders(
+      Effect.gen(function* () {
+        const discounts = yield* DiscountService;
+        return yield* discounts.affirmDisplayedDiscounts({
+          ...paymentInput,
+          displayedDiscountIds: [voucherCandidate.discount.id],
+        });
+      }),
+      providers,
+      allReleaseGatesEnabled,
+      referralService
+    );
+    const commitment = getDiscountCommitmentPayload(affirmed.commitment);
+    expect(affirmed.quote.discounts.map(({ amount }) => amount.value)).toEqual([
+      1_500, 425, 2_000,
+    ]);
+    expect(
+      commitment.applications.map(({ application }) => application.amount.value)
+    ).toEqual([1_500, 425, 2_000]);
+    expect(
+      commitment.applications.map(({ application }) => application)
+    ).toEqual(affirmed.quote.discounts);
+    expect(commitment.applications[2]?.claim).toEqual(voucherCandidate.claim);
+  });
+
+  test("prices no invitation or referrer benefit while referrals are withheld", async () => {
+    // The real referral gate; reading any recorded referral would die.
+    const invitedCustomerId = paymentInput.dotyposCustomerId;
+    const referralCode = canonicalPromotionCodeSchema.make("RFL12345");
+    const providers = Layer.mergeAll(
+      CalendarDiscountProviderMock({
+        discover: () => Effect.succeed([]),
+        revalidate: () => Effect.succeed(calendarResolution([])),
+      }),
+      CustomerDiscountProviderMock({ resolve: () => Effect.succeed([]) }),
+      PromotionCodeProviderMock({
+        revalidate: () => Effect.succeed([percentage("code", 2_000, "code")]),
+      })
+    );
+
+    const { quoted, affirmed } = await runWithProviders(
+      Effect.gen(function* () {
+        const discounts = yield* DiscountService;
+        // An invitee or referrer, with a code carried from a pay state
+        // signed while the program was released.
+        const quoted = yield* discounts.quote({
+          ...advertisementInput,
+          dotyposCustomerId: invitedCustomerId,
+          submittedCode: paymentInput.submittedCode,
+          referralCode,
+        });
+        const affirmed = yield* discounts.affirmDisplayedDiscounts({
+          ...paymentInput,
+          displayedDiscountIds: [
+            discountId("code"),
+            getReferralInvitationDiscountId(invitedCustomerId),
+            getReferralReferrerDiscountId(invitedCustomerId),
+          ],
+          referralCode,
+        });
+        return { quoted, affirmed };
+      }),
+      providers,
+      allReleaseGatesEnabled,
+      WithheldReferralService
+    );
+
+    expect(quoted.discounts.map(({ discount }) => discount.id)).toEqual([
+      "code",
+    ]);
+    expect(quoted.discountedSubtotal).toEqual(money(8_000));
+    expect(affirmed.quote.discounts.map(({ discount }) => discount.id)).toEqual(
+      ["code"]
+    );
+    expect(
+      getDiscountCommitmentPayload(affirmed.commitment).applications.map(
+        ({ claim }) => claim?.kind
+      )
+    ).not.toContain("referral_invitation");
+  });
+
+  test("does not create a zero-minor invitation application or claim", async () => {
+    const invitedCustomerId = paymentInput.dotyposCustomerId;
+    const promotionCodeId = promotionCodeIdSchema.make("tiny-referral");
+    const invitation: DiscountCandidate = {
+      discount: {
+        id: getReferralInvitationDiscountId(invitedCustomerId),
+        label: "Invitation discount",
+        adjustment: { kind: "percentage", basisPoints: 1_500 },
+      },
+      provenance: {
+        providerNamespace: "referral-invitation",
+        providerReference: promotionCodeId,
+      },
+      claim: {
+        kind: "referral_invitation",
+        invitedDotyposCustomerId: invitedCustomerId,
+        referrerDotyposCustomerId: "referrer-1" as typeof invitedCustomerId,
+        promotionCodeId,
+      },
+    };
+    const providers = Layer.mergeAll(
+      CalendarDiscountProviderMock({
+        revalidate: () => Effect.succeed(calendarResolution([])),
+      }),
+      CustomerDiscountProviderMock({ resolve: () => Effect.succeed([]) }),
+      PromotionCodeProviderMock({ revalidate: () => Effect.succeed([]) })
+    );
+
+    const result = await runWithProviders(
+      Effect.gen(function* () {
+        const discounts = yield* DiscountService;
+        return yield* discounts.affirmDisplayedDiscounts({
+          ...advertisementInput,
+          discountableSubtotal: money(1),
+          dotyposCustomerId: invitedCustomerId,
+          displayedDiscountIds: [],
+        });
+      }),
+      providers,
+      allReleaseGatesEnabled,
+      ReferralServiceMock({
+        resolveInvitationCandidate: () => Effect.succeed(invitation),
+      })
+    );
+
+    expect(result.quote.discounts).toEqual([]);
+    expect(
+      getDiscountCommitmentPayload(result.commitment).applications
+    ).toEqual([]);
   });
 
   test("omits claims for discounts that cannot apply after earlier discounts", async () => {

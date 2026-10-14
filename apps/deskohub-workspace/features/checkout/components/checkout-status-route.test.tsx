@@ -58,6 +58,10 @@ mock.module("@/features/checkout/components/checkout-status-page", () => ({
   CheckoutStatusPage: () => null,
 }));
 mock.module(
+  "@/features/checkout/components/checkout-status-referral-code-settlement",
+  () => ({ CheckoutStatusReferralCodeSettlement: () => null })
+);
+mock.module(
   "@/features/checkout/components/checkout-status-page-skeleton",
   () => ({
     CheckoutStatusPageSkeleton: ({

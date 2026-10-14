@@ -53,6 +53,7 @@ const reservationCustomerReviewTargets = [
 type FakePage = {
   readonly currentViewport: () => Playwright.ViewportSize | null;
   readonly fontReadyCalls: () => number;
+  readonly locatorSelectors: readonly string[];
   readonly page: Playwright.Page;
   readonly setCallbackLoadingPresent: (present: boolean) => void;
   readonly setUrl: (url: string) => void;
@@ -77,6 +78,7 @@ const makeFakePage = (
   let currentUrl = url;
   let callbackLoadingPresent = options.callbackLoadingPresent ?? true;
   let fontReadyCallCount = 0;
+  const locatorSelectors: string[] = [];
   const screenshotCalls: Record<string, unknown>[] = [];
   const viewportChanges: (Playwright.ViewportSize | null)[] = [];
   let resolveScreenshotStarted!: () => void;
@@ -126,8 +128,10 @@ const makeFakePage = (
     },
     getByRole: (role: string) =>
       makeLocator(role === "status" ? "loading-status" : "landmark"),
-    locator: (selector: string) =>
-      makeLocator(selector === "main" ? "main" : "loading-card"),
+    locator: (selector: string) => {
+      locatorSelectors.push(selector);
+      return makeLocator(selector === "main" ? "main" : "loading-card");
+    },
     url: () => currentUrl,
     viewportSize: () => currentViewport,
   });
@@ -135,6 +139,7 @@ const makeFakePage = (
   return {
     currentViewport: () => currentViewport,
     fontReadyCalls: () => fontReadyCallCount,
+    locatorSelectors,
     page,
     setCallbackLoadingPresent: (present) => {
       callbackLoadingPresent = present;
@@ -564,6 +569,11 @@ describe("account review screenshot capture", () => {
       url: `${baseUrl}/en-US/account?section=unknown`,
     },
     {
+      name: "the referrals section with a share-link code",
+      target: "linked-referrals-desktop",
+      url: `${baseUrl}/en-US/account?section=referrals&ref=RFL12345`,
+    },
+    {
       name: "a mobile linked account with a credential query",
       target: "linked-reservations-mobile",
       url: `${baseUrl}/en-US/account?token=synthetic-secret-token`,
@@ -807,6 +817,11 @@ describe("account review screenshot capture", () => {
       "/en-US/auth/sign-in",
     ],
     [
+      "a Czech referral section query",
+      "linked-referrals-cs-desktop",
+      "/cs-CZ/account?section=referrals",
+    ],
+    [
       "the Czech profile section",
       "linked-profile-language-desktop-cs",
       "/cs-CZ/account?section=profile",
@@ -830,6 +845,21 @@ describe("account review screenshot capture", () => {
 
     expect(fakePage.screenshotCalls).toHaveLength(1);
     expect(writeFileSpy?.mock.calls).toHaveLength(1);
+  });
+
+  test("masks the referral code and share link in referral captures", async () => {
+    const fakePage = makeFakePage(`${baseUrl}/en-US/account?section=referrals`);
+
+    await captureAccountReview(
+      fakePage.page,
+      review,
+      "referral-overview-positive-desktop"
+    );
+
+    expect(fakePage.screenshotCalls[0]?.mask).toEqual([expect.any(Object)]);
+    expect(fakePage.locatorSelectors).toContain(
+      '[data-screen="referrals-screen"] code, [data-screen="referrals-screen"] a[href*="ref="]'
+    );
   });
 
   test("captures a reservation status target only at the exact fixture path", async () => {

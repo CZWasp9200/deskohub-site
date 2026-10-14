@@ -21,6 +21,7 @@ import {
 
 const sectionKeys: readonly AccountSection[] = [
   "reservations",
+  "referrals",
   "profile",
   "billing",
   "legal",
@@ -35,6 +36,7 @@ const labels: AccountShellProps["labels"] = {
     danger: "Danger zone",
     legal: "Legal & privacy",
     profile: "Profile & identity",
+    referrals: "Referrals",
     reservations: "Reservations",
   },
 };
@@ -860,6 +862,53 @@ describe("AccountShell", () => {
       view.rerender(<AccountShell {...makeProps({ reservationCount })} />);
       expect(reservationButton().querySelector("span.ml-auto")).toBeNull();
     }
+  });
+
+  test("shows a supplied referral badge beside Referrals in the desktop navigation only", () => {
+    const view = renderShell({
+      referralBadge: { text: "-15%", label: "15% referral discount" },
+    });
+    const referralButton = () =>
+      getDesktopNavigation(view).getByRole("button", { name: /^Referrals/ });
+
+    expect(referralButton().querySelector("span.ml-auto")?.textContent).toBe(
+      "-15%15% referral discount"
+    );
+    expect(
+      getMobileNavigation(view).getByRole("button", { name: "Referrals" })
+        .textContent
+    ).toBe("Referrals");
+
+    view.rerender(
+      <AccountShell {...makeProps({ referralBadge: undefined })} />
+    );
+    expect(referralButton().querySelector("span.ml-auto")).toBeNull();
+  });
+
+  test("leaves hidden sections out of both navigations", () => {
+    const view = renderShell({
+      hiddenSections: ["referrals"],
+      referralBadge: { text: "-15%", label: "15% referral discount" },
+    });
+
+    expect(
+      getDesktopNavigation(view).queryByRole("button", { name: /Referrals/ })
+    ).toBeNull();
+    expect(
+      getMobileNavigation(view).queryByRole("button", { name: "Referrals" })
+    ).toBeNull();
+    expect(view.queryByText("-15%")).toBeNull();
+    expect(
+      getDesktopNavigation(view)
+        .getAllByRole("button")
+        .map((b) => b.textContent)
+    ).toEqual([
+      "Reservations",
+      "Profile & identity",
+      "Billing & invoices",
+      "Legal & privacy",
+      "Danger zone",
+    ]);
   });
 
   test("retains long localized title and section labels", () => {

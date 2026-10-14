@@ -3,15 +3,18 @@ import { Effect, Match, Option, Schema } from "effect";
 import {
   buildFreshCheckoutPayPath,
   CheckoutPricingService,
+  CheckoutReferralService,
   getSignedPayStateBookedAt,
   openPayState,
   PayableReservationService,
   PayStateTokenError,
 } from "@/features/checkout/backend/checkout";
+import type { DiscountCodeRejection } from "@/features/checkout/discount-code-rejection";
 import {
   DiscountProviderError,
   normalizeSubmittedPromotionCode,
 } from "@/features/discounts";
+import { ReferralService } from "@/features/referrals";
 import { dotyposCustomerIdSchema } from "@/features/reservation/dotypos-customer";
 import { BotProtectionService } from "@/shared/backend/bot-protection/bot-protection.service";
 import { getCalendarActionDeadline } from "@/shared/backend/calendar-action-deadline";
@@ -28,7 +31,16 @@ export const getApplyDiscountCodeDeadline = (
 
 export type ApplyDiscountCodeResult =
   | { readonly status: "applied"; readonly freshPayUrl: string }
+  | {
+      readonly status: "accepted" | "already_accepted";
+      readonly freshPayUrl: string;
+    }
   | { readonly status: "pricing_changed"; readonly freshPayUrl: string }
+  | {
+      readonly status: "already_attributed" | "ineligible";
+      /** Signed replacement keeping the rejected referral code in the box. */
+      readonly freshPayUrl?: string;
+    }
   | {
       readonly status: "unavailable";
       /**
@@ -39,11 +51,19 @@ export type ApplyDiscountCodeResult =
       readonly freshPayUrl?: string;
     };
 
+const referralRejections = {
+  already_attributed: "referral-already-attributed",
+  ineligible: "referral-ineligible",
+  unavailable: "unavailable",
+} as const satisfies Record<string, DiscountCodeRejection>;
+
 export const applyDiscountCodeToPayState = Effect.fn(
   "checkout.applyDiscountCodeToPayState"
 )(
   function* (input: ApplyDiscountCodeInput) {
     const botProtection = yield* BotProtectionService;
+    const referrals = yield* ReferralService;
+    const checkoutReferrals = yield* CheckoutReferralService;
     const pricing = yield* CheckoutPricingService;
     const payableReservations = yield* PayableReservationService;
 
@@ -74,6 +94,46 @@ export const applyDiscountCodeToPayState = Effect.fn(
     if (submittedCode === undefined) {
       return { status: "unavailable" as const, freshPayUrl: undefined };
     }
+
+    const codeKind = yield* referrals.lookupCodeKind({ code: submittedCode });
+    if (codeKind.kind === "referral") {
+      const result = yield* checkoutReferrals.acceptCode({
+        code: submittedCode,
+        payStateToken: input.payStateToken,
+        locale: input.locale,
+      });
+      if (
+        result.status === "accepted" ||
+        result.status === "already_accepted" ||
+        (result.status === "pricing_changed" &&
+          result.freshPayUrl !== undefined)
+      ) {
+        return result;
+      }
+      // A rejected referral code stays in the box, like an unavailable
+      // ordinary code, so the customer can see and correct it.
+      const status =
+        result.status === "already_attributed" || result.status === "ineligible"
+          ? result.status
+          : ("unavailable" as const);
+      const freshPayUrl = yield* buildFreshCheckoutPayPath(
+        {
+          ...state,
+          locale: input.locale,
+          orderId: state.orderId,
+          checkoutSessionId: state.checkoutSessionId,
+          requestedDiscountCode: submittedCode,
+        },
+        {},
+        {
+          discountCodeError: referralRejections[status],
+          discountCodeErrorId: randomUUID(),
+          orderId: state.orderId,
+        }
+      );
+      return { status, freshPayUrl };
+    }
+
     const reservation = yield* payableReservations.requireCurrent({
       orderId: state.orderId,
       checkoutSessionId: state.checkoutSessionId,
@@ -82,7 +142,7 @@ export const applyDiscountCodeToPayState = Effect.fn(
       return { status: "unavailable" as const, freshPayUrl: undefined };
     }
 
-    const dotyposCustomerId = yield* Schema.decodeUnknownEffect(
+    const dotyposCustomerId = yield* Schema.decodeEffect(
       dotyposCustomerIdSchema
     )(reservation.dotyposCustomerId).pipe(
       Effect.mapError(
@@ -118,6 +178,7 @@ export const applyDiscountCodeToPayState = Effect.fn(
               {
                 discountCodeError: "unavailable",
                 discountCodeErrorId: randomUUID(),
+                orderId: state.orderId,
               }
             );
             return { status: "unavailable" as const, freshPayUrl };
@@ -139,26 +200,36 @@ export const applyDiscountCodeToPayState = Effect.fn(
     const freshPayUrl = yield* Match.value(result).pipe(
       Match.discriminatorsExhaustive("status")({
         applied: (applied) =>
-          buildFreshCheckoutPayPath({
-            ...applied,
-            locale: input.locale,
-            orderId: state.orderId,
-            bookedAt: state.bookedAt,
-            checkoutSessionId: state.checkoutSessionId,
-            submittedCode,
-            submittedCodeDiscountId: applied.submittedCodeDiscountId,
-            requestedDiscountCode: submittedCode,
-          }),
+          buildFreshCheckoutPayPath(
+            {
+              ...applied,
+              locale: input.locale,
+              orderId: state.orderId,
+              bookedAt: state.bookedAt,
+              checkoutSessionId: state.checkoutSessionId,
+              submittedCode,
+              submittedCodeDiscountId: applied.submittedCodeDiscountId,
+              requestedDiscountCode: submittedCode,
+              referralCode: state.referralCode,
+            },
+            {},
+            { orderId: state.orderId }
+          ),
         pricing_changed: (changed) =>
-          buildFreshCheckoutPayPath({
-            ...changed,
-            locale: input.locale,
-            orderId: state.orderId,
-            bookedAt: state.bookedAt,
-            checkoutSessionId: state.checkoutSessionId,
-            changedKeys: changed.changedKeys,
-            requestedDiscountCode: submittedCode,
-          }),
+          buildFreshCheckoutPayPath(
+            {
+              ...changed,
+              locale: input.locale,
+              orderId: state.orderId,
+              bookedAt: state.bookedAt,
+              checkoutSessionId: state.checkoutSessionId,
+              changedKeys: changed.changedKeys,
+              requestedDiscountCode: submittedCode,
+              referralCode: state.referralCode,
+            },
+            {},
+            { orderId: state.orderId }
+          ),
       })
     );
 
@@ -175,6 +246,11 @@ export const applyDiscountCodeToPayState = Effect.fn(
             freshPayUrl: undefined,
           }),
         DiscountProviderError: () =>
+          Effect.succeed({
+            status: "unavailable" as const,
+            freshPayUrl: undefined,
+          }),
+        ReferralError: () =>
           Effect.succeed({
             status: "unavailable" as const,
             freshPayUrl: undefined,

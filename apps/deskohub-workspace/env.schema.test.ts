@@ -224,7 +224,7 @@ describe("workspace environment schemas", () => {
 
   test("tolerates unknown override keys only outside production", () => {
     const overrides =
-      '{"discount_codes":true,"referrals":true,"seasonal_menu":"synthetic-variant"}';
+      '{"discount_codes":true,"loyalty_points":true,"seasonal_menu":"synthetic-variant"}';
 
     for (const VERCEL_ENV of ["preview", "development"] as const) {
       expect(
@@ -236,20 +236,20 @@ describe("workspace environment schemas", () => {
         ).POSTHOG_FEATURE_FLAG_OVERRIDES
       ).toEqual({
         discount_codes: true,
-        referrals: true,
+        loyalty_points: true,
         seasonal_menu: "synthetic-variant",
       });
     }
 
     const productionError = environmentError({
-      POSTHOG_FEATURE_FLAG_OVERRIDES: '{"referrals":true}',
+      POSTHOG_FEATURE_FLAG_OVERRIDES: '{"loyalty_points":true}',
       VERCEL_ENV: "production",
     });
 
     expect(productionError).toContain(
       "Invalid PostHog feature flag override configuration."
     );
-    expect(productionError).not.toContain('{"referrals":true}');
+    expect(productionError).not.toContain('{"loyalty_points":true}');
   });
 
   test("names an invalid override key without echoing its value", () => {

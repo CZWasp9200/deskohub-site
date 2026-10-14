@@ -13,6 +13,7 @@ import type { AccountReviewDestination } from "./review-screenshots";
 
 /** The lane's primary synthetic identity, shared with the failure diagnostic. */
 export const workspaceE2EAccountMainRecipientLabel = "main";
+export const workspaceE2EReferralOwnerRecipientLabel = "referral-owner";
 
 export type WorkspaceE2EAccountConfig = {
   readonly baseUrl: string;
