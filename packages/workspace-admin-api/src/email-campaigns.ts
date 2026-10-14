@@ -406,6 +406,18 @@ export const AdministrationCampaignSendStatusResult = Schema.Struct({
 export type AdministrationCampaignSendStatusResult =
   typeof AdministrationCampaignSendStatusResult.Type;
 
+/**
+ * Campaign endpoints share one error set: invalid input (400), a missing
+ * campaign or audience (404), a state conflict (409), and an unavailable
+ * dependency (503).
+ */
+const campaignErrors = [
+  CliInputInvalid.schema,
+  CliMutationRejected.schema,
+  CliResourceNotFound.schema,
+  CliServiceUnavailable.schema,
+];
+
 const campaignParams = { campaignId: AdministrationCampaignId };
 const audienceParams = { audienceId: AdministrationCampaignAudienceId };
 
@@ -413,7 +425,7 @@ export const AdminCliCampaignsApi = HttpApiGroup.make("campaigns")
   .add(
     HttpApiEndpoint.get("listCampaignAudiences", "/campaign-audiences", {
       success: Schema.Array(AdministrationCampaignAudience),
-      error: CliServiceUnavailable.schema,
+      error: campaignErrors,
     })
   )
   .add(
@@ -423,7 +435,7 @@ export const AdminCliCampaignsApi = HttpApiGroup.make("campaigns")
       {
         params: audienceParams,
         success: AdministrationCampaignAudience,
-        error: [CliResourceNotFound.schema, CliServiceUnavailable.schema],
+        error: campaignErrors,
       }
     )
   )
@@ -431,7 +443,7 @@ export const AdminCliCampaignsApi = HttpApiGroup.make("campaigns")
     HttpApiEndpoint.post("createCampaignAudience", "/campaign-audiences", {
       payload: AdministrationCampaignAudienceInput,
       success: AdministrationCampaignAudience,
-      error: [CliInputInvalid.schema, CliServiceUnavailable.schema],
+      error: campaignErrors,
     })
   )
   .add(
@@ -442,11 +454,7 @@ export const AdminCliCampaignsApi = HttpApiGroup.make("campaigns")
         params: audienceParams,
         payload: AdministrationCampaignAudienceUpdate,
         success: AdministrationCampaignAudience,
-        error: [
-          CliInputInvalid.schema,
-          CliResourceNotFound.schema,
-          CliServiceUnavailable.schema,
-        ],
+        error: campaignErrors,
       }
     )
   )
@@ -457,7 +465,7 @@ export const AdminCliCampaignsApi = HttpApiGroup.make("campaigns")
       {
         params: audienceParams,
         success: AdministrationCampaignAudience,
-        error: [CliResourceNotFound.schema, CliServiceUnavailable.schema],
+        error: campaignErrors,
       }
     )
   )
@@ -468,11 +476,7 @@ export const AdminCliCampaignsApi = HttpApiGroup.make("campaigns")
       {
         params: audienceParams,
         success: Schema.Struct({ id: AdministrationCampaignAudienceId }),
-        error: [
-          CliMutationRejected.schema,
-          CliResourceNotFound.schema,
-          CliServiceUnavailable.schema,
-        ],
+        error: campaignErrors,
       }
     )
   )
@@ -489,37 +493,28 @@ export const AdminCliCampaignsApi = HttpApiGroup.make("campaigns")
         params: { templateKey: AdministrationCampaignTemplateKey },
         payload: AdministrationCampaignTemplatePreviewInput,
         success: AdministrationCampaignEmailPreview,
-        error: [
-          CliInputInvalid.schema,
-          CliResourceNotFound.schema,
-          CliServiceUnavailable.schema,
-        ],
+        error: campaignErrors,
       }
     )
   )
   .add(
     HttpApiEndpoint.get("listCampaigns", "/campaigns", {
       success: Schema.Array(AdministrationCampaignSummary),
-      error: CliServiceUnavailable.schema,
+      error: campaignErrors,
     })
   )
   .add(
     HttpApiEndpoint.get("getCampaign", "/campaigns/:campaignId", {
       params: campaignParams,
       success: AdministrationCampaignDetail,
-      error: [CliResourceNotFound.schema, CliServiceUnavailable.schema],
+      error: campaignErrors,
     })
   )
   .add(
     HttpApiEndpoint.post("createCampaign", "/campaigns", {
       payload: AdministrationCampaignCreateInput,
       success: AdministrationCampaignDetail,
-      error: [
-        CliInputInvalid.schema,
-        CliMutationRejected.schema,
-        CliResourceNotFound.schema,
-        CliServiceUnavailable.schema,
-      ],
+      error: campaignErrors,
     })
   )
   .add(
@@ -527,12 +522,7 @@ export const AdminCliCampaignsApi = HttpApiGroup.make("campaigns")
       params: campaignParams,
       payload: AdministrationCampaignUpdateInput,
       success: AdministrationCampaignDetail,
-      error: [
-        CliInputInvalid.schema,
-        CliMutationRejected.schema,
-        CliResourceNotFound.schema,
-        CliServiceUnavailable.schema,
-      ],
+      error: campaignErrors,
     })
   )
   .add(
@@ -542,7 +532,7 @@ export const AdminCliCampaignsApi = HttpApiGroup.make("campaigns")
       {
         params: campaignParams,
         success: AdministrationCampaignDetail,
-        error: [CliResourceNotFound.schema, CliServiceUnavailable.schema],
+        error: campaignErrors,
       }
     )
   )
@@ -550,11 +540,7 @@ export const AdminCliCampaignsApi = HttpApiGroup.make("campaigns")
     HttpApiEndpoint.delete("deleteCampaign", "/campaigns/:campaignId", {
       params: campaignParams,
       success: Schema.Struct({ id: AdministrationCampaignId }),
-      error: [
-        CliMutationRejected.schema,
-        CliResourceNotFound.schema,
-        CliServiceUnavailable.schema,
-      ],
+      error: campaignErrors,
     })
   )
   .add(
@@ -564,11 +550,7 @@ export const AdminCliCampaignsApi = HttpApiGroup.make("campaigns")
       {
         params: campaignParams,
         success: AdministrationCampaignRecipientPreview,
-        error: [
-          CliMutationRejected.schema,
-          CliResourceNotFound.schema,
-          CliServiceUnavailable.schema,
-        ],
+        error: campaignErrors,
       }
     )
   )
@@ -580,12 +562,7 @@ export const AdminCliCampaignsApi = HttpApiGroup.make("campaigns")
         params: campaignParams,
         payload: AdministrationCampaignTestSendInput,
         success: AdministrationCampaignTestSendResult,
-        error: [
-          CliInputInvalid.schema,
-          CliMutationRejected.schema,
-          CliResourceNotFound.schema,
-          CliServiceUnavailable.schema,
-        ],
+        error: campaignErrors,
       }
     )
   )
@@ -594,22 +571,14 @@ export const AdminCliCampaignsApi = HttpApiGroup.make("campaigns")
       params: campaignParams,
       payload: AdministrationCampaignSendInput,
       success: AdministrationCampaignSendResult,
-      error: [
-        CliMutationRejected.schema,
-        CliResourceNotFound.schema,
-        CliServiceUnavailable.schema,
-      ],
+      error: campaignErrors,
     })
   )
   .add(
     HttpApiEndpoint.post("retryCampaign", "/campaigns/:campaignId/retry", {
       params: campaignParams,
       success: AdministrationCampaignRetryResult,
-      error: [
-        CliMutationRejected.schema,
-        CliResourceNotFound.schema,
-        CliServiceUnavailable.schema,
-      ],
+      error: campaignErrors,
     })
   )
   .add(
@@ -619,7 +588,7 @@ export const AdminCliCampaignsApi = HttpApiGroup.make("campaigns")
       {
         params: campaignParams,
         success: AdministrationCampaignSendStatusResult,
-        error: [CliResourceNotFound.schema, CliServiceUnavailable.schema],
+        error: campaignErrors,
       }
     )
   )
