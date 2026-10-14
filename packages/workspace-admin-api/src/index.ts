@@ -6,8 +6,6 @@ export {
 } from "./cli-authentication-crypto";
 export {
   AdminCliCampaignsApi,
-  AdministrationAudienceFilter,
-  type AdministrationAudienceFilter as AdministrationAudienceFilterType,
   AdministrationCampaignAudience,
   type AdministrationCampaignAudience as AdministrationCampaignAudienceType,
   AdministrationCampaignAudienceId,
@@ -68,6 +66,8 @@ export {
   type AdministrationCampaignTestSendResult as AdministrationCampaignTestSendResultType,
   AdministrationCampaignUpdateInput,
   type AdministrationCampaignUpdateInput as AdministrationCampaignUpdateInputType,
+  AudienceFilter,
+  type AudienceFilter as AudienceFilterType,
 } from "./email-campaigns";
 export {
   WORKSPACE_SITE_TIME_ZONE,

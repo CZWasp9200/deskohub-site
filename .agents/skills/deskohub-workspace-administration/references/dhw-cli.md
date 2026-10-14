@@ -44,7 +44,7 @@ Rules:
 
 - The campaign contract lives in `packages/workspace-admin-api/src/email-campaigns.ts`, and `features/admin-cli/email-campaigns-api.server.ts` serves it with the services the campaign admin UI uses.
 - Bodies cross the API as Markdown. The server parses them with `parseCampaignBodyMarkdown` and exports stored bodies with `campaignBodyToMarkdown`; `dhw` never parses Markdown itself.
-- The contract mirrors the domain `audienceFilterSchema`, and the server decodes every filter with the domain schema again. Change both together.
+- `AudienceFilter` in the contract is the only audience filter schema. Workspace re-exports it from `features/email-campaigns/audience-filter.ts` as `audienceFilterSchema`. On its own it ignores excess properties, so stored filters keep decoding. The strict API inputs that embed it reject them, and `dhw` decodes filter files with the same strict parse options. Keep its encoded form stable: `email-campaigns.test.ts` pins the stored wire format byte for byte.
 - Unparsable or invalid input fails with `CliInputInvalid` (400), and state conflicts fail with `CliMutationRejected` (409). Both messages reach the operator verbatim, so keep them actionable.
 - Campaign mutations don't use the CLI mutation ledger: a confirmed send is single-use by its confirmation code, and a retried create can at worst leave an extra draft.
 

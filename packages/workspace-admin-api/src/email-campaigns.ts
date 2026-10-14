@@ -79,6 +79,14 @@ export type AdministrationCampaignRecipientStatus =
 
 const AdministrationCampaignTitle = Schema.Trim.check(Schema.isNonEmpty());
 
+/**
+ * Whether the customer has (or hasn't) a Workspace reservation, optionally
+ * within an inclusive calendar date range and in one admin status group.
+ * Without a status only booked reservations count: confirmed and never
+ * cancelled, so abandoned and expired checkouts do not. `visit` dates the
+ * reservation by when the customer occupies the space (its Dotypos start),
+ * `booking` by when Workspace confirmed it.
+ */
 const audienceReservationCondition = Schema.TaggedStruct("Reservation", {
   presence: Schema.Literals(["has", "hasNot"]),
   dateBasis: Schema.Literals(["visit", "booking"]),
@@ -89,68 +97,75 @@ const audienceReservationCondition = Schema.TaggedStruct("Reservation", {
   ),
 });
 
+/** The customer's resolved campaign locale is one of these. */
 const audienceLocaleCondition = Schema.TaggedStruct("Locale", {
   locales: Schema.NonEmptyArray(AdministrationCampaignLocale),
 });
 
+/** Whether the customer has a linked Workspace account. */
 const audienceAccountCondition = Schema.TaggedStruct("Account", {
   hasAccount: Schema.Boolean,
 });
 
+/** The customer's Dotypos profile carries this tag. */
 const audienceDotyposTagCondition = Schema.TaggedStruct("DotyposTag", {
   tag: Schema.NonEmptyString,
 });
 
+/** The customer's Dotypos profile belongs to this discount group. */
 const audienceDiscountGroupCondition = Schema.TaggedStruct("DiscountGroup", {
   discountGroupId: Schema.NonEmptyString,
 });
 
-type AdministrationAudienceFilterGroup = {
+/**
+ * A nested AND/OR group. An empty AND group matches every candidate, so an
+ * audience whose root is `{ operator: "and", filters: [] }` reaches all
+ * customers Workspace knows; an empty OR group matches nobody.
+ */
+type AudienceFilterGroup = {
   readonly _tag: "Group";
   readonly operator: "and" | "or";
-  readonly filters: readonly AdministrationAudienceFilter[];
+  readonly filters: readonly AudienceFilter[];
 };
 
-export type AdministrationAudienceFilter =
+export type AudienceFilter =
   | typeof audienceReservationCondition.Type
   | typeof audienceLocaleCondition.Type
   | typeof audienceAccountCondition.Type
   | typeof audienceDotyposTagCondition.Type
   | typeof audienceDiscountGroupCondition.Type
-  | AdministrationAudienceFilterGroup;
+  | AudienceFilterGroup;
 
 const audienceFilterGroup = Schema.TaggedStruct("Group", {
   operator: Schema.Literals(["and", "or"]),
   filters: Schema.Array(
-    Schema.suspend(
-      (): Schema.Codec<AdministrationAudienceFilter> =>
-        AdministrationAudienceFilter
-    )
+    Schema.suspend((): Schema.Codec<AudienceFilter> => AudienceFilter)
   ),
 });
 
 /**
- * The audience filter tree: nested AND/OR groups of reservation, locale,
- * account, Dotypos tag, and discount-group conditions. The server validates
- * it again with the domain schema it mirrors.
+ * The filter tree a campaign audience selects its recipients with. Workspace
+ * stores and evaluates this schema, and the administration API carries it, so
+ * it has one definition. It ignores excess properties when decoded on its own;
+ * the strict API inputs that embed it reject them.
  */
-export const AdministrationAudienceFilter: Schema.Codec<AdministrationAudienceFilter> =
-  Schema.Union([
-    audienceReservationCondition,
-    audienceLocaleCondition,
-    audienceAccountCondition,
-    audienceDotyposTagCondition,
-    audienceDiscountGroupCondition,
-    audienceFilterGroup,
-  ]).annotate({
-    identifier: "AdministrationAudienceFilter",
-    ...strictParseOptions,
-  });
+export const AudienceFilter: Schema.Codec<AudienceFilter> = Schema.Union([
+  audienceReservationCondition,
+  audienceLocaleCondition,
+  audienceAccountCondition,
+  audienceDotyposTagCondition,
+  audienceDiscountGroupCondition,
+  audienceFilterGroup,
+]).annotate({
+  identifier: "AudienceFilter",
+  description:
+    "Nested AND/OR tree of reservation, locale, account, Dotypos tag, and discount-group conditions.",
+});
 
 export const AdministrationCampaignAudience = Schema.Struct({
   id: AdministrationCampaignAudienceId,
   title: Schema.String,
-  filter: AdministrationAudienceFilter,
+  filter: AudienceFilter,
   archivedAt: Schema.NullOr(Schema.String),
   createdAt: Schema.String,
   updatedAt: Schema.String,
@@ -160,14 +175,14 @@ export type AdministrationCampaignAudience =
 
 export const AdministrationCampaignAudienceInput = Schema.Struct({
   title: AdministrationCampaignTitle,
-  filter: AdministrationAudienceFilter,
+  filter: AudienceFilter,
 }).annotate(strictParseOptions);
 export type AdministrationCampaignAudienceInput =
   typeof AdministrationCampaignAudienceInput.Type;
 
 export const AdministrationCampaignAudienceUpdate = Schema.Struct({
   title: Schema.optionalKey(AdministrationCampaignTitle),
-  filter: Schema.optionalKey(AdministrationAudienceFilter),
+  filter: Schema.optionalKey(AudienceFilter),
 }).annotate(strictParseOptions);
 export type AdministrationCampaignAudienceUpdate =
   typeof AdministrationCampaignAudienceUpdate.Type;
@@ -385,7 +400,7 @@ export const AdministrationCampaignSendStatus = Schema.Struct({
   completedAt: Schema.NullOr(Schema.String),
   audienceId: Schema.NullOr(AdministrationCampaignAudienceId),
   /** The filter snapshot the recipients were resolved with. */
-  audienceFilter: AdministrationAudienceFilter,
+  audienceFilter: AudienceFilter,
   counts: Schema.Record(AdministrationCampaignRecipientStatus, count),
   recipients: Schema.Array(
     Schema.Struct({

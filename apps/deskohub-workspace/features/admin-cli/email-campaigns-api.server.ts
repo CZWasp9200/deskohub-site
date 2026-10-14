@@ -1,5 +1,4 @@
 import {
-  type AdministrationAudienceFilterType,
   type AdministrationCampaignAudienceType,
   type AdministrationCampaignContentType,
   type AdministrationCampaignDetailType,
@@ -17,7 +16,10 @@ import {
 import { Effect, Layer, Match, Option, Schema } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import type { CampaignAudienceRow, CampaignRow } from "@/db/schema";
-import { audienceFilterSchema } from "@/features/email-campaigns/audience-filter";
+import {
+  type AudienceFilter,
+  audienceFilterSchema,
+} from "@/features/email-campaigns/audience-filter";
 import { CampaignService } from "@/features/email-campaigns/backend/campaign.service";
 import { CampaignAudienceService } from "@/features/email-campaigns/backend/campaign-audience.service";
 import { CampaignRecipientService } from "@/features/email-campaigns/backend/campaign-recipient.service";
@@ -220,7 +222,7 @@ const localeEntries = <Value>(
   });
 
 /** The contract mirrors the domain filter; its own schema has the last word. */
-const decodeAudienceFilter = (filter: AdministrationAudienceFilterType) =>
+const decodeAudienceFilter = (filter: AudienceFilter) =>
   Schema.decodeUnknownEffect(audienceFilterSchema)(filter).pipe(
     Effect.mapError(
       (cause) =>

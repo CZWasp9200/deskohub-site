@@ -1,51 +1,59 @@
 import { describe, expect, test } from "bun:test";
 import { Result, Schema } from "effect";
 import {
-  AdministrationAudienceFilter,
   AdministrationCampaignAudienceInput,
+  AdministrationCampaignAudienceUpdate,
   AdministrationCampaignCreateInput,
   AdministrationCampaignSendInput,
   AdministrationCampaignSendStatusResult,
   AdministrationCampaignTemplatePreviewInput,
   AdministrationCampaignUpdateInput,
+  AudienceFilter,
 } from "./email-campaigns";
 
 const decodes = <A, I>(schema: Schema.Codec<A, I>, input: unknown) =>
   Result.isSuccess(Schema.decodeUnknownResult(schema)(input));
 
-const nestedFilter: AdministrationAudienceFilter = {
-  _tag: "Group",
-  operator: "or",
-  filters: [
-    {
-      _tag: "Reservation",
-      presence: "hasNot",
-      dateBasis: "booking",
-      from: "2026-01-01",
-      to: "2026-06-30",
-      status: "complete",
-    },
-    {
-      _tag: "Group",
-      operator: "and",
-      filters: [
-        { _tag: "Locale", locales: ["en-US"] },
-        { _tag: "Account", hasAccount: false },
-        { _tag: "DotyposTag", tag: "vip" },
-        { _tag: "DiscountGroup", discountGroupId: "42" },
-      ],
-    },
-  ],
-};
+/**
+ * A filter as Workspace stored it and dhw sent it before the domain and the
+ * contract shared one schema, encoded byte for byte by the old domain schema.
+ */
+const storedFilterJson =
+  '{"_tag":"Group","operator":"or","filters":[{"_tag":"Reservation","presence":"hasNot","dateBasis":"booking","from":"2026-01-01","to":"2026-06-30","status":"complete"},{"_tag":"Reservation","presence":"has","dateBasis":"visit"},{"_tag":"Group","operator":"and","filters":[{"_tag":"Locale","locales":["cs-CZ","en-US"]},{"_tag":"Account","hasAccount":false},{"_tag":"DotyposTag","tag":"vip"},{"_tag":"DiscountGroup","discountGroupId":"42"}]},{"_tag":"Group","operator":"and","filters":[]}]}';
+
+/** The same kind of filter in the key order Postgres `jsonb` returns. */
+const jsonbFilterJson =
+  '{"_tag":"Group","filters":[{"to":"2026-06-30","_tag":"Reservation","from":"2026-01-01","status":"complete","presence":"hasNot","dateBasis":"booking"},{"_tag":"Locale","locales":["en-US"]}],"operator":"and"}';
+
+const reencode = (json: string) =>
+  JSON.stringify(
+    Schema.encodeSync(AudienceFilter)(
+      Schema.decodeUnknownSync(AudienceFilter)(JSON.parse(json))
+    )
+  );
 
 describe("campaign admin API contract", () => {
-  test("round-trips a nested audience filter tree", () => {
-    const decoded = Schema.decodeSync(AdministrationAudienceFilter)(
-      nestedFilter
-    );
+  test("keeps the stored audience filter wire format byte for byte", () => {
+    expect(reencode(storedFilterJson)).toBe(storedFilterJson);
+  });
 
-    expect(Schema.encodeSync(AdministrationAudienceFilter)(decoded)).toEqual(
-      nestedFilter
+  test("decodes an audience filter in jsonb key order", () => {
+    expect(reencode(jsonbFilterJson)).toBe(
+      '{"_tag":"Group","operator":"and","filters":[{"_tag":"Reservation","presence":"hasNot","dateBasis":"booking","from":"2026-01-01","to":"2026-06-30","status":"complete"},{"_tag":"Locale","locales":["en-US"]}]}'
+    );
+  });
+
+  test("accepts a stored audience filter in every API input that embeds it", () => {
+    const filter = JSON.parse(storedFilterJson);
+
+    expect(
+      decodes(AdministrationCampaignAudienceInput, {
+        title: "Audience",
+        filter,
+      })
+    ).toBe(true);
+    expect(decodes(AdministrationCampaignAudienceUpdate, { filter })).toBe(
+      true
     );
   });
 
@@ -77,6 +85,9 @@ describe("campaign admin API contract", () => {
         filter,
       })
     ).toBe(false);
+    expect(decodes(AdministrationCampaignAudienceUpdate, { filter })).toBe(
+      false
+    );
   });
 
   test("trims titles and rejects blank ones", () => {

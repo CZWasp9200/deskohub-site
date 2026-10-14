@@ -1,10 +1,10 @@
 import {
-  AdministrationAudienceFilter,
-  type AdministrationAudienceFilterType,
   type AdministrationCampaignContentType,
   type AdministrationCampaignLocaleContentChangeType,
   type AdministrationCampaignLocaleType,
   type AdministrationCampaignUpdateInputType,
+  AudienceFilter,
+  type AudienceFilterType,
 } from "@deskohub/workspace-admin-api";
 import { Effect, FileSystem, Option, Schema } from "effect";
 import { Flag } from "effect/unstable/cli";
@@ -316,7 +316,7 @@ export const readAudienceFilter = ({
     if (Option.isSome(filter)) {
       return Option.some(yield* decodeAudienceFilter(filter.value));
     }
-    return Option.none<AdministrationAudienceFilterType>();
+    return Option.none<AudienceFilterType>();
   });
 
 const decodeAudienceFilter = (contents: string) =>
@@ -327,7 +327,12 @@ const decodeAudienceFilter = (contents: string) =>
         message: "The audience filter is not valid JSON.",
       }),
   }).pipe(
-    Effect.flatMap(Schema.decodeUnknownEffect(AdministrationAudienceFilter)),
+    Effect.flatMap(
+      Schema.decodeUnknownEffect(AudienceFilter, {
+        errors: "all",
+        onExcessProperty: "error",
+      })
+    ),
     Effect.mapError((error) =>
       error instanceof InvalidMutationInputError
         ? error
