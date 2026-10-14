@@ -3,7 +3,7 @@ import type * as React from "react";
 import { cn } from "@/shared/utils";
 
 const choiceCardVariants = cva(
-  "flex cursor-pointer gap-3 rounded-xl border p-4 text-navy-blue transition-colors has-checked:border-burned-orange has-checked:ring-2 has-checked:ring-burned-orange/15 has-aria-checked:border-burned-orange has-aria-checked:ring-2 has-aria-checked:ring-burned-orange/15 has-focus-visible:outline-2 has-focus-visible:outline-offset-2 has-focus-visible:outline-burned-orange has-disabled:cursor-not-allowed has-disabled:opacity-70",
+  "flex cursor-pointer gap-3 rounded-xl border p-4 text-navy-blue accent-burned-orange transition-colors has-checked:border-burned-orange has-checked:ring-2 has-checked:ring-burned-orange/15 has-aria-checked:border-burned-orange has-aria-checked:ring-2 has-aria-checked:ring-burned-orange/15 has-focus-visible:outline-2 has-focus-visible:outline-offset-2 has-focus-visible:outline-burned-orange has-disabled:cursor-not-allowed has-disabled:opacity-70",
   {
     variants: {
       tone: {

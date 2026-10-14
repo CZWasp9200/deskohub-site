@@ -70,4 +70,5 @@ test("the card styles checked, focus and disabled states from its control", () =
   expect(card.className).toContain("has-aria-checked:border-burned-orange");
   expect(card.className).toContain("has-focus-visible:outline-2");
   expect(card.className).toContain("has-disabled:cursor-not-allowed");
+  expect(card.className).toContain("accent-burned-orange");
 });
