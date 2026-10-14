@@ -10,12 +10,10 @@ import {
   AdministrationCampaignUpdateInput,
 } from "./email-campaigns";
 
-const decodes = <S extends Schema.Top>(schema: S, input: unknown) =>
-  Result.isSuccess(
-    Schema.decodeUnknownResult(schema as Schema.Codec<unknown>)(input)
-  );
+const decodes = <A, I>(schema: Schema.Codec<A, I>, input: unknown) =>
+  Result.isSuccess(Schema.decodeUnknownResult(schema)(input));
 
-const nestedFilter = {
+const nestedFilter: AdministrationAudienceFilter = {
   _tag: "Group",
   operator: "or",
   filters: [
@@ -42,7 +40,7 @@ const nestedFilter = {
 
 describe("campaign admin API contract", () => {
   test("round-trips a nested audience filter tree", () => {
-    const decoded = Schema.decodeUnknownSync(AdministrationAudienceFilter)(
+    const decoded = Schema.decodeSync(AdministrationAudienceFilter)(
       nestedFilter
     );
 

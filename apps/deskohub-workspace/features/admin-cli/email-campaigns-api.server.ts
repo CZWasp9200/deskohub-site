@@ -1,4 +1,5 @@
 import {
+  type AdministrationAudienceFilterType,
   type AdministrationCampaignAudienceType,
   type AdministrationCampaignContentType,
   type AdministrationCampaignDetailType,
@@ -218,7 +219,8 @@ const localeEntries = <Value>(
     return value === undefined ? [] : [[locale, value] as const];
   });
 
-const decodeAudienceFilter = (filter: unknown) =>
+/** The contract mirrors the domain filter; its own schema has the last word. */
+const decodeAudienceFilter = (filter: AdministrationAudienceFilterType) =>
   Schema.decodeUnknownEffect(audienceFilterSchema)(filter).pipe(
     Effect.mapError(
       (cause) =>
@@ -440,18 +442,18 @@ export const AdminCliCampaignsApiHandlers = HttpApiBuilder.group(
       )
       .handle(
         "updateCampaignAudience",
-        Effect.fn(function* ({ params, payload }) {
-          const filter =
-            payload.filter === undefined
-              ? undefined
-              : yield* decodeAudienceFilter(payload.filter);
-          const audience = yield* audiences.update({
-            audienceId: params.audienceId,
-            ...(payload.title === undefined ? {} : { title: payload.title }),
-            ...(filter === undefined ? {} : { filter }),
-          });
-          return toCliAudience(audience);
-        }, mapCampaignFailure)
+        ({ params, payload: { filter, ...changes } }) => {
+          const update = { audienceId: params.audienceId, ...changes };
+          return (
+            filter === undefined
+              ? audiences.update(update)
+              : decodeAudienceFilter(filter).pipe(
+                  Effect.flatMap((decoded) =>
+                    audiences.update({ ...update, filter: decoded })
+                  )
+                )
+          ).pipe(Effect.map(toCliAudience), mapCampaignFailure);
+        }
       )
       .handle("archiveCampaignAudience", ({ params }) =>
         audiences
@@ -511,25 +513,21 @@ export const AdminCliCampaignsApiHandlers = HttpApiBuilder.group(
       )
       .handle(
         "updateCampaign",
-        Effect.fn(function* ({ params, payload }) {
-          const { content: contentChanges, ...fields } = payload;
-          const content =
+        ({ params, payload: { content: contentChanges, ...changes } }) => {
+          const update = { campaignId: params.campaignId, ...changes };
+          return (
             contentChanges === undefined
-              ? undefined
-              : yield* campaigns
-                  .get(params.campaignId)
-                  .pipe(
-                    Effect.flatMap((current) =>
-                      changeLocalizedContent(current.content, contentChanges)
-                    )
-                  );
-          const campaign = yield* campaigns.update({
-            campaignId: params.campaignId,
-            ...fields,
-            ...(content === undefined ? {} : { content }),
-          });
-          return toCliCampaignDetail(campaign);
-        }, mapCampaignFailure)
+              ? campaigns.update(update)
+              : campaigns.get(params.campaignId).pipe(
+                  Effect.flatMap((current) =>
+                    changeLocalizedContent(current.content, contentChanges)
+                  ),
+                  Effect.flatMap((content) =>
+                    campaigns.update({ ...update, content })
+                  )
+                )
+          ).pipe(Effect.map(toCliCampaignDetail), mapCampaignFailure);
+        }
       )
       .handle("duplicateCampaign", ({ params }) =>
         campaigns
