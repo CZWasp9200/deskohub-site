@@ -4,12 +4,19 @@ import { describe, expect, mock, test } from "bun:test";
 import { createHmac } from "node:crypto";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
+import { DotyposCustomerIdSchema } from "@deskohub/dotypos";
 import { EmailDeliveryIdSchema } from "@deskohub/email";
+import { Effect } from "effect";
 import {
   createWorkspaceEnv,
   env,
   getAccountingDocumentSnapshotSecret,
 } from "@/env";
+import { customerMarketingConsents } from "@/db/schema";
+import {
+  deleteCampaigns,
+  seedCampaignSend,
+} from "@/features/email-campaigns/backend/email-campaigns.test-utils";
 import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 
@@ -152,6 +159,69 @@ describe.skipIf(!postgresDatabase)(
         error: "Webhook processing failed",
         code: "resend_webhook_delivery_unattached",
       });
+    });
+
+    test("records a campaign bounce on the recipient and leaves consent alone", async () => {
+      if (!postgresDatabase) return;
+      const dotyposCustomerId = DotyposCustomerIdSchema.make(
+        `webhook-${crypto.randomUUID()}`
+      );
+      const emailId = newRouteEmailId();
+      const { campaignId, sendId } = await seedCampaignSend(
+        postgresDatabase.db,
+        {
+          purpose: "marketing",
+          status: "sent",
+          recipients: [
+            { dotyposCustomerId, status: "sent", providerMessageId: emailId },
+          ],
+        }
+      );
+      await Effect.runPromise(
+        postgresDatabase.db.insert(customerMarketingConsents).values({
+          dotyposCustomerId,
+          documentHash: "hash",
+          locale: "cs-CZ",
+          grantedAt: Temporal.Instant.from("2026-01-01T00:00:00Z"),
+        })
+      );
+
+      try {
+        const { response, body } = await sendResendWebhook({
+          payload: JSON.stringify({
+            type: "email.bounced",
+            created_at: deliveryCreatedAt,
+            data: {
+              email_id: emailId,
+              tags: {
+                category: "email-campaign",
+                campaignSendId: sendId,
+                dotyposCustomerId,
+                deploymentEnvironment: env.VERCEL_ENV,
+              },
+            },
+          }),
+        });
+
+        expect(response.status).toBe(200);
+        expect(body.status).toBe("processed");
+        const { rows: recipients } = await postgresDatabase.pool.query(
+          "select status from email_campaign_recipients where send_id = $1",
+          [sendId]
+        );
+        expect(recipients).toEqual([{ status: "bounced" }]);
+        const { rows: consents } = await postgresDatabase.pool.query(
+          "select withdrawn_at from customer_marketing_consents where dotypos_customer_id = $1",
+          [dotyposCustomerId]
+        );
+        expect(consents).toEqual([{ withdrawn_at: null }]);
+      } finally {
+        await deleteCampaigns(postgresDatabase.pool, [campaignId]);
+        await postgresDatabase.pool.query(
+          "delete from customer_marketing_consents where dotypos_customer_id = $1",
+          [dotyposCustomerId]
+        );
+      }
     });
   }
 );

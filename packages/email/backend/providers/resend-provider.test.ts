@@ -19,6 +19,22 @@ type SendImplementation = (
   payload?: unknown,
   options?: { readonly idempotencyKey?: string }
 ) => Promise<SendResponse>;
+type BatchSendResponse =
+  | {
+      readonly data: { readonly data: readonly { readonly id: string }[] };
+      readonly error?: never;
+    }
+  | {
+      readonly data?: null;
+      readonly error: {
+        readonly message: string;
+        readonly statusCode?: number;
+      };
+    };
+type BatchSendImplementation = (
+  payload?: unknown,
+  options?: { readonly idempotencyKey?: string }
+) => Promise<BatchSendResponse>;
 type ListDomainsResponse =
   | { readonly data: readonly unknown[]; readonly error?: never }
   | { readonly data?: never; readonly error: { readonly message: string } };
@@ -27,11 +43,15 @@ type ListDomainsImplementation = () => Promise<ListDomainsResponse>;
 let send = mock<SendImplementation>(async () => ({
   data: { id: "resend-id" },
 }));
+let batchSend = mock<BatchSendImplementation>(async () => ({
+  data: { data: [] },
+}));
 let listDomains = mock<ListDomainsImplementation>(async () => ({ data: [] }));
 
 mock.module("resend", () => ({
   Resend: class {
     emails = { send: send };
+    batch = { send: batchSend };
     domains = { list: listDomains };
   },
 }));
@@ -44,6 +64,9 @@ type EmailProviderRequirement = import("../service").EmailProviderTag;
 beforeEach(() => {
   send = mock<SendImplementation>(async () => ({
     data: { id: "resend-id" },
+  }));
+  batchSend = mock<BatchSendImplementation>(async () => ({
+    data: { data: [] },
   }));
   listDomains = mock<ListDomainsImplementation>(async () => ({ data: [] }));
 });
@@ -73,6 +96,14 @@ const message = {
   subject: "Hello",
   html: "<p>Hello</p>",
 };
+const batchMessages = [
+  message,
+  {
+    ...message,
+    to: { email: testEmailAddress("grace") },
+    subject: "Second email",
+  },
+];
 
 describe("ResendEmailProvider", () => {
   test("maps 4xx and invalid errors to EmailServiceError", async () => {
@@ -182,6 +213,105 @@ describe("ResendEmailProvider", () => {
       { idempotencyKey: "k".repeat(256) },
       { idempotencyKey: undefined },
     ]);
+  });
+
+  test("sends a batch with its idempotency key and returns IDs in order", async () => {
+    batchSend = mock<BatchSendImplementation>(async () => ({
+      data: { data: [{ id: "batch-id-1" }, { id: "batch-id-2" }] },
+    }));
+
+    const results = await runProvider(
+      Effect.gen(function* () {
+        const provider = yield* EmailProviderTag;
+        return yield* provider.sendBatch(batchMessages, {
+          idempotencyKey: "campaign-batch-key",
+        });
+      })
+    );
+
+    expect(batchSend).toHaveBeenCalledTimes(1);
+    const [payload, options] = batchSend.mock.calls[0] ?? [];
+    expect(payload).toHaveLength(batchMessages.length);
+    expect(options).toEqual({ idempotencyKey: "campaign-batch-key" });
+    expect(results.map((result) => result.id)).toEqual([
+      "batch-id-1",
+      "batch-id-2",
+    ]);
+  });
+
+  test("maps batch 4xx errors to EmailServiceError and 5xx errors to NetworkError", async () => {
+    for (const [statusCode, expectedTag] of [
+      [400, "EmailServiceError"],
+      [500, "NetworkError"],
+    ] as const) {
+      batchSend = mock<BatchSendImplementation>(async () => ({
+        error: { statusCode, message: "Batch request failed" },
+      }));
+
+      const result = await runProvider(
+        Effect.gen(function* () {
+          const provider = yield* EmailProviderTag;
+          return yield* provider
+            .sendBatch(batchMessages, { idempotencyKey: "campaign-batch-key" })
+            .pipe(Effect.result);
+        })
+      );
+
+      expect(result._tag).toBe("Failure");
+      if (result._tag === "Failure") {
+        expect(result.failure._tag).toBe(expectedTag);
+      }
+    }
+  });
+
+  test("rejects a batch response with fewer IDs than messages", async () => {
+    batchSend = mock<BatchSendImplementation>(async () => ({
+      data: { data: [{ id: "batch-id-1" }] },
+    }));
+
+    const result = await runProvider(
+      Effect.gen(function* () {
+        const provider = yield* EmailProviderTag;
+        return yield* provider
+          .sendBatch(batchMessages, { idempotencyKey: "campaign-batch-key" })
+          .pipe(Effect.result);
+      })
+    );
+
+    expect(result._tag).toBe("Failure");
+    if (result._tag === "Failure") {
+      expect(result.failure._tag).toBe("EmailServiceError");
+    }
+  });
+
+  test("rejects batches with attachments without calling Resend", async () => {
+    const result = await runProvider(
+      Effect.gen(function* () {
+        const provider = yield* EmailProviderTag;
+        return yield* provider
+          .sendBatch(
+            [
+              {
+                ...message,
+                attachments: [
+                  {
+                    content: Buffer.from("location-map"),
+                    filename: "location-map.jpeg",
+                  },
+                ],
+              },
+            ],
+            { idempotencyKey: "campaign-batch-key" }
+          )
+          .pipe(Effect.result);
+      })
+    );
+
+    expect(result._tag).toBe("Failure");
+    if (result._tag === "Failure") {
+      expect(result.failure._tag).toBe("EmailServiceError");
+    }
+    expect(batchSend).not.toHaveBeenCalled();
   });
 
   test("maps the magic-link tags and surface metadata to Resend tags", async () => {

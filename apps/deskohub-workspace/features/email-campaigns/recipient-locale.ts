@@ -1,7 +1,7 @@
 import { isLocale, type Locale } from "@/features/i18n";
 
 /** Locale for recipients without a known or covered preference. */
-const campaignFallbackLocale: Locale = "cs-CZ";
+export const campaignFallbackLocale: Locale = "cs-CZ";
 
 /**
  * The language a campaign email reaches a customer in, and the value the

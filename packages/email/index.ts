@@ -1,4 +1,7 @@
-export type { EmailProvider } from "./backend/capabilities";
+export type {
+  EmailBatchOptions,
+  EmailProvider,
+} from "./backend/capabilities";
 export { makeEmailConfigLayer } from "./backend/email-config";
 export {
   internalRecipientForOrigin,

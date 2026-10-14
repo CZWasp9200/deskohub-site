@@ -4,15 +4,30 @@ import { Effect, Layer, Logger } from "effect";
 type SendImplementation = (payload?: {
   readonly subject?: string;
 }) => Promise<{ readonly data: { id: string } }>;
+type BatchSendImplementation = (
+  payload?: readonly unknown[],
+  options?: { readonly idempotencyKey?: string }
+) => Promise<{ readonly data: { readonly data: readonly { id: string }[] } }>;
 
 let resendSend = mock<SendImplementation>(async () => ({
   data: { id: "resend-id" },
+}));
+let resendBatchSend = mock<BatchSendImplementation>(async (payload = []) => ({
+  data: {
+    data: payload.map((_, index) => ({ id: `resend-batch-${index}` })),
+  },
 }));
 
 mock.module("resend", () => ({
   Resend: class {
     emails = {
       send: (payload?: { readonly subject?: string }) => resendSend(payload),
+    };
+    batch = {
+      send: (
+        payload?: readonly unknown[],
+        options?: { idempotencyKey?: string }
+      ) => resendBatchSend(payload, options),
     };
     domains = { list: async () => ({ data: [] }) };
   },
@@ -33,6 +48,11 @@ const { resendSimulatorAddress, testEmailAddress } = await import(
 beforeEach(() => {
   resendSend = mock<SendImplementation>(async () => ({
     data: { id: "resend-id" },
+  }));
+  resendBatchSend = mock<BatchSendImplementation>(async (payload = []) => ({
+    data: {
+      data: payload.map((_, index) => ({ id: `resend-batch-${index}` })),
+    },
   }));
 });
 
@@ -154,6 +174,29 @@ describe("internalRecipientForOrigin", () => {
 });
 
 describe("RoutedEmailProviderLive", () => {
+  const sendBatchRouted = async (
+    messages: ReturnType<typeof message>[],
+    apiKey: string | undefined,
+    idempotencyKey: string
+  ) =>
+    Effect.runPromise(
+      Effect.gen(function* () {
+        const provider = yield* EmailProviderTag;
+        return yield* provider.sendBatch(messages, { idempotencyKey });
+      }).pipe(
+        Effect.provide(
+          RoutedEmailProviderLive.pipe(
+            Layer.provide(
+              Layer.succeed(EmailConfigTag, {
+                apiKey,
+                defaultFrom: sender,
+              })
+            )
+          )
+        )
+      )
+    );
+
   test("delivers real-recipient mail through Resend", async () => {
     const result = await sendRouted(realRecipient, "re_test");
 
@@ -162,6 +205,67 @@ describe("RoutedEmailProviderLive", () => {
       expect(result.success.provider).toBe("resend");
     }
     expect(resendSend).toHaveBeenCalledTimes(1);
+  });
+
+  test("routes only real recipients through Resend and restores batch result order", async () => {
+    const messages = [
+      message(testRecipient, "Console one"),
+      message(realRecipient, "Resend one"),
+      message(testRecipient, "Console two"),
+      message(realRecipient, "Resend two"),
+    ];
+
+    const results = await sendBatchRouted(
+      messages,
+      "re_test",
+      "campaign-batch-key"
+    );
+
+    expect(resendBatchSend).toHaveBeenCalledTimes(1);
+    const [payload, options] = resendBatchSend.mock.calls[0] ?? [];
+    expect(payload).toHaveLength(2);
+    expect(
+      (
+        payload as readonly {
+          readonly subject?: string;
+          readonly to: readonly string[];
+        }[]
+      ).map((sent) => ({ subject: sent.subject, to: sent.to }))
+    ).toEqual([
+      { subject: "Resend one", to: [realRecipient.email] },
+      { subject: "Resend two", to: [realRecipient.email] },
+    ]);
+    expect(options).toEqual({ idempotencyKey: "campaign-batch-key" });
+    expect(results.map((result) => result.provider)).toEqual([
+      "console",
+      "resend",
+      "console",
+      "resend",
+    ]);
+    expect(results[0]?.id.startsWith("console-")).toBe(true);
+    expect(results[1]?.id).toBe("resend-batch-0");
+    expect(results[2]?.id.startsWith("console-")).toBe(true);
+    expect(results[3]?.id).toBe("resend-batch-1");
+  });
+
+  test("routes every batch message through Console without a Resend key", async () => {
+    const results = await sendBatchRouted(
+      [
+        message(testRecipient, "Console one"),
+        message(realRecipient, "Console two"),
+      ],
+      undefined,
+      "campaign-batch-key"
+    );
+
+    expect(resendBatchSend).not.toHaveBeenCalled();
+    expect(results.map((result) => result.provider)).toEqual([
+      "console",
+      "console",
+    ]);
+    expect(results.every((result) => result.id.startsWith("console-"))).toBe(
+      true
+    );
   });
 
   test("keeps test-recipient mail on Console when a Resend key exists", async () => {

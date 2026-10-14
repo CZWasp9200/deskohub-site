@@ -11,6 +11,8 @@ import {
 import { Resend } from "resend";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { ReservationInvoiceService } from "@/features/accounting/backend/reservation-invoice.service";
+import { CampaignDeliveryStatusService } from "@/features/email-campaigns/backend/campaign-delivery-status.service";
+import { campaignEmailCategory } from "@/features/email-campaigns/campaign-email-message";
 import {
   type WorkspaceReservation,
   WorkspaceReservationRepository,
@@ -143,7 +145,8 @@ export class ResendWebhookProcessingError extends Data.TaggedError(
     | "resend_webhook_delivery_unattached"
     | "resend_webhook_reservation_load_failed"
     | "resend_webhook_invoice_processing_failed"
-    | "resend_webhook_reservation_update_failed";
+    | "resend_webhook_reservation_update_failed"
+    | "resend_webhook_campaign_update_failed";
   readonly message: string;
   readonly eventId?: ResendWebhookEventId;
   readonly workspaceReservationId?: WorkspaceReservationId;
@@ -179,6 +182,7 @@ export class ResendWebhookService extends Context.Service<
     Layer.provide(ResendWebhookRuntimeConfig.Default),
     Layer.provide(PostHogEventService.Live),
     Layer.provide(ReservationInvoiceService.Live),
+    Layer.provide(CampaignDeliveryStatusService.Default),
     Layer.provide(WorkspaceReservationRepository.Default),
     Layer.provide(WorkspaceDatabase.Default)
   );
@@ -209,6 +213,51 @@ function makeResendWebhookServiceLayer(service: typeof ResendWebhookService) {
       const config = yield* ResendWebhookRuntimeConfig;
       const posthogEvents = yield* PostHogEventService;
       const reservationInvoices = yield* ReservationInvoiceService;
+      const campaignDeliveryStatus = yield* CampaignDeliveryStatusService;
+
+      /**
+       * Campaign emails carry their own category tag; their delivery status
+       * belongs to the frozen campaign recipient, not to a reservation.
+       */
+      const processCampaignEvent = Effect.fn(
+        "resendWebhook.processCampaignEvent"
+      )(function* (input: {
+        readonly eventId: ResendWebhookEventId;
+        readonly event: ResendWebhookEvent;
+        readonly tags: ReadonlyMap<string, string>;
+      }) {
+        const deploymentEnvironment = input.tags.get("deploymentEnvironment");
+        if (deploymentEnvironment !== config.deploymentEnvironment) {
+          return ignored(
+            deploymentEnvironment === undefined
+              ? "deployment_environment_missing"
+              : "deployment_environment_mismatch"
+          );
+        }
+        const providerMessageId = input.event.data.email_id;
+        if (!providerMessageId) {
+          return ignored("campaign_email_id_missing");
+        }
+        return yield* campaignDeliveryStatus
+          .record({
+            type: input.event.type,
+            providerMessageId,
+            tags: input.tags,
+            occurredAt: input.event.createdAt,
+          })
+          .pipe(
+            Effect.mapError(
+              (cause) =>
+                new ResendWebhookProcessingError({
+                  errorCode: "resend_webhook_campaign_update_failed",
+                  message:
+                    "Resend webhook could not record the campaign delivery status.",
+                  eventId: input.eventId,
+                  cause,
+                })
+            )
+          );
+      });
 
       const processReservationInvoice = Effect.fn(
         "resendWebhook.processReservationInvoice"
@@ -267,6 +316,15 @@ function makeResendWebhookServiceLayer(service: typeof ResendWebhookService) {
             eventId: input.eventId,
             eventType: event.type,
           });
+
+          const eventTags = toTags(event.data.tags);
+          if (eventTags.get("category") === campaignEmailCategory) {
+            return yield* processCampaignEvent({
+              eventId: input.eventId,
+              event,
+              tags: eventTags,
+            });
+          }
 
           if (!isReservationDeliveryEvent(event)) {
             return ignored("non_delivery_event");

@@ -101,6 +101,12 @@ export const ConsoleEmailProvider: EmailProvider = {
     return result;
   }),
 
+  sendBatch: Effect.fn("consoleEmailProvider.sendBatch")(function* (messages) {
+    return yield* Effect.forEach(messages, (message) =>
+      ConsoleEmailProvider.send(message)
+    );
+  }),
+
   verify: Effect.gen(function* () {
     yield* Effect.logInfo("Console Email Provider verification", {
       status: "always valid in development",

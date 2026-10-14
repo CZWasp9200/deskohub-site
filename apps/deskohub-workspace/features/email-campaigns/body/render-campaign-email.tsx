@@ -1,6 +1,8 @@
 import { Data, Effect, Match } from "effect";
+import { Text } from "react-email";
 import { type Locale, m } from "@/features/i18n";
 import { renderWorkspaceEmail } from "@/shared/backend/email/render-react-email";
+import type { CampaignConfirmationCode } from "../campaign-identifiers";
 import { CampaignBodyContent } from "./campaign-body-content";
 import type {
   CampaignLocaleContent,
@@ -50,7 +52,7 @@ const footerProps = ({
 
 /**
  * Renders one locale of a campaign inside its template, as HTML and plain
- * text.
+ * text. A test email leads with the code that confirms the real send.
  */
 export const renderCampaignEmail = Effect.fn("renderCampaignEmail")(
   function* (input: {
@@ -58,11 +60,24 @@ export const renderCampaignEmail = Effect.fn("renderCampaignEmail")(
     readonly locale: Locale;
     readonly content: CampaignLocaleContent;
     readonly footer: CampaignEmailFooter;
+    readonly confirmationCode?: CampaignConfirmationCode;
   }) {
     const { Email } = campaignTemplates[input.templateKey];
     const rendered = yield* renderWorkspaceEmail(
       <Email
-        body={<CampaignBodyContent body={input.content.body} />}
+        body={
+          <>
+            {input.confirmationCode && (
+              <Text className="m-0 mb-4 rounded-[8px] border border-[#ffd166] border-solid bg-[#fff8e1] px-4 py-3 text-[14px] leading-[20px] text-[#1c1f3b]">
+                {m.emailCampaignTestNotice(
+                  { code: input.confirmationCode },
+                  { locale: input.locale }
+                )}
+              </Text>
+            )}
+            <CampaignBodyContent body={input.content.body} />
+          </>
+        }
         footer={footerProps(input)}
         locale={input.locale}
         preview={input.content.preheader}

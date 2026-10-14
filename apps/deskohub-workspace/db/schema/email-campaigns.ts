@@ -115,11 +115,21 @@ export const emailCampaignSends = pgTable(
       .$type<CampaignAudienceId>(),
     audienceFilter: jsonb("audience_filter").$type<AudienceFilter>().notNull(),
     contentHash: text("content_hash").notNull().$type<CampaignContentHash>(),
+    /**
+     * The current delivery attempt: 1 for the first delivery, then one more
+     * per retry of the undelivered recipients. Batch idempotency keys include
+     * it, so a retry never replays an earlier attempt's batches.
+     */
+    deliveryAttempt: integer("delivery_attempt").notNull().default(1),
     createdAt: instant("created_at").notNull().default(sql`now()`),
     completedAt: instant("completed_at"),
   },
   (t) => [
     uniqueIndex("email_campaign_sends_campaign_unique_idx").on(t.campaignId),
+    check(
+      "email_campaign_sends_delivery_attempt_check",
+      sql`${t.deliveryAttempt} >= 1`
+    ),
   ]
 );
 
@@ -144,6 +154,12 @@ export const emailCampaignRecipients = pgTable(
       .notNull()
       .default("pending")
       .$type<CampaignRecipientStatus>(),
+    /**
+     * The delivery attempt that last queued this recipient. An attempt's
+     * batches are its recipients in customer ID order, so redelivering a
+     * message rebuilds the same batches.
+     */
+    deliveryAttempt: integer("delivery_attempt").notNull().default(1),
     providerMessageId: text("provider_message_id"),
     statusUpdatedAt: instant("status_updated_at").notNull().default(sql`now()`),
   },
@@ -151,6 +167,11 @@ export const emailCampaignRecipients = pgTable(
     primaryKey({ columns: [t.sendId, t.dotyposCustomerId] }),
     uniqueIndex("email_campaign_recipients_provider_message_unique_idx").on(
       t.providerMessageId
+    ),
+    index("email_campaign_recipients_attempt_idx").on(
+      t.sendId,
+      t.deliveryAttempt,
+      t.dotyposCustomerId
     ),
     check(
       "email_campaign_recipients_locale_check",

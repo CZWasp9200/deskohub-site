@@ -66,10 +66,10 @@ export class CampaignConfirmationRejected extends Data.TaggedError(
 
 /**
  * `BETTER_AUTH_SECRETS` holds no valid signing secret to key the
- * confirmation-code hashes with.
+ * confirmation-code hashes and unsubscribe tokens with.
  */
-export class CampaignConfirmationKeyInvalid extends Data.TaggedError(
-  "CampaignConfirmationKeyInvalid"
+export class CampaignSigningKeyInvalid extends Data.TaggedError(
+  "CampaignSigningKeyInvalid"
 )<{
   readonly message: BetterAuthSecretsMessage;
 }> {}
@@ -100,3 +100,69 @@ export class CampaignRecipientsOutsideTestDomain extends Data.TaggedError(
 )<{
   readonly recipientCount: number;
 }> {}
+
+/** A test-send address the admin typed isn't a valid email address. */
+export class CampaignTestRecipientInvalid extends Data.TaggedError(
+  "CampaignTestRecipientInvalid"
+)<{
+  readonly email: string;
+}> {}
+
+/** The campaign has no locale with content, so there is nothing to send. */
+export class CampaignContentMissing extends Data.TaggedError(
+  "CampaignContentMissing"
+)<{
+  readonly campaignId: CampaignId;
+}> {}
+
+/** A real send needs an audience to resolve recipients from. */
+export class CampaignAudienceMissing extends Data.TaggedError(
+  "CampaignAudienceMissing"
+)<{
+  readonly campaignId: CampaignId;
+}> {}
+
+/** The audience resolved to nobody the campaign can reach. */
+export class CampaignNoRecipients extends Data.TaggedError(
+  "CampaignNoRecipients"
+)<{
+  readonly campaignId: CampaignId;
+}> {}
+
+/** The email provider didn't accept a campaign test email. */
+export class CampaignEmailDeliveryFailed extends Data.TaggedError(
+  "CampaignEmailDeliveryFailed"
+)<{
+  readonly cause: unknown;
+}> {}
+
+/**
+ * The frozen send couldn't be handed to the delivery queue. The campaign is
+ * marked Failed, so retrying the undelivered recipients queues it again.
+ */
+export class CampaignDeliveryQueueFailed extends Data.TaggedError(
+  "CampaignDeliveryQueueFailed"
+)<{
+  readonly campaignId: CampaignId;
+  readonly cause: unknown;
+}> {}
+
+/** Only a Failed campaign can retry its undelivered recipients. */
+export class CampaignNotRetryable extends Data.TaggedError(
+  "CampaignNotRetryable"
+)<{
+  readonly campaignId: CampaignId;
+  readonly status: CampaignStatus;
+}> {}
+
+/** Production campaign mail needs its sender and admin inbox configured. */
+export class CampaignEmailNotConfigured extends Data.TaggedError(
+  "CampaignEmailNotConfigured"
+)<{
+  readonly variables: readonly string[];
+}> {}
+
+/** An unsubscribe link token is malformed, forged, or names no recipient. */
+export class CampaignUnsubscribeTokenInvalid extends Data.TaggedError(
+  "CampaignUnsubscribeTokenInvalid"
+) {}

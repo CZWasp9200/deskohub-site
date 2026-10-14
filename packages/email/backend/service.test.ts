@@ -33,10 +33,13 @@ const success = {
 const makeProvider = (
   send: EmailProvider["send"] = mock((_message: EmailMessage) =>
     Effect.succeed(success)
-  )
+  ),
+  sendBatch: EmailProvider["sendBatch"] = (messages) =>
+    Effect.forEach(messages, send)
 ): EmailProvider => ({
   name: "fake",
   send,
+  sendBatch,
   verify: Effect.succeed(true),
 });
 
@@ -150,6 +153,61 @@ describe("EmailService", () => {
     expect(attemptKeys).toHaveLength(2);
     expect(first).toEqual(expect.any(String));
     expect(second).toBe(first);
+  });
+
+  test("retries sendBatch NetworkError under the caller's idempotency key", async () => {
+    const attemptKeys: string[] = [];
+    const sendBatch = mock(
+      (
+        _messages: readonly EmailMessage[],
+        options: { idempotencyKey: string }
+      ) =>
+        Effect.suspend(() => {
+          attemptKeys.push(options.idempotencyKey);
+          return attemptKeys.length === 1
+            ? Effect.fail(new NetworkError({ message: "timed out" }))
+            : Effect.succeed([success]);
+        })
+    );
+    const messages = [
+      message,
+      { ...message, to: { email: testEmailAddress("grace") } },
+    ];
+
+    await runWithEmail(
+      Effect.gen(function* () {
+        const email = yield* EmailServiceTag;
+        return yield* email.sendBatch(messages, {
+          idempotencyKey: "campaign-batch-key",
+        });
+      }).pipe(withInstantRetryBackoff),
+      makeProvider(undefined, sendBatch)
+    );
+
+    expect(attemptKeys).toHaveLength(2);
+    expect(attemptKeys).toEqual(["campaign-batch-key", "campaign-batch-key"]);
+  });
+
+  test("does not retry sendBatch EmailServiceError", async () => {
+    const sendBatch = mock((_messages: readonly EmailMessage[]) =>
+      Effect.fail(new EmailServiceError("bad batch request"))
+    );
+
+    const result = await runWithEmail(
+      Effect.gen(function* () {
+        const email = yield* EmailServiceTag;
+        return yield* email
+          .sendBatch([message], { idempotencyKey: "campaign-batch-key" })
+          .pipe(Effect.result);
+      }),
+      makeProvider(undefined, sendBatch)
+    );
+
+    expect(result._tag).toBe("Failure");
+    if (result._tag === "Failure") {
+      expect(result.failure._tag).toBe("EmailServiceError");
+    }
+    expect(sendBatch).toHaveBeenCalledTimes(1);
   });
 
   test("gives separate deliveries separate idempotency keys", async () => {
