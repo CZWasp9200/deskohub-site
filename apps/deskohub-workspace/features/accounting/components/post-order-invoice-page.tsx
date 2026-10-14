@@ -157,7 +157,9 @@ export function PostOrderInvoicePage({
                   locale={locale}
                 />
                 <Button
-                  className="h-12 w-full rounded-full sm:w-auto"
+                  className="sm:w-auto"
+                  fullWidth
+                  size="lg"
                   disabled={isExecuting}
                   type="submit"
                 >
@@ -172,7 +174,9 @@ export function PostOrderInvoicePage({
           {(displayState === "issued" ||
             (displayState === "created" && deliveryFailed)) && (
             <Button
-              className="mt-8 h-12 w-full rounded-full sm:w-auto"
+              className="mt-8 sm:w-auto"
+              fullWidth
+              size="lg"
               disabled={isExecuting}
               onClick={resend}
               type="button"
