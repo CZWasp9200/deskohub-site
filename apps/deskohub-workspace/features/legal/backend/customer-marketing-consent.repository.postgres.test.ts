@@ -236,6 +236,32 @@ describe.skipIf(!testDatabase)(
       });
     });
 
+    test("a concurrent initial grant and withdrawal leave the withdrawal recorded", async () => {
+      const customerId = uniqueCustomerId();
+      const initial = makeInput(customerId, {
+        documentHash: "concurrent-initial-document",
+        grantedAt: Temporal.Instant.from("2026-09-07T10:00:00Z"),
+      });
+      const withdrawal = makeInput(customerId, {
+        documentHash: "concurrent-withdrawal-document",
+        grantedAt: Temporal.Instant.from("2026-09-08T10:00:00Z"),
+      });
+
+      await runRepository((repository) =>
+        Effect.all(
+          [repository.grantInitial(initial), repository.withdraw(withdrawal)],
+          { concurrency: "unbounded" }
+        )
+      );
+      const consent = await runRepository((repository) =>
+        repository.get(customerId)
+      );
+
+      expect(consent).not.toBeNull();
+      if (!consent) throw new Error("Expected a concurrent consent row.");
+      expect(consent.withdrawnAt?.equals(withdrawal.grantedAt)).toBe(true);
+    });
+
     test("withdrawal timestamps are monotonic and do not replace consent evidence", async () => {
       const customerId = uniqueCustomerId();
       const initial = makeInput(customerId, {
