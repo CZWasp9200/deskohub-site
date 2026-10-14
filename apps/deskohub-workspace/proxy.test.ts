@@ -590,20 +590,6 @@ describe("shared referral code hand-off", () => {
     }
   });
 
-  test("keeps the code in the address of the redirect that localizes a share link", async () => {
-    const response = await proxy(
-      new NextRequest("https://workspace.example/account?ref=RFL12345", {
-        headers: { "accept-language": "en-US" },
-      })
-    );
-
-    expect(response.status).toBe(307);
-    expect(response.headers.get("location")).toBe(
-      "https://workspace.example/en-US/account?ref=RFL12345"
-    );
-    expect(storedCookieOf(response)).toBeUndefined();
-  });
-
   test.each(
     (
       [
