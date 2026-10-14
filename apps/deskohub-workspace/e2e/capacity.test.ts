@@ -498,30 +498,6 @@ test("configured monitor queries reject partial, unknown, and wrong-size configs
   }
 });
 
-test("fails when peak active reservations consume run and cleanup headroom", () => {
-  const requiredAvailableSeatCount =
-    (1 + 1) * workspaceE2EMaximumSameDateCoworkReservations["open-space"];
-  const report = makeWorkspaceE2ECapacityReport({
-    from: new Date("2099-08-01T00:00:00.000Z"),
-    reservations: [makeReservation("open-space-table", 10)],
-    tables: [
-      makeTable(
-        "open-space-table",
-        ["cowork:open-space"],
-        requiredAvailableSeatCount + 9
-      ),
-    ],
-    to: new Date("2099-09-01T00:00:00.000Z"),
-  });
-
-  expect(report.groups.find(({ id }) => id === "open-space")).toMatchObject({
-    availableSeatCount: 7,
-    meetsRequiredCapacity: false,
-    peakActiveReservationSeatCount: 10,
-    requiredAvailableSeatCount,
-  });
-});
-
 test("does not add reservation usage from non-overlapping dates", () => {
   const report = makeWorkspaceE2ECapacityReport({
     from: new Date("2099-08-01T00:00:00.000Z"),

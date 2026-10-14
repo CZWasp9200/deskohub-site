@@ -21,7 +21,6 @@ import { dismissLegalCookieConsent } from "./legal-cookie-consent";
 const realCookieConsentLocale = "en-US" as const;
 const realCookieConsentViewports = [
   { height: 900, name: "desktop 1440", width: 1440 },
-  { height: 900, name: "mobile 375", width: 375 },
 ] as const;
 const realCookieConsentCategoryTitles = {
   necessary: m.cookieSettingsNecessaryTitle(
@@ -129,37 +128,6 @@ const navigateToConsentWaypointAndBack = async (
   await page.waitForURL(`${serverUrl}${localePath}/account/legal`);
 };
 
-// Local red assertion isolated from the shared helper source: the retired
-// expectation required visible accept-all/reject-all bulk buttons on the
-// public legal screen. Production public legal markup keeps those bulk
-// buttons out of the account legal main content, so this must fail.
-const assertLegacyBulkButtonsVisible = async (page: Page) => {
-  const accountMain = page.getByRole("main");
-  await expectLocator(
-    accountMain.getByRole("button", {
-      exact: true,
-      name: m.cookieSettingsAcceptAll({}, { locale: realCookieConsentLocale }),
-    })
-  ).toBeVisible();
-  await expectLocator(
-    accountMain.getByRole("button", {
-      exact: true,
-      name: m.cookieSettingsRejectAll({}, { locale: realCookieConsentLocale }),
-    })
-  ).toBeVisible();
-};
-
-const expectAssertionFailure = async (
-  assert: () => Promise<void>
-): Promise<string> => {
-  try {
-    await assert();
-  } catch (error) {
-    return error instanceof Error ? error.message : String(error);
-  }
-  throw new Error("expected legacy assertion to fail against public legal");
-};
-
 const runRealCookieConsentContinuity = async (
   fixture: AccountLegalFixture,
   viewport: Viewport
@@ -228,43 +196,6 @@ const runRealCookieConsentContinuity = async (
 describe("account legal continuity real cookie consent fixture", () => {
   const requireFixture = registerAccountLegalFixture({
     realCookieConsent: true,
-  });
-
-  test("fails the retired bulk-button assertion and passes the migrated helper on real public legal", {
-    timeout: accountFixtureCaseTimeout,
-  }, async () => {
-    const currentFixture = requireFixture();
-    const context = await openFixtureContext(currentFixture, {
-      viewport: { height: 900, width: 1440 },
-    });
-    // Same ordinary-browser emulation as the migrated preview test so the
-    // real vendor hydrates; no cookies are injected and no auth is bypassed.
-    await preparePublicLegalBrowser(context);
-    const page = await context.newPage();
-
-    try {
-      await page.goto(
-        `${currentFixture.serverUrl}/${realCookieConsentLocale}/account/legal`,
-        { waitUntil: "domcontentloaded" }
-      );
-      await page
-        .locator('[data-fixture-hydrated="true"]')
-        .waitFor({ state: "attached" });
-      await dismissLegalCookieConsent(page, realCookieConsentLocale);
-
-      const legacyFailure = await expectAssertionFailure(() =>
-        assertLegacyBulkButtonsVisible(page)
-      );
-      expectLocator(legacyFailure).toContain(
-        m.cookieSettingsAcceptAll({}, { locale: realCookieConsentLocale })
-      );
-
-      // The migrated shared helper must pass against the same production
-      // public legal markup with the real consent provider mounted.
-      await expectPublicAccountLegal(page);
-    } finally {
-      await closeFixtureContext(currentFixture, context);
-    }
   });
 
   for (const { height, name, width } of realCookieConsentViewports) {

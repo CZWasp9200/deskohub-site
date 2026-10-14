@@ -33,7 +33,7 @@ export const accountFixtureRolloutHeader = "x-deskohub-account-rollout";
 export const accountFixtureMarketingLinkHeader = "x-deskohub-marketing-link";
 export const accountFixtureRolloutOffValue = "off";
 export const accountFixtureMarketingLinkValue = "pending";
-export const supportedLocales = [
+const supportedLocales = [
   "en-US",
   "cs-CZ",
 ] as const satisfies readonly Locale[];

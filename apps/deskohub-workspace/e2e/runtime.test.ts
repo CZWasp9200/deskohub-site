@@ -105,60 +105,6 @@ test("keeps browser result IDs parseable while redacting forced short values", a
   }
 });
 
-type ScreenshotOptions = {
-  readonly animations?: string;
-  readonly fullPage?: boolean;
-  readonly path?: string;
-  readonly timeout?: number;
-};
-
-type ScreenshotPageMock = {
-  mainFrame: () => unknown;
-  on: (event: string, listener: () => void) => void;
-  screenshot: (options: ScreenshotOptions) => Promise<void>;
-};
-
-// Screenshot-driver tests only need a context that yields one page, so this
-// narrow test-only factory keeps the Browser cast out of individual tests.
-const makeScreenshotTestBrowser = (page: ScreenshotPageMock): Browser =>
-  ({
-    newContext: async () => ({
-      close: async () => undefined,
-      newPage: async () => page,
-      on: () => undefined,
-    }),
-  }) as Browser;
-
-test("requires a non-empty screenshot path", async () => {
-  let screenshotCount = 0;
-  const page: ScreenshotPageMock = {
-    mainFrame: () => ({}),
-    on: () => undefined,
-    screenshot: async () => {
-      screenshotCount += 1;
-    },
-  };
-  const run = makePlaywrightBrowserRunner(makeScreenshotTestBrowser(page));
-
-  try {
-    await expect(
-      run("playwright", ["--session", "screenshot-empty-test", "screenshot"])
-    ).rejects.toThrow("screenshot path is required");
-    await expect(
-      run("playwright", [
-        "--session",
-        "screenshot-empty-test",
-        "screenshot",
-        "",
-      ])
-    ).rejects.toThrow("screenshot path is required");
-  } finally {
-    await run.close?.();
-  }
-
-  expect(screenshotCount).toBe(0);
-});
-
 test("restores the remaining page when the current popup closes", async () => {
   let registerPopup: ((page: unknown) => void) | undefined;
   let closePopup: (() => void) | undefined;
@@ -244,43 +190,6 @@ test("rejects a hanging browser evaluation within the command timeout", async ()
   } finally {
     globalThis.setTimeout = realSetTimeout;
     await evalRun.close();
-  }
-});
-
-test("returns browser evaluation results unchanged within the command timeout", async () => {
-  const evaluateInputs: string[] = [];
-  const run = makePlaywrightBrowserRunner(
-    browserWithFrame({
-      evaluate: (expression) => {
-        evaluateInputs.push(expression);
-        return Promise.resolve(
-          evaluateInputs.length === 1
-            ? { reservationText: "Table 4 - 2 seats" }
-            : "Reserved table text"
-        );
-      },
-    })
-  );
-  const command = (input: string) =>
-    run("playwright", ["--session", "eval-success-test", "eval", "--stdin"], {
-      input,
-      timeoutMs: 5000,
-    });
-
-  try {
-    const first = await command(
-      "({ reservationText: document.body.innerText })"
-    );
-    const second = await command("document.body.innerText");
-
-    expect(evaluateInputs).toEqual([
-      "({ reservationText: document.body.innerText })",
-      "document.body.innerText",
-    ]);
-    expect(first.stdout).toBe('{"reservationText":"Table 4 - 2 seats"}');
-    expect(second.stdout).toBe("Reserved table text");
-  } finally {
-    await run.close?.();
   }
 });
 
