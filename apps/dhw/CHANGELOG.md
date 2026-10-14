@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.14.1](https://github.com/totalolage/deskohub-site/compare/dhw-v1.14.0...dhw-v1.14.1) (2026-10-14)
+
+
+### Bug Fixes
+
+* **dhw:** remove redundant and trivially true tests ([817f1e9](https://github.com/totalolage/deskohub-site/commit/817f1e9d577c856784a8f3d29f5a9f02c74e1e7a))
+* **dhw:** remove redundant and trivially true tests ([4593fa6](https://github.com/totalolage/deskohub-site/commit/4593fa63538cee5fb3129086782cb5ba00ed58c1))
+
 ## [1.14.0](https://github.com/totalolage/deskohub-site/compare/dhw-v1.13.0...dhw-v1.14.0) (2026-10-14)
 
 
