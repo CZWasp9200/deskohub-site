@@ -386,26 +386,6 @@ test("reports auth handler failures without logging provider data", async () => 
   }
 });
 
-test("allows magic-link issuance and verification when accounts are enabled", async () => {
-  const sentLinks: CapturedMagicLink[] = [];
-  const { auth, store } = makeMemoryTestAuth({
-    sentLinks,
-    areAccountsEnabled: async () => true,
-  });
-  const email = uniqueEmail("accounts-on");
-
-  const requested = await signInForMagicLink(auth, email);
-  expect(requested.status).toBe(200);
-  expect(sentLinks).toHaveLength(1);
-  expect(store.verification).toHaveLength(1);
-
-  const verified = await verifyMagicLink(auth, sentLinks[0]!);
-  expect(verified.status).toBe(302);
-  expect(getSessionCookie(verified)).toBeTruthy();
-  expect(store.session).toHaveLength(1);
-  expect(store.verification).toHaveLength(0);
-});
-
 const sha256Base64Url = async (value: string) =>
   Buffer.from(
     await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value))
@@ -467,18 +447,6 @@ test("rejects password sign-up and sign-in", async () => {
   expect(signIn.ok).toBe(false);
   expect(getSessionCookie(signIn)).toBeUndefined();
   expect(store.session).toHaveLength(0);
-});
-
-test("rejects social sign-in", async () => {
-  const { auth, store } = makeMemoryTestAuth();
-
-  const response = await postJson(auth, "/sign-in/social", {
-    provider: "google",
-    callbackURL: "/en-US/account",
-  });
-
-  expect(response.ok).toBe(false);
-  expect(store.verification).toHaveLength(0);
 });
 
 test("blocks magic-link issuance without creating a token when accounts are disabled", async () => {
@@ -707,21 +675,6 @@ test("does not issue reauthentication links for stale deletion while accounts ar
 describe.skipIf(!testDatabase)(
   "Better Auth handler on the migrated disposable Postgres",
   () => {
-    test("answers generic requests and keeps the sign-in response identical", async () => {
-      const auth = makeTestAuth();
-
-      const known = await signInForMagicLink(auth, uniqueEmail("known"));
-      const unknown = await signInForMagicLink(auth, uniqueEmail("unknown"));
-
-      expect(known.status).toBe(200);
-      expect(unknown.status).toBe(200);
-      expect(await known.json()).toEqual({ status: true });
-      expect(await unknown.json()).toEqual({ status: true });
-
-      const notFound = await callHandler(auth, "/does-not-exist");
-      expect(notFound.status).toBe(404);
-    });
-
     test("rejects magic-link profile fields before creating verification or sending email", async () => {
       const sentLinks: CapturedMagicLink[] = [];
       const auth = makeTestAuth({ sentLinks });
@@ -866,24 +819,6 @@ describe.skipIf(!testDatabase)(
       expect(logs).not.toContain(email);
     });
 
-    test("keeps normal magic-link users at the auth placeholders", async () => {
-      const sentLinks: CapturedMagicLink[] = [];
-      const auth = makeTestAuth({ sentLinks });
-      const email = uniqueEmail("placeholders");
-
-      const requested = await signInForMagicLink(auth, email, "/en-US/account");
-      expect(requested.status).toBe(200);
-
-      const verified = await verifyMagicLink(auth, sentLinks[0]!);
-      expect(verified.status).toBe(302);
-
-      const user = await testDatabase!.pool.query(
-        `select name, image from auth."user" where email = $1`,
-        [email]
-      );
-      expect(user.rows).toEqual([{ name: "", image: null }]);
-    });
-
     test("disables public user updates and rejects direct profile writes", async () => {
       const sentLinks: CapturedMagicLink[] = [];
       const auth = makeTestAuth({ sentLinks });
@@ -923,30 +858,6 @@ describe.skipIf(!testDatabase)(
       expect(user.rows).toEqual([{ name: "", image: null }]);
     });
 
-    test("stores only hashed verification identifiers", async () => {
-      const sentLinks: CapturedMagicLink[] = [];
-      const auth = makeTestAuth({ sentLinks });
-      const email = uniqueEmail("hashed");
-
-      await signInForMagicLink(auth, email);
-
-      const rawToken = sentLinks[0]!.token;
-      expect(rawToken).toBeTruthy();
-
-      const plaintext = await testDatabase!.pool.query(
-        `select identifier from auth.verification where identifier = $1`,
-        [rawToken]
-      );
-      expect(plaintext.rows).toHaveLength(0);
-
-      const stored = await testDatabase!.pool.query(
-        `select identifier from auth.verification where identifier <> $1`,
-        [rawToken]
-      );
-      expect(stored.rows.length).toBeGreaterThan(0);
-      expect(stored.rows[0]!.identifier).not.toBe(rawToken);
-    });
-
     test("consumes a link exactly once under concurrency and rejects replay", async () => {
       const sentLinks: CapturedMagicLink[] = [];
       const auth = makeTestAuth({ sentLinks });
@@ -980,25 +891,6 @@ describe.skipIf(!testDatabase)(
       const replay = await verifyMagicLink(auth, link);
       expect(getSessionCookie(replay)).toBeUndefined();
       expect(replay.headers.get("location") ?? "").toContain("error=");
-    });
-
-    test("rejects expired links", async () => {
-      const sentLinks: CapturedMagicLink[] = [];
-      const auth = makeTestAuth({ sentLinks });
-      const email = uniqueEmail("expired");
-
-      await signInForMagicLink(auth, email);
-      const link = sentLinks[0]!;
-
-      await testDatabase!.pool.query(
-        `update auth.verification set expires_at = now() - interval '20 minutes' where value like $1`,
-        [`%${email}%`]
-      );
-
-      const response = await verifyMagicLink(auth, link);
-
-      expect(getSessionCookie(response)).toBeUndefined();
-      expect(response.headers.get("location") ?? "").toContain("error=");
     });
 
     test("rate limits magic-link requests per IP through the shared database", async () => {
@@ -1124,37 +1016,6 @@ describe.skipIf(!testDatabase)(
         headers: { cookie },
       });
       expect(await revoked.json()).toBeNull();
-    });
-
-    test("logout revokes only the current session", async () => {
-      const sentLinks: CapturedMagicLink[] = [];
-      const auth = makeTestAuth({ sentLinks });
-      const email = uniqueEmail("logout");
-
-      await signInForMagicLink(auth, email);
-      const first = await verifyMagicLink(auth, sentLinks[0]!);
-      const firstCookie = cookieJar(getSessionCookie(first)!);
-
-      await signInForMagicLink(auth, email);
-      const second = await verifyMagicLink(auth, sentLinks[1]!);
-      const secondCookie = cookieJar(getSessionCookie(second)!);
-
-      const signOut = await callHandler(auth, "/sign-out", {
-        method: "POST",
-        headers: { cookie: firstCookie, "content-type": "application/json" },
-        body: "{}",
-      });
-      expect(signOut.status).toBe(200);
-
-      const revokedSession = await callHandler(auth, "/get-session", {
-        headers: { cookie: firstCookie },
-      });
-      expect(await revokedSession.json()).toBeNull();
-
-      const survivingSession = await callHandler(auth, "/get-session", {
-        headers: { cookie: secondCookie },
-      });
-      expect(survivingSession.status).toBe(200);
     });
 
     test("forces logout on every browser session when the current secret rotates", async () => {

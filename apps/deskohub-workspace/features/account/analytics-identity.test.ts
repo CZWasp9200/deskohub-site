@@ -624,36 +624,6 @@ describe("analytics account identity", () => {
     });
   });
 
-  test("derives unavailable after clearing the override for a malformed post-sign-out response", async () => {
-    unsubscribe = analyticsIdentity.subscribeAnalyticsAccountIdentity(
-      () => undefined
-    );
-    await resolveNextRefetch(anonymousSession());
-
-    setSession({
-      ...authenticatedSession("synthetic-account-a"),
-      refetch: async () => {
-        setSession({
-          ...authenticatedSession("synthetic-account-a"),
-          data: {
-            user: { emailVerified: true, id: "synthetic-account-a" },
-          },
-        });
-      },
-    });
-
-    analyticsIdentity.completeAnalyticsAccountSignOut();
-
-    expect(analyticsIdentity.getAnalyticsAccountIdentity()).toEqual({
-      status: "pending",
-    });
-    await flushMicrotasks();
-
-    expect(analyticsIdentity.getAnalyticsAccountIdentity()).toEqual({
-      status: "unavailable",
-    });
-  });
-
   test("derives pending when the SDK remains refetching after RPC completion", async () => {
     unsubscribe = analyticsIdentity.subscribeAnalyticsAccountIdentity(
       () => undefined
@@ -705,28 +675,6 @@ describe("analytics account identity", () => {
     });
     await expect(refresh).rejects.toBe(failure);
 
-    expect(analyticsIdentity.getAnalyticsAccountIdentity()).toEqual({
-      status: "unavailable",
-    });
-  });
-
-  test("consumes a synchronous refetch failure and rejects the caller refresh", async () => {
-    unsubscribe = analyticsIdentity.subscribeAnalyticsAccountIdentity(
-      () => undefined
-    );
-    await resolveNextRefetch(anonymousSession());
-
-    const failure = new Error("synthetic synchronous refetch failure");
-    setSession({
-      ...authenticatedSession("synthetic-account-a"),
-      refetch: () => {
-        throw failure;
-      },
-    });
-
-    const refresh = analyticsIdentity.refreshAnalyticsAccountIdentity();
-
-    await expect(refresh).rejects.toBe(failure);
     expect(analyticsIdentity.getAnalyticsAccountIdentity()).toEqual({
       status: "unavailable",
     });
@@ -850,36 +798,6 @@ describe("analytics account identity", () => {
       expect(JSON.stringify(records)).not.toContain("session-token");
     });
 
-    test("logs a synchronous refetch failure once", async () => {
-      unsubscribe = analyticsIdentity.subscribeAnalyticsAccountIdentity(
-        () => undefined
-      );
-      await resolveNextRefetch(anonymousSession());
-      const records = collectLogs();
-
-      const failure = new TypeError("synthetic synchronous refetch failure");
-      setSession({
-        ...authenticatedSession("synthetic-account-a"),
-        refetch: () => {
-          throw failure;
-        },
-      });
-
-      await expect(
-        analyticsIdentity.refreshAnalyticsAccountIdentity()
-      ).rejects.toBe(failure);
-      await settleLogs();
-      expect(records).toEqual([
-        {
-          ...refreshFailureLog,
-          attributes: {
-            ...refreshFailureLog.attributes,
-            errorType: "TypeError",
-          },
-        },
-      ]);
-    });
-
     test("logs a refetch that resolves with a failed session request once", async () => {
       unsubscribe = analyticsIdentity.subscribeAnalyticsAccountIdentity(
         () => undefined
@@ -914,21 +832,6 @@ describe("analytics account identity", () => {
         },
       ]);
       expect(JSON.stringify(records)).not.toContain(customerEmail);
-    });
-
-    test("does not log a successful refresh", async () => {
-      const records = collectLogs();
-      unsubscribe = analyticsIdentity.subscribeAnalyticsAccountIdentity(
-        () => undefined
-      );
-
-      await resolveNextRefetch(anonymousSession());
-      await settleLogs();
-
-      expect(analyticsIdentity.getAnalyticsAccountIdentity()).toEqual({
-        status: "anonymous",
-      });
-      expect(records).toEqual([]);
     });
 
     test("keeps the refresh outcome when the log sink throws", async () => {

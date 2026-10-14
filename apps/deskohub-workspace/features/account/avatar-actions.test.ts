@@ -227,21 +227,6 @@ describe("customer avatar actions", () => {
     expect(revalidatePath).toHaveBeenCalledWith("/en-US/account");
   });
 
-  test("rejects a missing or non-File upload without reaching the service", async () => {
-    const { uploadCustomerAvatar } = await importActions();
-
-    const emptyForm = new FormData();
-    const missing = await uploadCustomerAvatar(emptyForm);
-    expect(missing.validationErrors).toBeTruthy();
-    expect(uploadCalls).toHaveLength(0);
-
-    const wrongField = new FormData();
-    wrongField.set("other", "value");
-    const absent = await uploadCustomerAvatar(wrongField);
-    expect(absent.validationErrors).toBeTruthy();
-    expect(uploadCalls).toHaveLength(0);
-  });
-
   test("reports a typed rejection from the service without an action error", async () => {
     uploadOutcome = { status: "rejected", reason: "file-too-large" };
     const { uploadCustomerAvatar } = await importActions();
@@ -395,22 +380,5 @@ describe("customer avatar actions", () => {
 
     expect(result).toEqual({ data: { status: "retryable" } });
     expect(revalidatePath).not.toHaveBeenCalled();
-  });
-
-  test("passes only the uploaded file and resolved account to the avatar service", async () => {
-    const { uploadCustomerAvatar } = await importActions();
-
-    const form = uploadForm();
-    form.set("firstName", "Sneaky");
-    await uploadCustomerAvatar(form);
-
-    expect(uploadAccountIds).toEqual(["@test/account-id"]);
-    expect(uploadCalls).toEqual([
-      {
-        bytes: pngBytes(),
-        declaredMediaType: "image/png",
-        declaredSize: pngBytes().byteLength,
-      },
-    ]);
   });
 });

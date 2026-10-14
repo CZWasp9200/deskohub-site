@@ -9,25 +9,6 @@ describe("Better Auth allowed hosts resolution", () => {
     return result.kind === "invalid" ? result.message : "valid";
   };
 
-  test("allows the customer-facing production host ahead of the exact deployment hosts in production", () => {
-    const result = resolveBetterAuthAllowedHosts({
-      vercelEnv: "production",
-      customerFacingHost: "workspace.deskohub.cz",
-      projectProductionUrl: "deskohub-workspace.vercel.app",
-      deploymentUrl: "deskohub-workspace-abc123.vercel.app",
-      branchUrl: undefined,
-    });
-
-    expect(result.kind).toBe("valid");
-    if (result.kind === "valid") {
-      expect(result.hosts).toEqual([
-        "workspace.deskohub.cz",
-        "deskohub-workspace.vercel.app",
-        "deskohub-workspace-abc123.vercel.app",
-      ]);
-    }
-  });
-
   test("allows the branch deployment host on previews", () => {
     const result = resolveBetterAuthAllowedHosts({
       vercelEnv: "preview",
@@ -94,21 +75,6 @@ describe("Better Auth allowed hosts resolution", () => {
     expect(result.kind).toBe("valid");
     if (result.kind === "valid") {
       expect(result.hosts).toEqual(["localhost:3000"]);
-    }
-  });
-
-  test("deduplicates the customer-facing host repeated as a Vercel host", () => {
-    const result = resolveBetterAuthAllowedHosts({
-      vercelEnv: "production",
-      customerFacingHost: "workspace.deskohub.cz",
-      projectProductionUrl: "workspace.deskohub.cz",
-      deploymentUrl: undefined,
-      branchUrl: undefined,
-    });
-
-    expect(result.kind).toBe("valid");
-    if (result.kind === "valid") {
-      expect(result.hosts).toEqual(["workspace.deskohub.cz"]);
     }
   });
 

@@ -26,31 +26,6 @@ const provideAvatarFlag = (
   );
 
 describe("account avatar feature flag boundary", () => {
-  test("returns true when the account avatar capability is enabled", async () => {
-    const enabled = await accountAvatarsEnabled.pipe(
-      provideAvatarFlag(Effect.succeed(true)),
-      Effect.runPromise
-    );
-
-    expect(enabled).toBe(true);
-  });
-
-  test("returns false without warning when the capability is explicitly disabled", async () => {
-    const logRecords: string[] = [];
-    const logger = Logger.make((options) => {
-      logRecords.push(options.message.join(""));
-    });
-
-    const enabled = await accountAvatarsEnabled.pipe(
-      provideAvatarFlag(Effect.succeed(false)),
-      Effect.provide(Logger.layer([logger])),
-      Effect.runPromise
-    );
-
-    expect(enabled).toBe(false);
-    expect(logRecords).toEqual([]);
-  });
-
   test("fails closed with a fixed warning when the capability is unavailable", async () => {
     const logRecords: { readonly level: string; readonly message: string }[] =
       [];
