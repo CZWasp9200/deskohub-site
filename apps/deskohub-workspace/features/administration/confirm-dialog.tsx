@@ -41,11 +41,11 @@ export function ConfirmDialog({
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
-        {error ? (
-          <AdministrationAlert role="alert" status="error">
-            {error}
-          </AdministrationAlert>
-        ) : null}
+        <div role="alert">
+          {error ? (
+            <AdministrationAlert status="error">{error}</AdministrationAlert>
+          ) : null}
+        </div>
         <DialogFooter>
           <Button
             type="button"
