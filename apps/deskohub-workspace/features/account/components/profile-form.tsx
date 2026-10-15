@@ -1059,8 +1059,9 @@ function AresReviewPanel({
           onClick={ares.onDismiss}
           shape="rounded"
           size="sm"
+          tone="outline"
           type="button"
-          variant="secondary"
+          variant="ghost"
         >
           {m.accountAresLookupDismiss({}, { locale })}
         </Button>

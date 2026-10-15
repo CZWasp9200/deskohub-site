@@ -74,6 +74,30 @@ test("secondary and ghost tones replace the default text colour", () => {
   expect(ghost).not.toContain("shadow-button-raised");
 });
 
+test("ghost outline and tinted tones add an edge or a light fill", () => {
+  const view = render(
+    <>
+      <Button size="xs" tone="outline" variant="ghost">
+        Dismiss
+      </Button>
+      <Button size="icon-sm" tone="tinted" variant="ghost">
+        Next
+      </Button>
+    </>
+  );
+  const outline = classesOf(view.getByRole("button", { name: "Dismiss" }));
+  const tinted = classesOf(view.getByRole("button", { name: "Next" }));
+
+  expect(outline).toEqual(
+    expect.arrayContaining(["border", "border-navy-blue/14", "h-7", "py-1"])
+  );
+  expect(outline).not.toContain("shadow-button-raised-subtle");
+  expect(tinted).toEqual(
+    expect.arrayContaining(["bg-navy-blue/5", "hover:bg-burned-orange/10"])
+  );
+  expect(tinted).not.toContain("border");
+});
+
 test("shape, caps, wrap and fullWidth map to first-class classes", () => {
   const view = render(
     <Button caps fullWidth shape="rounded" size="xl" wrap>

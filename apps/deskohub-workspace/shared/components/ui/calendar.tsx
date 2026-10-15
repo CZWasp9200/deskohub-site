@@ -27,8 +27,16 @@ export function Calendar({
         month_caption: "flex h-9 items-center justify-center",
         caption_label: "text-sm font-semibold uppercase tracking-[0.12em]",
         nav: "absolute inset-x-4 top-5 flex items-center justify-between",
-        button_previous: buttonVariants({ variant: "ghost", size: "icon-sm" }),
-        button_next: buttonVariants({ variant: "ghost", size: "icon-sm" }),
+        button_previous: buttonVariants({
+          variant: "ghost",
+          tone: "tinted",
+          size: "icon-sm",
+        }),
+        button_next: buttonVariants({
+          variant: "ghost",
+          tone: "tinted",
+          size: "icon-sm",
+        }),
         month_grid: "w-full border-collapse",
         weekdays: "flex",
         weekday:

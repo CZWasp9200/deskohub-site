@@ -67,7 +67,7 @@ export function ProfileCompletionReferralNotice({
               className="shrink-0"
               disabled={dismiss.isExecuting}
               onClick={() => dismiss.execute({})}
-              size="sm"
+              size="xs"
               type="button"
               variant="ghost"
             >

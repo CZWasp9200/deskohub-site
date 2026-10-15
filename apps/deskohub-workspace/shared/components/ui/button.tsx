@@ -6,7 +6,8 @@ import { cn } from "@/shared/utils";
 /**
  * Colours each variant accepts. A primary tone sets the fill, its hover and
  * the glow together; secondary, ghost and link tones set text, edge and hover.
- * `inverse` is for dark backgrounds, `danger` for destructive actions.
+ * `inverse` is for dark backgrounds, `danger` for destructive actions. The
+ * ghost `outline` tone adds a hairline edge and `tinted` a light fill.
  * `tile` is a dashed, card-sized add action, such as "Add payment card".
  */
 interface ButtonTones {
@@ -17,7 +18,14 @@ interface ButtonTones {
     | "chilean-fire"
     | "danger";
   secondary: "navy-blue" | "burned-orange" | "inverse";
-  ghost: "navy-blue" | "muted" | "inverse" | "success" | "warning";
+  ghost:
+    | "navy-blue"
+    | "muted"
+    | "inverse"
+    | "outline"
+    | "tinted"
+    | "success"
+    | "warning";
   link: "burned-orange" | "inverse";
   tile: "muted";
 }
@@ -62,15 +70,18 @@ const buttonClasses = cva(
         inverse: "",
         muted: "",
         "navy-blue": "",
+        outline: "",
         success: "",
+        tinted: "",
         warning: "",
       },
       size: {
+        xs: "h-7 min-h-7 px-3 py-1",
         sm: "h-9 min-h-9 px-4 text-xs",
         md: "h-10 min-h-10 px-4 text-xs",
         default: "h-11 min-h-11",
         lg: "h-12 min-h-12 px-6",
-        xl: "h-13 min-h-13 px-8",
+        xl: "h-13 min-h-13 px-6",
         "2xl": "h-14 min-h-14 px-8 text-base",
         "icon-sm": "size-8 min-h-8 p-0",
         icon: "size-10 min-h-10 p-0",
@@ -158,6 +169,16 @@ const buttonClasses = cva(
       },
       {
         variant: "ghost",
+        tone: "outline",
+        class: "border border-navy-blue/14 text-navy-blue hover:bg-navy-blue/5",
+      },
+      {
+        variant: "ghost",
+        tone: "tinted",
+        class: "bg-navy-blue/5 text-navy-blue hover:bg-burned-orange/10",
+      },
+      {
+        variant: "ghost",
         tone: "success",
         class: "text-emerald-800 hover:bg-emerald-50",
       },
@@ -204,6 +225,7 @@ const buttonClasses = cva(
 );
 
 type ButtonSize =
+  | "xs"
   | "sm"
   | "md"
   | "default"
