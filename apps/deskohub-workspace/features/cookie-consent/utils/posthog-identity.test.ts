@@ -76,6 +76,9 @@ const makeFakeClient = (input: {
     setInternalOrTestUser() {
       calls.push("set_internal_or_test_user");
     },
+    setPersonProperties(properties) {
+      calls.push(`set_person_properties(${JSON.stringify(properties)})`);
+    },
   };
 
   return {
@@ -95,6 +98,20 @@ const makeFakeClient = (input: {
 };
 
 const accountId = (value: string) => customerAccountIdSchema.make(value);
+
+const setDotyposCustomer = (dotyposCustomerId: string) =>
+  `set_person_properties(${JSON.stringify({ dotypos_customer_id: dotyposCustomerId })})`;
+
+/** A link store keyed by account, like the browser's customer link cache. */
+const makeCustomerLinks = (initial: Record<string, string> = {}) => {
+  const links = new Map<string, string>(Object.entries(initial));
+  return {
+    link(account: CustomerAccountId, dotyposCustomerId: string) {
+      links.set(account, dotyposCustomerId);
+    },
+    read: (account: CustomerAccountId) => links.get(account),
+  };
+};
 
 describe("PostHog identity controller", () => {
   test("starts closed and pauses pending identities once without resetting persistence", () => {
@@ -428,5 +445,216 @@ describe("PostHog identity controller", () => {
     expect(fake.calls).toEqual(["reset(true)", "opt_in(false)"]);
     expect(fake.resetCount).toBe(1);
     expect(controller.isReady()).toBe(true);
+  });
+
+  describe("Dotypos customer person property", () => {
+    test("sets the customer ID right after identifying a linked account", () => {
+      const fake = makeFakeClient({
+        distinctId: "device-id",
+        userState: "anonymous",
+      });
+      const links = makeCustomerLinks({ "account-a": "customer-a" });
+      const controller = createPostHogIdentityController(fake.client, {
+        onPause: () => undefined,
+        onReady: () => fake.calls.push("ready"),
+        readDotyposCustomerId: links.read,
+      });
+
+      controller.reconcile(
+        true,
+        makeIdentity("authenticated", accountId("account-a"))
+      );
+
+      expect(fake.calls).toEqual([
+        "opt_in(false)",
+        "identify",
+        setDotyposCustomer("customer-a"),
+        "ready",
+      ]);
+      expect(fake.identifyArguments).toEqual([["workspace-account:account-a"]]);
+    });
+
+    test("sets the customer ID on a restored session without identifying again", () => {
+      const fake = makeFakeClient({
+        distinctId: "workspace-account:account-a",
+        userState: "identified",
+      });
+      const links = makeCustomerLinks({ "account-a": "customer-a" });
+      const controller = createPostHogIdentityController(fake.client, {
+        onPause: () => undefined,
+        onReady: () => undefined,
+        readDotyposCustomerId: links.read,
+      });
+      const identity = makeIdentity("authenticated", accountId("account-a"));
+
+      controller.reconcile(true, identity);
+      controller.reconcile(true, pending);
+      controller.reconcile(true, identity);
+
+      expect(fake.identifyArguments).toEqual([]);
+      expect(fake.calls).toEqual([
+        "opt_in(false)",
+        setDotyposCustomer("customer-a"),
+        "opt_in(false)",
+      ]);
+    });
+
+    test("sets a customer link that loads after identify once", () => {
+      const fake = makeFakeClient({
+        distinctId: "device-id",
+        userState: "anonymous",
+      });
+      const links = makeCustomerLinks();
+      const lifecycle: string[] = [];
+      const controller = createPostHogIdentityController(fake.client, {
+        onPause: () => lifecycle.push("pause"),
+        onReady: () => lifecycle.push("ready"),
+        readDotyposCustomerId: links.read,
+      });
+      const identity = makeIdentity("authenticated", accountId("account-a"));
+
+      controller.reconcile(true, identity);
+      links.link(accountId("account-a"), "customer-late");
+      controller.reconcile(true, identity);
+      controller.reconcile(true, identity);
+
+      expect(fake.calls).toEqual([
+        "opt_in(false)",
+        "identify",
+        setDotyposCustomer("customer-late"),
+      ]);
+      expect(lifecycle).toEqual(["ready"]);
+    });
+
+    test("sends nothing for an account without a Dotypos customer", () => {
+      const fake = makeFakeClient({
+        distinctId: "device-id",
+        userState: "anonymous",
+      });
+      const controller = createPostHogIdentityController(fake.client, {
+        onPause: () => undefined,
+        onReady: () => undefined,
+        readDotyposCustomerId: makeCustomerLinks().read,
+      });
+
+      controller.reconcile(
+        true,
+        makeIdentity("authenticated", accountId("account-a"))
+      );
+      controller.reconcile(true, anonymous);
+
+      expect(
+        fake.calls.filter((call) => call.startsWith("set_person_properties"))
+      ).toEqual([]);
+    });
+
+    test("keeps test-account tagging beside the customer ID", () => {
+      const fake = makeFakeClient({
+        distinctId: "device-id",
+        userState: "anonymous",
+      });
+      const controller = createPostHogIdentityController(fake.client, {
+        onPause: () => undefined,
+        onReady: () => undefined,
+        readDotyposCustomerId: makeCustomerLinks({ "account-a": "customer-a" })
+          .read,
+      });
+
+      controller.reconcile(
+        true,
+        makeIdentity("authenticated", accountId("account-a"), true)
+      );
+
+      expect(fake.calls).toEqual([
+        "opt_in(false)",
+        "identify",
+        "set_internal_or_test_user",
+        setDotyposCustomer("customer-a"),
+      ]);
+    });
+
+    test("sets each account's own customer ID after an account switch", () => {
+      const fake = makeFakeClient({
+        distinctId: "device-id",
+        userState: "anonymous",
+      });
+      const controller = createPostHogIdentityController(fake.client, {
+        onPause: () => undefined,
+        onReady: () => undefined,
+        readDotyposCustomerId: makeCustomerLinks({
+          "account-a": "customer-a",
+          "account-b": "customer-b",
+        }).read,
+      });
+
+      controller.reconcile(
+        true,
+        makeIdentity("authenticated", accountId("account-a"))
+      );
+      controller.reconcile(true, pending);
+      controller.reconcile(
+        true,
+        makeIdentity("authenticated", accountId("account-b"))
+      );
+
+      expect(fake.calls).toEqual([
+        "opt_in(false)",
+        "identify",
+        setDotyposCustomer("customer-a"),
+        "reset(true)",
+        "opt_in(false)",
+        "identify",
+        setDotyposCustomer("customer-b"),
+      ]);
+    });
+
+    test("sets the customer ID again after consent is withdrawn and given back", () => {
+      const fake = makeFakeClient({
+        distinctId: "device-id",
+        userState: "anonymous",
+      });
+      const controller = createPostHogIdentityController(fake.client, {
+        onPause: () => undefined,
+        onReady: () => undefined,
+        readDotyposCustomerId: makeCustomerLinks({ "account-a": "customer-a" })
+          .read,
+      });
+      const identity = makeIdentity("authenticated", accountId("account-a"));
+
+      controller.reconcile(true, identity);
+      controller.reconcile(false, identity);
+      controller.reconcile(true, identity);
+
+      expect(fake.calls).toEqual([
+        "opt_in(false)",
+        "identify",
+        setDotyposCustomer("customer-a"),
+        "reset(true)",
+        "opt_out",
+        "opt_in(false)",
+        "identify",
+        setDotyposCustomer("customer-a"),
+      ]);
+    });
+
+    test("never sets the customer ID without analytics consent", () => {
+      const fake = makeFakeClient({
+        distinctId: "workspace-account:account-a",
+        userState: "identified",
+      });
+      const controller = createPostHogIdentityController(fake.client, {
+        onPause: () => undefined,
+        onReady: () => undefined,
+        readDotyposCustomerId: makeCustomerLinks({ "account-a": "customer-a" })
+          .read,
+      });
+
+      controller.reconcile(
+        false,
+        makeIdentity("authenticated", accountId("account-a"))
+      );
+
+      expect(fake.calls).toEqual(["reset(true)", "opt_out"]);
+    });
   });
 });

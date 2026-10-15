@@ -6,6 +6,11 @@ import { usePathname } from "next/navigation";
 import posthog, { type BeforeSendFn } from "posthog-js";
 import { type ReactNode, useEffect } from "react";
 import { getClientEnv } from "@/client-env";
+import {
+  getAnalyticsDotyposCustomerId,
+  requestAnalyticsDotyposCustomerId,
+  subscribeAnalyticsDotyposCustomerId,
+} from "@/features/account/analytics-customer-link";
 import type { AnalyticsAccountIdentity } from "@/features/account/analytics-identity";
 import {
   getAnalyticsAccountIdentity,
@@ -161,9 +166,15 @@ function PostHogClient({
     const unsubscribe = subscribeAnalyticsAccountIdentity(
       syncAnalyticsAccountIdentity
     );
+    const unsubscribeCustomerLink = subscribeAnalyticsDotyposCustomerId(() =>
+      reconcilePostHogIdentity()
+    );
     syncAnalyticsAccountIdentity();
 
-    return unsubscribe;
+    return () => {
+      unsubscribe();
+      unsubscribeCustomerLink();
+    };
   }, []);
 
   useEffect(() => {
@@ -300,6 +311,7 @@ function initializePostHog({
   posthogIdentityController = createPostHogIdentityController(posthog, {
     onPause: handlePostHogPause,
     onReady: handlePostHogReady,
+    readDotyposCustomerId: getAnalyticsDotyposCustomerId,
   });
 }
 
@@ -449,8 +461,11 @@ function handlePostHogReady() {
   });
   posthog.reloadFeatureFlags();
   capturePostHogPageviewIfNeeded();
-  // A sign-in recorded before this page load lands on the settled account.
-  if (identity.status === "authenticated") captureRecordedSignInCompletion();
+  if (identity.status === "authenticated") {
+    // A sign-in recorded before this page load lands on the settled account.
+    captureRecordedSignInCompletion();
+    requestAnalyticsDotyposCustomerId(identity.accountId);
+  }
   if (workspaceBrowserLogSink) {
     detachWorkspaceBrowserLogs ??= deliverWorkspaceBrowserLogs(
       workspaceBrowserLogSink

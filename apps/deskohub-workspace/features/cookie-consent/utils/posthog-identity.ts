@@ -6,6 +6,12 @@ export const getPostHogAccountDistinctId = (
   accountId: CustomerAccountId
 ): string => `workspace-account:${accountId}`;
 
+/**
+ * Person property holding the account's opaque Dotypos customer ID, which
+ * analysts join to Dotypos customer records. It never holds contact data.
+ */
+const dotyposCustomerIdPersonProperty = "dotypos_customer_id";
+
 export type PostHogIdentityClient = Pick<
   PostHog,
   | "get_distinct_id"
@@ -15,6 +21,7 @@ export type PostHogIdentityClient = Pick<
   | "opt_out_capturing"
   | "reset"
   | "setInternalOrTestUser"
+  | "setPersonProperties"
 >;
 
 export type PostHogIdentityController = {
@@ -28,6 +35,10 @@ export type PostHogIdentityController = {
 export type PostHogIdentityControllerOptions = {
   readonly onPause: () => void;
   readonly onReady: () => void;
+  /** The account's Dotypos customer ID once known; undefined without one. */
+  readonly readDotyposCustomerId?: (
+    accountId: CustomerAccountId
+  ) => string | undefined;
 };
 
 type SettledAnalyticsAccountIdentity = Extract<
@@ -63,13 +74,41 @@ const sdkMatchesSettledIdentity = (
 
 export function createPostHogIdentityController(
   client: PostHogIdentityClient,
-  { onPause, onReady }: PostHogIdentityControllerOptions
+  { onPause, onReady, readDotyposCustomerId }: PostHogIdentityControllerOptions
 ): PostHogIdentityController {
   let ready = false;
   let pauseWasNotified = false;
   let readyIdentity: SettledAnalyticsAccountIdentity | undefined;
   let consentWasWithdrawn = false;
   let identityAssociationNeeded = false;
+  // The person property last set since the SDK identity was last reset.
+  let sentDotyposCustomer:
+    | { readonly distinctId: string; readonly dotyposCustomerId: string }
+    | undefined;
+
+  const resetClient = () => {
+    client.reset(true);
+    sentDotyposCustomer = undefined;
+  };
+
+  const syncDotyposCustomerId = (
+    distinctId: string,
+    accountId: CustomerAccountId
+  ) => {
+    const dotyposCustomerId = readDotyposCustomerId?.(accountId);
+    if (
+      dotyposCustomerId === undefined ||
+      (sentDotyposCustomer?.distinctId === distinctId &&
+        sentDotyposCustomer.dotyposCustomerId === dotyposCustomerId)
+    ) {
+      return;
+    }
+
+    client.setPersonProperties({
+      [dotyposCustomerIdPersonProperty]: dotyposCustomerId,
+    });
+    sentDotyposCustomer = { distinctId, dotyposCustomerId };
+  };
 
   const pause = () => {
     ready = false;
@@ -96,7 +135,7 @@ export function createPostHogIdentityController(
       pause();
 
       if (!consentWasWithdrawn) {
-        client.reset(true);
+        resetClient();
         client.opt_out_capturing();
         consentWasWithdrawn = true;
         identityAssociationNeeded = true;
@@ -134,6 +173,10 @@ export function createPostHogIdentityController(
       sameSettledIdentity(readyIdentity, identity)
     ) {
       if (sdkMatchesSettledIdentity(identity, readDistinctId, readUserState)) {
+        // A customer link that loads after identify lands on the same person.
+        if (identity.status === "authenticated") {
+          syncDotyposCustomerId(readDistinctId(), identity.accountId);
+        }
         return;
       }
     }
@@ -142,7 +185,7 @@ export function createPostHogIdentityController(
 
     if (identity.status === "anonymous") {
       if (readUserState() === "identified") {
-        client.reset(true);
+        resetClient();
       }
 
       client.opt_in_capturing({ captureEventName: false });
@@ -160,7 +203,7 @@ export function createPostHogIdentityController(
       !sdkIsIdentified;
 
     if (shouldIdentify && sdkIsIdentified) {
-      client.reset(true);
+      resetClient();
     }
 
     client.opt_in_capturing({ captureEventName: false });
@@ -175,6 +218,7 @@ export function createPostHogIdentityController(
     if (identity.testAccount) {
       client.setInternalOrTestUser();
     }
+    syncDotyposCustomerId(desiredDistinctId, identity.accountId);
 
     identityAssociationNeeded = false;
     finishReady(identity);

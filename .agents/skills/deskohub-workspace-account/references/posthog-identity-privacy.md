@@ -1,6 +1,7 @@
 # PostHog identity and privacy
 
 Code: `features/account/analytics-identity.ts`,
+`features/account/analytics-customer-link.ts`,
 `features/cookie-consent/components/posthog-analytics.tsx`, and
 `features/cookie-consent/utils/` (`posthog-config.ts`, `posthog-identity.ts`).
 
@@ -15,6 +16,21 @@ Code: `features/account/analytics-identity.ts`,
 - Derive the distinct ID with `getPostHogAccountDistinctId`, and call
   `identify(id)` without properties. A consented anonymous browser history may
   merge into the account at that call.
+- Pseudonymous account and customer identifiers may become person properties
+  after analytics consent; contact PII may not. Once the account identity is
+  ready, `requestAnalyticsDotyposCustomerId` loads the account's existing
+  Dotypos customer ID from `GET /api/account/customer-link`
+  (`features/account/backend/account-customer-link.ts`). That route checks the
+  authoritative session, reads the link without claiming one, reports none for
+  an account awaiting deletion, and returns only the two IDs. The identity
+  controller then sets the `dotypos_customer_id` person property
+  (`setPersonProperties`) once per SDK identity, including on a restored
+  session. An account without a customer sends nothing. A known link is kept
+  for the page; a missing one is asked for again on the next ready identity
+  (focus, visibility, or `SessionRefresh`), and profile completion calls
+  `refreshAnalyticsDotyposCustomerId` because it creates the customer.
+  Analysts join PostHog persons to Dotypos records through this ID, so
+  PostHog never needs the profile itself.
 - `testAccount` is true only when the verified login email is on the reserved
   test domain (`isTestEmailAddress` from `@deskohub/test-email`). Mail there is
   never delivered, so only fixtures and E2E can hold such an account, and a
@@ -67,8 +83,13 @@ Code: `features/account/analytics-identity.ts`,
   and remove saved UTM and click metadata.
 - Don't describe network IP handling as disabled.
 - Person properties never include email, name, phone, billing, reservation
-  IDs, or raw auth data. Don't alias a browser to a reservation or send a
-  Dotypos customer ID.
+  IDs, or raw auth data. The signed-in account's `dotypos_customer_id` is the
+  only customer identifier allowed. Don't alias a browser to a reservation.
+- Guest checkouts create or reuse a Dotypos customer found by the entered
+  email, so a guest browser isn't linked to it: anyone can type another
+  customer's email, and linking would need a person profile for an
+  `identified_only` anonymous visitor. Join guest activity through the
+  reservation ID on server events and `workspace_reservations` instead.
 - Server events set `$process_person_profile: false` and may keep the
   reservation and payment operational IDs that existing durable metrics need.
   Consented request events use the browser's `distinct_id` and `$session_id`.
