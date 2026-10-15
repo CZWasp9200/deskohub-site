@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.15.0](https://github.com/totalolage/deskohub-site/compare/dhw-v1.14.1...dhw-v1.15.0) (2026-10-15)
+
+
+### Features
+
+* **dhw:** align campaign commands with the final send API ([d8ec008](https://github.com/totalolage/deskohub-site/commit/d8ec0081f05c26ec524e3931d860d4884a4c8f81))
+* **dhw:** manage and send email campaigns ([47714c8](https://github.com/totalolage/deskohub-site/commit/47714c85d1c901056c052dcaae8e91f0c442da93))
+* **workspace:** admin email campaigns with audiences, templates and composer ([2035c0d](https://github.com/totalolage/deskohub-site/commit/2035c0d7e950339b8966d6fabc68280653523138))
+
+
+### Bug Fixes
+
+* **dhw:** keep every campaign endpoint's declared errors ([652d311](https://github.com/totalolage/deskohub-site/commit/652d311abe3a0f61c02616ed617c16a66b57d3c7))
+
 ## [1.14.1](https://github.com/totalolage/deskohub-site/compare/dhw-v1.14.0...dhw-v1.14.1) (2026-10-14)
 
 
