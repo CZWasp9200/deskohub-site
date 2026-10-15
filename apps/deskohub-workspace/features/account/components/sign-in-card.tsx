@@ -13,7 +13,17 @@ import {
 } from "react";
 import { useForm } from "react-hook-form";
 import isEmail from "validator/lib/isEmail.js";
-import { createAuthReturnLifecycle } from "@/features/account/auth-return";
+import {
+  createAuthReturnLifecycle,
+  hasIssuedSignInCode,
+} from "@/features/account/auth-return";
+import { SignInCodeStep } from "@/features/account/components/sign-in-code-step";
+import {
+  clearSignInCodeRequest,
+  type SignInCodeRequest,
+  saveSignInCodeRequest,
+  useSignInCodeRequest,
+} from "@/features/account/sign-in-code-request";
 import { type Locale, m } from "@/features/i18n";
 import { Button } from "@/shared/components/ui/button";
 import { Card, CardContent } from "@/shared/components/ui/card";
@@ -26,6 +36,7 @@ import {
   FormMessage,
 } from "@/shared/components/ui/form";
 import { Input } from "@/shared/components/ui/input";
+import { maskEmailAddress } from "@/shared/utils";
 
 type SignInCardProps = {
   readonly locale: Locale;
@@ -61,6 +72,11 @@ type SignInFormValues = SignInFormSchema["Type"];
 export function SignInCard({ locale }: SignInCardProps) {
   const [requested, setRequested] = useState(false);
   const [failed, setFailed] = useState(false);
+  // Keeps the code step on screen while a verified sign-in navigates away.
+  const [verifiedRequest, setVerifiedRequest] =
+    useState<SignInCodeRequest | null>(null);
+  const storedCodeRequest = useSignInCodeRequest();
+  const codeRequest = verifiedRequest ?? storedCodeRequest;
   const clientReady = useSyncExternalStore(
     subscribeToClientReady,
     getClientReadySnapshot,
@@ -88,6 +104,10 @@ export function SignInCard({ locale }: SignInCardProps) {
         setFailed(true);
         return;
       }
+      if (hasIssuedSignInCode(result)) {
+        saveSignInCodeRequest({ email, requestedAt: Date.now() });
+        return;
+      }
       setRequested(true);
     } catch {
       setFailed(true);
@@ -107,6 +127,67 @@ export function SignInCard({ locale }: SignInCardProps) {
         submissionInProgress.current = false;
       });
   };
+
+  if (codeRequest) {
+    const requestNewEmail = async () => {
+      try {
+        const result = await authReturn.sendMagicLink(codeRequest.email);
+        if (result.error) return false;
+        if (hasIssuedSignInCode(result)) {
+          saveSignInCodeRequest({
+            email: codeRequest.email,
+            requestedAt: Date.now(),
+          });
+        } else {
+          clearSignInCodeRequest();
+          setRequested(true);
+        }
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
+    return (
+      <Card className="rounded-3xl border-white/70 bg-white/94 shadow-[0_32px_100px_-48px_rgba(0,2,79,0.55)]">
+        <CardContent className="p-8 sm:p-10">
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-burned-orange">
+            {m.accountSignInEyebrow({}, { locale })}
+          </p>
+          <h2 className="mt-3 text-3xl text-navy-blue">
+            {m.accountSignInCodeTitle({}, { locale })}
+          </h2>
+          <p className="mt-3 text-sm leading-6 text-navy-blue/68">
+            {m.accountSignInCodeBody(
+              { email: maskEmailAddress(codeRequest.email) },
+              { locale }
+            )}
+          </p>
+          <SignInCodeStep
+            locale={locale}
+            email={codeRequest.email}
+            requestedAt={codeRequest.requestedAt}
+            verifiedMessage={m.accountSignInCodeVerified({}, { locale })}
+            verifyCode={(code) =>
+              authReturn.verifyCode(codeRequest.email, code)
+            }
+            onVerified={() => {
+              setVerifiedRequest(codeRequest);
+              clearSignInCodeRequest();
+              authReturn.continueToAccount();
+            }}
+            requestNewEmail={requestNewEmail}
+            onUseDifferentEmail={() => {
+              authReturn.cancel();
+              clearSignInCodeRequest();
+              form.reset({ email: codeRequest.email });
+              setFailed(false);
+            }}
+          />
+        </CardContent>
+      </Card>
+    );
+  }
 
   if (requested) {
     return (

@@ -5,6 +5,7 @@ import { getAccountPath } from "@/features/account/routes";
 import type { Locale } from "@/features/i18n";
 import { listenForReturn } from "@/shared/browser/return-window";
 import { authClient } from "./auth.client";
+import { signInCodeDevStub } from "./sign-in-code.dev-stub";
 
 const RETURN_LISTENER_TTL_MS = 10 * 60 * 1000;
 const FRESH_SESSION_WINDOW_MS = 10 * 60 * 1000;
@@ -37,12 +38,42 @@ type AuthReturnLifecycleOptions = {
   readonly requireFreshSession?: boolean;
 };
 
+type MagicLinkResult = Awaited<ReturnType<typeof authClient.signIn.magicLink>>;
+
+export type SignInCodeVerification =
+  | "verified"
+  | "invalid"
+  | "expired"
+  | "too-many-attempts"
+  | "failed";
+
 export type AuthReturnLifecycle = {
   readonly cancel: () => void;
-  readonly sendMagicLink: (
-    email: string
-  ) => Promise<Awaited<ReturnType<typeof authClient.signIn.magicLink>>>;
+  readonly continueToAccount: () => boolean;
+  readonly sendMagicLink: (email: string) => Promise<MagicLinkResult>;
+  readonly verifyCode: (
+    email: string,
+    code: string
+  ) => Promise<SignInCodeVerification>;
 };
+
+/** True when the server also put a sign-in code into the magic-link email. */
+export const hasIssuedSignInCode = (result: MagicLinkResult): boolean =>
+  Predicate.hasProperty(result.data, "signInCode") &&
+  result.data.signInCode === true;
+
+const signInCodeFailures: Readonly<
+  Record<string, Exclude<SignInCodeVerification, "verified">>
+> = {
+  INVALID_OTP: "invalid",
+  OTP_EXPIRED: "expired",
+  TOO_MANY_ATTEMPTS: "too-many-attempts",
+};
+
+const toSignInCodeFailure = (error: unknown) =>
+  (Predicate.hasProperty(error, "code") && Predicate.isString(error.code)
+    ? signInCodeFailures[error.code]
+    : undefined) ?? "failed";
 
 const noop = () => undefined;
 
@@ -195,11 +226,13 @@ export const createAuthReturnLifecycle = ({
     }
 
     try {
-      const result = await authClient.signIn.magicLink({
-        email,
-        callbackURL,
-        metadata: { locale },
-      });
+      const result = signInCodeDevStub
+        ? await signInCodeDevStub.sendMagicLink()
+        : await authClient.signIn.magicLink({
+            email,
+            callbackURL,
+            metadata: { locale },
+          });
       if (requestEpoch === requestId && result.error) dispose();
       return result;
     } catch (cause) {
@@ -208,5 +241,25 @@ export const createAuthReturnLifecycle = ({
     }
   };
 
-  return { cancel, sendMagicLink };
+  // A verified code signs this tab in directly, so the link hand-off stops
+  // listening and a late link tab can't trigger a second navigation.
+  const verifyCode = async (
+    email: string,
+    code: string
+  ): Promise<SignInCodeVerification> => {
+    try {
+      const result = signInCodeDevStub
+        ? await signInCodeDevStub.verifyCode(code)
+        : await authClient.signIn.emailOtp({ email, otp: code });
+      if (result.error) return toSignInCodeFailure(result.error);
+      cancel();
+      return "verified";
+    } catch {
+      return "failed";
+    }
+  };
+
+  const continueToAccount = () => navigateToAccount(locale);
+
+  return { cancel, continueToAccount, sendMagicLink, verifyCode };
 };

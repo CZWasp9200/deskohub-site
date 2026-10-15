@@ -10,6 +10,7 @@ import {
   refreshAnalyticsAccountIdentity,
 } from "@/features/account/analytics-identity";
 import { createAuthReturnLifecycle } from "@/features/account/auth-return";
+import { DeleteAccountReauthStep } from "@/features/account/components/delete-account-reauth-step";
 import { AccountSectionPanel } from "@/features/account/components/shell/account-section-panel";
 import { type Locale, m } from "@/features/i18n";
 import { Button } from "@/shared/components/ui/button";
@@ -45,9 +46,6 @@ export function DeleteAccountCard({
   const [open, setOpen] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
   const [reauthRequired, setReauthRequired] = useState(false);
-  const [reauthLinkSent, setReauthLinkSent] = useState(false);
-  const [reauthSending, setReauthSending] = useState(false);
-  const [reauthFailed, setReauthFailed] = useState(false);
   const allowNextUnload = useAllowNextUnload();
   const authReturn = useMemo(
     () =>
@@ -87,23 +85,6 @@ export function DeleteAccountCard({
       },
     });
 
-  const requestReauthLink = async () => {
-    setReauthFailed(false);
-    setReauthSending(true);
-    try {
-      const linkResult = await authReturn.sendMagicLink(email);
-      if (linkResult.error) {
-        setReauthFailed(true);
-        return;
-      }
-      setReauthLinkSent(true);
-    } catch {
-      setReauthFailed(true);
-    } finally {
-      setReauthSending(false);
-    }
-  };
-
   const closeDialog = (nextOpen: boolean) => {
     // Closing mid-request would reset the action and drop its outcome.
     if (!nextOpen && isExecuting) return;
@@ -112,8 +93,6 @@ export function DeleteAccountCard({
       authReturn.cancel();
       setConfirmed(false);
       setReauthRequired(false);
-      setReauthLinkSent(false);
-      setReauthFailed(false);
       reset();
       // A deletion attempt may have changed the server-side deletion state.
       if (!isIdle) router.refresh();
@@ -170,36 +149,16 @@ export function DeleteAccountCard({
           locale={locale}
         >
           {reauthRequired ? (
-            <>
-              <DialogHeader>
-                <DialogTitle>
-                  {m.accountDeletionReauthTitle({}, { locale })}
-                </DialogTitle>
-                <DialogDescription id="delete-account-dialog-description">
-                  {m.accountDeletionReauthBody({}, { locale })}
-                </DialogDescription>
-              </DialogHeader>
-              <div
-                aria-live={reauthFailed ? "assertive" : "polite"}
-                className="mt-4 min-h-5 text-sm text-navy-blue/78"
-                role={reauthFailed ? "alert" : undefined}
-              >
-                {reauthFailed && m.accountSignInRequestFailed({}, { locale })}
-                {!reauthFailed &&
-                  reauthLinkSent &&
-                  m.accountDeletionReauthLinkSent({}, { locale })}
-              </div>
-              <DialogFooter>
-                <Button
-                  id="delete-account-reauth-send"
-                  type="button"
-                  disabled={reauthSending || reauthLinkSent}
-                  onClick={requestReauthLink}
-                >
-                  {m.accountDeletionReauthSendLink({}, { locale })}
-                </Button>
-              </DialogFooter>
-            </>
+            <DeleteAccountReauthStep
+              email={email}
+              locale={locale}
+              authReturn={authReturn}
+              onReauthenticated={() => {
+                // The typed code created a fresh session; confirm again.
+                setReauthRequired(false);
+                reset();
+              }}
+            />
           ) : (
             <>
               <DialogHeader>

@@ -42,6 +42,8 @@ export type MagicLinkDeliveryRequest = {
   readonly email: string;
   readonly url: string;
   readonly locale: WorkspaceEmailLocale;
+  /** Six-digit sign-in code, present only when the code flow is enabled. */
+  readonly signInCode?: string;
 };
 
 export type MagicLinkEmailRenderer = (
