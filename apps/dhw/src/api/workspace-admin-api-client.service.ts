@@ -61,6 +61,8 @@ import {
   type AdministrationReservationDetailType,
   type AdministrationReservationLookupResultType,
   type AdministrationReservationPageType,
+  type AdministrationReservationProductDetailsBackfillBatchType,
+  type AdministrationReservationProductDetailsBackfillInputType,
   type AdministrationReservationQueryType,
   type AdministrationStandaloneAccessCodeAttemptIdType,
   type AdministrationStandaloneAccessCodeCreateInputType,
@@ -163,6 +165,13 @@ interface IWorkspaceAdminApiClient {
     | CliResourceNotFound
     | CliSessionUnauthorized
     | CliServiceUnavailable
+  >;
+  readonly backfillReservationProductDetails: (
+    accessToken: Redacted.Redacted<CliAccessTokenType>,
+    input: AdministrationReservationProductDetailsBackfillInputType
+  ) => Effect.Effect<
+    AdministrationReservationProductDetailsBackfillBatchType,
+    CliApiRequestError | CliSessionUnauthorized | CliServiceUnavailable
   >;
   readonly cancelReservation: (
     accessToken: Redacted.Redacted<CliAccessTokenType>,
@@ -797,6 +806,22 @@ const makeWorkspaceAdminApiClient = Effect.gen(function* () {
         ),
         Effect.mapError(sanitizeSessionError)
       )
+    ),
+    backfillReservationProductDetails: Effect.fn(
+      "WorkspaceAdminApiClient.backfillReservationProductDetails"
+    )(
+      (
+        accessToken: Redacted.Redacted<CliAccessTokenType>,
+        input: AdministrationReservationProductDetailsBackfillInputType
+      ) =>
+        makeClient(accessToken).pipe(
+          Effect.flatMap((authorized) =>
+            authorized.administration.backfillReservationProductDetails({
+              payload: input,
+            })
+          ),
+          Effect.mapError(sanitizeSessionError)
+        )
     ),
     cancelReservation: Effect.fn("WorkspaceAdminApiClient.cancelReservation")(
       (

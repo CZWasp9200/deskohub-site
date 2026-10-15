@@ -1,9 +1,8 @@
-import { Effect, Schema } from "effect";
+import { Effect } from "effect";
 import { HttpClient } from "effect/unstable/http";
 import { renderWorkspaceEmailDetailsText } from "@/emails/workspace-email-detail";
 import { createWorkspaceMeetingRoomEmailDetailRows } from "@/features/checkout/backend/fulfillment/workspace-meeting-room-email-details";
 import { formatWorkspaceMoney } from "@/features/checkout/workspace-money";
-import { storedMeetingRoomReservationDetailsSchema } from "@/features/reservation/meeting-room-reservation";
 import { isMeetingRoomWholeDayReservationDuration } from "@/features/reservation/meeting-room-reservation-duration";
 import {
   formatReservationDisplayDate,
@@ -49,6 +48,7 @@ import {
   submitReservationForPayPage,
 } from "../checkout/payment";
 import { reservationCookieIsolationStep } from "../checkout/reservation-cookie-isolation";
+import { matchesExpectedReservationDetails } from "../checkout/reservation-details";
 import type { DatasourceConfig, WorkspaceE2EConfig } from "../config";
 import { WorkspaceE2EHostedPaymentPermitService } from "../coordination/hosted-payment-permit.service";
 import { tryWorkspaceE2ESync, type WorkspaceE2EError } from "../errors";
@@ -78,11 +78,6 @@ import type {
   WorkspaceE2EStepRunner,
 } from "../types";
 import { isExpectedCheckoutStatusUrl, makeUrl, setSearchParams } from "../urls";
-
-const decodeStoredMeetingRoomReservationDetails = Schema.decodeUnknownSync(
-  storedMeetingRoomReservationDetailsSchema,
-  { onExcessProperty: "error" }
-);
 
 export const executeCheckoutFlow = ({
   config,
@@ -681,7 +676,7 @@ export const assertWholeDayMeetingRoomEmailPreviews = ({
   dotyposReservation,
 }: {
   checkoutRow: WholeDayEmailCheckoutRow;
-  data: Pick<CheckoutData, "meetingRoom">;
+  data: Pick<CheckoutData, "expectedReservationDetails" | "meetingRoom">;
   dotyposReservation: ValidatedDotyposReservation;
 }): Effect.Effect<void, WorkspaceE2EError> =>
   Effect.gen(function* () {
@@ -709,8 +704,12 @@ export const assertWholeDayMeetingRoomEmailPreviews = ({
           "Dotypos reservation id missing from checkout row"
         );
 
-        decodeStoredMeetingRoomReservationDetails(
-          checkoutRow.reservation_details
+        assert(
+          matchesExpectedReservationDetails(
+            checkoutRow.reservation_details,
+            data.expectedReservationDetails
+          ),
+          "meeting-room checkout row does not record the booked offer"
         );
 
         return {

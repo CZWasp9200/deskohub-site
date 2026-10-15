@@ -18,6 +18,7 @@ import {
   getMeetingRoomReservationInterval,
 } from "@/features/reservation/meeting-room-reservation-time";
 import {
+  getOfficeReservationDayCount,
   getOfficeReservationIntervalInput,
   getOfficeReservationMaximumEndsOn,
   officeReservationDetailsSchema,
@@ -181,7 +182,11 @@ export const makeOfficeCheckoutData = (
     checkoutUrl: `${checkoutBaseUrl}/${locale}/reservation/office`,
     date: slot.startsOn,
     email: contact.email,
-    expectedReservationDetails: { kind: "office" },
+    expectedReservationDetails: {
+      kind: "office",
+      seats: slot.seats,
+      dayCount: getOfficeReservationDayCount(slot),
+    },
     locale,
     name: contact.name,
     office: slot,
@@ -212,7 +217,10 @@ const makeMeetingRoomCheckoutDataWithContact = (
     checkoutUrl: `${checkoutBaseUrl}/${locale}/reservation/meeting-room`,
     date: slot.date,
     email: contact.email,
-    expectedReservationDetails: { kind: "meeting-room" },
+    expectedReservationDetails: {
+      kind: "meeting-room",
+      duration: slot.duration,
+    },
     locale,
     meetingRoom: {
       duration: slot.duration,

@@ -1,24 +1,74 @@
-import type { DotyposCustomer, DotyposCustomerId } from "@deskohub/dotypos";
+import type { DotyposCustomerId } from "@deskohub/dotypos";
 import {
+  type AudienceAttributeDefinition,
+  type AudienceAttributeOfKind,
+  type AudienceBooleanAttributeDefinition,
+  type AudienceConditionOf,
+  type AudienceConditionType,
+  type AudienceCountAttributeDefinition,
+  type AudienceCountCondition,
+  type AudienceCountOperatorType,
+  type AudienceDateAttributeDefinition,
+  type AudienceDateCondition,
+  type AudienceFilterGroup,
   type AudienceFilterType,
-  AudienceFilter as audienceFilterSchema,
+  type AudienceSetAttributeDefinition,
+  type AudienceSetOperatorType,
+  audienceAttributeCatalogue,
+  AudienceFilter as audienceFilterContractSchema,
+  type ReservationProductFilterType,
 } from "@deskohub/workspace-admin-api";
-import { Match, Option } from "effect";
+import { Match, Schema } from "effect";
 import { type Locale, locales } from "@/features/i18n";
+import { reservationProductFilterSchema } from "@/features/reservation/reservation-product-descriptor";
+import type { DatePeriod } from "./date-period";
 
 /**
  * The filter tree a campaign audience selects its recipients with. The
- * administration contract defines it once for Workspace, the Admin UI, and
- * `dhw`.
+ * administration contract defines it, with its attribute catalogue, once for
+ * Workspace, the Admin UI, and `dhw`.
  */
 export type AudienceFilter = AudienceFilterType;
-export { audienceFilterSchema };
+export type AudienceCondition = AudienceConditionType;
+export type { AudienceFilterGroup };
 
-type AudienceReservationCondition = Extract<
-  AudienceFilter,
-  { readonly _tag: "Reservation" }
->;
-type AudienceFilterGroup = Extract<AudienceFilter, { readonly _tag: "Group" }>;
+/**
+ * A condition with its catalogue entry, tagged by kind. Code that works on
+ * any attribute of a kind matches on `kind` and reads the entry's metadata.
+ */
+export type AudienceConditionView =
+  | {
+      readonly kind: "count";
+      readonly entry: AudienceCountAttributeDefinition;
+      readonly condition: AudienceConditionOf<AudienceAttributeOfKind<"count">>;
+    }
+  | {
+      readonly kind: "date";
+      readonly entry: AudienceDateAttributeDefinition;
+      readonly condition: AudienceConditionOf<AudienceAttributeOfKind<"date">>;
+    }
+  | {
+      readonly kind: "set";
+      readonly entry: AudienceSetAttributeDefinition;
+      readonly condition: AudienceConditionOf<AudienceAttributeOfKind<"set">>;
+    }
+  | {
+      readonly kind: "boolean";
+      readonly entry: AudienceBooleanAttributeDefinition;
+      readonly condition: AudienceConditionOf<
+        AudienceAttributeOfKind<"boolean">
+      >;
+    };
+
+export const viewAudienceCondition = (
+  condition: AudienceCondition
+): AudienceConditionView => {
+  const entry: AudienceAttributeDefinition =
+    audienceAttributeCatalogue[condition.attribute];
+  // The catalogue keys each entry by its attribute, so the entry's kind is
+  // the kind of the condition's attribute.
+  return { kind: entry.kind, entry, condition } as AudienceConditionView;
+};
 
 /**
  * Three-valued result: a Dotypos condition is `unknown` until the customer's
@@ -34,99 +84,139 @@ export type AudienceCandidate = {
   readonly hasAccount: boolean;
 };
 
-/** Customers with a matching reservation, keyed by {@link reservationConditionKey}. */
-export type AudienceReservationMatches = ReadonlyMap<
-  string,
-  ReadonlySet<DotyposCustomerId>
+type CountRequestOf<Condition extends AudienceCountCondition> = Pick<
+  Condition,
+  "attribute" | "params"
 >;
 
-/** The reservation criteria of a condition; equal criteria share one lookup. */
-export type AudienceReservationCriteria = Omit<
-  AudienceReservationCondition,
-  "_tag" | "presence"
+/** What one count condition counts; equal requests share one lookup. */
+export type AudienceCountRequest = CountRequestOf<
+  AudienceConditionOf<AudienceAttributeOfKind<"count">>
 >;
 
-export const reservationConditionKey = ({
-  dateBasis,
-  from,
-  to,
-  status,
-}: AudienceReservationCriteria): string =>
-  [dateBasis, from ?? "", to ?? "", status ?? ""].join("|");
-
-/** Every reservation condition in the tree, deduplicated by criteria. */
-export const collectReservationCriteria = (
-  filter: AudienceFilter
-): readonly AudienceReservationCriteria[] => {
-  const criteria = new Map<string, AudienceReservationCriteria>();
-  const visit = (node: AudienceFilter): void => {
-    if (node._tag === "Group") {
-      node.filters.forEach(visit);
-      return;
-    }
-    if (node._tag === "Reservation") {
-      const { _tag, presence, ...reservationCriteria } = node;
-      criteria.set(
-        reservationConditionKey(reservationCriteria),
-        reservationCriteria
-      );
-    }
-  };
-  visit(filter);
-  return [...criteria.values()];
+/** Which date attribute one condition tests, in which period. */
+export type AudienceDateRequest<
+  Attribute extends string = AudienceAttributeOfKind<"date">,
+> = {
+  readonly attribute: Attribute;
+  readonly period: DatePeriod;
+  /** Only reservations of this product count (reservation-based dates). */
+  readonly product?: ReservationProductFilterType;
 };
 
-const fromBoolean = (value: boolean): AudienceFilterOutcome =>
-  value ? "match" : "noMatch";
+/** Customers whose date attribute has a value, and whose value is in the period. */
+export type AudienceDateFacts = {
+  readonly withValue: ReadonlySet<DotyposCustomerId>;
+  readonly inPeriod: ReadonlySet<DotyposCustomerId>;
+};
 
 /**
- * Evaluates the filter for one candidate. Pass `Option.none()` as the profile
- * before Dotypos hydration; Dotypos conditions then evaluate to `unknown`.
+ * Resolved count and date attributes, keyed by {@link audienceFactKey}. A
+ * candidate missing from a count map has a count of zero, so "= 0" and "< N"
+ * match customers without any records.
  */
-export const evaluateAudienceFilter = (input: {
-  readonly filter: AudienceFilter;
-  readonly candidate: AudienceCandidate;
-  readonly reservationMatches: AudienceReservationMatches;
-  readonly profile: Option.Option<DotyposCustomer>;
-}): AudienceFilterOutcome => {
-  const { candidate, reservationMatches, profile } = input;
-  const profileCondition = (
-    predicate: (customer: DotyposCustomer) => boolean
-  ): AudienceFilterOutcome =>
-    Option.match(profile, {
-      onNone: () => "unknown",
-      onSome: (customer) => fromBoolean(predicate(customer)),
-    });
-
-  const evaluate = (filter: AudienceFilter): AudienceFilterOutcome =>
-    Match.value(filter).pipe(
-      Match.tagsExhaustive({
-        Reservation: ({ presence, ...criteria }) => {
-          const reserved =
-            reservationMatches
-              .get(reservationConditionKey(criteria))
-              ?.has(candidate.dotyposCustomerId) ?? false;
-          return fromBoolean(presence === "has" ? reserved : !reserved);
-        },
-        Locale: ({ locales: selected }) =>
-          fromBoolean(selected.includes(candidate.locale)),
-        Account: ({ hasAccount }) =>
-          fromBoolean(candidate.hasAccount === hasAccount),
-        DotyposTag: ({ tag }) =>
-          profileCondition((customer) => (customer.tags ?? []).includes(tag)),
-        DiscountGroup: ({ discountGroupId }) =>
-          profileCondition(
-            (customer) => customer._discountGroupId === discountGroupId
-          ),
-        Group: ({ operator, filters }) =>
-          combineOutcomes(operator, filters.map(evaluate)),
-      })
-    );
-
-  return evaluate(input.filter);
+export type AudienceFacts = {
+  readonly counts: ReadonlyMap<string, ReadonlyMap<DotyposCustomerId, number>>;
+  readonly dates: ReadonlyMap<string, AudienceDateFacts>;
 };
 
-const combineOutcomes = (
+/** Requests are decoded schema values, so their key order is stable. */
+export const audienceFactKey = (
+  request:
+    | Pick<AudienceCountCondition, "attribute" | "params">
+    | AudienceDateRequest<string>
+): string => JSON.stringify(request);
+
+const anyTime: DatePeriod = { _tag: "AnyTime" };
+
+export const countFactRequest = <Condition extends AudienceCountCondition>({
+  attribute,
+  params,
+}: Condition): CountRequestOf<Condition> => ({ attribute, params });
+
+/** "Has no value" needs only the customers with one, so it asks for any time. */
+export const dateFactRequest = <Condition extends AudienceDateCondition>(
+  condition: Condition
+): AudienceDateRequest<Condition["attribute"]> => ({
+  attribute: condition.attribute,
+  period: condition.operator === "none" ? anyTime : condition.value,
+  ...(condition.params && { product: condition.params.product }),
+});
+
+export const audienceConditionsOf = (
+  filter: AudienceFilter
+): readonly AudienceCondition[] =>
+  filter._tag === "Group"
+    ? filter.filters.flatMap(audienceConditionsOf)
+    : [filter];
+
+/** Every count and date lookup the tree needs, deduplicated. */
+export const collectAudienceFactRequests = (
+  filter: AudienceFilter
+): {
+  readonly counts: readonly AudienceCountRequest[];
+  readonly dates: readonly AudienceDateRequest[];
+} => {
+  const counts = new Map<string, AudienceCountRequest>();
+  const dates = new Map<string, AudienceDateRequest>();
+  for (const view of audienceConditionsOf(filter).map(viewAudienceCondition)) {
+    Match.value(view).pipe(
+      Match.discriminatorsExhaustive("kind")({
+        count: ({ condition }) => {
+          const request = countFactRequest(condition);
+          counts.set(audienceFactKey(request), request);
+        },
+        date: ({ condition }) => {
+          const request = dateFactRequest(condition);
+          dates.set(audienceFactKey(request), request);
+        },
+        set: () => undefined,
+        boolean: () => undefined,
+      })
+    );
+  }
+  return { counts: [...counts.values()], dates: [...dates.values()] };
+};
+
+/** Compares a count with a condition's number. */
+export const compareCount = (
+  operator: AudienceCountOperatorType,
+  actual: number,
+  expected: number
+): boolean =>
+  Match.value(operator).pipe(
+    Match.when("eq", () => actual === expected),
+    Match.when("ne", () => actual !== expected),
+    Match.when("lt", () => actual < expected),
+    Match.when("lte", () => actual <= expected),
+    Match.when("gt", () => actual > expected),
+    Match.when("gte", () => actual >= expected),
+    Match.exhaustive
+  );
+
+/** Compares an attribute's values with a condition's chosen values. */
+export const matchesSet = <Value>(
+  operator: AudienceSetOperatorType,
+  actual: readonly Value[],
+  selected: readonly Value[]
+): boolean =>
+  Match.value(operator).pipe(
+    Match.when("anyOf", () => selected.some((value) => actual.includes(value))),
+    Match.when("allOf", () =>
+      selected.every((value) => actual.includes(value))
+    ),
+    Match.when(
+      "noneOf",
+      () => !selected.some((value) => actual.includes(value))
+    ),
+    Match.exhaustive
+  );
+
+/**
+ * Combines a group's outcomes: AND fails on any `noMatch` and OR passes on
+ * any `match`; otherwise an `unknown` keeps the group unknown.
+ */
+const combineAudienceOutcomes = (
   operator: AudienceFilterGroup["operator"],
   outcomes: readonly AudienceFilterOutcome[]
 ): AudienceFilterOutcome => {
@@ -137,29 +227,46 @@ const combineOutcomes = (
 };
 
 /**
- * The locales a recipient of the audience can have. Only locale conditions
- * narrow it: an AND group keeps the locales all its filters allow and an OR
- * group the locales any of them allows. An empty AND group matches everyone
- * and an empty OR group nobody, as {@link evaluateAudienceFilter} decides.
+ * The tree's outcome from its conditions' outcomes. An empty AND group
+ * matches and an empty OR group doesn't.
+ */
+export const evaluateAudienceTree = (
+  filter: AudienceFilter,
+  conditionOutcome: (condition: AudienceCondition) => AudienceFilterOutcome
+): AudienceFilterOutcome => {
+  const evaluate = (node: AudienceFilter): AudienceFilterOutcome =>
+    node._tag === "Group"
+      ? combineAudienceOutcomes(node.operator, node.filters.map(evaluate))
+      : conditionOutcome(node);
+  return evaluate(filter);
+};
+
+const outcomeOf = (value: boolean): AudienceFilterOutcome =>
+  value ? "match" : "noMatch";
+
+/**
+ * The locales a recipient of the audience can have. Only conditions on an
+ * attribute that narrows locales decide a locale; every other condition is
+ * unknown, so it allows every locale. An empty AND group matches everyone and
+ * an empty OR group nobody, as the evaluation decides.
  */
 export const audienceLocales = (filter: AudienceFilter): ReadonlySet<Locale> =>
-  Match.value(filter).pipe(
-    Match.tag("Locale", ({ locales: selected }) => new Set(selected)),
-    Match.tag("Group", ({ operator, filters }) => {
-      const allowed = filters.map(audienceLocales);
-      return new Set(
-        locales.filter((locale) =>
-          operator === "and"
-            ? allowed.every((group) => group.has(locale))
-            : allowed.some((group) => group.has(locale))
-        )
-      );
-    }),
-    Match.tag("Reservation", () => new Set(locales)),
-    Match.tag("Account", () => new Set(locales)),
-    Match.tag("DotyposTag", () => new Set(locales)),
-    Match.tag("DiscountGroup", () => new Set(locales)),
-    Match.exhaustive
+  new Set(
+    locales.filter(
+      (locale) =>
+        evaluateAudienceTree(filter, (condition) => {
+          const view = viewAudienceCondition(condition);
+          return view.kind === "set" && view.entry.narrowsLocales
+            ? outcomeOf(
+                matchesSet(
+                  view.condition.operator,
+                  [locale],
+                  view.condition.value
+                )
+              )
+            : "unknown";
+        }) !== "noMatch"
+    )
   );
 
 /**
@@ -172,3 +279,47 @@ export const audienceSingleLocale = (
   const [locale, ...others] = audienceLocales(filter);
   return others.length === 0 ? locale : undefined;
 };
+
+const countProduct = ({ params }: AudienceCountCondition) => params.product;
+
+const dateProduct = ({ params }: AudienceDateCondition) => params?.product;
+
+/** The product filter of a reservation-based condition, if it has one. */
+const audienceProductFilter = (
+  view: AudienceConditionView
+): ReservationProductFilterType | undefined =>
+  Match.value(view).pipe(
+    Match.discriminatorsExhaustive("kind")({
+      count: ({ condition }) => countProduct(condition),
+      date: ({ condition }) => dateProduct(condition),
+      set: () => undefined,
+      boolean: () => undefined,
+    })
+  );
+
+/** The product filters of the tree's reservation-based conditions. */
+const productFilters = (
+  filter: AudienceFilter
+): readonly ReservationProductFilterType[] =>
+  audienceConditionsOf(filter).flatMap((condition) => {
+    const product = audienceProductFilter(viewAudienceCondition(condition));
+    return product ? [product] : [];
+  });
+
+const isCatalogProductFilter = Schema.is(reservationProductFilterSchema);
+
+/**
+ * The contract's filter schema, plus a check that every product filter names
+ * a property of its family's catalog with a valid operator and values. The
+ * Admin UI, the administration API, and stored filters all decode with it.
+ */
+export const audienceFilterSchema = audienceFilterContractSchema.check(
+  Schema.makeFilter(
+    (filter: AudienceFilter) =>
+      productFilters(filter).every(isCatalogProductFilter),
+    {
+      message:
+        "Reservation product conditions must name a catalog property with a valid value.",
+    }
+  )
+);

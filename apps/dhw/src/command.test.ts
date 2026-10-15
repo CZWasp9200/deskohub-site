@@ -228,6 +228,98 @@ describe("dhw mutation commands", () => {
     ]);
   });
 
+  test("dry-runs the product-details backfill across every batch without confirmation", async () => {
+    const requests: unknown[] = [];
+    const nextReservationId = Schema.decodeUnknownSync(
+      AdministrationWorkspaceReservationId
+    )("reservation-next");
+    const { layer } = makeCommandLayer({
+      backfillReservationProductDetails: (_accessToken, input) =>
+        Effect.sync(() => {
+          requests.push(input);
+          return input.after === null
+            ? {
+                updated: 2,
+                alreadyComplete: 1,
+                unresolved: [
+                  {
+                    reservationId,
+                    family: "office" as const,
+                    reason: "dotypos_seats_invalid" as const,
+                  },
+                ],
+                nextCursor: nextReservationId,
+              }
+            : {
+                updated: 1,
+                alreadyComplete: 3,
+                unresolved: [],
+                nextCursor: null,
+              };
+        }),
+    });
+    const output: string[] = [];
+    const capturedOutput = Layer.succeed(Console.Console, {
+      ...globalThis.console,
+      log: (...args: ReadonlyArray<unknown>) => {
+        output.push(args.join(" "));
+      },
+    } satisfies Console.Console);
+
+    await runCommand(
+      ["--json", "reservations", "backfill-product-details", "--dry-run"],
+      Layer.mergeAll(layer, capturedOutput)
+    ).pipe(Effect.runPromise);
+
+    expect(requests).toEqual([
+      { dryRun: true, after: null },
+      { dryRun: true, after: nextReservationId },
+    ]);
+    expect(output.map((line) => JSON.parse(line))).toEqual([
+      {
+        dryRun: true,
+        updated: 3,
+        alreadyComplete: 4,
+        unresolved: [
+          {
+            reservationId,
+            family: "office",
+            reason: "dotypos_seats_invalid",
+          },
+        ],
+      },
+    ]);
+  });
+
+  test("requires confirmation before the product-details backfill writes", async () => {
+    const requests: unknown[] = [];
+    const { layer } = makeCommandLayer({
+      backfillReservationProductDetails: (_accessToken, input) =>
+        Effect.sync(() => {
+          requests.push(input);
+          return {
+            updated: 0,
+            alreadyComplete: 0,
+            unresolved: [],
+            nextCursor: null,
+          };
+        }),
+    });
+
+    const error = await runCommand(
+      ["--json", "reservations", "backfill-product-details"],
+      layer
+    ).pipe(Effect.flip, Effect.runPromise);
+    expect(error).toMatchObject({ _tag: "ConfirmationRequiredError" });
+    expect(requests).toEqual([]);
+
+    await runCommand(
+      ["--json", "reservations", "backfill-product-details", "--yes"],
+      layer
+    ).pipe(Effect.runPromise);
+    expect(requests).toEqual([{ dryRun: false, after: null }]);
+  });
+
   test("clears the local credential after revoking its own session", async () => {
     let clears = 0;
     const { layer } = makeCommandLayer({
@@ -954,6 +1046,7 @@ const runCommand = <R>(
   );
 
 const makeCommandLayer = ({
+  backfillReservationProductDetails = () => Effect.die("not used"),
   cancelReservation = () =>
     Effect.succeed({ outcome: "already_cancelled", email: "not_requested" }),
   clear = Effect.succeed(true),
@@ -963,6 +1056,7 @@ const makeCommandLayer = ({
   revokeSession = () => Effect.succeed({ changed: false }),
   stateDirectory = `/tmp/dhw-command-test-${crypto.randomUUID()}`,
 }: {
+  readonly backfillReservationProductDetails?: WorkspaceAdminApiClient["Service"]["backfillReservationProductDetails"];
   readonly cancelReservation?: WorkspaceAdminApiClient["Service"]["cancelReservation"];
   readonly clear?: AuthenticationService["Service"]["clear"];
   readonly createInvoice?: WorkspaceAdminApiClient["Service"]["createInvoice"];
@@ -981,6 +1075,7 @@ const makeCommandLayer = ({
   }> = [];
   const api = Layer.succeed(WorkspaceAdminApiClient, {
     ...({} as WorkspaceAdminApiClient["Service"]),
+    backfillReservationProductDetails,
     cancelReservation,
     createInvoice,
     createStandaloneAccessCode: (
