@@ -62,12 +62,13 @@ const resolveFacts = async (input: {
       inPeriod: new Set<DotyposCustomerId>(),
     })
   );
-  const listBookedReservations = mock((ids: readonly string[]) =>
-    Effect.succeed(
-      (input.booked ?? []).filter(({ dotyposReservationId }) =>
-        ids.includes(dotyposReservationId)
+  const listBookedReservations = mock(
+    (ids: readonly string[], _product?: unknown) =>
+      Effect.succeed(
+        (input.booked ?? []).filter(({ dotyposReservationId }) =>
+          ids.includes(dotyposReservationId)
+        )
       )
-    )
   );
   const listReservations = mock(
     (_: {
@@ -373,5 +374,45 @@ describe("AudienceFactsService last visit", () => {
       startsAtOrAfter: instant("2026-08-31T22:00:00Z"),
       startsBefore: now,
     });
+  });
+});
+
+describe("AudienceFactsService product filters", () => {
+  const coworkDesk = {
+    family: "cowork",
+    properties: [
+      { property: "tier", operator: "anyOf", value: ["reserved-desk"] },
+    ],
+  } as const;
+
+  test("passes a product filter to reservation counts and last visits", async () => {
+    const { countReservations, listBookedReservations, listReservations } =
+      await resolveFacts({
+        visits: [visit("r1", "2026-10-01T08:00:00Z")],
+        filter: group(
+          reservations({
+            dateBasis: "booking",
+            period: { _tag: "AnyTime" },
+            product: coworkDesk,
+          }),
+          {
+            attribute: "lastVisit",
+            _tag: "Condition",
+            params: { product: coworkDesk },
+            operator: "none",
+          },
+          { attribute: "lastVisit", _tag: "Condition", operator: "none" }
+        ),
+      });
+    expect(countReservations.mock.calls[0]?.[0]).toEqual({
+      product: coworkDesk,
+      booked: {},
+    });
+    // One Dotypos range serves both last-visit conditions; only the local
+    // booked-reservation join differs by product.
+    expect(listReservations).toHaveBeenCalledTimes(1);
+    expect(
+      listBookedReservations.mock.calls.map(([, product]) => product)
+    ).toEqual([coworkDesk, undefined]);
   });
 });

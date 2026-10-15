@@ -218,3 +218,59 @@ describe("hasPeriodEndingAtEvaluation", () => {
     ).toBe(false);
   });
 });
+
+describe("reservation product phrasing", () => {
+  test("names the product by its catalog names", () => {
+    expect(
+      describe_(
+        reservations("gte", 1, {
+          period: { _tag: "Last", count: 1, unit: "month" },
+          product: {
+            family: "cowork",
+            properties: [
+              { property: "tier", operator: "anyOf", value: ["reserved-desk"] },
+            ],
+          },
+        })
+      )
+    ).toBe(
+      "Customers who have any booked Reserved Desk cowork reservations visiting in the last month"
+    );
+  });
+
+  test("adds the other property conditions after the product", () => {
+    expect(
+      describe_(
+        reservations("eq", 0, {
+          product: {
+            family: "office",
+            properties: [
+              { property: "seats", operator: "gte", value: 4 },
+              { property: "days", operator: "lt", value: 3 },
+            ],
+          },
+        })
+      )
+    ).toBe(
+      "Customers who have no booked office reservations with at least 4 seats and fewer than 3 days"
+    );
+    expect(
+      describe_({
+        attribute: "lastVisit",
+        _tag: "Condition",
+        params: {
+          product: {
+            family: "cowork",
+            properties: [
+              { property: "coffee", operator: "is", value: false },
+              { property: "tier", operator: "noneOf", value: ["basic"] },
+            ],
+          },
+        },
+        operator: "none",
+      })
+    ).toBe(
+      "Customers who have never visited for a cowork reservation with no coffee and tier other than Basic Day Pass"
+    );
+  });
+});

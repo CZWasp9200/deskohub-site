@@ -440,3 +440,88 @@ describe("audienceAttributeCatalogue", () => {
     ]);
   });
 });
+
+describe("audienceFilterSchema product filters", () => {
+  const decode = Schema.decodeUnknownResult(audienceFilterSchema);
+  const withProduct = (product: unknown) => ({
+    ...reservationsVisitedInMarch,
+    params: { ...reservationsVisitedInMarch.params, product },
+  });
+
+  test.each([
+    [
+      "a current tier",
+      {
+        family: "cowork",
+        properties: [
+          { property: "tier", operator: "anyOf", value: ["reserved-desk"] },
+        ],
+      },
+    ],
+    [
+      "a retired tier",
+      {
+        family: "cowork",
+        properties: [
+          { property: "tier", operator: "noneOf", value: ["profi"] },
+        ],
+      },
+    ],
+    [
+      "a meeting-room offer",
+      {
+        family: "meeting-room",
+        properties: [
+          { property: "offer", operator: "anyOf", value: ["hour:4"] },
+        ],
+      },
+    ],
+    [
+      "office seats",
+      {
+        family: "office",
+        properties: [{ property: "seats", operator: "gte", value: 4 }],
+      },
+    ],
+    ["a family alone", { family: "office", properties: [] }],
+  ])("accepts %s", (_, product) => {
+    expect(Result.isSuccess(decode(withProduct(product)))).toBe(true);
+  });
+
+  test.each([
+    [
+      "an unknown property",
+      {
+        family: "cowork",
+        properties: [{ property: "seats", operator: "gte", value: 1 }],
+      },
+    ],
+    [
+      "an unknown value",
+      {
+        family: "cowork",
+        properties: [{ property: "tier", operator: "anyOf", value: ["gold"] }],
+      },
+    ],
+    [
+      "an operator of another kind",
+      {
+        family: "cowork",
+        properties: [{ property: "coffee", operator: "gte", value: 1 }],
+      },
+    ],
+    ["an unknown family", { family: "garden", properties: [] }],
+  ])("rejects %s", (_, product) => {
+    expect(Result.isFailure(decode(withProduct(product)))).toBe(true);
+    expect(
+      Result.isFailure(
+        decode({
+          attribute: "lastVisit",
+          _tag: "Condition",
+          params: { product },
+          operator: "none",
+        })
+      )
+    ).toBe(true);
+  });
+});
