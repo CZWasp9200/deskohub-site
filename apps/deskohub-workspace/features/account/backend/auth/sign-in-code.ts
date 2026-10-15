@@ -39,7 +39,7 @@ export type SignInEmailLock = <A, E>(
 ) => Effect.Effect<A, E | SqlError.SqlError>;
 
 /** A sign-in code or link row could not be read or written. */
-export class SignInCodeStorageError extends Data.TaggedError(
+class SignInCodeStorageError extends Data.TaggedError(
   "SignInCodeStorageError"
 )<{ readonly code: "account.sign-in-code.storage" }> {
   constructor() {
@@ -48,9 +48,9 @@ export class SignInCodeStorageError extends Data.TaggedError(
 }
 
 /** The link sent with this code already signed in. */
-export class SignInEmailUsedError extends Data.TaggedError(
-  "SignInEmailUsedError"
-)<Record<never, never>> {}
+class SignInEmailUsedError extends Data.TaggedError("SignInEmailUsedError")<
+  Record<never, never>
+> {}
 
 const store = <A>(operation: () => Promise<A>) =>
   Effect.tryPromise({

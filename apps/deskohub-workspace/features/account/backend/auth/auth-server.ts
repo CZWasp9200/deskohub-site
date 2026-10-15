@@ -275,9 +275,9 @@ type AuthRequestGuard = {
  * code's attempt budget still apply.
  */
 const verifySignInHuman = (config: WorkspaceAuthConfig) =>
-  config
-    .verifyHuman({ verificationFailurePolicy: "allow" })
-    .pipe(Effect.mapError(() => makeBotDetectedError()));
+  Effect.suspend(() =>
+    config.verifyHuman({ verificationFailurePolicy: "allow" })
+  ).pipe(Effect.mapError(() => makeBotDetectedError()));
 
 /** Sign-in requests need accounts on; an unreadable flag counts as off. */
 const requireAccounts = ({ config, request }: AuthRequestGuard) =>
