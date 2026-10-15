@@ -548,6 +548,8 @@ const rules: { name: string; diagnostic: string; module: string; cases: Row[] }[
       ["permits restyled children", 'export const Action = () => <Button><span className="text-xs">Save</span></Button>;\n', false],
       ["permits other components", 'export const Dot = () => <UnstyledButton className="size-3 rounded-full bg-white" />;\n', false],
       ["permits Buttons outside Workspace", button('className="bg-white"'), false, "apps/boardgame-bar/src/components/action.tsx"],
+      ["permits the React Email Button", 'import { Button, Section } from "react-email";\nexport const Cta = () => <Section><Button className="rounded-full bg-aquamarine px-7" href="/">Book</Button></Section>;\n', false],
+      ["rejects a restyle beside other React Email imports", 'import { Link } from "react-email";\nimport { Button } from "@/shared/components/ui/button";\nexport const Action = () => <Button className="bg-white">Save</Button>;\n', true],
       ["permits layout classes in a spread object", button('{...{ className: "mt-4", type: "submit" }}'), false],
     ],
   },

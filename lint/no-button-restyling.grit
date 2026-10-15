@@ -19,7 +19,9 @@ language js(typescript, jsx)
 //   the JSX check reads, so it passes;
 // - a spread attribute other than an object literal whose `className` passes.
 // A JSX member tag such as `<ui.Button>` is checked by its last segment, so
-// namespace imports and barrels stay covered.
+// namespace imports and barrels stay covered. A bare `<Button>` in a file that
+// imports `Button` from React Email is that email component, whose classes
+// style email HTML, so it isn't checked.
 //
 // Every class, after any variant prefix and `!`, must be one of:
 // - margin, self and grid placement, `order`, flex-item `shrink`, `grow`,
@@ -73,6 +75,12 @@ file($name, $body) where {
       JsxOpeningElement(name = $component, attributes = $attributes)
     } where {
       $component <: r"^(?:[\w$]+\.)*(?:Button|DisclosureButton|NavItem|SegmentedControl|ChoiceCard)$",
+      not and {
+        $component <: r"^Button$",
+        $component <: within JsModule() as $module where {
+          $module <: r"(?s).*\bimport\s*\{[^}]*\bButton\b[^}]*\}\s*from\s*[\"'](?:react-email|@react-email/[\w-]+)[\"'].*"
+        }
+      },
       $attributes <: some bubble or {
         JsxAttribute(
           name = r"^className$",
