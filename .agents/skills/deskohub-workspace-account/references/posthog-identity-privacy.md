@@ -27,6 +27,32 @@ Code: `features/account/analytics-identity.ts`,
   cookies, so they create no PostHog persons unless a case opts in to
   analytics.
 
+## Deployment environment tagging
+
+Preview (including CI E2E), development, and production share one PostHog
+project so feature flags live in one place. Tags, not separate projects, set
+non-production traffic apart:
+
+- Every server event (`posthog-event.service.ts`), browser event, and browser
+  log carries `deployment.environment.name`, set to the `VERCEL_ENV` value
+  (`production`, `preview`, or `development`). The root layout passes the
+  server's `env.VERCEL_ENV` to `ConsentAwareAnalytics` as
+  `posthogEnvironment`, typed `DeploymentEnvironment`. The browser
+  `before_send` adds the property to every event it lets through, including
+  `$pageview`, `$identify`, and the `$set` from `setInternalOrTestUser()`.
+  `captureLog` bypasses `before_send`, so the log sink adds it itself. Don't
+  read a second environment variable for analytics, and never take the value
+  from the request.
+- The identity controller calls `setInternalOrTestUser()` for every
+  identified person on a non-production deployment and for test accounts on
+  any deployment. It never marks an ordinary production account. Anonymous
+  visitors have no person profile (`identified_only`), so their events rely
+  on the event property.
+- The PostHog project must keep `deployment.environment.name = production`
+  in its "Filter out internal and test users" settings. The setting lives in
+  PostHog, not the repo. Together with the `$internal_or_test_user` cohort,
+  one toggle then excludes Preview, E2E, and development traffic.
+
 ## Identity transitions
 
 - Reset the previous identity before opting in capture for a different account,

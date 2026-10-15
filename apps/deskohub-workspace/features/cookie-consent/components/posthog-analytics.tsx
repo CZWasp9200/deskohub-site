@@ -15,6 +15,7 @@ import {
 import { captureRecordedSignInCompletion } from "@/features/account/sign-in-analytics";
 import type { PostHogFeatureFlagDefinitions } from "@/features/feature-flags/generated/contract";
 import { applyFeatureFlagOverrides } from "@/features/feature-flags/react";
+import type { DeploymentEnvironment } from "@/shared/backend/config/deployment-request-timeout";
 import {
   deliverWorkspaceBrowserLogs,
   discardWorkspaceBrowserLogs,
@@ -78,7 +79,7 @@ type PostHogAnalyticsProps = {
   analyticsAccepted: boolean;
   children: ReactNode;
   featureFlagOverrides?: PostHogFeatureFlagOverrides<PostHogFeatureFlagDefinitions>;
-  posthogEnvironment: string;
+  posthogEnvironment: DeploymentEnvironment;
 };
 
 export function PostHogAnalytics({
@@ -120,7 +121,7 @@ type PostHogClientProps = {
   analyticsAccepted: boolean;
   featureFlagOverrides?: PostHogFeatureFlagOverrides<PostHogFeatureFlagDefinitions>;
   pathname: string | null;
-  posthogEnvironment: string;
+  posthogEnvironment: DeploymentEnvironment;
   posthogHost: string | undefined;
   posthogProjectToken: string;
   telemetryHostAllowed: boolean;
@@ -273,7 +274,7 @@ function initializePostHog({
   posthogHost,
   posthogProjectToken,
 }: {
-  readonly posthogEnvironment: string;
+  readonly posthogEnvironment: DeploymentEnvironment;
   readonly posthogHost: string;
   readonly posthogProjectToken: string;
 }) {
@@ -298,6 +299,7 @@ function initializePostHog({
   workspaceBrowserLogSink = createWorkspaceBrowserLogSink(posthogEnvironment);
   posthog.stopSessionRecording();
   posthogIdentityController = createPostHogIdentityController(posthog, {
+    deploymentEnvironment: posthogEnvironment,
     onPause: handlePostHogPause,
     onReady: handlePostHogReady,
   });

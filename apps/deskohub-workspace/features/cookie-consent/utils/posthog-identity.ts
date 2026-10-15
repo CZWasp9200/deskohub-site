@@ -1,6 +1,7 @@
 import type { PostHog } from "posthog-js";
 import type { AnalyticsAccountIdentity } from "@/features/account/analytics-identity";
 import type { CustomerAccountId } from "@/features/account/customer-account";
+import type { DeploymentEnvironment } from "@/shared/backend/config/deployment-request-timeout";
 
 export const getPostHogAccountDistinctId = (
   accountId: CustomerAccountId
@@ -26,6 +27,7 @@ export type PostHogIdentityController = {
 };
 
 export type PostHogIdentityControllerOptions = {
+  readonly deploymentEnvironment: DeploymentEnvironment;
   readonly onPause: () => void;
   readonly onReady: () => void;
 };
@@ -63,7 +65,7 @@ const sdkMatchesSettledIdentity = (
 
 export function createPostHogIdentityController(
   client: PostHogIdentityClient,
-  { onPause, onReady }: PostHogIdentityControllerOptions
+  { deploymentEnvironment, onPause, onReady }: PostHogIdentityControllerOptions
 ): PostHogIdentityController {
   let ready = false;
   let pauseWasNotified = false;
@@ -172,7 +174,9 @@ export function createPostHogIdentityController(
       ready = true;
     }
 
-    if (identity.testAccount) {
+    // Only production persons stay unmarked. Preview (including CI E2E) and
+    // development share the production PostHog project.
+    if (identity.testAccount || deploymentEnvironment !== "production") {
       client.setInternalOrTestUser();
     }
 

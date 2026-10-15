@@ -104,6 +104,7 @@ describe("PostHog identity controller", () => {
     });
     const lifecycle: string[] = [];
     const controller = createPostHogIdentityController(fake.client, {
+      deploymentEnvironment: "production",
       onPause: () => lifecycle.push("pause"),
       onReady: () => lifecycle.push("ready"),
     });
@@ -126,6 +127,7 @@ describe("PostHog identity controller", () => {
       userState: "identified",
     });
     const controller = createPostHogIdentityController(fake.client, {
+      deploymentEnvironment: "production",
       onPause: () => fake.calls.push("pause"),
       onReady: () => fake.calls.push("ready"),
     });
@@ -161,6 +163,7 @@ describe("PostHog identity controller", () => {
     });
     const lifecycle: string[] = [];
     const controller = createPostHogIdentityController(fake.client, {
+      deploymentEnvironment: "production",
       onPause: () => lifecycle.push("pause"),
       onReady: () => lifecycle.push("ready"),
     });
@@ -184,6 +187,7 @@ describe("PostHog identity controller", () => {
       userState: "anonymous",
     });
     controller = createPostHogIdentityController(fake.client, {
+      deploymentEnvironment: "production",
       onPause: () => undefined,
       onReady: () => fake.calls.push("ready"),
     });
@@ -205,6 +209,7 @@ describe("PostHog identity controller", () => {
       userState: "anonymous",
     });
     const controller = createPostHogIdentityController(fake.client, {
+      deploymentEnvironment: "production",
       onPause: () => undefined,
       onReady: () => fake.calls.push("ready"),
     });
@@ -229,6 +234,7 @@ describe("PostHog identity controller", () => {
       userState: "identified",
     });
     const controller = createPostHogIdentityController(fake.client, {
+      deploymentEnvironment: "production",
       onPause: () => undefined,
       onReady: () => fake.calls.push("ready"),
     });
@@ -249,12 +255,13 @@ describe("PostHog identity controller", () => {
     ]);
   });
 
-  test("never marks an ordinary account or an anonymous visitor as a test user", () => {
+  test("never marks an ordinary production account or an anonymous visitor as a test user", () => {
     const fake = makeFakeClient({
       distinctId: "device-id",
       userState: "anonymous",
     });
     const controller = createPostHogIdentityController(fake.client, {
+      deploymentEnvironment: "production",
       onPause: () => undefined,
       onReady: () => undefined,
     });
@@ -268,12 +275,42 @@ describe("PostHog identity controller", () => {
     expect(fake.calls).not.toContain("set_internal_or_test_user");
   });
 
+  for (const deploymentEnvironment of ["preview", "development"] as const) {
+    test(`marks an ordinary ${deploymentEnvironment} account as an internal or test user`, () => {
+      const fake = makeFakeClient({
+        distinctId: "device-id",
+        userState: "anonymous",
+      });
+      const controller = createPostHogIdentityController(fake.client, {
+        deploymentEnvironment,
+        onPause: () => undefined,
+        onReady: () => fake.calls.push("ready"),
+      });
+
+      controller.reconcile(true, anonymous);
+      controller.reconcile(
+        true,
+        makeIdentity("authenticated", accountId("account-a"))
+      );
+
+      expect(fake.calls).toEqual([
+        "opt_in(false)",
+        "ready",
+        "opt_in(false)",
+        "identify",
+        "set_internal_or_test_user",
+        "ready",
+      ]);
+    });
+  }
+
   test("resets a persisted account before switching from account A to account B", () => {
     const fake = makeFakeClient({
       distinctId: "workspace-account:account-a",
       userState: "identified",
     });
     const controller = createPostHogIdentityController(fake.client, {
+      deploymentEnvironment: "production",
       onPause: () => fake.calls.push("pause"),
       onReady: () => fake.calls.push("ready"),
     });
@@ -301,6 +338,7 @@ describe("PostHog identity controller", () => {
     });
     const lifecycle: string[] = [];
     const controller = createPostHogIdentityController(fake.client, {
+      deploymentEnvironment: "production",
       onPause: () => lifecycle.push("pause"),
       onReady: () => lifecycle.push("ready"),
     });
@@ -320,6 +358,7 @@ describe("PostHog identity controller", () => {
       userState: "identified",
     });
     const controller = createPostHogIdentityController(fake.client, {
+      deploymentEnvironment: "production",
       onPause: () => undefined,
       onReady: () => undefined,
     });
@@ -346,6 +385,7 @@ describe("PostHog identity controller", () => {
       userState: "anonymous",
     });
     const controller = createPostHogIdentityController(fake.client, {
+      deploymentEnvironment: "production",
       onPause: () => undefined,
       onReady: () => undefined,
     });
@@ -367,6 +407,7 @@ describe("PostHog identity controller", () => {
     });
     const lifecycle: string[] = [];
     const controller = createPostHogIdentityController(fake.client, {
+      deploymentEnvironment: "production",
       onPause: () => lifecycle.push("pause"),
       onReady: () => lifecycle.push("ready"),
     });
@@ -390,6 +431,7 @@ describe("PostHog identity controller", () => {
       userState: "identified",
     });
     const controller = createPostHogIdentityController(fake.client, {
+      deploymentEnvironment: "production",
       onPause: () => undefined,
       onReady: () => undefined,
     });
@@ -412,6 +454,7 @@ describe("PostHog identity controller", () => {
       userState: "anonymous",
     });
     const controller = createPostHogIdentityController(fake.client, {
+      deploymentEnvironment: "production",
       onPause: () => undefined,
       onReady: () => undefined,
     });

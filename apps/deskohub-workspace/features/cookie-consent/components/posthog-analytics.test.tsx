@@ -523,7 +523,7 @@ describe("PostHogAnalytics", () => {
     view.unmount();
   });
 
-  test("marks only a consented test account as an internal or test user", async () => {
+  test("marks only a consented production test account as an internal or test user", async () => {
     const { PostHogAnalytics, PostHogProvider } = await import(
       "./posthog-analytics?test-account-tagging"
     );
@@ -535,7 +535,7 @@ describe("PostHogAnalytics", () => {
       <PostHogProvider>
         <PostHogAnalytics
           analyticsAccepted={analyticsAccepted}
-          posthogEnvironment="preview"
+          posthogEnvironment="production"
         />
       </PostHogProvider>
     );
@@ -566,8 +566,41 @@ describe("PostHogAnalytics", () => {
     const personEvent = capturedEvents.find(({ event }) => event === "$set");
     expect(personEvent?.properties).toMatchObject({
       $set: { $internal_or_test_user: true },
+      "deployment.environment.name": "production",
       distinct_id: "workspace-account:account-b",
     });
+
+    view.unmount();
+  });
+
+  test("tags preview events and marks every preview account as an internal or test user", async () => {
+    const { PostHogAnalytics, PostHogProvider } = await import(
+      "./posthog-analytics?preview-environment-tagging"
+    );
+
+    setConsentCookie(["necessary", "analytics"]);
+    const view = render(
+      <PostHogProvider>
+        <PostHogAnalytics analyticsAccepted posthogEnvironment="preview" />
+      </PostHogProvider>
+    );
+    await act(async () => {
+      publishAnalyticsAccountIdentity({
+        accountId: "account-a",
+        status: "authenticated",
+        testAccount: false,
+      });
+    });
+    capture("reservation started");
+
+    expect(setInternalOrTestUser).toHaveBeenCalledTimes(1);
+    for (const eventName of ["$identify", "$set", "reservation started"]) {
+      const event = capturedEvents.find(({ event }) => event === eventName);
+      expect(event?.properties).toMatchObject({
+        "deployment.environment.name": "preview",
+        distinct_id: "workspace-account:account-a",
+      });
+    }
 
     view.unmount();
   });
@@ -603,7 +636,7 @@ describe("PostHogAnalytics", () => {
               ? undefined
               : { discount_codes: discountCodesOverride }
           }
-          posthogEnvironment="preview"
+          posthogEnvironment="production"
         >
           <DiscountCodesProbe initialEnabled />
         </PostHogAnalytics>
