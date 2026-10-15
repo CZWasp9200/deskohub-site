@@ -7,11 +7,12 @@ import {
   type AudienceFilterGroup,
   type AudienceFilterType,
   type AudienceSetOperatorType,
-  AudienceFilter as audienceFilterSchema,
+  AudienceFilter as audienceFilterContractSchema,
   type ReservationProductFilterType,
 } from "@deskohub/workspace-admin-api";
-import { Match, Option } from "effect";
+import { Match, Option, Schema } from "effect";
 import { type Locale, locales } from "@/features/i18n";
+import { reservationProductFilterSchema } from "@/features/reservation/reservation-product-descriptor";
 import type { DatePeriod } from "./date-period";
 
 /**
@@ -22,7 +23,6 @@ import type { DatePeriod } from "./date-period";
 export type AudienceFilter = AudienceFilterType;
 export type AudienceCondition = AudienceConditionType;
 export type { AudienceFilterGroup };
-export { audienceFilterSchema };
 
 type AudienceCountAttribute = AudienceAttributeOfKind<"count">;
 type AudienceDateAttribute = AudienceAttributeOfKind<"date">;
@@ -321,3 +321,41 @@ export const audienceSingleLocale = (
   const [locale, ...others] = audienceLocales(filter);
   return others.length === 0 ? locale : undefined;
 };
+
+/** The product filters of the tree's reservation-based conditions. */
+const productFilters = (
+  filter: AudienceFilter
+): readonly ReservationProductFilterType[] =>
+  conditionsOf(filter).flatMap((condition) =>
+    Match.value(condition).pipe(
+      Match.discriminatorsExhaustive("attribute")({
+        reservationCount: ({ params }) =>
+          params.product ? [params.product] : [],
+        lastVisit: (date) => (date.params ? [date.params.product] : []),
+        campaignEmailCount: () => [],
+        accountCreated: () => [],
+        locale: () => [],
+        dotyposTags: () => [],
+        discountGroup: () => [],
+        hasAccount: () => [],
+      })
+    )
+  );
+
+const isCatalogProductFilter = Schema.is(reservationProductFilterSchema);
+
+/**
+ * The contract's filter schema, plus a check that every product filter names
+ * a property of its family's catalog with a valid operator and values. The
+ * Admin UI, the administration API, and stored filters all decode with it.
+ */
+export const audienceFilterSchema = audienceFilterContractSchema.check(
+  Schema.makeFilter(
+    (filter: AudienceFilter) =>
+      productFilters(filter).every(isCatalogProductFilter),
+    {
+      message:
+        "Reservation product conditions must name a catalog property with a valid value.",
+    }
+  )
+);

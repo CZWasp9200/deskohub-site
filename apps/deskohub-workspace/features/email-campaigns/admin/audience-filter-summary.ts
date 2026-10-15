@@ -1,6 +1,14 @@
-import type { AudienceCountOperatorType } from "@deskohub/workspace-admin-api";
+import type {
+  AudienceCountOperatorType,
+  ReservationProductFilterType,
+  ReservationProductPropertyCondition,
+} from "@deskohub/workspace-admin-api";
 import { Match } from "effect";
 import type { Locale } from "@/features/i18n";
+import {
+  reservationProductFamilies,
+  reservationProductProperty,
+} from "@/features/reservation/reservation-product-descriptor";
 import type { AudienceCondition, AudienceFilter } from "../audience-filter";
 import type { DatePeriod } from "../date-period";
 import { describeDatePeriod } from "./date-period-phrases";
@@ -55,6 +63,84 @@ export const describeCount = (
   );
 };
 
+/** A product filter around "reservation": names before it, conditions after. */
+const productPhrases = (
+  product: ReservationProductFilterType | undefined
+): { readonly before: string; readonly after: string } => {
+  if (!product) return { before: "", after: "" };
+  const family = reservationProductFamilies[product.family].label.toLowerCase();
+  const names = (property: string, values: readonly string[]) => {
+    const descriptor = reservationProductProperty(product.family, property);
+    return joined(
+      values.map(
+        (id) =>
+          (descriptor?.kind === "enum" &&
+            descriptor.values
+              .find((value) => value.id === id)
+              ?.name("en-US")) ||
+          id
+      ),
+      " or "
+    );
+  };
+  const label = (property: string) =>
+    (
+      reservationProductProperty(product.family, property)?.label ?? property
+    ).toLowerCase();
+  // The first "any of" names the product, as in "Reserved Desk cowork".
+  const leading = product.properties.find(
+    (
+      condition
+    ): condition is Extract<
+      ReservationProductPropertyCondition,
+      { readonly operator: "anyOf" | "noneOf" }
+    > => condition.operator === "anyOf"
+  );
+  const clauses = product.properties
+    .filter((condition) => condition !== leading)
+    .map((condition) =>
+      Match.value(condition).pipe(
+        Match.when(
+          { operator: "anyOf" },
+          ({ property, value }) =>
+            `${label(property)} ${names(property, value)}`
+        ),
+        Match.when(
+          { operator: "noneOf" },
+          ({ property, value }) =>
+            `${label(property)} other than ${names(property, value)}`
+        ),
+        Match.when({ operator: "is" }, ({ property, value }) =>
+          value ? label(property) : `no ${label(property)}`
+        ),
+        Match.when(
+          { operator: Match.is("eq", "ne", "lt", "lte", "gt", "gte") },
+          ({ property, operator, value }) => {
+            const descriptor = reservationProductProperty(
+              product.family,
+              property
+            );
+            return describeCount(
+              operator,
+              value,
+              descriptor?.kind === "number"
+                ? descriptor.unit
+                : { one: label(property), other: label(property) }
+            );
+          }
+        ),
+        Match.exhaustive
+      )
+    );
+  return {
+    before: `${leading ? `${names(leading.property, leading.value)} ` : ""}${family} `,
+    after: clauses.length === 0 ? "" : ` with ${clauses.join(" and ")}`,
+  };
+};
+
+const withArticle = (phrase: string) =>
+  `${/^[aeiou]/i.test(phrase) ? "an" : "a"} ${phrase}`;
+
 /** The period after a verb, or nothing for any time. */
 const periodSuffix = (verb: string, period: DatePeriod) =>
   period._tag === "AnyTime" ? "" : ` ${verb}${describeDatePeriod(period)}`;
@@ -82,9 +168,10 @@ const describeCondition = (
         const status = params.status
           ? reservationStatusPhrases[params.status]
           : { before: "booked ", after: "" };
+        const product = productPhrases(params.product);
         return `have ${describeCount(operator, value, {
-          one: `${status.before}reservation${status.after}`,
-          other: `${status.before}reservations${status.after}`,
+          one: `${status.before}${product.before}reservation${status.after}${product.after}`,
+          other: `${status.before}${product.before}reservations${status.after}${product.after}`,
         })}${periodSuffix(
           params.dateBasis === "visit" ? "visiting " : "confirmed ",
           params.period
@@ -97,21 +184,29 @@ const describeCondition = (
           other: `${purpose}campaign emails`,
         })}${periodSuffix("", params.period)}`;
       },
-      lastVisit: (date) =>
-        Match.value(date).pipe(
+      lastVisit: (date) => {
+        const product = productPhrases(date.params?.product);
+        const visited = date.params
+          ? ` for ${withArticle(`${product.before}reservation${product.after}`)}`
+          : "";
+        return Match.value(date).pipe(
           Match.when({ operator: "in" }, ({ value }) =>
             value._tag === "AnyTime"
-              ? "have visited"
-              : `last visited ${describeDatePeriod(value)}`
+              ? `have visited${visited}`
+              : `last visited${visited} ${describeDatePeriod(value)}`
           ),
           Match.when(
             { operator: "notIn" },
             ({ value }) =>
-              `have visited, with the last visit not ${describeDatePeriod(value)}`
+              `have visited${visited}, with the last visit not ${describeDatePeriod(value)}`
           ),
-          Match.when({ operator: "none" }, () => "have never visited"),
+          Match.when(
+            { operator: "none" },
+            () => `have never visited${visited}`
+          ),
           Match.exhaustive
-        ),
+        );
+      },
       accountCreated: (date) =>
         Match.value(date).pipe(
           Match.when({ operator: "in" }, ({ value }) =>

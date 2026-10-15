@@ -43,6 +43,7 @@ import {
   type FieldErrorLookup,
   HasAccountControls,
   LocaleControls,
+  ProductFilterControl,
   ReservationCountControls,
 } from "./audience-condition-controls";
 import {
@@ -277,13 +278,27 @@ function ConditionEditor({
         />
       ),
       lastVisit: (value) => (
-        <DateConditionControls
-          value={value}
-          onChange={onChange}
-          errorAt={errorAt}
-          label="Last visit"
-          noValueLabel="never visited"
-        />
+        <div className="space-y-2">
+          <DateConditionControls
+            value={value}
+            onChange={onChange}
+            errorAt={errorAt}
+            label="Last visit"
+            noValueLabel="never visited"
+          />
+          <ProductFilterControl
+            value={value.params?.product}
+            onChange={(product) => {
+              const { params: _, ...rest } = value;
+              onChange(product ? { ...rest, params: { product } } : rest);
+            }}
+            errorAt={(field) =>
+              errorAt(
+                field === "" ? "params.product" : `params.product.${field}`
+              )
+            }
+          />
+        </div>
       ),
       accountCreated: (value) => (
         <DateConditionControls
