@@ -56,6 +56,7 @@ function AccountShellHarness() {
               Synthetic field
               <input className="w-full rounded-md border px-3 py-2" />
             </label>
+            <div data-synthetic-long-content="" style={{ height: "2400px" }} />
           </AccountSectionPanel>
         </div>
       ))}
