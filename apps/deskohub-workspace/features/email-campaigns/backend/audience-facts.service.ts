@@ -98,7 +98,10 @@ export class AudienceFactsService extends Context.Service<
         reservations: readonly DotyposReservation[]
       ) => reservations.flatMap(({ id }) => (id === undefined ? [] : [id]));
 
-      const countResolver = (request: AudienceCountRequest, now: Temporal.Instant) =>
+      const countResolver = (
+        request: AudienceCountRequest,
+        now: Temporal.Instant
+      ) =>
         Match.value(request).pipe(
           Match.discriminatorsExhaustive("attribute")({
             reservationCount: ({ params: { dateBasis, period, status } }) => {
@@ -116,8 +119,7 @@ export class AudienceFactsService extends Context.Service<
               }
               return visitLowerBound.pipe(
                 Effect.flatMap((lowerBound) => {
-                  const startsAtOrAfter =
-                    bounds.startsAtOrAfter ?? lowerBound;
+                  const startsAtOrAfter = bounds.startsAtOrAfter ?? lowerBound;
                   return startsAtOrAfter === undefined
                     ? Effect.succeed([])
                     : listVisits({ ...bounds, startsAtOrAfter });
@@ -223,12 +225,16 @@ export class AudienceFactsService extends Context.Service<
           return yield* Effect.all({
             counts: Effect.forEach(requests.counts, (request) =>
               countResolver(request, now).pipe(
-                Effect.map((counts) => [audienceFactKey(request), counts] as const)
+                Effect.map(
+                  (counts) => [audienceFactKey(request), counts] as const
+                )
               )
             ).pipe(Effect.map((entries) => new Map(entries))),
             dates: Effect.forEach(requests.dates, (request) =>
               dateResolver(request).pipe(
-                Effect.map((dates) => [audienceFactKey(request), dates] as const)
+                Effect.map(
+                  (dates) => [audienceFactKey(request), dates] as const
+                )
               )
             ).pipe(Effect.map((entries) => new Map(entries))),
           });

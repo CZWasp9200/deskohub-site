@@ -25,16 +25,7 @@ export const asRootGroup = (filter: AudienceFilter): AudienceFilterGroup =>
 
 const lastThirtyDays: DatePeriod = { _tag: "Last", count: 30, unit: "day" };
 
-/**
- * A set condition starts with nothing chosen. The form holds it until the
- * operator picks a value; the schema rejects it on save with a plain message.
- */
-const nothingChosen = <Value>() =>
-  [] as unknown as readonly [Value, ...Value[]];
-
-const newConditions: {
-  readonly [Attribute in AudienceAttribute]: () => AudienceConditionOf<Attribute>;
-} = {
+const newConditions = {
   reservationCount: () => ({
     _tag: "Condition",
     attribute: "reservationCount",
@@ -71,13 +62,13 @@ const newConditions: {
     _tag: "Condition",
     attribute: "dotyposTags",
     operator: "anyOf",
-    value: nothingChosen(),
+    value: [],
   }),
   discountGroup: () => ({
     _tag: "Condition",
     attribute: "discountGroup",
     operator: "anyOf",
-    value: nothingChosen(),
+    value: [],
   }),
   hasAccount: () => ({
     _tag: "Condition",
@@ -85,12 +76,13 @@ const newConditions: {
     operator: "is",
     value: true,
   }),
+} satisfies {
+  readonly [Attribute in AudienceAttribute]: () => AudienceConditionOf<Attribute>;
 };
 
 /** Starting values for a condition an operator adds or switches to. */
-export const newCondition = <Attribute extends AudienceAttribute>(
-  attribute: Attribute
-): AudienceConditionOf<Attribute> => newConditions[attribute]();
+export const newCondition = (attribute: AudienceAttribute): AudienceCondition =>
+  newConditions[attribute]();
 
 /** An empty group nested in `parent`, which usually flips the parent's logic. */
 export const newNestedGroup = (
@@ -128,12 +120,9 @@ export const toggleSetValue = <Value>(
   selected: readonly Value[],
   value: Value,
   checked: boolean
-): readonly [Value, ...Value[]] => {
+): readonly Value[] => {
   const others = selected.filter((current) => current !== value);
-  return (checked ? [...others, value] : others) as unknown as readonly [
-    Value,
-    ...Value[],
-  ];
+  return checked ? [...others, value] : others;
 };
 
 export type DatePeriodKind = DatePeriod["_tag"];
@@ -161,8 +150,7 @@ export const switchDatePeriod = (
     Match.when("AnyTime", (): DatePeriod => ({ _tag: "AnyTime" })),
     Match.when(
       "Last",
-      (): DatePeriod =>
-        period._tag === "Last" ? period : lastThirtyDays
+      (): DatePeriod => (period._tag === "Last" ? period : lastThirtyDays)
     ),
     Match.when(
       "Range",

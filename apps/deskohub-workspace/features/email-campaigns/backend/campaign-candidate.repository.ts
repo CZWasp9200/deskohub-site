@@ -73,7 +73,7 @@ export type CampaignBookedReservation = {
  * Recipient statuses that mean Resend accepted the email for the customer.
  * `unconfirmed` counts too: the email may well have gone out.
  */
-export const receivedCampaignEmailStatuses = [
+const receivedCampaignEmailStatuses = [
   "sent",
   "delivered",
   "complained",
@@ -256,36 +256,42 @@ export class CampaignCandidateRepository extends Context.Service<
         countReceivedCampaignEmails: Effect.fn(
           "CampaignCandidateRepository.countReceivedCampaignEmails"
         )(function* ({ purpose, dispatched }) {
-          const recipients = emailCampaignRecipients;
-          const batches = emailCampaignDeliveryBatches;
           // A recipient a webhook settled without a batch in its current
           // attempt is dated by its status change instead.
-          const dispatchedAt = sql`coalesce(${batches.requestedAt}, ${recipients.statusUpdatedAt})`;
+          const dispatchedAt = sql`coalesce(${emailCampaignDeliveryBatches.requestedAt}, ${emailCampaignRecipients.statusUpdatedAt})`;
           const rows = yield* db
             .select({
-              dotyposCustomerId: recipients.dotyposCustomerId,
+              dotyposCustomerId: emailCampaignRecipients.dotyposCustomerId,
               count: count(),
             })
-            .from(recipients)
+            .from(emailCampaignRecipients)
             .innerJoin(
               emailCampaignSends,
-              eq(emailCampaignSends.id, recipients.sendId)
+              eq(emailCampaignSends.id, emailCampaignRecipients.sendId)
             )
             .innerJoin(
               emailCampaigns,
               eq(emailCampaigns.id, emailCampaignSends.campaignId)
             )
             .leftJoin(
-              batches,
+              emailCampaignDeliveryBatches,
               and(
-                eq(batches.sendId, recipients.sendId),
-                eq(batches.deliveryAttempt, recipients.deliveryAttempt),
-                sql`${recipients.dotyposCustomerId} = any(${batches.dotyposCustomerIds})`
+                eq(
+                  emailCampaignDeliveryBatches.sendId,
+                  emailCampaignRecipients.sendId
+                ),
+                eq(
+                  emailCampaignDeliveryBatches.deliveryAttempt,
+                  emailCampaignRecipients.deliveryAttempt
+                ),
+                sql`${emailCampaignRecipients.dotyposCustomerId} = any(${emailCampaignDeliveryBatches.dotyposCustomerIds})`
               )
             )
             .where(
               and(
-                inArray(recipients.status, [...receivedCampaignEmailStatuses]),
+                inArray(emailCampaignRecipients.status, [
+                  ...receivedCampaignEmailStatuses,
+                ]),
                 purpose && eq(emailCampaigns.purpose, purpose),
                 dispatched.startsAtOrAfter &&
                   sql`${dispatchedAt} >= ${temporalInstantToDate(dispatched.startsAtOrAfter)}`,
@@ -293,7 +299,7 @@ export class CampaignCandidateRepository extends Context.Service<
                   sql`${dispatchedAt} < ${temporalInstantToDate(dispatched.startsBefore)}`
               )
             )
-            .groupBy(recipients.dotyposCustomerId);
+            .groupBy(emailCampaignRecipients.dotyposCustomerId);
           return new Map(
             rows.map((row) => [row.dotyposCustomerId, row.count] as const)
           );
@@ -346,9 +352,7 @@ export class CampaignCandidateRepository extends Context.Service<
               dotyposCustomerId: workspaceReservations.dotyposCustomerId,
             })
             .from(workspaceReservations)
-            .where(
-              reservationSelection({ dotyposReservationIds })
-            );
+            .where(reservationSelection({ dotyposReservationIds }));
           return rows.flatMap(({ dotyposReservationId, dotyposCustomerId }) =>
             dotyposReservationId === null
               ? []

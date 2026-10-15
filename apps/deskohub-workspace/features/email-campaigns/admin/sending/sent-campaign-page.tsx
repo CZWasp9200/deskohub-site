@@ -107,7 +107,10 @@ export async function SentCampaignPage({
                 value={
                   hasPeriodEndingAtEvaluation(send.audienceFilter)
                     ? `${describeAudienceFilter(send.audienceFilter, discountGroups)}, counted back from the send time (${formatAdministrationDateTime(send.createdAt.toString())}).`
-                    : describeAudienceFilter(send.audienceFilter, discountGroups)
+                    : describeAudienceFilter(
+                        send.audienceFilter,
+                        discountGroups
+                      )
                 }
               />
             </dl>

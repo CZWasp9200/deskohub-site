@@ -69,8 +69,8 @@ import {
 } from "../errors";
 import { ensureCampaignRecipientsAllowed } from "../recipient-domain-guard";
 import { campaignContentCoversAudience } from "../recipient-locale";
-import { CampaignService } from "./campaign.service";
 import { AudienceFactsService } from "./audience-facts.service";
+import { CampaignService } from "./campaign.service";
 import { CampaignAudienceService } from "./campaign-audience.service";
 import { CampaignCandidateRepository } from "./campaign-candidate.repository";
 import {

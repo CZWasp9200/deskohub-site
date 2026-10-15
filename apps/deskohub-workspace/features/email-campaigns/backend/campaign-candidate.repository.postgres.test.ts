@@ -177,7 +177,11 @@ describe.skipIf(!testDatabase)(
      * a webhook without a batch, and `unfulfilled` bounced.
      */
     const seedCampaignDeliveries = async () => {
-      const filter = JSON.stringify({ _tag: "Group", operator: "and", filters: [] });
+      const filter = JSON.stringify({
+        _tag: "Group",
+        operator: "and",
+        filters: [],
+      });
       await testDatabase.pool.query(
         `insert into email_campaigns (id, title, purpose, template_key, status)
          values ($1, 'Marketing', 'marketing', 'workspace', 'sent'),
@@ -187,7 +191,13 @@ describe.skipIf(!testDatabase)(
       await testDatabase.pool.query(
         `insert into email_campaign_sends (id, campaign_id, audience_filter, content_hash, delivery_attempt)
          values ($1, $2, $5, 'hash', 2), ($3, $4, $5, 'hash', 1)`,
-        [marketingSend, marketingCampaign, operationalSend, operationalCampaign, filter]
+        [
+          marketingSend,
+          marketingCampaign,
+          operationalSend,
+          operationalCampaign,
+          filter,
+        ]
       );
       await testDatabase.pool.query(
         `insert into email_campaign_recipients (send_id, dotypos_customer_id, locale, status, delivery_attempt, status_updated_at)
@@ -196,7 +206,14 @@ describe.skipIf(!testDatabase)(
                 ($1, $5, 'cs-CZ', 'sent', 2, '2026-10-02T11:00:00Z'),
                 ($1, $6, 'cs-CZ', 'unconfirmed', 1, '2026-10-03T10:00:00Z'),
                 ($2, $3, 'cs-CZ', 'complained', 1, '2026-10-04T11:00:00Z')`,
-        [marketingSend, operationalSend, reserved, unfulfilled, linked, consented]
+        [
+          marketingSend,
+          operationalSend,
+          reserved,
+          unfulfilled,
+          linked,
+          consented,
+        ]
       );
       await testDatabase.pool.query(
         `insert into email_campaign_delivery_batches (send_id, delivery_attempt, batch_index, dotypos_customer_ids, payload_hash, status, requested_at, settled_at)
@@ -204,7 +221,13 @@ describe.skipIf(!testDatabase)(
                 ($1, 1, 1, $4, 'hash', 'rejected', '2026-09-01T10:00:00Z', '2026-09-01T10:00:01Z'),
                 ($1, 2, 0, $4, 'hash', 'accepted', '2026-10-02T10:00:00Z', '2026-10-02T10:00:01Z'),
                 ($2, 1, 0, $5, 'hash', 'accepted', '2026-10-04T10:00:00Z', '2026-10-04T10:00:01Z')`,
-        [marketingSend, operationalSend, [reserved, unfulfilled], [linked], [reserved]]
+        [
+          marketingSend,
+          operationalSend,
+          [reserved, unfulfilled],
+          [linked],
+          [reserved],
+        ]
       );
     };
 
@@ -305,13 +328,13 @@ describe.skipIf(!testDatabase)(
         )
       ).toBe(false);
       expect(await matches({ status: "cancelled" }, abandoned)).toBe(true);
-      expect((await reservationCounts({ status: "cancelled" })).get(reserved)).toBe(1);
+      expect(
+        (await reservationCounts({ status: "cancelled" })).get(reserved)
+      ).toBe(1);
     });
 
     test("treats an abandoned checkout as no reservation", async () => {
-      const condition = (
-        operator: "gt" | "eq"
-      ): AudienceCondition => ({
+      const condition = (operator: "gt" | "eq"): AudienceCondition => ({
         attribute: "reservationCount",
         _tag: "Condition",
         params: { dateBasis: "booking", period: { _tag: "AnyTime" } },
@@ -389,7 +412,10 @@ describe.skipIf(!testDatabase)(
           ])
         )
       ).toEqual([
-        { dotyposReservationId: visitedReservation, dotyposCustomerId: reserved },
+        {
+          dotyposReservationId: visitedReservation,
+          dotyposCustomerId: reserved,
+        },
       ]);
     });
 
@@ -434,9 +460,9 @@ describe.skipIf(!testDatabase)(
       const facts = (created: DatePeriodBounds) =>
         repository((candidates) => candidates.accountCreations(created));
       const september = Temporal.Instant.from("2026-09-01T00:00:00Z");
-      expect((await facts({ startsAtOrAfter: september })).inPeriod.has(linked)).toBe(
-        true
-      );
+      expect(
+        (await facts({ startsAtOrAfter: september })).inPeriod.has(linked)
+      ).toBe(true);
       const before = await facts({ startsBefore: september });
       expect(before.withValue.has(linked)).toBe(true);
       expect(before.inPeriod.has(linked)).toBe(false);

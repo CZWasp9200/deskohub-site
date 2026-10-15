@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Result, Schema } from "effect";
+import { AudienceFilter } from "./audience-filter";
 import {
   AdministrationCampaignAudienceCreateRequest,
   AdministrationCampaignAudienceInput,
@@ -13,7 +14,6 @@ import {
   AdministrationCampaignTemplatePreviewInput,
   AdministrationCampaignUpdateInput,
 } from "./email-campaigns";
-import { AudienceFilter } from "./audience-filter";
 
 const decodes = <A, I>(schema: Schema.Codec<A, I>, input: unknown) =>
   Result.isSuccess(Schema.decodeUnknownResult(schema)(input));
@@ -63,7 +63,12 @@ describe("campaign admin API contract", () => {
         _tag: "Group",
         operator: "and",
         filters: [
-          { attribute: "dotyposTags", _tag: "Condition", operator: "anyOf", value: [] },
+          {
+            attribute: "dotyposTags",
+            _tag: "Condition",
+            operator: "anyOf",
+            value: [],
+          },
           {
             attribute: "reservationCount",
             _tag: "Condition",
@@ -76,7 +81,11 @@ describe("campaign admin API contract", () => {
           },
         ],
       })
-    ).toEqual(["filters.0.value.0", "filters.1.params.period", "filters.1.value"]);
+    ).toEqual([
+      "filters.0.value.0",
+      "filters.1.params.period",
+      "filters.1.value",
+    ]);
   });
 
   test("accepts a stored audience filter in every API input that embeds it", () => {
@@ -94,7 +103,10 @@ describe("campaign admin API contract", () => {
   });
 
   test.each([
-    ["an unknown attribute", { attribute: "spend", _tag: "Condition", operator: "gt", value: 100 }],
+    [
+      "an unknown attribute",
+      { attribute: "spend", _tag: "Condition", operator: "gt", value: 100 },
+    ],
     ["a legacy condition", { _tag: "Locale", locales: ["cs-CZ"] }],
     [
       "an invalid calendar date",
@@ -105,10 +117,18 @@ describe("campaign admin API contract", () => {
         value: { _tag: "Since", date: "2026-02-30" },
       },
     ],
-    ["an empty locale list", { attribute: "locale", _tag: "Condition", operator: "anyOf", value: [] }],
+    [
+      "an empty locale list",
+      { attribute: "locale", _tag: "Condition", operator: "anyOf", value: [] },
+    ],
     [
       "an unsupported locale",
-      { attribute: "locale", _tag: "Condition", operator: "anyOf", value: ["de-DE"] },
+      {
+        attribute: "locale",
+        _tag: "Condition",
+        operator: "anyOf",
+        value: ["de-DE"],
+      },
     ],
     [
       "a negative count",
@@ -126,7 +146,13 @@ describe("campaign admin API contract", () => {
         _tag: "Group",
         operator: "and",
         filters: [
-          { attribute: "hasAccount", _tag: "Condition", operator: "is", value: true, extra: 1 },
+          {
+            attribute: "hasAccount",
+            _tag: "Condition",
+            operator: "is",
+            value: true,
+            extra: 1,
+          },
         ],
       },
     ],

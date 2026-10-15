@@ -41,10 +41,8 @@ import {
   toggleSetValue,
 } from "./audience-filter-editing";
 
-export const compactSelectClassName =
-  "min-h-9 w-auto rounded-md px-3 py-1.5 text-sm";
-export const compactInputClassName =
-  "h-9 min-h-9 rounded-md px-3 py-1.5 text-sm";
+const compactSelectClassName = "min-h-9 w-auto rounded-md px-3 py-1.5 text-sm";
+const compactInputClassName = "h-9 min-h-9 rounded-md px-3 py-1.5 text-sm";
 
 /** Error message for a field path relative to the control, if any. */
 export type FieldErrorLookup = (field: string) => string | undefined;
@@ -64,14 +62,16 @@ export function FieldError({ message }: { readonly message: string }) {
 }
 
 /** Wording kept apart from the controls so the row reads as a sentence. */
-export function ConditionText({ children }: { readonly children: ReactNode }) {
+function ConditionText({ children }: { readonly children: ReactNode }) {
   return <span className="text-sm">{children}</span>;
 }
 
 /** One line of a condition sentence; it wraps on narrow screens. */
-export function ConditionLine({ children }: { readonly children: ReactNode }) {
+function ConditionLine({ children }: { readonly children: ReactNode }) {
   return (
-    <div className="flex flex-wrap items-center gap-x-2 gap-y-2">{children}</div>
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
+      {children}
+    </div>
   );
 }
 
@@ -100,7 +100,7 @@ const numberInputValue = (value: number) =>
   Number.isNaN(value) ? "" : String(value);
 
 /** An operator and a non-negative whole number: "≥ 2", "= 0". */
-export function CountComparisonControl({
+function CountComparisonControl({
   operator,
   value,
   onChange,
@@ -177,7 +177,7 @@ const today = () => getCurrentWorkspaceDate().toString();
  * Any time, the last N days/weeks/months/years, from–to, since, or until. The
  * same control picks every period an audience condition uses.
  */
-export function DatePeriodControl({
+function DatePeriodControl({
   value,
   onChange,
   errorAt,
@@ -278,13 +278,9 @@ export function DatePeriodControl({
             { max: value.to }
           )}
           <ConditionText>to</ConditionText>
-          {dateInput(
-            value.to,
-            "to",
-            "end date",
-            (to) => ({ ...value, to }),
-            { min: value.from }
-          )}
+          {dateInput(value.to, "to", "end date", (to) => ({ ...value, to }), {
+            min: value.from,
+          })}
         </>
       )}
       {(value._tag === "Since" ||
@@ -297,7 +293,7 @@ export function DatePeriodControl({
 }
 
 /** Plain instructions for a period's invalid fields. */
-export const datePeriodErrors = (errorAt: FieldErrorLookup) =>
+const datePeriodErrors = (errorAt: FieldErrorLookup) =>
   [
     errorAt("count") && "Enter a whole number of 1 or more.",
     (errorAt("from") || errorAt("to") || errorAt("date")) &&
@@ -729,9 +725,6 @@ function ValueEntry({
   );
 }
 
-const asChosen = (values: readonly string[]) =>
-  values as unknown as readonly [string, ...string[]];
-
 export function DotyposTagControls({
   value: condition,
   onChange,
@@ -749,9 +742,7 @@ export function DotyposTagControls({
         />
         <ValueEntry
           values={condition.value}
-          onChange={(values) =>
-            onChange({ ...condition, value: asChosen(values) })
-          }
+          onChange={(values) => onChange({ ...condition, value: values })}
           noun="tag"
           placeholder="Add a tag"
           invalid={errorAt("value") !== undefined}
@@ -837,9 +828,7 @@ export function DiscountGroupControls({
         ) : (
           <ValueEntry
             values={condition.value}
-            onChange={(values) =>
-              onChange({ ...condition, value: asChosen(values) })
-            }
+            onChange={(values) => onChange({ ...condition, value: values })}
             noun="discount group ID"
             placeholder="Dotypos group ID"
             invalid={invalid}

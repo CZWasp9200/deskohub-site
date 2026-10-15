@@ -57,26 +57,33 @@ const resolveFacts = async (input: {
       Effect.succeed(new Map<DotyposCustomerId, number>())
   );
   const accountCreations = mock((_: DatePeriodBounds) =>
-    Effect.succeed({ withValue: new Set<DotyposCustomerId>(), inPeriod: new Set<DotyposCustomerId>() })
+    Effect.succeed({
+      withValue: new Set<DotyposCustomerId>(),
+      inPeriod: new Set<DotyposCustomerId>(),
+    })
   );
-  const listBookedReservations = mock(
-    (ids: readonly string[]) =>
-      Effect.succeed(
-        (input.booked ?? []).filter(({ dotyposReservationId }) =>
-          ids.includes(dotyposReservationId)
-        )
+  const listBookedReservations = mock((ids: readonly string[]) =>
+    Effect.succeed(
+      (input.booked ?? []).filter(({ dotyposReservationId }) =>
+        ids.includes(dotyposReservationId)
       )
+    )
   );
   const listReservations = mock(
-    (_: { readonly startsAtOrAfter?: string; readonly startsBefore?: string }) =>
-      Effect.succeed(input.visits ?? [])
+    (_: {
+      readonly startsAtOrAfter?: string;
+      readonly startsBefore?: string;
+    }) => Effect.succeed(input.visits ?? [])
   );
   const evaluationTime = input.now ?? now;
   const exit = await Effect.runPromiseExit(
     Effect.gen(function* () {
       yield* TestClock.setTime(evaluationTime.epochMilliseconds);
       const service = yield* AudienceFactsService;
-      return yield* service.resolve({ filter: input.filter, now: evaluationTime });
+      return yield* service.resolve({
+        filter: input.filter,
+        now: evaluationTime,
+      });
     }).pipe(
       Effect.provide(
         AudienceFactsService.Default.pipe(
@@ -118,7 +125,10 @@ const facts = (exit: Exit.Exit<AudienceFacts, unknown>) => {
 
 const emails = (
   purpose: "marketing" | "operational" | "any",
-  period: Extract<AudienceCondition, { attribute: "campaignEmailCount" }>["params"]["period"]
+  period: Extract<
+    AudienceCondition,
+    { attribute: "campaignEmailCount" }
+  >["params"]["period"]
 ): AudienceCondition => ({
   attribute: "campaignEmailCount",
   _tag: "Condition",
@@ -128,7 +138,10 @@ const emails = (
 });
 
 const reservations = (
-  params: Extract<AudienceCondition, { attribute: "reservationCount" }>["params"]
+  params: Extract<
+    AudienceCondition,
+    { attribute: "reservationCount" }
+  >["params"]
 ): AudienceCondition => ({
   attribute: "reservationCount",
   _tag: "Condition",
@@ -145,7 +158,9 @@ describe("AudienceFactsService periods", () => {
         emails("any", { _tag: "AnyTime" })
       ),
     });
-    expect(countReceivedCampaignEmails.mock.calls.map(([query]) => query)).toEqual([
+    expect(
+      countReceivedCampaignEmails.mock.calls.map(([query]) => query)
+    ).toEqual([
       {
         purpose: "marketing",
         dispatched: {
@@ -177,12 +192,20 @@ describe("AudienceFactsService periods", () => {
           period: { _tag: "Range", from: "2026-03-01", to: "2026-03-31" },
           status: "complete",
         }),
-        reservations({ dateBasis: "booking", period: { _tag: "Since", date: "2026-10-01" } }),
-        reservations({ dateBasis: "booking", period: { _tag: "Onward", date: "2026-10-01" } })
+        reservations({
+          dateBasis: "booking",
+          period: { _tag: "Since", date: "2026-10-01" },
+        }),
+        reservations({
+          dateBasis: "booking",
+          period: { _tag: "Onward", date: "2026-10-01" },
+        })
       ),
     });
     expect(listReservations).not.toHaveBeenCalled();
-    expect(countReservations.mock.calls.map(([selection]) => selection)).toEqual([
+    expect(
+      countReservations.mock.calls.map(([selection]) => selection)
+    ).toEqual([
       {
         status: "complete",
         booked: {
@@ -190,7 +213,12 @@ describe("AudienceFactsService periods", () => {
           startsBefore: instant("2026-03-31T22:00:00Z"),
         },
       },
-      { booked: { startsAtOrAfter: instant("2026-09-30T22:00:00Z"), startsBefore: now } },
+      {
+        booked: {
+          startsAtOrAfter: instant("2026-09-30T22:00:00Z"),
+          startsBefore: now,
+        },
+      },
       { booked: { startsAtOrAfter: instant("2026-09-30T22:00:00Z") } },
     ]);
   });
@@ -205,19 +233,33 @@ describe("AudienceFactsService Dotypos bounds", () => {
           dateBasis: "visit",
           period: { _tag: "Range", from: "2026-03-01", to: "2026-03-31" },
         }),
-        reservations({ dateBasis: "visit", period: { _tag: "Until", date: "2026-03-31" } }),
-        reservations({ dateBasis: "visit", period: { _tag: "Onward", date: "2026-10-01" } }),
+        reservations({
+          dateBasis: "visit",
+          period: { _tag: "Until", date: "2026-03-31" },
+        }),
+        reservations({
+          dateBasis: "visit",
+          period: { _tag: "Onward", date: "2026-10-01" },
+        }),
         reservations({ dateBasis: "visit", period: { _tag: "AnyTime" } })
       ),
     });
     expect(listReservations.mock.calls.map(([options]) => options)).toEqual([
-      { startsAtOrAfter: "2026-02-28T23:00:00Z", startsBefore: "2026-03-31T22:00:00Z" },
+      {
+        startsAtOrAfter: "2026-02-28T23:00:00Z",
+        startsBefore: "2026-03-31T22:00:00Z",
+      },
       // No start of its own: a week before the earliest Workspace reservation.
-      { startsAtOrAfter: "2025-01-03T12:00:00Z", startsBefore: "2026-03-31T22:00:00Z" },
+      {
+        startsAtOrAfter: "2025-01-03T12:00:00Z",
+        startsBefore: "2026-03-31T22:00:00Z",
+      },
       // Onward keeps future visits.
       { startsAtOrAfter: "2026-09-30T22:00:00Z" },
     ]);
-    expect(countReservations.mock.calls.map(([selection]) => selection)).toEqual([
+    expect(
+      countReservations.mock.calls.map(([selection]) => selection)
+    ).toEqual([
       { dotyposReservationIds: [reservationId("r1")] },
       { dotyposReservationIds: [reservationId("r1")] },
       { dotyposReservationIds: [reservationId("r1")] },
@@ -229,7 +271,10 @@ describe("AudienceFactsService Dotypos bounds", () => {
     const { listReservations, exit } = await resolveFacts({
       earliestReservationAt: null,
       filter: group(
-        reservations({ dateBasis: "visit", period: { _tag: "Until", date: "2026-03-31" } }),
+        reservations({
+          dateBasis: "visit",
+          period: { _tag: "Until", date: "2026-03-31" },
+        }),
         { attribute: "lastVisit", _tag: "Condition", operator: "none" }
       ),
     });
@@ -244,14 +289,26 @@ describe("AudienceFactsService last visit", () => {
   const recent = { _tag: "Last", count: 30, unit: "day" } as const;
   const lastVisit = (
     operator: "in" | "notIn",
-    value: Extract<AudienceCondition, { attribute: "lastVisit"; operator: "in" | "notIn" }>["value"]
-  ): AudienceCondition => ({ attribute: "lastVisit", _tag: "Condition", operator, value });
+    value: Extract<
+      AudienceCondition,
+      { attribute: "lastVisit"; operator: "in" | "notIn" }
+    >["value"]
+  ): AudienceCondition => ({
+    attribute: "lastVisit",
+    _tag: "Condition",
+    operator,
+    value,
+  });
 
   const run = () =>
     resolveFacts({
       filter: group(
         lastVisit("notIn", recent),
-        lastVisit("in", { _tag: "Range", from: "2026-08-01", to: "2026-09-30" }),
+        lastVisit("in", {
+          _tag: "Range",
+          from: "2026-08-01",
+          to: "2026-09-30",
+        }),
         { attribute: "lastVisit", _tag: "Condition", operator: "none" }
       ),
       visits: [
@@ -261,9 +318,18 @@ describe("AudienceFactsService last visit", () => {
         visit("c-unbooked", "2026-10-12T08:00:00Z"),
       ],
       booked: [
-        { dotyposReservationId: reservationId("a-old"), dotyposCustomerId: customerId("a") },
-        { dotyposReservationId: reservationId("a-recent"), dotyposCustomerId: customerId("a") },
-        { dotyposReservationId: reservationId("b-old"), dotyposCustomerId: customerId("b") },
+        {
+          dotyposReservationId: reservationId("a-old"),
+          dotyposCustomerId: customerId("a"),
+        },
+        {
+          dotyposReservationId: reservationId("a-recent"),
+          dotyposCustomerId: customerId("a"),
+        },
+        {
+          dotyposReservationId: reservationId("b-old"),
+          dotyposCustomerId: customerId("b"),
+        },
       ],
     });
 
@@ -276,7 +342,9 @@ describe("AudienceFactsService last visit", () => {
 
   test("takes each customer's latest booked visit as the value", async () => {
     const { dates } = facts((await run()).exit);
-    expect(dates.get(audienceFactKey({ attribute: "lastVisit", period: recent }))).toEqual({
+    expect(
+      dates.get(audienceFactKey({ attribute: "lastVisit", period: recent }))
+    ).toEqual({
       withValue: new Set([customerId("a"), customerId("b")]),
       inPeriod: new Set([customerId("a")]),
     });

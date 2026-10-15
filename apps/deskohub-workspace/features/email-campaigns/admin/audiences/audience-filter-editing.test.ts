@@ -115,7 +115,11 @@ describe("toggleSetValue", () => {
 
 describe("switchDatePeriod", () => {
   const today = "2026-10-15";
-  const range: DatePeriod = { _tag: "Range", from: "2026-01-01", to: "2026-02-01" };
+  const range: DatePeriod = {
+    _tag: "Range",
+    from: "2026-01-01",
+    to: "2026-02-01",
+  };
 
   test.each<[DatePeriodKind, DatePeriod]>([
     ["AnyTime", { _tag: "AnyTime" }],
@@ -124,9 +128,12 @@ describe("switchDatePeriod", () => {
     ["Since", { _tag: "Since", date: "2026-01-01" }],
     ["Onward", { _tag: "Onward", date: "2026-01-01" }],
     ["Until", { _tag: "Until", date: "2026-02-01" }],
-  ])("keeps the dates it can when switching a range to %s", (kind, expected) => {
-    expect(switchDatePeriod(range, kind, today)).toEqual(expected);
-  });
+  ])(
+    "keeps the dates it can when switching a range to %s",
+    (kind, expected) => {
+      expect(switchDatePeriod(range, kind, today)).toEqual(expected);
+    }
+  );
 
   test("starts dated periods on today when there were no dates", () => {
     expect(switchDatePeriod({ _tag: "AnyTime" }, "Range", today)).toEqual({
@@ -150,7 +157,10 @@ describe("the attribute catalogue in the builder", () => {
   });
 
   test("defaults decode, except set placeholders the operator must fill", () => {
-    const placeholders = new Set<AudienceAttribute>(["dotyposTags", "discountGroup"]);
+    const placeholders = new Set<AudienceAttribute>([
+      "dotyposTags",
+      "discountGroup",
+    ]);
     for (const attribute of attributes) {
       const decode = () => decodeFilter(newCondition(attribute));
       if (placeholders.has(attribute)) expect(decode).toThrow();

@@ -28,7 +28,9 @@ const range = Schema.TaggedStruct("Range", {
 );
 
 /** From the start of this Prague calendar day through the evaluation time. */
-const since = Schema.TaggedStruct("Since", { date: administrationCalendarDate });
+const since = Schema.TaggedStruct("Since", {
+  date: administrationCalendarDate,
+});
 
 /** From the start of this Prague calendar day on, future dates included. */
 const onward = Schema.TaggedStruct("Onward", {
@@ -36,7 +38,9 @@ const onward = Schema.TaggedStruct("Onward", {
 });
 
 /** Up to and including this Prague calendar day. */
-const until = Schema.TaggedStruct("Until", { date: administrationCalendarDate });
+const until = Schema.TaggedStruct("Until", {
+  date: administrationCalendarDate,
+});
 
 /**
  * A span of time an audience condition looks at. Every dated condition uses

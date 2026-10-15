@@ -25,7 +25,11 @@ export const AudienceDateOperator = Schema.Literals(["in", "notIn", "none"]);
 export type AudienceDateOperator = typeof AudienceDateOperator.Type;
 
 /** A set attribute includes any, all, or none of the chosen values. */
-export const AudienceSetOperator = Schema.Literals(["anyOf", "allOf", "noneOf"]);
+export const AudienceSetOperator = Schema.Literals([
+  "anyOf",
+  "allOf",
+  "noneOf",
+]);
 export type AudienceSetOperator = typeof AudienceSetOperator.Type;
 
 const count = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
@@ -91,7 +95,9 @@ const setCondition = <
   [
     conditionShape(attribute, {
       operator: Schema.Literals(operators),
-      value: Schema.NonEmptyArray(value),
+      // An empty choice is typeable, so the Admin UI can hold one while the
+      // operator picks values, but it never decodes.
+      value: Schema.Array(value).check(Schema.isMinLength(1)),
     }),
   ] as const;
 

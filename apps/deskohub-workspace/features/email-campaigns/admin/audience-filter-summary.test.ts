@@ -98,9 +98,9 @@ describe("describeAudienceFilter", () => {
     ["gte", 3, "at least 3 emails"],
     ["gt", Number.NaN, "… emails"],
   ])("phrases %s %d as “%s”", (operator, value, phrase) => {
-    expect(describeCount(operator, value, { one: "email", other: "emails" })).toBe(
-      phrase
-    );
+    expect(
+      describeCount(operator, value, { one: "email", other: "emails" })
+    ).toBe(phrase);
   });
 
   test("describes date attributes", () => {
@@ -144,7 +144,12 @@ describe("describeAudienceFilter", () => {
             operator: "anyOf",
             value: ["1", "2"],
           },
-          { attribute: "hasAccount", _tag: "Condition", operator: "is", value: false }
+          {
+            attribute: "hasAccount",
+            _tag: "Condition",
+            operator: "is",
+            value: false,
+          }
         ),
         [{ id: "1", name: "Students" }]
       )
@@ -154,7 +159,9 @@ describe("describeAudienceFilter", () => {
   });
 
   test("brackets nested groups with more than one condition", () => {
-    expect(describe_(and(czech, or(reservations("gt", 0), reservations("eq", 0))))).toBe(
+    expect(
+      describe_(and(czech, or(reservations("gt", 0), reservations("eq", 0))))
+    ).toBe(
       "Customers who speak Czech and (have any booked reservations or have no booked reservations)"
     );
   });
@@ -165,7 +172,10 @@ describe("describeDatePeriod", () => {
     [{ _tag: "AnyTime" }, "at any time"],
     [{ _tag: "Last", count: 1, unit: "week" }, "in the last week"],
     [{ _tag: "Last", count: 2, unit: "year" }, "in the last 2 years"],
-    [{ _tag: "Range", from: "2026-01-01", to: "2026-03-31" }, "from 2026-01-01 to 2026-03-31"],
+    [
+      { _tag: "Range", from: "2026-01-01", to: "2026-03-31" },
+      "from 2026-01-01 to 2026-03-31",
+    ],
     [{ _tag: "Since", date: "2026-01-01" }, "since 2026-01-01"],
     [{ _tag: "Onward", date: "2026-01-01" }, "from 2026-01-01 onward"],
     [{ _tag: "Until", date: "2026-01-01" }, "until 2026-01-01"],

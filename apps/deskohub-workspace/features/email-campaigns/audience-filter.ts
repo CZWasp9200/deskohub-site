@@ -23,8 +23,8 @@ export type AudienceCondition = AudienceConditionType;
 export type { AudienceFilterGroup };
 export { audienceFilterSchema };
 
-export type AudienceCountAttribute = AudienceAttributeOfKind<"count">;
-export type AudienceDateAttribute = AudienceAttributeOfKind<"date">;
+type AudienceCountAttribute = AudienceAttributeOfKind<"count">;
+type AudienceDateAttribute = AudienceAttributeOfKind<"date">;
 
 /**
  * Three-valued result: a Dotypos condition is `unknown` until the customer's

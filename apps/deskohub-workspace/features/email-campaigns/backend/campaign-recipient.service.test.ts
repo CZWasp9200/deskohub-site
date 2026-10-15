@@ -243,21 +243,23 @@ describe("CampaignRecipientService.resolve", () => {
     const shared = testEmailAddress("shared");
     const run = async (order: readonly string[]) =>
       resolution(
-        (await resolve({
-          candidates: order.map((id) =>
-            facts(id, {
-              latestReservationAt:
-                id === "b"
-                  ? Temporal.Instant.from("2026-05-01T00:00:00Z")
-                  : null,
-            })
-          ),
-          customers: [
-            customer("a", { email: shared.toUpperCase() }),
-            customer("b", { email: ` ${shared}` }),
-            customer("c", { email: shared }),
-          ],
-        })).exit
+        (
+          await resolve({
+            candidates: order.map((id) =>
+              facts(id, {
+                latestReservationAt:
+                  id === "b"
+                    ? Temporal.Instant.from("2026-05-01T00:00:00Z")
+                    : null,
+              })
+            ),
+            customers: [
+              customer("a", { email: shared.toUpperCase() }),
+              customer("b", { email: ` ${shared}` }),
+              customer("c", { email: shared }),
+            ],
+          })
+        ).exit
       );
     const forward = await run(["a", "b", "c"]);
     expect(await run(["c", "b", "a"])).toEqual(forward);

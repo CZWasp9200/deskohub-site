@@ -204,7 +204,10 @@ describe("evaluateAudienceFilter", () => {
   });
 
   test("a date in, not in, or without a value", () => {
-    const request = { attribute: "lastVisit", period: lastVisitNotRecent.value } as const;
+    const request = {
+      attribute: "lastVisit",
+      period: lastVisitNotRecent.value,
+    } as const;
     const visitedLongAgo = dateFacts(request, {
       withValue: new Set([customerId]),
       inPeriod: new Set(),
@@ -219,7 +222,9 @@ describe("evaluateAudienceFilter", () => {
     });
     const visitedIn = { ...lastVisitNotRecent, operator: "in" } as const;
 
-    expect(evaluate(lastVisitNotRecent, { facts: visitedLongAgo })).toBe("match");
+    expect(evaluate(lastVisitNotRecent, { facts: visitedLongAgo })).toBe(
+      "match"
+    );
     expect(evaluate(lastVisitNotRecent, { facts: visitedRecently })).toBe(
       "noMatch"
     );
@@ -235,10 +240,16 @@ describe("evaluateAudienceFilter", () => {
       _tag: "Condition",
       operator: "none",
     } as const satisfies AudienceCondition;
-    const anyTime = { attribute: "lastVisit", period: { _tag: "AnyTime" } } as const;
+    const anyTime = {
+      attribute: "lastVisit",
+      period: { _tag: "AnyTime" },
+    } as const;
     expect(
       evaluate(never, {
-        facts: dateFacts(anyTime, { withValue: new Set(), inPeriod: new Set() }),
+        facts: dateFacts(anyTime, {
+          withValue: new Set(),
+          inPeriod: new Set(),
+        }),
       })
     ).toBe("match");
     expect(
@@ -266,9 +277,9 @@ describe("evaluateAudienceFilter", () => {
       operator: "anyOf",
       value: ["42"],
     } as const satisfies AudienceCondition;
-    expect(evaluate(inGroup, { profile: profile({ _discountGroupId: "42" }) })).toBe(
-      "match"
-    );
+    expect(
+      evaluate(inGroup, { profile: profile({ _discountGroupId: "42" }) })
+    ).toBe("match");
     expect(evaluate(inGroup, { profile: profile({}) })).toBe("noMatch");
     expect(
       evaluate(
@@ -328,13 +339,18 @@ describe("audienceFilterSchema", () => {
       ]),
       taggedVip,
       speaks("cs-CZ"),
-      { attribute: "hasAccount", _tag: "Condition", operator: "is", value: true },
+      {
+        attribute: "hasAccount",
+        _tag: "Condition",
+        operator: "is",
+        value: true,
+      },
     ]);
     const decoded = decode(filter);
     expect(Result.isSuccess(decoded)).toBe(true);
-    expect(Schema.encodeSync(audienceFilterSchema)(Result.getOrThrow(decoded))).toEqual(
-      filter
-    );
+    expect(
+      Schema.encodeSync(audienceFilterSchema)(Result.getOrThrow(decoded))
+    ).toEqual(filter);
   });
 
   test.each([
@@ -355,8 +371,14 @@ describe("audienceFilterSchema", () => {
       { ...lastVisitNotRecent, value: { _tag: "Last", count: 0, unit: "day" } },
     ],
     ["an empty set", { ...taggedVip, value: [] }],
-    ["a set operator the attribute lacks", { ...speaks("cs-CZ"), operator: "allOf" }],
-    ["an unknown attribute", { attribute: "spend", _tag: "Condition", operator: "gt", value: 1 }],
+    [
+      "a set operator the attribute lacks",
+      { ...speaks("cs-CZ"), operator: "allOf" },
+    ],
+    [
+      "an unknown attribute",
+      { attribute: "spend", _tag: "Condition", operator: "gt", value: 1 },
+    ],
     ["a legacy condition", { _tag: "Locale", locales: ["cs-CZ"] }],
   ])("rejects %s", (_, filter) => {
     expect(Result.isFailure(decode(filter))).toBe(true);
@@ -384,9 +406,9 @@ describe("audienceLocales", () => {
         group("and", [speaks("cs-CZ", "en-US"), group("or", [speaks("cs-CZ")])])
       ),
     ]).toEqual(["cs-CZ"]);
-    expect([
-      ...audienceLocales(group("or", [speaks("cs-CZ"), taggedVip])),
-    ].sort()).toEqual(["cs-CZ", "en-US"]);
+    expect(
+      [...audienceLocales(group("or", [speaks("cs-CZ"), taggedVip]))].sort()
+    ).toEqual(["cs-CZ", "en-US"]);
     expect([...audienceLocales(group("or", []))]).toEqual([]);
   });
 });
@@ -403,10 +425,9 @@ describe("audienceSingleLocale", () => {
 describe("audienceAttributeCatalogue", () => {
   test("gives every attribute a kind the evaluator handles", () => {
     expect(
-      Object.entries(audienceAttributeCatalogue).map(([attribute, { kind }]) => [
-        attribute,
-        kind,
-      ])
+      Object.entries(audienceAttributeCatalogue).map(
+        ([attribute, { kind }]) => [attribute, kind]
+      )
     ).toEqual([
       ["reservationCount", "count"],
       ["campaignEmailCount", "count"],
