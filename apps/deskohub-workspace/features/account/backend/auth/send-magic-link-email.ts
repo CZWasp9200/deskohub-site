@@ -41,6 +41,8 @@ export type MagicLinkDeliveryCode =
 export type MagicLinkDeliveryRequest = {
   readonly email: string;
   readonly url: string;
+  /** The sign-in code sent with the link, while sign-in codes are on. */
+  readonly code?: string;
   readonly locale: WorkspaceEmailLocale;
 };
 
@@ -87,6 +89,7 @@ type AuthorizedMagicLinkLine =
       readonly recipient: string;
       readonly message: string;
       readonly url: string;
+      readonly signInCode?: string;
     };
 
 /**
@@ -119,6 +122,7 @@ const authorizedMagicLinkLine = (
       recipient: request.email,
       message: "Development magic link; open the url to sign in.",
       url: request.url,
+      signInCode: request.code,
     };
   }
   return undefined;

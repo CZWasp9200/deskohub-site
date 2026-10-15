@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   getAcceptedConsentCategoriesFromCookie,
   getAcceptedConsentCategoriesFromCookieValue,
+  isConsentCategoryAcceptedInCookie,
   type UnexpectedConsentCookieReason,
 } from "./consent-cookie";
 
@@ -84,5 +85,36 @@ describe("getAcceptedConsentCategoriesFromCookie", () => {
       })
     ).toEqual([]);
     expect(reasons).toEqual(["invalid_json"]);
+  });
+});
+
+describe("isConsentCategoryAcceptedInCookie", () => {
+  const cookieWithCategories = (...categories: readonly string[]) =>
+    `cc_cookie=${encodeURIComponent(JSON.stringify({ categories }))}`;
+
+  test("returns false when there is no consent cookie", () => {
+    expect(isConsentCategoryAcceptedInCookie("", "analytics")).toBe(false);
+  });
+
+  test("checks whether the cookie accepts the requested category", () => {
+    const cookie = cookieWithCategories("necessary", "analytics");
+
+    expect(isConsentCategoryAcceptedInCookie(cookie, "analytics")).toBe(true);
+    expect(isConsentCategoryAcceptedInCookie(cookie, "marketing")).toBe(false);
+  });
+
+  test("returns false for malformed JSON", () => {
+    const cookie = `cc_cookie=${encodeURIComponent("{")}`;
+
+    expect(isConsentCategoryAcceptedInCookie(cookie, "analytics")).toBe(false);
+  });
+
+  test("requires every copy of the consent cookie to accept the category", () => {
+    const cookie = [
+      cookieWithCategories("necessary", "analytics"),
+      cookieWithCategories("necessary"),
+    ].join("; ");
+
+    expect(isConsentCategoryAcceptedInCookie(cookie, "analytics")).toBe(false);
   });
 });

@@ -21,4 +21,27 @@ describe("Magic-link email renderer", () => {
     expect(rendered.subject).not.toContain("token=");
     expect(rendered.subject).not.toContain(customerEmail);
   });
+
+  test("puts the sign-in code alone on its own line of the text body", async () => {
+    const rendered = await Effect.runPromise(
+      renderMagicLinkEmail({ ...requestFor("cs-CZ"), code: "482913" })
+    );
+
+    expect(rendered.text.split("\n").map((line) => line.trim())).toContain(
+      "482913"
+    );
+    expect(rendered.html).toMatch(
+      /<span[^>]*>482<\/span><span[^>]*>913<\/span>/
+    );
+    expect(rendered.subject).not.toContain("482913");
+  });
+
+  test("renders the link-only email unchanged without a code", async () => {
+    const linkOnly = await Effect.runPromise(
+      renderMagicLinkEmail(requestFor("en-US"))
+    );
+
+    expect(linkOnly.text).not.toMatch(/^\s*\d{6}\s*$/m);
+    expect(linkOnly.text).toContain("token=preview-token");
+  });
 });
