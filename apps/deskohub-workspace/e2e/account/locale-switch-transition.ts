@@ -22,6 +22,8 @@ const languageOptionLabels = {
 } as const satisfies Readonly<Record<Locale, string>>;
 const localeSwitchLinkSelector = (locale: Locale) =>
   `[data-locale-switcher] a[href^="/${locale}"]`;
+const mobileMenuToggleSelector =
+  'button[aria-controls="site-header-mobile-menu"]';
 
 /**
  * The tab's sessionStorage key for the error-page watch. An empty value arms
@@ -143,13 +145,22 @@ const chooseProfileLanguage = async (page: Page, to: Locale) => {
     .click({ timeout: workspaceE2ETimeouts.browserAction });
 };
 
-/** Activates the header language switcher's link, as a visitor's tap does. */
-const activateHeaderSwitcher = async (page: Page, to: Locale) => {
-  const link = page.locator(localeSwitchLinkSelector(to)).first();
+/**
+ * Clicks the visible header language switcher's link, as a visitor's tap
+ * does. Below the desktop breakpoint the switcher sits in the collapsed
+ * mobile menu, so the menu opens first.
+ */
+export const activateHeaderSwitcher = async (page: Page, to: Locale) => {
+  const menuToggle = page.locator(mobileMenuToggleSelector);
+  if (await menuToggle.isVisible()) {
+    await waitForReactClickHandler(page, menuToggle);
+    await menuToggle.click({ timeout: workspaceE2ETimeouts.browserAction });
+  }
+  const link = page
+    .locator(localeSwitchLinkSelector(to))
+    .filter({ visible: true });
   await waitForReactClickHandler(page, link);
-  await link.evaluate((link: HTMLElement) => link.click(), undefined, {
-    timeout: workspaceE2ETimeouts.browserAction,
-  });
+  await link.click({ timeout: workspaceE2ETimeouts.browserAction });
 };
 
 /**

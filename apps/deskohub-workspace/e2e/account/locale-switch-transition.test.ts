@@ -3,6 +3,7 @@ import { createServer } from "node:http";
 import { chromium, type Page } from "@playwright/test";
 import { playwrightChromiumAvailable } from "../../shared/testing/playwright-browser";
 import {
+  activateHeaderSwitcher,
   localeSwitchErrorPageKey,
   watchLocaleSwitchErrorPage,
 } from "./locale-switch-transition";
@@ -31,7 +32,38 @@ const leave = `<!doctype html><title>old</title><button id="switch">switch</butt
   });
 </script>`;
 
+// The full header's switcher: a desktop nav that collapses into the mobile
+// menu below the xl breakpoint. Its controls carry React click props, as
+// hydrated ones do, and each link names which switcher it belongs to.
+const header = `<!doctype html><title>header</title>
+<style>
+  .desktop { display: none; }
+  #site-header-mobile-menu { visibility: hidden; }
+  #site-header-mobile-menu.open { visibility: visible; }
+  @media (min-width: 1280px) {
+    .desktop { display: block; }
+    #toggle { display: none; }
+  }
+</style>
+<nav class="desktop" data-locale-switcher><a href="/en-US/landed?via=desktop">EN</a></nav>
+<button id="toggle" aria-controls="site-header-mobile-menu">menu</button>
+<div id="site-header-mobile-menu">
+  <div data-locale-switcher><a href="/en-US/landed?via=mobile">EN</a></div>
+</div>
+<script>
+  const open = () =>
+    document.getElementById("site-header-mobile-menu").classList.add("open");
+  const toggle = document.getElementById("toggle");
+  toggle.addEventListener("click", open);
+  toggle.__reactProps$test = { onClick: open };
+  for (const link of document.querySelectorAll("[data-locale-switcher] a")) {
+    link.__reactProps$test = { onClick() {} };
+  }
+</script>`;
+
 const pages: Record<string, string> = {
+  "/cs-CZ/header": header,
+  "/en-US/landed": "<!doctype html><title>landed</title>",
   "/en-US/account": flashThenLeave,
   "/en-US/account/clean": leave,
   "/cs-CZ/account": "<!doctype html><title>new</title><p>profile</p>",
@@ -133,3 +165,22 @@ test.skipIf(!chromiumAvailable)(
       expect(await readRecord(page)).toBeNull();
     })
 );
+
+for (const { via, width } of [
+  { via: "desktop", width: 1440 },
+  { via: "mobile", width: 390 },
+]) {
+  test.skipIf(!chromiumAvailable)(
+    `clicks the ${via} header switcher at ${width}px wide`,
+    () =>
+      withPage(async (page, baseUrl) => {
+        await page.setViewportSize({ height: 800, width });
+        await page.goto(`${baseUrl}/cs-CZ/header`);
+
+        await activateHeaderSwitcher(page, "en-US");
+        await page.waitForURL((url) => url.pathname === "/en-US/landed");
+
+        expect(new URL(page.url()).searchParams.get("via")).toBe(via);
+      })
+  );
+}
