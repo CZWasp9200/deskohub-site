@@ -288,6 +288,7 @@ test("rejects an unrelated fallback owner before checkout or account mutation", 
         }),
       readCheckoutRow: () => Effect.succeed(exactOrderRow),
       readCleanupCheckoutRows: () => Effect.succeed([unrelatedFallbackRow]),
+      readCleanupCustomerIds: () => Effect.succeed([]),
       readDotyposReservationOwner: (_config, reservationId) =>
         Effect.succeed(
           reservationId === exactOrderRow.dotypos_reservation_id

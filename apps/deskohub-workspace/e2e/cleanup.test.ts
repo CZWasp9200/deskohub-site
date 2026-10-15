@@ -37,6 +37,7 @@ test("fallback cleanup cancels every matching reservation exactly once", async (
         cancelDotyposReservation,
         readCheckoutRow: () => Effect.succeed(undefined),
         readCleanupCheckoutRows,
+        readCleanupCustomerIds: () => Effect.succeed([]),
         readDotyposReservationOwner: ownerForCheckoutData(data),
       }
     )
@@ -87,6 +88,7 @@ test("overlaps cleanup lookups and independent cancellations", async () => {
           ),
         readCleanupCheckoutRows: () =>
           lookupBarrier.wait([checkoutRow("dotypos-reservation-3")]),
+        readCleanupCustomerIds: () => Effect.succeed([]),
         readDotyposReservationOwner: ownerForCheckoutData(data),
       }
     )
@@ -127,6 +129,7 @@ test("fails closed on lookup errors before checkout cancellation", async () => {
         readCheckoutRow: () => Effect.fail(new Error("row lookup failed")),
         readCleanupCheckoutRows: () =>
           Effect.fail(new Error("fallback lookup failed")),
+        readCleanupCustomerIds: () => Effect.succeed([]),
         readDotyposReservationOwner: ownerForCheckoutData(data),
       }
     )
@@ -163,6 +166,7 @@ test("does not cancel order or fallback rows outside their journaled recipient",
         cancelDotyposReservation,
         readCheckoutRow: () => Effect.succeed(foreignRow),
         readCleanupCheckoutRows: () => Effect.succeed([]),
+        readCleanupCustomerIds: () => Effect.succeed([]),
         readDotyposReservationOwner: () =>
           Effect.succeed({
             customerId:
@@ -189,6 +193,7 @@ test("does not cancel order or fallback rows outside their journaled recipient",
         cancelDotyposReservation,
         readCheckoutRow: () => Effect.succeed(undefined),
         readCleanupCheckoutRows: () => Effect.succeed([foreignRow]),
+        readCleanupCustomerIds: () => Effect.succeed([]),
         readDotyposReservationOwner: () =>
           Effect.succeed({
             customerId:
@@ -223,6 +228,7 @@ test("validates ownership of a captured reservation before checkout cancellation
         cancelDotyposReservation,
         readCheckoutRow: () => Effect.succeed(undefined),
         readCleanupCheckoutRows: () => Effect.succeed([]),
+        readCleanupCustomerIds: () => Effect.succeed([]),
         readDotyposReservationOwner: () =>
           Effect.succeed({
             customerId:
@@ -263,6 +269,7 @@ test("treats only a missing reservation as already converged during cleanup", as
         cancelDotyposReservation,
         readCheckoutRow: () => Effect.succeed(undefined),
         readCleanupCheckoutRows: () => Effect.succeed([]),
+        readCleanupCustomerIds: () => Effect.succeed([]),
         readDotyposReservationOwner: () => Effect.fail(missingReservationError),
         waitForCancelledDotyposReservations,
       }
@@ -296,6 +303,7 @@ test("treats only a missing reservation as already converged during cleanup", as
         cancelDotyposReservation,
         readCheckoutRow: () => Effect.succeed(undefined),
         readCleanupCheckoutRows: () => Effect.succeed([]),
+        readCleanupCustomerIds: () => Effect.succeed([]),
         readDotyposReservationOwner: () => Effect.fail(customerNotFoundError),
         waitForCancelledDotyposReservations,
       }
@@ -386,6 +394,7 @@ test("does not cancel a journaled case reservation twice", async () => {
         readCleanupCheckoutRows: () =>
           Effect.succeed([checkoutRow("dotypos-reservation-1")]),
         waitForCancelledDotyposReservations,
+        readCleanupCustomerIds: () => Effect.succeed([]),
         readDotyposReservationOwner: ownerForCheckoutData(checkoutData()),
       }
     )
