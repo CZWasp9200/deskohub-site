@@ -1,5 +1,6 @@
 import { Option } from "effect";
 import { getCurrentWorkspaceDate } from "@/features/reservation/reservation-date";
+import { workspaceSiteConstants } from "@/shared/utils";
 import { parsePlainDate } from "@/shared/utils/temporal";
 import type { AdministrationReservationStatusFilter } from "./administration.service";
 
@@ -110,3 +111,31 @@ export const getAdministrationReservationDateShortcuts = (
 
 const parseCalendarDate = (value: string | undefined) =>
   value ? Option.getOrUndefined(parsePlainDate(value)) : undefined;
+
+/**
+ * Dotypos start-time bounds for an inclusive Workspace calendar date range:
+ * from midnight of `from` up to midnight after `to`, in the Workspace timezone.
+ */
+export const getAdministrationReservationDateRangeBounds = (
+  range: AdministrationReservationDateRange
+) => ({
+  ...(range.from && {
+    startsAtOrAfter: Temporal.PlainDate.from(range.from)
+      .toZonedDateTime({
+        plainTime: Temporal.PlainTime.from("00:00"),
+        timeZone: workspaceSiteConstants.location.timeZone,
+      })
+      .toInstant()
+      .toString(),
+  }),
+  ...(range.to && {
+    startsBefore: Temporal.PlainDate.from(range.to)
+      .add({ days: 1 })
+      .toZonedDateTime({
+        plainTime: Temporal.PlainTime.from("00:00"),
+        timeZone: workspaceSiteConstants.location.timeZone,
+      })
+      .toInstant()
+      .toString(),
+  }),
+});

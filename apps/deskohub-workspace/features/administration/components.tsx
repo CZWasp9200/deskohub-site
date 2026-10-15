@@ -101,8 +101,8 @@ export function AdministrationPageHeader({
   readonly title: string;
 }) {
   return (
-    <div className="mb-7 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-      <div>
+    <div className="mb-7 flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
+      <div className="min-w-0 sm:flex-[1_1_24rem]">
         {eyebrow && (
           <p className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-burned-orange-ink">
             {eyebrow}

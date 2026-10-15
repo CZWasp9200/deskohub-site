@@ -3,6 +3,27 @@ import {
   type AdministrationBookingDetailType,
   type AdministrationBookingPageType,
   type AdministrationBookingQueryType,
+  type AdministrationCampaignAudienceIdType,
+  type AdministrationCampaignAudienceInputType,
+  type AdministrationCampaignAudienceType,
+  type AdministrationCampaignAudienceUpdateType,
+  type AdministrationCampaignCreateInputType,
+  type AdministrationCampaignDetailType,
+  type AdministrationCampaignEmailPreviewType,
+  type AdministrationCampaignIdType,
+  type AdministrationCampaignRecipientPreviewType,
+  type AdministrationCampaignRetryInputType,
+  type AdministrationCampaignRetryResultType,
+  type AdministrationCampaignSendInputType,
+  type AdministrationCampaignSendResultType,
+  type AdministrationCampaignSendStatusResultType,
+  type AdministrationCampaignSummaryType,
+  type AdministrationCampaignTemplateKeyType,
+  type AdministrationCampaignTemplatePreviewInputType,
+  type AdministrationCampaignTemplateType,
+  type AdministrationCampaignTestSendInputType,
+  type AdministrationCampaignTestSendResultType,
+  type AdministrationCampaignUpdateInputType,
   type AdministrationCustomerDetailType,
   type AdministrationCustomerPageType,
   type AdministrationCustomerQueryType,
@@ -52,6 +73,7 @@ import {
   CliAuthenticationRateLimited,
   type CliAuthenticationStatusType,
   CliGrantRejected,
+  CliInputInvalid,
   CliMutationInProgress,
   CliMutationRejected,
   type CliMutationRequestIdType,
@@ -77,6 +99,7 @@ import {
   Data,
   Effect,
   Layer,
+  Match,
   Redacted,
   Schedule,
   type Schema,
@@ -376,7 +399,139 @@ interface IWorkspaceAdminApiClient {
     CliSessionMutationResultType,
     CliApiRequestError | CliSessionUnauthorized | CliServiceUnavailable
   >;
+  readonly listCampaignAudiences: (
+    accessToken: Redacted.Redacted<CliAccessTokenType>
+  ) => Effect.Effect<
+    ReadonlyArray<AdministrationCampaignAudienceType>,
+    CampaignRequestError
+  >;
+  readonly getCampaignAudience: (
+    accessToken: Redacted.Redacted<CliAccessTokenType>,
+    audienceId: AdministrationCampaignAudienceIdType
+  ) => Effect.Effect<AdministrationCampaignAudienceType, CampaignRequestError>;
+  /** Retries under `requestId` replay the first creation. */
+  readonly createCampaignAudience: (
+    accessToken: Redacted.Redacted<CliAccessTokenType>,
+    requestId: CliMutationRequestIdType,
+    input: AdministrationCampaignAudienceInputType
+  ) => Effect.Effect<AdministrationCampaignAudienceType, CampaignRequestError>;
+  readonly updateCampaignAudience: (
+    accessToken: Redacted.Redacted<CliAccessTokenType>,
+    audienceId: AdministrationCampaignAudienceIdType,
+    input: AdministrationCampaignAudienceUpdateType
+  ) => Effect.Effect<AdministrationCampaignAudienceType, CampaignRequestError>;
+  readonly archiveCampaignAudience: (
+    accessToken: Redacted.Redacted<CliAccessTokenType>,
+    audienceId: AdministrationCampaignAudienceIdType
+  ) => Effect.Effect<AdministrationCampaignAudienceType, CampaignRequestError>;
+  readonly unarchiveCampaignAudience: (
+    accessToken: Redacted.Redacted<CliAccessTokenType>,
+    audienceId: AdministrationCampaignAudienceIdType
+  ) => Effect.Effect<AdministrationCampaignAudienceType, CampaignRequestError>;
+  readonly deleteCampaignAudience: (
+    accessToken: Redacted.Redacted<CliAccessTokenType>,
+    audienceId: AdministrationCampaignAudienceIdType
+  ) => Effect.Effect<
+    { readonly id: AdministrationCampaignAudienceIdType },
+    CampaignRequestError
+  >;
+  readonly listCampaignTemplates: (
+    accessToken: Redacted.Redacted<CliAccessTokenType>
+  ) => Effect.Effect<
+    ReadonlyArray<AdministrationCampaignTemplateType>,
+    CampaignRequestError
+  >;
+  readonly previewCampaignTemplate: (
+    accessToken: Redacted.Redacted<CliAccessTokenType>,
+    templateKey: AdministrationCampaignTemplateKeyType,
+    input: AdministrationCampaignTemplatePreviewInputType
+  ) => Effect.Effect<
+    AdministrationCampaignEmailPreviewType,
+    CampaignRequestError
+  >;
+  readonly listCampaigns: (
+    accessToken: Redacted.Redacted<CliAccessTokenType>
+  ) => Effect.Effect<
+    ReadonlyArray<AdministrationCampaignSummaryType>,
+    CampaignRequestError
+  >;
+  readonly getCampaign: (
+    accessToken: Redacted.Redacted<CliAccessTokenType>,
+    campaignId: AdministrationCampaignIdType
+  ) => Effect.Effect<AdministrationCampaignDetailType, CampaignRequestError>;
+  /** Retries under `requestId` replay the first creation. */
+  readonly createCampaign: (
+    accessToken: Redacted.Redacted<CliAccessTokenType>,
+    requestId: CliMutationRequestIdType,
+    input: AdministrationCampaignCreateInputType
+  ) => Effect.Effect<AdministrationCampaignDetailType, CampaignRequestError>;
+  readonly updateCampaign: (
+    accessToken: Redacted.Redacted<CliAccessTokenType>,
+    campaignId: AdministrationCampaignIdType,
+    input: AdministrationCampaignUpdateInputType
+  ) => Effect.Effect<AdministrationCampaignDetailType, CampaignRequestError>;
+  /** Retries under `requestId` replay the first duplication. */
+  readonly duplicateCampaign: (
+    accessToken: Redacted.Redacted<CliAccessTokenType>,
+    requestId: CliMutationRequestIdType,
+    campaignId: AdministrationCampaignIdType
+  ) => Effect.Effect<AdministrationCampaignDetailType, CampaignRequestError>;
+  readonly deleteCampaign: (
+    accessToken: Redacted.Redacted<CliAccessTokenType>,
+    campaignId: AdministrationCampaignIdType
+  ) => Effect.Effect<
+    { readonly id: AdministrationCampaignIdType },
+    CampaignRequestError
+  >;
+  readonly previewCampaignRecipients: (
+    accessToken: Redacted.Redacted<CliAccessTokenType>,
+    campaignId: AdministrationCampaignIdType
+  ) => Effect.Effect<
+    AdministrationCampaignRecipientPreviewType,
+    CampaignRequestError
+  >;
+  readonly testSendCampaign: (
+    accessToken: Redacted.Redacted<CliAccessTokenType>,
+    campaignId: AdministrationCampaignIdType,
+    input: AdministrationCampaignTestSendInputType
+  ) => Effect.Effect<
+    AdministrationCampaignTestSendResultType,
+    CampaignRequestError
+  >;
+  readonly sendCampaign: (
+    accessToken: Redacted.Redacted<CliAccessTokenType>,
+    campaignId: AdministrationCampaignIdType,
+    input: AdministrationCampaignSendInputType
+  ) => Effect.Effect<
+    AdministrationCampaignSendResultType,
+    CampaignRequestError
+  >;
+  readonly retryCampaign: (
+    accessToken: Redacted.Redacted<CliAccessTokenType>,
+    campaignId: AdministrationCampaignIdType,
+    input: AdministrationCampaignRetryInputType
+  ) => Effect.Effect<
+    AdministrationCampaignRetryResultType,
+    CampaignRequestError
+  >;
+  readonly getCampaignSendStatus: (
+    accessToken: Redacted.Redacted<CliAccessTokenType>,
+    campaignId: AdministrationCampaignIdType
+  ) => Effect.Effect<
+    AdministrationCampaignSendStatusResultType,
+    CampaignRequestError
+  >;
 }
+
+/** Every campaign endpoint reports these; input and state messages are user-facing. */
+type CampaignRequestError =
+  | CliApiRequestError
+  | CliInputInvalid
+  | CliMutationInProgress
+  | CliMutationRejected
+  | CliResourceNotFound
+  | CliSessionUnauthorized
+  | CliServiceUnavailable;
 
 export class WorkspaceAdminApiClient extends Context.Service<
   WorkspaceAdminApiClient,
@@ -487,14 +642,7 @@ const makeWorkspaceAdminApiClient = Effect.gen(function* () {
             payload: { requestId, mutation },
           })
         ),
-        Effect.retry({
-          schedule: Schedule.spaced("250 millis"),
-          times: 20,
-          while: (cause) =>
-            cause instanceof CliMutationInProgress ||
-            cause instanceof CliServiceUnavailable ||
-            HttpClientError.isHttpClientError(cause),
-        }),
+        retryLedgerMutation(20),
         Effect.mapError(sanitizeMutationError)
       )
     ),
@@ -734,14 +882,7 @@ const makeWorkspaceAdminApiClient = Effect.gen(function* () {
           Effect.flatMap((authorized) =>
             authorized.administration.createInvoice({ payload: input })
           ),
-          Effect.retry({
-            schedule: Schedule.spaced("250 millis"),
-            times: 240,
-            while: (cause) =>
-              cause instanceof CliMutationInProgress ||
-              cause instanceof CliServiceUnavailable ||
-              HttpClientError.isHttpClientError(cause),
-          }),
+          retryLedgerMutation(240),
           Effect.mapError(sanitizeInvoiceCreationError)
         )
     ),
@@ -777,14 +918,7 @@ const makeWorkspaceAdminApiClient = Effect.gen(function* () {
               },
             })
           ),
-          Effect.retry({
-            schedule: Schedule.spaced("250 millis"),
-            times: 240,
-            while: (cause) =>
-              cause instanceof CliMutationInProgress ||
-              cause instanceof CliServiceUnavailable ||
-              HttpClientError.isHttpClientError(cause),
-          }),
+          retryLedgerMutation(240),
           Effect.mapError(sanitizeAccessCodeCreationError)
         )
     ),
@@ -809,14 +943,7 @@ const makeWorkspaceAdminApiClient = Effect.gen(function* () {
               payload: { requestId, mutation: input },
             })
           ),
-          Effect.retry({
-            schedule: Schedule.spaced("250 millis"),
-            times: 20,
-            while: (cause) =>
-              cause instanceof CliMutationInProgress ||
-              cause instanceof CliServiceUnavailable ||
-              HttpClientError.isHttpClientError(cause),
-          }),
+          retryLedgerMutation(20),
           Effect.mapError(sanitizeMutationError)
         )
     ),
@@ -850,8 +977,334 @@ const makeWorkspaceAdminApiClient = Effect.gen(function* () {
           Effect.mapError(sanitizeSessionError)
         )
     ),
+    listCampaignAudiences: Effect.fn(
+      "WorkspaceAdminApiClient.listCampaignAudiences"
+    )((accessToken: Redacted.Redacted<CliAccessTokenType>) =>
+      makeClient(accessToken).pipe(
+        Effect.flatMap((authorized) =>
+          authorized.campaigns.listCampaignAudiences({})
+        ),
+        Effect.mapError(sanitizeCampaignError)
+      )
+    ),
+    getCampaignAudience: Effect.fn(
+      "WorkspaceAdminApiClient.getCampaignAudience"
+    )(
+      (
+        accessToken: Redacted.Redacted<CliAccessTokenType>,
+        audienceId: AdministrationCampaignAudienceIdType
+      ) =>
+        makeClient(accessToken).pipe(
+          Effect.flatMap((authorized) =>
+            authorized.campaigns.getCampaignAudience({ params: { audienceId } })
+          ),
+          Effect.mapError(sanitizeCampaignError)
+        )
+    ),
+    createCampaignAudience: Effect.fn(
+      "WorkspaceAdminApiClient.createCampaignAudience"
+    )(
+      (
+        accessToken: Redacted.Redacted<CliAccessTokenType>,
+        requestId: CliMutationRequestIdType,
+        input: AdministrationCampaignAudienceInputType
+      ) =>
+        makeClient(accessToken).pipe(
+          Effect.flatMap((authorized) =>
+            authorized.campaigns.createCampaignAudience({
+              payload: { requestId, audience: input },
+            })
+          ),
+          retryLedgerMutation(20),
+          Effect.mapError(sanitizeCampaignError)
+        )
+    ),
+    updateCampaignAudience: Effect.fn(
+      "WorkspaceAdminApiClient.updateCampaignAudience"
+    )(
+      (
+        accessToken: Redacted.Redacted<CliAccessTokenType>,
+        audienceId: AdministrationCampaignAudienceIdType,
+        input: AdministrationCampaignAudienceUpdateType
+      ) =>
+        makeClient(accessToken).pipe(
+          Effect.flatMap((authorized) =>
+            authorized.campaigns.updateCampaignAudience({
+              params: { audienceId },
+              payload: input,
+            })
+          ),
+          Effect.mapError(sanitizeCampaignError)
+        )
+    ),
+    archiveCampaignAudience: Effect.fn(
+      "WorkspaceAdminApiClient.archiveCampaignAudience"
+    )(
+      (
+        accessToken: Redacted.Redacted<CliAccessTokenType>,
+        audienceId: AdministrationCampaignAudienceIdType
+      ) =>
+        makeClient(accessToken).pipe(
+          Effect.flatMap((authorized) =>
+            authorized.campaigns.archiveCampaignAudience({
+              params: { audienceId },
+            })
+          ),
+          Effect.mapError(sanitizeCampaignError)
+        )
+    ),
+    unarchiveCampaignAudience: Effect.fn(
+      "WorkspaceAdminApiClient.unarchiveCampaignAudience"
+    )(
+      (
+        accessToken: Redacted.Redacted<CliAccessTokenType>,
+        audienceId: AdministrationCampaignAudienceIdType
+      ) =>
+        makeClient(accessToken).pipe(
+          Effect.flatMap((authorized) =>
+            authorized.campaigns.unarchiveCampaignAudience({
+              params: { audienceId },
+            })
+          ),
+          Effect.mapError(sanitizeCampaignError)
+        )
+    ),
+    deleteCampaignAudience: Effect.fn(
+      "WorkspaceAdminApiClient.deleteCampaignAudience"
+    )(
+      (
+        accessToken: Redacted.Redacted<CliAccessTokenType>,
+        audienceId: AdministrationCampaignAudienceIdType
+      ) =>
+        makeClient(accessToken).pipe(
+          Effect.flatMap((authorized) =>
+            authorized.campaigns.deleteCampaignAudience({
+              params: { audienceId },
+            })
+          ),
+          Effect.mapError(sanitizeCampaignError)
+        )
+    ),
+    listCampaignTemplates: Effect.fn(
+      "WorkspaceAdminApiClient.listCampaignTemplates"
+    )((accessToken: Redacted.Redacted<CliAccessTokenType>) =>
+      makeClient(accessToken).pipe(
+        Effect.flatMap((authorized) =>
+          authorized.campaigns.listCampaignTemplates({})
+        ),
+        Effect.mapError(sanitizeCampaignError)
+      )
+    ),
+    previewCampaignTemplate: Effect.fn(
+      "WorkspaceAdminApiClient.previewCampaignTemplate"
+    )(
+      (
+        accessToken: Redacted.Redacted<CliAccessTokenType>,
+        templateKey: AdministrationCampaignTemplateKeyType,
+        input: AdministrationCampaignTemplatePreviewInputType
+      ) =>
+        makeClient(accessToken).pipe(
+          Effect.flatMap((authorized) =>
+            // The client takes one request shape per payload variant.
+            Match.valueTags(input, {
+              Content: (payload) =>
+                authorized.campaigns.previewCampaignTemplate({
+                  params: { templateKey },
+                  payload,
+                }),
+              Campaign: (payload) =>
+                authorized.campaigns.previewCampaignTemplate({
+                  params: { templateKey },
+                  payload,
+                }),
+            })
+          ),
+          Effect.mapError(sanitizeCampaignError)
+        )
+    ),
+    listCampaigns: Effect.fn("WorkspaceAdminApiClient.listCampaigns")(
+      (accessToken: Redacted.Redacted<CliAccessTokenType>) =>
+        makeClient(accessToken).pipe(
+          Effect.flatMap((authorized) =>
+            authorized.campaigns.listCampaigns({})
+          ),
+          Effect.mapError(sanitizeCampaignError)
+        )
+    ),
+    getCampaign: Effect.fn("WorkspaceAdminApiClient.getCampaign")(
+      (
+        accessToken: Redacted.Redacted<CliAccessTokenType>,
+        campaignId: AdministrationCampaignIdType
+      ) =>
+        makeClient(accessToken).pipe(
+          Effect.flatMap((authorized) =>
+            authorized.campaigns.getCampaign({ params: { campaignId } })
+          ),
+          Effect.mapError(sanitizeCampaignError)
+        )
+    ),
+    createCampaign: Effect.fn("WorkspaceAdminApiClient.createCampaign")(
+      (
+        accessToken: Redacted.Redacted<CliAccessTokenType>,
+        requestId: CliMutationRequestIdType,
+        input: AdministrationCampaignCreateInputType
+      ) =>
+        makeClient(accessToken).pipe(
+          Effect.flatMap((authorized) =>
+            authorized.campaigns.createCampaign({
+              payload: { requestId, campaign: input },
+            })
+          ),
+          retryLedgerMutation(20),
+          Effect.mapError(sanitizeCampaignError)
+        )
+    ),
+    updateCampaign: Effect.fn("WorkspaceAdminApiClient.updateCampaign")(
+      (
+        accessToken: Redacted.Redacted<CliAccessTokenType>,
+        campaignId: AdministrationCampaignIdType,
+        input: AdministrationCampaignUpdateInputType
+      ) =>
+        makeClient(accessToken).pipe(
+          Effect.flatMap((authorized) =>
+            authorized.campaigns.updateCampaign({
+              params: { campaignId },
+              payload: input,
+            })
+          ),
+          Effect.mapError(sanitizeCampaignError)
+        )
+    ),
+    duplicateCampaign: Effect.fn("WorkspaceAdminApiClient.duplicateCampaign")(
+      (
+        accessToken: Redacted.Redacted<CliAccessTokenType>,
+        requestId: CliMutationRequestIdType,
+        campaignId: AdministrationCampaignIdType
+      ) =>
+        makeClient(accessToken).pipe(
+          Effect.flatMap((authorized) =>
+            authorized.campaigns.duplicateCampaign({
+              params: { campaignId },
+              payload: { requestId },
+            })
+          ),
+          retryLedgerMutation(20),
+          Effect.mapError(sanitizeCampaignError)
+        )
+    ),
+    deleteCampaign: Effect.fn("WorkspaceAdminApiClient.deleteCampaign")(
+      (
+        accessToken: Redacted.Redacted<CliAccessTokenType>,
+        campaignId: AdministrationCampaignIdType
+      ) =>
+        makeClient(accessToken).pipe(
+          Effect.flatMap((authorized) =>
+            authorized.campaigns.deleteCampaign({ params: { campaignId } })
+          ),
+          Effect.mapError(sanitizeCampaignError)
+        )
+    ),
+    previewCampaignRecipients: Effect.fn(
+      "WorkspaceAdminApiClient.previewCampaignRecipients"
+    )(
+      (
+        accessToken: Redacted.Redacted<CliAccessTokenType>,
+        campaignId: AdministrationCampaignIdType
+      ) =>
+        makeClient(accessToken).pipe(
+          Effect.flatMap((authorized) =>
+            authorized.campaigns.previewCampaignRecipients({
+              params: { campaignId },
+            })
+          ),
+          Effect.mapError(sanitizeCampaignError)
+        )
+    ),
+    testSendCampaign: Effect.fn("WorkspaceAdminApiClient.testSendCampaign")(
+      (
+        accessToken: Redacted.Redacted<CliAccessTokenType>,
+        campaignId: AdministrationCampaignIdType,
+        input: AdministrationCampaignTestSendInputType
+      ) =>
+        makeClient(accessToken).pipe(
+          Effect.flatMap((authorized) =>
+            authorized.campaigns.testSendCampaign({
+              params: { campaignId },
+              payload: input,
+            })
+          ),
+          Effect.mapError(sanitizeCampaignError)
+        )
+    ),
+    sendCampaign: Effect.fn("WorkspaceAdminApiClient.sendCampaign")(
+      (
+        accessToken: Redacted.Redacted<CliAccessTokenType>,
+        campaignId: AdministrationCampaignIdType,
+        input: AdministrationCampaignSendInputType
+      ) =>
+        makeClient(accessToken).pipe(
+          Effect.flatMap((authorized) =>
+            authorized.campaigns.sendCampaign({
+              params: { campaignId },
+              payload: input,
+            })
+          ),
+          Effect.mapError(sanitizeCampaignError)
+        )
+    ),
+    retryCampaign: Effect.fn("WorkspaceAdminApiClient.retryCampaign")(
+      (
+        accessToken: Redacted.Redacted<CliAccessTokenType>,
+        campaignId: AdministrationCampaignIdType,
+        input: AdministrationCampaignRetryInputType
+      ) =>
+        makeClient(accessToken).pipe(
+          Effect.flatMap((authorized) =>
+            authorized.campaigns.retryCampaign({
+              params: { campaignId },
+              payload: input,
+            })
+          ),
+          Effect.mapError(sanitizeCampaignError)
+        )
+    ),
+    getCampaignSendStatus: Effect.fn(
+      "WorkspaceAdminApiClient.getCampaignSendStatus"
+    )(
+      (
+        accessToken: Redacted.Redacted<CliAccessTokenType>,
+        campaignId: AdministrationCampaignIdType
+      ) =>
+        makeClient(accessToken).pipe(
+          Effect.flatMap((authorized) =>
+            authorized.campaigns.getCampaignSendStatus({
+              params: { campaignId },
+            })
+          ),
+          Effect.mapError(sanitizeCampaignError)
+        )
+    ),
   };
 });
+
+/**
+ * Resends a mutation under the same request ID while its outcome is unknown
+ * or another attempt is still applying it; the server's mutation ledger
+ * replays a completed one instead of applying it again.
+ */
+const retryLedgerMutation =
+  (times: number) =>
+  <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+    effect.pipe(
+      Effect.retry({
+        schedule: Schedule.spaced("250 millis"),
+        times,
+        while: (cause) =>
+          cause instanceof CliMutationInProgress ||
+          cause instanceof CliServiceUnavailable ||
+          HttpClientError.isHttpClientError(cause),
+      })
+    );
 
 export class CliApiRequestError extends Data.TaggedError("CliApiRequestError")<{
   readonly message: string;
@@ -989,3 +1442,20 @@ const sanitizeAccessCodeCreationError = (
   cause instanceof CliStandaloneAccessCodeReconciled
     ? cause
     : sanitizeSessionError(cause);
+
+const sanitizeCampaignError = (
+  cause:
+    | CliInputInvalid
+    | CliMutationInProgress
+    | CliMutationRejected
+    | CliResourceNotFound
+    | CliServiceUnavailable
+    | CliSessionUnauthorized
+    | HttpClientError.HttpClientError
+    | Schema.SchemaError
+) =>
+  cause instanceof CliInputInvalid ||
+  cause instanceof CliMutationInProgress ||
+  cause instanceof CliMutationRejected
+    ? cause
+    : sanitizeResourceError(cause);

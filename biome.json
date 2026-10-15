@@ -17,6 +17,7 @@
       "!**/.turbo",
       "!.taskmaster",
       "!**/generated",
+      "!**/features/i18n/paraglide",
       "!**/db/migrations/**/snapshot.json"
     ]
   },

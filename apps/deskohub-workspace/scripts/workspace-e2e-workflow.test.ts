@@ -468,6 +468,7 @@ describe("workspace E2E workflow", () => {
     // Preparation is one project, so the case phase waits on one barrier.
     const casePhaseProjects = [
       "account-auth",
+      "email-campaign-recipient-preview",
       "access-code-creation",
       ...checkoutCaseProjectNames,
     ];

@@ -67,9 +67,18 @@ import {
   WorkspaceObservabilityLive,
   workspaceMemoMap,
 } from "@/shared/backend/workspace-effect";
+import {
+  makeServiceUnavailable,
+  mapAdministrationApiFailure,
+  mapServiceFailure,
+} from "./administration-api-failure";
 import { CliAuthentication } from "./cli-authentication.service";
 import { CliAuthenticationAdmission } from "./cli-authentication-admission.service";
 import { CliMutationIdempotency } from "./cli-mutation-idempotency.service";
+import {
+  AdminCliCampaignsApiHandlers,
+  EmailCampaignsApiServicesLive,
+} from "./email-campaigns-api.server";
 
 export const AdminCliApiHandlers = HttpApiBuilder.group(
   WorkspaceAdminApi,
@@ -683,34 +692,6 @@ const CliBearerAuthenticationLive = Layer.effect(
   })
 );
 
-const makeServiceUnavailable = () =>
-  new CliServiceUnavailable({
-    message: "The administration API is temporarily unavailable.",
-  });
-
-/**
- * Maps a failure to its public API error. A service-unavailable response
- * carries no cause, so the original failure is logged first; otherwise an
- * operator would see the 503 with no record of what failed.
- */
-const mapAdministrationApiFailure =
-  <E, F>(toPublicFailure: (cause: E) => F) =>
-  <A, R>(effect: Effect.Effect<A, E, R>): Effect.Effect<A, F, R> =>
-    effect.pipe(
-      Effect.catch((cause) => {
-        const failure = toPublicFailure(cause);
-        return Effect.logError("Administration API request failed", {
-          cause,
-        }).pipe(
-          Effect.when(Effect.succeed(failure instanceof CliServiceUnavailable)),
-          Effect.andThen(Effect.fail(failure))
-        );
-      })
-    );
-
-const mapServiceFailure = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-  effect.pipe(mapAdministrationApiFailure(makeServiceUnavailable));
-
 const mapDiscountMutationFailure = (
   cause: Effect.Error<ReturnType<typeof executeDiscountAdminMutation>>
 ) =>
@@ -949,6 +930,7 @@ const WorkspaceAdminApiLive = Layer.mergeAll(
   HttpApiBuilder.layer(WorkspaceAdminApi).pipe(
     Layer.provide(AdminCliApiHandlers),
     Layer.provide(AdminCliAdministrationApiHandlers),
+    Layer.provide(AdminCliCampaignsApiHandlers),
     Layer.provide(CliBearerAuthenticationLive),
     Layer.provide(AdministrationService.Live),
     Layer.provide(ReservationAdministrationService.Live),
@@ -957,6 +939,7 @@ const WorkspaceAdminApiLive = Layer.mergeAll(
     Layer.provide(InvoiceAdministrationService.Live),
     Layer.provide(StandaloneAccessCodeAdministration.Live),
     Layer.provide(CliMutationIdempotency.Live),
+    Layer.provide(EmailCampaignsApiServicesLive),
     Layer.provide(CliAuthenticationAdmission.Default),
     Layer.provide(CliAuthentication.Live)
   ),

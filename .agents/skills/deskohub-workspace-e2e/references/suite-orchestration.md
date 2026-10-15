@@ -20,6 +20,7 @@ Playwright Test owns ordering, scheduling, workers, browsers, and fail-fast admi
 checkout-setup (teardown: checkout-cleanup)
   ├─ checkout-cases (workers: 5; paid, non-payment, and referral cases)
   ├─ account-auth (serial account lane)
+  ├─ email-campaign-recipient-preview (queued after the case pools)
   └─ access-code-creation (last in config, so queued last)
 ```
 
@@ -32,6 +33,7 @@ checkout-setup (teardown: checkout-cleanup)
 - Keep `checkout-cases` one worker below the global ceiling. Playwright can queue `account-auth` behind every `checkout-cases` test in the phase, and the cap leaves the account lane a worker from the first batch.
 - Register `checkout-cases` cases alternating paid and non-payment, each longest median first, so about three hosted sessions are in demand at a time. Re-sort by deployed medians when you add cases.
 - `access-code-creation` sits outside the checkout case catalog and planner. Never add its case to `workspaceE2ECaseIds`. It combines Playwright `page` and `context` fixtures with the shared `runtimeTest` fixtures (`runEffect`, `E2EDatabase`). It is the last project in the config, and Playwright queues top-level projects in config order, so it takes the first worker that frees up (today the account lane's) rather than a first-batch slot. Under `maxFailures: 1`, a case failure stops its admission; it keeps its own interruption-safe cleanup.
+- `email-campaign-recipient-preview` follows the same admin-case pattern and sits just before `access-code-creation`, so neither takes a first-batch slot. Both build on `e2e/admin-case.ts` (Basic-auth context, bypass priming, sanitized browser operations, finalized case, action barriers); put further admin cases there instead of copying helpers.
 - Keep Effect inside each Playwright test for domain workflows, semantic steps, tracing, provider coordination, cleanup, and finalizers. Don't reintroduce an Effect case aggregate, a reservation priority pool, or a custom browser launcher.
 
 Run the synthetic scheduler harness from `apps/deskohub-workspace` with `bun run test scripts/workspace-e2e-scheduling.test.ts`. It runs the real graph once to pass and once with a checkout failure, and asserts the account lane and access-code queueing. Prove a graph change with it, not only a graph assertion. Synthetic results aren't deployed-run evidence.

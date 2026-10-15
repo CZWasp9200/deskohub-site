@@ -40,6 +40,14 @@ Rules:
 
 `--product cowork` targets every cowork tier. `cowork:open-space` and `cowork:reserved-desk` target one tier and can't be combined with `cowork`. See [discounts.md](discounts.md#cowork-tier-targets).
 
+## Email campaigns
+
+- The campaign contract lives in `packages/workspace-admin-api/src/email-campaigns.ts`, and `features/admin-cli/email-campaigns-api.server.ts` serves it with the services the campaign admin UI uses.
+- Bodies cross the API as Markdown. The server parses them with `parseCampaignBodyMarkdown` and exports stored bodies with `campaignBodyToMarkdown`; `dhw` never parses Markdown itself.
+- `AudienceFilter` in the contract is the only audience filter schema. Workspace re-exports it from `features/email-campaigns/audience-filter.ts` as `audienceFilterSchema`. On its own it ignores excess properties, so stored filters keep decoding. The strict API inputs that embed it reject them, and `dhw` decodes filter files with the same strict parse options. Keep its encoded form stable: `email-campaigns.test.ts` pins the stored wire format byte for byte.
+- Unparsable or invalid input fails with `CliInputInvalid` (400), and state conflicts fail with `CliMutationRejected` (409). Both messages reach the operator verbatim, so keep them actionable.
+- Campaign create, campaign duplicate, and audience create go through the CLI mutation ledger (`CliMutationIdempotency.applyOnce`), so a retried request replays its first response instead of leaving an extra row. `applyOnce` runs the claim, the mutation, and the stored result in one database transaction, so any failure or crash rolls all three back and frees the request ID. Its `apply` must write only through `WorkspaceDatabase`: queries and nested `db.transaction` calls join the ambient transaction through the shared SQL client, while external side effects (provider calls, email) don't roll back and belong in the claim/complete/reclaim flow the discount and access mutations use. Updates, archive, and unarchive are idempotent; a confirmed send is single-use by its confirmation code, and retry needs a Failed campaign.
+
 ## Standalone access codes
 
 `dhw access-codes create` shares the server workflow in [dashboard.md](dashboard.md#standalone-access-codes). The CLI adds local state:
@@ -67,6 +75,7 @@ Run the CI-equivalent checks from `.github/workflows/dhw-ci.yml` for contract or
 bun turbo lint --filter=@deskohub/workspace-admin-api --filter=dhw
 bun turbo typecheck --filter=@deskohub/workspace-admin-api --filter=dhw
 bun --cwd apps/dhw test
+bun test packages/workspace-admin-api
 bun turbo test:admin-cli --filter=./apps/deskohub-workspace
 bun apps/dhw/src/build.ts development
 apps/dhw/dist/dhw version --json

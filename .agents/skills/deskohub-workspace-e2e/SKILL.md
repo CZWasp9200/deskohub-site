@@ -8,7 +8,7 @@ description: Workspace E2E, Playwright, protected preview, exact-SHA run, checko
 The code is the source of truth for automated runs. Start from these files in `apps/deskohub-workspace/`:
 
 - `scripts/workspace-e2e.ts`: the entry point (`test:e2e`). It launches the checkout and instant-navigation Playwright configs concurrently.
-- `playwright.e2e.config.ts`: the checkout and account project graph. Cases live in `e2e/playwright-checkout/`, `e2e/account/`, `e2e/access-codes/`, and `e2e/cases/`.
+- `playwright.e2e.config.ts`: the checkout and account project graph. Cases live in `e2e/playwright-checkout/`, `e2e/account/`, `e2e/access-codes/`, `e2e/email-campaigns/`, and `e2e/cases/`.
 - `playwright.instant-navigation.config.ts`: read-only navigation tests in `e2e/instant-navigation/`.
 - `e2e/e2e-env.ts`: the only `process.env` boundary for the runner.
 - `e2e/timeouts.ts`: every E2E timeout, poll interval, and watchdog.
@@ -20,7 +20,7 @@ If a reference disagrees with the runner, follow the runner and fix the referenc
 
 - Running E2E, CI workflow, preview target, environment variables, preview database, local checks: [preview workflow](references/preview-workflow.md).
 - Playwright projects, case pool, account lane, workers, hosted-payment permit, fail-fast cleanup, date shards, coordination database, webhook replay permit, Dotypos capacity, trace contract: [suite orchestration](references/suite-orchestration.md).
-- Discount, Calendar, customer, account, email, admin, or access-code fixtures and synthetic data: [fixtures](references/fixtures.md).
+- Discount, Calendar, customer, account, email, admin, access-code, or email-campaign fixtures and synthetic data: [fixtures](references/fixtures.md).
 - Writing browser steps (hydration, forms, tooltips, streamed pages, assertions): [browser driving](references/browser-driving.md).
 - Diagnosing a failed run or a known provider failure: [failure triage](references/failure-triage.md).
 - Hosted payment page, sandbox restart, currency override: [Nexi sandbox](references/nexi-sandbox.md).

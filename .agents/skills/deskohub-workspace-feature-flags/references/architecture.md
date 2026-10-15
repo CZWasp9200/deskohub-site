@@ -10,7 +10,7 @@ After you change flags in PostHog, run:
 bun turbo run feature-flags:sync --filter=deskohub-workspace
 ```
 
-The task needs `POSTHOG_API_KEY`, `POSTHOG_API_HOST`, and `POSTHOG_PROJECT_ID`; supply them explicitly. `bun scripts/sync-posthog-feature-flags.ts --cli` reads definitions through `posthog-cli` instead and needs only `POSTHOG_PROJECT_ID`. The CLI path refuses to run unless the CLI points at project `204184` and the `accounts` flag is still present and inactive. Generation writes definitions and payload shapes, never live payload values.
+The task needs `POSTHOG_API_KEY`, `POSTHOG_API_HOST`, and `POSTHOG_PROJECT_ID`; supply them explicitly. `bun scripts/sync-posthog-feature-flags.ts --cli` reads definitions through `posthog-cli` instead and needs only `POSTHOG_PROJECT_ID`. The CLI path refuses to run unless the CLI points at project `204184`, named `Deskohub Workspace`. Don't gate the sync on any flag's rollout state; a flag's activation is PostHog data, not a contract precondition. Generation writes definitions and payload shapes, never live payload values.
 
 ## Runtime evaluation
 

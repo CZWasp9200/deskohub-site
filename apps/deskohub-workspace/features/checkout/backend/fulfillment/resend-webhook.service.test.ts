@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { EmailDeliveryIdSchema } from "@deskohub/email";
 import { Effect, Layer } from "effect";
 import { ReservationInvoiceService } from "@/features/accounting/backend/reservation-invoice.service";
+import type { ICampaignDeliveryStatusService } from "@/features/email-campaigns/backend/campaign-delivery-status.service";
 import type { IWorkspaceReservationRepository as WorkspaceReservationRepositoryType } from "@/features/reservation/backend/workspace-reservation.repository";
 import type { CapturePostHogEventInput } from "@/shared/backend/analytics/posthog-event.service";
 import type { ResendWebhookRuntimeConfigObj } from "./resend-webhook.config";
@@ -94,6 +95,20 @@ const internalFailurePayload = {
   },
 };
 
+const campaignComplaintPayload = {
+  type: "email.complained",
+  created_at: "2026-01-01T12:05:00.000Z",
+  data: {
+    email_id: "resend-campaign-email-id",
+    tags: [
+      { name: "category", value: "email-campaign" },
+      { name: "campaignSendId", value: "campaign-send-id" },
+      { name: "dotyposCustomerId", value: "dotypos-customer-id" },
+      { name: "deploymentEnvironment", value: "development" },
+    ],
+  },
+};
+
 interface RawWebhookRequest {
   readonly payload: string;
   readonly headers: {
@@ -117,6 +132,7 @@ interface ProcessWebhookInput {
   readonly config?: ResendWebhookRuntimeConfigObj;
   readonly request?: RawWebhookRequest;
   readonly posthogCapture?: PostHogCapture;
+  readonly recordCampaignDelivery?: ICampaignDeliveryStatusService["record"];
 }
 
 const processWebhook = async (input: ProcessWebhookInput) => {
@@ -160,6 +176,9 @@ const processWebhookEffect = async (input: ProcessWebhookInput) => {
   const { PostHogEventService } = await import(
     "@/shared/backend/analytics/posthog-event.service"
   );
+  const { CampaignDeliveryStatusService } = await import(
+    "@/features/email-campaigns/backend/campaign-delivery-status.service"
+  );
 
   const config = input.config ?? {
     apiKey: "re_test",
@@ -181,7 +200,10 @@ const processWebhookEffect = async (input: ProcessWebhookInput) => {
             Layer.mock(PostHogEventService, {
               capture: input.posthogCapture ?? (() => Effect.void),
             }),
-            Layer.succeed(ResendWebhookRuntimeConfig, config)
+            Layer.succeed(ResendWebhookRuntimeConfig, config),
+            Layer.mock(CampaignDeliveryStatusService, {
+              record: input.recordCampaignDelivery,
+            })
           )
         )
       )
@@ -769,6 +791,118 @@ describe("ResendWebhookService", () => {
     });
     expect(
       reservations.markCustomerEmailDeliveryFulfilled
+    ).not.toHaveBeenCalled();
+  });
+
+  test("records campaign complaint events without touching reservations", async () => {
+    verifiedPayload = campaignComplaintPayload;
+    const recordCampaignDelivery = mock<
+      ICampaignDeliveryStatusService["record"]
+    >((_) => Effect.succeed({ status: "processed" }));
+    const reservations = {
+      findByActiveCustomerEmailDeliveryId: mock(() =>
+        Effect.die("campaign events must not load reservations")
+      ),
+      markCustomerEmailDeliveryFulfilled: mock(() =>
+        Effect.die("campaign events must not update reservations")
+      ),
+      markCustomerEmailDeliveryFailed: mock(() =>
+        Effect.die("campaign events must not update reservations")
+      ),
+    };
+
+    const result = await processWebhook({
+      reservations,
+      recordCampaignDelivery,
+    });
+
+    expect(result).toEqual({ status: "processed" });
+    const [recorded] = recordCampaignDelivery.mock.calls[0] ?? [];
+    expect(recorded).toMatchObject({
+      type: "email.complained",
+      providerMessageId: "resend-campaign-email-id",
+    });
+    expect(recorded?.tags).toEqual(
+      new Map([
+        ["category", "email-campaign"],
+        ["campaignSendId", "campaign-send-id"],
+        ["dotyposCustomerId", "dotypos-customer-id"],
+        ["deploymentEnvironment", "development"],
+      ])
+    );
+    expect(
+      Temporal.Instant.compare(
+        recorded?.occurredAt as Temporal.Instant,
+        Temporal.Instant.from(campaignComplaintPayload.created_at)
+      )
+    ).toBe(0);
+    for (const repositoryMethod of Object.values(reservations)) {
+      expect(repositoryMethod).not.toHaveBeenCalled();
+    }
+  });
+
+  test("ignores campaign events from another deployment environment", async () => {
+    verifiedPayload = {
+      ...campaignComplaintPayload,
+      data: {
+        ...campaignComplaintPayload.data,
+        tags: campaignComplaintPayload.data.tags.map((tag) =>
+          tag.name === "deploymentEnvironment"
+            ? { ...tag, value: "production" }
+            : tag
+        ),
+      },
+    };
+    const recordCampaignDelivery = mock<
+      ICampaignDeliveryStatusService["record"]
+    >(() => Effect.succeed({ status: "processed" }));
+    const reservations = {
+      findByActiveCustomerEmailDeliveryId: mock(() =>
+        Effect.die("campaign events must not load reservations")
+      ),
+    };
+
+    const result = await processWebhook({
+      reservations,
+      recordCampaignDelivery,
+    });
+
+    expect(result).toEqual({
+      status: "ignored",
+      reason: "deployment_environment_mismatch",
+    });
+    expect(recordCampaignDelivery).not.toHaveBeenCalled();
+    expect(
+      reservations.findByActiveCustomerEmailDeliveryId
+    ).not.toHaveBeenCalled();
+  });
+
+  test("maps campaign delivery record failures to a processing error", async () => {
+    verifiedPayload = campaignComplaintPayload;
+    const recordFailure = new Error("synthetic campaign record failure");
+    const recordCampaignDelivery = mock<
+      ICampaignDeliveryStatusService["record"]
+    >(() => Effect.fail(recordFailure as never));
+    const reservations = {
+      findByActiveCustomerEmailDeliveryId: mock(() =>
+        Effect.die("campaign events must not load reservations")
+      ),
+    };
+
+    const error = await processWebhookError({
+      reservations,
+      recordCampaignDelivery,
+    });
+
+    expect(error).toMatchObject({
+      _tag: "ResendWebhookProcessingError",
+      errorCode: "resend_webhook_campaign_update_failed",
+      eventId: "webhook-event-id",
+      cause: recordFailure,
+    });
+    expect(recordCampaignDelivery).toHaveBeenCalledTimes(1);
+    expect(
+      reservations.findByActiveCustomerEmailDeliveryId
     ).not.toHaveBeenCalled();
   });
 });
