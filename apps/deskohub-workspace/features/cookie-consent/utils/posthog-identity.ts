@@ -1,3 +1,4 @@
+import type { DotyposCustomerId } from "@deskohub/dotypos/types";
 import type { PostHog } from "posthog-js";
 import type { AnalyticsAccountIdentity } from "@/features/account/analytics-identity";
 import type { CustomerAccountId } from "@/features/account/customer-account";
@@ -40,7 +41,7 @@ export type PostHogIdentityControllerOptions = {
   /** The account's Dotypos customer ID once known; undefined without one. */
   readonly readDotyposCustomerId?: (
     accountId: CustomerAccountId
-  ) => string | undefined;
+  ) => DotyposCustomerId | undefined;
 };
 
 type SettledAnalyticsAccountIdentity = Extract<
@@ -90,7 +91,10 @@ export function createPostHogIdentityController(
   let identityAssociationNeeded = false;
   // The person property last set since the SDK identity was last reset.
   let sentDotyposCustomer:
-    | { readonly distinctId: string; readonly dotyposCustomerId: string }
+    | {
+        readonly distinctId: string;
+        readonly dotyposCustomerId: DotyposCustomerId;
+      }
     | undefined;
 
   const resetClient = () => {

@@ -1,5 +1,6 @@
 "use client";
 
+import type { DotyposCustomerId } from "@deskohub/dotypos/types";
 import { Data, Effect, Schema } from "effect";
 import { runWorkspaceBrowserEffect } from "@/shared/browser/workspace-browser-effect";
 import { reportWorkspaceBrowserFailure } from "@/shared/browser/workspace-browser-logs";
@@ -12,7 +13,7 @@ import type { CustomerAccountId } from "./customer-account";
 
 type KnownCustomerLink = {
   readonly accountId: CustomerAccountId;
-  readonly dotyposCustomerId: string;
+  readonly dotyposCustomerId: DotyposCustomerId;
 };
 
 class AccountCustomerLinkLoadError extends Data.TaggedError(
@@ -66,7 +67,7 @@ const rememberLink = (
 /** The account's Dotypos customer ID once it has loaded, never contact data. */
 export function getAnalyticsDotyposCustomerId(
   accountId: CustomerAccountId
-): string | undefined {
+): DotyposCustomerId | undefined {
   return knownLink?.accountId === accountId
     ? knownLink.dotyposCustomerId
     : undefined;

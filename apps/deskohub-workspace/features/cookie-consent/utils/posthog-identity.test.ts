@@ -1,4 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import {
+  type DotyposCustomerId,
+  DotyposCustomerIdSchema,
+} from "@deskohub/dotypos/types";
 import type { AnalyticsAccountIdentity } from "@/features/account/analytics-identity";
 import {
   type CustomerAccountId,
@@ -104,10 +108,15 @@ const setDotyposCustomer = (dotyposCustomerId: string) =>
 
 /** A link store keyed by account, like the browser's customer link cache. */
 const makeCustomerLinks = (initial: Record<string, string> = {}) => {
-  const links = new Map<string, string>(Object.entries(initial));
+  const links = new Map<string, DotyposCustomerId>(
+    Object.entries(initial).map(([account, dotyposCustomerId]) => [
+      account,
+      DotyposCustomerIdSchema.make(dotyposCustomerId),
+    ])
+  );
   return {
     link(account: CustomerAccountId, dotyposCustomerId: string) {
-      links.set(account, dotyposCustomerId);
+      links.set(account, DotyposCustomerIdSchema.make(dotyposCustomerId));
     },
     read: (account: CustomerAccountId) => links.get(account),
   };

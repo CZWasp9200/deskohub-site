@@ -1,3 +1,4 @@
+import { DotyposCustomerIdSchema } from "@deskohub/dotypos/types";
 import { Schema } from "effect";
 import { customerAccountIdSchema } from "./customer-account";
 
@@ -11,7 +12,7 @@ export const accountCustomerLinkPath = "/api/account/customer-link";
  */
 export const accountCustomerLinkResponseSchema = Schema.Struct({
   accountId: Schema.NullOr(customerAccountIdSchema),
-  dotyposCustomerId: Schema.NullOr(Schema.NonEmptyString),
+  dotyposCustomerId: Schema.NullOr(DotyposCustomerIdSchema),
 });
 
 export type AccountCustomerLinkResponse =

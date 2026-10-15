@@ -6,6 +6,7 @@ import {
   expect,
   test,
 } from "bun:test";
+import { DotyposCustomerIdSchema } from "@deskohub/dotypos/types";
 import {
   deliverWorkspaceBrowserLogs,
   discardWorkspaceBrowserLogs,
@@ -52,6 +53,7 @@ const respondNext = async (
 // The module keeps its cache for the page's lifetime, so each case uses its
 // own synthetic account.
 const accountId = (value: string) => customerAccountIdSchema.make(value);
+const customerId = (value: string) => DotyposCustomerIdSchema.make(value);
 
 describe("analytics Dotypos customer link", () => {
   let notifications = 0;
@@ -100,9 +102,14 @@ describe("analytics Dotypos customer link", () => {
     });
     expect(getAnalyticsDotyposCustomerId(account)).toBeUndefined();
 
-    await respondNext({ accountId: account, dotyposCustomerId: "customer-a" });
+    await respondNext({
+      accountId: account,
+      dotyposCustomerId: customerId("customer-a"),
+    });
 
-    expect(getAnalyticsDotyposCustomerId(account)).toBe("customer-a");
+    expect(getAnalyticsDotyposCustomerId(account)).toBe(
+      customerId("customer-a")
+    );
     expect(notifications).toBe(1);
 
     requestAnalyticsDotyposCustomerId(account);
@@ -128,7 +135,7 @@ describe("analytics Dotypos customer link", () => {
     requestAnalyticsDotyposCustomerId(account);
     await respondNext({
       accountId: accountId("link-account-other"),
-      dotyposCustomerId: "customer-other",
+      dotyposCustomerId: customerId("customer-other"),
     });
 
     expect(getAnalyticsDotyposCustomerId(account)).toBeUndefined();
@@ -148,10 +155,12 @@ describe("analytics Dotypos customer link", () => {
     expect(requests).toHaveLength(1);
     await respondNext({
       accountId: account,
-      dotyposCustomerId: "customer-completed",
+      dotyposCustomerId: customerId("customer-completed"),
     });
 
-    expect(getAnalyticsDotyposCustomerId(account)).toBe("customer-completed");
+    expect(getAnalyticsDotyposCustomerId(account)).toBe(
+      customerId("customer-completed")
+    );
     expect(notifications).toBe(1);
   });
 
@@ -164,9 +173,14 @@ describe("analytics Dotypos customer link", () => {
 
     await respondNext({ accountId: account, dotyposCustomerId: null });
     expect(requests).toHaveLength(1);
-    await respondNext({ accountId: account, dotyposCustomerId: "customer-c" });
+    await respondNext({
+      accountId: account,
+      dotyposCustomerId: customerId("customer-c"),
+    });
 
-    expect(getAnalyticsDotyposCustomerId(account)).toBe("customer-c");
+    expect(getAnalyticsDotyposCustomerId(account)).toBe(
+      customerId("customer-c")
+    );
     expect(requests).toHaveLength(0);
   });
 
