@@ -7,6 +7,7 @@ import {
 } from "@opentelemetry/sdk-trace-base";
 import { Effect, Layer, Schema } from "effect";
 import { FetchHttpClient } from "effect/unstable/http";
+import { renderMagicLinkEmail } from "../../features/account/backend/auth/magic-link-email";
 import { createCensoredOtelSpanExporter } from "../../shared/backend/logging/censorship";
 import { createTracingLive } from "../../shared/backend/observability/otel-tracing";
 import { withInstantSleeps } from "../../shared/testing/workspace-test-clock.test-utils";
@@ -149,6 +150,31 @@ const makeRetrieval = (
       Effect.gen(function* () {
         const previewLogs = yield* resolveWorkspaceE2EPreviewLogs(config);
         return yield* previewLogs.retrieveMagicLink(request);
+      })
+    ).pipe(Effect.provide(harness.layer))
+  );
+  return { ...harness, result };
+};
+
+const makeSignInEmailRetrieval = (
+  handleHistory: FetchHandler,
+  requestOverrides: Partial<Partial<WorkspaceE2EMagicLinkRequest>> = {},
+  deploymentPayload: unknown = deployment
+) => {
+  const harness = makeHttpHarness(handleHistory, deploymentPayload);
+  const request = {
+    callbackPath,
+    deadlineAfterMs: 500,
+    pollIntervalMs: 5,
+    recipient,
+    startedAt: new Date("2026-10-01T12:00:00.000Z"),
+    ...requestOverrides,
+  };
+  const result = Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const previewLogs = yield* resolveWorkspaceE2EPreviewLogs(config);
+        return yield* previewLogs.retrieveSignInEmail(request);
       })
     ).pipe(Effect.provide(harness.layer))
   );
@@ -1086,5 +1112,125 @@ describe("workspace e2e Vercel log retrieval", () => {
     expect(redact(`link ${magicLink("token")} end`)).toBe(
       "link [redacted] end"
     );
+  });
+
+  test("retrieves the sign-in link and code from one preview log line", async () => {
+    const link = magicLink("sign-in-email");
+    const { result } = makeSignInEmailRetrieval(() =>
+      Response.json(
+        page([
+          row("req-sign-in-email", [
+            log(previewE2ELine(`${link}\n \t482913 \t`)),
+          ]),
+        ])
+      )
+    );
+
+    await expect(result).resolves.toEqual({ link, code: "482913" });
+  });
+
+  test.each(["en-US", "cs-CZ"] as const)(
+    "retrieves the sign-in link and code from the rendered %s email",
+    async (locale) => {
+      const link = magicLink(`rendered-${locale}`);
+      const { text } = await Effect.runPromise(
+        renderMagicLinkEmail({
+          email: recipient,
+          url: link,
+          locale,
+          code: "482913",
+        })
+      );
+      const { result } = makeSignInEmailRetrieval(() =>
+        Response.json(
+          page([row(`req-rendered-${locale}`, [log(previewE2ELine(text))])])
+        )
+      );
+
+      await expect(result).resolves.toEqual({ link, code: "482913" });
+    }
+  );
+
+  test("rejects sign-in emails without a code line", async () => {
+    const { result } = makeSignInEmailRetrieval(() =>
+      Response.json(
+        page([
+          row("req-sign-in-no-code", [
+            log(previewE2ELine(magicLink("no-code"))),
+          ]),
+        ])
+      )
+    );
+
+    await expect(result).rejects.toMatchObject({
+      _tag: "WorkspaceE2EError",
+      diagnosticCode: "auth_delivery_message_invalid",
+      message:
+        "Vercel log retrieval did not return exactly one sign-in code for the exact preview",
+      operation: "extract preview sign-in code",
+    });
+  });
+
+  test("rejects sign-in emails with two distinct codes", async () => {
+    const body = `${magicLink("multiple-codes")}\n482913\n175604`;
+    const { result } = makeSignInEmailRetrieval(() =>
+      Response.json(
+        page([row("req-sign-in-multiple-codes", [log(previewE2ELine(body))])])
+      )
+    );
+
+    await expect(result).rejects.toMatchObject({
+      _tag: "WorkspaceE2EError",
+      diagnosticCode: "auth_delivery_message_invalid",
+      message:
+        "Vercel log retrieval did not return exactly one sign-in code for the exact preview",
+      operation: "extract preview sign-in code",
+    });
+  });
+
+  test("deduplicates identical repeated sign-in code lines", async () => {
+    const link = magicLink("repeated-code");
+    const body = `${link}\n482913\n 482913 \t`;
+    const { result } = makeSignInEmailRetrieval(() =>
+      Response.json(
+        page([row("req-sign-in-repeated-code", [log(previewE2ELine(body))])])
+      )
+    );
+
+    await expect(result).resolves.toEqual({ link, code: "482913" });
+  });
+
+  test("redacts the returned sign-in code immediately", async () => {
+    const { result } = makeSignInEmailRetrieval(() =>
+      Response.json(
+        page([
+          row("req-sign-in-redacted-code", [
+            log(previewE2ELine(`${magicLink("redacted-code")}\n813294`)),
+          ]),
+        ])
+      )
+    );
+
+    await result;
+    expect(redact("sign-in code 813294 end")).toBe(
+      "sign-in code [redacted] end"
+    );
+  });
+
+  test("does not treat a number embedded in a longer line as a code", async () => {
+    const body = `${magicLink("embedded-number")}\nOrder 123456 confirmed`;
+    const { result } = makeSignInEmailRetrieval(() =>
+      Response.json(
+        page([row("req-sign-in-embedded-number", [log(previewE2ELine(body))])])
+      )
+    );
+
+    await expect(result).rejects.toMatchObject({
+      _tag: "WorkspaceE2EError",
+      diagnosticCode: "auth_delivery_message_invalid",
+      message:
+        "Vercel log retrieval did not return exactly one sign-in code for the exact preview",
+      operation: "extract preview sign-in code",
+    });
   });
 });

@@ -115,6 +115,7 @@
     "country-list": "^2.4.1",
     "drizzle-orm": "1.0.0-rc.4",
     "effect": "4.0.0-beta.85",
+    "input-otp": "^1.5.0",
     "leaflet": "^1.9.4",
     "libphonenumber-js": "^1.13.15",
     "lucide-react": "^1.53.0",

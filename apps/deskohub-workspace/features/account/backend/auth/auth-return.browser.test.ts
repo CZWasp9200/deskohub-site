@@ -398,9 +398,9 @@ const fixture = {
       requireFreshSession,
     });
     state.lifecycle = lifecycle;
-    const result = await lifecycle.sendMagicLink(email);
-    document.documentElement.dataset.magicLinkState = result.error ? "error" : "sent";
-    return !result.error;
+    const result = await lifecycle.sendSignInEmail(email);
+    document.documentElement.dataset.magicLinkState = result.status === "sent" ? "sent" : "error";
+    return result.status === "sent";
   },
 };
 

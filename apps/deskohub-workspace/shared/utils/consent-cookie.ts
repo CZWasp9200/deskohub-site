@@ -36,6 +36,28 @@ export function getConsentCookieValuesFromCookie(cookieString: string) {
   );
 }
 
+/**
+ * True only when the browser holds a consent cookie and every copy of it is
+ * well-formed and accepts the category. A malformed copy reads as declined.
+ */
+export function isConsentCategoryAcceptedInCookie(
+  cookieString: string,
+  category: ConsentCategory
+): boolean {
+  const consentCookieValues = getConsentCookieValuesFromCookie(cookieString);
+  if (consentCookieValues.length === 0) return false;
+
+  return consentCookieValues.every((cookieValue) => {
+    let hasUnexpectedValue = false;
+    const acceptedCategories = getAcceptedConsentCategoriesFromCookieValue(
+      cookieValue,
+      { onUnexpectedValue: () => (hasUnexpectedValue = true) }
+    );
+
+    return !hasUnexpectedValue && acceptedCategories.includes(category);
+  });
+}
+
 export function getAcceptedConsentCategoriesFromCookieValue(
   cookieValue: string | null | undefined,
   diagnostics?: ConsentCookieDiagnostics

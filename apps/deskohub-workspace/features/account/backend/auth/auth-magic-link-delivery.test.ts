@@ -10,6 +10,7 @@ const afterCallbacks: (() => unknown)[] = [];
 const resendSends: {
   readonly to: readonly string[];
   readonly subject: string;
+  readonly text: string;
 }[] = [];
 const emitWorkspaceLog = mock(() => undefined);
 
@@ -22,8 +23,16 @@ mock.module("next/server", () => ({
 mock.module("resend", () => ({
   Resend: class {
     emails = {
-      send: async (payload: { to: string[]; subject: string }) => {
-        resendSends.push({ to: payload.to, subject: payload.subject });
+      send: async (payload: {
+        to: string[];
+        subject: string;
+        text: string;
+      }) => {
+        resendSends.push({
+          to: payload.to,
+          subject: payload.subject,
+          text: payload.text,
+        });
         return { data: { id: "synthetic-email-id" }, error: null };
       },
     };
@@ -76,13 +85,18 @@ const savePreference = async (accountId: string, locale: Locale) => {
   );
 };
 
-const requestDelivery = async (email: string, locale: string) => {
+const requestDelivery = async (
+  email: string,
+  locale: string,
+  signInCode?: { readonly code: string }
+) => {
   const callbacksBefore = afterCallbacks.length;
   await workspaceSendMagicLink({
     email,
     url: `https://workspace.test/api/auth/magic-link/verify?token=synthetic-${crypto.randomUUID()}`,
     token: `synthetic-${crypto.randomUUID()}`,
-    metadata: { locale },
+    metadata: signInCode ? { locale, signInCode: true } : { locale },
+    ...(signInCode && { code: signInCode.code }),
   } as Parameters<typeof workspaceSendMagicLink>[0]);
   const queued = afterCallbacks.slice(callbacksBefore);
   for (const callback of queued) await callback();
@@ -115,6 +129,18 @@ describe.skipIf(!testDatabase)(
 
       expect(queued).toBe(1);
       expect(sentSubjectsFor(email)).toEqual([CS_SUBJECT]);
+    });
+
+    test("keeps the initiating site locale beside the server's sign-in code decision", async () => {
+      const email = uniqueEmail("sign-in-code");
+
+      const queued = await requestDelivery(email, "cs-CZ", { code: "482913" });
+
+      expect(queued).toBe(1);
+      const [sent] = resendSends.filter((send) => send.to.includes(email));
+      expect(sent?.subject).toBe(CS_SUBJECT);
+      expect(sent?.text).toContain("Nebo zadejte tento kód:");
+      expect(sent?.text.match(/^[ \t]*\d{6}[ \t]*$/gm)).toEqual(["482913"]);
     });
 
     test("delivers in the initiating site locale for an account without a preference, without saving it", async () => {

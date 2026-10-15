@@ -13,14 +13,22 @@ import {
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
 } from "@/shared/testing/workspace-component-test-env";
-import { AuthCallbackRedirect } from "./auth-callback-redirect";
 
 const VALID_ATTEMPT_ID = "550e8400-e29b-41d4-a716-446655440000";
 const handOffReturn = mock((_options: { readonly attemptId: string }) =>
   Promise.resolve(false)
 );
+const recordSignInCompletion = mock(
+  (_method: "link" | "code", _options?: { readonly keepRecorded?: boolean }) =>
+    undefined
+);
 
 mock.module("@/shared/browser/return-window", () => ({ handOffReturn }));
+mock.module("@/features/account/sign-in-analytics", () => ({
+  recordSignInCompletion,
+}));
+
+const { AuthCallbackRedirect } = await import("./auth-callback-redirect");
 
 let originalReplace: typeof window.location.replace;
 let originalClose: typeof window.close;
@@ -46,6 +54,8 @@ const setClosed = (closed: boolean) => {
   });
 };
 
+const codeRequestStorageKey = "deskohub:account-sign-in-code";
+
 const renderAndFlush = async (locale: "en-US" | "cs-CZ") => {
   let view: ReturnType<typeof render> | undefined;
   await act(async () => {
@@ -66,8 +76,11 @@ describe("AuthCallbackRedirect", () => {
 
   afterEach(() => {
     cleanup();
+    sessionStorage.clear();
     handOffReturn.mockReset();
     handOffReturn.mockImplementation(() => Promise.resolve(false));
+    recordSignInCompletion.mockReset();
+    recordSignInCompletion.mockImplementation(() => undefined);
     window.location.replace = originalReplace;
     window.close = originalClose;
     if (originalClosed) Object.defineProperty(window, "closed", originalClosed);
@@ -128,6 +141,7 @@ describe("AuthCallbackRedirect", () => {
     expect(handOffReturn).toHaveBeenCalledWith({
       attemptId: VALID_ATTEMPT_ID,
     });
+    expect(recordSignInCompletion).not.toHaveBeenCalled();
     expect(close).toHaveBeenCalledTimes(1);
     expect(replace).not.toHaveBeenCalled();
   });
@@ -143,6 +157,7 @@ describe("AuthCallbackRedirect", () => {
 
     await renderAndFlush("en-US");
 
+    expect(recordSignInCompletion).not.toHaveBeenCalled();
     expect(close).toHaveBeenCalledTimes(1);
     expect(replace).toHaveBeenCalledWith("/en-US/account");
   });
@@ -150,19 +165,36 @@ describe("AuthCallbackRedirect", () => {
   test("does not close and navigates when the return is not acknowledged", async () => {
     setAttempt(VALID_ATTEMPT_ID);
     handOffReturn.mockResolvedValue(false);
+    sessionStorage.setItem(
+      codeRequestStorageKey,
+      JSON.stringify({ email: "synthetic", requestedAt: Date.now() })
+    );
     const close = mock(() => undefined);
     window.close = close as typeof window.close;
-    const replace = mock((_href: string) => undefined);
+    const effects: string[] = [];
+    recordSignInCompletion.mockImplementation(() => {
+      effects.push("record");
+    });
+    const replace = mock((_href: string) => {
+      effects.push("navigate");
+    });
     window.location.replace = replace as typeof window.location.replace;
 
     await renderAndFlush("en-US");
 
     expect(close).not.toHaveBeenCalled();
+    expect(recordSignInCompletion).toHaveBeenCalledWith("link", {
+      keepRecorded: true,
+    });
     expect(replace).toHaveBeenCalledWith("/en-US/account");
+    expect(effects).toEqual(["record", "navigate"]);
+    // This tab is signed in: a pending code step must not come back.
+    expect(sessionStorage.getItem(codeRequestStorageKey)).toBeNull();
   });
 
   test("suppresses handoff and close when the callback reports an error", async () => {
     setAttempt(VALID_ATTEMPT_ID, "INVALID_TOKEN");
+    sessionStorage.setItem(codeRequestStorageKey, "pending");
     const close = mock(() => undefined);
     window.close = close as typeof window.close;
     const replace = mock((_href: string) => undefined);
@@ -171,6 +203,8 @@ describe("AuthCallbackRedirect", () => {
     await renderAndFlush("en-US");
 
     expect(handOffReturn).not.toHaveBeenCalled();
+    expect(recordSignInCompletion).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem(codeRequestStorageKey)).toBe("pending");
     expect(close).not.toHaveBeenCalled();
     expect(replace).toHaveBeenCalledWith("/en-US/account");
   });
@@ -191,5 +225,27 @@ describe("AuthCallbackRedirect", () => {
     });
 
     expect(replace).not.toHaveBeenCalled();
+  });
+
+  test("records a sign-in before navigating when the handoff throws", async () => {
+    handOffReturn.mockImplementationOnce(() => {
+      throw new Error("handoff unavailable");
+    });
+    const effects: string[] = [];
+    recordSignInCompletion.mockImplementation(() => {
+      effects.push("record");
+    });
+    const replace = mock((_href: string) => {
+      effects.push("navigate");
+    });
+    window.location.replace = replace as typeof window.location.replace;
+
+    await renderAndFlush("en-US");
+
+    expect(recordSignInCompletion).toHaveBeenCalledWith("link", {
+      keepRecorded: true,
+    });
+    expect(replace).toHaveBeenCalledWith("/en-US/account");
+    expect(effects).toEqual(["record", "navigate"]);
   });
 });

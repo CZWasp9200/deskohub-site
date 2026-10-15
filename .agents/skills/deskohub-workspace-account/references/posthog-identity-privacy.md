@@ -61,6 +61,13 @@ Code: `features/account/analytics-identity.ts`,
   reservation and payment operational IDs that existing durable metrics need.
   Consented request events use the browser's `distinct_id` and `$session_id`.
   Webhooks can't join a browser without an approved persisted consent link.
+- Sign-in analytics live in `features/account/sign-in-analytics.ts`:
+  `sign-in completed` with `method: "link" | "code"` and `sign-in code
+  rejected` with `reason`. PostHog drops events until the new account identity
+  settles on the next page, so a finished sign-in is recorded in the tab's
+  sessionStorage (only with analytics consent) and captured from the PostHog
+  ready handler once the identity is authenticated. Never add the email or
+  code to these payloads.
 - Browser failure reports (`reportWorkspaceBrowserFailure`) reach PostHog Logs
   through `posthog.captureLog` only while analytics is ready (consented, with
   a settled identity). `captureLog` bypasses `before_send`, so the sink

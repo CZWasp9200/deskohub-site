@@ -12,6 +12,7 @@ import {
   refreshAnalyticsAccountIdentity,
   subscribeAnalyticsAccountIdentity,
 } from "@/features/account/analytics-identity";
+import { captureRecordedSignInCompletion } from "@/features/account/sign-in-analytics";
 import type { PostHogFeatureFlagDefinitions } from "@/features/feature-flags/generated/contract";
 import { applyFeatureFlagOverrides } from "@/features/feature-flags/react";
 import {
@@ -19,10 +20,7 @@ import {
   discardWorkspaceBrowserLogs,
   type WorkspaceBrowserLogRecord,
 } from "@/shared/browser/workspace-browser-logs";
-import {
-  getAcceptedConsentCategoriesFromCookieValue,
-  getConsentCookieValuesFromCookie,
-} from "@/shared/utils/consent-cookie";
+import { isConsentCategoryAcceptedInCookie } from "@/shared/utils/consent-cookie";
 import {
   createPostHogSessionClearCookieStrings,
   createPostHogSessionCookieStrings,
@@ -451,6 +449,8 @@ function handlePostHogReady() {
   });
   posthog.reloadFeatureFlags();
   capturePostHogPageviewIfNeeded();
+  // A sign-in recorded before this page load lands on the settled account.
+  if (identity.status === "authenticated") captureRecordedSignInCompletion();
   if (workspaceBrowserLogSink) {
     detachWorkspaceBrowserLogs ??= deliverWorkspaceBrowserLogs(
       workspaceBrowserLogSink
@@ -519,16 +519,5 @@ function getCurrentAnalyticsConsent() {
 function readAnalyticsConsentCookie(): boolean {
   if (globalThis.document === undefined) return false;
 
-  const consentCookieValues = getConsentCookieValuesFromCookie(document.cookie);
-  if (consentCookieValues.length === 0) return false;
-
-  return consentCookieValues.every((cookieValue) => {
-    let hasUnexpectedValue = false;
-    const acceptedCategories = getAcceptedConsentCategoriesFromCookieValue(
-      cookieValue,
-      { onUnexpectedValue: () => (hasUnexpectedValue = true) }
-    );
-
-    return !hasUnexpectedValue && acceptedCategories.includes("analytics");
-  });
+  return isConsentCategoryAcceptedInCookie(document.cookie, "analytics");
 }

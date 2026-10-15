@@ -1,0 +1,84 @@
+"use client";
+
+import { Option, Schema } from "effect";
+import posthog from "posthog-js";
+import {
+  readSessionStorageItem,
+  writeSessionStorageItem,
+} from "@/shared/browser/session-storage";
+import { isConsentCategoryAcceptedInCookie } from "@/shared/utils/consent-cookie";
+
+/** A customer finished signing in; `method` says how. */
+export const SIGN_IN_COMPLETED_EVENT = "sign-in completed";
+/** The server refused a typed sign-in code; `reason` says why. */
+export const SIGN_IN_CODE_REJECTED_EVENT = "sign-in code rejected";
+
+export type SignInMethod = "link" | "code";
+export type SignInCodeRejectionReason =
+  | "wrong"
+  | "expired"
+  | "too_many_attempts";
+
+const completionStorageKey = "deskohub:account-sign-in-completion";
+// Long enough for the callback and account page to load and settle identity.
+const COMPLETION_TTL_MS = 5 * 60 * 1000;
+
+const recordedCompletionSchema = Schema.Struct({
+  method: Schema.Literals(["link", "code"]),
+  recordedAt: Schema.Finite,
+});
+const decodeRecordedCompletion = Schema.decodeUnknownOption(
+  Schema.fromJsonString(recordedCompletionSchema)
+);
+
+const hasAnalyticsConsent = () =>
+  globalThis.document !== undefined &&
+  isConsentCategoryAcceptedInCookie(globalThis.document.cookie, "analytics");
+
+const readRecordedMethod = (): SignInMethod | undefined => {
+  const raw = readSessionStorageItem(completionStorageKey);
+  if (raw === null) return undefined;
+  return Option.match(decodeRecordedCompletion(raw), {
+    onNone: () => undefined,
+    onSome: ({ method, recordedAt }) =>
+      Date.now() - recordedAt < COMPLETION_TTL_MS ? method : undefined,
+  });
+};
+
+/**
+ * Notes a finished sign-in in this tab. PostHog drops events until the new
+ * account identity settles, which happens only after the next page load, so
+ * the completion event is captured later by
+ * `captureRecordedSignInCompletion`. Without analytics consent nothing is
+ * stored. `keepRecorded` leaves an earlier fresh record (a code sign-in that
+ * passes through the link callback) in place.
+ */
+export const recordSignInCompletion = (
+  method: SignInMethod,
+  { keepRecorded = false }: { readonly keepRecorded?: boolean } = {}
+): void => {
+  if (!hasAnalyticsConsent()) return;
+  if (keepRecorded && readRecordedMethod() !== undefined) return;
+  writeSessionStorageItem(
+    completionStorageKey,
+    JSON.stringify({ method, recordedAt: Date.now() })
+  );
+};
+
+/**
+ * Captures and forgets this tab's recorded sign-in completion. Call it once
+ * PostHog is ready for the signed-in account identity.
+ */
+export const captureRecordedSignInCompletion = (): void => {
+  const method = readRecordedMethod();
+  writeSessionStorageItem(completionStorageKey, null);
+  if (method === undefined) return;
+  posthog.capture(SIGN_IN_COMPLETED_EVENT, { method });
+};
+
+export const captureSignInCodeRejection = (
+  reason: SignInCodeRejectionReason
+): void => {
+  if (!hasAnalyticsConsent()) return;
+  posthog.capture(SIGN_IN_CODE_REJECTED_EVENT, { reason });
+};
