@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.16.0](https://github.com/totalolage/deskohub-site/compare/dhw-v1.15.0...dhw-v1.16.0) (2026-10-15)
+
+
+### Features
+
+* **dhw:** backfill reservation product details from Dotypos ([d046899](https://github.com/totalolage/deskohub-site/commit/d046899c6f6e6655f2df675c271d287f513094ff))
+* **workspace:** attribute-catalogue audience filters with counts, date periods and product filters ([4cfa877](https://github.com/totalolage/deskohub-site/commit/4cfa8774949e85c82a9f449d659888028ad13b0a))
+
 ## [1.15.0](https://github.com/totalolage/deskohub-site/compare/dhw-v1.14.1...dhw-v1.15.0) (2026-10-15)
 
 

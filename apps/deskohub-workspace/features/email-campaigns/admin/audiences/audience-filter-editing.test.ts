@@ -1,22 +1,33 @@
 import { describe, expect, test } from "bun:test";
+import {
+  type AudienceAttribute,
+  audienceAttributeCatalogue,
+} from "@deskohub/workspace-admin-api";
 import { Schema } from "effect";
 import {
   type AudienceFilter,
   audienceFilterSchema,
 } from "../../audience-filter";
+import type { DatePeriod } from "../../date-period";
+import { audienceAttributeMenu } from "./audience-attribute-menu";
 import {
   type AudienceFilterGroup,
   appendFilter,
   asRootGroup,
+  type DatePeriodKind,
   newCondition,
   newNestedGroup,
   removeFilterAt,
   replaceFilterAt,
-  setReservationCriteria,
-  toggleLocale,
+  switchDatePeriod,
+  toggleSetValue,
 } from "./audience-filter-editing";
 
 const decodeFilter = Schema.decodeUnknownSync(audienceFilterSchema);
+
+const attributes = Object.keys(
+  audienceAttributeCatalogue
+) as AudienceAttribute[];
 
 const emptyRoot: AudienceFilterGroup = {
   _tag: "Group",
@@ -24,13 +35,20 @@ const emptyRoot: AudienceFilterGroup = {
   filters: [],
 };
 
+const tagged = (tag: string): AudienceFilter => ({
+  attribute: "dotyposTags",
+  _tag: "Condition",
+  operator: "anyOf",
+  value: [tag],
+});
+
 describe("asRootGroup", () => {
   test("keeps a stored group", () => {
     expect(asRootGroup(emptyRoot)).toBe(emptyRoot);
   });
 
   test("wraps a bare condition in an AND group", () => {
-    const condition: AudienceFilter = { _tag: "Account", hasAccount: false };
+    const condition = newCondition("hasAccount");
     expect(asRootGroup(condition)).toEqual({
       _tag: "Group",
       operator: "and",
@@ -49,141 +67,101 @@ describe("nested groups", () => {
 
   test("adds, edits and removes conditions inside a nested group", () => {
     const withGroup = appendFilter(
-      appendFilter(emptyRoot, newCondition("Locale")),
+      appendFilter(emptyRoot, newCondition("locale")),
       newNestedGroup(emptyRoot)
     );
     const nested = withGroup.filters[1] as AudienceFilterGroup;
     const filledNested = appendFilter(
-      appendFilter(nested, { _tag: "DotyposTag", tag: "coworker" }),
-      { _tag: "DotyposTag", tag: "rpg" }
+      appendFilter(nested, tagged("coworker")),
+      tagged("rpg")
     );
     const root = replaceFilterAt(withGroup, 1, filledNested);
 
     expect(root.filters[1]).toEqual({
       _tag: "Group",
       operator: "or",
-      filters: [
-        { _tag: "DotyposTag", tag: "coworker" },
-        { _tag: "DotyposTag", tag: "rpg" },
-      ],
+      filters: [tagged("coworker"), tagged("rpg")],
     });
 
     const trimmed = replaceFilterAt(root, 1, removeFilterAt(filledNested, 0));
     expect((trimmed.filters[1] as AudienceFilterGroup).filters).toEqual([
-      { _tag: "DotyposTag", tag: "rpg" },
+      tagged("rpg"),
     ]);
     expect(removeFilterAt(trimmed, 1).filters).toEqual([
-      { _tag: "Locale", locales: ["cs-CZ"] },
+      newCondition("locale"),
     ]);
   });
 
   test("edits never mutate the previous tree", () => {
-    const before = appendFilter(emptyRoot, newCondition("Account"));
+    const before = appendFilter(emptyRoot, newCondition("hasAccount"));
     const snapshot = structuredClone(before);
-    replaceFilterAt(before, 0, { _tag: "Account", hasAccount: false });
+    replaceFilterAt(before, 0, tagged("vip"));
     removeFilterAt(before, 0);
     appendFilter(before, newNestedGroup(before));
     expect(before).toEqual(snapshot);
   });
 });
 
-describe("toggleLocale", () => {
-  test("checking a locale adds it", () => {
-    expect(toggleLocale(["cs-CZ"], "en-US", true)).toEqual(["cs-CZ", "en-US"]);
-  });
-
-  test("unchecking a locale removes it", () => {
-    expect(toggleLocale(["cs-CZ", "en-US"], "cs-CZ", false)).toEqual(["en-US"]);
-  });
-
-  test("refuses to leave no locale", () => {
-    expect(toggleLocale(["cs-CZ"], "cs-CZ", false)).toBeUndefined();
+describe("toggleSetValue", () => {
+  test("adds and removes a value, keeping the order", () => {
+    expect(toggleSetValue(["a", "b"], "c", true)).toEqual(["a", "b", "c"]);
+    expect(toggleSetValue(["a", "b"], "a", false)).toEqual(["b"]);
+    expect(toggleSetValue(["a"], "a", true)).toEqual(["a"]);
   });
 });
 
-describe("setReservationCriteria", () => {
-  const reservation = {
-    _tag: "Reservation",
-    presence: "has",
-    dateBasis: "visit",
-  } as const;
+describe("switchDatePeriod", () => {
+  const today = "2026-10-15";
+  const range: DatePeriod = {
+    _tag: "Range",
+    from: "2026-01-01",
+    to: "2026-02-01",
+  };
 
-  test("stores filled criteria", () => {
-    expect(
-      setReservationCriteria(reservation, {
-        from: "2026-06-01",
-        to: "2026-09-30",
-        status: "complete",
-      })
-    ).toEqual({
-      ...reservation,
-      from: "2026-06-01",
-      to: "2026-09-30",
-      status: "complete",
-    });
-  });
+  test.each<[DatePeriodKind, DatePeriod]>([
+    ["AnyTime", { _tag: "AnyTime" }],
+    ["Last", { _tag: "Last", count: 30, unit: "day" }],
+    ["Range", range],
+    ["Since", { _tag: "Since", date: "2026-01-01" }],
+    ["Onward", { _tag: "Onward", date: "2026-01-01" }],
+    ["Until", { _tag: "Until", date: "2026-02-01" }],
+  ])(
+    "keeps the dates it can when switching a range to %s",
+    (kind, expected) => {
+      expect(switchDatePeriod(range, kind, today)).toEqual(expected);
+    }
+  );
 
-  test("drops criteria cleared to empty", () => {
-    const filled = setReservationCriteria(reservation, {
-      from: "2026-06-01",
-      status: "cancelled",
+  test("starts dated periods on today when there were no dates", () => {
+    expect(switchDatePeriod({ _tag: "AnyTime" }, "Range", today)).toEqual({
+      _tag: "Range",
+      from: today,
+      to: today,
     });
-    const cleared = setReservationCriteria(filled, {
-      from: "",
-      status: undefined,
-    });
-    expect(cleared).toEqual(reservation);
-    expect(Object.keys(cleared)).not.toContain("from");
-    expect(Object.keys(cleared)).not.toContain("status");
   });
 });
 
-describe("serialization to the domain filter schema", () => {
-  test("every new condition has the schema's shape", () => {
-    for (const tag of [
-      "Reservation",
-      "Locale",
-      "DotyposTag",
-      "DiscountGroup",
-      "Account",
-    ] as const) {
-      expect(newCondition(tag)._tag).toBe(tag);
+describe("the attribute catalogue in the builder", () => {
+  test("every attribute has a label, a menu section, and a valid or placeholder default", () => {
+    const listed = audienceAttributeMenu.flatMap(
+      ({ attributes: sectionAttributes }) => sectionAttributes
+    );
+    expect(listed.toSorted()).toEqual(attributes.toSorted());
+    for (const attribute of attributes) {
+      expect(audienceAttributeCatalogue[attribute].label).not.toBe("");
+      expect(newCondition(attribute).attribute).toBe(attribute);
     }
   });
 
-  test("a built nested tree decodes unchanged", () => {
-    const nested = appendFilter(
-      appendFilter(newNestedGroup(emptyRoot), {
-        _tag: "DotyposTag",
-        tag: "coworker",
-      }),
-      setReservationCriteria(
-        { _tag: "Reservation", presence: "has", dateBasis: "visit" },
-        { from: "2026-06-01", to: "2026-09-30" }
-      )
-    );
-    const root = [
-      newCondition("Account"),
-      {
-        _tag: "Locale",
-        locales: toggleLocale(["cs-CZ"], "en-US", true) ?? ["cs-CZ"],
-      },
-      nested,
-      { _tag: "DiscountGroup", discountGroupId: "42" },
-    ].reduce<AudienceFilterGroup>(
-      (group, filter) => appendFilter(group, filter as AudienceFilter),
-      emptyRoot
-    );
-
-    expect(decodeFilter(root)).toEqual(root);
-  });
-
-  test("untouched placeholder conditions fail the schema", () => {
-    expect(() =>
-      decodeFilter(appendFilter(emptyRoot, newCondition("DotyposTag")))
-    ).toThrow();
-    expect(() =>
-      decodeFilter(appendFilter(emptyRoot, newCondition("DiscountGroup")))
-    ).toThrow();
+  test("defaults decode, except set placeholders the operator must fill", () => {
+    const placeholders = new Set<AudienceAttribute>([
+      "dotyposTags",
+      "discountGroup",
+    ]);
+    for (const attribute of attributes) {
+      const decode = () => decodeFilter(newCondition(attribute));
+      if (placeholders.has(attribute)) expect(decode).toThrow();
+      else expect(decode()).toEqual(newCondition(attribute));
+    }
   });
 });

@@ -88,7 +88,12 @@ const audienceRow = (
 ): CampaignAudienceRow => ({
   id: audienceId,
   title: "Czech customers",
-  filter: { _tag: "Locale", locales: ["cs-CZ"] },
+  filter: {
+    attribute: "locale",
+    _tag: "Condition",
+    operator: "anyOf",
+    value: ["cs-CZ"],
+  },
   archivedAt: null,
   createdAt,
   updatedAt: createdAt,
@@ -767,12 +772,21 @@ describe("campaign admin API", () => {
       operator: "and",
       filters: [
         {
-          _tag: "Reservation",
-          presence: "has",
-          dateBasis: "visit",
-          from: "2026-01-01",
+          attribute: "reservationCount",
+          _tag: "Condition",
+          params: {
+            dateBasis: "visit",
+            period: { _tag: "Onward", date: "2026-01-01" },
+          },
+          operator: "gt",
+          value: 0,
         },
-        { _tag: "Account", hasAccount: true },
+        {
+          attribute: "hasAccount",
+          _tag: "Condition",
+          operator: "is",
+          value: true,
+        },
       ],
     } as const;
     const audience = await callCampaignsApi(
@@ -1131,7 +1145,12 @@ describe.skipIf(!testDatabase)(
               requestId,
               audience: {
                 title,
-                filter: { _tag: "Locale", locales: ["cs-CZ"] },
+                filter: {
+                  attribute: "locale",
+                  _tag: "Condition",
+                  operator: "anyOf",
+                  value: ["cs-CZ"],
+                },
               },
             },
           })

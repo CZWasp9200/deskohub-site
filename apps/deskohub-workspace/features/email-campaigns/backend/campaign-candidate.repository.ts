@@ -4,13 +4,28 @@ import type {
   DotyposCustomerId,
   DotyposReservationId,
 } from "@deskohub/dotypos";
-import { and, eq, gte, inArray, lt, max, sql } from "drizzle-orm";
+import type { ReservationProductFilterType } from "@deskohub/workspace-admin-api";
+import {
+  and,
+  count,
+  eq,
+  inArray,
+  max,
+  min,
+  type SQL,
+  type SQLWrapper,
+  sql,
+} from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Effect, Layer } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import {
   customerAccountLinks,
   customerMarketingConsents,
+  emailCampaignDeliveryBatches,
+  emailCampaignRecipients,
+  emailCampaignSends,
+  emailCampaigns,
   workspaceReservations,
 } from "@/db/schema";
 import { authUser } from "@/db/schema/auth";
@@ -19,7 +34,11 @@ import {
   bookedReservationCondition,
   reservationStatusCondition,
 } from "@/features/administration/reservation-status-condition";
+import { temporalInstantToDate } from "@/shared/utils/temporal";
+import type { AudienceDateFacts } from "../audience-filter";
 import type { CampaignPurpose } from "../body/campaign-content";
+import type { DatePeriodBounds } from "../date-period";
+import { reservationProductCondition } from "./reservation-product-condition";
 
 /** What Workspace stores about one customer it knows. */
 export type CampaignCandidateFacts = {
@@ -31,15 +50,69 @@ export type CampaignCandidateFacts = {
   readonly consentLocale: string | null;
 };
 
-export type CampaignReservationCustomerQuery = {
-  /** Admin status group; without one, only booked reservations match. */
+/**
+ * Which Workspace reservations a reservation count includes. Each field adds
+ * one SQL condition in {@link reservationSelection}; a new reservation
+ * property filter slots in the same way.
+ */
+export type CampaignReservationSelection = {
+  /** Admin status group; without one, only booked reservations count. */
   readonly status?: AdministrationReservationStatusFilter;
-  /** Booking (confirmation) instant bounds; the end is exclusive. */
-  readonly bookedAtOrAfter?: Temporal.Instant;
-  readonly bookedBefore?: Temporal.Instant;
-  /** Limits the match to these Dotypos reservations (visit-date filters). */
+  /** Booking (confirmation) instant bounds. */
+  readonly booked?: DatePeriodBounds;
+  /** Limits the count to these Dotypos reservations (visit-date periods). */
   readonly dotyposReservationIds?: readonly DotyposReservationId[];
+  /** Limits the count to one product family and its catalog properties. */
+  readonly product?: ReservationProductFilterType;
 };
+
+/** A booked reservation's Dotypos ID and customer. */
+export type CampaignBookedReservation = {
+  readonly dotyposReservationId: DotyposReservationId;
+  readonly dotyposCustomerId: DotyposCustomerId;
+};
+
+/**
+ * Recipient statuses that mean Resend accepted the email for the customer.
+ * `unconfirmed` counts too: the email may well have gone out.
+ */
+const receivedCampaignEmailStatuses = [
+  "sent",
+  "delivered",
+  "complained",
+  "unconfirmed",
+] as const;
+
+/** An instant column or expression within the bounds; open bounds add nothing. */
+const withinBounds = (
+  instant: SQLWrapper,
+  bounds: DatePeriodBounds
+): SQL | undefined =>
+  and(
+    bounds.startsAtOrAfter &&
+      sql`${instant} >= ${temporalInstantToDate(bounds.startsAtOrAfter)}`,
+    bounds.startsBefore &&
+      sql`${instant} < ${temporalInstantToDate(bounds.startsBefore)}`,
+    bounds.startsAtOrBefore &&
+      sql`${instant} <= ${temporalInstantToDate(bounds.startsAtOrBefore)}`
+  );
+
+const reservationSelection = ({
+  status,
+  booked,
+  dotyposReservationIds,
+  product,
+}: CampaignReservationSelection): SQL | undefined =>
+  and(
+    product && reservationProductCondition(product),
+    status ? reservationStatusCondition(status) : bookedReservationCondition,
+    booked &&
+      withinBounds(workspaceReservations.reservationConfirmedAt, booked),
+    dotyposReservationIds &&
+      inArray(workspaceReservations.dotyposReservationId, [
+        ...dotyposReservationIds,
+      ])
+  );
 
 export interface ICampaignCandidateRepository {
   /**
@@ -54,13 +127,49 @@ export interface ICampaignCandidateRepository {
     EffectDrizzleQueryError
   >;
   /**
-   * Customers with at least one Workspace reservation matching the query.
-   * Booking-date bounds apply to the confirmation instant, so reservations
-   * that never confirmed fall outside every booking-date range.
+   * Reservations per customer among those the selection includes. Customers
+   * without any are absent. Booking-date bounds apply to the confirmation
+   * instant, so reservations that never confirmed fall outside every
+   * booking-date period.
    */
-  readonly listReservationCustomers: (
-    query: CampaignReservationCustomerQuery
-  ) => Effect.Effect<ReadonlySet<DotyposCustomerId>, EffectDrizzleQueryError>;
+  readonly countReservations: (
+    selection: CampaignReservationSelection
+  ) => Effect.Effect<
+    ReadonlyMap<DotyposCustomerId, number>,
+    EffectDrizzleQueryError
+  >;
+  /**
+   * Campaign emails Resend accepted per customer, dated by the first request
+   * of the batch that carried them. Customers without any are absent.
+   */
+  readonly countReceivedCampaignEmails: (query: {
+    /** Without a purpose every campaign counts. */
+    readonly purpose?: CampaignPurpose;
+    readonly dispatched: DatePeriodBounds;
+  }) => Effect.Effect<
+    ReadonlyMap<DotyposCustomerId, number>,
+    EffectDrizzleQueryError
+  >;
+  /** Customers with a linked account, and those whose account was created in the bounds. */
+  readonly accountCreations: (
+    created: DatePeriodBounds
+  ) => Effect.Effect<AudienceDateFacts, EffectDrizzleQueryError>;
+  /**
+   * When the earliest Workspace reservation was created, if there is one. No
+   * Workspace reservation starts long before it, so it bounds visit queries.
+   */
+  readonly earliestReservationAt: Effect.Effect<
+    Temporal.Instant | null,
+    EffectDrizzleQueryError
+  >;
+  /** The booked reservations among these Dotypos reservations, of the product if given. */
+  readonly listBookedReservations: (
+    dotyposReservationIds: readonly DotyposReservationId[],
+    product?: ReservationProductFilterType
+  ) => Effect.Effect<
+    readonly CampaignBookedReservation[],
+    EffectDrizzleQueryError
+  >;
 }
 
 export class CampaignCandidateRepository extends Context.Service<
@@ -144,40 +253,121 @@ export class CampaignCandidateRepository extends Context.Service<
             });
           }
         ),
-        listReservationCustomers: Effect.fn(
-          "CampaignCandidateRepository.listReservationCustomers"
-        )(function* (query) {
-          if (query.dotyposReservationIds?.length === 0) {
-            return new Set<DotyposCustomerId>();
+        countReservations: Effect.fn(
+          "CampaignCandidateRepository.countReservations"
+        )(function* (selection) {
+          if (selection.dotyposReservationIds?.length === 0) {
+            return new Map<DotyposCustomerId, number>();
           }
           const rows = yield* db
-            .selectDistinct({
+            .select({
+              dotyposCustomerId: workspaceReservations.dotyposCustomerId,
+              count: count(),
+            })
+            .from(workspaceReservations)
+            .where(reservationSelection(selection))
+            .groupBy(workspaceReservations.dotyposCustomerId);
+          return new Map(
+            rows.map((row) => [row.dotyposCustomerId, row.count] as const)
+          );
+        }),
+        countReceivedCampaignEmails: Effect.fn(
+          "CampaignCandidateRepository.countReceivedCampaignEmails"
+        )(function* ({ purpose, dispatched }) {
+          // A recipient a webhook settled without a batch in its current
+          // attempt is dated by its status change instead.
+          const dispatchedAt = sql`coalesce(${emailCampaignDeliveryBatches.requestedAt}, ${emailCampaignRecipients.statusUpdatedAt})`;
+          const rows = yield* db
+            .select({
+              dotyposCustomerId: emailCampaignRecipients.dotyposCustomerId,
+              count: count(),
+            })
+            .from(emailCampaignRecipients)
+            .innerJoin(
+              emailCampaignSends,
+              eq(emailCampaignSends.id, emailCampaignRecipients.sendId)
+            )
+            .innerJoin(
+              emailCampaigns,
+              eq(emailCampaigns.id, emailCampaignSends.campaignId)
+            )
+            .leftJoin(
+              emailCampaignDeliveryBatches,
+              and(
+                eq(
+                  emailCampaignDeliveryBatches.sendId,
+                  emailCampaignRecipients.sendId
+                ),
+                eq(
+                  emailCampaignDeliveryBatches.deliveryAttempt,
+                  emailCampaignRecipients.deliveryAttempt
+                ),
+                sql`${emailCampaignRecipients.dotyposCustomerId} = any(${emailCampaignDeliveryBatches.dotyposCustomerIds})`
+              )
+            )
+            .where(
+              and(
+                inArray(emailCampaignRecipients.status, [
+                  ...receivedCampaignEmailStatuses,
+                ]),
+                purpose && eq(emailCampaigns.purpose, purpose),
+                withinBounds(dispatchedAt, dispatched)
+              )
+            )
+            .groupBy(emailCampaignRecipients.dotyposCustomerId);
+          return new Map(
+            rows.map((row) => [row.dotyposCustomerId, row.count] as const)
+          );
+        }),
+        accountCreations: Effect.fn(
+          "CampaignCandidateRepository.accountCreations"
+        )(function* (created) {
+          const rows = yield* db
+            .select({
+              dotyposCustomerId: customerAccountLinks.dotyposCustomerId,
+              inPeriod: sql<boolean>`${and(
+                sql`true`,
+                withinBounds(authUser.createdAt, created)
+              )}`,
+            })
+            .from(customerAccountLinks)
+            .innerJoin(
+              authUser,
+              eq(authUser.id, customerAccountLinks.customerAccountId)
+            );
+          return {
+            withValue: new Set(rows.map((row) => row.dotyposCustomerId)),
+            inPeriod: new Set(
+              rows.flatMap((row) =>
+                row.inPeriod ? [row.dotyposCustomerId] : []
+              )
+            ),
+          };
+        }),
+        earliestReservationAt: db
+          .select({ createdAt: min(workspaceReservations.createdAt) })
+          .from(workspaceReservations)
+          .pipe(Effect.map(([row]) => row?.createdAt ?? null)),
+        listBookedReservations: Effect.fn(
+          "CampaignCandidateRepository.listBookedReservations"
+        )(function* (dotyposReservationIds, product) {
+          if (dotyposReservationIds.length === 0) return [];
+          const rows = yield* db
+            .select({
+              dotyposReservationId: workspaceReservations.dotyposReservationId,
               dotyposCustomerId: workspaceReservations.dotyposCustomerId,
             })
             .from(workspaceReservations)
             .where(
-              and(
-                query.status
-                  ? reservationStatusCondition(query.status)
-                  : bookedReservationCondition,
-                query.bookedAtOrAfter &&
-                  gte(
-                    workspaceReservations.reservationConfirmedAt,
-                    query.bookedAtOrAfter
-                  ),
-                query.bookedBefore &&
-                  lt(
-                    workspaceReservations.reservationConfirmedAt,
-                    query.bookedBefore
-                  ),
-                query.dotyposReservationIds &&
-                  inArray(workspaceReservations.dotyposReservationId, [
-                    ...query.dotyposReservationIds,
-                  ])
-              )
+              reservationSelection({
+                dotyposReservationIds,
+                ...(product && { product }),
+              })
             );
-          return new Set(
-            rows.map(({ dotyposCustomerId }) => dotyposCustomerId)
+          return rows.flatMap(({ dotyposReservationId, dotyposCustomerId }) =>
+            dotyposReservationId === null
+              ? []
+              : [{ dotyposReservationId, dotyposCustomerId }]
           );
         }),
       } satisfies ICampaignCandidateRepository;

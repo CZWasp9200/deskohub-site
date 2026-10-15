@@ -903,12 +903,16 @@ describe("prepareWorkspacePayState", () => {
       expect.objectContaining({
         checkoutSessionKey: expect.stringMatching(storedLookupKeyPattern),
         checkoutAttemptKey: expect.stringMatching(storedLookupKeyPattern),
-        reservationDetails: { kind: "meeting-room" },
+        reservationDetails: {
+          kind: "meeting-room",
+          duration: { unit: "hour", amount: 4 },
+        },
       })
     );
+    // The snapshot records the booked offer, never its Dotypos-owned timing.
     const persistedDraft = scenario.createDraft.mock.calls[0]?.[0];
     expect(JSON.stringify(persistedDraft?.reservationDetails)).toBe(
-      '{"kind":"meeting-room"}'
+      '{"kind":"meeting-room","duration":{"unit":"hour","amount":4}}'
     );
     expect(scenario.assignTableId).toHaveBeenCalledWith(
       expect.objectContaining({
