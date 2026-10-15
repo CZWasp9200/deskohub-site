@@ -4,6 +4,23 @@ language js(typescript, jsx)
 // `className` on the Button family (`Button`, `DisclosureButton`, `NavItem`,
 // `SegmentedControl`, `ChoiceCard`) places the control in its parent and never
 // restyles it; see the `className` doc in `shared/components/ui/button.tsx`.
+//
+// Threat model: this catches accidental and habitual restyles, not deliberate
+// evasion through dynamic indirection such as `ui["Button"]` or
+// `Object.values(ui)`. The rule finds the components by name in JSX, so it
+// rejects every static way a component reaches JSX under another name or with
+// classes it can't read:
+// - a renamed import, re-export or local export (`Button as Action`);
+// - any value use outside a JSX tag: `const Action = Button`, `memo(Button)`,
+//   `createElement(Button, props)`, `{ Button }` object shorthand, and a
+//   member read such as `ui.Button`;
+// - destructuring the name from any object under another name
+//   (`const { Button: Action } = ui`); `const { Button } = ...` keeps the name
+//   the JSX check reads, so it passes;
+// - a spread attribute other than an object literal whose `className` passes.
+// A JSX member tag such as `<ui.Button>` is checked by its last segment, so
+// namespace imports and barrels stay covered.
+//
 // Every class, after any variant prefix and `!`, must be one of:
 // - margin, self and grid placement, `order`, flex-item `shrink`, `grow`,
 //   `flex-1|auto|initial|none` and `basis-*`, and scroll-snap alignment;
@@ -19,9 +36,7 @@ language js(typescript, jsx)
 // `biome-ignore lint/plugin: <why the value is parent layout only>`.
 // A spread object literal is checked like attributes: its `className` value as
 // above, any other plain key passes. Any other spread can carry a `className`,
-// so it is reported for the same suppression. Renaming the components on import
-// or export would hide them from the name check, so that is reported too; a
-// namespace member such as `<ui.Button>` is checked by its last segment.
+// so it is reported for the same suppression.
 pattern layout_classes() {
   r"^[\"'`]\s*(?:(?:(?:(?:[^\s:\[\]\"'`]|\[[^\]\s\"'`]*\])+:)*!?(?:-?m[trblxyse]?-(?:[0-9./]+|px|auto|full|\[[^\]\s\"'`]+\]|\([^)\s\"'`]+\))|(?:justify-|place-)?self-(?:auto|start|end|center|stretch|baseline|baseline-last|end-safe|center-safe)|(?:col|row)-(?:span|start|end)-(?:[0-9]+|full|auto|\[[^\]\s\"'`]+\]|\([^)\s\"'`]+\))|(?:col|row)-auto|-?order-(?:[0-9]+|first|last|none|\[[^\]\s\"'`]+\]|\([^)\s\"'`]+\))|(?:shrink|grow)(?:-0)?|flex-(?:1|auto|initial|none)|basis-(?:[a-z0-9./]+|\[[^\]\s\"'`]+\]|\([^)\s\"'`]+\))|snap-(?:start|end|center|align-none|normal|always)|(?:static|fixed|absolute|relative|sticky)|-?(?:inset(?:-[xy])?|top|right|bottom|left|start|end)-(?:[0-9./]+|px|auto|full|\[[^\]\s\"'`]+\]|\([^)\s\"'`]+\))|-?z-(?:[0-9]+|auto|\[[^\]\s\"'`]+\]|\([^)\s\"'`]+\))|hidden|group(?:/[a-z0-9_-]+)?)|(?:(?:[^\s:\[\]\"'`]|\[[^\]\s\"'`]*\])+:)*(?:(?:max-|min-)?(?:sm|md|lg|xl|2xl)|(?:max|min)-\[[^\]\s\"'`]+\]|@[a-z0-9-]*(?:\[[^\]\s\"'`]+\])?(?:/[a-z0-9_-]+)?):(?:(?:[^\s:\[\]\"'`]|\[[^\]\s\"'`]*\])+:)*!?(?:(?:min-|max-)?w-(?:[a-z0-9./]+|\[[^\]\s\"'`]+\]|\([^)\s\"'`]+\))|(?:block|inline-block|flex|inline-flex)))!?(?:\s+(?:(?:(?:[^\s:\[\]\"'`]|\[[^\]\s\"'`]*\])+:)*!?(?:-?m[trblxyse]?-(?:[0-9./]+|px|auto|full|\[[^\]\s\"'`]+\]|\([^)\s\"'`]+\))|(?:justify-|place-)?self-(?:auto|start|end|center|stretch|baseline|baseline-last|end-safe|center-safe)|(?:col|row)-(?:span|start|end)-(?:[0-9]+|full|auto|\[[^\]\s\"'`]+\]|\([^)\s\"'`]+\))|(?:col|row)-auto|-?order-(?:[0-9]+|first|last|none|\[[^\]\s\"'`]+\]|\([^)\s\"'`]+\))|(?:shrink|grow)(?:-0)?|flex-(?:1|auto|initial|none)|basis-(?:[a-z0-9./]+|\[[^\]\s\"'`]+\]|\([^)\s\"'`]+\))|snap-(?:start|end|center|align-none|normal|always)|(?:static|fixed|absolute|relative|sticky)|-?(?:inset(?:-[xy])?|top|right|bottom|left|start|end)-(?:[0-9./]+|px|auto|full|\[[^\]\s\"'`]+\]|\([^)\s\"'`]+\))|-?z-(?:[0-9]+|auto|\[[^\]\s\"'`]+\]|\([^)\s\"'`]+\))|hidden|group(?:/[a-z0-9_-]+)?)|(?:(?:[^\s:\[\]\"'`]|\[[^\]\s\"'`]*\])+:)*(?:(?:max-|min-)?(?:sm|md|lg|xl|2xl)|(?:max|min)-\[[^\]\s\"'`]+\]|@[a-z0-9-]*(?:\[[^\]\s\"'`]+\])?(?:/[a-z0-9_-]+)?):(?:(?:[^\s:\[\]\"'`]|\[[^\]\s\"'`]*\])+:)*!?(?:(?:min-|max-)?w-(?:[a-z0-9./]+|\[[^\]\s\"'`]+\]|\([^)\s\"'`]+\))|(?:block|inline-block|flex|inline-flex)))!?)*)?\s*[\"'`]$"
 }
@@ -104,14 +119,18 @@ file($name, $body) where {
       }
     },
     or {
-      JsNamedImportSpecifier(name = $imported),
-      JsExportNamedFromSpecifier(source_name = $imported, export_as = JsExportAsClause()),
-      JsExportNamedSpecifier(local_name = $imported)
-    } as $renaming where {
-      $imported <: r"^(?:Button|DisclosureButton|NavItem|SegmentedControl|ChoiceCard)$",
+      JsNamedImportSpecifier(name = $reference),
+      JsExportNamedFromSpecifier(source_name = $reference, export_as = JsExportAsClause()),
+      JsExportNamedSpecifier(local_name = $reference),
+      JsIdentifierExpression(name = $reference),
+      JsShorthandPropertyObjectMember(name = $reference),
+      JsStaticMemberExpression(member = $reference),
+      JsObjectBindingPatternProperty(member = $reference)
+    } as $indirection where {
+      $reference <: r"^[\"']?(?:Button|DisclosureButton|NavItem|SegmentedControl|ChoiceCard)[\"']?$",
       register_diagnostic(
-        span = $renaming,
-        message = "Keep the Button family under its own name so the parent-layout check can find its className.",
+        span = $indirection,
+        message = "Keep the Button family under its own name and use it only as a JSX tag, so the parent-layout check can find its className.",
         severity = "error"
       )
     }
