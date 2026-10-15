@@ -23,7 +23,7 @@ import {
   openAdminBrowserPage,
   primePreviewBypass,
   reportAdminCaseFailure,
-  retainActionSubmission,
+  retainServerActionSubmission,
   runFinalizedCase,
   sanitizedBrowserOperation,
 } from "../admin-case";
@@ -100,16 +100,16 @@ test("previews the tagged synthetic customer as a draft marketing campaign recip
   }
 });
 
-const runEmailCampaignPreviewCase = (input: {
-  readonly bypassSecret: string | undefined;
-  readonly context: BrowserContext;
-  readonly datasourceConfig: DatasourceConfig;
-  readonly origin: string;
-  readonly page: Page;
-  readonly plan: EmailCampaignPreviewPlan;
-  readonly reportFailure?: WorkspaceE2EFailureReporter;
-}) =>
-  Effect.gen(function* () {
+const runEmailCampaignPreviewCase = Effect.fn("runEmailCampaignPreviewCase")(
+  function* (input: {
+    readonly bypassSecret: string | undefined;
+    readonly context: BrowserContext;
+    readonly datasourceConfig: DatasourceConfig;
+    readonly origin: string;
+    readonly page: Page;
+    readonly plan: EmailCampaignPreviewPlan;
+    readonly reportFailure?: WorkspaceE2EFailureReporter;
+  }) {
     const telemetry = yield* E2ETelemetryService;
     const { db } = yield* E2EDatabase;
     const { page, plan } = input;
@@ -158,23 +158,13 @@ const runEmailCampaignPreviewCase = (input: {
       );
 
     // Submits a hydrated admin form once, retaining its Server Action
-    // submission before the click. The request wait outlasts the click, so a
-    // submission it misses was never dispatched.
+    // submission before the click. The submission stays pending until the
+    // request is sent or cleanup closes the browser context.
     const submitAction = (
       submitLabel: string,
       retain: (submission: Promise<ActionResponseOutcome>) => void
     ) => {
-      retain(
-        retainActionSubmission(
-          page.waitForRequest(
-            (request) =>
-              request.method() === "POST" &&
-              request.url().startsWith(input.origin) &&
-              request.headers()["next-action"] !== undefined,
-            { timeout: workspaceE2ETimeouts.uiTransition }
-          )
-        )
-      );
+      retain(retainServerActionSubmission(page, input.origin));
       return page
         .getByRole("button", { exact: true, name: submitLabel })
         .click({ timeout: workspaceE2ETimeouts.browserAction });
@@ -484,6 +474,13 @@ const runEmailCampaignPreviewCase = (input: {
           "the synthetic campaign draft before cleanup"
         ).pipe(Effect.as(true)),
         campaignSubmission,
+        closeBrowser: withinWorkspaceE2EDeadline(
+          sanitizedBrowserOperation("close the admin browser context", () =>
+            input.context.close()
+          ),
+          `${emailCampaignPreviewCaseId}/close-browser`,
+          workspaceE2ETimeouts.browserAction
+        ),
         deleteRows: deleteSyntheticRows(db, plan, customerId),
       })
     );
@@ -516,7 +513,8 @@ const runEmailCampaignPreviewCase = (input: {
         terminalStepId: () => terminalStepId,
       }),
     });
-  });
+  }
+);
 
 const readSyntheticAudiences = (
   db: DatabaseClient,
@@ -550,54 +548,50 @@ const readSyntheticCampaigns = (
  * Deletes the run's campaign before its audience (a draft keeps the audience
  * referenced), then the synthetic consent row, and proves none remain.
  */
-const deleteSyntheticRows = (
+const deleteSyntheticRows = Effect.fn("deleteSyntheticRows")(function* (
   db: DatabaseClient,
   plan: EmailCampaignPreviewPlan,
   customerId: DotyposCustomerId | undefined
-) =>
-  Effect.gen(function* () {
+) {
+  yield* db
+    .delete(emailCampaigns)
+    .where(eq(emailCampaigns.title, plan.campaignTitle))
+    .pipe(
+      Effect.mapError((cause) =>
+        toWorkspaceE2EError("delete synthetic email campaigns", cause)
+      )
+    );
+  yield* db
+    .delete(emailCampaignAudiences)
+    .where(eq(emailCampaignAudiences.title, plan.audienceTitle))
+    .pipe(
+      Effect.mapError((cause) =>
+        toWorkspaceE2EError("delete synthetic email campaign audiences", cause)
+      )
+    );
+  if (customerId !== undefined) {
     yield* db
-      .delete(emailCampaigns)
-      .where(eq(emailCampaigns.title, plan.campaignTitle))
+      .delete(customerMarketingConsents)
+      .where(eq(customerMarketingConsents.dotyposCustomerId, customerId))
       .pipe(
         Effect.mapError((cause) =>
-          toWorkspaceE2EError("delete synthetic email campaigns", cause)
+          toWorkspaceE2EError("delete synthetic marketing consent", cause)
         )
       );
-    yield* db
-      .delete(emailCampaignAudiences)
-      .where(eq(emailCampaignAudiences.title, plan.audienceTitle))
+    const remainingConsents = yield* db
+      .select({ id: customerMarketingConsents.dotyposCustomerId })
+      .from(customerMarketingConsents)
+      .where(eq(customerMarketingConsents.dotyposCustomerId, customerId))
       .pipe(
         Effect.mapError((cause) =>
           toWorkspaceE2EError(
-            "delete synthetic email campaign audiences",
+            "verify synthetic marketing consent cleanup",
             cause
           )
         )
       );
-    if (customerId !== undefined) {
-      yield* db
-        .delete(customerMarketingConsents)
-        .where(eq(customerMarketingConsents.dotyposCustomerId, customerId))
-        .pipe(
-          Effect.mapError((cause) =>
-            toWorkspaceE2EError("delete synthetic marketing consent", cause)
-          )
-        );
-      const remainingConsents = yield* db
-        .select({ id: customerMarketingConsents.dotyposCustomerId })
-        .from(customerMarketingConsents)
-        .where(eq(customerMarketingConsents.dotyposCustomerId, customerId))
-        .pipe(
-          Effect.mapError((cause) =>
-            toWorkspaceE2EError(
-              "verify synthetic marketing consent cleanup",
-              cause
-            )
-          )
-        );
-      equal(remainingConsents.length, 0);
-    }
-    equal((yield* readSyntheticCampaigns(db, plan)).length, 0);
-    equal((yield* readSyntheticAudiences(db, plan)).length, 0);
-  });
+    equal(remainingConsents.length, 0);
+  }
+  equal((yield* readSyntheticCampaigns(db, plan)).length, 0);
+  equal((yield* readSyntheticAudiences(db, plan)).length, 0);
+});

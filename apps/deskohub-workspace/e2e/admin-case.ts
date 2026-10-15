@@ -229,3 +229,33 @@ export const retainActionSubmission = (
       ),
     (): ActionResponseOutcome => ({ kind: "undispatched" })
   );
+
+type ServerActionRequest = Pick<
+  Request,
+  "headers" | "method" | "response" | "url"
+>;
+
+/**
+ * Retains the next Server Action request the page sends to `origin`. The wait
+ * has no timeout, so the submission settles as undispatched only when the page
+ * closes without sending one. Close the browser context before awaiting it:
+ * after the close, no late request can leave the browser.
+ */
+export const retainServerActionSubmission = (
+  page: {
+    readonly waitForRequest: (
+      predicate: (request: ServerActionRequest) => boolean,
+      options: { readonly timeout: number }
+    ) => Promise<ServerActionRequest>;
+  },
+  origin: string
+): Promise<ActionResponseOutcome> =>
+  retainActionSubmission(
+    page.waitForRequest(
+      (request) =>
+        request.method() === "POST" &&
+        request.url().startsWith(origin) &&
+        request.headers()["next-action"] !== undefined,
+      { timeout: 0 }
+    )
+  );

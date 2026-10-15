@@ -34,25 +34,34 @@ export const planEmailCampaignPreview = (
 });
 
 /**
- * Waits for the audience save, then the campaign draft creation, to settle,
- * and deletes the run's exact-match rows whatever those barriers report, so a
- * failed or undispatched submission never strands the fixture. A barrier
- * failure still fails cleanup once the deletes have run.
+ * Closes the browser context first, so no Server Action request can leave the
+ * browser after this point. It then waits for the audience save and the
+ * campaign draft creation to settle, and deletes the run's exact-match rows
+ * whatever those barriers report. A submission the browser never sent settles
+ * as undispatched once the context closes; a sent one settles through its
+ * response or converges on its persisted row. A failed close or barrier still
+ * fails cleanup, but only after the deletes have run.
  */
 export const releaseEmailCampaignFixture = <E, R>(input: {
   readonly barrierTimeoutMs: number;
+  readonly closeBrowser: Effect.Effect<void, E, R>;
   readonly audienceSubmission: Promise<ActionResponseOutcome> | undefined;
   readonly campaignSubmission: Promise<ActionResponseOutcome> | undefined;
   readonly audiencePersisted: Effect.Effect<boolean, E, R>;
   readonly campaignPersisted: Effect.Effect<boolean, E, R>;
   readonly deleteRows: Effect.Effect<void, E, R>;
 }) =>
-  awaitActionQuiescence({
-    barrierTimeoutMs: input.barrierTimeoutMs,
-    label: "save audience action",
-    responseSettled: input.audienceSubmission,
-    waitForTerminalEvent: input.audiencePersisted,
-  }).pipe(
+  input.closeBrowser.pipe(
+    Effect.ensuring(
+      Effect.orDie(
+        awaitActionQuiescence({
+          barrierTimeoutMs: input.barrierTimeoutMs,
+          label: "save audience action",
+          responseSettled: input.audienceSubmission,
+          waitForTerminalEvent: input.audiencePersisted,
+        })
+      )
+    ),
     Effect.ensuring(
       Effect.orDie(
         awaitActionQuiescence({

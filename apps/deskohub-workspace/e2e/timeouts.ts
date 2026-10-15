@@ -76,13 +76,15 @@ export const workspaceE2EAccessCodeCleanupTimeout =
 export const workspaceE2EAccessCodePlaywrightTimeout =
   workspaceE2ETimeouts.accessCodeCase + workspaceE2EAccessCodeCleanupTimeout;
 
-// Cleanup waits on one completion barrier per state-creating admin action
-// (audience save, campaign draft creation), each with a bounded fallback that
-// converges on the persisted row, then clears the Dotypos profile's tags,
-// expires it, and deletes the synthetic rows.
+// Cleanup closes the admin browser context, waits on one completion barrier
+// per state-creating admin action (audience save, campaign draft creation),
+// each with a bounded fallback that converges on the persisted row, then
+// clears the Dotypos profile's tags, expires it, and deletes the synthetic
+// rows.
 export const workspaceE2EEmailCampaignMutationBarrierCount = 2;
 
 export const workspaceE2EEmailCampaignCleanupTimeout =
+  workspaceE2ETimeouts.browserAction +
   (workspaceE2ETimeouts.uiTransition + workspaceE2ETimeouts.datasource) *
     workspaceE2EEmailCampaignMutationBarrierCount +
   workspaceE2ETimeouts.cleanupAction * 2;

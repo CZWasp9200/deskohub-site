@@ -6,7 +6,9 @@ import { Effect, Exit } from "effect";
 import {
   type ActionResponseOutcome,
   retainActionSubmission,
+  retainServerActionSubmission,
 } from "../admin-case";
+import { pollUntil } from "../polling";
 import { workspaceE2EEmailCampaignMutationBarrierCount } from "../timeouts";
 import {
   planEmailCampaignPreview,
@@ -71,6 +73,9 @@ describe("email campaign fixture release", () => {
         audiencePersisted: persisted("audience"),
         barrierTimeoutMs: 20,
         campaignPersisted: persisted("campaign"),
+        closeBrowser: Effect.sync(() => {
+          operations.push("close");
+        }),
         deleteRows: Effect.sync(() => {
           operations.push("delete");
         }),
@@ -86,7 +91,7 @@ describe("email campaign fixture release", () => {
     });
 
     expect(Exit.isSuccess(exit)).toBe(true);
-    expect(operations).toEqual(["delete"]);
+    expect(operations).toEqual(["close", "delete"]);
   });
 
   test("deletes the fixture when the campaign submit fails before dispatch", async () => {
@@ -96,7 +101,7 @@ describe("email campaign fixture release", () => {
     });
 
     expect(Exit.isSuccess(exit)).toBe(true);
-    expect(operations).toEqual(["delete"]);
+    expect(operations).toEqual(["close", "delete"]);
   });
 
   test("still deletes and then fails when a dispatched action never settles", async () => {
@@ -107,9 +112,133 @@ describe("email campaign fixture release", () => {
 
     expect(Exit.isFailure(exit)).toBe(true);
     expect(operations).toEqual([
+      "close",
       "converge audience",
       "converge campaign",
       "delete",
     ]);
+  });
+});
+
+/**
+ * Models the Playwright contract the case relies on: a page hands each sent
+ * request to pending waits, closing the context rejects those waits and any
+ * pending response, and a closed context sends nothing. The server persists
+ * the audience row `persistAfterMs` after it receives the request, whether or
+ * not the browser is still there for the response.
+ */
+const fakeAdminBrowser = (persistAfterMs: number) => {
+  type ActionPage = Parameters<typeof retainServerActionSubmission>[0];
+  type ActionRequest = Awaited<ReturnType<ActionPage["waitForRequest"]>>;
+  const origin = "https://preview.deskohub.test";
+  const onClose = new Set<() => void>();
+  const waits = new Set<(request: ActionRequest) => void>();
+  const state = { closed: false, refusedDispatches: 0, rows: 0 };
+  const untilClosed = <A>(register: (resolve: (value: A) => void) => void) =>
+    new Promise<A>((resolve, reject) => {
+      const closed = () => reject(new Error("Target page has been closed"));
+      if (state.closed) {
+        closed();
+        return;
+      }
+      onClose.add(closed);
+      register(resolve);
+    });
+  const page: ActionPage = {
+    waitForRequest: (predicate) =>
+      untilClosed((resolve) => {
+        const deliver = (request: ActionRequest) => {
+          if (!predicate(request)) return;
+          waits.delete(deliver);
+          resolve(request);
+        };
+        waits.add(deliver);
+      }),
+  };
+  return {
+    closeBrowser: Effect.sync(() => {
+      state.closed = true;
+      for (const close of onClose) close();
+    }),
+    deleteRows: Effect.sync(() => {
+      state.rows = 0;
+    }),
+    dispatch: () => {
+      if (state.closed) {
+        state.refusedDispatches += 1;
+        return;
+      }
+      setTimeout(() => {
+        state.rows += 1;
+      }, persistAfterMs);
+      const request: ActionRequest = {
+        headers: () => ({ "next-action": "save-audience" }),
+        method: () => "POST",
+        // The server is still running the action when the context closes.
+        response: () => untilClosed<null>(() => undefined),
+        url: () => `${origin}/admin/email-audiences/new`,
+      };
+      for (const deliver of [...waits]) deliver(request);
+    },
+    persisted: pollUntil(
+      Effect.sync(() => (state.rows > 0 ? true : undefined)),
+      { intervalMs: 5, label: "the fake audience row", timeoutMs: 200 }
+    ),
+    retainSubmission: () => retainServerActionSubmission(page, origin),
+    state,
+  };
+};
+
+const settle = (ms: number) =>
+  new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+
+describe("email campaign fixture release after a late dispatch", () => {
+  const releaseAudience = (
+    browser: ReturnType<typeof fakeAdminBrowser>,
+    audienceSubmission: Promise<ActionResponseOutcome>
+  ) =>
+    Effect.runPromiseExit(
+      releaseEmailCampaignFixture({
+        audiencePersisted: browser.persisted,
+        audienceSubmission,
+        barrierTimeoutMs: 20,
+        campaignPersisted: browser.persisted,
+        campaignSubmission: undefined,
+        closeBrowser: browser.closeBrowser,
+        deleteRows: browser.deleteRows,
+      })
+    );
+
+  test("refuses a submit the browser attempts after the step timed out", async () => {
+    const browser = fakeAdminBrowser(10);
+    // The click succeeded, but the save request had not left the browser when
+    // the step's 20 ms wait ran out; the browser tries to send it at 40 ms.
+    const submission = browser.retainSubmission();
+    setTimeout(browser.dispatch, 40);
+    await settle(20);
+
+    const exit = await releaseAudience(browser, submission);
+    await settle(60);
+
+    expect(Exit.isSuccess(exit)).toBe(true);
+    expect(await submission).toEqual({ kind: "undispatched" });
+    expect(browser.state.refusedDispatches).toBe(1);
+    expect(browser.state.rows).toBe(0);
+  });
+
+  test("waits for a submit sent just before the close to persist before deleting", async () => {
+    const browser = fakeAdminBrowser(30);
+    const submission = browser.retainSubmission();
+    browser.dispatch();
+
+    const exit = await releaseAudience(browser, submission);
+    await settle(60);
+
+    expect(Exit.isSuccess(exit)).toBe(true);
+    expect(await submission).toEqual({ kind: "unresolved" });
+    expect(browser.state.refusedDispatches).toBe(0);
+    expect(browser.state.rows).toBe(0);
   });
 });
