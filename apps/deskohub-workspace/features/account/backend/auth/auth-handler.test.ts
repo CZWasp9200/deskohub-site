@@ -1,35 +1,15 @@
-import { testEmailAddress } from "@deskohub/test-email";
 import "@/shared/testing/workspace-test-env";
 
-import { describe, expect, mock, spyOn, test } from "bun:test";
-import { drizzleAdapter } from "@better-auth/drizzle-adapter/relations-v2";
+import { describe, expect, spyOn, test } from "bun:test";
 import { NetworkError } from "@deskohub/dotypos";
-import type {
-  Account,
-  RateLimit,
-  Session,
-  User,
-  Verification,
-} from "better-auth";
 import { betterAuth } from "better-auth";
 import { memoryAdapter } from "better-auth/adapters/memory";
-import { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
-import { Cause, Deferred, Effect, Fiber, Layer } from "effect";
-import * as SqlError from "effect/unstable/sql/SqlError";
-import { makeAuthDatabase } from "@/db/auth-database-client";
+import { Deferred, Effect, Fiber, Layer } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import {
   WorkspaceDatabaseAdvisoryLock,
   withPostgresAdvisoryLock,
 } from "@/db/postgres-advisory-lock";
-import {
-  authAccount,
-  authRateLimit,
-  authSession,
-  authUser,
-  authVerification,
-} from "@/db/schema/auth";
-import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import type { CustomerAccountId } from "../../customer-account";
 import { CustomerAccountDeletionService } from "../customer-account-deletion";
 import { CustomerAccountLinkRepository } from "../customer-account-link.repository";
@@ -40,162 +20,29 @@ import {
   type CustomerAvatarUnavailableError,
 } from "../customer-avatar.service";
 import { CustomerDotyposAdapter } from "../customer-dotypos-adapter.service";
-import { captureAccountLocalePreference } from "../customer-locale-preference";
-import type { MagicLinkSendFunction, WorkspaceAuthConfig } from "./auth-server";
-
-const emitWorkspaceLog = mock(() => undefined);
-
-mock.module("@/instrumentation", () => ({
-  postHogLoggerProvider: {
-    forceFlush: () => Promise.resolve(),
-    getLogger: () => ({ emit: emitWorkspaceLog }),
-  },
-}));
-
-const { makeWorkspaceAuth } = await import("./auth-server");
-
-const testDatabase = await connectWorkspacePostgresTestDatabase();
-
-const SECRET_V1 = Buffer.alloc(48, 21).toString("base64url");
-const SECRET_V2 = Buffer.alloc(48, 22).toString("base64url");
-const HOST = "workspace.test";
-
-interface CapturedMagicLink {
-  readonly email: string;
-  readonly url: string;
-  readonly token: string;
-}
-
-type TestAuth = ReturnType<typeof makeTestAuth>;
-
-const buildDatabaseAdapter = () =>
-  drizzleAdapter(makeAuthDatabase(testDatabase!.pool), {
-    provider: "pg",
-    schema: {
-      user: authUser,
-      session: authSession,
-      account: authAccount,
-      verification: authVerification,
-      rateLimit: authRateLimit,
-    },
-    schemaName: "auth",
-  });
-
-type TestAuthOptions = {
-  readonly database?: WorkspaceAuthConfig["database"];
-  readonly secrets?: { readonly version: number; readonly value: string }[];
-  readonly sentLinks?: CapturedMagicLink[];
-  readonly areAccountsEnabled?: WorkspaceAuthConfig["areAccountsEnabled"];
-  readonly beforeDeleteUser?: WorkspaceAuthConfig["beforeDeleteUser"];
-  readonly captureAccountLocalePreference?: WorkspaceAuthConfig["captureAccountLocalePreference"];
-};
-
-/** The real sign-in capture against the migrated disposable database. */
-const realCapture: WorkspaceAuthConfig["captureAccountLocalePreference"] = (
-  accountId,
-  locale
-) =>
-  captureAccountLocalePreference(accountId, locale).pipe(
-    Effect.provide(
-      Layer.succeed(
-        WorkspaceDatabase,
-        WorkspaceDatabase.of({ db: testDatabase!.db })
-      )
-    )
-  );
-
-/** A database failure the sign-in capture sees. */
-const captureFailure = () =>
-  new EffectDrizzleQueryError({
-    query: 'update "auth"."user" set "locale"',
-    params: [],
-    cause: Cause.fail(
-      new SqlError.SqlError({
-        reason: new SqlError.ConstraintError({
-          cause: new Error("synthetic constraint violation"),
-          message: "synthetic constraint violation",
-          operation: "execute",
-        }),
-      })
-    ),
-  });
-
-const makeTestAuth = (options: TestAuthOptions = {}) => {
-  const sendMagicLink: MagicLinkSendFunction = (data) => {
-    options.sentLinks?.push(data);
-  };
-  const captureAccountLocalePreference:
-    | WorkspaceAuthConfig["captureAccountLocalePreference"]
-    | undefined =
-    options.captureAccountLocalePreference ??
-    // The real capture requires the migrated disposable Postgres, so
-    // memory-backed auth instances default to a noop capture.
-    (testDatabase && !options.database ? realCapture : () => Effect.void);
-  return makeWorkspaceAuth({
-    database: options.database ?? buildDatabaseAdapter(),
-    secrets: options.secrets ?? [{ version: 1, value: SECRET_V1 }],
-    allowedHosts: [HOST],
-    httpsOnly: true,
-    areAccountsEnabled: options.areAccountsEnabled ?? (async () => true),
-    sendMagicLink,
-    beforeDeleteUser: options.beforeDeleteUser ?? (() => Effect.void),
-    captureAccountLocalePreference,
-  });
-};
-
-type MemoryAuthStore = {
-  readonly user: User[];
-  readonly session: Session[];
-  readonly account: Account[];
-  readonly verification: Verification[];
-  readonly rateLimit: RateLimit[];
-};
-
-const makeMemoryTestAuth = (
-  options: Omit<TestAuthOptions, "database"> = {}
-) => {
-  const store: MemoryAuthStore = {
-    user: [],
-    session: [],
-    account: [],
-    verification: [],
-    rateLimit: [],
-  };
-  const auth = makeTestAuth({
-    ...options,
-    database: memoryAdapter(store),
-  });
-  return { auth, store };
-};
-
-const callHandler = (auth: TestAuth, path: string, init: RequestInit = {}) =>
-  auth.handler(
-    new Request(`https://${HOST}/api/auth${path}`, {
-      ...init,
-      headers: {
-        origin: `https://${HOST}`,
-        "x-vercel-forwarded-for": "192.0.2.1",
-        ...((init.headers as Record<string, string>) ?? {}),
-      },
-    })
-  );
-
-const runIpOctet = Math.floor(Math.random() * 200) + 20;
-let ipCounter = 0;
-const uniqueIp = () => {
-  ipCounter += 1;
-  return `172.16.${runIpOctet}.${ipCounter}`;
-};
-
-const runCustomerPrefix = Math.floor(Math.random() * 900000) + 100000;
-let customerCounter = 0;
-const uniqueDotyposCustomerId = () => {
-  customerCounter += 1;
-  return `${runCustomerPrefix}${customerCounter}`;
-};
-
-const uniqueEmail = (label: string) =>
-  testEmailAddress(`${label}-${crypto.randomUUID()}`);
+import {
+  type CapturedMagicLink,
+  callHandler,
+  captureFailure,
+  cookieJar,
+  emitWorkspaceLog,
+  expectAccountsUnavailable,
+  getSessionCookie,
+  HOST,
+  linkAccount,
+  makeMemoryTestAuth,
+  makeTestAuth,
+  SECRET_V1,
+  SECRET_V2,
+  signInForMagicLink,
+  type TestAuth,
+  testDatabase,
+  uniqueDotyposCustomerId,
+  uniqueEmail,
+  uniqueIp,
+  userIdForEmail,
+  verifyMagicLink,
+} from "./auth-handler.test-utils";
 
 const makeFailingVerificationDatabase = (
   email: string,
@@ -228,62 +75,6 @@ const makeFailingVerificationDatabase = (
       },
     };
   };
-};
-
-const signInForMagicLink = (
-  auth: TestAuth,
-  email: string,
-  callbackURL?: string,
-  ip: string = uniqueIp()
-) =>
-  callHandler(auth, "/sign-in/magic-link", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-vercel-forwarded-for": ip,
-    },
-    body: JSON.stringify(callbackURL ? { email, callbackURL } : { email }),
-  });
-
-const getSessionCookie = (response: Response) =>
-  response.headers
-    .getSetCookie()
-    .find((cookie) => cookie.includes("session_token="));
-
-const cookieJar = (setCookie: string) => setCookie.split(";")[0]!;
-
-const userIdForEmail = async (email: string) => {
-  const result = await testDatabase!.pool.query(
-    `select id from auth."user" where email = $1`,
-    [email]
-  );
-  return (result.rows[0]?.id as string | undefined) ?? undefined;
-};
-
-const linkAccount = async (userId: string, dotyposCustomerId: string) => {
-  await testDatabase!.pool.query(
-    `insert into customer_account_links (customer_account_id, dotypos_customer_id) values ($1, $2)`,
-    [userId, dotyposCustomerId]
-  );
-};
-
-const verifyLinkPath = (link: CapturedMagicLink) =>
-  link.url.slice(`https://${HOST}/api/auth`.length);
-
-const verifyMagicLink = (
-  auth: TestAuth,
-  link: CapturedMagicLink,
-  ip: string = uniqueIp()
-) =>
-  callHandler(auth, verifyLinkPath(link), {
-    headers: { "x-vercel-forwarded-for": ip },
-  });
-
-const expectAccountsUnavailable = async (response: Response) => {
-  expect(response.status).toBe(503);
-  expect(await response.text()).toBe(
-    JSON.stringify({ message: "Service Unavailable" })
-  );
 };
 
 const makeTestDeletionLayers = (

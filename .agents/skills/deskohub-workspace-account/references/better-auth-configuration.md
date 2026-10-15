@@ -53,15 +53,34 @@ Keep these settings unless a reviewed decision changes them:
   canonical customer-facing host, the exact Vercel project, deployment, and
   branch hosts, and `localhost:3000` in development. Wildcards fail closed.
   Don't trust arbitrary request hosts or add a fallback host.
-- Email and password sign-in is disabled. The magic-link paths return 503 while
-  the accounts feature flag is off or unreadable.
+- Email and password sign-in is disabled. The magic-link paths and
+  `/sign-in/email-otp` return 503 while the accounts feature flag is off or
+  unreadable.
+- Sign-in codes (`login_email_code`): the stock `emailOTP` plugin stores a
+  hashed six-digit code that lives as long as the link (600 s) and burns after
+  five wrong attempts. `/sign-in/magic-link` stays the only send path: its
+  `before` hook evaluates the flag once, fail closed, and overwrites
+  `metadata.signInCode`; `sendMagicLink` then deletes the email's older code,
+  calls server-only `auth.api.createVerificationOTP`, and puts the code in the
+  same email; the `after` hook returns `{ status, signInCode }`. One email is
+  one sign-in: a `sign-in-link-<email>` sibling row lets a code sign-in delete
+  its link, and a link sign-in deletes the code. Every other email-OTP path is
+  in `disabledPaths`. Code sign-in accepts only `email`, `otp`, and
+  `callbackURL`, seeds a new account's locale from that callback, is always
+  BotID-checked, and allows ten requests per IP per 10 minutes. While the flag
+  is on, sends are BotID-checked and capped at five per address per rolling
+  hour (`SIGN_IN_EMAIL_LIMIT_REACHED`, 429), one verification row per send
+  keyed by a digest of the address. Logic: `sign-in-code.ts`.
 - `nextCookies()` must stay the last plugin; it forwards Server Action
   `Set-Cookie` headers.
 - Better Auth's logger is disabled. `onAPIError` logs only the fixed
   `account.auth.handler` code for 5xx failures and replaces the error with a
   generic 500.
-- Server-side `auth.api` calls bypass the rate limiter. Send browser sign-in
-  through the mounted endpoint, not a custom Server Action.
+- Server-side `auth.api` calls bypass the rate limiter and `disabledPaths`.
+  Send browser sign-in through the mounted endpoint, not a custom Server
+  Action. A direct call made inside a request, such as
+  `createVerificationOTP`, needs the request (`request`, `asResponse: false`)
+  to resolve the dynamic base URL.
 
 ## PII minimization
 
@@ -73,7 +92,8 @@ Keep these settings unless a reviewed decision changes them:
 - `auth.account` stays empty: the magic-link flow creates no account rows, and
   passwords, OAuth, and social providers stay disabled.
 - What remains in Neon is the login email, the email inside each pending
-  verification row, and raw `IP|path` rate-limit keys. Better Auth has no
+  verification row, and raw `IP|path` rate-limit keys. Sign-in code, sibling,
+  and per-email send rows store only hashed identifiers and values. Better Auth has no
   native option to hash or encrypt these, so don't build a custom adapter or
   HMAC rate-limit storage to remove them.
 

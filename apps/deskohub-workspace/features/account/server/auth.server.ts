@@ -12,8 +12,12 @@ import {
   workspaceSendMagicLink,
 } from "@/features/account/backend/auth/auth-server";
 import { captureAccountLocalePreference } from "@/features/account/backend/customer-locale-preference";
+import { BotProtectionService } from "@/shared/backend/bot-protection/bot-protection.service";
 import { workspaceSiteConstants } from "@/shared/utils/site-constants";
-import { areAccountsEnabled } from "./account-feature-flag.server";
+import {
+  areAccountsEnabled,
+  isSignInCodeEnabled,
+} from "./account-feature-flag.server";
 
 const secrets = parseBetterAuthSecrets(env.BETTER_AUTH_SECRETS);
 if (secrets.kind === "invalid") {
@@ -44,6 +48,11 @@ export const auth = makeWorkspaceAuth({
   allowedHosts: allowedHosts.hosts,
   httpsOnly: env.VERCEL_ENV !== "development",
   areAccountsEnabled,
+  isSignInCodeEnabled,
+  verifyHuman: (input) =>
+    Effect.flatMap(BotProtectionService, (botProtection) =>
+      botProtection.verifyHuman(input)
+    ).pipe(Effect.provide(BotProtectionService.Default)),
   sendMagicLink: workspaceSendMagicLink,
   beforeDeleteUser: workspaceBeforeDeleteUser,
   captureAccountLocalePreference: (accountId, locale) =>

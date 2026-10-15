@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { Link, Section } from "react-email";
+import { Link, Section, Text } from "react-email";
 import {
   WorkspaceEmailBody,
   WorkspaceEmailHeading,
@@ -16,13 +16,15 @@ import type { MagicLinkDeliveryRequest } from "./send-magic-link-email";
 export type MagicLinkEmailProps = {
   readonly locale: WorkspaceEmailLocale;
   readonly url: string;
+  /** The sign-in code; alone on its own line in the text body. */
+  readonly code?: string;
 };
 
 /**
  * Account-owned magic-link renderer. The bearer URL is embedded only in the
  * rendered body and must never reach logs, traces, or error messages.
  */
-function MagicLinkEmail({ locale, url }: MagicLinkEmailProps) {
+function MagicLinkEmail({ locale, url, code }: MagicLinkEmailProps) {
   return (
     <WorkspaceEmailLayout
       locale={locale}
@@ -45,6 +47,11 @@ function MagicLinkEmail({ locale, url }: MagicLinkEmailProps) {
           {m.accountMagicLinkEmailButton({}, { locale })}
         </Link>
       </Section>
+      {code ? (
+        <Section className="mt-6 text-center">
+          <Text className="text-[28px] font-bold tracking-[6px]">{code}</Text>
+        </Section>
+      ) : null}
       <WorkspaceEmailNote>
         {m.accountMagicLinkEmailNote({}, { locale })}
       </WorkspaceEmailNote>
@@ -55,7 +62,11 @@ function MagicLinkEmail({ locale, url }: MagicLinkEmailProps) {
 export const renderMagicLinkEmail = (request: MagicLinkDeliveryRequest) =>
   Effect.map(
     renderWorkspaceEmail(
-      MagicLinkEmail({ locale: request.locale, url: request.url })
+      MagicLinkEmail({
+        locale: request.locale,
+        url: request.url,
+        code: request.code,
+      })
     ),
     (rendered) => ({
       subject: m.accountMagicLinkEmailSubject({}, { locale: request.locale }),

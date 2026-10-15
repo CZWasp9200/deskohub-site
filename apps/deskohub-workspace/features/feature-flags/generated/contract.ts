@@ -9,6 +9,7 @@ export const postHogFeatureFlags = definePostHogFeatureFlags<
   "calendar_sales",
   "customer_discounts",
   "discount_codes",
+  "login_email_code",
   "meeting_room_page",
   "office_page",
   "referrals",
@@ -36,6 +37,10 @@ export interface PostHogFeatureFlagDefinitions {
     readonly payload: undefined;
   };
   readonly "discount_codes": {
+    readonly value: boolean;
+    readonly payload: undefined;
+  };
+  readonly "login_email_code": {
     readonly value: boolean;
     readonly payload: undefined;
   };
