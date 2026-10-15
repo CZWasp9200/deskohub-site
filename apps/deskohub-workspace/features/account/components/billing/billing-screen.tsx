@@ -5,7 +5,6 @@ import { FutureFeatureTooltip } from "@/features/account/components/future-featu
 import { AccountSectionPanel } from "@/features/account/components/shell/account-section-panel";
 import type { Locale } from "@/features/i18n";
 import { Button } from "@/shared/components/ui/button";
-import { UnstyledButton } from "@/shared/components/ui/unstyled-button";
 
 /*
  * THESIS: Billing stays honest about unavailable account capabilities instead of
@@ -69,10 +68,7 @@ export function BillingScreen({
         </h3>
         <div className="mt-4 grid min-w-0 gap-4 @xl:grid-cols-2">
           <FutureFeatureTooltip locale={locale}>
-            <UnstyledButton
-              className="flex min-h-[9rem] w-full min-w-0 flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-[#cbd7e5] bg-[#fbfcfd] px-4 py-6 text-center text-sm font-semibold text-[#53657f]"
-              disabled
-            >
+            <Button disabled type="button" variant="tile">
               <Plus
                 aria-hidden="true"
                 className="size-5 shrink-0 text-[#8291a6]"
@@ -80,7 +76,7 @@ export function BillingScreen({
               <span className="min-w-0 max-w-full break-words">
                 {copy.addPaymentCard}
               </span>
-            </UnstyledButton>
+            </Button>
           </FutureFeatureTooltip>
         </div>
       </section>

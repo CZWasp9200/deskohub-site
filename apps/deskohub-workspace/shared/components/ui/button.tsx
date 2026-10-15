@@ -7,6 +7,7 @@ import { cn } from "@/shared/utils";
  * Colours each variant accepts. A primary tone sets the fill, its hover and
  * the glow together; secondary, ghost and link tones set text, edge and hover.
  * `inverse` is for dark backgrounds, `danger` for destructive actions.
+ * `tile` is a dashed, card-sized add action, such as "Add payment card".
  */
 interface ButtonTones {
   primary:
@@ -18,6 +19,7 @@ interface ButtonTones {
   secondary: "navy-blue" | "burned-orange" | "inverse";
   ghost: "navy-blue" | "muted" | "inverse" | "success" | "warning";
   link: "burned-orange" | "inverse";
+  tile: "muted";
 }
 
 type ButtonVariant = keyof ButtonTones;
@@ -36,6 +38,7 @@ const defaultTones = {
   secondary: "navy-blue",
   ghost: "navy-blue",
   link: "burned-orange",
+  tile: "muted",
 } as const satisfies { [Variant in ButtonVariant]: ButtonTones[Variant] };
 
 const buttonClasses = cva(
@@ -49,6 +52,7 @@ const buttonClasses = cva(
           "border bg-white bg-linear-to-b from-transparent to-navy-blue/4 px-6 py-3 shadow-button-raised-subtle active:translate-y-px active:shadow-button-pressed-subtle",
         ghost: "px-3 py-2",
         link: "underline underline-offset-4",
+        tile: "flex-col gap-3 border border-dashed bg-[#fbfcfd] text-center",
       },
       tone: {
         "burned-orange": "",
@@ -172,10 +176,20 @@ const buttonClasses = cva(
         tone: "inverse",
         class: "text-white/82 hover:text-white",
       },
+      {
+        variant: "tile",
+        tone: "muted",
+        class: "border-[#cbd7e5] text-[#53657f] hover:border-[#a9b8cb]",
+      },
       { size: "xl", caps: true, class: "tracking-[0.18em]" },
       {
         variant: "link",
         class: "h-auto min-h-0 rounded-none px-0 py-0",
+      },
+      {
+        variant: "tile",
+        class:
+          "h-auto min-h-36 w-full min-w-0 whitespace-normal rounded-2xl px-4 py-6",
       },
     ],
     defaultVariants: {
@@ -227,18 +241,23 @@ function buttonVariants({
   );
 }
 
-type ButtonProps = Omit<
+/**
+ * `AsChild` is `true` when the Button styles its child element (usually a
+ * link). `pending` relies on the native `disabled` state, which links don't
+ * have, so only a rendered `<button>` can be pending.
+ */
+type ButtonProps<AsChild extends boolean = false> = Omit<
   React.ButtonHTMLAttributes<HTMLButtonElement>,
   "className"
 > &
   ButtonStyleOptions & {
     /** Renders the child element (usually a link) with the Button's styling. */
-    readonly asChild?: boolean;
+    readonly asChild?: AsChild;
     /**
      * Marks an action in progress: disables the button and sets `aria-busy`.
      * Callers keep their own pending label.
      */
-    readonly pending?: boolean;
+    readonly pending?: [AsChild] extends [false] ? boolean : never;
     readonly ref?: React.Ref<HTMLButtonElement>;
     /**
      * Parent layout only: margin, self/grid placement, position, z-index,
@@ -257,8 +276,8 @@ type ButtonProps = Omit<
  * (expands content) and `UnstyledButton` (custom visuals such as carousel dots
  * or image tiles).
  */
-function Button({
-  asChild = false,
+function Button<AsChild extends boolean = false>({
+  asChild,
   caps,
   className,
   disabled,
@@ -271,7 +290,7 @@ function Button({
   variant,
   wrap,
   ...props
-}: ButtonProps) {
+}: ButtonProps<AsChild>) {
   const Comp = asChild ? Slot : "button";
 
   return (

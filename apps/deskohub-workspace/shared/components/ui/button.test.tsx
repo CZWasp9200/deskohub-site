@@ -4,6 +4,7 @@ import {
   registerWorkspaceComponentTestEnv,
   unregisterWorkspaceComponentTestEnv,
 } from "@/shared/testing/workspace-component-test-env";
+import type { ButtonProps } from "./button";
 
 registerWorkspaceComponentTestEnv();
 
@@ -144,6 +145,35 @@ test("asChild styles a link without turning it into a button", () => {
   expect(link.getAttribute("href")).toBe("/en-US/contact");
   expect(classesOf(link)).toContain("shadow-button-raised-subtle");
   expect(view.queryByRole("button")).toBeNull();
+});
+
+test("a link styled as a button can't be pending", () => {
+  // @ts-expect-error A link has no disabled state, so it would stay actionable.
+  const props: ButtonProps<true> = { asChild: true, pending: true };
+  const view = render(
+    <Button {...props}>
+      <a href="/en-US/checkout">Pay</a>
+    </Button>
+  );
+
+  expect(view.getByRole("link", { name: "Pay" })).toBeDefined();
+});
+
+test("the tile variant is a dashed card-sized action", () => {
+  const view = render(<Button variant="tile">Add payment card</Button>);
+  const classes = classesOf(view.getByRole("button"));
+
+  expect(classes).toEqual(
+    expect.arrayContaining([
+      "border-dashed",
+      "flex-col",
+      "min-h-36",
+      "rounded-2xl",
+      "whitespace-normal",
+    ])
+  );
+  expect(classes).not.toContain("h-11");
+  expect(classes).not.toContain("rounded-full");
 });
 
 test("className adds parent layout without replacing the treatment", () => {
