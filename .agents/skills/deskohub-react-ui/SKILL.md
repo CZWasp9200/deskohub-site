@@ -26,7 +26,8 @@ For Workspace forms, also read [references/workspace-forms.md](references/worksp
 
 ## Copy and locale
 
-- Keep user-facing copy in the owning app's Inlang message catalogs as full sentences in both locale files, consumed with `m.*` in components and email-rendering TSX alike. Long-form legal and GDPR prose stays in its source modules: `features/legal/content.tsx` (Workspace) and `features/gdpr/texts/` (Boardgame Bar).
+- Keep customer-facing copy in the owning app's Inlang message catalogs as full sentences in both locale files, consumed with `m.*` in components and email-rendering TSX alike. Long-form legal and GDPR prose stays in its source modules: `features/legal/content.tsx` (Workspace) and `features/gdpr/texts/` (Boardgame Bar).
+- Admin UI (`/admin`, `features/administration`, `features/*/admin`) is English-only: hard-code its copy in components, without `m.*` or catalog entries.
 - Call `m.someMessage({}, { locale })` at each use site. Don't build per-locale copy maps or copy props for injection, and assert real catalog or rendered text in tests.
 - When a localized sentence contains links or other components, use `@doist/react-interpolate` and keep the whole sentence in one message.
 - Build a shareable or external link (anything copied, shared, or received outside the app, such as a referral share link) as an absolute URL on the origin from `getWorkspaceRuntimeCallbackOrigin`, with no locale prefix, so the proxy opens it in the recipient's language. Display and copy that same URL; in-app navigation keeps the prefix.
