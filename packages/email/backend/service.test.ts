@@ -33,10 +33,13 @@ const success = {
 const makeProvider = (
   send: EmailProvider["send"] = mock((_message: EmailMessage) =>
     Effect.succeed(success)
-  )
+  ),
+  sendBatch: EmailProvider["sendBatch"] = (messages) =>
+    Effect.forEach(messages, send)
 ): EmailProvider => ({
   name: "fake",
   send,
+  sendBatch,
   verify: Effect.succeed(true),
 });
 
@@ -150,6 +153,52 @@ describe("EmailService", () => {
     expect(attemptKeys).toHaveLength(2);
     expect(first).toEqual(expect.any(String));
     expect(second).toBe(first);
+  });
+
+  test("sends a batch once and leaves an unknown outcome to the caller", async () => {
+    // The first request may have been accepted with its response lost; an
+    // internal retry refused with 429 would then hide that it was.
+    const sendBatch = mock((_messages: readonly EmailMessage[]) =>
+      Effect.fail(new NetworkError({ message: "timed out" }))
+    );
+
+    const result = await runWithEmail(
+      Effect.gen(function* () {
+        const email = yield* EmailServiceTag;
+        return yield* email
+          .sendBatch([message], { idempotencyKey: "campaign-batch-key" })
+          .pipe(Effect.result);
+      }).pipe(withInstantRetryBackoff),
+      makeProvider(undefined, sendBatch)
+    );
+
+    expect(result._tag).toBe("Failure");
+    if (result._tag === "Failure") {
+      expect(result.failure._tag).toBe("NetworkError");
+    }
+    expect(sendBatch).toHaveBeenCalledTimes(1);
+  });
+
+  test("does not retry sendBatch EmailServiceError", async () => {
+    const sendBatch = mock((_messages: readonly EmailMessage[]) =>
+      Effect.fail(new EmailServiceError("bad batch request"))
+    );
+
+    const result = await runWithEmail(
+      Effect.gen(function* () {
+        const email = yield* EmailServiceTag;
+        return yield* email
+          .sendBatch([message], { idempotencyKey: "campaign-batch-key" })
+          .pipe(Effect.result);
+      }),
+      makeProvider(undefined, sendBatch)
+    );
+
+    expect(result._tag).toBe("Failure");
+    if (result._tag === "Failure") {
+      expect(result.failure._tag).toBe("EmailServiceError");
+    }
+    expect(sendBatch).toHaveBeenCalledTimes(1);
   });
 
   test("gives separate deliveries separate idempotency keys", async () => {

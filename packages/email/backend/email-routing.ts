@@ -7,7 +7,10 @@ import {
   EmailProviderTag,
 } from "./capabilities";
 import { ConsoleEmailProvider } from "./providers/console-provider";
-import { createResendProvider } from "./providers/resend-provider";
+import {
+  createResendProvider,
+  deploymentResendRequestTimeouts,
+} from "./providers/resend-provider";
 import { isTestEmailRecipient } from "./test-recipients";
 
 export type EmailRoute = "console" | "resend";
@@ -70,7 +73,9 @@ export const RoutedEmailProviderLive = Layer.effect(
   Effect.gen(function* () {
     const config = yield* EmailConfigTag;
     const apiKey = config.apiKey?.trim();
-    const resend = apiKey ? createResendProvider(apiKey) : undefined;
+    const resend = apiKey
+      ? createResendProvider(apiKey, yield* deploymentResendRequestTimeouts)
+      : undefined;
 
     const provider: EmailProvider = {
       name: "routed",
@@ -82,6 +87,28 @@ export const RoutedEmailProviderLive = Layer.effect(
         }
         return yield* resend.send(message);
       }),
+      sendBatch: Effect.fn("routedEmailProvider.sendBatch")(
+        function* (messages, options) {
+          const routes = messages.map((message) =>
+            resend ? routeEmailMessage(message) : "console"
+          );
+          const routed = (route: EmailRoute) =>
+            messages.filter((_, index) => routes[index] === route);
+          const consoleResults = yield* ConsoleEmailProvider.sendBatch(
+            routed("console"),
+            options
+          );
+          const resendMessages = routed("resend");
+          const resendResults =
+            resend && resendMessages.length > 0
+              ? yield* resend.sendBatch(resendMessages, options)
+              : [];
+          // Put each result back at its message's position.
+          const results = { console: consoleResults, resend: resendResults };
+          const taken = { console: 0, resend: 0 };
+          return routes.map((route) => results[route][taken[route]++]!);
+        }
+      ),
       verify: resend ? resend.verify : Effect.succeed(false),
     };
 

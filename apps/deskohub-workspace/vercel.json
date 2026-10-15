@@ -24,6 +24,16 @@
     }
   ],
   "functions": {
+    "app/api/queues/workspace/email-campaign-send/route.ts": {
+      "experimentalTriggers": [
+        {
+          "type": "queue/v2beta",
+          "topic": "workspace-email-campaign-send",
+          "retryAfterSeconds": 60,
+          "initialDelaySeconds": 0
+        }
+      ]
+    },
     "app/api/queues/workspace/late-payment-recovery/route.ts": {
       "experimentalTriggers": [
         {

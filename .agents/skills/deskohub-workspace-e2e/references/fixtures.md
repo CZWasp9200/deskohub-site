@@ -9,6 +9,7 @@
 - [Calendar sale event](#calendar-sale-event)
 - [Admin Basic auth](#admin-basic-auth)
 - [Access-code idempotency](#access-code-idempotency)
+- [Email campaign recipient preview](#email-campaign-recipient-preview)
 
 Every case uses a unique synthetic customer. Never make an edge case mutate a fixture another case reads.
 
@@ -81,3 +82,7 @@ Keep malformed input, provider failures, clock boundaries, cache expiry, and cla
 ## Access-code idempotency
 
 Reset or "Create another" mints a new attempt ID, so it proves nothing about idempotency. Replay the first submission's captured Server Action POST byte for byte (same `Next-Action` ID, content type, origin, and payload) through the context request API. Assert the `already-created` outcome, that the one-time PIN isn't disclosed again, and the attempt-event counts in the preview database. Clean only exact synthetic rows, pre-clean for reruns, and prove zero matching rows remain in an interruption-safe finalizer.
+
+## Email campaign recipient preview
+
+Audience tag conditions read Dotypos profile tags, and marketing campaigns reach only customers with an active `customer_marketing_consents` row. The case creates one synthetic Dotypos profile with a per-run tag and a Czech consent row, builds the audience and draft through the admin UI, and expects that profile to be the only recipient in the preview. It never test-sends or sends. Each submit retains the next Server Action request with no request timeout. Its finalizer first closes the admin browser context, so no late request can leave the browser and an unsent submission settles as undispatched, then waits on both Server Action barriers, deletes the run's campaign, audience, and consent rows by exact title and customer, proves none remain, and clears the profile's tags while expiring it (profiles are never deleted).

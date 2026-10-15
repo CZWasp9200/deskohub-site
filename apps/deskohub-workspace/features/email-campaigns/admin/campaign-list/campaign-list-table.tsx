@@ -1,0 +1,100 @@
+"use client";
+
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import {
+  AdministrationDataTable,
+  type AdministrationDataTableColumn,
+} from "@/features/administration/data-table";
+import { EmptyState } from "@/features/administration/empty-state";
+import { formatAdministrationDateTime } from "@/features/administration/formatters";
+import { CampaignPurposeBadge, CampaignStatusBadge } from "./campaign-badges";
+import type { CampaignListItem } from "./campaign-list-page-data.server";
+
+const columns: AdministrationDataTableColumn<CampaignListItem>[] = [
+  {
+    accessorKey: "title",
+    header: "Campaign",
+    cell: ({ row }) => (
+      <Link
+        className="font-semibold underline decoration-navy-blue/25 underline-offset-4 hover:decoration-navy-blue"
+        href={`/admin/email-campaigns/${row.original.id}`}
+      >
+        {row.original.title}
+      </Link>
+    ),
+  },
+  {
+    accessorKey: "purpose",
+    header: "Purpose",
+    cell: ({ row }) => <CampaignPurposeBadge purpose={row.original.purpose} />,
+  },
+  {
+    accessorKey: "status",
+    header: "Status",
+    cell: ({ row }) => <CampaignStatusBadge status={row.original.status} />,
+  },
+  {
+    accessorFn: (campaign) => campaign.audienceTitle ?? "",
+    id: "audience",
+    header: "Audience",
+    cell: ({ row }) =>
+      row.original.audienceTitle ?? (
+        <span className="text-navy-blue/55">No audience</span>
+      ),
+  },
+  {
+    accessorKey: "updatedAt",
+    header: "Updated",
+    cell: ({ row }) => formatAdministrationDateTime(row.original.updatedAt),
+  },
+];
+
+export function CampaignListTable({
+  campaigns,
+}: {
+  readonly campaigns: readonly CampaignListItem[];
+}) {
+  const router = useRouter();
+  if (campaigns.length === 0) {
+    return (
+      <EmptyState message="No campaigns yet. Create one to compose your first email." />
+    );
+  }
+  return (
+    <AdministrationDataTable
+      ariaLabel="Email campaigns"
+      columns={columns}
+      data={campaigns}
+      getRowId={(campaign) => campaign.id}
+      mobile={
+        <ul className="divide-y divide-navy-blue/10">
+          {campaigns.map((campaign) => (
+            <li key={campaign.id}>
+              <Link
+                className="block px-4 py-4 transition-colors hover:bg-navy-blue/[0.025] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-navy-blue/40"
+                href={`/admin/email-campaigns/${campaign.id}`}
+              >
+                <span className="block font-semibold">{campaign.title}</span>
+                <span className="mt-2 flex flex-wrap gap-1.5">
+                  <CampaignStatusBadge status={campaign.status} />
+                  <CampaignPurposeBadge purpose={campaign.purpose} />
+                </span>
+                <span className="mt-2 block text-navy-blue/70 text-sm">
+                  {campaign.audienceTitle ?? "No audience"}
+                </span>
+                <span className="mt-3 block text-navy-blue/60 text-xs">
+                  Updated {formatAdministrationDateTime(campaign.updatedAt)}
+                </span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      }
+      onRowActivate={(campaign) =>
+        router.push(`/admin/email-campaigns/${campaign.id}`)
+      }
+      tableClassName="min-w-[720px]"
+    />
+  );
+}

@@ -1,6 +1,6 @@
 import "server-only";
 
-import { eq, isNull, lt, or, sql } from "drizzle-orm";
+import { and, eq, isNull, lt, or, sql } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Effect, Layer } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
@@ -29,6 +29,14 @@ export interface ICustomerMarketingConsentRepository {
   readonly withdraw: (
     input: GrantCustomerMarketingConsentInput
   ) => Effect.Effect<void, EffectDrizzleQueryError>;
+  /**
+   * Withdraws an active consent and reports whether it did. A withdrawn or
+   * missing consent stays as it is, so repeating the request changes nothing.
+   */
+  readonly withdrawActive: (input: {
+    readonly dotyposCustomerId: DotyposCustomerId;
+    readonly withdrawnAt: Temporal.Instant;
+  }) => Effect.Effect<boolean, EffectDrizzleQueryError>;
 }
 
 export class CustomerMarketingConsentRepository extends Context.Service<
@@ -112,6 +120,26 @@ export class CustomerMarketingConsentRepository extends Context.Service<
               });
           }
         ),
+        withdrawActive: Effect.fn(
+          "CustomerMarketingConsentRepository.withdrawActive"
+        )(function* (input) {
+          const withdrawn = yield* db
+            .update(customerMarketingConsents)
+            .set({ withdrawnAt: input.withdrawnAt })
+            .where(
+              and(
+                eq(
+                  customerMarketingConsents.dotyposCustomerId,
+                  input.dotyposCustomerId
+                ),
+                isNull(customerMarketingConsents.withdrawnAt)
+              )
+            )
+            .returning({
+              dotyposCustomerId: customerMarketingConsents.dotyposCustomerId,
+            });
+          return withdrawn.length > 0;
+        }),
       } satisfies ICustomerMarketingConsentRepository;
     })
   );
