@@ -15,7 +15,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/shared/components/ui/dialog";
-import { maskEmailAddress } from "@/shared/utils";
+import { cn, maskEmailAddress } from "@/shared/utils";
 
 type DeleteAccountReauthStepProps = {
   readonly email: string;
@@ -60,45 +60,51 @@ export function DeleteAccountReauthStep({
     setSending(false);
   };
 
-  if (codeRequestedAt !== null) {
-    return (
-      <>
-        <DialogHeader>
-          <DialogTitle>
-            {m.accountDeletionReauthCodeTitle({}, { locale })}
-          </DialogTitle>
-          <DialogDescription id="delete-account-dialog-description">
-            {m.accountSignInCodeBody(
-              { email: maskEmailAddress(email) },
-              { locale }
-            )}
-          </DialogDescription>
-        </DialogHeader>
-        <SignInCodeStep
-          locale={locale}
-          requestedAt={codeRequestedAt}
-          verifiedMessage={m.accountDeletionReauthCodeVerified({}, { locale })}
-          verifyCode={(code) => authReturn.verifySignInCode(email, code)}
-          onVerified={onReauthenticated}
-          requestNewEmail={sendReauthEmail}
-        />
-      </>
-    );
-  }
+  const codeStep = codeRequestedAt !== null;
 
+  // The announcement region stays mounted across both steps, so the link-only
+  // fallback after a resend is announced.
   return (
     <>
-      <DialogHeader>
-        <DialogTitle>
-          {m.accountDeletionReauthTitle({}, { locale })}
-        </DialogTitle>
-        <DialogDescription id="delete-account-dialog-description">
-          {m.accountDeletionReauthBody({}, { locale })}
-        </DialogDescription>
-      </DialogHeader>
+      {codeStep ? (
+        <>
+          <DialogHeader>
+            <DialogTitle>
+              {m.accountDeletionReauthCodeTitle({}, { locale })}
+            </DialogTitle>
+            <DialogDescription id="delete-account-dialog-description">
+              {m.accountSignInCodeBody(
+                { email: maskEmailAddress(email) },
+                { locale }
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <SignInCodeStep
+            locale={locale}
+            requestedAt={codeRequestedAt}
+            verifiedMessage={m.accountDeletionReauthCodeVerified(
+              {},
+              { locale }
+            )}
+            verifyCode={(code) => authReturn.verifySignInCode(email, code)}
+            onVerified={onReauthenticated}
+            requestNewEmail={sendReauthEmail}
+          />
+        </>
+      ) : (
+        <DialogHeader>
+          <DialogTitle>
+            {m.accountDeletionReauthTitle({}, { locale })}
+          </DialogTitle>
+          <DialogDescription id="delete-account-dialog-description">
+            {m.accountDeletionReauthBody({}, { locale })}
+          </DialogDescription>
+        </DialogHeader>
+      )}
       <div
+        id="delete-account-reauth-status"
         aria-live={failure ? "assertive" : "polite"}
-        className="mt-4 min-h-5 text-sm text-navy-blue/78"
+        className={cn("text-sm text-navy-blue/78", !codeStep && "mt-4 min-h-5")}
         role={failure ? "alert" : undefined}
       >
         {failure && signInEmailFailureMessage(failure, locale)}
@@ -106,16 +112,18 @@ export function DeleteAccountReauthStep({
           linkSent &&
           m.accountDeletionReauthLinkSent({}, { locale })}
       </div>
-      <DialogFooter>
-        <Button
-          id="delete-account-reauth-send"
-          type="button"
-          disabled={sending || linkSent}
-          onClick={requestReauthLink}
-        >
-          {m.accountDeletionReauthSendLink({}, { locale })}
-        </Button>
-      </DialogFooter>
+      {!codeStep && (
+        <DialogFooter>
+          <Button
+            id="delete-account-reauth-send"
+            type="button"
+            disabled={sending || linkSent}
+            onClick={requestReauthLink}
+          >
+            {m.accountDeletionReauthSendLink({}, { locale })}
+          </Button>
+        </DialogFooter>
+      )}
     </>
   );
 }

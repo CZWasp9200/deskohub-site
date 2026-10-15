@@ -203,12 +203,16 @@ describe("account components", () => {
       view.getByText(m.accountSignInAcceptedBody({}, { locale }))
     ).toBeTruthy();
 
+    expect(document.activeElement?.textContent).toBe(
+      m.accountSignInAcceptedTitle({}, { locale })
+    );
+
     fireEvent.click(
       view.getByText(m.accountSignInAcceptedAgain({}, { locale }))
     );
-    expect(
+    expect(document.activeElement).toBe(
       view.getByLabelText(m.accountSignInEmailLabel({}, { locale }))
-    ).toBeTruthy();
+    );
   });
 
   test("sign-in card shows a visible pending submit and sends only once", async () => {
@@ -534,19 +538,18 @@ describe("account components", () => {
     const { SignInCard } = await import("./sign-in-card");
 
     const view = render(<SignInCard locale={locale} />);
-    fireEvent.click(
-      view.getByRole("button", {
-        name: m.accountSignInCodeChangeEmail({}, { locale }),
-      })
-    );
+    const changeEmail = view.getByRole("button", {
+      name: m.accountSignInCodeChangeEmail({}, { locale }),
+    });
+    changeEmail.focus();
+    fireEvent.click(changeEmail);
 
-    expect(
-      (
-        view.getByLabelText(
-          m.accountSignInEmailLabel({}, { locale })
-        ) as HTMLInputElement
-      ).value
-    ).toBe(adaAddress);
+    const emailInput = view.getByLabelText(
+      m.accountSignInEmailLabel({}, { locale })
+    ) as HTMLInputElement;
+    expect(emailInput.value).toBe(adaAddress);
+    // The activated button is gone; keyboard focus lands in the email field.
+    expect(document.activeElement).toBe(emailInput);
     expect(sessionStorage.getItem(codeRequestStorageKey)).toBeNull();
   });
 
@@ -561,15 +564,18 @@ describe("account components", () => {
     const { SignInCard } = await import("./sign-in-card");
 
     const view = render(<SignInCard locale={locale} />);
+    const resend = view.container.querySelector<HTMLButtonElement>(
+      "#account-sign-in-code-resend"
+    )!;
+    resend.focus();
     await act(async () => {
-      fireEvent.click(
-        view.container.querySelector("#account-sign-in-code-resend")!
-      );
+      fireEvent.click(resend);
     });
 
-    expect(
+    // The resend button is gone; focus moves to the new state's heading.
+    expect(document.activeElement).toBe(
       view.getByText(m.accountSignInAcceptedTitle({}, { locale }))
-    ).toBeTruthy();
+    );
     expect(sessionStorage.getItem(codeRequestStorageKey)).toBeNull();
   });
 

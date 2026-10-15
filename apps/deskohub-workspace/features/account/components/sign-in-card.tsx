@@ -75,6 +75,15 @@ export function SignInCard({ locale }: SignInCardProps) {
     getServerClientReadySnapshot
   );
   const submissionInProgress = useRef(false);
+  // The control that switched the view unmounts with it, so the next view
+  // takes focus once it mounts.
+  const focusAfterViewChange = useRef<"email" | "accepted" | null>(null);
+  const focusOnMount =
+    (target: "email" | "accepted") => (element: HTMLElement | null) => {
+      if (element === null || focusAfterViewChange.current !== target) return;
+      focusAfterViewChange.current = null;
+      element.focus();
+    };
   const authReturn = useMemo(
     () => createAuthReturnLifecycle({ locale }),
     [locale]
@@ -116,6 +125,7 @@ export function SignInCard({ locale }: SignInCardProps) {
       setCodeRequest({ email, requestedAt: Date.now() });
       return;
     }
+    focusAfterViewChange.current = "accepted";
     setRequested(true);
   };
 
@@ -143,6 +153,7 @@ export function SignInCard({ locale }: SignInCardProps) {
         setCodeRequest({ email: codeRequest.email, requestedAt: Date.now() });
       } else {
         // Codes were switched off meanwhile: fall back to the link-only state.
+        focusAfterViewChange.current = "accepted";
         setCodeRequest(null);
         setRequested(true);
       }
@@ -172,6 +183,7 @@ export function SignInCard({ locale }: SignInCardProps) {
             requestNewEmail={requestNewEmail}
             onUseDifferentEmail={() => {
               authReturn.cancel();
+              focusAfterViewChange.current = "email";
               setCodeRequest(null);
               form.reset({ email: codeRequest.email });
               setFailure(null);
@@ -186,7 +198,11 @@ export function SignInCard({ locale }: SignInCardProps) {
     return (
       <Card className="rounded-3xl border-white/70 bg-white/94 shadow-[0_32px_100px_-48px_rgba(0,2,79,0.55)]">
         <CardContent className="p-8 sm:p-10">
-          <h2 className="text-3xl text-navy-blue">
+          <h2
+            ref={focusOnMount("accepted")}
+            tabIndex={-1}
+            className="text-3xl text-navy-blue outline-none"
+          >
             {m.accountSignInAcceptedTitle({}, { locale })}
           </h2>
           <p className="mt-4 leading-7 text-navy-blue/68">
@@ -198,6 +214,7 @@ export function SignInCard({ locale }: SignInCardProps) {
             className="mt-8"
             onClick={() => {
               authReturn.cancel();
+              focusAfterViewChange.current = "email";
               form.reset();
               setFailure(null);
               setRequested(false);
@@ -241,6 +258,10 @@ export function SignInCard({ locale }: SignInCardProps) {
                   <FormControl>
                     <Input
                       {...field}
+                      ref={(element) => {
+                        field.ref(element);
+                        focusOnMount("email")(element);
+                      }}
                       disabled={!clientReady}
                       id="account-sign-in-email"
                       type="email"

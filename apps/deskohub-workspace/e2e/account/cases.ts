@@ -736,8 +736,9 @@ export const makeWorkspaceE2EAccountCases = ({
         );
       })
     ),
-    makeCase("account-sign-in-code", ({ journalRef, runStep }) =>
-      Effect.gen(function* () {
+    makeCase(
+      "account-sign-in-code",
+      Effect.fn("accountSignInCode")(function* ({ journalRef, runStep }) {
         const requestedAt = yield* runStep(
           step(
             "requires the second unknown email's code step",

@@ -365,9 +365,11 @@ export const createAuthReturnLifecycle = ({
 
   const continueIfSignedIn = async () => {
     if (leaving) return true;
+    const requestId = requestEpoch;
     const signedIn = await readUsableSession(requireFreshSession);
     if (leaving) return true;
-    if (!signedIn) return false;
+    // A cancel or a newer email while the session was read wins.
+    if (requestEpoch !== requestId || !signedIn) return false;
     // The tab that opened the link records its own completion.
     cancel();
     return leaveFor(getAccountPath(locale), { focus: false });

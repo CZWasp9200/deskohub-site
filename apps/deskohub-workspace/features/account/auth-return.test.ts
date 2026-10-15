@@ -10,6 +10,7 @@ import {
 } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
+import type { AuthReturnLifecycle } from "./auth-return";
 
 const customerEmail = testEmailAddress("ada");
 
@@ -71,8 +72,11 @@ const recordSignInCompletion = mock((method: string) => {
 const captureSignInCodeRejection = mock((reason: string) => {
   events.push(`rejected:${reason}`);
 });
-const getSession = mock((_options?: SessionRequestOptions) =>
-  Promise.resolve({ data: null, error: null })
+const getSession = mock(
+  (
+    _options?: SessionRequestOptions
+  ): Promise<{ readonly data: SessionData | null; readonly error: null }> =>
+    Promise.resolve({ data: null, error: null })
 );
 
 mock.module("@/shared/browser/return-window", () => ({ listenForReturn }));
@@ -612,6 +616,36 @@ describe("account auth return lifecycle", () => {
     // The other tab finished the sign-in and records it itself.
     expect(recordSignInCompletion).not.toHaveBeenCalled();
     expect(listenerCleanups[0]).toHaveBeenCalledTimes(1);
+  });
+
+  test.each([
+    ["a cancel", (lifecycle: AuthReturnLifecycle) => lifecycle.cancel()],
+    [
+      "a newer email",
+      (lifecycle: AuthReturnLifecycle) =>
+        void lifecycle.sendSignInEmail(customerEmail),
+    ],
+  ])("drops a session check that %s overtook", async (_label, overtake) => {
+    let finishSessionRead!: (data: SessionData) => void;
+    getSession.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishSessionRead = (data) => resolve({ data, error: null });
+        })
+    );
+    const lifecycle = authReturn.createAuthReturnLifecycle({
+      locale: "en-US",
+    });
+
+    const continuation = lifecycle.continueIfSignedIn();
+    overtake(lifecycle);
+    finishSessionRead({
+      session: { createdAt: new Date() },
+      user: { emailVerified: true },
+    });
+
+    expect(await continuation).toBe(false);
+    expect(events).not.toContain("replace:/en-US/account");
   });
 
   test("treats a failed session read as signed out", async () => {

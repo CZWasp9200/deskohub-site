@@ -531,6 +531,9 @@ describe("DeleteAccountCard", () => {
       m.accountSignInCodeResend({}, { locale: "en-US" })
     );
     expect(resend.closest("button")?.disabled).toBe(false);
+    const liveRegionsBeforeFallback = [
+      ...document.querySelectorAll("[aria-live]"),
+    ];
 
     signInMagicLink.mockImplementationOnce(() =>
       Promise.resolve({
@@ -546,9 +549,13 @@ describe("DeleteAccountCard", () => {
     expect(
       view.queryByLabelText(m.accountSignInCodeLabel({}, { locale: "en-US" }))
     ).toBeNull();
-    expect(
-      view.getByText(m.accountDeletionReauthLinkSent({}, { locale: "en-US" }))
-    ).toBeTruthy();
+    const linkSent = view.getByText(
+      m.accountDeletionReauthLinkSent({}, { locale: "en-US" })
+    );
+    // Screen readers announce changes to a region that was already mounted.
+    const announcement = linkSent.closest("[aria-live]");
+    expect(announcement).not.toBeNull();
+    expect(liveRegionsBeforeFallback).toContain(announcement as Element);
   });
 
   test("keeps the reauthentication request disabled until the link request resolves", async () => {
