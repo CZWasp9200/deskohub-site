@@ -17,6 +17,11 @@ language js(typescript, jsx)
 // Anything else (a variable, a forwarded prop, an interpolated template) is
 // reported because it can't be checked; suppress it with
 // `biome-ignore lint/plugin: <why the value is parent layout only>`.
+// A spread object literal is checked like attributes: its `className` value as
+// above, any other plain key passes. Any other spread can carry a `className`,
+// so it is reported for the same suppression. Renaming the components on import
+// or export would hide them from the name check, so that is reported too; a
+// namespace member such as `<ui.Button>` is checked by its last segment.
 pattern layout_classes() {
   r"^[\"'`]\s*(?:(?:(?:(?:[^\s:\[\]\"'`]|\[[^\]\s\"'`]*\])+:)*!?(?:-?m[trblxyse]?-(?:[0-9./]+|px|auto|full|\[[^\]\s\"'`]+\]|\([^)\s\"'`]+\))|(?:justify-|place-)?self-(?:auto|start|end|center|stretch|baseline|baseline-last|end-safe|center-safe)|(?:col|row)-(?:span|start|end)-(?:[0-9]+|full|auto|\[[^\]\s\"'`]+\]|\([^)\s\"'`]+\))|(?:col|row)-auto|-?order-(?:[0-9]+|first|last|none|\[[^\]\s\"'`]+\]|\([^)\s\"'`]+\))|(?:shrink|grow)(?:-0)?|flex-(?:1|auto|initial|none)|basis-(?:[a-z0-9./]+|\[[^\]\s\"'`]+\]|\([^)\s\"'`]+\))|snap-(?:start|end|center|align-none|normal|always)|(?:static|fixed|absolute|relative|sticky)|-?(?:inset(?:-[xy])?|top|right|bottom|left|start|end)-(?:[0-9./]+|px|auto|full|\[[^\]\s\"'`]+\]|\([^)\s\"'`]+\))|-?z-(?:[0-9]+|auto|\[[^\]\s\"'`]+\]|\([^)\s\"'`]+\))|hidden|group(?:/[a-z0-9_-]+)?)|(?:(?:[^\s:\[\]\"'`]|\[[^\]\s\"'`]*\])+:)*(?:(?:max-|min-)?(?:sm|md|lg|xl|2xl)|(?:max|min)-\[[^\]\s\"'`]+\]|@[a-z0-9-]*(?:\[[^\]\s\"'`]+\])?(?:/[a-z0-9_-]+)?):(?:(?:[^\s:\[\]\"'`]|\[[^\]\s\"'`]*\])+:)*!?(?:(?:min-|max-)?w-(?:[a-z0-9./]+|\[[^\]\s\"'`]+\]|\([^)\s\"'`]+\))|(?:block|inline-block|flex|inline-flex)))!?(?:\s+(?:(?:(?:[^\s:\[\]\"'`]|\[[^\]\s\"'`]*\])+:)*!?(?:-?m[trblxyse]?-(?:[0-9./]+|px|auto|full|\[[^\]\s\"'`]+\]|\([^)\s\"'`]+\))|(?:justify-|place-)?self-(?:auto|start|end|center|stretch|baseline|baseline-last|end-safe|center-safe)|(?:col|row)-(?:span|start|end)-(?:[0-9]+|full|auto|\[[^\]\s\"'`]+\]|\([^)\s\"'`]+\))|(?:col|row)-auto|-?order-(?:[0-9]+|first|last|none|\[[^\]\s\"'`]+\]|\([^)\s\"'`]+\))|(?:shrink|grow)(?:-0)?|flex-(?:1|auto|initial|none)|basis-(?:[a-z0-9./]+|\[[^\]\s\"'`]+\]|\([^)\s\"'`]+\))|snap-(?:start|end|center|align-none|normal|always)|(?:static|fixed|absolute|relative|sticky)|-?(?:inset(?:-[xy])?|top|right|bottom|left|start|end)-(?:[0-9./]+|px|auto|full|\[[^\]\s\"'`]+\]|\([^)\s\"'`]+\))|-?z-(?:[0-9]+|auto|\[[^\]\s\"'`]+\]|\([^)\s\"'`]+\))|hidden|group(?:/[a-z0-9_-]+)?)|(?:(?:[^\s:\[\]\"'`]|\[[^\]\s\"'`]*\])+:)*(?:(?:max-|min-)?(?:sm|md|lg|xl|2xl)|(?:max|min)-\[[^\]\s\"'`]+\]|@[a-z0-9-]*(?:\[[^\]\s\"'`]+\])?(?:/[a-z0-9_-]+)?):(?:(?:[^\s:\[\]\"'`]|\[[^\]\s\"'`]*\])+:)*!?(?:(?:min-|max-)?w-(?:[a-z0-9./]+|\[[^\]\s\"'`]+\]|\([^)\s\"'`]+\))|(?:block|inline-block|flex|inline-flex)))!?)*)?\s*[\"'`]$"
 }
@@ -45,37 +50,70 @@ pattern checked_classes() {
 }
 
 file($name, $body) where {
-  $name <: r".*apps/deskohub-workspace/.*\.tsx$",
-  $body <: r"(?s).*<(?:Button|DisclosureButton|NavItem|SegmentedControl|ChoiceCard)\b.*",
-  $body <: contains bubble {
+  $name <: r".*apps/deskohub-workspace/.*\.tsx?$",
+  $body <: r"(?s).*\b(?:Button|DisclosureButton|NavItem|SegmentedControl|ChoiceCard)\b.*",
+  $body <: contains bubble or {
     or {
       JsxSelfClosingElement(name = $component, attributes = $attributes),
       JsxOpeningElement(name = $component, attributes = $attributes)
     } where {
-      $component <: r"^(?:Button|DisclosureButton|NavItem|SegmentedControl|ChoiceCard)$",
-      $attributes <: some bubble JsxAttribute(
-        name = r"^className$",
-        initializer = JsxAttributeInitializerClause(value = $value)
-      ) where {
-        or {
-          $value <: JsxString() as $classes where {
-            or {
-              $classes <: layout_classes(),
-              register_diagnostic(
-                span = $classes,
-                message = "Button className accepts parent layout only: margin, placement, position, z-index, responsive width or visibility, and group. Express colour, size, radius, typography and states through the component's props.",
-                severity = "error"
-              )
-            }
-          },
-          $value <: JsxExpressionAttributeValue(expression = checked_classes()),
-          register_diagnostic(
-            span = $value,
-            message = "Pass Button className as literal classes, or cn() over literal and conditional literal classes, so the parent-layout check can read it.",
-            severity = "error"
-          )
+      $component <: r"^(?:[\w$]+\.)*(?:Button|DisclosureButton|NavItem|SegmentedControl|ChoiceCard)$",
+      $attributes <: some bubble or {
+        JsxAttribute(
+          name = r"^className$",
+          initializer = JsxAttributeInitializerClause(value = $value)
+        ) where {
+          or {
+            $value <: JsxString() as $classes where {
+              or {
+                $classes <: layout_classes(),
+                register_diagnostic(
+                  span = $classes,
+                  message = "Button className accepts parent layout only: margin, placement, position, z-index, responsive width or visibility, and group. Express colour, size, radius, typography and states through the component's props.",
+                  severity = "error"
+                )
+              }
+            },
+            $value <: JsxExpressionAttributeValue(expression = checked_classes()),
+            register_diagnostic(
+              span = $value,
+              message = "Pass Button className as literal classes, or cn() over literal and conditional literal classes, so the parent-layout check can read it.",
+              severity = "error"
+            )
+          }
+        },
+        JsxSpreadAttribute(argument = $spread) where {
+          or {
+            $spread <: JsObjectExpression(members = $members) where {
+              $members <: every or {
+                JsPropertyObjectMember(name = r"^[\"']?className[\"']?$", value = checked_classes()),
+                JsPropertyObjectMember(name = and {
+                  not JsComputedMemberName(),
+                  not r"^[\"']?className[\"']?$"
+                }),
+                JsShorthandPropertyObjectMember(name = not r"^className$")
+              }
+            },
+            register_diagnostic(
+              span = $spread,
+              message = "Spread props can carry a Button className the parent-layout check can't read. Pass className as its own attribute, or suppress with `biome-ignore lint/plugin: <why the spread never restyles>`.",
+              severity = "error"
+            )
+          }
         }
       }
+    },
+    or {
+      JsNamedImportSpecifier(name = $imported),
+      JsExportNamedFromSpecifier(source_name = $imported, export_as = JsExportAsClause()),
+      JsExportNamedSpecifier(local_name = $imported)
+    } as $renaming where {
+      $imported <: r"^(?:Button|DisclosureButton|NavItem|SegmentedControl|ChoiceCard)$",
+      register_diagnostic(
+        span = $renaming,
+        message = "Keep the Button family under its own name so the parent-layout check can find its className.",
+        severity = "error"
+      )
     }
   }
 }

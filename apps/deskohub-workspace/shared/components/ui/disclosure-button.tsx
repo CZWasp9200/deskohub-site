@@ -21,6 +21,7 @@ function DisclosureButton({
 }: DisclosureButtonProps) {
   return (
     <Button
+      // biome-ignore lint/plugin: forwards the caller's Button props; the parent-layout check reads className at each DisclosureButton call site.
       {...props}
       aria-controls={controls}
       aria-expanded={expanded}

@@ -175,6 +175,7 @@ test("a link styled as a button can't be pending", () => {
   // @ts-expect-error A link has no disabled state, so it would stay actionable.
   const props: ButtonProps<true> = { asChild: true, pending: true };
   const view = render(
+    // biome-ignore lint/plugin: the spread props carry only asChild and pending, no className.
     <Button {...props}>
       <a href="/en-US/checkout">Pay</a>
     </Button>
