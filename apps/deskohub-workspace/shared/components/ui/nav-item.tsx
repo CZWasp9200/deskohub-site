@@ -4,18 +4,20 @@ import type * as React from "react";
 import { cn } from "@/shared/utils";
 
 const navItemVariants = cva(
-  "inline-flex cursor-pointer items-center gap-3 text-[15px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-burned-orange disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-4 [&_svg]:shrink-0",
+  "inline-flex cursor-pointer items-center gap-3 text-[15px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-burned-orange disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-4 [&_svg]:shrink-0",
   {
     variants: {
       layout: {
-        row: "min-h-10 w-full justify-start rounded-2xl px-3 py-2 text-left leading-snug whitespace-normal",
-        tab: "min-h-11 justify-center rounded-none px-3 whitespace-nowrap md:rounded-2xl",
-        icon: "size-10 justify-center rounded-full p-0",
+        row: "min-h-10 w-full justify-start rounded-2xl px-3 py-2 text-left leading-snug whitespace-normal focus-visible:ring-inset",
+        tab: "min-h-11 justify-center rounded-none px-3 whitespace-nowrap focus-visible:ring-inset md:rounded-2xl",
+        icon: "size-10 justify-center rounded-full p-0 focus-visible:ring-inset",
+        step: "flex min-w-0 rounded-2xl border px-4 py-3 text-sm uppercase tracking-[0.14em] lg:gap-2 lg:px-3 lg:text-xs lg:tracking-[0.08em]",
       },
       tone: {
         neutral: "",
         danger: "",
         inverse: "border",
+        translucent: "",
       },
       caps: {
         true: "text-sm uppercase tracking-[0.12em]",
@@ -51,6 +53,12 @@ const navItemVariants = cva(
         active: true,
         class: "border-sunset-yellow/55 bg-sunset-yellow/10 text-sunset-yellow",
       },
+      {
+        tone: "translucent",
+        active: false,
+        class:
+          "border-white/12 bg-white/7 text-white/68 hover:border-white/28 hover:bg-white/12 hover:text-white",
+      },
     ],
     defaultVariants: {
       layout: "row",
@@ -76,13 +84,17 @@ type NavItemProps = Omit<
   /** The kind of location the active item represents. */
   readonly current?: "page" | "location" | "step";
   /**
-   * `row` stacks in a sidebar or menu, `tab` sits in a horizontal strip and
-   * `icon` is a round icon-only item (give it an `aria-label`).
+   * `row` stacks in a sidebar or menu, `tab` sits in a horizontal strip,
+   * `icon` is a round icon-only item (give it an `aria-label`) and `step` is a
+   * bordered tile in a progress list such as the checkout steps.
    */
-  readonly layout?: "row" | "tab" | "icon";
+  readonly layout?: "row" | "tab" | "icon" | "step";
   readonly ref?: React.Ref<HTMLButtonElement>;
-  /** `inverse` is for dark backgrounds such as the site header. */
-  readonly tone?: "neutral" | "danger" | "inverse";
+  /**
+   * `inverse` is for dark backgrounds such as the site header; `translucent`
+   * is a frosted tile on a dark background, as in the checkout steps.
+   */
+  readonly tone?: "neutral" | "danger" | "inverse" | "translucent";
 };
 
 /**

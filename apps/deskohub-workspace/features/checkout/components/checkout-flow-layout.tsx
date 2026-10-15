@@ -4,6 +4,7 @@ import type { ComponentProps, ReactNode } from "react";
 import type { Locale } from "@/features/i18n";
 import { m } from "@/features/i18n";
 import { Container } from "@/shared/components/container";
+import { NavItem } from "@/shared/components/ui/nav-item";
 import { cn } from "@/shared/utils";
 
 type CheckoutFlowLayoutProps = {
@@ -88,28 +89,25 @@ export function CheckoutSteps({
             )}
           </>
         );
-        const className = cn(
-          "flex min-w-0 items-center gap-3 rounded-2xl border border-white/12 bg-white/7 px-4 py-3 text-sm font-semibold uppercase tracking-[0.14em] text-white/68 lg:gap-2 lg:px-3 lg:text-xs lg:tracking-[0.08em]",
-          link &&
-            "transition hover:border-white/28 hover:bg-white/12 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-burned-orange"
+        let stepContent = (
+          <div className="flex min-w-0 items-center gap-3 rounded-2xl border border-white/12 bg-white/7 px-4 py-3 text-sm font-semibold uppercase tracking-[0.14em] text-white/68 lg:gap-2 lg:px-3 lg:text-xs lg:tracking-[0.08em]">
+            {content}
+          </div>
         );
-        let stepContent = <div className={className}>{content}</div>;
 
         if (link?.navigation === "document") {
           stepContent = (
-            <a className={className} href={link.href}>
-              {content}
-            </a>
+            <NavItem asChild layout="step" tone="translucent">
+              <a href={link.href}>{content}</a>
+            </NavItem>
           );
         } else if (link) {
           stepContent = (
-            <Link
-              className={className}
-              href={link.href}
-              prefetch={link.prefetch}
-            >
-              {content}
-            </Link>
+            <NavItem asChild layout="step" tone="translucent">
+              <Link href={link.href} prefetch={link.prefetch}>
+                {content}
+              </Link>
+            </NavItem>
           );
         }
 

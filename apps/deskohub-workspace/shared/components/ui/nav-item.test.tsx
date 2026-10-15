@@ -71,3 +71,21 @@ test("inverse items highlight the active entry in sunset yellow", () => {
   expect(inactive.className).toContain("size-10");
   expect(inactive.className.split(" ")).not.toContain("text-sunset-yellow");
 });
+
+test("step items are translucent tiles with an outer focus ring", () => {
+  const view = render(
+    <NavItem asChild layout="step" tone="translucent">
+      <a href="/en-US/reservation/cowork">Reservation</a>
+    </NavItem>
+  );
+  const classes = view
+    .getByRole("link", { name: "Reservation" })
+    .className.split(" ");
+
+  expect(classes).toContain("flex");
+  expect(classes).not.toContain("inline-flex");
+  expect(classes).toContain("bg-white/7");
+  expect(classes).toContain("hover:bg-white/12");
+  expect(classes).toContain("focus-visible:ring-burned-orange");
+  expect(classes).not.toContain("focus-visible:ring-inset");
+});
