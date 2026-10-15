@@ -1,11 +1,9 @@
 "use client";
 
 import { Loader2 } from "lucide-react";
+import { useId } from "react";
 import type { Locale } from "@/features/i18n";
-import {
-  ToggleGroup,
-  ToggleGroupItem,
-} from "@/shared/components/ui/toggle-group";
+import { SegmentedControl } from "@/shared/components/ui/segmented-control";
 import { campaignLocaleNames } from "../sending/campaign-locale-names";
 
 /**
@@ -34,6 +32,8 @@ export function CampaignInboxPreview({
   readonly subject: string;
   readonly updating?: boolean;
 }) {
+  const localeName = useId();
+
   return (
     <section
       aria-label="Email preview"
@@ -56,20 +56,17 @@ export function CampaignInboxPreview({
             )}
           </span>
           {locales.length > 1 && (
-            <ToggleGroup
-              aria-label="Preview language"
-              onValueChange={(value) =>
-                value && onLocaleChange(value as Locale)
-              }
-              type="single"
+            <SegmentedControl
+              label="Preview language"
+              name={localeName}
+              onValueChange={onLocaleChange}
+              options={locales.map((option) => ({
+                label: campaignLocaleNames[option],
+                value: option,
+              }))}
+              size="sm"
               value={locale}
-            >
-              {locales.map((option) => (
-                <ToggleGroupItem key={option} value={option}>
-                  {campaignLocaleNames[option]}
-                </ToggleGroupItem>
-              ))}
-            </ToggleGroup>
+            />
           )}
         </div>
       </div>

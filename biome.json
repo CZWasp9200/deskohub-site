@@ -28,6 +28,7 @@
     "./lint/no-backend-runtime-directives.grit",
     "./lint/no-better-auth-in-account-domain.grit",
     "./lint/no-blocking-administration-routes.grit",
+    "./lint/no-button-restyling.grit",
     "./lint/no-chained-type-assertions.grit",
     "./lint/no-conditional-empty-object-spread.grit",
     "./lint/no-direct-effect-runs.grit",

@@ -11,6 +11,7 @@ import type { InvoiceAdministrationCustomer } from "@/features/accounting/admin/
 import { AdministrationAlert } from "@/features/administration/components";
 import { Button } from "@/shared/components/ui/button";
 import { Checkbox } from "@/shared/components/ui/checkbox";
+import { ChoiceCard } from "@/shared/components/ui/choice-card";
 import {
   Dialog,
   DialogClose,
@@ -30,6 +31,7 @@ import {
 } from "@/shared/components/ui/form";
 import { Input } from "@/shared/components/ui/input";
 import { Label } from "@/shared/components/ui/label";
+import { SegmentedControl } from "@/shared/components/ui/segmented-control";
 import { useWorkspaceAction } from "@/shared/utils/use-workspace-action";
 import {
   createAdministrationInvoice,
@@ -39,6 +41,11 @@ import {
 
 const selectClassName =
   "flex min-h-10 w-full rounded-lg border border-navy-blue/20 bg-white px-3 py-2 text-sm outline-none transition focus:border-burned-orange focus:ring-2 focus:ring-burned-orange/20";
+
+const customerSourceOptions = [
+  { label: "Existing", value: "existing" },
+  { label: "New", value: "new" },
+] as const;
 
 const requiredMessage = "This field is required.";
 
@@ -407,25 +414,16 @@ export function InvoiceCreationForm({
                   details are saved to Dotypos.
                 </p>
               </div>
-              <fieldset className="flex rounded-lg bg-navy-blue/5 p-1">
-                <legend className="sr-only">Customer source</legend>
-                {(["existing", "new"] as const).map((mode) => (
-                  <Button
-                    aria-pressed={customerMode === mode}
-                    className="rounded-sm"
-                    key={mode}
-                    onClick={() => {
-                      setCustomerMode(mode);
-                      if (mode === "new") applyCustomer(null);
-                    }}
-                    size="sm"
-                    type="button"
-                    variant={customerMode === mode ? "primary" : "ghost"}
-                  >
-                    {mode === "existing" ? "Existing" : "New"}
-                  </Button>
-                ))}
-              </fieldset>
+              <SegmentedControl
+                label="Customer source"
+                name="customerSource"
+                onValueChange={(mode) => {
+                  setCustomerMode(mode);
+                  if (mode === "new") applyCustomer(null);
+                }}
+                options={customerSourceOptions}
+                value={customerMode}
+              />
             </div>
 
             {customerMode === "existing" && !customer && (
@@ -803,20 +801,21 @@ export function InvoiceCreationForm({
               name="paid"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel
-                    className="mt-5 flex cursor-pointer items-center gap-3 rounded-xl border border-navy-blue/10 bg-navy-blue/2.5 p-4"
-                    htmlFor={paidId}
-                  >
-                    <FormControl>
-                      <Checkbox
-                        checked={field.value}
-                        id={paidId}
-                        onCheckedChange={(checked) =>
-                          field.onChange(Boolean(checked))
-                        }
-                      />
-                    </FormControl>
-                    <span className="text-sm font-semibold">Already paid</span>
+                  <FormLabel asChild htmlFor={paidId}>
+                    <ChoiceCard align="center" className="mt-5">
+                      <FormControl>
+                        <Checkbox
+                          checked={field.value}
+                          id={paidId}
+                          onCheckedChange={(checked) =>
+                            field.onChange(Boolean(checked))
+                          }
+                        />
+                      </FormControl>
+                      <span className="text-sm font-semibold">
+                        Already paid
+                      </span>
+                    </ChoiceCard>
                   </FormLabel>
                   <FormMessage />
                 </FormItem>
@@ -1158,8 +1157,8 @@ export function InvoiceCreationForm({
                   create(review);
                 }
               }}
+              tone="danger"
               type="button"
-              className="bg-red-700 text-white hover:bg-red-800"
             >
               {isCreating ? "Creating and sending…" : "Create and send invoice"}
             </Button>

@@ -13,7 +13,7 @@ import type {
 } from "@deskohub/workspace-admin-api";
 import { Match } from "effect";
 import { ChevronDown } from "lucide-react";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { getCurrentWorkspaceDate } from "@/features/reservation/reservation-date";
 import { Button } from "@/shared/components/ui/button";
 import { Checkbox } from "@/shared/components/ui/checkbox";
@@ -24,6 +24,7 @@ import {
   DropdownMenuTrigger,
 } from "@/shared/components/ui/dropdown-menu";
 import { Input } from "@/shared/components/ui/input";
+import { SegmentedControl } from "@/shared/components/ui/segmented-control";
 import {
   Select,
   SelectContent,
@@ -31,10 +32,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/shared/components/ui/select";
-import {
-  ToggleGroup,
-  ToggleGroupItem,
-} from "@/shared/components/ui/toggle-group";
 import { cn } from "@/shared/utils";
 import type { DatePeriod } from "../../date-period";
 import type {
@@ -224,21 +221,20 @@ function ChoiceParamControl({
     if (next === absentValue && param.absent) onChange(undefined);
     else if (Object.hasOwn(param.options, next)) onChange(next);
   };
+  const name = useId();
   return Match.value(param.control).pipe(
     Match.when("toggle", () => (
-      <ToggleGroup
-        type="single"
-        value={chosen ?? ""}
+      <SegmentedControl
+        label={param.label}
+        name={name}
         onValueChange={pick}
-        aria-label={param.label}
-        className="whitespace-nowrap rounded-md border border-navy-blue/15 p-0.5"
-      >
-        {options.map(([option, { label }]) => (
-          <ToggleGroupItem key={option} value={option}>
-            {label}
-          </ToggleGroupItem>
-        ))}
-      </ToggleGroup>
+        options={options.map(([option, { label }]) => ({
+          label,
+          value: option,
+        }))}
+        size="sm"
+        value={chosen ?? ""}
+      />
     )),
     Match.when("select", () => (
       <Select value={chosen ?? absentValue} onValueChange={pick}>
@@ -520,9 +516,9 @@ function LookupPicker({
           <Button
             type="button"
             variant="secondary"
+            tone={invalid ? "burned-orange" : "navy-blue"}
             size="sm"
             aria-invalid={invalid}
-            className={cn(invalid && "border-burned-orange")}
           >
             {choose}
             <ChevronDown className="h-3.5 w-3.5" aria-hidden />
@@ -649,22 +645,23 @@ export function BooleanConditionControls<
 }: ControlProps<Condition> & {
   readonly entry: AudienceBooleanAttributeDefinition;
 }) {
+  const name = useId();
+
   return (
     <ConditionLine>
-      <ToggleGroup
-        type="single"
+      <SegmentedControl
+        label={entry.label}
+        name={name}
+        onValueChange={(next) =>
+          onChange({ ...condition, value: next === "true" })
+        }
+        options={[
+          { label: entry.editor.true, value: "true" },
+          { label: entry.editor.false, value: "false" },
+        ]}
+        size="sm"
         value={String(condition.value)}
-        onValueChange={(next) => {
-          if (next === "true" || next === "false") {
-            onChange({ ...condition, value: next === "true" });
-          }
-        }}
-        aria-label={entry.label}
-        className="whitespace-nowrap rounded-md border border-navy-blue/15 p-0.5"
-      >
-        <ToggleGroupItem value="true">{entry.editor.true}</ToggleGroupItem>
-        <ToggleGroupItem value="false">{entry.editor.false}</ToggleGroupItem>
-      </ToggleGroup>
+      />
       <ConditionText>{entry.editor.object}</ConditionText>
     </ConditionLine>
   );

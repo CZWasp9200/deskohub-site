@@ -131,19 +131,24 @@ export function DeleteAccountCard({
       </div>
 
       <Dialog open={open} onOpenChange={closeDialog}>
-        <DialogTrigger asChild>
-          <Button
-            id="delete-account-trigger"
-            type="button"
-            variant="primary"
-            className="mt-6 flex h-auto min-h-11 w-full whitespace-normal rounded-xl bg-rose-600 px-5 py-3 text-center leading-5 text-white hover:bg-rose-700 @xl:ml-auto @xl:w-auto @xl:whitespace-nowrap"
-          >
-            <Trash2 aria-hidden className="size-4" />
-            {deletionPending
-              ? m.accountDeletionConfirm({}, { locale })
-              : m.accountDeletionButton({}, { locale })}
-          </Button>
-        </DialogTrigger>
+        <div className="mt-6 flex @xl:justify-end">
+          <DialogTrigger asChild>
+            <Button
+              className="@xl:w-auto"
+              fullWidth
+              id="delete-account-trigger"
+              shape="rounded"
+              tone="danger"
+              type="button"
+              wrap
+            >
+              <Trash2 aria-hidden className="size-4" />
+              {deletionPending
+                ? m.accountDeletionConfirm({}, { locale })
+                : m.accountDeletionButton({}, { locale })}
+            </Button>
+          </DialogTrigger>
+        </div>
         <DialogContent
           aria-describedby="delete-account-dialog-description"
           locale={locale}
@@ -210,7 +215,7 @@ export function DeleteAccountCard({
                   id="delete-account-confirm"
                   type="button"
                   disabled={!confirmed || isExecuting}
-                  className="bg-red-800 hover:bg-red-900"
+                  tone="danger"
                   onClick={() => {
                     beginAnalyticsAccountTransition();
                     execute({ confirmed: true });

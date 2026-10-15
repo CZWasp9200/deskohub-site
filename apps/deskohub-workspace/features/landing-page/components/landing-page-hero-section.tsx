@@ -59,7 +59,10 @@ export function LandingPageHeroSection({
           {meetingRoomPageEnabled && (
             <Button
               asChild
-              className="relative h-14 rounded-lg bg-burned-orange px-8 text-base uppercase tracking-[0.08em] hover:bg-burned-orange/90"
+              size="2xl"
+              shape="rounded"
+              caps
+              className="relative"
             >
               <Link href={`/${locale}/meeting-room`}>
                 <Arrow1
@@ -77,7 +80,11 @@ export function LandingPageHeroSection({
           <Button
             asChild
             variant="secondary"
-            className="relative h-14 rounded-lg border-burned-orange bg-white/92 px-8 text-base uppercase tracking-[0.08em] text-burned-orange hover:bg-white"
+            tone="burned-orange"
+            size="2xl"
+            shape="rounded"
+            caps
+            className="relative"
           >
             <Link href={getCoworkReservationPath(locale)}>
               <CornerAccent

@@ -31,7 +31,6 @@ import {
   SelectValue,
 } from "@/shared/components/ui/select";
 import { Toggle } from "@/shared/components/ui/toggle";
-import { toggleItemClassName } from "@/shared/components/ui/toggle-group";
 import {
   Tooltip,
   TooltipContent,
@@ -175,7 +174,6 @@ export function CampaignBodyToolbar({
             disabled={disabled}
             label={state?.ctaButton ? "Edit button" : "Insert button"}
             onClick={() => setCtaDialogOpen(true)}
-            pressed={state?.ctaButton}
           >
             <MousePointerClick aria-hidden className="size-4" />
           </ToolbarButton>
@@ -277,26 +275,25 @@ function ToolbarButton({
   disabled,
   label,
   onClick,
-  pressed,
 }: {
   readonly children: ReactNode;
   readonly disabled: boolean;
   readonly label: string;
   readonly onClick: () => void;
-  readonly pressed?: boolean | undefined;
 }) {
   return (
     <ToolbarHint label={label}>
-      <button
+      <Button
         aria-label={label}
-        className={toggleItemClassName}
-        data-state={pressed ? "on" : "off"}
         disabled={disabled}
         onClick={onClick}
+        size="icon-sm"
+        tone="muted"
         type="button"
+        variant="ghost"
       >
         {children}
-      </button>
+      </Button>
     </ToolbarHint>
   );
 }
@@ -352,15 +349,9 @@ function LinkControl({
     >
       <ToolbarHint label="Link">
         <PopoverTrigger asChild>
-          <button
-            aria-label="Link"
-            className={toggleItemClassName}
-            data-state={active ? "on" : "off"}
-            disabled={disabled}
-            type="button"
-          >
+          <Toggle aria-label="Link" disabled={disabled} pressed={active}>
             <Link2 aria-hidden className="size-4" />
-          </button>
+          </Toggle>
         </PopoverTrigger>
       </ToolbarHint>
       <PopoverContent align="start" className="w-80 space-y-3">

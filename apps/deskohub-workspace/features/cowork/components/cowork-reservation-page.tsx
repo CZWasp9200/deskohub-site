@@ -61,10 +61,7 @@ export function CoworkOfferReplaced({ locale }: { readonly locale: Locale }) {
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <Button
-          asChild
-          className="h-13 w-full rounded-full text-sm uppercase tracking-[0.18em]"
-        >
+        <Button asChild size="xl" caps fullWidth>
           <a href={getCoworkReservationPath(locale)}>
             {m.checkoutPayRestartButton({}, { locale })}
           </a>

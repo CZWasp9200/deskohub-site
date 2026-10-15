@@ -24,6 +24,7 @@ import {
 } from "react";
 import { SkipLink } from "@/shared/components/skip-link";
 import { Button } from "@/shared/components/ui/button";
+import { NavItem } from "@/shared/components/ui/nav-item";
 import {
   Sheet,
   SheetClose,
@@ -33,12 +34,11 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/shared/components/ui/sheet";
-import { cn } from "@/shared/utils";
 import { AdministrationLink as Link } from "./admin-link";
 import { useCredentialFreeDocumentUrl } from "./credential-free-url";
 import { AdministrationBreadcrumbLoading } from "./loading";
 
-type NavItem = {
+type NavigationEntry = {
   readonly href: string;
   readonly icon: ComponentType<SVGProps<SVGSVGElement>>;
   readonly label: string;
@@ -122,26 +122,19 @@ function NavigationLink({
   mobile,
   pathname,
 }: {
-  readonly item: NavItem;
+  readonly item: NavigationEntry;
   readonly mobile: boolean;
   readonly pathname?: string;
 }) {
   const active = pathname ? isActive(pathname, item.href) : false;
   const Icon = item.icon;
   const link = (
-    <Link
-      aria-current={active ? "page" : undefined}
-      className={cn(
-        "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold transition-colors",
-        active
-          ? "bg-navy-blue text-white"
-          : "text-navy-blue/68 hover:bg-navy-blue/6 hover:text-navy-blue"
-      )}
-      href={item.href}
-    >
-      <Icon aria-hidden className="size-4" />
-      {item.label}
-    </Link>
+    <NavItem active={active} asChild>
+      <Link href={item.href}>
+        <Icon aria-hidden />
+        {item.label}
+      </Link>
+    </NavItem>
   );
   return mobile ? <SheetClose asChild>{link}</SheetClose> : link;
 }

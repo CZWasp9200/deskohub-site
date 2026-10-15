@@ -3,6 +3,7 @@
 import { NodeViewWrapper, type ReactNodeViewProps } from "@tiptap/react";
 import { Pencil } from "lucide-react";
 import { useState } from "react";
+import { Button } from "@/shared/components/ui/button";
 import { cn } from "@/shared/utils";
 import { CtaButtonDialog } from "./cta-button-dialog";
 
@@ -35,15 +36,17 @@ export function CtaButtonNodeView({
           {label || "Button text missing"}
         </span>
         {selected && editor.isEditable && (
-          <button
-            className="absolute -right-3 -top-3 inline-flex size-7 items-center justify-center rounded-full border border-navy-blue/15 bg-white text-navy-blue shadow-sm hover:bg-navy-blue/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-burned-orange"
+          <Button
+            className="absolute -right-3 -top-3"
             contentEditable={false}
             onClick={() => setEditing(true)}
+            size="icon-sm"
             type="button"
+            variant="secondary"
           >
             <Pencil aria-hidden className="size-3.5" />
             <span className="sr-only">Edit button</span>
-          </button>
+          </Button>
         )}
       </div>
       <span

@@ -99,7 +99,7 @@ export function ReservationAccessPage({
         )}
 
         <div className="mt-8 flex justify-center sm:mt-10">
-          <Button asChild variant="secondary" className="h-12 px-6">
+          <Button asChild variant="secondary" size="lg">
             <Link href={reservationStatusHref} prefetch={false}>
               {m.checkoutStatusSummaryTitle({}, { locale })}
             </Link>

@@ -1,33 +1,19 @@
 "use client";
 
 import * as SelectPrimitive from "@radix-ui/react-select";
-import { cva, type VariantProps } from "class-variance-authority";
+import type { VariantProps } from "class-variance-authority";
 import { Check, ChevronDown, ChevronUp } from "lucide-react";
 import type * as React from "react";
+import { fieldTriggerVariants } from "@/shared/components/ui/field-trigger";
 import { cn } from "@/shared/utils";
 
 const Select = SelectPrimitive.Root;
 
 const SelectValue = SelectPrimitive.Value;
 
-const selectTriggerVariants = cva(
-  "flex min-h-12 w-full cursor-pointer items-center justify-between gap-2 rounded-[1.1rem] border bg-white px-4 py-3 text-base text-navy-blue outline-none transition data-[placeholder]:text-navy-blue/55 focus-visible:ring-2 focus-visible:ring-burned-orange disabled:cursor-not-allowed disabled:opacity-50 [&>span]:min-w-0 [&>span]:truncate",
-  {
-    variants: {
-      variant: {
-        default: "border-navy-blue/45 focus-visible:border-burned-orange",
-        error: "border-burned-orange focus-visible:border-burned-orange",
-      },
-    },
-    defaultVariants: {
-      variant: "default",
-    },
-  }
-);
-
 interface SelectTriggerProps
   extends React.ComponentPropsWithoutRef<typeof SelectPrimitive.Trigger>,
-    VariantProps<typeof selectTriggerVariants> {
+    VariantProps<typeof fieldTriggerVariants> {
   ref?: React.Ref<React.ComponentRef<typeof SelectPrimitive.Trigger>>;
 }
 
@@ -42,7 +28,11 @@ function SelectTrigger({
     <SelectPrimitive.Trigger
       ref={ref}
       data-slot="select-trigger"
-      className={cn(selectTriggerVariants({ variant }), className)}
+      className={cn(
+        fieldTriggerVariants({ variant }),
+        "justify-between [&>span]:min-w-0 [&>span]:truncate",
+        className
+      )}
       {...props}
     >
       {children}

@@ -138,7 +138,13 @@ function CalendarSection({
           <li>3. Put only the discount UUID in the event description.</li>
           <li>4. Save, then refresh this page.</li>
         </ol>
-        <Button asChild className="mt-4 w-full" size="sm" variant="secondary">
+        <Button
+          asChild
+          className="mt-4"
+          fullWidth
+          size="sm"
+          variant="secondary"
+        >
           <a href={calendar.calendarUrl} rel="noreferrer" target="_blank">
             Open calendar
             <ArrowUpRight aria-hidden className="size-3.5" />

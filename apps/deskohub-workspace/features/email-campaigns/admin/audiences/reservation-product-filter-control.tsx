@@ -6,6 +6,7 @@ import type {
 } from "@deskohub/workspace-admin-api";
 import { Match } from "effect";
 import { ChevronDown, Plus, X } from "lucide-react";
+import { useId } from "react";
 import type { WorkspaceReservationKind } from "@/features/reservation/reservation-kind";
 import {
   type ReservationProductProperty,
@@ -20,6 +21,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/shared/components/ui/dropdown-menu";
+import { SegmentedControl } from "@/shared/components/ui/segmented-control";
 import {
   Select,
   SelectContent,
@@ -27,11 +29,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/shared/components/ui/select";
-import {
-  ToggleGroup,
-  ToggleGroupItem,
-} from "@/shared/components/ui/toggle-group";
-import { cn } from "@/shared/utils";
 import {
   ConditionLine,
   ConditionText,
@@ -198,12 +195,12 @@ export function ProductFilterControl({
             <Button
               type="button"
               variant="ghost"
-              size="icon"
+              tone="muted"
+              size="icon-sm"
               onClick={() =>
                 setProperties(value.properties.filter((_, i) => i !== index))
               }
               aria-label={`Remove ${property?.label ?? condition.property} condition`}
-              className="h-8 w-8 text-navy-blue/55 hover:text-navy-blue"
             >
               <X className="h-4 w-4" aria-hidden />
             </Button>
@@ -231,6 +228,8 @@ function ProductPropertyControl({
 }: ControlProps<ReservationProductPropertyCondition> & {
   readonly property: ReservationProductProperty;
 }) {
+  const name = useId();
+
   return Match.value(property).pipe(
     Match.discriminatorsExhaustive("kind")({
       enum: ({ label, values }) => {
@@ -274,11 +273,13 @@ function ProductPropertyControl({
                 <Button
                   type="button"
                   variant="secondary"
+                  tone={
+                    errorAt("value") !== undefined
+                      ? "burned-orange"
+                      : "navy-blue"
+                  }
                   size="sm"
                   aria-invalid={errorAt("value") !== undefined}
-                  className={cn(
-                    errorAt("value") !== undefined && "border-burned-orange"
-                  )}
                 >
                   Choose
                   <ChevronDown className="h-3.5 w-3.5" aria-hidden />
@@ -310,24 +311,23 @@ function ProductPropertyControl({
         );
       },
       boolean: ({ label }) => (
-        <ToggleGroup
-          type="single"
+        <SegmentedControl
+          label={label}
+          name={name}
+          onValueChange={(next) =>
+            onChange({
+              property: property.id,
+              operator: "is",
+              value: next === "with",
+            })
+          }
+          options={[
+            { label: "with", value: "with" },
+            { label: "without", value: "without" },
+          ]}
+          size="sm"
           value={value.operator === "is" && !value.value ? "without" : "with"}
-          onValueChange={(next) => {
-            if (next === "with" || next === "without") {
-              onChange({
-                property: property.id,
-                operator: "is",
-                value: next === "with",
-              });
-            }
-          }}
-          aria-label={label}
-          className="whitespace-nowrap rounded-md border border-navy-blue/15 p-0.5"
-        >
-          <ToggleGroupItem value="with">with</ToggleGroupItem>
-          <ToggleGroupItem value="without">without</ToggleGroupItem>
-        </ToggleGroup>
+        />
       ),
       number: ({ label }) => (
         <CountComparisonControl

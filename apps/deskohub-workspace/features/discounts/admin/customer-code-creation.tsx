@@ -10,6 +10,7 @@ import { AdministrationAlert } from "@/features/administration/notice";
 import { storedDiscountIdSchema } from "@/features/discounts/persistence-contracts";
 import type { DotyposCustomerId } from "@/features/reservation/dotypos-customer";
 import { Button } from "@/shared/components/ui/button";
+import { ChoiceCard } from "@/shared/components/ui/choice-card";
 import {
   Form,
   FormControl,
@@ -18,7 +19,6 @@ import {
   FormLabel,
   FormMessage,
 } from "@/shared/components/ui/form";
-import { Label } from "@/shared/components/ui/label";
 import { defaultWorkspaceCurrencyCode } from "@/shared/money/currencies";
 import { useWorkspaceAction } from "@/shared/utils/use-workspace-action";
 import { mutateDiscountAdmin } from "./actions";
@@ -179,7 +179,7 @@ export function DiscountCodeCreationForm({
             Choose what the code should apply.
           </p>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
-            <Label className="flex cursor-pointer gap-3 rounded-xl border border-navy-blue/15 bg-white p-4 has-[:checked]:border-burned-orange has-[:checked]:ring-2 has-[:checked]:ring-burned-orange/15">
+            <ChoiceCard tone="plain">
               <input
                 aria-label="Use an existing discount"
                 className="mt-1 size-4 accent-[var(--brand-burned-orange)]"
@@ -188,7 +188,7 @@ export function DiscountCodeCreationForm({
                 value="existing"
                 {...register("discountKind")}
               />
-              <span>
+              <span className="text-sm">
                 <span className="block font-semibold">
                   Use an existing discount
                 </span>
@@ -196,8 +196,8 @@ export function DiscountCodeCreationForm({
                   Pair the code with a discount that is already configured.
                 </span>
               </span>
-            </Label>
-            <Label className="flex cursor-pointer gap-3 rounded-xl border border-navy-blue/15 bg-white p-4 has-[:checked]:border-burned-orange has-[:checked]:ring-2 has-[:checked]:ring-burned-orange/15">
+            </ChoiceCard>
+            <ChoiceCard tone="plain">
               <input
                 aria-label="Create a new discount"
                 className="mt-1 size-4 accent-[var(--brand-burned-orange)]"
@@ -205,7 +205,7 @@ export function DiscountCodeCreationForm({
                 value="new"
                 {...register("discountKind")}
               />
-              <span>
+              <span className="text-sm">
                 <span className="block font-semibold">
                   Create a new discount
                 </span>
@@ -213,7 +213,7 @@ export function DiscountCodeCreationForm({
                   Define the adjustment and eligible products here.
                 </span>
               </span>
-            </Label>
+            </ChoiceCard>
           </div>
         </fieldset>
 

@@ -6,7 +6,7 @@ import {
 } from "@deskohub/workspace-admin-api";
 import { Match } from "effect";
 import { ChevronDown, ListPlus, Plus, X } from "lucide-react";
-import { Fragment } from "react";
+import { Fragment, useId } from "react";
 import { Button } from "@/shared/components/ui/button";
 import {
   DropdownMenu,
@@ -16,6 +16,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/shared/components/ui/dropdown-menu";
+import { SegmentedControl } from "@/shared/components/ui/segmented-control";
 import {
   Select,
   SelectContent,
@@ -25,10 +26,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/shared/components/ui/select";
-import {
-  ToggleGroup,
-  ToggleGroupItem,
-} from "@/shared/components/ui/toggle-group";
 import { cn } from "@/shared/utils";
 import {
   type AudienceFilter,
@@ -127,6 +124,7 @@ function GroupEditor({
   const add = (filter: AudienceFilter) => onChange(appendFilter(group, filter));
   const groupError =
     context.errorAt(path) ?? context.errorAt(`${path}.filters`);
+  const operatorName = useId();
 
   return (
     <div
@@ -136,24 +134,17 @@ function GroupEditor({
       )}
     >
       <div className="flex flex-wrap items-center gap-2">
-        <ToggleGroup
-          type="single"
+        <SegmentedControl
+          label="How conditions combine"
+          name={operatorName}
+          onValueChange={(operator) => onChange({ ...group, operator })}
+          options={[
+            { label: operatorLabels.and.match, value: "and" },
+            { label: operatorLabels.or.match, value: "or" },
+          ]}
+          size="sm"
           value={group.operator}
-          onValueChange={(operator) => {
-            if (operator === "and" || operator === "or") {
-              onChange({ ...group, operator });
-            }
-          }}
-          aria-label="How conditions combine"
-          className="whitespace-nowrap rounded-md border border-navy-blue/15 p-0.5"
-        >
-          <ToggleGroupItem value="and">
-            {operatorLabels.and.match}
-          </ToggleGroupItem>
-          <ToggleGroupItem value="or">
-            {operatorLabels.or.match}
-          </ToggleGroupItem>
-        </ToggleGroup>
+        />
         <span className="text-navy-blue/60 text-sm">
           {depth === 0 ? "of the following" : "of this group"}
         </span>
@@ -368,11 +359,12 @@ function RemoveButton({
     <Button
       type="button"
       variant="ghost"
-      size="icon"
+      tone="muted"
+      size="icon-sm"
       onClick={onClick}
       aria-label={label}
       title={label}
-      className="ml-auto h-8 w-8 shrink-0 text-navy-blue/55 hover:text-navy-blue"
+      className="ml-auto shrink-0"
     >
       <X className="h-4 w-4" aria-hidden />
     </Button>

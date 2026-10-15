@@ -3,6 +3,7 @@
 import type { AudienceCountOperatorType } from "@deskohub/workspace-admin-api";
 import { X } from "lucide-react";
 import type { ReactNode } from "react";
+import { Button } from "@/shared/components/ui/button";
 import { Input } from "@/shared/components/ui/input";
 import {
   Select,
@@ -209,14 +210,16 @@ export function ValueChips({
       className="inline-flex h-8 items-center gap-1 rounded-full border border-navy-blue/20 bg-navy-blue/[0.04] pr-1 pl-3 text-sm"
     >
       {labelOf(value)}
-      <button
+      <Button
         type="button"
+        variant="ghost"
+        tone="muted"
+        size="icon-xs"
         onClick={() => onRemove(value)}
         aria-label={`Remove ${noun} ${labelOf(value)}`}
-        className="flex h-6 w-6 items-center justify-center rounded-full text-navy-blue/55 hover:bg-navy-blue/10 hover:text-navy-blue"
       >
         <X className="h-3.5 w-3.5" aria-hidden />
-      </button>
+      </Button>
     </span>
   ));
 }

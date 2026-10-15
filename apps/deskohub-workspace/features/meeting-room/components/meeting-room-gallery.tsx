@@ -8,6 +8,7 @@ import "yet-another-react-lightbox/styles.css";
 import type { CloudinaryAsset } from "@/features/gallery/backend/cloudinary.service";
 import { getLocalizedCloudinaryContextValue } from "@/features/gallery/types/localized-cloudinary-context";
 import { type Locale, m } from "@/features/i18n";
+import { UnstyledButton } from "@/shared/components/ui/unstyled-button";
 
 type MeetingRoomGalleryProps = {
   images: readonly CloudinaryAsset[];
@@ -88,14 +89,13 @@ export function MeetingRoomGallery({
 
               return (
                 <figure className="m-0 min-w-0" key={image.public_id}>
-                  <button
+                  <UnstyledButton
                     aria-label={m.meetingRoomGalleryOpenImage(
                       { image: alt || caption || image.public_id },
                       { locale }
                     )}
                     className="group relative block aspect-[4/3] w-full cursor-zoom-in overflow-hidden rounded-[1.375rem] bg-navy-blue/8 p-0 text-left focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-burned-orange"
                     onClick={() => setLightboxIndex(index)}
-                    type="button"
                   >
                     <CloudinaryImage
                       alt={alt}
@@ -106,7 +106,7 @@ export function MeetingRoomGallery({
                       source={image}
                       variant="gallery"
                     />
-                  </button>
+                  </UnstyledButton>
                   {(caption || detail) && (
                     <figcaption className="flex items-center justify-between gap-5 px-1 pb-2 pt-4 font-mono text-[0.625rem] uppercase tracking-[0.08em]">
                       {caption && (

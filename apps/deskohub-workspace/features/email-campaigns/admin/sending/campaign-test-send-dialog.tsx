@@ -179,14 +179,13 @@ export function CampaignTestSendDialog({
                     {recipient}
                     <Button
                       aria-label={`Remove ${recipient}`}
-                      className="size-6"
                       disabled={isExecuting}
                       onClick={() =>
                         setExtraRecipients(
                           extraRecipients.filter((item) => item !== recipient)
                         )
                       }
-                      size="icon"
+                      size="icon-xs"
                       type="button"
                       variant="ghost"
                     >
