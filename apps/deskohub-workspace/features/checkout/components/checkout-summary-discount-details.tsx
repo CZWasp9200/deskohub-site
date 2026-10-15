@@ -33,13 +33,14 @@ export function CheckoutSummaryDiscountDetails({
           <Button
             type="button"
             variant="ghost"
-            size="icon"
+            tone="muted"
+            size="icon-sm"
             data-checkout-discount-details
             aria-label={m.checkoutSummaryDiscountDetailsTrigger(
               { product: productLabel },
               { locale }
             )}
-            className="h-8 w-8 shrink-0 rounded-full p-0 text-navy-blue/60"
+            className="shrink-0"
           >
             <Info aria-hidden="true" className="size-4" />
           </Button>

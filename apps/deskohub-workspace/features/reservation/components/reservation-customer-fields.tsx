@@ -9,6 +9,7 @@ import {
   type ReservationCustomerMode,
   type ReservationExistingCustomerForm,
 } from "@/features/reservation/reservation-existing-customer";
+import { Button } from "@/shared/components/ui/button";
 import {
   FormControl,
   FormField,
@@ -90,8 +91,8 @@ export function ReservationCustomerSection({
           contact={existingCustomer.contact}
           locale={locale}
         />
-        <button
-          className="text-sm font-semibold text-burned-orange underline underline-offset-4 transition-colors hover:text-chilean-fire"
+        <Button
+          variant="link"
           onClick={() => {
             customer.setAccountPhone(form.getValues("phone"));
             switchTo("contact", otherContact ?? existingCustomer.otherContact);
@@ -99,7 +100,7 @@ export function ReservationCustomerSection({
           type="button"
         >
           {m.reservationBookForSomeoneElse({}, { locale })}
-        </button>
+        </Button>
       </div>
     );
   }
@@ -107,8 +108,8 @@ export function ReservationCustomerSection({
   return (
     <div className="space-y-5">
       <ReservationCustomerFields locale={locale} />
-      <button
-        className="text-sm font-semibold text-burned-orange underline underline-offset-4 transition-colors hover:text-chilean-fire"
+      <Button
+        variant="link"
         onClick={() => {
           customer.setOtherContact(form.getValues());
           switchTo(
@@ -119,7 +120,7 @@ export function ReservationCustomerSection({
         type="button"
       >
         {m.reservationUseAccountDetails({}, { locale })}
-      </button>
+      </Button>
     </div>
   );
 }

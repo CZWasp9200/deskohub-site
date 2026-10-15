@@ -18,7 +18,7 @@ import {
   reservationStatusPath,
 } from "@/features/reservation/routes";
 import { GuardedLink } from "@/shared/components/guarded-link";
-import { Button, buttonVariants } from "@/shared/components/ui/button";
+import { Button } from "@/shared/components/ui/button";
 import { Card, CardContent } from "@/shared/components/ui/card";
 import {
   StatusBadge,
@@ -340,7 +340,8 @@ function FeaturedReservationItem({
           <div className="flex min-w-0 flex-col gap-2 @3xl:flex-row @3xl:flex-wrap @4xl:col-start-1 @4xl:row-start-2">
             <FutureFeatureTooltip locale={locale}>
               <Button
-                className="w-full @3xl:w-auto"
+                className="@3xl:w-auto"
+                fullWidth
                 disabled
                 size="sm"
                 type="button"
@@ -350,20 +351,24 @@ function FeaturedReservationItem({
               </Button>
             </FutureFeatureTooltip>
             {reservation.workspaceReservationId ? (
-              <GuardedLink
-                className={buttonVariants({
-                  className: "w-full @3xl:w-auto",
-                  size: "sm",
-                  variant: "secondary",
-                })}
-                href={`/${locale}${reservationAccessPath}/${encodeURIComponent(reservation.workspaceReservationId)}`}
+              <Button
+                asChild
+                className="@3xl:w-auto"
+                fullWidth
+                size="sm"
+                variant="secondary"
               >
-                {copy.showPinCode}
-              </GuardedLink>
+                <GuardedLink
+                  href={`/${locale}${reservationAccessPath}/${encodeURIComponent(reservation.workspaceReservationId)}`}
+                >
+                  {copy.showPinCode}
+                </GuardedLink>
+              </Button>
             ) : (
               <div className="min-w-0">
                 <Button
-                  className="w-full @3xl:w-auto"
+                  className="@3xl:w-auto"
+                  fullWidth
                   disabled
                   size="sm"
                   type="button"
@@ -691,22 +696,20 @@ function ReservationDetailLink({
 }) {
   if (!reservation.workspaceReservationId) return null;
 
-  const className =
-    presentation === "text"
-      ? "inline-flex min-w-0 max-w-full break-words whitespace-normal text-sm font-semibold leading-5 text-burned-orange underline-offset-4 transition-colors hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-burned-orange focus-visible:ring-offset-2"
-      : buttonVariants({
-          className: "min-w-0 max-w-full break-words whitespace-normal",
-          size: "sm",
-          variant: "secondary",
-        });
+  const href = getReservationHref(locale, reservation.workspaceReservationId);
+
+  if (presentation === "text") {
+    return (
+      <Button asChild variant="link" wrap>
+        <GuardedLink href={href}>{copy.viewReservation}</GuardedLink>
+      </Button>
+    );
+  }
 
   return (
-    <GuardedLink
-      className={className}
-      href={getReservationHref(locale, reservation.workspaceReservationId)}
-    >
-      {copy.viewReservation}
-    </GuardedLink>
+    <Button asChild size="sm" variant="secondary" wrap>
+      <GuardedLink href={href}>{copy.viewReservation}</GuardedLink>
+    </Button>
   );
 }
 

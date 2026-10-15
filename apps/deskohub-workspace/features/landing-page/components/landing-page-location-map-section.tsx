@@ -64,10 +64,7 @@ export function LandingPageLocationMapSection({
             <address className="mt-6 not-italic text-lg font-semibold leading-7">
               {workspaceFormattedAddress}
             </address>
-            <Button
-              asChild
-              className="mt-7 h-12 px-7 uppercase tracking-[0.08em]"
-            >
+            <Button asChild size="lg" caps className="mt-7">
               <a
                 href={workspaceGoogleDirectionsUrl}
                 rel="noopener noreferrer"

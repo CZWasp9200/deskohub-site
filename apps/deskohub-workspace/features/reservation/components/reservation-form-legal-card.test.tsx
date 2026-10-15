@@ -48,7 +48,7 @@ const legalCards = (view: ReturnType<typeof render>, locale: Locale) => {
       catalog.reservationMarketingConsent,
       "marketingConsent"
     ),
-  ].map((name) => view.getByRole("link", { name }).closest("div"));
+  ].map((name) => view.getByRole("link", { name }).closest("label, div"));
 };
 
 const LegalCardsHarness = ({ locale }: { readonly locale: Locale }) => {

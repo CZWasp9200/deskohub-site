@@ -5,13 +5,13 @@ import Link from "next/link";
 import { useFormContext } from "react-hook-form";
 import { type Locale, m } from "@/features/i18n";
 import { Checkbox } from "@/shared/components/ui/checkbox";
+import { ChoiceCard } from "@/shared/components/ui/choice-card";
 import {
   FormControl,
   FormField,
   FormItem,
   FormMessage,
 } from "@/shared/components/ui/form";
-import { ReservationFormLegalCard } from "./reservation-form-legal-card";
 
 type ReservationMarketingConsentFieldProps = {
   readonly id?: string;
@@ -30,22 +30,21 @@ export function ReservationMarketingConsentField({
       name="marketingConsent"
       render={({ field }) => (
         <FormItem>
-          <label className="block cursor-pointer" htmlFor={id}>
-            <ReservationFormLegalCard
-              indicator={
-                <FormControl>
-                  <Checkbox
-                    checked={field.value}
-                    id={id}
-                    onBlur={field.onBlur}
-                    onCheckedChange={(checked) =>
-                      field.onChange(Boolean(checked))
-                    }
-                    ref={field.ref}
-                  />
-                </FormControl>
-              }
-            >
+          <ChoiceCard htmlFor={id}>
+            <span className="mt-1 shrink-0">
+              <FormControl>
+                <Checkbox
+                  checked={field.value}
+                  id={id}
+                  onBlur={field.onBlur}
+                  onCheckedChange={(checked) =>
+                    field.onChange(Boolean(checked))
+                  }
+                  ref={field.ref}
+                />
+              </FormControl>
+            </span>
+            <span className="text-sm leading-6 text-navy-blue/66">
               <Interpolate
                 string={m.reservationMarketingConsent({}, { locale })}
                 mapping={{
@@ -62,8 +61,8 @@ export function ReservationMarketingConsentField({
                   ),
                 }}
               />
-            </ReservationFormLegalCard>
-          </label>
+            </span>
+          </ChoiceCard>
           <FormMessage />
         </FormItem>
       )}

@@ -283,12 +283,13 @@ function MarketingPreferencesFormContent({
             {m.marketingPreferencesFormLinkContext({}, { locale })}
           </p>
           <Button
-            aria-busy={isClearing}
-            className="h-auto min-h-11 min-w-0 max-w-full whitespace-normal! self-start px-4 py-2 leading-5"
+            className="self-start"
             disabled={busy}
             onClick={clearManagement}
+            pending={isClearing}
             type="button"
             variant="secondary"
+            wrap
           >
             {isClearing
               ? m.marketingPreferencesFormClearing({}, { locale })
@@ -384,23 +385,23 @@ function PendingLinkState({
       </p>
       <div className="flex min-w-0 flex-wrap items-center gap-3">
         <Button
-          aria-busy={isConfirming}
-          className="h-auto min-h-11 min-w-0 max-w-full whitespace-normal px-4 py-2 text-left leading-5 sm:text-center"
           disabled={busy}
           onClick={onContinue}
+          pending={isConfirming}
           type="button"
+          wrap
         >
           {isConfirming
             ? m.marketingPreferencesFormConfirming({}, { locale })
             : m.marketingPreferencesFormContinueAction({}, { locale })}
         </Button>
         <Button
-          aria-busy={isClearing}
-          className="h-auto min-h-11 min-w-0 max-w-full whitespace-normal! px-4 py-2 text-left leading-5 sm:text-center"
           disabled={busy}
           onClick={onClear}
+          pending={isClearing}
           type="button"
           variant="secondary"
+          wrap
         >
           {isClearing
             ? m.marketingPreferencesFormClearing({}, { locale })
@@ -464,12 +465,11 @@ function InvalidLinkState({
         {m.marketingPreferencesFormInvalidLinkNextStep({}, { locale })}
       </p>
       <Button
-        aria-busy={isClearing}
-        className="h-auto min-h-11 min-w-0 max-w-full whitespace-normal! px-4 py-2 text-left leading-5 sm:text-center"
-        disabled={isClearing}
         onClick={onClear}
+        pending={isClearing}
         type="button"
         variant="secondary"
+        wrap
       >
         {isClearing
           ? m.marketingPreferencesFormClearing({}, { locale })

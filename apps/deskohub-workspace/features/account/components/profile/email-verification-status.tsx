@@ -19,20 +19,20 @@ export function EmailVerificationStatus({
   readonly copy: EmailVerificationStatusCopy;
   readonly emailVerified: boolean;
 }) {
-  const status = {
-    verified: {
-      className:
-        "size-8 shrink-0 rounded-full p-0 text-emerald-800 hover:bg-emerald-50",
-      copy: copy.verified,
-      Icon: CircleCheck,
-    },
-    unverified: {
-      className:
-        "size-8 shrink-0 rounded-full p-0 text-amber-800 hover:bg-amber-50",
-      copy: copy.unverified,
-      Icon: CircleAlert,
-    },
-  }[emailVerified ? "verified" : "unverified"];
+  const status = (
+    {
+      verified: {
+        tone: "success",
+        copy: copy.verified,
+        Icon: CircleCheck,
+      },
+      unverified: {
+        tone: "warning",
+        copy: copy.unverified,
+        Icon: CircleAlert,
+      },
+    } as const
+  )[emailVerified ? "verified" : "unverified"];
   const Icon = status.Icon;
 
   return (
@@ -41,8 +41,9 @@ export function EmailVerificationStatus({
         <TooltipTrigger asChild>
           <Button
             aria-label={status.copy}
-            className={status.className}
-            size="icon"
+            className="shrink-0"
+            size="icon-sm"
+            tone={status.tone}
             type="button"
             variant="ghost"
           >

@@ -293,8 +293,8 @@ function SignInSubmitButton({
     <Button
       id="account-sign-in-submit"
       type="submit"
-      disabled={!ready || pending}
-      aria-busy={pending}
+      disabled={!ready}
+      pending={pending}
     >
       {pending ? (
         <>

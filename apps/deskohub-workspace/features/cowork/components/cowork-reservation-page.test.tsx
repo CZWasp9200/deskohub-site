@@ -163,6 +163,7 @@ const getRestartButtonDirectChildAnchorHref = (
   if (!isValidElement<{ children?: ReactNode }>(node)) {
     return undefined;
   }
+  // biome-ignore lint/plugin: an identity check on the rendered element type passes no props.
   if (node.type === Button) {
     const { children } = node.props;
     const anchor = Array.isArray(children) ? children[0] : children;

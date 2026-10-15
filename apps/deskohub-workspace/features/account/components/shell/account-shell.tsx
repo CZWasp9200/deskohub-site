@@ -9,7 +9,7 @@ import {
   UserRound,
 } from "lucide-react";
 import { type ReactNode, useEffect, useId, useRef } from "react";
-import { Button } from "@/shared/components/ui/button";
+import { NavItem } from "@/shared/components/ui/nav-item";
 import { cn } from "@/shared/utils";
 import { AccountFrame } from "./account-frame";
 
@@ -151,39 +151,20 @@ export function AccountShell({
                 data-account-mobile-navigation=""
                 ref={mobileNavigationRef}
               >
-                {sections.map((section) => {
-                  const isActive = activeSection === section.key;
-                  const isDanger = section.key === "danger";
-                  let buttonStateClassName =
-                    "text-[#344258] hover:bg-[#f3f5f8]";
-
-                  if (isDanger) {
-                    buttonStateClassName = "text-[#d71945] hover:bg-[#fff1f4]";
-                  }
-                  if (isActive) {
-                    buttonStateClassName =
-                      "bg-[#00024f] text-white hover:bg-[#00024f]";
-                    if (isDanger) {
-                      buttonStateClassName =
-                        "bg-[#e71545] text-white hover:bg-[#e71545]";
-                    }
-                  }
-
-                  return (
-                    <Button
-                      aria-current={isActive ? "page" : undefined}
-                      className={`min-h-[44px] shrink-0 snap-start whitespace-nowrap rounded-none md:rounded-2xl px-3 text-[15px] font-semibold focus-visible:ring-inset focus-visible:ring-offset-0 ${buttonStateClassName}`}
-                      data-account-section={section.key}
-                      disabled={disabledSections.includes(section.key)}
-                      key={section.key}
-                      onClick={() => handleSectionChange(section.key)}
-                      type="button"
-                      variant="ghost"
-                    >
-                      {labels.sections[section.key]}
-                    </Button>
-                  );
-                })}
+                {sections.map((section) => (
+                  <NavItem
+                    active={activeSection === section.key}
+                    className="shrink-0 snap-start"
+                    data-account-section={section.key}
+                    disabled={disabledSections.includes(section.key)}
+                    key={section.key}
+                    layout="tab"
+                    onClick={() => handleSectionChange(section.key)}
+                    tone={section.key === "danger" ? "danger" : "neutral"}
+                  >
+                    {labels.sections[section.key]}
+                  </NavItem>
+                ))}
               </div>
             </fieldset>
           </div>
@@ -193,38 +174,16 @@ export function AccountShell({
               {sections.map((section) => {
                 const Icon = section.icon;
                 const isActive = activeSection === section.key;
-                const isDanger = section.key === "danger";
-                let buttonStateClassName = "text-[#344258] hover:bg-[#f3f5f8]";
-                let iconStateClassName = "text-[#718096]";
-
-                if (isDanger) {
-                  buttonStateClassName = "text-[#d71945] hover:bg-[#fff1f4]";
-                  iconStateClassName = "text-[#d71945]";
-                }
-                if (isActive) {
-                  buttonStateClassName =
-                    "bg-[#00024f] text-white hover:bg-[#00024f]";
-                  iconStateClassName = "text-white";
-                  if (isDanger) {
-                    buttonStateClassName =
-                      "bg-[#e71545] text-white hover:bg-[#e71545]";
-                  }
-                }
 
                 return (
-                  <Button
-                    aria-current={isActive ? "page" : undefined}
-                    className={`h-auto min-h-[40px] w-full justify-start gap-3 rounded-2xl px-3 text-left text-[15px] font-semibold leading-snug whitespace-normal ${buttonStateClassName}`}
+                  <NavItem
+                    active={isActive}
                     disabled={disabledSections.includes(section.key)}
                     key={section.key}
                     onClick={() => handleSectionChange(section.key)}
-                    type="button"
-                    variant="ghost"
+                    tone={section.key === "danger" ? "danger" : "neutral"}
                   >
-                    <Icon
-                      aria-hidden="true"
-                      className={`size-4 shrink-0 ${iconStateClassName}`}
-                    />
+                    <Icon aria-hidden="true" />
                     <span className="min-w-0 break-words">
                       {labels.sections[section.key]}
                     </span>
@@ -244,7 +203,7 @@ export function AccountShell({
                         {referralBadge.text}
                       </NavigationBadge>
                     )}
-                  </Button>
+                  </NavItem>
                 );
               })}
             </div>

@@ -16,6 +16,7 @@ import type {
   SiteHeaderMenuItem,
 } from "@/shared/components/site-header-config";
 import { Button } from "@/shared/components/ui/button";
+import { NavItem } from "@/shared/components/ui/nav-item";
 import { cn } from "@/shared/utils";
 
 type SiteHeaderProps = {
@@ -49,25 +50,23 @@ function AccountLink({
   onClick,
 }: AccountLinkProps) {
   return (
-    <Link
-      href={href}
-      aria-current={active ? "page" : undefined}
-      aria-label={mobile ? undefined : label}
-      title={mobile ? undefined : label}
-      className={cn(
-        mobile
-          ? "flex items-center gap-2 rounded-2xl border px-4 py-3 text-sm uppercase tracking-[0.12em] transition-colors hover:border-sunset-yellow/60 hover:text-sunset-yellow"
-          : "inline-flex size-10 items-center justify-center rounded-full border transition-colors hover:border-sunset-yellow/55 hover:text-sunset-yellow",
-        active &&
-          "border-sunset-yellow/55 bg-sunset-yellow/10 text-sunset-yellow",
-        !active && mobile && "border-white/8 bg-white/5 text-white/80",
-        !active && !mobile && "border-white/12 bg-white/6 text-white/82"
-      )}
-      onClick={onClick}
+    <NavItem
+      active={active}
+      asChild
+      caps={mobile}
+      layout={mobile ? "row" : "icon"}
+      tone="inverse"
     >
-      <UserRound aria-hidden className={mobile ? "size-4" : "size-4.5"} />
-      {mobile && label}
-    </Link>
+      <Link
+        href={href}
+        aria-label={mobile ? undefined : label}
+        title={mobile ? undefined : label}
+        onClick={onClick}
+      >
+        <UserRound aria-hidden />
+        {mobile && label}
+      </Link>
+    </NavItem>
   );
 }
 
@@ -109,24 +108,34 @@ function AccountEntryLink(props: AccountEntryLinkProps) {
 
 type NavigationLinkProps = {
   readonly active?: boolean;
-  readonly className: string;
   readonly href: string;
   readonly label: string;
+  readonly mobile?: boolean;
   readonly onClick?: () => void;
 };
 
 function NavigationLink({
   active = false,
-  className,
   href,
   label,
+  mobile = false,
   onClick,
 }: NavigationLinkProps) {
+  if (mobile) {
+    return (
+      <NavItem active={active} asChild caps tone="inverse">
+        <Link href={href} onClick={onClick}>
+          {label}
+        </Link>
+      </NavItem>
+    );
+  }
+
   return (
     <Link
       href={href}
       aria-current={active ? "page" : undefined}
-      className={className}
+      className="text-balance text-center text-sm uppercase tracking-[0.12em] text-white/76 transition-colors hover:text-sunset-yellow"
       onClick={onClick}
     >
       {label}
@@ -198,19 +207,23 @@ export function SiteHeader({
               key={link.id}
               href={link.href}
               label={link.label}
-              className="text-balance text-center text-sm uppercase tracking-[0.12em] text-white/76 transition-colors hover:text-sunset-yellow"
             />
           ))}
         </nav>
 
         <div className="flex shrink-0 items-center gap-2 sm:gap-3 xl:gap-3">
-          <Link
-            href={contactHref}
-            className="shrink-0 whitespace-nowrap rounded-full border border-white/12 bg-white px-3 py-2 text-center text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-navy-blue transition-colors hover:bg-sunset-yellow sm:px-4 sm:text-xs sm:tracking-[0.14em]"
-            onClick={closeMenu}
+          <Button
+            asChild
+            variant="secondary"
+            tone="inverse"
+            size="sm"
+            caps
+            className="shrink-0"
           >
-            {contactLabel}
-          </Link>
+            <Link href={contactHref} onClick={closeMenu}>
+              {contactLabel}
+            </Link>
+          </Button>
 
           {account !== undefined && (
             <AccountEntryLink entry={account} onClick={closeMenu} />
@@ -240,8 +253,9 @@ export function SiteHeader({
           <Button
             type="button"
             variant="ghost"
+            tone="inverse"
             size="icon"
-            className="rounded-full border border-white/12 bg-white/6 text-white hover:bg-white/12 hover:text-white xl:hidden"
+            className="xl:hidden"
             aria-expanded={mobileMenuOpen}
             aria-controls="site-header-mobile-menu"
             aria-label={
@@ -279,8 +293,8 @@ export function SiteHeader({
                 key={link.id}
                 href={link.href}
                 label={link.label}
+                mobile
                 onClick={closeMenu}
-                className="rounded-2xl border border-white/8 bg-white/5 px-4 py-3 text-sm uppercase tracking-[0.12em] text-white/80 transition-colors hover:border-sunset-yellow/60 hover:text-sunset-yellow"
               />
             ))}
           </nav>

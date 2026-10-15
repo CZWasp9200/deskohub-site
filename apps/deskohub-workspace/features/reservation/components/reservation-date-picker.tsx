@@ -4,7 +4,7 @@ import { Option, Predicate } from "effect";
 import { CalendarIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { isLocale, m } from "@/features/i18n";
-import { Button } from "@/shared/components/ui/button";
+import { fieldTriggerVariants } from "@/shared/components/ui/field-trigger";
 import { useFormField } from "@/shared/components/ui/form";
 import {
   Popover,
@@ -148,7 +148,7 @@ export function ReservationDatePicker({
         }}
       >
         <PopoverTrigger asChild>
-          <Button
+          <button
             ref={triggerRef}
             id={id}
             aria-describedby={ariaDescribedBy}
@@ -157,14 +157,9 @@ export function ReservationDatePicker({
             onFocus={reservationCalendar.preload}
             onPointerDown={reservationCalendar.preload}
             onPointerEnter={reservationCalendar.preload}
-            className={cn(
-              "h-13 w-full justify-start rounded-[1.1rem] border-navy-blue/45 bg-white px-4 py-3 text-left text-base font-normal text-navy-blue hover:border-burned-orange",
-              !selectedDate && "text-navy-blue/55",
-              variant === "error" && "border-burned-orange",
-              className
-            )}
+            className={cn(fieldTriggerVariants({ variant }), className)}
+            data-placeholder={selectedDate ? undefined : ""}
             type="button"
-            variant="secondary"
           >
             <CalendarIcon className="h-5 w-5 text-burned-orange" />
             {selectedDate
@@ -175,7 +170,7 @@ export function ReservationDatePicker({
                   locale,
                 }))
               : placeholder}
-          </Button>
+          </button>
         </PopoverTrigger>
         <PopoverContent
           align="start"

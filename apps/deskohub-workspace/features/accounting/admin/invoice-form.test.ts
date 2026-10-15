@@ -251,7 +251,7 @@ const fillPersonRequiredFields = (view: InvoiceFormView) => {
 };
 
 const fillValidPersonInvoice = (view: InvoiceFormView) => {
-  fireEvent.click(view.getByRole("button", { name: "New" }));
+  fireEvent.click(view.getByRole("radio", { name: "New" }));
   fillPersonRequiredFields(view);
 };
 
@@ -362,7 +362,7 @@ test("creates request identities only after user interaction", async () => {
 test("shows validation feedback and skips the preview for an invalid invoice", async () => {
   const preview = mockPreviewAction();
   const view = renderInvoiceCreationForm();
-  fireEvent.click(view.getByRole("button", { name: "New" }));
+  fireEvent.click(view.getByRole("radio", { name: "New" }));
   // "1." passes the controlled input gate for exponent 2 but fails the
   // submitted price pattern.
   fireEvent.change(view.getByLabelText("Price"), {
@@ -608,7 +608,7 @@ test("associates every label with its rendered input", () => {
 test("accepts retained business values after switching to an individual", async () => {
   const preview = mockPreviewAction();
   const view = renderInvoiceCreationForm();
-  fireEvent.click(view.getByRole("button", { name: "New" }));
+  fireEvent.click(view.getByRole("radio", { name: "New" }));
   fireEvent.change(view.getByLabelText("Customer type"), {
     target: { value: "business" },
   });

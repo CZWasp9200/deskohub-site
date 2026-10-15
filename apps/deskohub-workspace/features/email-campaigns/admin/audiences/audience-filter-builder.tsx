@@ -2,7 +2,7 @@
 
 import { Match } from "effect";
 import { ChevronDown, ListPlus, Plus, X } from "lucide-react";
-import type { ReactNode } from "react";
+import { type ReactNode, useId } from "react";
 import { type Locale, locales } from "@/features/i18n";
 import { Button } from "@/shared/components/ui/button";
 import { Checkbox } from "@/shared/components/ui/checkbox";
@@ -13,6 +13,7 @@ import {
   DropdownMenuTrigger,
 } from "@/shared/components/ui/dropdown-menu";
 import { Input } from "@/shared/components/ui/input";
+import { SegmentedControl } from "@/shared/components/ui/segmented-control";
 import {
   Select,
   SelectContent,
@@ -20,10 +21,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/shared/components/ui/select";
-import {
-  ToggleGroup,
-  ToggleGroupItem,
-} from "@/shared/components/ui/toggle-group";
 import { cn } from "@/shared/utils";
 import type { AudienceFilter } from "../../audience-filter";
 import type { DiscountGroupOption } from "../audience-filter-summary";
@@ -143,6 +140,7 @@ function GroupEditor({
   const add = (filter: AudienceFilter) => onChange(appendFilter(group, filter));
   const groupError =
     context.errorAt(path) ?? context.errorAt(`${path}.filters`);
+  const operatorName = useId();
 
   return (
     <div
@@ -152,24 +150,17 @@ function GroupEditor({
       )}
     >
       <div className="flex flex-wrap items-center gap-2">
-        <ToggleGroup
-          type="single"
+        <SegmentedControl
+          label="How conditions combine"
+          name={operatorName}
+          onValueChange={(operator) => onChange({ ...group, operator })}
+          options={[
+            { label: operatorLabels.and.match, value: "and" },
+            { label: operatorLabels.or.match, value: "or" },
+          ]}
+          size="sm"
           value={group.operator}
-          onValueChange={(operator) => {
-            if (operator === "and" || operator === "or") {
-              onChange({ ...group, operator });
-            }
-          }}
-          aria-label="How conditions combine"
-          className="whitespace-nowrap rounded-md border border-navy-blue/15 p-0.5"
-        >
-          <ToggleGroupItem value="and">
-            {operatorLabels.and.match}
-          </ToggleGroupItem>
-          <ToggleGroupItem value="or">
-            {operatorLabels.or.match}
-          </ToggleGroupItem>
-        </ToggleGroup>
+        />
         <span className="text-navy-blue/60 text-sm">
           {depth === 0 ? "of the following" : "of this group"}
         </span>
@@ -438,6 +429,7 @@ function ReservationEditor({
 }) {
   const setCriteria = (changes: Parameters<typeof setReservationCriteria>[1]) =>
     onChange(setReservationCriteria(condition, changes));
+  const dateBasisName = useId();
 
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
@@ -447,20 +439,17 @@ function ReservationEditor({
         label="Reservation presence"
       />
       <span className="text-sm">a reservation by</span>
-      <ToggleGroup
-        type="single"
+      <SegmentedControl
+        label="Date basis"
+        name={dateBasisName}
+        onValueChange={(dateBasis) => onChange({ ...condition, dateBasis })}
+        options={[
+          { label: "Visit date", value: "visit" },
+          { label: "Booking date", value: "booking" },
+        ]}
+        size="sm"
         value={condition.dateBasis}
-        onValueChange={(dateBasis) => {
-          if (dateBasis === "visit" || dateBasis === "booking") {
-            onChange({ ...condition, dateBasis });
-          }
-        }}
-        aria-label="Date basis"
-        className="whitespace-nowrap rounded-md border border-navy-blue/15 p-0.5"
-      >
-        <ToggleGroupItem value="visit">Visit date</ToggleGroupItem>
-        <ToggleGroupItem value="booking">Booking date</ToggleGroupItem>
-      </ToggleGroup>
+      />
       <LabeledControl label="from">
         <Input
           type="date"
@@ -520,19 +509,20 @@ function PresenceToggle({
   readonly onChange: (value: "has" | "hasNot") => void;
   readonly label: string;
 }) {
+  const name = useId();
+
   return (
-    <ToggleGroup
-      type="single"
+    <SegmentedControl
+      label={label}
+      name={name}
+      onValueChange={onChange}
+      options={[
+        { label: "Has", value: "has" },
+        { label: <>Hasn&rsquo;t</>, value: "hasNot" },
+      ]}
+      size="sm"
       value={value}
-      onValueChange={(next) => {
-        if (next === "has" || next === "hasNot") onChange(next);
-      }}
-      aria-label={label}
-      className="whitespace-nowrap rounded-md border border-navy-blue/15 p-0.5"
-    >
-      <ToggleGroupItem value="has">Has</ToggleGroupItem>
-      <ToggleGroupItem value="hasNot">Hasn&rsquo;t</ToggleGroupItem>
-    </ToggleGroup>
+    />
   );
 }
 
@@ -562,11 +552,12 @@ function RemoveButton({
     <Button
       type="button"
       variant="ghost"
-      size="icon"
+      tone="muted"
+      size="icon-sm"
       onClick={onClick}
       aria-label={label}
       title={label}
-      className="ml-auto h-8 w-8 shrink-0 text-navy-blue/55 hover:text-navy-blue"
+      className="ml-auto shrink-0"
     >
       <X className="h-4 w-4" aria-hidden />
     </Button>

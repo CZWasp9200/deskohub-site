@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import { AdministrationLink as Link } from "@/features/administration/admin-link";
+import { AdministrationRecordLink } from "@/features/administration/admin-link";
 import {
   AdministrationAlert,
   AdministrationDetailSection,
@@ -151,12 +151,9 @@ function RelatedEntity({
   return (
     <AdministrationDetailSection density="compact" title={title}>
       {href ? (
-        <Link
-          className="block rounded-lg px-3 py-3 hover:bg-navy-blue/[0.035]"
-          href={href}
-        >
+        <AdministrationRecordLink href={href}>
           {content}
-        </Link>
+        </AdministrationRecordLink>
       ) : (
         <div className="px-3 py-3">{content}</div>
       )}

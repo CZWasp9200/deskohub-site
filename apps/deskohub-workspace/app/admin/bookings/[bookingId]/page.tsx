@@ -1,5 +1,8 @@
 import { Suspense } from "react";
-import { AdministrationLink as Link } from "@/features/administration/admin-link";
+import {
+  AdministrationRecordLink,
+  AdministrationLink as Link,
+} from "@/features/administration/admin-link";
 import {
   AdministrationDetailSection,
   AdministrationFact,
@@ -111,8 +114,7 @@ export async function BookingAdministrationDetail({
         <aside className="space-y-5 xl:sticky xl:top-24 xl:h-fit">
           <RelatedBookingEntity title="Customer">
             {booking.customer && booking.customerId ? (
-              <Link
-                className="block rounded-lg px-3 py-3 hover:bg-navy-blue/[0.035]"
+              <AdministrationRecordLink
                 href={`/admin/customers/${booking.customerId}`}
               >
                 <span className="block font-semibold">
@@ -123,7 +125,7 @@ export async function BookingAdministrationDetail({
                     booking.customer.phone ??
                     "View customer"}
                 </span>
-              </Link>
+              </AdministrationRecordLink>
             ) : (
               <p className="px-3 py-3 text-sm text-navy-blue/65">
                 Customer details unavailable.
@@ -133,8 +135,7 @@ export async function BookingAdministrationDetail({
 
           <RelatedBookingEntity title="Workspace reservation">
             {booking.linkedReservation ? (
-              <Link
-                className="block rounded-lg px-3 py-3 hover:bg-navy-blue/[0.035]"
+              <AdministrationRecordLink
                 href={`/admin/reservations/${booking.linkedReservation.id}`}
               >
                 <span className="block font-semibold">
@@ -143,7 +144,7 @@ export async function BookingAdministrationDetail({
                 <span className="mt-1 block text-sm text-navy-blue/65">
                   View lifecycle and payment history
                 </span>
-              </Link>
+              </AdministrationRecordLink>
             ) : (
               <p className="px-3 py-3 text-sm text-navy-blue/65">
                 No Workspace reservation is linked.

@@ -282,7 +282,8 @@ export function CreateStandaloneAccessCodeForm() {
         </dl>
         <div className="mt-6 border-t border-navy-blue/10 pt-5">
           <Button
-            className="w-full sm:w-auto"
+            className="sm:w-auto"
+            fullWidth
             onClick={startNewAttempt}
             type="button"
           >
@@ -307,7 +308,8 @@ export function CreateStandaloneAccessCodeForm() {
         </AdministrationAlert>
         <div className="mt-6 border-t border-navy-blue/10 pt-5">
           <Button
-            className="w-full sm:w-auto"
+            className="sm:w-auto"
+            fullWidth
             onClick={startNewAttempt}
             type="button"
           >
