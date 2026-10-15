@@ -19,15 +19,16 @@ const decodes = <A, I>(schema: Schema.Codec<A, I>, input: unknown) =>
   Result.isSuccess(Schema.decodeUnknownResult(schema)(input));
 
 /**
- * A filter as Workspace stored it and dhw sent it before the domain and the
- * contract shared one schema, encoded byte for byte by the old domain schema.
+ * A filter of every attribute kind as Workspace stores it and dhw sends it.
+ * `attribute` precedes `_tag` in each condition: the union dispatches on the
+ * first literal key it indexes, so errors name the condition's own fields.
  */
 const storedFilterJson =
-  '{"_tag":"Group","operator":"or","filters":[{"_tag":"Reservation","presence":"hasNot","dateBasis":"booking","from":"2026-01-01","to":"2026-06-30","status":"complete"},{"_tag":"Reservation","presence":"has","dateBasis":"visit"},{"_tag":"Group","operator":"and","filters":[{"_tag":"Locale","locales":["cs-CZ","en-US"]},{"_tag":"Account","hasAccount":false},{"_tag":"DotyposTag","tag":"vip"},{"_tag":"DiscountGroup","discountGroupId":"42"}]},{"_tag":"Group","operator":"and","filters":[]}]}';
+  '{"_tag":"Group","operator":"or","filters":[{"attribute":"reservationCount","_tag":"Condition","params":{"dateBasis":"booking","period":{"_tag":"Range","from":"2026-01-01","to":"2026-06-30"},"status":"complete"},"operator":"eq","value":0},{"attribute":"campaignEmailCount","_tag":"Condition","params":{"purpose":"marketing","period":{"_tag":"Last","count":10,"unit":"day"}},"operator":"lt","value":2},{"_tag":"Group","operator":"and","filters":[{"attribute":"lastVisit","_tag":"Condition","operator":"notIn","value":{"_tag":"Onward","date":"2026-09-01"}},{"attribute":"accountCreated","_tag":"Condition","operator":"none"},{"attribute":"locale","_tag":"Condition","operator":"anyOf","value":["cs-CZ","en-US"]},{"attribute":"hasAccount","_tag":"Condition","operator":"is","value":false},{"attribute":"dotyposTags","_tag":"Condition","operator":"allOf","value":["vip","coworker"]},{"attribute":"discountGroup","_tag":"Condition","operator":"noneOf","value":["42"]}]},{"_tag":"Group","operator":"and","filters":[]}]}';
 
-/** The same kind of filter in the key order Postgres `jsonb` returns. */
+/** A filter in the key order Postgres `jsonb` returns. */
 const jsonbFilterJson =
-  '{"_tag":"Group","filters":[{"to":"2026-06-30","_tag":"Reservation","from":"2026-01-01","status":"complete","presence":"hasNot","dateBasis":"booking"},{"_tag":"Locale","locales":["en-US"]}],"operator":"and"}';
+  '{"_tag":"Group","filters":[{"_tag":"Condition","value":0,"params":{"period":{"to":"2026-06-30","_tag":"Range","from":"2026-01-01"},"status":"complete","dateBasis":"booking"},"operator":"gt","attribute":"reservationCount"}],"operator":"and"}';
 
 const reencode = (json: string) =>
   JSON.stringify(
@@ -36,6 +37,15 @@ const reencode = (json: string) =>
     )
   );
 
+const issuePaths = (input: unknown) => {
+  const result = Schema.toStandardSchemaV1(AudienceFilter, {
+    parseOptions: { errors: "all" },
+  })["~standard"].validate(input);
+  return "issues" in result && result.issues
+    ? result.issues.map(({ path }) => (path ?? []).join("."))
+    : [];
+};
+
 describe("campaign admin API contract", () => {
   test("keeps the stored audience filter wire format byte for byte", () => {
     expect(reencode(storedFilterJson)).toBe(storedFilterJson);
@@ -43,8 +53,30 @@ describe("campaign admin API contract", () => {
 
   test("decodes an audience filter in jsonb key order", () => {
     expect(reencode(jsonbFilterJson)).toBe(
-      '{"_tag":"Group","operator":"and","filters":[{"_tag":"Reservation","presence":"hasNot","dateBasis":"booking","from":"2026-01-01","to":"2026-06-30","status":"complete"},{"_tag":"Locale","locales":["en-US"]}]}'
+      '{"_tag":"Group","operator":"and","filters":[{"attribute":"reservationCount","_tag":"Condition","params":{"dateBasis":"booking","period":{"_tag":"Range","from":"2026-01-01","to":"2026-06-30"},"status":"complete"},"operator":"gt","value":0}]}'
     );
+  });
+
+  test("reports an invalid condition's errors at its own fields only", () => {
+    expect(
+      issuePaths({
+        _tag: "Group",
+        operator: "and",
+        filters: [
+          { attribute: "dotyposTags", _tag: "Condition", operator: "anyOf", value: [] },
+          {
+            attribute: "reservationCount",
+            _tag: "Condition",
+            params: {
+              dateBasis: "visit",
+              period: { _tag: "Range", from: "2026-02-01", to: "2026-01-01" },
+            },
+            operator: "gt",
+            value: -1,
+          },
+        ],
+      })
+    ).toEqual(["filters.0.value.0", "filters.1.params.period", "filters.1.value"]);
   });
 
   test("accepts a stored audience filter in every API input that embeds it", () => {
@@ -62,24 +94,40 @@ describe("campaign admin API contract", () => {
   });
 
   test.each([
-    ["an unknown condition", { _tag: "Spend", minimum: 100 }],
+    ["an unknown attribute", { attribute: "spend", _tag: "Condition", operator: "gt", value: 100 }],
+    ["a legacy condition", { _tag: "Locale", locales: ["cs-CZ"] }],
     [
       "an invalid calendar date",
       {
-        _tag: "Reservation",
-        presence: "has",
-        dateBasis: "visit",
-        from: "2026-02-30",
+        attribute: "lastVisit",
+        _tag: "Condition",
+        operator: "in",
+        value: { _tag: "Since", date: "2026-02-30" },
       },
     ],
-    ["an empty locale list", { _tag: "Locale", locales: [] }],
-    ["an unsupported locale", { _tag: "Locale", locales: ["de-DE"] }],
+    ["an empty locale list", { attribute: "locale", _tag: "Condition", operator: "anyOf", value: [] }],
+    [
+      "an unsupported locale",
+      { attribute: "locale", _tag: "Condition", operator: "anyOf", value: ["de-DE"] },
+    ],
+    [
+      "a negative count",
+      {
+        attribute: "campaignEmailCount",
+        _tag: "Condition",
+        params: { purpose: "any", period: { _tag: "AnyTime" } },
+        operator: "eq",
+        value: -1,
+      },
+    ],
     [
       "an unknown property in a nested condition",
       {
         _tag: "Group",
         operator: "and",
-        filters: [{ _tag: "Account", hasAccount: true, extra: 1 }],
+        filters: [
+          { attribute: "hasAccount", _tag: "Condition", operator: "is", value: true, extra: 1 },
+        ],
       },
     ],
   ])("rejects an audience filter with %s", (_, filter) => {
@@ -211,7 +259,12 @@ describe("campaign admin API contract", () => {
     ).toEqual({ send: null });
   });
 
-  const localeFilter = { _tag: "Locale", locales: ["cs-CZ"] };
+  const localeFilter = {
+    attribute: "locale",
+    _tag: "Condition",
+    operator: "anyOf",
+    value: ["cs-CZ"],
+  };
 
   test("reports unconfirmed recipients and why a recipient was skipped", () => {
     const recipient = {

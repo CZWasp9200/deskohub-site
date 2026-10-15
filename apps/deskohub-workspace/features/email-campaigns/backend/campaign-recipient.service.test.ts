@@ -3,17 +3,16 @@ import {
   type DotyposCustomer,
   type DotyposCustomerId,
   DotyposCustomerIdSchema,
-  DotyposReservationIdSchema,
   NetworkError,
 } from "@deskohub/dotypos";
 import { DotyposServiceMock } from "@deskohub/dotypos/backend/service.mock";
 import { testEmailAddress } from "@deskohub/test-email";
 import { Cause, Effect, Exit, Layer } from "effect";
 import type { AudienceFilter } from "../audience-filter";
+import { AudienceFactsService } from "./audience-facts.service";
 import {
   type CampaignCandidateFacts,
   CampaignCandidateRepository,
-  type CampaignReservationCustomerQuery,
 } from "./campaign-candidate.repository";
 import { CampaignRecipientService } from "./campaign-recipient.service";
 
@@ -53,20 +52,18 @@ const everyone: AudienceFilter = {
   filters: [],
 };
 
-const resolve = (input: {
+const resolve = async (input: {
   readonly candidates: readonly CampaignCandidateFacts[];
   readonly customers?: readonly DotyposCustomer[];
   readonly filter?: AudienceFilter;
   readonly purpose?: "marketing" | "operational";
-  readonly reservationCustomers?: (
-    query: CampaignReservationCustomerQuery
-  ) => readonly DotyposCustomerId[];
+  /** Received campaign emails per customer, for any query. */
+  readonly receivedEmails?: ReadonlyMap<DotyposCustomerId, number>;
   readonly dotypos?: Parameters<typeof DotyposServiceMock>[0];
 }) => {
   const listCandidates = mock(() => Effect.succeed(input.candidates));
-  const listReservationCustomers = mock(
-    (query: CampaignReservationCustomerQuery) =>
-      Effect.succeed(new Set(input.reservationCustomers?.(query) ?? []))
+  const countReceivedCampaignEmails = mock(() =>
+    Effect.succeed(input.receivedEmails ?? new Map())
   );
   const getCustomers = mock(
     ({ ids }: { readonly ids: readonly DotyposCustomerId[] }) =>
@@ -76,7 +73,7 @@ const resolve = (input: {
         )
       )
   );
-  const exit = Effect.runSyncExit(
+  const exit = await Effect.runPromiseExit(
     CampaignRecipientService.pipe(
       Effect.flatMap((service) =>
         service.resolve({
@@ -87,11 +84,12 @@ const resolve = (input: {
     ).pipe(
       Effect.provide(
         CampaignRecipientService.Default.pipe(
+          Layer.provide(AudienceFactsService.Default),
           Layer.provide(
             Layer.mergeAll(
               Layer.mock(CampaignCandidateRepository)({
                 listCandidates,
-                listReservationCustomers,
+                countReceivedCampaignEmails,
               }),
               DotyposServiceMock({ getCustomers, ...input.dotypos })
             )
@@ -100,25 +98,25 @@ const resolve = (input: {
       )
     )
   );
-  return { exit, listCandidates, listReservationCustomers, getCustomers };
+  return { exit, listCandidates, countReceivedCampaignEmails, getCustomers };
 };
 
-const resolution = (exit: ReturnType<typeof resolve>["exit"]) => {
+const resolution = (exit: Awaited<ReturnType<typeof resolve>>["exit"]) => {
   if (Exit.isFailure(exit)) throw new Error("resolution failed");
   return exit.value;
 };
 
 describe("CampaignRecipientService.resolve", () => {
-  test("limits marketing campaigns to the consented candidate pool", () => {
-    const { listCandidates } = resolve({
+  test("limits marketing campaigns to the consented candidate pool", async () => {
+    const { listCandidates } = await resolve({
       candidates: [],
       purpose: "marketing",
     });
     expect(listCandidates).toHaveBeenCalledWith({ purpose: "marketing" });
   });
 
-  test("resolves the recipient locale from account, reservation, consent, then Czech", () => {
-    const { exit } = resolve({
+  test("resolves the recipient locale from account, reservation, consent, then Czech", async () => {
+    const { exit } = await resolve({
       candidates: [
         facts("1", { accountLocale: "en-US", consentLocale: "cs-CZ" }),
         facts("2", { latestReservationLocale: "en-US" }),
@@ -138,11 +136,16 @@ describe("CampaignRecipientService.resolve", () => {
     ]);
   });
 
-  test("drops customers local conditions rule out before calling Dotypos", () => {
-    const { exit, getCustomers } = resolve({
+  test("drops customers local conditions rule out before calling Dotypos", async () => {
+    const { exit, getCustomers } = await resolve({
       candidates: [facts("1", { hasAccount: true }), facts("2")],
       customers: [customer("1"), customer("2")],
-      filter: { _tag: "Account", hasAccount: true },
+      filter: {
+        attribute: "hasAccount",
+        _tag: "Condition",
+        operator: "is",
+        value: true,
+      },
     });
     expect(getCustomers).toHaveBeenCalledTimes(1);
     expect(getCustomers.mock.calls[0]?.[0].ids).toEqual(["1"]);
@@ -153,11 +156,11 @@ describe("CampaignRecipientService.resolve", () => {
     ).toEqual(["1"]);
   });
 
-  test("hydrates survivors sequentially in chunks of 100", () => {
+  test("hydrates survivors sequentially in chunks of 100", async () => {
     const candidates = Array.from({ length: 250 }, (_, index) =>
       facts(String(index).padStart(3, "0"))
     );
-    const { getCustomers } = resolve({
+    const { getCustomers } = await resolve({
       candidates,
       customers: candidates.map(({ dotyposCustomerId }) =>
         customer(dotyposCustomerId)
@@ -168,8 +171,8 @@ describe("CampaignRecipientService.resolve", () => {
     ]);
   });
 
-  test("applies Dotypos tag and discount-group conditions after hydration", () => {
-    const { exit } = resolve({
+  test("applies Dotypos tag and discount-group conditions after hydration", async () => {
+    const { exit } = await resolve({
       candidates: [facts("1"), facts("2"), facts("3")],
       customers: [
         customer("1", { tags: ["vip"] }),
@@ -180,13 +183,28 @@ describe("CampaignRecipientService.resolve", () => {
         _tag: "Group",
         operator: "and",
         filters: [
-          { _tag: "DotyposTag", tag: "vip" },
+          {
+            attribute: "dotyposTags",
+            _tag: "Condition",
+            operator: "anyOf",
+            value: ["vip"],
+          },
           {
             _tag: "Group",
             operator: "or",
             filters: [
-              { _tag: "Locale", locales: ["cs-CZ"] },
-              { _tag: "DiscountGroup", discountGroupId: "gold" },
+              {
+                attribute: "locale",
+                _tag: "Condition",
+                operator: "anyOf",
+                value: ["cs-CZ"],
+              },
+              {
+                attribute: "discountGroup",
+                _tag: "Condition",
+                operator: "anyOf",
+                value: ["gold"],
+              },
             ],
           },
         ],
@@ -199,8 +217,8 @@ describe("CampaignRecipientService.resolve", () => {
     ).toEqual(["1", "2"]);
   });
 
-  test("lists matching customers it can't reach with a reason", () => {
-    const { exit } = resolve({
+  test("lists matching customers it can't reach with a reason", async () => {
+    const { exit } = await resolve({
       candidates: ["1", "2", "3", "4", "5"].map((id) => facts(id)),
       customers: [
         customer("2", { deleted: true }),
@@ -221,11 +239,11 @@ describe("CampaignRecipientService.resolve", () => {
     ).toEqual(["5"]);
   });
 
-  test("mails one record per address and reports the duplicate group", () => {
+  test("mails one record per address and reports the duplicate group", async () => {
     const shared = testEmailAddress("shared");
-    const run = (order: readonly string[]) =>
+    const run = async (order: readonly string[]) =>
       resolution(
-        resolve({
+        (await resolve({
           candidates: order.map((id) =>
             facts(id, {
               latestReservationAt:
@@ -239,10 +257,10 @@ describe("CampaignRecipientService.resolve", () => {
             customer("b", { email: ` ${shared}` }),
             customer("c", { email: shared }),
           ],
-        }).exit
+        })).exit
       );
-    const forward = run(["a", "b", "c"]);
-    expect(run(["c", "b", "a"])).toEqual(forward);
+    const forward = await run(["a", "b", "c"]);
+    expect(await run(["c", "b", "a"])).toEqual(forward);
     expect(forward.recipients).toEqual([
       { dotyposCustomerId: customerId("b"), locale: "cs-CZ", email: shared },
     ]);
@@ -255,61 +273,36 @@ describe("CampaignRecipientService.resolve", () => {
     ]);
   });
 
-  test("matches visit dates through Dotypos and booking dates locally", () => {
-    const visitedReservation = DotyposReservationIdSchema.make("booking-1");
-    const listReservations = mock(() =>
-      Effect.succeed([{ id: visitedReservation }] as never)
-    );
-    const { exit, listReservationCustomers } = resolve({
-      candidates: [facts("1"), facts("2")],
-      customers: [customer("1"), customer("2")],
-      dotypos: { listReservations },
-      reservationCustomers: (query) =>
-        query.dotyposReservationIds ? [customerId("1")] : [customerId("2")],
-      filter: {
-        _tag: "Group",
-        operator: "or",
-        filters: [
-          {
-            _tag: "Reservation",
-            presence: "has",
-            dateBasis: "visit",
-            from: "2026-03-01",
-            to: "2026-03-31",
-            status: "complete",
+  test("counts within the candidate pool, so = 0 and < N include customers without records", async () => {
+    const receivedEmails = (operator: "eq" | "lt", value: number) =>
+      resolve({
+        candidates: [facts("1"), facts("2"), facts("3")],
+        customers: [customer("1"), customer("2"), customer("3")],
+        receivedEmails: new Map([
+          [customerId("1"), 3],
+          [customerId("2"), 1],
+        ]),
+        filter: {
+          attribute: "campaignEmailCount",
+          _tag: "Condition",
+          params: {
+            purpose: "marketing",
+            period: { _tag: "Last", count: 10, unit: "day" },
           },
-          {
-            _tag: "Reservation",
-            presence: "has",
-            dateBasis: "booking",
-            from: "2026-03-01",
-          },
-        ],
-      },
-    });
-    expect(listReservations).toHaveBeenCalledWith({
-      startsAtOrAfter: "2026-02-28T23:00:00Z",
-      startsBefore: "2026-03-31T22:00:00Z",
-    });
-    expect(listReservationCustomers.mock.calls.map(([query]) => query)).toEqual(
-      [
-        { status: "complete", dotyposReservationIds: [visitedReservation] },
-        {
-          status: undefined,
-          bookedAtOrAfter: Temporal.Instant.from("2026-02-28T23:00:00Z"),
-          bookedBefore: undefined,
+          operator,
+          value,
         },
-      ]
-    );
-    expect(
-      resolution(exit).recipients.map(
+      });
+    const ids = async (pending: ReturnType<typeof receivedEmails>) =>
+      resolution((await pending).exit).recipients.map(
         ({ dotyposCustomerId }) => dotyposCustomerId
-      )
-    ).toEqual(["1", "2"]);
+      );
+    expect(await ids(receivedEmails("eq", 0))).toEqual(["3"]);
+    expect(await ids(receivedEmails("lt", 2))).toEqual(["2", "3"]);
   });
 
-  test("fails the whole resolution with a retryable error when Dotypos fails", () => {
-    const { exit } = resolve({
+  test("fails the whole resolution with a retryable error when Dotypos fails", async () => {
+    const { exit } = await resolve({
       candidates: [facts("1"), facts("2")],
       dotypos: {
         getCustomers: () =>
