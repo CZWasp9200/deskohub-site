@@ -5,6 +5,7 @@ import {
   ExternalAPIError,
 } from "@deskohub/dotypos";
 import { Cause, Effect, Exit } from "effect";
+import { splitCustomerName } from "@/features/checkout/backend/reservation/dotypos-customer-policy";
 import { getWorkspaceE2EDateInterval } from "./capacity";
 import type { DatasourceConfig } from "./config";
 import {
@@ -110,11 +111,26 @@ export const prepareCheckoutFlowCleanup = (
       const fallbackQueries = getFallbackCleanupQueries(flowStates);
       const lookupResults = yield* Effect.all(
         {
+          // Fallback rows are scoped to the Dotypos customers this run's
+          // unique contacts own, so concurrent runs' rows never become
+          // candidates; the owner check below stays as a backstop.
           fallbackRows: Effect.all(
             fallbackQueries.map((query) =>
               dependencies
-                .readCleanupCheckoutRows(query.startedAt, query.data)
-                .pipe(Effect.map((rows) => ({ query, rows })))
+                .readCleanupCustomerIds(
+                  datasourceConfig,
+                  query.states.map(({ data }) => data)
+                )
+                .pipe(
+                  Effect.flatMap((customerIds) =>
+                    dependencies.readCleanupCheckoutRows(
+                      query.startedAt,
+                      query.data,
+                      customerIds
+                    )
+                  ),
+                  Effect.map((rows) => ({ query, rows }))
+                )
             ),
             { concurrency: "unbounded" }
           ),
@@ -432,6 +448,10 @@ interface CleanupDependencies {
   readonly cancelDotyposReservation: typeof cancelDotyposReservation;
   readonly readCheckoutRow: typeof readCheckoutRow;
   readonly readCleanupCheckoutRows: typeof readCleanupCheckoutRows;
+  readonly readCleanupCustomerIds: (
+    config: DatasourceConfig,
+    contacts: readonly CheckoutData[]
+  ) => Effect.Effect<readonly DotyposCustomerId[], WorkspaceE2EError>;
   readonly readDotyposReservationOwner: (
     config: DatasourceConfig,
     reservationId: DotyposReservationId
@@ -462,10 +482,50 @@ const readCheckoutCleanupReservationOwner = Effect.fn(
   };
 });
 
+// Each checkout contact's email is unique to its flow, so every Dotypos
+// customer matching it belongs to this run.
+const readCheckoutCleanupCustomerIds = Effect.fn(
+  "readCheckoutCleanupCustomerIds"
+)(function* (config: DatasourceConfig, contacts: readonly CheckoutData[]) {
+  const customers = yield* Effect.gen(function* () {
+    const dotypos = yield* DotyposService;
+    return yield* Effect.forEach(
+      contacts,
+      (contact) =>
+        dotypos
+          .findCustomer(
+            { ...splitCustomerName(contact.name), email: contact.email },
+            { lookupFields: ["email"] }
+          )
+          .pipe(
+            Effect.map((result) =>
+              result._tag === "Matched"
+                ? [result.customer, ...result.matches]
+                : result.matches
+            )
+          ),
+      { concurrency: "unbounded" }
+    );
+  }).pipe(
+    Effect.provide(getDotyposLayer(config)),
+    Effect.mapError((cause) =>
+      toWorkspaceE2EError("read checkout cleanup customers", cause)
+    )
+  );
+  return [
+    ...new Set(
+      customers
+        .flat()
+        .flatMap(({ id }) => (id ? [id as DotyposCustomerId] : []))
+    ),
+  ];
+});
+
 const liveCleanupDependencies: CleanupDependencies = {
   cancelDotyposReservation,
   readCheckoutRow,
   readCleanupCheckoutRows,
+  readCleanupCustomerIds: readCheckoutCleanupCustomerIds,
   readDotyposReservationOwner: readCheckoutCleanupReservationOwner,
   waitForCancelledDotyposReservations,
 };
