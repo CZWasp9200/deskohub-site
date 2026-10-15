@@ -5,6 +5,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { X } from "lucide-react";
 import type * as React from "react";
 import { baseLocale, type Locale, m } from "@/features/i18n";
+import { Button } from "@/shared/components/ui/button";
 import { cn } from "@/shared/utils";
 
 const Sheet = SheetPrimitive.Root;
@@ -73,10 +74,18 @@ function SheetContent({
         {...props}
       >
         {children}
-        <SheetPrimitive.Close className="absolute right-4 top-4 rounded-sm p-1 text-navy-blue/70 hover:bg-navy-blue/5 hover:text-navy-blue focus:outline-none focus:ring-2 focus:ring-navy-blue/30">
-          <X className="h-4 w-4" />
-          <span className="sr-only">{m.closeDialogLabel({}, { locale })}</span>
-        </SheetPrimitive.Close>
+        <Button
+          asChild
+          className="absolute right-3 top-3"
+          size="icon-sm"
+          tone="muted"
+          variant="ghost"
+        >
+          <SheetPrimitive.Close>
+            <X aria-hidden className="size-4" />
+            <span className="sr-only">{m.closeDialogLabel({}, { locale })}</span>
+          </SheetPrimitive.Close>
+        </Button>
       </SheetPrimitive.Content>
     </SheetPortal>
   );
