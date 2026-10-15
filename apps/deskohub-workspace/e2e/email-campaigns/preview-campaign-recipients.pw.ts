@@ -336,8 +336,9 @@ const runEmailCampaignPreviewCase = Effect.fn("runEmailCampaignPreviewCase")(
               filter._tag === "Group" &&
                 filter.filters.some(
                   (condition) =>
-                    condition._tag === "DotyposTag" &&
-                    condition.tag === plan.customerTag
+                    condition._tag === "Condition" &&
+                    condition.attribute === "dotyposTags" &&
+                    condition.value[0] === plan.customerTag
                 ),
               "the saved audience must target the synthetic Dotypos tag"
             );
