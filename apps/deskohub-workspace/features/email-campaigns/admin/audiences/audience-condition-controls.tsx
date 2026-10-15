@@ -164,6 +164,7 @@ const datePeriodKinds: Readonly<Record<DatePeriodKind, string>> = {
   Last: "in the last",
   Range: "from … to …",
   Since: "since",
+  Onward: "from … onward",
   Until: "until",
 };
 
@@ -286,8 +287,11 @@ export function DatePeriodControl({
           )}
         </>
       )}
-      {(value._tag === "Since" || value._tag === "Until") &&
+      {(value._tag === "Since" ||
+        value._tag === "Onward" ||
+        value._tag === "Until") &&
         dateInput(value.date, "date", "date", (date) => ({ ...value, date }))}
+      {value._tag === "Onward" && <ConditionText>onward</ConditionText>}
     </span>
   );
 }

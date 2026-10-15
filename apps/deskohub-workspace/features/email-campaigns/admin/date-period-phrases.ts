@@ -14,8 +14,9 @@ export const datePeriodUnitNames: Readonly<
 
 /**
  * The period as the Admin UI and audience summaries name it: "at any time",
- * "in the last 10 days", "from 2026-01-01 to 2026-03-31", "since 2026-01-01",
- * or "until 2026-01-01".
+ * "in the last 10 days", "from 2026-01-01 to 2026-03-31", "since 2026-01-01"
+ * (through now), "from 2026-01-01 onward" (future included), or "until
+ * 2026-01-01".
  */
 export const describeDatePeriod = (period: DatePeriod): string =>
   Match.value(period).pipe(
@@ -27,6 +28,7 @@ export const describeDatePeriod = (period: DatePeriod): string =>
           : `in the last ${count} ${datePeriodUnitNames[unit].other}`,
       Range: ({ from, to }) => `from ${from} to ${to}`,
       Since: ({ date }) => `since ${date}`,
+      Onward: ({ date }) => `from ${date} onward`,
       Until: ({ date }) => `until ${date}`,
     })
   );

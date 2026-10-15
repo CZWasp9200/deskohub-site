@@ -70,6 +70,7 @@ import {
 import { ensureCampaignRecipientsAllowed } from "../recipient-domain-guard";
 import { campaignContentCoversAudience } from "../recipient-locale";
 import { CampaignService } from "./campaign.service";
+import { AudienceFactsService } from "./audience-facts.service";
 import { CampaignAudienceService } from "./campaign-audience.service";
 import { CampaignCandidateRepository } from "./campaign-candidate.repository";
 import {
@@ -613,6 +614,7 @@ export class CampaignSendService extends Context.Service<
           CampaignService.Default,
           CampaignAudienceService.Default,
           CampaignRecipientService.Default.pipe(
+            Layer.provide(AudienceFactsService.Default),
             Layer.provide(
               Layer.mergeAll(
                 CampaignCandidateRepository.Default,

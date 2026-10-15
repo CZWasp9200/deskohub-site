@@ -26,25 +26,31 @@ const reservationStatusPhrases = {
 
 type Noun = { readonly one: string; readonly other: string };
 
-/** "no emails", "exactly 1 email", "at least 3 emails", … */
+/**
+ * The count as it reads in a sentence: "any emails" for more than zero, "no
+ * emails" for zero, otherwise "at least 3 emails", "fewer than 2 emails", ….
+ */
 export const describeCount = (
   operator: AudienceCountOperatorType,
   value: number,
   noun: Noun
 ): string => {
   // A half-typed number reads as a gap until the operator finishes it.
-  const counted = Number.isInteger(value)
-    ? `${value} ${value === 1 ? noun.one : noun.other}`
-    : `… ${noun.other}`;
+  if (!Number.isInteger(value)) return `… ${noun.other}`;
+  const counted = `${value} ${value === 1 ? noun.one : noun.other}`;
+  const any = `any ${noun.other}`;
+  const none = `no ${noun.other}`;
   return Match.value(operator).pipe(
-    Match.when("eq", () =>
-      value === 0 ? `no ${noun.other}` : `exactly ${counted}`
-    ),
-    Match.when("ne", () => `other than ${counted}`),
-    Match.when("lt", () => `fewer than ${counted}`),
-    Match.when("lte", () => `at most ${counted}`),
-    Match.when("gt", () => `more than ${counted}`),
-    Match.when("gte", () => `at least ${counted}`),
+    Match.when("eq", () => (value === 0 ? none : `exactly ${counted}`)),
+    Match.when("ne", () => (value === 0 ? any : `other than ${counted}`)),
+    Match.when("lt", () => (value <= 1 ? none : `fewer than ${counted}`)),
+    Match.when("lte", () => (value === 0 ? none : `at most ${counted}`)),
+    Match.when("gt", () => (value === 0 ? any : `more than ${counted}`)),
+    Match.when("gte", () => {
+      // "≥ 0" holds for everyone, records or not.
+      if (value === 0) return `any number of ${noun.other}`;
+      return value === 1 ? any : `at least ${counted}`;
+    }),
     Match.exhaustive
   );
 };

@@ -33,8 +33,8 @@ const unitDurations = {
 /**
  * The instants a period covers when evaluated at `now`. Day bounds are Prague
  * midnights; "last N units" steps back through the Prague calendar, so a month
- * keeps its length and a DST change shifts no day. Periods that run "through
- * now" end at `now`; any time and "until" leave the end open.
+ * keeps its length and a DST change shifts no day. "Last N" and "since" end
+ * at `now`; any time, "onward", and "until" leave the end open.
  */
 export const datePeriodBounds = (
   period: DatePeriod,
@@ -54,7 +54,11 @@ export const datePeriodBounds = (
         startsAtOrAfter: startOfDay(from),
         startsBefore: startOfNextDay(to),
       }),
-      Since: ({ date }) => ({ startsAtOrAfter: startOfDay(date), startsBefore: now }),
+      Since: ({ date }) => ({
+        startsAtOrAfter: startOfDay(date),
+        startsBefore: now,
+      }),
+      Onward: ({ date }) => ({ startsAtOrAfter: startOfDay(date) }),
       Until: ({ date }) => ({ startsBefore: startOfNextDay(date) }),
     })
   );

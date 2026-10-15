@@ -30,6 +30,11 @@ const range = Schema.TaggedStruct("Range", {
 /** From the start of this Prague calendar day through the evaluation time. */
 const since = Schema.TaggedStruct("Since", { date: administrationCalendarDate });
 
+/** From the start of this Prague calendar day on, future dates included. */
+const onward = Schema.TaggedStruct("Onward", {
+  date: administrationCalendarDate,
+});
+
 /** Up to and including this Prague calendar day. */
 const until = Schema.TaggedStruct("Until", { date: administrationCalendarDate });
 
@@ -42,10 +47,11 @@ export const DatePeriod = Schema.Union([
   last,
   range,
   since,
+  onward,
   until,
 ]).annotate({
   identifier: "DatePeriod",
   description:
-    "Any time, the last N days/weeks/months/years, an inclusive date range, since a date, or until a date (Prague calendar days).",
+    "Any time, the last N days/weeks/months/years, an inclusive date range, since a date (through now), from a date onward (future included), or until a date (Prague calendar days).",
 });
 export type DatePeriod = typeof DatePeriod.Type;

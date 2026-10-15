@@ -153,6 +153,7 @@ export const switchDatePeriod = (
       Last: () => ({ from: today, to: today }),
       Range: ({ from, to }) => ({ from, to }),
       Since: ({ date }) => ({ from: date, to: date }),
+      Onward: ({ date }) => ({ from: date, to: date }),
       Until: ({ date }) => ({ from: date, to: date }),
     })
   );
@@ -170,6 +171,10 @@ export const switchDatePeriod = (
     Match.when(
       "Since",
       (): DatePeriod => ({ _tag: "Since", date: dates.from })
+    ),
+    Match.when(
+      "Onward",
+      (): DatePeriod => ({ _tag: "Onward", date: dates.from })
     ),
     Match.when("Until", (): DatePeriod => ({ _tag: "Until", date: dates.to })),
     Match.exhaustive

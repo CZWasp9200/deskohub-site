@@ -15,22 +15,20 @@ import {
   Result,
   Schema,
 } from "effect";
-import { getAdministrationReservationDateRangeBounds } from "@/features/administration/reservation-date-range";
 import type { Locale } from "@/features/i18n";
 import { reservationCustomerEmailSchema } from "@/features/reservation/reservation-contact";
 import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
+import { currentInstant } from "@/shared/utils/temporal";
 import {
   type AudienceCandidate,
+  type AudienceFacts,
   type AudienceFilter,
-  type AudienceReservationCriteria,
-  type AudienceReservationMatches,
-  collectReservationCriteria,
   evaluateAudienceFilter,
-  reservationConditionKey,
 } from "../audience-filter";
 import type { CampaignPurpose } from "../body/campaign-content";
 import { CampaignRecipientResolutionError } from "../errors";
 import { resolveRecipientLocale } from "../recipient-locale";
+import { AudienceFactsService } from "./audience-facts.service";
 import {
   type CampaignCandidateFacts,
   CampaignCandidateRepository,
@@ -103,57 +101,7 @@ export class CampaignRecipientService extends Context.Service<
     Effect.gen(function* () {
       const candidates = yield* CampaignCandidateRepository;
       const dotypos = yield* DotyposService;
-
-      const reservationCustomers = (criteria: AudienceReservationCriteria) => {
-        const range = { from: criteria.from, to: criteria.to };
-        const hasRange =
-          criteria.from !== undefined || criteria.to !== undefined;
-        if (criteria.dateBasis === "booking" || !hasRange) {
-          const bounds = getAdministrationReservationDateRangeBounds(range);
-          return candidates
-            .listReservationCustomers({
-              status: criteria.status,
-              bookedAtOrAfter:
-                bounds.startsAtOrAfter === undefined
-                  ? undefined
-                  : Temporal.Instant.from(bounds.startsAtOrAfter),
-              bookedBefore:
-                bounds.startsBefore === undefined
-                  ? undefined
-                  : Temporal.Instant.from(bounds.startsBefore),
-            })
-            .pipe(Effect.mapError(CampaignRecipientResolutionError.database));
-        }
-        return dotypos
-          .listReservations(getAdministrationReservationDateRangeBounds(range))
-          .pipe(
-            Effect.mapError(CampaignRecipientResolutionError.dotypos),
-            Effect.flatMap((reservations) =>
-              candidates
-                .listReservationCustomers({
-                  status: criteria.status,
-                  dotyposReservationIds: reservations.flatMap(({ id }) =>
-                    id === undefined ? [] : [id]
-                  ),
-                })
-                .pipe(
-                  Effect.mapError(CampaignRecipientResolutionError.database)
-                )
-            )
-          );
-      };
-
-      const loadReservationMatches = (filter: AudienceFilter) =>
-        Effect.forEach(collectReservationCriteria(filter), (criteria) =>
-          reservationCustomers(criteria).pipe(
-            Effect.map(
-              (customers) =>
-                [reservationConditionKey(criteria), customers] as const
-            )
-          )
-        ).pipe(
-          Effect.map((entries): AudienceReservationMatches => new Map(entries))
-        );
+      const audienceFacts = yield* AudienceFactsService;
 
       const hydrate = (ids: readonly DotyposCustomerId[]) =>
         Effect.forEach(Arr.chunksOf(ids, hydrationChunkSize), (chunk) =>
@@ -181,15 +129,16 @@ export class CampaignRecipientService extends Context.Service<
             readonly filter: AudienceFilter;
           }) =>
             Effect.succeed(input).pipe(
-              Effect.bind("facts", ({ purpose }) =>
+              Effect.bind("candidates", ({ purpose }) =>
                 candidates
                   .listCandidates({ purpose })
                   .pipe(
                     Effect.mapError(CampaignRecipientResolutionError.database)
                   )
               ),
-              Effect.bind("reservationMatches", ({ filter }) =>
-                loadReservationMatches(filter)
+              Effect.bind("now", () => currentInstant),
+              Effect.bind("facts", ({ filter, now }) =>
+                audienceFacts.resolve({ filter, now })
               ),
               Effect.let("localMatches", selectLocalMatches),
               Effect.bind("profiles", ({ localMatches }) =>
@@ -206,7 +155,11 @@ export class CampaignRecipientService extends Context.Service<
 
   static Live = this.Default.pipe(
     Layer.provide(
-      Layer.mergeAll(CampaignCandidateRepository.Live, WorkspaceDotyposLayer)
+      Layer.mergeAll(
+        CampaignCandidateRepository.Live,
+        WorkspaceDotyposLayer,
+        AudienceFactsService.Live
+      )
     )
   );
 }
@@ -220,18 +173,20 @@ const toCandidate = (facts: CampaignCandidateFacts): Candidate => ({
 
 type Evaluation = {
   readonly filter: AudienceFilter;
-  readonly reservationMatches: AudienceReservationMatches;
+  readonly facts: AudienceFacts;
 };
 
 /** Drops candidates the local conditions already rule out. */
 const selectLocalMatches = ({
+  candidates,
+  filter,
   facts,
-  ...evaluation
-}: Evaluation & { readonly facts: readonly CampaignCandidateFacts[] }) =>
-  facts.map(toCandidate).filter(
+}: Evaluation & { readonly candidates: readonly CampaignCandidateFacts[] }) =>
+  candidates.map(toCandidate).filter(
     (candidate) =>
       evaluateAudienceFilter({
-        ...evaluation,
+        filter,
+        facts,
         candidate,
         profile: Option.none(),
       }) !== "noMatch"
@@ -240,7 +195,8 @@ const selectLocalMatches = ({
 const classifyRecipients = ({
   localMatches,
   profiles,
-  ...evaluation
+  filter,
+  facts,
 }: Evaluation & {
   readonly localMatches: readonly Candidate[];
   readonly profiles: ReadonlyMap<DotyposCustomerId, DotyposCustomer>;
@@ -249,7 +205,7 @@ const classifyRecipients = ({
     const profile = Option.fromNullishOr(
       profiles.get(candidate.dotyposCustomerId)
     );
-    return evaluateAudienceFilter({ ...evaluation, candidate, profile }) ===
+    return evaluateAudienceFilter({ filter, facts, candidate, profile }) ===
       "noMatch"
       ? []
       : [classify(candidate, profile)];
