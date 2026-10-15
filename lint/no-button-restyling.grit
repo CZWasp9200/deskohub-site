@@ -19,9 +19,11 @@ language js(typescript, jsx)
 //   the JSX check reads, so it passes;
 // - a spread attribute other than an object literal whose `className` passes.
 // A JSX member tag such as `<ui.Button>` is checked by its last segment, so
-// namespace imports and barrels stay covered. A bare `<Button>` in a file that
-// imports `Button` from React Email is that email component, whose classes
-// style email HTML, so it isn't checked.
+// namespace imports and barrels stay covered. React Email's `Button` only shares
+// the name, and its classes style email HTML: a bare `<Button>` isn't checked
+// when every `Button` binding in the module is an import from React Email, and
+// renaming that import passes. Any other `Button` binding (a second import, a
+// declaration, a destructured or parameter name) keeps the check on.
 //
 // Every class, after any variant prefix and `!`, must be one of:
 // - margin, self and grid placement, `order`, flex-item `shrink`, `grow`,
@@ -41,6 +43,10 @@ language js(typescript, jsx)
 // so it is reported for the same suppression.
 pattern layout_classes() {
   r"^[\"'`]\s*(?:(?:(?:(?:[^\s:\[\]\"'`]|\[[^\]\s\"'`]*\])+:)*!?(?:-?m[trblxyse]?-(?:[0-9./]+|px|auto|full|\[[^\]\s\"'`]+\]|\([^)\s\"'`]+\))|(?:justify-|place-)?self-(?:auto|start|end|center|stretch|baseline|baseline-last|end-safe|center-safe)|(?:col|row)-(?:span|start|end)-(?:[0-9]+|full|auto|\[[^\]\s\"'`]+\]|\([^)\s\"'`]+\))|(?:col|row)-auto|-?order-(?:[0-9]+|first|last|none|\[[^\]\s\"'`]+\]|\([^)\s\"'`]+\))|(?:shrink|grow)(?:-0)?|flex-(?:1|auto|initial|none)|basis-(?:[a-z0-9./]+|\[[^\]\s\"'`]+\]|\([^)\s\"'`]+\))|snap-(?:start|end|center|align-none|normal|always)|(?:static|fixed|absolute|relative|sticky)|-?(?:inset(?:-[xy])?|top|right|bottom|left|start|end)-(?:[0-9./]+|px|auto|full|\[[^\]\s\"'`]+\]|\([^)\s\"'`]+\))|-?z-(?:[0-9]+|auto|\[[^\]\s\"'`]+\]|\([^)\s\"'`]+\))|hidden|group(?:/[a-z0-9_-]+)?)|(?:(?:[^\s:\[\]\"'`]|\[[^\]\s\"'`]*\])+:)*(?:(?:max-|min-)?(?:sm|md|lg|xl|2xl)|(?:max|min)-\[[^\]\s\"'`]+\]|@[a-z0-9-]*(?:\[[^\]\s\"'`]+\])?(?:/[a-z0-9_-]+)?):(?:(?:[^\s:\[\]\"'`]|\[[^\]\s\"'`]*\])+:)*!?(?:(?:min-|max-)?w-(?:[a-z0-9./]+|\[[^\]\s\"'`]+\]|\([^)\s\"'`]+\))|(?:block|inline-block|flex|inline-flex)))!?(?:\s+(?:(?:(?:[^\s:\[\]\"'`]|\[[^\]\s\"'`]*\])+:)*!?(?:-?m[trblxyse]?-(?:[0-9./]+|px|auto|full|\[[^\]\s\"'`]+\]|\([^)\s\"'`]+\))|(?:justify-|place-)?self-(?:auto|start|end|center|stretch|baseline|baseline-last|end-safe|center-safe)|(?:col|row)-(?:span|start|end)-(?:[0-9]+|full|auto|\[[^\]\s\"'`]+\]|\([^)\s\"'`]+\))|(?:col|row)-auto|-?order-(?:[0-9]+|first|last|none|\[[^\]\s\"'`]+\]|\([^)\s\"'`]+\))|(?:shrink|grow)(?:-0)?|flex-(?:1|auto|initial|none)|basis-(?:[a-z0-9./]+|\[[^\]\s\"'`]+\]|\([^)\s\"'`]+\))|snap-(?:start|end|center|align-none|normal|always)|(?:static|fixed|absolute|relative|sticky)|-?(?:inset(?:-[xy])?|top|right|bottom|left|start|end)-(?:[0-9./]+|px|auto|full|\[[^\]\s\"'`]+\]|\([^)\s\"'`]+\))|-?z-(?:[0-9]+|auto|\[[^\]\s\"'`]+\]|\([^)\s\"'`]+\))|hidden|group(?:/[a-z0-9_-]+)?)|(?:(?:[^\s:\[\]\"'`]|\[[^\]\s\"'`]*\])+:)*(?:(?:max-|min-)?(?:sm|md|lg|xl|2xl)|(?:max|min)-\[[^\]\s\"'`]+\]|@[a-z0-9-]*(?:\[[^\]\s\"'`]+\])?(?:/[a-z0-9_-]+)?):(?:(?:[^\s:\[\]\"'`]|\[[^\]\s\"'`]*\])+:)*!?(?:(?:min-|max-)?w-(?:[a-z0-9./]+|\[[^\]\s\"'`]+\]|\([^)\s\"'`]+\))|(?:block|inline-block|flex|inline-flex)))!?)*)?\s*[\"'`]$"
+}
+
+pattern react_email_import() {
+  JsImport(import_clause = JsImportNamedClause(source = r"^[\"'](?:react-email|@react-email/[\w-]+)[\"']$"))
 }
 
 pattern checked_classes() {
@@ -78,7 +84,14 @@ file($name, $body) where {
       not and {
         $component <: r"^Button$",
         $component <: within JsModule() as $module where {
-          $module <: r"(?s).*\bimport\s*\{[^}]*\bButton\b[^}]*\}\s*from\s*[\"'](?:react-email|@react-email/[\w-]+)[\"'].*"
+          $module <: contains JsIdentifierBinding() as $email_binding where {
+            $email_binding <: r"^Button$",
+            $email_binding <: within react_email_import()
+          },
+          not $module <: contains JsIdentifierBinding() as $other_binding where {
+            $other_binding <: r"^Button$",
+            not $other_binding <: within react_email_import()
+          }
         }
       },
       $attributes <: some bubble or {
@@ -136,6 +149,10 @@ file($name, $body) where {
       JsObjectBindingPatternProperty(member = $reference)
     } as $indirection where {
       $reference <: r"^[\"']?(?:Button|DisclosureButton|NavItem|SegmentedControl|ChoiceCard)[\"']?$",
+      not and {
+        $indirection <: JsNamedImportSpecifier(),
+        $indirection <: within react_email_import()
+      },
       register_diagnostic(
         span = $indirection,
         message = "Keep the Button family under its own name and use it only as a JSX tag, so the parent-layout check can find its className.",
