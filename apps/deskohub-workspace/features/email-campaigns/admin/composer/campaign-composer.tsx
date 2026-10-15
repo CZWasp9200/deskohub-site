@@ -55,6 +55,7 @@ import {
 } from "./campaign-composer-fields";
 import { CampaignEmailPreview } from "./campaign-email-preview";
 import { CampaignTemplatePreview } from "./campaign-template-preview";
+import { DeleteCampaignDraftControl } from "./delete-campaign-draft-control";
 
 export type CampaignComposerTemplate = {
   readonly key: CampaignTemplateKey;
@@ -215,6 +216,7 @@ export function CampaignComposer({
               {saving && "Saving…"}
               {!saving && (draft ? "Save draft" : "Create draft")}
             </Button>
+            {draft && <DeleteCampaignDraftControl campaignId={draft.id} />}
           </div>
         }
         description={

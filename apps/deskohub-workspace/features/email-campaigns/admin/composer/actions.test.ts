@@ -57,8 +57,10 @@ let createResult: Effect.Effect<unknown, unknown> = Effect.succeed({
 let updateResult: Effect.Effect<unknown, unknown> = Effect.succeed({
   id: campaignId,
 });
+let deleteResult: Effect.Effect<unknown, unknown> = Effect.succeed(undefined);
 const createCalls: Parameters<ICampaignService["create"]>[0][] = [];
 const updateCalls: Parameters<ICampaignService["update"]>[0][] = [];
+const deleteCalls: Parameters<ICampaignService["delete"]>[0][] = [];
 
 const create = mock((input: Parameters<ICampaignService["create"]>[0]) => {
   createCalls.push(input);
@@ -69,11 +71,19 @@ const update = mock((input: Parameters<ICampaignService["update"]>[0]) => {
   return updateResult;
 });
 
+const deleteCampaign = mock(
+  (input: Parameters<ICampaignService["delete"]>[0]) => {
+    deleteCalls.push(input);
+    return deleteResult;
+  }
+);
+
 const campaignServiceLive = Layer.succeed(
   campaignServiceModule.CampaignService,
   campaignServiceModule.CampaignService.of({
     create,
     update,
+    delete: deleteCampaign,
   } as never)
 );
 
@@ -136,8 +146,10 @@ beforeEach(() => {
   authorizationResult = Effect.succeed("Fixture Operator");
   createResult = Effect.succeed({ id: campaignId });
   updateResult = Effect.succeed({ id: campaignId });
+  deleteResult = Effect.succeed(undefined);
   createCalls.length = 0;
   updateCalls.length = 0;
+  deleteCalls.length = 0;
   revalidatePath.mockClear();
 });
 
@@ -211,5 +223,67 @@ describe("email campaign composer actions", () => {
     ]);
     expect(createCalls).toHaveLength(1);
     expect(updateCalls).toHaveLength(1);
+  });
+
+  test("deletes a draft and revalidates the campaign list and its page", async () => {
+    const { deleteCampaign: deleteCampaignAction } = await import("./actions");
+
+    const result = await deleteCampaignAction({ campaignId });
+
+    expect(result?.data).toEqual({ campaignId });
+    expect(authorizationCalls).toBe(1);
+    expect(deleteCalls).toEqual([campaignId]);
+    expect(revalidatePath.mock.calls).toEqual([
+      ["/admin/email-campaigns"],
+      [`/admin/email-campaigns/${campaignId}`],
+    ]);
+  });
+
+  test.each([
+    {
+      name: "a campaign that left Draft",
+      error: new CampaignReadOnly({ campaignId, status: "sending" }),
+      serverError: "This campaign has left Draft and can no longer be deleted.",
+    },
+    {
+      name: "a missing campaign",
+      error: new CampaignNotFound({ campaignId }),
+      serverError: "This campaign no longer exists.",
+    },
+    {
+      name: "an unexpected failure",
+      error: new Error("synthetic campaign service failure"),
+      serverError: "The campaign could not be deleted. Try again.",
+    },
+  ])(
+    "refuses to delete $name with a public message",
+    async ({ error, serverError }) => {
+      deleteResult = Effect.fail(error);
+
+      const { deleteCampaign: deleteCampaignAction } = await import(
+        "./actions"
+      );
+      const result = await deleteCampaignAction({ campaignId });
+
+      expect(result?.serverError).toBe(serverError);
+      expect(result?.data).toBeUndefined();
+      expect(deleteCalls).toEqual([campaignId]);
+      expect(revalidatePath).not.toHaveBeenCalled();
+    }
+  );
+
+  test("does not delete a campaign when administrator authorization fails", async () => {
+    authorizationResult = Effect.fail(
+      new Error("synthetic authorization failure")
+    );
+
+    const { deleteCampaign: deleteCampaignAction } = await import("./actions");
+    const result = await deleteCampaignAction({ campaignId });
+
+    expect(result?.serverError).toBeDefined();
+    expect(result?.data).toBeUndefined();
+    expect(authorizationCalls).toBe(1);
+    expect(deleteCalls).toHaveLength(0);
+    expect(revalidatePath).not.toHaveBeenCalled();
   });
 });

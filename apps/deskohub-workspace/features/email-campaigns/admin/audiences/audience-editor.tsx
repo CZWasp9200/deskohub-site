@@ -4,23 +4,15 @@ import { effectSchemaResolver } from "@deskohub/effect-schema-resolver";
 import { Archive, ArchiveRestore, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { type ReactNode, useState } from "react";
+import { useState } from "react";
 import { get, useForm, useWatch } from "react-hook-form";
 import {
   AdministrationPage,
   AdministrationPageHeader,
 } from "@/features/administration/components";
+import { ConfirmDialog } from "@/features/administration/confirm-dialog";
 import { AdministrationAlert } from "@/features/administration/notice";
 import { Button } from "@/shared/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/shared/components/ui/dialog";
 import {
   Form,
   FormControl,
@@ -380,57 +372,5 @@ function DeleteAudienceControl({
       error={error}
       onConfirm={() => execute({ audienceId })}
     />
-  );
-}
-
-function ConfirmDialog({
-  open,
-  onOpenChange,
-  trigger,
-  title,
-  description,
-  confirmLabel,
-  pending,
-  error,
-  onConfirm,
-}: {
-  readonly open: boolean;
-  readonly onOpenChange: (open: boolean) => void;
-  readonly trigger: ReactNode;
-  readonly title: string;
-  readonly description: string;
-  readonly confirmLabel: string;
-  readonly pending: boolean;
-  readonly error: string | null;
-  readonly onConfirm: () => void;
-}) {
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogTrigger asChild>{trigger}</DialogTrigger>
-      <DialogContent locale="en-US">
-        <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>{description}</DialogDescription>
-        </DialogHeader>
-        {error ? (
-          <AdministrationAlert role="alert" status="error">
-            {error}
-          </AdministrationAlert>
-        ) : null}
-        <DialogFooter>
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={() => onOpenChange(false)}
-            disabled={pending}
-          >
-            Cancel
-          </Button>
-          <Button type="button" onClick={onConfirm} disabled={pending}>
-            {confirmLabel}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }

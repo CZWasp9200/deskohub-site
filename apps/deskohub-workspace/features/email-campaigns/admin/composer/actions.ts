@@ -21,6 +21,7 @@ import {
   campaignIdSchema,
 } from "../../campaign-identifiers";
 import { renderCampaignEmailPreview } from "../email-preview/render-campaign-email-preview";
+import { campaignReferenceStandardSchema } from "../sending/contracts";
 
 const parseOptions = {
   errors: "all",
@@ -61,6 +62,19 @@ const campaignSaveError = (cause: { readonly _tag: string }) =>
       ),
       Match.when("CampaignNotFound", () => "This campaign no longer exists."),
       Match.orElse(() => "The campaign could not be saved. Try again.")
+    ),
+    cause,
+  });
+
+const campaignDeleteError = (cause: { readonly _tag: string }) =>
+  new PublicSafeActionError({
+    message: Match.value(cause._tag).pipe(
+      Match.when(
+        "CampaignReadOnly",
+        () => "This campaign has left Draft and can no longer be deleted."
+      ),
+      Match.when("CampaignNotFound", () => "This campaign no longer exists."),
+      Match.orElse(() => "The campaign could not be deleted. Try again.")
     ),
     cause,
   });
@@ -107,6 +121,25 @@ const updateCampaignAction = defineWorkspaceAction(
     )
 );
 
+const deleteCampaignAction = defineWorkspaceAction(
+  {
+    operation: "email-campaigns.admin.delete",
+    schema: campaignReferenceStandardSchema,
+  },
+  ({ campaignId }) =>
+    requireAdministratorAuthorization.pipe(
+      Effect.andThen(
+        Effect.gen(function* () {
+          const campaigns = yield* CampaignService;
+          yield* campaigns.delete(campaignId);
+          return { campaignId };
+        })
+      ),
+      Effect.provide(CampaignService.Live),
+      Effect.mapError(campaignDeleteError)
+    )
+);
+
 export const createCampaign: typeof createCampaignAction = async (
   ...args: Parameters<typeof createCampaignAction>
 ) => {
@@ -121,6 +154,18 @@ export const updateCampaign: typeof updateCampaignAction = async (
 ) => {
   "use server";
   const result = await updateCampaignAction(...args);
+  if (result?.data) {
+    revalidatePath("/admin/email-campaigns");
+    revalidatePath(`/admin/email-campaigns/${result.data.campaignId}`);
+  }
+  return result;
+};
+
+export const deleteCampaign: typeof deleteCampaignAction = async (
+  ...args: Parameters<typeof deleteCampaignAction>
+) => {
+  "use server";
+  const result = await deleteCampaignAction(...args);
   if (result?.data) {
     revalidatePath("/admin/email-campaigns");
     revalidatePath(`/admin/email-campaigns/${result.data.campaignId}`);
