@@ -34,8 +34,13 @@ type SignInCodeStepProps = {
   readonly verifiedMessage: string;
   readonly verifyCode: (code: string) => Promise<SignInCodeVerification>;
   readonly onVerified: () => void;
-  /** Sends a new email and reports whether it went out. */
-  readonly requestNewEmail: () => Promise<"sent" | SignInEmailFailure>;
+  /**
+   * Sends a new email and reports whether it went out, or that a cancel or a
+   * newer request replaced it.
+   */
+  readonly requestNewEmail: () => Promise<
+    "sent" | "cancelled" | SignInEmailFailure
+  >;
   readonly onUseDifferentEmail?: () => void;
 };
 
@@ -97,7 +102,7 @@ export function SignInCodeStep({
   const sendNewEmail = async () => {
     setResendStatus("sending");
     const outcome = await requestNewEmail();
-    setResendStatus(outcome);
+    setResendStatus(outcome === "cancelled" ? "idle" : outcome);
     if (outcome === "sent") inputRef.current?.focus();
   };
 
@@ -112,27 +117,33 @@ export function SignInCodeStep({
     resendStatus !== "idle" &&
     resendStatus !== "sending" &&
     resendStatus !== "sent";
-  const resendMessage = resendFailed
+  // A rejected resend outranks the earlier code result so it is seen and
+  // announced; checking another code clears it.
+  const statusMessage = resendFailed
     ? signInEmailFailureMessage(resendStatus, locale)
-    : resendStatus === "sent" && m.accountSignInCodeResent({}, { locale });
-  const statusMessage = {
-    idle: resendMessage || null,
-    verifying: m.accountSignInCodeVerifying({}, { locale }),
-    verified: verifiedMessage,
-    wrong: m.accountSignInCodeInvalid({}, { locale }),
-    expired: m.accountSignInCodeExpired({}, { locale }),
-    "too-many-attempts": m.accountSignInCodeTooManyAttempts({}, { locale }),
-    failed: m.accountSignInCodeFailed({}, { locale }),
-  }[status];
-  const statusTone = {
-    idle: resendFailed ? "error" : "neutral",
-    verifying: "neutral",
-    verified: "success",
-    wrong: "error",
-    expired: "error",
-    "too-many-attempts": "error",
-    failed: "error",
-  }[status];
+    : {
+        idle:
+          resendStatus === "sent"
+            ? m.accountSignInCodeResent({}, { locale })
+            : null,
+        verifying: m.accountSignInCodeVerifying({}, { locale }),
+        verified: verifiedMessage,
+        wrong: m.accountSignInCodeInvalid({}, { locale }),
+        expired: m.accountSignInCodeExpired({}, { locale }),
+        "too-many-attempts": m.accountSignInCodeTooManyAttempts({}, { locale }),
+        failed: m.accountSignInCodeFailed({}, { locale }),
+      }[status];
+  const statusTone = resendFailed
+    ? "error"
+    : {
+        idle: "neutral",
+        verifying: "neutral",
+        verified: "success",
+        wrong: "error",
+        expired: "error",
+        "too-many-attempts": "error",
+        failed: "error",
+      }[status];
 
   return (
     <div className="mt-8">

@@ -56,7 +56,9 @@ export type SignInEmailResult =
       /** True when the email also carries a sign-in code. */
       readonly signInCode: boolean;
     }
-  | { readonly status: "failed"; readonly reason: SignInEmailFailure };
+  | { readonly status: "failed"; readonly reason: SignInEmailFailure }
+  /** A later send or a cancel replaced this request before it settled. */
+  | { readonly status: "cancelled" };
 
 export type SignInCodeVerification =
   | "verified"
@@ -307,13 +309,14 @@ export const createAuthReturnLifecycle = ({
     } catch {
       response = Option.none();
     }
+    if (requestEpoch !== requestId) return { status: "cancelled" };
     if (Option.isSome(response) && response.value.error === null) {
       return {
         status: "sent",
         signInCode: response.value.data?.signInCode === true,
       };
     }
-    if (requestEpoch === requestId) dispose();
+    dispose();
     return {
       status: "failed",
       reason: Option.match(response, {

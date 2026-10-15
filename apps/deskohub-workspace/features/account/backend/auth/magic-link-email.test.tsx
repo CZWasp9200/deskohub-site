@@ -30,7 +30,9 @@ describe("Magic-link email renderer", () => {
     expect(rendered.text.split("\n").map((line) => line.trim())).toContain(
       "482913"
     );
-    expect(rendered.html).toContain("482913");
+    expect(rendered.html).toMatch(
+      /<span[^>]*>482<\/span><span[^>]*>913<\/span>/
+    );
     expect(rendered.subject).not.toContain("482913");
   });
 

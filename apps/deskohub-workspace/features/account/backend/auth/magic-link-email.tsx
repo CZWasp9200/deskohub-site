@@ -52,15 +52,16 @@ function MagicLinkEmail({ locale, url, code }: MagicLinkEmailProps) {
           <Text className="m-0 text-[14px] leading-[22px] text-[#373a59]">
             {m.accountMagicLinkEmailCodeIntro({}, { locale })}
           </Text>
-          {/* One unbroken string: the text line and the HTML both carry the bare code. */}
+          {/* Two inline halves read as "482 913" but keep the text line bare. */}
           <Text
-            className="m-0 mt-2 text-[32px] font-bold leading-[40px] tracking-[8px] text-navy"
+            className="m-0 mt-2 text-[32px] font-bold leading-[40px] tracking-[6px] text-navy"
             style={{
               fontFamily:
                 "ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace",
             }}
           >
-            {code}
+            <span>{code.slice(0, 3)}</span>
+            <span style={{ marginLeft: "14px" }}>{code.slice(3)}</span>
           </Text>
           <Text className="m-0 mt-2 text-[13px] leading-[20px] text-[#565975]">
             {m.accountMagicLinkEmailCodeExpiry({}, { locale })}

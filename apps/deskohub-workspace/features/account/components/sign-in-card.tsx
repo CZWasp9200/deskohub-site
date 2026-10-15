@@ -19,12 +19,7 @@ import {
 } from "@/features/account/auth-return";
 import { SignInCodeStep } from "@/features/account/components/sign-in-code-step";
 import { signInEmailFailureMessage } from "@/features/account/components/sign-in-email-failure-message";
-import {
-  clearSignInCodeRequest,
-  type SignInCodeRequest,
-  saveSignInCodeRequest,
-  useSignInCodeRequest,
-} from "@/features/account/sign-in-code-request";
+import { useSignInCodeRequest } from "@/features/account/sign-in-code-request";
 import { type Locale, m } from "@/features/i18n";
 import { Button } from "@/shared/components/ui/button";
 import { Card, CardContent } from "@/shared/components/ui/card";
@@ -73,11 +68,7 @@ type SignInFormValues = SignInFormSchema["Type"];
 export function SignInCard({ locale }: SignInCardProps) {
   const [requested, setRequested] = useState(false);
   const [failure, setFailure] = useState<SignInEmailFailure | null>(null);
-  // Keeps the code step on screen while a verified sign-in navigates away.
-  const [verifiedRequest, setVerifiedRequest] =
-    useState<SignInCodeRequest | null>(null);
-  const storedCodeRequest = useSignInCodeRequest();
-  const codeRequest = verifiedRequest ?? storedCodeRequest;
+  const [codeRequest, setCodeRequest] = useSignInCodeRequest();
   const clientReady = useSyncExternalStore(
     subscribeToClientReady,
     getClientReadySnapshot,
@@ -104,9 +95,7 @@ export function SignInCard({ locale }: SignInCardProps) {
     if (!codeRequest) return;
     const continueIfSignedIn = () => {
       if (document.visibilityState !== "visible") return;
-      void authReturn.continueIfSignedIn().then((signedIn) => {
-        if (signedIn) setVerifiedRequest(codeRequest);
-      });
+      void authReturn.continueIfSignedIn();
     };
     window.addEventListener("focus", continueIfSignedIn);
     document.addEventListener("visibilitychange", continueIfSignedIn);
@@ -118,12 +107,13 @@ export function SignInCard({ locale }: SignInCardProps) {
 
   const requestLink = async ({ email }: SignInFormValues) => {
     const result = await authReturn.sendSignInEmail(email);
+    if (result.status === "cancelled") return;
     if (result.status === "failed") {
       setFailure(result.reason);
       return;
     }
     if (result.signInCode) {
-      saveSignInCodeRequest({ email, requestedAt: Date.now() });
+      setCodeRequest({ email, requestedAt: Date.now() });
       return;
     }
     setRequested(true);
@@ -146,15 +136,14 @@ export function SignInCard({ locale }: SignInCardProps) {
   if (codeRequest) {
     const requestNewEmail = async () => {
       const result = await authReturn.sendSignInEmail(codeRequest.email);
+      // "Use a different email" or a newer email replaced this request.
+      if (result.status === "cancelled") return result.status;
       if (result.status === "failed") return result.reason;
       if (result.signInCode) {
-        saveSignInCodeRequest({
-          email: codeRequest.email,
-          requestedAt: Date.now(),
-        });
+        setCodeRequest({ email: codeRequest.email, requestedAt: Date.now() });
       } else {
         // Codes were switched off meanwhile: fall back to the link-only state.
-        clearSignInCodeRequest();
+        setCodeRequest(null);
         setRequested(true);
       }
       return "sent" as const;
@@ -179,14 +168,11 @@ export function SignInCard({ locale }: SignInCardProps) {
             verifyCode={(code) =>
               authReturn.verifySignInCode(codeRequest.email, code)
             }
-            onVerified={() => {
-              setVerifiedRequest(codeRequest);
-              authReturn.continueWithVerifiedCode();
-            }}
+            onVerified={authReturn.continueWithVerifiedCode}
             requestNewEmail={requestNewEmail}
             onUseDifferentEmail={() => {
               authReturn.cancel();
-              clearSignInCodeRequest();
+              setCodeRequest(null);
               form.reset({ email: codeRequest.email });
               setFailure(null);
             }}

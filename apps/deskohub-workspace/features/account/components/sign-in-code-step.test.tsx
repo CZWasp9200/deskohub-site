@@ -274,4 +274,38 @@ describe("sign-in code step", () => {
 
     expect(props.onUseDifferentEmail).toHaveBeenCalledTimes(1);
   });
+
+  test("reports an address limit after an expired code", async () => {
+    const { input, status, resend } = renderStep({
+      verifyCode: () => Promise.resolve("expired"),
+      requestNewEmail: () => Promise.resolve("address-limit"),
+    });
+
+    await typeCode(input(), "482913");
+    await act(nextFrame);
+    await act(async () => {
+      fireEvent.click(resend());
+    });
+
+    expect(status().textContent).toBe(
+      m.accountSignInEmailLimitReached({}, { locale })
+    );
+  });
+
+  test("reports a resend rate limit after a wrong code", async () => {
+    const { input, status, resend } = renderStep({
+      verifyCode: () => Promise.resolve("wrong"),
+      requestNewEmail: () => Promise.resolve("rate-limited"),
+    });
+
+    await typeCode(input(), "482913");
+    await act(nextFrame);
+    await act(async () => {
+      fireEvent.click(resend());
+    });
+
+    expect(status().textContent).toBe(
+      m.accountSignInRateLimited({}, { locale })
+    );
+  });
 });

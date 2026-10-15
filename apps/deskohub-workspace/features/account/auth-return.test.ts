@@ -380,6 +380,38 @@ describe("account auth return lifecycle", () => {
     lifecycle.cancel();
   });
 
+  test("reports a send that a cancel or a later send replaced as cancelled", async () => {
+    const lifecycle = authReturn.createAuthReturnLifecycle({
+      locale: "en-US",
+    });
+    const pendingResponses: ((response: AuthResponse) => void)[] = [];
+    magicLink.mockImplementation(
+      () =>
+        new Promise<AuthResponse>((resolve) => {
+          pendingResponses.push(resolve);
+        })
+    );
+    const settle = (index: number) =>
+      pendingResponses[index]?.({
+        data: { status: true, signInCode: true },
+        error: null,
+      });
+
+    const cancelled = lifecycle.sendSignInEmail(customerEmail);
+    lifecycle.cancel();
+    settle(0);
+    expect(await cancelled).toEqual({ status: "cancelled" });
+
+    const superseded = lifecycle.sendSignInEmail(customerEmail);
+    const latest = lifecycle.sendSignInEmail(customerEmail);
+    settle(2);
+    settle(1);
+    expect(await latest).toEqual({ status: "sent", signInCode: true });
+    expect(await superseded).toEqual({ status: "cancelled" });
+    expect(listenerCleanups[2]).not.toHaveBeenCalled();
+    lifecycle.cancel();
+  });
+
   test.each([
     [{ status: 429, code: "SIGN_IN_EMAIL_LIMIT_REACHED" }, "address-limit"],
     [{ status: 429 }, "rate-limited"],

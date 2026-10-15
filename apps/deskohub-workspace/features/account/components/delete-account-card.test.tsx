@@ -488,6 +488,69 @@ describe("DeleteAccountCard", () => {
     window.location.replace = originalReplace;
   });
 
+  test("falls back to the link-only confirmation when a new email has no code", async () => {
+    deleteCustomerAccount.mockImplementationOnce(() =>
+      Promise.resolve({ data: { status: "reauthentication-required" } })
+    );
+    signInMagicLink.mockImplementationOnce(() => {
+      // Date the code email past the resend cooldown.
+      const realNow = Date.now;
+      Date.now = () => {
+        Date.now = realNow;
+        return realNow() - 61 * 1000;
+      };
+      return Promise.resolve({
+        data: { status: true, signInCode: true },
+        error: null,
+      });
+    });
+    const { DeleteAccountCard } = await import("./delete-account-card");
+
+    const view = render(
+      <DeleteAccountCard
+        email={adaAddress}
+        locale="en-US"
+        deletionPending={false}
+      />
+    );
+    await openDialog(view);
+    await act(async () => {
+      fireEvent.click(
+        view.getByLabelText(
+          "I understand that my account and every session will be permanently deleted."
+        )
+      );
+    });
+    await act(async () => {
+      fireEvent.click(view.getByText("Delete permanently"));
+    });
+    await act(async () => {
+      fireEvent.click(view.getByText("Email me a new link"));
+    });
+    const resend = view.getByText(
+      m.accountSignInCodeResend({}, { locale: "en-US" })
+    );
+    expect(resend.closest("button")?.disabled).toBe(false);
+
+    signInMagicLink.mockImplementationOnce(() =>
+      Promise.resolve({
+        data: { status: true, signInCode: false },
+        error: null,
+      })
+    );
+    await act(async () => {
+      fireEvent.click(resend);
+    });
+
+    expect(signInMagicLink).toHaveBeenCalledTimes(2);
+    expect(
+      view.queryByLabelText(m.accountSignInCodeLabel({}, { locale: "en-US" }))
+    ).toBeNull();
+    expect(
+      view.getByText(m.accountDeletionReauthLinkSent({}, { locale: "en-US" }))
+    ).toBeTruthy();
+  });
+
   test("keeps the reauthentication request disabled until the link request resolves", async () => {
     deleteCustomerAccount.mockImplementationOnce(() =>
       Promise.resolve({ data: { status: "reauthentication-required" } })

@@ -36,7 +36,8 @@ describe("magic-link email sign-in code", () => {
       expect(rendered.text).toContain(
         m.accountMagicLinkEmailCodeExpiry({}, { locale })
       );
-      expect(rendered.html).toContain(code);
+      expect(rendered.html).toMatch(/<span[^>]*>482<\/span>/);
+      expect(rendered.html).toMatch(/<span[^>]*>913<\/span>/);
       expect(rendered.html).toContain(signInUrl);
     }
   );

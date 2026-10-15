@@ -1,7 +1,7 @@
 "use client";
 
 import { Option, Schema } from "effect";
-import { useSyncExternalStore } from "react";
+import { useEffect, useState } from "react";
 import {
   readSessionStorageItem,
   writeSessionStorageItem,
@@ -23,58 +23,44 @@ const decodeSignInCodeRequest = Schema.decodeUnknownOption(
 
 export type SignInCodeRequest = typeof signInCodeRequestSchema.Type;
 
-const listeners = new Set<() => void>();
-let cachedRaw: string | null = null;
-let cachedRequest: SignInCodeRequest | null = null;
-
-const notify = () => {
-  for (const listener of listeners) listener();
-};
-
-const subscribe = (listener: () => void) => {
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
-  };
-};
-
-const getSnapshot = (): SignInCodeRequest | null => {
+const readStoredSignInCodeRequest = (): SignInCodeRequest | null => {
   const raw = readSessionStorageItem(storageKey);
-  if (raw !== cachedRaw) {
-    cachedRaw = raw;
-    cachedRequest =
-      raw === null ? null : Option.getOrNull(decodeSignInCodeRequest(raw));
-  }
-  return cachedRequest !== null &&
-    Date.now() - cachedRequest.requestedAt < SIGN_IN_CODE_TTL_MS
-    ? cachedRequest
+  const request =
+    raw === null ? null : Option.getOrNull(decodeSignInCodeRequest(raw));
+  return request !== null &&
+    Date.now() - request.requestedAt < SIGN_IN_CODE_TTL_MS
+    ? request
     : null;
 };
 
-const getServerSnapshot = () => null;
-
 /**
- * The pending sign-in code request of this tab. It lives in sessionStorage so
- * a reload keeps the code step, never in the URL, and reads as absent during
- * server rendering and hydration.
+ * The pending sign-in code request of this tab. It lives in React state and
+ * is mirrored to sessionStorage on a best-effort basis, so only restoring the
+ * code step after a reload depends on storage. It never enters the URL and
+ * reads as absent during server rendering and hydration.
  */
-export const useSignInCodeRequest = () =>
-  useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+export const useSignInCodeRequest = () => {
+  const [request, setRequest] = useState<SignInCodeRequest | null>(null);
 
-export const saveSignInCodeRequest = (request: SignInCodeRequest) => {
-  writeSessionStorageItem(storageKey, JSON.stringify(request));
-  notify();
+  useEffect(() => {
+    setRequest(readStoredSignInCodeRequest());
+  }, []);
+
+  const updateRequest = (next: SignInCodeRequest | null) => {
+    setRequest(next);
+    writeSessionStorageItem(
+      storageKey,
+      next === null ? null : JSON.stringify(next)
+    );
+  };
+
+  return [request, updateRequest] as const;
 };
 
 /**
- * Drops the pending request without re-rendering its readers, for a tab that
- * is signed in and leaving the page.
+ * Drops the stored request so a reload no longer restores it, for a tab that
+ * is signed in and leaving the page; the code step on screen stays.
  */
 export const forgetSignInCodeRequest = () => {
   writeSessionStorageItem(storageKey, null);
-};
-
-export const clearSignInCodeRequest = () => {
-  writeSessionStorageItem(storageKey, null);
-  notify();
 };

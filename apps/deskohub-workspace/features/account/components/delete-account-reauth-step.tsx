@@ -40,20 +40,23 @@ export function DeleteAccountReauthStep({
   const [failure, setFailure] = useState<SignInEmailFailure | null>(null);
   const [codeRequestedAt, setCodeRequestedAt] = useState<number | null>(null);
 
-  // A code-carrying email opens the code step in place.
+  // A code-carrying email opens the code step in place. Without a code, as
+  // when codes are switched off between two emails, only the link signs in.
   const sendReauthEmail = async () => {
     const result = await authReturn.sendSignInEmail(email);
-    if (result.status === "failed") return result.reason;
-    if (result.signInCode) setCodeRequestedAt(Date.now());
-    else setLinkSent(true);
-    return "sent" as const;
+    if (result.status !== "sent") {
+      return result.status === "failed" ? result.reason : result.status;
+    }
+    setCodeRequestedAt(result.signInCode ? Date.now() : null);
+    setLinkSent(!result.signInCode);
+    return result.status;
   };
 
   const requestReauthLink = async () => {
     setFailure(null);
     setSending(true);
     const outcome = await sendReauthEmail();
-    setFailure(outcome === "sent" ? null : outcome);
+    setFailure(outcome === "sent" || outcome === "cancelled" ? null : outcome);
     setSending(false);
   };
 

@@ -373,6 +373,45 @@ describe("account components", () => {
     expect(window.location.search).not.toContain("example");
   });
 
+  test("sign-in card asks for the code when this tab's storage rejects writes", async () => {
+    const storage = Object.getOwnPropertyDescriptor(
+      globalThis,
+      "sessionStorage"
+    );
+    const rejectingStorage = {
+      getItem: () => null,
+      setItem: () => {
+        throw new DOMException("quota exceeded", "QuotaExceededError");
+      },
+      removeItem: () => {
+        throw new DOMException("storage unavailable", "SecurityError");
+      },
+    };
+    Object.defineProperty(globalThis, "sessionStorage", {
+      configurable: true,
+      get: () => rejectingStorage,
+    });
+    try {
+      signInMagicLink.mockImplementationOnce(sentWithCode);
+      const { SignInCard } = await import("./sign-in-card");
+
+      const view = render(<SignInCard locale={locale} />);
+      await submitEmail(view);
+
+      expect(codeInput(view)).toBeTruthy();
+      fireEvent.click(
+        view.getByRole("button", {
+          name: m.accountSignInCodeChangeEmail({}, { locale }),
+        })
+      );
+      expect(
+        view.getByLabelText(m.accountSignInEmailLabel({}, { locale }))
+      ).toBeTruthy();
+    } finally {
+      if (storage) Object.defineProperty(globalThis, "sessionStorage", storage);
+    }
+  });
+
   test.each([
     [
       { status: 429, code: "SIGN_IN_EMAIL_LIMIT_REACHED" },
@@ -532,5 +571,51 @@ describe("account components", () => {
       view.getByText(m.accountSignInAcceptedTitle({}, { locale }))
     ).toBeTruthy();
     expect(sessionStorage.getItem(codeRequestStorageKey)).toBeNull();
+  });
+
+  test("sign-in card does not reopen a cancelled code step after resend resolves", async () => {
+    storeCodeRequest(Date.now() - 61 * 1000);
+    let resolveRequest!: (result: AuthResponse) => void;
+    let requestSettled = false;
+    const request = new Promise<AuthResponse>((resolve) => {
+      resolveRequest = (result) => {
+        requestSettled = true;
+        resolve(result);
+      };
+    });
+    signInMagicLink.mockImplementationOnce(() => request);
+    const { SignInCard } = await import("./sign-in-card");
+
+    const view = render(<SignInCard locale={locale} />);
+    await act(async () => {
+      fireEvent.click(
+        view.container.querySelector("#account-sign-in-code-resend")!
+      );
+    });
+    expect(signInMagicLink).toHaveBeenCalledTimes(1);
+    expect(requestSettled).toBe(false);
+
+    fireEvent.click(
+      view.getByRole("button", {
+        name: m.accountSignInCodeChangeEmail({}, { locale }),
+      })
+    );
+    expect(
+      view.getByLabelText(m.accountSignInEmailLabel({}, { locale }))
+    ).toBeTruthy();
+    expect(sessionStorage.getItem(codeRequestStorageKey)).toBeNull();
+    expect(requestSettled).toBe(false);
+
+    await act(async () => {
+      resolveRequest({
+        data: { status: true, signInCode: true },
+        error: null,
+      });
+      await request;
+    });
+
+    expect(
+      view.getByLabelText(m.accountSignInEmailLabel({}, { locale }))
+    ).toBeTruthy();
   });
 });
