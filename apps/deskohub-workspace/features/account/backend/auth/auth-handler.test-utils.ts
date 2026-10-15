@@ -26,7 +26,11 @@ import {
 } from "@/db/schema/auth";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
 import { captureAccountLocalePreference } from "../customer-locale-preference";
-import type { MagicLinkSendFunction, WorkspaceAuthConfig } from "./auth-server";
+import type {
+  MagicLinkSendFunction,
+  SignInEmail,
+  WorkspaceAuthConfig,
+} from "./auth-server";
 
 /**
  * The Workspace Better Auth instance under test, against the migrated
@@ -56,7 +60,7 @@ export interface CapturedMagicLink {
   readonly url: string;
   readonly token: string;
   readonly code?: string;
-  readonly metadata?: Readonly<Record<string, unknown>>;
+  readonly metadata?: SignInEmail["metadata"];
 }
 
 export type TestAuth = ReturnType<typeof makeTestAuth>;

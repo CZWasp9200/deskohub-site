@@ -1,14 +1,15 @@
 "use client";
 
 import { Option, Schema } from "effect";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   readSessionStorageItem,
   writeSessionStorageItem,
 } from "@/shared/browser/session-storage";
+import { useClientReady } from "@/shared/browser/use-client-ready";
 
 /** A code request stays usable for as long as the code itself (10 minutes). */
-export const SIGN_IN_CODE_TTL_MS = 10 * 60 * 1000;
+const SIGN_IN_CODE_TTL_MS = 10 * 60 * 1000;
 export const SIGN_IN_CODE_LENGTH = 6;
 
 const storageKey = "deskohub:account-sign-in-code";
@@ -40,14 +41,19 @@ const readStoredSignInCodeRequest = (): SignInCodeRequest | null => {
  * reads as absent during server rendering and hydration.
  */
 export const useSignInCodeRequest = () => {
-  const [request, setRequest] = useState<SignInCodeRequest | null>(null);
+  const clientReady = useClientReady();
+  const [{ restored, request }, setState] = useState<{
+    readonly restored: boolean;
+    readonly request: SignInCodeRequest | null;
+  }>({ restored: false, request: null });
 
-  useEffect(() => {
-    setRequest(readStoredSignInCodeRequest());
-  }, []);
+  // Restore the stored request once, in the first render after hydration.
+  if (clientReady && !restored) {
+    setState({ restored: true, request: readStoredSignInCodeRequest() });
+  }
 
   const updateRequest = (next: SignInCodeRequest | null) => {
-    setRequest(next);
+    setState({ restored: true, request: next });
     writeSessionStorageItem(
       storageKey,
       next === null ? null : JSON.stringify(next)

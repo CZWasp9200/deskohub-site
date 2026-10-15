@@ -12,7 +12,7 @@ export type WorkspaceE2EAccountRequirement =
   | E2ETelemetryService
   | HttpClient.HttpClient;
 
-export type WorkspaceE2ESignInConfirmation = "inbox" | "code";
+type WorkspaceE2ESignInConfirmation = "inbox" | "code";
 
 /**
  * In-memory handoff for the worker-scoped account lifecycle. The lane fixture

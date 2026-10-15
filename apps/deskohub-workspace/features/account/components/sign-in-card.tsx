@@ -4,13 +4,7 @@ import { effectSchemaResolver } from "@deskohub/effect-schema-resolver";
 import { Schema } from "effect";
 import { Loader2 } from "lucide-react";
 import type { FormEvent } from "react";
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import isEmail from "validator/lib/isEmail.js";
 import {
@@ -21,6 +15,7 @@ import { SignInCodeStep } from "@/features/account/components/sign-in-code-step"
 import { signInEmailFailureMessage } from "@/features/account/components/sign-in-email-failure-message";
 import { useSignInCodeRequest } from "@/features/account/sign-in-code-request";
 import { type Locale, m } from "@/features/i18n";
+import { useClientReady } from "@/shared/browser/use-client-ready";
 import { Button } from "@/shared/components/ui/button";
 import { Card, CardContent } from "@/shared/components/ui/card";
 import {
@@ -39,9 +34,6 @@ type SignInCardProps = {
 };
 
 const signInEmailMaximumLength = 255;
-const subscribeToClientReady = () => () => undefined;
-const getClientReadySnapshot = () => true;
-const getServerClientReadySnapshot = () => false;
 
 const createSignInFormSchema = (locale: Locale) =>
   Schema.Struct({
@@ -69,11 +61,7 @@ export function SignInCard({ locale }: SignInCardProps) {
   const [requested, setRequested] = useState(false);
   const [failure, setFailure] = useState<SignInEmailFailure | null>(null);
   const [codeRequest, setCodeRequest] = useSignInCodeRequest();
-  const clientReady = useSyncExternalStore(
-    subscribeToClientReady,
-    getClientReadySnapshot,
-    getServerClientReadySnapshot
-  );
+  const clientReady = useClientReady();
   const submissionInProgress = useRef(false);
   // The control that switched the view unmounts with it, so the next view
   // takes focus once it mounts.
