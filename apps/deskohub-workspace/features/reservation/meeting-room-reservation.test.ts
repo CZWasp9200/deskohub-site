@@ -98,7 +98,7 @@ describe("meetingRoomReservationSchema", () => {
     expect(issues).toEqual([]);
   });
 
-  test("keeps Dotypos-owned meeting-room facts out of local persistence", () => {
+  test("persists the meeting-room offer without Dotypos-owned facts", () => {
     expect(
       getStoredMeetingRoomReservationDetails({
         kind: "meeting-room",
@@ -108,14 +108,19 @@ describe("meetingRoomReservationSchema", () => {
       kind: "meeting-room",
     });
 
-    expect(
-      Result.isFailure(
-        safeParseStoredDetails({
-          kind: "meeting-room",
-          duration: { unit: "day", amount: 1 },
-        })
-      )
-    ).toBe(true);
+    for (const details of [
+      { kind: "meeting-room", duration: { unit: "day", amount: 1 } },
+      // Written before snapshots recorded the offer.
+      { kind: "meeting-room" },
+    ]) {
+      expect(Result.isSuccess(safeParseStoredDetails(details))).toBe(true);
+    }
+    for (const details of [
+      { kind: "meeting-room", reservationDate: "2099-06-10" },
+      { kind: "meeting-room", duration: { unit: "hour", amount: 3 } },
+    ]) {
+      expect(Result.isFailure(safeParseStoredDetails(details))).toBe(true);
+    }
   });
 
   test("rejects Prague times that cannot identify one instant", () => {
