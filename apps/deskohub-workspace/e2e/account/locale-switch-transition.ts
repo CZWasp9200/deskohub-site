@@ -5,6 +5,7 @@ import {
   workspaceE2EError,
 } from "../errors";
 import { waitForReactClickHandler } from "../react-handlers";
+import { redact } from "../runtime";
 import { workspaceE2ETimeouts } from "../timeouts";
 import {
   accountSectionLandmarks,
@@ -160,16 +161,18 @@ const verifyLocaleSwitch = async (
   page: Page,
   { from, to, trigger }: LocaleSwitch
 ) => {
-  let pageErrors = 0;
-  const countPageError = () => {
-    pageErrors += 1;
+  // The first uncaught error's name and opening message, redacted, so a
+  // failure says what threw without carrying page content.
+  const pageErrors: string[] = [];
+  const recordPageError = (error: Error) => {
+    pageErrors.push(redact(`${error.name}: ${error.message}`).slice(0, 200));
   };
   await page.evaluate((key) => {
     window.sessionStorage.setItem(key, "");
   }, localeSwitchErrorPageKey);
   await page.evaluate(watchLocaleSwitchErrorPage, errorPageWatch);
   const release = await holdLocaleSwitchResponses(page, from, to);
-  page.on("pageerror", countPageError);
+  page.on("pageerror", recordPageError);
   const fail = (
     code: WorkspaceE2EAccountLocaleSwitchDiagnosticCode,
     detail: string
@@ -222,14 +225,14 @@ const verifyLocaleSwitch = async (
         failureKind(landingFailure)
       );
     }
-    if (pageErrors > 0) {
+    if (pageErrors.length > 0) {
       throw fail(
         "account_locale_switch_page_error",
-        `${pageErrors} uncaught page errors`
+        `${pageErrors.length} uncaught page errors, first: ${pageErrors[0]}`
       );
     }
   } finally {
-    page.off("pageerror", countPageError);
+    page.off("pageerror", recordPageError);
     await release();
     await page
       .evaluate((key) => {
