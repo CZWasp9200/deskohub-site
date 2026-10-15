@@ -9,7 +9,7 @@ import {
   setSystemTime,
   test,
 } from "bun:test";
-import { testEmailAddress } from "@deskohub/test-email";
+import { resendSimulatorAddress, testEmailAddress } from "@deskohub/test-email";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import {
   deliverWorkspaceBrowserLogs,
@@ -18,7 +18,8 @@ import {
 } from "@/shared/browser/workspace-browser-logs";
 import { customerAccountIdSchema } from "./customer-account";
 
-const customerEmail = testEmailAddress("synthetic");
+// An address outside the test domain stands for an ordinary customer.
+const customerEmail = resendSimulatorAddress("delivered", "synthetic");
 
 type SessionQuery = {
   readonly query?: {
@@ -81,6 +82,7 @@ const futureExpiry = () => new Date(Date.now() + 60_000);
 const authenticatedSession = (
   accountId: string,
   overrides: {
+    readonly email?: unknown;
     readonly emailVerified?: boolean;
     readonly expiresAt?: Date;
   } = {}
@@ -91,7 +93,7 @@ const authenticatedSession = (
       token: "session-token-must-not-leave-adapter",
     },
     user: {
-      email: customerEmail,
+      email: "email" in overrides ? overrides.email : customerEmail,
       emailVerified: overrides.emailVerified ?? true,
       id: accountId,
       name: "Synthetic User",
@@ -203,6 +205,7 @@ describe("analytics account identity", () => {
     expect(analyticsIdentity.getAnalyticsAccountIdentity()).toEqual({
       accountId: accountId("synthetic-account-a"),
       status: "authenticated",
+      testAccount: false,
     });
     expect(
       JSON.stringify(analyticsIdentity.getAnalyticsAccountIdentity())
@@ -210,6 +213,42 @@ describe("analytics account identity", () => {
     expect(
       JSON.stringify(analyticsIdentity.getAnalyticsAccountIdentity())
     ).not.toContain("session-token");
+  });
+
+  test("flags an account whose verified email is on the test domain without publishing the email", async () => {
+    const testAccountEmail = testEmailAddress("synthetic");
+    unsubscribe = analyticsIdentity.subscribeAnalyticsAccountIdentity(
+      () => undefined
+    );
+    await resolveNextRefetch(anonymousSession());
+
+    setSession(
+      authenticatedSession("synthetic-account-a", { email: testAccountEmail })
+    );
+
+    expect(analyticsIdentity.getAnalyticsAccountIdentity()).toEqual({
+      accountId: accountId("synthetic-account-a"),
+      status: "authenticated",
+      testAccount: true,
+    });
+    expect(
+      JSON.stringify(analyticsIdentity.getAnalyticsAccountIdentity())
+    ).not.toContain(testAccountEmail);
+  });
+
+  test("treats an account without a readable email as an ordinary account", async () => {
+    unsubscribe = analyticsIdentity.subscribeAnalyticsAccountIdentity(
+      () => undefined
+    );
+    await resolveNextRefetch(anonymousSession());
+
+    setSession(authenticatedSession("synthetic-account-a", { email: 42 }));
+
+    expect(analyticsIdentity.getAnalyticsAccountIdentity()).toEqual({
+      accountId: accountId("synthetic-account-a"),
+      status: "authenticated",
+      testAccount: false,
+    });
   });
 
   test("fails closed for unverified, malformed, and invalid session data", async () => {
@@ -387,6 +426,7 @@ describe("analytics account identity", () => {
     expect(analyticsIdentity.getAnalyticsAccountIdentity()).toEqual({
       accountId: accountId("synthetic-account-a"),
       status: "authenticated",
+      testAccount: false,
     });
   });
 
@@ -419,6 +459,7 @@ describe("analytics account identity", () => {
     expect(analyticsIdentity.getAnalyticsAccountIdentity()).toEqual({
       accountId: accountId("synthetic-account-a"),
       status: "authenticated",
+      testAccount: false,
     });
   });
 
@@ -521,6 +562,7 @@ describe("analytics account identity", () => {
     expect(analyticsIdentity.getAnalyticsAccountIdentity()).toEqual({
       accountId: accountId("synthetic-account-b"),
       status: "authenticated",
+      testAccount: false,
     });
     const markerAfterAccountB = localStorage.getItem(
       "deskohub.account-session-change"
@@ -591,6 +633,7 @@ describe("analytics account identity", () => {
     expect(analyticsIdentity.getAnalyticsAccountIdentity()).toEqual({
       accountId: accountId("synthetic-account-a"),
       status: "authenticated",
+      testAccount: false,
     });
   });
 
@@ -949,6 +992,7 @@ describe("analytics account identity", () => {
     expect(analyticsIdentity.getAnalyticsAccountIdentity()).toEqual({
       accountId: accountId("synthetic-account-a"),
       status: "authenticated",
+      testAccount: false,
     });
   });
 
@@ -979,6 +1023,7 @@ describe("analytics account identity", () => {
     expect(observed).not.toContainEqual({
       accountId: accountId("synthetic-account-a"),
       status: "authenticated",
+      testAccount: false,
     });
     expect(refetchRequests).toHaveLength(1);
 
@@ -988,6 +1033,7 @@ describe("analytics account identity", () => {
     expect(analyticsIdentity.getAnalyticsAccountIdentity()).toEqual({
       accountId: accountId("synthetic-account-b"),
       status: "authenticated",
+      testAccount: false,
     });
   });
 
@@ -1020,6 +1066,7 @@ describe("analytics account identity", () => {
     expect(observed).not.toContainEqual({
       accountId: accountId("synthetic-account-a"),
       status: "authenticated",
+      testAccount: false,
     });
     expect(refetchRequests).toHaveLength(1);
 
@@ -1061,6 +1108,7 @@ describe("analytics account identity", () => {
     expect(analyticsIdentity.getAnalyticsAccountIdentity()).toEqual({
       accountId: accountId("synthetic-account-b"),
       status: "authenticated",
+      testAccount: false,
     });
   });
 
@@ -1105,6 +1153,7 @@ describe("analytics account identity", () => {
     expect(observed).not.toContainEqual({
       accountId: accountId("synthetic-account-a"),
       status: "authenticated",
+      testAccount: false,
     });
 
     await resolveNextRefetch(authenticatedSession("synthetic-account-b"));
@@ -1112,6 +1161,7 @@ describe("analytics account identity", () => {
     expect(analyticsIdentity.getAnalyticsAccountIdentity()).toEqual({
       accountId: accountId("synthetic-account-b"),
       status: "authenticated",
+      testAccount: false,
     });
   });
 
