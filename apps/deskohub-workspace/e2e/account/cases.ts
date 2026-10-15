@@ -7,6 +7,7 @@ import { Effect } from "effect";
 import { customerAccountIdSchema } from "@/features/account/customer-account";
 import { type Locale, m } from "@/features/i18n";
 import { localeCookieName } from "@/features/i18n/routing";
+import { maskEmailAddress } from "@/shared/utils";
 import {
   clickBrowserElement,
   evalBrowserScript,
@@ -91,6 +92,14 @@ const acceptedTitle = "Check your inbox";
 const acceptedBody =
   "If the address can receive mail, a single-use link will arrive shortly. The link works once and expires in 10 minutes.";
 const sendAnotherLinkLabel = "Send another link";
+const signInCodeTitle = m.accountSignInCodeTitle({}, { locale: "en-US" });
+const signInCodeInvalid = m.accountSignInCodeInvalid({}, { locale: "en-US" });
+const useDifferentEmailLabel = m.accountSignInCodeChangeEmail(
+  {},
+  { locale: "en-US" }
+);
+/** The resend countdown ticks every second, so text comparisons drop it. */
+const signInCodeResendCooldownPattern = /Send a new email in \d+ s/g;
 const callbackFailedTitle = "This link cannot be used";
 const completionTitle = "Complete your profile";
 const profileSaved = "Profile updated.";
@@ -101,6 +110,10 @@ const supportTitle = "We need to verify your profile";
 const deletionPendingTitle = "Account deletion is pending";
 const deletionReauthLinkSent =
   "If the address can receive mail, a new link is on its way.";
+const deletionReauthCodeTitle = m.accountDeletionReauthCodeTitle(
+  {},
+  { locale: "en-US" }
+);
 const czechDeletionPendingTitle = m.accountDeletionPendingTitle(
   {},
   { locale: "cs-CZ" }
@@ -124,6 +137,7 @@ const publicPreferenceProbeSuffix = "/faq";
 const signInFormSelector = "#account-sign-in-form";
 const signInEmailSelector = "#account-sign-in-email";
 const signInSubmitSelector = "#account-sign-in-submit";
+const signInCodeSelector = "#account-sign-in-code";
 const profileFirstNameSelector = "#account-profile-first-name";
 const profileLastNameSelector = "#account-profile-last-name";
 const profilePhoneSelector = "#account-profile-phone";
@@ -401,18 +415,52 @@ export const makeWorkspaceE2EAccountCases = ({
       });
     });
 
+  /** Waits until the code input of a sign-in code step takes typed digits. */
+  const waitSignInCodeInput = () =>
+    waitForBrowserReactHandler(run, session, signInCodeSelector, "onChange", {
+      timeoutMs: browserTimeout,
+    });
+
+  /**
+   * Waits for the card an accepted sign-in email leaves and reports which
+   * one it is. With `login_email_code` off it is the inbox notice; with the
+   * flag on the same accepted request opens the code step instead.
+   */
+  const waitSignInAccepted = Effect.fn("waitSignInAccepted")(function* (
+    description: string
+  ) {
+    const pageText = yield* waitForBrowserText({
+      description,
+      matches: (text) =>
+        text.includes(acceptedTitle) || text.includes(signInCodeTitle),
+      run,
+      session,
+      timeoutMs: uiTransition,
+    });
+    if (!pageText.includes(signInCodeTitle)) {
+      return "inbox" as const;
+    }
+    yield* waitSignInCodeInput();
+    return "code" as const;
+  });
+
   /**
    * Submits the sign-in form for one synthetic recipient. The serial lane
    * reserves every magic-link operation at case level, so this step never
-   * waits on the operation budget.
+   * waits on the operation budget. The emailed link signs in either way, so
+   * a code step is left untouched.
    */
   const requestSignInLink = (email: string) =>
     Effect.gen(function* () {
       yield* openPage(localized(signInSuffix));
       yield* waitSignInForm();
       yield* fillAndSubmitEmail(email);
-      yield* waitText("generic accepted sign-in response", acceptedTitle);
-      yield* waitText("generic accepted sign-in body", acceptedBody);
+      const confirmation = yield* waitSignInAccepted(
+        "generic accepted sign-in response"
+      );
+      if (confirmation === "inbox") {
+        yield* waitText("generic accepted sign-in body", acceptedBody);
+      }
     });
 
   /**
@@ -605,7 +653,8 @@ export const makeWorkspaceE2EAccountCases = ({
               yield* Effect.sleep(invalidEmailSettleMs);
               const pageText = yield* readNormalizedText();
               assert(
-                !pageText.includes(acceptedTitle),
+                !pageText.includes(acceptedTitle) &&
+                  !pageText.includes(signInCodeTitle),
                 "an invalid email produced the accepted sign-in response"
               );
             })
@@ -621,11 +670,11 @@ export const makeWorkspaceE2EAccountCases = ({
                 const startedAt = new Date();
                 lifecycleHandoff.firstAcceptedRequestedAt = startedAt;
                 yield* fillAndSubmitEmail(recipient);
-                yield* waitText(
-                  "first generic accepted response",
-                  acceptedTitle
+                const confirmation = yield* waitSignInAccepted(
+                  "first generic accepted response"
                 );
-                return yield* readNormalizedText();
+                lifecycleHandoff.signInConfirmation = confirmation;
+                return { confirmation, text: yield* readNormalizedText() };
               })
             )
           )
@@ -636,19 +685,24 @@ export const makeWorkspaceE2EAccountCases = ({
             step(
               "accepts a second unknown email with an identical response",
               Effect.gen(function* () {
+                // The code step offers a different email instead of another link.
+                const restartLabel =
+                  firstAccepted.confirmation === "code"
+                    ? useDifferentEmailLabel
+                    : sendAnotherLinkLabel;
                 yield* clickBrowserElement(
                   run,
                   session,
-                  `button:has-text("${sendAnotherLinkLabel}")`,
+                  `button:has-text("${restartLabel}")`,
                   { timeoutMs: browserTimeout }
                 );
                 yield* waitSignInForm();
+                lifecycleHandoff.secondAcceptedRequestedAt = new Date();
                 yield* fillAndSubmitEmail(acceptedRecipientTwo);
-                yield* waitText(
-                  "second generic accepted response",
-                  acceptedTitle
+                const confirmation = yield* waitSignInAccepted(
+                  "second generic accepted response"
                 );
-                return yield* readNormalizedText();
+                return { confirmation, text: yield* readNormalizedText() };
               })
             )
           )
@@ -657,15 +711,115 @@ export const makeWorkspaceE2EAccountCases = ({
           step(
             "renders both accepted responses identically",
             Effect.sync(() => {
+              const comparable = (text: string) =>
+                text.replaceAll(signInCodeResendCooldownPattern, "");
               assert(
-                firstAccepted === secondAccepted,
+                firstAccepted.confirmation === secondAccepted.confirmation &&
+                  comparable(firstAccepted.text) ===
+                    comparable(secondAccepted.text),
                 "the accepted response differs between unknown emails"
               );
+              // Both synthetic recipients mask to the same address.
+              const genericBody =
+                firstAccepted.confirmation === "code"
+                  ? m.accountSignInCodeBody(
+                      { email: maskEmailAddress(recipient) },
+                      { locale: "en-US" }
+                    )
+                  : acceptedBody;
               assert(
-                firstAccepted.includes(acceptedBody),
+                firstAccepted.text.includes(genericBody),
                 "the accepted response lost its generic body"
               );
             })
+          )
+        );
+      })
+    ),
+    makeCase("account-sign-in-code", ({ journalRef, runStep }) =>
+      Effect.gen(function* () {
+        const requestedAt = yield* runStep(
+          step(
+            "requires the second unknown email's code step",
+            Effect.sync(() => {
+              assert(
+                lifecycleHandoff.signInConfirmation === "code",
+                "the sign-in form did not open the code step"
+              );
+              const requestedAt = lifecycleHandoff.secondAcceptedRequestedAt;
+              assert(
+                requestedAt,
+                "the sign-in form did not record the second request"
+              );
+              return requestedAt;
+            })
+          )
+        );
+        const { code } = yield* runStep(
+          step(
+            "retrieves the delivered sign-in code",
+            previewLogs.retrieveSignInEmail({
+              callbackPath: `/${config.locale}${callbackSuffix}`,
+              excludeLogEntryIds: [],
+              recipient: acceptedRecipientTwo,
+              startedAt: requestedAt,
+            }),
+            authDeliveryTimeout
+          )
+        );
+        yield* runStep(
+          step(
+            "rejects a wrong code and keeps the code step",
+            Effect.gen(function* () {
+              yield* waitSignInCodeInput();
+              yield* fillBrowserField(
+                run,
+                session,
+                signInCodeSelector,
+                code === "000000" ? "111111" : "000000",
+                { timeoutMs: browserTimeout }
+              );
+              yield* waitText("wrong code status", signInCodeInvalid);
+              yield* waitForBrowserCondition(
+                run,
+                session,
+                "emptied code input after a wrong code",
+                `(() => {
+                  const input = document.querySelector(${JSON.stringify(signInCodeSelector)});
+                  return input instanceof HTMLInputElement && !input.disabled && input.value === "";
+                })()`,
+                { timeoutMs: uiTransition }
+              );
+            }),
+            providerTransition
+          )
+        );
+        yield* runStep(
+          step(
+            "signs in with the emailed code into the completion state",
+            Effect.gen(function* () {
+              yield* fillBrowserField(run, session, signInCodeSelector, code, {
+                timeoutMs: browserTimeout,
+              });
+              yield* waitPathname(
+                "account landing after the code sign-in",
+                (pathname) => pathname === `/${config.locale}${accountSuffix}`
+              );
+              yield* waitText(
+                "completion state after the code sign-in",
+                completionTitle
+              );
+              const userId = yield* requireAuthUserId(acceptedRecipientTwo);
+              yield* recordFixtureIds(journalRef, { authUserIds: [userId] });
+            }),
+            providerTransition
+          )
+        );
+        yield* runStep(
+          step(
+            "signs the code account out before the main link sign-in",
+            signOutAndRequireAnonymous(),
+            navigationTimeout
           )
         );
       })
@@ -1181,10 +1335,21 @@ export const makeWorkspaceE2EAccountCases = ({
                   deleteReauthSendSelector,
                   { timeoutMs: browserTimeout }
                 );
-                yield* waitText(
-                  "reauthentication link accepted",
-                  deletionReauthLinkSent
-                );
+                // With sign-in codes on, the dialog opens its code step
+                // instead. The emailed link still signs in, and the session
+                // lifecycle case consumes it.
+                const pageText = yield* waitForBrowserText({
+                  description: "reauthentication email accepted",
+                  matches: (text) =>
+                    text.includes(deletionReauthLinkSent) ||
+                    text.includes(deletionReauthCodeTitle),
+                  run,
+                  session,
+                  timeoutMs: uiTransition,
+                });
+                if (pageText.includes(deletionReauthCodeTitle)) {
+                  yield* waitSignInCodeInput();
+                }
               })
             )
           )

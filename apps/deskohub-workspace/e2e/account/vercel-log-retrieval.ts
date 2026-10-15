@@ -70,6 +70,12 @@ export type WorkspaceE2EPreviewLogs = {
   readonly retrieveMagicLink: (
     request: WorkspaceE2EMagicLinkRequest
   ) => Effect.Effect<string, WorkspaceE2EError>;
+  readonly retrieveSignInEmail: (
+    request: WorkspaceE2EMagicLinkRequest
+  ) => Effect.Effect<
+    { readonly link: string; readonly code: string },
+    WorkspaceE2EError
+  >;
 };
 
 const invalidVercelLogPayload = () =>
@@ -507,17 +513,7 @@ function retrieveWorkspaceE2EMagicLink(
   config: WorkspaceE2EAccountConfig,
   request: WorkspaceE2EMagicLinkRequest
 ): Effect.Effect<string, WorkspaceE2EError, HttpClient.HttpClient> {
-  const diagnostics: LogPollDiagnostics = {
-    completedQueryCount: 0,
-    lastReturnedEntryCount: 0,
-    lastMarkerCount: 0,
-    baselineExcludedMarkerCount: 0,
-    beforeStartedAtMarkerCount: 0,
-    otherRecipientCandidateCount: 0,
-    matchingEntryCount: 0,
-    lastMarkerMinTimestampDeltaMs: undefined,
-    lastMarkerMaxTimestampDeltaMs: undefined,
-  };
+  const diagnostics = makeLogPollDiagnostics();
 
   return retrieveWorkspaceE2EMagicLinkEffect(config, request, diagnostics).pipe(
     Effect.onExit(() =>
@@ -526,8 +522,94 @@ function retrieveWorkspaceE2EMagicLink(
   );
 }
 
+function retrieveWorkspaceE2ESignInEmail(
+  config: WorkspaceE2EAccountConfig,
+  request: WorkspaceE2EMagicLinkRequest
+): Effect.Effect<
+  { readonly link: string; readonly code: string },
+  WorkspaceE2EError,
+  HttpClient.HttpClient
+> {
+  const diagnostics = makeLogPollDiagnostics();
+
+  return retrieveWorkspaceE2ESignInEmailEffect(
+    config,
+    request,
+    diagnostics
+  ).pipe(
+    Effect.onExit(() =>
+      Effect.suspend(() => annotateLogPollDiagnostics(diagnostics))
+    )
+  );
+}
+
+const makeLogPollDiagnostics = (): LogPollDiagnostics => ({
+  completedQueryCount: 0,
+  lastReturnedEntryCount: 0,
+  lastMarkerCount: 0,
+  baselineExcludedMarkerCount: 0,
+  beforeStartedAtMarkerCount: 0,
+  otherRecipientCandidateCount: 0,
+  matchingEntryCount: 0,
+  lastMarkerMinTimestampDeltaMs: undefined,
+  lastMarkerMaxTimestampDeltaMs: undefined,
+});
+
 const retrieveWorkspaceE2EMagicLinkEffect = Effect.fn(
   "vercelLogRetrieval.retrieveMagicLink"
+)(function* (
+  config: WorkspaceE2EAccountConfig,
+  request: WorkspaceE2EMagicLinkRequest,
+  diagnostics: LogPollDiagnostics
+) {
+  const body = yield* retrieveWorkspaceE2EPreviewAuthBodyEffect(
+    config,
+    request,
+    diagnostics
+  );
+
+  return yield* tryWorkspaceE2ESync("extract preview magic link", () => {
+    const link = extractAuthLink(config, body, {
+      callbackPath: request.callbackPath,
+    });
+    // Redact immediately upon extraction, before any error path, trace,
+    // artifact, or failure output can observe the bearer material.
+    addRedaction(link);
+    addRedaction(new URL(link).searchParams.get("token") ?? "");
+    return link;
+  });
+});
+
+const retrieveWorkspaceE2ESignInEmailEffect = Effect.fn(
+  "vercelLogRetrieval.retrieveSignInEmail"
+)(function* (
+  config: WorkspaceE2EAccountConfig,
+  request: WorkspaceE2EMagicLinkRequest,
+  diagnostics: LogPollDiagnostics
+) {
+  const body = yield* retrieveWorkspaceE2EPreviewAuthBodyEffect(
+    config,
+    request,
+    diagnostics
+  );
+
+  return yield* tryWorkspaceE2ESync("extract preview sign-in email", () => {
+    const link = extractAuthLink(config, body, {
+      callbackPath: request.callbackPath,
+    });
+    // Redact immediately upon extraction, before any error path, trace,
+    // artifact, or failure output can observe the bearer material.
+    addRedaction(link);
+    addRedaction(new URL(link).searchParams.get("token") ?? "");
+
+    const code = extractSignInCode(body);
+    addRedaction(code, true);
+    return { link, code };
+  });
+});
+
+const retrieveWorkspaceE2EPreviewAuthBodyEffect = Effect.fn(
+  "vercelLogRetrieval.retrievePreviewAuthBody"
 )(function* (
   config: WorkspaceE2EAccountConfig,
   request: WorkspaceE2EMagicLinkRequest,
@@ -557,17 +639,7 @@ const retrieveWorkspaceE2EMagicLinkEffect = Effect.fn(
     startedAt: request.startedAt,
     diagnostics,
   });
-
-  return yield* tryWorkspaceE2ESync("extract preview magic link", () => {
-    const link = extractAuthLink(config, body, {
-      callbackPath: request.callbackPath,
-    });
-    // Redact immediately upon extraction, before any error path, trace,
-    // artifact, or failure output can observe the bearer material.
-    addRedaction(link);
-    addRedaction(new URL(link).searchParams.get("token") ?? "");
-    return link;
-  });
+  return body;
 });
 
 const listSyntheticLogEntryIds = (
@@ -846,6 +918,7 @@ const matchPreviewE2EMarkerEntries = (
 };
 
 const authLinkPattern = /https:\/\/[^\s"'<>\\]+/g;
+const signInCodePattern = /^[ \t]*(\d{6})[ \t]*$/gm;
 
 const extractAuthLink = (
   config: WorkspaceE2EAccountConfig,
@@ -866,6 +939,25 @@ const extractAuthLink = (
     );
   }
   return link;
+};
+
+const extractSignInCode = (body: string): string => {
+  const candidates = [
+    ...new Set(
+      [...body.matchAll(signInCodePattern)].map(([, code]) => code ?? "")
+    ),
+  ];
+  const [code] = candidates;
+  if (candidates.length !== 1 || !code) {
+    throw workspaceE2EError(
+      "Vercel log retrieval did not return exactly one sign-in code for the exact preview",
+      {
+        diagnosticCode: "auth_delivery_message_invalid",
+        operation: "extract preview sign-in code",
+      }
+    );
+  }
+  return code;
 };
 
 const isAuthLink = (
@@ -909,6 +1001,10 @@ export const resolveWorkspaceE2EPreviewLogs = (
         ),
       retrieveMagicLink: (request) =>
         retrieveWorkspaceE2EMagicLink(config, request).pipe(
+          Effect.provideService(HttpClient.HttpClient, httpClient)
+        ),
+      retrieveSignInEmail: (request) =>
+        retrieveWorkspaceE2ESignInEmail(config, request).pipe(
           Effect.provideService(HttpClient.HttpClient, httpClient)
         ),
     };
