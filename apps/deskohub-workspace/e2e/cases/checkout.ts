@@ -3,6 +3,7 @@ import { HttpClient } from "effect/unstable/http";
 import { renderWorkspaceEmailDetailsText } from "@/emails/workspace-email-detail";
 import { createWorkspaceMeetingRoomEmailDetailRows } from "@/features/checkout/backend/fulfillment/workspace-meeting-room-email-details";
 import { formatWorkspaceMoney } from "@/features/checkout/workspace-money";
+import { storedMeetingRoomReservationDetailsSchema } from "@/features/reservation/meeting-room-reservation";
 import { isMeetingRoomWholeDayReservationDuration } from "@/features/reservation/meeting-room-reservation-duration";
 import {
   formatReservationDisplayDate,
@@ -79,7 +80,7 @@ import type {
 import { isExpectedCheckoutStatusUrl, makeUrl, setSearchParams } from "../urls";
 
 const decodeStoredMeetingRoomReservationDetails = Schema.decodeUnknownSync(
-  Schema.Struct({ kind: Schema.Literal("meeting-room") }),
+  storedMeetingRoomReservationDetailsSchema,
   { onExcessProperty: "error" }
 );
 

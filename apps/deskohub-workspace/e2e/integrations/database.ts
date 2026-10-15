@@ -1,4 +1,5 @@
 import { deepStrictEqual } from "node:assert/strict";
+import type { DotyposCustomerId } from "@deskohub/dotypos";
 import {
   NexiOperationIdSchema,
   NexiWebhookEventIdSchema,
@@ -46,6 +47,7 @@ import type { WorkspaceMoney } from "@/features/checkout/workspace-money";
 import type { DiscountAdjustment } from "@/features/discounts/contracts";
 import type { VoucherId } from "@/features/discounts/persistence-contracts";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
+import { matchesExpectedReservationDetails } from "../checkout/reservation-details";
 import type { DatasourceConfig, WorkspaceE2EConfig } from "../config";
 import {
   isNexiWebhookDiagnosticCode,
@@ -895,9 +897,11 @@ export const waitForCheckoutRow = (
 
 export const readCleanupCheckoutRows = (
   createdAfter: Date,
-  data: CheckoutData
+  data: CheckoutData,
+  customerIds: readonly DotyposCustomerId[]
 ): Effect.Effect<readonly CheckoutRow[], WorkspaceE2EError, E2EDatabase> =>
   Effect.gen(function* () {
+    if (customerIds.length === 0) return [];
     const { db } = yield* E2EDatabase;
     const reservations = yield* runRetrySafeDatabaseOperation(
       "read checkout cleanup rows",
@@ -911,11 +915,11 @@ export const readCleanupCheckoutRows = (
               Temporal.Instant.fromEpochMilliseconds(createdAfter.getTime())
             ),
             isNotNull(workspaceReservations.dotyposReservationId),
+            inArray(workspaceReservations.dotyposCustomerId, [...customerIds]),
             ne(workspaceReservations.paymentState, "paid"),
-            eq(
-              workspaceReservations.reservationDetails,
-              data.expectedReservationDetails
-            ),
+            // Narrow by containment so snapshots carrying optional product
+            // identity still match; the decoded rows are matched below.
+            sql`${workspaceReservations.reservationDetails} @> ${JSON.stringify(data.expectedReservationDetails)}::jsonb`,
             eq(workspaceReservations.locale, data.locale)
           )
         )
@@ -928,7 +932,14 @@ export const readCleanupCheckoutRows = (
       { concurrency: "inherit" }
     ).pipe(
       Effect.map((rows) =>
-        rows.filter((row): row is CheckoutRow => row !== undefined)
+        rows.filter(
+          (row): row is CheckoutRow =>
+            row !== undefined &&
+            matchesExpectedReservationDetails(
+              row.reservation_details,
+              data.expectedReservationDetails
+            )
+        )
       )
     );
   });
@@ -1598,9 +1609,11 @@ const assertPostgresRow = (
       row.fulfillment_failure_code === null,
       "fulfillment_failure_code should be null"
     );
-    deepStrictEqual(
-      row.reservation_details,
-      data.expectedReservationDetails,
+    assert(
+      matchesExpectedReservationDetails(
+        row.reservation_details,
+        data.expectedReservationDetails
+      ),
       "unexpected reservation details"
     );
     assert(row.locale === data.locale, "unexpected locale");
@@ -1704,9 +1717,11 @@ const assertInternalPostgresRow = (
     assert(row.paid_at, "paid_at missing");
     assert(row.reservation_confirmed_at, "reservation confirmation missing");
     assert(row.fulfilled_at, "fulfilled_at missing");
-    deepStrictEqual(
-      row.reservation_details,
-      data.expectedReservationDetails,
+    assert(
+      matchesExpectedReservationDetails(
+        row.reservation_details,
+        data.expectedReservationDetails
+      ),
       "unexpected reservation details"
     );
   });
