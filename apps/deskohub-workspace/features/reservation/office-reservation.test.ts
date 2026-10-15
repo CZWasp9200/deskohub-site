@@ -299,10 +299,18 @@ describe("office reservation", () => {
     });
   });
 
-  test("keeps Dotypos-owned office facts out of local persistence", () => {
+  test("persists office seats and days without Dotypos-owned dates", () => {
     expect(getStoredOfficeReservationDetails({ kind: "office" })).toEqual({
       kind: "office",
     });
+
+    for (const details of [
+      { kind: "office", seats: 3, dayCount: 2 },
+      // Written before snapshots recorded the product.
+      { kind: "office" },
+    ]) {
+      expect(Result.isSuccess(safeParseStoredDetails(details))).toBe(true);
+    }
     expect(
       Result.isFailure(
         safeParseStoredDetails({

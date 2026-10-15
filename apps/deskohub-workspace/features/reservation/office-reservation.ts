@@ -326,10 +326,16 @@ export const getOfficeAdvertisedPriceReservation = (
 
 export const storedOfficeReservationDetailsSchema = Schema.Struct({
   kind: workspaceOfficeProductIdentitySchema.fields.kind,
+  // Rows written before snapshots recorded the product, and rows the backfill
+  // couldn't resolve, have neither field.
+  seats: Schema.optionalKey(workspaceOfficeProductIdentitySchema.fields.seats),
+  dayCount: Schema.optionalKey(
+    workspaceOfficeProductIdentitySchema.fields.dayCount
+  ),
 }).annotate({
   identifier: "StoredOfficeReservationDetails",
   description:
-    "App-owned office family discriminator without Dotypos-owned reservation facts.",
+    "App-owned office product identity without Dotypos-owned reservation facts.",
 });
 
 export type StoredOfficeReservationDetails =
