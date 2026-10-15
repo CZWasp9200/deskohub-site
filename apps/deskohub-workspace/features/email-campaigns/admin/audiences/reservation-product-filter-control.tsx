@@ -38,6 +38,7 @@ import {
   type ControlProps,
   CountComparisonControl,
   compactSelectClassName,
+  countComparisonError,
   FieldError,
   SetOperatorSelect,
   ValueChips,
@@ -206,8 +207,14 @@ export function ProductFilterControl({
             >
               <X className="h-4 w-4" aria-hidden />
             </Button>
-            {conditionErrorAt("value") && (
-              <FieldError message="Choose at least one value." />
+            {(conditionErrorAt("operator") || conditionErrorAt("value")) && (
+              <FieldError
+                message={
+                  property?.kind === "number"
+                    ? (countComparisonError(conditionErrorAt) ?? "")
+                    : "Choose at least one value."
+                }
+              />
             )}
           </div>
         );

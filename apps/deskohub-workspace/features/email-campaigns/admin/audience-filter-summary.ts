@@ -1,42 +1,70 @@
 import type {
+  AudienceBooleanAttributeDefinition,
+  AudienceBooleanCondition,
+  AudienceChoiceOption,
+  AudienceCountAttributeDefinition,
+  AudienceCountCondition,
   AudienceCountOperatorType,
+  AudienceDateAttributeDefinition,
+  AudienceDateCondition,
+  AudienceSetAttributeDefinition,
+  AudienceSetCondition,
+  AudienceValueLookup,
   ReservationProductFilterType,
   ReservationProductPropertyCondition,
 } from "@deskohub/workspace-admin-api";
 import { Match } from "effect";
-import type { Locale } from "@/features/i18n";
 import {
   reservationProductFamilies,
   reservationProductProperty,
 } from "@/features/reservation/reservation-product-descriptor";
-import type { AudienceCondition, AudienceFilter } from "../audience-filter";
+import {
+  type AudienceFilter,
+  audienceConditionsOf,
+  viewAudienceCondition,
+} from "../audience-filter";
 import type { DatePeriod } from "../date-period";
 import { describeDatePeriod } from "./date-period-phrases";
 
-/** A Dotypos discount group an audience can filter by. */
-export type DiscountGroupOption = {
+/** A looked-up value an audience can filter by, such as a discount group. */
+export type AudienceValueOption = {
   readonly id: string;
   readonly name: string;
 };
 
-const localeNames: Readonly<Record<Locale, string>> = {
-  "cs-CZ": "Czech",
-  "en-US": "English",
-};
+/** A Dotypos discount group an audience can filter by. */
+export type DiscountGroupOption = AudienceValueOption;
 
-/** How a status reads around "reservation": before it, or after it. */
-const reservationStatusPhrases = {
-  in_progress: { before: "", after: " in progress" },
-  complete: { before: "complete ", after: "" },
-  cancelled: { before: "cancelled ", after: "" },
-  needs_refund: { before: "", after: " needing a refund" },
-} as const;
+/** The value lists Workspace looked up; a missing one shows raw values. */
+export type AudienceValueLookups = {
+  readonly [Lookup in AudienceValueLookup]?:
+    | readonly AudienceValueOption[]
+    | undefined;
+};
 
 type Noun = { readonly one: string; readonly other: string };
 
+/** Comparisons that read naturally: "no emails", "any emails". */
+const naturalCounts: Readonly<Record<string, "no" | "any">> = {
+  "eq 0": "no",
+  "lt 1": "no",
+  "gt 0": "any",
+  "gte 1": "any",
+};
+
+const comparisonWords: Readonly<Record<AudienceCountOperatorType, string>> = {
+  eq: "exactly",
+  ne: "other than",
+  lt: "fewer than",
+  lte: "at most",
+  gt: "more than",
+  gte: "at least",
+};
+
 /**
- * The count as it reads in a sentence: "any emails" for more than zero, "no
- * emails" for zero, otherwise "at least 3 emails", "fewer than 2 emails", ….
+ * The count as it reads in a sentence: "no emails" for "= 0" and "< 1", "any
+ * emails" for "> 0" and "≥ 1", otherwise literally: "at least 3 emails",
+ * "fewer than 2 emails", "at most 0 emails", ….
  */
 export const describeCount = (
   operator: AudienceCountOperatorType,
@@ -45,22 +73,9 @@ export const describeCount = (
 ): string => {
   // A half-typed number reads as a gap until the operator finishes it.
   if (!Number.isInteger(value)) return `… ${noun.other}`;
-  const counted = `${value} ${value === 1 ? noun.one : noun.other}`;
-  const any = `any ${noun.other}`;
-  const none = `no ${noun.other}`;
-  return Match.value(operator).pipe(
-    Match.when("eq", () => (value === 0 ? none : `exactly ${counted}`)),
-    Match.when("ne", () => (value === 0 ? any : `other than ${counted}`)),
-    Match.when("lt", () => (value <= 1 ? none : `fewer than ${counted}`)),
-    Match.when("lte", () => (value === 0 ? none : `at most ${counted}`)),
-    Match.when("gt", () => (value === 0 ? any : `more than ${counted}`)),
-    Match.when("gte", () => {
-      // "≥ 0" holds for everyone, records or not.
-      if (value === 0) return `any number of ${noun.other}`;
-      return value === 1 ? any : `at least ${counted}`;
-    }),
-    Match.exhaustive
-  );
+  const natural = naturalCounts[`${operator} ${value}`];
+  if (natural) return `${natural} ${noun.other}`;
+  return `${comparisonWords[operator]} ${value} ${value === 1 ? noun.one : noun.other}`;
 };
 
 /** A product filter around "reservation": names before it, conditions after. */
@@ -149,123 +164,126 @@ const periodSuffix = (verb: string, period: DatePeriod) =>
 const joined = (values: readonly string[], joiner: string) =>
   values.length === 0 ? "…" : values.join(joiner);
 
-const quoted = (values: readonly string[], joiner: string) =>
-  joined(
-    values.map((value) => `“${value}”`),
-    joiner
+/**
+ * "have no booked Reserved Desk cowork reservations visiting in the last 30
+ * days": the verb, the count, and the noun with each chosen parameter's and
+ * the product's words around it, then the period.
+ */
+export const describeCountCondition = (
+  entry: AudienceCountAttributeDefinition,
+  { params, operator, value }: AudienceCountCondition
+): string => {
+  const chosen = Object.entries(entry.params).flatMap(
+    ([key, param]): readonly AudienceChoiceOption[] => {
+      if (param.part !== "choice") return [];
+      const option =
+        Object.entries(param.options).find(
+          ([value]) => value === params[key]
+        )?.[1] ?? param.absent;
+      return option ? [option] : [];
+    }
   );
+  const product = productPhrases(params.product);
+  const before = `${chosen.map(({ nounBefore = "" }) => nounBefore).join("")}${product.before}`;
+  const after = `${chosen.map(({ nounAfter = "" }) => nounAfter).join("")}${product.after}`;
+  const periodVerb = chosen.map(({ periodVerb = "" }) => periodVerb).join("");
+  return `${entry.summary.verb} ${describeCount(operator, value, {
+    one: `${before}${entry.summary.noun.one}${after}`,
+    other: `${before}${entry.summary.noun.other}${after}`,
+  })}${periodSuffix(periodVerb, params.period)}`;
+};
+
+/**
+ * "last visited in the last 30 days", "have visited, with the last visit not
+ * …", "have never visited": the entry's wording, with a reservation product
+ * after its verb.
+ */
+export const describeDateCondition = (
+  { summary }: AudienceDateAttributeDefinition,
+  condition: AudienceDateCondition
+): string => {
+  const product = condition.params && productPhrases(condition.params.product);
+  const reservation = product
+    ? ` for ${withArticle(`${product.before}reservation${product.after}`)}`
+    : "";
+  return Match.value(condition).pipe(
+    Match.when({ operator: "in" }, ({ value }) =>
+      value._tag === "AnyTime"
+        ? `${summary.withValue}${reservation}`
+        : `${summary.inPeriod}${reservation} ${describeDatePeriod(value)}`
+    ),
+    Match.when(
+      { operator: "notIn" },
+      ({ value }) =>
+        `${summary.withValue}${reservation}${summary.notInPeriod} ${describeDatePeriod(value)}`
+    ),
+    Match.when(
+      { operator: "none" },
+      () => `${summary.withoutValue}${reservation}`
+    ),
+    Match.exhaustive
+  );
+};
+
+/**
+ * "speak Czech or English", "are tagged “vip” and “coworker”", "aren’t in
+ * discount group “Staff”": the operator's wording and the values by name.
+ */
+export const describeSetCondition = (
+  { values, summary }: AudienceSetAttributeDefinition,
+  { operator, value }: AudienceSetCondition,
+  lookups: AudienceValueLookups
+): string => {
+  const names = value.map((chosen) =>
+    Match.value(values).pipe(
+      Match.tagsExhaustive({
+        Options: ({ options }) => options[chosen]?.name ?? chosen,
+        FreeText: () => `“${chosen}”`,
+        Lookup: ({ lookup }) => {
+          const option = lookups[lookup]?.find(({ id }) => id === chosen);
+          return option ? `“${option.name}”` : chosen;
+        },
+      })
+    )
+  );
+  return `${summary[operator] ?? operator} ${joined(names, operator === "allOf" ? " and " : " or ")}`;
+};
+
+export const describeBooleanCondition = (
+  { summary }: AudienceBooleanAttributeDefinition,
+  { value }: AudienceBooleanCondition
+): string => (value ? summary.true : summary.false);
 
 /** What a customer must satisfy, as a plural predicate ("speak Czech and …"). */
 const describeCondition = (
-  condition: AudienceCondition,
-  discountGroups: readonly DiscountGroupOption[]
+  condition: Parameters<typeof viewAudienceCondition>[0],
+  lookups: AudienceValueLookups
 ): string =>
-  Match.value(condition).pipe(
-    Match.discriminatorsExhaustive("attribute")({
-      reservationCount: ({ params, operator, value }) => {
-        // Without a status only booked (confirmed, never cancelled)
-        // reservations count.
-        const status = params.status
-          ? reservationStatusPhrases[params.status]
-          : { before: "booked ", after: "" };
-        const product = productPhrases(params.product);
-        return `have ${describeCount(operator, value, {
-          one: `${status.before}${product.before}reservation${status.after}${product.after}`,
-          other: `${status.before}${product.before}reservations${status.after}${product.after}`,
-        })}${periodSuffix(
-          params.dateBasis === "visit" ? "visiting " : "confirmed ",
-          params.period
-        )}`;
-      },
-      campaignEmailCount: ({ params, operator, value }) => {
-        const purpose = params.purpose === "any" ? "" : `${params.purpose} `;
-        return `received ${describeCount(operator, value, {
-          one: `${purpose}campaign email`,
-          other: `${purpose}campaign emails`,
-        })}${periodSuffix("", params.period)}`;
-      },
-      lastVisit: (date) => {
-        const product = productPhrases(date.params?.product);
-        const visited = date.params
-          ? ` for ${withArticle(`${product.before}reservation${product.after}`)}`
-          : "";
-        return Match.value(date).pipe(
-          Match.when({ operator: "in" }, ({ value }) =>
-            value._tag === "AnyTime"
-              ? `have visited${visited}`
-              : `last visited${visited} ${describeDatePeriod(value)}`
-          ),
-          Match.when(
-            { operator: "notIn" },
-            ({ value }) =>
-              `have visited${visited}, with the last visit not ${describeDatePeriod(value)}`
-          ),
-          Match.when(
-            { operator: "none" },
-            () => `have never visited${visited}`
-          ),
-          Match.exhaustive
-        );
-      },
-      accountCreated: (date) =>
-        Match.value(date).pipe(
-          Match.when({ operator: "in" }, ({ value }) =>
-            value._tag === "AnyTime"
-              ? "have a Workspace account"
-              : `created a Workspace account ${describeDatePeriod(value)}`
-          ),
-          Match.when(
-            { operator: "notIn" },
-            ({ value }) =>
-              `have a Workspace account not created ${describeDatePeriod(value)}`
-          ),
-          Match.when({ operator: "none" }, () => "have no Workspace account"),
-          Match.exhaustive
-        ),
-      locale: ({ operator, value }) => {
-        const names = joined(
-          value.map((locale) => localeNames[locale]),
-          " or "
-        );
-        return operator === "anyOf" ? `speak ${names}` : `don’t speak ${names}`;
-      },
-      dotyposTags: ({ operator, value }) =>
-        Match.value(operator).pipe(
-          Match.when("anyOf", () => `are tagged ${quoted(value, " or ")}`),
-          Match.when("allOf", () => `are tagged ${quoted(value, " and ")}`),
-          Match.when("noneOf", () => `aren’t tagged ${quoted(value, " or ")}`),
-          Match.exhaustive
-        ),
-      discountGroup: ({ operator, value }) => {
-        const names = joined(
-          value.map((id) => {
-            const group = discountGroups.find((option) => option.id === id);
-            return group ? `“${group.name}”` : id;
-          }),
-          " or "
-        );
-        return operator === "anyOf"
-          ? `are in discount group ${names}`
-          : `aren’t in discount group ${names}`;
-      },
-      hasAccount: ({ value }) =>
-        value ? "have a Workspace account" : "have no Workspace account",
+  Match.value(viewAudienceCondition(condition)).pipe(
+    Match.discriminatorsExhaustive("kind")({
+      count: ({ entry, condition: count }) =>
+        describeCountCondition(entry, count),
+      date: ({ entry, condition: date }) => describeDateCondition(entry, date),
+      set: ({ entry, condition: set }) =>
+        describeSetCondition(entry, set, lookups),
+      boolean: ({ entry, condition: boolean }) =>
+        describeBooleanCondition(entry, boolean),
     })
   );
 
 const describeFilter = (
   filter: AudienceFilter,
-  discountGroups: readonly DiscountGroupOption[]
+  lookups: AudienceValueLookups
 ): string => {
-  if (filter._tag !== "Group") return describeCondition(filter, discountGroups);
+  if (filter._tag !== "Group") return describeCondition(filter, lookups);
   if (filter.filters.length === 0) {
     return filter.operator === "and" ? "match anything" : "match nothing";
   }
   return filter.filters
     .map((child) =>
       child._tag === "Group" && child.filters.length > 1
-        ? `(${describeFilter(child, discountGroups)})`
-        : describeFilter(child, discountGroups)
+        ? `(${describeFilter(child, lookups)})`
+        : describeFilter(child, lookups)
     )
     .join(filter.operator === "and" ? " and " : " or ");
 };
@@ -279,34 +297,31 @@ const endsAtEvaluation = (period: DatePeriod) =>
  * campaign evaluated those at its send time.
  */
 export const hasPeriodEndingAtEvaluation = (filter: AudienceFilter): boolean =>
-  filter._tag === "Group"
-    ? filter.filters.some(hasPeriodEndingAtEvaluation)
-    : Match.value(filter).pipe(
-        Match.discriminatorsExhaustive("attribute")({
-          reservationCount: ({ params }) => endsAtEvaluation(params.period),
-          campaignEmailCount: ({ params }) => endsAtEvaluation(params.period),
-          lastVisit: (date) => "value" in date && endsAtEvaluation(date.value),
-          accountCreated: (date) =>
-            "value" in date && endsAtEvaluation(date.value),
-          locale: () => false,
-          dotyposTags: () => false,
-          discountGroup: () => false,
-          hasAccount: () => false,
-        })
-      );
+  audienceConditionsOf(filter).some((condition) =>
+    Match.value(viewAudienceCondition(condition)).pipe(
+      Match.discriminatorsExhaustive("kind")({
+        count: ({ condition: count }) => endsAtEvaluation(count.params.period),
+        date: ({ condition: date }) =>
+          date.operator !== "none" && endsAtEvaluation(date.value),
+        set: () => false,
+        boolean: () => false,
+      })
+    )
+  );
 
 /**
- * One sentence of plain English for an audience filter tree. Discount groups
- * show by name when `discountGroups` lists them, otherwise by ID.
+ * One sentence of plain English for an audience filter tree. Looked-up
+ * values, such as discount groups, show by name when `lookups` lists them,
+ * otherwise by ID.
  */
 export const describeAudienceFilter = (
   filter: AudienceFilter,
-  discountGroups: readonly DiscountGroupOption[] = []
+  lookups: AudienceValueLookups = {}
 ): string => {
   if (filter._tag === "Group" && filter.filters.length === 0) {
     return filter.operator === "and"
       ? "Every customer Workspace knows"
       : "Nobody";
   }
-  return `Customers who ${describeFilter(filter, discountGroups)}`;
+  return `Customers who ${describeFilter(filter, lookups)}`;
 };

@@ -1,16 +1,24 @@
-import type { DotyposCustomer, DotyposCustomerId } from "@deskohub/dotypos";
+import type { DotyposCustomerId } from "@deskohub/dotypos";
 import {
+  type AudienceAttributeDefinition,
   type AudienceAttributeOfKind,
+  type AudienceBooleanAttributeDefinition,
   type AudienceConditionOf,
   type AudienceConditionType,
+  type AudienceCountAttributeDefinition,
+  type AudienceCountCondition,
   type AudienceCountOperatorType,
+  type AudienceDateAttributeDefinition,
+  type AudienceDateCondition,
   type AudienceFilterGroup,
   type AudienceFilterType,
+  type AudienceSetAttributeDefinition,
   type AudienceSetOperatorType,
+  audienceAttributeCatalogue,
   AudienceFilter as audienceFilterContractSchema,
   type ReservationProductFilterType,
 } from "@deskohub/workspace-admin-api";
-import { Match, Option, Schema } from "effect";
+import { Match, Schema } from "effect";
 import { type Locale, locales } from "@/features/i18n";
 import { reservationProductFilterSchema } from "@/features/reservation/reservation-product-descriptor";
 import type { DatePeriod } from "./date-period";
@@ -24,8 +32,43 @@ export type AudienceFilter = AudienceFilterType;
 export type AudienceCondition = AudienceConditionType;
 export type { AudienceFilterGroup };
 
-type AudienceCountAttribute = AudienceAttributeOfKind<"count">;
-type AudienceDateAttribute = AudienceAttributeOfKind<"date">;
+/**
+ * A condition with its catalogue entry, tagged by kind. Code that works on
+ * any attribute of a kind matches on `kind` and reads the entry's metadata.
+ */
+export type AudienceConditionView =
+  | {
+      readonly kind: "count";
+      readonly entry: AudienceCountAttributeDefinition;
+      readonly condition: AudienceConditionOf<AudienceAttributeOfKind<"count">>;
+    }
+  | {
+      readonly kind: "date";
+      readonly entry: AudienceDateAttributeDefinition;
+      readonly condition: AudienceConditionOf<AudienceAttributeOfKind<"date">>;
+    }
+  | {
+      readonly kind: "set";
+      readonly entry: AudienceSetAttributeDefinition;
+      readonly condition: AudienceConditionOf<AudienceAttributeOfKind<"set">>;
+    }
+  | {
+      readonly kind: "boolean";
+      readonly entry: AudienceBooleanAttributeDefinition;
+      readonly condition: AudienceConditionOf<
+        AudienceAttributeOfKind<"boolean">
+      >;
+    };
+
+export const viewAudienceCondition = (
+  condition: AudienceCondition
+): AudienceConditionView => {
+  const entry: AudienceAttributeDefinition =
+    audienceAttributeCatalogue[condition.attribute];
+  // The catalogue keys each entry by its attribute, so the entry's kind is
+  // the kind of the condition's attribute.
+  return { kind: entry.kind, entry, condition } as AudienceConditionView;
+};
 
 /**
  * Three-valued result: a Dotypos condition is `unknown` until the customer's
@@ -41,19 +84,23 @@ export type AudienceCandidate = {
   readonly hasAccount: boolean;
 };
 
+type CountRequestOf<Condition extends AudienceCountCondition> = Pick<
+  Condition,
+  "attribute" | "params"
+>;
+
 /** What one count condition counts; equal requests share one lookup. */
-export type AudienceCountRequest = {
-  readonly [Attribute in AudienceCountAttribute]: Pick<
-    AudienceConditionOf<Attribute>,
-    "attribute" | "params"
-  >;
-}[AudienceCountAttribute];
+export type AudienceCountRequest = CountRequestOf<
+  AudienceConditionOf<AudienceAttributeOfKind<"count">>
+>;
 
 /** Which date attribute one condition tests, in which period. */
-export type AudienceDateRequest = {
-  readonly attribute: AudienceDateAttribute;
+export type AudienceDateRequest<
+  Attribute extends string = AudienceAttributeOfKind<"date">,
+> = {
+  readonly attribute: Attribute;
   readonly period: DatePeriod;
-  /** Only reservations of this product count (last visit). */
+  /** Only reservations of this product count (reservation-based dates). */
   readonly product?: ReservationProductFilterType;
 };
 
@@ -75,31 +122,33 @@ export type AudienceFacts = {
 
 /** Requests are decoded schema values, so their key order is stable. */
 export const audienceFactKey = (
-  request: AudienceCountRequest | AudienceDateRequest
+  request:
+    | Pick<AudienceCountCondition, "attribute" | "params">
+    | AudienceDateRequest<string>
 ): string => JSON.stringify(request);
 
 const anyTime: DatePeriod = { _tag: "AnyTime" };
 
+export const countFactRequest = <Condition extends AudienceCountCondition>({
+  attribute,
+  params,
+}: Condition): CountRequestOf<Condition> => ({ attribute, params });
+
 /** "Has no value" needs only the customers with one, so it asks for any time. */
-const dateRequest = (
-  condition: AudienceConditionOf<AudienceDateAttribute>
-): AudienceDateRequest => ({
+export const dateFactRequest = <Condition extends AudienceDateCondition>(
+  condition: Condition
+): AudienceDateRequest<Condition["attribute"]> => ({
   attribute: condition.attribute,
   period: condition.operator === "none" ? anyTime : condition.value,
-  ...("params" in condition &&
-    condition.params && { product: condition.params.product }),
+  ...(condition.params && { product: condition.params.product }),
 });
 
-const countRequest = (
-  condition: AudienceConditionOf<AudienceCountAttribute>
-): AudienceCountRequest =>
-  ({
-    attribute: condition.attribute,
-    params: condition.params,
-  }) as AudienceCountRequest;
-
-const conditionsOf = (filter: AudienceFilter): readonly AudienceCondition[] =>
-  filter._tag === "Group" ? filter.filters.flatMap(conditionsOf) : [filter];
+export const audienceConditionsOf = (
+  filter: AudienceFilter
+): readonly AudienceCondition[] =>
+  filter._tag === "Group"
+    ? filter.filters.flatMap(audienceConditionsOf)
+    : [filter];
 
 /** Every count and date lookup the tree needs, deduplicated. */
 export const collectAudienceFactRequests = (
@@ -110,29 +159,19 @@ export const collectAudienceFactRequests = (
 } => {
   const counts = new Map<string, AudienceCountRequest>();
   const dates = new Map<string, AudienceDateRequest>();
-  for (const condition of conditionsOf(filter)) {
-    Match.value(condition).pipe(
-      Match.discriminatorsExhaustive("attribute")({
-        reservationCount: (count) => {
-          const request = countRequest(count);
+  for (const view of audienceConditionsOf(filter).map(viewAudienceCondition)) {
+    Match.value(view).pipe(
+      Match.discriminatorsExhaustive("kind")({
+        count: ({ condition }) => {
+          const request = countFactRequest(condition);
           counts.set(audienceFactKey(request), request);
         },
-        campaignEmailCount: (count) => {
-          const request = countRequest(count);
-          counts.set(audienceFactKey(request), request);
-        },
-        lastVisit: (date) => {
-          const request = dateRequest(date);
+        date: ({ condition }) => {
+          const request = dateFactRequest(condition);
           dates.set(audienceFactKey(request), request);
         },
-        accountCreated: (date) => {
-          const request = dateRequest(date);
-          dates.set(audienceFactKey(request), request);
-        },
-        locale: () => undefined,
-        dotyposTags: () => undefined,
-        discountGroup: () => undefined,
-        hasAccount: () => undefined,
+        set: () => undefined,
+        boolean: () => undefined,
       })
     );
   }
@@ -173,94 +212,11 @@ export const matchesSet = <Value>(
     Match.exhaustive
   );
 
-const fromBoolean = (value: boolean): AudienceFilterOutcome =>
-  value ? "match" : "noMatch";
-
 /**
- * Evaluates the filter for one candidate. Pass `Option.none()` as the profile
- * before Dotypos hydration; Dotypos conditions then evaluate to `unknown`.
+ * Combines a group's outcomes: AND fails on any `noMatch` and OR passes on
+ * any `match`; otherwise an `unknown` keeps the group unknown.
  */
-export const evaluateAudienceFilter = (input: {
-  readonly filter: AudienceFilter;
-  readonly candidate: AudienceCandidate;
-  readonly facts: AudienceFacts;
-  readonly profile: Option.Option<DotyposCustomer>;
-}): AudienceFilterOutcome => {
-  const { candidate, facts, profile } = input;
-  const profileCondition = (
-    predicate: (customer: DotyposCustomer) => boolean
-  ): AudienceFilterOutcome =>
-    Option.match(profile, {
-      onNone: () => "unknown",
-      onSome: (customer) => fromBoolean(predicate(customer)),
-    });
-
-  const countCondition = (
-    condition: AudienceConditionOf<AudienceCountAttribute>
-  ) =>
-    fromBoolean(
-      compareCount(
-        condition.operator,
-        facts.counts
-          .get(audienceFactKey(countRequest(condition)))
-          ?.get(candidate.dotyposCustomerId) ?? 0,
-        condition.value
-      )
-    );
-
-  const dateCondition = (
-    condition: AudienceConditionOf<AudienceDateAttribute>
-  ) => {
-    const dates = facts.dates.get(audienceFactKey(dateRequest(condition)));
-    const id = candidate.dotyposCustomerId;
-    const hasValue = dates?.withValue.has(id) ?? false;
-    const inPeriod = dates?.inPeriod.has(id) ?? false;
-    return fromBoolean(
-      Match.value(condition.operator).pipe(
-        Match.when("in", () => inPeriod),
-        Match.when("notIn", () => hasValue && !inPeriod),
-        Match.when("none", () => !hasValue),
-        Match.exhaustive
-      )
-    );
-  };
-
-  const evaluateCondition = (
-    condition: AudienceCondition
-  ): AudienceFilterOutcome =>
-    Match.value(condition).pipe(
-      Match.discriminatorsExhaustive("attribute")({
-        reservationCount: countCondition,
-        campaignEmailCount: countCondition,
-        lastVisit: dateCondition,
-        accountCreated: dateCondition,
-        locale: ({ operator, value }) =>
-          fromBoolean(matchesSet(operator, [candidate.locale], value)),
-        dotyposTags: ({ operator, value }) =>
-          profileCondition((customer) =>
-            matchesSet(operator, customer.tags ?? [], value)
-          ),
-        discountGroup: ({ operator, value }) =>
-          profileCondition((customer) =>
-            matchesSet(
-              operator,
-              customer._discountGroupId ? [customer._discountGroupId] : [],
-              value
-            )
-          ),
-        hasAccount: ({ value }) => fromBoolean(candidate.hasAccount === value),
-      })
-    );
-
-  const evaluate = (filter: AudienceFilter): AudienceFilterOutcome =>
-    filter._tag === "Group"
-      ? combineOutcomes(filter.operator, filter.filters.map(evaluate))
-      : evaluateCondition(filter);
-
-  return evaluate(input.filter);
-};
-
-const combineOutcomes = (
+export const combineAudienceOutcomes = (
   operator: AudienceFilterGroup["operator"],
   outcomes: readonly AudienceFilterOutcome[]
 ): AudienceFilterOutcome => {
@@ -270,46 +226,48 @@ const combineOutcomes = (
   return operator === "and" ? "match" : "noMatch";
 };
 
-const allLocales = (): ReadonlySet<Locale> => new Set(locales);
+/**
+ * The tree's outcome from its conditions' outcomes. An empty AND group
+ * matches and an empty OR group doesn't.
+ */
+export const evaluateAudienceTree = (
+  filter: AudienceFilter,
+  conditionOutcome: (condition: AudienceCondition) => AudienceFilterOutcome
+): AudienceFilterOutcome => {
+  const evaluate = (node: AudienceFilter): AudienceFilterOutcome =>
+    node._tag === "Group"
+      ? combineAudienceOutcomes(node.operator, node.filters.map(evaluate))
+      : conditionOutcome(node);
+  return evaluate(filter);
+};
+
+const outcomeOf = (value: boolean): AudienceFilterOutcome =>
+  value ? "match" : "noMatch";
 
 /**
- * The locales a recipient of the audience can have. Only locale conditions
- * narrow it: an AND group keeps the locales all its filters allow and an OR
- * group the locales any of them allows. An empty AND group matches everyone
- * and an empty OR group nobody, as {@link evaluateAudienceFilter} decides.
+ * The locales a recipient of the audience can have. Only conditions on an
+ * attribute that narrows locales decide a locale; every other condition is
+ * unknown, so it allows every locale. An empty AND group matches everyone and
+ * an empty OR group nobody, as the evaluation decides.
  */
 export const audienceLocales = (filter: AudienceFilter): ReadonlySet<Locale> =>
-  filter._tag === "Group"
-    ? groupLocales(filter)
-    : Match.value(filter).pipe(
-        Match.discriminatorsExhaustive("attribute")({
-          locale: ({ operator, value }) =>
-            new Set(
-              locales.filter((locale) => matchesSet(operator, [locale], value))
-            ),
-          reservationCount: allLocales,
-          campaignEmailCount: allLocales,
-          lastVisit: allLocales,
-          accountCreated: allLocales,
-          dotyposTags: allLocales,
-          discountGroup: allLocales,
-          hasAccount: allLocales,
-        })
-      );
-
-const groupLocales = ({
-  operator,
-  filters,
-}: AudienceFilterGroup): ReadonlySet<Locale> => {
-  const allowed = filters.map(audienceLocales);
-  return new Set(
-    locales.filter((locale) =>
-      operator === "and"
-        ? allowed.every((group) => group.has(locale))
-        : allowed.some((group) => group.has(locale))
+  new Set(
+    locales.filter(
+      (locale) =>
+        evaluateAudienceTree(filter, (condition) => {
+          const view = viewAudienceCondition(condition);
+          return view.kind === "set" && view.entry.narrowsLocales
+            ? outcomeOf(
+                matchesSet(
+                  view.condition.operator,
+                  [locale],
+                  view.condition.value
+                )
+              )
+            : "unknown";
+        }) !== "noMatch"
     )
   );
-};
 
 /**
  * The single locale every recipient of the audience has, when its filter
@@ -322,25 +280,31 @@ export const audienceSingleLocale = (
   return others.length === 0 ? locale : undefined;
 };
 
+const countProduct = ({ params }: AudienceCountCondition) => params.product;
+
+const dateProduct = ({ params }: AudienceDateCondition) => params?.product;
+
+/** The product filter of a reservation-based condition, if it has one. */
+export const audienceProductFilter = (
+  view: AudienceConditionView
+): ReservationProductFilterType | undefined =>
+  Match.value(view).pipe(
+    Match.discriminatorsExhaustive("kind")({
+      count: ({ condition }) => countProduct(condition),
+      date: ({ condition }) => dateProduct(condition),
+      set: () => undefined,
+      boolean: () => undefined,
+    })
+  );
+
 /** The product filters of the tree's reservation-based conditions. */
 const productFilters = (
   filter: AudienceFilter
 ): readonly ReservationProductFilterType[] =>
-  conditionsOf(filter).flatMap((condition) =>
-    Match.value(condition).pipe(
-      Match.discriminatorsExhaustive("attribute")({
-        reservationCount: ({ params }) =>
-          params.product ? [params.product] : [],
-        lastVisit: (date) => (date.params ? [date.params.product] : []),
-        campaignEmailCount: () => [],
-        accountCreated: () => [],
-        locale: () => [],
-        dotyposTags: () => [],
-        discountGroup: () => [],
-        hasAccount: () => [],
-      })
-    )
-  );
+  audienceConditionsOf(filter).flatMap((condition) => {
+    const product = audienceProductFilter(viewAudienceCondition(condition));
+    return product ? [product] : [];
+  });
 
 const isCatalogProductFilter = Schema.is(reservationProductFilterSchema);
 

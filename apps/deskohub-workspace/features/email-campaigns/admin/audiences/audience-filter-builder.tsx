@@ -1,6 +1,9 @@
 "use client";
 
-import type { AudienceAttribute } from "@deskohub/workspace-admin-api";
+import {
+  type AudienceAttribute,
+  audienceAttributeCatalogue,
+} from "@deskohub/workspace-admin-api";
 import { Match } from "effect";
 import { ChevronDown, ListPlus, Plus, X } from "lucide-react";
 import { Fragment } from "react";
@@ -27,21 +30,20 @@ import {
   ToggleGroupItem,
 } from "@/shared/components/ui/toggle-group";
 import { cn } from "@/shared/utils";
-import type { AudienceFilter } from "../../audience-filter";
-import type { DiscountGroupOption } from "../audience-filter-summary";
 import {
-  audienceAttributeLabels,
-  audienceAttributeSections,
+  type AudienceFilter,
+  viewAudienceCondition,
+} from "../../audience-filter";
+import type { AudienceValueLookups } from "../audience-filter-summary";
+import {
+  audienceAttributeMenu,
   isAudienceAttribute,
-} from "./audience-attribute-labels";
+} from "./audience-attribute-menu";
 import {
-  CampaignEmailCountControls,
+  BooleanConditionControls,
+  CountConditionControls,
   DateConditionControls,
-  DiscountGroupControls,
-  DotyposTagControls,
-  HasAccountControls,
-  LocaleControls,
-  ReservationCountControls,
+  SetConditionControls,
 } from "./audience-condition-controls";
 import {
   FieldError,
@@ -56,7 +58,6 @@ import {
   removeFilterAt,
   replaceFilterAt,
 } from "./audience-filter-editing";
-import { ProductFilterControl } from "./reservation-product-filter-control";
 
 /** Error message React Hook Form holds for a form path, if any. */
 export type FilterErrorLookup = (path: string) => string | undefined;
@@ -76,7 +77,7 @@ const groupFrameClassName = (depth: number) => {
 
 type BuilderContext = {
   readonly errorAt: FilterErrorLookup;
-  readonly discountGroups: readonly DiscountGroupOption[] | undefined;
+  readonly lookups: AudienceValueLookups;
 };
 
 export function AudienceFilterBuilder({
@@ -84,15 +85,15 @@ export function AudienceFilterBuilder({
   onChange,
   path,
   errorAt,
-  discountGroups,
+  lookups = {},
 }: {
   readonly value: AudienceFilterGroup;
   readonly onChange: (value: AudienceFilterGroup) => void;
   /** Form path of the root group, used to look up validation errors. */
   readonly path: string;
   readonly errorAt: FilterErrorLookup;
-  /** Dotypos discount groups to pick from; omitted means a free ID input. */
-  readonly discountGroups?: readonly DiscountGroupOption[];
+  /** Value lists to pick from; a missing one means free entry. */
+  readonly lookups?: AudienceValueLookups;
 }) {
   return (
     <GroupEditor
@@ -100,7 +101,7 @@ export function AudienceFilterBuilder({
       onChange={onChange}
       depth={0}
       path={path}
-      context={{ errorAt, discountGroups }}
+      context={{ errorAt, lookups }}
     />
   );
 }
@@ -217,7 +218,7 @@ function GroupEditor({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start">
-            {audienceAttributeSections.map(({ section, attributes }, index) => (
+            {audienceAttributeMenu.map(({ section, attributes }, index) => (
               <Fragment key={section}>
                 {index > 0 && <DropdownMenuSeparator />}
                 <DropdownMenuLabel>{section}</DropdownMenuLabel>
@@ -226,7 +227,7 @@ function GroupEditor({
                     key={attribute}
                     onSelect={() => add(newCondition(attribute))}
                   >
-                    {audienceAttributeLabels[attribute].label}
+                    {audienceAttributeCatalogue[attribute].label}
                   </DropdownMenuItem>
                 ))}
               </Fragment>
@@ -263,80 +264,38 @@ function ConditionEditor({
   const errorAt: FieldErrorLookup = (field) =>
     context.errorAt(field === "" ? path : `${path}.${field}`);
 
-  const body = Match.value(condition).pipe(
-    Match.discriminatorsExhaustive("attribute")({
-      reservationCount: (value) => (
-        <ReservationCountControls
-          value={value}
+  const body = Match.value(viewAudienceCondition(condition)).pipe(
+    Match.discriminatorsExhaustive("kind")({
+      count: ({ entry, condition: count }) => (
+        <CountConditionControls
+          entry={entry}
+          value={count}
           onChange={onChange}
           errorAt={errorAt}
         />
       ),
-      campaignEmailCount: (value) => (
-        <CampaignEmailCountControls
-          value={value}
-          onChange={onChange}
-          errorAt={errorAt}
-        />
-      ),
-      lastVisit: (value) => (
-        <div className="space-y-2">
-          <DateConditionControls
-            value={value}
-            onChange={onChange}
-            errorAt={errorAt}
-            label="Last visit"
-            noValueLabel="never visited"
-          />
-          <ProductFilterControl
-            value={value.params?.product}
-            onChange={(product) => {
-              const { params: _, ...rest } = value;
-              onChange(product ? { ...rest, params: { product } } : rest);
-            }}
-            errorAt={(field) =>
-              errorAt(
-                field === "" ? "params.product" : `params.product.${field}`
-              )
-            }
-          />
-        </div>
-      ),
-      accountCreated: (value) => (
+      date: ({ entry, condition: date }) => (
         <DateConditionControls
-          value={value}
+          entry={entry}
+          value={date}
           onChange={onChange}
           errorAt={errorAt}
-          label="Account created"
-          noValueLabel="no account"
         />
       ),
-      locale: (value) => (
-        <LocaleControls
-          value={value}
+      set: ({ entry, condition: set }) => (
+        <SetConditionControls
+          entry={entry}
+          value={set}
           onChange={onChange}
           errorAt={errorAt}
           path={path}
+          lookups={context.lookups}
         />
       ),
-      dotyposTags: (value) => (
-        <DotyposTagControls
-          value={value}
-          onChange={onChange}
-          errorAt={errorAt}
-        />
-      ),
-      discountGroup: (value) => (
-        <DiscountGroupControls
-          value={value}
-          onChange={onChange}
-          errorAt={errorAt}
-          discountGroups={context.discountGroups}
-        />
-      ),
-      hasAccount: (value) => (
-        <HasAccountControls
-          value={value}
+      boolean: ({ entry, condition: boolean }) => (
+        <BooleanConditionControls
+          entry={entry}
+          value={boolean}
           onChange={onChange}
           errorAt={errorAt}
         />
@@ -383,12 +342,12 @@ function AttributePicker({
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
-        {audienceAttributeSections.map(({ section, attributes }) => (
+        {audienceAttributeMenu.map(({ section, attributes }) => (
           <SelectGroup key={section}>
             <SelectLabel>{section}</SelectLabel>
             {attributes.map((attribute) => (
               <SelectItem key={attribute} value={attribute}>
-                {audienceAttributeLabels[attribute].label}
+                {audienceAttributeCatalogue[attribute].label}
               </SelectItem>
             ))}
           </SelectGroup>

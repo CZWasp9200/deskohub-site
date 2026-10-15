@@ -9,10 +9,7 @@ import {
   audienceFilterSchema,
 } from "../../audience-filter";
 import type { DatePeriod } from "../../date-period";
-import {
-  audienceAttributeLabels,
-  audienceAttributeSections,
-} from "./audience-attribute-labels";
+import { audienceAttributeMenu } from "./audience-attribute-menu";
 import {
   type AudienceFilterGroup,
   appendFilter,
@@ -146,12 +143,12 @@ describe("switchDatePeriod", () => {
 
 describe("the attribute catalogue in the builder", () => {
   test("every attribute has a label, a menu section, and a valid or placeholder default", () => {
-    const listed = audienceAttributeSections.flatMap(
+    const listed = audienceAttributeMenu.flatMap(
       ({ attributes: sectionAttributes }) => sectionAttributes
     );
     expect(listed.toSorted()).toEqual(attributes.toSorted());
     for (const attribute of attributes) {
-      expect(audienceAttributeLabels[attribute].label).not.toBe("");
+      expect(audienceAttributeCatalogue[attribute].label).not.toBe("");
       expect(newCondition(attribute).attribute).toBe(attribute);
     }
   });

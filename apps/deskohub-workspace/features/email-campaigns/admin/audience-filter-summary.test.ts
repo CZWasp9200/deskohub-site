@@ -85,15 +85,17 @@ describe("describeAudienceFilter", () => {
   test.each<[AudienceCountOperatorType, number, string]>([
     ["eq", 0, "no emails"],
     ["eq", 1, "exactly 1 email"],
-    ["ne", 0, "any emails"],
+    // Only "= 0" and "< 1" read as "no", and "> 0" and "≥ 1" as "any".
+    ["ne", 0, "other than 0 emails"],
     ["ne", 2, "other than 2 emails"],
+    ["lt", 0, "fewer than 0 emails"],
     ["lt", 1, "no emails"],
     ["lt", 3, "fewer than 3 emails"],
-    ["lte", 0, "no emails"],
+    ["lte", 0, "at most 0 emails"],
     ["lte", 2, "at most 2 emails"],
     ["gt", 0, "any emails"],
     ["gt", 1, "more than 1 email"],
-    ["gte", 0, "any number of emails"],
+    ["gte", 0, "at least 0 emails"],
     ["gte", 1, "any emails"],
     ["gte", 3, "at least 3 emails"],
     ["gt", Number.NaN, "… emails"],
@@ -151,7 +153,7 @@ describe("describeAudienceFilter", () => {
             value: false,
           }
         ),
-        [{ id: "1", name: "Students" }]
+        { discountGroups: [{ id: "1", name: "Students" }] }
       )
     ).toBe(
       "Customers who speak Czech and aren’t tagged “vip” or “staff” and are in discount group “Students” or 2 and have no Workspace account"

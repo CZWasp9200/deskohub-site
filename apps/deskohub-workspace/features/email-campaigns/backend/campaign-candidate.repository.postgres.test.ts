@@ -399,6 +399,19 @@ describe.skipIf(!testDatabase)(
       ).toBe(true);
     });
 
+    test("includes a booking confirmed exactly at an evaluation-time end", async () => {
+      expect(await matches({ booked: { startsAtOrBefore: confirmedAt } })).toBe(
+        true
+      );
+      expect(
+        await matches({
+          booked: {
+            startsAtOrBefore: confirmedAt.subtract({ milliseconds: 1 }),
+          },
+        })
+      ).toBe(false);
+    });
+
     test("matches reservations by their Dotypos reservation", async () => {
       expect(
         await matches({ dotyposReservationIds: [visitedReservation] })

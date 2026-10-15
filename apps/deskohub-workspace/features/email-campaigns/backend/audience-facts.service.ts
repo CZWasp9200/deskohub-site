@@ -1,30 +1,26 @@
 import "server-only";
 
-import {
-  type DotyposCustomerId,
-  type DotyposReservation,
-  type DotyposReservationId,
-  DotyposService,
-} from "@deskohub/dotypos";
-import type { ReservationProductFilterType } from "@deskohub/workspace-admin-api";
-import { Context, Effect, Layer, Match, Schema } from "effect";
+import { type DotyposReservation, DotyposService } from "@deskohub/dotypos";
+import type { AudienceAttributeOfKind } from "@deskohub/workspace-admin-api";
+import { Context, Effect, Layer, Option, Schema } from "effect";
 import { reservationIntervalSchema } from "@/features/reservation/reservation-interval";
 import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
 import {
   type AudienceCountRequest,
-  type AudienceDateFacts,
   type AudienceDateRequest,
   type AudienceFacts,
   type AudienceFilter,
   audienceFactKey,
   collectAudienceFactRequests,
 } from "../audience-filter";
-import {
-  type DatePeriodBounds,
-  datePeriodBounds,
-  isWithinDatePeriodBounds,
-} from "../date-period";
+import { type DatePeriodBounds, datePeriodBounds } from "../date-period";
 import { CampaignRecipientResolutionError } from "../errors";
+import {
+  type AudienceCountParams,
+  type AudienceCountResolver,
+  type AudienceResolution,
+  audienceAttributeResolvers,
+} from "./audience-attribute-resolvers";
 import { CampaignCandidateRepository } from "./campaign-candidate.repository";
 
 /**
@@ -36,10 +32,11 @@ const visitLowerBoundMargin = { days: 7 } as const;
 
 export interface IAudienceFactsService {
   /**
-   * Resolves every count and date attribute the filter uses, as of `now`.
-   * Visit dates come only from bounded Dotypos range queries: each starts at
-   * the period's own start or, when it has none, just before the earliest
-   * Workspace reservation, and last-visit queries end at `now`.
+   * Resolves every count and date attribute the filter uses, as of `now`,
+   * through each attribute's resolver. Visit dates come only from bounded
+   * Dotypos range queries: each starts at the period's own start or, when it
+   * has none, just before the earliest Workspace reservation, and last-visit
+   * queries end at `now`, inclusive.
    */
   readonly resolve: (input: {
     readonly filter: AudienceFilter;
@@ -59,6 +56,43 @@ const visitStart = (reservation: DotyposReservation) =>
     Effect.mapError(CampaignRecipientResolutionError.dotypos)
   );
 
+/**
+ * The exclusive end of a Dotypos start-date query. Dotypos filters have no
+ * inclusive upper bound, and its start dates carry at most millisecond
+ * precision, so "at or before t" asks for "before t + 1 ms".
+ */
+const dotyposStartsBefore = (bounds: DatePeriodBounds) =>
+  bounds.startsAtOrBefore?.add({ milliseconds: 1 }) ?? bounds.startsBefore;
+
+/** The count resolvers, keyed so a request's attribute picks its params' resolver. */
+const countResolvers: {
+  readonly [Attribute in AudienceAttributeOfKind<"count">]: AudienceCountResolver<
+    AudienceCountParams<Attribute>
+  >;
+} = audienceAttributeResolvers;
+
+/** Counts through the request's attribute resolver. */
+const resolveCount = <Attribute extends AudienceAttributeOfKind<"count">>(
+  request: {
+    readonly attribute: Attribute;
+    readonly params: AudienceCountParams<Attribute>;
+  },
+  resolution: AudienceResolution
+) => countResolvers[request.attribute].count(request.params, resolution);
+
+/** Dates through the request's attribute resolver. */
+const resolveDates = (
+  { attribute, period, product }: AudienceDateRequest,
+  resolution: AudienceResolution
+) =>
+  audienceAttributeResolvers[attribute].dates(
+    {
+      bounds: datePeriodBounds(period, resolution.now),
+      ...(product && { product }),
+    },
+    resolution
+  );
+
 export class AudienceFactsService extends Context.Service<
   AudienceFactsService,
   IAudienceFactsService
@@ -69,8 +103,6 @@ export class AudienceFactsService extends Context.Service<
       const candidates = yield* CampaignCandidateRepository;
       const dotypos = yield* DotyposService;
 
-      const database = CampaignRecipientResolutionError.database;
-
       /** Where visit queries without their own start begin; none without reservations. */
       const visitLowerBound = candidates.earliestReservationAt.pipe(
         Effect.map((createdAt) =>
@@ -79,90 +111,37 @@ export class AudienceFactsService extends Context.Service<
             .subtract(visitLowerBoundMargin)
             .toInstant()
         ),
-        Effect.mapError(database)
+        Effect.mapError(CampaignRecipientResolutionError.database)
       );
 
-      /** Dotypos reservations starting in the bounds, any status. */
-      const listVisits = (bounds: {
-        readonly startsAtOrAfter: Temporal.Instant;
-        readonly startsBefore?: Temporal.Instant;
-      }) =>
-        dotypos
-          .listReservations({
-            startsAtOrAfter: bounds.startsAtOrAfter.toString(),
-            ...(bounds.startsBefore && {
-              startsBefore: bounds.startsBefore.toString(),
-            }),
-          })
-          .pipe(Effect.mapError(CampaignRecipientResolutionError.dotypos));
-
-      const dotyposReservationIds = (
-        reservations: readonly DotyposReservation[]
-      ) => reservations.flatMap(({ id }) => (id === undefined ? [] : [id]));
-
-      const countResolver = (
-        request: AudienceCountRequest,
-        now: Temporal.Instant
-      ) =>
-        Match.value(request).pipe(
-          Match.discriminatorsExhaustive("attribute")({
-            reservationCount: ({
-              params: { dateBasis, period, status, product },
-            }) => {
-              const bounds = datePeriodBounds(period, now);
-              const selection = {
-                ...(status && { status }),
-                ...(product && { product }),
-              };
-              if (dateBasis === "booking") {
-                return candidates
-                  .countReservations({ ...selection, booked: bounds })
-                  .pipe(Effect.mapError(database));
-              }
-              if (period._tag === "AnyTime") {
-                return candidates
-                  .countReservations(selection)
-                  .pipe(Effect.mapError(database));
-              }
-              return visitLowerBound.pipe(
-                Effect.flatMap((lowerBound) => {
-                  const startsAtOrAfter = bounds.startsAtOrAfter ?? lowerBound;
-                  return startsAtOrAfter === undefined
-                    ? Effect.succeed([])
-                    : listVisits({ ...bounds, startsAtOrAfter });
-                }),
-                Effect.flatMap((visits) =>
-                  candidates
-                    .countReservations({
-                      ...selection,
-                      dotyposReservationIds: dotyposReservationIds(visits),
-                    })
-                    .pipe(Effect.mapError(database))
-                )
-              );
-            },
-            campaignEmailCount: ({ params: { purpose, period } }) =>
-              candidates
-                .countReceivedCampaignEmails({
-                  ...(purpose !== "any" && { purpose }),
-                  dispatched: datePeriodBounds(period, now),
-                })
-                .pipe(Effect.mapError(database)),
-          })
-        );
-
-      /**
-       * Every visit that has begun by `now`, with its start. One query covers
-       * every last-visit condition: from just before the earliest Workspace
-       * reservation up to `now`.
-       */
-      const loadPastVisits = (now: Temporal.Instant) =>
+      const visitsIn = (bounds: DatePeriodBounds) =>
         visitLowerBound.pipe(
+          Effect.map((lowerBound) => bounds.startsAtOrAfter ?? lowerBound),
           Effect.flatMap((startsAtOrAfter) =>
             startsAtOrAfter === undefined
               ? Effect.succeed([])
-              : listVisits({ startsAtOrAfter, startsBefore: now })
-          ),
+              : dotypos
+                  .listReservations({
+                    startsAtOrAfter: startsAtOrAfter.toString(),
+                    ...Option.match(
+                      Option.fromNullishOr(dotyposStartsBefore(bounds)),
+                      {
+                        onNone: () => ({}),
+                        onSome: (startsBefore) => ({
+                          startsBefore: startsBefore.toString(),
+                        }),
+                      }
+                    ),
+                  })
+                  .pipe(
+                    Effect.mapError(CampaignRecipientResolutionError.dotypos)
+                  )
+          )
+        );
+
+      /** Every visit that has begun by `now`, with its start, in one query. */
+      const pastVisits = (now: Temporal.Instant) =>
+        visitsIn({ startsAtOrBefore: now }).pipe(
           Effect.flatMap((visits) =>
             Effect.forEach(visits, (visit) =>
               visitStart(visit).pipe(
@@ -180,86 +159,48 @@ export class AudienceFactsService extends Context.Service<
           )
         );
 
-      /** Each customer's latest booked visit among the past visits, of the product if given. */
-      const lastVisitsOf = (
-        startById: ReadonlyMap<DotyposReservationId, Temporal.Instant>,
-        product: ReservationProductFilterType | undefined
+      const keyed = <
+        Request extends AudienceCountRequest | AudienceDateRequest,
+        Value,
+      >(
+        requests: readonly Request[],
+        resolve: (
+          request: Request
+        ) => Effect.Effect<Value, CampaignRecipientResolutionError>
       ) =>
-        candidates.listBookedReservations([...startById.keys()], product).pipe(
-          Effect.mapError(database),
-          Effect.map((booked) => {
-            const lastVisits = new Map<DotyposCustomerId, Temporal.Instant>();
-            for (const { dotyposReservationId, dotyposCustomerId } of booked) {
-              const startsAt = startById.get(dotyposReservationId);
-              const latest = lastVisits.get(dotyposCustomerId);
-              if (
-                startsAt &&
-                (!latest || Temporal.Instant.compare(startsAt, latest) > 0)
-              ) {
-                lastVisits.set(dotyposCustomerId, startsAt);
-              }
-            }
-            return lastVisits;
-          })
-        );
-
-      const datesFrom = (
-        values: ReadonlyMap<DotyposCustomerId, Temporal.Instant>,
-        bounds: DatePeriodBounds
-      ): AudienceDateFacts => ({
-        withValue: new Set(values.keys()),
-        inPeriod: new Set(
-          [...values].flatMap(([id, value]) =>
-            isWithinDatePeriodBounds(bounds, value) ? [id] : []
+        Effect.forEach(requests, (request) =>
+          resolve(request).pipe(
+            Effect.map((value) => [audienceFactKey(request), value] as const)
           )
-        ),
-      });
+        ).pipe(Effect.map((entries) => new Map(entries)));
 
       return {
-        resolve: Effect.fn("AudienceFactsService.resolve")(function* ({
-          filter,
-          now,
-        }) {
-          const requests = collectAudienceFactRequests(filter);
-          const pastVisits = yield* Effect.cached(loadPastVisits(now));
-
-          const dateResolver = (request: AudienceDateRequest) => {
-            const bounds = datePeriodBounds(request.period, now);
-            return Match.value(request.attribute).pipe(
-              Match.when("lastVisit", () =>
-                pastVisits.pipe(
-                  Effect.flatMap((starts) =>
-                    lastVisitsOf(starts, request.product)
-                  ),
-                  Effect.map((values) => datesFrom(values, bounds))
-                )
-              ),
-              Match.when("accountCreated", () =>
-                candidates
-                  .accountCreations(bounds)
-                  .pipe(Effect.mapError(database))
-              ),
-              Match.exhaustive
-            );
-          };
-
-          return yield* Effect.all({
-            counts: Effect.forEach(requests.counts, (request) =>
-              countResolver(request, now).pipe(
-                Effect.map(
-                  (counts) => [audienceFactKey(request), counts] as const
-                )
-              )
-            ).pipe(Effect.map((entries) => new Map(entries))),
-            dates: Effect.forEach(requests.dates, (request) =>
-              dateResolver(request).pipe(
-                Effect.map(
-                  (dates) => [audienceFactKey(request), dates] as const
-                )
-              )
-            ).pipe(Effect.map((entries) => new Map(entries))),
-          });
-        }),
+        resolve: ({ filter, now }) =>
+          Effect.Do.pipe(
+            Effect.let("requests", () => collectAudienceFactRequests(filter)),
+            Effect.bind("pastVisits", () => Effect.cached(pastVisits(now))),
+            Effect.let(
+              "resolution",
+              ({ pastVisits }): AudienceResolution => ({
+                now,
+                candidates,
+                visitsIn,
+                pastVisits,
+              })
+            ),
+            Effect.bind("facts", ({ requests, resolution }) =>
+              Effect.all({
+                counts: keyed(requests.counts, (request) =>
+                  resolveCount(request, resolution)
+                ),
+                dates: keyed(requests.dates, (request) =>
+                  resolveDates(request, resolution)
+                ),
+              })
+            ),
+            Effect.map(({ facts }) => facts),
+            Effect.withSpan("AudienceFactsService.resolve")
+          ),
       } satisfies IAudienceFactsService;
     })
   );

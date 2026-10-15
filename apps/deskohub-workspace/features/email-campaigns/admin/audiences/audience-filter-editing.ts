@@ -1,7 +1,8 @@
-import type {
-  AudienceAttribute,
-  AudienceConditionOf,
-  DatePeriodUnitType,
+import {
+  type AudienceAttribute,
+  type AudienceAttributeDefinition,
+  audienceAttributeCatalogue,
+  type DatePeriodUnitType,
 } from "@deskohub/workspace-admin-api";
 import { Match } from "effect";
 import type {
@@ -13,10 +14,6 @@ import type { DatePeriod } from "../../date-period";
 
 export type { AudienceCondition, AudienceFilterGroup };
 
-export type ReservationStatus = NonNullable<
-  AudienceConditionOf<"reservationCount">["params"]["status"]
->;
-
 /** The builder always edits a group, so a bare stored condition gets an AND root. */
 export const asRootGroup = (filter: AudienceFilter): AudienceFilterGroup =>
   filter._tag === "Group"
@@ -25,64 +22,20 @@ export const asRootGroup = (filter: AudienceFilter): AudienceFilterGroup =>
 
 const lastThirtyDays: DatePeriod = { _tag: "Last", count: 30, unit: "day" };
 
-const newConditions = {
-  reservationCount: () => ({
-    _tag: "Condition",
-    attribute: "reservationCount",
-    params: { dateBasis: "visit", period: { _tag: "AnyTime" } },
-    operator: "gt",
-    value: 0,
-  }),
-  campaignEmailCount: () => ({
-    _tag: "Condition",
-    attribute: "campaignEmailCount",
-    params: { purpose: "marketing", period: lastThirtyDays },
-    operator: "eq",
-    value: 0,
-  }),
-  lastVisit: () => ({
-    _tag: "Condition",
-    attribute: "lastVisit",
-    operator: "in",
-    value: lastThirtyDays,
-  }),
-  accountCreated: () => ({
-    _tag: "Condition",
-    attribute: "accountCreated",
-    operator: "in",
-    value: lastThirtyDays,
-  }),
-  locale: () => ({
-    _tag: "Condition",
-    attribute: "locale",
-    operator: "anyOf",
-    value: ["cs-CZ"],
-  }),
-  dotyposTags: () => ({
-    _tag: "Condition",
-    attribute: "dotyposTags",
-    operator: "anyOf",
-    value: [],
-  }),
-  discountGroup: () => ({
-    _tag: "Condition",
-    attribute: "discountGroup",
-    operator: "anyOf",
-    value: [],
-  }),
-  hasAccount: () => ({
-    _tag: "Condition",
-    attribute: "hasAccount",
-    operator: "is",
-    value: true,
-  }),
-} satisfies {
-  readonly [Attribute in AudienceAttribute]: () => AudienceConditionOf<Attribute>;
-};
+/** A condition with the entry's defaults. */
+export const newConditionFrom = ({
+  attribute,
+  defaults,
+}: AudienceAttributeDefinition) => ({
+  attribute,
+  _tag: "Condition" as const,
+  ...defaults,
+});
 
 /** Starting values for a condition an operator adds or switches to. */
 export const newCondition = (attribute: AudienceAttribute): AudienceCondition =>
-  newConditions[attribute]();
+  // Each entry's defaults are typed against its own attribute's condition.
+  newConditionFrom(audienceAttributeCatalogue[attribute]) as AudienceCondition;
 
 /** An empty group nested in `parent`, which usually flips the parent's logic. */
 export const newNestedGroup = (

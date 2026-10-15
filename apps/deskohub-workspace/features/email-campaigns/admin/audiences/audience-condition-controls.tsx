@@ -1,12 +1,19 @@
 "use client";
 
 import type {
-  AudienceAttributeOfKind,
-  AudienceConditionOf,
+  AudienceBooleanAttributeDefinition,
+  AudienceBooleanCondition,
+  AudienceChoiceParam,
+  AudienceCountAttributeDefinition,
+  AudienceCountCondition,
+  AudienceDateAttributeDefinition,
+  AudienceDateCondition,
+  AudienceSetAttributeDefinition,
+  AudienceSetCondition,
 } from "@deskohub/workspace-admin-api";
+import { Match } from "effect";
 import { ChevronDown } from "lucide-react";
 import { useState } from "react";
-import { type Locale, locales } from "@/features/i18n";
 import { getCurrentWorkspaceDate } from "@/features/reservation/reservation-date";
 import { Button } from "@/shared/components/ui/button";
 import { Checkbox } from "@/shared/components/ui/checkbox";
@@ -30,7 +37,10 @@ import {
 } from "@/shared/components/ui/toggle-group";
 import { cn } from "@/shared/utils";
 import type { DatePeriod } from "../../date-period";
-import type { DiscountGroupOption } from "../audience-filter-summary";
+import type {
+  AudienceValueLookups,
+  AudienceValueOption,
+} from "../audience-filter-summary";
 import { datePeriodUnitNames } from "../date-period-phrases";
 import {
   ConditionLine,
@@ -39,6 +49,7 @@ import {
   CountComparisonControl,
   compactInputClassName,
   compactSelectClassName,
+  countComparisonError,
   FieldError,
   type FieldErrorLookup,
   numberFromInput,
@@ -50,7 +61,6 @@ import {
 import {
   type DatePeriodKind,
   isDatePeriodUnit,
-  type ReservationStatus,
   switchDatePeriod,
   toggleSetValue,
 } from "./audience-filter-editing";
@@ -198,90 +208,129 @@ const datePeriodErrors = (errorAt: FieldErrorLookup) =>
     errorAt("") && "The start date must be on or before the end date.",
   ].filter((message): message is string => Boolean(message));
 
-const reservationStatusLabels: Readonly<Record<ReservationStatus, string>> = {
-  in_progress: "In progress",
-  complete: "Complete",
-  cancelled: "Cancelled",
-  needs_refund: "Needs refund",
-};
-const anyBookedStatus = "booked";
-const isReservationStatus = (value: string): value is ReservationStatus =>
-  Object.hasOwn(reservationStatusLabels, value);
+/** A choice parameter's value; an optional one can be unset. */
+function ChoiceParamControl({
+  param,
+  value,
+  onChange,
+}: {
+  readonly param: AudienceChoiceParam;
+  readonly value: unknown;
+  readonly onChange: (value: string | undefined) => void;
+}) {
+  const options = Object.entries(param.options);
+  const chosen = Object.keys(param.options).find((option) => option === value);
+  const pick = (next: string) => {
+    if (next === absentValue && param.absent) onChange(undefined);
+    else if (Object.hasOwn(param.options, next)) onChange(next);
+  };
+  return Match.value(param.control).pipe(
+    Match.when("toggle", () => (
+      <ToggleGroup
+        type="single"
+        value={chosen ?? ""}
+        onValueChange={pick}
+        aria-label={param.label}
+        className="whitespace-nowrap rounded-md border border-navy-blue/15 p-0.5"
+      >
+        {options.map(([option, { label }]) => (
+          <ToggleGroupItem key={option} value={option}>
+            {label}
+          </ToggleGroupItem>
+        ))}
+      </ToggleGroup>
+    )),
+    Match.when("select", () => (
+      <Select value={chosen ?? absentValue} onValueChange={pick}>
+        <SelectTrigger
+          aria-label={param.label}
+          className={compactSelectClassName}
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {param.absent && (
+            <SelectItem value={absentValue}>{param.absent.label}</SelectItem>
+          )}
+          {options.map(([option, { label }]) => (
+            <SelectItem key={option} value={option}>
+              {label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    )),
+    Match.exhaustive
+  );
+}
 
-export function ReservationCountControls({
+/** The select value standing for an unset optional choice. */
+const absentValue = "absent";
+
+/**
+ * "Number of <lead>", the reservation product for reservation-based
+ * attributes, then "<period> is <comparison>". Every count attribute edits
+ * through it, worded by its catalogue entry.
+ */
+export function CountConditionControls<
+  Condition extends AudienceCountCondition,
+>({
+  entry,
   value: condition,
   onChange,
   errorAt,
-}: ControlProps<AudienceConditionOf<"reservationCount">>) {
+}: ControlProps<Condition> & {
+  readonly entry: AudienceCountAttributeDefinition;
+}) {
   const { params } = condition;
+  const changeParams = (next: AudienceCountCondition["params"]) =>
+    // The entry's params keep the condition's own shape.
+    onChange({ ...condition, params: next } as Condition);
   const periodErrorAt = withPath(errorAt, "params.period");
   return (
     <div className="space-y-2">
       <ConditionLine>
         <ConditionText>Number of</ConditionText>
-        <Select
-          value={params.status ?? anyBookedStatus}
-          onValueChange={(next) => {
-            const { status: _, ...rest } = params;
-            onChange({
-              ...condition,
-              params: isReservationStatus(next)
-                ? { ...rest, status: next }
-                : rest,
-            });
-          }}
-        >
-          <SelectTrigger
-            aria-label="Reservation status"
-            className={compactSelectClassName}
-          >
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {/* Without a status only booked reservations count. */}
-            <SelectItem value={anyBookedStatus}>booked</SelectItem>
-            {Object.entries(reservationStatusLabels).map(([status, label]) => (
-              <SelectItem key={status} value={status}>
-                {label.toLowerCase()}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <ConditionText>reservations by</ConditionText>
-        <ToggleGroup
-          type="single"
-          value={params.dateBasis}
-          onValueChange={(dateBasis) => {
-            if (dateBasis === "visit" || dateBasis === "booking") {
-              onChange({ ...condition, params: { ...params, dateBasis } });
-            }
-          }}
-          aria-label="Date basis"
-          className="whitespace-nowrap rounded-md border border-navy-blue/15 p-0.5"
-        >
-          <ToggleGroupItem value="visit">visit date</ToggleGroupItem>
-          <ToggleGroupItem value="booking">booking date</ToggleGroupItem>
-        </ToggleGroup>
+        {entry.editor.lead.map((token) => {
+          if ("text" in token) {
+            return <ConditionText key={token.text}>{token.text}</ConditionText>;
+          }
+          const param = entry.params[token.param];
+          return (
+            param?.part === "choice" && (
+              <ChoiceParamControl
+                key={token.param}
+                param={param}
+                value={params[token.param]}
+                onChange={(value) => {
+                  const { [token.param]: _, ...rest } = params;
+                  changeParams(
+                    value === undefined
+                      ? { ...rest, period: params.period }
+                      : { ...params, [token.param]: value }
+                  );
+                }}
+              />
+            )
+          );
+        })}
       </ConditionLine>
-      <ProductFilterControl
-        value={params.product}
-        onChange={(product) => {
-          const { product: _, ...rest } = params;
-          onChange({
-            ...condition,
-            params: product ? { ...rest, product } : rest,
-          });
-        }}
-        errorAt={withPath(errorAt, "params.product")}
-      />
+      {entry.reservationProduct && (
+        <ProductFilterControl
+          value={params.product}
+          onChange={(product) => {
+            const { product: _, ...rest } = params;
+            changeParams(product ? { ...rest, product } : rest);
+          }}
+          errorAt={withPath(errorAt, "params.product")}
+        />
+      )}
       <ConditionLine>
         <DatePeriodControl
           value={params.period}
-          onChange={(period) =>
-            onChange({ ...condition, params: { ...params, period } })
-          }
+          onChange={(period) => changeParams({ ...params, period })}
           errorAt={periodErrorAt}
-          label="Reservations"
+          label={entry.editor.period}
         />
         <ConditionText>is</ConditionText>
         <CountComparisonControl
@@ -289,107 +338,30 @@ export function ReservationCountControls({
           value={condition.value}
           onChange={(comparison) => onChange({ ...condition, ...comparison })}
           errorAt={errorAt}
-          label="Reservation count"
+          label={entry.editor.count}
         />
       </ConditionLine>
-      {[...datePeriodErrors(periodErrorAt), countError(errorAt)].map(
+      {[...datePeriodErrors(periodErrorAt), countComparisonError(errorAt)].map(
         (message) => message && <FieldError key={message} message={message} />
       )}
     </div>
   );
 }
-
-const countError = (errorAt: FieldErrorLookup) =>
-  errorAt("value") && "Enter a whole number, 0 or more.";
-
-const campaignPurposes = {
-  marketing: "Marketing",
-  operational: "Operational",
-  any: "Any",
-} as const;
-
-const isCampaignEmailPurpose = (
-  value: string
-): value is keyof typeof campaignPurposes =>
-  Object.hasOwn(campaignPurposes, value);
-
-export function CampaignEmailCountControls({
-  value: condition,
-  onChange,
-  errorAt,
-}: ControlProps<AudienceConditionOf<"campaignEmailCount">>) {
-  const { params } = condition;
-  const periodErrorAt = withPath(errorAt, "params.period");
-  return (
-    <div className="space-y-2">
-      <ConditionLine>
-        <ConditionText>Number of</ConditionText>
-        <Select
-          value={params.purpose}
-          onValueChange={(purpose) => {
-            if (isCampaignEmailPurpose(purpose)) {
-              onChange({ ...condition, params: { ...params, purpose } });
-            }
-          }}
-        >
-          <SelectTrigger
-            aria-label="Campaign purpose"
-            className={compactSelectClassName}
-          >
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {Object.entries(campaignPurposes).map(([purpose, label]) => (
-              <SelectItem key={purpose} value={purpose}>
-                {label.toLowerCase()}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <ConditionText>campaign emails received</ConditionText>
-      </ConditionLine>
-      <ConditionLine>
-        <DatePeriodControl
-          value={params.period}
-          onChange={(period) =>
-            onChange({ ...condition, params: { ...params, period } })
-          }
-          errorAt={periodErrorAt}
-          label="Emails received"
-        />
-        <ConditionText>is</ConditionText>
-        <CountComparisonControl
-          operator={condition.operator}
-          value={condition.value}
-          onChange={(comparison) => onChange({ ...condition, ...comparison })}
-          errorAt={errorAt}
-          label="Campaign email count"
-        />
-      </ConditionLine>
-      {[...datePeriodErrors(periodErrorAt), countError(errorAt)].map(
-        (message) => message && <FieldError key={message} message={message} />
-      )}
-    </div>
-  );
-}
-
-type DateCondition = AudienceConditionOf<AudienceAttributeOfKind<"date">>;
 
 const dateOperatorKeys = ["in", "notIn", "none"] as const;
 
 /**
  * "is in <period>", "is not in <period>" (a value exists outside it), or the
- * attribute's own wording for no value ("never visited").
+ * attribute's own wording for no value ("never visited"), then the
+ * reservation product for reservation-based attributes.
  */
-export function DateConditionControls<Condition extends DateCondition>({
+export function DateConditionControls<Condition extends AudienceDateCondition>({
+  entry: { label, editor, reservationProduct },
   value: condition,
   onChange,
   errorAt,
-  label,
-  noValueLabel,
 }: ControlProps<Condition> & {
-  readonly label: string;
-  readonly noValueLabel: string;
+  readonly entry: AudienceDateAttributeDefinition;
 }) {
   const period =
     condition.operator === "none"
@@ -398,9 +370,11 @@ export function DateConditionControls<Condition extends DateCondition>({
   const operatorLabels = {
     in: "is",
     notIn: "is not",
-    none: noValueLabel,
+    none: editor.noValue,
   } as const;
   const periodErrorAt = withPath(errorAt, "value");
+  // Attribute parameters, such as a last visit's product, stay.
+  const params = condition.params && { params: condition.params };
   return (
     <div className="space-y-2">
       <ConditionLine>
@@ -408,9 +382,6 @@ export function DateConditionControls<Condition extends DateCondition>({
         <Select
           value={condition.operator}
           onValueChange={(operator) => {
-            // Attribute parameters, such as a last visit's product, stay.
-            const params = "params" in condition &&
-              condition.params && { params: condition.params };
             if (operator === "none") {
               onChange({
                 _tag: "Condition",
@@ -455,61 +426,18 @@ export function DateConditionControls<Condition extends DateCondition>({
       {datePeriodErrors(periodErrorAt).map((message) => (
         <FieldError key={message} message={message} />
       ))}
-    </div>
-  );
-}
-
-const localeLabels: Readonly<Record<Locale, string>> = {
-  "cs-CZ": "Czech (cs-CZ)",
-  "en-US": "English (en-US)",
-};
-
-export function LocaleControls({
-  value: condition,
-  onChange,
-  errorAt,
-  path,
-}: ControlProps<AudienceConditionOf<"locale">> & { readonly path: string }) {
-  return (
-    <div className="space-y-2">
-      <ConditionLine>
-        <ConditionText>Locale</ConditionText>
-        <SetOperatorSelect
-          operators={["anyOf", "noneOf"]}
-          value={condition.operator}
-          onChange={(operator) => onChange({ ...condition, operator })}
-          label="Locale"
+      {reservationProduct && (
+        <ProductFilterControl
+          value={condition.params?.product}
+          onChange={(product) => {
+            const { params: _, ...rest } = condition;
+            onChange(
+              (product ? { ...rest, params: { product } } : rest) as Condition
+            );
+          }}
+          errorAt={withPath(errorAt, "params.product")}
         />
-        {locales.map((locale) => {
-          const checked = condition.value.includes(locale);
-          const id = `${path}.value.${locale}`;
-          return (
-            <label
-              key={locale}
-              htmlFor={id}
-              className="flex items-center gap-2 text-sm"
-            >
-              <Checkbox
-                id={id}
-                checked={checked}
-                onCheckedChange={(next) =>
-                  onChange({
-                    ...condition,
-                    value: toggleSetValue(
-                      condition.value,
-                      locale,
-                      next === true
-                    ),
-                  })
-                }
-                className="size-5"
-              />
-              {localeLabels[locale]}
-            </label>
-          );
-        })}
-      </ConditionLine>
-      {errorAt("value") && <FieldError message="Choose at least one locale." />}
+      )}
     </div>
   );
 }
@@ -561,142 +489,183 @@ function ValueEntry({
   );
 }
 
-export function DotyposTagControls({
-  value: condition,
+/** Looked-up values to pick from, shown as chips. */
+function LookupPicker({
+  values,
   onChange,
-  errorAt,
-}: ControlProps<AudienceConditionOf<"dotyposTags">>) {
+  options,
+  noun,
+  choose,
+  invalid,
+}: {
+  readonly values: readonly string[];
+  readonly onChange: (values: readonly string[]) => void;
+  readonly options: readonly AudienceValueOption[];
+  readonly noun: string;
+  readonly choose: string;
+  readonly invalid: boolean;
+}) {
+  const nameOf = (id: string) =>
+    options.find((option) => option.id === id)?.name ?? `Unknown ${noun} ${id}`;
   return (
-    <div className="space-y-2">
-      <ConditionLine>
-        <ConditionText>Tags</ConditionText>
-        <SetOperatorSelect
-          operators={["anyOf", "allOf", "noneOf"]}
-          value={condition.operator}
-          onChange={(operator) => onChange({ ...condition, operator })}
-          label="Dotypos tags"
-        />
-        <ValueEntry
-          values={condition.value}
-          onChange={(values) => onChange({ ...condition, value: values })}
-          noun="tag"
-          placeholder="Add a tag"
-          invalid={errorAt("value") !== undefined}
-        />
-      </ConditionLine>
-      {errorAt("value") && <FieldError message="Add at least one tag." />}
-    </div>
+    <>
+      <ValueChips
+        values={values}
+        labelOf={nameOf}
+        onRemove={(id) => onChange(toggleSetValue(values, id, false))}
+        noun={noun}
+      />
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            aria-invalid={invalid}
+            className={cn(invalid && "border-burned-orange")}
+          >
+            {choose}
+            <ChevronDown className="h-3.5 w-3.5" aria-hidden />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start">
+          {options.map((option) => (
+            <DropdownMenuCheckboxItem
+              key={option.id}
+              checked={values.includes(option.id)}
+              onCheckedChange={(checked) =>
+                onChange(toggleSetValue(values, option.id, checked))
+              }
+              onSelect={(event) => event.preventDefault()}
+            >
+              {option.name}
+            </DropdownMenuCheckboxItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </>
   );
 }
 
-export function DiscountGroupControls({
+/**
+ * "<lead> <match> <values>": checkboxes for fixed options, chips with a
+ * picker for looked-up values, or chips with free-text entry.
+ */
+export function SetConditionControls<Condition extends AudienceSetCondition>({
+  entry,
   value: condition,
   onChange,
   errorAt,
-  discountGroups,
-}: ControlProps<AudienceConditionOf<"discountGroup">> & {
-  /** Dotypos discount groups to pick from; omitted means free ID entry. */
-  readonly discountGroups: readonly DiscountGroupOption[] | undefined;
+  path,
+  lookups,
+}: ControlProps<Condition> & {
+  readonly entry: AudienceSetAttributeDefinition;
+  /** Form path of the condition, for checkbox IDs. */
+  readonly path: string;
+  readonly lookups: AudienceValueLookups;
 }) {
   const invalid = errorAt("value") !== undefined;
-  const nameOf = (id: string) =>
-    discountGroups?.find((group) => group.id === id)?.name ??
-    `Unknown group ${id}`;
+  const setValues = (value: readonly string[]) =>
+    onChange({ ...condition, value });
+  const freeText = (noun: string, placeholder: string) => (
+    <ValueEntry
+      values={condition.value}
+      onChange={setValues}
+      noun={noun}
+      placeholder={placeholder}
+      invalid={invalid}
+    />
+  );
   return (
     <div className="space-y-2">
       <ConditionLine>
-        <ConditionText>Discount group</ConditionText>
+        <ConditionText>{entry.editor.lead}</ConditionText>
         <SetOperatorSelect
-          operators={["anyOf", "noneOf"]}
+          operators={entry.operators}
           value={condition.operator}
           onChange={(operator) => onChange({ ...condition, operator })}
-          label="Discount group"
+          label={entry.label}
         />
-        {discountGroups ? (
-          <>
-            <ValueChips
-              values={condition.value}
-              labelOf={nameOf}
-              onRemove={(id) =>
-                onChange({
-                  ...condition,
-                  value: toggleSetValue(condition.value, id, false),
-                })
-              }
-              noun="discount group"
-            />
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  aria-invalid={invalid}
-                  className={cn(invalid && "border-burned-orange")}
-                >
-                  Choose groups
-                  <ChevronDown className="h-3.5 w-3.5" aria-hidden />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start">
-                {discountGroups.map((group) => (
-                  <DropdownMenuCheckboxItem
-                    key={group.id}
-                    checked={condition.value.includes(group.id)}
-                    onCheckedChange={(checked) =>
-                      onChange({
-                        ...condition,
-                        value: toggleSetValue(
-                          condition.value,
-                          group.id,
-                          checked
-                        ),
-                      })
-                    }
-                    onSelect={(event) => event.preventDefault()}
+        {Match.value(entry.values).pipe(
+          Match.tagsExhaustive({
+            Options: ({ options }) =>
+              Object.entries(options).map(([option, { label }]) => {
+                const id = `${path}.value.${option}`;
+                return (
+                  <label
+                    key={option}
+                    htmlFor={id}
+                    className="flex items-center gap-2 text-sm"
                   >
-                    {group.name}
-                  </DropdownMenuCheckboxItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </>
-        ) : (
-          <ValueEntry
-            values={condition.value}
-            onChange={(values) => onChange({ ...condition, value: values })}
-            noun="discount group ID"
-            placeholder="Dotypos group ID"
-            invalid={invalid}
-          />
+                    <Checkbox
+                      id={id}
+                      checked={condition.value.includes(option)}
+                      onCheckedChange={(next) =>
+                        setValues(
+                          toggleSetValue(condition.value, option, next === true)
+                        )
+                      }
+                      className="size-5"
+                    />
+                    {label}
+                  </label>
+                );
+              }),
+            FreeText: ({ noun, placeholder }) => freeText(noun, placeholder),
+            Lookup: ({ lookup, noun, choose, freeText: fallback }) => {
+              const options = lookups[lookup];
+              return options ? (
+                <LookupPicker
+                  values={condition.value}
+                  onChange={setValues}
+                  options={options}
+                  noun={noun}
+                  choose={choose}
+                  invalid={invalid}
+                />
+              ) : (
+                freeText(fallback.noun, fallback.placeholder)
+              );
+            },
+          })
         )}
       </ConditionLine>
-      {invalid && <FieldError message="Choose at least one discount group." />}
+      {invalid && (
+        <FieldError
+          message={`${entry.values._tag === "FreeText" ? "Add" : "Choose"} at least one ${entry.values.noun}.`}
+        />
+      )}
     </div>
   );
 }
 
-export function HasAccountControls({
+/** "<true or false> <object>", as in "Has a Workspace account". */
+export function BooleanConditionControls<
+  Condition extends AudienceBooleanCondition,
+>({
+  entry,
   value: condition,
   onChange,
-}: ControlProps<AudienceConditionOf<"hasAccount">>) {
+}: ControlProps<Condition> & {
+  readonly entry: AudienceBooleanAttributeDefinition;
+}) {
   return (
     <ConditionLine>
       <ToggleGroup
         type="single"
-        value={condition.value ? "has" : "hasNot"}
+        value={String(condition.value)}
         onValueChange={(next) => {
-          if (next === "has" || next === "hasNot") {
-            onChange({ ...condition, value: next === "has" });
+          if (next === "true" || next === "false") {
+            onChange({ ...condition, value: next === "true" });
           }
         }}
-        aria-label="Workspace account"
+        aria-label={entry.label}
         className="whitespace-nowrap rounded-md border border-navy-blue/15 p-0.5"
       >
-        <ToggleGroupItem value="has">Has</ToggleGroupItem>
-        <ToggleGroupItem value="hasNot">Hasn&rsquo;t</ToggleGroupItem>
+        <ToggleGroupItem value="true">{entry.editor.true}</ToggleGroupItem>
+        <ToggleGroupItem value="false">{entry.editor.false}</ToggleGroupItem>
       </ToggleGroup>
-      <ConditionText>a Workspace account</ConditionText>
+      <ConditionText>{entry.editor.object}</ConditionText>
     </ConditionLine>
   );
 }

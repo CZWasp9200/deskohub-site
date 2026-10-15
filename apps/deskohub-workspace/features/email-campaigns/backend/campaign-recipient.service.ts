@@ -19,15 +19,15 @@ import type { Locale } from "@/features/i18n";
 import { reservationCustomerEmailSchema } from "@/features/reservation/reservation-contact";
 import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
 import { currentInstant } from "@/shared/utils/temporal";
-import {
-  type AudienceCandidate,
-  type AudienceFacts,
-  type AudienceFilter,
-  evaluateAudienceFilter,
+import type {
+  AudienceCandidate,
+  AudienceFacts,
+  AudienceFilter,
 } from "../audience-filter";
 import type { CampaignPurpose } from "../body/campaign-content";
 import { CampaignRecipientResolutionError } from "../errors";
 import { resolveRecipientLocale } from "../recipient-locale";
+import { evaluateAudienceFilter } from "./audience-evaluation";
 import { AudienceFactsService } from "./audience-facts.service";
 import {
   type CampaignCandidateFacts,

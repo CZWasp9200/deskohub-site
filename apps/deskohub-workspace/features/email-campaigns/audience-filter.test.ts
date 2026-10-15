@@ -23,9 +23,9 @@ import {
   audienceSingleLocale,
   collectAudienceFactRequests,
   compareCount,
-  evaluateAudienceFilter,
   matchesSet,
 } from "./audience-filter";
+import { evaluateAudienceFilter } from "./backend/audience-evaluation";
 
 const customerId = DotyposCustomerIdSchema.make("customer-1");
 
@@ -430,13 +430,13 @@ describe("audienceAttributeCatalogue", () => {
       )
     ).toEqual([
       ["reservationCount", "count"],
-      ["campaignEmailCount", "count"],
       ["lastVisit", "date"],
+      ["campaignEmailCount", "count"],
+      ["hasAccount", "boolean"],
       ["accountCreated", "date"],
       ["locale", "set"],
       ["dotyposTags", "set"],
       ["discountGroup", "set"],
-      ["hasAccount", "boolean"],
     ]);
   });
 });

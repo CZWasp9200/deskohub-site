@@ -73,6 +73,14 @@ export const numberFromInput = (raw: string) =>
 export const numberInputValue = (value: number) =>
   Number.isNaN(value) ? "" : String(value);
 
+/**
+ * What is wrong with a comparison: an always-true or never-true operator,
+ * which the schema explains, or a value that isn't a whole number.
+ */
+export const countComparisonError = (errorAt: FieldErrorLookup) =>
+  errorAt("operator") ??
+  (errorAt("value") && "Enter a whole number, 0 or more.");
+
 /** An operator and a non-negative whole number: "≥ 2", "= 0". */
 export function CountComparisonControl({
   operator,
@@ -102,6 +110,7 @@ export function CountComparisonControl({
       >
         <SelectTrigger
           aria-label={`${label} comparison`}
+          aria-invalid={errorAt("operator") !== undefined}
           className={cn(compactSelectClassName, "min-w-16 font-semibold")}
         >
           <SelectValue>{countOperators[operator].symbol}</SelectValue>

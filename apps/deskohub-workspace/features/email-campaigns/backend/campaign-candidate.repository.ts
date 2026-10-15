@@ -9,12 +9,11 @@ import {
   and,
   count,
   eq,
-  gte,
   inArray,
-  lt,
   max,
   min,
   type SQL,
+  type SQLWrapper,
   sql,
 } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
@@ -59,7 +58,7 @@ export type CampaignCandidateFacts = {
 export type CampaignReservationSelection = {
   /** Admin status group; without one, only booked reservations count. */
   readonly status?: AdministrationReservationStatusFilter;
-  /** Booking (confirmation) instant bounds; the end is exclusive. */
+  /** Booking (confirmation) instant bounds. */
   readonly booked?: DatePeriodBounds;
   /** Limits the count to these Dotypos reservations (visit-date periods). */
   readonly dotyposReservationIds?: readonly DotyposReservationId[];
@@ -84,6 +83,20 @@ const receivedCampaignEmailStatuses = [
   "unconfirmed",
 ] as const;
 
+/** An instant column or expression within the bounds; open bounds add nothing. */
+const withinBounds = (
+  instant: SQLWrapper,
+  bounds: DatePeriodBounds
+): SQL | undefined =>
+  and(
+    bounds.startsAtOrAfter &&
+      sql`${instant} >= ${temporalInstantToDate(bounds.startsAtOrAfter)}`,
+    bounds.startsBefore &&
+      sql`${instant} < ${temporalInstantToDate(bounds.startsBefore)}`,
+    bounds.startsAtOrBefore &&
+      sql`${instant} <= ${temporalInstantToDate(bounds.startsAtOrBefore)}`
+  );
+
 const reservationSelection = ({
   status,
   booked,
@@ -93,10 +106,8 @@ const reservationSelection = ({
   and(
     product && reservationProductCondition(product),
     status ? reservationStatusCondition(status) : bookedReservationCondition,
-    booked?.startsAtOrAfter &&
-      gte(workspaceReservations.reservationConfirmedAt, booked.startsAtOrAfter),
-    booked?.startsBefore &&
-      lt(workspaceReservations.reservationConfirmedAt, booked.startsBefore),
+    booked &&
+      withinBounds(workspaceReservations.reservationConfirmedAt, booked),
     dotyposReservationIds &&
       inArray(workspaceReservations.dotyposReservationId, [
         ...dotyposReservationIds,
@@ -300,10 +311,7 @@ export class CampaignCandidateRepository extends Context.Service<
                   ...receivedCampaignEmailStatuses,
                 ]),
                 purpose && eq(emailCampaigns.purpose, purpose),
-                dispatched.startsAtOrAfter &&
-                  sql`${dispatchedAt} >= ${temporalInstantToDate(dispatched.startsAtOrAfter)}`,
-                dispatched.startsBefore &&
-                  sql`${dispatchedAt} < ${temporalInstantToDate(dispatched.startsBefore)}`
+                withinBounds(dispatchedAt, dispatched)
               )
             )
             .groupBy(emailCampaignRecipients.dotyposCustomerId);
@@ -319,16 +327,7 @@ export class CampaignCandidateRepository extends Context.Service<
               dotyposCustomerId: customerAccountLinks.dotyposCustomerId,
               inPeriod: sql<boolean>`${and(
                 sql`true`,
-                created.startsAtOrAfter &&
-                  gte(
-                    authUser.createdAt,
-                    temporalInstantToDate(created.startsAtOrAfter)
-                  ),
-                created.startsBefore &&
-                  lt(
-                    authUser.createdAt,
-                    temporalInstantToDate(created.startsBefore)
-                  )
+                withinBounds(authUser.createdAt, created)
               )}`,
             })
             .from(customerAccountLinks)

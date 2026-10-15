@@ -5,13 +5,22 @@ import { workspaceSiteConstants } from "@/shared/utils";
 export type DatePeriod = DatePeriodType;
 
 /**
- * A half-open instant interval: `[startsAtOrAfter, startsBefore)`. A missing
- * bound is open.
+ * An instant interval. The start is inclusive. A calendar-day end is the
+ * next Prague midnight, exclusive (`startsBefore`); an end at the evaluation
+ * time includes that instant (`startsAtOrBefore`). A missing bound is open.
  */
 export type DatePeriodBounds = {
   readonly startsAtOrAfter?: Temporal.Instant;
-  readonly startsBefore?: Temporal.Instant;
-};
+} & (
+  | {
+      readonly startsBefore?: Temporal.Instant;
+      readonly startsAtOrBefore?: never;
+    }
+  | {
+      readonly startsAtOrBefore: Temporal.Instant;
+      readonly startsBefore?: never;
+    }
+);
 
 const { timeZone } = workspaceSiteConstants.location;
 
@@ -34,7 +43,8 @@ const unitDurations = {
  * The instants a period covers when evaluated at `now`. Day bounds are Prague
  * midnights; "last N units" steps back through the Prague calendar, so a month
  * keeps its length and a DST change shifts no day. "Last N" and "since" end
- * at `now`; any time, "onward", and "until" leave the end open.
+ * at `now`, inclusive; "from … to" and "until" end before the next Prague
+ * midnight; any time and "onward" leave the end open.
  */
 export const datePeriodBounds = (
   period: DatePeriod,
@@ -48,7 +58,7 @@ export const datePeriodBounds = (
           .toZonedDateTimeISO(timeZone)
           .subtract(unitDurations[unit](count))
           .toInstant(),
-        startsBefore: now,
+        startsAtOrBefore: now,
       }),
       Range: ({ from, to }) => ({
         startsAtOrAfter: startOfDay(from),
@@ -56,7 +66,7 @@ export const datePeriodBounds = (
       }),
       Since: ({ date }) => ({
         startsAtOrAfter: startOfDay(date),
-        startsBefore: now,
+        startsAtOrBefore: now,
       }),
       Onward: ({ date }) => ({ startsAtOrAfter: startOfDay(date) }),
       Until: ({ date }) => ({ startsBefore: startOfNextDay(date) }),
@@ -71,4 +81,6 @@ export const isWithinDatePeriodBounds = (
   (bounds.startsAtOrAfter === undefined ||
     Temporal.Instant.compare(instant, bounds.startsAtOrAfter) >= 0) &&
   (bounds.startsBefore === undefined ||
-    Temporal.Instant.compare(instant, bounds.startsBefore) < 0);
+    Temporal.Instant.compare(instant, bounds.startsBefore) < 0) &&
+  (bounds.startsAtOrBefore === undefined ||
+    Temporal.Instant.compare(instant, bounds.startsAtOrBefore) <= 0);

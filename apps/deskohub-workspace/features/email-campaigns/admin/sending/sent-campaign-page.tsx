@@ -106,11 +106,10 @@ export async function SentCampaignPage({
                 label="Filter"
                 value={
                   hasPeriodEndingAtEvaluation(send.audienceFilter)
-                    ? `${describeAudienceFilter(send.audienceFilter, discountGroups)}, counted back from the send time (${formatAdministrationDateTime(send.createdAt.toString())}).`
-                    : describeAudienceFilter(
-                        send.audienceFilter,
-                        discountGroups
-                      )
+                    ? `${describeAudienceFilter(send.audienceFilter, { discountGroups })}, counted back from the send time (${formatAdministrationDateTime(send.createdAt.toString())}).`
+                    : describeAudienceFilter(send.audienceFilter, {
+                        discountGroups,
+                      })
                 }
               />
             </dl>

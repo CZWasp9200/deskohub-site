@@ -79,7 +79,7 @@ export const loadAudienceList = async (): Promise<
     .map((audience) => ({
       id: audience.id,
       title: audience.title,
-      summary: describeAudienceFilter(audience.filter, discountGroups),
+      summary: describeAudienceFilter(audience.filter, { discountGroups }),
       archived: isArchived(audience),
       updatedAt: audience.updatedAt.toString(),
     }));
@@ -98,7 +98,7 @@ export const loadAudienceOptions = async (): Promise<
     .map(({ id, title, filter }) => ({
       id,
       title,
-      summary: describeAudienceFilter(filter, discountGroups),
+      summary: describeAudienceFilter(filter, { discountGroups }),
       singleLocale: audienceSingleLocale(filter),
     }))
     .toSorted(byTitle);

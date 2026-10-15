@@ -167,7 +167,7 @@ describe("AudienceFactsService periods", () => {
         purpose: "marketing",
         dispatched: {
           startsAtOrAfter: instant("2026-10-05T10:00:00Z"),
-          startsBefore: now,
+          startsAtOrBefore: now,
         },
       },
       { dispatched: {} },
@@ -182,7 +182,7 @@ describe("AudienceFactsService periods", () => {
     });
     expect(countReceivedCampaignEmails.mock.calls[0]?.[0].dispatched).toEqual({
       startsAtOrAfter: instant("2026-10-10T09:00:00Z"),
-      startsBefore: instant("2026-11-10T10:00:00Z"),
+      startsAtOrBefore: instant("2026-11-10T10:00:00Z"),
     });
   });
 
@@ -218,7 +218,7 @@ describe("AudienceFactsService periods", () => {
       {
         booked: {
           startsAtOrAfter: instant("2026-09-30T22:00:00Z"),
-          startsBefore: now,
+          startsAtOrBefore: now,
         },
       },
       { booked: { startsAtOrAfter: instant("2026-09-30T22:00:00Z") } },
@@ -338,7 +338,11 @@ describe("AudienceFactsService last visit", () => {
   test("reads every last-visit condition from one Dotypos range ending now", async () => {
     const { listReservations } = await run();
     expect(listReservations.mock.calls.map(([options]) => options)).toEqual([
-      { startsAtOrAfter: "2025-01-03T12:00:00Z", startsBefore: now.toString() },
+      // Dotypos has no inclusive end, so "at or before now" ends 1 ms later.
+      {
+        startsAtOrAfter: "2025-01-03T12:00:00Z",
+        startsBefore: "2026-10-15T10:00:00.001Z",
+      },
     ]);
   });
 
@@ -373,7 +377,62 @@ describe("AudienceFactsService last visit", () => {
     expect(listReservations).not.toHaveBeenCalled();
     expect(accountCreations.mock.calls[0]?.[0]).toEqual({
       startsAtOrAfter: instant("2026-08-31T22:00:00Z"),
-      startsBefore: now,
+      startsAtOrBefore: now,
+    });
+  });
+});
+
+describe("AudienceFactsService evaluation time", () => {
+  const lastDay = { _tag: "Last", count: 1, unit: "day" } as const;
+
+  test("counts a visit that starts exactly at the evaluation time", async () => {
+    const { listReservations, dates } = await resolveFacts({
+      filter: {
+        attribute: "lastVisit",
+        _tag: "Condition",
+        operator: "in",
+        value: lastDay,
+      },
+      visits: [visit("starting-now", now.toString())],
+      booked: [
+        {
+          dotyposReservationId: reservationId("starting-now"),
+          dotyposCustomerId: customerId("a"),
+        },
+      ],
+    }).then(({ exit, listReservations }) => ({
+      listReservations,
+      dates: facts(exit).dates,
+    }));
+    expect(listReservations.mock.calls[0]?.[0].startsBefore).toBe(
+      "2026-10-15T10:00:00.001Z"
+    );
+    expect(
+      dates.get(audienceFactKey({ attribute: "lastVisit", period: lastDay }))
+    ).toEqual({
+      withValue: new Set([customerId("a")]),
+      inPeriod: new Set([customerId("a")]),
+    });
+  });
+
+  test("ends visit-dated counts at the evaluation time, inclusive", async () => {
+    const { listReservations } = await resolveFacts({
+      filter: reservations({ dateBasis: "visit", period: lastDay }),
+    });
+    expect(listReservations.mock.calls.map(([options]) => options)).toEqual([
+      {
+        startsAtOrAfter: "2026-10-14T10:00:00Z",
+        startsBefore: "2026-10-15T10:00:00.001Z",
+      },
+    ]);
+  });
+
+  test("keeps calendar-day ends at the next Prague midnight, exclusive", async () => {
+    const { countReceivedCampaignEmails } = await resolveFacts({
+      filter: emails("any", { _tag: "Until", date: "2026-10-15" }),
+    });
+    expect(countReceivedCampaignEmails.mock.calls[0]?.[0].dispatched).toEqual({
+      startsBefore: instant("2026-10-15T22:00:00Z"),
     });
   });
 });
