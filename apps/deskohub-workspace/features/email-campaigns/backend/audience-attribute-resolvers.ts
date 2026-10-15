@@ -50,7 +50,7 @@ export type AudienceCountResolver<Params> = {
 };
 
 /** Customers with a date value, and those whose value lies in the bounds. */
-export type AudienceDateResolver = {
+type AudienceDateResolver = {
   readonly dates: (
     request: {
       readonly bounds: DatePeriodBounds;

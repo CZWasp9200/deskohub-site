@@ -198,7 +198,7 @@ export const describeCountCondition = (
  * …", "have never visited": the entry's wording, with a reservation product
  * after its verb.
  */
-export const describeDateCondition = (
+const describeDateCondition = (
   { summary }: AudienceDateAttributeDefinition,
   condition: AudienceDateCondition
 ): string => {
@@ -229,7 +229,7 @@ export const describeDateCondition = (
  * "speak Czech or English", "are tagged “vip” and “coworker”", "aren’t in
  * discount group “Staff”": the operator's wording and the values by name.
  */
-export const describeSetCondition = (
+const describeSetCondition = (
   { values, summary }: AudienceSetAttributeDefinition,
   { operator, value }: AudienceSetCondition,
   lookups: AudienceValueLookups
@@ -249,7 +249,7 @@ export const describeSetCondition = (
   return `${summary[operator] ?? operator} ${joined(names, operator === "allOf" ? " and " : " or ")}`;
 };
 
-export const describeBooleanCondition = (
+const describeBooleanCondition = (
   { summary }: AudienceBooleanAttributeDefinition,
   { value }: AudienceBooleanCondition
 ): string => (value ? summary.true : summary.false);

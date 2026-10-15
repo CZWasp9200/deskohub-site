@@ -216,7 +216,7 @@ export const matchesSet = <Value>(
  * Combines a group's outcomes: AND fails on any `noMatch` and OR passes on
  * any `match`; otherwise an `unknown` keeps the group unknown.
  */
-export const combineAudienceOutcomes = (
+const combineAudienceOutcomes = (
   operator: AudienceFilterGroup["operator"],
   outcomes: readonly AudienceFilterOutcome[]
 ): AudienceFilterOutcome => {
@@ -285,7 +285,7 @@ const countProduct = ({ params }: AudienceCountCondition) => params.product;
 const dateProduct = ({ params }: AudienceDateCondition) => params?.product;
 
 /** The product filter of a reservation-based condition, if it has one. */
-export const audienceProductFilter = (
+const audienceProductFilter = (
   view: AudienceConditionView
 ): ReservationProductFilterType | undefined =>
   Match.value(view).pipe(

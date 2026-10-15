@@ -15,12 +15,9 @@ import {
 import { authUser } from "@/db/schema/auth";
 import { checkoutAttemptKeySchema } from "@/features/checkout/checkout-identifiers";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
-import {
-  type AudienceCondition,
-  audienceFactKey,
-  evaluateAudienceFilter,
-} from "../audience-filter";
+import { type AudienceCondition, audienceFactKey } from "../audience-filter";
 import type { DatePeriodBounds } from "../date-period";
+import { evaluateAudienceFilter } from "./audience-evaluation";
 import {
   CampaignCandidateRepository,
   type CampaignReservationSelection,
