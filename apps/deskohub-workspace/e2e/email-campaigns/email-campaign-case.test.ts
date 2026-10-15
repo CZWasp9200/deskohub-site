@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { EMAIL_TEST_DOMAIN } from "@deskohub/test-email";
 import { Effect, Exit } from "effect";
+import { withInstantSleeps } from "@/shared/testing/workspace-test-clock.test-utils";
 import {
   type ActionResponseOutcome,
   retainActionSubmission,
@@ -68,18 +69,20 @@ describe("email campaign fixture release", () => {
         return yield* Effect.fail(new Error(`no ${label} row`));
       });
     const exit = Effect.runPromiseExit(
-      releaseEmailCampaignFixture({
-        ...input,
-        audiencePersisted: persisted("audience"),
-        barrierTimeoutMs: 20,
-        campaignPersisted: persisted("campaign"),
-        closeBrowser: Effect.sync(() => {
-          operations.push("close");
-        }),
-        deleteRows: Effect.sync(() => {
-          operations.push("delete");
-        }),
-      })
+      withInstantSleeps(
+        releaseEmailCampaignFixture({
+          ...input,
+          audiencePersisted: persisted("audience"),
+          barrierTimeoutMs: 20,
+          campaignPersisted: persisted("campaign"),
+          closeBrowser: Effect.sync(() => {
+            operations.push("close");
+          }),
+          deleteRows: Effect.sync(() => {
+            operations.push("delete");
+          }),
+        })
+      )
     );
     return exit.then((settled) => ({ exit: settled, operations }));
   };
@@ -125,7 +128,8 @@ describe("email campaign fixture release", () => {
  * request to pending waits, closing the context rejects those waits and any
  * pending response, and a closed context sends nothing. The server persists
  * the audience row `persistAfterMs` after it receives the request, whether or
- * not the browser is still there for the response.
+ * not the browser is still there for the response. Time is the Effect clock,
+ * so run scenarios under `withInstantSleeps`.
  */
 const fakeAdminBrowser = (persistAfterMs: number) => {
   type ActionPage = Parameters<typeof retainServerActionSubmission>[0];
@@ -155,6 +159,21 @@ const fakeAdminBrowser = (persistAfterMs: number) => {
         waits.add(deliver);
       }),
   };
+  const send = Effect.sync(() => {
+    if (state.closed) {
+      state.refusedDispatches += 1;
+      return false;
+    }
+    const request: ActionRequest = {
+      headers: () => ({ "next-action": "save-audience" }),
+      method: () => "POST",
+      // The server is still running the action when the context closes.
+      response: () => untilClosed<null>(() => undefined),
+      url: () => `${origin}/admin/email-audiences/new`,
+    };
+    for (const deliver of [...waits]) deliver(request);
+    return true;
+  });
   return {
     closeBrowser: Effect.sync(() => {
       state.closed = true;
@@ -163,23 +182,12 @@ const fakeAdminBrowser = (persistAfterMs: number) => {
     deleteRows: Effect.sync(() => {
       state.rows = 0;
     }),
-    dispatch: () => {
-      if (state.closed) {
-        state.refusedDispatches += 1;
-        return;
-      }
-      setTimeout(() => {
-        state.rows += 1;
-      }, persistAfterMs);
-      const request: ActionRequest = {
-        headers: () => ({ "next-action": "save-audience" }),
-        method: () => "POST",
-        // The server is still running the action when the context closes.
-        response: () => untilClosed<null>(() => undefined),
-        url: () => `${origin}/admin/email-audiences/new`,
-      };
-      for (const deliver of [...waits]) deliver(request);
-    },
+    /** Sends the save request, then persists its row on the server side. */
+    dispatch: Effect.gen(function* () {
+      if (!(yield* send)) return;
+      yield* Effect.sleep(`${persistAfterMs} millis`);
+      state.rows += 1;
+    }),
     persisted: pollUntil(
       Effect.sync(() => (state.rows > 0 ? true : undefined)),
       { intervalMs: 5, label: "the fake audience row", timeoutMs: 200 }
@@ -189,17 +197,12 @@ const fakeAdminBrowser = (persistAfterMs: number) => {
   };
 };
 
-const settle = (ms: number) =>
-  new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
-
 describe("email campaign fixture release after a late dispatch", () => {
   const releaseAudience = (
     browser: ReturnType<typeof fakeAdminBrowser>,
     audienceSubmission: Promise<ActionResponseOutcome>
   ) =>
-    Effect.runPromiseExit(
+    Effect.exit(
       releaseEmailCampaignFixture({
         audiencePersisted: browser.persisted,
         audienceSubmission,
@@ -216,11 +219,17 @@ describe("email campaign fixture release after a late dispatch", () => {
     // The click succeeded, but the save request had not left the browser when
     // the step's 20 ms wait ran out; the browser tries to send it at 40 ms.
     const submission = browser.retainSubmission();
-    setTimeout(browser.dispatch, 40);
-    await settle(20);
-
-    const exit = await releaseAudience(browser, submission);
-    await settle(60);
+    const exit = await Effect.runPromise(
+      withInstantSleeps(
+        Effect.gen(function* () {
+          yield* Effect.forkChild(Effect.delay(browser.dispatch, "40 millis"));
+          yield* Effect.sleep("20 millis");
+          const released = yield* releaseAudience(browser, submission);
+          yield* Effect.sleep("60 millis");
+          return released;
+        })
+      )
+    );
 
     expect(Exit.isSuccess(exit)).toBe(true);
     expect(await submission).toEqual({ kind: "undispatched" });
@@ -231,10 +240,17 @@ describe("email campaign fixture release after a late dispatch", () => {
   test("waits for a submit sent just before the close to persist before deleting", async () => {
     const browser = fakeAdminBrowser(30);
     const submission = browser.retainSubmission();
-    browser.dispatch();
-
-    const exit = await releaseAudience(browser, submission);
-    await settle(60);
+    const exit = await Effect.runPromise(
+      withInstantSleeps(
+        Effect.gen(function* () {
+          // The request leaves the browser before the release closes it.
+          yield* Effect.forkChild(browser.dispatch, { startImmediately: true });
+          const released = yield* releaseAudience(browser, submission);
+          yield* Effect.sleep("60 millis");
+          return released;
+        })
+      )
+    );
 
     expect(Exit.isSuccess(exit)).toBe(true);
     expect(await submission).toEqual({ kind: "unresolved" });

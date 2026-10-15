@@ -225,8 +225,7 @@ export const createSyntheticReservation = (
 ): Effect.Effect<SyntheticReservation, WorkspaceE2EError> =>
   createSyntheticReservationAt(config, {
     ...input,
-    startsAtMillis:
-      Date.now() + futureReservationDays * 24 * 60 * 60 * 1000,
+    startsAtMillis: Date.now() + futureReservationDays * 24 * 60 * 60 * 1000,
   });
 
 /**
