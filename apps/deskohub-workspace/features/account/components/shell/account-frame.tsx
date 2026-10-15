@@ -1,6 +1,6 @@
 "use client";
 
-import type { FocusEvent, ReactNode } from "react";
+import type { FocusEvent, ReactNode, Ref } from "react";
 
 export interface AccountFrameProps {
   readonly title: ReactNode;
@@ -8,10 +8,48 @@ export interface AccountFrameProps {
   readonly navigation: ReactNode;
   readonly sidebarFooter?: ReactNode;
   readonly children: ReactNode;
+  /** The content slot, for {@link revealAccountContentStart}. */
+  readonly contentRef?: Ref<HTMLDivElement>;
+}
+
+/**
+ * Scrolls the window so a content slot scrolled above the sticky navigation
+ * starts right below it again: level with the desktop sidebar, or one grid gap
+ * under the stacked mobile navigation. A visible slot start stays put.
+ */
+export function revealAccountContentStart(content: HTMLElement) {
+  const ownerWindow = content.ownerDocument.defaultView;
+  const aside = content.previousElementSibling;
+  const grid = content.parentElement;
+  if (!ownerWindow || !(aside instanceof ownerWindow.HTMLElement) || !grid)
+    return;
+
+  const asideStyle = ownerWindow.getComputedStyle(aside);
+  const asideTop = Number.parseFloat(asideStyle.top);
+  const stickyTop =
+    asideStyle.position === "sticky" && Number.isFinite(asideTop)
+      ? asideTop
+      : 0;
+  const asideRect = aside.getBoundingClientRect();
+  const contentRect = content.getBoundingClientRect();
+  const navigationStacked = asideRect.right > contentRect.left;
+  const contentStart = navigationStacked
+    ? stickyTop +
+      asideRect.height +
+      (Number.parseFloat(ownerWindow.getComputedStyle(grid).rowGap) || 0)
+    : stickyTop;
+
+  if (contentRect.top < contentStart) {
+    ownerWindow.scrollBy({
+      behavior: "instant",
+      top: contentRect.top - contentStart,
+    });
+  }
 }
 
 export function AccountFrame({
   children,
+  contentRef,
   navigation,
   sidebarFooter,
   signOut,
@@ -68,7 +106,9 @@ export function AccountFrame({
             )}
           </aside>
 
-          <div className="@container min-w-0">{children}</div>
+          <div className="@container min-w-0" ref={contentRef}>
+            {children}
+          </div>
 
           {sidebarFooter && (
             <div className="min-w-0 md:hidden">{sidebarFooter}</div>

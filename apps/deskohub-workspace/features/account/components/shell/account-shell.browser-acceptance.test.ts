@@ -153,3 +153,69 @@ test.skipIf(!chromiumAvailable)(
     }
   }
 );
+
+const readContentStart = (page: Page) =>
+  page.evaluate(() => {
+    const aside = document.querySelector("aside");
+    const content = aside?.nextElementSibling;
+    const grid = aside?.parentElement;
+    if (!aside || !content || !grid) throw new Error("Shell slots missing.");
+    const asideRect = aside.getBoundingClientRect();
+
+    return {
+      asideBottom: asideRect.bottom,
+      asideTop: asideRect.top,
+      contentTop: content.getBoundingClientRect().top,
+      rowGap: Number.parseFloat(getComputedStyle(grid).rowGap),
+      scrollY: window.scrollY,
+    };
+  });
+
+const scrollWindowTo = (page: Page, top: number) =>
+  page.evaluate((scrollTop) => {
+    window.scrollTo({ behavior: "instant", top: scrollTop });
+  }, top);
+
+test.skipIf(!chromiumAvailable)(
+  "starts a newly selected desktop section at its top",
+  async () => {
+    const page = await openAccountShell({ height: 1000, width: 1440 });
+    try {
+      await selectSection(page, "billing");
+      expect((await readContentStart(page)).scrollY).toBe(0);
+
+      await scrollWindowTo(page, 1500);
+      await selectSection(page, "profile");
+      const start = await readContentStart(page);
+
+      expect(start.scrollY).toBeGreaterThan(0);
+      expect(Math.abs(start.contentTop - start.asideTop)).toBeLessThanOrEqual(
+        1
+      );
+    } finally {
+      await page.close();
+    }
+  }
+);
+
+test.skipIf(!chromiumAvailable)(
+  "starts a newly selected mobile section below the sticky navigation",
+  async () => {
+    const page = await openAccountShell({ height: 900, width: 375 });
+    try {
+      await selectSection(page, "billing");
+      expect((await readContentStart(page)).scrollY).toBe(0);
+
+      await scrollWindowTo(page, 1500);
+      await selectSection(page, "profile");
+      const start = await readContentStart(page);
+
+      expect(start.scrollY).toBeGreaterThan(0);
+      expect(
+        Math.abs(start.contentTop - (start.asideBottom + start.rowGap))
+      ).toBeLessThanOrEqual(1);
+    } finally {
+      await page.close();
+    }
+  }
+);

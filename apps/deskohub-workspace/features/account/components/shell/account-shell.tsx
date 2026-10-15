@@ -8,10 +8,16 @@ import {
   TriangleAlert,
   UserRound,
 } from "lucide-react";
-import { type ReactNode, useEffect, useId, useRef } from "react";
+import {
+  type ReactNode,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+} from "react";
 import { NavItem } from "@/shared/components/ui/nav-item";
 import { cn } from "@/shared/utils";
-import { AccountFrame } from "./account-frame";
+import { AccountFrame, revealAccountContentStart } from "./account-frame";
 
 /*
  * THESIS: Account navigation stays task-first instead of becoming a card grid.
@@ -87,6 +93,15 @@ export function AccountShell({
     ] as const
   ).filter((section) => !hiddenSections.includes(section.key));
   const mobileNavigationRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  // The section a navigation click asked for; its content starts at its top.
+  const selectedSectionRef = useRef<AccountSection | null>(null);
+
+  useLayoutEffect(() => {
+    if (selectedSectionRef.current !== activeSection) return;
+    selectedSectionRef.current = null;
+    if (contentRef.current) revealAccountContentStart(contentRef.current);
+  }, [activeSection]);
 
   useEffect(() => {
     const mobileNavigation = mobileNavigationRef.current;
@@ -128,11 +143,13 @@ export function AccountShell({
     ) {
       return;
     }
+    if (section !== activeSection) selectedSectionRef.current = section;
     onSectionChange(section);
   };
 
   return (
     <AccountFrame
+      contentRef={contentRef}
       navigation={
         <nav
           aria-label={labels.navigation}
