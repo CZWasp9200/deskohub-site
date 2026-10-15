@@ -31,6 +31,16 @@ initializeWorkspaceBotId(getClientEnv().NEXT_PUBLIC_VERCEL_ENV, () =>
         path: "/*/reservation/invoice/*",
         method: "POST",
       },
+      // Verified in the Better Auth guard: always for code sign-in, and for
+      // sign-in emails while sign-in codes are on.
+      {
+        path: "/api/auth/sign-in/magic-link",
+        method: "POST",
+      },
+      {
+        path: "/api/auth/sign-in/email-otp",
+        method: "POST",
+      },
     ],
   })
 );

@@ -3,9 +3,14 @@
 ## Delivery path
 
 - Better Auth calls `workspaceSendMagicLink` (`auth-server.ts`) with the email,
-  token, and bearer URL. It picks the email language, then delivers in Next
-  `after()` so the response doesn't depend on delivery timing or account
-  existence.
+  token, bearer URL, and, while sign-in codes are on, the code. It picks the
+  email language from the saved preference, else `metadata.locale`, then
+  delivers in Next `after()` so the response doesn't depend on delivery timing
+  or account existence.
+- The template (`magic-link-email.tsx`) shows the code under the button as two
+  spans that read `482 913`, with intro copy and an expiry note. The text body
+  keeps the code alone on one bare six-digit line, the only such line, which
+  the E2E extractor relies on.
 - `makeMagicLinkEmailDelivery` (`features/account/backend/auth/send-magic-link-email.ts`)
   sends through the shared `@deskohub/email` `EmailServiceTag.RecipientRouted`
   service, which owns sending, retry, and routing for every Workspace email:
@@ -34,8 +39,8 @@ and `features/account/backend/account-boundary.test.ts` enforces that.
 
 | Line | Emitted when | Content |
 | --- | --- | --- |
-| `account.magic-link.preview-e2e` | Runtime is Vercel Preview, the recipient matches `delivered+<run-id>-<label>@<EMAIL_TEST_DOMAIN>` exactly, and Console accepted the send | Rendered TEXT body with the link |
-| `account.magic-link.development` | `VERCEL_ENV` and `NODE_ENV` are both `development` (only `next dev`; Vercel builds run `production`, `bun test` runs `test`) and Console accepted the send | Recipient and bearer URL |
+| `account.magic-link.preview-e2e` | Runtime is Vercel Preview, the recipient matches `delivered+<run-id>-<label>@<EMAIL_TEST_DOMAIN>` exactly, and Console accepted the send | Rendered TEXT body with the link and any sign-in code |
+| `account.magic-link.development` | `VERCEL_ENV` and `NODE_ENV` are both `development` (only `next dev`; Vercel builds run `production`, `bun test` runs `test`) and Console accepted the send | Recipient, bearer URL, and any `signInCode` |
 
 Both lines bypass the Effect/OTel censorship layer on purpose. Links delivered
 through Resend are never printed. Never extend either line to real Preview
@@ -63,9 +68,11 @@ Preview line from Vercel runtime logs:
   origin: require HTTPS, the exact preview host, and the Better Auth callback
   path. Keep the `attempt` query that `createAuthReturnLifecycle` adds; normal
   sign-in needs it. Deduplicate identical URLs and reject distinct matches.
-- Keep links and tokens in memory, and register the recipient, link, token,
-  cookies, and log line with the E2E redactor before they can reach any
-  output. Keep response bodies and row contents out of spans and failures.
+- `retrieveSignInEmail` returns the link and the sign-in code from one log
+  line; the code is the only line that is exactly six digits.
+- Keep links, tokens, and codes in memory, and register the recipient, link,
+  token, code, cookies, and log line with the E2E redactor before they can
+  reach any output. Keep response bodies and row contents out of spans and failures.
 - Exercise the real verification route and cookie. Never read tokens from
   Postgres, add a token-returning route, ship `testUtils`, add a runtime
   bypass, or use tunnels or webhook capture.

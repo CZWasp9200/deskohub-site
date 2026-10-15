@@ -22,6 +22,7 @@ import { withCallbackHandoffReview } from "./callback-handoff";
 import {
   type WorkspaceE2EAccountCaseId,
   workspaceE2EAccountCaseIds,
+  workspaceE2EAccountCaseSkipReason,
 } from "./catalog";
 import {
   getAccountE2EConfig,
@@ -422,6 +423,12 @@ for (const caseId of workspaceE2EAccountCaseIds) {
             ...(verifyPages ? { verifyPages } : {}),
           })
         );
+
+      const skipReason = workspaceE2EAccountCaseSkipReason(
+        caseId,
+        accountLane.lifecycleHandoff
+      );
+      accountTest.skip(skipReason !== undefined, skipReason);
 
       if (caseId === "account-sign-in-form") {
         const pages = browser.contexts().flatMap((context) => context.pages());

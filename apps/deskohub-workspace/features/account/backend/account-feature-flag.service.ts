@@ -4,6 +4,8 @@ import { WorkspaceFeatureFlagService } from "@/features/feature-flags/backend";
 
 export interface IAccountFeatureFlagService {
   readonly isEnabled: Effect.Effect<boolean>;
+  /** `login_email_code`: sign-in emails carry a code. Fails closed. */
+  readonly isSignInCodeEnabled: Effect.Effect<boolean>;
   readonly isAvatarEnabled: Effect.Effect<
     boolean,
     PostHogFeatureFlagEvaluationError
@@ -24,6 +26,15 @@ export class AccountFeatureFlagService extends Context.Service<
           Effect.map((value) => value === true),
           Effect.tapError(() =>
             Effect.logWarning("Account feature flag evaluation unavailable")
+          ),
+          Effect.orElseSucceed(() => false)
+        ),
+        isSignInCodeEnabled: featureFlags.isEnabled("login_email_code").pipe(
+          Effect.map((value) => value === true),
+          Effect.tapError(() =>
+            Effect.logWarning(
+              "Sign-in code feature flag evaluation unavailable"
+            )
           ),
           Effect.orElseSucceed(() => false)
         ),

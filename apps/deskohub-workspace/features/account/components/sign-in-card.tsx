@@ -4,17 +4,18 @@ import { effectSchemaResolver } from "@deskohub/effect-schema-resolver";
 import { Schema } from "effect";
 import { Loader2 } from "lucide-react";
 import type { FormEvent } from "react";
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import isEmail from "validator/lib/isEmail.js";
-import { createAuthReturnLifecycle } from "@/features/account/auth-return";
+import {
+  createAuthReturnLifecycle,
+  type SignInEmailFailure,
+} from "@/features/account/auth-return";
+import { SignInCodeStep } from "@/features/account/components/sign-in-code-step";
+import { signInEmailFailureMessage } from "@/features/account/components/sign-in-email-failure-message";
+import { useSignInCodeRequest } from "@/features/account/sign-in-code-request";
 import { type Locale, m } from "@/features/i18n";
+import { useClientReady } from "@/shared/browser/use-client-ready";
 import { Button } from "@/shared/components/ui/button";
 import { Card, CardContent } from "@/shared/components/ui/card";
 import {
@@ -26,15 +27,13 @@ import {
   FormMessage,
 } from "@/shared/components/ui/form";
 import { Input } from "@/shared/components/ui/input";
+import { maskEmailAddress } from "@/shared/utils";
 
 type SignInCardProps = {
   readonly locale: Locale;
 };
 
 const signInEmailMaximumLength = 255;
-const subscribeToClientReady = () => () => undefined;
-const getClientReadySnapshot = () => true;
-const getServerClientReadySnapshot = () => false;
 
 const createSignInFormSchema = (locale: Locale) =>
   Schema.Struct({
@@ -60,13 +59,19 @@ type SignInFormValues = SignInFormSchema["Type"];
 
 export function SignInCard({ locale }: SignInCardProps) {
   const [requested, setRequested] = useState(false);
-  const [failed, setFailed] = useState(false);
-  const clientReady = useSyncExternalStore(
-    subscribeToClientReady,
-    getClientReadySnapshot,
-    getServerClientReadySnapshot
-  );
+  const [failure, setFailure] = useState<SignInEmailFailure | null>(null);
+  const [codeRequest, setCodeRequest] = useSignInCodeRequest();
+  const clientReady = useClientReady();
   const submissionInProgress = useRef(false);
+  // The control that switched the view unmounts with it, so the next view
+  // takes focus once it mounts.
+  const focusAfterViewChange = useRef<"email" | "accepted" | null>(null);
+  const focusOnMount =
+    (target: "email" | "accepted") => (element: HTMLElement | null) => {
+      if (element === null || focusAfterViewChange.current !== target) return;
+      focusAfterViewChange.current = null;
+      element.focus();
+    };
   const authReturn = useMemo(
     () => createAuthReturnLifecycle({ locale }),
     [locale]
@@ -81,17 +86,35 @@ export function SignInCard({ locale }: SignInCardProps) {
 
   useEffect(() => authReturn.cancel, [authReturn]);
 
+  // The link may be opened in another tab after this one reloaded and lost
+  // its hand-off listener; coming back to this tab then continues.
+  useEffect(() => {
+    if (!codeRequest) return;
+    const continueIfSignedIn = () => {
+      if (document.visibilityState !== "visible") return;
+      void authReturn.continueIfSignedIn();
+    };
+    window.addEventListener("focus", continueIfSignedIn);
+    document.addEventListener("visibilitychange", continueIfSignedIn);
+    return () => {
+      window.removeEventListener("focus", continueIfSignedIn);
+      document.removeEventListener("visibilitychange", continueIfSignedIn);
+    };
+  }, [authReturn, codeRequest]);
+
   const requestLink = async ({ email }: SignInFormValues) => {
-    try {
-      const result = await authReturn.sendMagicLink(email);
-      if (result.error) {
-        setFailed(true);
-        return;
-      }
-      setRequested(true);
-    } catch {
-      setFailed(true);
+    const result = await authReturn.sendSignInEmail(email);
+    if (result.status === "cancelled") return;
+    if (result.status === "failed") {
+      setFailure(result.reason);
+      return;
     }
+    if (result.signInCode) {
+      setCodeRequest({ email, requestedAt: Date.now() });
+      return;
+    }
+    focusAfterViewChange.current = "accepted";
+    setRequested(true);
   };
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
@@ -100,7 +123,7 @@ export function SignInCard({ locale }: SignInCardProps) {
       return;
     }
     submissionInProgress.current = true;
-    setFailed(false);
+    setFailure(null);
     void form
       .handleSubmit(requestLink)(event)
       .finally(() => {
@@ -108,11 +131,66 @@ export function SignInCard({ locale }: SignInCardProps) {
       });
   };
 
-  if (requested) {
+  if (codeRequest) {
+    const requestNewEmail = async () => {
+      const result = await authReturn.sendSignInEmail(codeRequest.email);
+      // "Use a different email" or a newer email replaced this request.
+      if (result.status === "cancelled") return result.status;
+      if (result.status === "failed") return result.reason;
+      if (result.signInCode) {
+        setCodeRequest({ email: codeRequest.email, requestedAt: Date.now() });
+      } else {
+        // Codes were switched off meanwhile: fall back to the link-only state.
+        focusAfterViewChange.current = "accepted";
+        setCodeRequest(null);
+        setRequested(true);
+      }
+      return "sent" as const;
+    };
+
     return (
       <Card className="rounded-3xl border-white/70 bg-white/94 shadow-[0_32px_100px_-48px_rgba(0,2,79,0.55)]">
         <CardContent className="p-8 sm:p-10">
           <h2 className="text-3xl text-navy-blue">
+            {m.accountSignInCodeTitle({}, { locale })}
+          </h2>
+          <p className="mt-3 text-sm leading-6 text-navy-blue/68">
+            {m.accountSignInCodeBody(
+              { email: maskEmailAddress(codeRequest.email) },
+              { locale }
+            )}
+          </p>
+          <SignInCodeStep
+            locale={locale}
+            requestedAt={codeRequest.requestedAt}
+            verifiedMessage={m.accountSignInCodeVerified({}, { locale })}
+            verifyCode={(code) =>
+              authReturn.verifySignInCode(codeRequest.email, code)
+            }
+            onVerified={authReturn.continueWithVerifiedCode}
+            requestNewEmail={requestNewEmail}
+            onUseDifferentEmail={() => {
+              authReturn.cancel();
+              focusAfterViewChange.current = "email";
+              setCodeRequest(null);
+              form.reset({ email: codeRequest.email });
+              setFailure(null);
+            }}
+          />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (requested) {
+    return (
+      <Card className="rounded-3xl border-white/70 bg-white/94 shadow-[0_32px_100px_-48px_rgba(0,2,79,0.55)]">
+        <CardContent className="p-8 sm:p-10">
+          <h2
+            ref={focusOnMount("accepted")}
+            tabIndex={-1}
+            className="text-3xl text-navy-blue outline-none"
+          >
             {m.accountSignInAcceptedTitle({}, { locale })}
           </h2>
           <p className="mt-4 leading-7 text-navy-blue/68">
@@ -124,8 +202,9 @@ export function SignInCard({ locale }: SignInCardProps) {
             className="mt-8"
             onClick={() => {
               authReturn.cancel();
+              focusAfterViewChange.current = "email";
               form.reset();
-              setFailed(false);
+              setFailure(null);
               setRequested(false);
             }}
           >
@@ -167,6 +246,10 @@ export function SignInCard({ locale }: SignInCardProps) {
                   <FormControl>
                     <Input
                       {...field}
+                      ref={(element) => {
+                        field.ref(element);
+                        focusOnMount("email")(element);
+                      }}
                       disabled={!clientReady}
                       id="account-sign-in-email"
                       type="email"
@@ -190,7 +273,7 @@ export function SignInCard({ locale }: SignInCardProps) {
           </form>
         </Form>
         <div aria-live="polite" className="mt-4 min-h-5 text-sm text-red-700">
-          {failed ? m.accountSignInRequestFailed({}, { locale }) : null}
+          {failure && signInEmailFailureMessage(failure, locale)}
         </div>
       </CardContent>
     </Card>

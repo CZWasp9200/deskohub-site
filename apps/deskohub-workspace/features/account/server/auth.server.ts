@@ -2,6 +2,7 @@ import "server-only";
 
 import { Effect } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
+import { WorkspaceDatabaseAdvisoryLock } from "@/db/postgres-advisory-lock";
 import { env } from "@/env";
 import { resolveBetterAuthAllowedHosts } from "@/features/account/backend/auth/auth-hosts";
 import { parseBetterAuthSecrets } from "@/features/account/backend/auth/auth-secrets";
@@ -12,8 +13,12 @@ import {
   workspaceSendMagicLink,
 } from "@/features/account/backend/auth/auth-server";
 import { captureAccountLocalePreference } from "@/features/account/backend/customer-locale-preference";
+import { BotProtectionService } from "@/shared/backend/bot-protection/bot-protection.service";
 import { workspaceSiteConstants } from "@/shared/utils/site-constants";
-import { areAccountsEnabled } from "./account-feature-flag.server";
+import {
+  areAccountsEnabled,
+  isSignInCodeEnabled,
+} from "./account-feature-flag.server";
 
 const secrets = parseBetterAuthSecrets(env.BETTER_AUTH_SECRETS);
 if (secrets.kind === "invalid") {
@@ -44,6 +49,15 @@ export const auth = makeWorkspaceAuth({
   allowedHosts: allowedHosts.hosts,
   httpsOnly: env.VERCEL_ENV !== "development",
   areAccountsEnabled,
+  isSignInCodeEnabled,
+  verifyHuman: (input) =>
+    Effect.flatMap(BotProtectionService, (botProtection) =>
+      botProtection.verifyHuman(input)
+    ).pipe(Effect.provide(BotProtectionService.Default)),
+  withSignInEmailLock: (key, effect) =>
+    Effect.flatMap(WorkspaceDatabaseAdvisoryLock, (advisoryLock) =>
+      advisoryLock.withLock(key, effect)
+    ).pipe(Effect.provide(WorkspaceDatabaseAdvisoryLock.Default)),
   sendMagicLink: workspaceSendMagicLink,
   beforeDeleteUser: workspaceBeforeDeleteUser,
   captureAccountLocalePreference: (accountId, locale) =>

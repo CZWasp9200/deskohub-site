@@ -63,4 +63,51 @@ describe("AccountFeatureFlagService", () => {
     });
     expect(JSON.stringify(logRecords)).not.toContain("private provider detail");
   });
+
+  const readSignInCodeFlag = (
+    isEnabled: (
+      key: PostHogFeatureFlagKey
+    ) => Effect.Effect<boolean, PostHogFeatureFlagEvaluationError>
+  ) =>
+    Effect.flatMap(
+      AccountFeatureFlagService,
+      (featureFlag) => featureFlag.isSignInCodeEnabled
+    ).pipe(
+      Effect.provide(AccountFeatureFlagService.Default),
+      Effect.provide(WorkspaceFeatureFlagServiceMock({ isEnabled }))
+    );
+
+  test("reads login_email_code and enables sign-in codes only for true", async () => {
+    const isEnabled = mock(() => Effect.succeed(true));
+
+    expect(await Effect.runPromise(readSignInCodeFlag(isEnabled))).toBe(true);
+    expect(isEnabled).toHaveBeenCalledWith("login_email_code");
+    expect(
+      await Effect.runPromise(readSignInCodeFlag(() => Effect.succeed(false)))
+    ).toBe(false);
+  });
+
+  test("fails sign-in codes closed with a fixed warning when evaluation fails", async () => {
+    const logRecords: LogRecord[] = [];
+
+    const enabled = await readSignInCodeFlag(() =>
+      Effect.fail(
+        new PostHogFeatureFlagEvaluationError({
+          message: "Sign-in code flag evaluation failed.",
+          cause: new Error("private provider detail"),
+        })
+      )
+    ).pipe(
+      Effect.provide(Logger.layer([captureLogger(logRecords)])),
+      Effect.runPromise
+    );
+
+    expect(enabled).toBe(false);
+    expect(logRecords).toContainEqual({
+      level: "Warn",
+      message: "Sign-in code feature flag evaluation unavailable",
+      annotations: expect.anything(),
+    });
+    expect(JSON.stringify(logRecords)).not.toContain("private provider detail");
+  });
 });

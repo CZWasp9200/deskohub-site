@@ -26,6 +26,14 @@ export const areAccountsEnabled = cache(
     )
 );
 
+/** Read once per sign-in email by the send request's auth guard. */
+export const isSignInCodeEnabled = async (): Promise<boolean> =>
+  AccountFeatureFlagService.pipe(
+    Effect.flatMap((featureFlag) => featureFlag.isSignInCodeEnabled),
+    Effect.provide(AccountFeatureFlagService.Live),
+    runWorkspaceEffect("account.sign-in-code-enabled")
+  );
+
 export async function areAccountAvatarsEnabled(): Promise<boolean> {
   return accountAvatarsEnabled.pipe(
     Effect.provide(AccountFeatureFlagService.Live),
