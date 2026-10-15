@@ -3,6 +3,7 @@ import { Cause, Effect, Exit } from "effect";
 import {
   type ActionResponseOutcome,
   awaitActionQuiescence,
+  retainActionSubmission,
   runFinalizedCase,
   sanitizedBrowserOperation,
 } from "./admin-case";
@@ -211,5 +212,36 @@ describe("action completion barrier", () => {
       "replayed access code action response did not settle"
     );
     expect(operations).toEqual([]);
+  });
+
+  test("skips convergence when the action request was never dispatched", async () => {
+    const operations: string[] = [];
+
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        yield* awaitActionQuiescence({
+          barrierTimeoutMs: 20,
+          label: "save audience action",
+          responseSettled: retainActionSubmission(
+            Promise.reject(new Error("no request before the timeout"))
+          ),
+          waitForTerminalEvent: Effect.sync(() => {
+            operations.push("converge");
+            return true;
+          }),
+        });
+        operations.push("delete");
+      })
+    );
+
+    expect(operations).toEqual(["delete"]);
+  });
+
+  test("retains a dispatched request without a response as unresolved", async () => {
+    expect(
+      await retainActionSubmission(
+        Promise.resolve({ response: () => Promise.resolve(null) })
+      )
+    ).toEqual({ kind: "unresolved" });
   });
 });

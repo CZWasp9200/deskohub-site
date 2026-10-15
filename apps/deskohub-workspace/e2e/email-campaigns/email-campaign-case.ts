@@ -1,5 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { testEmailAddress } from "@deskohub/test-email";
+import { Effect } from "effect";
+import {
+  type ActionResponseOutcome,
+  awaitActionQuiescence,
+} from "../admin-case";
 
 /**
  * One run's synthetic recipient-preview fixture. The tag is unique to the
@@ -27,3 +32,36 @@ export const planEmailCampaignPreview = (
   recipientEmail: testEmailAddress(`delivered+campaign-${key}`),
   subject: `Workspace E2E ${key}`,
 });
+
+/**
+ * Waits for the audience save, then the campaign draft creation, to settle,
+ * and deletes the run's exact-match rows whatever those barriers report, so a
+ * failed or undispatched submission never strands the fixture. A barrier
+ * failure still fails cleanup once the deletes have run.
+ */
+export const releaseEmailCampaignFixture = <E, R>(input: {
+  readonly barrierTimeoutMs: number;
+  readonly audienceSubmission: Promise<ActionResponseOutcome> | undefined;
+  readonly campaignSubmission: Promise<ActionResponseOutcome> | undefined;
+  readonly audiencePersisted: Effect.Effect<boolean, E, R>;
+  readonly campaignPersisted: Effect.Effect<boolean, E, R>;
+  readonly deleteRows: Effect.Effect<void, E, R>;
+}) =>
+  awaitActionQuiescence({
+    barrierTimeoutMs: input.barrierTimeoutMs,
+    label: "save audience action",
+    responseSettled: input.audienceSubmission,
+    waitForTerminalEvent: input.audiencePersisted,
+  }).pipe(
+    Effect.ensuring(
+      Effect.orDie(
+        awaitActionQuiescence({
+          barrierTimeoutMs: input.barrierTimeoutMs,
+          label: "create campaign draft action",
+          responseSettled: input.campaignSubmission,
+          waitForTerminalEvent: input.campaignPersisted,
+        })
+      )
+    ),
+    Effect.ensuring(Effect.orDie(input.deleteRows))
+  );

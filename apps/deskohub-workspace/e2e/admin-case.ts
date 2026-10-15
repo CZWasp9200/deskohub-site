@@ -1,5 +1,5 @@
 import { AssertionError } from "node:assert";
-import type { Browser, BrowserContext, Page } from "@playwright/test";
+import type { Browser, BrowserContext, Page, Request } from "@playwright/test";
 import { Cause, Effect, Exit, Option } from "effect";
 import type { WorkspaceE2EAdminCredential } from "./admin-basic-auth";
 import { WorkspaceE2EError, workspaceE2EError } from "./errors";
@@ -14,10 +14,8 @@ import { workspaceE2ETimeouts } from "./timeouts";
  * credentials, and response bodies, so the cause is discarded instead of
  * attached, redacted, or stringified.
  */
-const sanitizedBrowserFailure =
-  (operation: string) =>
-  (): WorkspaceE2EError =>
-    workspaceE2EError(`${operation} failed`, { operation });
+const sanitizedBrowserFailure = (operation: string) => (): WorkspaceE2EError =>
+  workspaceE2EError(`${operation} failed`, { operation });
 
 /**
  * Runs one browser or preview-HTTP operation and maps every failure onto a
@@ -176,14 +174,15 @@ export const reportAdminCaseFailure =
 
 export type ActionResponseOutcome =
   | { readonly kind: "responded" }
+  | { readonly kind: "undispatched" }
   | { readonly kind: "unresolved" };
 
 /**
  * Server Actions keep running after a browser disconnect, so cleanup waits for
- * each retained mutation response within explicit headroom. An action may fall
- * back to converging on its persisted terminal state when the caller can
- * observe one; without that proof an unresolved action fails closed without
- * deleting.
+ * each retained mutation response within explicit headroom. An action whose
+ * request never left the browser has nothing in flight. An unresolved action
+ * may fall back to converging on its persisted terminal state when the caller
+ * can observe one; without that proof it fails closed without deleting.
  */
 export const awaitActionQuiescence = <E = never, R = never>(input: {
   readonly barrierTimeoutMs: number;
@@ -194,15 +193,16 @@ export const awaitActionQuiescence = <E = never, R = never>(input: {
   Effect.gen(function* () {
     const responseSettled = input.responseSettled;
     if (!responseSettled) return;
-    const responded = yield* withinWorkspaceE2EDeadline(
+    const outcome = yield* withinWorkspaceE2EDeadline(
       Effect.promise(() => responseSettled),
       `await the ${input.label} completion barrier`,
       input.barrierTimeoutMs
     ).pipe(
-      Effect.map((outcome) => outcome.kind === "responded"),
-      Effect.catch(() => Effect.succeed(false))
+      Effect.orElseSucceed(
+        (): ActionResponseOutcome => ({ kind: "unresolved" })
+      )
     );
-    if (responded) return;
+    if (outcome.kind !== "unresolved") return;
     if (!input.waitForTerminalEvent) {
       return yield* workspaceE2EError(
         `The ${input.label} response did not settle before cleanup, so synthetic rows must not be deleted`,
@@ -213,13 +213,19 @@ export const awaitActionQuiescence = <E = never, R = never>(input: {
   });
 
 /**
- * Retains a settled-or-unresolved outcome for an awaited mutation response, so
- * cleanup can wait on it even when the step that registered it is interrupted.
+ * Retains a submitted action's outcome, so cleanup can wait on it even when the
+ * step that registered it is interrupted. A request that never left the
+ * browser settles as undispatched; one without a response as unresolved.
  */
-export const retainActionResponse = (
-  response: Promise<unknown>
+export const retainActionSubmission = (
+  request: Promise<Pick<Request, "response">>
 ): Promise<ActionResponseOutcome> =>
-  response.then(
-    (): ActionResponseOutcome => ({ kind: "responded" }),
-    (): ActionResponseOutcome => ({ kind: "unresolved" })
+  request.then(
+    (dispatched) =>
+      dispatched.response().then(
+        (response): ActionResponseOutcome =>
+          response ? { kind: "responded" } : { kind: "unresolved" },
+        (): ActionResponseOutcome => ({ kind: "unresolved" })
+      ),
+    (): ActionResponseOutcome => ({ kind: "undispatched" })
   );

@@ -2,14 +2,15 @@ import "../../shared/polyfills/temporal";
 
 import { equal, ok } from "node:assert/strict";
 import type { DotyposCustomerId } from "@deskohub/dotypos";
-import {
-  type BrowserContext,
-  expect,
-  type Page,
-  type Request,
-} from "@playwright/test";
+import { type BrowserContext, expect, type Page } from "@playwright/test";
 import { eq } from "drizzle-orm";
 import { Effect } from "effect";
+import type { DatabaseClient } from "@/db/database-client";
+import {
+  customerMarketingConsents,
+  emailCampaignAudiences,
+  emailCampaigns,
+} from "@/db/schema";
 import {
   createSyntheticCustomerProfile,
   expireSyntheticCustomerProfile,
@@ -19,11 +20,10 @@ import { getWorkspaceE2EMarketingDocumentHash } from "../account/marketing-docum
 import { makeWorkspaceE2EAdminCredential } from "../admin-basic-auth";
 import {
   type ActionResponseOutcome,
-  awaitActionQuiescence,
   openAdminBrowserPage,
   primePreviewBypass,
   reportAdminCaseFailure,
-  retainActionResponse,
+  retainActionSubmission,
   runFinalizedCase,
   sanitizedBrowserOperation,
 } from "../admin-case";
@@ -50,15 +50,10 @@ import {
   workspaceE2EPollIntervalMs,
   workspaceE2ETimeouts,
 } from "../timeouts";
-import type { DatabaseClient } from "@/db/database-client";
-import {
-  customerMarketingConsents,
-  emailCampaignAudiences,
-  emailCampaigns,
-} from "@/db/schema";
 import {
   type EmailCampaignPreviewPlan,
   planEmailCampaignPreview,
+  releaseEmailCampaignFixture,
 } from "./email-campaign-case";
 
 const emailCampaignPreviewCaseId = "email-campaign-recipient-preview";
@@ -66,41 +61,44 @@ const savedAudiencePath = /^\/admin\/email-audiences\/(?!new$)[^/]+$/;
 const savedCampaignPath = /^\/admin\/email-campaigns\/(?!new$)[^/]+$/;
 const recipientPreviewPath = /^\/admin\/email-campaigns\/[^/]+\/recipients$/;
 
-test(
-  "previews the tagged synthetic customer as a draft marketing campaign recipient",
-  async ({ baseURL, browser, environment, runContext, runEffect }) => {
-    const credential = makeWorkspaceE2EAdminCredential(
-      environment.WORKSPACE_E2E_ADMIN_BASIC_AUTH
+test("previews the tagged synthetic customer as a draft marketing campaign recipient", async ({
+  baseURL,
+  browser,
+  environment,
+  runContext,
+  runEffect,
+}) => {
+  const credential = makeWorkspaceE2EAdminCredential(
+    environment.WORKSPACE_E2E_ADMIN_BASIC_AUTH
+  );
+  addRedaction(environment.VERCEL_AUTOMATION_BYPASS_SECRET);
+  const datasourceConfig = getDatasourceConfig(environment);
+  const plan = planEmailCampaignPreview();
+  const { context, origin, page } = await openAdminBrowserPage({
+    baseURL,
+    browser,
+    caseName: "email campaign recipient preview",
+    credential,
+  });
+  try {
+    await runEffect(
+      runEmailCampaignPreviewCase({
+        bypassSecret: environment.VERCEL_AUTOMATION_BYPASS_SECRET,
+        context,
+        datasourceConfig,
+        origin,
+        page,
+        plan,
+        reportFailure:
+          runContext.githubRunId === undefined
+            ? undefined
+            : writeWorkspaceE2EFailureAnnotation,
+      })
     );
-    addRedaction(environment.VERCEL_AUTOMATION_BYPASS_SECRET);
-    const datasourceConfig = getDatasourceConfig(environment);
-    const plan = planEmailCampaignPreview();
-    const { context, origin, page } = await openAdminBrowserPage({
-      baseURL,
-      browser,
-      caseName: "email campaign recipient preview",
-      credential,
-    });
-    try {
-      await runEffect(
-        runEmailCampaignPreviewCase({
-          bypassSecret: environment.VERCEL_AUTOMATION_BYPASS_SECRET,
-          context,
-          datasourceConfig,
-          origin,
-          page,
-          plan,
-          reportFailure:
-            runContext.githubRunId === undefined
-              ? undefined
-              : writeWorkspaceE2EFailureAnnotation,
-        })
-      );
-    } finally {
-      await context.close().catch(() => undefined);
-    }
+  } finally {
+    await context.close().catch(() => undefined);
   }
-);
+});
 
 const runEmailCampaignPreviewCase = (input: {
   readonly bypassSecret: string | undefined;
@@ -119,10 +117,10 @@ const runEmailCampaignPreviewCase = (input: {
     // retires the profile and removes its consent row.
     let customerId: DotyposCustomerId | undefined;
     let audienceId: string | undefined;
-    // Registered before each submit click, so cleanup waits on the action
-    // even when the submit step is interrupted before it returns.
-    let audienceBarrier: Promise<ActionResponseOutcome> | undefined;
-    let campaignBarrier: Promise<ActionResponseOutcome> | undefined;
+    // Registered before each submit click, so cleanup knows whether the action
+    // was dispatched even when the submit step is interrupted.
+    let audienceSubmission: Promise<ActionResponseOutcome> | undefined;
+    let campaignSubmission: Promise<ActionResponseOutcome> | undefined;
     let terminalStepId: string | undefined;
 
     const step = (
@@ -159,28 +157,27 @@ const runEmailCampaignPreviewCase = (input: {
         sanitizedBrowserOperation(operation, () => run().then(() => undefined))
       );
 
-    // Submits a hydrated admin form once and retains its Server Action
-    // response as the cleanup barrier before the click is issued.
+    // Submits a hydrated admin form once, retaining its Server Action
+    // submission before the click. The request wait outlasts the click, so a
+    // submission it misses was never dispatched.
     const submitAction = (
       submitLabel: string,
-      retain: (barrier: Promise<ActionResponseOutcome>) => void
+      retain: (submission: Promise<ActionResponseOutcome>) => void
     ) => {
-      const isActionRequest = (request: Request) =>
-        request.method() === "POST" &&
-        request.url().startsWith(input.origin) &&
-        request.headers()["next-action"] !== undefined;
-      const responsePromise = page.waitForResponse(
-        (response) => isActionRequest(response.request()),
-        { timeout: workspaceE2ETimeouts.uiTransition }
+      retain(
+        retainActionSubmission(
+          page.waitForRequest(
+            (request) =>
+              request.method() === "POST" &&
+              request.url().startsWith(input.origin) &&
+              request.headers()["next-action"] !== undefined,
+            { timeout: workspaceE2ETimeouts.uiTransition }
+          )
+        )
       );
-      retain(retainActionResponse(responsePromise));
       return page
         .getByRole("button", { exact: true, name: submitLabel })
-        .click({ timeout: workspaceE2ETimeouts.browserAction })
-        .catch((cause: unknown) => {
-          void responsePromise.catch(() => undefined);
-          throw cause;
-        });
+        .click({ timeout: workspaceE2ETimeouts.browserAction });
     };
 
     const waitForPath = (path: RegExp, timeoutMs: number) =>
@@ -189,12 +186,12 @@ const runEmailCampaignPreviewCase = (input: {
         waitUntil: "commit",
       });
 
-    const rowsAppear = (
-      read: Effect.Effect<readonly unknown[], WorkspaceE2EError>,
+    const rowsAppear = <A>(
+      read: Effect.Effect<readonly A[], WorkspaceE2EError>,
       label: string
     ) =>
       pollUntil(
-        read.pipe(Effect.map((rows) => (rows.length > 0 ? true : undefined))),
+        read.pipe(Effect.map((rows) => (rows.length > 0 ? rows : undefined))),
         {
           initialIntervalMs: workspaceE2EPollInitialIntervalMs.database,
           intervalMs: workspaceE2EPollIntervalMs.datasource,
@@ -210,11 +207,6 @@ const runEmailCampaignPreviewCase = (input: {
 
     const timedBody = withinWorkspaceE2EDeadline(
       Effect.gen(function* () {
-        yield* step(
-          "clean-synthetic-rows",
-          workspaceE2ETimeouts.cleanupAction,
-          deleteSyntheticRows(db, plan, undefined)
-        );
         yield* step(
           "create-tagged-customer",
           workspaceE2ETimeouts.providerTransition,
@@ -302,21 +294,15 @@ const runEmailCampaignPreviewCase = (input: {
             )
         );
         yield* browserStep(
-          "fill-audience-title",
+          "fill-audience-form",
           workspaceE2ETimeouts.browserAction,
-          "fill the audience title",
-          () =>
-            audienceForm
+          "fill the audience title and synthetic Dotypos tag condition",
+          async () => {
+            await audienceForm
               .getByLabel("Title", { exact: true })
               .fill(plan.audienceTitle, {
                 timeout: workspaceE2ETimeouts.browserAction,
-              })
-        );
-        yield* browserStep(
-          "add-tag-condition",
-          workspaceE2ETimeouts.browserAction,
-          "add the synthetic Dotypos tag condition",
-          async () => {
+              });
             await audienceForm
               .getByRole("button", { exact: true, name: "Add condition" })
               .click({ timeout: workspaceE2ETimeouts.browserAction });
@@ -335,30 +321,24 @@ const runEmailCampaignPreviewCase = (input: {
           workspaceE2ETimeouts.browserAction,
           "activate the create audience submit control once",
           () =>
-            submitAction("Create audience", (barrier) => {
-              audienceBarrier = barrier;
+            submitAction("Create audience", (submission) => {
+              audienceSubmission = submission;
             })
         );
         yield* browserStep(
           "wait-for-saved-audience",
           workspaceE2ETimeouts.uiTransition,
           "wait for the saved audience page",
-          () => waitForPath(savedAudiencePath, workspaceE2ETimeouts.uiTransition)
+          () =>
+            waitForPath(savedAudiencePath, workspaceE2ETimeouts.uiTransition)
         );
         yield* step(
           "assert-audience-persistence",
           workspaceE2ETimeouts.datasource,
           Effect.gen(function* () {
-            const [audience] = yield* pollUntil(
-              readSyntheticAudiences(db, plan).pipe(
-                Effect.map((rows) => (rows.length > 0 ? rows : undefined))
-              ),
-              {
-                initialIntervalMs: workspaceE2EPollInitialIntervalMs.database,
-                intervalMs: workspaceE2EPollIntervalMs.datasource,
-                label: "the synthetic email campaign audience",
-                timeoutMs: workspaceE2ETimeouts.datasource,
-              }
+            const [audience] = yield* rowsAppear(
+              readSyntheticAudiences(db, plan),
+              "the synthetic email campaign audience"
             );
             ok(audience, "the saved audience must be persisted");
             const { filter } = audience;
@@ -395,32 +375,19 @@ const runEmailCampaignPreviewCase = (input: {
             )
         );
         yield* browserStep(
-          "fill-campaign-title",
+          "fill-campaign-form",
           workspaceE2ETimeouts.browserAction,
-          "fill the campaign title",
-          () =>
-            composerForm.getByLabel("Title").fill(plan.campaignTitle, {
-              timeout: workspaceE2ETimeouts.browserAction,
-            })
-        );
-        yield* browserStep(
-          "select-campaign-audience",
-          workspaceE2ETimeouts.browserAction,
-          "select the synthetic audience",
+          "fill the campaign title, audience, and Czech content",
           async () => {
+            await composerForm.getByLabel("Title").fill(plan.campaignTitle, {
+              timeout: workspaceE2ETimeouts.browserAction,
+            });
             await composerForm
               .getByRole("combobox", { exact: true, name: "Audience" })
               .click({ timeout: workspaceE2ETimeouts.browserAction });
             await page
               .getByRole("option", { exact: true, name: plan.audienceTitle })
               .click({ timeout: workspaceE2ETimeouts.browserAction });
-          }
-        );
-        yield* browserStep(
-          "fill-czech-content",
-          workspaceE2ETimeouts.browserAction,
-          "fill the Czech campaign content",
-          async () => {
             await composerForm
               .getByRole("tabpanel")
               .getByLabel("Subject", { exact: true })
@@ -439,30 +406,24 @@ const runEmailCampaignPreviewCase = (input: {
           workspaceE2ETimeouts.browserAction,
           "activate the create draft control once",
           () =>
-            submitAction("Create draft", (barrier) => {
-              campaignBarrier = barrier;
+            submitAction("Create draft", (submission) => {
+              campaignSubmission = submission;
             })
         );
         yield* browserStep(
           "wait-for-saved-draft",
           workspaceE2ETimeouts.uiTransition,
           "wait for the saved campaign draft page",
-          () => waitForPath(savedCampaignPath, workspaceE2ETimeouts.uiTransition)
+          () =>
+            waitForPath(savedCampaignPath, workspaceE2ETimeouts.uiTransition)
         );
         yield* step(
           "assert-campaign-persistence",
           workspaceE2ETimeouts.datasource,
           Effect.gen(function* () {
-            const [campaign] = yield* pollUntil(
-              readSyntheticCampaigns(db, plan).pipe(
-                Effect.map((rows) => (rows.length > 0 ? rows : undefined))
-              ),
-              {
-                initialIntervalMs: workspaceE2EPollInitialIntervalMs.database,
-                intervalMs: workspaceE2EPollIntervalMs.datasource,
-                label: "the synthetic email campaign draft",
-                timeoutMs: workspaceE2ETimeouts.datasource,
-              }
+            const [campaign] = yield* rowsAppear(
+              readSyntheticCampaigns(db, plan),
+              "the synthetic email campaign draft"
             );
             ok(campaign, "the campaign draft must be persisted");
             equal(campaign.status, "draft");
@@ -510,27 +471,22 @@ const runEmailCampaignPreviewCase = (input: {
       workspaceE2ETimeouts.emailCampaignCase
     );
 
-    const releaseSyntheticRows = Effect.gen(function* () {
-      yield* awaitActionQuiescence({
-        barrierTimeoutMs: workspaceE2ETimeouts.uiTransition,
-        label: "save audience action",
-        responseSettled: audienceBarrier,
-        waitForTerminalEvent: rowsAppear(
+    const releaseSyntheticRows = Effect.suspend(() =>
+      releaseEmailCampaignFixture({
+        audiencePersisted: rowsAppear(
           readSyntheticAudiences(db, plan),
           "the synthetic audience before cleanup"
-        ),
-      });
-      yield* awaitActionQuiescence({
+        ).pipe(Effect.as(true)),
+        audienceSubmission,
         barrierTimeoutMs: workspaceE2ETimeouts.uiTransition,
-        label: "create campaign draft action",
-        responseSettled: campaignBarrier,
-        waitForTerminalEvent: rowsAppear(
+        campaignPersisted: rowsAppear(
           readSyntheticCampaigns(db, plan),
           "the synthetic campaign draft before cleanup"
-        ),
-      });
-      yield* deleteSyntheticRows(db, plan, customerId);
-    });
+        ).pipe(Effect.as(true)),
+        campaignSubmission,
+        deleteRows: deleteSyntheticRows(db, plan, customerId),
+      })
+    );
     const retireSyntheticCustomer = Effect.suspend(() =>
       customerId === undefined
         ? Effect.void
@@ -613,7 +569,10 @@ const deleteSyntheticRows = (
       .where(eq(emailCampaignAudiences.title, plan.audienceTitle))
       .pipe(
         Effect.mapError((cause) =>
-          toWorkspaceE2EError("delete synthetic email campaign audiences", cause)
+          toWorkspaceE2EError(
+            "delete synthetic email campaign audiences",
+            cause
+          )
         )
       );
     if (customerId !== undefined) {
@@ -631,7 +590,10 @@ const deleteSyntheticRows = (
         .where(eq(customerMarketingConsents.dotyposCustomerId, customerId))
         .pipe(
           Effect.mapError((cause) =>
-            toWorkspaceE2EError("verify synthetic marketing consent cleanup", cause)
+            toWorkspaceE2EError(
+              "verify synthetic marketing consent cleanup",
+              cause
+            )
           )
         );
       equal(remainingConsents.length, 0);
