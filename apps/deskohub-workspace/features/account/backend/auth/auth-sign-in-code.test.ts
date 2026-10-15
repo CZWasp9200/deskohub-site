@@ -646,6 +646,50 @@ describe.skipIf(!testDatabase)(
       expect(await sessionCount(email)).toBe(1);
     });
 
+    test("clock skew wider than the gap between two emails can displace the newer code, but fails safe until a new email", async () => {
+      const sentLinks: CapturedMagicLink[] = [];
+      const auth = makeTestAuth({
+        sentLinks,
+        isSignInCodeEnabled: async () => true,
+      });
+      const consume = await pausedVerificationConsume(auth);
+      const email = uniqueEmail("code-restore-skew");
+
+      await sendSignInEmail(auth, email);
+      const older = sentLinks[0]!;
+      consume.pauseValue = `${await digestVerificationKey(older.code!)}:0`;
+      const wrongGuess = signInWithCode(auth, email, wrongCode(older.code!));
+      await consume.paused;
+
+      try {
+        await sendSignInEmail(auth, email);
+        // The instance that issued the newer code runs a minute behind the
+        // one that issued the older code, so the older code's write-back is
+        // dated after it.
+        await testDatabase!.pool.query(
+          `update auth.verification
+           set created_at = created_at - interval '60 seconds'
+           where identifier = $1`,
+          [await digestVerificationKey(`sign-in-otp-${email.toLowerCase()}`)]
+        );
+      } finally {
+        consume.resume();
+      }
+      expect(await errorCode(await wrongGuess)).toBe("INVALID_OTP");
+
+      const newer = await signInWithCode(auth, email, sentLinks[1]!.code!);
+      expect(await errorCode(newer)).toBe("INVALID_OTP");
+      const stale = await signInWithCode(auth, email, older.code!);
+      expect(await errorCode(stale)).toBe("INVALID_OTP");
+      expect(await sessionCount(email)).toBe(0);
+
+      await sendSignInEmail(auth, email);
+      const fresh = await signInWithCode(auth, email, sentLinks[2]!.code!);
+      expect(fresh.status).toBe(200);
+      expect(getSessionCookie(fresh)).toBeDefined();
+      expect(await sessionCount(email)).toBe(1);
+    });
+
     test("a code sign-in that cannot take its claim creates no session", async () => {
       const sentLinks: CapturedMagicLink[] = [];
       const failing = failingVerificationWrites();

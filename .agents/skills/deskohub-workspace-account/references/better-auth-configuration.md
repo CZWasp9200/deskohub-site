@@ -79,7 +79,10 @@ Keep these settings unless a reviewed decision changes them:
   code. Its verify reads only the newest code row and deletes the rest, so
   `verification.create.before` dates a written-back code at its issue
   (`expiresAt` minus `expiresIn`). A late write-back of an older code then
-  can't displace the newer one. Older links keep their claims and still sign in once. A link without
+  can't displace the newer one. The known residual: clock skew between
+  instances wider than the gap between two emails can still let the older
+  code displace the newer one. That fails safe, with no session from either
+  code, and a new email restores sign-in; a test pins it. Older links keep their claims and still sign in once. A link without
   a claim row (sent while codes were off) signs in as before. Claim storage failures fail the request; never swallow them,
   since a swallowed link revocation lets both halves sign in. Every other
   email-OTP path is in `disabledPaths`. Code sign-in accepts only `email`, `otp`, and
