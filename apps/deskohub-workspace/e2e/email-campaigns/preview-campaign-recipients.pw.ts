@@ -286,7 +286,7 @@ const runEmailCampaignPreviewCase = Effect.fn("runEmailCampaignPreviewCase")(
         yield* browserStep(
           "fill-audience-form",
           workspaceE2ETimeouts.browserAction,
-          "fill the audience title and synthetic Dotypos tag condition",
+          "fill the audience title and synthetic Dotypos tags condition",
           async () => {
             await audienceForm
               .getByLabel("Title", { exact: true })
@@ -297,11 +297,35 @@ const runEmailCampaignPreviewCase = Effect.fn("runEmailCampaignPreviewCase")(
               .getByRole("button", { exact: true, name: "Add condition" })
               .click({ timeout: workspaceE2ETimeouts.browserAction });
             await page
-              .getByRole("menuitem", { exact: true, name: "Dotypos tag" })
+              .getByRole("menuitem", { exact: true, name: "Dotypos tags" })
               .click({ timeout: workspaceE2ETimeouts.browserAction });
             await audienceForm
-              .getByRole("textbox", { exact: true, name: "Dotypos tag" })
-              .fill(plan.customerTag, {
+              .getByRole("combobox", {
+                exact: true,
+                name: "Dotypos tags match",
+              })
+              .click({ timeout: workspaceE2ETimeouts.browserAction });
+            await page
+              .getByRole("option", { exact: true, name: "is any of" })
+              .click({ timeout: workspaceE2ETimeouts.browserAction });
+            const tagEntry = audienceForm.getByRole("textbox", {
+              exact: true,
+              name: "Add tag",
+            });
+            await tagEntry.fill(plan.customerTag, {
+              timeout: workspaceE2ETimeouts.browserAction,
+            });
+            // The entry commits a tag on Enter and shows it as a removable chip.
+            await tagEntry.press("Enter", {
+              timeout: workspaceE2ETimeouts.browserAction,
+            });
+            await audienceForm
+              .getByRole("button", {
+                exact: true,
+                name: `Remove tag ${plan.customerTag}`,
+              })
+              .waitFor({
+                state: "visible",
                 timeout: workspaceE2ETimeouts.browserAction,
               });
           }
