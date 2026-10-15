@@ -16,6 +16,7 @@ import { Cause, Effect, Layer } from "effect";
 import * as SqlError from "effect/unstable/sql/SqlError";
 import { makeAuthDatabase } from "@/db/auth-database-client";
 import { WorkspaceDatabase } from "@/db/database.service";
+import { WorkspaceDatabaseAdvisoryLock } from "@/db/postgres-advisory-lock";
 import {
   authAccount,
   authRateLimit,
@@ -59,7 +60,7 @@ export interface CapturedMagicLink {
 
 export type TestAuth = ReturnType<typeof makeTestAuth>;
 
-const buildDatabaseAdapter = () =>
+export const buildDatabaseAdapter = () =>
   drizzleAdapter(makeAuthDatabase(testDatabase!.pool), {
     provider: "pg",
     schema: {
@@ -97,6 +98,17 @@ const realCapture: WorkspaceAuthConfig["captureAccountLocalePreference"] = (
     )
   );
 
+/** The production advisory lock on the migrated disposable database. */
+const realSignInEmailLock: WorkspaceAuthConfig["withSignInEmailLock"] = (
+  key,
+  effect
+) =>
+  Effect.flatMap(WorkspaceDatabaseAdvisoryLock, (advisoryLock) =>
+    advisoryLock.withLock(key, effect)
+  ).pipe(
+    Effect.provide(WorkspaceDatabaseAdvisoryLock.makeLayer(testDatabase!.pool))
+  );
+
 /** A database failure the sign-in capture sees. */
 export const captureFailure = () =>
   new EffectDrizzleQueryError({
@@ -124,6 +136,11 @@ export const makeTestAuth = (options: TestAuthOptions = {}) => {
     // The real capture requires the migrated disposable Postgres, so
     // memory-backed auth instances default to a noop capture.
     (testDatabase && !options.database ? realCapture : () => Effect.void);
+  // Memory-backed instances run in one process with no Postgres to lock.
+  const withSignInEmailLock: WorkspaceAuthConfig["withSignInEmailLock"] =
+    testDatabase && !options.database
+      ? realSignInEmailLock
+      : (_key, effect) => effect;
   return makeWorkspaceAuth({
     database: options.database ?? buildDatabaseAdapter(),
     secrets: options.secrets ?? [{ version: 1, value: SECRET_V1 }],
@@ -132,6 +149,7 @@ export const makeTestAuth = (options: TestAuthOptions = {}) => {
     areAccountsEnabled: options.areAccountsEnabled ?? (async () => true),
     isSignInCodeEnabled: options.isSignInCodeEnabled ?? (async () => false),
     verifyHuman: options.verifyHuman ?? (() => Effect.void),
+    withSignInEmailLock,
     sendMagicLink,
     beforeDeleteUser: options.beforeDeleteUser ?? (() => Effect.void),
     captureAccountLocalePreference,

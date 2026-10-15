@@ -6,6 +6,7 @@ import {
   type VerifyHumanInput,
 } from "@/shared/backend/bot-protection/bot-protection.service";
 import {
+  buildDatabaseAdapter,
   type CapturedMagicLink,
   callHandler,
   cookieJar,
@@ -13,6 +14,7 @@ import {
   makeMemoryTestAuth,
   makeTestAuth,
   type TestAuth,
+  type TestAuthOptions,
   testDatabase,
   uniqueEmail,
   uniqueIp,
@@ -76,6 +78,79 @@ const wrongCode = (code: string) => (code === "000000" ? "111111" : "000000");
 
 const errorCode = async (response: Response) =>
   ((await response.json()) as { readonly code?: string }).code;
+
+/** Whether the address's one stored code is this code. */
+const isStoredCode = async (email: string, code: string) =>
+  (
+    await testDatabase!.pool.query<{ value: string }>(
+      `select value from auth.verification where identifier = $1`,
+      [await digestVerificationKey(`sign-in-otp-${email.toLowerCase()}`)]
+    )
+  ).rows[0]?.value.startsWith(`${await digestVerificationKey(code)}:`) ?? false;
+
+const sessionCount = async (email: string) =>
+  (
+    await testDatabase!.pool.query(
+      `select s.id from auth.session s join auth."user" u on u.id = s.user_id
+       where u.email = $1`,
+      [email.toLowerCase()]
+    )
+  ).rows.length;
+
+type VerificationWrite = "delete" | "updateMany";
+
+/** The test database adapter, failing chosen verification writes on demand. */
+const failingVerificationWrites = () => {
+  const fail = new Set<VerificationWrite>();
+  const database: NonNullable<TestAuthOptions["database"]> = (options) => {
+    const adapter = buildDatabaseAdapter()(options);
+    const failOn =
+      <Data extends { readonly model: string }, Result>(
+        write: VerificationWrite,
+        run: (data: Data) => Promise<Result>
+      ) =>
+      (data: Data) =>
+        fail.has(write) && data.model === "verification"
+          ? Promise.reject(new Error("synthetic verification write failure"))
+          : run(data);
+    return {
+      ...adapter,
+      delete: failOn("delete", adapter.delete),
+      updateMany: failOn("updateMany", adapter.updateMany),
+    };
+  };
+  return { fail, database };
+};
+
+/**
+ * Only the newer email's code signs in, and it ends only its own link: the
+ * older link still signs in once.
+ */
+const expectOnlyNewestCodeSignsIn = async (
+  auth: TestAuth,
+  email: string,
+  links: {
+    readonly older: CapturedMagicLink;
+    readonly newer: CapturedMagicLink;
+  }
+) => {
+  if (links.older.code !== links.newer.code) {
+    const stale = await signInWithCode(auth, email, links.older.code!);
+    expect(await errorCode(stale)).toBe("INVALID_OTP");
+  }
+  const fresh = await signInWithCode(auth, email, links.newer.code!);
+  expect(fresh.status).toBe(200);
+  expect(getSessionCookie(fresh)).toBeDefined();
+
+  const newerLink = await verifyMagicLink(auth, links.newer);
+  expect(getSessionCookie(newerLink)).toBeUndefined();
+  expect(newerLink.headers.get("location") ?? "").toContain(
+    "error=INVALID_TOKEN"
+  );
+
+  const olderLink = await verifyMagicLink(auth, links.older);
+  expect(getSessionCookie(olderLink)).toBeDefined();
+};
 
 const verificationIdentifierCount = async (identifier: string) =>
   (
@@ -296,9 +371,6 @@ describe.skipIf(!testDatabase)(
       expect(link.headers.get("location") ?? "").toContain(
         "error=INVALID_TOKEN"
       );
-      expect(await verificationIdentifierCount(`sign-in-link-${email}`)).toBe(
-        0
-      );
     });
 
     test("using the link removes the code sent with it", async () => {
@@ -326,20 +398,147 @@ describe.skipIf(!testDatabase)(
       const [first, second] = sentLinks;
 
       expect(await verificationIdentifierCount(`sign-in-otp-${email}`)).toBe(1);
-      expect(await verificationIdentifierCount(`sign-in-link-${email}`)).toBe(
-        1
-      );
+      await expectOnlyNewestCodeSignsIn(auth, email, {
+        older: first!,
+        newer: second!,
+      });
+    });
 
-      if (first!.code !== second!.code) {
-        const stale = await signInWithCode(auth, email, first!.code!);
-        expect(await errorCode(stale)).toBe("INVALID_OTP");
+    test("concurrent sign-in emails leave one code that ends only its own link", async () => {
+      for (let round = 0; round < 5; round += 1) {
+        const sentLinks: CapturedMagicLink[] = [];
+        const auth = makeCodeAuth(sentLinks);
+        const email = uniqueEmail("code-concurrent-send");
+
+        const sends = await Promise.all([
+          sendSignInEmail(auth, email),
+          sendSignInEmail(auth, email),
+        ]);
+        expect(sends.map(({ status }) => status)).toEqual([200, 200]);
+        expect(await verificationIdentifierCount(`sign-in-otp-${email}`)).toBe(
+          1
+        );
+
+        const [first, second] = sentLinks;
+        const firstIsNewer = await isStoredCode(email, first!.code!);
+        await expectOnlyNewestCodeSignsIn(
+          auth,
+          email,
+          firstIsNewer
+            ? { older: second!, newer: first! }
+            : { older: first!, newer: second! }
+        );
       }
-      const fresh = await signInWithCode(auth, email, second!.code!);
-      expect(fresh.status).toBe(200);
+    });
 
-      // The older link keeps today's behaviour: it still signs in once.
-      const olderLink = await verifyMagicLink(auth, first!);
-      expect(getSessionCookie(olderLink)).toBeDefined();
+    test("a link and its code used at once sign in exactly once", async () => {
+      for (let round = 0; round < 10; round += 1) {
+        const sentLinks: CapturedMagicLink[] = [];
+        const auth = makeCodeAuth(sentLinks);
+        const email = uniqueEmail("code-link-race");
+
+        // An existing account: neither path creates the user.
+        await sendSignInEmail(auth, email);
+        expect(
+          getSessionCookie(await verifyMagicLink(auth, sentLinks[0]!))
+        ).toBeDefined();
+        await sendSignInEmail(auth, email);
+        const link = sentLinks[1]!;
+
+        const [linkResponse, codeResponse] = await Promise.all([
+          verifyMagicLink(auth, link),
+          signInWithCode(auth, email, link.code!),
+        ]);
+
+        const signedIn = [linkResponse, codeResponse].filter((response) =>
+          getSessionCookie(response)
+        );
+        expect(signedIn).toHaveLength(1);
+        expect(await sessionCount(email)).toBe(2);
+        if (getSessionCookie(linkResponse)) {
+          expect(await errorCode(codeResponse)).toBe("INVALID_OTP");
+        } else {
+          expect(linkResponse.headers.get("location") ?? "").toContain(
+            "error=INVALID_TOKEN"
+          );
+        }
+      }
+    });
+
+    test("a code sign-in that cannot take its claim creates no session", async () => {
+      const sentLinks: CapturedMagicLink[] = [];
+      const failing = failingVerificationWrites();
+      const auth = makeTestAuth({
+        sentLinks,
+        isSignInCodeEnabled: async () => true,
+        database: failing.database,
+      });
+      const email = uniqueEmail("code-claim-failure");
+
+      await sendSignInEmail(auth, email);
+      failing.fail.add("updateMany");
+      const code = await signInWithCode(auth, email, sentLinks[0]!.code!);
+      failing.fail.clear();
+
+      expect(code.status).toBe(500);
+      expect(getSessionCookie(code)).toBeUndefined();
+      expect(await sessionCount(email)).toBe(0);
+    });
+
+    test("a link whose code signed in fails when it cannot be revoked", async () => {
+      const sentLinks: CapturedMagicLink[] = [];
+      const failing = failingVerificationWrites();
+      const auth = makeTestAuth({
+        sentLinks,
+        isSignInCodeEnabled: async () => true,
+        database: failing.database,
+      });
+      const email = uniqueEmail("link-revoke-failure");
+
+      await sendSignInEmail(auth, email);
+      const code = await signInWithCode(auth, email, sentLinks[0]!.code!);
+      expect(getSessionCookie(code)).toBeDefined();
+
+      failing.fail.add("delete");
+      const link = await verifyMagicLink(auth, sentLinks[0]!);
+      failing.fail.clear();
+
+      expect(link.status).toBe(500);
+      expect(getSessionCookie(link)).toBeUndefined();
+      expect(await sessionCount(email)).toBe(1);
+    });
+
+    test("rate limits code sign-ins per IP through the shared database", async () => {
+      const authA = makeCodeAuth([]);
+      const authB = makeCodeAuth([]);
+      const ip = uniqueIp();
+      const attempt = (auth: TestAuth) =>
+        postJson(
+          auth,
+          "/sign-in/email-otp",
+          { email: uniqueEmail("code-rate"), otp: "000000" },
+          { "x-vercel-forwarded-for": ip }
+        );
+
+      for (let index = 0; index < 10; index += 1) {
+        const response = await attempt(index % 2 === 0 ? authA : authB);
+        expect(response.status).toBe(400);
+      }
+
+      const blocked = await attempt(authB);
+      expect(blocked.status).toBe(429);
+      expect(blocked.headers.get("x-retry-after")).toBeTruthy();
+      const rateRows = await testDatabase!.pool.query(
+        `select key from auth.rate_limit where key = $1`,
+        [`${ip}|/sign-in/email-otp`]
+      );
+      expect(rateRows.rows).toHaveLength(1);
+
+      const otherIp = await postJson(authA, "/sign-in/email-otp", {
+        email: uniqueEmail("code-rate"),
+        otp: "000000",
+      });
+      expect(otherIp.status).toBe(400);
     });
 
     test("burns the code after five wrong attempts", async () => {

@@ -60,12 +60,20 @@ Keep these settings unless a reviewed decision changes them:
   hashed six-digit code that lives as long as the link (600 s) and burns after
   five wrong attempts. `/sign-in/magic-link` stays the only send path: its
   `before` hook evaluates the flag once, fail closed, and overwrites
-  `metadata.signInCode`; `sendMagicLink` then deletes the email's older code,
-  calls server-only `auth.api.createVerificationOTP`, and puts the code in the
-  same email; the `after` hook returns `{ status, signInCode }`. One email is
-  one sign-in: a `sign-in-link-<email>` sibling row lets a code sign-in delete
-  its link, and a link sign-in deletes the code. Every other email-OTP path is
-  in `disabledPaths`. Code sign-in accepts only `email`, `otp`, and
+  `metadata.signInCode`; `sendMagicLink` then, under a per-address Postgres
+  advisory lock (`withSignInEmailLock`), deletes the email's older code, calls
+  server-only `auth.api.createVerificationOTP`, and writes the email's claim
+  row (keyed by the link token's digest) and a binding row (keyed by a digest
+  of address and code) that leads to it; the code goes in the same email and
+  the `after` hook returns `{ status, signInCode }`. One email is one sign-in:
+  the link takes the claim in the `before` hook, before Better Auth consumes
+  it, and the code takes it in `session.create.before`, after Better Auth
+  accepts it. The claim is a conditional update, so only one of them wins; a
+  losing link is deleted and fails as `INVALID_TOKEN`, a losing code fails as
+  `INVALID_OTP`. A link without a claim row (sent while codes were off) signs
+  in as before. Claim storage failures fail the request; never swallow them,
+  since a swallowed link revocation lets both halves sign in. Every other
+  email-OTP path is in `disabledPaths`. Code sign-in accepts only `email`, `otp`, and
   `callbackURL`, seeds a new account's locale from that callback, is always
   BotID-checked, and allows ten requests per IP per 10 minutes. While the flag
   is on, sends are BotID-checked and capped at five per address per rolling
@@ -92,8 +100,8 @@ Keep these settings unless a reviewed decision changes them:
 - `auth.account` stays empty: the magic-link flow creates no account rows, and
   passwords, OAuth, and social providers stay disabled.
 - What remains in Neon is the login email, the email inside each pending
-  verification row, and raw `IP|path` rate-limit keys. Sign-in code, sibling,
-  and per-email send rows store only hashed identifiers and values. Better Auth has no
+  verification row, and raw `IP|path` rate-limit keys. Sign-in code, claim,
+  binding, and per-email send rows store only hashed identifiers and values. Better Auth has no
   native option to hash or encrypt these, so don't build a custom adapter or
   HMAC rate-limit storage to remove them.
 
