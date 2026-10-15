@@ -183,24 +183,30 @@ export const getMeetingRoomAdvertisedPriceReservation = (
 
 export type MeetingRoomReservationProductInput = Pick<
   MeetingRoomReservationOrderInput,
-  "kind"
+  "kind" | "duration"
 >;
 
 export const storedMeetingRoomReservationDetailsSchema = Schema.Struct({
   kind: workspaceMeetingRoomProductIdentitySchema.fields.kind,
+  // Rows written before snapshots recorded the offer, and rows the backfill
+  // couldn't resolve, have no duration.
+  duration: Schema.optionalKey(
+    workspaceMeetingRoomProductIdentitySchema.fields.duration
+  ),
 }).annotate({
   identifier: "StoredMeetingRoomReservationDetails",
   description:
-    "App-owned meeting-room family discriminator without Dotypos-owned reservation facts.",
+    "App-owned meeting-room product identity without Dotypos-owned reservation facts.",
 });
 
 export type StoredMeetingRoomReservationDetails =
   typeof storedMeetingRoomReservationDetailsSchema.Type;
 
-export const getStoredMeetingRoomReservationDetails = (
-  _reservation: MeetingRoomReservationProductInput
-): StoredMeetingRoomReservationDetails => ({
+export const getStoredMeetingRoomReservationDetails = ({
+  duration,
+}: MeetingRoomReservationProductInput): StoredMeetingRoomReservationDetails => ({
   kind: meetingRoomReservationKind,
+  duration,
 });
 
 const intervalMatchesMeetingRoomReservationDuration = (

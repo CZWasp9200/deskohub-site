@@ -1,4 +1,5 @@
 import { Schema } from "effect";
+import { workspaceReservationKindSchema } from "@/features/reservation/reservation-kind";
 import { isPlainDateString } from "@/shared/utils/temporal";
 import {
   nexiOperationChannels,
@@ -52,7 +53,7 @@ const optionalReservationStatusField = Schema.Union([
 
 const optionalReservationTypeField = Schema.Union([
   Schema.Literal(""),
-  Schema.Literals(["cowork", "meeting-room", "office"]),
+  workspaceReservationKindSchema,
 ]);
 
 export const reservationFilterSchema = Schema.Struct({

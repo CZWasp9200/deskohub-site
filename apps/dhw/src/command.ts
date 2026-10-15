@@ -23,6 +23,7 @@ import {
   type AdministrationOverviewMetricType,
   type AdministrationReservationAccessGrantType,
   type AdministrationReservationAccessMutationType,
+  type AdministrationReservationProductDetailsBackfillBatchType,
   AdministrationReservationQuery,
   type AdministrationReservationSummaryType,
   AdministrationStandaloneAccessCodeAttemptId,
@@ -337,6 +338,65 @@ const reservationsCancelCommand = Command.make(
     )
 ).pipe(Command.withDescription("Cancel a reservation in Dotypos"));
 
+const reservationsBackfillProductDetailsCommand = Command.make(
+  "backfill-product-details",
+  {
+    dryRun: Flag.boolean("dry-run").pipe(
+      Flag.withDescription("Report what would be filled without writing")
+    ),
+    yes: confirmationFlag,
+  },
+  ({ dryRun, yes }) =>
+    runAuthenticatedCommand((api, accessToken, json) =>
+      Effect.gen(function* () {
+        if (!dryRun) {
+          const confirmed = yield* confirmChange(
+            yes,
+            json,
+            "Fill missing meeting-room and office product details from Dotypos?"
+          );
+          if (!confirmed) {
+            yield* reportCancellation(json);
+            return;
+          }
+        }
+        let updated = 0;
+        let alreadyComplete = 0;
+        const unresolved: AdministrationReservationProductDetailsBackfillBatchType["unresolved"][number][] =
+          [];
+        let after: AdministrationWorkspaceReservationIdType | null = null;
+        do {
+          const batch: AdministrationReservationProductDetailsBackfillBatchType =
+            yield* api.backfillReservationProductDetails(accessToken, {
+              dryRun,
+              after,
+            });
+          updated += batch.updated;
+          alreadyComplete += batch.alreadyComplete;
+          unresolved.push(...batch.unresolved);
+          after = batch.nextCursor;
+        } while (after !== null);
+
+        if (json) {
+          yield* Console.log(
+            JSON.stringify({ dryRun, updated, alreadyComplete, unresolved })
+          );
+          return;
+        }
+        yield* Console.log(
+          `${dryRun ? "Would fill" : "Filled"} ${updated}, already complete ${alreadyComplete}, unresolved ${unresolved.length}.`
+        );
+        for (const { family, reason, reservationId } of unresolved) {
+          yield* Console.log(`${reservationId}\t${family}\t${reason}`);
+        }
+      })
+    )
+).pipe(
+  Command.withDescription(
+    "Fill meeting-room and office product details of older reservations from Dotypos"
+  )
+);
+
 const reservationsRetryAccessCommand = Command.make(
   "retry-access",
   {
@@ -391,6 +451,7 @@ const reservationsCommand = Command.make("reservations").pipe(
     reservationsGetCommand,
     reservationsFindCommand,
     reservationsCancelCommand,
+    reservationsBackfillProductDetailsCommand,
     reservationsRetryAccessCommand,
     reservationsReconcileAccessCommand,
   ])

@@ -326,18 +326,31 @@ export const getOfficeAdvertisedPriceReservation = (
 
 export const storedOfficeReservationDetailsSchema = Schema.Struct({
   kind: workspaceOfficeProductIdentitySchema.fields.kind,
+  // Rows written before snapshots recorded the product, and rows the backfill
+  // couldn't resolve, have neither field.
+  seats: Schema.optionalKey(workspaceOfficeProductIdentitySchema.fields.seats),
+  dayCount: Schema.optionalKey(
+    workspaceOfficeProductIdentitySchema.fields.dayCount
+  ),
 }).annotate({
   identifier: "StoredOfficeReservationDetails",
   description:
-    "App-owned office family discriminator without Dotypos-owned reservation facts.",
+    "App-owned office product identity without Dotypos-owned reservation facts.",
 });
 
 export type StoredOfficeReservationDetails =
   typeof storedOfficeReservationDetailsSchema.Type;
 
 export const getStoredOfficeReservationDetails = (
-  _reservation: Pick<OfficeReservationOrderInput, "kind">
-): StoredOfficeReservationDetails => ({ kind: officeReservationKind });
+  reservation: Pick<
+    OfficeReservationOrderInput,
+    "kind" | "startsOn" | "endsOn" | "seats"
+  >
+): StoredOfficeReservationDetails =>
+  getWorkspaceOfficeProductIdentity({
+    seats: reservation.seats,
+    dayCount: getOfficeReservationDayCount(reservation),
+  });
 
 export const getOfficeSeatOptions = (seatCapacity: number) =>
   Array.from({ length: seatCapacity }, (_, index) =>

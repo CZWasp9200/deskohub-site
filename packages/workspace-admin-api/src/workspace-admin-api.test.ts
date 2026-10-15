@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { testEmailAddress } from "@deskohub/test-email";
 import { Schema } from "effect";
 import {
+  AdminCliAdministrationApi,
   AdministrationCustomerProfile,
   AdministrationCustomerQuery,
   AdministrationCustomerReservationsQuery,
@@ -19,6 +20,8 @@ import {
   AdministrationReservationAccessGrant,
   AdministrationReservationAccessMutation,
   AdministrationReservationLookupQuery,
+  AdministrationReservationProductDetailsBackfillBatch,
+  AdministrationReservationProductDetailsBackfillInput,
   AdministrationReservationQuery,
   AdministrationReservationSummary,
   AdministrationStandaloneAccessCodeCreateInput,
@@ -677,6 +680,60 @@ describe("administration contract", () => {
       [{ kind: "office", tier: "open-space" }],
     ]) {
       expect(() => decodeProducts(products)).toThrow();
+    }
+  });
+
+  test("serves the reservation product-details backfill as one strict batch", () => {
+    const endpoint =
+      AdminCliAdministrationApi.endpoints.backfillReservationProductDetails;
+    expect(endpoint?.method).toBe("POST");
+    expect(endpoint?.path).toBe(
+      "/api/v1/cli/reservations/product-details-backfill"
+    );
+
+    const decodeInput = Schema.decodeUnknownSync(
+      AdministrationReservationProductDetailsBackfillInput
+    );
+    expect(decodeInput({ dryRun: true, after: null })).toEqual({
+      dryRun: true,
+      after: null,
+    });
+    expect(() => decodeInput({ dryRun: true })).toThrow();
+    expect(() =>
+      decodeInput({ dryRun: false, after: null, limit: 10 })
+    ).toThrow();
+
+    const decodeBatch = Schema.decodeUnknownSync(
+      AdministrationReservationProductDetailsBackfillBatch
+    );
+    const batch = {
+      updated: 1,
+      alreadyComplete: 2,
+      unresolved: [
+        {
+          reservationId: "reservation-a",
+          family: "meeting-room",
+          reason: "interval_not_in_catalog",
+        },
+      ],
+      nextCursor: "reservation-b",
+    };
+    expect<unknown>(decodeBatch(batch)).toEqual(batch);
+    for (const unresolved of [
+      {
+        reservationId: "reservation-a",
+        family: "cowork",
+        reason: "dotypos_seats_invalid",
+      },
+      {
+        reservationId: "reservation-a",
+        family: "office",
+        reason: "note_unparsed",
+      },
+    ]) {
+      expect(() =>
+        decodeBatch({ ...batch, unresolved: [unresolved] })
+      ).toThrow();
     }
   });
 
