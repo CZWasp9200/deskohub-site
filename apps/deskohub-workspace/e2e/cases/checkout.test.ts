@@ -53,6 +53,10 @@ const checkoutRow = {
 } as const;
 
 const wholeDayData = {
+  expectedReservationDetails: {
+    kind: "meeting-room",
+    duration: { unit: "day", amount: 1 },
+  },
   meetingRoom: {
     duration: { unit: "day", amount: 1 },
     startsAt: "2027-03-27T23:00:00Z",
