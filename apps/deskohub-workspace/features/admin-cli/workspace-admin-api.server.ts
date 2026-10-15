@@ -58,6 +58,7 @@ import {
   DiscountAdministration,
 } from "@/features/discounts/admin/discount-administration.service";
 import { executeDiscountAdminMutation } from "@/features/discounts/admin/execute-discount-admin-mutation";
+import { ReservationProductDetailsBackfill } from "@/features/reservation/backend/reservation-product-details-backfill.service";
 import { getCurrentWorkspaceDate } from "@/features/reservation/reservation-date";
 import {
   type ReservationAccessGrant,
@@ -137,6 +138,7 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
     const invoices = yield* InvoiceAdministrationService;
     const standaloneAccessCodes = yield* StandaloneAccessCodeAdministration;
     const mutationIdempotency = yield* CliMutationIdempotency;
+    const productDetailsBackfill = yield* ReservationProductDetailsBackfill;
     return handlers
       .handle("getOverview", () =>
         administration.loadOverviewSource().pipe(
@@ -169,6 +171,9 @@ export const AdminCliAdministrationApiHandlers = HttpApiBuilder.group(
             sendCancellationEmail: payload.sendCancellationEmail,
           })
           .pipe(mapAdministrationApiFailure(mapReservationCancellationFailure))
+      )
+      .handle("backfillReservationProductDetails", ({ payload }) =>
+        productDetailsBackfill.runBatch(payload).pipe(mapServiceFailure)
       )
       .handle(
         "mutateReservationAccess",
@@ -934,6 +939,7 @@ const WorkspaceAdminApiLive = Layer.mergeAll(
     Layer.provide(CliBearerAuthenticationLive),
     Layer.provide(AdministrationService.Live),
     Layer.provide(ReservationAdministrationService.Live),
+    Layer.provide(ReservationProductDetailsBackfill.Live),
     Layer.provide(ReservationAccessAdministration.Live),
     Layer.provide(DiscountAdministration.Live),
     Layer.provide(InvoiceAdministrationService.Live),

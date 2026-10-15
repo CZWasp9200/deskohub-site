@@ -48,6 +48,18 @@ Rules:
 - Unparsable or invalid input fails with `CliInputInvalid` (400), and state conflicts fail with `CliMutationRejected` (409). Both messages reach the operator verbatim, so keep them actionable.
 - Campaign create, campaign duplicate, and audience create go through the CLI mutation ledger (`CliMutationIdempotency.applyOnce`), so a retried request replays its first response instead of leaving an extra row. `applyOnce` runs the claim, the mutation, and the stored result in one database transaction, so any failure or crash rolls all three back and frees the request ID. Its `apply` must write only through `WorkspaceDatabase`: queries and nested `db.transaction` calls join the ambient transaction through the shared SQL client, while external side effects (provider calls, email) don't roll back and belong in the claim/complete/reclaim flow the discount and access mutations use. Updates, archive, and unarchive are idempotent; a confirmed send is single-use by its confirmation code, and retry needs a Failed campaign.
 
+## Reservation product-details backfill
+
+Meeting-room and office snapshots (`workspace_reservations.reservation_details`) written before they recorded the catalog identity hold only `kind`. Audience product filters can match those rows only at family level. `dhw reservations backfill-product-details` fills them through `ReservationProductDetailsBackfill` (`features/reservation/backend/reservation-product-details-backfill.service.ts`):
+
+- Each `POST /reservations/product-details-backfill` call reads one batch of 50 meeting-room and office rows after the `after` cursor, in ID order, and fetches only the incomplete rows from Dotypos with one `listReservations({ ids })` call. `dhw` follows `nextCursor` until it's null and totals the batches.
+- A meeting room's interval must match a catalog offer exactly (`findMeetingRoomReservationDuration`). An office interval must run between Prague midnights (`getOfficeReservationSelection`); Dotypos `seats` gives the seats. The reservation note is freeform and never read.
+- A row it can't resolve stays as it is and is reported with its reason: `dotypos_reservation_id_missing`, `dotypos_reservation_not_found`, `dotypos_interval_invalid`, `interval_not_in_catalog`, `dotypos_seats_invalid`, or `stored_details_malformed`. Complete rows are counted and skipped, so a rerun changes nothing.
+- An update replaces only the snapshot it read and leaves `updated_at` alone, because that column orders admin activity and guards claims.
+- `--dry-run` reports what it would fill without writing and needs no confirmation. A real run needs `--yes` with `--json` or without a TTY.
+
+Don't run it in production while a deployment that predates the optional snapshot fields can still read reservations: those deployments decode snapshots strictly and reject the new keys. That includes Skew Protection, pinned late-payment recovery queue messages, and an instant rollback target. See [database-and-releases.md](../../deskohub-workspace-operations/references/database-and-releases.md).
+
 ## Standalone access codes
 
 `dhw access-codes create` shares the server workflow in [dashboard.md](dashboard.md#standalone-access-codes). The CLI adds local state:
