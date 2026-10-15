@@ -1,13 +1,18 @@
 import {
+  AdministrationCampaignAudience,
+  AdministrationCampaignDetail,
   AdministrationDiscountMutationResult,
   AdministrationReservationAccessGrant,
   AdministrationStandaloneAccessCodeResult,
+  CliMutationInProgress,
+  CliMutationRejected,
   type CliMutationRequestIdType,
   type CliSessionIdType,
 } from "@deskohub/workspace-admin-api";
 import { and, eq, isNull, lte } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
-import { Context, Effect, Layer, Schema } from "effect";
+import { Context, Effect, Layer, Match, Schema } from "effect";
+import type { SqlError } from "effect/unstable/sql/SqlError";
 import { WorkspaceDatabase } from "@/db/database.service";
 import {
   type CliStoredMutation,
@@ -24,13 +29,40 @@ type CliMutationClaim =
   | { readonly kind: "in-progress" }
   | { readonly kind: "mismatch" };
 
-type CliMutationRequest = {
+export type CliMutationRequest = {
   readonly sessionId: CliSessionIdType;
   readonly requestId: CliMutationRequestIdType;
   readonly mutation: CliStoredMutation;
 };
 
+type CliDatabaseMutation<A extends CliStoredMutationResult, E, R> = {
+  readonly request: CliMutationRequest;
+  readonly result: Schema.Decoder<A>;
+  /** Writes only through the Workspace database; it joins the transaction. */
+  readonly apply: Effect.Effect<A, E, R>;
+};
+
 interface ICliMutationIdempotency {
+  /**
+   * Applies a database-only CLI mutation at most once per session and
+   * request ID. The claim, the mutation and the stored result commit in
+   * one transaction, so a failure or crash anywhere leaves no trace and
+   * the request ID free for a retry. A retry after the commit replays the
+   * stored result; a concurrent retry waits on the claim's row until the
+   * first commits or rolls back.
+   */
+  readonly applyOnce: <A extends CliStoredMutationResult, E, R>(
+    mutation: CliDatabaseMutation<A, E, R>
+  ) => Effect.Effect<
+    A,
+    | E
+    | CliMutationInProgress
+    | CliMutationRejected
+    | EffectDrizzleQueryError
+    | Schema.SchemaError
+    | SqlError,
+    R
+  >;
   readonly claim: (
     request: CliMutationRequest
   ) => Effect.Effect<
@@ -94,6 +126,8 @@ export class CliMutationIdempotency extends Context.Service<
             AdministrationDiscountMutationResult,
             AdministrationReservationAccessGrant,
             AdministrationStandaloneAccessCodeResult,
+            AdministrationCampaignAudience,
+            AdministrationCampaignDetail,
           ])
         )(row.result);
         return { kind: "completed", result } as const;
@@ -171,7 +205,43 @@ export class CliMutationIdempotency extends Context.Service<
             .pipe(Effect.map((rows) => rows.length > 0))
       );
 
+      const claimAndApply = Effect.fn("CliMutationIdempotency.applyOnce")(
+        function* <A extends CliStoredMutationResult, E, R>(
+          mutation: CliDatabaseMutation<A, E, R>
+        ) {
+          const claimed = yield* claim(mutation.request);
+          return yield* Match.value(claimed).pipe(
+            Match.discriminatorsExhaustive("kind")({
+              claimed: () =>
+                mutation.apply.pipe(
+                  Effect.tap((result) =>
+                    complete({ ...mutation.request, result })
+                  )
+                ),
+              completed: ({ result }) =>
+                Schema.decodeUnknownEffect(mutation.result)(result),
+              "in-progress": () =>
+                new CliMutationInProgress({
+                  requestId: mutation.request.requestId,
+                  message:
+                    "This mutation is still being applied. Retrying with the same request identifier is safe.",
+                }),
+              mismatch: () =>
+                new CliMutationRejected({
+                  message:
+                    "This mutation request identifier was already used for different input.",
+                }),
+            })
+          );
+        }
+      );
+
+      const applyOnce = <A extends CliStoredMutationResult, E, R>(
+        mutation: CliDatabaseMutation<A, E, R>
+      ) => db.transaction(() => claimAndApply(mutation));
+
       return {
+        applyOnce,
         claim,
         complete,
         reclaimStale,

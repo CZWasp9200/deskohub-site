@@ -5,7 +5,7 @@ import { PostHogProvider as ReactPostHogProvider } from "@posthog/react";
 import { usePathname } from "next/navigation";
 import posthog, { type BeforeSendFn } from "posthog-js";
 import { type ReactNode, useEffect } from "react";
-import { clientEnv } from "@/client-env";
+import { getClientEnv } from "@/client-env";
 import type { AnalyticsAccountIdentity } from "@/features/account/analytics-identity";
 import {
   getAnalyticsAccountIdentity,
@@ -88,6 +88,7 @@ export function PostHogAnalytics({
   posthogEnvironment,
 }: PostHogAnalyticsProps) {
   const pathname = usePathname();
+  const clientEnv = getClientEnv();
   const posthogProjectToken = clientEnv.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN;
 
   if (!posthogProjectToken) return children;

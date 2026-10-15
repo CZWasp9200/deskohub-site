@@ -33,12 +33,10 @@ process.env.NEXT_PUBLIC_POSTHOG_HOST = "https://posthog.example";
 let posthogHost = "https://posthog.example";
 
 mock.module("@/client-env", () => ({
-  clientEnv: {
-    get NEXT_PUBLIC_POSTHOG_HOST() {
-      return posthogHost;
-    },
+  getClientEnv: () => ({
+    NEXT_PUBLIC_POSTHOG_HOST: posthogHost,
     NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN: "phc_test",
-  },
+  }),
 }));
 
 type TestAnalyticsAccountIdentity =

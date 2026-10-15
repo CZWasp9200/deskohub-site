@@ -46,6 +46,7 @@ export const createContactEmailPreviews = (locale: Locale) => {
           timestamp: new Date(),
         } satisfies EmailSendResult;
       }),
+    sendBatch: () => Effect.die("Contact preview does not send batches."),
     sendTemplate: () => Effect.die("Contact preview does not use templates."),
     verify: Effect.succeed(true),
   };

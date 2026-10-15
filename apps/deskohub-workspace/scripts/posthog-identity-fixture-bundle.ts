@@ -49,7 +49,7 @@ const createBuildPlugin = (posthogHost: string): Bun.BunPlugin => ({
         posthogHost
       )}, NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN: ${JSON.stringify(
         posthogProjectToken
-      )} } as const;\nexport const clientEnv = env;`,
+      )} } as const;\nexport const getClientEnv = () => env;`,
       loader: "ts",
     }));
 

@@ -95,8 +95,9 @@ jobs:
           --filter=@deskohub/workspace-admin-api
           --filter=dhw
 
-      - name: Test the CLI and Workspace API adapter
+      - name: Test the CLI contract, CLI, and Workspace API adapter
         run: |
+          bun --cwd packages/workspace-admin-api test
           bun --cwd apps/dhw test
           bun turbo test:admin-cli --filter=./apps/deskohub-workspace
 

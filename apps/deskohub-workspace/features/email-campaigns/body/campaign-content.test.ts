@@ -1,0 +1,77 @@
+import { describe, expect, test } from "bun:test";
+import { Option, Schema } from "effect";
+import { runCommand } from "@/scripts/shared/command";
+import { CampaignLocaleContent } from "./campaign-content";
+
+const localeContent = {
+  subject: "Provozní doba",
+  preheader: "Změna od listopadu",
+  body: {
+    formatVersion: 1,
+    doc: {
+      type: "doc",
+      content: [
+        { type: "paragraph", content: [{ type: "text", text: "Dobrý den" }] },
+      ],
+    },
+  },
+};
+
+const decode = Schema.decodeUnknownOption(CampaignLocaleContent);
+
+describe("CampaignLocaleContent", () => {
+  test("accepts content without an operational reason", () => {
+    expect(Option.isSome(decode(localeContent))).toBe(true);
+  });
+
+  test("accepts a trimmed operational reason", () => {
+    expect(
+      decode({ ...localeContent, operationalReason: "Měníme provozní dobu." })
+    ).toEqual(
+      Option.some({
+        ...localeContent,
+        operationalReason: "Měníme provozní dobu.",
+      })
+    );
+  });
+
+  test.each(["", "   ", " Měníme provozní dobu."])(
+    "rejects the operational reason %p",
+    (operationalReason) => {
+      expect(
+        Option.isNone(decode({ ...localeContent, operationalReason }))
+      ).toBe(true);
+    }
+  );
+});
+
+describe("campaign content without Cloudinary config", () => {
+  test("imports, decodes, and converts an image-free body", async () => {
+    // A fresh process without the test preload, as scripts and CLI contracts
+    // import these modules.
+    const script = `
+      const { Effect, Schema } = await import("effect");
+      const { CampaignContent } = await import("./campaign-content.ts");
+      const { campaignBodyToMarkdown, parseCampaignBodyMarkdown } = await import("./campaign-body-markdown.ts");
+      const body = await Effect.runPromise(parseCampaignBodyMarkdown("Dobrý den\\n\\n[[button: Rezervovat](https://deskohub.cz/book)]"));
+      Schema.decodeUnknownSync(CampaignContent)({
+        purpose: "operational",
+        templateKey: "workspace",
+        locales: { "cs-CZ": { subject: "S", preheader: "P", body } },
+      });
+      console.log(campaignBodyToMarkdown(body));
+    `;
+    const { exitCode, stdout, stderr } = await runCommand(
+      [process.execPath, "-e", script],
+      {
+        cwd: import.meta.dir,
+        env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "" },
+      }
+    );
+
+    expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
+    expect(stdout).toContain(
+      "[[button: Rezervovat](https://deskohub.cz/book)]"
+    );
+  });
+});

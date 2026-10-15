@@ -8,6 +8,15 @@ import {
 } from "@/features/administration/page-data.server";
 import { requireDotyposCustomerRouteId } from "@/features/administration/route-identifiers.server";
 import { loadDiscountAdminCustomerBreadcrumbLabel } from "@/features/discounts/admin/page-data.server";
+import {
+  loadAudienceBreadcrumbLabel,
+  loadCampaignBreadcrumbLabel,
+} from "@/features/email-campaigns/admin/campaign-page-data.server";
+
+const newEntityLabels: Readonly<Record<string, string>> = {
+  "email-audiences": "New audience",
+  "email-campaigns": "New campaign",
+};
 
 export async function AdministrationBreadcrumb({
   segments,
@@ -32,6 +41,12 @@ export async function AdministrationBreadcrumb({
     segments[1] !== "new"
   ) {
     entityLabel = await loadInvoiceAdministrationBreadcrumbLabel(segments[1]);
+  } else if (segments[0] && segments[1] === "new") {
+    entityLabel = newEntityLabels[segments[0]];
+  } else if (segments[0] === "email-campaigns" && segments[1]) {
+    entityLabel = await loadCampaignBreadcrumbLabel(segments[1]);
+  } else if (segments[0] === "email-audiences" && segments[1]) {
+    entityLabel = await loadAudienceBreadcrumbLabel(segments[1]);
   }
 
   const segmentLabels =

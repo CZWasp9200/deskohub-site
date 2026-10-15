@@ -77,3 +77,41 @@ export const waitForReactClickHandler = async (
     replacements += 1;
   }
 };
+
+/**
+ * Waits until React has attached the `onSubmit` handler of the form the
+ * locator resolves to. A native submit before hydration falls back to a full
+ * document POST instead of the Server Action.
+ */
+export const waitForReactSubmitHandler = async (
+  page: Pick<Page, "waitForFunction">,
+  form: Pick<Locator, "elementHandle">,
+  timeoutMs: number
+): Promise<void> => {
+  const element = await form.elementHandle({ timeout: timeoutMs });
+  if (element === null) throw new Error("React form was not rendered");
+  try {
+    const state = await page.waitForFunction(
+      (node) => {
+        const reactPropsKey = Object.keys(node).find((key) =>
+          key.startsWith("__reactProps$")
+        );
+        const reactProps =
+          reactPropsKey === undefined
+            ? undefined
+            : Object.getOwnPropertyDescriptor(node, reactPropsKey)?.value;
+        return (
+          typeof reactProps === "object" &&
+          reactProps !== null &&
+          typeof (reactProps as { readonly onSubmit?: unknown }).onSubmit ===
+            "function"
+        );
+      },
+      element,
+      { timeout: timeoutMs }
+    );
+    await state.dispose();
+  } finally {
+    await element.dispose();
+  }
+};

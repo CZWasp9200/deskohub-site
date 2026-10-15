@@ -25,6 +25,12 @@ const optionalNonEmptyStringSchema = toEnvSchema(
   Schema.optional(Schema.NonEmptyString)
 );
 
+const optionalEmailAddressSchema = toEnvSchema(
+  Schema.optional(
+    Schema.Trimmed.check(Schema.isPattern(/^[^\s@<>]+@[^\s@<>]+$/))
+  )
+);
+
 const igloohomeProductionEnvironmentCheck = Schema.makeFilter<{
   readonly VERCEL_ENV: "production" | "preview" | "development";
   readonly IGLOOHOME_CLIENT_ID?: string | undefined;
@@ -125,6 +131,9 @@ export const workspaceServerEnvSchema = Schema.Struct({
   DOTYPOS_EMPLOYEE_ID: nonEmptyStringSchema,
   DOTYPOS_REFRESH_TOKEN: nonEmptyStringSchema,
   EMAIL_API_KEY: optionalStringSchema,
+  EMAIL_CAMPAIGN_ADMIN_INBOX: optionalEmailAddressSchema,
+  EMAIL_CAMPAIGN_FROM: optionalEmailAddressSchema,
+  EMAIL_CAMPAIGN_REPLY_TO: optionalEmailAddressSchema,
   GOOGLE_CALENDAR_PRIVATE_KEY: nonEmptyStringSchema,
   GOOGLE_CALENDAR_SALES_ID: nonEmptyStringSchema,
   GOOGLE_CALENDAR_SERVICE_ACCOUNT_EMAIL: nonEmptyStringSchema,

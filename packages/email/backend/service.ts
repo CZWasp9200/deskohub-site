@@ -5,6 +5,7 @@ import type {
   EmailTemplateData,
 } from "../types/email.types";
 import {
+  type EmailBatchOptions,
   EmailConfigTag,
   EmailProviderTag,
   type EmailSendError,
@@ -16,6 +17,7 @@ import { RoutedEmailProviderLive } from "./email-routing";
 import { ConfiguredEmailProviderLayer } from "./provider-factory";
 
 export {
+  type EmailBatchOptions,
   EmailConfigTag,
   type EmailProvider,
   EmailProviderTag,
@@ -68,6 +70,16 @@ export interface EmailService {
   readonly send: (
     message: EmailMessage
   ) => Effect.Effect<EmailSendResult, EmailSendError>;
+  /**
+   * Sends up to 100 messages in one provider request, exactly once. A retry
+   * after an unknown outcome is the caller's: it replays the identical batch
+   * under the same idempotency key, and only it knows whether an earlier
+   * request may have been accepted. Results follow the message order.
+   */
+  readonly sendBatch: (
+    messages: readonly EmailMessage[],
+    options: EmailBatchOptions
+  ) => Effect.Effect<readonly EmailSendResult[], EmailSendError>;
   readonly sendTemplate: (
     recipient: string | { email: string; name?: string },
     template: EmailTemplateData
@@ -194,6 +206,50 @@ const emailServiceImplementation = Effect.gen(function* () {
           Effect.annotateLogs({
             provider: provider.name,
             ...emailSendLogFacts(message),
+          })
+        )
+    ),
+
+    sendBatch: Effect.fn("email.sendBatch")(
+      function* (
+        messages: readonly EmailMessage[],
+        options: EmailBatchOptions
+      ) {
+        yield* Effect.logInfo("Email batch send started", {
+          provider: provider.name,
+          size: messages.length,
+          category: messages[0]?.tags?.[0],
+        });
+
+        return yield* provider
+          .sendBatch(
+            messages.map((message) => ({
+              ...message,
+              from: message.from || config.defaultFrom,
+            })),
+            options
+          )
+          .pipe(
+            Effect.tap((results) =>
+              Effect.logInfo("Email batch sent successfully", {
+                size: results.length,
+                provider: provider.name,
+              })
+            ),
+            Effect.tapError((error) =>
+              Effect.logError("Email batch send failed", {
+                ...emailFailureLogFacts(error),
+                provider: provider.name,
+              })
+            )
+          );
+      },
+      (effect, messages) =>
+        effect.pipe(
+          Effect.scoped,
+          Effect.annotateLogs({
+            provider: provider.name,
+            category: messages[0]?.tags?.[0],
           })
         )
     ),
