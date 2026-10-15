@@ -4,6 +4,7 @@ import type {
   DotyposCustomerId,
   DotyposReservationId,
 } from "@deskohub/dotypos";
+import type { ReservationProductFilterType } from "@deskohub/workspace-admin-api";
 import {
   and,
   count,
@@ -38,6 +39,7 @@ import { temporalInstantToDate } from "@/shared/utils/temporal";
 import type { AudienceDateFacts } from "../audience-filter";
 import type { CampaignPurpose } from "../body/campaign-content";
 import type { DatePeriodBounds } from "../date-period";
+import { reservationProductCondition } from "./reservation-product-condition";
 
 /** What Workspace stores about one customer it knows. */
 export type CampaignCandidateFacts = {
@@ -61,6 +63,8 @@ export type CampaignReservationSelection = {
   readonly booked?: DatePeriodBounds;
   /** Limits the count to these Dotypos reservations (visit-date periods). */
   readonly dotyposReservationIds?: readonly DotyposReservationId[];
+  /** Limits the count to one product family and its catalog properties. */
+  readonly product?: ReservationProductFilterType;
 };
 
 /** A booked reservation's Dotypos ID and customer. */
@@ -84,8 +88,10 @@ const reservationSelection = ({
   status,
   booked,
   dotyposReservationIds,
+  product,
 }: CampaignReservationSelection): SQL | undefined =>
   and(
+    product && reservationProductCondition(product),
     status ? reservationStatusCondition(status) : bookedReservationCondition,
     booked?.startsAtOrAfter &&
       gte(workspaceReservations.reservationConfirmedAt, booked.startsAtOrAfter),
@@ -145,9 +151,10 @@ export interface ICampaignCandidateRepository {
     Temporal.Instant | null,
     EffectDrizzleQueryError
   >;
-  /** The booked reservations among these Dotypos reservations. */
+  /** The booked reservations among these Dotypos reservations, of the product if given. */
   readonly listBookedReservations: (
-    dotyposReservationIds: readonly DotyposReservationId[]
+    dotyposReservationIds: readonly DotyposReservationId[],
+    product?: ReservationProductFilterType
   ) => Effect.Effect<
     readonly CampaignBookedReservation[],
     EffectDrizzleQueryError
@@ -344,7 +351,7 @@ export class CampaignCandidateRepository extends Context.Service<
           .pipe(Effect.map(([row]) => row?.createdAt ?? null)),
         listBookedReservations: Effect.fn(
           "CampaignCandidateRepository.listBookedReservations"
-        )(function* (dotyposReservationIds) {
+        )(function* (dotyposReservationIds, product) {
           if (dotyposReservationIds.length === 0) return [];
           const rows = yield* db
             .select({
@@ -352,7 +359,12 @@ export class CampaignCandidateRepository extends Context.Service<
               dotyposCustomerId: workspaceReservations.dotyposCustomerId,
             })
             .from(workspaceReservations)
-            .where(reservationSelection({ dotyposReservationIds }));
+            .where(
+              reservationSelection({
+                dotyposReservationIds,
+                ...(product && { product }),
+              })
+            );
           return rows.flatMap(({ dotyposReservationId, dotyposCustomerId }) =>
             dotyposReservationId === null
               ? []

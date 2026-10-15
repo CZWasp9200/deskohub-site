@@ -82,7 +82,7 @@ describe("campaign admin API contract", () => {
         ],
       })
     ).toEqual([
-      "filters.0.value.0",
+      "filters.0.value",
       "filters.1.params.period",
       "filters.1.value",
     ]);

@@ -3,8 +3,10 @@ import "server-only";
 import {
   type DotyposCustomerId,
   type DotyposReservation,
+  type DotyposReservationId,
   DotyposService,
 } from "@deskohub/dotypos";
+import type { ReservationProductFilterType } from "@deskohub/workspace-admin-api";
 import { Context, Effect, Layer, Match, Schema } from "effect";
 import { reservationIntervalSchema } from "@/features/reservation/reservation-interval";
 import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
@@ -104,9 +106,14 @@ export class AudienceFactsService extends Context.Service<
       ) =>
         Match.value(request).pipe(
           Match.discriminatorsExhaustive("attribute")({
-            reservationCount: ({ params: { dateBasis, period, status } }) => {
+            reservationCount: ({
+              params: { dateBasis, period, status, product },
+            }) => {
               const bounds = datePeriodBounds(period, now);
-              const selection = { ...(status && { status }) };
+              const selection = {
+                ...(status && { status }),
+                ...(product && { product }),
+              };
               if (dateBasis === "booking") {
                 return candidates
                   .countReservations({ ...selection, booked: bounds })
@@ -145,11 +152,11 @@ export class AudienceFactsService extends Context.Service<
         );
 
       /**
-       * Each customer's latest booked visit that has begun by `now`. One query
-       * covers every last-visit condition: from just before the earliest
-       * Workspace reservation up to `now`.
+       * Every visit that has begun by `now`, with its start. One query covers
+       * every last-visit condition: from just before the earliest Workspace
+       * reservation up to `now`.
        */
-      const loadLastVisits = (now: Temporal.Instant) =>
+      const loadPastVisits = (now: Temporal.Instant) =>
         visitLowerBound.pipe(
           Effect.flatMap((startsAtOrAfter) =>
             startsAtOrAfter === undefined
@@ -157,19 +164,30 @@ export class AudienceFactsService extends Context.Service<
               : listVisits({ startsAtOrAfter, startsBefore: now })
           ),
           Effect.flatMap((visits) =>
-            Effect.all({
-              booked: candidates
-                .listBookedReservations(dotyposReservationIds(visits))
-                .pipe(Effect.mapError(database)),
-              starts: Effect.forEach(visits, (visit) =>
-                visitStart(visit).pipe(
-                  Effect.map((startsAt) => [visit.id, startsAt] as const)
-                )
-              ),
-            })
+            Effect.forEach(visits, (visit) =>
+              visitStart(visit).pipe(
+                Effect.map((startsAt) => [visit.id, startsAt] as const)
+              )
+            )
           ),
-          Effect.map(({ booked, starts }) => {
-            const startById = new Map(starts);
+          Effect.map(
+            (starts) =>
+              new Map(
+                starts.flatMap(([id, startsAt]) =>
+                  id === undefined ? [] : [[id, startsAt] as const]
+                )
+              )
+          )
+        );
+
+      /** Each customer's latest booked visit among the past visits, of the product if given. */
+      const lastVisitsOf = (
+        startById: ReadonlyMap<DotyposReservationId, Temporal.Instant>,
+        product: ReservationProductFilterType | undefined
+      ) =>
+        candidates.listBookedReservations([...startById.keys()], product).pipe(
+          Effect.mapError(database),
+          Effect.map((booked) => {
             const lastVisits = new Map<DotyposCustomerId, Temporal.Instant>();
             for (const { dotyposReservationId, dotyposCustomerId } of booked) {
               const startsAt = startById.get(dotyposReservationId);
@@ -203,13 +221,16 @@ export class AudienceFactsService extends Context.Service<
           now,
         }) {
           const requests = collectAudienceFactRequests(filter);
-          const lastVisits = yield* Effect.cached(loadLastVisits(now));
+          const pastVisits = yield* Effect.cached(loadPastVisits(now));
 
           const dateResolver = (request: AudienceDateRequest) => {
             const bounds = datePeriodBounds(request.period, now);
             return Match.value(request.attribute).pipe(
               Match.when("lastVisit", () =>
-                lastVisits.pipe(
+                pastVisits.pipe(
+                  Effect.flatMap((starts) =>
+                    lastVisitsOf(starts, request.product)
+                  ),
                   Effect.map((values) => datesFrom(values, bounds))
                 )
               ),

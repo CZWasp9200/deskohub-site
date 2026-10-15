@@ -709,6 +709,15 @@ export const AdministrationInvoicePdf = Schema.Uint8Array.pipe(
   HttpApiSchema.asUint8Array({ contentType: "application/pdf" })
 );
 
+/** The reservation product families. */
+export const AdministrationReservationFamily = Schema.Literals([
+  "cowork",
+  "meeting-room",
+  "office",
+]);
+export type AdministrationReservationFamily =
+  typeof AdministrationReservationFamily.Type;
+
 /** The reservation states an admin list or campaign audience can filter by. */
 export const AdministrationReservationStatusFilter = Schema.Literals([
   "in_progress",
@@ -728,7 +737,7 @@ export const AdministrationReservationQuery = Schema.Struct({
   ),
   sort: Schema.optional(AdministrationReservationSort),
   status: Schema.optional(AdministrationReservationStatusFilter),
-  type: Schema.optional(Schema.Literals(["cowork", "meeting-room", "office"])),
+  type: Schema.optional(AdministrationReservationFamily),
 });
 export type AdministrationReservationQuery =
   typeof AdministrationReservationQuery.Type;
@@ -797,7 +806,7 @@ export const AdministrationReservationSummary = Schema.Struct({
   startsAt: Schema.NullOr(Schema.String),
   endsAt: Schema.NullOr(Schema.String),
   date: Schema.NullOr(Schema.String),
-  type: Schema.Literals(["cowork", "meeting-room", "office"]),
+  type: AdministrationReservationFamily,
   typeLabel: Schema.String,
   purpose: Schema.NullOr(Schema.Literals(["personal", "business"])).pipe(
     Schema.withDecodingDefaultTypeKey(Effect.succeed(null))

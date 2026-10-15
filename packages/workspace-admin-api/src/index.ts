@@ -15,6 +15,9 @@ export {
   AudienceSetOperator,
   type AudienceSetOperator as AudienceSetOperatorType,
   audienceAttributeCatalogue,
+  ReservationProductFilter,
+  type ReservationProductFilter as ReservationProductFilterType,
+  type ReservationProductPropertyCondition,
 } from "./audience-filter";
 export {
   AdministrationCampaignLocale,
@@ -293,6 +296,8 @@ export {
   type AdministrationReservationCancellationResult as AdministrationReservationCancellationResultType,
   AdministrationReservationDetail,
   type AdministrationReservationDetail as AdministrationReservationDetailType,
+  AdministrationReservationFamily,
+  type AdministrationReservationFamily as AdministrationReservationFamilyType,
   AdministrationReservationLifecycle,
   type AdministrationReservationLifecycle as AdministrationReservationLifecycleType,
   AdministrationReservationLifecycleStage,

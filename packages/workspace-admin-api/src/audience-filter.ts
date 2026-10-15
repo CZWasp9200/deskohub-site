@@ -4,7 +4,10 @@ import {
   AdministrationCampaignPurpose,
 } from "./campaign-locale-and-purpose";
 import { DatePeriod } from "./date-period";
-import { AdministrationReservationStatusFilter } from "./workspace-admin-api";
+import {
+  AdministrationReservationFamily,
+  AdministrationReservationStatusFilter,
+} from "./workspace-admin-api";
 
 /** How a count attribute compares with the condition's number. */
 export const AudienceCountOperator = Schema.Literals([
@@ -33,6 +36,51 @@ export const AudienceSetOperator = Schema.Literals([
 export type AudienceSetOperator = typeof AudienceSetOperator.Type;
 
 const count = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
+
+const chosen = <Value extends Schema.Top>(value: Value) =>
+  // An empty choice is typeable, so the Admin UI can hold one while the
+  // operator picks values, but it never decodes.
+  Schema.Array(value).check(Schema.isMinLength(1));
+
+/**
+ * One condition on a catalog property of a reservation product: an enum
+ * property is any or none of its values, a boolean property is true or
+ * false, and a number property compares like a count. Workspace checks the
+ * property and its values against its reservation product catalog.
+ */
+export const ReservationProductPropertyCondition = Schema.Union([
+  Schema.Struct({
+    property: Schema.NonEmptyString,
+    operator: Schema.Literals(["anyOf", "noneOf"]),
+    value: chosen(Schema.NonEmptyString),
+  }),
+  Schema.Struct({
+    property: Schema.NonEmptyString,
+    operator: Schema.Literal("is"),
+    value: Schema.Boolean,
+  }),
+  Schema.Struct({
+    property: Schema.NonEmptyString,
+    operator: AudienceCountOperator,
+    value: count,
+  }),
+]);
+export type ReservationProductPropertyCondition =
+  typeof ReservationProductPropertyCondition.Type;
+
+/**
+ * Limits reservation-based attributes to one product family, and optionally
+ * to reservations whose catalog properties all meet their conditions.
+ */
+export const ReservationProductFilter = Schema.Struct({
+  family: AdministrationReservationFamily,
+  properties: Schema.Array(ReservationProductPropertyCondition),
+}).annotate({
+  identifier: "ReservationProductFilter",
+  description:
+    "A reservation product family and conditions on its catalog properties.",
+});
+export type ReservationProductFilter = typeof ReservationProductFilter.Type;
 
 /**
  * One condition shape of one attribute. Each attribute lists its shapes as
@@ -69,13 +117,21 @@ const countCondition = <
     }),
   ] as const;
 
-const dateCondition = <const Attribute extends string>(attribute: Attribute) =>
+const dateCondition = <
+  const Attribute extends string,
+  const Fields extends Schema.Struct.Fields,
+>(
+  attribute: Attribute,
+  fields: Fields
+) =>
   [
     conditionShape(attribute, {
+      ...fields,
       operator: Schema.Literals(["in", "notIn"]),
       value: DatePeriod,
     }),
     conditionShape(attribute, {
+      ...fields,
       operator: Schema.Literal("none"),
     }),
   ] as const;
@@ -95,9 +151,7 @@ const setCondition = <
   [
     conditionShape(attribute, {
       operator: Schema.Literals(operators),
-      // An empty choice is typeable, so the Admin UI can hold one while the
-      // operator picks values, but it never decodes.
-      value: Schema.Array(value).check(Schema.isMinLength(1)),
+      value: chosen(value),
     }),
   ] as const;
 
@@ -131,6 +185,7 @@ export const audienceAttributeCatalogue = {
         dateBasis: Schema.Literals(["visit", "booking"]),
         period: DatePeriod,
         status: Schema.optionalKey(AdministrationReservationStatusFilter),
+        product: Schema.optionalKey(ReservationProductFilter),
       })
     ),
   },
@@ -152,10 +207,23 @@ export const audienceAttributeCatalogue = {
       })
     ),
   },
-  /** Start of the customer's latest booked reservation that has begun. */
-  lastVisit: { kind: "date", conditions: dateCondition("lastVisit") },
+  /**
+   * Start of the customer's latest booked reservation that has begun, of the
+   * product when `params.product` names one.
+   */
+  lastVisit: {
+    kind: "date",
+    conditions: dateCondition("lastVisit", {
+      params: Schema.optionalKey(
+        Schema.Struct({ product: ReservationProductFilter })
+      ),
+    }),
+  },
   /** When the customer's linked Workspace account was created. */
-  accountCreated: { kind: "date", conditions: dateCondition("accountCreated") },
+  accountCreated: {
+    kind: "date",
+    conditions: dateCondition("accountCreated", {}),
+  },
   /** The customer's resolved campaign locale. */
   locale: {
     kind: "set",

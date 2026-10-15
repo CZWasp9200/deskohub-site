@@ -8,6 +8,7 @@ import {
   type AudienceFilterType,
   type AudienceSetOperatorType,
   AudienceFilter as audienceFilterSchema,
+  type ReservationProductFilterType,
 } from "@deskohub/workspace-admin-api";
 import { Match, Option } from "effect";
 import { type Locale, locales } from "@/features/i18n";
@@ -52,6 +53,8 @@ export type AudienceCountRequest = {
 export type AudienceDateRequest = {
   readonly attribute: AudienceDateAttribute;
   readonly period: DatePeriod;
+  /** Only reservations of this product count (last visit). */
+  readonly product?: ReservationProductFilterType;
 };
 
 /** Customers whose date attribute has a value, and whose value is in the period. */
@@ -83,6 +86,8 @@ const dateRequest = (
 ): AudienceDateRequest => ({
   attribute: condition.attribute,
   period: condition.operator === "none" ? anyTime : condition.value,
+  ...("params" in condition &&
+    condition.params && { product: condition.params.product }),
 });
 
 const countRequest = (
