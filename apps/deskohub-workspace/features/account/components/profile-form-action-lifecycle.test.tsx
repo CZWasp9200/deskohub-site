@@ -60,6 +60,11 @@ mock.module("@/features/account/actions", () => ({
   updateCustomerProfile,
 }));
 
+// Keeps the browser Effect runtime, which this navigation mock can't load,
+// out of the form.
+mock.module("@/features/account/analytics-customer-link", () => ({
+  refreshAnalyticsDotyposCustomerId: () => undefined,
+}));
 mock.module("@/features/account/avatar-actions", () => ({
   removeCustomerAvatar: () => Promise.resolve({ data: { status: "removed" } }),
   uploadCustomerAvatar: () => Promise.resolve({ data: { status: "removed" } }),

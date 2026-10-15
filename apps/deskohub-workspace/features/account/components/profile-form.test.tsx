@@ -67,6 +67,10 @@ mock.module("@/features/account/actions", () => ({
   completeCustomerProfile,
   updateCustomerProfile,
 }));
+const refreshAnalyticsDotyposCustomerId = mock(() => undefined);
+mock.module("@/features/account/analytics-customer-link", () => ({
+  refreshAnalyticsDotyposCustomerId,
+}));
 mock.module("@/features/account/avatar-actions", () => ({
   removeCustomerAvatar,
   uploadCustomerAvatar,
@@ -214,6 +218,7 @@ describe("ProfileForm", () => {
     uploadCustomerAvatar.mockClear();
     removeCustomerAvatar.mockClear();
     workspaceRouterRefresh.mockClear();
+    refreshAnalyticsDotyposCustomerId.mockClear();
   });
 
   afterAll(async () => {
@@ -259,6 +264,8 @@ describe("ProfileForm", () => {
     expect(input).toEqual({ firstName: "Ada" });
     expect(JSON.stringify(input)).not.toContain("email");
     expect(workspaceRouterRefresh).toHaveBeenCalledTimes(1);
+    // Completion creates the Dotypos customer the analytics person links to.
+    expect(refreshAnalyticsDotyposCustomerId).toHaveBeenCalledTimes(1);
     await view.findByText("Your customer profile was created and linked.");
   });
 
@@ -962,6 +969,7 @@ describe("ProfileForm", () => {
       });
 
       expect(updateCustomerProfile).toHaveBeenCalledTimes(1);
+      expect(refreshAnalyticsDotyposCustomerId).not.toHaveBeenCalled();
       const link = view.getByRole("link", { name: "Next" });
       const event = new MouseEvent("click", {
         bubbles: true,

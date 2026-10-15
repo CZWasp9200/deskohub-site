@@ -16,6 +16,7 @@ import {
   lookupAresBusiness,
   updateCustomerProfile,
 } from "@/features/account/actions";
+import { refreshAnalyticsDotyposCustomerId } from "@/features/account/analytics-customer-link";
 import type { AresBusinessBillingDraft } from "@/features/account/backend/ares-business-draft";
 import type { CustomerProfileBilling } from "@/features/account/backend/customer-dotypos-adapter.service";
 import { getAccountScreenCopy } from "@/features/account/components/account-screen-copy";
@@ -284,6 +285,8 @@ export function ProfileForm({
         }
         if (isInitialCompletion) {
           setHasCompletedInitialProfile(true);
+          // Completion creates the Dotypos customer the analytics person links to.
+          refreshAnalyticsDotyposCustomerId();
         }
         const hasNoEditsSinceSubmit =
           submittedValues !== undefined &&
