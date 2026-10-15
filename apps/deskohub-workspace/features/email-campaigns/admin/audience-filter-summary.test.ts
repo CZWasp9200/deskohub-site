@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import type { AudienceFilter } from "../audience-filter";
-import { describeAudienceFilter } from "./audience-filter-summary";
+import type { AudienceCountOperatorType } from "@deskohub/workspace-admin-api";
+import type { AudienceCondition, AudienceFilter } from "../audience-filter";
+import type { DatePeriod } from "../date-period";
+import { describeAudienceFilter, describeCount } from "./audience-filter-summary";
+import { describeDatePeriod } from "./date-period-phrases";
 
 const and = (...filters: AudienceFilter[]): AudienceFilter => ({
   _tag: "Group",
@@ -12,101 +15,157 @@ const or = (...filters: AudienceFilter[]): AudienceFilter => ({
   operator: "or",
   filters,
 });
-const czech: AudienceFilter = { _tag: "Locale", locales: ["cs-CZ"] };
+const czech: AudienceCondition = {
+  attribute: "locale",
+  _tag: "Condition",
+  operator: "anyOf",
+  value: ["cs-CZ"],
+};
+
+const reservations = (
+  operator: AudienceCountOperatorType,
+  value: number,
+  params: Partial<
+    Extract<AudienceCondition, { attribute: "reservationCount" }>["params"]
+  > = {}
+): AudienceCondition => ({
+  attribute: "reservationCount",
+  _tag: "Condition",
+  params: { dateBasis: "visit", period: { _tag: "AnyTime" }, ...params },
+  operator,
+  value,
+});
+
+const describe_ = (filter: AudienceFilter) => describeAudienceFilter(filter);
 
 describe("describeAudienceFilter", () => {
   test("describes empty groups", () => {
-    expect(describeAudienceFilter(and())).toBe(
-      "Every customer Workspace knows"
-    );
-    expect(describeAudienceFilter(or())).toBe("Nobody");
+    expect(describe_(and())).toBe("Every customer Workspace knows");
+    expect(describe_(or())).toBe("Nobody");
   });
 
-  test("describes each condition as a sentence", () => {
-    expect(
-      describeAudienceFilter({ _tag: "Locale", locales: ["cs-CZ", "en-US"] })
-    ).toBe("Customers who speak Czech or English");
-    expect(describeAudienceFilter({ _tag: "Account", hasAccount: false })).toBe(
-      "Customers who have no Workspace account"
+  test("describes counts naturally", () => {
+    expect(describe_(reservations("gt", 0))).toBe(
+      "Customers who have any booked reservations"
     );
-    expect(describeAudienceFilter({ _tag: "DotyposTag", tag: "rpg" })).toBe(
-      "Customers who are tagged “rpg”"
+    expect(describe_(reservations("eq", 0))).toBe(
+      "Customers who have no booked reservations"
     );
-  });
-
-  test("describes reservation criteria", () => {
     expect(
-      describeAudienceFilter({
-        _tag: "Reservation",
-        presence: "has",
-        dateBasis: "visit",
-        from: "2026-06-01",
-        to: "2026-09-30",
+      describe_(
+        reservations("gte", 2, {
+          dateBasis: "booking",
+          period: { _tag: "Last", count: 1, unit: "month" },
+          status: "cancelled",
+        })
+      )
+    ).toBe(
+      "Customers who have at least 2 cancelled reservations confirmed in the last month"
+    );
+    expect(
+      describe_({
+        attribute: "campaignEmailCount",
+        _tag: "Condition",
+        params: {
+          purpose: "marketing",
+          period: { _tag: "Last", count: 10, unit: "day" },
+        },
+        operator: "eq",
+        value: 0,
       })
     ).toBe(
-      "Customers who have a booked reservation visiting between 2026-06-01 and 2026-09-30"
+      "Customers who received no marketing campaign emails in the last 10 days"
     );
+  });
+
+  test.each<[AudienceCountOperatorType, number, string]>([
+    ["eq", 0, "no emails"],
+    ["eq", 1, "exactly 1 email"],
+    ["ne", 0, "any emails"],
+    ["ne", 2, "other than 2 emails"],
+    ["lt", 1, "no emails"],
+    ["lt", 3, "fewer than 3 emails"],
+    ["lte", 0, "no emails"],
+    ["lte", 2, "at most 2 emails"],
+    ["gt", 0, "any emails"],
+    ["gt", 1, "more than 1 email"],
+    ["gte", 0, "any number of emails"],
+    ["gte", 1, "any emails"],
+    ["gte", 3, "at least 3 emails"],
+    ["gt", Number.NaN, "… emails"],
+  ])("phrases %s %d as “%s”", (operator, value, phrase) => {
+    expect(describeCount(operator, value, { one: "email", other: "emails" })).toBe(
+      phrase
+    );
+  });
+
+  test("describes date attributes", () => {
     expect(
-      describeAudienceFilter({
-        _tag: "Reservation",
-        presence: "hasNot",
-        dateBasis: "booking",
-        from: "2026-01-01",
-        status: "needs_refund",
+      describe_({
+        attribute: "lastVisit",
+        _tag: "Condition",
+        operator: "notIn",
+        value: { _tag: "Last", count: 30, unit: "day" },
       })
     ).toBe(
-      "Customers who have no reservation needing a refund confirmed from 2026-01-01"
+      "Customers who have visited, with the last visit not in the last 30 days"
     );
     expect(
-      describeAudienceFilter({
-        _tag: "Reservation",
-        presence: "has",
-        dateBasis: "visit",
-      })
-    ).toBe("Customers who have a booked reservation");
+      describe_({ attribute: "lastVisit", _tag: "Condition", operator: "none" })
+    ).toBe("Customers who have never visited");
     expect(
-      describeAudienceFilter({
-        _tag: "Reservation",
-        presence: "has",
-        dateBasis: "visit",
-        status: "in_progress",
+      describe_({
+        attribute: "accountCreated",
+        _tag: "Condition",
+        operator: "in",
+        value: { _tag: "Since", date: "2026-09-01" },
       })
-    ).toBe("Customers who have a reservation in progress");
+    ).toBe("Customers who created a Workspace account since 2026-09-01");
   });
 
-  test("names known discount groups and falls back to the ID", () => {
-    const filter: AudienceFilter = {
-      _tag: "DiscountGroup",
-      discountGroupId: "7",
-    };
-    expect(describeAudienceFilter(filter, [{ id: "7", name: "Members" }])).toBe(
-      "Customers who are in discount group “Members”"
-    );
-    expect(describeAudienceFilter(filter)).toBe(
-      "Customers who are in discount group 7"
-    );
-  });
-
-  test("brackets nested groups with more than one condition", () => {
+  test("describes set and boolean attributes, with names for known groups", () => {
     expect(
       describeAudienceFilter(
         and(
           czech,
-          or(
-            { _tag: "DotyposTag", tag: "coworker" },
-            { _tag: "DotyposTag", tag: "rpg" }
-          ),
-          or({ _tag: "Account", hasAccount: true })
-        )
+          {
+            attribute: "dotyposTags",
+            _tag: "Condition",
+            operator: "noneOf",
+            value: ["vip", "staff"],
+          },
+          {
+            attribute: "discountGroup",
+            _tag: "Condition",
+            operator: "anyOf",
+            value: ["1", "2"],
+          },
+          { attribute: "hasAccount", _tag: "Condition", operator: "is", value: false }
+        ),
+        [{ id: "1", name: "Students" }]
       )
     ).toBe(
-      "Customers who speak Czech and (are tagged “coworker” or are tagged “rpg”) and have a Workspace account"
+      "Customers who speak Czech and aren’t tagged “vip” or “staff” and are in discount group “Students” or 2 and have no Workspace account"
     );
   });
 
-  test("describes empty nested groups", () => {
-    expect(describeAudienceFilter(and(czech, or()))).toBe(
-      "Customers who speak Czech and match nothing"
+  test("brackets nested groups with more than one condition", () => {
+    expect(describe_(and(czech, or(reservations("gt", 0), reservations("eq", 0))))).toBe(
+      "Customers who speak Czech and (have any booked reservations or have no booked reservations)"
     );
+  });
+});
+
+describe("describeDatePeriod", () => {
+  test.each<[DatePeriod, string]>([
+    [{ _tag: "AnyTime" }, "at any time"],
+    [{ _tag: "Last", count: 1, unit: "week" }, "in the last week"],
+    [{ _tag: "Last", count: 2, unit: "year" }, "in the last 2 years"],
+    [{ _tag: "Range", from: "2026-01-01", to: "2026-03-31" }, "from 2026-01-01 to 2026-03-31"],
+    [{ _tag: "Since", date: "2026-01-01" }, "since 2026-01-01"],
+    [{ _tag: "Onward", date: "2026-01-01" }, "from 2026-01-01 onward"],
+    [{ _tag: "Until", date: "2026-01-01" }, "until 2026-01-01"],
+  ])("names %o as “%s”", (period, phrase) => {
+    expect(describeDatePeriod(period)).toBe(phrase);
   });
 });
