@@ -22,10 +22,12 @@ and the hooks in `auth-server.ts`.
   `updateLocalePreference` Server Action as `save`. It saves under the account
   lock with the deletion-marker recheck, then navigates to the current URL in
   the new locale with a document navigation, even when the save fails.
-- The action writes no cookie. A cookie write makes Next re-render the
-  referring page under its old locale while the document navigation leaves
-  it, which flashes the error page. The proxy moves the locale cookie on the
-  navigated page's response.
+- The action writes no cookie. Next treats a cookie write in a Server Action
+  as a revalidation: the save's response re-renders the referring page under
+  its old locale, and the client applies it while the document navigation
+  leaves the page. Production flashed the error page in that window, and
+  previews refetched the old URL into the proxy's locale redirect in a loop.
+  The proxy moves the locale cookie on the navigated page's response.
 - The profile control shows the page locale. An account without a preference
   gets one when it picks a language or at its next sign-in.
 

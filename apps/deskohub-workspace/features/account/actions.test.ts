@@ -738,8 +738,9 @@ describe("account actions", () => {
   });
 
   // A cookie write makes Next re-render the referring page under its old
-  // locale while the locale switch navigates away from it, which flashed the
-  // error page. The proxy moves the locale cookie on the navigated page.
+  // locale in the save's response while the locale switch navigates away
+  // from it; the error page flashed in that window. The proxy moves the
+  // locale cookie on the navigated page.
   test("leaves the locale cookie to the proxy", async () => {
     const { updateLocalePreference } = await importActions();
 
