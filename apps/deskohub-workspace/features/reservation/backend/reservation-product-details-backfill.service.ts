@@ -1,6 +1,16 @@
 import { type DotyposReservationId, DotyposService } from "@deskohub/dotypos";
 import { and, asc, eq, gt, inArray, sql } from "drizzle-orm";
-import { Context, Data, Effect, Layer, Option, Schema } from "effect";
+import {
+  Array as Arr,
+  Context,
+  Data,
+  Effect,
+  Layer,
+  Match,
+  Option,
+  Result,
+  Schema,
+} from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { workspaceReservations } from "@/db/schema/workspace-reservations";
 import { findMeetingRoomReservationDuration } from "@/features/reservation/meeting-room-reservation-time";
@@ -70,6 +80,29 @@ type DotyposReservation = Effect.Success<
   ReturnType<DotyposService["Service"]["listReservations"]>
 >[number];
 
+type BackfillRow = {
+  readonly id: WorkspaceReservationId;
+  readonly family: ReservationProductDetailsBackfillFamily;
+  readonly dotyposReservationId: DotyposReservationId | null;
+  readonly reservationDetails: unknown;
+};
+
+type IncompleteRow = BackfillRow & {
+  readonly dotyposReservationId: DotyposReservationId;
+};
+
+type ResolvedRow = IncompleteRow & {
+  readonly details: StoredWorkspaceReservationDetails;
+};
+
+type UnresolvedRow =
+  ReservationProductDetailsBackfillBatch["unresolved"][number];
+
+type BookedInterval = {
+  readonly startsAt: Temporal.Instant;
+  readonly endsAt: Temporal.Instant;
+};
+
 const storedFamily = sql<ReservationProductDetailsBackfillFamily>`${workspaceReservations.reservationDetails}->>'kind'`;
 
 const decodeStoredDetails = Schema.decodeUnknownOption(
@@ -79,53 +112,164 @@ const decodeStoredDetails = Schema.decodeUnknownOption(
 const decodeInterval = Schema.decodeUnknownOption(reservationIntervalSchema);
 const decodeSeats = Schema.decodeUnknownOption(dotyposReservationSeatsSchema);
 
-const isComplete = (details: StoredWorkspaceReservationDetails) => {
-  switch (details.kind) {
-    case "meeting-room":
-      return details.duration !== undefined;
-    case "office":
-      return details.seats !== undefined && details.dayCount !== undefined;
-    default:
-      return true;
+const isComplete = Match.type<StoredWorkspaceReservationDetails>().pipe(
+  Match.discriminatorsExhaustive("kind")({
+    // Cowork snapshots have no catalog identity to fill.
+    cowork: () => true,
+    "meeting-room": ({ duration }) => duration !== undefined,
+    office: ({ seats, dayCount }) =>
+      seats !== undefined && dayCount !== undefined,
+  })
+);
+
+const unresolvedRow = ({
+  row,
+  reason,
+}: {
+  readonly row: BackfillRow;
+  readonly reason: ReservationProductDetailsUnresolvedReason;
+}): UnresolvedRow => ({ reservationId: row.id, family: row.family, reason });
+
+/** An incomplete row to resolve, none when the row is already complete. */
+const triageRow = (
+  row: BackfillRow
+): Result.Result<Option.Option<IncompleteRow>, UnresolvedRow> => {
+  const details = decodeStoredDetails(row.reservationDetails);
+  if (Option.isNone(details)) {
+    return Result.fail(
+      unresolvedRow({ row, reason: "stored_details_malformed" })
+    );
   }
+  if (isComplete(details.value)) return Result.succeed(Option.none());
+  const { dotyposReservationId } = row;
+  if (dotyposReservationId === null) {
+    return Result.fail(
+      unresolvedRow({ row, reason: "dotypos_reservation_id_missing" })
+    );
+  }
+  return Result.succeed(Option.some({ ...row, dotyposReservationId }));
 };
+
+const triageRows = ({ rows }: { readonly rows: readonly BackfillRow[] }) => {
+  const [unresolved, pending] = Arr.partition(rows, triageRow);
+  const incomplete = Arr.getSomes(pending);
+  return {
+    unresolved,
+    incomplete,
+    alreadyComplete: pending.length - incomplete.length,
+  };
+};
+
+const resolveMeetingRoomDetails = (
+  interval: BookedInterval
+): Result.Result<
+  StoredWorkspaceReservationDetails,
+  ReservationProductDetailsUnresolvedReason
+> =>
+  Result.fromNullishOr(
+    findMeetingRoomReservationDuration(interval),
+    () => "interval_not_in_catalog" as const
+  ).pipe(
+    Result.map((duration) => ({ kind: meetingRoomReservationKind, duration }))
+  );
+
+const resolveOfficeDetails = ({
+  seats,
+  ...interval
+}: BookedInterval & {
+  readonly seats: DotyposReservation["seats"];
+}): Result.Result<
+  StoredWorkspaceReservationDetails,
+  ReservationProductDetailsUnresolvedReason
+> =>
+  decodeSeats(seats).pipe(
+    Result.fromOption(() => "dotypos_seats_invalid" as const),
+    Result.flatMap((seats) =>
+      Result.fromNullishOr(
+        getOfficeReservationSelection({ ...interval, seats }),
+        () => "interval_not_in_catalog" as const
+      )
+    ),
+    Result.map((selection) => ({ kind: officeReservationKind, ...selection }))
+  );
 
 /**
  * The full snapshot for an incomplete row, from the Dotypos reservation's
  * interval and seats only. The reservation note is freeform and never read.
  */
-const resolveDetails = (
-  family: ReservationProductDetailsBackfillFamily,
-  reservation: DotyposReservation
-):
-  | { readonly details: StoredWorkspaceReservationDetails }
-  | { readonly reason: ReservationProductDetailsUnresolvedReason } => {
+const resolveDetails = ({
+  family,
+  reservation,
+}: {
+  readonly family: ReservationProductDetailsBackfillFamily;
+  readonly reservation: DotyposReservation;
+}): Result.Result<
+  StoredWorkspaceReservationDetails,
+  ReservationProductDetailsUnresolvedReason
+> => {
   const interval = decodeInterval({
     startsAt: reservation.startDate,
     endsAt: reservation.endDate,
   });
-  if (Option.isNone(interval)) return { reason: "dotypos_interval_invalid" };
-  const startsAt = Temporal.Instant.from(interval.value.startsAt);
-  const endsAt = Temporal.Instant.from(interval.value.endsAt);
-
-  if (family === meetingRoomReservationKind) {
-    const duration = findMeetingRoomReservationDuration({ startsAt, endsAt });
-    return duration
-      ? { details: { kind: meetingRoomReservationKind, duration } }
-      : { reason: "interval_not_in_catalog" };
-  }
-
-  const seats = decodeSeats(reservation.seats);
-  if (Option.isNone(seats)) return { reason: "dotypos_seats_invalid" };
-  const selection = getOfficeReservationSelection({
-    startsAt,
-    endsAt,
-    seats: seats.value,
-  });
-  return selection
-    ? { details: { kind: officeReservationKind, ...selection } }
-    : { reason: "interval_not_in_catalog" };
+  if (Option.isNone(interval)) return Result.fail("dotypos_interval_invalid");
+  const booked: BookedInterval = {
+    startsAt: Temporal.Instant.from(interval.value.startsAt),
+    endsAt: Temporal.Instant.from(interval.value.endsAt),
+  };
+  return Match.value(family).pipe(
+    Match.when(meetingRoomReservationKind, () =>
+      resolveMeetingRoomDetails(booked)
+    ),
+    Match.when(officeReservationKind, () =>
+      resolveOfficeDetails({ ...booked, seats: reservation.seats })
+    ),
+    Match.exhaustive
+  );
 };
+
+const resolveRow = ({
+  row,
+  dotyposById,
+}: {
+  readonly row: IncompleteRow;
+  readonly dotyposById: ReadonlyMap<
+    DotyposReservation["id"],
+    DotyposReservation
+  >;
+}): Result.Result<ResolvedRow, UnresolvedRow> =>
+  Result.fromNullishOr(
+    dotyposById.get(row.dotyposReservationId),
+    () => "dotypos_reservation_not_found" as const
+  ).pipe(
+    Result.flatMap((reservation) =>
+      resolveDetails({ family: row.family, reservation })
+    ),
+    Result.map((details) => ({ ...row, details })),
+    Result.mapError((reason) => unresolvedRow({ row, reason }))
+  );
+
+const resolveRows = ({
+  triaged: { incomplete },
+  dotyposReservations,
+}: {
+  readonly triaged: { readonly incomplete: readonly IncompleteRow[] };
+  readonly dotyposReservations: readonly DotyposReservation[];
+}) => {
+  const dotyposById = new Map(
+    dotyposReservations.map(
+      (reservation) => [reservation.id, reservation] as const
+    )
+  );
+  const [unresolved, resolved] = Arr.partition(incomplete, (row) =>
+    resolveRow({ row, dotyposById })
+  );
+  return { unresolved, resolved };
+};
+
+const nextCursor = ({ rows }: { readonly rows: readonly BackfillRow[] }) =>
+  rows.length < reservationProductDetailsBackfillBatchSize
+    ? null
+    : (rows.at(-1)?.id ?? null);
 
 export class ReservationProductDetailsBackfill extends Context.Service<
   ReservationProductDetailsBackfill,
@@ -140,132 +284,101 @@ export class ReservationProductDetailsBackfill extends Context.Service<
       const fail = (message: string) => (cause: unknown) =>
         new ReservationProductDetailsBackfillError({ message, cause });
 
+      const readRows = ({
+        after,
+      }: {
+        readonly after: WorkspaceReservationId | null;
+      }) =>
+        db
+          .select({
+            id: workspaceReservations.id,
+            family: storedFamily,
+            dotyposReservationId: workspaceReservations.dotyposReservationId,
+            reservationDetails: workspaceReservations.reservationDetails,
+          })
+          .from(workspaceReservations)
+          .where(
+            and(
+              inArray(storedFamily, backfilledFamilies),
+              after === null ? undefined : gt(workspaceReservations.id, after)
+            )
+          )
+          .orderBy(asc(workspaceReservations.id))
+          .limit(reservationProductDetailsBackfillBatchSize)
+          .pipe(Effect.mapError(fail("Reservations could not be read.")));
+
+      const loadDotyposReservations = ({
+        incomplete,
+      }: {
+        readonly incomplete: readonly IncompleteRow[];
+      }) =>
+        dotypos
+          .listReservations({
+            ids: incomplete.map(
+              ({ dotyposReservationId }) => dotyposReservationId
+            ),
+          })
+          .pipe(
+            Effect.mapError(fail("Dotypos reservations could not be loaded.")),
+            Effect.when(Effect.succeed(incomplete.length > 0)),
+            Effect.map(Option.getOrElse(() => []))
+          );
+
+      // Only the snapshot read above is replaced, so a concurrent change
+      // wins. updated_at stays: it records business activity, and claims
+      // compare it.
+      const writeDetails = (row: ResolvedRow) =>
+        db
+          .update(workspaceReservations)
+          .set({ reservationDetails: row.details })
+          .where(
+            and(
+              eq(workspaceReservations.id, row.id),
+              sql`${workspaceReservations.reservationDetails} = ${JSON.stringify(row.reservationDetails)}::jsonb`
+            )
+          )
+          .returning({ id: workspaceReservations.id })
+          .pipe(Effect.mapError(fail("A reservation could not be updated.")));
+
+      /** Rows written; a dry run counts every resolved row instead. */
+      const writeResolvedRows = ({
+        resolution: { resolved },
+        dryRun,
+      }: {
+        readonly resolution: { readonly resolved: readonly ResolvedRow[] };
+        readonly dryRun: boolean;
+      }) =>
+        Effect.forEach(resolved, writeDetails).pipe(
+          Effect.map((written) => written.flat().length),
+          Effect.when(Effect.succeed(!dryRun)),
+          Effect.map(Option.getOrElse(() => resolved.length))
+        );
+
       return {
         runBatch: Effect.fn("ReservationProductDetailsBackfill.runBatch")(
-          function* ({ after, dryRun }) {
-            const rows = yield* db
-              .select({
-                id: workspaceReservations.id,
-                family: storedFamily,
-                dotyposReservationId:
-                  workspaceReservations.dotyposReservationId,
-                reservationDetails: workspaceReservations.reservationDetails,
-              })
-              .from(workspaceReservations)
-              .where(
-                and(
-                  inArray(storedFamily, backfilledFamilies),
-                  after === null
-                    ? undefined
-                    : gt(workspaceReservations.id, after)
-                )
+          (input) =>
+            Effect.succeed(input).pipe(
+              Effect.bind("rows", readRows),
+              Effect.let("triaged", triageRows),
+              Effect.bind("dotyposReservations", ({ triaged }) =>
+                loadDotyposReservations(triaged)
+              ),
+              Effect.let("resolution", resolveRows),
+              Effect.bind("updated", writeResolvedRows),
+              Effect.map(
+                ({
+                  rows,
+                  triaged,
+                  resolution,
+                  updated,
+                }): ReservationProductDetailsBackfillBatch => ({
+                  updated,
+                  alreadyComplete: triaged.alreadyComplete,
+                  unresolved: [...triaged.unresolved, ...resolution.unresolved],
+                  nextCursor: nextCursor({ rows }),
+                })
               )
-              .orderBy(asc(workspaceReservations.id))
-              .limit(reservationProductDetailsBackfillBatchSize)
-              .pipe(Effect.mapError(fail("Reservations could not be read.")));
-
-            const unresolved: ReservationProductDetailsBackfillBatch["unresolved"][number][] =
-              [];
-            let alreadyComplete = 0;
-            const incomplete: {
-              readonly id: WorkspaceReservationId;
-              readonly family: ReservationProductDetailsBackfillFamily;
-              readonly dotyposReservationId: DotyposReservationId;
-              readonly reservationDetails: unknown;
-            }[] = [];
-            for (const { family, ...row } of rows) {
-              const details = decodeStoredDetails(row.reservationDetails);
-              if (Option.isNone(details)) {
-                unresolved.push({
-                  reservationId: row.id,
-                  family,
-                  reason: "stored_details_malformed",
-                });
-              } else if (isComplete(details.value)) {
-                alreadyComplete += 1;
-              } else if (row.dotyposReservationId === null) {
-                unresolved.push({
-                  reservationId: row.id,
-                  family,
-                  reason: "dotypos_reservation_id_missing",
-                });
-              } else {
-                incomplete.push({
-                  id: row.id,
-                  family,
-                  dotyposReservationId: row.dotyposReservationId,
-                  reservationDetails: row.reservationDetails,
-                });
-              }
-            }
-
-            const dotyposReservations =
-              incomplete.length === 0
-                ? []
-                : yield* dotypos
-                    .listReservations({
-                      ids: incomplete.map(
-                        ({ dotyposReservationId }) => dotyposReservationId
-                      ),
-                    })
-                    .pipe(
-                      Effect.mapError(
-                        fail("Dotypos reservations could not be loaded.")
-                      )
-                    );
-            const dotyposById = new Map(
-              dotyposReservations.map(
-                (reservation) => [reservation.id, reservation] as const
-              )
-            );
-
-            let updated = 0;
-            for (const row of incomplete) {
-              const reservation = dotyposById.get(row.dotyposReservationId);
-              const resolution = reservation
-                ? resolveDetails(row.family, reservation)
-                : ({ reason: "dotypos_reservation_not_found" } as const);
-              if ("reason" in resolution) {
-                unresolved.push({
-                  reservationId: row.id,
-                  family: row.family,
-                  reason: resolution.reason,
-                });
-                continue;
-              }
-              if (dryRun) {
-                updated += 1;
-                continue;
-              }
-              // Only the snapshot read above is replaced, so a concurrent
-              // change wins. updated_at stays: it records business activity,
-              // and claims compare it.
-              const written = yield* db
-                .update(workspaceReservations)
-                .set({ reservationDetails: resolution.details })
-                .where(
-                  and(
-                    eq(workspaceReservations.id, row.id),
-                    sql`${workspaceReservations.reservationDetails} = ${JSON.stringify(row.reservationDetails)}::jsonb`
-                  )
-                )
-                .returning({ id: workspaceReservations.id })
-                .pipe(
-                  Effect.mapError(fail("A reservation could not be updated."))
-                );
-              updated += written.length;
-            }
-
-            return {
-              updated,
-              alreadyComplete,
-              unresolved,
-              nextCursor:
-                rows.length < reservationProductDetailsBackfillBatchSize
-                  ? null
-                  : (rows.at(-1)?.id ?? null),
-            };
-          }
+            )
         ),
       } satisfies IReservationProductDetailsBackfill;
     })
