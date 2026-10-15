@@ -25,13 +25,15 @@ import type { CheckoutData, CheckoutFlowState } from "./types";
 const testDatabase = await connectWorkspacePostgresTestDatabase();
 const run = crypto.randomUUID();
 
+// Each flow expects the identity its writer records, so cleanup must select
+// the enriched rows by containment.
 const families = [
   {
-    expected: { kind: "meeting-room" },
+    expected: { kind: "meeting-room", duration: { unit: "day", amount: 1 } },
     stored: { kind: "meeting-room", duration: { unit: "day", amount: 1 } },
   },
   {
-    expected: { kind: "office" },
+    expected: { kind: "office", seats: 4, dayCount: 2 },
     stored: { kind: "office", seats: 4, dayCount: 2 },
   },
 ] as const satisfies readonly {

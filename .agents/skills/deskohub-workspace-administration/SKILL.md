@@ -1,6 +1,6 @@
 ---
 name: deskohub-workspace-administration
-description: Workspace admin dashboard, /admin pages, administration API, dhw CLI, CLI sessions, operator cancellation and refunds, access recovery, standalone access codes, invoices, discount codes, vouchers, sales administration.
+description: Workspace admin dashboard, /admin pages, administration API, dhw CLI, CLI sessions, operator cancellation and refunds, access recovery, standalone access codes, invoices, discount codes, vouchers, sales administration, reservation product-details backfill.
 ---
 
 # Deskohub Workspace administration
@@ -9,7 +9,7 @@ Read the reference that matches the change:
 
 - [references/dashboard.md](references/dashboard.md): `/admin` rendering, data sources, reservation and customer projections, cancellation and refund state, access recovery, standalone access codes, and history.
 - [references/discounts.md](references/discounts.md): discount, code, voucher, audience, and claim mutations.
-- [references/dhw-cli.md](references/dhw-cli.md): the shared administration API contract, `dhw` authentication, confirmation, retries, configuration, checks, and releases.
+- [references/dhw-cli.md](references/dhw-cli.md): the shared administration API contract, `dhw` authentication, confirmation, retries, the reservation product-details backfill, configuration, checks, and releases.
 
 Always apply these rules:
 

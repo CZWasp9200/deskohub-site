@@ -342,8 +342,15 @@ export type StoredOfficeReservationDetails =
   typeof storedOfficeReservationDetailsSchema.Type;
 
 export const getStoredOfficeReservationDetails = (
-  _reservation: Pick<OfficeReservationOrderInput, "kind">
-): StoredOfficeReservationDetails => ({ kind: officeReservationKind });
+  reservation: Pick<
+    OfficeReservationOrderInput,
+    "kind" | "startsOn" | "endsOn" | "seats"
+  >
+): StoredOfficeReservationDetails =>
+  getWorkspaceOfficeProductIdentity({
+    seats: reservation.seats,
+    dayCount: getOfficeReservationDayCount(reservation),
+  });
 
 export const getOfficeSeatOptions = (seatCapacity: number) =>
   Array.from({ length: seatCapacity }, (_, index) =>

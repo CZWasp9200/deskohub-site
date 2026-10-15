@@ -55,7 +55,9 @@ export const loadRecipientPreview = async (
     const described = {
       campaign,
       audienceTitle: audience.title,
-      audienceSummary: describeAudienceFilter(audience.filter, discountGroups),
+      audienceSummary: describeAudienceFilter(audience.filter, {
+        discountGroups,
+      }),
     };
     return yield* recipients
       .resolve({ purpose: campaign.purpose, filter: audience.filter })

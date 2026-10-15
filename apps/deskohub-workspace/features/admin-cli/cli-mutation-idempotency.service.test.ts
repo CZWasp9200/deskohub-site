@@ -85,7 +85,12 @@ describe.skipIf(!testDatabase)("CLI mutations on disposable Postgres", () => {
       const ledger = yield* CliMutationIdempotency;
       const audiences = yield* CampaignAudienceService;
       const campaigns = yield* CampaignService;
-      const filter = { _tag: "Locale" as const, locales: ["cs-CZ" as const] };
+      const filter = {
+        attribute: "locale",
+        _tag: "Condition",
+        operator: "anyOf",
+        value: ["cs-CZ"],
+      } as const;
       return yield* ledger.applyOnce({
         request: {
           sessionId,

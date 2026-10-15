@@ -1,4 +1,6 @@
 import type { CSSProperties } from "react";
+import type { WorkspaceCoworkProductTier } from "@/features/checkout/product-catalog";
+import { reservationProductFamilies } from "@/features/reservation/reservation-product-descriptor";
 import { cn } from "@/shared/utils";
 import type {
   AdministrationCustomerReservationActivity,
@@ -6,34 +8,44 @@ import type {
 } from "./administration.service";
 import { formatAdministrationPlainDate } from "./formatters";
 
+const {
+  cowork: {
+    properties: [coworkTier],
+  },
+} = reservationProductFamilies;
+
+/** Admin copy is English, so names come from the en-US catalog. */
+const coworkTierName = (tier: WorkspaceCoworkProductTier) =>
+  coworkTier.values.find(({ id }) => id === tier)?.name("en-US") ?? tier;
+
 const reservationActivityCategoryStyles = {
   "cowork-open-space": {
     className: "bg-aquamarine-green/25",
-    label: "Open Space",
+    label: coworkTierName("open-space"),
   },
   "cowork-reserved-desk": {
     className: "bg-aquamarine-green/70",
-    label: "Reserved Desk",
+    label: coworkTierName("reserved-desk"),
   },
   "cowork-basic": {
     className: "bg-aquamarine-green/25",
-    label: "Basic",
+    label: coworkTierName("basic"),
   },
   "cowork-plus": {
     className: "bg-aquamarine-green/70",
-    label: "Plus",
+    label: coworkTierName("plus"),
   },
   "cowork-profi": {
     className: "bg-[#10b981]",
-    label: "Profi",
+    label: coworkTierName("profi"),
   },
   "meeting-room": {
     className: "bg-[#60a5fa]",
-    label: "Meeting room",
+    label: reservationProductFamilies["meeting-room"].label,
   },
   office: {
     className: "bg-[#fb923c]",
-    label: "Office",
+    label: reservationProductFamilies.office.label,
   },
 } satisfies Record<
   AdministrationCustomerReservationActivityCategory,

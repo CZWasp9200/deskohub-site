@@ -45,11 +45,18 @@ const checkoutRow = {
   dotypos_customer_id: "dotypos-customer-id",
   dotypos_reservation_id: "dotypos-reservation-id",
   locale: "en-US",
-  reservation_details: { kind: "meeting-room" },
+  reservation_details: {
+    kind: "meeting-room",
+    duration: { unit: "day", amount: 1 },
+  },
   reservation_id: "workspace-reservation-id",
 } as const;
 
 const wholeDayData = {
+  expectedReservationDetails: {
+    kind: "meeting-room",
+    duration: { unit: "day", amount: 1 },
+  },
   meetingRoom: {
     duration: { unit: "day", amount: 1 },
     startsAt: "2027-03-27T23:00:00Z",

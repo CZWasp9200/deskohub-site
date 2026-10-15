@@ -490,7 +490,14 @@ describe("discount administration pages", () => {
       throw new Error("Reservation activity section is missing");
     }
     const reservationActivity = within(reservationActivitySection);
-    for (const label of ["Profi", "Meeting room", "Office", "Basic", "Plus"]) {
+    // Tier names come from the product catalog.
+    for (const label of [
+      "Profi Workstation",
+      "Meeting room",
+      "Office",
+      "Basic Day Pass",
+      "Cowork Plus",
+    ]) {
       expect(reservationActivity.getByText(label)).toBeDefined();
     }
     expect(reservationActivity.queryByText("Less")).toBeNull();
