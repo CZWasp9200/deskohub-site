@@ -737,13 +737,16 @@ describe("account actions", () => {
     expect(revalidatePath).not.toHaveBeenCalled();
   });
 
-  test("moves the locale cookie to the saved preference", async () => {
-    const { localeCookieName } = await import("@/features/i18n/routing");
+  // A cookie write makes Next re-render the referring page under its old
+  // locale while the locale switch navigates away from it, which flashed the
+  // error page. The proxy moves the locale cookie on the navigated page.
+  test("leaves the locale cookie to the proxy", async () => {
     const { updateLocalePreference } = await importActions();
 
     await updateLocalePreference({ locale: "cs-CZ" });
 
-    expect(cookieWrites).toEqual([{ name: localeCookieName, value: "cs-CZ" }]);
+    expect(preferenceSaveCalls).toHaveLength(1);
+    expect(cookieWrites).toEqual([]);
   });
 
   test("ignores a submitted referral code while the referral program is withheld", async () => {
