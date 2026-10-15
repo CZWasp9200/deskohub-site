@@ -50,8 +50,14 @@ describe("campaignContentCoversAudience", () => {
   const czechOnly = campaignContentFixture();
   const englishOnly = { "en-US": czechOnly["cs-CZ"] };
   const audience = (
-    locales: Extract<AudienceFilter, { readonly _tag: "Locale" }>["locales"]
-  ) => Option.some<AudienceFilter>({ _tag: "Locale", locales });
+    locales: Extract<AudienceFilter, { readonly attribute: "locale" }>["value"]
+  ) =>
+    Option.some<AudienceFilter>({
+      attribute: "locale",
+      _tag: "Condition",
+      operator: "anyOf",
+      value: locales,
+    });
 
   test("accepts Czech content for any audience", () => {
     expect(
@@ -81,7 +87,12 @@ describe("campaignContentCoversAudience", () => {
   });
 
   test("accepts English-only content for an English-only audience", () => {
-    const english: AudienceFilter = { _tag: "Locale", locales: ["en-US"] };
+    const english: AudienceFilter = {
+      attribute: "locale",
+      _tag: "Condition",
+      operator: "anyOf",
+      value: ["en-US"],
+    };
     for (const audienceFilter of [
       audience(["en-US"]),
       Option.some<AudienceFilter>({
