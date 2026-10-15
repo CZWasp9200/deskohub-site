@@ -241,10 +241,12 @@ type ButtonProps = Omit<
     readonly pending?: boolean;
     readonly ref?: React.Ref<HTMLButtonElement>;
     /**
-     * Parent layout only: margin, self/grid placement, position, z-index,
-     * order, responsive width (`sm:w-auto`) and responsive visibility
-     * (`lg:hidden`). Express colour, size, radius, typography and states
-     * through the props above instead.
+     * Parent layout only: margin; self, grid, order, flex-item and snap
+     * placement (`shrink-0`, `flex-1`, `snap-start`); position, inset and
+     * z-index; `hidden` and `group`; and width or display under a breakpoint
+     * or container variant (`sm:w-auto`, `md:inline-flex`). Express colour,
+     * size, radius, typography and states through the props above instead.
+     * The `no-button-restyling` lint rule enforces this list.
      */
     readonly className?: string;
   };

@@ -165,6 +165,10 @@ const breadcrumbs =
   "apps/deskohub-workspace/features/administration/breadcrumb.server.tsx";
 const featureFlags =
   "apps/deskohub-workspace/features/feature-flags/backend/workspace-feature-flag.service.ts";
+const checkoutActions =
+  "apps/deskohub-workspace/features/checkout/components/checkout-actions.tsx";
+const button = (attributes: string) =>
+  `export const Action = () => <Button ${attributes}>Save</Button>;\n`;
 
 // biome-ignore format: the case table stays one row per line on purpose.
 const rules: { name: string; diagnostic: string; module: string; cases: Row[] }[] = [
@@ -499,6 +503,60 @@ const rules: { name: string; diagnostic: string; module: string; cases: Row[] }[
       ["permits the shared EmptyState", 'import { EmptyState } from "./empty-state";\nexport const table = EmptyState;\n', false],
       ["permits the EmptyState foundation", "export function EmptyState() { return null; }\n", false, "apps/deskohub-workspace/features/administration/empty-state.tsx"],
       ["permits chrome outside administration", "function EmptyState() { return null; }\nexport const list = EmptyState;\n", false, "apps/deskohub-workspace/features/account/components/history.tsx"],
+    ],
+  },
+  {
+    name: "no-button-restyling", diagnostic: "Button className accepts parent layout only",
+    module: checkoutActions,
+    cases: [
+      ["rejects a fill override", button('className="bg-burned-orange-ink"'), true],
+      ["rejects a text colour override", button('className="text-white"'), true],
+      ["rejects a height override", button('className="h-12"'), true],
+      ["rejects a padding override", button('className="px-6"'), true],
+      ["rejects a radius override", button('className="rounded-xl"'), true],
+      ["rejects a shadow override", button('className="shadow-none"'), true],
+      ["rejects a hover state override", button('className="hover:bg-navy-blue/5"'), true],
+      ["rejects a restyle behind a breakpoint", button('className="md:bg-white"'), true],
+      ["rejects a restyle behind a group variant", button('className="group-hover:text-white"'), true],
+      ["rejects an important restyle", button('className="!px-0"'), true],
+      ["rejects one restyle among layout classes", button('className="mt-8 rounded-none sm:w-auto"'), true],
+      ["rejects a width outside a breakpoint", button('className="w-full"'), true],
+      ["rejects a display outside a breakpoint", button('className="flex"'), true],
+      ["rejects an inset shadow", button('className="inset-shadow-sm"'), true],
+      ["rejects an expression-free template restyle", button("className={`px-4`}"), true],
+      ["rejects a conditional cn restyle", button('className={cn("mt-4", open && "bg-white")}'), true],
+      ["rejects a ternary branch restyle", button('className={open ? "mt-4" : "text-xs"}'), true],
+      ["rejects a NavItem restyle", 'export const Tab = () => <NavItem active className="bg-navy-blue" href="/account">Account</NavItem>;\n', true],
+      ["rejects a ChoiceCard restyle", 'export const Option = () => <ChoiceCard className="border-burned-orange" />;\n', true],
+      ["rejects a SegmentedControl restyle", 'export const Picker = () => <SegmentedControl className="rounded-full" />;\n', true],
+      ["rejects a DisclosureButton restyle", 'export const Toggle = () => <DisclosureButton className="text-xs" expanded />;\n', true],
+      ["permits margin and responsive width", button('className="mt-8 sm:w-auto"'), false],
+      ["permits container-query width and group", button('className="group @xl:w-auto sm:min-w-[17rem]"'), false],
+      ["permits self and grid placement", button('className="self-start justify-self-end col-span-2 order-last"'), false],
+      ["permits flex and snap item placement", button('className="shrink-0 flex-1 basis-1/2 snap-start"'), false],
+      ["permits position, inset and z-index", button('className="fixed -top-24 left-4 z-[100] focus:top-4"'), false],
+      ["permits responsive visibility", button('className="hidden md:inline-flex xl:hidden"'), false],
+      ["permits important layout classes", button('className="!mt-2 md:mb-4!"'), false],
+      ["permits an expression string", button('className={"mt-4"}'), false],
+      ["permits an expression-free template", button("className={`mt-4 sm:w-auto`}"), false],
+      ["permits conditional cn layout", button('className={cn("mt-4", open && "hidden", wide ? "sm:w-auto" : undefined)}'), false],
+      ["permits a NavItem layout class", 'export const Tab = () => <NavItem active className="shrink-0 snap-start" href="/account">Account</NavItem>;\n', false],
+      ["permits restyled children", 'export const Action = () => <Button><span className="text-xs">Save</span></Button>;\n', false],
+      ["permits other components", 'export const Dot = () => <UnstyledButton className="size-3 rounded-full bg-white" />;\n', false],
+      ["permits Buttons outside Workspace", button('className="bg-white"'), false, "apps/boardgame-bar/src/components/action.tsx"],
+    ],
+  },
+  {
+    name: "no-button-restyling", diagnostic: "so the parent-layout check can read it",
+    module: checkoutActions,
+    cases: [
+      ["rejects a class variable", button("className={classes}"), true],
+      ["rejects a forwarded className", button('className={cn("mt-4", className)}'), true],
+      ["rejects an interpolated template", button("className={`mt-${size}`}"), true],
+      ["rejects a fallback operand", button('className={open || "mt-4"}'), true],
+      ["rejects another class helper", button("className={layoutClasses()}"), true],
+      ["permits literal and conditional cn classes", button('className={cn("mt-4", open && "hidden")}'), false],
+      ["permits a suppressed forwarded className", 'export const Action = ({ className }: { className?: string }) => (\n  // biome-ignore lint/plugin: forwards the caller\'s parent-layout classes.\n  <Button className={className}>Save</Button>\n);\n', false],
     ],
   },
   {
