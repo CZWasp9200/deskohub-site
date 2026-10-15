@@ -12,6 +12,13 @@ export interface AccountFrameProps {
   readonly contentRef?: Ref<HTMLDivElement>;
 }
 
+/** The viewport offset a sticky element pins at; `undefined` when not sticky. */
+function readStickyTop(element: Element, ownerWindow: Window) {
+  const style = ownerWindow.getComputedStyle(element);
+  const top = Number.parseFloat(style.top);
+  return style.position === "sticky" && Number.isFinite(top) ? top : undefined;
+}
+
 /**
  * Scrolls the window so a content slot scrolled above the sticky navigation
  * starts right below it again: level with the desktop sidebar, or one grid gap
@@ -24,12 +31,7 @@ export function revealAccountContentStart(content: HTMLElement) {
   if (!ownerWindow || !(aside instanceof ownerWindow.HTMLElement) || !grid)
     return;
 
-  const asideStyle = ownerWindow.getComputedStyle(aside);
-  const asideTop = Number.parseFloat(asideStyle.top);
-  const stickyTop =
-    asideStyle.position === "sticky" && Number.isFinite(asideTop)
-      ? asideTop
-      : 0;
+  const stickyTop = readStickyTop(aside, ownerWindow) ?? 0;
   const asideRect = aside.getBoundingClientRect();
   const contentRect = content.getBoundingClientRect();
   const navigationStacked = asideRect.right > contentRect.left;
@@ -60,11 +62,8 @@ export function AccountFrame({
     const ownerWindow = aside.ownerDocument.defaultView;
     if (!ownerWindow) return;
 
-    const asideStyle = ownerWindow.getComputedStyle(aside);
-    if (asideStyle.position !== "sticky") return;
-
-    const stickyTop = Number.parseFloat(asideStyle.top);
-    if (!Number.isFinite(stickyTop)) return;
+    const stickyTop = readStickyTop(aside, ownerWindow);
+    if (stickyTop === undefined) return;
 
     const target = event.target;
     if (!(target instanceof ownerWindow.Element)) return;
