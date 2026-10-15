@@ -19,14 +19,14 @@ import { dotyposReservationSeatsSchema } from "@/features/reservation/reservatio
 import { WorkspaceDotyposLayer } from "@/shared/backend/config/dotypos.config";
 
 /** Rows read, and Dotypos reservations requested, per batch. */
-export const reservationProductDetailsBackfillBatchSize = 50;
+const reservationProductDetailsBackfillBatchSize = 50;
 
 const backfilledFamilies = [meetingRoomReservationKind, officeReservationKind];
 
-export type ReservationProductDetailsBackfillFamily =
+type ReservationProductDetailsBackfillFamily =
   (typeof backfilledFamilies)[number];
 
-export type ReservationProductDetailsUnresolvedReason =
+type ReservationProductDetailsUnresolvedReason =
   | "stored_details_malformed"
   | "dotypos_reservation_id_missing"
   | "dotypos_reservation_not_found"
@@ -46,7 +46,7 @@ export type ReservationProductDetailsBackfillBatch = {
   readonly nextCursor: WorkspaceReservationId | null;
 };
 
-export class ReservationProductDetailsBackfillError extends Data.TaggedError(
+class ReservationProductDetailsBackfillError extends Data.TaggedError(
   "ReservationProductDetailsBackfillError"
 )<{ readonly message: string; readonly cause: unknown }> {}
 
