@@ -1,0 +1,81 @@
+engine biome(1.0)
+language js(typescript, jsx)
+
+// `className` on the Button family (`Button`, `DisclosureButton`, `NavItem`,
+// `SegmentedControl`, `ChoiceCard`) places the control in its parent and never
+// restyles it; see the `className` doc in `shared/components/ui/button.tsx`.
+// Every class, after any variant prefix and `!`, must be one of:
+// - margin, self and grid placement, `order`, flex-item `shrink`, `grow`,
+//   `flex-1|auto|initial|none` and `basis-*`, and scroll-snap alignment;
+// - `static|fixed|absolute|relative|sticky`, inset (`top-*`, `inset-x-*`) and `z-*`;
+// - `hidden` and `group`;
+// - width (`w-*`, `min-w-*`, `max-w-*`) and display (`block`, `inline-block`,
+//   `flex`, `inline-flex`) only under a breakpoint or container-query variant
+//   (`sm:w-auto`, `@xl:w-auto`, `md:inline-flex`).
+// The value must be a string, an expression-free template, or `cn(...)`/`clsx(...)`
+// over those, `condition && classes` and `condition ? classes : classes`.
+// Anything else (a variable, a forwarded prop, an interpolated template) is
+// reported because it can't be checked; suppress it with
+// `biome-ignore lint/plugin: <why the value is parent layout only>`.
+pattern layout_classes() {
+  r"^[\"'`]\s*(?:(?:(?:(?:[^\s:\[\]\"'`]|\[[^\]\s\"'`]*\])+:)*!?(?:-?m[trblxyse]?-(?:[0-9./]+|px|auto|full|\[[^\]\s\"'`]+\]|\([^)\s\"'`]+\))|(?:justify-|place-)?self-(?:auto|start|end|center|stretch|baseline|baseline-last|end-safe|center-safe)|(?:col|row)-(?:span|start|end)-(?:[0-9]+|full|auto|\[[^\]\s\"'`]+\]|\([^)\s\"'`]+\))|(?:col|row)-auto|-?order-(?:[0-9]+|first|last|none|\[[^\]\s\"'`]+\]|\([^)\s\"'`]+\))|(?:shrink|grow)(?:-0)?|flex-(?:1|auto|initial|none)|basis-(?:[a-z0-9./]+|\[[^\]\s\"'`]+\]|\([^)\s\"'`]+\))|snap-(?:start|end|center|align-none|normal|always)|(?:static|fixed|absolute|relative|sticky)|-?(?:inset(?:-[xy])?|top|right|bottom|left|start|end)-(?:[0-9./]+|px|auto|full|\[[^\]\s\"'`]+\]|\([^)\s\"'`]+\))|-?z-(?:[0-9]+|auto|\[[^\]\s\"'`]+\]|\([^)\s\"'`]+\))|hidden|group(?:/[a-z0-9_-]+)?)|(?:(?:[^\s:\[\]\"'`]|\[[^\]\s\"'`]*\])+:)*(?:(?:max-|min-)?(?:sm|md|lg|xl|2xl)|(?:max|min)-\[[^\]\s\"'`]+\]|@[a-z0-9-]*(?:\[[^\]\s\"'`]+\])?(?:/[a-z0-9_-]+)?):(?:(?:[^\s:\[\]\"'`]|\[[^\]\s\"'`]*\])+:)*!?(?:(?:min-|max-)?w-(?:[a-z0-9./]+|\[[^\]\s\"'`]+\]|\([^)\s\"'`]+\))|(?:block|inline-block|flex|inline-flex)))!?(?:\s+(?:(?:(?:[^\s:\[\]\"'`]|\[[^\]\s\"'`]*\])+:)*!?(?:-?m[trblxyse]?-(?:[0-9./]+|px|auto|full|\[[^\]\s\"'`]+\]|\([^)\s\"'`]+\))|(?:justify-|place-)?self-(?:auto|start|end|center|stretch|baseline|baseline-last|end-safe|center-safe)|(?:col|row)-(?:span|start|end)-(?:[0-9]+|full|auto|\[[^\]\s\"'`]+\]|\([^)\s\"'`]+\))|(?:col|row)-auto|-?order-(?:[0-9]+|first|last|none|\[[^\]\s\"'`]+\]|\([^)\s\"'`]+\))|(?:shrink|grow)(?:-0)?|flex-(?:1|auto|initial|none)|basis-(?:[a-z0-9./]+|\[[^\]\s\"'`]+\]|\([^)\s\"'`]+\))|snap-(?:start|end|center|align-none|normal|always)|(?:static|fixed|absolute|relative|sticky)|-?(?:inset(?:-[xy])?|top|right|bottom|left|start|end)-(?:[0-9./]+|px|auto|full|\[[^\]\s\"'`]+\]|\([^)\s\"'`]+\))|-?z-(?:[0-9]+|auto|\[[^\]\s\"'`]+\]|\([^)\s\"'`]+\))|hidden|group(?:/[a-z0-9_-]+)?)|(?:(?:[^\s:\[\]\"'`]|\[[^\]\s\"'`]*\])+:)*(?:(?:max-|min-)?(?:sm|md|lg|xl|2xl)|(?:max|min)-\[[^\]\s\"'`]+\]|@[a-z0-9-]*(?:\[[^\]\s\"'`]+\])?(?:/[a-z0-9_-]+)?):(?:(?:[^\s:\[\]\"'`]|\[[^\]\s\"'`]*\])+:)*!?(?:(?:min-|max-)?w-(?:[a-z0-9./]+|\[[^\]\s\"'`]+\]|\([^)\s\"'`]+\))|(?:block|inline-block|flex|inline-flex)))!?)*)?\s*[\"'`]$"
+}
+
+pattern checked_classes() {
+  or {
+    or { JsStringLiteralExpression(), JsTemplateExpression() } as $classes where {
+      not $classes <: r"(?s).*\$\{.*",
+      or {
+        $classes <: layout_classes(),
+        register_diagnostic(
+          span = $classes,
+          message = "Button className accepts parent layout only: margin, placement, position, z-index, responsive width or visibility, and group. Express colour, size, radius, typography and states through the component's props.",
+          severity = "error"
+        )
+      }
+    },
+    JsCallExpression(callee = r"^(?:cn|clsx)$", arguments = JsCallArguments(args = $arguments)) where {
+      $arguments <: every checked_classes()
+    },
+    `$condition && $classes` where { $classes <: checked_classes() },
+    JsConditionalExpression(consequent = checked_classes(), alternate = checked_classes()),
+    JsParenthesizedExpression(expression = checked_classes()),
+    r"^(?:undefined|null|false)$"
+  }
+}
+
+file($name, $body) where {
+  $name <: r".*apps/deskohub-workspace/.*\.tsx$",
+  $body <: r"(?s).*<(?:Button|DisclosureButton|NavItem|SegmentedControl|ChoiceCard)\b.*",
+  $body <: contains bubble {
+    or {
+      JsxSelfClosingElement(name = $component, attributes = $attributes),
+      JsxOpeningElement(name = $component, attributes = $attributes)
+    } where {
+      $component <: r"^(?:Button|DisclosureButton|NavItem|SegmentedControl|ChoiceCard)$",
+      $attributes <: some bubble JsxAttribute(
+        name = r"^className$",
+        initializer = JsxAttributeInitializerClause(value = $value)
+      ) where {
+        or {
+          $value <: JsxString() as $classes where {
+            or {
+              $classes <: layout_classes(),
+              register_diagnostic(
+                span = $classes,
+                message = "Button className accepts parent layout only: margin, placement, position, z-index, responsive width or visibility, and group. Express colour, size, radius, typography and states through the component's props.",
+                severity = "error"
+              )
+            }
+          },
+          $value <: JsxExpressionAttributeValue(expression = checked_classes()),
+          register_diagnostic(
+            span = $value,
+            message = "Pass Button className as literal classes, or cn() over literal and conditional literal classes, so the parent-layout check can read it.",
+            severity = "error"
+          )
+        }
+      }
+    }
+  }
+}
