@@ -1,11 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import {
-  type AuthReturnLifecycle,
-  hasIssuedSignInCode,
+import type {
+  AuthReturnLifecycle,
+  SignInEmailFailure,
 } from "@/features/account/auth-return";
 import { SignInCodeStep } from "@/features/account/components/sign-in-code-step";
+import { signInEmailFailureMessage } from "@/features/account/components/sign-in-email-failure-message";
 import { type Locale, m } from "@/features/i18n";
 import { Button } from "@/shared/components/ui/button";
 import {
@@ -36,27 +37,23 @@ export function DeleteAccountReauthStep({
 }: DeleteAccountReauthStepProps) {
   const [linkSent, setLinkSent] = useState(false);
   const [sending, setSending] = useState(false);
-  const [failed, setFailed] = useState(false);
+  const [failure, setFailure] = useState<SignInEmailFailure | null>(null);
   const [codeRequestedAt, setCodeRequestedAt] = useState<number | null>(null);
 
-  // Resolves whether the email went out; a code-carrying email opens the code step.
+  // A code-carrying email opens the code step in place.
   const sendReauthEmail = async () => {
-    try {
-      const result = await authReturn.sendMagicLink(email);
-      if (result.error) return false;
-      if (hasIssuedSignInCode(result)) setCodeRequestedAt(Date.now());
-      else setLinkSent(true);
-      return true;
-    } catch {
-      return false;
-    }
+    const result = await authReturn.sendSignInEmail(email);
+    if (result.status === "failed") return result.reason;
+    if (result.signInCode) setCodeRequestedAt(Date.now());
+    else setLinkSent(true);
+    return "sent" as const;
   };
 
   const requestReauthLink = async () => {
-    setFailed(false);
+    setFailure(null);
     setSending(true);
-    const sent = await sendReauthEmail();
-    setFailed(!sent);
+    const outcome = await sendReauthEmail();
+    setFailure(outcome === "sent" ? null : outcome);
     setSending(false);
   };
 
@@ -76,10 +73,9 @@ export function DeleteAccountReauthStep({
         </DialogHeader>
         <SignInCodeStep
           locale={locale}
-          email={email}
           requestedAt={codeRequestedAt}
           verifiedMessage={m.accountDeletionReauthCodeVerified({}, { locale })}
-          verifyCode={(code) => authReturn.verifyCode(email, code)}
+          verifyCode={(code) => authReturn.verifySignInCode(email, code)}
           onVerified={onReauthenticated}
           requestNewEmail={sendReauthEmail}
         />
@@ -98,12 +94,14 @@ export function DeleteAccountReauthStep({
         </DialogDescription>
       </DialogHeader>
       <div
-        aria-live={failed ? "assertive" : "polite"}
+        aria-live={failure ? "assertive" : "polite"}
         className="mt-4 min-h-5 text-sm text-navy-blue/78"
-        role={failed ? "alert" : undefined}
+        role={failure ? "alert" : undefined}
       >
-        {failed && m.accountSignInRequestFailed({}, { locale })}
-        {!failed && linkSent && m.accountDeletionReauthLinkSent({}, { locale })}
+        {failure && signInEmailFailureMessage(failure, locale)}
+        {!failure &&
+          linkSent &&
+          m.accountDeletionReauthLinkSent({}, { locale })}
       </div>
       <DialogFooter>
         <Button

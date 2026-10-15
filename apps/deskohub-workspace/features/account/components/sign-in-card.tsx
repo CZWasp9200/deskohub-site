@@ -15,9 +15,10 @@ import { useForm } from "react-hook-form";
 import isEmail from "validator/lib/isEmail.js";
 import {
   createAuthReturnLifecycle,
-  hasIssuedSignInCode,
+  type SignInEmailFailure,
 } from "@/features/account/auth-return";
 import { SignInCodeStep } from "@/features/account/components/sign-in-code-step";
+import { signInEmailFailureMessage } from "@/features/account/components/sign-in-email-failure-message";
 import {
   clearSignInCodeRequest,
   type SignInCodeRequest,
@@ -71,7 +72,7 @@ type SignInFormValues = SignInFormSchema["Type"];
 
 export function SignInCard({ locale }: SignInCardProps) {
   const [requested, setRequested] = useState(false);
-  const [failed, setFailed] = useState(false);
+  const [failure, setFailure] = useState<SignInEmailFailure | null>(null);
   // Keeps the code step on screen while a verified sign-in navigates away.
   const [verifiedRequest, setVerifiedRequest] =
     useState<SignInCodeRequest | null>(null);
@@ -97,21 +98,35 @@ export function SignInCard({ locale }: SignInCardProps) {
 
   useEffect(() => authReturn.cancel, [authReturn]);
 
+  // The link may be opened in another tab after this one reloaded and lost
+  // its hand-off listener; coming back to this tab then continues.
+  useEffect(() => {
+    if (!codeRequest) return;
+    const continueIfSignedIn = () => {
+      if (document.visibilityState !== "visible") return;
+      void authReturn.continueIfSignedIn().then((signedIn) => {
+        if (signedIn) setVerifiedRequest(codeRequest);
+      });
+    };
+    window.addEventListener("focus", continueIfSignedIn);
+    document.addEventListener("visibilitychange", continueIfSignedIn);
+    return () => {
+      window.removeEventListener("focus", continueIfSignedIn);
+      document.removeEventListener("visibilitychange", continueIfSignedIn);
+    };
+  }, [authReturn, codeRequest]);
+
   const requestLink = async ({ email }: SignInFormValues) => {
-    try {
-      const result = await authReturn.sendMagicLink(email);
-      if (result.error) {
-        setFailed(true);
-        return;
-      }
-      if (hasIssuedSignInCode(result)) {
-        saveSignInCodeRequest({ email, requestedAt: Date.now() });
-        return;
-      }
-      setRequested(true);
-    } catch {
-      setFailed(true);
+    const result = await authReturn.sendSignInEmail(email);
+    if (result.status === "failed") {
+      setFailure(result.reason);
+      return;
     }
+    if (result.signInCode) {
+      saveSignInCodeRequest({ email, requestedAt: Date.now() });
+      return;
+    }
+    setRequested(true);
   };
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
@@ -120,7 +135,7 @@ export function SignInCard({ locale }: SignInCardProps) {
       return;
     }
     submissionInProgress.current = true;
-    setFailed(false);
+    setFailure(null);
     void form
       .handleSubmit(requestLink)(event)
       .finally(() => {
@@ -130,31 +145,25 @@ export function SignInCard({ locale }: SignInCardProps) {
 
   if (codeRequest) {
     const requestNewEmail = async () => {
-      try {
-        const result = await authReturn.sendMagicLink(codeRequest.email);
-        if (result.error) return false;
-        if (hasIssuedSignInCode(result)) {
-          saveSignInCodeRequest({
-            email: codeRequest.email,
-            requestedAt: Date.now(),
-          });
-        } else {
-          clearSignInCodeRequest();
-          setRequested(true);
-        }
-        return true;
-      } catch {
-        return false;
+      const result = await authReturn.sendSignInEmail(codeRequest.email);
+      if (result.status === "failed") return result.reason;
+      if (result.signInCode) {
+        saveSignInCodeRequest({
+          email: codeRequest.email,
+          requestedAt: Date.now(),
+        });
+      } else {
+        // Codes were switched off meanwhile: fall back to the link-only state.
+        clearSignInCodeRequest();
+        setRequested(true);
       }
+      return "sent" as const;
     };
 
     return (
       <Card className="rounded-3xl border-white/70 bg-white/94 shadow-[0_32px_100px_-48px_rgba(0,2,79,0.55)]">
         <CardContent className="p-8 sm:p-10">
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-burned-orange">
-            {m.accountSignInEyebrow({}, { locale })}
-          </p>
-          <h2 className="mt-3 text-3xl text-navy-blue">
+          <h2 className="text-3xl text-navy-blue">
             {m.accountSignInCodeTitle({}, { locale })}
           </h2>
           <p className="mt-3 text-sm leading-6 text-navy-blue/68">
@@ -165,23 +174,21 @@ export function SignInCard({ locale }: SignInCardProps) {
           </p>
           <SignInCodeStep
             locale={locale}
-            email={codeRequest.email}
             requestedAt={codeRequest.requestedAt}
             verifiedMessage={m.accountSignInCodeVerified({}, { locale })}
             verifyCode={(code) =>
-              authReturn.verifyCode(codeRequest.email, code)
+              authReturn.verifySignInCode(codeRequest.email, code)
             }
             onVerified={() => {
               setVerifiedRequest(codeRequest);
-              clearSignInCodeRequest();
-              authReturn.continueToAccount();
+              authReturn.continueWithVerifiedCode();
             }}
             requestNewEmail={requestNewEmail}
             onUseDifferentEmail={() => {
               authReturn.cancel();
               clearSignInCodeRequest();
               form.reset({ email: codeRequest.email });
-              setFailed(false);
+              setFailure(null);
             }}
           />
         </CardContent>
@@ -206,7 +213,7 @@ export function SignInCard({ locale }: SignInCardProps) {
             onClick={() => {
               authReturn.cancel();
               form.reset();
-              setFailed(false);
+              setFailure(null);
               setRequested(false);
             }}
           >
@@ -271,7 +278,7 @@ export function SignInCard({ locale }: SignInCardProps) {
           </form>
         </Form>
         <div aria-live="polite" className="mt-4 min-h-5 text-sm text-red-700">
-          {failed ? m.accountSignInRequestFailed({}, { locale }) : null}
+          {failure && signInEmailFailureMessage(failure, locale)}
         </div>
       </CardContent>
     </Card>

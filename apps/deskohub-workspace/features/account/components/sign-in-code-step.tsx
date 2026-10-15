@@ -4,7 +4,11 @@ import { useAtomValue } from "@effect/atom-react";
 import { REGEXP_ONLY_DIGITS } from "input-otp";
 import { CheckCircle2, Loader2 } from "lucide-react";
 import { useRef, useState } from "react";
-import type { SignInCodeVerification } from "@/features/account/auth-return";
+import type {
+  SignInCodeVerification,
+  SignInEmailFailure,
+} from "@/features/account/auth-return";
+import { signInEmailFailureMessage } from "@/features/account/components/sign-in-email-failure-message";
 import { SIGN_IN_CODE_LENGTH } from "@/features/account/sign-in-code-request";
 import {
   resendCooldownSecondsAtom,
@@ -21,18 +25,17 @@ import {
 import { cn } from "@/shared/utils";
 
 type CodeStatus = "idle" | SignInCodeVerification | "verifying";
-type ResendStatus = "idle" | "sending" | "sent" | "failed";
+type ResendStatus = "idle" | "sending" | "sent" | SignInEmailFailure;
 
 type SignInCodeStepProps = {
   readonly locale: Locale;
-  readonly email: string;
   /** When the email holding the current code was requested (epoch ms). */
   readonly requestedAt: number;
   readonly verifiedMessage: string;
   readonly verifyCode: (code: string) => Promise<SignInCodeVerification>;
   readonly onVerified: () => void;
-  /** Sends a new email; resolves false when the request failed. */
-  readonly requestNewEmail: () => Promise<boolean>;
+  /** Sends a new email and reports whether it went out. */
+  readonly requestNewEmail: () => Promise<"sent" | SignInEmailFailure>;
   readonly onUseDifferentEmail?: () => void;
 };
 
@@ -45,7 +48,6 @@ const isDeadCode = (status: CodeStatus) =>
  */
 export function SignInCodeStep({
   locale,
-  email,
   requestedAt,
   verifiedMessage,
   verifyCode,
@@ -58,6 +60,8 @@ export function SignInCodeStep({
   const [resendStatus, setResendStatus] = useState<ResendStatus>("idle");
   const [shownRequestedAt, setShownRequestedAt] = useState(requestedAt);
   const inputRef = useRef<HTMLInputElement>(null);
+  const resendRef = useRef<HTMLButtonElement>(null);
+  const statusRef = useRef<HTMLDivElement>(null);
   const cooldownSeconds = useAtomValue(
     resendCooldownSecondsAtom(requestedAt + SIGN_IN_CODE_RESEND_COOLDOWN_MS)
   );
@@ -73,6 +77,7 @@ export function SignInCodeStep({
     // The disabled input keeps no focus ring while the code is checked.
     inputRef.current?.blur();
     setStatus("verifying");
+    setResendStatus("idle");
     const verification = await verifyCode(value);
     setStatus(verification);
     if (verification === "verified") {
@@ -80,45 +85,50 @@ export function SignInCodeStep({
       return;
     }
     setCode("");
-    // Refocus once the input is enabled again for the next attempt.
-    if (!isDeadCode(verification)) {
-      requestAnimationFrame(() => inputRef.current?.focus());
-    }
+    // Move focus once the controls re-enable: back into the input for another
+    // try, or to the way out when this code can no longer work.
+    requestAnimationFrame(() => {
+      if (!isDeadCode(verification)) inputRef.current?.focus();
+      else if (resendRef.current?.disabled === false) resendRef.current.focus();
+      else statusRef.current?.focus();
+    });
   };
 
   const sendNewEmail = async () => {
     setResendStatus("sending");
-    const sent = await requestNewEmail();
-    setResendStatus(sent ? "sent" : "failed");
-    if (sent) inputRef.current?.focus();
+    const outcome = await requestNewEmail();
+    setResendStatus(outcome);
+    if (outcome === "sent") inputRef.current?.focus();
   };
 
   const dead = isDeadCode(status);
   const verifying = status === "verifying";
   const verified = status === "verified";
-  const invalid = status === "invalid";
+  const invalid = status === "wrong";
   const resendDisabled =
     cooldownSeconds > 0 || resendStatus === "sending" || verifying || verified;
 
+  const resendFailed =
+    resendStatus !== "idle" &&
+    resendStatus !== "sending" &&
+    resendStatus !== "sent";
+  const resendMessage = resendFailed
+    ? signInEmailFailureMessage(resendStatus, locale)
+    : resendStatus === "sent" && m.accountSignInCodeResent({}, { locale });
   const statusMessage = {
-    idle:
-      resendStatus === "sent"
-        ? m.accountSignInCodeResent({}, { locale })
-        : resendStatus === "failed"
-          ? m.accountSignInRequestFailed({}, { locale })
-          : null,
+    idle: resendMessage || null,
     verifying: m.accountSignInCodeVerifying({}, { locale }),
     verified: verifiedMessage,
-    invalid: m.accountSignInCodeInvalid({}, { locale }),
+    wrong: m.accountSignInCodeInvalid({}, { locale }),
     expired: m.accountSignInCodeExpired({}, { locale }),
     "too-many-attempts": m.accountSignInCodeTooManyAttempts({}, { locale }),
     failed: m.accountSignInCodeFailed({}, { locale }),
   }[status];
   const statusTone = {
-    idle: resendStatus === "failed" ? "error" : "neutral",
+    idle: resendFailed ? "error" : "neutral",
     verifying: "neutral",
     verified: "success",
-    invalid: "error",
+    wrong: "error",
     expired: "error",
     "too-many-attempts": "error",
     failed: "error",
@@ -171,10 +181,12 @@ export function SignInCodeStep({
       </InputOTP>
 
       <div
+        ref={statusRef}
         id="account-sign-in-code-status"
         aria-live="polite"
+        tabIndex={-1}
         className={cn(
-          "mt-3 flex min-h-5 items-start gap-2 text-sm leading-5",
+          "mt-3 flex min-h-5 items-start gap-2 text-sm leading-5 outline-none",
           {
             neutral: "text-navy-blue/68",
             success: "text-aquamarine-ink",
@@ -196,6 +208,7 @@ export function SignInCodeStep({
 
       <div className="mt-6 flex flex-wrap items-center gap-3">
         <Button
+          ref={resendRef}
           id="account-sign-in-code-resend"
           type="button"
           variant={dead ? "primary" : "secondary"}

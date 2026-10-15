@@ -247,6 +247,29 @@ describe("Synthetic Preview delivery through the shared Console provider", () =>
     expect(consoleLines.join("\n")).not.toContain("EMAIL CONTENT");
   });
 
+  test("carries the sign-in code in the E2E text line of a rendered email", async () => {
+    const { renderMagicLinkEmail } = await import("./magic-link-email");
+    const consoleLines = captureConsole();
+    try {
+      await runDeliver(
+        {},
+        makeMagicLinkEmailDelivery(
+          renderMagicLinkEmail,
+          previewEnvironment
+        ).deliver({ ...syntheticRequest, code: "482913" })
+      );
+    } finally {
+      consoleLines.restore();
+    }
+
+    const [line] = previewE2ELines(consoleLines);
+    const { text } = JSON.parse(line!) as { readonly text: string };
+    expect(text.split("\n").map((textLine) => textLine.trim())).toContain(
+      "482913"
+    );
+    expect(text).toContain(syntheticRequest.url);
+  });
+
   test("keeps synthetic recipients on Console when a Resend key exists", async () => {
     const consoleLines = captureConsole();
     let code: string | undefined;
@@ -343,6 +366,21 @@ describe("Local development delivery through the shared Console provider", () =>
     });
     expect(previewE2ELines(consoleLines)).toEqual([]);
     expect(consoleLines.join("\n")).not.toContain("EMAIL CONTENT");
+  });
+
+  test("adds the sign-in code to the development line when the email carries one", async () => {
+    const { consoleLines } = await deliverInDevelopment(
+      {},
+      { ...request, code: "482913" }
+    );
+
+    expect(JSON.parse(developmentLines(consoleLines)[0]!)).toEqual({
+      code: magicLinkDevelopmentLogCode,
+      recipient: request.email,
+      message: "Development magic link; open the url to sign in.",
+      url: request.url,
+      signInCode: "482913",
+    });
   });
 
   test("emits the link for test recipients routed to Console with a Resend key", async () => {

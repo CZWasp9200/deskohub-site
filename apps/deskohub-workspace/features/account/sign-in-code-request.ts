@@ -2,6 +2,10 @@
 
 import { Option, Schema } from "effect";
 import { useSyncExternalStore } from "react";
+import {
+  readSessionStorageItem,
+  writeSessionStorageItem,
+} from "@/shared/browser/session-storage";
 
 /** A code request stays usable for as long as the code itself (10 minutes). */
 export const SIGN_IN_CODE_TTL_MS = 10 * 60 * 1000;
@@ -23,15 +27,6 @@ const listeners = new Set<() => void>();
 let cachedRaw: string | null = null;
 let cachedRequest: SignInCodeRequest | null = null;
 
-// Storage can be unavailable (privacy modes, quota); it then reads as empty.
-const readStoredRequest = Option.liftThrowable(() =>
-  globalThis.sessionStorage.getItem(storageKey)
-);
-const writeStoredRequest = Option.liftThrowable((value: string | null) => {
-  if (value === null) globalThis.sessionStorage.removeItem(storageKey);
-  else globalThis.sessionStorage.setItem(storageKey, value);
-});
-
 const notify = () => {
   for (const listener of listeners) listener();
 };
@@ -44,7 +39,7 @@ const subscribe = (listener: () => void) => {
 };
 
 const getSnapshot = (): SignInCodeRequest | null => {
-  const raw = Option.getOrNull(readStoredRequest());
+  const raw = readSessionStorageItem(storageKey);
   if (raw !== cachedRaw) {
     cachedRaw = raw;
     cachedRequest =
@@ -67,11 +62,19 @@ export const useSignInCodeRequest = () =>
   useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 
 export const saveSignInCodeRequest = (request: SignInCodeRequest) => {
-  writeStoredRequest(JSON.stringify(request));
+  writeSessionStorageItem(storageKey, JSON.stringify(request));
   notify();
 };
 
+/**
+ * Drops the pending request without re-rendering its readers, for a tab that
+ * is signed in and leaving the page.
+ */
+export const forgetSignInCodeRequest = () => {
+  writeSessionStorageItem(storageKey, null);
+};
+
 export const clearSignInCodeRequest = () => {
-  writeStoredRequest(null);
+  writeSessionStorageItem(storageKey, null);
   notify();
 };

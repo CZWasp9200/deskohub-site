@@ -884,6 +884,8 @@
   "accountSignInCodeChangeEmail": "Použít jiný e-mail",
   "accountSignInCodeLinkHint": "Můžete také otevřít odkaz z e-mailu. Pokud ho otevřete na tomto zařízení, tato stránka bude pokračovat automaticky.",
   "accountSignInRequestFailed": "Odkaz se nepodařilo poslat. Zkuste to prosím znovu.",
+  "accountSignInEmailLimitReached": "Na tuto adresu jsme poslali příliš mnoho přihlašovacích e-mailů. Zkuste to prosím později.",
+  "accountSignInRateLimited": "Právě teď přichází příliš mnoho požadavků. Chvíli počkejte a zkuste to znovu.",
   "accountSignInLoading": "Načítání přihlášení…",
   "accountContentLoading": "Načítání obsahu…",
   "accountCallbackMetadataTitle": "Přihlašovací odkaz | Deskohub Workspace",

@@ -876,6 +876,8 @@
   "accountSignInCodeChangeEmail": "Use a different email",
   "accountSignInCodeLinkHint": "You can also open the link in the email. If you open it on this device, this page continues automatically.",
   "accountSignInRequestFailed": "We could not send the link. Please try again.",
+  "accountSignInEmailLimitReached": "We have sent too many sign-in emails to this address. Please try again later.",
+  "accountSignInRateLimited": "Too many requests right now. Please wait a moment and try again.",
   "accountSignInLoading": "Loading sign-in…",
   "accountContentLoading": "Loading content…",
   "accountCallbackMetadataTitle": "Sign-in link | Deskohub Workspace",

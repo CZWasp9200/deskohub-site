@@ -53,10 +53,24 @@ mock.module("@/features/account/analytics-identity", () => ({
   refreshAnalyticsAccountIdentity,
 }));
 
-const signInMagicLink = mock(() => Promise.resolve({ error: null }));
+type AuthResponse = {
+  readonly data?: unknown;
+  readonly error: { readonly status?: number; readonly code?: string } | null;
+};
+const signInMagicLink = mock(
+  (): Promise<AuthResponse> => Promise.resolve({ error: null })
+);
+const signInEmailOtp = mock(
+  (_body: {
+    readonly email: string;
+    readonly otp: string;
+    readonly callbackURL: string;
+  }): Promise<AuthResponse> =>
+    Promise.resolve({ data: { token: "synthetic" }, error: null })
+);
 mock.module("@/features/account/auth.client", () => ({
   authClient: {
-    signIn: { magicLink: signInMagicLink },
+    signIn: { magicLink: signInMagicLink, emailOtp: signInEmailOtp },
     signOut: () => Promise.resolve({ error: null }),
     getSession: () => Promise.resolve({ data: null, error: null }),
   },
@@ -141,6 +155,7 @@ describe("DeleteAccountCard", () => {
     refreshAnalyticsAccountIdentity.mockClear();
     deleteCustomerAccount.mockClear();
     signInMagicLink.mockClear();
+    signInEmailOtp.mockClear();
     workspaceRouterRefresh.mockClear();
   });
 
@@ -383,6 +398,94 @@ describe("DeleteAccountCard", () => {
       })
     );
     expect(view.getByText(/a new link is on its way/)).toBeTruthy();
+  });
+
+  test("re-authenticates with a typed code and returns to the final confirmation", async () => {
+    deleteCustomerAccount.mockImplementationOnce(() =>
+      Promise.resolve({ data: { status: "reauthentication-required" } })
+    );
+    signInMagicLink.mockImplementationOnce(() =>
+      Promise.resolve({ data: { status: true, signInCode: true }, error: null })
+    );
+    signInEmailOtp.mockImplementationOnce(() =>
+      Promise.resolve({
+        data: null,
+        error: { status: 400, code: "INVALID_OTP" },
+      })
+    );
+    const originalReplace = window.location.replace;
+    const navigations: string[] = [];
+    window.location.replace = ((href: string) => {
+      navigations.push(href);
+    }) as typeof window.location.replace;
+    const { DeleteAccountCard } = await import("./delete-account-card");
+
+    const view = render(
+      <DeleteAccountCard
+        email={adaAddress}
+        locale="en-US"
+        deletionPending={false}
+      />
+    );
+    await openDialog(view);
+    await act(async () => {
+      fireEvent.click(
+        view.getByLabelText(
+          "I understand that my account and every session will be permanently deleted."
+        )
+      );
+    });
+    await act(async () => {
+      fireEvent.click(view.getByText("Delete permanently"));
+    });
+    await act(async () => {
+      fireEvent.click(view.getByText("Email me a new link"));
+    });
+
+    expect(
+      view.getByText(m.accountDeletionReauthCodeTitle({}, { locale: "en-US" }))
+    ).toBeTruthy();
+    const codeInput = () =>
+      view.getByLabelText(
+        m.accountSignInCodeLabel({}, { locale: "en-US" })
+      ) as HTMLInputElement;
+
+    await act(async () => {
+      // This file loads React before happy-dom, so typed changes never reach
+      // React; the OTP paste handler updates the value directly.
+      codeInput().focus();
+      fireEvent.paste(codeInput(), {
+        clipboardData: { getData: () => "000000" },
+      });
+    });
+    expect(
+      view.getByText(m.accountSignInCodeInvalid({}, { locale: "en-US" }))
+    ).toBeTruthy();
+
+    await act(async () => {
+      // This file loads React before happy-dom, so typed changes never reach
+      // React; the OTP paste handler updates the value directly.
+      codeInput().focus();
+      fireEvent.paste(codeInput(), {
+        clipboardData: { getData: () => "482913" },
+      });
+    });
+
+    expect(signInEmailOtp).toHaveBeenLastCalledWith({
+      email: adaAddress,
+      otp: "482913",
+      callbackURL: "/en-US/auth/callback",
+    });
+    // Deletion still waits for an explicit click on the final confirmation.
+    expect(view.getByText("Delete permanently")).toBeTruthy();
+    expect(deleteCustomerAccount).toHaveBeenCalledTimes(1);
+    expect(navigations).toEqual([]);
+
+    await act(async () => {
+      fireEvent.click(view.getByText("Delete permanently"));
+    });
+    expect(deleteCustomerAccount).toHaveBeenCalledTimes(2);
+    window.location.replace = originalReplace;
   });
 
   test("keeps the reauthentication request disabled until the link request resolves", async () => {

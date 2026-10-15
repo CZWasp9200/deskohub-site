@@ -16,18 +16,15 @@ import type { MagicLinkDeliveryRequest } from "./send-magic-link-email";
 export type MagicLinkEmailProps = {
   readonly locale: WorkspaceEmailLocale;
   readonly url: string;
-  readonly signInCode?: string;
+  /** The sign-in code; alone on its own line in the text body. */
+  readonly code?: string;
 };
-
-// Grouped 3 + 3 so the code is easy to read back and copy.
-const formatSignInCode = (code: string) =>
-  `${code.slice(0, 3)} ${code.slice(3)}`;
 
 /**
  * Account-owned magic-link renderer. The bearer URL is embedded only in the
  * rendered body and must never reach logs, traces, or error messages.
  */
-function MagicLinkEmail({ locale, url, signInCode }: MagicLinkEmailProps) {
+function MagicLinkEmail({ locale, url, code }: MagicLinkEmailProps) {
   return (
     <WorkspaceEmailLayout
       locale={locale}
@@ -50,11 +47,12 @@ function MagicLinkEmail({ locale, url, signInCode }: MagicLinkEmailProps) {
           {m.accountMagicLinkEmailButton({}, { locale })}
         </Link>
       </Section>
-      {signInCode !== undefined && (
+      {code && (
         <Section className="mt-7 rounded-2xl bg-cream px-5 py-5 text-center">
           <Text className="m-0 text-[14px] leading-[22px] text-[#373a59]">
             {m.accountMagicLinkEmailCodeIntro({}, { locale })}
           </Text>
+          {/* Two inline halves read as "482 913" but keep the text line bare. */}
           <Text
             className="m-0 mt-2 text-[32px] font-bold leading-[40px] tracking-[6px] text-navy"
             style={{
@@ -62,7 +60,8 @@ function MagicLinkEmail({ locale, url, signInCode }: MagicLinkEmailProps) {
                 "ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace",
             }}
           >
-            {formatSignInCode(signInCode)}
+            <span>{code.slice(0, 3)}</span>
+            <span style={{ marginLeft: "14px" }}>{code.slice(3)}</span>
           </Text>
           <Text className="m-0 mt-2 text-[13px] leading-[20px] text-[#565975]">
             {m.accountMagicLinkEmailCodeExpiry({}, { locale })}
@@ -82,7 +81,7 @@ export const renderMagicLinkEmail = (request: MagicLinkDeliveryRequest) =>
       MagicLinkEmail({
         locale: request.locale,
         url: request.url,
-        signInCode: request.signInCode,
+        code: request.code,
       })
     ),
     (rendered) => ({
