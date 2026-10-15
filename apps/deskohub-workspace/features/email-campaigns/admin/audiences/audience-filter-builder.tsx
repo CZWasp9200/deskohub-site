@@ -39,13 +39,14 @@ import {
   DateConditionControls,
   DiscountGroupControls,
   DotyposTagControls,
-  FieldError,
-  type FieldErrorLookup,
   HasAccountControls,
   LocaleControls,
-  ProductFilterControl,
   ReservationCountControls,
 } from "./audience-condition-controls";
+import {
+  FieldError,
+  type FieldErrorLookup,
+} from "./audience-control-primitives";
 import {
   type AudienceCondition,
   type AudienceFilterGroup,
@@ -55,6 +56,7 @@ import {
   removeFilterAt,
   replaceFilterAt,
 } from "./audience-filter-editing";
+import { ProductFilterControl } from "./reservation-product-filter-control";
 
 /** Error message React Hook Form holds for a form path, if any. */
 export type FilterErrorLookup = (path: string) => string | undefined;

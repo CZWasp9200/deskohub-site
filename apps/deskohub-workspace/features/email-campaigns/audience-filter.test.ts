@@ -443,7 +443,12 @@ describe("audienceAttributeCatalogue", () => {
 
 describe("audienceFilterSchema product filters", () => {
   const decode = Schema.decodeUnknownResult(audienceFilterSchema);
-  const withProduct = (product: unknown) => ({
+  /** A product filter as untrusted input: any family, any property shape. */
+  type ProductInput = {
+    readonly family: string;
+    readonly properties: readonly object[];
+  };
+  const withProduct = (product: ProductInput) => ({
     ...reservationsVisitedInMarch,
     params: { ...reservationsVisitedInMarch.params, product },
   });

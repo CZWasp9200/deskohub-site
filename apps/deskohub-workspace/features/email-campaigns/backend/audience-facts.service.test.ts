@@ -6,6 +6,7 @@ import {
   DotyposReservationIdSchema,
 } from "@deskohub/dotypos";
 import { DotyposServiceMock } from "@deskohub/dotypos/backend/service.mock";
+import type { ReservationProductFilterType } from "@deskohub/workspace-admin-api";
 import { Effect, Exit, Layer } from "effect";
 import { TestClock } from "effect/testing";
 import {
@@ -63,7 +64,7 @@ const resolveFacts = async (input: {
     })
   );
   const listBookedReservations = mock(
-    (ids: readonly string[], _product?: unknown) =>
+    (ids: readonly string[], _product?: ReservationProductFilterType) =>
       Effect.succeed(
         (input.booked ?? []).filter(({ dotyposReservationId }) =>
           ids.includes(dotyposReservationId)
