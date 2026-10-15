@@ -17,7 +17,7 @@ interface ButtonTones {
     | "navy-blue"
     | "chilean-fire"
     | "danger";
-  secondary: "navy-blue" | "burned-orange" | "inverse";
+  secondary: "navy-blue" | "burned-orange" | "burned-orange-ink" | "inverse";
   ghost:
     | "navy-blue"
     | "muted"
@@ -144,7 +144,13 @@ const buttonClasses = cva(
         variant: "secondary",
         tone: "burned-orange",
         class:
-          "border-burned-orange/50 text-burned-orange hover:border-burned-orange",
+          "border-burned-orange bg-white/92 text-burned-orange hover:border-navy-blue/50 hover:bg-white",
+      },
+      {
+        variant: "secondary",
+        tone: "burned-orange-ink",
+        class:
+          "border-burned-orange/25 text-burned-orange-ink hover:border-burned-orange",
       },
       {
         variant: "secondary",

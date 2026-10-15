@@ -961,7 +961,7 @@ function DeleteButton({
           }
         }}
         size={iconOnly ? "icon" : "default"}
-        tone="burned-orange"
+        tone="burned-orange-ink"
         type="button"
         variant="secondary"
       >

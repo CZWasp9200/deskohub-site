@@ -74,6 +74,24 @@ test("secondary and ghost tones replace the default text colour", () => {
   expect(ghost).not.toContain("shadow-button-raised");
 });
 
+test("the secondary ink tone keeps a faint orange edge", () => {
+  const view = render(
+    <Button tone="burned-orange-ink" variant="secondary">
+      Delete
+    </Button>
+  );
+  const classes = classesOf(view.getByRole("button", { name: "Delete" }));
+
+  expect(classes).toEqual(
+    expect.arrayContaining([
+      "border-burned-orange/25",
+      "text-burned-orange-ink",
+      "hover:border-burned-orange",
+    ])
+  );
+  expect(classes).not.toContain("text-burned-orange");
+});
+
 test("ghost outline and tinted tones add an edge or a light fill", () => {
   const view = render(
     <>
