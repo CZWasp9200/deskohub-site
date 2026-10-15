@@ -33,9 +33,11 @@ test("the close action is a muted ghost icon Button named for the locale", () =>
   expect(close.getAttribute("type")).toBe("button");
   expect(close.className.split(" ")).toEqual(
     expect.arrayContaining(
-      buttonVariants({ size: "icon-sm", tone: "muted", variant: "ghost" }).split(
-        " "
-      )
+      buttonVariants({
+        size: "icon-sm",
+        tone: "muted",
+        variant: "ghost",
+      }).split(" ")
     )
   );
 

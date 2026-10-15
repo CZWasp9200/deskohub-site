@@ -39,7 +39,9 @@ function DialogContent({
         >
           <DialogPrimitive.Close>
             <X aria-hidden className="size-4" />
-            <span className="sr-only">{m.closeDialogLabel({}, { locale })}</span>
+            <span className="sr-only">
+              {m.closeDialogLabel({}, { locale })}
+            </span>
           </DialogPrimitive.Close>
         </Button>
       </DialogPrimitive.Content>

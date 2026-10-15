@@ -83,7 +83,9 @@ function SheetContent({
         >
           <SheetPrimitive.Close>
             <X aria-hidden className="size-4" />
-            <span className="sr-only">{m.closeDialogLabel({}, { locale })}</span>
+            <span className="sr-only">
+              {m.closeDialogLabel({}, { locale })}
+            </span>
           </SheetPrimitive.Close>
         </Button>
       </SheetPrimitive.Content>
