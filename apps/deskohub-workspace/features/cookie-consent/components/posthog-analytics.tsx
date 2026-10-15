@@ -6,6 +6,11 @@ import { usePathname } from "next/navigation";
 import posthog, { type BeforeSendFn } from "posthog-js";
 import { type ReactNode, useEffect } from "react";
 import { getClientEnv } from "@/client-env";
+import {
+  getAnalyticsDotyposCustomerId,
+  requestAnalyticsDotyposCustomerId,
+  subscribeAnalyticsDotyposCustomerId,
+} from "@/features/account/analytics-customer-link";
 import type { AnalyticsAccountIdentity } from "@/features/account/analytics-identity";
 import {
   getAnalyticsAccountIdentity,
@@ -15,6 +20,7 @@ import {
 import { captureRecordedSignInCompletion } from "@/features/account/sign-in-analytics";
 import type { PostHogFeatureFlagDefinitions } from "@/features/feature-flags/generated/contract";
 import { applyFeatureFlagOverrides } from "@/features/feature-flags/react";
+import type { DeploymentEnvironment } from "@/shared/backend/config/deployment-request-timeout";
 import {
   deliverWorkspaceBrowserLogs,
   discardWorkspaceBrowserLogs,
@@ -78,7 +84,7 @@ type PostHogAnalyticsProps = {
   analyticsAccepted: boolean;
   children: ReactNode;
   featureFlagOverrides?: PostHogFeatureFlagOverrides<PostHogFeatureFlagDefinitions>;
-  posthogEnvironment: string;
+  posthogEnvironment: DeploymentEnvironment;
 };
 
 export function PostHogAnalytics({
@@ -120,7 +126,7 @@ type PostHogClientProps = {
   analyticsAccepted: boolean;
   featureFlagOverrides?: PostHogFeatureFlagOverrides<PostHogFeatureFlagDefinitions>;
   pathname: string | null;
-  posthogEnvironment: string;
+  posthogEnvironment: DeploymentEnvironment;
   posthogHost: string | undefined;
   posthogProjectToken: string;
   telemetryHostAllowed: boolean;
@@ -161,9 +167,15 @@ function PostHogClient({
     const unsubscribe = subscribeAnalyticsAccountIdentity(
       syncAnalyticsAccountIdentity
     );
+    const unsubscribeCustomerLink = subscribeAnalyticsDotyposCustomerId(() =>
+      reconcilePostHogIdentity()
+    );
     syncAnalyticsAccountIdentity();
 
-    return unsubscribe;
+    return () => {
+      unsubscribe();
+      unsubscribeCustomerLink();
+    };
   }, []);
 
   useEffect(() => {
@@ -273,7 +285,7 @@ function initializePostHog({
   posthogHost,
   posthogProjectToken,
 }: {
-  readonly posthogEnvironment: string;
+  readonly posthogEnvironment: DeploymentEnvironment;
   readonly posthogHost: string;
   readonly posthogProjectToken: string;
 }) {
@@ -298,8 +310,10 @@ function initializePostHog({
   workspaceBrowserLogSink = createWorkspaceBrowserLogSink(posthogEnvironment);
   posthog.stopSessionRecording();
   posthogIdentityController = createPostHogIdentityController(posthog, {
+    deploymentEnvironment: posthogEnvironment,
     onPause: handlePostHogPause,
     onReady: handlePostHogReady,
+    readDotyposCustomerId: getAnalyticsDotyposCustomerId,
   });
 }
 
@@ -449,8 +463,11 @@ function handlePostHogReady() {
   });
   posthog.reloadFeatureFlags();
   capturePostHogPageviewIfNeeded();
-  // A sign-in recorded before this page load lands on the settled account.
-  if (identity.status === "authenticated") captureRecordedSignInCompletion();
+  if (identity.status === "authenticated") {
+    // A sign-in recorded before this page load lands on the settled account.
+    captureRecordedSignInCompletion();
+    requestAnalyticsDotyposCustomerId(identity.accountId);
+  }
   if (workspaceBrowserLogSink) {
     detachWorkspaceBrowserLogs ??= deliverWorkspaceBrowserLogs(
       workspaceBrowserLogSink

@@ -19,6 +19,18 @@ export const resendSimulatorDomain = "resend.dev";
 export const testEmailAddress = (localPart: string) =>
   `${localPart}@${EMAIL_TEST_DOMAIN}`;
 
+/**
+ * Whether an address is a test recipient on `EMAIL_TEST_DOMAIN`. Mail to it is
+ * never delivered, so only a test fixture can verify an account on it.
+ */
+export const isTestEmailAddress = (email: string): boolean => {
+  const separator = email.lastIndexOf("@");
+  return (
+    separator > 0 &&
+    email.slice(separator + 1).toLowerCase() === EMAIL_TEST_DOMAIN
+  );
+};
+
 export type ResendSimulatorOutcome = "delivered" | "bounced" | "complained";
 
 /**

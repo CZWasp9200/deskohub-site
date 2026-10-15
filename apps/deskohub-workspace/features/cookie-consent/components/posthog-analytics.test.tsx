@@ -41,7 +41,11 @@ mock.module("@/client-env", () => ({
 
 type TestAnalyticsAccountIdentity =
   | { readonly status: "pending" | "unavailable" | "anonymous" }
-  | { readonly accountId: string; readonly status: "authenticated" };
+  | {
+      readonly accountId: string;
+      readonly status: "authenticated";
+      readonly testAccount?: boolean;
+    };
 
 let analyticsAccountIdentity: TestAnalyticsAccountIdentity = {
   status: "pending",
@@ -71,6 +75,26 @@ mock.module("@/features/account/analytics-identity", () => ({
   getAnalyticsAccountIdentity,
   refreshAnalyticsAccountIdentity,
   subscribeAnalyticsAccountIdentity,
+}));
+
+const dotyposCustomerIds = new Map<string, string>();
+const dotyposCustomerIdListeners = new Set<() => void>();
+const linkDotyposCustomer = (accountId: string, dotyposCustomerId: string) => {
+  dotyposCustomerIds.set(accountId, dotyposCustomerId);
+  for (const listener of [...dotyposCustomerIdListeners]) listener();
+};
+const requestAnalyticsDotyposCustomerId = mock(
+  (_accountId: string) => undefined
+);
+
+mock.module("@/features/account/analytics-customer-link", () => ({
+  getAnalyticsDotyposCustomerId: (accountId: string) =>
+    dotyposCustomerIds.get(accountId),
+  requestAnalyticsDotyposCustomerId,
+  subscribeAnalyticsDotyposCustomerId: (listener: () => void) => {
+    dotyposCustomerIdListeners.add(listener);
+    return () => dotyposCustomerIdListeners.delete(listener);
+  },
 }));
 
 let currentDistinctId = "visitor-id";
@@ -119,6 +143,13 @@ const identify = mock((distinctId?: string) => {
   sessionIdListener?.("session-before-ready");
   sessionCookiesDuringIdentify = document.cookie;
   capture("$identify");
+});
+const setInternalOrTestUser = mock(() => {
+  posthogLifecycle.push("set-internal-or-test-user");
+  capture("$set", { $set: { $internal_or_test_user: true } });
+});
+const setPersonProperties = mock((properties: Record<string, string>) => {
+  capture("$set", { $set: properties });
 });
 const optInCapturing = mock(
   (_options?: { readonly captureEventName?: string | false }) => undefined
@@ -190,6 +221,8 @@ const posthog = {
   reloadFeatureFlags,
   reset,
   set_config: setConfig,
+  setInternalOrTestUser,
+  setPersonProperties,
   startSessionRecording,
   stopSessionRecording,
   unregister,
@@ -278,6 +311,11 @@ describe("PostHogAnalytics", () => {
     capture.mockClear();
     captureLog.mockClear();
     identify.mockClear();
+    setInternalOrTestUser.mockClear();
+    setPersonProperties.mockClear();
+    dotyposCustomerIds.clear();
+    dotyposCustomerIdListeners.clear();
+    requestAnalyticsDotyposCustomerId.mockClear();
     optInCapturing.mockClear();
     optOutCapturing.mockClear();
     reset.mockClear();
@@ -513,6 +551,147 @@ describe("PostHogAnalytics", () => {
     view.unmount();
   });
 
+  test("marks only a consented production test account as an internal or test user", async () => {
+    const { PostHogAnalytics, PostHogProvider } = await import(
+      "./posthog-analytics?test-account-tagging"
+    );
+    const AnalyticsBoundary = ({
+      analyticsAccepted,
+    }: {
+      readonly analyticsAccepted: boolean;
+    }) => (
+      <PostHogProvider>
+        <PostHogAnalytics
+          analyticsAccepted={analyticsAccepted}
+          posthogEnvironment="production"
+        />
+      </PostHogProvider>
+    );
+
+    setConsentCookie(["necessary", "analytics"]);
+    const view = render(<AnalyticsBoundary analyticsAccepted />);
+    await act(async () => {
+      publishAnalyticsAccountIdentity({
+        accountId: "account-a",
+        status: "authenticated",
+        testAccount: false,
+      });
+    });
+
+    expect(identify).toHaveBeenCalledWith("workspace-account:account-a");
+    expect(setInternalOrTestUser).not.toHaveBeenCalled();
+
+    await act(async () => {
+      publishAnalyticsAccountIdentity({
+        accountId: "account-b",
+        status: "authenticated",
+        testAccount: true,
+      });
+    });
+
+    expect(identify).toHaveBeenLastCalledWith("workspace-account:account-b");
+    expect(setInternalOrTestUser).toHaveBeenCalledTimes(1);
+    const personEvent = capturedEvents.find(({ event }) => event === "$set");
+    expect(personEvent?.properties).toMatchObject({
+      $set: { $internal_or_test_user: true },
+      "deployment.environment.name": "production",
+      distinct_id: "workspace-account:account-b",
+    });
+
+    view.unmount();
+  });
+
+  test("tags preview events and marks every preview account as an internal or test user", async () => {
+    const { PostHogAnalytics, PostHogProvider } = await import(
+      "./posthog-analytics?preview-environment-tagging"
+    );
+
+    setConsentCookie(["necessary", "analytics"]);
+    const view = render(
+      <PostHogProvider>
+        <PostHogAnalytics analyticsAccepted posthogEnvironment="preview" />
+      </PostHogProvider>
+    );
+    await act(async () => {
+      publishAnalyticsAccountIdentity({
+        accountId: "account-a",
+        status: "authenticated",
+        testAccount: false,
+      });
+    });
+    capture("reservation started");
+
+    expect(setInternalOrTestUser).toHaveBeenCalledTimes(1);
+    for (const eventName of ["$identify", "$set", "reservation started"]) {
+      const event = capturedEvents.find(({ event }) => event === eventName);
+      expect(event?.properties).toMatchObject({
+        "deployment.environment.name": "preview",
+        distinct_id: "workspace-account:account-a",
+      });
+    }
+
+    view.unmount();
+  });
+
+  test("links a consented account's person to its Dotypos customer ID once it loads", async () => {
+    const { PostHogAnalytics, PostHogProvider } = await import(
+      "./posthog-analytics?dotypos-customer-link"
+    );
+    const AnalyticsBoundary = ({
+      analyticsAccepted,
+    }: {
+      readonly analyticsAccepted: boolean;
+    }) => (
+      <PostHogProvider>
+        <PostHogAnalytics
+          analyticsAccepted={analyticsAccepted}
+          posthogEnvironment="preview"
+        />
+      </PostHogProvider>
+    );
+
+    setConsentCookie(["necessary"]);
+    const view = render(<AnalyticsBoundary analyticsAccepted={false} />);
+    await act(async () => {
+      publishAnalyticsAccountIdentity({
+        accountId: "account-a",
+        status: "authenticated",
+        testAccount: false,
+      });
+    });
+
+    expect(requestAnalyticsDotyposCustomerId).not.toHaveBeenCalled();
+
+    setConsentCookie(["necessary", "analytics"]);
+    view.rerender(<AnalyticsBoundary analyticsAccepted />);
+    await act(async () => undefined);
+
+    expect(identify).toHaveBeenCalledWith("workspace-account:account-a");
+    expect(requestAnalyticsDotyposCustomerId).toHaveBeenCalledWith("account-a");
+    expect(setPersonProperties).not.toHaveBeenCalled();
+
+    await act(async () => {
+      linkDotyposCustomer("account-a", "customer-a");
+    });
+
+    expect(identify).toHaveBeenCalledTimes(1);
+    expect(setPersonProperties).toHaveBeenCalledTimes(1);
+    // Preview also marks the person as internal or test with its own $set.
+    const personEvent = capturedEvents.find(
+      ({ event, properties }) =>
+        event === "$set" && properties.$set?.dotypos_customer_id !== undefined
+    );
+    expect(personEvent?.properties).toMatchObject({
+      $set: { dotypos_customer_id: "customer-a" },
+      distinct_id: "workspace-account:account-a",
+    });
+    expect(Object.keys(personEvent?.properties.$set ?? {})).toEqual([
+      "dotypos_customer_id",
+    ]);
+
+    view.unmount();
+  });
+
   test("keeps initialization, identity, consent, and pageviews ordered", async () => {
     const [{ PostHogAnalytics, PostHogProvider }, { useFeatureFlagEnabled }] =
       await Promise.all([
@@ -544,7 +723,7 @@ describe("PostHogAnalytics", () => {
               ? undefined
               : { discount_codes: discountCodesOverride }
           }
-          posthogEnvironment="preview"
+          posthogEnvironment="production"
         >
           <DiscountCodesProbe initialEnabled />
         </PostHogAnalytics>
