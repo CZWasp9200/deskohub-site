@@ -7,8 +7,10 @@ import {
   mock,
   test,
 } from "bun:test";
+import { join } from "node:path";
 import { testEmailAddress } from "@deskohub/test-email";
 import React from "react";
+import { getAccountScreenCopy } from "@/features/account/components/account-screen-copy";
 import type { CustomerProfileInput } from "@/features/account/contracts";
 import { m } from "@/features/i18n";
 import {
@@ -215,6 +217,15 @@ const history = {
 const { AccountLayoutShell, useAccountLayout } = await import(
   "./account-layout-shell"
 );
+const { ReservationHistory } = await import("./reservation-history");
+
+const reservations = (
+  <ReservationHistory
+    copy={getAccountScreenCopy(locale).reservations}
+    history={history}
+    locale={locale}
+  />
+);
 
 function withAccountLayout(children: React.ReactNode) {
   return (
@@ -242,6 +253,28 @@ function ActivityAccountSectionProbe() {
 }
 
 describe("LinkedAccount", () => {
+  test("leaves reservation history, and its Intl dates, out of the client bundle", async () => {
+    // Node and browsers space Intl dates differently (Node's narrow no-break
+    // spaces against Chromium's plain ones), so dates formatted again in the
+    // client tree fail hydration of the server HTML. The page renders the
+    // history on the server and passes it in.
+    const build = await Bun.build({
+      entrypoints: [join(import.meta.dir, "linked-account.tsx")],
+      metafile: true,
+      packages: "external",
+      target: "browser",
+    });
+
+    expect(build.success).toBe(true);
+    const inputs = Object.keys(build.metafile?.inputs ?? {});
+    expect(inputs.some((input) => input.endsWith("/linked-account.tsx"))).toBe(
+      true
+    );
+    expect(
+      inputs.filter((input) => input.endsWith("/reservation-history.tsx"))
+    ).toEqual([]);
+  });
+
   beforeAll(() => {
     registerWorkspaceComponentTestEnv();
   });
@@ -268,7 +301,8 @@ describe("LinkedAccount", () => {
           referralsEnabled
           avatarPresentation={hiddenAvatarPresentation}
           email={adaAddress}
-          history={history}
+          reservationCount={history.groups.current.length}
+          reservations={reservations}
           locale="en-US"
           profile={profile}
         />
@@ -374,7 +408,8 @@ describe("LinkedAccount", () => {
           referralsEnabled
           avatarPresentation={hiddenAvatarPresentation}
           email={adaAddress}
-          history={history}
+          reservationCount={history.groups.current.length}
+          reservations={reservations}
           locale="en-US"
           profile={profile}
           referrals={referralsWith(discount)}
@@ -417,7 +452,8 @@ describe("LinkedAccount", () => {
             referralsEnabled
             avatarPresentation={hiddenAvatarPresentation}
             email={adaAddress}
-            history={history}
+            reservationCount={history.groups.current.length}
+            reservations={reservations}
             locale="en-US"
             profile={profile}
           />
@@ -437,7 +473,8 @@ describe("LinkedAccount", () => {
           referralsEnabled
           avatarPresentation={hiddenAvatarPresentation}
           email={adaAddress}
-          history={history}
+          reservationCount={history.groups.current.length}
+          reservations={reservations}
           locale="en-US"
           profile={profile}
         />
@@ -466,7 +503,8 @@ describe("LinkedAccount", () => {
             referralsEnabled
             avatarPresentation={hiddenAvatarPresentation}
             email={adaAddress}
-            history={history}
+            reservationCount={history.groups.current.length}
+            reservations={reservations}
             locale={locale}
             profile={profile}
           />
@@ -538,7 +576,8 @@ describe("LinkedAccount", () => {
               referralsEnabled
               avatarPresentation={hiddenAvatarPresentation}
               email={adaAddress}
-              history={history}
+              reservationCount={history.groups.current.length}
+              reservations={reservations}
               locale="en-US"
               profile={profile}
             />
@@ -606,7 +645,8 @@ describe("LinkedAccount", () => {
             referralsEnabled
             avatarPresentation={hiddenAvatarPresentation}
             email={adaAddress}
-            history={history}
+            reservationCount={history.groups.current.length}
+            reservations={reservations}
             locale="en-US"
             profile={profile}
           />
@@ -677,7 +717,8 @@ describe("LinkedAccount", () => {
         <LinkedAccount
           avatarPresentation={hiddenAvatarPresentation}
           email={adaAddress}
-          history={history}
+          reservationCount={history.groups.current.length}
+          reservations={reservations}
           locale="en-US"
           profile={profile}
           referrals={{
@@ -732,7 +773,8 @@ describe("LinkedAccount", () => {
               referralsEnabled
               avatarPresentation={hiddenAvatarPresentation}
               email={adaAddress}
-              history={history}
+              reservationCount={history.groups.current.length}
+              reservations={reservations}
               locale="en-US"
               profile={profile}
             />

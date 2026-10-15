@@ -172,11 +172,15 @@ const verifyLocaleSwitch = async (
   page: Page,
   { from, to, trigger }: LocaleSwitch
 ) => {
-  // The first uncaught error's name and opening message, redacted, so a
-  // failure says what threw without carrying page content.
+  // Each uncaught error's name and opening message, redacted, with the path
+  // of the document it reached, so a failure says what threw and on which
+  // side of the switch without carrying page content.
   const pageErrors: string[] = [];
   const recordPageError = (error: Error) => {
-    pageErrors.push(redact(`${error.name}: ${error.message}`).slice(0, 200));
+    const { pathname } = new URL(page.url());
+    pageErrors.push(
+      `${redact(`${error.name}: ${error.message}`).slice(0, 200)} on ${redact(pathname)}`
+    );
   };
   await page.evaluate((key) => {
     window.sessionStorage.setItem(key, "");

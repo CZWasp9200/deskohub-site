@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { useEffect } from "react";
+import { type ReactNode, useEffect } from "react";
 import type { CustomerProfile } from "@/features/account/backend/customer-dotypos-adapter.service";
 import { useAccountLayout } from "@/features/account/components/account-layout-shell";
 import { getAccountScreenCopy } from "@/features/account/components/account-screen-copy";
@@ -10,10 +10,8 @@ import { LegalScreen } from "@/features/account/components/legal/legal-screen";
 import { ProfileCompletionReferralNotice } from "@/features/account/components/profile-completion-referral-notice";
 import { ProfileForm } from "@/features/account/components/profile-form";
 import { ReferralScreen } from "@/features/account/components/referral-screen";
-import { ReservationHistory } from "@/features/account/components/reservation-history";
 import type {
   CustomerAvatarPresentation,
-  CustomerReservationHistory,
   ProfileCompletionReferralOutcome,
 } from "@/features/account/contracts";
 import { getAccountPath } from "@/features/account/routes";
@@ -26,24 +24,32 @@ import type { ReferralAccountOverview } from "@/features/referrals/contracts";
 
 type LinkedAccountProps = {
   readonly email: string;
-  readonly history: CustomerReservationHistory;
   readonly locale: Locale;
   readonly profile: CustomerProfile;
   readonly avatarPresentation: CustomerAvatarPresentation;
   /** Whether the referral program is released; withheld, nothing shows. */
   readonly referralsEnabled: boolean;
   readonly referrals?: ReferralAccountOverview;
+  /** The current reservations, counted in the navigation; unknown while unavailable. */
+  readonly reservationCount: number | undefined;
+  /**
+   * The reservation history, rendered on the server. Its dates come from
+   * `Intl`, whose spacing differs between Node and browsers, so formatting
+   * them again in the client tree would not match the server HTML.
+   */
+  readonly reservations: ReactNode;
   readonly signupReferral?: ProfileCompletionReferralOutcome;
 };
 
 export function LinkedAccount({
   avatarPresentation,
   email,
-  history,
   locale,
   profile,
   referrals,
   referralsEnabled,
+  reservationCount,
+  reservations,
   signupReferral,
 }: LinkedAccountProps) {
   const pathname = usePathname();
@@ -59,8 +65,6 @@ export function LinkedAccount({
     normalizedPathname === getAccountPath(locale);
   const profileSection = activeSection === "billing" ? "billing" : "profile";
   const copy = getAccountScreenCopy(locale);
-  const reservationCount =
-    history.kind === "available" ? history.groups.current.length : undefined;
 
   const referralDiscount = referralsEnabled
     ? referrals?.summary.discount
@@ -101,13 +105,7 @@ export function LinkedAccount({
         />
       )}
 
-      <div hidden={activeSection !== "reservations"}>
-        <ReservationHistory
-          copy={copy.reservations}
-          history={history}
-          locale={locale}
-        />
-      </div>
+      <div hidden={activeSection !== "reservations"}>{reservations}</div>
 
       {referralsEnabled && (
         <div hidden={activeSection !== "referrals"}>
