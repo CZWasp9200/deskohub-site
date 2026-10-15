@@ -132,6 +132,16 @@ const makeProfileNavigationFakePage = (
     return undefined;
   };
 
+  // Like the account layout, a section switch records its section in the
+  // account URL, and the default section keeps the canonical one.
+  const switchSection = (section: ProfileNavigationSection) => {
+    state.section = section;
+    state.url =
+      section === "reservations"
+        ? accountUrl
+        : `${accountUrl}?section=${section}`;
+  };
+
   const requestDialog = (kind: "history-back" | "home") => {
     let resolveAction!: () => void;
     const action = new Promise<void>((resolve) => {
@@ -189,9 +199,9 @@ const makeProfileNavigationFakePage = (
       },
       click: async () => {
         if (name.startsWith("section:")) {
-          state.section = name.slice(
-            "section:".length
-          ) as ProfileNavigationSection;
+          switchSection(
+            name.slice("section:".length) as ProfileNavigationSection
+          );
           return;
         }
         if (name === "home-link") {
@@ -210,7 +220,7 @@ const makeProfileNavigationFakePage = (
             state.billing.kind === "business" &&
             state.billing.companyName === ""
           ) {
-            state.section = "billing";
+            switchSection("billing");
           }
         }
       },

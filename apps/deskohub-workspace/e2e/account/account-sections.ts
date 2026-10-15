@@ -118,17 +118,30 @@ const accountSectionIsReady = ({
   );
 };
 
+/**
+ * The navigation copy the selected-section check compares. It defaults to the
+ * English labels; a page in another locale passes its own.
+ */
+export type AccountSectionCopy = {
+  readonly label: string;
+  readonly navigationLabel: string;
+};
+
 const makeAccountSectionWaitInput = (
   section: AccountSection,
-  desktop: boolean | null
-): AccountSectionWaitInput => ({
-  desktop,
-  landmark: accountSectionLandmarks[section],
-  label: accountSectionLabels[section],
-  mobileNavigationSelector: accountMobileNavigationSelector,
-  navigationLabel: accountNavigationLabel,
-  section,
-});
+  desktop: boolean | null,
+  copy?: AccountSectionCopy
+): AccountSectionWaitInput => {
+  const navigationLabel = copy?.navigationLabel ?? accountNavigationLabel;
+  return {
+    desktop,
+    landmark: accountSectionLandmarks[section],
+    label: copy?.label ?? accountSectionLabels[section],
+    mobileNavigationSelector: `nav[aria-label=${JSON.stringify(navigationLabel)}] [data-account-mobile-navigation]`,
+    navigationLabel,
+    section,
+  };
+};
 
 const makeAccountSectionWaitCondition = (
   section: AccountSection,
@@ -205,9 +218,6 @@ export const selectAccountSection = async (
     exact: false,
     name: label,
   });
-  const viewport = page.viewportSize();
-  const desktop =
-    viewport === null ? null : viewport.width >= desktopBreakpoint;
 
   onStage?.("button-handler-wait");
   await waitForReactClickHandler(page, sectionButton);
@@ -224,9 +234,24 @@ export const selectAccountSection = async (
   await sectionButton.click({ timeout });
 
   onStage?.("selected-landmark-wait");
+  await waitForSelectedAccountSection(page, section);
+};
+
+/**
+ * Waits until `section` is the selected account section with its panel
+ * visible, without selecting it.
+ */
+export const waitForSelectedAccountSection = async (
+  page: AccountSectionPage,
+  section: AccountSection,
+  copy?: AccountSectionCopy
+): Promise<void> => {
+  const viewport = page.viewportSize();
+  const desktop =
+    viewport === null ? null : viewport.width >= desktopBreakpoint;
   await page.waitForFunction(
     accountSectionIsReady,
-    makeAccountSectionWaitInput(section, desktop),
+    makeAccountSectionWaitInput(section, desktop, copy),
     { timeout: workspaceE2ETimeouts.uiTransition }
   );
 };

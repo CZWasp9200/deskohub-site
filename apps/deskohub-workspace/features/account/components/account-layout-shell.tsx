@@ -158,6 +158,13 @@ export function AccountLayoutShell({
       }
 
       setLocalNavigation({ activeSection: section, routeKey });
+      // The URL carries the section without a server round trip, so a reload
+      // or a locale switch's document navigation reopens it. The default
+      // section keeps the canonical account URL.
+      const url = new URL(window.location.href);
+      if (section === "reservations") url.searchParams.delete("section");
+      else url.searchParams.set("section", section);
+      window.history.replaceState(null, "", url);
     },
     [
       confirmDiscardChanges,

@@ -33,6 +33,10 @@ export const workspaceE2ETimeouts = {
   emailCampaignCase: 4 * MINUTE,
   hostedPayment: 3 * MINUTE,
   localeCase: 3 * MINUTE,
+  // How long the account locale-switch check holds the preference save and
+  // the new-locale document, so whatever the old page renders in between
+  // stays on screen long enough to observe.
+  localeSwitchHeldResponse: 3 * SECOND,
   paymentTerminalCase: 4 * MINUTE,
   providerTransition: 90 * SECOND,
   uiTransition: 45 * SECOND,

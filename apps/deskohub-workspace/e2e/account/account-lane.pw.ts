@@ -34,6 +34,7 @@ import {
   type WorkspaceE2EAccountJournal,
   writeWorkspaceE2EAccountJournal,
 } from "./journal";
+import { verifyAccountLocaleSwitchTransition } from "./locale-switch-transition";
 import { verifyWorkspaceE2EMarketingPreferences } from "./marketing-preferences";
 import { workspaceE2EAccountProfileName } from "./profile-fixture";
 import { verifyProfileNavigation } from "./profile-navigation";
@@ -267,6 +268,26 @@ for (const caseId of workspaceE2EAccountCaseIds) {
               },
             }),
             id: "checks reservation existing customer card",
+            timeoutMs: workspaceE2ETimeouts.providerTransition,
+          },
+        ];
+      } else if (caseId === "account-locale-preference") {
+        verifyPages = [
+          {
+            execute: Effect.tryPromise({
+              catch: (cause) =>
+                cause instanceof WorkspaceE2EError
+                  ? cause
+                  : workspaceE2EError("verify account locale switch failed", {
+                      operation: "verify account locale switch",
+                    }),
+              try: () =>
+                verifyAccountLocaleSwitchTransition(
+                  getOwnedPage(),
+                  accountLane.config.baseUrl
+                ),
+            }),
+            id: "switches locale from the profile without the error page",
             timeoutMs: workspaceE2ETimeouts.providerTransition,
           },
         ];

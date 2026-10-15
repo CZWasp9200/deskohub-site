@@ -64,6 +64,17 @@ const workspaceE2EProfileNavigationDiagnosticCodes = [
 export type WorkspaceE2EProfileNavigationDiagnosticCode =
   (typeof workspaceE2EProfileNavigationDiagnosticCodes)[number];
 
+const workspaceE2EAccountLocaleSwitchDiagnosticCodes = [
+  "account_locale_switch_start_failed",
+  "account_locale_switch_trigger_failed",
+  "account_locale_switch_landing_failed",
+  "account_locale_switch_error_page_shown",
+  "account_locale_switch_page_error",
+] as const;
+
+export type WorkspaceE2EAccountLocaleSwitchDiagnosticCode =
+  (typeof workspaceE2EAccountLocaleSwitchDiagnosticCodes)[number];
+
 const accountLayoutNavigationPhases = [
   "select",
   "landmark",
@@ -112,6 +123,7 @@ const workspaceE2EAccountDiagnosticCodes = [
   "postgres_account_fixture_convergence_failed",
   "dotypos_account_fixture_mutation_failed",
   ...workspaceE2EProfileNavigationDiagnosticCodes,
+  ...workspaceE2EAccountLocaleSwitchDiagnosticCodes,
   ...accountLayoutNavigationDiagnosticCodes,
   ...workspaceE2EReservationExistingCustomerDiagnosticCodes,
 ] as const;
