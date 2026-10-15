@@ -162,6 +162,38 @@ const pausedVerificationCreate = () => {
 };
 
 /**
+ * Holds the verification value `pauseValue` after Better Auth consumes it and
+ * before it can write the value back, until `resume` is called.
+ */
+const pausedVerificationConsume = async (auth: TestAuth) => {
+  let signalPaused!: () => void;
+  let resume!: () => void;
+  const paused = new Promise<void>((resolve) => {
+    signalPaused = resolve;
+  });
+  const resumed = new Promise<void>((resolve) => {
+    resume = resolve;
+  });
+  const control = {
+    pauseValue: undefined as string | undefined,
+    paused,
+    resume: () => resume(),
+  };
+  const { internalAdapter } = await auth.$context;
+  const consume =
+    internalAdapter.consumeVerificationValue.bind(internalAdapter);
+  internalAdapter.consumeVerificationValue = async (identifier) => {
+    const row = await consume(identifier);
+    if (control.pauseValue !== undefined && row?.value === control.pauseValue) {
+      signalPaused();
+      await resumed;
+    }
+    return row;
+  };
+  return control;
+};
+
+/**
  * Only the newer email's code signs in, and it ends only its own link: the
  * older link still signs in once.
  */
@@ -537,6 +569,39 @@ describe.skipIf(!testDatabase)(
 
       const olderLink = await verifyMagicLink(auth, older);
       expect(getSessionCookie(olderLink)).toBeDefined();
+    });
+
+    test("an older code that a wrong guess writes back after a newer email cannot displace the newer code", async () => {
+      const sentLinks: CapturedMagicLink[] = [];
+      const auth = makeTestAuth({
+        sentLinks,
+        isSignInCodeEnabled: async () => true,
+      });
+      const consume = await pausedVerificationConsume(auth);
+      const email = uniqueEmail("code-restore-displace");
+
+      await sendSignInEmail(auth, email);
+      const older = sentLinks[0]!;
+      // The wrong guess consumes the older code and waits before Better Auth
+      // writes it back, so the write-back lands after the newer email.
+      consume.pauseValue = `${await digestVerificationKey(older.code!)}:0`;
+      const wrongGuess = signInWithCode(auth, email, wrongCode(older.code!));
+      await consume.paused;
+
+      try {
+        await sendSignInEmail(auth, email);
+      } finally {
+        consume.resume();
+      }
+      expect(await errorCode(await wrongGuess)).toBe("INVALID_OTP");
+
+      const newer = await signInWithCode(auth, email, sentLinks[1]!.code!);
+      expect(newer.status).toBe(200);
+      expect(getSessionCookie(newer)).toBeDefined();
+
+      const stale = await signInWithCode(auth, email, older.code!);
+      expect(await errorCode(stale)).toBe("INVALID_OTP");
+      expect(await sessionCount(email)).toBe(1);
     });
 
     test("a code sign-in that cannot take its claim creates no session", async () => {

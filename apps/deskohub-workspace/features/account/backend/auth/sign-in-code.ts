@@ -1,9 +1,10 @@
 import type { AuthContext, DBAdapter } from "better-auth";
-import { Clock, Data, Effect } from "effect";
+import { Clock, Data, Effect, Option } from "effect";
 import type { SqlError } from "effect/unstable/sql";
 import type { PostgresAdvisoryLockKey } from "@/db/postgres-advisory-lock";
 import {
   betterAuthMagicLinkOptions,
+  betterAuthSignInCodeOptions,
   digestVerificationKey,
   signInEmailLimit,
 } from "./auth-options";
@@ -204,18 +205,14 @@ export const issueSignInCode = (issue: SignInCodeIssue) =>
     Effect.withSpan("SignInCode.issue")
   );
 
-/**
- * Takes an email's claim. `unclaimed` means the email carries no code, as
- * every email sent while sign-in codes are off.
- */
-const takeClaim = Effect.fn("SignInCode.takeClaim")(function* ({
-  verifications,
-  claim,
-}: {
+type ClaimRequest = {
   readonly verifications: VerificationRows;
   readonly claim: string;
-}) {
-  const taken = yield* store(() =>
+};
+
+/** Takes the claim while it is still open. */
+const takeOpenClaim = ({ verifications, claim }: ClaimRequest) =>
+  store(() =>
     verifications.updateMany({
       model: "verification",
       where: [
@@ -224,16 +221,33 @@ const takeClaim = Effect.fn("SignInCode.takeClaim")(function* ({
       ],
       update: { value: takenClaim, updatedAt: new Date() },
     })
+  ).pipe(
+    Effect.map((taken) => (taken > 0 ? ("won" as const) : ("untaken" as const)))
   );
-  if (taken > 0) return "won" as const;
-  const row = yield* store(() =>
+
+/**
+ * A claim that was not open was taken first, unless the email carries no
+ * code, as every email sent while sign-in codes are off.
+ */
+const settleUntakenClaim = ({ verifications, claim }: ClaimRequest) =>
+  store(() =>
     verifications.findOne({
       model: "verification",
       where: [{ field: "identifier", value: claim }],
     })
+  ).pipe(
+    Effect.map((row) => (row ? ("lost" as const) : ("unclaimed" as const)))
   );
-  return row ? ("lost" as const) : ("unclaimed" as const);
-});
+
+/** Takes an email's claim: `won`, `lost` to the other way in, or `unclaimed`. */
+const takeClaim = (request: ClaimRequest) =>
+  takeOpenClaim(request).pipe(
+    Effect.filterOrElse(
+      (outcome): outcome is "won" => outcome === "won",
+      () => settleUntakenClaim(request)
+    ),
+    Effect.withSpan("SignInCode.takeClaim")
+  );
 
 /** Better Auth stores a link under the digest of its token. */
 const revokeLink = ({
@@ -338,6 +352,34 @@ export const claimSignInCode = (request: {
     ),
     Effect.asVoid,
     Effect.withSpan("SignInCode.claimCode")
+  );
+
+/**
+ * Better Auth writes a code back after a wrong guess as a new row dated at
+ * the write, and its verify reads the address's newest code row and deletes
+ * the rest. An older code written back after a newer email would then
+ * displace the newer code. A sign-in code row is dated at its issue instead,
+ * which its expiry counts from, so the newest email's code stays the newest
+ * row. Better Auth stores the row under the digest of its identifier.
+ */
+export const dateSignInCodeRow = ({
+  email,
+  row,
+}: {
+  readonly email: string;
+  readonly row: { readonly identifier: string; readonly expiresAt: Date };
+}) =>
+  digest(signInCodeIdentifier(email)).pipe(
+    Effect.map((identifier) =>
+      Option.liftPredicate(row, (code) => code.identifier === identifier).pipe(
+        Option.map(({ expiresAt }) => ({
+          createdAt: new Date(
+            expiresAt.getTime() - betterAuthSignInCodeOptions.expiresIn * 1000
+          ),
+        }))
+      )
+    ),
+    Effect.withSpan("SignInCode.dateRow")
   );
 
 type SignInEmailSend = {

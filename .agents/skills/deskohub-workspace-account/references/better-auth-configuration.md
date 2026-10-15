@@ -75,7 +75,10 @@ Keep these settings unless a reviewed decision changes them:
   fails as `INVALID_OTP` unless its claim is the current one. Deleting the
   older OTP row isn't enough on its own: on a wrong guess Better Auth consumes
   the code and writes it back outside the lock, which can restore a replaced
-  code. Older links keep their claims and still sign in once. A link without
+  code. Its verify reads only the newest code row and deletes the rest, so
+  `verification.create.before` dates a written-back code at its issue
+  (`expiresAt` minus `expiresIn`). A late write-back of an older code then
+  can't displace the newer one. Older links keep their claims and still sign in once. A link without
   a claim row (sent while codes were off) signs in as before. Claim storage failures fail the request; never swallow them,
   since a swallowed link revocation lets both halves sign in. Every other
   email-OTP path is in `disabledPaths`. Code sign-in accepts only `email`, `otp`, and

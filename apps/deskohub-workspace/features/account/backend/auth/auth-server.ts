@@ -52,6 +52,7 @@ import {
 import {
   claimSignInCode,
   claimSignInLink,
+  dateSignInCodeRow,
   issueSignInCode,
   reserveSignInEmail,
   type SignInEmailLock,
@@ -470,18 +471,14 @@ const signInCodeBodySchema = Schema.Struct({
   otp: Schema.String,
 });
 
-type SessionAuthContext = {
+type AuthEndpointContext = {
   readonly path?: string;
   readonly body?: unknown;
   readonly context: { readonly adapter: DBAdapter };
 } | null;
 
-/**
- * A code sign-in takes its email's claim after Better Auth accepts the code
- * and before it creates the session. Losing to the link reads like any used
- * code.
- */
-const claimSignInCodeSession = (ctx: SessionAuthContext) =>
+/** The code sign-in a Better Auth database hook runs within, if any. */
+const signInCodeRequest = (ctx: AuthEndpointContext) =>
   Option.fromNullishOr(ctx).pipe(
     Option.filter(({ path }) => path === "/sign-in/email-otp"),
     Option.flatMap(({ body, context }) =>
@@ -493,7 +490,20 @@ const claimSignInCodeSession = (ctx: SessionAuthContext) =>
           verifications: context.adapter,
         })
       )
-    ),
+    )
+  );
+
+/**
+ * A code sign-in takes its email's claim after Better Auth accepts the code
+ * and before it creates the session. Losing to the link reads like any used
+ * code.
+ */
+const claimSignInCodeSession = ({
+  ctx,
+}: {
+  readonly ctx: AuthEndpointContext;
+}) =>
+  signInCodeRequest(ctx).pipe(
     Option.match({
       onNone: () => Effect.void,
       onSome: (request) =>
@@ -503,6 +513,76 @@ const claimSignInCodeSession = (ctx: SessionAuthContext) =>
           )
         ),
     })
+  );
+
+/**
+ * A code that Better Auth writes back after a wrong guess keeps its issue
+ * time, so it never outranks a newer email's code.
+ */
+const dateRestoredSignInCode = ({
+  verification,
+  ctx,
+}: {
+  readonly verification: {
+    readonly identifier: string;
+    readonly expiresAt: Date;
+  };
+  readonly ctx: AuthEndpointContext;
+}) =>
+  signInCodeRequest(ctx).pipe(
+    Option.map(({ email }) => dateSignInCodeRow({ email, row: verification })),
+    Effect.transposeOption,
+    Effect.map((dated) =>
+      Option.getOrUndefined(
+        Option.map(Option.flatten(dated), (data) => ({ data }))
+      )
+    )
+  );
+
+/**
+ * Captures the sign-in callback locale for the session's account, when both
+ * are known.
+ */
+const captureSessionLocale = ({
+  config,
+  session,
+  ctx,
+}: {
+  readonly config: WorkspaceAuthConfig;
+  readonly session: { readonly userId: string };
+  readonly ctx: AuthEndpointContext;
+}) =>
+  Option.all({
+    accountId: Option.fromNullishOr(decodeAccountId(session.userId)),
+    locale: Option.fromNullishOr(
+      callbackLocaleFromAuthContext(
+        Option.getOrElse(decodeAuthContext(ctx), () => ({}))
+      )
+    ),
+  }).pipe(
+    Option.match({
+      onNone: () => Effect.void,
+      onSome: ({ accountId, locale }) =>
+        captureLocalePreference(config, accountId, locale),
+    })
+  );
+
+/**
+ * Prepares a session before Better Auth stores it: a code sign-in takes its
+ * claim first, the callback locale is captured, and the session keeps no IP
+ * address or user agent.
+ */
+const prepareSession = <Session extends { readonly userId: string }>(request: {
+  readonly config: WorkspaceAuthConfig;
+  readonly session: Session;
+  readonly ctx: AuthEndpointContext;
+}) =>
+  Effect.succeed(request).pipe(
+    Effect.tap(claimSignInCodeSession),
+    Effect.tap(captureSessionLocale),
+    Effect.map(({ session }) => ({
+      data: { ...session, ipAddress: null, userAgent: null },
+    }))
   );
 
 type CompletedAuthRequest = {
@@ -644,25 +724,15 @@ export const makeWorkspaceAuth = (config: WorkspaceAuthConfig) => {
           before: (session, ctx) =>
             runWorkspaceEffect("account.auth.capture-locale", {
               boundary: "route",
-            })(
-              Effect.gen(function* () {
-                yield* claimSignInCodeSession(ctx);
-                const accountId = decodeAccountId(session.userId);
-                const locale = callbackLocaleFromAuthContext(
-                  Option.getOrElse(decodeAuthContext(ctx), () => ({}))
-                );
-                if (accountId && locale) {
-                  yield* captureLocalePreference(config, accountId, locale);
-                }
-                return {
-                  data: {
-                    ...session,
-                    ipAddress: null,
-                    userAgent: null,
-                  },
-                };
-              })
-            ),
+            })(prepareSession({ config, session, ctx })),
+        },
+      },
+      verification: {
+        create: {
+          before: (verification, ctx) =>
+            runWorkspaceEffect("account.sign-in-code.date", {
+              boundary: "route",
+            })(dateRestoredSignInCode({ verification, ctx })),
         },
       },
       user: {
