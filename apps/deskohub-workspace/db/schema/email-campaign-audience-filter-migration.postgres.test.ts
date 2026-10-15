@@ -1,10 +1,8 @@
 import "@/shared/testing/workspace-test-env";
 
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, readdir, readFile, rm, symlink } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import {
   AdministrationCampaignAudience,
   type AdministrationReservationStatusFilterType,
@@ -13,59 +11,25 @@ import {
 import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { Schema } from "effect";
-import { Pool, type PoolClient } from "pg";
+import type { Pool, PoolClient } from "pg";
 import {
   type AudienceFilter,
   audienceFilterSchema,
 } from "@/features/email-campaigns/audience-filter";
+import {
+  linkMigrationsBefore,
+  withScratchDatabase,
+  workspaceMigrationsFolder,
+} from "../migration-scratch-database.test-utils";
 
 const MIGRATION_DIR = "20261015125401_audience_attribute_conditions";
-const migrationsFolder = fileURLToPath(
-  new URL("../migrations", import.meta.url)
-);
 
 const testDatabaseUrl = process.env.WORKSPACE_TEST_DATABASE_URL;
-
-/**
- * Links every migration that precedes the filter migration into a scratch
- * folder, so a database can be brought to the state production is in.
- */
-const linkMigrationsBefore = async (migration: string) => {
-  const folder = await mkdtemp(join(tmpdir(), "workspace-migrations-"));
-  const names = await readdir(migrationsFolder);
-  for (const name of names.filter((entry) => entry < migration)) {
-    await symlink(join(migrationsFolder, name), join(folder, name));
-  }
-  return folder;
-};
-
-/**
- * Creates a disposable sibling database next to the configured test
- * database, runs the callback against it, and always drops it.
- */
-const withScratchDatabase = async (
-  databaseUrl: string,
-  run: (pool: Pool) => Promise<void>
-) => {
-  const name = `audience_filter_migration_${crypto.randomUUID().replaceAll("-", "")}`;
-  const admin = new Pool({ connectionString: databaseUrl, max: 1 });
-  await admin.query(`create database "${name}"`);
-  const url = new URL(databaseUrl);
-  url.pathname = `/${name}`;
-  const pool = new Pool({ connectionString: url.toString(), max: 2 });
-  try {
-    await run(pool);
-  } finally {
-    await pool.end();
-    await admin.query(`drop database if exists "${name}" with (force)`);
-    await admin.end();
-  }
-};
 
 const migrationStatements = async () =>
   (
     await readFile(
-      join(migrationsFolder, MIGRATION_DIR, "migration.sql"),
+      join(workspaceMigrationsFolder, MIGRATION_DIR, "migration.sql"),
       "utf8"
     )
   ).split("--> statement-breakpoint");
@@ -422,93 +386,104 @@ describe.skipIf(!testDatabaseUrl)(
       async () => {
         const earlierMigrations = await linkMigrationsBefore(MIGRATION_DIR);
         try {
-          await withScratchDatabase(testDatabaseUrl!, async (pool) => {
-            await migrate(drizzle({ client: pool }), {
-              migrationsFolder: earlierMigrations,
-            });
-            const audienceIds: string[] = [];
-            for (const { legacy } of filterCases) {
-              audienceIds.push(await insertAudience(pool, legacy));
-            }
-            const sendId = await insertSend(pool, nestedCase.legacy);
-            const sessionId = await insertCliSession(pool);
-            const createdAudience = audienceResult(nestedCase.legacy);
-            const completedCreate = await insertCliMutation(
-              pool,
-              sessionId,
-              {
-                kind: "campaign-audience-create",
-                audience: { title: "Audience", filter: nestedCase.legacy },
-              },
-              createdAudience
-            );
-            const pendingCreate = await insertCliMutation(
-              pool,
-              sessionId,
-              {
-                kind: "campaign-audience-create",
-                audience: {
-                  title: "Pending",
-                  filter: conditionCases[0]!.legacy,
+          await withScratchDatabase(
+            testDatabaseUrl!,
+            "audience_filter_migration",
+            async (pool) => {
+              await migrate(drizzle({ client: pool }), {
+                migrationsFolder: earlierMigrations,
+              });
+              const audienceIds: string[] = [];
+              for (const { legacy } of filterCases) {
+                audienceIds.push(await insertAudience(pool, legacy));
+              }
+              const sendId = await insertSend(pool, nestedCase.legacy);
+              const sessionId = await insertCliSession(pool);
+              const createdAudience = audienceResult(nestedCase.legacy);
+              const completedCreate = await insertCliMutation(
+                pool,
+                sessionId,
+                {
+                  kind: "campaign-audience-create",
+                  audience: { title: "Audience", filter: nestedCase.legacy },
                 },
-              },
-              null
-            );
-            const duplicate = {
-              mutation: {
-                kind: "campaign-duplicate",
-                campaignId: crypto.randomUUID(),
-              },
-              result: { id: crypto.randomUUID() },
-            } as const;
-            const unrelated = await insertCliMutation(
-              pool,
-              sessionId,
-              duplicate.mutation,
-              duplicate.result
-            );
+                createdAudience
+              );
+              const pendingCreate = await insertCliMutation(
+                pool,
+                sessionId,
+                {
+                  kind: "campaign-audience-create",
+                  audience: {
+                    title: "Pending",
+                    filter: conditionCases[0]!.legacy,
+                  },
+                },
+                null
+              );
+              const duplicate = {
+                mutation: {
+                  kind: "campaign-duplicate",
+                  campaignId: crypto.randomUUID(),
+                },
+                result: { id: crypto.randomUUID() },
+              } as const;
+              const unrelated = await insertCliMutation(
+                pool,
+                sessionId,
+                duplicate.mutation,
+                duplicate.result
+              );
 
-            await migrate(drizzle({ client: pool }), { migrationsFolder });
+              await migrate(drizzle({ client: pool }), {
+                migrationsFolder: workspaceMigrationsFolder,
+              });
 
-            const migratedFilters = await audienceFilters(pool, audienceIds);
-            expect(migratedFilters).toEqual(
-              filterCases.map(({ migrated }) => migrated)
-            );
-            for (const filter of migratedFilters) {
+              const migratedFilters = await audienceFilters(pool, audienceIds);
+              expect(migratedFilters).toEqual(
+                filterCases.map(({ migrated }) => migrated)
+              );
+              for (const filter of migratedFilters) {
+                expect(() =>
+                  Schema.decodeUnknownSync(audienceFilterSchema)(filter)
+                ).not.toThrow();
+              }
+              expect(await sendFilter(pool, sendId)).toEqual(
+                nestedCase.migrated
+              );
+              expect(await cliMutation(pool, completedCreate)).toEqual({
+                mutation: {
+                  kind: "campaign-audience-create",
+                  audience: { title: "Audience", filter: nestedCase.migrated },
+                },
+                result: { ...createdAudience, filter: nestedCase.migrated },
+              });
+              const replayed = (await cliMutation(pool, completedCreate))
+                .result;
               expect(() =>
-                Schema.decodeUnknownSync(audienceFilterSchema)(filter)
+                Schema.decodeUnknownSync(AdministrationCampaignAudience)(
+                  replayed
+                )
               ).not.toThrow();
-            }
-            expect(await sendFilter(pool, sendId)).toEqual(nestedCase.migrated);
-            expect(await cliMutation(pool, completedCreate)).toEqual({
-              mutation: {
-                kind: "campaign-audience-create",
-                audience: { title: "Audience", filter: nestedCase.migrated },
-              },
-              result: { ...createdAudience, filter: nestedCase.migrated },
-            });
-            const replayed = (await cliMutation(pool, completedCreate)).result;
-            expect(() =>
-              Schema.decodeUnknownSync(AdministrationCampaignAudience)(replayed)
-            ).not.toThrow();
-            expect(await cliMutation(pool, pendingCreate)).toEqual({
-              mutation: {
-                kind: "campaign-audience-create",
-                audience: {
-                  title: "Pending",
-                  filter: conditionCases[0]!.migrated,
+              expect(await cliMutation(pool, pendingCreate)).toEqual({
+                mutation: {
+                  kind: "campaign-audience-create",
+                  audience: {
+                    title: "Pending",
+                    filter: conditionCases[0]!.migrated,
+                  },
                 },
-              },
-              result: null,
-            });
-            expect(await cliMutation(pool, unrelated)).toEqual(duplicate);
+                result: null,
+              });
+              expect(await cliMutation(pool, unrelated)).toEqual(duplicate);
 
-            const rowCounts = await rerunMigration(pool);
-            expect(rowCounts.slice(1, -1)).toEqual([0, 0, 0]);
-            expect(await audienceFilters(pool, audienceIds)).toEqual(
-              migratedFilters
-            );
-          });
+              const rowCounts = await rerunMigration(pool);
+              expect(rowCounts.slice(1, -1)).toEqual([0, 0, 0]);
+              expect(await audienceFilters(pool, audienceIds)).toEqual(
+                migratedFilters
+              );
+            }
+          );
         } finally {
           await rm(earlierMigrations, { recursive: true, force: true });
         }
@@ -519,28 +494,34 @@ describe.skipIf(!testDatabaseUrl)(
     test(
       "aborts on a filter node it does not know",
       async () => {
-        await withScratchDatabase(testDatabaseUrl!, async (pool) => {
-          await migrate(drizzle({ client: pool }), { migrationsFolder });
-          const id = await insertAudience(
-            pool,
-            group("and", [{ _tag: "Mystery" }])
-          );
-
-          const client = await pool.connect();
-          try {
-            await client.query("begin");
-            await expect(rerunMigration(client)).rejects.toThrow(
-              "Unknown audience filter node"
+        await withScratchDatabase(
+          testDatabaseUrl!,
+          "audience_filter_migration",
+          async (pool) => {
+            await migrate(drizzle({ client: pool }), {
+              migrationsFolder: workspaceMigrationsFolder,
+            });
+            const id = await insertAudience(
+              pool,
+              group("and", [{ _tag: "Mystery" }])
             );
-            await client.query("rollback");
-          } finally {
-            client.release();
-          }
 
-          expect(await audienceFilters(pool, [id])).toEqual([
-            group("and", [{ _tag: "Mystery" }]),
-          ]);
-        });
+            const client = await pool.connect();
+            try {
+              await client.query("begin");
+              await expect(rerunMigration(client)).rejects.toThrow(
+                "Unknown audience filter node"
+              );
+              await client.query("rollback");
+            } finally {
+              client.release();
+            }
+
+            expect(await audienceFilters(pool, [id])).toEqual([
+              group("and", [{ _tag: "Mystery" }]),
+            ]);
+          }
+        );
       },
       { timeout: 60000 }
     );
