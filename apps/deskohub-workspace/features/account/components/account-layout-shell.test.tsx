@@ -323,6 +323,27 @@ describe("AccountLayoutShell", () => {
     ).toBe("page");
   });
 
+  test("records a local section switch in the URL so a locale switch keeps it", () => {
+    window.location.href = "http://localhost/en-US/account?ref=menu";
+    const view = renderLayout(<p>Account</p>);
+
+    fireEvent.click(
+      getDesktopNavigation(view).getByRole("button", {
+        name: "Profile & Identity",
+      })
+    );
+
+    expect(routerPush).not.toHaveBeenCalled();
+    expect(window.location.pathname).toBe("/en-US/account");
+    expect(window.location.search).toBe("?ref=menu&section=profile");
+
+    fireEvent.click(
+      getDesktopNavigation(view).getByRole("button", { name: "Reservations" })
+    );
+
+    expect(window.location.search).toBe("?ref=menu");
+  });
+
   test("treats a withheld referral section like an unknown section", () => {
     searchParams = new URLSearchParams("section=referrals");
     const view = renderLayout(<ReferralBadgePublisher section="referrals" />, {

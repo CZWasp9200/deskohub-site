@@ -61,6 +61,9 @@
   session. The `/account` client redirect stays only for direct or stale
   navigations.
 - Use one magic-link form for sign-in and implicit sign-up.
+- A section switch records the section in `?section=` with
+  `history.replaceState`, so a reload or a locale switch reopens it without a
+  server round trip.
 - Pass a section withheld by a release flag (Referrals behind `referrals`) to
   `AccountShell` as `hiddenSections`: it leaves both navigations, and its
   `?section=` falls back like an unknown section. The static loading skeleton

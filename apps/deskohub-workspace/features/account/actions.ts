@@ -1,10 +1,8 @@
 "use server";
 
 import { type AresLookupFailure, AresLookupService } from "@deskohub/ares";
-import { setLocaleCookie } from "@deskohub/i18n/next";
 import { Effect, Layer, Match, Result, Schema } from "effect";
 import { revalidatePath } from "next/cache";
-import { cookies } from "next/headers";
 import { WorkspaceDatabase } from "@/db/database.service";
 import {
   accountActionError,
@@ -37,7 +35,6 @@ import {
 import { getAccountPath } from "@/features/account/routes";
 import type { Locale } from "@/features/i18n";
 import { locales, m } from "@/features/i18n";
-import { localeCookieName } from "@/features/i18n/routing";
 import { ReferralService } from "@/features/referrals";
 import { ReferralFeatureFlagRequest } from "@/features/referrals/referral-feature-flag.server";
 import { ReferralFeatureFlagService } from "@/features/referrals/referral-feature-flag.service";
@@ -148,20 +145,16 @@ const forgetUsedRememberedReferralCode = (account: LinkedCustomerAccount) =>
   );
 
 /**
- * Saves the locale preference of the verified account under
- * the account lock, then moves the locale cookie to it. The preference is
- * also the site locale for the signed-in customer, so the caller navigates to
- * the page under the saved locale; the Dotypos profile is never touched.
+ * Saves the locale preference of the verified account under the account lock.
+ * The preference is also the site locale for the signed-in customer, so the
+ * caller navigates to the page under the saved locale, and the proxy moves the
+ * locale cookie on that page's response. The action leaves cookies alone: a
+ * cookie write makes Next re-render the referring page, still under the old
+ * locale, while the document navigation is leaving it. The Dotypos profile is
+ * never touched.
  */
 const saveLocalePreference = (accountId: CustomerAccountId, locale: Locale) =>
   saveAccountLocalePreference(accountId, locale).pipe(
-    Effect.andThen(
-      Effect.promise(() => cookies()).pipe(
-        Effect.map((cookieStore) =>
-          setLocaleCookie({ cookies: cookieStore }, localeCookieName, locale)
-        )
-      )
-    ),
     Effect.provide(
       Layer.mergeAll(
         WorkspaceDatabase.Default,

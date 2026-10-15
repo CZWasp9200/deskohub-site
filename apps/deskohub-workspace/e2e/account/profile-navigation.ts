@@ -84,6 +84,9 @@ export async function verifyProfileNavigation(
   try {
     const homeUrl = new URL(homePath, baseUrl).toString();
     const accountUrl = new URL(accountPath, baseUrl).toString();
+    // A section switch records its section in the account URL.
+    const accountSectionUrl = (section: AccountSection) =>
+      `${accountUrl}?section=${section}`;
     const profileForm = page.locator(profileFormSelector);
     const firstName = page.locator(profileFirstNameSelector);
     const header = page.getByRole("banner");
@@ -246,7 +249,7 @@ export async function verifyProfileNavigation(
     expect(headerClickDialog.type()).toBe("confirm");
     await headerClickDialog.dismiss();
     await headerClickPromise;
-    await expect(page).toHaveURL(accountUrl, {
+    await expect(page).toHaveURL(accountSectionUrl("billing"), {
       timeout: workspaceE2ETimeouts.browserAction,
     });
     await selectProfileSection();
@@ -263,7 +266,7 @@ export async function verifyProfileNavigation(
     expect(backDialog.type()).toBe("confirm");
     await backDialog.dismiss();
     await backTriggerPromise;
-    await expect(page).toHaveURL(accountUrl, {
+    await expect(page).toHaveURL(accountSectionUrl("profile"), {
       timeout: workspaceE2ETimeouts.browserAction,
     });
     await selectProfileSection();
