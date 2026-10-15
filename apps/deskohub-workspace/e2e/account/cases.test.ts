@@ -13,6 +13,7 @@ import type { WorkspaceE2EStep, WorkspaceE2EStepRunner } from "../types";
 import {
   type WorkspaceE2EAccountCaseId,
   workspaceE2EAccountCaseIds,
+  workspaceE2EAccountCaseSkipReason,
   workspaceE2EAccountMagicLinkLedger,
 } from "./catalog";
 import {
@@ -52,6 +53,12 @@ const czechDeletionPendingTitle = "Smazání účtu čeká na dokončení";
 const deletionReauthLinkSent =
   "If the address can receive mail, a new link is on its way.";
 const deletedTitle = "Your account was deleted";
+const signInCodeTitle = "Enter your sign-in code";
+const signInCodeInvalid =
+  "That code does not match. Check the latest email and try again.";
+const useDifferentEmailLabel = "Use a different email";
+const deletionReauthCodeTitle = "Confirm it is you";
+const signInCodeSelector = "#account-sign-in-code";
 const callbackFailedTitle = "This link cannot be used";
 const supportTitle = "We need to verify your profile";
 const signInFormSelector = "#account-sign-in-form";
@@ -94,6 +101,8 @@ type FakeMessage = {
   readonly id: string;
   readonly kind: FakeMessageKind;
   readonly link: string;
+  /** The sign-in code every email carries while sign-in codes are on. */
+  readonly code: string;
   readonly recipient: string;
   consumed: boolean;
 };
@@ -128,6 +137,8 @@ type FakeEvent = {
     | "unlink"
     | "relink"
     | "ambiguity"
+    | "code-rejected"
+    | "consume-code"
     | "provider-expire"
     | "provider-reactivate"
     | "provider-create"
@@ -240,6 +251,11 @@ class FakeAccountExternalState {
   preferenceRedirects = true;
   /** Whether a signed-in header switch saves the preference first. */
   switcherSavesPreference = true;
+  /**
+   * The preview's `login_email_code` flag: every sign-in email also carries
+   * a code, and the sign-in card and deletion dialog open a code step.
+   */
+  signInCodes = false;
 
   /**
    * The site default preference: the migration backfills existing accounts
@@ -585,7 +601,35 @@ class FakeAccountExternalState {
       recipient: email,
       type: "receive",
     });
-    return message.link;
+    return message;
+  }
+
+  /**
+   * Better Auth's code sign-in: a wrong code leaves the email usable, and
+   * the right one consumes it like its link, creating a new account.
+   */
+  consumeCode(email: string, code: string): "invalid" | "verified" {
+    const message = (this.messagesByRecipient.get(email) ?? []).at(-1);
+    if (!this.signInCodes || !message || message.consumed) {
+      throw new Error("the synthetic code sign-in has no usable email");
+    }
+    if (message.code !== code) {
+      this.events.push({ id: message.id, type: "code-rejected" });
+      return "invalid";
+    }
+    if (message.kind !== "accepted-b") {
+      throw new Error("only the accepted-b email is signed in with its code");
+    }
+    message.consumed = true;
+    this.createAuthUser("auth-accepted-b", email);
+    this.currentAuthUserId = "auth-accepted-b";
+    this.events.push({
+      id: message.id,
+      kind: message.kind,
+      type: "consume-code",
+      userId: "auth-accepted-b",
+    });
+    return "verified";
   }
 
   consumeLink(link: string): ConsumeResult {
@@ -811,6 +855,7 @@ class FakeAccountExternalState {
     const callbackURL = `/${this.config.locale}/auth/callback`;
     const link = `${this.config.baseUrl}/api/auth/magic-link/verify?token=${token}&callbackURL=${encodeURIComponent(callbackURL)}`;
     const message = {
+      code: String(100_000 + this.messageSequence),
       createdAt: fixedNowMs,
       id,
       kind,
@@ -874,6 +919,18 @@ class FakeBrowser {
   private selectedSection = "";
   private languageListboxOpen = false;
   private focusedSelector = "";
+  /** The code step on screen: the sign-in card's, or the deletion dialog's. */
+  private codeStep:
+    | { readonly dialog: boolean; readonly recipient: string }
+    | undefined;
+  private codeInputEmpty = false;
+  private codeStepsShown = 0;
+  /**
+   * The sign-in card's sessionStorage code request, which a later sign-in
+   * page in the same tab restores until a code signs in or the customer
+   * switches email.
+   */
+  private storedCodeRecipient: string | undefined;
 
   constructor(readonly external: FakeAccountExternalState) {}
 
@@ -945,8 +1002,28 @@ class FakeBrowser {
     this.navigate(url);
   }
 
+  /**
+   * A code step as the page renders it. Its resend countdown ticks, so two
+   * otherwise identical steps rarely read the same second.
+   */
+  private showCodeStep(recipient: string, dialog: boolean) {
+    this.codeStep = { dialog, recipient };
+    this.codeInputEmpty = true;
+    this.formReady = false;
+    this.codeStepsShown += 1;
+    const masked = `${recipient.slice(0, 1)}•••${recipient.slice(recipient.lastIndexOf("@"))}`;
+    this.pageText = [
+      dialog ? deletionReauthCodeTitle : signInCodeTitle,
+      `We emailed a 6-digit code to ${masked}. It expires in 10 minutes.`,
+      "6-digit code",
+      `Send a new email in ${61 - this.codeStepsShown} s`,
+      ...(dialog ? [] : [useDifferentEmailLabel]),
+    ].join("\n");
+  }
+
   /** A document navigation through the proxy. */
   private navigate(requested: string) {
+    this.codeStep = undefined;
     this.languageListboxOpen = false;
     this.selectedSection = "";
     this.languageControlLabel = null;
@@ -968,6 +1045,9 @@ class FakeBrowser {
       this.formReady = true;
       this.emailValue = "";
       this.nativeValidationBlocked = false;
+      if (this.storedCodeRecipient !== undefined) {
+        this.showCodeStep(this.storedCodeRecipient, false);
+      }
       return;
     }
     if (locale !== undefined && suffix === "/account") {
@@ -997,6 +1077,12 @@ class FakeBrowser {
       this.nativeValidationBlocked = false;
       if (result.text === completionTitle) {
         this.referralFieldValue = this.referralCookie;
+      }
+      if (
+        result.destination.endsWith("/auth/sign-in") &&
+        this.storedCodeRecipient !== undefined
+      ) {
+        this.showCodeStep(this.storedCodeRecipient, false);
       }
       return;
     }
@@ -1065,6 +1151,12 @@ class FakeBrowser {
   }
 
   waitForHandler(selector: string, handler: string) {
+    if (selector === signInCodeSelector) {
+      if (handler !== "onChange" || this.codeStep === undefined) {
+        throw new Error("the sign-in code input is not shown");
+      }
+      return;
+    }
     if (selector.endsWith(languageTriggerSelector)) {
       if (handler !== "onPointerDown" || this.selectedSection !== "profile") {
         throw new Error("the language trigger is not on the profile section");
@@ -1104,6 +1196,23 @@ class FakeBrowser {
       this.external.profileDrafts.set(selector, value);
       return;
     }
+    if (selector === signInCodeSelector) {
+      if (this.codeStep === undefined || this.codeStep.dialog) {
+        throw new Error("the synthetic browser typed a code outside sign-in");
+      }
+      // Six digits submit on their own.
+      const outcome = this.external.consumeCode(this.codeStep.recipient, value);
+      if (outcome === "invalid") {
+        this.pageText = `${this.pageText}\n${signInCodeInvalid}`;
+        this.codeInputEmpty = true;
+        return;
+      }
+      this.storedCodeRecipient = undefined;
+      this.navigate(
+        `${this.external.config.baseUrl}/${this.pageLocale()}/account`
+      );
+      return;
+    }
     if (selector !== signInEmailSelector) {
       throw new Error("the synthetic browser filled an unexpected control");
     }
@@ -1122,13 +1231,34 @@ class FakeBrowser {
         return;
       }
       const message = this.external.sendMessage(this.emailValue, "sign-in");
+      if (this.external.signInCodes) {
+        this.storedCodeRecipient = this.emailValue;
+        this.showCodeStep(this.emailValue, false);
+        return;
+      }
       const response = `${acceptedTitle} ${acceptedBody}`;
       this.pageText =
         message.kind === "reauthentication" ? deletionReauthLinkSent : response;
       this.formReady = false;
       return;
     }
+    if (selector.includes(useDifferentEmailLabel)) {
+      if (this.codeStep === undefined || this.codeStep.dialog) {
+        throw new Error("a different email was chosen outside the code step");
+      }
+      // The form returns with the address prefilled for editing.
+      this.storedCodeRecipient = undefined;
+      this.emailValue = this.codeStep.recipient;
+      this.codeStep = undefined;
+      this.pageText = "Sign in";
+      this.formReady = true;
+      this.nativeValidationBlocked = false;
+      return;
+    }
     if (selector.includes("Send another link")) {
+      if (this.codeStep !== undefined) {
+        throw new Error("the code step offers no Send another link control");
+      }
       // The accepted card resets the form in place; the URL keeps its query.
       this.pageText = "Sign in";
       this.formReady = true;
@@ -1184,6 +1314,10 @@ class FakeBrowser {
         this.external.mainRecipient,
         "reauthentication"
       );
+      if (this.external.signInCodes) {
+        this.showCodeStep(this.external.mainRecipient, true);
+        return;
+      }
       this.pageText = deletionReauthLinkSent;
       return;
     }
@@ -1390,6 +1524,16 @@ class FakeBrowser {
     if (description === "account danger section") {
       if (this.selectedSection !== "danger") {
         throw new Error("the danger section is not selected");
+      }
+      return;
+    }
+    if (description === "emptied code input after a wrong code") {
+      if (
+        this.codeStep === undefined ||
+        !this.codeInputEmpty ||
+        !condition.includes(JSON.stringify(signInCodeSelector))
+      ) {
+        throw new Error("the code input was not emptied for another try");
       }
       return;
     }
@@ -1702,7 +1846,7 @@ const makeConfig = (): WorkspaceE2EAccountConfig => ({
   vercelToken: "synthetic-vercel-log-token",
 });
 
-const makeScenario = () => {
+const makeScenario = (options: { readonly signInCodes?: boolean } = {}) => {
   const config = makeConfig();
   const mainRecipient = makeWorkspaceE2EAccountRecipient(
     config,
@@ -1722,6 +1866,7 @@ const makeScenario = () => {
     acceptedBRecipient,
     referralOwnerRecipient
   );
+  external.signInCodes = options.signInCodes ?? false;
   const browser = new FakeBrowser(external);
   activeExternal = external;
   activeBrowser = browser;
@@ -1761,13 +1906,26 @@ const makeScenario = () => {
     listSyntheticLogEntryIds: (request) =>
       Effect.sync(() => external.listMessageIds(request.recipient)),
     retrieveMagicLink: (request) =>
-      Effect.sync(() =>
-        external.retrieveMessage(
+      Effect.sync(
+        () =>
+          external.retrieveMessage(
+            request.recipient,
+            request.excludeLogEntryIds ?? [],
+            request.startedAt
+          ).link
+      ),
+    retrieveSignInEmail: (request) =>
+      Effect.sync(() => {
+        if (!external.signInCodes) {
+          throw new Error("the synthetic sign-in email carries no code");
+        }
+        const { code, link } = external.retrieveMessage(
           request.recipient,
           request.excludeLogEntryIds ?? [],
           request.startedAt
-        )
-      ),
+        );
+        return { code, link };
+      }),
   };
   const datasourceConfig = {} as DatasourceConfig;
 
@@ -1890,19 +2048,30 @@ afterEach(() => {
   setSystemTime();
 });
 
-test("executes every account lane case within the magic-link ledger", async () => {
-  setSystemTime(fixedNow);
+/**
+ * Runs every catalog case in lane order against one real budget whose
+ * quiet-window retry throws, so an operation any case spends beyond the lane
+ * budget fails, declared or not. A case the lane skips on this preview spends
+ * nothing.
+ */
+const runLane = async (
+  scenario: ReturnType<typeof makeScenario>,
+  stepIds: string[]
+) => {
   const { makeWorkspaceE2EAccountCases } = await import("./cases");
-  const scenario = makeScenario();
-  const stepIds: string[] = [];
-
-  // Every catalog case runs in lane order against one real budget whose
-  // quiet-window retry throws, so an operation any case spends beyond the
-  // lane budget fails here, declared or not.
   const operationsByCase: Partial<
     Record<WorkspaceE2EAccountCaseId, readonly MagicLinkOperation[]>
   > = {};
+  const skippedCaseIds: WorkspaceE2EAccountCaseId[] = [];
   for (const caseId of workspaceE2EAccountCaseIds) {
+    if (
+      workspaceE2EAccountCaseSkipReason(caseId, scenario.lifecycleHandoff) !==
+      undefined
+    ) {
+      skippedCaseIds.push(caseId);
+      operationsByCase[caseId] = [];
+      continue;
+    }
     const selected = await buildCase(
       makeWorkspaceE2EAccountCases,
       caseId,
@@ -1912,8 +2081,20 @@ test("executes every account lane case within the magic-link ledger", async () =
     await executeCase(selected, scenario, stepIds);
     operationsByCase[caseId] = scenario.operations.slice(operationsBefore);
   }
+  return { operationsByCase, skippedCaseIds };
+};
+
+test("executes every account lane case within the magic-link ledger", async () => {
+  setSystemTime(fixedNow);
+  const scenario = makeScenario();
+  const stepIds: string[] = [];
+  const { operationsByCase, skippedCaseIds } = await runLane(scenario, stepIds);
 
   expect(stepIds.length).toBeGreaterThan(0);
+  // Without sign-in codes the form shows the inbox notice, and the lane
+  // skips the code case before it touches anything.
+  expect(scenario.lifecycleHandoff.signInConfirmation).toBe("inbox");
+  expect(skippedCaseIds).toEqual(["account-sign-in-code"]);
   expect(scenario.lifecycleHandoff.firstAcceptedRequestedAt).toEqual(fixedNow);
   expect(scenario.lifecycleHandoff.referralInvitation).toEqual({
     code: syntheticReferralCode,
@@ -2130,6 +2311,106 @@ test("executes every account lane case within the magic-link ledger", async () =
     "reservation-1",
     "reservation-2",
   ]);
+});
+
+test("signs in with an emailed code and keeps every link journey when sign-in codes are on", async () => {
+  setSystemTime(fixedNow);
+  const scenario = makeScenario({ signInCodes: true });
+  const stepIds: string[] = [];
+  const { operationsByCase, skippedCaseIds } = await runLane(scenario, stepIds);
+
+  expect(scenario.lifecycleHandoff.signInConfirmation).toBe("code");
+  expect(skippedCaseIds).toEqual([]);
+  // The code sign-in reuses the second unknown email, so the magic-link
+  // ledger is unchanged.
+  expect(scenario.retries).toEqual([]);
+  expect(operationsByCase).toEqual(workspaceE2EAccountMagicLinkLedger);
+  expect(stepIds).toContain(
+    "signs in with the emailed code into the completion state"
+  );
+
+  const operationEvents = scenario.external.events.filter(({ type }) =>
+    [
+      "send",
+      "receive",
+      "logout",
+      "consume",
+      "code-rejected",
+      "consume-code",
+      "deletion",
+      "replay",
+    ].includes(type)
+  );
+  expect(
+    operationEvents.map(({ kind, type }) => `${type}:${kind ?? ""}`)
+  ).toEqual([
+    "send:initial-main",
+    "send:accepted-b",
+    "receive:accepted-b",
+    "code-rejected:",
+    "consume-code:accepted-b",
+    "logout:",
+    "receive:initial-main",
+    "consume:initial-main",
+    "send:reauthentication",
+    "receive:reauthentication",
+    "logout:",
+    "consume:reauthentication",
+    "deletion:",
+    "replay:",
+    "send:reactivation",
+    "receive:reactivation",
+    "consume:reactivation",
+  ]);
+  // The second request switched email from the main recipient's code step.
+  expect(
+    scenario.external.browserActions.filter(
+      ({ kind, selectorOrDestination }) =>
+        kind === "click" &&
+        selectorOrDestination.includes(useDifferentEmailLabel)
+    )
+  ).toHaveLength(1);
+  // The deletion dialog's code step still hands its link to the session
+  // lifecycle, which signs back in with it.
+  expect(scenario.lifecycleHandoff.reauthentication?.link).toBe(
+    scenario.external.messagesByRecipient.get(
+      scenario.external.mainRecipient
+    )?.[1]?.link
+  );
+  expect(scenario.external.createdAuthIds).toEqual([
+    "auth-accepted-b",
+    "auth-original",
+    "auth-reactivated",
+  ]);
+  expect(scenario.external.journal.authUserIds).toEqual([
+    scenario.external.referralOwnerSeeds[0]?.accountId,
+    "auth-accepted-b",
+    "auth-original",
+    "auth-reactivated",
+  ]);
+  // The code account never took the share code the main account follows.
+  expect(scenario.external.referralAttributions).toEqual(
+    new Map([["customer-retained", referralOwnerCustomerId]])
+  );
+});
+
+test("fails closed before retrieving a code when the sign-in form showed no code step", async () => {
+  setSystemTime(fixedNow);
+  const { makeWorkspaceE2EAccountCases } = await import("./cases");
+  const scenario = makeScenario({ signInCodes: true });
+  scenario.lifecycleHandoff.signInConfirmation = "inbox";
+  scenario.lifecycleHandoff.secondAcceptedRequestedAt = fixedNow;
+  const selected = await buildCase(
+    makeWorkspaceE2EAccountCases,
+    "account-sign-in-code",
+    scenario
+  );
+
+  await expect(executeCase(selected, scenario, [])).rejects.toThrow(
+    "the sign-in form did not open the code step"
+  );
+  expect(scenario.external.retrieveCalls).toEqual([]);
+  expect(scenario.external.browserActions).toEqual([]);
 });
 
 test("fails closed before external side effects when the accepted request handoff is missing", async () => {

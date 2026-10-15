@@ -12,6 +12,8 @@ export type WorkspaceE2EAccountRequirement =
   | E2ETelemetryService
   | HttpClient.HttpClient;
 
+export type WorkspaceE2ESignInConfirmation = "inbox" | "code";
+
 /**
  * In-memory handoff for the worker-scoped account lifecycle. The lane fixture
  * owns the one instance because Playwright rebuilds the case factory for every
@@ -19,6 +21,17 @@ export type WorkspaceE2EAccountRequirement =
  */
 export type WorkspaceE2EAccountLifecycleHandoff = {
   firstAcceptedRequestedAt?: Date;
+  /**
+   * The step the sign-in form showed once it accepted an email: the inbox
+   * notice, or the code step the `login_email_code` flag adds. The preview's
+   * flag decides it, so the lane reads it from the UI.
+   */
+  signInConfirmation?: WorkspaceE2ESignInConfirmation;
+  /**
+   * The second unknown email's request, whose emailed code the sign-in code
+   * case enters while the form still shows that request's code step.
+   */
+  secondAcceptedRequestedAt?: Date;
   /**
    * The synthetic referrer's share code, which the main account follows from
    * its first anonymous visit through sign-in into profile completion.
