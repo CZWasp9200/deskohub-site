@@ -1,265 +1,230 @@
 import { Schema } from "effect";
 import {
+  type AudienceAttributeDefinition,
+  type AudienceAttributeKind,
+  type AudienceConditionIn,
+  booleanAttribute,
+  choiceParam,
+  countAttribute,
+  dateAttribute,
+  defineAudienceAttributeCatalogue,
+  freeTextValues,
+  lookupValues,
+  optionalChoiceParam,
+  optionValues,
+  periodParam,
+  setAttribute,
+} from "./audience-attribute-kinds";
+import {
   AdministrationCampaignLocale,
   AdministrationCampaignPurpose,
 } from "./campaign-locale-and-purpose";
-import { DatePeriod } from "./date-period";
-import {
-  AdministrationReservationFamily,
-  AdministrationReservationStatusFilter,
-} from "./workspace-admin-api";
-
-/** How a count attribute compares with the condition's number. */
-export const AudienceCountOperator = Schema.Literals([
-  "eq",
-  "ne",
-  "lt",
-  "lte",
-  "gt",
-  "gte",
-]);
-export type AudienceCountOperator = typeof AudienceCountOperator.Type;
+import { AdministrationReservationStatusFilter } from "./workspace-admin-api";
 
 /**
- * A date attribute's value lies in the period (`in`), exists outside it
- * (`notIn`), or doesn't exist (`none`).
+ * The customer attributes an audience can filter on. Each entry declares its
+ * kind, its wire shape (`attribute`, `params`, an `operator` and a `value` of
+ * its kind), its Admin UI label, section, editor wording and defaults, and its
+ * summary wording. Workspace drives evaluation, the Admin UI, summaries,
+ * locale narrowing, and `dhw` validation from it by kind, so adding an
+ * attribute takes an entry here and its Workspace resolver.
  */
-export const AudienceDateOperator = Schema.Literals(["in", "notIn", "none"]);
-export type AudienceDateOperator = typeof AudienceDateOperator.Type;
-
-/** A set attribute includes any, all, or none of the chosen values. */
-export const AudienceSetOperator = Schema.Literals([
-  "anyOf",
-  "allOf",
-  "noneOf",
-]);
-export type AudienceSetOperator = typeof AudienceSetOperator.Type;
-
-const count = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
-
-const chosen = <Value extends Schema.Top>(value: Value) =>
-  // An empty choice is typeable, so the Admin UI can hold one while the
-  // operator picks values, but it never decodes.
-  Schema.Array(value).check(Schema.isMinLength(1));
-
-/**
- * One condition on a catalog property of a reservation product: an enum
- * property is any or none of its values, a boolean property is true or
- * false, and a number property compares like a count. Workspace checks the
- * property and its values against its reservation product catalog.
- */
-export const ReservationProductPropertyCondition = Schema.Union([
-  Schema.Struct({
-    property: Schema.NonEmptyString,
-    operator: Schema.Literals(["anyOf", "noneOf"]),
-    value: chosen(Schema.NonEmptyString),
-  }),
-  Schema.Struct({
-    property: Schema.NonEmptyString,
-    operator: Schema.Literal("is"),
-    value: Schema.Boolean,
-  }),
-  Schema.Struct({
-    property: Schema.NonEmptyString,
-    operator: AudienceCountOperator,
-    value: count,
-  }),
-]);
-export type ReservationProductPropertyCondition =
-  typeof ReservationProductPropertyCondition.Type;
-
-/**
- * Limits reservation-based attributes to one product family, and optionally
- * to reservations whose catalog properties all meet their conditions.
- */
-export const ReservationProductFilter = Schema.Struct({
-  family: AdministrationReservationFamily,
-  properties: Schema.Array(ReservationProductPropertyCondition),
-}).annotate({
-  identifier: "ReservationProductFilter",
-  description:
-    "A reservation product family and conditions on its catalog properties.",
-});
-export type ReservationProductFilter = typeof ReservationProductFilter.Type;
-
-/**
- * One condition shape of one attribute. Each attribute lists its shapes as
- * separate union members. `attribute` comes before `_tag` because a union
- * dispatches on the first literal key it indexes: with `attribute` first, a
- * condition is checked only against its own attribute's shapes, so validation
- * errors point at its fields rather than at every attribute's.
- */
-const conditionShape = <
-  const Attribute extends string,
-  const Fields extends Schema.Struct.Fields,
->(
-  attribute: Attribute,
-  fields: Fields
-) =>
-  Schema.Struct({
-    attribute: Schema.Literal(attribute),
-    _tag: Schema.tag("Condition"),
-    ...fields,
-  });
-
-const countCondition = <
-  const Attribute extends string,
-  Params extends Schema.Top,
->(
-  attribute: Attribute,
-  params: Params
-) =>
-  [
-    conditionShape(attribute, {
-      params,
-      operator: AudienceCountOperator,
-      value: count,
-    }),
-  ] as const;
-
-const dateCondition = <
-  const Attribute extends string,
-  const Fields extends Schema.Struct.Fields,
->(
-  attribute: Attribute,
-  fields: Fields
-) =>
-  [
-    conditionShape(attribute, {
-      ...fields,
-      operator: Schema.Literals(["in", "notIn"]),
-      value: DatePeriod,
-    }),
-    conditionShape(attribute, {
-      ...fields,
-      operator: Schema.Literal("none"),
-    }),
-  ] as const;
-
-const setCondition = <
-  const Attribute extends string,
-  Value extends Schema.Top,
-  const Operators extends readonly [
-    AudienceSetOperator,
-    ...AudienceSetOperator[],
-  ],
->(
-  attribute: Attribute,
-  operators: Operators,
-  value: Value
-) =>
-  [
-    conditionShape(attribute, {
-      operator: Schema.Literals(operators),
-      value: chosen(value),
-    }),
-  ] as const;
-
-const booleanCondition = <const Attribute extends string>(
-  attribute: Attribute
-) =>
-  [
-    conditionShape(attribute, {
-      operator: Schema.Literal("is"),
-      value: Schema.Boolean,
-    }),
-  ] as const;
-
-/**
- * The customer attributes an audience can filter on, by kind. Each entry's
- * schema is the condition's whole wire shape: `attribute`, its `params`, and
- * an `operator` and `value` of its kind. Workspace keys its resolvers,
- * evaluation, summaries, and Admin UI controls by these attributes.
- */
-export const audienceAttributeCatalogue = {
+export const audienceAttributeCatalogue = defineAudienceAttributeCatalogue({
   /**
    * Booked reservations dated by visit (the Dotypos start) or booking
    * (`reservation_confirmed_at`) within the period. Without a status only
    * booked reservations count: confirmed and never cancelled.
    */
-  reservationCount: {
-    kind: "count",
-    conditions: countCondition(
-      "reservationCount",
-      Schema.Struct({
-        dateBasis: Schema.Literals(["visit", "booking"]),
-        period: DatePeriod,
-        status: Schema.optionalKey(AdministrationReservationStatusFilter),
-        product: Schema.optionalKey(ReservationProductFilter),
-      })
-    ),
-  },
+  reservationCount: countAttribute("reservationCount", {
+    label: "Reservation count",
+    section: "Reservations",
+    params: {
+      dateBasis: choiceParam(Schema.Literals(["visit", "booking"]), {
+        label: "Date basis",
+        control: "toggle",
+        options: {
+          visit: { label: "visit date", periodVerb: "visiting " },
+          booking: { label: "booking date", periodVerb: "confirmed " },
+        },
+      }),
+      period: periodParam,
+      status: optionalChoiceParam(AdministrationReservationStatusFilter, {
+        label: "Reservation status",
+        control: "select",
+        absent: { label: "booked", nounBefore: "booked " },
+        options: {
+          in_progress: { label: "in progress", nounAfter: " in progress" },
+          complete: { label: "complete", nounBefore: "complete " },
+          cancelled: { label: "cancelled", nounBefore: "cancelled " },
+          needs_refund: {
+            label: "needs refund",
+            nounAfter: " needing a refund",
+          },
+        },
+      }),
+    },
+    reservationProduct: true,
+    editor: {
+      lead: [
+        { param: "status" },
+        { text: "reservations by" },
+        { param: "dateBasis" },
+      ],
+      period: "Reservations",
+      count: "Reservation count",
+    },
+    summary: {
+      verb: "have",
+      noun: { one: "reservation", other: "reservations" },
+    },
+    defaults: {
+      params: { dateBasis: "visit", period: { _tag: "AnyTime" } },
+      operator: "gt",
+      value: 0,
+    },
+  }),
+  /**
+   * Start of the customer's latest booked reservation that has begun, of the
+   * product when `params.product` names one.
+   */
+  lastVisit: dateAttribute("lastVisit", {
+    label: "Last visit",
+    section: "Reservations",
+    reservationProduct: true,
+    editor: { noValue: "never visited" },
+    summary: {
+      withValue: "have visited",
+      inPeriod: "last visited",
+      notInPeriod: ", with the last visit not",
+      withoutValue: "have never visited",
+    },
+    defaults: {
+      operator: "in",
+      value: { _tag: "Last", count: 30, unit: "day" },
+    },
+  }),
   /**
    * Campaign emails Resend accepted for the customer (sent, delivered,
    * complained, or unconfirmed), dated by dispatch. Transactional emails
    * have no per-customer record and never count.
    */
-  campaignEmailCount: {
-    kind: "count",
-    conditions: countCondition(
-      "campaignEmailCount",
-      Schema.Struct({
-        purpose: Schema.Union([
-          AdministrationCampaignPurpose,
-          Schema.Literal("any"),
-        ]),
-        period: DatePeriod,
-      })
-    ),
-  },
-  /**
-   * Start of the customer's latest booked reservation that has begun, of the
-   * product when `params.product` names one.
-   */
-  lastVisit: {
-    kind: "date",
-    conditions: dateCondition("lastVisit", {
-      params: Schema.optionalKey(
-        Schema.Struct({ product: ReservationProductFilter })
+  campaignEmailCount: countAttribute("campaignEmailCount", {
+    label: "Campaign emails received",
+    section: "Emails",
+    params: {
+      purpose: choiceParam(
+        Schema.Union([AdministrationCampaignPurpose, Schema.Literal("any")]),
+        {
+          label: "Campaign purpose",
+          control: "select",
+          options: {
+            marketing: { label: "marketing", nounBefore: "marketing " },
+            operational: { label: "operational", nounBefore: "operational " },
+            any: { label: "any" },
+          },
+        }
       ),
-    }),
-  },
-  /** When the customer's linked Workspace account was created. */
-  accountCreated: {
-    kind: "date",
-    conditions: dateCondition("accountCreated", {}),
-  },
-  /** The customer's resolved campaign locale. */
-  locale: {
-    kind: "set",
-    conditions: setCondition(
-      "locale",
-      ["anyOf", "noneOf"],
-      AdministrationCampaignLocale
-    ),
-  },
-  /** Tags on the customer's Dotypos profile. */
-  dotyposTags: {
-    kind: "set",
-    conditions: setCondition(
-      "dotyposTags",
-      ["anyOf", "allOf", "noneOf"],
-      Schema.NonEmptyString
-    ),
-  },
-  /** The discount group (ID) of the customer's Dotypos profile. */
-  discountGroup: {
-    kind: "set",
-    conditions: setCondition(
-      "discountGroup",
-      ["anyOf", "noneOf"],
-      Schema.NonEmptyString
-    ),
-  },
+      period: periodParam,
+    },
+    editor: {
+      lead: [{ param: "purpose" }, { text: "campaign emails received" }],
+      period: "Emails received",
+      count: "Campaign email count",
+    },
+    summary: {
+      verb: "received",
+      noun: { one: "campaign email", other: "campaign emails" },
+    },
+    defaults: {
+      params: {
+        purpose: "marketing",
+        period: { _tag: "Last", count: 30, unit: "day" },
+      },
+      operator: "eq",
+      value: 0,
+    },
+  }),
   /** Whether the customer has a linked Workspace account. */
-  hasAccount: { kind: "boolean", conditions: booleanCondition("hasAccount") },
-} as const;
+  hasAccount: booleanAttribute("hasAccount", {
+    label: "Workspace account",
+    section: "Account",
+    editor: { true: "Has", false: "Hasn’t", object: "a Workspace account" },
+    summary: {
+      true: "have a Workspace account",
+      false: "have no Workspace account",
+    },
+    defaults: { operator: "is", value: true },
+  }),
+  /** When the customer's linked Workspace account was created. */
+  accountCreated: dateAttribute("accountCreated", {
+    label: "Account created",
+    section: "Account",
+    editor: { noValue: "no account" },
+    summary: {
+      withValue: "have a Workspace account",
+      inPeriod: "created a Workspace account",
+      notInPeriod: " not created",
+      withoutValue: "have no Workspace account",
+    },
+    defaults: {
+      operator: "in",
+      value: { _tag: "Last", count: 30, unit: "day" },
+    },
+  }),
+  /** The customer's resolved campaign locale. */
+  locale: setAttribute("locale", {
+    label: "Locale",
+    section: "Profile",
+    values: optionValues(AdministrationCampaignLocale, {
+      noun: "locale",
+      options: {
+        "cs-CZ": { label: "Czech (cs-CZ)", name: "Czech" },
+        "en-US": { label: "English (en-US)", name: "English" },
+      },
+    }),
+    operators: ["anyOf", "noneOf"],
+    narrowsLocales: true,
+    editor: { lead: "Locale" },
+    summary: { anyOf: "speak", noneOf: "don’t speak" },
+    defaults: { operator: "anyOf", value: ["cs-CZ"] },
+  }),
+  /** Tags on the customer's Dotypos profile. */
+  dotyposTags: setAttribute("dotyposTags", {
+    label: "Dotypos tags",
+    section: "Profile",
+    values: freeTextValues({ noun: "tag", placeholder: "Add a tag" }),
+    operators: ["anyOf", "allOf", "noneOf"],
+    editor: { lead: "Tags" },
+    summary: {
+      anyOf: "are tagged",
+      allOf: "are tagged",
+      noneOf: "aren’t tagged",
+    },
+    defaults: { operator: "anyOf", value: [] },
+  }),
+  /** The discount group (ID) of the customer's Dotypos profile. */
+  discountGroup: setAttribute("discountGroup", {
+    label: "Discount group",
+    section: "Profile",
+    values: lookupValues({
+      lookup: "discountGroups",
+      noun: "discount group",
+      choose: "Choose groups",
+      freeText: { noun: "discount group ID", placeholder: "Dotypos group ID" },
+    }),
+    operators: ["anyOf", "noneOf"],
+    editor: { lead: "Discount group" },
+    summary: {
+      anyOf: "are in discount group",
+      noneOf: "aren’t in discount group",
+    },
+    defaults: { operator: "anyOf", value: [] },
+  }),
+});
 
-type AudienceAttributeCatalogue = typeof audienceAttributeCatalogue;
+export type AudienceAttributeCatalogue = typeof audienceAttributeCatalogue;
 
 export type AudienceAttribute = keyof AudienceAttributeCatalogue;
-export type AudienceAttributeKind =
-  AudienceAttributeCatalogue[AudienceAttribute]["kind"];
 
 /** Every attribute of one kind. */
 export type AudienceAttributeOfKind<Kind extends AudienceAttributeKind> = {
@@ -268,9 +233,7 @@ export type AudienceAttributeOfKind<Kind extends AudienceAttributeKind> = {
     : never;
 }[AudienceAttribute];
 
-export type AudienceCondition = {
-  readonly [Attribute in AudienceAttribute]: AudienceAttributeCatalogue[Attribute]["conditions"][number]["Type"];
-}[AudienceAttribute];
+export type AudienceCondition = AudienceConditionIn<AudienceAttributeCatalogue>;
 
 /** The condition shape of one attribute. */
 export type AudienceConditionOf<Attribute extends AudienceAttribute> = Extract<
@@ -278,46 +241,70 @@ export type AudienceConditionOf<Attribute extends AudienceAttribute> = Extract<
   { readonly attribute: Attribute }
 >;
 
-const audienceConditionMembers: readonly Schema.Codec<AudienceCondition>[] =
-  Object.values(audienceAttributeCatalogue).flatMap(
-    ({ conditions }): readonly Schema.Codec<AudienceCondition>[] => conditions
-  );
-
-/** One condition on one catalogued customer attribute. */
-export const AudienceCondition: Schema.Codec<AudienceCondition> = Schema.Union(
-  audienceConditionMembers
-);
-
 /**
  * A nested AND/OR group. An empty AND group matches every candidate, so an
  * audience whose root is `{ operator: "and", filters: [] }` reaches all
  * customers Workspace knows; an empty OR group matches nobody.
  */
-export type AudienceFilterGroup = {
+export type AudienceFilterGroupOf<Condition> = {
   readonly _tag: "Group";
   readonly operator: "and" | "or";
-  readonly filters: readonly AudienceFilter[];
+  readonly filters: readonly AudienceFilterOf<Condition>[];
 };
 
-export type AudienceFilter = AudienceCondition | AudienceFilterGroup;
+/** A filter tree over one catalogue's conditions. */
+export type AudienceFilterOf<Condition> =
+  | Condition
+  | AudienceFilterGroupOf<Condition>;
 
-const audienceFilterGroup = Schema.TaggedStruct("Group", {
-  operator: Schema.Literals(["and", "or"]),
-  filters: Schema.Array(
-    Schema.suspend((): Schema.Codec<AudienceFilter> => AudienceFilter)
-  ),
-});
+export type AudienceFilterGroup = AudienceFilterGroupOf<AudienceCondition>;
+export type AudienceFilter = AudienceFilterOf<AudienceCondition>;
+
+/**
+ * The condition and filter-tree schemas of a catalogue. The filter tree
+ * ignores excess properties when decoded on its own; the strict API inputs
+ * that embed it reject them.
+ */
+export const makeAudienceFilterSchemas = <
+  Catalogue extends {
+    readonly [Attribute in keyof Catalogue]: AudienceAttributeDefinition;
+  },
+>(
+  catalogue: Catalogue
+) => {
+  type Condition = AudienceConditionIn<Catalogue>;
+  const definitions: readonly AudienceAttributeDefinition[] =
+    Object.values(catalogue);
+  // Each entry's shapes decode to its own attribute's conditions.
+  const members = definitions.flatMap(
+    ({ conditions }) => conditions
+  ) as readonly Schema.Codec<Condition>[];
+  const group = Schema.TaggedStruct("Group", {
+    operator: Schema.Literals(["and", "or"]),
+    filters: Schema.Array(
+      Schema.suspend((): Schema.Codec<AudienceFilterOf<Condition>> => filter)
+    ),
+  });
+  const filter: Schema.Codec<AudienceFilterOf<Condition>> = Schema.Union<
+    readonly Schema.Codec<AudienceFilterOf<Condition>>[]
+  >([...members, group]).annotate({
+    identifier: "AudienceFilter",
+    description: `Nested AND/OR tree of attribute conditions: ${definitions
+      .map(({ label }) => label.toLowerCase())
+      .join(", ")}.`,
+  });
+  return { condition: Schema.Union(members), filter };
+};
+
+const schemas = makeAudienceFilterSchemas(audienceAttributeCatalogue);
+
+/** One condition on one catalogued customer attribute. */
+export const AudienceCondition: Schema.Codec<AudienceCondition> =
+  schemas.condition;
 
 /**
  * The filter tree a campaign audience selects its recipients with. Workspace
  * stores and evaluates this schema, and the administration API carries it, so
- * it has one definition. It ignores excess properties when decoded on its own;
- * the strict API inputs that embed it reject them.
+ * it has one definition.
  */
-export const AudienceFilter: Schema.Codec<AudienceFilter> = Schema.Union<
-  readonly Schema.Codec<AudienceFilter>[]
->([...audienceConditionMembers, audienceFilterGroup]).annotate({
-  identifier: "AudienceFilter",
-  description:
-    "Nested AND/OR tree of attribute conditions: reservation and campaign-email counts, last visit and account creation dates, locale, Dotypos tags, discount group, and account presence.",
-});
+export const AudienceFilter: Schema.Codec<AudienceFilter> = schemas.filter;

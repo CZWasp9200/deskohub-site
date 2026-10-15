@@ -88,6 +88,55 @@ describe("campaign admin API contract", () => {
     ]);
   });
 
+  test("rejects zero comparisons that match nobody or everyone, on the operator", () => {
+    const emailCount = (operator: string, value: number) => ({
+      attribute: "campaignEmailCount",
+      _tag: "Condition",
+      params: { purpose: "any", period: { _tag: "AnyTime" } },
+      operator,
+      value,
+    });
+    const seats = (operator: string, value: number) => ({
+      attribute: "reservationCount",
+      _tag: "Condition",
+      params: {
+        dateBasis: "visit",
+        period: { _tag: "AnyTime" },
+        product: {
+          family: "office",
+          properties: [{ property: "seats", operator, value }],
+        },
+      },
+      operator: "gt",
+      value: 0,
+    });
+    expect(issuePaths(emailCount("lt", 0))).toEqual(["operator"]);
+    expect(issuePaths(emailCount("gte", 0))).toEqual(["operator"]);
+    // Property conditions have no discriminator, so every shape reports.
+    expect(issuePaths(seats("lt", 0))).toContain(
+      "params.product.properties.0.operator"
+    );
+    for (const [operator, value] of [
+      ["eq", 0],
+      ["ne", 0],
+      ["lte", 0],
+      ["gt", 0],
+      ["lt", 1],
+      ["gte", 1],
+    ] as const) {
+      expect(issuePaths(emailCount(operator, value))).toEqual([]);
+      expect(issuePaths(seats(operator, value))).toEqual([]);
+    }
+    expect(
+      Schema.decodeUnknownResult(AudienceFilter)(emailCount("lt", 0)).pipe(
+        Result.match({
+          onFailure: (issue) => String(issue),
+          onSuccess: () => "",
+        })
+      )
+    ).toContain("“< 0” never matches. Use “= 0” for none.");
+  });
+
   test("accepts a stored audience filter in every API input that embeds it", () => {
     const filter = JSON.parse(storedFilterJson);
 
