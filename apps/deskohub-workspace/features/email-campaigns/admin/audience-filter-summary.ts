@@ -175,6 +175,31 @@ const describeFilter = (
     .join(filter.operator === "and" ? " and " : " or ");
 };
 
+const endsAtEvaluation = (period: DatePeriod) =>
+  period._tag === "Last" || period._tag === "Since";
+
+/**
+ * Whether a period in the filter runs up to the evaluation time ("last N
+ * days", "since"), so the audience it describes moves with the clock. A sent
+ * campaign evaluated those at its send time.
+ */
+export const hasPeriodEndingAtEvaluation = (filter: AudienceFilter): boolean =>
+  filter._tag === "Group"
+    ? filter.filters.some(hasPeriodEndingAtEvaluation)
+    : Match.value(filter).pipe(
+        Match.discriminatorsExhaustive("attribute")({
+          reservationCount: ({ params }) => endsAtEvaluation(params.period),
+          campaignEmailCount: ({ params }) => endsAtEvaluation(params.period),
+          lastVisit: (date) => "value" in date && endsAtEvaluation(date.value),
+          accountCreated: (date) =>
+            "value" in date && endsAtEvaluation(date.value),
+          locale: () => false,
+          dotyposTags: () => false,
+          discountGroup: () => false,
+          hasAccount: () => false,
+        })
+      );
+
 /**
  * One sentence of plain English for an audience filter tree. Discount groups
  * show by name when `discountGroups` lists them, otherwise by ID.

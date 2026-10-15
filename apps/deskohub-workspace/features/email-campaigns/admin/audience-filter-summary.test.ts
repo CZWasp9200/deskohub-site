@@ -2,7 +2,11 @@ import { describe, expect, test } from "bun:test";
 import type { AudienceCountOperatorType } from "@deskohub/workspace-admin-api";
 import type { AudienceCondition, AudienceFilter } from "../audience-filter";
 import type { DatePeriod } from "../date-period";
-import { describeAudienceFilter, describeCount } from "./audience-filter-summary";
+import {
+  describeAudienceFilter,
+  describeCount,
+  hasPeriodEndingAtEvaluation,
+} from "./audience-filter-summary";
 import { describeDatePeriod } from "./date-period-phrases";
 
 const and = (...filters: AudienceFilter[]): AudienceFilter => ({
@@ -167,5 +171,40 @@ describe("describeDatePeriod", () => {
     [{ _tag: "Until", date: "2026-01-01" }, "until 2026-01-01"],
   ])("names %o as “%s”", (period, phrase) => {
     expect(describeDatePeriod(period)).toBe(phrase);
+  });
+});
+
+describe("hasPeriodEndingAtEvaluation", () => {
+  test("finds last-N and since periods anywhere in the tree", () => {
+    expect(hasPeriodEndingAtEvaluation(and(czech, reservations("gt", 0)))).toBe(
+      false
+    );
+    expect(
+      hasPeriodEndingAtEvaluation(
+        and(
+          czech,
+          or(
+            reservations("gt", 0, {
+              period: { _tag: "Last", count: 2, unit: "week" },
+            })
+          )
+        )
+      )
+    ).toBe(true);
+    expect(
+      hasPeriodEndingAtEvaluation({
+        attribute: "lastVisit",
+        _tag: "Condition",
+        operator: "in",
+        value: { _tag: "Since", date: "2026-01-01" },
+      })
+    ).toBe(true);
+    expect(
+      hasPeriodEndingAtEvaluation({
+        attribute: "lastVisit",
+        _tag: "Condition",
+        operator: "none",
+      })
+    ).toBe(false);
   });
 });

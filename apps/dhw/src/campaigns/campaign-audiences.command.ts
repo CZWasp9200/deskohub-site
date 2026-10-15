@@ -21,7 +21,9 @@ const audienceIdArgument = Argument.string("audience-id").pipe(
 const filterFlags = {
   filterFile: Flag.string("filter-file").pipe(
     Flag.optional,
-    Flag.withDescription("JSON file with the audience filter tree")
+    Flag.withDescription(
+      "JSON file with the audience filter tree: AND/OR groups of attribute conditions, e.g. {\"_tag\":\"Group\",\"operator\":\"and\",\"filters\":[{\"attribute\":\"campaignEmailCount\",\"_tag\":\"Condition\",\"params\":{\"purpose\":\"marketing\",\"period\":{\"_tag\":\"Last\",\"count\":10,\"unit\":\"day\"}},\"operator\":\"eq\",\"value\":0}]}"
+    )
   ),
   filter: Flag.string("filter").pipe(
     Flag.optional,

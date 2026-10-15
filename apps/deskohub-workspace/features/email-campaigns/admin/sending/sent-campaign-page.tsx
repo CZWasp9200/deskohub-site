@@ -8,7 +8,10 @@ import {
   formatAdministrationDateTime,
 } from "@/features/administration/components";
 import { campaignRecipientStatuses } from "../../campaign-states";
-import { describeAudienceFilter } from "../audience-filter-summary";
+import {
+  describeAudienceFilter,
+  hasPeriodEndingAtEvaluation,
+} from "../audience-filter-summary";
 import { loadDiscountGroupOptions } from "../audiences/discount-group-options.server";
 import {
   CampaignPurposeBadge,
@@ -101,10 +104,11 @@ export async function SentCampaignPage({
               />
               <AdministrationFact
                 label="Filter"
-                value={describeAudienceFilter(
-                  send.audienceFilter,
-                  discountGroups
-                )}
+                value={
+                  hasPeriodEndingAtEvaluation(send.audienceFilter)
+                    ? `${describeAudienceFilter(send.audienceFilter, discountGroups)}, counted back from the send time (${formatAdministrationDateTime(send.createdAt.toString())}).`
+                    : describeAudienceFilter(send.audienceFilter, discountGroups)
+                }
               />
             </dl>
           ) : (
