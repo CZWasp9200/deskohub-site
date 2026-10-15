@@ -2,10 +2,16 @@ import "server-only";
 
 import { drizzleAdapter } from "@better-auth/drizzle-adapter/relations-v2";
 import { getLocaleFromPathname } from "@deskohub/i18n/pathname";
-import { APIError, type BetterAuthOptions, betterAuth } from "better-auth";
+import {
+  APIError,
+  type AuthContext,
+  type BetterAuthOptions,
+  betterAuth,
+  type DBAdapter,
+} from "better-auth";
 import { createAuthMiddleware, isAPIError } from "better-auth/api";
 import { nextCookies } from "better-auth/next-js";
-import { magicLink } from "better-auth/plugins";
+import { emailOTP, magicLink } from "better-auth/plugins";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Data, Effect, Layer, Match, Option, Predicate, Schema } from "effect";
 import { after } from "next/server";
@@ -23,21 +29,46 @@ import {
   customerAccountIdSchema,
 } from "@/features/account/customer-account";
 import { defaultLocale, type Locale, locales } from "@/features/i18n";
+import type {
+  BotDetectedError,
+  BotVerificationError,
+  VerifyHumanInput,
+} from "@/shared/backend/bot-protection/bot-protection.service";
 import { runWorkspaceEffect } from "@/shared/backend/workspace-effect";
 import {
   lookupMagicLinkDeliveryLocale,
   type MagicLinkLocaleLookup,
 } from "../customer-locale-preference";
-import { authOptions, betterAuthMagicLinkOptions } from "./auth-options";
+import {
+  authOptions,
+  betterAuthMagicLinkOptions,
+  betterAuthSignInCodeOptions,
+} from "./auth-options";
 import { renderMagicLinkEmail } from "./magic-link-email";
 import {
   magicLinkDeliveryEnvironment,
   makeMagicLinkEmailDelivery,
 } from "./send-magic-link-email";
+import {
+  claimSignInCode,
+  claimSignInLink,
+  dateSignInCodeRow,
+  issueSignInCode,
+  reserveSignInEmail,
+  type SignInEmailLock,
+} from "./sign-in-code";
 
-export type MagicLinkSendFunction = NonNullable<
-  Parameters<typeof magicLink>[0]["sendMagicLink"]
->;
+/**
+ * A sign-in email: the magic link and, while sign-in codes are on, the code
+ * that signs in the same way.
+ */
+export type SignInEmail = Parameters<
+  NonNullable<Parameters<typeof magicLink>[0]["sendMagicLink"]>
+>[0] & { readonly code?: string };
+
+export type MagicLinkSendFunction = (
+  email: SignInEmail
+) => Promise<void> | void;
 
 export type WorkspaceAuthConfig = {
   readonly database: NonNullable<BetterAuthOptions["database"]>;
@@ -46,6 +77,17 @@ export type WorkspaceAuthConfig = {
   readonly httpsOnly: boolean;
   /** Request-memoized feature-flag read; a rejection counts as disabled. */
   readonly areAccountsEnabled: () => Promise<boolean>;
+  /**
+   * The `login_email_code` read, once per sign-in email; a rejection counts
+   * as disabled.
+   */
+  readonly isSignInCodeEnabled: () => Promise<boolean>;
+  /** BotID verification of the current request. */
+  readonly verifyHuman: (
+    input: VerifyHumanInput
+  ) => Effect.Effect<void, BotDetectedError | BotVerificationError>;
+  /** Serializes sign-in code issues for one email address. */
+  readonly withSignInEmailLock: SignInEmailLock;
   readonly sendMagicLink: MagicLinkSendFunction;
   /**
    * Requests the account's deletion before Better Auth removes it. Its
@@ -65,10 +107,31 @@ export type WorkspaceAuthConfig = {
   ) => Effect.Effect<void, EffectDrizzleQueryError>;
 };
 
-const accountMagicLinkPaths = new Set([
+const accountSignInPaths = new Set([
   "/sign-in/magic-link",
   "/magic-link/verify",
+  "/sign-in/email-otp",
 ]);
+
+/**
+ * The email-OTP plugin serves only code sign-in. Codes are issued with the
+ * magic link, so every other plugin endpoint stays unreachable over HTTP;
+ * `check-verification-otp` would otherwise be a non-consuming guessing
+ * oracle.
+ */
+const disabledSignInCodePaths = [
+  "/email-otp/send-verification-otp",
+  "/email-otp/check-verification-otp",
+  "/email-otp/verify-email",
+  "/email-otp/request-password-reset",
+  "/forget-password/email-otp",
+  "/email-otp/reset-password",
+  "/email-otp/request-email-change",
+  "/email-otp/change-email",
+];
+
+/** The only body fields code sign-in accepts; none reach the user insert. */
+const signInCodeBodyFields = new Set(["email", "otp", "callbackURL"]);
 const accountsUnavailableErrors = new WeakSet<object>();
 
 const makeAccountsUnavailableError = () => {
@@ -86,6 +149,36 @@ const magicLinkMetadataSchema = Schema.Struct({
   locale: Schema.optional(Schema.Literals(locales)),
 });
 
+const signInCodeMetadataSchema = Schema.Struct({
+  signInCode: Schema.Boolean,
+});
+
+/**
+ * Whether the sign-in email carries a code. Only the server writes this
+ * metadata: the `/sign-in/magic-link` guard overwrites any client value.
+ */
+const isSignInCodeRequested = (metadata: SignInEmail["metadata"]) =>
+  Option.match(Schema.decodeUnknownOption(signInCodeMetadataSchema)(metadata), {
+    onNone: () => false,
+    onSome: ({ signInCode }) => signInCode,
+  });
+
+const makeBotDetectedError = () =>
+  new APIError("FORBIDDEN", {
+    code: "BOT_DETECTED",
+    message: "Automated request detected.",
+  });
+
+/** Better Auth's response to a wrong or used code. */
+const makeInvalidSignInCodeError = () =>
+  new APIError("BAD_REQUEST", { code: "INVALID_OTP", message: "Invalid OTP" });
+
+const makeSignInEmailLimitError = () =>
+  new APIError("TOO_MANY_REQUESTS", {
+    code: "SIGN_IN_EMAIL_LIMIT_REACHED",
+    message: "Too many sign-in emails were requested for this address.",
+  });
+
 /** The initiating site locale in the magic-link metadata, else the default. */
 const decodeMagicLinkLocale = (
   data: Parameters<MagicLinkSendFunction>[0]
@@ -97,22 +190,28 @@ const decodeMagicLinkLocale = (
 const authContextSchema = Schema.Struct({
   path: Schema.optional(Schema.String),
   query: Schema.optional(Schema.Record(Schema.String, Schema.String)),
+  body: Schema.optional(
+    Schema.Struct({ callbackURL: Schema.optional(Schema.String) })
+  ),
 });
 
 type ParsedAuthContext = {
   readonly path?: string;
   readonly query?: Readonly<Record<string, string>>;
+  readonly body?: { readonly callbackURL?: string };
 };
 
 /**
  * Reads the site language from the auth request's localized callback URL:
- * the magic-link verify request carries it. Returns nothing when the
- * callback is absent, unparseable, or carries no locale.
+ * the magic-link verify request carries it in its query, a code sign-in in
+ * its body. Returns nothing when the callback is absent, unparseable, or
+ * carries no locale.
  */
 const callbackLocaleFromAuthContext = (
   ctx: ParsedAuthContext
 ): Locale | undefined => {
-  const callbackURL = ctx.query?.callbackURL ?? ctx.path;
+  const callbackURL =
+    ctx.query?.callbackURL ?? ctx.body?.callbackURL ?? ctx.path;
   if (!callbackURL) return undefined;
   const parsed = URL.parse(callbackURL, "https://auth.internal.invalid");
   return parsed ? getLocaleFromPathname(parsed.pathname, locales) : undefined;
@@ -156,35 +255,357 @@ const decodeAccountId = (userId: string) =>
 /** Decodes the auth request context, the hooks' I/O boundary. */
 const decodeAuthContext = Schema.decodeUnknownOption(authContextSchema);
 
+type GuardedAuthRequest = {
+  readonly path: string;
+  readonly body?: unknown;
+  readonly query?: unknown;
+  readonly context: {
+    readonly adapter: DBAdapter;
+    readonly internalAdapter: AuthContext["internalAdapter"];
+  };
+};
+
+type AuthRequestGuard = {
+  readonly config: WorkspaceAuthConfig;
+  readonly request: GuardedAuthRequest;
+};
+
 /**
- * Rejects magic-link requests while accounts are disabled (an unreadable
- * flag counts as disabled) and any request carrying profile fields.
+ * BotID screens both sign-in code paths. A verification outage lets the
+ * request through; the per-email limit, the per-IP rate limits, and the
+ * code's attempt budget still apply.
  */
-const guardAuthRequest = Effect.fn("WorkspaceAuth.guardRequest")(function* (
-  config: WorkspaceAuthConfig,
-  ctx: { readonly path: string; readonly body?: unknown }
-) {
-  if (accountMagicLinkPaths.has(ctx.path)) {
-    const enabled = yield* Effect.tryPromise(() =>
-      config.areAccountsEnabled()
-    ).pipe(Effect.orElseSucceed(() => false));
-    if (!enabled) return yield* Effect.fail(makeAccountsUnavailableError());
-  }
+const verifySignInHuman = (config: WorkspaceAuthConfig) =>
+  Effect.suspend(() =>
+    config.verifyHuman({ verificationFailurePolicy: "allow" })
+  ).pipe(Effect.mapError(() => makeBotDetectedError()));
 
-  const body = ctx.body;
-  const hasProfileFields =
-    ctx.path === "/sign-in/magic-link" &&
+/** Sign-in requests need accounts on; an unreadable flag counts as off. */
+const requireAccounts = ({ config, request }: AuthRequestGuard) =>
+  Effect.tryPromise(() => config.areAccountsEnabled()).pipe(
+    Effect.orElseSucceed(() => false),
+    Effect.filterOrFail(Boolean, makeAccountsUnavailableError),
+    Effect.when(Effect.succeed(accountSignInPaths.has(request.path)))
+  );
+
+const hasProfileFields = ({ path, body }: GuardedAuthRequest) =>
+  path === "/update-user" ||
+  (path === "/sign-in/magic-link" &&
     Predicate.isObject(body) &&
-    (Object.hasOwn(body, "name") || Object.hasOwn(body, "image"));
+    (Object.hasOwn(body, "name") || Object.hasOwn(body, "image")));
 
-  if (ctx.path === "/update-user" || hasProfileFields) {
-    return yield* Effect.fail(
+const rejectProfileFields = ({ request }: AuthRequestGuard) =>
+  Effect.failSync(
+    () =>
       new APIError("BAD_REQUEST", {
         message: "Profile fields are not accepted.",
       })
-    );
-  }
+  ).pipe(Effect.when(Effect.succeed(hasProfileFields(request))));
+
+const hasOnlySignInCodeFields = ({ body }: GuardedAuthRequest) =>
+  !Predicate.isObject(body) ||
+  Object.keys(body).every((field) => signInCodeBodyFields.has(field));
+
+/** A code sign-in carries only the email, code, and callback URL. */
+const screenSignInCode = ({ config, request }: AuthRequestGuard) =>
+  Effect.succeed(request).pipe(
+    Effect.filterOrFail(
+      hasOnlySignInCodeFields,
+      () =>
+        new APIError("BAD_REQUEST", {
+          message: "Only the email, code, and callback URL are accepted.",
+        })
+    ),
+    Effect.andThen(verifySignInHuman(config))
+  );
+
+const magicLinkQuerySchema = Schema.Struct({ token: Schema.String });
+
+/**
+ * A magic link takes its email's claim before Better Auth consumes it. Better
+ * Auth rejects a missing token after the hook.
+ */
+const claimMagicLink = ({ request }: AuthRequestGuard) =>
+  Option.match(
+    Schema.decodeUnknownOption(magicLinkQuerySchema)(request.query),
+    {
+      onNone: () => Effect.void,
+      onSome: ({ token }) =>
+        claimSignInLink({
+          token,
+          verifications: request.context.adapter,
+          signInLinks: request.context.internalAdapter,
+        }),
+    }
+  );
+
+const readSignInCodeFlag = ({ config }: AuthRequestGuard) =>
+  Effect.tryPromise(() => config.isSignInCodeEnabled()).pipe(
+    Effect.orElseSucceed(() => false)
+  );
+
+const signInEmailBodySchema = Schema.Struct({ email: Schema.String });
+
+/**
+ * BotID and the per-email limit screen sign-in emails that carry a code.
+ * Better Auth rejects a missing or malformed email after the hook.
+ */
+const screenSignInEmail = ({ config, request }: AuthRequestGuard) =>
+  verifySignInHuman(config).pipe(
+    Effect.andThen(
+      Option.match(
+        Schema.decodeUnknownOption(signInEmailBodySchema)(request.body),
+        {
+          onNone: () => Effect.void,
+          onSome: ({ email }) =>
+            reserveSignInEmail({
+              verifications: request.context.adapter,
+              email,
+            }).pipe(
+              Effect.filterOrFail(Boolean, makeSignInEmailLimitError),
+              Effect.asVoid
+            ),
+        }
+      )
+    )
+  );
+
+/**
+ * Evaluates `login_email_code` once for a sign-in email (fail closed) and
+ * records the decision in the request metadata, replacing any client value,
+ * so the email and the response follow one evaluation. While it is on, the
+ * send is BotID-checked and counted against the per-email limit.
+ */
+const decideSignInCode = (guard: AuthRequestGuard) =>
+  Effect.succeed(guard).pipe(
+    Effect.bind("signInCode", readSignInCodeFlag),
+    Effect.tap(({ signInCode }) =>
+      screenSignInEmail(guard).pipe(Effect.when(Effect.succeed(signInCode)))
+    ),
+    Effect.map(({ signInCode }) => ({
+      context: { body: { metadata: { signInCode } } },
+    })),
+    Effect.withSpan("WorkspaceAuth.decideSignInCode")
+  );
+
+const guardSignInPath = (guard: AuthRequestGuard) =>
+  Match.value(guard.request.path).pipe(
+    Match.when("/sign-in/magic-link", () => decideSignInCode(guard)),
+    Match.when("/magic-link/verify", () => claimMagicLink(guard)),
+    Match.when("/sign-in/email-otp", () => screenSignInCode(guard)),
+    Match.orElse(() => Effect.void)
+  );
+
+/**
+ * Rejects sign-in requests while accounts are disabled (an unreadable flag
+ * counts as disabled), any request carrying profile fields, and code
+ * sign-ins carrying anything beyond the email, code, and callback URL.
+ */
+const guardAuthRequest = (guard: AuthRequestGuard) =>
+  Effect.succeed(guard).pipe(
+    Effect.tap(requireAccounts),
+    Effect.tap(rejectProfileFields),
+    Effect.flatMap(guardSignInPath),
+    Effect.withSpan("WorkspaceAuth.guardRequest")
+  );
+
+type SignInEmailSend = {
+  readonly config: WorkspaceAuthConfig;
+  readonly email: Omit<SignInEmail, "code">;
+  /** The sign-in request's auth context; absent outside a request. */
+  readonly context: AuthContext | undefined;
+  readonly createSignInCode: (email: string) => Promise<string>;
+};
+
+/**
+ * Issues the code when the request's decision says so. A code that can't be
+ * stored fails the request: the response would otherwise promise a code the
+ * email lacks.
+ */
+const issueRequestedSignInCode = ({
+  config,
+  email,
+  context,
+  createSignInCode,
+}: SignInEmailSend) =>
+  Option.fromNullishOr(context).pipe(
+    Option.filter(() => isSignInCodeRequested(email.metadata)),
+    Option.match({
+      onNone: () => Effect.succeedNone,
+      onSome: ({ adapter, internalAdapter }) =>
+        issueSignInCode({
+          email: email.email,
+          token: email.token,
+          verifications: adapter,
+          signInCodes: internalAdapter,
+          createSignInCode,
+          withSignInEmailLock: config.withSignInEmailLock,
+        }).pipe(
+          Effect.tapError(({ code }) =>
+            Effect.logWarning("Sign-in code issuance failed.", { code })
+          ),
+          Effect.map(Option.some)
+        ),
+    })
+  );
+
+/** Sends the sign-in email, adding a code when the request's decision says so. */
+const sendSignInEmail = (send: SignInEmailSend) =>
+  Effect.succeed(send).pipe(
+    Effect.bind("code", issueRequestedSignInCode),
+    Effect.flatMap(({ config, email, code }) =>
+      Effect.promise(async () =>
+        config.sendMagicLink(
+          Option.match(code, {
+            onNone: () => email,
+            onSome: (signInCode) => ({ ...email, code: signInCode }),
+          })
+        )
+      )
+    ),
+    Effect.withSpan("WorkspaceAuth.sendSignInEmail")
+  );
+
+const signInCodeBodySchema = Schema.Struct({
+  email: Schema.String,
+  otp: Schema.String,
 });
+
+type AuthEndpointContext = {
+  readonly path?: string;
+  readonly body?: unknown;
+  readonly context: { readonly adapter: DBAdapter };
+} | null;
+
+/** The code sign-in a Better Auth database hook runs within, if any. */
+const signInCodeRequest = (ctx: AuthEndpointContext) =>
+  Option.fromNullishOr(ctx).pipe(
+    Option.filter(({ path }) => path === "/sign-in/email-otp"),
+    Option.flatMap(({ body, context }) =>
+      Option.map(
+        Schema.decodeUnknownOption(signInCodeBodySchema)(body),
+        ({ email, otp }) => ({
+          email,
+          code: otp,
+          verifications: context.adapter,
+        })
+      )
+    )
+  );
+
+/**
+ * A code sign-in takes its email's claim after Better Auth accepts the code
+ * and before it creates the session. Losing to the link reads like any used
+ * code.
+ */
+const claimSignInCodeSession = ({
+  ctx,
+}: {
+  readonly ctx: AuthEndpointContext;
+}) =>
+  signInCodeRequest(ctx).pipe(
+    Option.match({
+      onNone: () => Effect.void,
+      onSome: (request) =>
+        claimSignInCode(request).pipe(
+          Effect.catchTag("SignInEmailUsedError", () =>
+            Effect.fail(makeInvalidSignInCodeError())
+          )
+        ),
+    })
+  );
+
+/**
+ * A code that Better Auth writes back after a wrong guess keeps its issue
+ * time, so it never outranks a newer email's code.
+ */
+const dateRestoredSignInCode = ({
+  verification,
+  ctx,
+}: {
+  readonly verification: {
+    readonly identifier: string;
+    readonly expiresAt: Date;
+  };
+  readonly ctx: AuthEndpointContext;
+}) =>
+  signInCodeRequest(ctx).pipe(
+    Option.map(({ email }) => dateSignInCodeRow({ email, row: verification })),
+    Effect.transposeOption,
+    Effect.map((dated) =>
+      Option.getOrUndefined(
+        Option.map(Option.flatten(dated), (data) => ({ data }))
+      )
+    )
+  );
+
+/**
+ * Captures the sign-in callback locale for the session's account, when both
+ * are known.
+ */
+const captureSessionLocale = ({
+  config,
+  session,
+  ctx,
+}: {
+  readonly config: WorkspaceAuthConfig;
+  readonly session: { readonly userId: string };
+  readonly ctx: AuthEndpointContext;
+}) =>
+  Option.all({
+    accountId: Option.fromNullishOr(decodeAccountId(session.userId)),
+    locale: Option.fromNullishOr(
+      callbackLocaleFromAuthContext(
+        Option.getOrElse(decodeAuthContext(ctx), () => ({}))
+      )
+    ),
+  }).pipe(
+    Option.match({
+      onNone: () => Effect.void,
+      onSome: ({ accountId, locale }) =>
+        captureLocalePreference(config, accountId, locale),
+    })
+  );
+
+/**
+ * Prepares a session before Better Auth stores it: a code sign-in takes its
+ * claim first, the callback locale is captured, and the session keeps no IP
+ * address or user agent.
+ */
+const prepareSession = <Session extends { readonly userId: string }>(request: {
+  readonly config: WorkspaceAuthConfig;
+  readonly session: Session;
+  readonly ctx: AuthEndpointContext;
+}) =>
+  Effect.succeed(request).pipe(
+    Effect.tap(claimSignInCodeSession),
+    Effect.tap(captureSessionLocale),
+    Effect.map(({ session }) => ({
+      data: { ...session, ipAddress: null, userAgent: null },
+    }))
+  );
+
+type CompletedAuthRequest = {
+  readonly path: string;
+  readonly body?: { readonly metadata?: SignInEmail["metadata"] };
+  readonly json: (body: {
+    readonly status: true;
+    readonly signInCode: boolean;
+  }) => unknown;
+  readonly context: { readonly returned?: unknown };
+};
+
+/**
+ * Returns the sign-in code decision with the sign-in email response, so the
+ * client shows the code step only for an email that carries a code.
+ */
+const completeAuthRequest = (ctx: CompletedAuthRequest) =>
+  ctx.path === "/sign-in/magic-link" && !isAPIError(ctx.context.returned)
+    ? ctx.json({
+        status: true,
+        signInCode: isSignInCodeRequested(ctx.body?.metadata),
+      })
+    : undefined;
 
 /**
  * Picks the magic-link email language. A verified existing account uses its
@@ -221,7 +642,19 @@ export const makeWorkspaceAuth = (config: WorkspaceAuthConfig) => {
   const baseURL = { allowedHosts: [...config.allowedHosts] };
   if (config.httpsOnly) Object.assign(baseURL, { protocol: "https" as const });
 
-  return betterAuth({
+  // Resolved lazily: `sendMagicLink` runs only after the instance exists.
+  // The sign-in request resolves the dynamic base URL for the direct call.
+  const createSignInCode = (
+    email: string,
+    request: Request | undefined
+  ): Promise<string> =>
+    auth.api.createVerificationOTP({
+      body: { email, type: "sign-in" },
+      request,
+      asResponse: false,
+    });
+
+  const auth = betterAuth({
     ...authOptions,
     secrets: config.secrets,
     baseURL,
@@ -249,18 +682,36 @@ export const makeWorkspaceAuth = (config: WorkspaceAuthConfig) => {
         });
       },
     },
-    disabledPaths: ["/update-user"],
+    disabledPaths: ["/update-user", ...disabledSignInCodePaths],
     hooks: {
       before: createAuthMiddleware((ctx) =>
         runWorkspaceEffect("account.auth.guard", { boundary: "route" })(
-          guardAuthRequest(config, ctx)
+          guardAuthRequest({ config, request: ctx })
         )
       ),
+      after: createAuthMiddleware(async (ctx) => completeAuthRequest(ctx)),
     },
     plugins: [
       magicLink({
         ...betterAuthMagicLinkOptions,
-        sendMagicLink: config.sendMagicLink,
+        sendMagicLink: (data, ctx) =>
+          runWorkspaceEffect("account.sign-in-email.send", {
+            boundary: "route",
+          })(
+            sendSignInEmail({
+              config,
+              email: data,
+              context: ctx?.context,
+              createSignInCode: (email) =>
+                createSignInCode(email, ctx?.request),
+            })
+          ),
+      }),
+      emailOTP({
+        ...betterAuthSignInCodeOptions,
+        // Codes are issued only with a magic link; this plugin's own send
+        // endpoint is disabled.
+        sendVerificationOTP: () => Promise.reject(new APIError("NOT_FOUND")),
       }),
       // Better Auth requires `nextCookies` to be the last plugin: it forwards
       // Set-Cookie headers into the Next.js cookie store for Server Action
@@ -273,24 +724,15 @@ export const makeWorkspaceAuth = (config: WorkspaceAuthConfig) => {
           before: (session, ctx) =>
             runWorkspaceEffect("account.auth.capture-locale", {
               boundary: "route",
-            })(
-              Effect.gen(function* () {
-                const accountId = decodeAccountId(session.userId);
-                const locale = callbackLocaleFromAuthContext(
-                  Option.getOrElse(decodeAuthContext(ctx), () => ({}))
-                );
-                if (accountId && locale) {
-                  yield* captureLocalePreference(config, accountId, locale);
-                }
-                return {
-                  data: {
-                    ...session,
-                    ipAddress: null,
-                    userAgent: null,
-                  },
-                };
-              })
-            ),
+            })(prepareSession({ config, session, ctx })),
+        },
+      },
+      verification: {
+        create: {
+          before: (verification, ctx) =>
+            runWorkspaceEffect("account.sign-in-code.date", {
+              boundary: "route",
+            })(dateRestoredSignInCode({ verification, ctx })),
         },
       },
       user: {
@@ -330,6 +772,7 @@ export const makeWorkspaceAuth = (config: WorkspaceAuthConfig) => {
       },
     },
   });
+  return auth;
 };
 
 const makeWorkspaceMagicLinkDelivery = () =>
@@ -373,6 +816,7 @@ export const workspaceSendMagicLink: MagicLinkSendFunction = (data) =>
                     makeWorkspaceMagicLinkDelivery().deliver({
                       email: data.email,
                       url: data.url,
+                      code: data.code,
                       locale,
                     })
                   )

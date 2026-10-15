@@ -1,8 +1,10 @@
 import type { MagicLinkOperation } from "./rate-budget";
+import type { WorkspaceE2EAccountLifecycleHandoff } from "./types";
 
 export const workspaceE2EAccountCaseIds = [
   "account-anonymous-redirect",
   "account-sign-in-form",
+  "account-sign-in-code",
   "account-magic-link-delivery",
   "account-profile-completion",
   "account-reservation-transitions",
@@ -28,8 +30,12 @@ export type WorkspaceE2EAccountCaseId =
  */
 export const workspaceE2EAccountMagicLinkLedger = {
   "account-anonymous-redirect": [],
-  // The main recipient's first link and an unconsumed second unknown email.
+  // The main recipient's first link and a second unknown email, unconsumed
+  // unless sign-in codes are on.
   "account-sign-in-form": ["send", "send"],
+  // Enters the second unknown email's code. Code sign-in has its own Better
+  // Auth path and limit (ten per ten minutes), and the case uses two.
+  "account-sign-in-code": [],
   "account-magic-link-delivery": ["verify"],
   "account-profile-completion": [],
   "account-reservation-transitions": [],
@@ -45,3 +51,16 @@ export const workspaceE2EAccountMagicLinkLedger = {
 } as const satisfies Readonly<
   Record<WorkspaceE2EAccountCaseId, readonly MagicLinkOperation[]>
 >;
+
+/**
+ * Why the lane skips a case on this preview, if it does. The sign-in code
+ * case needs the code step the preview's `login_email_code` flag adds, and
+ * the sign-in form case records which step the preview showed.
+ */
+export const workspaceE2EAccountCaseSkipReason = (
+  caseId: WorkspaceE2EAccountCaseId,
+  handoff: Pick<WorkspaceE2EAccountLifecycleHandoff, "signInConfirmation">
+): string | undefined =>
+  caseId === "account-sign-in-code" && handoff.signInConfirmation === "inbox"
+    ? "Sign-in codes (login_email_code) are off on this preview"
+    : undefined;

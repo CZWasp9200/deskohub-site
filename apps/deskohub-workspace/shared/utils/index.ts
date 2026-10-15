@@ -1,3 +1,4 @@
+export { maskEmailAddress } from "./email-address";
 export { clamp } from "./number";
 export {
   getSearchParam,

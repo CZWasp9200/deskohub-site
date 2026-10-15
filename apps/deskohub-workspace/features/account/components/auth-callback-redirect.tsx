@@ -2,6 +2,8 @@
 
 import { useEffect } from "react";
 import { getAccountPath } from "@/features/account/routes";
+import { recordSignInCompletion } from "@/features/account/sign-in-analytics";
+import { forgetSignInCodeRequest } from "@/features/account/sign-in-code-request";
 import type { Locale } from "@/features/i18n";
 import { handOffReturn } from "@/shared/browser/return-window";
 import { AuthCallbackLoading } from "./auth-callback-loading";
@@ -10,13 +12,21 @@ export function AuthCallbackRedirect({ locale }: { readonly locale: Locale }) {
   useEffect(() => {
     let active = true;
     const accountPath = getAccountPath(locale);
-    const navigateToAccount = () => {
+    const leaveForAccount = () => {
       if (!active) return;
       try {
         window.location.replace(accountPath);
       } catch {
         // The document is already leaving or the browser blocked navigation.
       }
+    };
+    // No other tab took the hand-off, so this tab finishes the sign-in. A
+    // typed code passes through here too and has already recorded itself.
+    const completeSignIn = () => {
+      if (!active) return;
+      recordSignInCompletion("link", { keepRecorded: true });
+      forgetSignInCodeRequest();
+      leaveForAccount();
     };
 
     let attemptId = "";
@@ -30,7 +40,7 @@ export function AuthCallbackRedirect({ locale }: { readonly locale: Locale }) {
     }
 
     if (hasError) {
-      navigateToAccount();
+      leaveForAccount();
       return () => {
         active = false;
       };
@@ -40,7 +50,7 @@ export function AuthCallbackRedirect({ locale }: { readonly locale: Locale }) {
     try {
       handoff = handOffReturn({ attemptId });
     } catch {
-      navigateToAccount();
+      completeSignIn();
       return () => {
         active = false;
       };
@@ -50,7 +60,7 @@ export function AuthCallbackRedirect({ locale }: { readonly locale: Locale }) {
       .then((handled) => {
         if (!active) return;
         if (!handled) {
-          navigateToAccount();
+          completeSignIn();
           return;
         }
 
@@ -61,9 +71,10 @@ export function AuthCallbackRedirect({ locale }: { readonly locale: Locale }) {
         } catch {
           // Fall back to navigation when closing is unavailable or blocked.
         }
-        if (!closed) navigateToAccount();
+        // The tab that took the hand-off recorded the sign-in.
+        if (!closed) leaveForAccount();
       })
-      .catch(navigateToAccount);
+      .catch(completeSignIn);
 
     return () => {
       active = false;
