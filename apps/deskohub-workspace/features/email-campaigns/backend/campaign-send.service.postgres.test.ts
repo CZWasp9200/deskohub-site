@@ -58,8 +58,10 @@ const englishOnlyContent: CampaignLocalizedContent = {
 };
 
 const englishOnlyFilter: AudienceFilter = {
-  _tag: "Locale",
-  locales: ["en-US"],
+  attribute: "locale",
+  _tag: "Condition",
+  operator: "anyOf",
+  value: ["en-US"],
 };
 
 const bilingualContent: CampaignLocalizedContent = {

@@ -1,6 +1,10 @@
 import { Schema } from "effect";
 import { HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
-import { administrationCalendarDate } from "./calendar-date";
+import { AudienceFilter } from "./audience-filter";
+import {
+  AdministrationCampaignLocale,
+  AdministrationCampaignPurpose,
+} from "./campaign-locale-and-purpose";
 import {
   AdministrationDotyposCustomerId,
   CliBearerAuthentication,
@@ -43,17 +47,6 @@ export const AdministrationCampaignSendId = Schema.NonEmptyString.pipe(
 export type AdministrationCampaignSendId =
   typeof AdministrationCampaignSendId.Type;
 
-export const AdministrationCampaignLocale = Schema.Literals(["cs-CZ", "en-US"]);
-export type AdministrationCampaignLocale =
-  typeof AdministrationCampaignLocale.Type;
-
-export const AdministrationCampaignPurpose = Schema.Literals([
-  "marketing",
-  "operational",
-]);
-export type AdministrationCampaignPurpose =
-  typeof AdministrationCampaignPurpose.Type;
-
 export const AdministrationCampaignTemplateKey = Schema.Literals(["workspace"]);
 export type AdministrationCampaignTemplateKey =
   typeof AdministrationCampaignTemplateKey.Type;
@@ -93,89 +86,6 @@ export type AdministrationCampaignRecipientSkipReason =
   typeof AdministrationCampaignRecipientSkipReason.Type;
 
 const AdministrationCampaignTitle = Schema.Trim.check(Schema.isNonEmpty());
-
-/**
- * Whether the customer has (or hasn't) a Workspace reservation, optionally
- * within an inclusive calendar date range and in one admin status group.
- * Without a status only booked reservations count: confirmed and never
- * cancelled, so abandoned and expired checkouts do not. `visit` dates the
- * reservation by when the customer occupies the space (its Dotypos start),
- * `booking` by when Workspace confirmed it.
- */
-const audienceReservationCondition = Schema.TaggedStruct("Reservation", {
-  presence: Schema.Literals(["has", "hasNot"]),
-  dateBasis: Schema.Literals(["visit", "booking"]),
-  from: Schema.optionalKey(administrationCalendarDate),
-  to: Schema.optionalKey(administrationCalendarDate),
-  status: Schema.optionalKey(
-    Schema.Literals(["in_progress", "complete", "cancelled", "needs_refund"])
-  ),
-});
-
-/** The customer's resolved campaign locale is one of these. */
-const audienceLocaleCondition = Schema.TaggedStruct("Locale", {
-  locales: Schema.NonEmptyArray(AdministrationCampaignLocale),
-});
-
-/** Whether the customer has a linked Workspace account. */
-const audienceAccountCondition = Schema.TaggedStruct("Account", {
-  hasAccount: Schema.Boolean,
-});
-
-/** The customer's Dotypos profile carries this tag. */
-const audienceDotyposTagCondition = Schema.TaggedStruct("DotyposTag", {
-  tag: Schema.NonEmptyString,
-});
-
-/** The customer's Dotypos profile belongs to this discount group. */
-const audienceDiscountGroupCondition = Schema.TaggedStruct("DiscountGroup", {
-  discountGroupId: Schema.NonEmptyString,
-});
-
-/**
- * A nested AND/OR group. An empty AND group matches every candidate, so an
- * audience whose root is `{ operator: "and", filters: [] }` reaches all
- * customers Workspace knows; an empty OR group matches nobody.
- */
-type AudienceFilterGroup = {
-  readonly _tag: "Group";
-  readonly operator: "and" | "or";
-  readonly filters: readonly AudienceFilter[];
-};
-
-export type AudienceFilter =
-  | typeof audienceReservationCondition.Type
-  | typeof audienceLocaleCondition.Type
-  | typeof audienceAccountCondition.Type
-  | typeof audienceDotyposTagCondition.Type
-  | typeof audienceDiscountGroupCondition.Type
-  | AudienceFilterGroup;
-
-const audienceFilterGroup = Schema.TaggedStruct("Group", {
-  operator: Schema.Literals(["and", "or"]),
-  filters: Schema.Array(
-    Schema.suspend((): Schema.Codec<AudienceFilter> => AudienceFilter)
-  ),
-});
-
-/**
- * The filter tree a campaign audience selects its recipients with. Workspace
- * stores and evaluates this schema, and the administration API carries it, so
- * it has one definition. It ignores excess properties when decoded on its own;
- * the strict API inputs that embed it reject them.
- */
-export const AudienceFilter: Schema.Codec<AudienceFilter> = Schema.Union([
-  audienceReservationCondition,
-  audienceLocaleCondition,
-  audienceAccountCondition,
-  audienceDotyposTagCondition,
-  audienceDiscountGroupCondition,
-  audienceFilterGroup,
-]).annotate({
-  identifier: "AudienceFilter",
-  description:
-    "Nested AND/OR tree of reservation, locale, account, Dotypos tag, and discount-group conditions.",
-});
 
 export const AdministrationCampaignAudience = Schema.Struct({
   id: AdministrationCampaignAudienceId,

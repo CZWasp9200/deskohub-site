@@ -1,76 +1,68 @@
 "use client";
 
+import {
+  type AudienceAttribute,
+  audienceAttributeCatalogue,
+} from "@deskohub/workspace-admin-api";
 import { Match } from "effect";
 import { ChevronDown, ListPlus, Plus, X } from "lucide-react";
-import { type ReactNode, useId } from "react";
-import { type Locale, locales } from "@/features/i18n";
+import { Fragment, useId } from "react";
 import { Button } from "@/shared/components/ui/button";
-import { Checkbox } from "@/shared/components/ui/checkbox";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/shared/components/ui/dropdown-menu";
-import { Input } from "@/shared/components/ui/input";
 import { SegmentedControl } from "@/shared/components/ui/segmented-control";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/shared/components/ui/select";
 import { cn } from "@/shared/utils";
-import type { AudienceFilter } from "../../audience-filter";
-import type { DiscountGroupOption } from "../audience-filter-summary";
+import {
+  type AudienceFilter,
+  viewAudienceCondition,
+} from "../../audience-filter";
+import type { AudienceValueLookups } from "../audience-filter-summary";
+import {
+  audienceAttributeMenu,
+  isAudienceAttribute,
+} from "./audience-attribute-menu";
+import {
+  BooleanConditionControls,
+  CountConditionControls,
+  DateConditionControls,
+  SetConditionControls,
+} from "./audience-condition-controls";
+import {
+  FieldError,
+  type FieldErrorLookup,
+} from "./audience-control-primitives";
 import {
   type AudienceCondition,
   type AudienceFilterGroup,
   appendFilter,
   newCondition,
   newNestedGroup,
-  type ReservationCondition,
-  type ReservationStatus,
   removeFilterAt,
   replaceFilterAt,
-  setReservationCriteria,
-  toggleLocale,
 } from "./audience-filter-editing";
 
 /** Error message React Hook Form holds for a form path, if any. */
 export type FilterErrorLookup = (path: string) => string | undefined;
 
-const conditionLabels: Readonly<Record<AudienceCondition["_tag"], string>> = {
-  Reservation: "Reservation history",
-  Locale: "Locale",
-  DotyposTag: "Dotypos tag",
-  DiscountGroup: "Discount group",
-  Account: "Workspace account",
-};
-
 const operatorLabels = {
   and: { match: "Match all", joiner: "and" },
   or: { match: "Match any", joiner: "or" },
 } as const;
-
-const localeLabels: Readonly<Record<Locale, string>> = {
-  "cs-CZ": "Czech (cs-CZ)",
-  "en-US": "English (en-US)",
-};
-
-const reservationStatusLabels: Readonly<Record<ReservationStatus, string>> = {
-  in_progress: "In progress",
-  complete: "Complete",
-  cancelled: "Cancelled",
-  needs_refund: "Needs refund",
-};
-const anyReservationStatus = "any";
-const isReservationStatus = (value: string): value is ReservationStatus =>
-  Object.hasOwn(reservationStatusLabels, value);
-
-const compactSelectClassName = "min-h-9 w-auto rounded-md px-3 py-1.5 text-sm";
-const compactInputClassName = "h-9 rounded-md px-3 py-1.5 text-sm";
 
 /** Nested groups alternate their accent so each level stands apart. */
 const groupFrameClassName = (depth: number) => {
@@ -80,17 +72,9 @@ const groupFrameClassName = (depth: number) => {
     : "border-navy-blue/20 border-l-4 border-l-navy-blue/40 bg-white";
 };
 
-const conditionFieldMessages = {
-  tag: "Enter a Dotypos tag.",
-  discountGroupId: "Enter or choose a discount group.",
-  locales: "Choose at least one locale.",
-  from: "Enter a valid start date.",
-  to: "Enter a valid end date.",
-} as const;
-
 type BuilderContext = {
   readonly errorAt: FilterErrorLookup;
-  readonly discountGroups: readonly DiscountGroupOption[] | undefined;
+  readonly lookups: AudienceValueLookups;
 };
 
 export function AudienceFilterBuilder({
@@ -98,15 +82,15 @@ export function AudienceFilterBuilder({
   onChange,
   path,
   errorAt,
-  discountGroups,
+  lookups = {},
 }: {
   readonly value: AudienceFilterGroup;
   readonly onChange: (value: AudienceFilterGroup) => void;
   /** Form path of the root group, used to look up validation errors. */
   readonly path: string;
   readonly errorAt: FilterErrorLookup;
-  /** Dotypos discount groups to pick from; omitted means a free ID input. */
-  readonly discountGroups?: readonly DiscountGroupOption[];
+  /** Value lists to pick from; a missing one means free entry. */
+  readonly lookups?: AudienceValueLookups;
 }) {
   return (
     <GroupEditor
@@ -114,7 +98,7 @@ export function AudienceFilterBuilder({
       onChange={onChange}
       depth={0}
       path={path}
-      context={{ errorAt, discountGroups }}
+      context={{ errorAt, lookups }}
     />
   );
 }
@@ -225,15 +209,19 @@ function GroupEditor({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start">
-            {Object.entries(conditionLabels).map(([tag, label]) => (
-              <DropdownMenuItem
-                key={tag}
-                onSelect={() =>
-                  add(newCondition(tag as AudienceCondition["_tag"]))
-                }
-              >
-                {label}
-              </DropdownMenuItem>
+            {audienceAttributeMenu.map(({ section, attributes }, index) => (
+              <Fragment key={section}>
+                {index > 0 && <DropdownMenuSeparator />}
+                <DropdownMenuLabel>{section}</DropdownMenuLabel>
+                {attributes.map((attribute) => (
+                  <DropdownMenuItem
+                    key={attribute}
+                    onSelect={() => add(newCondition(attribute))}
+                  >
+                    {audienceAttributeCatalogue[attribute].label}
+                  </DropdownMenuItem>
+                ))}
+              </Fragment>
             ))}
           </DropdownMenuContent>
         </DropdownMenu>
@@ -264,280 +252,99 @@ function ConditionEditor({
   readonly path: string;
   readonly context: BuilderContext;
 }) {
-  const fieldError = (field: string) => context.errorAt(`${path}.${field}`);
+  const errorAt: FieldErrorLookup = (field) =>
+    context.errorAt(field === "" ? path : `${path}.${field}`);
 
-  const body = Match.value(condition).pipe(
-    Match.tagsExhaustive({
-      Reservation: (reservation) => (
-        <ReservationEditor
-          condition={reservation}
+  const body = Match.value(viewAudienceCondition(condition)).pipe(
+    Match.discriminatorsExhaustive("kind")({
+      count: ({ entry, condition: count }) => (
+        <CountConditionControls
+          entry={entry}
+          value={count}
           onChange={onChange}
-          fieldError={fieldError}
+          errorAt={errorAt}
         />
       ),
-      Locale: ({ locales: selected }) => (
-        <div className="flex flex-wrap items-center gap-4">
-          <span className="text-sm">Speaks</span>
-          {locales.map((locale) => {
-            const checked = selected.includes(locale);
-            const id = `${path}.locales.${locale}`;
-            return (
-              <label
-                key={locale}
-                htmlFor={id}
-                className="flex items-center gap-2 text-sm"
-              >
-                <Checkbox
-                  id={id}
-                  checked={checked}
-                  // At least one locale stays selected; the schema needs one.
-                  disabled={checked && selected.length === 1}
-                  onCheckedChange={(next) => {
-                    const nextLocales = toggleLocale(
-                      selected,
-                      locale,
-                      next === true
-                    );
-                    if (nextLocales) {
-                      onChange({ _tag: "Locale", locales: nextLocales });
-                    }
-                  }}
-                  className="size-5"
-                />
-                {localeLabels[locale]}
-              </label>
-            );
-          })}
-        </div>
+      date: ({ entry, condition: date }) => (
+        <DateConditionControls
+          entry={entry}
+          value={date}
+          onChange={onChange}
+          errorAt={errorAt}
+        />
       ),
-      DotyposTag: ({ tag }) => (
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm">Tagged</span>
-          <Input
-            value={tag}
-            onChange={(event) =>
-              onChange({ _tag: "DotyposTag", tag: event.target.value })
-            }
-            placeholder="Dotypos tag"
-            aria-label="Dotypos tag"
-            variant={fieldError("tag") ? "error" : "default"}
-            className={cn(compactInputClassName, "w-56 max-w-full")}
-          />
-        </div>
+      set: ({ entry, condition: set }) => (
+        <SetConditionControls
+          entry={entry}
+          value={set}
+          onChange={onChange}
+          errorAt={errorAt}
+          path={path}
+          lookups={context.lookups}
+        />
       ),
-      DiscountGroup: ({ discountGroupId }) => (
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm">In discount group</span>
-          {context.discountGroups ? (
-            <Select
-              value={discountGroupId || undefined}
-              onValueChange={(next) =>
-                onChange({ _tag: "DiscountGroup", discountGroupId: next })
-              }
-            >
-              <SelectTrigger
-                aria-label="Discount group"
-                variant={fieldError("discountGroupId") ? "error" : "default"}
-                className={cn(
-                  compactSelectClassName,
-                  "w-full sm:w-auto sm:min-w-56"
-                )}
-              >
-                <SelectValue placeholder="Choose a discount group" />
-              </SelectTrigger>
-              <SelectContent>
-                {discountGroupId &&
-                  !context.discountGroups.some(
-                    ({ id }) => id === discountGroupId
-                  ) && (
-                    <SelectItem value={discountGroupId}>
-                      Unknown group {discountGroupId}
-                    </SelectItem>
-                  )}
-                {context.discountGroups.map((group) => (
-                  <SelectItem key={group.id} value={group.id}>
-                    {group.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          ) : (
-            <Input
-              value={discountGroupId}
-              onChange={(event) =>
-                onChange({
-                  _tag: "DiscountGroup",
-                  discountGroupId: event.target.value,
-                })
-              }
-              placeholder="Dotypos discount group ID"
-              aria-label="Discount group ID"
-              variant={fieldError("discountGroupId") ? "error" : "default"}
-              className={cn(compactInputClassName, "w-56 max-w-full")}
-            />
-          )}
-        </div>
-      ),
-      Account: ({ hasAccount }) => (
-        <div className="flex flex-wrap items-center gap-2">
-          <PresenceToggle
-            value={hasAccount ? "has" : "hasNot"}
-            onChange={(presence) =>
-              onChange({ _tag: "Account", hasAccount: presence === "has" })
-            }
-            label="Workspace account"
-          />
-          <span className="text-sm">a Workspace account</span>
-        </div>
+      boolean: ({ entry, condition: boolean }) => (
+        <BooleanConditionControls
+          entry={entry}
+          value={boolean}
+          onChange={onChange}
+          errorAt={errorAt}
+        />
       ),
     })
   );
 
-  // The shared filter schema reports raw constraint failures; operators get
-  // one plain instruction per invalid field instead.
-  const errors = [
-    context.errorAt(path),
-    ...Object.entries(conditionFieldMessages).map(([field, message]) =>
-      fieldError(field) ? message : undefined
-    ),
-  ].filter((message): message is string => message !== undefined);
-
   return (
     <div className="flex items-start gap-2 rounded-md border border-navy-blue/15 bg-white px-2.5 py-2 sm:gap-3 sm:px-3">
-      <div className="min-w-0 flex-1 space-y-1">
-        <span className="block font-semibold text-[0.7rem] text-navy-blue/55 uppercase tracking-[0.12em]">
-          {conditionLabels[condition._tag]}
-        </span>
+      <div className="min-w-0 flex-1 space-y-2">
+        <AttributePicker
+          value={condition.attribute}
+          onChange={(attribute) => onChange(newCondition(attribute))}
+        />
         {body}
-        {errors.map((message) => (
-          <FieldError key={message} message={message} />
-        ))}
+        {context.errorAt(path) && (
+          <FieldError message={context.errorAt(path) ?? ""} />
+        )}
       </div>
       <RemoveButton label="Remove condition" onClick={onRemove} />
     </div>
   );
 }
 
-function ReservationEditor({
-  condition,
-  onChange,
-  fieldError,
-}: {
-  readonly condition: ReservationCondition;
-  readonly onChange: (condition: ReservationCondition) => void;
-  readonly fieldError: (field: string) => string | undefined;
-}) {
-  const setCriteria = (changes: Parameters<typeof setReservationCriteria>[1]) =>
-    onChange(setReservationCriteria(condition, changes));
-  const dateBasisName = useId();
-
-  return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-      <PresenceToggle
-        value={condition.presence}
-        onChange={(presence) => onChange({ ...condition, presence })}
-        label="Reservation presence"
-      />
-      <span className="text-sm">a reservation by</span>
-      <SegmentedControl
-        label="Date basis"
-        name={dateBasisName}
-        onValueChange={(dateBasis) => onChange({ ...condition, dateBasis })}
-        options={[
-          { label: "Visit date", value: "visit" },
-          { label: "Booking date", value: "booking" },
-        ]}
-        size="sm"
-        value={condition.dateBasis}
-      />
-      <LabeledControl label="from">
-        <Input
-          type="date"
-          value={condition.from ?? ""}
-          max={condition.to}
-          onChange={(event) => setCriteria({ from: event.target.value })}
-          aria-label="From date"
-          variant={fieldError("from") ? "error" : "default"}
-          className={cn(compactInputClassName, "w-40 max-w-full")}
-        />
-      </LabeledControl>
-      <LabeledControl label="to">
-        <Input
-          type="date"
-          value={condition.to ?? ""}
-          min={condition.from}
-          onChange={(event) => setCriteria({ to: event.target.value })}
-          aria-label="To date"
-          variant={fieldError("to") ? "error" : "default"}
-          className={cn(compactInputClassName, "w-40 max-w-full")}
-        />
-      </LabeledControl>
-      <Select
-        value={condition.status ?? anyReservationStatus}
-        onValueChange={(status) =>
-          setCriteria({
-            status: isReservationStatus(status) ? status : undefined,
-          })
-        }
-      >
-        <SelectTrigger
-          aria-label="Reservation status"
-          className={compactSelectClassName}
-        >
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {/* Without a status only booked reservations count. */}
-          <SelectItem value={anyReservationStatus}>Any booked</SelectItem>
-          {Object.entries(reservationStatusLabels).map(([status, label]) => (
-            <SelectItem key={status} value={status}>
-              {label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </div>
-  );
-}
-
-function PresenceToggle({
+/** Switching the attribute starts its condition over from the defaults. */
+function AttributePicker({
   value,
   onChange,
-  label,
 }: {
-  readonly value: "has" | "hasNot";
-  readonly onChange: (value: "has" | "hasNot") => void;
-  readonly label: string;
+  readonly value: AudienceAttribute;
+  readonly onChange: (attribute: AudienceAttribute) => void;
 }) {
-  const name = useId();
-
   return (
-    <SegmentedControl
-      label={label}
-      name={name}
-      onValueChange={onChange}
-      options={[
-        { label: "Has", value: "has" },
-        { label: <>Hasn&rsquo;t</>, value: "hasNot" },
-      ]}
-      size="sm"
+    <Select
       value={value}
-    />
-  );
-}
-
-function LabeledControl({
-  label,
-  children,
-}: {
-  readonly label: string;
-  readonly children: ReactNode;
-}) {
-  return (
-    <span className="flex items-center gap-2 text-sm">
-      {label}
-      {children}
-    </span>
+      onValueChange={(next) => {
+        if (isAudienceAttribute(next) && next !== value) onChange(next);
+      }}
+    >
+      <SelectTrigger
+        aria-label="Customer attribute"
+        className="h-7 min-h-7 w-auto gap-1 rounded-md border-transparent bg-transparent px-1.5 py-0 font-semibold text-[0.7rem] text-navy-blue/65 uppercase tracking-[0.12em] hover:border-navy-blue/20"
+      >
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {audienceAttributeMenu.map(({ section, attributes }) => (
+          <SelectGroup key={section}>
+            <SelectLabel>{section}</SelectLabel>
+            {attributes.map((attribute) => (
+              <SelectItem key={attribute} value={attribute}>
+                {audienceAttributeCatalogue[attribute].label}
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }
 
@@ -561,13 +368,5 @@ function RemoveButton({
     >
       <X className="h-4 w-4" aria-hidden />
     </Button>
-  );
-}
-
-function FieldError({ message }: { readonly message: string }) {
-  return (
-    <p role="alert" className="text-burned-orange text-sm">
-      {message}
-    </p>
   );
 }

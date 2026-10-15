@@ -15,14 +15,12 @@ import {
 import { authUser } from "@/db/schema/auth";
 import { checkoutAttemptKeySchema } from "@/features/checkout/checkout-identifiers";
 import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
-import {
-  type AudienceFilter,
-  evaluateAudienceFilter,
-  reservationConditionKey,
-} from "../audience-filter";
+import { type AudienceCondition, audienceFactKey } from "../audience-filter";
+import type { DatePeriodBounds } from "../date-period";
+import { evaluateAudienceFilter } from "./audience-evaluation";
 import {
   CampaignCandidateRepository,
-  type CampaignReservationCustomerQuery,
+  type CampaignReservationSelection,
 } from "./campaign-candidate.repository";
 
 const testDatabase = await connectWorkspacePostgresTestDatabase();
@@ -48,14 +46,21 @@ const createdAt = Temporal.Instant.from("2026-03-10T22:50:00Z");
 const confirmedAt = Temporal.Instant.from("2026-03-10T23:30:00Z");
 /** Booking-date bounds of one Prague calendar day (CET, UTC+1). */
 const bookedOnPragueDay = (day: string) => ({
-  bookedAtOrAfter: Temporal.PlainDate.from(day)
-    .toZonedDateTime("Europe/Prague")
-    .toInstant(),
-  bookedBefore: Temporal.PlainDate.from(day)
-    .add({ days: 1 })
-    .toZonedDateTime("Europe/Prague")
-    .toInstant(),
+  booked: {
+    startsAtOrAfter: Temporal.PlainDate.from(day)
+      .toZonedDateTime("Europe/Prague")
+      .toInstant(),
+    startsBefore: Temporal.PlainDate.from(day)
+      .add({ days: 1 })
+      .toZonedDateTime("Europe/Prague")
+      .toInstant(),
+  },
 });
+const accountCreatedAt = Temporal.Instant.from("2026-09-15T10:00:00Z");
+const marketingCampaign = `campaign-marketing-${run}`;
+const operationalCampaign = `campaign-operational-${run}`;
+const marketingSend = `send-marketing-${run}`;
+const operationalSend = `send-operational-${run}`;
 const reservationDetails = {
   kind: "cowork",
   entryTier: "open-space",
@@ -137,6 +142,7 @@ describe.skipIf(!testDatabase)(
             name: "Campaign test",
             email: testEmailAddress(`campaign-${run}`),
             locale: "en-US",
+            createdAt: new Date(accountCreatedAt.epochMilliseconds),
           }),
           db.insert(customerMarketingConsents).values([
             {
@@ -160,9 +166,77 @@ describe.skipIf(!testDatabase)(
           .insert(customerAccountLinks)
           .values({ customerAccountId: accountId, dotyposCustomerId: linked })
       );
+      await seedCampaignDeliveries();
     });
 
+    /**
+     * Two sends. `linked` was retried in attempt 2, `consented` was settled by
+     * a webhook without a batch, and `unfulfilled` bounced.
+     */
+    const seedCampaignDeliveries = async () => {
+      const filter = JSON.stringify({
+        _tag: "Group",
+        operator: "and",
+        filters: [],
+      });
+      await testDatabase.pool.query(
+        `insert into email_campaigns (id, title, purpose, template_key, status)
+         values ($1, 'Marketing', 'marketing', 'workspace', 'sent'),
+                ($2, 'Operational', 'operational', 'workspace', 'sent')`,
+        [marketingCampaign, operationalCampaign]
+      );
+      await testDatabase.pool.query(
+        `insert into email_campaign_sends (id, campaign_id, audience_filter, content_hash, delivery_attempt)
+         values ($1, $2, $5, 'hash', 2), ($3, $4, $5, 'hash', 1)`,
+        [
+          marketingSend,
+          marketingCampaign,
+          operationalSend,
+          operationalCampaign,
+          filter,
+        ]
+      );
+      await testDatabase.pool.query(
+        `insert into email_campaign_recipients (send_id, dotypos_customer_id, locale, status, delivery_attempt, status_updated_at)
+         values ($1, $3, 'cs-CZ', 'delivered', 1, '2026-10-01T11:00:00Z'),
+                ($1, $4, 'cs-CZ', 'bounced', 1, '2026-10-01T11:00:00Z'),
+                ($1, $5, 'cs-CZ', 'sent', 2, '2026-10-02T11:00:00Z'),
+                ($1, $6, 'cs-CZ', 'unconfirmed', 1, '2026-10-03T10:00:00Z'),
+                ($2, $3, 'cs-CZ', 'complained', 1, '2026-10-04T11:00:00Z')`,
+        [
+          marketingSend,
+          operationalSend,
+          reserved,
+          unfulfilled,
+          linked,
+          consented,
+        ]
+      );
+      await testDatabase.pool.query(
+        `insert into email_campaign_delivery_batches (send_id, delivery_attempt, batch_index, dotypos_customer_ids, payload_hash, status, requested_at, settled_at)
+         values ($1, 1, 0, $3, 'hash', 'accepted', '2026-10-01T10:00:00Z', '2026-10-01T10:00:01Z'),
+                ($1, 1, 1, $4, 'hash', 'rejected', '2026-09-01T10:00:00Z', '2026-09-01T10:00:01Z'),
+                ($1, 2, 0, $4, 'hash', 'accepted', '2026-10-02T10:00:00Z', '2026-10-02T10:00:01Z'),
+                ($2, 1, 0, $5, 'hash', 'accepted', '2026-10-04T10:00:00Z', '2026-10-04T10:00:01Z')`,
+        [
+          marketingSend,
+          operationalSend,
+          [reserved, unfulfilled],
+          [linked],
+          [reserved],
+        ]
+      );
+    };
+
     afterAll(async () => {
+      await testDatabase.pool.query(
+        "delete from email_campaign_sends where id = any($1)",
+        [[marketingSend, operationalSend]]
+      );
+      await testDatabase.pool.query(
+        "delete from email_campaigns where id = any($1)",
+        [[marketingCampaign, operationalCampaign]]
+      );
       await testDatabase.pool.query(
         "delete from workspace_reservations where dotypos_customer_id = any($1)",
         [seeded]
@@ -232,17 +306,17 @@ describe.skipIf(!testDatabase)(
       expect(candidates).toHaveLength(6);
     });
 
-    const reservationCustomers = (query: CampaignReservationCustomerQuery) =>
-      repository((candidates) => candidates.listReservationCustomers(query));
+    const reservationCounts = (selection: CampaignReservationSelection) =>
+      repository((candidates) => candidates.countReservations(selection));
     const matches = async (
-      query: CampaignReservationCustomerQuery,
+      selection: CampaignReservationSelection,
       customer = reserved
-    ) => (await reservationCustomers(query)).has(customer);
+    ) => ((await reservationCounts(selection)).get(customer) ?? 0) > 0;
 
     test("counts only booked reservations when no status is chosen", async () => {
-      const booked = await reservationCustomers({});
-      expect(booked.has(reserved)).toBe(true);
-      expect(booked.has(unfulfilled)).toBe(true);
+      const booked = await reservationCounts({});
+      expect(booked.get(reserved)).toBe(1);
+      expect(booked.get(unfulfilled)).toBe(1);
       expect(booked.has(abandoned)).toBe(false);
       expect(
         await matches(
@@ -251,32 +325,44 @@ describe.skipIf(!testDatabase)(
         )
       ).toBe(false);
       expect(await matches({ status: "cancelled" }, abandoned)).toBe(true);
+      expect(
+        (await reservationCounts({ status: "cancelled" })).get(reserved)
+      ).toBe(1);
     });
 
     test("treats an abandoned checkout as no reservation", async () => {
-      const reservationMatches = new Map([
-        [
-          reservationConditionKey({ dateBasis: "booking" }),
-          await reservationCustomers({}),
-        ],
-      ]);
-      const evaluate = (presence: "has" | "hasNot") =>
+      const condition = (operator: "gt" | "eq"): AudienceCondition => ({
+        attribute: "reservationCount",
+        _tag: "Condition",
+        params: { dateBasis: "booking", period: { _tag: "AnyTime" } },
+        operator,
+        value: 0,
+      });
+      const facts = {
+        counts: new Map([
+          [
+            audienceFactKey({
+              attribute: "reservationCount",
+              params: condition("gt").params,
+            } as never),
+            await reservationCounts({ booked: {} }),
+          ],
+        ]),
+        dates: new Map(),
+      };
+      const evaluate = (operator: "gt" | "eq") =>
         evaluateAudienceFilter({
-          filter: {
-            _tag: "Reservation",
-            presence,
-            dateBasis: "booking",
-          } satisfies AudienceFilter,
+          filter: condition(operator),
           candidate: {
             dotyposCustomerId: abandoned,
             locale: "en-US",
             hasAccount: false,
           },
-          reservationMatches,
+          facts,
           profile: Option.none(),
         });
-      expect(evaluate("has")).toBe("noMatch");
-      expect(evaluate("hasNot")).toBe("match");
+      expect(evaluate("gt")).toBe("noMatch");
+      expect(evaluate("eq")).toBe("match");
     });
 
     test("dates bookings by their confirmation on the Prague calendar day", async () => {
@@ -300,10 +386,27 @@ describe.skipIf(!testDatabase)(
           abandoned
         )
       ).toBe(false);
-      expect(await matches({ bookedBefore: confirmedAt })).toBe(false);
+      expect(await matches({ booked: { startsBefore: confirmedAt } })).toBe(
+        false
+      );
       expect(
-        await matches({ bookedBefore: confirmedAt.add({ seconds: 1 }) })
+        await matches({
+          booked: { startsBefore: confirmedAt.add({ seconds: 1 }) },
+        })
       ).toBe(true);
+    });
+
+    test("includes a booking confirmed exactly at an evaluation-time end", async () => {
+      expect(await matches({ booked: { startsAtOrBefore: confirmedAt } })).toBe(
+        true
+      );
+      expect(
+        await matches({
+          booked: {
+            startsAtOrBefore: confirmedAt.subtract({ milliseconds: 1 }),
+          },
+        })
+      ).toBe(false);
     });
 
     test("matches reservations by their Dotypos reservation", async () => {
@@ -311,6 +414,82 @@ describe.skipIf(!testDatabase)(
         await matches({ dotyposReservationIds: [visitedReservation] })
       ).toBe(true);
       expect(await matches({ dotyposReservationIds: [] })).toBe(false);
+      expect(
+        await repository((candidates) =>
+          candidates.listBookedReservations([
+            visitedReservation,
+            abandonedReservation,
+          ])
+        )
+      ).toEqual([
+        {
+          dotyposReservationId: visitedReservation,
+          dotyposCustomerId: reserved,
+        },
+      ]);
+    });
+
+    const receivedEmails = async (query: {
+      readonly purpose?: "marketing" | "operational";
+      readonly dispatched: DatePeriodBounds;
+    }) =>
+      Object.fromEntries(
+        [
+          ...(await repository((candidates) =>
+            candidates.countReceivedCampaignEmails(query)
+          )),
+        ].filter(([id]) => seeded.includes(id))
+      );
+
+    test("counts accepted campaign emails per customer and purpose", async () => {
+      expect(await receivedEmails({ dispatched: {} })).toEqual({
+        [reserved]: 2,
+        [linked]: 1,
+        [consented]: 1,
+      });
+      expect(
+        await receivedEmails({ purpose: "operational", dispatched: {} })
+      ).toEqual({ [reserved]: 1 });
+    });
+
+    test("dates an email by the current attempt's batch, or by its status without one", async () => {
+      const october = Temporal.Instant.from("2026-10-01T12:00:00Z");
+      expect(
+        await receivedEmails({
+          purpose: "marketing",
+          dispatched: { startsAtOrAfter: october },
+        })
+      ).toEqual({ [linked]: 1, [consented]: 1 });
+      // linked's attempt-1 batch from September no longer dates it.
+      expect(
+        await receivedEmails({ dispatched: { startsBefore: october } })
+      ).toEqual({ [reserved]: 1 });
+    });
+
+    test("reads account creation from the linked Better Auth user", async () => {
+      const facts = (created: DatePeriodBounds) =>
+        repository((candidates) => candidates.accountCreations(created));
+      const september = Temporal.Instant.from("2026-09-01T00:00:00Z");
+      expect(
+        (await facts({ startsAtOrAfter: september })).inPeriod.has(linked)
+      ).toBe(true);
+      const before = await facts({ startsBefore: september });
+      expect(before.withValue.has(linked)).toBe(true);
+      expect(before.inPeriod.has(linked)).toBe(false);
+      expect(before.withValue.has(reserved)).toBe(false);
+    });
+
+    test("finds when the earliest reservation was created", async () => {
+      const earliest = await repository(
+        (candidates) => candidates.earliestReservationAt
+      );
+      expect(
+        earliest !== null &&
+          Temporal.Instant.compare(
+            earliest,
+            createdAt.subtract({ hours: 240 })
+          ) <= 0
+      ).toBe(true);
     });
   }
 );

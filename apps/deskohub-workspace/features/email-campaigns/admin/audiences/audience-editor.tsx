@@ -196,7 +196,7 @@ function AudienceForm({
                 onChange={field.onChange}
                 path="filter"
                 errorAt={errorAt}
-                discountGroups={discountGroups}
+                lookups={{ discountGroups }}
               />
             )}
           />
@@ -205,7 +205,7 @@ function AudienceForm({
               In plain English
             </p>
             <p className="mt-1 text-sm leading-6">
-              {describeAudienceFilter(filter, discountGroups)}.
+              {describeAudienceFilter(filter, { discountGroups })}.
             </p>
             {singleLocale ? (
               <p className="mt-1 text-navy-blue/62 text-sm">

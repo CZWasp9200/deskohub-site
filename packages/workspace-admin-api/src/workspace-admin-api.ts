@@ -709,6 +709,25 @@ export const AdministrationInvoicePdf = Schema.Uint8Array.pipe(
   HttpApiSchema.asUint8Array({ contentType: "application/pdf" })
 );
 
+/** The reservation product families. */
+export const AdministrationReservationFamily = Schema.Literals([
+  "cowork",
+  "meeting-room",
+  "office",
+]);
+export type AdministrationReservationFamily =
+  typeof AdministrationReservationFamily.Type;
+
+/** The reservation states an admin list or campaign audience can filter by. */
+export const AdministrationReservationStatusFilter = Schema.Literals([
+  "in_progress",
+  "complete",
+  "cancelled",
+  "needs_refund",
+]);
+export type AdministrationReservationStatusFilter =
+  typeof AdministrationReservationStatusFilter.Type;
+
 export const AdministrationReservationQuery = Schema.Struct({
   customerId: Schema.optional(AdministrationDotyposCustomerId),
   date: Schema.optional(administrationCalendarDate),
@@ -717,10 +736,8 @@ export const AdministrationReservationQuery = Schema.Struct({
     Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1))
   ),
   sort: Schema.optional(AdministrationReservationSort),
-  status: Schema.optional(
-    Schema.Literals(["in_progress", "complete", "cancelled", "needs_refund"])
-  ),
-  type: Schema.optional(Schema.Literals(["cowork", "meeting-room", "office"])),
+  status: Schema.optional(AdministrationReservationStatusFilter),
+  type: Schema.optional(AdministrationReservationFamily),
 });
 export type AdministrationReservationQuery =
   typeof AdministrationReservationQuery.Type;
@@ -789,7 +806,7 @@ export const AdministrationReservationSummary = Schema.Struct({
   startsAt: Schema.NullOr(Schema.String),
   endsAt: Schema.NullOr(Schema.String),
   date: Schema.NullOr(Schema.String),
-  type: Schema.Literals(["cowork", "meeting-room", "office"]),
+  type: AdministrationReservationFamily,
   typeLabel: Schema.String,
   purpose: Schema.NullOr(Schema.Literals(["personal", "business"])).pipe(
     Schema.withDecodingDefaultTypeKey(Effect.succeed(null))
@@ -1266,6 +1283,50 @@ export const AdministrationReservationCancellationResult = Schema.Struct({
 });
 export type AdministrationReservationCancellationResult =
   typeof AdministrationReservationCancellationResult.Type;
+
+export const AdministrationReservationProductDetailsBackfillInput =
+  Schema.Struct({
+    /** Report what would change without writing. */
+    dryRun: Schema.Boolean,
+    /** The previous batch's `nextCursor`, or null for the first batch. */
+    after: Schema.NullOr(AdministrationWorkspaceReservationId),
+  }).annotate({
+    parseOptions: { errors: "all", onExcessProperty: "error" },
+  });
+export type AdministrationReservationProductDetailsBackfillInput =
+  typeof AdministrationReservationProductDetailsBackfillInput.Type;
+
+/** Why a reservation snapshot's product details couldn't be filled. */
+export const AdministrationReservationProductDetailsUnresolvedReason =
+  Schema.Literals([
+    "stored_details_malformed",
+    "dotypos_reservation_id_missing",
+    "dotypos_reservation_not_found",
+    "dotypos_interval_invalid",
+    "interval_not_in_catalog",
+    "dotypos_seats_invalid",
+  ]);
+export type AdministrationReservationProductDetailsUnresolvedReason =
+  typeof AdministrationReservationProductDetailsUnresolvedReason.Type;
+
+/** One batch of the reservation product-details backfill. */
+export const AdministrationReservationProductDetailsBackfillBatch =
+  Schema.Struct({
+    /** Rows filled, or that a dry run would fill. */
+    updated: Schema.Number,
+    alreadyComplete: Schema.Number,
+    unresolved: Schema.Array(
+      Schema.Struct({
+        reservationId: AdministrationWorkspaceReservationId,
+        family: Schema.Literals(["meeting-room", "office"]),
+        reason: AdministrationReservationProductDetailsUnresolvedReason,
+      })
+    ),
+    /** Pass as `after` for the next batch; null after the last one. */
+    nextCursor: Schema.NullOr(AdministrationWorkspaceReservationId),
+  });
+export type AdministrationReservationProductDetailsBackfillBatch =
+  typeof AdministrationReservationProductDetailsBackfillBatch.Type;
 
 export const AdministrationCustomerSummary = Schema.Struct({
   customer: Schema.NullOr(AdministrationCustomer),
@@ -1975,6 +2036,17 @@ export const AdminCliAdministrationApi = HttpApiGroup.make("administration")
           CliResourceNotFound.schema,
           CliServiceUnavailable.schema,
         ],
+      }
+    )
+  )
+  .add(
+    HttpApiEndpoint.post(
+      "backfillReservationProductDetails",
+      "/reservations/product-details-backfill",
+      {
+        payload: AdministrationReservationProductDetailsBackfillInput,
+        success: AdministrationReservationProductDetailsBackfillBatch,
+        error: CliServiceUnavailable.schema,
       }
     )
   )

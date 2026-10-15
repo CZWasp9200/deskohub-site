@@ -1,13 +1,18 @@
-import type { Locale } from "@/features/i18n";
-import type { AudienceFilter } from "../../audience-filter";
-
-export type AudienceFilterGroup = Extract<AudienceFilter, { _tag: "Group" }>;
-export type AudienceCondition = Exclude<AudienceFilter, { _tag: "Group" }>;
-export type ReservationCondition = Extract<
+import {
+  type AudienceAttribute,
+  type AudienceAttributeDefinition,
+  audienceAttributeCatalogue,
+  type DatePeriodUnitType,
+} from "@deskohub/workspace-admin-api";
+import { Match } from "effect";
+import type {
+  AudienceCondition,
   AudienceFilter,
-  { _tag: "Reservation" }
->;
-export type ReservationStatus = NonNullable<ReservationCondition["status"]>;
+  AudienceFilterGroup,
+} from "../../audience-filter";
+import type { DatePeriod } from "../../date-period";
+
+export type { AudienceCondition, AudienceFilterGroup };
 
 /** The builder always edits a group, so a bare stored condition gets an AND root. */
 export const asRootGroup = (filter: AudienceFilter): AudienceFilterGroup =>
@@ -15,23 +20,22 @@ export const asRootGroup = (filter: AudienceFilter): AudienceFilterGroup =>
     ? filter
     : { _tag: "Group", operator: "and", filters: [filter] };
 
-const newConditions: {
-  readonly [Tag in AudienceCondition["_tag"]]: Extract<
-    AudienceCondition,
-    { _tag: Tag }
-  >;
-} = {
-  Reservation: { _tag: "Reservation", presence: "has", dateBasis: "visit" },
-  Locale: { _tag: "Locale", locales: ["cs-CZ"] },
-  DotyposTag: { _tag: "DotyposTag", tag: "" },
-  DiscountGroup: { _tag: "DiscountGroup", discountGroupId: "" },
-  Account: { _tag: "Account", hasAccount: true },
-};
+const lastThirtyDays: DatePeriod = { _tag: "Last", count: 30, unit: "day" };
 
-/** Starting values for a condition an operator adds. */
-export const newCondition = (
-  tag: AudienceCondition["_tag"]
-): AudienceCondition => newConditions[tag];
+/** A condition with the entry's defaults. */
+export const newConditionFrom = ({
+  attribute,
+  defaults,
+}: AudienceAttributeDefinition) => ({
+  attribute,
+  _tag: "Condition" as const,
+  ...defaults,
+});
+
+/** Starting values for a condition an operator adds or switches to. */
+export const newCondition = (attribute: AudienceAttribute): AudienceCondition =>
+  // Each entry's defaults are typed against its own attribute's condition.
+  newConditionFrom(audienceAttributeCatalogue[attribute]) as AudienceCondition;
 
 /** An empty group nested in `parent`, which usually flips the parent's logic. */
 export const newNestedGroup = (
@@ -64,33 +68,59 @@ export const removeFilterAt = (
   filters: group.filters.filter((_, i) => i !== index),
 });
 
-/**
- * Locales left after checking or unchecking one, or `undefined` when the
- * change would leave none; the schema needs at least one.
- */
-export const toggleLocale = (
-  selected: readonly Locale[],
-  locale: Locale,
+/** Adds or removes one chosen value, keeping the original order. */
+export const toggleSetValue = <Value>(
+  selected: readonly Value[],
+  value: Value,
   checked: boolean
-): readonly [Locale, ...Locale[]] | undefined => {
-  const others = selected.filter((value) => value !== locale);
-  const [first, ...rest] = checked ? [...others, locale] : others;
-  return first ? [first, ...rest] : undefined;
+): readonly Value[] => {
+  const others = selected.filter((current) => current !== value);
+  return checked ? [...others, value] : others;
 };
 
-/** Updates optional reservation criteria, omitting empty ones rather than storing them. */
-export const setReservationCriteria = (
-  condition: ReservationCondition,
-  changes: {
-    readonly from?: string | undefined;
-    readonly to?: string | undefined;
-    readonly status?: ReservationStatus | undefined;
-  }
-): ReservationCondition => {
-  const { from, to, status, ...required } = { ...condition, ...changes };
-  let next: ReservationCondition = required;
-  if (from) next = { ...next, from };
-  if (to) next = { ...next, to };
-  if (status) next = { ...next, status };
-  return next;
+export type DatePeriodKind = DatePeriod["_tag"];
+
+/**
+ * The period after the operator switches its kind, keeping the dates and
+ * count it already had where the new kind uses them.
+ */
+export const switchDatePeriod = (
+  period: DatePeriod,
+  kind: DatePeriodKind,
+  today: string
+): DatePeriod => {
+  const dates = Match.value(period).pipe(
+    Match.tagsExhaustive({
+      AnyTime: () => ({ from: today, to: today }),
+      Last: () => ({ from: today, to: today }),
+      Range: ({ from, to }) => ({ from, to }),
+      Since: ({ date }) => ({ from: date, to: date }),
+      Onward: ({ date }) => ({ from: date, to: date }),
+      Until: ({ date }) => ({ from: date, to: date }),
+    })
+  );
+  return Match.value(kind).pipe(
+    Match.when("AnyTime", (): DatePeriod => ({ _tag: "AnyTime" })),
+    Match.when(
+      "Last",
+      (): DatePeriod => (period._tag === "Last" ? period : lastThirtyDays)
+    ),
+    Match.when(
+      "Range",
+      (): DatePeriod => ({ _tag: "Range", from: dates.from, to: dates.to })
+    ),
+    Match.when(
+      "Since",
+      (): DatePeriod => ({ _tag: "Since", date: dates.from })
+    ),
+    Match.when(
+      "Onward",
+      (): DatePeriod => ({ _tag: "Onward", date: dates.from })
+    ),
+    Match.when("Until", (): DatePeriod => ({ _tag: "Until", date: dates.to })),
+    Match.exhaustive
+  );
 };
+
+export const isDatePeriodUnit = (value: string): value is DatePeriodUnitType =>
+  value === "day" || value === "week" || value === "month" || value === "year";

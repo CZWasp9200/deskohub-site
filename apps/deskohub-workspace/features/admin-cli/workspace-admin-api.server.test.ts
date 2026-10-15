@@ -15,6 +15,7 @@ import {
   AdministrationStandaloneAccessCodeName,
   AdministrationStandaloneAccessCodePin,
   AdministrationStoredDiscountId,
+  AdministrationWorkspaceReservationId,
   AdministrationWorkspaceSiteLocalWholeHourDateTime,
   CliAuthenticationChallenge,
   CliAuthenticationCode,
@@ -55,6 +56,11 @@ import {
   DiscountAdminConflictError,
   DiscountAdministration,
 } from "@/features/discounts/admin/discount-administration.service";
+import {
+  ReservationProductDetailsBackfill,
+  type ReservationProductDetailsBackfillBatch,
+} from "@/features/reservation/backend/reservation-product-details-backfill.service";
+import { workspaceReservationIdSchema } from "@/features/reservation/persistence-contracts";
 import { CliAuthentication } from "./cli-authentication.service";
 import { CliAuthenticationAdmission } from "./cli-authentication-admission.service";
 import { CliMutationIdempotency } from "./cli-mutation-idempotency.service";
@@ -75,6 +81,10 @@ const UnusedAdministrationService = Layer.succeed(
 const UnusedReservationAdministration = Layer.succeed(
   ReservationAdministrationService,
   {} as ReservationAdministrationService["Service"]
+);
+const UnusedReservationProductDetailsBackfill = Layer.succeed(
+  ReservationProductDetailsBackfill,
+  { runBatch: () => Effect.die("not expected") }
 );
 const ClaimEveryCliMutation = Layer.succeed(CliMutationIdempotency, {
   applyOnce: () => Effect.die("Unused CLI mutation ledger"),
@@ -133,6 +143,58 @@ describe("Workspace Admin API", () => {
     expect(response.headers.get("cache-control")).toBe("private, no-store");
   });
 
+  test("runs one product-details backfill batch with the requested options", async () => {
+    const requests: unknown[] = [];
+    const batch: ReservationProductDetailsBackfillBatch = {
+      updated: 2,
+      alreadyComplete: 1,
+      unresolved: [
+        {
+          reservationId: workspaceReservationIdSchema.make("reservation-b"),
+          family: "office",
+          reason: "dotypos_seats_invalid",
+        },
+      ],
+      nextCursor: workspaceReservationIdSchema.make("reservation-c"),
+    };
+    const backfill = Layer.succeed(ReservationProductDetailsBackfill, {
+      runBatch: (input) => {
+        requests.push(input);
+        return Effect.succeed(batch);
+      },
+    });
+
+    const result = await Effect.gen(function* () {
+      const client = yield* HttpApiTest.groups(WorkspaceAdminApi, [
+        "administration",
+      ]);
+      return yield* client.administration.backfillReservationProductDetails({
+        payload: {
+          dryRun: true,
+          after: AdministrationWorkspaceReservationId.make("reservation-a"),
+        },
+      });
+    }).pipe(
+      Effect.provide(AdminCliAdministrationApiHandlers),
+      Effect.provide(AuthorizedCliRequest),
+      Effect.provide(UnusedStandaloneAccessCodeAdministration),
+      Effect.provide(ClaimEveryCliMutation),
+      Effect.provide(UnusedInvoiceAdministration),
+      Effect.provide(UnusedReservationAdministration),
+      Effect.provide(backfill),
+      Effect.provide(UnusedDiscountAdministration),
+      Effect.provide(UnusedCliAuthentication),
+      Effect.provide(Layer.succeed(AdministrationService, {} as never)),
+      Effect.provide(UnusedReservationAccessAdministration),
+      Effect.provide(NodeHttpServer.layerHttpServices),
+      Effect.scoped,
+      Effect.runPromise
+    );
+
+    expect(requests).toEqual([{ dryRun: true, after: "reservation-a" }]);
+    expect(result).toEqual(batch);
+  });
+
   test("logs the original failure before reporting the service as unavailable", async () => {
     const logRecords: { readonly level: string; readonly text: string }[] = [];
     const capturingLogger = Logger.make<unknown, void>(
@@ -166,6 +228,7 @@ describe("Workspace Admin API", () => {
       Effect.provide(ClaimEveryCliMutation),
       Effect.provide(UnusedInvoiceAdministration),
       Effect.provide(UnusedReservationAdministration),
+      Effect.provide(UnusedReservationProductDetailsBackfill),
       Effect.provide(UnusedDiscountAdministration),
       Effect.provide(UnusedCliAuthentication),
       Effect.provide(failingAdministration),
@@ -247,6 +310,7 @@ describe("Workspace Admin API", () => {
       Effect.provide(ClaimEveryCliMutation),
       Effect.provide(UnusedAdministrationService),
       Effect.provide(UnusedReservationAdministration),
+      Effect.provide(UnusedReservationProductDetailsBackfill),
       Effect.provide(UnusedReservationAccessAdministration),
       Effect.provide(UnusedDiscountAdministration),
       Effect.provide(UnusedStandaloneAccessCodeAdministration),
@@ -500,6 +564,7 @@ describe("Workspace Admin API", () => {
       Effect.provide(UnusedInvoiceAdministration),
       Effect.provide(UnusedStandaloneAccessCodeAdministration),
       Effect.provide(UnusedReservationAdministration),
+      Effect.provide(UnusedReservationProductDetailsBackfill),
       Effect.provide(UnusedDiscountAdministration),
       Effect.provide(UnusedCliAuthentication),
       Effect.provide(
@@ -615,6 +680,7 @@ describe("Workspace Admin API", () => {
         )
       ),
       Effect.provide(UnusedReservationAdministration),
+      Effect.provide(UnusedReservationProductDetailsBackfill),
       Effect.provide(UnusedReservationAccessAdministration),
       Effect.provide(UnusedDiscountAdministration),
       Effect.provide(UnusedInvoiceAdministration),
@@ -712,6 +778,7 @@ describe("Workspace Admin API", () => {
         )
       ),
       Effect.provide(UnusedReservationAdministration),
+      Effect.provide(UnusedReservationProductDetailsBackfill),
       Effect.provide(UnusedReservationAccessAdministration),
       Effect.provide(UnusedDiscountAdministration),
       Effect.provide(UnusedInvoiceAdministration),
@@ -808,6 +875,7 @@ describe("Workspace Admin API", () => {
       Effect.provide(UnusedInvoiceAdministration),
       Effect.provide(UnusedStandaloneAccessCodeAdministration),
       Effect.provide(UnusedReservationAdministration),
+      Effect.provide(UnusedReservationProductDetailsBackfill),
       Effect.provide(discounts),
       Effect.provide(UnusedCliAuthentication),
       Effect.provide(
@@ -902,6 +970,7 @@ describe("standalone access-code CLI endpoint", () => {
       Effect.provide(idempotency),
       Effect.provide(UnusedInvoiceAdministration),
       Effect.provide(UnusedReservationAdministration),
+      Effect.provide(UnusedReservationProductDetailsBackfill),
       Effect.provide(UnusedDiscountAdministration),
       Effect.provide(UnusedCliAuthentication),
       Effect.provide(

@@ -43,7 +43,12 @@ const activeAudience = Schema.decodeUnknownSync(AdministrationCampaignAudience)(
   {
     id: "audience-1",
     title: "Czech customers",
-    filter: { _tag: "Locale", locales: ["cs-CZ"] },
+    filter: {
+      attribute: "locale",
+      _tag: "Condition",
+      operator: "anyOf",
+      value: ["cs-CZ"],
+    },
     archivedAt: null,
     createdAt: timestamp,
     updatedAt: timestamp,
@@ -54,7 +59,12 @@ const archivedAudience = Schema.decodeUnknownSync(
 )({
   id: "audience-2",
   title: "Old list",
-  filter: { _tag: "Account", hasAccount: true },
+  filter: {
+    attribute: "hasAccount",
+    _tag: "Condition",
+    operator: "is",
+    value: true,
+  },
   archivedAt: timestamp,
   createdAt: timestamp,
   updatedAt: timestamp,
@@ -104,7 +114,12 @@ const sendStatus = Schema.decodeUnknownSync(
     createdAt: timestamp,
     completedAt: null,
     audienceId: "audience-1",
-    audienceFilter: { _tag: "Locale", locales: ["cs-CZ"] },
+    audienceFilter: {
+      attribute: "locale",
+      _tag: "Condition",
+      operator: "anyOf",
+      value: ["cs-CZ"],
+    },
     counts: {
       pending: 1,
       sent: 0,
@@ -870,8 +885,19 @@ describe("dhw campaigns audiences", () => {
       _tag: "Group",
       operator: "and",
       filters: [
-        { _tag: "Locale", locales: ["cs-CZ"] },
-        { _tag: "Reservation", presence: "has", dateBasis: "visit" },
+        {
+          attribute: "locale",
+          _tag: "Condition",
+          operator: "anyOf",
+          value: ["cs-CZ"],
+        },
+        {
+          attribute: "reservationCount",
+          _tag: "Condition",
+          params: { dateBasis: "visit", period: { _tag: "AnyTime" } },
+          operator: "gt",
+          value: 0,
+        },
       ],
     };
     await writeFile(filterPath, JSON.stringify(filter));
@@ -930,7 +956,7 @@ describe("dhw campaigns audiences", () => {
         "update",
         "audience-1",
         "--filter",
-        '{"_tag":"Account","hasAccount":false}',
+        '{"attribute":"hasAccount","_tag":"Condition","operator":"is","value":false}',
       ],
       layer
     ).pipe(Effect.runPromise);
@@ -939,7 +965,14 @@ describe("dhw campaigns audiences", () => {
       [
         "updateCampaignAudience",
         "audience-1",
-        { filter: { _tag: "Account", hasAccount: false } },
+        {
+          filter: {
+            attribute: "hasAccount",
+            _tag: "Condition",
+            operator: "is",
+            value: false,
+          },
+        },
       ],
     ]);
   });
@@ -947,11 +980,17 @@ describe("dhw campaigns audiences", () => {
   test.each([
     [["--filter", "{not json"], "not valid JSON"],
     [
-      ["--filter", '{"_tag":"Locale","locales":["de-DE"]}'],
-      'Expected "cs-CZ" | "en-US", got "de-DE"\n  at ["locales"][0]',
+      [
+        "--filter",
+        '{"attribute":"locale","_tag":"Condition","operator":"anyOf","value":["de-DE"]}',
+      ],
+      'Expected "cs-CZ" | "en-US", got "de-DE"\n  at ["value"][0]',
     ],
     [
-      ["--filter", '{"_tag":"Account","hasAccount":true,"extra":1}'],
+      [
+        "--filter",
+        '{"attribute":"hasAccount","_tag":"Condition","operator":"is","value":true,"extra":1}',
+      ],
       'at ["extra"]',
     ],
     [["--filter-file", "./missing-filter.json"], "could not be read"],

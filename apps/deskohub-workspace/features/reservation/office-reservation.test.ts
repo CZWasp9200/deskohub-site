@@ -300,9 +300,14 @@ describe("office reservation", () => {
   });
 
   test("persists office seats and days without Dotypos-owned dates", () => {
-    expect(getStoredOfficeReservationDetails({ kind: "office" })).toEqual({
-      kind: "office",
-    });
+    expect(
+      getStoredOfficeReservationDetails({
+        kind: "office",
+        startsOn: "2099-06-10",
+        endsOn: "2099-06-11",
+        seats: 3,
+      })
+    ).toEqual({ kind: "office", seats: 3, dayCount: 2 });
 
     for (const details of [
       { kind: "office", seats: 3, dayCount: 2 },
