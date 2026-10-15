@@ -16,6 +16,8 @@ type SegmentedControlProps<Value extends string> = {
   readonly name: string;
   readonly onValueChange: (value: Value) => void;
   readonly options: ReadonlyArray<SegmentedControlOption<Value>>;
+  /** `sm` sits inline in dense rows, such as a filter sentence or a panel header. */
+  readonly size?: "default" | "sm";
   readonly value: Value;
 };
 
@@ -32,12 +34,14 @@ function SegmentedControl<Value extends string>({
   name,
   onValueChange,
   options,
+  size = "default",
   value,
 }: SegmentedControlProps<Value>) {
   return (
     <fieldset
       className={cn(
-        "inline-flex rounded-lg bg-navy-blue/5 p-1 disabled:opacity-50",
+        "inline-flex bg-navy-blue/5 disabled:opacity-50",
+        { default: "rounded-lg p-1", sm: "rounded-md p-0.5" }[size],
         className
       )}
       disabled={disabled}
@@ -45,7 +49,10 @@ function SegmentedControl<Value extends string>({
       <legend className="sr-only">{label}</legend>
       {options.map((option) => (
         <label
-          className="relative inline-flex h-9 cursor-pointer items-center justify-center whitespace-nowrap rounded-sm px-4 text-xs font-semibold text-navy-blue transition-colors hover:bg-navy-blue/5 has-checked:bg-burned-orange has-checked:bg-linear-to-b has-checked:from-white/15 has-checked:to-transparent has-checked:text-white has-checked:shadow-button-raised has-checked:[--button-tint:var(--color-burned-orange)] has-focus-visible:ring-2 has-focus-visible:ring-burned-orange has-focus-visible:ring-offset-2 has-disabled:cursor-not-allowed"
+          className={cn(
+            "relative inline-flex cursor-pointer items-center justify-center whitespace-nowrap rounded-sm text-xs font-semibold text-navy-blue transition-colors hover:bg-navy-blue/5 has-checked:bg-burned-orange has-checked:bg-linear-to-b has-checked:from-white/15 has-checked:to-transparent has-checked:text-white has-checked:shadow-button-raised has-checked:[--button-tint:var(--color-burned-orange)] has-focus-visible:ring-2 has-focus-visible:ring-burned-orange has-focus-visible:ring-offset-2 has-disabled:cursor-not-allowed",
+            { default: "h-9 px-4", sm: "h-7 px-3" }[size]
+          )}
           key={option.value}
         >
           <input

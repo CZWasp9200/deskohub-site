@@ -70,3 +70,21 @@ test("disabling the control disables every segment", () => {
     expect(radio).toHaveProperty("disabled", true);
   }
 });
+
+test("the small size makes compact segments", () => {
+  const view = render(
+    <SegmentedControl
+      label="Customer source"
+      name="customer-source"
+      onValueChange={() => undefined}
+      options={options}
+      size="sm"
+      value="new"
+    />
+  );
+  const segment = view.getByRole("radio", { name: "New" }).parentElement;
+  expect(segment?.className.split(/\s+/)).toEqual(
+    expect.arrayContaining(["h-7", "px-3"])
+  );
+  expect(segment?.className.split(/\s+/)).not.toContain("h-9");
+});

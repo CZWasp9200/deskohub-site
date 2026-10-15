@@ -83,6 +83,7 @@ const buttonClasses = cva(
         lg: "h-12 min-h-12 px-6",
         xl: "h-13 min-h-13 px-6",
         "2xl": "h-14 min-h-14 px-8 text-base",
+        "icon-xs": "size-6 min-h-6 p-0",
         "icon-sm": "size-8 min-h-8 p-0",
         icon: "size-10 min-h-10 p-0",
         "icon-lg": "size-11 min-h-11 p-0",
@@ -238,12 +239,16 @@ type ButtonSize =
   | "lg"
   | "xl"
   | "2xl"
+  | "icon-xs"
   | "icon-sm"
   | "icon"
   | "icon-lg";
 
 type ButtonStyleOptions = ButtonAppearance & {
-  /** Height, padding and type scale. `icon*` sizes are square. */
+  /**
+   * Height, padding and type scale. `icon*` sizes are square; `icon-xs` fits
+   * inside a chip, such as a recipient's remove action.
+   */
   readonly size?: ButtonSize;
   /** `pill` (default) is fully round; `rounded` uses the card radius. */
   readonly shape?: "pill" | "rounded";

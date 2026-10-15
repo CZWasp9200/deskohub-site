@@ -9,6 +9,7 @@ import { AdministrationPageHeader } from "@/features/administration/components";
 import { type Locale, m } from "@/features/i18n";
 import { Badge } from "@/shared/components/ui/badge";
 import { Button } from "@/shared/components/ui/button";
+import { ChoiceCard } from "@/shared/components/ui/choice-card";
 import {
   Form,
   FormControl,
@@ -31,10 +32,6 @@ import {
   TabsList,
   TabsTrigger,
 } from "@/shared/components/ui/tabs";
-import {
-  ToggleGroup,
-  ToggleGroupItem,
-} from "@/shared/components/ui/toggle-group";
 import { useWorkspaceAction } from "@/shared/utils/use-workspace-action";
 import type {
   CampaignPurpose,
@@ -263,34 +260,34 @@ export function CampaignComposer({
                   control={form.control}
                   name="purpose"
                   render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Purpose</FormLabel>
-                      <FormControl>
-                        <ToggleGroup
-                          className="grid items-stretch gap-2 sm:grid-cols-2"
-                          onValueChange={(value) =>
-                            value && field.onChange(value)
-                          }
-                          type="single"
-                          value={field.value}
-                        >
-                          {purposeOptions.map((option) => (
-                            <ToggleGroupItem
-                              className="flex h-auto flex-col items-start justify-start gap-1 rounded-lg border border-navy-blue/15 bg-white p-3 text-left data-[state=on]:border-burned-orange data-[state=on]:bg-burned-orange/5"
-                              key={option.value}
+                    <fieldset className="space-y-2">
+                      <legend className="font-medium text-sm leading-none">
+                        Purpose
+                      </legend>
+                      <div className="grid items-stretch gap-2 sm:grid-cols-2">
+                        {purposeOptions.map((option) => (
+                          <ChoiceCard key={option.value} tone="plain">
+                            <input
+                              checked={field.value === option.value}
+                              className="mt-1 size-4 accent-[var(--brand-burned-orange)]"
+                              name={field.name}
+                              onBlur={field.onBlur}
+                              onChange={() => field.onChange(option.value)}
+                              type="radio"
                               value={option.value}
-                            >
-                              <span className="font-semibold text-navy-blue">
+                            />
+                            <span className="flex flex-col gap-1 text-sm">
+                              <span className="font-semibold">
                                 {option.label}
                               </span>
                               <span className="text-navy-blue/60 text-xs leading-5">
                                 {option.description}
                               </span>
-                            </ToggleGroupItem>
-                          ))}
-                        </ToggleGroup>
-                      </FormControl>
-                    </FormItem>
+                            </span>
+                          </ChoiceCard>
+                        ))}
+                      </div>
+                    </fieldset>
                   )}
                 />
                 <FormField

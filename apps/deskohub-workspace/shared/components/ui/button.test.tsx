@@ -160,6 +160,17 @@ test("icon sizes are square and round", () => {
   );
 });
 
+test("the extra-small icon size fits inside a chip", () => {
+  const view = render(
+    <Button aria-label="Remove" size="icon-xs" variant="ghost">
+      x
+    </Button>
+  );
+  expect(classesOf(view.getByRole("button", { name: "Remove" }))).toEqual(
+    expect.arrayContaining(["size-6", "min-h-6", "p-0", "rounded-full"])
+  );
+});
+
 test("pending disables the action and marks it busy", () => {
   const view = render(<Button pending>Saving</Button>);
   const button = view.getByRole("button", { name: "Saving" });
