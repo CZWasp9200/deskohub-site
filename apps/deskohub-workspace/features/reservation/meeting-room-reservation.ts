@@ -183,7 +183,7 @@ export const getMeetingRoomAdvertisedPriceReservation = (
 
 export type MeetingRoomReservationProductInput = Pick<
   MeetingRoomReservationOrderInput,
-  "kind"
+  "kind" | "duration"
 >;
 
 export const storedMeetingRoomReservationDetailsSchema = Schema.Struct({
@@ -202,10 +202,11 @@ export const storedMeetingRoomReservationDetailsSchema = Schema.Struct({
 export type StoredMeetingRoomReservationDetails =
   typeof storedMeetingRoomReservationDetailsSchema.Type;
 
-export const getStoredMeetingRoomReservationDetails = (
-  _reservation: MeetingRoomReservationProductInput
-): StoredMeetingRoomReservationDetails => ({
+export const getStoredMeetingRoomReservationDetails = ({
+  duration,
+}: MeetingRoomReservationProductInput): StoredMeetingRoomReservationDetails => ({
   kind: meetingRoomReservationKind,
+  duration,
 });
 
 const intervalMatchesMeetingRoomReservationDuration = (

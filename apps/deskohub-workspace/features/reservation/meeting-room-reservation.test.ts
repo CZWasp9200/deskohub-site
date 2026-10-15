@@ -106,6 +106,7 @@ describe("meetingRoomReservationSchema", () => {
       })
     ).toEqual({
       kind: "meeting-room",
+      duration: { unit: "day", amount: 1 },
     });
 
     for (const details of [
