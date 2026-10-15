@@ -64,14 +64,19 @@ Keep these settings unless a reviewed decision changes them:
   advisory lock (`withSignInEmailLock`), deletes the email's older code, calls
   server-only `auth.api.createVerificationOTP`, and writes the email's claim
   row (keyed by the link token's digest) and a binding row (keyed by a digest
-  of address and code) that leads to it; the code goes in the same email and
-  the `after` hook returns `{ status, signInCode }`. One email is one sign-in:
-  the link takes the claim in the `before` hook, before Better Auth consumes
-  it, and the code takes it in `session.create.before`, after Better Auth
-  accepts it. The claim is a conditional update, so only one of them wins; a
-  losing link is deleted and fails as `INVALID_TOKEN`, a losing code fails as
-  `INVALID_OTP`. A link without a claim row (sent while codes were off) signs
-  in as before. Claim storage failures fail the request; never swallow them,
+  of address and code) that leads to it, and replaces the address's
+  current-claim row (keyed by a digest of the address) with one naming this
+  claim; the code goes in the same email and the `after` hook returns
+  `{ status, signInCode }`. One email is one sign-in: the link takes the claim
+  in the `before` hook, before Better Auth consumes it, and the code takes it
+  in `session.create.before`, after Better Auth accepts it. The claim is a
+  conditional update, so only one of them wins; a losing link is deleted and
+  fails as `INVALID_TOKEN`, a losing code fails as `INVALID_OTP`. A code also
+  fails as `INVALID_OTP` unless its claim is the current one. Deleting the
+  older OTP row isn't enough on its own: on a wrong guess Better Auth consumes
+  the code and writes it back outside the lock, which can restore a replaced
+  code. Older links keep their claims and still sign in once. A link without
+  a claim row (sent while codes were off) signs in as before. Claim storage failures fail the request; never swallow them,
   since a swallowed link revocation lets both halves sign in. Every other
   email-OTP path is in `disabledPaths`. Code sign-in accepts only `email`, `otp`, and
   `callbackURL`, seeds a new account's locale from that callback, is always
@@ -100,7 +105,7 @@ Keep these settings unless a reviewed decision changes them:
 - `auth.account` stays empty: the magic-link flow creates no account rows, and
   passwords, OAuth, and social providers stay disabled.
 - What remains in Neon is the login email, the email inside each pending
-  verification row, and raw `IP|path` rate-limit keys. Sign-in code, claim,
+  verification row, and raw `IP|path` rate-limit keys. Sign-in code, claim, current-claim,
   binding, and per-email send rows store only hashed identifiers and values. Better Auth has no
   native option to hash or encrypt these, so don't build a custom adapter or
   HMAC rate-limit storage to remove them.

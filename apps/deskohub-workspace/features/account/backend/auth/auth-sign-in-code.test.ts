@@ -123,6 +123,45 @@ const failingVerificationWrites = () => {
 };
 
 /**
+ * The test database adapter, holding the verification write whose value is
+ * `pauseValue` until `resume` is called.
+ */
+const pausedVerificationCreate = () => {
+  let signalPaused!: () => void;
+  let resume!: () => void;
+  const paused = new Promise<void>((resolve) => {
+    signalPaused = resolve;
+  });
+  const resumed = new Promise<void>((resolve) => {
+    resume = resolve;
+  });
+  const control = {
+    pauseValue: undefined as string | undefined,
+    paused,
+    resume: () => resume(),
+    database: ((options) => {
+      const adapter = buildDatabaseAdapter()(options);
+      return {
+        ...adapter,
+        create: async (data) => {
+          const row = data.data as { readonly value?: unknown };
+          if (
+            data.model === "verification" &&
+            control.pauseValue !== undefined &&
+            row.value === control.pauseValue
+          ) {
+            signalPaused();
+            await resumed;
+          }
+          return adapter.create(data);
+        },
+      };
+    }) satisfies NonNullable<TestAuthOptions["database"]>,
+  };
+  return control;
+};
+
+/**
  * Only the newer email's code signs in, and it ends only its own link: the
  * older link still signs in once.
  */
@@ -463,6 +502,41 @@ describe.skipIf(!testDatabase)(
           );
         }
       }
+    });
+
+    test("an older code that a wrong guess restores after a newer email cannot sign in", async () => {
+      const sentLinks: CapturedMagicLink[] = [];
+      const restore = pausedVerificationCreate();
+      const auth = makeTestAuth({
+        sentLinks,
+        isSignInCodeEnabled: async () => true,
+        database: restore.database,
+      });
+      const email = uniqueEmail("code-restore-race");
+
+      await sendSignInEmail(auth, email);
+      const older = sentLinks[0]!;
+      // Better Auth consumes the code on a wrong guess and writes it back
+      // with one attempt counted; the write-back waits here.
+      restore.pauseValue = `${await digestVerificationKey(older.code!)}:1`;
+      const wrongGuess = signInWithCode(auth, email, wrongCode(older.code!));
+      await restore.paused;
+
+      try {
+        await sendSignInEmail(auth, email);
+        const newer = await signInWithCode(auth, email, sentLinks[1]!.code!);
+        expect(getSessionCookie(newer)).toBeDefined();
+      } finally {
+        restore.resume();
+      }
+      expect(await errorCode(await wrongGuess)).toBe("INVALID_OTP");
+
+      const stale = await signInWithCode(auth, email, older.code!);
+      expect(await errorCode(stale)).toBe("INVALID_OTP");
+      expect(await sessionCount(email)).toBe(1);
+
+      const olderLink = await verifyMagicLink(auth, older);
+      expect(getSessionCookie(olderLink)).toBeDefined();
     });
 
     test("a code sign-in that cannot take its claim creates no session", async () => {

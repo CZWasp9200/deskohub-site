@@ -1,5 +1,5 @@
 import type { AuthContext, DBAdapter } from "better-auth";
-import { Data, Effect } from "effect";
+import { Clock, Data, Effect } from "effect";
 import type { SqlError } from "effect/unstable/sql";
 import type { PostgresAdvisoryLockKey } from "@/db/postgres-advisory-lock";
 import {
@@ -15,13 +15,16 @@ import {
  * takes the claim before Better Auth consumes it, and the code takes it
  * before Better Auth creates the session, so only the first of the two
  * signs in. Codes are issued one email address at a time, and each issue
- * replaces the address's earlier code.
+ * makes its own claim the address's current one. A code signs in only
+ * through the current claim, so an older code that Better Auth still
+ * accepts, such as one it wrote back after a wrong guess, cannot sign in.
+ * Older links keep their own claims and still sign in once.
  */
 
 /** The verification-table operations this module needs on its own rows. */
 type VerificationRows = Pick<
   DBAdapter,
-  "count" | "create" | "delete" | "findOne" | "updateMany"
+  "count" | "create" | "delete" | "deleteMany" | "findOne" | "updateMany"
 >;
 
 type StoredVerifications = Pick<
@@ -71,8 +74,11 @@ const normalizeEmail = (email: string) => email.trim().toLowerCase();
 const signInCodeIdentifier = (email: string) =>
   `sign-in-otp-${normalizeEmail(email)}`;
 
-const signInEmailLockKey = ({ email }: { readonly email: string }) =>
-  digest(normalizeEmail(email)).pipe(
+const digestAddress = ({ email }: { readonly email: string }) =>
+  digest(normalizeEmail(email));
+
+const signInEmailLockKey = (recipient: { readonly email: string }) =>
+  digestAddress(recipient).pipe(
     Effect.map((address): PostgresAdvisoryLockKey => ["sign-in-email", address])
   );
 
@@ -90,6 +96,12 @@ const codeBindingIdentifier = ({
 }) =>
   digest(`${normalizeEmail(email)}:${code}`).pipe(
     Effect.map((binding) => `sign-in-code-${binding}`)
+  );
+
+/** The row naming the claim of the newest email sent to an address. */
+const currentClaimIdentifier = (recipient: { readonly email: string }) =>
+  digestAddress(recipient).pipe(
+    Effect.map((address) => `sign-in-current-claim-${address}`)
   );
 
 const openClaim = "open";
@@ -118,20 +130,39 @@ const replaceSignInCode = ({
     signInCodes.deleteVerificationByIdentifier(signInCodeIdentifier(email))
   ).pipe(Effect.andThen(store(() => createSignInCode(normalizeEmail(email)))));
 
+type ClaimRows = {
+  readonly verifications: VerificationRows;
+  readonly claim: string;
+  readonly binding: string;
+  readonly current: string;
+};
+
+/**
+ * Retires the address's earlier current claim, and an earlier binding of the
+ * same code, so each identifier leads to this email's claim alone.
+ */
+const retireEarlierClaim = ({ verifications, binding, current }: ClaimRows) =>
+  store(() =>
+    verifications.deleteMany({
+      model: "verification",
+      where: [
+        { field: "identifier", operator: "in", value: [current, binding] },
+      ],
+    })
+  );
+
 const writeClaimRows = ({
   verifications,
   claim,
   binding,
-}: {
-  readonly verifications: VerificationRows;
-  readonly claim: string;
-  readonly binding: string;
-}) =>
+  current,
+}: ClaimRows) =>
   store(async () => {
     const now = Date.now();
     const rows = [
       { identifier: claim, value: openClaim },
       { identifier: binding, value: claim },
+      { identifier: current, value: claim },
     ];
     for (const row of rows) {
       await verifications.create({
@@ -149,17 +180,20 @@ const writeClaimRows = ({
   });
 
 /**
- * Issues the code for a sign-in email and binds it to the email's claim.
- * Issues for one address run one at a time, so the newest code is the only
- * one stored and its binding leads to its own link's claim.
+ * Issues the code for a sign-in email, binds it to the email's claim, and
+ * makes that claim the address's current one. Issues for one address run one
+ * at a time, so the newest code is the only one stored and the current claim
+ * is its email's.
  */
 export const issueSignInCode = (issue: SignInCodeIssue) =>
   Effect.succeed(issue).pipe(
     Effect.bind("claim", claimIdentifier),
+    Effect.bind("current", currentClaimIdentifier),
     Effect.bind("code", replaceSignInCode),
     Effect.bind("binding", ({ email, code }) =>
       codeBindingIdentifier({ email, code })
     ),
+    Effect.tap(retireEarlierClaim),
     Effect.tap(writeClaimRows),
     Effect.map(({ code }) => code),
     (issuance) =>
@@ -235,6 +269,23 @@ export const claimSignInLink = (request: {
     Effect.withSpan("SignInCode.claimLink")
   );
 
+/** A row a code needs to sign in. Without it the code counts as used. */
+const findCodeRow = (
+  verifications: VerificationRows,
+  where: Parameters<VerificationRows["findOne"]>[0]["where"]
+) =>
+  store(() =>
+    verifications.findOne<{ readonly value: string }>({
+      model: "verification",
+      where,
+    })
+  ).pipe(
+    Effect.flatMap(Effect.fromNullishOr),
+    Effect.catchTag("NoSuchElementError", () =>
+      Effect.fail(new SignInEmailUsedError())
+    )
+  );
+
 /**
  * The claim a code's binding leads to. A code without one counts as used:
  * only an issue that never finished leaves one behind.
@@ -246,21 +297,29 @@ const findBoundClaim = ({
   readonly verifications: VerificationRows;
   readonly binding: string;
 }) =>
-  store(() =>
-    verifications.findOne<{ readonly value: string }>({
-      model: "verification",
-      where: [{ field: "identifier", value: binding }],
-    })
-  ).pipe(
-    Effect.flatMap((row) => Effect.fromNullishOr(row?.value)),
-    Effect.catchTag("NoSuchElementError", () =>
-      Effect.fail(new SignInEmailUsedError())
-    )
+  findCodeRow(verifications, [{ field: "identifier", value: binding }]).pipe(
+    Effect.map(({ value }) => value)
   );
+
+/** A code's claim must be its address's current one: a newer email ends it. */
+const requireCurrentClaim = ({
+  verifications,
+  current,
+  claim,
+}: {
+  readonly verifications: VerificationRows;
+  readonly current: string;
+  readonly claim: string;
+}) =>
+  findCodeRow(verifications, [
+    { field: "identifier", value: current },
+    { field: "value", value: claim },
+  ]);
 
 /**
  * Runs after Better Auth accepts a code and before it creates the session.
- * Fails when the email's link signed in first.
+ * Fails when a newer email replaced the code or the email's link signed in
+ * first.
  */
 export const claimSignInCode = (request: {
   readonly email: string;
@@ -269,7 +328,9 @@ export const claimSignInCode = (request: {
 }) =>
   Effect.succeed(request).pipe(
     Effect.bind("binding", codeBindingIdentifier),
+    Effect.bind("current", currentClaimIdentifier),
     Effect.bind("claim", findBoundClaim),
+    Effect.tap(requireCurrentClaim),
     Effect.bind("outcome", takeClaim),
     Effect.filterOrFail(
       ({ outcome }) => outcome === "won",
@@ -279,6 +340,64 @@ export const claimSignInCode = (request: {
     Effect.withSpan("SignInCode.claimCode")
   );
 
+type SignInEmailSend = {
+  readonly verifications: VerificationRows;
+  readonly identifier: string;
+  readonly now: number;
+};
+
+/** The rows recording sign-in emails to one address. */
+const sendRecordIdentifier = (recipient: { readonly email: string }) =>
+  digestAddress(recipient).pipe(
+    Effect.map((address) => `sign-in-email-${address}`)
+  );
+
+const recordSend = ({ verifications, identifier, now }: SignInEmailSend) =>
+  store(() =>
+    verifications.create<{ readonly id: string }>({
+      model: "verification",
+      data: {
+        identifier,
+        value: "sent",
+        expiresAt: new Date(now + signInEmailLimit.window * 1000),
+        createdAt: new Date(now),
+        updatedAt: new Date(now),
+      },
+    })
+  );
+
+const countRecentSends = ({
+  verifications,
+  identifier,
+  now,
+}: SignInEmailSend) =>
+  store(() =>
+    verifications.count({
+      model: "verification",
+      where: [
+        { field: "identifier", value: identifier },
+        { field: "expiresAt", operator: "gt", value: new Date(now) },
+      ],
+    })
+  );
+
+/** A rejected send gives its row back, so it doesn't extend the window. */
+const withdrawRejectedSend = ({
+  verifications,
+  record,
+  admitted,
+}: {
+  readonly verifications: VerificationRows;
+  readonly record: { readonly id: string };
+  readonly admitted: boolean;
+}) =>
+  store(() =>
+    verifications.delete({
+      model: "verification",
+      where: [{ field: "id", value: record.id }],
+    })
+  ).pipe(Effect.when(Effect.succeed(!admitted)));
+
 /**
  * Records a sign-in email for the address unless it already received
  * `signInEmailLimit.max` within the rolling window. Each send is one
@@ -286,44 +405,17 @@ export const claimSignInCode = (request: {
  * window, so the auth cleanup cron removes it. The row is written before
  * counting: concurrent sends can only under-admit, never exceed the limit.
  */
-export const reserveSignInEmail = Effect.fn("SignInCode.reserveEmail")(
-  function* ({
-    verifications,
-    email,
-  }: {
-    readonly verifications: VerificationRows;
-    readonly email: string;
-  }) {
-    const identifier = `sign-in-email-${yield* digest(normalizeEmail(email))}`;
-    const now = Date.now();
-    const row = yield* store(() =>
-      verifications.create<{ readonly id: string }>({
-        model: "verification",
-        data: {
-          identifier,
-          value: "sent",
-          expiresAt: new Date(now + signInEmailLimit.window * 1000),
-          createdAt: new Date(now),
-          updatedAt: new Date(now),
-        },
-      })
-    );
-    const sends = yield* store(() =>
-      verifications.count({
-        model: "verification",
-        where: [
-          { field: "identifier", value: identifier },
-          { field: "expiresAt", operator: "gt", value: new Date(now) },
-        ],
-      })
-    );
-    if (sends <= signInEmailLimit.max) return true;
-    yield* store(() =>
-      verifications.delete({
-        model: "verification",
-        where: [{ field: "id", value: row.id }],
-      })
-    );
-    return false;
-  }
-);
+export const reserveSignInEmail = (request: {
+  readonly verifications: VerificationRows;
+  readonly email: string;
+}) =>
+  Effect.succeed(request).pipe(
+    Effect.bind("identifier", sendRecordIdentifier),
+    Effect.bind("now", () => Clock.currentTimeMillis),
+    Effect.bind("record", recordSend),
+    Effect.bind("sends", countRecentSends),
+    Effect.let("admitted", ({ sends }) => sends <= signInEmailLimit.max),
+    Effect.tap(withdrawRejectedSend),
+    Effect.map(({ admitted }) => admitted),
+    Effect.withSpan("SignInCode.reserveEmail")
+  );
