@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { BetterAuthOptions } from "better-auth";
 
 /**
@@ -17,17 +18,51 @@ const betterAuthSessionOptions = {
 } as const;
 
 /**
+ * SHA-256 in unpadded base64url: the digest Better Auth's `"hashed"` storage
+ * mode writes. The magic-link token goes through it before the verification
+ * identifier is hashed again, so the stored identifier of a sent link can be
+ * recomputed from its token.
+ */
+export const digestVerificationKey = async (value: string) =>
+  createHash("sha256").update(value).digest("base64url");
+
+/**
  * Magic links expire after ten minutes, are consumed atomically on first use,
  * and store only a hash in the verification table. Both magic-link endpoints
  * allow five requests per client IP per ten minutes.
  */
 export const betterAuthMagicLinkOptions = {
   expiresIn: 600,
-  storeToken: "hashed",
+  storeToken: { type: "custom-hasher", hash: digestVerificationKey },
   rateLimit: {
     window: 600,
     max: 5,
   },
+} as const;
+
+/**
+ * The six-digit sign-in code sent with the magic link lives as long as the
+ * link and is stored only as a hash. Five wrong attempts burn it. Its
+ * sign-in endpoint allows ten requests per client IP per ten minutes.
+ */
+export const betterAuthSignInCodeOptions = {
+  otpLength: 6,
+  expiresIn: betterAuthMagicLinkOptions.expiresIn,
+  allowedAttempts: 5,
+  storeOTP: "hashed",
+  rateLimit: {
+    window: 600,
+    max: 10,
+  },
+} as const;
+
+/**
+ * While sign-in codes are on, one email address receives at most five
+ * sign-in emails per rolling hour, whatever IP addresses ask.
+ */
+export const signInEmailLimit = {
+  window: 60 * 60,
+  max: 5,
 } as const;
 
 /**

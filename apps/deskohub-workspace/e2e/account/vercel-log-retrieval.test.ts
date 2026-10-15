@@ -7,6 +7,7 @@ import {
 } from "@opentelemetry/sdk-trace-base";
 import { Effect, Layer, Schema } from "effect";
 import { FetchHttpClient } from "effect/unstable/http";
+import { renderMagicLinkEmail } from "../../features/account/backend/auth/magic-link-email";
 import { createCensoredOtelSpanExporter } from "../../shared/backend/logging/censorship";
 import { createTracingLive } from "../../shared/backend/observability/otel-tracing";
 import { withInstantSleeps } from "../../shared/testing/workspace-test-clock.test-utils";
@@ -1127,6 +1128,28 @@ describe("workspace e2e Vercel log retrieval", () => {
 
     await expect(result).resolves.toEqual({ link, code: "482913" });
   });
+
+  test.each(["en-US", "cs-CZ"] as const)(
+    "retrieves the sign-in link and code from the rendered %s email",
+    async (locale) => {
+      const link = magicLink(`rendered-${locale}`);
+      const { text } = await Effect.runPromise(
+        renderMagicLinkEmail({
+          email: recipient,
+          url: link,
+          locale,
+          code: "482913",
+        })
+      );
+      const { result } = makeSignInEmailRetrieval(() =>
+        Response.json(
+          page([row(`req-rendered-${locale}`, [log(previewE2ELine(text))])])
+        )
+      );
+
+      await expect(result).resolves.toEqual({ link, code: "482913" });
+    }
+  );
 
   test("rejects sign-in emails without a code line", async () => {
     const { result } = makeSignInEmailRetrieval(() =>
