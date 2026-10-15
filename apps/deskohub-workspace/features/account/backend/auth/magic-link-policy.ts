@@ -1,4 +1,4 @@
-import { EMAIL_TEST_DOMAIN } from "@deskohub/test-email";
+import { isTestEmailAddress } from "@deskohub/test-email";
 
 /**
  * Only `delivered+<run-id>-<label>@<EMAIL_TEST_DOMAIN>` is a synthetic E2E
@@ -8,14 +8,11 @@ import { EMAIL_TEST_DOMAIN } from "@deskohub/test-email";
 const magicLinkSyntheticLocalPartPattern =
   /^delivered\+[a-z0-9]+(?:-[a-z0-9]+)*-[a-z0-9]+$/i;
 
-export const isSyntheticE2EEmailRecipient = (email: string): boolean => {
-  const separator = email.lastIndexOf("@");
-  return (
-    separator > 0 &&
-    email.slice(separator + 1).toLowerCase() === EMAIL_TEST_DOMAIN &&
-    magicLinkSyntheticLocalPartPattern.test(email.slice(0, separator))
+export const isSyntheticE2EEmailRecipient = (email: string): boolean =>
+  isTestEmailAddress(email) &&
+  magicLinkSyntheticLocalPartPattern.test(
+    email.slice(0, email.lastIndexOf("@"))
   );
-};
 
 /**
  * Code for the sole authorized bearer-link log in synthetic protected Preview.

@@ -13,12 +13,13 @@ type PersistedUserState = "anonymous" | "identified";
 
 const makeIdentity = (
   status: AnalyticsAccountIdentity["status"],
-  accountId?: CustomerAccountId
+  accountId?: CustomerAccountId,
+  testAccount = false
 ): AnalyticsAccountIdentity => {
   if (status === "authenticated") {
     if (!accountId)
       throw new Error("An authenticated identity needs an account ID");
-    return { accountId, status };
+    return { accountId, status, testAccount };
   }
 
   return { status };
@@ -71,6 +72,9 @@ const makeFakeClient = (input: {
       resetCount += 1;
       distinctId = `anonymous-after-reset-${resetCount}`;
       userState = "anonymous";
+    },
+    setInternalOrTestUser() {
+      calls.push("set_internal_or_test_user");
     },
   };
 
@@ -193,6 +197,75 @@ describe("PostHog identity controller", () => {
     expect(fake.identifyArguments).toEqual([["workspace-account:account-a"]]);
     expect(readyAtIdentify).toBe(true);
     expect(fake.resetCount).toBe(0);
+  });
+
+  test("marks a test account as an internal or test user after identifying it", () => {
+    const fake = makeFakeClient({
+      distinctId: "device-id",
+      userState: "anonymous",
+    });
+    const controller = createPostHogIdentityController(fake.client, {
+      onPause: () => undefined,
+      onReady: () => fake.calls.push("ready"),
+    });
+
+    controller.reconcile(
+      true,
+      makeIdentity("authenticated", accountId("account-a"), true)
+    );
+
+    expect(fake.calls).toEqual([
+      "opt_in(false)",
+      "identify",
+      "set_internal_or_test_user",
+      "ready",
+    ]);
+    expect(fake.identifyArguments).toEqual([["workspace-account:account-a"]]);
+  });
+
+  test("marks a test account restored from an identified browser without identifying again", () => {
+    const fake = makeFakeClient({
+      distinctId: "workspace-account:account-a",
+      userState: "identified",
+    });
+    const controller = createPostHogIdentityController(fake.client, {
+      onPause: () => undefined,
+      onReady: () => fake.calls.push("ready"),
+    });
+    const identity = makeIdentity(
+      "authenticated",
+      accountId("account-a"),
+      true
+    );
+
+    controller.reconcile(true, identity);
+    controller.reconcile(true, identity);
+
+    expect(fake.identifyArguments).toEqual([]);
+    expect(fake.calls).toEqual([
+      "opt_in(false)",
+      "set_internal_or_test_user",
+      "ready",
+    ]);
+  });
+
+  test("never marks an ordinary account or an anonymous visitor as a test user", () => {
+    const fake = makeFakeClient({
+      distinctId: "device-id",
+      userState: "anonymous",
+    });
+    const controller = createPostHogIdentityController(fake.client, {
+      onPause: () => undefined,
+      onReady: () => undefined,
+    });
+
+    controller.reconcile(true, anonymous);
+    controller.reconcile(
+      true,
+      makeIdentity("authenticated", accountId("account-a"))
+    );
+
+    expect(fake.calls).not.toContain("set_internal_or_test_user");
   });
 
   test("resets a persisted account before switching from account A to account B", () => {

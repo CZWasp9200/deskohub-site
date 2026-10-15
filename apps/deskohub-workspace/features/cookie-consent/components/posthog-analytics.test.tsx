@@ -41,7 +41,11 @@ mock.module("@/client-env", () => ({
 
 type TestAnalyticsAccountIdentity =
   | { readonly status: "pending" | "unavailable" | "anonymous" }
-  | { readonly accountId: string; readonly status: "authenticated" };
+  | {
+      readonly accountId: string;
+      readonly status: "authenticated";
+      readonly testAccount?: boolean;
+    };
 
 let analyticsAccountIdentity: TestAnalyticsAccountIdentity = {
   status: "pending",
@@ -120,6 +124,10 @@ const identify = mock((distinctId?: string) => {
   sessionCookiesDuringIdentify = document.cookie;
   capture("$identify");
 });
+const setInternalOrTestUser = mock(() => {
+  posthogLifecycle.push("set-internal-or-test-user");
+  capture("$set", { $set: { $internal_or_test_user: true } });
+});
 const optInCapturing = mock(
   (_options?: { readonly captureEventName?: string | false }) => undefined
 );
@@ -190,6 +198,7 @@ const posthog = {
   reloadFeatureFlags,
   reset,
   set_config: setConfig,
+  setInternalOrTestUser,
   startSessionRecording,
   stopSessionRecording,
   unregister,
@@ -278,6 +287,7 @@ describe("PostHogAnalytics", () => {
     capture.mockClear();
     captureLog.mockClear();
     identify.mockClear();
+    setInternalOrTestUser.mockClear();
     optInCapturing.mockClear();
     optOutCapturing.mockClear();
     reset.mockClear();
@@ -509,6 +519,55 @@ describe("PostHogAnalytics", () => {
         reloadCountBeforeInvalidCookie + 1
       );
     }
+
+    view.unmount();
+  });
+
+  test("marks only a consented test account as an internal or test user", async () => {
+    const { PostHogAnalytics, PostHogProvider } = await import(
+      "./posthog-analytics?test-account-tagging"
+    );
+    const AnalyticsBoundary = ({
+      analyticsAccepted,
+    }: {
+      readonly analyticsAccepted: boolean;
+    }) => (
+      <PostHogProvider>
+        <PostHogAnalytics
+          analyticsAccepted={analyticsAccepted}
+          posthogEnvironment="preview"
+        />
+      </PostHogProvider>
+    );
+
+    setConsentCookie(["necessary", "analytics"]);
+    const view = render(<AnalyticsBoundary analyticsAccepted />);
+    await act(async () => {
+      publishAnalyticsAccountIdentity({
+        accountId: "account-a",
+        status: "authenticated",
+        testAccount: false,
+      });
+    });
+
+    expect(identify).toHaveBeenCalledWith("workspace-account:account-a");
+    expect(setInternalOrTestUser).not.toHaveBeenCalled();
+
+    await act(async () => {
+      publishAnalyticsAccountIdentity({
+        accountId: "account-b",
+        status: "authenticated",
+        testAccount: true,
+      });
+    });
+
+    expect(identify).toHaveBeenLastCalledWith("workspace-account:account-b");
+    expect(setInternalOrTestUser).toHaveBeenCalledTimes(1);
+    const personEvent = capturedEvents.find(({ event }) => event === "$set");
+    expect(personEvent?.properties).toMatchObject({
+      $set: { $internal_or_test_user: true },
+      distinct_id: "workspace-account:account-b",
+    });
 
     view.unmount();
   });

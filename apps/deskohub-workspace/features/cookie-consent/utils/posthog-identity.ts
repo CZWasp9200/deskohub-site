@@ -14,6 +14,7 @@ export type PostHogIdentityClient = Pick<
   | "opt_in_capturing"
   | "opt_out_capturing"
   | "reset"
+  | "setInternalOrTestUser"
 >;
 
 export type PostHogIdentityController = {
@@ -169,6 +170,10 @@ export function createPostHogIdentityController(
       client.identify(desiredDistinctId);
     } else {
       ready = true;
+    }
+
+    if (identity.testAccount) {
+      client.setInternalOrTestUser();
     }
 
     identityAssociationNeeded = false;

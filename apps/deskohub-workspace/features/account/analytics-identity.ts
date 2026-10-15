@@ -1,5 +1,6 @@
 "use client";
 
+import { isTestEmailAddress } from "@deskohub/test-email";
 import { Option, Predicate, Schema } from "effect";
 import { runWorkspaceBrowserEffect } from "@/shared/browser/workspace-browser-effect";
 import { reportWorkspaceBrowserFailure } from "@/shared/browser/workspace-browser-logs";
@@ -13,7 +14,12 @@ export type AnalyticsAccountIdentity =
   | { status: "pending" }
   | { status: "unavailable" }
   | { status: "anonymous" }
-  | { status: "authenticated"; accountId: CustomerAccountId };
+  | {
+      status: "authenticated";
+      accountId: CustomerAccountId;
+      /** The verified login email is on the reserved test domain. */
+      testAccount: boolean;
+    };
 
 type SessionAtomSnapshot = ReturnType<typeof authClient.useSession.get>;
 type SessionRefetch = SessionAtomSnapshot["refetch"];
@@ -28,6 +34,7 @@ const analyticsSessionDataSchema = Schema.NullOr(
     ),
     user: Schema.NullOr(
       Schema.Struct({
+        email: Schema.optionalKey(Schema.Unknown),
         emailVerified: Schema.Boolean,
         id: Schema.Unknown,
       })
@@ -56,9 +63,10 @@ type IdentityFacts = {
 
 type LifecycleOverride = "pending" | "anonymous";
 
-type SettledIdentity =
-  | { readonly status: "anonymous" }
-  | { readonly accountId: CustomerAccountId; readonly status: "authenticated" };
+type SettledIdentity = Extract<
+  AnalyticsAccountIdentity,
+  { readonly status: "anonymous" | "authenticated" }
+>;
 
 type PublishOptions = {
   readonly suppressSessionChangeNotification?: boolean;
@@ -181,7 +189,13 @@ const readSessionIdentity = (value: SessionAtomSnapshot): IdentityFacts => {
 
   return {
     expiresAt: expiresAtMillis,
-    identity: { accountId, status: "authenticated" },
+    identity: {
+      accountId,
+      status: "authenticated",
+      testAccount:
+        Predicate.isString(data.user.email) &&
+        isTestEmailAddress(data.user.email),
+    },
   };
 };
 

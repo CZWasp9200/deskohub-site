@@ -7,13 +7,25 @@ Code: `features/account/analytics-identity.ts`,
 ## Account identity contract
 
 - The account analytics boundary publishes only `pending`, `unavailable`,
-  `anonymous`, or `authenticated`, plus the opaque `CustomerAccountId` when
-  authenticated. Better Auth session and user details stay private.
+  `anonymous`, or `authenticated`, plus the opaque `CustomerAccountId` and the
+  `testAccount` boolean when authenticated. Better Auth session and user
+  details stay private.
 - The app has one root `PostHogProvider` (`app/[locale]/layout.tsx`).
   Initialize PostHog only after analytics consent.
 - Derive the distinct ID with `getPostHogAccountDistinctId`, and call
   `identify(id)` without properties. A consented anonymous browser history may
   merge into the account at that call.
+- `testAccount` is true only when the verified login email is on the reserved
+  test domain (`isTestEmailAddress` from `@deskohub/test-email`). Mail there is
+  never delivered, so only fixtures and E2E can hold such an account, and a
+  visitor can't flag anyone else. The identity controller then calls the SDK's
+  `setInternalOrTestUser()`, which sets the `$internal_or_test_user` person
+  property that the PostHog "Internal / Test users" cohort matches. Don't
+  derive it from a request header, cookie, query parameter, or hostname, and
+  don't use the SDK's `internal_or_test_user_hostname` option: it fires at
+  load, before consent and identity settle. E2E cases accept only necessary
+  cookies, so they create no PostHog persons unless a case opts in to
+  analytics.
 
 ## Identity transitions
 
