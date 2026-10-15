@@ -240,9 +240,8 @@ export function SignInCodeStep({
         {onUseDifferentEmail && (
           <Button
             type="button"
-            variant="ghost"
+            variant="link"
             disabled={verifying || verified}
-            className="px-0 underline-offset-4 hover:bg-transparent hover:underline"
             onClick={onUseDifferentEmail}
           >
             {m.accountSignInCodeChangeEmail({}, { locale })}
