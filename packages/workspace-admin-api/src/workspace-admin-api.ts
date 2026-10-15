@@ -709,6 +709,16 @@ export const AdministrationInvoicePdf = Schema.Uint8Array.pipe(
   HttpApiSchema.asUint8Array({ contentType: "application/pdf" })
 );
 
+/** The reservation states an admin list or campaign audience can filter by. */
+export const AdministrationReservationStatusFilter = Schema.Literals([
+  "in_progress",
+  "complete",
+  "cancelled",
+  "needs_refund",
+]);
+export type AdministrationReservationStatusFilter =
+  typeof AdministrationReservationStatusFilter.Type;
+
 export const AdministrationReservationQuery = Schema.Struct({
   customerId: Schema.optional(AdministrationDotyposCustomerId),
   date: Schema.optional(administrationCalendarDate),
@@ -717,9 +727,7 @@ export const AdministrationReservationQuery = Schema.Struct({
     Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1))
   ),
   sort: Schema.optional(AdministrationReservationSort),
-  status: Schema.optional(
-    Schema.Literals(["in_progress", "complete", "cancelled", "needs_refund"])
-  ),
+  status: Schema.optional(AdministrationReservationStatusFilter),
   type: Schema.optional(Schema.Literals(["cowork", "meeting-room", "office"])),
 });
 export type AdministrationReservationQuery =

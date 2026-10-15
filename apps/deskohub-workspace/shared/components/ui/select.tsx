@@ -180,4 +180,30 @@ function SelectItem({ className, children, ref, ...props }: SelectItemProps) {
 }
 SelectItem.displayName = SelectPrimitive.Item.displayName;
 
-export { Select, SelectContent, SelectItem, SelectTrigger, SelectValue };
+const SelectGroup = SelectPrimitive.Group;
+
+function SelectLabel({
+  className,
+  ...props
+}: React.ComponentProps<typeof SelectPrimitive.Label>) {
+  return (
+    <SelectPrimitive.Label
+      data-slot="select-label"
+      className={cn(
+        "px-2 pt-2 pb-1 font-semibold text-[0.7rem] text-navy-blue/55 uppercase tracking-[0.12em]",
+        className
+      )}
+      {...props}
+    />
+  );
+}
+
+export {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+};

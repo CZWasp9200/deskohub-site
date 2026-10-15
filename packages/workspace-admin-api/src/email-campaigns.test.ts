@@ -12,8 +12,8 @@ import {
   AdministrationCampaignSendStatusResult,
   AdministrationCampaignTemplatePreviewInput,
   AdministrationCampaignUpdateInput,
-  AudienceFilter,
 } from "./email-campaigns";
+import { AudienceFilter } from "./audience-filter";
 
 const decodes = <A, I>(schema: Schema.Codec<A, I>, input: unknown) =>
   Result.isSuccess(Schema.decodeUnknownResult(schema)(input));

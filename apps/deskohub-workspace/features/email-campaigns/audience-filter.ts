@@ -1,24 +1,30 @@
 import type { DotyposCustomer, DotyposCustomerId } from "@deskohub/dotypos";
 import {
+  type AudienceAttributeOfKind,
+  type AudienceConditionOf,
+  type AudienceConditionType,
+  type AudienceCountOperatorType,
+  type AudienceFilterGroup,
   type AudienceFilterType,
+  type AudienceSetOperatorType,
   AudienceFilter as audienceFilterSchema,
 } from "@deskohub/workspace-admin-api";
 import { Match, Option } from "effect";
 import { type Locale, locales } from "@/features/i18n";
+import type { DatePeriod } from "./date-period";
 
 /**
  * The filter tree a campaign audience selects its recipients with. The
- * administration contract defines it once for Workspace, the Admin UI, and
- * `dhw`.
+ * administration contract defines it, with its attribute catalogue, once for
+ * Workspace, the Admin UI, and `dhw`.
  */
 export type AudienceFilter = AudienceFilterType;
+export type AudienceCondition = AudienceConditionType;
+export type { AudienceFilterGroup };
 export { audienceFilterSchema };
 
-type AudienceReservationCondition = Extract<
-  AudienceFilter,
-  { readonly _tag: "Reservation" }
->;
-type AudienceFilterGroup = Extract<AudienceFilter, { readonly _tag: "Group" }>;
+export type AudienceCountAttribute = AudienceAttributeOfKind<"count">;
+export type AudienceDateAttribute = AudienceAttributeOfKind<"date">;
 
 /**
  * Three-valued result: a Dotypos condition is `unknown` until the customer's
@@ -34,47 +40,133 @@ export type AudienceCandidate = {
   readonly hasAccount: boolean;
 };
 
-/** Customers with a matching reservation, keyed by {@link reservationConditionKey}. */
-export type AudienceReservationMatches = ReadonlyMap<
-  string,
-  ReadonlySet<DotyposCustomerId>
->;
+/** What one count condition counts; equal requests share one lookup. */
+export type AudienceCountRequest = {
+  readonly [Attribute in AudienceCountAttribute]: Pick<
+    AudienceConditionOf<Attribute>,
+    "attribute" | "params"
+  >;
+}[AudienceCountAttribute];
 
-/** The reservation criteria of a condition; equal criteria share one lookup. */
-export type AudienceReservationCriteria = Omit<
-  AudienceReservationCondition,
-  "_tag" | "presence"
->;
-
-export const reservationConditionKey = ({
-  dateBasis,
-  from,
-  to,
-  status,
-}: AudienceReservationCriteria): string =>
-  [dateBasis, from ?? "", to ?? "", status ?? ""].join("|");
-
-/** Every reservation condition in the tree, deduplicated by criteria. */
-export const collectReservationCriteria = (
-  filter: AudienceFilter
-): readonly AudienceReservationCriteria[] => {
-  const criteria = new Map<string, AudienceReservationCriteria>();
-  const visit = (node: AudienceFilter): void => {
-    if (node._tag === "Group") {
-      node.filters.forEach(visit);
-      return;
-    }
-    if (node._tag === "Reservation") {
-      const { _tag, presence, ...reservationCriteria } = node;
-      criteria.set(
-        reservationConditionKey(reservationCriteria),
-        reservationCriteria
-      );
-    }
-  };
-  visit(filter);
-  return [...criteria.values()];
+/** Which date attribute one condition tests, in which period. */
+export type AudienceDateRequest = {
+  readonly attribute: AudienceDateAttribute;
+  readonly period: DatePeriod;
 };
+
+/** Customers whose date attribute has a value, and whose value is in the period. */
+export type AudienceDateFacts = {
+  readonly withValue: ReadonlySet<DotyposCustomerId>;
+  readonly inPeriod: ReadonlySet<DotyposCustomerId>;
+};
+
+/**
+ * Resolved count and date attributes, keyed by {@link audienceFactKey}. A
+ * candidate missing from a count map has a count of zero, so "= 0" and "< N"
+ * match customers without any records.
+ */
+export type AudienceFacts = {
+  readonly counts: ReadonlyMap<string, ReadonlyMap<DotyposCustomerId, number>>;
+  readonly dates: ReadonlyMap<string, AudienceDateFacts>;
+};
+
+/** Requests are decoded schema values, so their key order is stable. */
+export const audienceFactKey = (
+  request: AudienceCountRequest | AudienceDateRequest
+): string => JSON.stringify(request);
+
+const anyTime: DatePeriod = { _tag: "AnyTime" };
+
+/** "Has no value" needs only the customers with one, so it asks for any time. */
+const dateRequest = (
+  condition: AudienceConditionOf<AudienceDateAttribute>
+): AudienceDateRequest => ({
+  attribute: condition.attribute,
+  period: condition.operator === "none" ? anyTime : condition.value,
+});
+
+const countRequest = (
+  condition: AudienceConditionOf<AudienceCountAttribute>
+): AudienceCountRequest =>
+  ({
+    attribute: condition.attribute,
+    params: condition.params,
+  }) as AudienceCountRequest;
+
+const conditionsOf = (filter: AudienceFilter): readonly AudienceCondition[] =>
+  filter._tag === "Group" ? filter.filters.flatMap(conditionsOf) : [filter];
+
+/** Every count and date lookup the tree needs, deduplicated. */
+export const collectAudienceFactRequests = (
+  filter: AudienceFilter
+): {
+  readonly counts: readonly AudienceCountRequest[];
+  readonly dates: readonly AudienceDateRequest[];
+} => {
+  const counts = new Map<string, AudienceCountRequest>();
+  const dates = new Map<string, AudienceDateRequest>();
+  for (const condition of conditionsOf(filter)) {
+    Match.value(condition).pipe(
+      Match.discriminatorsExhaustive("attribute")({
+        reservationCount: (count) => {
+          const request = countRequest(count);
+          counts.set(audienceFactKey(request), request);
+        },
+        campaignEmailCount: (count) => {
+          const request = countRequest(count);
+          counts.set(audienceFactKey(request), request);
+        },
+        lastVisit: (date) => {
+          const request = dateRequest(date);
+          dates.set(audienceFactKey(request), request);
+        },
+        accountCreated: (date) => {
+          const request = dateRequest(date);
+          dates.set(audienceFactKey(request), request);
+        },
+        locale: () => undefined,
+        dotyposTags: () => undefined,
+        discountGroup: () => undefined,
+        hasAccount: () => undefined,
+      })
+    );
+  }
+  return { counts: [...counts.values()], dates: [...dates.values()] };
+};
+
+/** Compares a count with a condition's number. */
+export const compareCount = (
+  operator: AudienceCountOperatorType,
+  actual: number,
+  expected: number
+): boolean =>
+  Match.value(operator).pipe(
+    Match.when("eq", () => actual === expected),
+    Match.when("ne", () => actual !== expected),
+    Match.when("lt", () => actual < expected),
+    Match.when("lte", () => actual <= expected),
+    Match.when("gt", () => actual > expected),
+    Match.when("gte", () => actual >= expected),
+    Match.exhaustive
+  );
+
+/** Compares an attribute's values with a condition's chosen values. */
+export const matchesSet = <Value>(
+  operator: AudienceSetOperatorType,
+  actual: readonly Value[],
+  selected: readonly Value[]
+): boolean =>
+  Match.value(operator).pipe(
+    Match.when("anyOf", () => selected.some((value) => actual.includes(value))),
+    Match.when("allOf", () =>
+      selected.every((value) => actual.includes(value))
+    ),
+    Match.when(
+      "noneOf",
+      () => !selected.some((value) => actual.includes(value))
+    ),
+    Match.exhaustive
+  );
 
 const fromBoolean = (value: boolean): AudienceFilterOutcome =>
   value ? "match" : "noMatch";
@@ -86,10 +178,10 @@ const fromBoolean = (value: boolean): AudienceFilterOutcome =>
 export const evaluateAudienceFilter = (input: {
   readonly filter: AudienceFilter;
   readonly candidate: AudienceCandidate;
-  readonly reservationMatches: AudienceReservationMatches;
+  readonly facts: AudienceFacts;
   readonly profile: Option.Option<DotyposCustomer>;
 }): AudienceFilterOutcome => {
-  const { candidate, reservationMatches, profile } = input;
+  const { candidate, facts, profile } = input;
   const profileCondition = (
     predicate: (customer: DotyposCustomer) => boolean
   ): AudienceFilterOutcome =>
@@ -98,30 +190,67 @@ export const evaluateAudienceFilter = (input: {
       onSome: (customer) => fromBoolean(predicate(customer)),
     });
 
-  const evaluate = (filter: AudienceFilter): AudienceFilterOutcome =>
-    Match.value(filter).pipe(
-      Match.tagsExhaustive({
-        Reservation: ({ presence, ...criteria }) => {
-          const reserved =
-            reservationMatches
-              .get(reservationConditionKey(criteria))
-              ?.has(candidate.dotyposCustomerId) ?? false;
-          return fromBoolean(presence === "has" ? reserved : !reserved);
-        },
-        Locale: ({ locales: selected }) =>
-          fromBoolean(selected.includes(candidate.locale)),
-        Account: ({ hasAccount }) =>
-          fromBoolean(candidate.hasAccount === hasAccount),
-        DotyposTag: ({ tag }) =>
-          profileCondition((customer) => (customer.tags ?? []).includes(tag)),
-        DiscountGroup: ({ discountGroupId }) =>
-          profileCondition(
-            (customer) => customer._discountGroupId === discountGroupId
+  const countCondition = (
+    condition: AudienceConditionOf<AudienceCountAttribute>
+  ) =>
+    fromBoolean(
+      compareCount(
+        condition.operator,
+        facts.counts
+          .get(audienceFactKey(countRequest(condition)))
+          ?.get(candidate.dotyposCustomerId) ?? 0,
+        condition.value
+      )
+    );
+
+  const dateCondition = (
+    condition: AudienceConditionOf<AudienceDateAttribute>
+  ) => {
+    const dates = facts.dates.get(audienceFactKey(dateRequest(condition)));
+    const id = candidate.dotyposCustomerId;
+    const hasValue = dates?.withValue.has(id) ?? false;
+    const inPeriod = dates?.inPeriod.has(id) ?? false;
+    return fromBoolean(
+      Match.value(condition.operator).pipe(
+        Match.when("in", () => inPeriod),
+        Match.when("notIn", () => hasValue && !inPeriod),
+        Match.when("none", () => !hasValue),
+        Match.exhaustive
+      )
+    );
+  };
+
+  const evaluateCondition = (
+    condition: AudienceCondition
+  ): AudienceFilterOutcome =>
+    Match.value(condition).pipe(
+      Match.discriminatorsExhaustive("attribute")({
+        reservationCount: countCondition,
+        campaignEmailCount: countCondition,
+        lastVisit: dateCondition,
+        accountCreated: dateCondition,
+        locale: ({ operator, value }) =>
+          fromBoolean(matchesSet(operator, [candidate.locale], value)),
+        dotyposTags: ({ operator, value }) =>
+          profileCondition((customer) =>
+            matchesSet(operator, customer.tags ?? [], value)
           ),
-        Group: ({ operator, filters }) =>
-          combineOutcomes(operator, filters.map(evaluate)),
+        discountGroup: ({ operator, value }) =>
+          profileCondition((customer) =>
+            matchesSet(
+              operator,
+              customer._discountGroupId ? [customer._discountGroupId] : [],
+              value
+            )
+          ),
+        hasAccount: ({ value }) => fromBoolean(candidate.hasAccount === value),
       })
     );
+
+  const evaluate = (filter: AudienceFilter): AudienceFilterOutcome =>
+    filter._tag === "Group"
+      ? combineOutcomes(filter.operator, filter.filters.map(evaluate))
+      : evaluateCondition(filter);
 
   return evaluate(input.filter);
 };
@@ -136,6 +265,8 @@ const combineOutcomes = (
   return operator === "and" ? "match" : "noMatch";
 };
 
+const allLocales = (): ReadonlySet<Locale> => new Set(locales);
+
 /**
  * The locales a recipient of the audience can have. Only locale conditions
  * narrow it: an AND group keeps the locales all its filters allow and an OR
@@ -143,24 +274,37 @@ const combineOutcomes = (
  * and an empty OR group nobody, as {@link evaluateAudienceFilter} decides.
  */
 export const audienceLocales = (filter: AudienceFilter): ReadonlySet<Locale> =>
-  Match.value(filter).pipe(
-    Match.tag("Locale", ({ locales: selected }) => new Set(selected)),
-    Match.tag("Group", ({ operator, filters }) => {
-      const allowed = filters.map(audienceLocales);
-      return new Set(
-        locales.filter((locale) =>
-          operator === "and"
-            ? allowed.every((group) => group.has(locale))
-            : allowed.some((group) => group.has(locale))
-        )
+  filter._tag === "Group"
+    ? groupLocales(filter)
+    : Match.value(filter).pipe(
+        Match.discriminatorsExhaustive("attribute")({
+          locale: ({ operator, value }) =>
+            new Set(
+              locales.filter((locale) => matchesSet(operator, [locale], value))
+            ),
+          reservationCount: allLocales,
+          campaignEmailCount: allLocales,
+          lastVisit: allLocales,
+          accountCreated: allLocales,
+          dotyposTags: allLocales,
+          discountGroup: allLocales,
+          hasAccount: allLocales,
+        })
       );
-    }),
-    Match.tag("Reservation", () => new Set(locales)),
-    Match.tag("Account", () => new Set(locales)),
-    Match.tag("DotyposTag", () => new Set(locales)),
-    Match.tag("DiscountGroup", () => new Set(locales)),
-    Match.exhaustive
+
+const groupLocales = ({
+  operator,
+  filters,
+}: AudienceFilterGroup): ReadonlySet<Locale> => {
+  const allowed = filters.map(audienceLocales);
+  return new Set(
+    locales.filter((locale) =>
+      operator === "and"
+        ? allowed.every((group) => group.has(locale))
+        : allowed.some((group) => group.has(locale))
+    )
   );
+};
 
 /**
  * The single locale every recipient of the audience has, when its filter

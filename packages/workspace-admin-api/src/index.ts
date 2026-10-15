@@ -1,4 +1,34 @@
 export {
+  type AudienceAttribute,
+  type AudienceAttributeKind,
+  type AudienceAttributeOfKind,
+  AudienceCondition,
+  type AudienceCondition as AudienceConditionType,
+  type AudienceConditionOf,
+  AudienceCountOperator,
+  type AudienceCountOperator as AudienceCountOperatorType,
+  AudienceDateOperator,
+  type AudienceDateOperator as AudienceDateOperatorType,
+  AudienceFilter,
+  type AudienceFilter as AudienceFilterType,
+  type AudienceFilterGroup,
+  AudienceSetOperator,
+  type AudienceSetOperator as AudienceSetOperatorType,
+  audienceAttributeCatalogue,
+} from "./audience-filter";
+export {
+  AdministrationCampaignLocale,
+  type AdministrationCampaignLocale as AdministrationCampaignLocaleType,
+  AdministrationCampaignPurpose,
+  type AdministrationCampaignPurpose as AdministrationCampaignPurposeType,
+} from "./campaign-locale-and-purpose";
+export {
+  DatePeriod,
+  type DatePeriod as DatePeriodType,
+  DatePeriodUnit,
+  type DatePeriodUnit as DatePeriodUnitType,
+} from "./date-period";
+export {
   digestCliAuthenticationSecret,
   makeCliAuthenticationChallenge,
   makeCliAuthenticationSecret,
@@ -30,14 +60,10 @@ export {
   type AdministrationCampaignEmailPreview as AdministrationCampaignEmailPreviewType,
   AdministrationCampaignId,
   type AdministrationCampaignId as AdministrationCampaignIdType,
-  AdministrationCampaignLocale,
-  type AdministrationCampaignLocale as AdministrationCampaignLocaleType,
   AdministrationCampaignLocaleContent,
   type AdministrationCampaignLocaleContent as AdministrationCampaignLocaleContentType,
   AdministrationCampaignLocaleContentChange,
   type AdministrationCampaignLocaleContentChange as AdministrationCampaignLocaleContentChangeType,
-  AdministrationCampaignPurpose,
-  type AdministrationCampaignPurpose as AdministrationCampaignPurposeType,
   AdministrationCampaignRecipientExclusionReason,
   type AdministrationCampaignRecipientExclusionReason as AdministrationCampaignRecipientExclusionReasonType,
   AdministrationCampaignRecipientPreview,
@@ -76,8 +102,6 @@ export {
   type AdministrationCampaignTestSendResult as AdministrationCampaignTestSendResultType,
   AdministrationCampaignUpdateInput,
   type AdministrationCampaignUpdateInput as AdministrationCampaignUpdateInputType,
-  AudienceFilter,
-  type AudienceFilter as AudienceFilterType,
 } from "./email-campaigns";
 export {
   WORKSPACE_SITE_TIME_ZONE,
@@ -280,6 +304,8 @@ export {
   AdministrationReservationPage,
   type AdministrationReservationPage as AdministrationReservationPageType,
   AdministrationReservationQuery,
+  AdministrationReservationStatusFilter,
+  type AdministrationReservationStatusFilter as AdministrationReservationStatusFilterType,
   type AdministrationReservationQuery as AdministrationReservationQueryType,
   AdministrationReservationSort,
   type AdministrationReservationSort as AdministrationReservationSortType,

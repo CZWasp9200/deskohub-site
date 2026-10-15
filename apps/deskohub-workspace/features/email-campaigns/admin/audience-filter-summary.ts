@@ -1,6 +1,9 @@
+import type { AudienceCountOperatorType } from "@deskohub/workspace-admin-api";
 import { Match } from "effect";
 import type { Locale } from "@/features/i18n";
-import type { AudienceFilter } from "../audience-filter";
+import type { AudienceCondition, AudienceFilter } from "../audience-filter";
+import type { DatePeriod } from "../date-period";
+import { describeDatePeriod } from "./date-period-phrases";
 
 /** A Dotypos discount group an audience can filter by. */
 export type DiscountGroupOption = {
@@ -16,61 +19,155 @@ const localeNames: Readonly<Record<Locale, string>> = {
 /** How a status reads around "reservation": before it, or after it. */
 const reservationStatusPhrases = {
   in_progress: { before: "", after: " in progress" },
-  complete: { before: " complete", after: "" },
-  cancelled: { before: " cancelled", after: "" },
+  complete: { before: "complete ", after: "" },
+  cancelled: { before: "cancelled ", after: "" },
   needs_refund: { before: "", after: " needing a refund" },
 } as const;
 
-const describeDateRange = (from?: string, to?: string) => {
-  if (from && to) return ` between ${from} and ${to}`;
-  if (from) return ` from ${from}`;
-  if (to) return ` until ${to}`;
-  return "";
+type Noun = { readonly one: string; readonly other: string };
+
+/** "no emails", "exactly 1 email", "at least 3 emails", … */
+export const describeCount = (
+  operator: AudienceCountOperatorType,
+  value: number,
+  noun: Noun
+): string => {
+  // A half-typed number reads as a gap until the operator finishes it.
+  const counted = Number.isInteger(value)
+    ? `${value} ${value === 1 ? noun.one : noun.other}`
+    : `… ${noun.other}`;
+  return Match.value(operator).pipe(
+    Match.when("eq", () =>
+      value === 0 ? `no ${noun.other}` : `exactly ${counted}`
+    ),
+    Match.when("ne", () => `other than ${counted}`),
+    Match.when("lt", () => `fewer than ${counted}`),
+    Match.when("lte", () => `at most ${counted}`),
+    Match.when("gt", () => `more than ${counted}`),
+    Match.when("gte", () => `at least ${counted}`),
+    Match.exhaustive
+  );
 };
+
+/** The period after a verb, or nothing for any time. */
+const periodSuffix = (verb: string, period: DatePeriod) =>
+  period._tag === "AnyTime" ? "" : ` ${verb}${describeDatePeriod(period)}`;
+
+/** Chosen values joined for a sentence; nothing chosen yet reads as a gap. */
+const joined = (values: readonly string[], joiner: string) =>
+  values.length === 0 ? "…" : values.join(joiner);
+
+const quoted = (values: readonly string[], joiner: string) =>
+  joined(
+    values.map((value) => `“${value}”`),
+    joiner
+  );
 
 /** What a customer must satisfy, as a plural predicate ("speak Czech and …"). */
 const describeCondition = (
-  filter: AudienceFilter,
+  condition: AudienceCondition,
   discountGroups: readonly DiscountGroupOption[]
 ): string =>
-  Match.value(filter).pipe(
-    Match.tagsExhaustive({
-      Reservation: ({ presence, dateBasis, from, to, status }) =>
-        [
-          presence === "has" ? "have a" : "have no",
-          // Without a status only booked (confirmed, never cancelled)
-          // reservations count.
-          status ? reservationStatusPhrases[status].before : " booked",
-          " reservation",
-          status ? reservationStatusPhrases[status].after : "",
-          from || to
-            ? ` ${dateBasis === "visit" ? "visiting" : "confirmed"}${describeDateRange(from, to)}`
-            : "",
-        ].join(""),
-      Locale: ({ locales }) =>
-        `speak ${locales.map((locale) => localeNames[locale]).join(" or ")}`,
-      Account: ({ hasAccount }) =>
-        hasAccount ? "have a Workspace account" : "have no Workspace account",
-      DotyposTag: ({ tag }) => `are tagged “${tag}”`,
-      DiscountGroup: ({ discountGroupId }) => {
-        const group = discountGroups.find(({ id }) => id === discountGroupId);
-        return group
-          ? `are in discount group “${group.name}”`
-          : `are in discount group ${discountGroupId}`;
+  Match.value(condition).pipe(
+    Match.discriminatorsExhaustive("attribute")({
+      reservationCount: ({ params, operator, value }) => {
+        // Without a status only booked (confirmed, never cancelled)
+        // reservations count.
+        const status = params.status
+          ? reservationStatusPhrases[params.status]
+          : { before: "booked ", after: "" };
+        return `have ${describeCount(operator, value, {
+          one: `${status.before}reservation${status.after}`,
+          other: `${status.before}reservations${status.after}`,
+        })}${periodSuffix(
+          params.dateBasis === "visit" ? "visiting " : "confirmed ",
+          params.period
+        )}`;
       },
-      Group: ({ operator, filters }) => {
-        if (filters.length === 0) {
-          return operator === "and" ? "match anything" : "match nothing";
-        }
-        const parts = filters.map((child) =>
-          child._tag === "Group" && child.filters.length > 1
-            ? `(${describeCondition(child, discountGroups)})`
-            : describeCondition(child, discountGroups)
+      campaignEmailCount: ({ params, operator, value }) => {
+        const purpose = params.purpose === "any" ? "" : `${params.purpose} `;
+        return `received ${describeCount(operator, value, {
+          one: `${purpose}campaign email`,
+          other: `${purpose}campaign emails`,
+        })}${periodSuffix("", params.period)}`;
+      },
+      lastVisit: (date) =>
+        Match.value(date).pipe(
+          Match.when({ operator: "in" }, ({ value }) =>
+            value._tag === "AnyTime"
+              ? "have visited"
+              : `last visited ${describeDatePeriod(value)}`
+          ),
+          Match.when(
+            { operator: "notIn" },
+            ({ value }) =>
+              `have visited, with the last visit not ${describeDatePeriod(value)}`
+          ),
+          Match.when({ operator: "none" }, () => "have never visited"),
+          Match.exhaustive
+        ),
+      accountCreated: (date) =>
+        Match.value(date).pipe(
+          Match.when({ operator: "in" }, ({ value }) =>
+            value._tag === "AnyTime"
+              ? "have a Workspace account"
+              : `created a Workspace account ${describeDatePeriod(value)}`
+          ),
+          Match.when(
+            { operator: "notIn" },
+            ({ value }) =>
+              `have a Workspace account not created ${describeDatePeriod(value)}`
+          ),
+          Match.when({ operator: "none" }, () => "have no Workspace account"),
+          Match.exhaustive
+        ),
+      locale: ({ operator, value }) => {
+        const names = joined(
+          value.map((locale) => localeNames[locale]),
+          " or "
         );
-        return parts.join(operator === "and" ? " and " : " or ");
+        return operator === "anyOf" ? `speak ${names}` : `don’t speak ${names}`;
       },
+      dotyposTags: ({ operator, value }) =>
+        Match.value(operator).pipe(
+          Match.when("anyOf", () => `are tagged ${quoted(value, " or ")}`),
+          Match.when("allOf", () => `are tagged ${quoted(value, " and ")}`),
+          Match.when("noneOf", () => `aren’t tagged ${quoted(value, " or ")}`),
+          Match.exhaustive
+        ),
+      discountGroup: ({ operator, value }) => {
+        const names = joined(
+          value.map((id) => {
+            const group = discountGroups.find((option) => option.id === id);
+            return group ? `“${group.name}”` : id;
+          }),
+          " or "
+        );
+        return operator === "anyOf"
+          ? `are in discount group ${names}`
+          : `aren’t in discount group ${names}`;
+      },
+      hasAccount: ({ value }) =>
+        value ? "have a Workspace account" : "have no Workspace account",
     })
   );
+
+const describeFilter = (
+  filter: AudienceFilter,
+  discountGroups: readonly DiscountGroupOption[]
+): string => {
+  if (filter._tag !== "Group") return describeCondition(filter, discountGroups);
+  if (filter.filters.length === 0) {
+    return filter.operator === "and" ? "match anything" : "match nothing";
+  }
+  return filter.filters
+    .map((child) =>
+      child._tag === "Group" && child.filters.length > 1
+        ? `(${describeFilter(child, discountGroups)})`
+        : describeFilter(child, discountGroups)
+    )
+    .join(filter.operator === "and" ? " and " : " or ");
+};
 
 /**
  * One sentence of plain English for an audience filter tree. Discount groups
@@ -85,5 +182,5 @@ export const describeAudienceFilter = (
       ? "Every customer Workspace knows"
       : "Nobody";
   }
-  return `Customers who ${describeCondition(filter, discountGroups)}`;
+  return `Customers who ${describeFilter(filter, discountGroups)}`;
 };
