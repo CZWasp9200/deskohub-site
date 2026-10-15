@@ -1,4 +1,5 @@
 import { deepStrictEqual } from "node:assert/strict";
+import type { DotyposCustomerId } from "@deskohub/dotypos";
 import {
   NexiOperationIdSchema,
   NexiWebhookEventIdSchema,
@@ -896,9 +897,11 @@ export const waitForCheckoutRow = (
 
 export const readCleanupCheckoutRows = (
   createdAfter: Date,
-  data: CheckoutData
+  data: CheckoutData,
+  customerIds: readonly DotyposCustomerId[]
 ): Effect.Effect<readonly CheckoutRow[], WorkspaceE2EError, E2EDatabase> =>
   Effect.gen(function* () {
+    if (customerIds.length === 0) return [];
     const { db } = yield* E2EDatabase;
     const reservations = yield* runRetrySafeDatabaseOperation(
       "read checkout cleanup rows",
@@ -912,6 +915,7 @@ export const readCleanupCheckoutRows = (
               Temporal.Instant.fromEpochMilliseconds(createdAfter.getTime())
             ),
             isNotNull(workspaceReservations.dotyposReservationId),
+            inArray(workspaceReservations.dotyposCustomerId, [...customerIds]),
             ne(workspaceReservations.paymentState, "paid"),
             // Narrow by containment so snapshots carrying optional product
             // identity still match; the decoded rows are matched below.
