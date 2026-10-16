@@ -19,6 +19,7 @@ Workspace also provides authenticated administration tools for operators to mana
 - [Workspace operator CLI](apps/dhw/README.md)
 - [Boardgame Bar reservations](apps/deskohub-boardgame-bar/docs/reservations.md)
 - [Boardgame Bar opening hours](apps/deskohub-boardgame-bar/docs/opening-hours.md)
+- [Boardgame Bar events](apps/deskohub-boardgame-bar/docs/events.md)
 - [Boardgame Bar reservation notifications](apps/deskohub-boardgame-bar/docs/reservation-notifications.md)
 
 Implementation and operational guidance lives in the repository skills under `.agents/skills`.

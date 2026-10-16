@@ -28,6 +28,7 @@ const navigationItems = [
     href: "/board-games",
     text: () => m["nav.boardGames"](),
   },
+  { label: "nav.events", href: "/events", text: () => m["nav.events"]() },
   { label: "nav.gallery", href: "/gallery", text: () => m["nav.gallery"]() },
   { label: "nav.menu", href: "/menu", text: () => m["nav.menu"]() },
   { label: "nav.contact", href: "/contact", text: () => m["nav.contact"]() },

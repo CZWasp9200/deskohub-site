@@ -45,7 +45,8 @@
     "menu": "MENU",
     "trainingRoom": "TTRPG ROOM",
     "contact": "CONTACT",
-    "openMenu": "Open menu"
+    "openMenu": "Open menu",
+    "events": "Events"
   },
   "buttons": {
     "reservation": "Reservation",
@@ -1119,5 +1120,18 @@
   },
   "gdpr": {
     "pageTitle": "Privacy Policy"
+  },
+  "events": {
+    "pageTitle": "Events - Deskohub",
+    "pageDescription": "Tournaments, game nights and other events at the Deskohub board game bar.",
+    "hero": {
+      "title": "Events",
+      "subtitle": "Tournaments, game nights and meetups to look forward to"
+    },
+    "empty": {
+      "title": "No events are scheduled yet",
+      "hint": "Check back in a few days, or follow us on social media."
+    },
+    "moreInfo": "More about the event"
   }
 }

@@ -1,6 +1,6 @@
 ---
 name: deskohub-boardgame-bar
-description: Boardgame Bar, deskohub-boardgame-bar, bar.deskohub.cz, opening hours, Google Calendar webhook, table reservation, ChoiceQR, training-room request, contact form email, Resend, static feature flags, siteConstants, cache tags, Temporal polyfill.
+description: Boardgame Bar, deskohub-boardgame-bar, bar.deskohub.cz, opening hours, events calendar, Google Calendar webhook, table reservation, ChoiceQR, training-room request, contact form email, Resend, static feature flags, siteConstants, cache tags, Temporal polyfill.
 ---
 
 # Deskohub Boardgame Bar
@@ -8,6 +8,7 @@ description: Boardgame Bar, deskohub-boardgame-bar, bar.deskohub.cz, opening hou
 Business behavior lives in `apps/deskohub-boardgame-bar/docs`. Read the matching spec before changing customer or operator behavior.
 
 - For opening-hours exceptions, the Google Calendar watch, and its cron, read [references/opening-hours.md](references/opening-hours.md).
+- For the public events listing and its calendar markers, read [references/events.md](references/events.md).
 - For table reservations and training-room requests, read [references/reservations.md](references/reservations.md).
 - For email provider selection and sender addresses, read [references/email.md](references/email.md).
 

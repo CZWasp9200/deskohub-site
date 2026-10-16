@@ -49,6 +49,12 @@ export function Header() {
             {m["nav.boardGames"]()}
           </LocalizedLink>
           <LocalizedLink
+            href="/events"
+            className="hover:text-green-400 transition-colors"
+          >
+            {m["nav.events"]()}
+          </LocalizedLink>
+          <LocalizedLink
             href="/gallery"
             className="hover:text-green-400 transition-colors"
           >

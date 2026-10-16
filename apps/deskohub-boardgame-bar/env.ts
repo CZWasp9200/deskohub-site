@@ -38,6 +38,10 @@ export const boardgameBarServerSchema = {
   DOTYPOS_WEBHOOK_SECRET: z.uuid(),
   EMAIL_API_KEY: z.string().optional(),
   GOOGLE_CALENDAR_OPENING_HOURS_ID: toEnvironmentSchema(GoogleCalendarIdSchema),
+  // Optional: without it the site simply publishes no events.
+  GOOGLE_CALENDAR_EVENTS_ID: toEnvironmentSchema(
+    Schema.optional(GoogleCalendarIdSchema)
+  ),
   GOOGLE_CALENDAR_PRIVATE_KEY: nonEmptyStringSchema,
   GOOGLE_CALENDAR_SERVICE_ACCOUNT_EMAIL: nonEmptyStringSchema,
   CRON_SECRET: Schema.toStandardSchemaV1(

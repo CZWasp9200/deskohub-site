@@ -16,6 +16,7 @@ import { cacheTag } from "next/cache";
  */
 const NAMESPACES = {
   cloudinary: "cdn",
+  events: "events",
   games: "games",
   menu: "menu",
   openingHours: "opening-hours",
@@ -74,6 +75,10 @@ export const dotyposTags = {
 
 export const openingHoursTags = {
   exceptions: () => `${NAMESPACES.openingHours}:exceptions`,
+};
+
+export const eventsTags = {
+  upcoming: () => `${NAMESPACES.events}:upcoming`,
 };
 
 export const gamesTags = {

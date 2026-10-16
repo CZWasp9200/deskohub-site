@@ -45,7 +45,8 @@
     "menu": "MENU",
     "trainingRoom": "TTRPG MÍSTNOST",
     "contact": "KONTAKT",
-    "openMenu": "Otevřít menu"
+    "openMenu": "Otevřít menu",
+    "events": "Akce"
   },
   "buttons": {
     "reservation": "Rezervace",
@@ -1141,5 +1142,18 @@
   },
   "gdpr": {
     "pageTitle": "Zásady zpracování osobních údajů"
+  },
+  "events": {
+    "pageTitle": "Akce - Deskohub",
+    "pageDescription": "Turnaje, herní večery a další akce v Deskohub baru s deskovými hrami.",
+    "hero": {
+      "title": "Akce",
+      "subtitle": "Turnaje, herní večery a setkání, na která se u nás můžete těšit"
+    },
+    "empty": {
+      "title": "Zatím nemáme naplánovanou žádnou akci",
+      "hint": "Mrkněte sem za pár dní, nebo nás sledujte na sociálních sítích."
+    },
+    "moreInfo": "Více o akci"
   }
 }
