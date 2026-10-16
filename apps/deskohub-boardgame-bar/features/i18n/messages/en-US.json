@@ -1132,6 +1132,27 @@
       "title": "No events are scheduled yet",
       "hint": "Check back in a few days, or follow us on social media."
     },
-    "moreInfo": "More about the event"
+    "moreInfo": "More about the event",
+    "view": {
+      "calendar": "Calendar",
+      "list": "List"
+    },
+    "calendar": {
+      "previousMonth": "Previous month",
+      "nextMonth": "Next month",
+      "more": [
+        {
+          "declarations": ["input count", "local countPlural = count: plural"],
+          "selectors": ["countPlural"],
+          "match": {
+            "countPlural=one": "+ {count} more",
+            "countPlural=other": "+ {count} more"
+          }
+        }
+      ]
+    },
+    "detail": {
+      "close": "Close"
+    }
   }
 }

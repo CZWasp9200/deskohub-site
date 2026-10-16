@@ -1154,6 +1154,28 @@
       "title": "Zatím nemáme naplánovanou žádnou akci",
       "hint": "Mrkněte sem za pár dní, nebo nás sledujte na sociálních sítích."
     },
-    "moreInfo": "Více o akci"
+    "moreInfo": "Více o akci",
+    "view": {
+      "calendar": "Kalendář",
+      "list": "Seznam"
+    },
+    "calendar": {
+      "previousMonth": "Předchozí měsíc",
+      "nextMonth": "Další měsíc",
+      "more": [
+        {
+          "declarations": ["input count", "local countPlural = count: plural"],
+          "selectors": ["countPlural"],
+          "match": {
+            "countPlural=one": "+ {count} další",
+            "countPlural=few": "+ {count} další",
+            "countPlural=other": "+ {count} dalších"
+          }
+        }
+      ]
+    },
+    "detail": {
+      "close": "Zavřít"
+    }
   }
 }

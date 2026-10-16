@@ -6,6 +6,7 @@ type BaseCloudinaryTag =
   | "Menu"
   | "Kontakt"
   | "Deskové hry"
+  | "Akce"
   | "hero"
   | "galerie";
 

@@ -3,7 +3,7 @@ import { Hero } from "@/shared/components";
 
 export const EventsHero = () => {
   return (
-    <Hero tags="Akce" alignment="left">
+    <Hero alignment="left" tags="Akce">
       <div>
         <h1 className="mb-4 font-bold text-4xl text-green-400 md:text-6xl">
           {m["events.hero.title"]()}

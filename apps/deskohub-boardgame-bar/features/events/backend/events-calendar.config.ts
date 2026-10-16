@@ -27,11 +27,9 @@ export class EventsCalendarConfig extends Context.Service<
       const calendarId = env.GOOGLE_CALENDAR_EVENTS_ID;
 
       if (!calendarId) {
-        return yield* Effect.fail(
-          new EventsCalendarNotConfiguredError({
-            message: "GOOGLE_CALENDAR_EVENTS_ID is not set",
-          })
-        );
+        return yield* new EventsCalendarNotConfiguredError({
+          message: "GOOGLE_CALENDAR_EVENTS_ID is not set",
+        });
       }
 
       return { calendarId };

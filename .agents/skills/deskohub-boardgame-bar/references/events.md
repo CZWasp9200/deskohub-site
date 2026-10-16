@@ -2,6 +2,10 @@
 
 Business rules: `apps/deskohub-boardgame-bar/docs/events.md`. Code: `features/events` and `app/[locale]/events/page.tsx`.
 
+## Server and client boundary
+
+`features/events/backend` models events with `Temporal` values. The page maps them through `toBarEventView` (`features/events/event-view.ts`) before handing them to `EventsBrowser`, the client component with the month calendar, the list and the detail dialog: `Temporal` instances do not survive the server-to-client boundary, so the view carries `YYYY-MM-DD` dates and `HH:MM` times already in bar local time. The page also passes today's date, so the calendar does not depend on the visitor's clock or time zone.
+
 ## Calendar markers
 
 Published events come from a dedicated Google Calendar, separate from the opening-hours calendar. Entries without a marker stay private.

@@ -1,2 +1,2 @@
+export { EventsBrowser } from "./components/events-browser";
 export { EventsHero } from "./components/events-hero";
-export { EventsList } from "./components/events-list";
