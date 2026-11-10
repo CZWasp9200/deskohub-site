@@ -50,10 +50,12 @@ export function AdministratorEntryButton({
         tone="chilean-fire"
         size="sm"
         caps
-        className="hidden shrink-0 md:inline-flex xl:max-2xl:w-9 xl:max-2xl:px-0"
+        // The size's padding is wider than the narrowed box; the button centres
+        // its one remaining item, the icon, across it.
+        className="hidden shrink-0 md:inline-flex xl:max-2xl:w-9"
       >
         <Link href={entry.href} title={entry.label} onClick={onNavigate}>
-          <ShieldCheck className="size-4" aria-hidden />
+          <ShieldCheck className="size-4 shrink-0" aria-hidden />
           <span className="xl:max-2xl:sr-only">{entry.label}</span>
         </Link>
       </Button>

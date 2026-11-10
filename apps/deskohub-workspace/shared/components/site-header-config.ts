@@ -97,4 +97,3 @@ const createSiteHeaderAdministratorEntry = (
   href: `/${locale}/admin`,
   label: m.siteHeaderAdminLabel({}, { locale }),
 });
-

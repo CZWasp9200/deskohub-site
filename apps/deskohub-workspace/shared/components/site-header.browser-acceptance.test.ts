@@ -556,9 +556,9 @@ for (const locale of locales) {
                 })
                 .first();
               expect(await adminButton.isVisible()).toBe(true);
-              expect((await adminButton.boundingBox())?.width).toBeLessThanOrEqual(
-                40
-              );
+              expect(
+                (await adminButton.boundingBox())?.width
+              ).toBeLessThanOrEqual(40);
             }
           } finally {
             await page.close();
