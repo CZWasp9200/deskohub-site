@@ -1,5 +1,5 @@
 import type { Locale } from "@/features/i18n";
-import { siteHeaderSectionIds } from "@/shared/components/site-header-config";
+import { siteHeaderSectionIds } from "@/shared/components/site-header-links";
 import { getDeskohubBarPageUrl } from "@/shared/utils";
 import { LandingPageAmenitiesSection } from "./landing-page-amenities-section";
 import { LandingPageContactSection } from "./landing-page-contact-section";
