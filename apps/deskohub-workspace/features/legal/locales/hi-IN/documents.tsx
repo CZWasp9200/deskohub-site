@@ -298,7 +298,7 @@ const operatingRulesSections: LegalSection[] = [
 
 const legalDocuments = {
   "privacy-policy": {
-    updatedAt: "10 नवंबर 2026",
+    updatedAt: "15 नवंबर 2026",
     sections: [
       {
         heading: "1. नियंत्रक",

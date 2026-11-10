@@ -295,7 +295,7 @@ const operatingRulesSections: LegalSection[] = [
 
 export const legalDocuments = {
   "privacy-policy": {
-    updatedAt: "10. listopadu 2026",
+    updatedAt: "15. listopadu 2026",
     sections: [
       {
         heading: "1. Správce",
