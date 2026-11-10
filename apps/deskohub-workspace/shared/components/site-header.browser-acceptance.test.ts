@@ -138,7 +138,7 @@ beforeAll(async () => {
   // Production text widths come from the brand font that next/font injects
   // and, on a Cyrillic page, the companion face `features/i18n/locale-fonts.ts`
   // puts after it, declared here as it declares it.
-  appStyles = `@font-face { font-family: "Sculpin"; font-weight: 400; src: url(data:font/woff2;base64,${brandFont.toString("base64")}) format("woff2"); }
+  appStyles = `@font-face { font-family: "Sculpin"; font-weight: 300 900; src: url(data:font/woff2;base64,${brandFont.toString("base64")}) format("woff2"); }
 @font-face { font-family: "Cyrillic Companion"; font-weight: 100 900; src: url(data:font/woff2;base64,${cyrillicCompanionFont.toString("base64")}) format("woff2"); unicode-range: U+0301, U+02BC, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; size-adjust: 98.6%; }
 :root { --font-sculpin: "Sculpin"; }
 :root[data-script="cyrillic"] { --font-sculpin: "Sculpin", "Cyrillic Companion"; }
@@ -533,11 +533,13 @@ for (const locale of locales) {
       test.skipIf(!chromiumAvailable)(
         `keeps every desktop label on one line for ${state} at ${viewport.width}px (${locale})`,
         async () => {
+          // A long page's classic scrollbar leaves the header the least room.
           const page = await openSiteHeader(locale, viewport, {
             administrator,
+            scrollbar: true,
           });
           try {
-            await expectNoHorizontalOverflow(page);
+            await expectNoHorizontalOverflow(page, { insideRowPadding: true });
             expect(
               await readWrappedNavigationLabels(
                 page,

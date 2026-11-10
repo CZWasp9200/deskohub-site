@@ -140,7 +140,7 @@ function NavigationLink({
     <Link
       href={href}
       aria-current={active ? "page" : undefined}
-      className="text-balance text-center text-sm uppercase tracking-[0.08em] text-white/76 transition-colors hover:text-sunset-yellow xl:max-2xl:text-xs xl:max-2xl:tracking-[0.02em]"
+      className="whitespace-nowrap text-sm uppercase tracking-[0.08em] text-white/76 transition-colors hover:text-sunset-yellow xl:max-2xl:text-xs xl:max-2xl:tracking-[0.02em]"
       onClick={onClick}
     >
       {label}
