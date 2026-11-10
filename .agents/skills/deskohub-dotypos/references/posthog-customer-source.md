@@ -242,7 +242,7 @@ excluded values never appear. Never export free-text fields (`note`,
 `internalNote`, `headerPrint`), `barcode`, `companyId`, `companyId2`, `vatId`,
 `externalId`, `flags`, `modifiedBy`, `_sellerId`, `display`, `hexColor`, or
 `expireDate`. Adding a field needs the user's approval and a matching
-privacy-policy update in `features/legal/content.tsx` (both locales).
+privacy-policy update in every locale's legal documents (`features/legal/content.tsx`).
 
 ## Export budget
 
