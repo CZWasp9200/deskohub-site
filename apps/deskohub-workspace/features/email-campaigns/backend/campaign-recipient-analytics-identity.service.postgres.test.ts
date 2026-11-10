@@ -7,13 +7,13 @@ import {
 } from "@deskohub/dotypos";
 import { Effect, Layer } from "effect";
 import type { CustomerAccountId } from "@/features/account/customer-account";
-import { workspaceFixtures } from "@/shared/testing/workspace-fixtures.test-utils";
-import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
-import { CampaignRecipientAnalyticsIdentity } from "./campaign-recipient-analytics-identity.service";
 import {
   analyticsConsentLedgerOf,
   type TestAnalyticsConsent,
-} from "./email-campaigns.test-utils";
+} from "@/features/legal/backend/analytics-consent-ledger.test-utils";
+import { workspaceFixtures } from "@/shared/testing/workspace-fixtures.test-utils";
+import { connectWorkspacePostgresTestDatabase } from "@/shared/testing/workspace-postgres-test-database.test-utils";
+import { CampaignRecipientAnalyticsIdentity } from "./campaign-recipient-analytics-identity.service";
 
 const testDatabase = await connectWorkspacePostgresTestDatabase();
 

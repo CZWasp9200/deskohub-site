@@ -23,6 +23,7 @@ import { Cause, Effect, Exit, Layer, Option } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { customerMarketingConsents } from "@/db/schema";
 import type { CustomerAccountId } from "@/features/account/customer-account";
+import { analyticsConsentLedgerOf } from "@/features/legal/backend/analytics-consent-ledger.test-utils";
 import { workspaceFixtures } from "@/shared/testing/workspace-fixtures.test-utils";
 import {
   holdPostgresTransaction,
@@ -32,7 +33,6 @@ import { campaignEmailKind } from "../campaign-email-kind";
 import type { CampaignId } from "../campaign-identifiers";
 import type { CampaignDeliveryEvent } from "./campaign-delivery-status.service";
 import {
-  analyticsConsentLedgerOf,
   deleteAutomatedCampaigns,
   deleteCampaigns,
   seedAutomatedCampaign,
