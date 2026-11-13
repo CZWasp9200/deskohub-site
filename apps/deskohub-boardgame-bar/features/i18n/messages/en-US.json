@@ -45,7 +45,10 @@
     "menu": "MENU",
     "trainingRoom": "TTRPG ROOM",
     "contact": "CONTACT",
-    "openMenu": "Open menu"
+    "openMenu": "Open menu",
+    "events": "EVENTS",
+    "membership": "MEMBERSHIP",
+    "account": "My account"
   },
   "buttons": {
     "reservation": "Reservation",
@@ -1119,5 +1122,153 @@
   },
   "gdpr": {
     "pageTitle": "Privacy Policy"
+  },
+  "accounts": {
+    "unavailable": {
+      "title": "Accounts are temporarily unavailable",
+      "hint": "Please try again in a few minutes."
+    }
+  },
+  "signIn": {
+    "pageTitle": "Sign in - Deskohub",
+    "pageDescription": "Sign in to your Deskohub account: membership, event registrations, and tournament trophies.",
+    "title": "Sign in",
+    "subtitle": "Enter your email and we'll send you a link that signs you in. No password needed. If you don't have an account yet, your first sign-in creates one.",
+    "emailLabel": "Email",
+    "emailPlaceholder": "you@email.com",
+    "submit": "Send sign-in link",
+    "sending": "Sending…",
+    "sentTitle": "Check your email",
+    "sentBody": "We sent a sign-in link to {email}. It works for 10 minutes and can be used once.",
+    "sentHint": "No email? Check your spam folder, or ask for a new link.",
+    "sendAgain": "Send a new link",
+    "invalidEmail": "Enter a valid email address.",
+    "tooManyRequests": "Too many attempts. Please try again in a few minutes.",
+    "sendFailed": "We couldn't send the link. Please try again.",
+    "linkInvalid": "That sign-in link has expired or was already used. Ask for a new one.",
+    "privacyNote": "By continuing you agree to us using your email to run your account.",
+    "privacyLink": "Privacy policy"
+  },
+  "account": {
+    "pageTitle": "My account - Deskohub",
+    "pageDescription": "Your Deskohub account: membership, event registrations, and tournament trophies.",
+    "title": "My account",
+    "signedInAs": "Signed in as {email}",
+    "signOut": "Sign out",
+    "profile": {
+      "title": "Profile",
+      "nameLabel": "Name or nickname",
+      "nameHint": "Staff see this name on your event registrations and trophies.",
+      "save": "Save",
+      "saving": "Saving…",
+      "saved": "Your name is saved.",
+      "saveFailed": "We couldn't save your name. Please try again.",
+      "nameInvalid": "The name must be 2 to 40 characters long.",
+      "emailLabel": "Email"
+    },
+    "membership": {
+      "title": "Membership",
+      "activeUntil": "{plan} is valid until {date}",
+      "none": "You don't have a membership yet.",
+      "pending": "Your request for {plan} is waiting for payment.",
+      "view": "View membership"
+    },
+    "trophies": {
+      "title": "Trophies",
+      "empty": "No trophies yet. Join a tournament and win your first.",
+      "browseEvents": "View the events calendar",
+      "placement": "Place {place}",
+      "awardedOn": "Awarded {date}"
+    },
+    "registrations": {
+      "title": "My registrations",
+      "empty": "You aren't registered for any upcoming event."
+    },
+    "email": {
+      "subject": "Sign in to your Deskohub account",
+      "heading": "Sign in to your Deskohub account",
+      "intro": "Click the button below to sign in to your account.",
+      "button": "Sign in",
+      "expiry": "The link works for {minutes} minutes and can be used once.",
+      "ignore": "If you didn't ask to sign in, you can ignore this email."
+    }
+  },
+  "events": {
+    "pageTitle": "Events calendar - Deskohub",
+    "pageDescription": "Tournaments and events at the Deskohub board game bar. Register online and collect tournament trophies.",
+    "title": "Events calendar",
+    "subtitle": "Tournaments, game nights, and other events. Register with your account; place in a tournament to earn a trophy.",
+    "previousMonth": "Previous month",
+    "nextMonth": "Next month",
+    "currentMonth": "This month",
+    "calendarLabel": "Calendar for {month}",
+    "listTitle": "Events this month",
+    "empty": {
+      "title": "No events are scheduled for this month yet",
+      "hint": "Try the next month."
+    },
+    "kind": {
+      "tournament": "Tournament",
+      "event": "Event"
+    },
+    "game": "Game: {game}",
+    "entryFee": "Entry fee: {fee}",
+    "registered": "Registered: {count}",
+    "registeredOfCapacity": "Registered: {count} of {capacity}",
+    "register": "Register for this event",
+    "registering": "Registering…",
+    "cancel": "Cancel my registration",
+    "youAreRegistered": "You're registered",
+    "full": "Full",
+    "closed": "Registration is closed",
+    "past": "This event is over",
+    "signInToRegister": "Sign in to your account",
+    "signInHint": "You need an account to register for an event.",
+    "outcome": {
+      "registered": "You're registered for the event.",
+      "alreadyRegistered": "You're already registered for this event.",
+      "full": "Sorry, this event is full.",
+      "closed": "Registration for this event is closed.",
+      "notFound": "We couldn't find that event.",
+      "cancelled": "Your registration is cancelled.",
+      "signedOut": "Please sign in to your account first.",
+      "failed": "Something went wrong. Please try again."
+    }
+  },
+  "membership": {
+    "pageTitle": "Membership - Deskohub",
+    "pageDescription": "Become a member of the Deskohub board game bar and enjoy member benefits.",
+    "title": "Membership",
+    "subtitle": "Become a Deskohub member and enjoy member benefits on every visit.",
+    "empty": {
+      "title": "Membership plans are on the way",
+      "hint": "Plans and their benefits will appear here soon."
+    },
+    "price": "{price} CZK",
+    "durationDays": "for {days} days",
+    "durationYear": "for a year",
+    "durationMonth": "for a month",
+    "request": "I want this membership",
+    "requesting": "Sending…",
+    "signInToRequest": "Sign in and request",
+    "paymentNote": "Online payment is on the way. After you send a request, we activate your membership as soon as it's paid; we'll email you the payment instructions.",
+    "current": {
+      "title": "You're a member",
+      "body": "{plan} is valid until {date}.",
+      "extendHint": "You can renew now; the new period starts when the current one ends."
+    },
+    "pending": {
+      "title": "Your request is waiting for payment",
+      "body": "You asked for {plan} for {price} CZK. Your membership starts once we confirm the payment.",
+      "cancel": "Cancel request"
+    },
+    "outcome": {
+      "requested": "We've received your membership request.",
+      "alreadyRequested": "You already have a membership request waiting for payment.",
+      "planUnavailable": "This plan is no longer offered.",
+      "cancelled": "Your membership request is cancelled.",
+      "signedOut": "Please sign in to your account first.",
+      "failed": "Something went wrong. Please try again."
+    }
   }
 }

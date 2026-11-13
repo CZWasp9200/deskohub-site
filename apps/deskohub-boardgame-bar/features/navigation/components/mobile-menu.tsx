@@ -28,9 +28,32 @@ const navigationItems = [
     href: "/board-games",
     text: () => m["nav.boardGames"](),
   },
+  ...(siteConstants.featureFlags.accounts
+    ? [
+        {
+          label: "nav.events",
+          href: "/events",
+          text: () => m["nav.events"](),
+        },
+        {
+          label: "nav.membership",
+          href: "/membership",
+          text: () => m["nav.membership"](),
+        },
+      ]
+    : []),
   { label: "nav.gallery", href: "/gallery", text: () => m["nav.gallery"]() },
   { label: "nav.menu", href: "/menu", text: () => m["nav.menu"]() },
   { label: "nav.contact", href: "/contact", text: () => m["nav.contact"]() },
+  ...(siteConstants.featureFlags.accounts
+    ? [
+        {
+          label: "nav.account",
+          href: "/account",
+          text: () => m["nav.account"](),
+        },
+      ]
+    : []),
 ];
 
 export function MobileMenu() {
@@ -78,7 +101,7 @@ export function MobileMenu() {
               <LocalizedLink
                 key={item.label}
                 href={item.href}
-                className="flex items-center px-4 py-3 text-gray-300 hover:text-white hover:bg-gray-800 rounded-lg transition-colors duration-200 font-medium"
+                className="flex items-center px-4 py-3 text-gray-300 hover:text-white hover:bg-gray-800 rounded-lg transition-colors duration-200 font-medium uppercase"
                 onClick={() => setIsOpen(false)}
               >
                 {item.text()}

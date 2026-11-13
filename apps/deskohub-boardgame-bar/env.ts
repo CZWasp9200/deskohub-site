@@ -46,6 +46,10 @@ export const boardgameBarServerSchema = {
   VERCEL_PROJECT_PRODUCTION_URL: z.url().optional(),
   CLOUDINARY_API_KEY: z.string(),
   CLOUDINARY_API_SECRET: z.string(),
+  // Customer accounts (sign-in, membership, events, trophies). Both are
+  // optional: without them the account pages report themselves unavailable.
+  DATABASE_URL: z.url().optional(),
+  BETTER_AUTH_SECRET: z.string().min(32).optional(),
 } as const;
 
 export const boardgameBarClientSchema = {
@@ -89,6 +93,8 @@ export const env = createEnv({
     NEXT_PUBLIC_VERCEL_ENV: process.env.NEXT_PUBLIC_VERCEL_ENV,
     CLOUDINARY_API_KEY: process.env.CLOUDINARY_API_KEY,
     CLOUDINARY_API_SECRET: process.env.CLOUDINARY_API_SECRET,
+    DATABASE_URL: process.env.DATABASE_URL,
+    BETTER_AUTH_SECRET: process.env.BETTER_AUTH_SECRET,
     NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME:
       process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME,
     get NEXT_PUBLIC_DOMAIN() {

@@ -1,10 +1,12 @@
 "use client";
 
+import { UserRound } from "lucide-react";
 import Image from "next/image";
 import { useEffect } from "react";
 import logoImage from "@/assets/images/logo/for-dark-bg.png";
 import { LanguageSwitcher, LocalizedLink, m, setLocale } from "@/features/i18n";
 import { useLocale } from "@/features/i18n/utils/use-locale";
+import { siteConstants } from "@/shared/utils/constants";
 import { MobileMenu } from "./mobile-menu";
 import { ReservationButton } from "./reservation-button";
 
@@ -25,7 +27,7 @@ export function Header() {
 
   return (
     <header className="bg-gray-900 text-white px-6 sticky top-0 z-20 safe-padding-top flex items-center justify-center">
-      <div className="flex items-center justify-between max-w-7xl w-full gap-x-8 min-h-[var(--header-height)]">
+      <div className="flex items-center justify-between max-w-7xl w-full gap-x-6 2xl:gap-x-8 min-h-[var(--header-height)]">
         <LocalizedLink href="/">
           <Image
             src={logoImage}
@@ -35,7 +37,7 @@ export function Header() {
             priority
           />
         </LocalizedLink>
-        <nav className="hidden xl:flex space-x-8">
+        <nav className="hidden xl:flex space-x-5 2xl:space-x-8 whitespace-nowrap">
           <LocalizedLink
             href="/"
             className="hover:text-green-400 transition-colors"
@@ -48,6 +50,22 @@ export function Header() {
           >
             {m["nav.boardGames"]()}
           </LocalizedLink>
+          {siteConstants.featureFlags.accounts && (
+            <>
+              <LocalizedLink
+                href="/events"
+                className="hover:text-green-400 transition-colors"
+              >
+                {m["nav.events"]()}
+              </LocalizedLink>
+              <LocalizedLink
+                href="/membership"
+                className="hover:text-green-400 transition-colors"
+              >
+                {m["nav.membership"]()}
+              </LocalizedLink>
+            </>
+          )}
           <LocalizedLink
             href="/gallery"
             className="hover:text-green-400 transition-colors"
@@ -76,6 +94,16 @@ export function Header() {
         <div className="flex items-center space-x-4">
           <div className="hidden xl:flex items-center space-x-4">
             <LanguageSwitcher />
+            {siteConstants.featureFlags.accounts && (
+              <LocalizedLink
+                href="/account"
+                aria-label={m["nav.account"]()}
+                title={m["nav.account"]()}
+                className="inline-flex h-10 w-10 items-center justify-center rounded-md hover:bg-white/10 hover:text-green-400 transition-colors"
+              >
+                <UserRound className="h-5 w-5" aria-hidden />
+              </LocalizedLink>
+            )}
             <ReservationButton />
           </div>
           {/* Mobile reservation button - visible on smaller screens */}
