@@ -1284,6 +1284,23 @@
       "failed": "Something went wrong. Please try again."
     },
     "durationHalfYear": "for 6 months",
-    "choose": "Choose"
+    "choose": "Choose",
+    "email": {
+      "greeting": "Hello {name},",
+      "accountButton": "View my account",
+      "activated": {
+        "subject": "Your Deskohub membership is active",
+        "heading": "Your membership is active",
+        "body": "we received your payment and your {plan} is valid from {from} to {to}.",
+        "note": "After that date the membership ends on its own; there is nothing to cancel."
+      },
+      "expiring": {
+        "subject": "Your Deskohub membership ends soon",
+        "heading": "Your membership ends soon",
+        "body": "your {plan} is valid until {to}.",
+        "note": "Want to continue? Choose a new membership in your account and pay for it at the bar. The new period follows the current one, so you don't lose a day.",
+        "button": "Renew membership"
+      }
+    }
   }
 }

@@ -193,6 +193,14 @@ export const memberships = pgTable("memberships", {
   startsAt: timestamp("starts_at", { withTimezone: true }),
   endsAt: timestamp("ends_at", { withTimezone: true }),
   note: text("note"),
+  /** When the member was emailed that the membership started; null = not yet. */
+  activationEmailSentAt: timestamp("activation_email_sent_at", {
+    withTimezone: true,
+  }),
+  /** When the member was reminded that the membership ends soon. */
+  expiryReminderSentAt: timestamp("expiry_reminder_sent_at", {
+    withTimezone: true,
+  }),
 });
 
 export type EventKind = "event" | "tournament";

@@ -1306,6 +1306,23 @@
       "failed": "Něco se nepovedlo. Zkuste to prosím znovu."
     },
     "durationHalfYear": "na 6 měsíců",
-    "choose": "Vybrat"
+    "choose": "Vybrat",
+    "email": {
+      "greeting": "Dobrý den, {name},",
+      "accountButton": "Zobrazit můj účet",
+      "activated": {
+        "subject": "Vaše členství v Deskohubu platí",
+        "heading": "Členství je aktivní",
+        "body": "platbu jsme přijali a vaše {plan} platí od {from} do {to}.",
+        "note": "Po tomto datu členství samo skončí, nic rušit nemusíte."
+      },
+      "expiring": {
+        "subject": "Vaše členství v Deskohubu brzy skončí",
+        "heading": "Členství brzy skončí",
+        "body": "vaše {plan} platí do {to}.",
+        "note": "Chcete pokračovat? Vyberte si ve svém účtu nové členství a zaplaťte ho na baru. Nové období naváže na to současné, o žádný den nepřijdete.",
+        "button": "Prodloužit členství"
+      }
+    }
   }
 }
