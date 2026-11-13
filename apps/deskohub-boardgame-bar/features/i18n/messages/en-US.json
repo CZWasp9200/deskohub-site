@@ -1133,7 +1133,7 @@
     "pageTitle": "Sign in - Deskohub",
     "pageDescription": "Sign in to your Deskohub account: membership, event registrations, and tournament trophies.",
     "title": "Sign in",
-    "subtitle": "Enter your email and we'll send you a link that signs you in. No password needed. If you don't have an account yet, your first sign-in creates one.",
+    "subtitle": "Enter your email and we'll send you a link that signs you in. No password needed. To create a new account, switch to Register and choose your nickname.",
     "emailLabel": "Email",
     "emailPlaceholder": "you@email.com",
     "submit": "Send sign-in link",
@@ -1147,7 +1147,16 @@
     "sendFailed": "We couldn't send the link. Please try again.",
     "linkInvalid": "That sign-in link has expired or was already used. Ask for a new one.",
     "privacyNote": "By continuing you agree to us using your email to run your account.",
-    "privacyLink": "Privacy policy"
+    "privacyLink": "Privacy policy",
+    "modeLabel": "Sign in or register",
+    "modeSignIn": "Sign in",
+    "modeRegister": "Register",
+    "nicknameLabel": "Nickname",
+    "nicknamePlaceholder": "What should we call you",
+    "nicknameHint": "The staff see your nickname on event registrations and trophies. You can change it later in your account.",
+    "invalidNickname": "The nickname must have 2 to 40 characters.",
+    "submitRegister": "Create account",
+    "sentBodyRegister": "We've sent a link to {email} that completes your registration. It's valid for 10 minutes and works only once."
   },
   "account": {
     "pageTitle": "My account - Deskohub",

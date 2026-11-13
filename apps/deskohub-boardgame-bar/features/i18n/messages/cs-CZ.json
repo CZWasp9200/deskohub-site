@@ -1155,7 +1155,7 @@
     "pageTitle": "Přihlášení - Deskohub",
     "pageDescription": "Přihlaste se ke svému účtu Deskohub: členství, přihlášky na akce a trofeje z turnajů.",
     "title": "Přihlášení",
-    "subtitle": "Zadejte e-mail a my vám pošleme odkaz, kterým se přihlásíte. Heslo není potřeba. Pokud účet ještě nemáte, vytvoří se při prvním přihlášení.",
+    "subtitle": "Zadejte e-mail a my vám pošleme odkaz, kterým se přihlásíte. Heslo není potřeba. Nový účet si vytvoříte v záložce Registrace, kde si zvolíte přezdívku.",
     "emailLabel": "E-mail",
     "emailPlaceholder": "vas@email.cz",
     "submit": "Poslat přihlašovací odkaz",
@@ -1169,7 +1169,16 @@
     "sendFailed": "Odkaz se nepodařilo odeslat. Zkuste to prosím znovu.",
     "linkInvalid": "Přihlašovací odkaz vypršel nebo už byl použit. Nechte si poslat nový.",
     "privacyNote": "Odesláním souhlasíte se zpracováním e-mailu pro vedení účtu.",
-    "privacyLink": "Zásady ochrany osobních údajů"
+    "privacyLink": "Zásady ochrany osobních údajů",
+    "modeLabel": "Přihlášení nebo registrace",
+    "modeSignIn": "Přihlášení",
+    "modeRegister": "Registrace",
+    "nicknameLabel": "Přezdívka",
+    "nicknamePlaceholder": "Jak vám máme říkat",
+    "nicknameHint": "Pod přezdívkou vás uvidí obsluha u přihlášek na akce a u trofejí. Později ji můžete změnit v účtu.",
+    "invalidNickname": "Přezdívka musí mít 2 až 40 znaků.",
+    "submitRegister": "Vytvořit účet",
+    "sentBodyRegister": "Na adresu {email} jsme poslali odkaz, kterým registraci dokončíte. Platí 10 minut a dá se použít jen jednou."
   },
   "account": {
     "pageTitle": "Můj účet - Deskohub",
