@@ -15,9 +15,14 @@ import { buildSignInEmail } from "./sign-in-email";
 
 const SIGN_IN_LINK_LIFETIME_SECONDS = 600;
 
-/** A new account is named after its email until the customer picks a name. */
+const DISPLAY_NAME_MAX_LENGTH = 40;
+
+/**
+ * The name of an account created by signing in without registering first:
+ * the part of the email before the "@". Registration supplies a nickname.
+ */
 const defaultDisplayName = (email: string): string =>
-  email.split("@")[0]?.slice(0, 40) || email;
+  email.split("@")[0]?.slice(0, DISPLAY_NAME_MAX_LENGTH) || email;
 
 const sendSignInEmail = (email: string, url: string): Promise<void> =>
   Effect.runPromise(
@@ -89,7 +94,9 @@ function makeAuth(
           before: async (user) => ({
             data: {
               ...user,
-              name: user.name?.trim() || defaultDisplayName(user.email),
+              name:
+                user.name?.trim().slice(0, DISPLAY_NAME_MAX_LENGTH) ||
+                defaultDisplayName(user.email),
             },
           }),
         },
