@@ -150,7 +150,10 @@ export function SignInForm({ returnPath, linkInvalid }: SignInFormProps) {
             required
             maxLength={NICKNAME_MAX_LENGTH}
             value={nickname}
-            onChange={(event) => setNickname(event.target.value)}
+            onChange={(event) => {
+              setNickname(event.target.value);
+              setNicknameError(null);
+            }}
             placeholder={m["signIn.nicknamePlaceholder"]()}
             variant={nicknameError ? "error" : "default"}
             aria-describedby={
@@ -188,7 +191,10 @@ export function SignInForm({ returnPath, linkInvalid }: SignInFormProps) {
         inputMode="email"
         required
         value={email}
-        onChange={(event) => setEmail(event.target.value)}
+        onChange={(event) => {
+          setEmail(event.target.value);
+          setError(null);
+        }}
         placeholder={m["signIn.emailPlaceholder"]()}
         variant={error ? "error" : "default"}
         aria-describedby={error ? "sign-in-error" : undefined}
