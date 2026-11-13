@@ -1192,8 +1192,12 @@
       "title": "Členství",
       "activeUntil": "{plan} platí do {date}",
       "none": "Zatím nemáte členství.",
-      "pending": "Žádost o {plan} čeká na úhradu.",
-      "view": "Zobrazit členství"
+      "pending": "Žádost o {plan} za {price} Kč čeká na zaplacení na baru.",
+      "view": "Zobrazit členství",
+      "choose": "Vyberte si členství",
+      "extend": "Prodloužit členství",
+      "payAtBar": "Platí se osobně na baru. Obsluha vám členství po zaplacení aktivuje a po uplynutí období samo skončí.",
+      "noPlans": "Nabídku členství připravujeme."
     },
     "trophies": {
       "title": "Trofeje",
@@ -1273,7 +1277,7 @@
     "request": "Chci toto členství",
     "requesting": "Odesílám…",
     "signInToRequest": "Přihlásit se a požádat",
-    "paymentNote": "Online platbu připravujeme. Po odeslání žádosti vám členství aktivujeme hned po úhradě; s pokyny k platbě se vám ozveme na e-mail.",
+    "paymentNote": "Členství se platí osobně na baru. Po odeslání žádosti stačí při návštěvě zaplatit u obsluhy a členství vám hned aktivujeme. Po uplynutí zvoleného období členství samo skončí.",
     "current": {
       "title": "Jste členem",
       "body": "{plan} platí do {date}.",
@@ -1281,7 +1285,7 @@
     },
     "pending": {
       "title": "Žádost čeká na úhradu",
-      "body": "Požádali jste o {plan} za {price} Kč. Jakmile úhradu potvrdíme, členství začne platit.",
+      "body": "Požádali jste o {plan} za {price} Kč. Zaplaťte prosím osobně na baru; jakmile platbu potvrdíme, členství začne platit.",
       "cancel": "Zrušit žádost"
     },
     "outcome": {
@@ -1291,6 +1295,8 @@
       "cancelled": "Žádost o členství jsme zrušili.",
       "signedOut": "Nejdřív se prosím přihlaste k účtu.",
       "failed": "Něco se nepovedlo. Zkuste to prosím znovu."
-    }
+    },
+    "durationHalfYear": "na 6 měsíců",
+    "choose": "Vybrat"
   }
 }
