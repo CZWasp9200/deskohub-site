@@ -189,5 +189,7 @@ export const siteConstants = {
     tableReservations: true,
     gallery: true,
     menuPdfDownload: true,
+    // Customer accounts: sign-in, membership, events calendar, trophies.
+    accounts: true,
   },
 };

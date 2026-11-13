@@ -30,7 +30,9 @@
         "CLOUDINARY_API_KEY",
         "CLOUDINARY_API_SECRET",
         "NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME",
-        "NEXT_PUBLIC_GTM_ID"
+        "NEXT_PUBLIC_GTM_ID",
+        "DATABASE_URL",
+        "BETTER_AUTH_SECRET"
       ],
       "passThroughEnv": ["FORM_DATA_ENC_SECRET"]
     },
