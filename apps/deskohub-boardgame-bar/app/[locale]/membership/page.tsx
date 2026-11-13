@@ -7,12 +7,12 @@ import { m, setLocale } from "@/features/i18n";
 import {
   getMembershipState,
   listOfferedPlans,
-  type MembershipPlan,
 } from "@/features/membership/backend/membership.server";
 import {
   CancelMembershipRequestButton,
   RequestMembershipButton,
 } from "@/features/membership/components/membership-actions";
+import { planDuration } from "@/features/membership/plan-duration";
 import { PageHeader } from "@/shared/components/page-header";
 import { siteConstants } from "@/shared/utils/constants";
 import { formatDate } from "@/shared/utils/date-formatting";
@@ -23,12 +23,6 @@ export const generateMetadata = metadata({
   title: () => m["membership.pageTitle"](),
   description: () => m["membership.pageDescription"](),
 });
-
-function planDuration(plan: MembershipPlan): string {
-  if (plan.durationDays === 365) return m["membership.durationYear"]();
-  if (plan.durationDays === 30) return m["membership.durationMonth"]();
-  return m["membership.durationDays"]({ days: plan.durationDays });
-}
 
 export default async function MembershipPage({ params }: RouteProps_locale) {
   if (!siteConstants.featureFlags.accounts) notFound();
@@ -120,7 +114,7 @@ export default async function MembershipPage({ params }: RouteProps_locale) {
                         })}
                       </span>{" "}
                       <span className="text-gray-400">
-                        {planDuration(plan)}
+                        {planDuration(plan.durationDays)}
                       </span>
                     </p>
                     {plan.benefits.length > 0 && (

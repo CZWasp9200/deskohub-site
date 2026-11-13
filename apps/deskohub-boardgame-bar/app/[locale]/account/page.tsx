@@ -14,7 +14,12 @@ import { listUpcomingRegistrations } from "@/features/events/backend/events.serv
 import { monthParam } from "@/features/events/calendar-month";
 import { LocalizedLink, m, setLocale } from "@/features/i18n";
 import { getLocalizedHref } from "@/features/i18n/utils/locale-url";
-import { getMembershipState } from "@/features/membership/backend/membership.server";
+import {
+  getMembershipState,
+  listOfferedPlans,
+} from "@/features/membership/backend/membership.server";
+import { CancelMembershipRequestButton } from "@/features/membership/components/membership-actions";
+import { PlanPicker } from "@/features/membership/components/plan-picker";
 import { PageHeader } from "@/shared/components/page-header";
 import { siteConstants } from "@/shared/utils/constants";
 import { formatDate } from "@/shared/utils/date-formatting";
@@ -62,8 +67,9 @@ export default async function AccountPage({ params }: RouteProps_locale) {
   const user = await getSessionUser();
   if (!user) redirect(getLocalizedHref(signInHref("/account"), locale));
 
-  const [membership, trophies, registrations] = await Promise.all([
+  const [membership, plans, trophies, registrations] = await Promise.all([
     getMembershipState(user.id),
+    listOfferedPlans(),
     listTrophies(user.id),
     listUpcomingRegistrations(user.id),
   ]);
@@ -95,14 +101,40 @@ export default async function AccountPage({ params }: RouteProps_locale) {
                 })
               : m["account.membership.none"]()}
           </p>
-          {membership.pendingRequest && (
-            <p className="mt-2 text-amber-300">
-              {m["account.membership.pending"]({
-                plan: membership.pendingRequest.planName,
-              })}
-            </p>
+          {membership.pendingRequest ? (
+            <div className="mt-4 rounded-md border border-amber-400/40 bg-amber-400/10 p-4">
+              <p className="text-amber-200">
+                {m["account.membership.pending"]({
+                  plan: membership.pendingRequest.planName,
+                  price: new Intl.NumberFormat(locale).format(
+                    membership.pendingRequest.priceCzk
+                  ),
+                })}
+              </p>
+              <div className="mt-3">
+                <CancelMembershipRequestButton />
+              </div>
+            </div>
+          ) : (
+            <div className="mt-5">
+              <h3 className="mb-3 font-medium text-white">
+                {membership.current
+                  ? m["account.membership.extend"]()
+                  : m["account.membership.choose"]()}
+              </h3>
+              {plans && plans.length > 0 ? (
+                <PlanPicker plans={plans} locale={locale} />
+              ) : (
+                <p className="text-gray-400">
+                  {m["account.membership.noPlans"]()}
+                </p>
+              )}
+            </div>
           )}
-          <p className="mt-4">
+          <p className="mt-4 text-sm text-gray-400">
+            {m["account.membership.payAtBar"]()}
+          </p>
+          <p className="mt-3">
             <LocalizedLink href="/membership" className={linkClass}>
               {m["account.membership.view"]()}
             </LocalizedLink>

@@ -1170,8 +1170,12 @@
       "title": "Membership",
       "activeUntil": "{plan} is valid until {date}",
       "none": "You don't have a membership yet.",
-      "pending": "Your request for {plan} is waiting for payment.",
-      "view": "View membership"
+      "pending": "Your request for {plan} for {price} CZK is waiting for payment at the bar.",
+      "view": "View membership",
+      "choose": "Choose a membership",
+      "extend": "Renew membership",
+      "payAtBar": "Paid in person at the bar. The staff activate your membership after payment, and it ends on its own when the period is over.",
+      "noPlans": "Membership plans are on the way."
     },
     "trophies": {
       "title": "Trophies",
@@ -1251,7 +1255,7 @@
     "request": "I want this membership",
     "requesting": "Sending…",
     "signInToRequest": "Sign in and request",
-    "paymentNote": "Online payment is on the way. After you send a request, we activate your membership as soon as it's paid; we'll email you the payment instructions.",
+    "paymentNote": "Membership is paid in person at the bar. After you send a request, pay the staff on your next visit and we activate your membership right away. It ends on its own when the chosen period is over.",
     "current": {
       "title": "You're a member",
       "body": "{plan} is valid until {date}.",
@@ -1259,7 +1263,7 @@
     },
     "pending": {
       "title": "Your request is waiting for payment",
-      "body": "You asked for {plan} for {price} CZK. Your membership starts once we confirm the payment.",
+      "body": "You asked for {plan} for {price} CZK. Please pay in person at the bar; your membership starts once we confirm the payment.",
       "cancel": "Cancel request"
     },
     "outcome": {
@@ -1269,6 +1273,8 @@
       "cancelled": "Your membership request is cancelled.",
       "signedOut": "Please sign in to your account first.",
       "failed": "Something went wrong. Please try again."
-    }
+    },
+    "durationHalfYear": "for 6 months",
+    "choose": "Choose"
   }
 }

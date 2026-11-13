@@ -53,18 +53,23 @@ export function RequestMembershipButton({
   signedIn,
   signInHref,
   disabled,
+  compact = false,
 }: {
   readonly planId: number;
   readonly signedIn: boolean;
   readonly signInHref: string;
   readonly disabled: boolean;
+  /** A small "Choose" button for a plan row instead of a full-width one. */
+  readonly compact?: boolean;
 }) {
   const { execute, isExecuting } = useAction(
     requestMembershipAction,
     useOutcomeHandlers()
   );
-  const buttonClass =
-    "w-full bg-green-500 font-semibold text-gray-900 hover:bg-green-400";
+  const buttonClass = compact
+    ? "bg-green-500 font-semibold text-gray-900 hover:bg-green-400"
+    : "w-full bg-green-500 font-semibold text-gray-900 hover:bg-green-400";
+  const label = compact ? m["membership.choose"]() : m["membership.request"]();
 
   if (!signedIn) {
     return (
@@ -79,11 +84,12 @@ export function RequestMembershipButton({
   return (
     <Button
       type="button"
+      size={compact ? "sm" : "default"}
       disabled={disabled || isExecuting}
       onClick={() => execute({ planId })}
       className={buttonClass}
     >
-      {isExecuting ? m["membership.requesting"]() : m["membership.request"]()}
+      {isExecuting ? m["membership.requesting"]() : label}
     </Button>
   );
 }
