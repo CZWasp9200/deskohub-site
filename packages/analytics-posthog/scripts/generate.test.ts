@@ -308,6 +308,7 @@ const generateClient = (
       return yield* generator.generate(spec, {
         format,
         name,
+        closeObjects: true,
       });
     }).pipe(Effect.provide(OpenApiGenerator.layerTransformerSchema))
   );
