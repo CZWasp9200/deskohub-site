@@ -16,6 +16,7 @@ import {
   CustomerInvoicesLoadError,
   CustomerInvoicesUnavailableError,
 } from "./backend/customer-invoice.service";
+import { CustomerAccountAccessError } from "./customer-account";
 import {
   makeCustomerInvoiceExportGet,
   makeCustomerInvoicePdfGet,
@@ -30,6 +31,7 @@ const pdfBytes = new TextEncoder().encode("%PDF-1.7 synthetic");
 const summary: CustomerInvoiceSummary = {
   id: invoiceIdSchema.make(ownInvoiceId),
   invoiceNumber: invoiceNumberSchema.make("WS-FV-2026-000042"),
+  workspaceReservationId: null,
   issuedOn: plainDateStringSchema.make("2026-08-20"),
   total: { amount: "450.50", currency: "CZK" },
   paymentStatus: "due",
@@ -49,7 +51,13 @@ beforeEach(() => {
 
 const refuse = () =>
   outcome === "unavailable"
-    ? Effect.fail(new CustomerInvoicesUnavailableError())
+    ? Effect.fail(
+        new CustomerInvoicesUnavailableError({
+          account: new CustomerAccountAccessError({
+            reason: "unauthenticated",
+          }),
+        })
+      )
     : Effect.fail(new CustomerInvoicesLoadError({ code: "invoice.read" }));
 
 const service = Layer.mock(CustomerInvoiceService, {
