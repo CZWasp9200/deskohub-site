@@ -20,6 +20,7 @@ import {
 import { WorkspaceLocks } from "@/db/workspace-locks";
 import type { PaymentAttemptId } from "@/features/checkout/checkout-identifiers";
 import type { DiscountClaimError } from "@/features/discounts/errors";
+import { PromotionClaims } from "@/features/discounts/promotion-claims";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import { recordCustomerEvent } from "@/shared/backend/customer-events/customer-event-outbox";
 import {
@@ -30,7 +31,6 @@ import {
 import {
   attemptRecordsReferral,
   ensureReferralFirstPaidTransition,
-  redeemCodeClaim,
   redeemReferralInvitationClaim,
 } from "./payment-lifecycle.repository";
 
@@ -215,11 +215,11 @@ export class LatePaymentRecoveryRepository extends Context.Service<
               yield* markLatePaymentAttemptPaid(input, recovery);
 
               if (input.state === "recovered") {
-                yield* redeemCodeClaim(
-                  input.paymentAttemptId,
-                  recovery.verifiedPaidAt,
-                  true
-                );
+                yield* PromotionClaims.redeem({
+                  paymentAttemptId: input.paymentAttemptId,
+                  redeemedAt: recovery.verifiedPaidAt,
+                  readmitReleased: true,
+                });
                 yield* redeemReferralInvitationClaim(
                   input.paymentAttemptId,
                   input.workspaceReservationId,
