@@ -1987,16 +1987,17 @@ components:
           description: Customer barcode
           default: ""
         expireDate:
-          description: Expiration date as either a Unix timestamp (seconds or milliseconds) or an ISO 8601 datetime string.
-          oneOf:
-            - type: integer
-              description: Unix timestamp (seconds or milliseconds since epoch)
-              example: 1735689600
-            - type: string
-              format: date-time
-              description: ISO 8601 datetime string
-              example: "2025-01-01T00:00:00Z"
           nullable: true
+          allOf:
+            - description: Expiration date as either a Unix timestamp (seconds or milliseconds) or an ISO 8601 datetime string.
+              oneOf:
+                - type: integer
+                  description: Unix timestamp (seconds or milliseconds since epoch)
+                  example: 1735689600
+                - type: string
+                  format: date-time
+                  description: ISO 8601 datetime string
+                  example: "2025-01-01T00:00:00Z"
 
     UpdateCustomerRequest:
       type: object
@@ -2075,16 +2076,17 @@ components:
           minimum: 0
           description: Customer flags (bitwise flags)
         expireDate:
-          description: Expiration date as either a Unix timestamp (seconds or milliseconds) or an ISO 8601 datetime string.
-          oneOf:
-            - type: integer
-              description: Unix timestamp (seconds or milliseconds since epoch)
-              example: 1735689600
-            - type: string
-              format: date-time
-              description: ISO 8601 datetime string
-              example: "2025-01-01T00:00:00Z"
           nullable: true
+          allOf:
+            - description: Expiration date as either a Unix timestamp (seconds or milliseconds) or an ISO 8601 datetime string.
+              oneOf:
+                - type: integer
+                  description: Unix timestamp (seconds or milliseconds since epoch)
+                  example: 1735689600
+                - type: string
+                  format: date-time
+                  description: ISO 8601 datetime string
+                  example: "2025-01-01T00:00:00Z"
 
     PaginatedTables:
       allOf:

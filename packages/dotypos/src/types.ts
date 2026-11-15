@@ -10,13 +10,15 @@ import {
 } from "./generated";
 
 const dotyposOpaqueId = <const BrandName extends string>(
-  brand: BrandName,
+  brand: Parameters<typeof Schema.brand<BrandName>>[0],
   description: string
 ) =>
-  Schema.Trim.check(Schema.isNonEmpty()).pipe(Schema.brand(brand)).annotate({
-    identifier: brand,
-    description,
-  });
+  Schema.Trim.check(Schema.isNonEmpty())
+    .pipe(Schema.brand<BrandName>(brand))
+    .annotate({
+      identifier: brand,
+      description,
+    });
 
 export const DotyposClientIdSchema = dotyposOpaqueId(
   "DotyposClientId",

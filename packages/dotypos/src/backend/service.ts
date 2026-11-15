@@ -2690,10 +2690,7 @@ const makeDotyposService: Effect.Effect<
     getProducts,
     getCategories,
   };
-}).pipe(
-  Effect.annotateLogs("service", "DotyposService"),
-  Effect.withConcurrency(5)
-);
+}).pipe(Effect.annotateLogs("service", "DotyposService"));
 
 export class DotyposService extends Context.Service<
   DotyposService,
