@@ -13,11 +13,12 @@ import {
   PasskeyReleaseGate,
 } from "@/features/account/backend/account-release-gates";
 import type { AccountReleaseLayers } from "@/features/account/backend/account-state-capabilities";
+import { AnalyticsPersonAnonymisation } from "@/features/account/backend/analytics-person-anonymisation";
 import { CustomerAgentConnections } from "@/features/account/backend/auth/customer-agent-connections.service";
 import { CustomerPasskeys } from "@/features/account/backend/auth/customer-passkeys.service";
 import { CustomerRequestOrigins } from "@/features/account/backend/auth/customer-request-origins.service";
 import { CustomerAccountDeletionEndpoint } from "@/features/account/backend/auth/delete-account-endpoint";
-import { CustomerAccountContactService } from "@/features/account/backend/customer-account-contact.service";
+import { CurrentCustomerAccount } from "@/features/account/backend/current-customer-account";
 import { CustomerAccountResolver } from "@/features/account/backend/customer-account-resolver.service";
 import {
   type CustomerAccountSession,
@@ -37,6 +38,13 @@ import { CheckoutService } from "@/features/checkout/backend/checkout";
 import { CheckoutPricingService } from "@/features/checkout/backend/checkout/checkout-pricing.service";
 import { CheckoutStatusService } from "@/features/checkout/backend/checkout/checkout-status.service";
 import { ReservationSupersessionService } from "@/features/checkout/backend/checkout/reservation-supersession.service";
+import {
+  featureFlagsByRequestCohort,
+  releaseGateForRunOverFlags,
+  testReleaseCohortHeader,
+} from "@/features/feature-flags/backend/release-cohorts.test-utils";
+import type { WorkspaceFeatureFlagService } from "@/features/feature-flags/backend/workspace-feature-flag.service";
+import { AnalyticsConsentLedger } from "@/features/legal/backend/analytics-consent-ledger";
 import { MarketingConsentLedger } from "@/features/legal/backend/marketing-consent-ledger";
 import { MarketingPreferences } from "@/features/legal/backend/marketing-preferences.service";
 import { OfficeReleaseGate } from "@/features/office/backend/office-release-gate";
@@ -54,6 +62,7 @@ import {
 } from "@/shared/backend/request-budget/memory-request-budget.test-utils";
 import { toWorkspaceWebHandler } from "@/shared/backend/workspace-effect";
 import { continueMutationsAfterDisconnect } from "@/shared/backend/workspace-http-api-route";
+import { makeMeetingPoint } from "@/shared/testing/overlapping-requests.test-utils";
 import { TestSealedStateKeys } from "@/shared/testing/sealed-state-keys.test-utils";
 import {
   CustomerAccountLayers,
@@ -193,6 +202,7 @@ export const makeCustomerApiTestServer = (
 };
 
 const unusedAccountServices: CustomerAccountServiceLayers = {
+  currentAccount: Layer.mock(CurrentCustomerAccount, {}),
   resolver: Layer.mock(CustomerAccountResolver, {}),
   profile: Layer.mock(CustomerProfileService, {}),
   avatar: Layer.mock(CustomerAvatarService, {}),
@@ -201,15 +211,16 @@ const unusedAccountServices: CustomerAccountServiceLayers = {
   reviewAccounts: ReviewAccountsMock({}),
   referrals: ReferralServiceMock({}),
   signupIntents: Layer.mock(ReferralSignupIntentRepository, {}),
-  contacts: Layer.mock(CustomerAccountContactService, {}),
   marketingPreferences: Layer.mock(MarketingPreferences, {}),
   consentLedger: Layer.mock(MarketingConsentLedger, {}),
   accountDeletion: Layer.mock(CustomerAccountDeletionEndpoint, {}),
+  analyticsConsentLedger: Layer.mock(AnalyticsConsentLedger, {}),
+  analyticsPersonAnonymisation: Layer.mock(AnalyticsPersonAnonymisation, {}),
   localePreference: Layer.mock(CustomerLocalePreference, {}),
 };
 
 const unusedReservationServices: CustomerReservationServiceLayers = {
-  contacts: () => Layer.mock(CustomerAccountContactService, {}),
+  currentAccount: () => Layer.mock(CurrentCustomerAccount, {}),
   history: Layer.mock(CustomerReservationHistoryService, {}),
   authorization: () => Layer.mock(ReservationAuthorizationService, {}),
   checkoutStatus: Layer.mock(CheckoutStatusService, {}),
@@ -232,12 +243,40 @@ export const testCustomerProfile: CustomerProfile = {
  */
 export const linkedAccountServices: CustomerAccountServiceLayers = {
   ...unusedAccountServices,
+  // The request's session, linked to `testLinkedAccount`'s customer unless
+  // it is signed out or awaiting deletion.
+  currentAccount: Layer.effect(
+    CurrentCustomerAccount,
+    Effect.gen(function* () {
+      const authentication = yield* CustomerAuthentication;
+      const standing = authentication.currentUser.pipe(
+        Effect.map((session) => {
+          if (session === null) return { kind: "signed-out" } as const;
+          if (session.deletionRequested) {
+            return {
+              kind: "deletion-pending",
+              session,
+              reviewMarker: "absent",
+            } as const;
+          }
+          return {
+            kind: "linked",
+            session,
+            reviewMarker: "absent",
+            account: testLinkedAccount,
+            autoLinked: false,
+          } as const;
+        })
+      );
+      return CurrentCustomerAccount.of({
+        resolve: standing,
+        peek: standing,
+        requireActive: Effect.die("requireActive is not faked"),
+      });
+    })
+  ),
   resolver: Layer.mock(CustomerAccountResolver, {
     resolve: Effect.succeed(testLinkedAccount),
-    resolveLink: Effect.succeed({
-      account: testLinkedAccount,
-      autoLinked: false,
-    }),
   }),
   profile: Layer.mock(CustomerProfileService, {
     load: () => Effect.succeed(testCustomerProfile),
@@ -290,6 +329,111 @@ const closedReleases: AccountReleaseLayers = {
   referralRelease: ReferralReleaseGate.fromDecision(false),
   passkeyRelease: PasskeyReleaseGate.fromDecision(false),
   avatarRelease: AccountAvatarReleaseGate.fromDecision(false),
+};
+
+/**
+ * The account release gates, each decided once per build over
+ * `featureFlags`, as `runAccountReleaseLayers` decides them over PostHog.
+ */
+export const accountReleasesOver = (
+  featureFlags: Layer.Layer<WorkspaceFeatureFlagService>
+): AccountReleaseLayers => ({
+  referralRelease: releaseGateForRunOverFlags(
+    ReferralReleaseGate,
+    featureFlags
+  ),
+  passkeyRelease: releaseGateForRunOverFlags(PasskeyReleaseGate, featureFlags),
+  avatarRelease: releaseGateForRunOverFlags(
+    AccountAvatarReleaseGate,
+    featureFlags
+  ),
+});
+
+/** The release cohorts a request can be in: every flag on, or every flag off. */
+const releaseCohorts = ["open", "closed"] as const;
+type ReleaseCohort = (typeof releaseCohorts)[number];
+
+/** The call in `cohort`'s release cohort. */
+export const inReleaseCohort = (
+  call: CustomerApiCall,
+  cohort: ReleaseCohort
+): CustomerApiCall => ({
+  ...call,
+  headers: { ...call.headers, [testReleaseCohortHeader]: cohort },
+});
+
+/** The status and JSON body of a response; `null` for an empty body. */
+const statusAndBody = async (response: Response) => {
+  const body = await response.text();
+  return { status: response.status, body: body ? JSON.parse(body) : null };
+};
+
+/** What `answerInEachReleaseCohort` found. */
+type CohortAnswers<A> = {
+  readonly alone: Readonly<Record<ReleaseCohort, A>>;
+  readonly overlapping: Readonly<Record<ReleaseCohort, A>>;
+  /** Per flag evaluation, how many overlapping requests made it. */
+  readonly arrivals: Readonly<Record<string, number>>;
+};
+
+/**
+ * Answers the request `send` makes for each release cohort twice: alone, on
+ * its own server, and overlapping the other cohort's request on one server,
+ * where each request evaluates every flag while the other evaluates it too.
+ * `serve` makes a server whose release gates are decided over the feature
+ * flags it's given, which decide by each request's own cohort. `answer`
+ * reads what a test compares from a response, by default its status and
+ * JSON body.
+ */
+export const answerInEachReleaseCohort = async <A = unknown>({
+  serve,
+  send,
+  answer = statusAndBody as (response: Response) => Promise<A>,
+}: {
+  readonly serve: (featureFlags: Layer.Layer<WorkspaceFeatureFlagService>) => {
+    readonly handle: (request: Request) => Promise<Response>;
+  };
+  readonly send: (cohort: ReleaseCohort) => Request;
+  readonly answer?: (response: Response) => Promise<A>;
+}): Promise<CohortAnswers<A>> => {
+  const alone: Partial<Record<ReleaseCohort, A>> = {};
+  for (const cohort of releaseCohorts) {
+    const server = serve(featureFlagsByRequestCohort(makeMeetingPoint(1)));
+    alone[cohort] = await answer(await server.handle(send(cohort)));
+  }
+  const meetingPoint = makeMeetingPoint(releaseCohorts.length);
+  const server = serve(featureFlagsByRequestCohort(meetingPoint));
+  const overlapping = Object.fromEntries(
+    await Promise.all(
+      releaseCohorts.map(async (cohort) => [
+        cohort,
+        await answer(await server.handle(send(cohort))),
+      ])
+    )
+  ) as Record<ReleaseCohort, A>;
+  return {
+    alone: alone as Record<ReleaseCohort, A>,
+    overlapping,
+    arrivals: meetingPoint.arrivals(),
+  };
+};
+
+/**
+ * Checks what `answerInEachReleaseCohort` found: the cohorts answer
+ * differently alone, each overlapping request answers as its cohort does
+ * alone, and both requests evaluated every flag either evaluated.
+ */
+export const expectEachCohortAnsweredAlone = <A>({
+  alone,
+  overlapping,
+  arrivals,
+}: CohortAnswers<A>) => {
+  expect(alone.open).not.toEqual(alone.closed);
+  expect(overlapping).toEqual(alone);
+  expect(Object.keys(arrivals).length).toBeGreaterThan(0);
+  for (const evaluations of Object.values(arrivals)) {
+    expect(evaluations).toBe(releaseCohorts.length);
+  }
 };
 
 /** A customer API endpoint call, as a test sends it. */

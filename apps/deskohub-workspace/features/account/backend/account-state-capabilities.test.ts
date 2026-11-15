@@ -56,8 +56,8 @@ const { CustomerAgentConnections } = await import(
 const { CustomerPasskeys } = await import(
   "@/features/account/backend/auth/customer-passkeys.service"
 );
-const { CustomerAccountContactService } = await import(
-  "@/features/account/backend/customer-account-contact.service"
+const { CurrentCustomerAccount } = await import(
+  "@/features/account/backend/current-customer-account"
 );
 const { CustomerAccountResolver } = await import(
   "@/features/account/backend/customer-account-resolver.service"
@@ -100,9 +100,16 @@ const services = {
       }))
     ) as never,
   }),
-  resolver: Layer.mock(CustomerAccountResolver, {
-    resolveLink: requestName.pipe(
+  currentAccount: Layer.mock(CurrentCustomerAccount, {
+    resolve: requestName.pipe(
       Effect.map((name) => ({
+        kind: "linked",
+        session: {
+          accountId: `account-${name}`,
+          email: testEmailAddress(name),
+          deletionRequested: false,
+        },
+        reviewMarker: "absent",
         account: {
           accountId: `account-${name}`,
           dotyposCustomerId: `customer-${name}`,
@@ -111,6 +118,7 @@ const services = {
       }))
     ) as never,
   }),
+  resolver: Layer.mock(CustomerAccountResolver, {}),
   profile: Layer.mock(CustomerProfileService, {
     load: () =>
       Effect.succeed({
@@ -144,7 +152,6 @@ const services = {
   signupIntents: Layer.mock(ReferralSignupIntentRepository, {
     find: () => Effect.succeed(undefined) as never,
   }),
-  contacts: Layer.mock(CustomerAccountContactService, {}),
 };
 
 /** One request served outside Next.js, with its own capabilities. */

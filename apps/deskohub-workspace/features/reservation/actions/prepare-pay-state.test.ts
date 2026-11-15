@@ -10,7 +10,11 @@ import {
   setSystemTime,
   test,
 } from "bun:test";
-import { DotyposService, DotyposUnavailable } from "@deskohub/dotypos";
+import {
+  type DotyposCustomerId,
+  DotyposService,
+  DotyposUnavailable,
+} from "@deskohub/dotypos";
 import { EmailRecipientDomainServiceMock } from "@deskohub/email/backend/recipient-domain.service.mock";
 import { testEmailAddress } from "@deskohub/test-email";
 import { eq } from "drizzle-orm";
@@ -22,9 +26,20 @@ import {
   customerMarketingConsents,
   type WorkspaceReservationRow,
 } from "@/db/schema";
-import type { OptionalAccountActivityFixture } from "@/features/account/backend/customer-account-activity.test-utils";
-import { CustomerAccountContactService } from "@/features/account/backend/customer-account-contact.service";
-import { CustomerAccountAccessError } from "@/features/account/customer-account";
+import { CurrentCustomerAccount } from "@/features/account/backend/current-customer-account";
+import {
+  type CurrentLinkedAccount,
+  CustomerAccountContactService,
+} from "@/features/account/backend/customer-account-contact.service";
+import type { CustomerAccountSectionsFixture } from "@/features/account/backend/customer-account-sections.test-utils";
+import type { CustomerAccountSession } from "@/features/account/backend/customer-authentication.service";
+import { testSessionProfile } from "@/features/account/backend/customer-authentication.test-utils";
+import {
+  CustomerAccountAccessError,
+  type CustomerAccountId,
+  customerAccountIdSchema,
+  customerAccountUnavailable,
+} from "@/features/account/customer-account";
 import { CheckoutPricingServiceMock } from "@/features/checkout/backend/checkout/checkout-pricing.service.mock";
 import { WorkspaceTableAssignmentServiceMock } from "@/features/checkout/backend/reservation/workspace-table-assignment.service.mock";
 import { buildCoworkReservationQuote } from "@/features/checkout/checkout-quote.test-utils";
@@ -45,7 +60,10 @@ import {
   canonicalPromotionCodeSchema,
   discountIdSchema,
 } from "@/features/discounts/contracts";
-import { PromotionCodeUnavailableError } from "@/features/discounts/errors";
+import {
+  DiscountAffirmationUnavailableError,
+  PromotionCodeUnavailableError,
+} from "@/features/discounts/errors";
 import { WorkspaceFeatureFlagServiceMock } from "@/features/feature-flags/backend/workspace-feature-flag.service.mock";
 import type { AnalyticsConsentMirrorRecord } from "@/features/legal/backend/analytics-consent-ledger";
 import type {
@@ -67,6 +85,7 @@ import type { IWorkspaceAvailabilityService } from "@/features/reservation/backe
 import type { CreateWorkspaceReservationDraftInput } from "@/features/reservation/backend/workspace-reservation.repository";
 import { meetingRoomAdvertisedPriceReservationSchema } from "@/features/reservation/meeting-room-reservation";
 import type { ReservationBillingSelectionInput } from "@/features/reservation/reservation-billing";
+import { reservationCustomerEmailSchema } from "@/features/reservation/reservation-contact";
 import { NoReviewAccounts } from "@/features/review-accounts/backend/review-accounts.repository.mock";
 import { getSlowestSuccessfulCalendarLoad } from "@/shared/backend/config/google-calendar.config.test-utils";
 import { customerAgentNames } from "@/shared/bot-protection/customer-agents";
@@ -87,13 +106,48 @@ mock.module("next/headers", () => ({
   headers: async () => new Headers({ referer: "https://deskohub.test/en-US" }),
 }));
 
+/** The session's account as the fixtures below describe it. */
+type ContactAccount =
+  | { readonly status: "signed-out" }
+  | {
+      readonly status: "unlinked";
+      readonly accountId: CustomerAccountId;
+      readonly email: CustomerAccountSession["email"];
+    }
+  | ({ readonly status: "linked" } & CurrentLinkedAccount);
+type PeekedStanding = Effect.Success<CurrentCustomerAccount["Service"]["peek"]>;
+
+/** The standing behind a contact reader's account, with no review marker. */
+const standingOfContactAccount = (account: ContactAccount): PeekedStanding => {
+  if (account.status === "signed-out") return { kind: "signed-out" };
+  const session = {
+    accountId: account.accountId,
+    email: account.email,
+    deletionRequested: false,
+    ...testSessionProfile,
+  } satisfies CustomerAccountSession;
+  if (account.status === "unlinked") {
+    return { kind: "unlinked", session, reviewMarker: "absent" };
+  }
+  return {
+    kind: "linked",
+    session,
+    reviewMarker: "absent",
+    account: {
+      accountId: account.accountId,
+      dotyposCustomerId: account.dotyposCustomerId,
+    },
+    autoLinked: false,
+  };
+};
+
 const inertRememberedReferral = () =>
   RememberedReferral.inMemory({}).pipe(
     Layer.provide(
       Layer.mergeAll(
         ReferralReleaseGate.fromDecision(true),
         WithheldReferralService,
-        Layer.mock(CustomerAccountContactService, {})
+        Layer.mock(CurrentCustomerAccount, {})
       )
     )
   );
@@ -377,28 +431,50 @@ const makeReusableReservation = (
     ...overrides,
   }) as WorkspaceReservationRow;
 
+/**
+ * Hold acquisition that reuses `reservation`, the attempt's live hold, in the
+ * submitted session, for booking cases that only need that outcome.
+ */
+const reuseHold = (reservation: WorkspaceReservationRow) =>
+  mock((request: { readonly checkout: { readonly sessionId: string } }) =>
+    Effect.succeed({
+      kind: "reused" as const,
+      reservation,
+      checkoutSessionId: request.checkout.sessionId,
+    })
+  );
+
 // Only a signed-in account books, so scenarios run signed in unless they
 // pass their own session authority.
 const accountAuthorityFixture = async (
-  options: OptionalAccountActivityFixture = {
+  options: CustomerAccountSectionsFixture = {
     session: {},
     activityState: "active",
   }
 ) => {
-  const { makeOptionalAccountActivityGuard } = await import(
-    "@/features/account/backend/customer-account-activity.test-utils"
+  const { makeCustomerAccountSections } = await import(
+    "@/features/account/backend/customer-account-sections.test-utils"
   );
-  const guard = makeOptionalAccountActivityGuard(options);
+  const sections = makeCustomerAccountSections(options);
   // The signed-in account is an ordinary customer, not a review account.
-  return { ...guard, layer: Layer.merge(guard.layer, NoReviewAccounts) };
+  return { ...sections, layer: Layer.merge(sections.layer, NoReviewAccounts) };
 };
 
 /**
  * Prepares Pay as the reservation form's Server Action does: BotID first,
  * then the shared booking operation, with the form's public messages.
  */
-const loadReservationFormPreparation = async () => {
-  const { prepareWorkspacePayState } = await import("./prepare-pay-state");
+const loadReservationFormPreparation = async (
+  options: { readonly holds?: "provided" } = {}
+) => {
+  const { prepareOverProvidedServices, prepareOverProvidedHolds } =
+    await import(
+      "@/features/reservation/backend/reservation-booking.test-utils"
+    );
+  const prepareWorkspacePayState =
+    options.holds === "provided"
+      ? prepareOverProvidedHolds
+      : prepareOverProvidedServices;
   const { toReservationFormError, verifyReservationFormHuman } = await import(
     "./prepare-pay-state-form"
   );
@@ -413,7 +489,12 @@ const loadReservationFormPreparation = async () => {
 };
 
 const runReusableReservationScenario = async (input: {
-  readonly findByAttemptKeys: ReturnType<typeof mock>;
+  readonly findByAttemptKeys?: ReturnType<typeof mock>;
+  /**
+   * Replaces hold acquisition with this `holdForAttempt`, for cases that only
+   * need its outcome; the repository and Dotypos hold mocks then go unused.
+   */
+  readonly holdForAttempt?: ReturnType<typeof mock>;
   readonly findLatestByAgentSelectionKey?: ReturnType<typeof mock>;
   readonly findSupersedableByAgentClient?: ReturnType<typeof mock>;
   readonly findCurrentByCheckoutSessionKey?: ReturnType<typeof mock>;
@@ -451,10 +532,16 @@ const runReusableReservationScenario = async (input: {
   };
   readonly accountAuthority?: Parameters<typeof accountAuthorityFixture>[0];
   readonly customer?: "account";
-  readonly account?: CustomerAccountContactService["Service"]["currentAccount"];
+  /** The session's account, from which its standing follows. */
+  readonly account?: Effect.Effect<ContactAccount, CustomerAccountAccessError>;
+  /** The standing booking peeks at; by default the one `account` reports. */
+  readonly standing?: CurrentCustomerAccount["Service"]["peek"];
   readonly linkedContact?: ReturnType<typeof mock>;
-  readonly completeProfileUnderHeldLock?: ReturnType<typeof mock>;
-  readonly linkedAccount?: CustomerAccountContactService["Service"]["currentLinkedAccount"];
+  readonly completeProfile?: ReturnType<typeof mock>;
+  readonly linkedAccount?: Effect.Effect<
+    CurrentLinkedAccount | null,
+    CustomerAccountAccessError
+  >;
   readonly rememberedReferralCode?: string;
   readonly evaluateCheckoutReferral?: ReturnType<typeof mock>;
   readonly findAvailableCode?: ReturnType<typeof mock>;
@@ -478,8 +565,20 @@ const runReusableReservationScenario = async (input: {
    */
   readonly serverCaller?: boolean;
 }) => {
-  const prepareFromReservationForm = await loadReservationFormPreparation();
-  const { prepareWorkspacePayState } = await import("./prepare-pay-state");
+  const holdsProvided = input.holdForAttempt !== undefined;
+  const prepareFromReservationForm = await loadReservationFormPreparation(
+    holdsProvided ? { holds: "provided" } : {}
+  );
+  const { prepareOverProvidedServices, prepareOverProvidedHolds } =
+    await import(
+      "@/features/reservation/backend/reservation-booking.test-utils"
+    );
+  const prepareWorkspacePayState = holdsProvided
+    ? prepareOverProvidedHolds
+    : prepareOverProvidedServices;
+  const { ReservationHolds } = await import(
+    "@/features/reservation/backend/reservation-holds.service"
+  );
   const { BookingAgent } = await import(
     "@/features/reservation/backend/booking-agent"
   );
@@ -587,11 +686,16 @@ const runReusableReservationScenario = async (input: {
         )
       )
   );
+  // Booking reads the standing; by default it reports what `account` does.
+  const peekStanding = mock(
+    () =>
+      input.standing ?? readAccount().pipe(Effect.map(standingOfContactAccount))
+  );
   const linkedContact =
     input.linkedContact ??
     mock(() => Effect.die("a linked contact must not be read"));
-  const completeProfileUnderHeldLock =
-    input.completeProfileUnderHeldLock ??
+  const completeProfile =
+    input.completeProfile ??
     mock(() => Effect.die("no profile may be created"));
   const evaluateCheckoutReferral =
     input.evaluateCheckoutReferral ??
@@ -603,10 +707,11 @@ const runReusableReservationScenario = async (input: {
     input.hasSettledReferral ?? mock(() => Effect.succeed(false));
   const rememberedReferralCookie = { value: input.rememberedReferralCode };
   const contacts = Layer.mock(CustomerAccountContactService, {
-    currentAccount: Effect.suspend(() => readAccount()),
     linkedContact: linkedContact as never,
-    completeProfileUnderHeldLock: completeProfileUnderHeldLock as never,
-    currentLinkedAccount: Effect.suspend(() => readLinkedAccount()),
+    completeProfile: completeProfile as never,
+  });
+  const currentAccount = Layer.mock(CurrentCustomerAccount, {
+    peek: Effect.suspend(() => peekStanding()),
   });
   const referrals =
     input.referralService ??
@@ -619,13 +724,14 @@ const runReusableReservationScenario = async (input: {
     TestSealedStateKeys,
     accountAuthority.layer,
     contacts,
+    currentAccount,
     referrals,
     RememberedReferral.inMemory(rememberedReferralCookie).pipe(
       Layer.provide(
         Layer.mergeAll(
           ReferralReleaseGate.fromDecision(true),
           referrals,
-          contacts
+          currentAccount
         )
       )
     ),
@@ -638,8 +744,13 @@ const runReusableReservationScenario = async (input: {
       getAvailability: mock(() => Effect.die("unused")),
       ensureAvailable,
     } satisfies IWorkspaceAvailabilityService),
+    Layer.mock(ReservationHolds, {
+      holdForAttempt:
+        input.holdForAttempt ?? mock(() => Effect.die("unused") as never),
+    }),
     Layer.mock(WorkspaceReservationRepository, {
-      findByAttemptKeys: input.findByAttemptKeys,
+      findByAttemptKeys:
+        input.findByAttemptKeys ?? mock(() => Effect.succeed(null)),
       findLatestByAgentSelectionKey,
       findSupersedableByAgentClient,
       findCurrentByCheckoutSessionKey:
@@ -758,14 +869,16 @@ const runReusableReservationScenario = async (input: {
     quoteForCustomer,
     findOrCreateCustomer,
     readAccount,
+    peekStanding,
     linkedContact,
-    completeProfileUnderHeldLock,
+    completeProfile,
     readLinkedAccount,
     evaluateCheckoutReferral,
     findAvailableCode,
     hasSettledReferral,
     rememberedReferralCodeAfter: rememberedReferralCookie.value,
     checkContactEmailDomain,
+    holdForAttempt: input.holdForAttempt,
   };
 };
 
@@ -1243,21 +1356,17 @@ describe("prepareWorkspacePayState", () => {
   });
 
   test("creates a held reservation and returns an openable pay state", async () => {
-    const prepareFromReservationForm = await loadReservationFormPreparation();
+    const prepareFromReservationForm = await loadReservationFormPreparation({
+      holds: "provided",
+    });
     const { openPayState, payStateTokenQueryParam } = await import(
       "@/features/checkout/backend/checkout"
     );
     const { MarketingConsentLedger } = await import(
       "@/features/legal/backend/marketing-consent-ledger"
     );
-    const { ReservationHoldCleanupScheduleService } = await import(
-      "@/features/checkout/backend/holds"
-    );
-    const { WorkspaceAvailabilityService } = await import(
-      "@/features/reservation/backend/workspace-availability.service"
-    );
-    const { WorkspaceReservationRepository } = await import(
-      "@/features/reservation/backend/workspace-reservation.repository"
+    const { ReservationHolds } = await import(
+      "@/features/reservation/backend/reservation-holds.service"
     );
     const { recordCheckoutAnalytics } = await import(
       "@/features/checkout/backend/analytics/checkout-analytics.service.mock"
@@ -1272,46 +1381,19 @@ describe("prepareWorkspacePayState", () => {
         eventOrder.push("bot-verification");
       })
     );
-    const ensureAvailable = mock(() =>
+    // The hold lands in a session other than the submitted one, as after a
+    // rotation, so the Pay state must carry the hold's session.
+    const holdForAttempt = mock(() =>
       Effect.sync(() => {
-        eventOrder.push("availability");
-      })
-    );
-    const createDraft = mock((input) =>
-      Effect.succeed({
-        id: "reservation-id",
-        authorAccountId: input.authorAccountId,
-        checkoutSessionKey: input.checkoutSessionKey,
-        checkoutAttemptKey: input.checkoutAttemptKey,
-        correlationId: "correlation-id",
-        reservationState: "draft",
-        paymentState: "not_started",
-        fulfillmentState: "not_started",
-        dotyposCustomerId: input.dotyposCustomerId,
-        reservationDetails: input.reservationDetails,
-        productTier: "basic",
-        productCoffee: false,
-        productMonitorOption: null,
-        locale: input.locale,
-        reservationHoldExpiresAt: input.reservationHoldExpiresAt,
-      } as never)
-    );
-    const claimHoldCreation = mock(() => Effect.succeed(true));
-    const attachHold = mock(() =>
-      Effect.sync(() => {
-        eventOrder.push("attach");
-      })
-    );
-    const enqueueCleanup = mock(() =>
-      Effect.sync(() => {
-        eventOrder.push("enqueue");
+        eventOrder.push("hold");
+        return {
+          kind: "created" as const,
+          reservationId: "reservation-id",
+          checkoutSessionId: "hold-session-id",
+        };
       })
     );
     const recordMarketingConsent = mock(() => Effect.void);
-    const createReservation = mock(() =>
-      Effect.succeed({ id: "dotypos-reservation-id" } as never)
-    );
-    const assignTableId = mock(() => Effect.succeed("table-id"));
     const findOrCreateCustomer = mock(() =>
       Effect.sync(() => {
         eventOrder.push("customer");
@@ -1353,41 +1435,13 @@ describe("prepareWorkspacePayState", () => {
       EmailRecipientDomainServiceMock({
         check: () => Effect.succeed("accepts_mail" as const),
       }),
-      Layer.mock(WorkspaceAvailabilityService, {
-        getAvailability: mock(() => Effect.die("unused")),
-        ensureAvailable,
-      } satisfies IWorkspaceAvailabilityService),
-      Layer.mock(WorkspaceReservationRepository, {
-        findByAttemptKeys: mock(() => Effect.succeed(null)),
-        findCurrentByCheckoutSessionKey: mock(() => Effect.succeed(null)),
-        findStoredCheckoutSessionKey: mock(() => Effect.succeed(null)),
-        createDraft,
-        claimHoldCreation,
-        attachHold,
-        findById: mock(() => Effect.succeed(null)),
-        releaseHoldCreation: mock(() => Effect.void),
-        updateReservationDetails: mock(() => Effect.die("unused")),
-        markAttachFailedCancellationRequired: mock(() => Effect.void),
-        claimSupersessionCancellation: mock(() => Effect.succeed(null)),
-        completeSupersessionAndCreateDraft: mock(() => Effect.die("unused")),
-        markCancelled: mock(() => Effect.void),
-        markCancellationFailed: mock(() => Effect.void),
-      }),
+      Layer.mock(ReservationHolds, { holdForAttempt: holdForAttempt as never }),
       Layer.mock(MarketingConsentLedger, {
         record: recordMarketingConsent,
         status: mock(() => Effect.succeed("absent")),
         withdrawActive: mock(() => Effect.succeed(false)),
       } satisfies IMarketingConsentLedger),
-      WorkspaceTableAssignmentServiceMock({
-        assignTableId,
-      }),
-      Layer.mock(ReservationHoldCleanupScheduleService, {
-        enqueueCleanup,
-      } as never),
-      Layer.mock(DotyposService, {
-        findOrCreateCustomer,
-        createReservation,
-      }),
+      Layer.mock(DotyposService, { findOrCreateCustomer }),
       recordCheckoutAnalytics().layer
     );
     const result = await prepareFromReservationForm({
@@ -1398,39 +1452,29 @@ describe("prepareWorkspacePayState", () => {
       reservation,
     }).pipe(Effect.provide(testLayer), Effect.runPromise);
 
-    expect(ensureAvailable).toHaveBeenCalledWith({
-      kind: "cowork",
-      date: reservation.date,
-      entryTier: reservation.entryTier,
-      monitorOption: undefined,
-    });
-    expect(createDraft).toHaveBeenCalledTimes(1);
-    expect(claimHoldCreation).toHaveBeenCalledWith("reservation-id");
-    expect(assignTableId).toHaveBeenCalledWith({
-      kind: "cowork",
-      entryTier: "open-space",
-      date: reservation.date,
-      coffee: false,
-    });
-    expect(createReservation).toHaveBeenCalledTimes(1);
-    expect(attachHold).toHaveBeenCalledWith(
+    expect(holdForAttempt).toHaveBeenCalledTimes(1);
+    expect(holdForAttempt).toHaveBeenCalledWith(
       expect.objectContaining({
-        id: "reservation-id",
-        dotyposReservationId: "dotypos-reservation-id",
+        checkout: { sessionId: "session-id", attemptId: "attempt-id" },
+        booking: expect.objectContaining({
+          customer: "customer-id",
+          locale: "en-US",
+          purpose: "personal",
+        }),
+        checkoutDetails: expect.objectContaining({
+          reservation: expect.objectContaining({
+            kind: "cowork",
+            date: reservation.date,
+          }),
+        }),
       })
     );
-    expect(enqueueCleanup).toHaveBeenCalledWith({
-      orderId: "reservation-id",
-      reservationHoldExpiresAt: expect.any(Temporal.Instant),
-    });
     expect(eventOrder).toEqual([
       "bot-verification",
       "advertisement",
       "customer",
       "quote",
-      "availability",
-      "attach",
-      "enqueue",
+      "hold",
     ]);
     expect(verifyHuman).toHaveBeenCalledWith({
       verificationFailurePolicy: "allow",
@@ -1449,7 +1493,7 @@ describe("prepareWorkspacePayState", () => {
       openPayState(token ?? "").pipe(Effect.provide(TestSealedStateKeys))
     );
     expect(state.orderId).toBe("reservation-id");
-    expect(state.checkoutSessionId).toBe("session-id");
+    expect(state.checkoutSessionId).toBe("hold-session-id");
     expect(state.submittedCode).toBeUndefined();
     // A site tool reports when the prepared Pay URL stops working.
     expect(result.expiresAt).toBe(new Date(state.exp * 1000).toISOString());
@@ -1465,7 +1509,7 @@ describe("prepareWorkspacePayState", () => {
       "@/features/checkout/backend/checkout"
     );
     const scenario = await runReusableReservationScenario({
-      findByAttemptKeys: mock(() => Effect.succeed(makeReusableReservation())),
+      holdForAttempt: reuseHold(makeReusableReservation()),
     });
 
     if (scenario.result?.status !== "ready") {
@@ -1484,41 +1528,91 @@ describe("prepareWorkspacePayState", () => {
     expect(state.orderId).toBe(scenario.result.orderId);
   });
 
-  test("reuses an immediate retry without scheduling cleanup", async () => {
-    const existingReservation = makeReusableReservation();
-    const result = await runReusableReservationScenario({
-      findByAttemptKeys: mock(() => Effect.succeed(existingReservation)),
+  test("quotes a hold another request created for the customer it holds", async () => {
+    const conflictReservation = makeReusableReservation({
+      id: "claim-conflict-reservation-id",
+      dotyposCustomerId: "conflict-customer-id",
+    });
+    const scenario = await runReusableReservationScenario({
+      holdForAttempt: mock(() =>
+        Effect.succeed({
+          kind: "reused",
+          reservation: conflictReservation,
+          checkoutSessionId: "session-id",
+          pricedFor: "conflict-customer-id",
+        })
+      ),
     });
 
-    expect(result.result.status).toBe("ready");
-    expect(result.ensureAvailable).not.toHaveBeenCalled();
-    expect(result.enqueueCleanup).not.toHaveBeenCalled();
-    expect(result.verifyHuman).toHaveBeenCalledWith({
-      verificationFailurePolicy: "allow",
-      verifiedBots: { allow: customerAgentNames },
-      callSite: "reservation.prepare-pay-state",
+    expect(scenario.result).toMatchObject({
+      status: "ready",
+      orderId: "claim-conflict-reservation-id",
     });
-    expect(result.updateReservationDetails).toHaveBeenCalledWith({
-      id: existingReservation.id,
-      reservationDetails: {
-        kind: "cowork",
-        entryTier: "open-space",
-        coffee: false,
-      },
-      locale: "en-US",
-    });
-    expect(result.findOrCreateCustomer).toHaveBeenCalledTimes(1);
-    expect(result.quoteForCustomer).toHaveBeenCalledWith(
-      expect.objectContaining({
-        dotyposCustomerId: existingReservation.dotyposCustomerId,
-      })
+    expect(scenario.quoteForCustomer).toHaveBeenLastCalledWith(
+      expect.objectContaining({ dotyposCustomerId: "conflict-customer-id" })
     );
+  });
+
+  // The hold module has already refreshed the reused hold's details and
+  // captured its start by the time this re-quote runs.
+  test("surfaces the pricing failure of a reused hold's re-quote for the customer it holds", async () => {
+    const repricingFailure = new DiscountAffirmationUnavailableError({
+      message: "Discount affirmation unavailable.",
+      discountIds: [],
+    });
+    const scenario = await runReusableReservationScenario({
+      holdForAttempt: mock(() =>
+        Effect.succeed({
+          kind: "reused",
+          reservation: makeReusableReservation({
+            id: "claim-conflict-reservation-id",
+            dotyposCustomerId: "conflict-customer-id",
+          }),
+          checkoutSessionId: "session-id",
+          pricedFor: "conflict-customer-id",
+        })
+      ),
+      serverCaller: true,
+      quoteForCustomer: mock(({ affirmedAdvertisement, dotyposCustomerId }) =>
+        dotyposCustomerId === "conflict-customer-id"
+          ? Effect.fail(repricingFailure)
+          : Effect.succeed(buildQuoteFromAdvertisement(affirmedAdvertisement))
+      ),
+    });
+
+    expect(scenario.result).toBeUndefined();
+    expect(scenario.error).toBe(repricingFailure);
+    expect(scenario.holdForAttempt).toHaveBeenCalledTimes(1);
+    expect(scenario.quoteForCustomer).toHaveBeenLastCalledWith(
+      expect.objectContaining({ dotyposCustomerId: "conflict-customer-id" })
+    );
+  });
+
+  test("re-quotes nothing when holding the attempt fails", async () => {
+    const scenario = await runReusableReservationScenario({
+      holdForAttempt: mock(() => Effect.fail(databaseOutage)),
+      serverCaller: true,
+    });
+
+    expect(scenario.result).toBeUndefined();
+    expect(scenario.error).toBe(databaseOutage);
+    // Only the submission's own quote, taken before the hold.
+    expect(scenario.quoteForCustomer).toHaveBeenCalledTimes(1);
+  });
+
+  test("reports a contended hold as an error result", async () => {
+    const scenario = await runReusableReservationScenario({
+      holdForAttempt: mock(() => Effect.succeed({ kind: "contended" })),
+    });
+
+    expect(scenario.error).toBeUndefined();
+    expect(scenario.result?.status).toBe("error");
   });
 
   test("records a form opt-in against the resolved customer as an initial grant from the reservation form", async () => {
     const existingReservation = makeReusableReservation();
     const result = await runReusableReservationScenario({
-      findByAttemptKeys: mock(() => Effect.succeed(existingReservation)),
+      holdForAttempt: reuseHold(existingReservation),
       marketingConsent: true,
     });
 
@@ -1541,9 +1635,7 @@ describe("prepareWorkspacePayState", () => {
 
     test("mirrors the booking device's saved choice into the account's ledger", async () => {
       const result = await runReusableReservationScenario({
-        findByAttemptKeys: mock(() =>
-          Effect.succeed(makeReusableReservation())
-        ),
+        holdForAttempt: reuseHold(makeReusableReservation()),
         requestCookie: savedChoice,
       });
 
@@ -1571,9 +1663,7 @@ describe("prepareWorkspacePayState", () => {
         Effect.die(new Error("Synthetic mirror defect")),
       ]) {
         const result = await runReusableReservationScenario({
-          findByAttemptKeys: mock(() =>
-            Effect.succeed(makeReusableReservation())
-          ),
+          holdForAttempt: reuseHold(makeReusableReservation()),
           requestCookie: savedChoice,
           mirrorAnalyticsConsent: mock(() => failure),
         });
@@ -1584,9 +1674,7 @@ describe("prepareWorkspacePayState", () => {
 
     test("mirrors nothing for a request without a saved choice", async () => {
       const result = await runReusableReservationScenario({
-        findByAttemptKeys: mock(() =>
-          Effect.succeed(makeReusableReservation())
-        ),
+        holdForAttempt: reuseHold(makeReusableReservation()),
       });
 
       expect(result.result?.status).toBe("ready");
@@ -1595,9 +1683,7 @@ describe("prepareWorkspacePayState", () => {
 
     test("mirrors nothing for a customer agent's booking", async () => {
       const result = await runReusableReservationScenario({
-        findByAttemptKeys: mock(() =>
-          Effect.succeed(makeReusableReservation())
-        ),
+        holdForAttempt: reuseHold(makeReusableReservation()),
         requestCookie: savedChoice,
         bookingAgent: {
           clientId: "https://assistant.example/oauth-client.json",
@@ -1611,7 +1697,7 @@ describe("prepareWorkspacePayState", () => {
 
   test("labels an opt-in submitted through the site's tools", async () => {
     const result = await runReusableReservationScenario({
-      findByAttemptKeys: mock(() => Effect.succeed(makeReusableReservation())),
+      holdForAttempt: reuseHold(makeReusableReservation()),
       marketingConsent: true,
       marketingConsentSource: "site_tool",
     });
@@ -1630,7 +1716,7 @@ describe("prepareWorkspacePayState", () => {
 
   test("labels an opt-in the customer's app submitted through the customer HTTP API", async () => {
     const result = await runReusableReservationScenario({
-      findByAttemptKeys: mock(() => Effect.succeed(makeReusableReservation())),
+      holdForAttempt: reuseHold(makeReusableReservation()),
       marketingConsent: true,
       marketingConsentSource: "customer_app",
       serverCaller: true,
@@ -1781,9 +1867,7 @@ describe("prepareWorkspacePayState", () => {
     "a %s marketing choice neither grants nor withdraws consent",
     async (_label, marketingConsent) => {
       const result = await runReusableReservationScenario({
-        findByAttemptKeys: mock(() =>
-          Effect.succeed(makeReusableReservation())
-        ),
+        holdForAttempt: reuseHold(makeReusableReservation()),
         marketingConsent,
       });
 
@@ -1890,9 +1974,7 @@ describe("prepareWorkspacePayState", () => {
       }
 
       const scenario = await runReusableReservationScenario({
-        findByAttemptKeys: mock(() =>
-          Effect.succeed(makeReusableReservation())
-        ),
+        holdForAttempt: reuseHold(makeReusableReservation()),
         ...input,
         marketingConsentLedger: MarketingConsentLedger.Default.pipe(
           Layer.provide(
@@ -2027,7 +2109,7 @@ describe("prepareWorkspacePayState", () => {
     });
 
     const { error } = await runReusableReservationScenario({
-      findByAttemptKeys: mock(() => Effect.succeed(makeReusableReservation())),
+      holdForAttempt: reuseHold(makeReusableReservation()),
       marketingConsent: true,
       recordMarketingConsent: mock(() => Effect.fail(persistenceFailure)),
     });
@@ -2182,8 +2264,8 @@ describe("prepareWorkspacePayState", () => {
             },
           });
           expect(scenario.guardEvents).toEqual([]);
-          expect(scenario.readAccount).not.toHaveBeenCalled();
-          expect(scenario.completeProfileUnderHeldLock).not.toHaveBeenCalled();
+          expect(scenario.peekStanding).not.toHaveBeenCalled();
+          expect(scenario.completeProfile).not.toHaveBeenCalled();
           expect(scenario.findOrCreateCustomer).not.toHaveBeenCalled();
           expect(scenario.quoteForCustomer).not.toHaveBeenCalled();
           expect(scenario.recordMarketingConsent).not.toHaveBeenCalled();
@@ -2442,22 +2524,6 @@ describe("prepareWorkspacePayState", () => {
         );
       });
 
-      test("reuses the live hold of an identical repeat without creating another", async () => {
-        const scenario = await runReusableReservationScenario({
-          ...agentBooking(),
-          findByAttemptKeys: mock(() =>
-            Effect.succeed(agentHold({ id: "agent-hold-id" }))
-          ),
-        });
-
-        expect(scenario.result).toMatchObject({
-          status: "ready",
-          orderId: "agent-hold-id",
-        });
-        expect(scenario.createReservation).not.toHaveBeenCalled();
-        expect(scenario.createDraft).not.toHaveBeenCalled();
-      });
-
       test.each([
         ["the live hold it settles into", "settled"],
         ["the latest row when it disappears", "gone"],
@@ -2692,47 +2758,6 @@ describe("prepareWorkspacePayState", () => {
         expect(replacementAttemptKey).not.toBe(initial.held.checkoutAttemptKey);
       });
 
-      test("supersedes the client's previous hold in its session", async () => {
-        const previous = agentHold({
-          id: "previous-agent-hold-id",
-          dotyposReservationId: "previous-dotypos-reservation-id",
-        });
-        const scenario = await runReusableReservationScenario({
-          ...agentBooking(),
-          findByAttemptKeys: mock(() => Effect.succeed(null)),
-          findCurrentByCheckoutSessionKey: mock(() => Effect.succeed(previous)),
-          claimSupersessionCancellation: mock(() => Effect.succeed(previous)),
-          completeSupersessionAndCreateDraft: mock((input) =>
-            Effect.succeed(
-              agentHold({
-                id: "replacement-agent-hold-id",
-                checkoutSessionKey: input.replacement.checkoutSessionKey,
-                checkoutAttemptKey: input.replacement.checkoutAttemptKey,
-                dotyposReservationId: null,
-                reservationState: "draft",
-              })
-            )
-          ),
-        });
-
-        expect(scenario.result).toMatchObject({
-          status: "ready",
-          orderId: "replacement-agent-hold-id",
-        });
-        expect(scenario.cancelReservation).toHaveBeenCalledWith(
-          "previous-dotypos-reservation-id"
-        );
-        expect(
-          scenario.completeSupersessionAndCreateDraft.mock.calls[0]?.[0]
-        ).toMatchObject({
-          replacement: {
-            authorAccountId: accountId,
-            agentClientId: bookingAgent.clientId,
-          },
-        });
-        expect(scenario.createReservation).toHaveBeenCalledTimes(1);
-      });
-
       test("never supersedes a reservation another account authored in the session", async () => {
         const scenario = await runReusableReservationScenario({
           ...agentBooking(),
@@ -2776,46 +2801,6 @@ describe("prepareWorkspacePayState", () => {
             .mockReturnValueOnce(Effect.succeed(paidBooking))
             .mockReturnValue(Effect.succeed(null));
 
-        test("cancels the client's hold in a rotated session once and holds the new selection", async () => {
-          const claimSupersessionCancellation = mock()
-            .mockReturnValueOnce(
-              Effect.succeed({ ...rotatedHold, reservationState: "cancelling" })
-            )
-            .mockReturnValue(Effect.succeed(null));
-          const scenario = await runReusableReservationScenario({
-            ...agentBooking(),
-            findByAttemptKeys: mock(() => Effect.succeed(null)),
-            findCurrentByCheckoutSessionKey: paidAgentSession(),
-            findSupersedableByAgentClient: mock(() =>
-              Effect.succeed([rotatedHold])
-            ),
-            claimSupersessionCancellation,
-            createDraft: createFreshDraft(),
-          });
-
-          expect(scenario.result?.status).toBe("ready");
-          expect(scenario.findSupersedableByAgentClient).toHaveBeenCalledWith({
-            authorAccountId: accountId,
-            agentClientId: bookingAgent.clientId,
-          });
-          expect(claimSupersessionCancellation).toHaveBeenCalledTimes(1);
-          expect(claimSupersessionCancellation).toHaveBeenCalledWith(
-            "rotated-agent-hold-id"
-          );
-          expect(scenario.cancelReservation).toHaveBeenCalledTimes(1);
-          expect(scenario.cancelReservation).toHaveBeenCalledWith(
-            "rotated-dotypos-reservation-id"
-          );
-          expect(scenario.markCancelled).toHaveBeenCalledTimes(1);
-          expect(scenario.markCancelled.mock.calls[0]?.[0]).toMatchObject({
-            id: "rotated-agent-hold-id",
-          });
-          expect(
-            scenario.completeSupersessionAndCreateDraft
-          ).not.toHaveBeenCalled();
-          expect(scenario.createDraft).toHaveBeenCalledTimes(1);
-        });
-
         test("keeps a rotated hold whose payment started before it was claimed", async () => {
           const scenario = await runReusableReservationScenario({
             ...agentBooking(),
@@ -2833,33 +2818,6 @@ describe("prepareWorkspacePayState", () => {
           expect(scenario.getReservationStatus).not.toHaveBeenCalled();
           expect(scenario.cancelReservation).not.toHaveBeenCalled();
           expect(scenario.markCancelled).not.toHaveBeenCalled();
-          expect(scenario.createDraft).toHaveBeenCalledTimes(1);
-        });
-
-        test("books the new selection when the rotated hold's cancellation fails", async () => {
-          const scenario = await runReusableReservationScenario({
-            ...agentBooking(),
-            findByAttemptKeys: mock(() => Effect.succeed(null)),
-            findCurrentByCheckoutSessionKey: paidAgentSession(),
-            findSupersedableByAgentClient: mock(() =>
-              Effect.succeed([rotatedHold])
-            ),
-            claimSupersessionCancellation: mock(() =>
-              Effect.succeed({ ...rotatedHold, reservationState: "cancelling" })
-            ),
-            getReservationStatus: mock(() =>
-              Effect.succeed("CONFIRMED" as const)
-            ),
-            createDraft: createFreshDraft(),
-          });
-
-          expect(scenario.result?.status).toBe("ready");
-          expect(scenario.cancelReservation).not.toHaveBeenCalled();
-          expect(scenario.markCancelled).not.toHaveBeenCalled();
-          expect(scenario.markCancellationFailed).toHaveBeenCalledWith({
-            id: "rotated-agent-hold-id",
-            failureCode: "checkout_supersession_cancel_failed",
-          });
           expect(scenario.createDraft).toHaveBeenCalledTimes(1);
         });
 
@@ -2992,7 +2950,7 @@ describe("prepareWorkspacePayState", () => {
           bookingAgent,
           customer: "account",
           account: unlinkedAccountState(),
-          completeProfileUnderHeldLock: profileCompletion(),
+          completeProfile: profileCompletion(),
           findByAttemptKeys: mock(() => Effect.succeed(null)),
           createDraft: createFreshDraft(),
         });
@@ -3000,7 +2958,7 @@ describe("prepareWorkspacePayState", () => {
         expect(scenario.error).toMatchObject({
           _tag: "AgentBookingProfileRequiredError",
         });
-        expect(scenario.completeProfileUnderHeldLock).not.toHaveBeenCalled();
+        expect(scenario.completeProfile).not.toHaveBeenCalled();
         expect(scenario.createDraft).not.toHaveBeenCalled();
       });
 
@@ -3036,13 +2994,13 @@ describe("prepareWorkspacePayState", () => {
       });
 
       expect(scenario.result?.status).toBe("ready");
-      expect(scenario.readAccount).toHaveBeenCalledTimes(1);
+      expect(scenario.peekStanding).toHaveBeenCalledTimes(1);
       expect(lockSamples).toEqual([true]);
       expect(linkedContact.mock.calls[0]?.[0]).toMatchObject({
         accountId,
         dotyposCustomerId: accountDotyposCustomerId,
       });
-      expect(scenario.completeProfileUnderHeldLock).not.toHaveBeenCalled();
+      expect(scenario.completeProfile).not.toHaveBeenCalled();
       expect(scenario.findOrCreateCustomer).not.toHaveBeenCalled();
       expect(scenario.createDraft).toHaveBeenCalledTimes(1);
       expect(scenario.createDraft.mock.calls[0]?.[0]).toMatchObject({
@@ -3096,7 +3054,7 @@ describe("prepareWorkspacePayState", () => {
       async (_label, billing, profileBilling) => {
         const lockProbe = { held: false };
         const lockSamples: boolean[] = [];
-        const completeProfileUnderHeldLock = mock(() =>
+        const completeProfile = mock(() =>
           Effect.suspend(() => {
             lockSamples.push(lockProbe.held);
             return accountContact({ dotyposCustomerId: createdCustomerId });
@@ -3115,15 +3073,18 @@ describe("prepareWorkspacePayState", () => {
           },
           customer: "account",
           account: unlinkedAccountState(),
-          completeProfileUnderHeldLock,
+          completeProfile,
         });
 
         expect(scenario.error).toBeUndefined();
         expect(scenario.result?.status).toBe("ready");
         expect(lockSamples).toEqual([true]);
-        expect(completeProfileUnderHeldLock.mock.calls).toEqual([
+        expect(completeProfile.mock.calls).toEqual([
           [
-            { status: "unlinked", accountId, email: testEmailAddressForGrace },
+            expect.objectContaining({
+              accountId,
+              email: testEmailAddressForGrace,
+            }),
             {
               firstName: "Grace",
               lastName: "Hopper",
@@ -3146,7 +3107,7 @@ describe("prepareWorkspacePayState", () => {
     );
 
     test("saves a de-DE booking's first profile with its phone read in Germany", async () => {
-      const completeProfileUnderHeldLock = mock(() =>
+      const completeProfile = mock(() =>
         accountContact({ dotyposCustomerId: createdCustomerId })
       );
       const scenario = await runReusableReservationScenario({
@@ -3162,11 +3123,11 @@ describe("prepareWorkspacePayState", () => {
         },
         customer: "account",
         account: unlinkedAccountState(),
-        completeProfileUnderHeldLock,
+        completeProfile,
       });
 
       expect(scenario.error).toBeUndefined();
-      expect(completeProfileUnderHeldLock.mock.calls[0]?.[1]).toMatchObject({
+      expect(completeProfile.mock.calls[0]?.[1]).toMatchObject({
         phone: "+4915123456789",
       });
     });
@@ -3191,31 +3152,9 @@ describe("prepareWorkspacePayState", () => {
       }
     );
 
-    test("refuses to resume a draft another account authored", async () => {
-      const scenario = await runReusableReservationScenario({
-        findByAttemptKeys: mock(() =>
-          Effect.succeed(
-            makeReusableReservation({
-              reservationState: "draft",
-              authorAccountId:
-                "0d9c6a2e-7f41-4b8a-a6e3-2c5d9b1f4e70" as WorkspaceReservationRow["authorAccountId"],
-            })
-          )
-        ),
-        claimHoldCreation: mock(() => Effect.die("no hold may be claimed")),
-      });
-
-      expect(scenario.error).toMatchObject({
-        _tag: "PublicSafeActionError",
-        cause: { _tag: "CheckoutAttemptUnavailableError" },
-      });
-    });
-
     test("does not resume a guest's draft for an anonymous session", async () => {
       const scenario = await runReusableReservationScenario({
-        findByAttemptKeys: mock(() =>
-          Effect.succeed(makeReusableReservation({ reservationState: "draft" }))
-        ),
+        holdForAttempt: mock(() => Effect.die("no hold may be acquired")),
         accountAuthority: { session: null },
       });
 
@@ -3226,7 +3165,7 @@ describe("prepareWorkspacePayState", () => {
           reason: "unauthenticated",
         },
       });
-      expect(scenario.claimHoldCreation).not.toHaveBeenCalled();
+      expect(scenario.holdForAttempt).not.toHaveBeenCalled();
     });
 
     test("prices the reservation with the account contact instead of the submitted one", async () => {
@@ -3268,7 +3207,7 @@ describe("prepareWorkspacePayState", () => {
         "the saved first profile has no name to book with",
         () => ({
           account: unlinkedAccountState(),
-          completeProfileUnderHeldLock: mock(() => Effect.succeed(null)),
+          completeProfile: mock(() => Effect.succeed(null)),
         }),
       ],
     ] as const)(
@@ -3291,7 +3230,7 @@ describe("prepareWorkspacePayState", () => {
             reason: "unauthenticated",
           },
         });
-        expect(scenario.readAccount).toHaveBeenCalledTimes(1);
+        expect(scenario.peekStanding).toHaveBeenCalledTimes(1);
         expect(scenario.findOrCreateCustomer).not.toHaveBeenCalled();
         expect(scenario.quoteForCustomer).not.toHaveBeenCalled();
         expect(scenario.createDraft).not.toHaveBeenCalled();
@@ -3311,7 +3250,7 @@ describe("prepareWorkspacePayState", () => {
         "the first profile cannot be saved",
         () => ({
           account: unlinkedAccountState(),
-          completeProfileUnderHeldLock: mock(() =>
+          completeProfile: mock(() =>
             Effect.fail(
               new CustomerAccountAccessError({ reason: "unavailable" })
             )
@@ -3341,6 +3280,90 @@ describe("prepareWorkspacePayState", () => {
         expect(scenario.createDraft).not.toHaveBeenCalled();
       }
     );
+
+    describe("reading the account's standing", () => {
+      const accountSession = {
+        accountId: customerAccountIdSchema.make(accountId),
+        email: reservationCustomerEmailSchema.make(testEmailAddressForGrace),
+        deletionRequested: false,
+        ...testSessionProfile,
+      } satisfies CustomerAccountSession;
+
+      test.each([
+        [
+          "awaits deletion",
+          {
+            kind: "deletion-pending",
+            session: accountSession,
+            reviewMarker: "absent",
+          },
+          { reason: "unauthenticated" },
+        ],
+        [
+          "has an unverified email",
+          { kind: "unverified" },
+          { reason: "unverified-email" },
+        ],
+        [
+          "cannot read its stored link",
+          {
+            kind: "unavailable",
+            session: accountSession,
+            reviewMarker: "absent",
+            failure: customerAccountUnavailable("account-link.read"),
+          },
+          { reason: "unavailable", cause: { code: "account-link.read" } },
+        ],
+      ] as const)(
+        "refuses an account booking whose account %s before pricing it",
+        async (_label, standing, cause) => {
+          const scenario = await runReusableReservationScenario({
+            findByAttemptKeys: mock(() => Effect.succeed(null)),
+            createDraft: createFreshDraft(),
+            customer: "account",
+            standing: Effect.succeed(standing),
+          });
+
+          expect(scenario.result).toBeUndefined();
+          expect(scenario.error).toMatchObject({
+            _tag: "PublicSafeActionError",
+            cause: { _tag: "CustomerAccountAccessError", ...cause },
+          });
+          expect(scenario.peekStanding).toHaveBeenCalledTimes(1);
+          expect(scenario.completeProfile).not.toHaveBeenCalled();
+          expect(scenario.findOrCreateCustomer).not.toHaveBeenCalled();
+          expect(scenario.createDraft).not.toHaveBeenCalled();
+        }
+      );
+
+      test("books a linked account whose review marker can't be read as its customer", async () => {
+        const linkedContact = mock(() => accountContact());
+        const scenario = await runReusableReservationScenario({
+          findByAttemptKeys: mock(() => Effect.succeed(null)),
+          createDraft: createFreshDraft(),
+          customer: "account",
+          standing: Effect.succeed({
+            kind: "linked",
+            session: accountSession,
+            reviewMarker: "unreadable",
+            account: {
+              accountId: accountSession.accountId,
+              dotyposCustomerId: accountDotyposCustomerId as DotyposCustomerId,
+            },
+            autoLinked: false,
+          }),
+          linkedContact,
+        });
+
+        expect(scenario.result?.status).toBe("ready");
+        expect(linkedContact.mock.calls[0]?.[0]).toMatchObject({
+          accountId,
+          dotyposCustomerId: accountDotyposCustomerId,
+          email: testEmailAddressForGrace,
+        });
+        expect(scenario.findOrCreateCustomer).not.toHaveBeenCalled();
+      });
+    });
 
     describe("with a remembered referral code", () => {
       const linkedAccount = () =>
@@ -3521,7 +3544,7 @@ describe("prepareWorkspacePayState", () => {
 
       test("carries an eligible referral for the customer a first profile saved at checkout created", async () => {
         const order: string[] = [];
-        const completeProfileUnderHeldLock = mock(() =>
+        const completeProfile = mock(() =>
           Effect.sync(() => order.push("profile")).pipe(
             Effect.andThen(
               accountContact({ dotyposCustomerId: createdCustomerId })
@@ -3539,7 +3562,7 @@ describe("prepareWorkspacePayState", () => {
           createDraft: createFreshDraft(),
           customer: "account",
           account: unlinkedAccountState(),
-          completeProfileUnderHeldLock,
+          completeProfile,
           rememberedReferralCode: "RFL12345",
           evaluateCheckoutReferral,
         });
@@ -3723,7 +3746,7 @@ describe("prepareWorkspacePayState", () => {
                       email: testEmailAddressForGrace,
                     } as never)
               ),
-              completeProfileUnderHeldLock: profileCompletion(),
+              completeProfile: profileCompletion(),
             };
           },
           createdCustomerId,
@@ -3848,7 +3871,7 @@ describe("prepareWorkspacePayState", () => {
       });
 
       expect(scenario.result?.status).toBe("ready");
-      expect(scenario.readAccount).not.toHaveBeenCalled();
+      expect(scenario.peekStanding).not.toHaveBeenCalled();
       expect(scenario.findOrCreateCustomer).toHaveBeenCalledTimes(1);
       expect(scenario.findOrCreateCustomer.mock.calls[0]?.[0]).toMatchObject({
         email: reservation.email,
@@ -3983,208 +4006,6 @@ describe("prepareWorkspacePayState", () => {
     );
   });
 
-  describe("an attempt that already has a reservation", () => {
-    const freshDraft = () =>
-      mock((input) =>
-        Effect.succeed(
-          makeReusableReservation({
-            id: "new-reservation-id",
-            reservationState: "draft",
-            dotyposReservationId: null,
-            checkoutSessionKey: input.checkoutSessionKey,
-            checkoutAttemptKey: input.checkoutAttemptKey,
-            dotyposCustomerId: input.dotyposCustomerId,
-            reservationHoldExpiresAt: input.reservationHoldExpiresAt,
-          })
-        )
-      );
-    const attemptUnavailable = {
-      _tag: "PublicSafeActionError",
-      cause: { _tag: "CheckoutAttemptUnavailableError" },
-    };
-
-    test("resumes the attempt's own draft without reading its session", async () => {
-      const scenario = await runReusableReservationScenario({
-        findByAttemptKeys: mock(() =>
-          Effect.succeed(
-            makeReusableReservation({
-              id: "own-draft-id",
-              reservationState: "draft",
-              dotyposReservationId: null,
-            })
-          )
-        ),
-      });
-
-      expect(scenario.result).toMatchObject({
-        status: "ready",
-        orderId: "own-draft-id",
-      });
-      expect(scenario.createDraft).not.toHaveBeenCalled();
-      expect(scenario.claimHoldCreation).toHaveBeenCalledWith("own-draft-id");
-    });
-
-    test("moves an attempt whose reservation ended into the attempt's own session", async () => {
-      const attemptKeyLookups: unknown[] = [];
-      const createDraft = freshDraft();
-      const scenario = await runReusableReservationScenario({
-        findByAttemptKeys: mock((keys) => {
-          attemptKeyLookups.push(keys);
-          return Effect.succeed(
-            attemptKeyLookups.length === 1
-              ? makeReusableReservation({
-                  reservationState: "confirmed",
-                  paymentState: "paid",
-                })
-              : null
-          );
-        }),
-        createDraft,
-      });
-
-      expect(scenario.result).toMatchObject({
-        status: "ready",
-        orderId: "new-reservation-id",
-      });
-      expect(attemptKeyLookups).toHaveLength(2);
-      expect(attemptKeyLookups[1]).not.toEqual(attemptKeyLookups[0]);
-      expect(createDraft).toHaveBeenCalledTimes(1);
-    });
-
-    test("refuses an ended attempt that is already in its own session", async () => {
-      const scenario = await runReusableReservationScenario({
-        checkoutSessionId: "attempt-id",
-        checkoutAttemptId: "attempt-id",
-        findByAttemptKeys: mock(() =>
-          Effect.succeed(
-            makeReusableReservation({
-              reservationState: "confirmed",
-              paymentState: "paid",
-            })
-          )
-        ),
-      });
-
-      expect(scenario.error).toMatchObject(attemptUnavailable);
-      expect(scenario.createDraft).not.toHaveBeenCalled();
-      expect(scenario.claimHoldCreation).not.toHaveBeenCalled();
-    });
-
-    test("refuses an attempt whose unpaid hold has lapsed", async () => {
-      const scenario = await runReusableReservationScenario({
-        findByAttemptKeys: mock(() =>
-          Effect.succeed(
-            makeReusableReservation({
-              reservationHoldExpiresAt: Temporal.Instant.from(
-                "2020-07-01T12:00:00.000Z"
-              ),
-            })
-          )
-        ),
-      });
-
-      expect(scenario.error).toMatchObject(attemptUnavailable);
-      expect(scenario.findById).not.toHaveBeenCalled();
-      expect(scenario.createDraft).not.toHaveBeenCalled();
-      expect(scenario.claimHoldCreation).not.toHaveBeenCalled();
-    });
-
-    test("refuses an attempt whose hold creation is still in flight once the wait runs out", async () => {
-      const scenario = await runReusableReservationScenario({
-        instantSleeps: true,
-        findByAttemptKeys: mock(() =>
-          Effect.succeed(
-            makeReusableReservation({ reservationState: "creating_hold" })
-          )
-        ),
-        findById: mock(() =>
-          Effect.succeed(
-            makeReusableReservation({ reservationState: "creating_hold" })
-          )
-        ),
-      });
-
-      expect(scenario.error).toMatchObject(attemptUnavailable);
-      expect(scenario.findById).toHaveBeenCalledWith("existing-reservation-id");
-      expect(scenario.createDraft).not.toHaveBeenCalled();
-    });
-
-    test("refuses a session whose current draft stays unsettled once the wait runs out", async () => {
-      const scenario = await runReusableReservationScenario({
-        instantSleeps: true,
-        findByAttemptKeys: mock(() => Effect.succeed(null)),
-        findCurrentByCheckoutSessionKey: mock(() =>
-          Effect.succeed(
-            makeReusableReservation({
-              id: "session-draft-id",
-              reservationState: "draft",
-            })
-          )
-        ),
-        findById: mock(() =>
-          Effect.succeed(
-            makeReusableReservation({
-              id: "session-draft-id",
-              reservationState: "draft",
-            })
-          )
-        ),
-      });
-
-      expect(scenario.error).toMatchObject(attemptUnavailable);
-      expect(scenario.claimSupersessionCancellation).not.toHaveBeenCalled();
-      expect(scenario.createDraft).not.toHaveBeenCalled();
-    });
-
-    test("reuses the hold a concurrent request created after it claimed the draft's hold creation", async () => {
-      const conflictReservation = makeReusableReservation({
-        id: "claim-conflict-reservation-id",
-        dotyposCustomerId: "conflict-customer-id",
-      });
-      const scenario = await runReusableReservationScenario({
-        findByAttemptKeys: mock(() => Effect.succeed(null)),
-        createDraft: freshDraft(),
-        claimHoldCreation: mock(() => Effect.succeed(false)),
-        findById: mock(() => Effect.succeed(conflictReservation)),
-      });
-
-      expect(scenario.result).toMatchObject({
-        status: "ready",
-        orderId: "claim-conflict-reservation-id",
-      });
-      expect(scenario.findById).toHaveBeenCalledWith("new-reservation-id");
-      expect(scenario.quoteForCustomer).toHaveBeenLastCalledWith(
-        expect.objectContaining({ dotyposCustomerId: "conflict-customer-id" })
-      );
-      expect(scenario.updateReservationDetails).toHaveBeenCalledWith(
-        expect.objectContaining({ id: "claim-conflict-reservation-id" })
-      );
-      expect(scenario.createReservation).not.toHaveBeenCalled();
-      expect(scenario.enqueueCleanup).not.toHaveBeenCalled();
-    });
-
-    test("reports a hold creation another request claimed without leaving a usable hold", async () => {
-      const { m } = await import("@/features/i18n");
-      const scenario = await runReusableReservationScenario({
-        findByAttemptKeys: mock(() => Effect.succeed(null)),
-        createDraft: freshDraft(),
-        claimHoldCreation: mock(() => Effect.succeed(false)),
-        findById: mock(() =>
-          Effect.succeed(
-            makeReusableReservation({ reservationState: "cancelled" })
-          )
-        ),
-      });
-
-      expect(scenario.result).toEqual({
-        status: "error",
-        message: m.reservationErrorMessage({}, { locale: "en-US" }),
-      });
-      expect(scenario.updateReservationDetails).not.toHaveBeenCalled();
-      expect(scenario.createReservation).not.toHaveBeenCalled();
-    });
-  });
-
   test("re-queries the attempt after another request completes session supersession", async () => {
     const cancellingReservation = makeReusableReservation({
       reservationState: "cancelling",
@@ -4214,75 +4035,6 @@ describe("prepareWorkspacePayState", () => {
     expect(result.cancelReservation).not.toHaveBeenCalled();
     expect(result.createDraft).not.toHaveBeenCalled();
     expect(result.claimHoldCreation).not.toHaveBeenCalled();
-  });
-
-  test("cancels the previous hold before creating a replacement in the same checkout session", async () => {
-    const previousReservation = makeReusableReservation({
-      id: "previous-reservation-id",
-      dotyposReservationId: "previous-dotypos-reservation-id",
-    });
-    const lifecycleEvents: string[] = [];
-    const result = await runReusableReservationScenario({
-      findByAttemptKeys: mock(() => Effect.succeed(null)),
-      findCurrentByCheckoutSessionKey: mock(() =>
-        Effect.succeed(previousReservation)
-      ),
-      claimSupersessionCancellation: mock(() =>
-        Effect.succeed(previousReservation)
-      ),
-      cancelReservation: mock(() =>
-        Effect.sync(() => {
-          lifecycleEvents.push("cancel-previous-dotypos-reservation");
-        })
-      ),
-      ensureAvailable: mock(() =>
-        Effect.sync(() => {
-          lifecycleEvents.push("recheck-availability");
-        })
-      ),
-      completeSupersessionAndCreateDraft: mock((input) =>
-        Effect.sync(() => {
-          lifecycleEvents.push("cancel-local-and-create-replacement-draft");
-          return makeReusableReservation({
-            id: "replacement-reservation-id",
-            checkoutSessionKey: input.replacement.checkoutSessionKey,
-            checkoutAttemptKey: input.replacement.checkoutAttemptKey,
-            dotyposReservationId: null,
-            reservationState: "draft",
-          });
-        })
-      ),
-      createReservation: mock(() =>
-        Effect.sync(() => {
-          lifecycleEvents.push("create-replacement-dotypos-reservation");
-          return { id: "replacement-dotypos-reservation-id" } as never;
-        })
-      ),
-    });
-
-    expect(result.result.status).toBe("ready");
-    expect(result.cancelReservation).toHaveBeenCalledWith(
-      "previous-dotypos-reservation-id"
-    );
-    expect(result.claimSupersessionCancellation).toHaveBeenCalledWith(
-      "previous-reservation-id"
-    );
-    expect(result.completeSupersessionAndCreateDraft).toHaveBeenCalledWith(
-      expect.objectContaining({
-        cancelledReservationId: "previous-reservation-id",
-        replacement: expect.objectContaining({
-          checkoutSessionKey: expect.any(String),
-          checkoutAttemptKey: expect.any(String),
-        }),
-      })
-    );
-    expect(lifecycleEvents).toEqual([
-      "cancel-previous-dotypos-reservation",
-      "recheck-availability",
-      "cancel-local-and-create-replacement-draft",
-      "create-replacement-dotypos-reservation",
-    ]);
-    expect(result.ensureAvailable).toHaveBeenCalledTimes(1);
   });
 
   test("supersedes a hold stored before a Pay-state key rotation under its stored session key", async () => {
@@ -4394,185 +4146,6 @@ describe("prepareWorkspacePayState", () => {
     );
   });
 
-  test("rotates the checkout session instead of cancelling a reservation with pending payment", async () => {
-    const { openPayState, payStateTokenQueryParam } = await import(
-      "@/features/checkout/backend/checkout"
-    );
-    const pendingReservation = makeReusableReservation({
-      paymentState: "pending",
-      activePaymentAttemptId: "payment-attempt-id",
-    });
-    let currentLookupCount = 0;
-    const result = await runReusableReservationScenario({
-      findByAttemptKeys: mock(() => Effect.succeed(null)),
-      findCurrentByCheckoutSessionKey: mock(() =>
-        Effect.succeed(currentLookupCount++ === 0 ? pendingReservation : null)
-      ),
-      createDraft: mock((input) =>
-        Effect.succeed(
-          makeReusableReservation({
-            id: "rotated-reservation-id",
-            checkoutSessionKey: input.checkoutSessionKey,
-            checkoutAttemptKey: input.checkoutAttemptKey,
-            dotyposReservationId: null,
-            reservationState: "draft",
-          })
-        )
-      ),
-    });
-
-    expect(result.result.status).toBe("ready");
-    expect(result.cancelReservation).not.toHaveBeenCalled();
-    expect(result.claimSupersessionCancellation).not.toHaveBeenCalled();
-    if (result.result.status !== "ready") throw new Error("Expected ready");
-    const token = new URL(
-      result.result.redirectUrl,
-      "https://deskohub.test"
-    ).searchParams.get(payStateTokenQueryParam);
-    expect(
-      Effect.runSync(
-        openPayState(token ?? "").pipe(Effect.provide(TestSealedStateKeys))
-      ).checkoutSessionId
-    ).toBe("attempt-id");
-  });
-
-  test("keeps the rotated checkout session when superseding its current reservation", async () => {
-    const { openPayState, payStateTokenQueryParam } = await import(
-      "@/features/checkout/backend/checkout"
-    );
-    const pendingReservation = makeReusableReservation({
-      id: "pending-reservation-id",
-      paymentState: "pending",
-      activePaymentAttemptId: "payment-attempt-id",
-    });
-    const rotatedSessionReservation = makeReusableReservation({
-      id: "rotated-session-reservation-id",
-      dotyposReservationId: "rotated-session-dotypos-reservation-id",
-    });
-    let currentLookupCount = 0;
-    const result = await runReusableReservationScenario({
-      findByAttemptKeys: mock(() => Effect.succeed(null)),
-      findCurrentByCheckoutSessionKey: mock(() =>
-        Effect.succeed(
-          currentLookupCount++ === 0
-            ? pendingReservation
-            : rotatedSessionReservation
-        )
-      ),
-      claimSupersessionCancellation: mock(() =>
-        Effect.succeed(rotatedSessionReservation)
-      ),
-      completeSupersessionAndCreateDraft: mock((input) =>
-        Effect.succeed(
-          makeReusableReservation({
-            id: "rotated-session-replacement-id",
-            checkoutSessionKey: input.replacement.checkoutSessionKey,
-            checkoutAttemptKey: input.replacement.checkoutAttemptKey,
-            dotyposReservationId: null,
-            reservationState: "draft",
-          })
-        )
-      ),
-    });
-
-    expect(result.result.status).toBe("ready");
-    expect(result.cancelReservation).toHaveBeenCalledWith(
-      "rotated-session-dotypos-reservation-id"
-    );
-    if (result.result.status !== "ready") throw new Error("Expected ready");
-    const token = new URL(
-      result.result.redirectUrl,
-      "https://deskohub.test"
-    ).searchParams.get(payStateTokenQueryParam);
-    expect(
-      Effect.runSync(
-        openPayState(token ?? "").pipe(Effect.provide(TestSealedStateKeys))
-      ).checkoutSessionId
-    ).toBe("attempt-id");
-  });
-
-  test("marks a failed cancellation and creates the replacement in a rotated checkout session", async () => {
-    const { openPayState, payStateTokenQueryParam } = await import(
-      "@/features/checkout/backend/checkout"
-    );
-    const previousReservation = makeReusableReservation();
-    let currentLookupCount = 0;
-    const markCancellationFailed = mock(() => Effect.void);
-    const result = await runReusableReservationScenario({
-      findByAttemptKeys: mock(() => Effect.succeed(null)),
-      findCurrentByCheckoutSessionKey: mock(() =>
-        Effect.succeed(currentLookupCount++ === 0 ? previousReservation : null)
-      ),
-      claimSupersessionCancellation: mock(() =>
-        Effect.succeed(previousReservation)
-      ),
-      cancelReservation: mock(() =>
-        Effect.fail(new Error("Dotypos cancellation failed"))
-      ),
-      markCancellationFailed,
-      createDraft: mock((input) =>
-        Effect.succeed(
-          makeReusableReservation({
-            id: "rotated-reservation-id",
-            checkoutSessionKey: input.checkoutSessionKey,
-            checkoutAttemptKey: input.checkoutAttemptKey,
-            dotyposReservationId: null,
-            reservationState: "draft",
-          })
-        )
-      ),
-    });
-
-    expect(result.result.status).toBe("ready");
-    expect(markCancellationFailed).toHaveBeenCalledWith({
-      id: previousReservation.id,
-      failureCode: "checkout_supersession_cancel_failed",
-    });
-    if (result.result.status !== "ready") throw new Error("Expected ready");
-    const token = new URL(
-      result.result.redirectUrl,
-      "https://deskohub.test"
-    ).searchParams.get(payStateTokenQueryParam);
-    expect(
-      Effect.runSync(
-        openPayState(token ?? "").pipe(Effect.provide(TestSealedStateKeys))
-      ).checkoutSessionId
-    ).toBe("attempt-id");
-  });
-
-  test("does not cancel a Dotypos reservation that is no longer pending", async () => {
-    const previousReservation = makeReusableReservation();
-    let currentLookupCount = 0;
-    const result = await runReusableReservationScenario({
-      findByAttemptKeys: mock(() => Effect.succeed(null)),
-      findCurrentByCheckoutSessionKey: mock(() =>
-        Effect.succeed(currentLookupCount++ === 0 ? previousReservation : null)
-      ),
-      claimSupersessionCancellation: mock(() =>
-        Effect.succeed(previousReservation)
-      ),
-      getReservationStatus: mock(() => Effect.succeed("CONFIRMED" as const)),
-      createDraft: mock((input) =>
-        Effect.succeed(
-          makeReusableReservation({
-            id: "rotated-reservation-id",
-            checkoutSessionKey: input.checkoutSessionKey,
-            checkoutAttemptKey: input.checkoutAttemptKey,
-            dotyposReservationId: null,
-            reservationState: "draft",
-          })
-        )
-      ),
-    });
-
-    expect(result.result.status).toBe("ready");
-    expect(result.cancelReservation).not.toHaveBeenCalled();
-    expect(result.markCancellationFailed).toHaveBeenCalledWith({
-      id: previousReservation.id,
-      failureCode: "checkout_supersession_cancel_failed",
-    });
-  });
-
   test.each([
     {
       label: "tampered token",
@@ -4676,7 +4249,7 @@ describe("prepareWorkspacePayState", () => {
     );
     const advertisedDiscount = makeAdvertisementQuote(5000);
     const result = await runReusableReservationScenario({
-      findByAttemptKeys: mock(() => Effect.succeed(makeReusableReservation())),
+      holdForAttempt: reuseHold(makeReusableReservation()),
       advertisedPriceToken: await buildAdvertisedPriceToken(
         buildQuoteFromAdvertisement(advertisedDiscount)
       ),
@@ -4710,7 +4283,7 @@ describe("prepareWorkspacePayState", () => {
     );
     const customerQuote = makeAdvertisementQuote(1000, "Customer discount");
     const result = await runReusableReservationScenario({
-      findByAttemptKeys: mock(() => Effect.succeed(makeReusableReservation())),
+      holdForAttempt: reuseHold(makeReusableReservation()),
       quoteForCustomer: mock(() =>
         Effect.succeed(buildQuoteFromAdvertisement(customerQuote))
       ),

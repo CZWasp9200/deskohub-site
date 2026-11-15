@@ -11,12 +11,13 @@ import { testEmailAddress } from "@deskohub/test-email";
 import { Effect, Layer, Option, Schema } from "effect";
 import { ReservationAuthorDirectory } from "@/features/account";
 import { customerAgentClientIdSchema } from "@/features/account/backend/auth/customer-agent-authorization.service";
-import { makeOptionalAccountActivityGuard } from "@/features/account/backend/customer-account-activity.test-utils";
+import { CurrentCustomerAccount } from "@/features/account/backend/current-customer-account";
 import { CustomerAccountContactService } from "@/features/account/backend/customer-account-contact.service";
 import {
-  CustomerAccountAccessError,
-  customerAccountIdSchema,
-} from "@/features/account/customer-account";
+  makeCustomerAccountSections,
+  sectionAccountId,
+} from "@/features/account/backend/customer-account-sections.test-utils";
+import { CustomerAccountAccessError } from "@/features/account/customer-account";
 import { AdministrationService } from "@/features/administration/administration.service";
 import { PaymentAdministrationServiceMock } from "@/features/administration/payment-administration.service.mock";
 import { PostHogReservationHistory } from "@/features/administration/posthog-reservation-history";
@@ -129,7 +130,7 @@ describe.skipIf(!database)(
   () => {
     if (!database) return;
 
-    const guard = makeOptionalAccountActivityGuard({
+    const sections = makeCustomerAccountSections({
       session: {},
       activityState: "active",
     });
@@ -140,13 +141,14 @@ describe.skipIf(!database)(
     // Every dependency a recorded booking reaches dies, so reaching one fails
     // the test: Dotypos, availability, the reservation ledger, hold cleanup,
     // marketing consent, and the profile contact.
-    const contacts = Layer.mock(CustomerAccountContactService, {
-      currentAccount: Effect.fail(
+    const contacts = Layer.mock(CustomerAccountContactService, {});
+    const currentAccount = Layer.mock(CurrentCustomerAccount, {
+      peek: Effect.fail(
         new CustomerAccountAccessError({ reason: "unavailable" })
       ),
     });
     const services = Layer.mergeAll(
-      guard.layer,
+      sections.layer,
       Layer.mergeAll(ReviewAccounts.Default, ReviewSandbox.Default).pipe(
         Layer.provide(database.layer)
       ),
@@ -195,8 +197,9 @@ describe.skipIf(!database)(
       Layer.mock(MarketingConsentLedger, {
         record: unreachable("Marketing consent"),
       }),
-      // The profile contact fails as unavailable, so an ordinary account's
-      // booking ends in a captured failure.
+      // The account's standing fails as unavailable, so an ordinary
+      // account's booking ends in a captured failure.
+      currentAccount,
       contacts,
       WorkspaceTableAssignmentServiceMock({
         assignTableId: unreachable("Table assignment"),
@@ -209,7 +212,7 @@ describe.skipIf(!database)(
           Layer.mergeAll(
             ReferralReleaseGate.fromDecision(false),
             WithheldReferralService,
-            contacts
+            currentAccount
           )
         )
       ),
@@ -217,14 +220,10 @@ describe.skipIf(!database)(
       TestSealedStateKeys
     );
 
-    // The account the activity guard fixture signs in.
-    const accountId = customerAccountIdSchema.make(
-      "5b6f31d0-2c1a-4f0e-9a3d-6c7b8e2f1a01"
-    );
     beforeAll(() =>
       Effect.runPromise(
         workspaceFixtures(database.db).customerAccount({
-          id: accountId,
+          id: sectionAccountId,
           review: true,
         })
       )
@@ -239,7 +238,10 @@ describe.skipIf(!database)(
       input: PreparePayStateInput,
       bookingAgent?: Layer.Layer<BookingAgent>
     ) => {
-      const { prepareWorkspacePayState } = await import("./prepare-pay-state");
+      const { prepareOverProvidedServices: prepareWorkspacePayState } =
+        await import(
+          "@/features/reservation/backend/reservation-booking.test-utils"
+        );
       const operation = prepareWorkspacePayState(input).pipe(
         Effect.provide(services),
         // A consenting visitor, so every outcome the booking captures reaches
@@ -353,13 +355,13 @@ describe.skipIf(!database)(
       });
       await database.pool.query(
         "update customer_accounts set review = false where id = $1",
-        [accountId]
+        [sectionAccountId]
       );
       // The ordinary path reads the profile contact, which fails here.
       await prepare(input).catch(() => undefined);
       await database.pool.query(
         "update customer_accounts set review = true where id = $1",
-        [accountId]
+        [sectionAccountId]
       );
 
       expect(analytics.messages).not.toEqual([]);

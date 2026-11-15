@@ -16,11 +16,11 @@ class TestCustomerAccountLinkRepository extends linksModule.CustomerAccountLinkR
     find: (accountId) =>
       Effect.succeed(accountId === agentAccountId ? ("60111" as never) : null),
     findActivityState: () =>
-      Effect.succeed({ kind: "active", deletionRequestedAt: null }),
-    withAccountLock: (accountId, effect) =>
-      Effect.sync(() => lockedAccounts.push(accountId)).pipe(
-        Effect.andThen(effect)
-      ),
+      Effect.succeed({
+        kind: "active",
+        email: testEmailAddress("agent-account-services"),
+        deletionRequestedAt: null,
+      }),
   });
 }
 mock.module("./customer-account-link.repository", () => ({
@@ -28,18 +28,54 @@ mock.module("./customer-account-link.repository", () => ({
   CustomerAccountLinkRepository: TestCustomerAccountLinkRepository,
 }));
 
+// The standing reads the review marker; the fake reports none.
+const reviewAccountsModule = await import(
+  "@/features/review-accounts/backend/review-accounts.repository"
+);
+class TestReviewAccounts extends reviewAccountsModule.ReviewAccounts {
+  static override Live = Layer.mock(reviewAccountsModule.ReviewAccounts, {
+    isReviewAccount: () => Effect.succeed(false),
+  });
+}
+mock.module(
+  "@/features/review-accounts/backend/review-accounts.repository",
+  () => ({ ...reviewAccountsModule, ReviewAccounts: TestReviewAccounts })
+);
+
+// The account sections take the account lock through the advisory lock; the
+// fake records which account each lock is for instead of reaching Postgres.
+const advisoryLockModule = await import("@/db/postgres-advisory-lock");
+const recordLock = <A, E, R>(
+  key: readonly [string, string],
+  effect: Effect.Effect<A, E, R>
+) =>
+  Effect.sync(() => lockedAccounts.push(key[1])).pipe(Effect.andThen(effect));
+class TestWorkspaceDatabaseAdvisoryLock extends advisoryLockModule.WorkspaceDatabaseAdvisoryLock {
+  static override Default = Layer.succeed(
+    advisoryLockModule.WorkspaceDatabaseAdvisoryLock,
+    {
+      withTransactionPermit: (effect) => effect,
+      withLock: recordLock,
+      withLocks: (keys, effect) =>
+        Effect.forEach(keys, (key) => recordLock(key, Effect.void)).pipe(
+          Effect.andThen(effect)
+        ),
+    }
+  );
+}
+mock.module("@/db/postgres-advisory-lock", () => ({
+  ...advisoryLockModule,
+  WorkspaceDatabaseAdvisoryLock: TestWorkspaceDatabaseAdvisoryLock,
+}));
+
 const { CustomerAgentAuthorization } = await import(
   "./auth/customer-agent-authorization.service"
 );
-const { OptionalAccountActivityGuard } = await import(
-  "./customer-account-activity"
-);
-const { CustomerAccountContactService } = await import(
-  "./customer-account-contact.service"
-);
+const { CurrentCustomerAccount } = await import("./current-customer-account");
 const { CustomerAccountReservationOwnership } = await import(
   "./customer-account-reservation-ownership"
 );
+const { CustomerAccountSections } = await import("./customer-account-sections");
 const { CustomerAuthentication } = await import(
   "./customer-authentication.service"
 );
@@ -99,13 +135,15 @@ describe("customerAgentAccountServices", () => {
         session: CustomerAuthentication.pipe(
           Effect.flatMap((authentication) => authentication.currentUser)
         ),
-        guarded: OptionalAccountActivityGuard.pipe(
-          Effect.flatMap((guard) =>
-            guard.guardStateCreation((accountId) => Effect.succeed(accountId))
+        guarded: CustomerAccountSections.pipe(
+          Effect.flatMap((sections) =>
+            sections.withOptionalAccount((accountId) =>
+              Effect.succeed(accountId)
+            )
           )
         ),
-        linked: CustomerAccountContactService.pipe(
-          Effect.flatMap((contacts) => contacts.currentLinkedAccount)
+        standing: CurrentCustomerAccount.pipe(
+          Effect.flatMap((current) => current.peek)
         ),
         author: CustomerAccountReservationOwnership.pipe(
           Effect.flatMap((ownership) => ownership.activeAccountId)
@@ -118,7 +156,11 @@ describe("customerAgentAccountServices", () => {
       success: {
         session: { accountId: agentAccountId, deletionRequested: false },
         guarded: agentAccountId,
-        linked: { accountId: agentAccountId, dotyposCustomerId: "60111" },
+        standing: {
+          kind: "linked",
+          reviewMarker: "absent",
+          account: { accountId: agentAccountId, dotyposCustomerId: "60111" },
+        },
         author: agentAccountId,
       },
     });
@@ -130,9 +172,9 @@ describe("customerAgentAccountServices", () => {
     lockedAccounts.length = 0;
 
     const guarded = await runAsAgent(
-      OptionalAccountActivityGuard.pipe(
-        Effect.flatMap((guard) =>
-          guard.guardStateCreation((accountId) => Effect.succeed(accountId))
+      CustomerAccountSections.pipe(
+        Effect.flatMap((sections) =>
+          sections.withOptionalAccount((accountId) => Effect.succeed(accountId))
         )
       )
     );
