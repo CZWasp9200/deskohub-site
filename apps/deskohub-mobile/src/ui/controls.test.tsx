@@ -1,21 +1,134 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
+import Mail from "lucide-react-native/icons/mail";
 import { type ComponentProps, createRef } from "react";
-import type { TextInputInstance } from "react-native";
+import { StyleSheet, type TextInputInstance } from "react-native";
 import { theme } from "../theme";
-import { Button, TextField } from "./controls";
+import { Button, ButtonRow, TextField } from "./controls";
+import { LoadingIndicator } from "./loading-indicator";
 import { idleLiveRegionLayout } from "./notice-presentation";
-import { elementTree, find, findAll, hostTree } from "./testing/element-tree";
+import {
+  elementTree,
+  find,
+  findAll,
+  hostTree,
+  textOf,
+} from "./testing/element-tree";
+import { color } from "./tokens";
 
-const button = (accessibilityLabel?: string) =>
-  Button({ label: "label", onPress: () => undefined, accessibilityLabel });
+const button = (props: Partial<ComponentProps<typeof Button>> = {}) =>
+  hostTree(
+    elementTree(Button, { label: "label", onPress: () => undefined, ...props })
+  );
+
+const pressableOf = (tree: ReturnType<typeof button>) => {
+  const pressable = find(tree, "Pressable");
+  if (!pressable) throw new Error("The button has no pressable.");
+  return pressable.props;
+};
+
+/** The pressable's style when not pressed. */
+const restingStyle = (tree: ReturnType<typeof button>) =>
+  StyleSheet.flatten(
+    (pressableOf(tree).style as (state: { pressed: boolean }) => unknown)({
+      pressed: false,
+    }) as never
+  ) as Record<string, unknown>;
 
 describe("Button", () => {
   test("an accessible label names the pressable", () => {
-    expect(button("named").props["aria-label"]).toBe("named");
+    expect(
+      pressableOf(button({ accessibilityLabel: "named" }))["aria-label"]
+    ).toBe("named");
   });
 
   test("without one, the pressable is named by its visible label", () => {
-    expect(button().props["aria-label"]).toBeUndefined();
+    const tree = button();
+    expect(pressableOf(tree)["aria-label"]).toBeUndefined();
+    expect(pressableOf(tree).role).toBe("button");
+    expect(findAll(tree, "Text").map(textOf)).toContain("label");
+  });
+
+  test("each variant has its own fill", () => {
+    const fills = (
+      [
+        "primary",
+        "secondary",
+        "danger",
+        "text",
+        "quiet",
+        "dangerText",
+        "inverse",
+      ] as const
+    ).map((variant) => restingStyle(button({ variant })).backgroundColor);
+    expect(fills).toEqual([
+      color.action,
+      color.surface,
+      color.danger,
+      "transparent",
+      "transparent",
+      "transparent",
+      color.surface,
+    ]);
+  });
+
+  test("busy shows the loading indicator in place of the icon, keeps the label and ignores presses", () => {
+    const onPress = mock(() => undefined);
+    const tree = button({ busy: true, icon: Mail, onPress });
+    const pressable = pressableOf(tree);
+    expect(pressable["aria-busy"]).toBe(true);
+    expect(pressable.onPress).toBeUndefined();
+    expect(
+      find(
+        elementTree(Button, {
+          label: "label",
+          onPress,
+          busy: true,
+          icon: Mail,
+        }),
+        LoadingIndicator
+      )
+    ).toBeDefined();
+    expect(find(tree, "Svg")).toBeUndefined();
+    expect(findAll(tree, "Text").map(textOf)).toContain("label");
+  });
+
+  test("an icon is drawn before the label", () => {
+    expect(find(button({ icon: Mail }), "Svg")).toBeDefined();
+  });
+
+  test("disabled is neutral grey and says why, above the button and as its hint", () => {
+    const tree = button({ disabled: true, disabledReason: "why" });
+    const pressable = pressableOf(tree);
+    expect(pressable["aria-disabled"]).toBe(true);
+    expect(pressable.accessibilityHint).toBe("why");
+    const reason = findAll(tree, "Text").find((text) => textOf(text) === "why");
+    expect(reason?.props.id).toBeString();
+    expect(pressable["aria-describedby"]).toBe(reason?.props.id);
+    expect(restingStyle(tree).backgroundColor).toBe(color.disabled);
+  });
+
+  test("an enabled button keeps its reason's place empty and undescribed", () => {
+    const pressable = pressableOf(button({ disabledReason: "why" }));
+    expect(pressable.accessibilityHint).toBeUndefined();
+    expect(pressable["aria-describedby"]).toBeUndefined();
+  });
+});
+
+describe("ButtonRow", () => {
+  test("shares the row between its buttons and lets them wrap", () => {
+    const row = elementTree(ButtonRow, {
+      children: [
+        <Button key="a" label="a" onPress={() => undefined} />,
+        <Button key="b" label="b" onPress={() => undefined} />,
+      ],
+    });
+    expect(
+      StyleSheet.flatten(find(row, "View")?.props.style as never)
+    ).toMatchObject({
+      flexDirection: "row",
+      flexWrap: "wrap",
+    });
+    expect(findAll(row, Button)).toHaveLength(2);
   });
 });
 

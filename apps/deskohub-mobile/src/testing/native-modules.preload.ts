@@ -68,6 +68,22 @@ mock.module("react-native-safe-area-context", () => ({
   useSafeAreaInsets: () => useContext(SafeAreaInsetsContext),
 }));
 
+// SVG elements stand in as their names, so a test can find the icon a
+// component draws (Lucide draws through react-native-svg).
+const svgElement = (name: string) => name;
+mock.module("react-native-svg", () => ({
+  default: svgElement("Svg"),
+  Svg: svgElement("Svg"),
+  Circle: svgElement("Circle"),
+  Ellipse: svgElement("Ellipse"),
+  G: svgElement("G"),
+  Line: svgElement("Line"),
+  Path: svgElement("Path"),
+  Polygon: svgElement("Polygon"),
+  Polyline: svgElement("Polyline"),
+  Rect: svgElement("Rect"),
+}));
+
 // Lottie's player is a class with commands a component calls through a ref;
 // the stand-in keeps them and draws nothing.
 class LottieView extends Component<Readonly<Record<string, unknown>>> {

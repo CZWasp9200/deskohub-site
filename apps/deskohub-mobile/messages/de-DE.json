@@ -101,6 +101,7 @@
   "booking_checkout_blocked_account_unavailable": "Dein Konto ließ sich nicht laden. Versuch es gleich erneut; klappt es weiter nicht, melde dich ab und wieder an.",
   "booking_checkout_blocked_payment_disabled": "Du reservierst mit einem Prüfkonto. Die Reservierung ist nur simuliert und die Zahlung deaktiviert, also wurde nichts reserviert oder bezahlt.",
   "account_dev_smoke_link": "Laufzeitprüfungen starten",
+  "account_dev_design_system_link": "Galerie des Designsystems",
   "smoke_title": "Laufzeitprüfungen",
   "smoke_running": "Prüfungen laufen …",
   "smoke_finished": "Prüfungen fertig.",

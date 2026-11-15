@@ -92,7 +92,7 @@ export function ConfirmDialog({
             </View>
             <View style={styles.action}>
               <Button
-                variant={destructive ? "destructive" : "primary"}
+                variant={destructive ? "danger" : "primary"}
                 label={confirmLabel}
                 onPress={onConfirm}
                 disabled={busy}
