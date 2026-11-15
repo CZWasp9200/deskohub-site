@@ -14,7 +14,7 @@ import {
   type Invoice,
   InvoiceRepository,
 } from "@/features/accounting/backend/invoice.repository";
-import { InvoiceStorageError } from "@/features/accounting/backend/invoice-reads";
+import { AccountingRecordUnavailable } from "@/features/accounting/backend/sealed-accounting-json";
 import {
   makeCoworkInvoiceDocument,
   makeTestManualInvoiceDocument,
@@ -76,7 +76,7 @@ beforeEach(() => {
  * only the asked customer's rows, and an account that is still active.
  */
 const invoiceStore = (
-  failure?: InvoiceStorageError
+  failure?: AccountingRecordUnavailable
 ): CustomerApiTestOptions["services"] => ({
   ...linkedAccountServices,
   invoices: CustomerInvoiceService.Default.pipe(
@@ -121,10 +121,10 @@ const invoiceStore = (
   ),
 });
 
-const storageFailure = new InvoiceStorageError({
-  operation: "load",
-  paymentAttemptId: "payment-attempt-1",
-  message: "database down",
+const storageFailure = new AccountingRecordUnavailable({
+  operation: "decrypt",
+  reference: { type: "invoiceId", id: reservationInvoice.id },
+  message: "synthetic decryption failure",
 });
 
 /** Services whose account has no Dotypos customer profile yet. */
