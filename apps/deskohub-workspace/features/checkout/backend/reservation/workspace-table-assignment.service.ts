@@ -249,7 +249,7 @@ export class WorkspaceTableAssignmentService extends Context.Service<
             getReservationAssignment(reservation)
           ),
           Effect.let("seats", ({ reservation }) =>
-            getReservationSeats(reservation)
+            getWorkspaceReservationSeats(reservation)
           ),
           Effect.tap(({ assignment }) =>
             Effect.logInfo("Workspace table assignment started", {
@@ -484,9 +484,10 @@ const getReservationOccupancyInput = (
     })
   );
 
-const getReservationSeats = (
+/** The seats a Workspace reservation books on its Dotypos table. */
+export const getWorkspaceReservationSeats = (
   reservation: WorkspaceTableAssignmentReservation
-) =>
+): number =>
   Match.value(reservation).pipe(
     Match.discriminatorsExhaustive("kind")({
       cowork: () => workspaceBookingSeatCount,

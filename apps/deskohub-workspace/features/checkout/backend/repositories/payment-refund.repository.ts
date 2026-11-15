@@ -16,7 +16,11 @@ import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Effect, Layer } from "effect";
 import type { SqlError } from "effect/unstable/sql";
 import { WorkspaceDatabase } from "@/db/database.service";
-import { paymentAttempts, workspaceReservations } from "@/db/schema";
+import {
+  type PaymentAttemptRow,
+  paymentAttempts,
+  workspaceReservations,
+} from "@/db/schema";
 import type { PaymentAttemptId } from "@/features/checkout/checkout-identifiers";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import {
@@ -39,6 +43,17 @@ export interface RefundablePaymentAttempt {
   readonly attempt: NexiPaymentAttempt;
   readonly correlationId: NexiCorrelationId;
 }
+
+/** A reservation's payment attempt as its refund facts stand. */
+export type ReservationRefundAttempt = Pick<
+  PaymentAttemptRow,
+  | "amountExponent"
+  | "amountValue"
+  | "currency"
+  | "refundState"
+  | "refundedAmountValue"
+  | "state"
+>;
 
 /** An attempt `claimRefundChecks` stamped, with the stamp it replaced. */
 export interface ClaimedRefundCheck extends RefundablePaymentAttempt {
@@ -78,6 +93,23 @@ export interface IPaymentRefundRepository {
       readonly id: PaymentAttemptId;
     }
   ) => Effect.Effect<void, EffectDrizzleQueryError>;
+  /**
+   * The reservation's Nexi attempts whose refund is still required, oldest
+   * first, each with the reservation's Nexi correlation id. Claims nothing.
+   */
+  readonly findRequiredRefunds: (
+    reservationId: WorkspaceReservationId
+  ) => Effect.Effect<
+    readonly RefundablePaymentAttempt[],
+    EffectDrizzleQueryError
+  >;
+  /** Every payment attempt of the reservation, oldest first. */
+  readonly findReservationAttempts: (
+    reservationId: WorkspaceReservationId
+  ) => Effect.Effect<
+    readonly ReservationRefundAttempt[],
+    EffectDrizzleQueryError
+  >;
   /**
    * Records Nexi's successful refund total for a paid Nexi attempt. The total
    * only grows, so a stale or replayed provider read never lowers it.
@@ -281,7 +313,59 @@ export class PaymentRefundRepository extends Context.Service<
         (effect, input) => effect.pipe(Effect.annotateLogs({ ...input }))
       );
 
-      return { claimRefundChecks, recordRefund, releaseRefundCheck };
+      const findRequiredRefunds = Effect.fn(
+        "PaymentRefundRepository.findRequiredRefunds"
+      )(function* (reservationId: WorkspaceReservationId) {
+        const rows = yield* db
+          .select({
+            attempt: paymentAttempts,
+            correlationId: workspaceReservations.correlationId,
+          })
+          .from(paymentAttempts)
+          .innerJoin(
+            workspaceReservations,
+            eq(workspaceReservations.id, paymentAttempts.workspaceReservationId)
+          )
+          .where(
+            and(
+              eq(paymentAttempts.workspaceReservationId, reservationId),
+              eq(paymentAttempts.provider, "nexi"),
+              eq(paymentAttempts.refundState, "required")
+            )
+          )
+          .orderBy(asc(paymentAttempts.createdAt), asc(paymentAttempts.id));
+        return rows.flatMap(({ attempt: row, correlationId }) => {
+          const attempt = toPaymentAttempt(row);
+          return isNexiPaymentAttempt(attempt)
+            ? [{ attempt, correlationId }]
+            : [];
+        });
+      });
+
+      const findReservationAttempts = Effect.fn(
+        "PaymentRefundRepository.findReservationAttempts"
+      )(function* (reservationId: WorkspaceReservationId) {
+        return yield* db
+          .select({
+            amountExponent: paymentAttempts.amountExponent,
+            amountValue: paymentAttempts.amountValue,
+            currency: paymentAttempts.currency,
+            refundState: paymentAttempts.refundState,
+            refundedAmountValue: paymentAttempts.refundedAmountValue,
+            state: paymentAttempts.state,
+          })
+          .from(paymentAttempts)
+          .where(eq(paymentAttempts.workspaceReservationId, reservationId))
+          .orderBy(asc(paymentAttempts.createdAt), asc(paymentAttempts.id));
+      });
+
+      return {
+        claimRefundChecks,
+        findRequiredRefunds,
+        findReservationAttempts,
+        recordRefund,
+        releaseRefundCheck,
+      };
     })
   );
 }
