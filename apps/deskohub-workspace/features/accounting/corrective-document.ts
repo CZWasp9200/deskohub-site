@@ -139,7 +139,9 @@ export const makeCorrectiveDocument = (input: {
 }): CorrectiveDocument => {
   const { document } = input.invoice;
   const total = getInvoiceTotal(document);
-  const issuedAt = temporalInstantToIsoString(input.issuedAt);
+  const issuedAt = instantStringSchema.make(
+    temporalInstantToIsoString(input.issuedAt)
+  );
   const refunded =
     getInvoiceSettlement(document)._tag === "Paid" &&
     BigDecimal.isPositive(BigDecimal.fromStringUnsafe(total.amount));
