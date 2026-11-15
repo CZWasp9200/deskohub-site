@@ -46,7 +46,10 @@ import {
   type IInvoiceEmailDeliveryRepository,
   InvoiceEmailDeliveryRepository,
 } from "./invoice-email-delivery.repository";
-import { InvoiceEmailDeliveryService } from "./invoice-email-delivery.service";
+import {
+  InvoiceEmailDeliveryError,
+  InvoiceEmailDeliveryService,
+} from "./invoice-email-delivery.service";
 import * as invoicePdf from "./invoice-pdf";
 
 const frozenRecipientEmail = testEmailAddress("frozen-recipient");
@@ -206,6 +209,62 @@ describe("invoice email delivery", () => {
     expect(harness.markAccepted).toHaveBeenCalledTimes(2);
     expect(harness.markFailed).not.toHaveBeenCalled();
     expect(renderInvoicePdf).toHaveBeenCalledTimes(1);
+  });
+
+  test("claims an owed cancellation notice once the customer's email is accepted", async () => {
+    const sentMessages: EmailMessage[] = [];
+    const acceptedBeforeClaim: string[][] = [];
+    const harness = makeHarness({
+      sentMessages,
+      ensureOwed: () =>
+        Effect.sync(() => {
+          acceptedBeforeClaim.push(
+            harness.markAccepted.mock.calls.map(([input]) => input.audience)
+          );
+        }),
+    });
+
+    await runDelivery(harness);
+    await runCustomerResend(harness);
+
+    expect(harness.ensureOwed.mock.calls).toEqual([[invoice.id], [invoice.id]]);
+    expect(acceptedBeforeClaim).toEqual([
+      ["customer"],
+      ["customer", "internal", "customer"],
+    ]);
+  });
+
+  test("keeps the accepted invoice email when its owed notice cannot be sent", async () => {
+    const sentMessages: EmailMessage[] = [];
+    const harness = makeHarness({
+      sentMessages,
+      ensureOwed: () =>
+        Effect.fail(
+          new InvoiceEmailDeliveryError({
+            code: "email_delivery_failed",
+            paymentAttemptId: invoice.id,
+            message: "synthetic notice failure",
+          })
+        ),
+    });
+
+    const result = await runDelivery(harness);
+
+    expect(result).toEqual({ status: "delivered", changed: true });
+    expect(sentMessages).toHaveLength(2);
+  });
+
+  test("looks for an owed notice only after a customer email is accepted", async () => {
+    const sentMessages: EmailMessage[] = [];
+    const harness = makeHarness({
+      sentMessages,
+      send: () => Effect.fail(new EmailServiceError("synthetic send failure")),
+    });
+
+    await expect(runDelivery(harness)).rejects.toMatchObject({
+      code: "email_delivery_failed",
+    });
+    expect(harness.ensureOwed).not.toHaveBeenCalled();
   });
 
   test("renders nothing when every audience was already delivered", async () => {
