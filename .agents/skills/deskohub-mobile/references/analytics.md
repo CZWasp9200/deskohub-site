@@ -83,6 +83,28 @@ The privacy reference's ledger section covers the server side.
   site's cookie, which the site mirrors at sign-in and on each signed-in page
   and withdraws there.
 
+### Page the native app opened (web only)
+
+While the native sign-in request is live in the web bundle (the page the app
+opened, or the tab its sign-in email opens), analytics and the prompt follow
+`consent/app-analytics-gate.web.ts`, read once per page load:
+
+- The prompt never shows.
+- With the app's carried answer, the gate reports `loading` until it is
+  merged into `cc_cookie` (`carriedAnalyticsDecision`, then
+  `applyAppDecision`, change `app`). Where the browser holds no choice, the
+  page takes the app's answer in either direction. Otherwise it applies the
+  account sync's rule (`decisionToTake`): a withdrawal over a grant, never a
+  grant over a refusal. It keeps the other categories and dates the cookie at
+  the app's instant, unchanged.
+- Without an answer, analytics stays off on the page (`undecided`, or
+  `denied` over a stored refusal so stale SDK state clears) and nothing is
+  written: no answer is consent, and the site's grant isn't the app's.
+- Known gap: the app writes a new `cc_cookie` with `revision: 0` and reads
+  it without checking the revision, while the site treats a copy under
+  another banner revision as no choice. The site re-prompts and the server
+  mirrors nothing from a cookie the app created.
+
 ### Analytics preference
 
 The Legal screen (`account/legal/analytics-preference.ts`) shows the

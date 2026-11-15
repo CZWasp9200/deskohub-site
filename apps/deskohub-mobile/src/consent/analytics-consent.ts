@@ -39,15 +39,19 @@ export interface ConsentChoice {
 
 /**
  * Who changed the stored answer: the customer here (`local`), the signed-in
- * account (`account`), or a read of storage (`storage`), such as the first
- * one or the site changing the shared cookie.
+ * account (`account`), the native app that opened this page with its own
+ * answer (`app`), or a read of storage (`storage`), such as the first one or
+ * the site changing the shared cookie.
  */
-export type ConsentChange = "local" | "account" | "storage";
+export type ConsentChange = "local" | "account" | "app" | "storage";
 
-/** The account's analytics decision the device takes as its own choice. */
-export interface AccountAnalyticsDecision {
+/**
+ * An analytics decision made elsewhere (by the signed-in account, or by the
+ * native app that opened this page) that the device takes as its own choice.
+ */
+export interface AnalyticsDecision {
   readonly analytics: boolean;
-  /** When the account made it, stored exactly as given. */
+  /** When it was made, stored exactly as given. */
   readonly decidedAt: string;
 }
 
@@ -78,6 +82,21 @@ export const analyticsConsentStatusOf = (
 ): Exclude<AnalyticsConsentStatus, "loading"> => {
   if (consent.kind === "undecided") return "undecided";
   return consent.categories.includes("analytics") ? "granted" : "denied";
+};
+
+/**
+ * The part of a decision made elsewhere that the stored answer takes, if
+ * any: a withdrawal only over a choice that accepted analytics, a grant only
+ * where there was no choice. Neither ever loosens a refusal.
+ */
+export const decisionToTake = (
+  stored: StoredConsent,
+  decision: AnalyticsDecision
+): AnalyticsDecision | undefined => {
+  if (decision.analytics) {
+    return stored.kind === "undecided" ? decision : undefined;
+  }
+  return analyticsConsentStatusOf(stored) === "granted" ? decision : undefined;
 };
 
 /**
@@ -126,7 +145,15 @@ export interface AnalyticsConsent {
    * failed save stores instead).
    */
   readonly applyAccountDecision: (
-    decision: AccountAnalyticsDecision
+    decision: AnalyticsDecision
+  ) => Promise<StoredConsent>;
+  /**
+   * Takes the native app's own answer, carried to this page with its sign-in
+   * request, as this browser's choice, dated when the app made it, the way
+   * `applyAccountDecision` takes the account's.
+   */
+  readonly applyAppDecision: (
+    decision: AnalyticsDecision
   ) => Promise<StoredConsent>;
   /** Reads the stored answer again. */
   readonly refresh: () => void;
@@ -189,7 +216,7 @@ export const createAnalyticsConsent = (
   };
 
   const save = (
-    { analytics, decidedAt }: AccountAnalyticsDecision,
+    { analytics, decidedAt }: AnalyticsDecision,
     change: Exclude<ConsentChange, "storage">
   ): Promise<StoredConsent> => {
     // A later read must not overwrite the answer just given.
@@ -243,6 +270,7 @@ export const createAnalyticsConsent = (
     grant: () => choose(true),
     deny: () => choose(false),
     applyAccountDecision: (decision) => save(decision, "account"),
+    applyAppDecision: (decision) => save(decision, "app"),
     refresh,
   };
 };
