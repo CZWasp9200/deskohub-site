@@ -102,6 +102,7 @@
   "booking_checkout_blocked_payment_disabled": "Du reservierst mit einem Prüfkonto. Die Reservierung ist nur simuliert und die Zahlung deaktiviert, also wurde nichts reserviert oder bezahlt.",
   "account_dev_smoke_link": "Laufzeitprüfungen starten",
   "account_dev_design_system_link": "Galerie des Designsystems",
+  "account_dev_booking_components_link": "Galerie der Buchungskomponenten",
   "smoke_title": "Laufzeitprüfungen",
   "smoke_running": "Prüfungen laufen …",
   "smoke_finished": "Prüfungen fertig.",

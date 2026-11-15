@@ -102,6 +102,7 @@
   "booking_checkout_blocked_payment_disabled": "यह बुकिंग रिव्यू खाते से हो रही है। बुकिंग सिर्फ़ सिमुलेशन है और भुगतान बंद है, इसलिए न कुछ बुक हुआ, न कोई भुगतान हुआ।",
   "account_dev_smoke_link": "रनटाइम जाँच चलाएँ",
   "account_dev_design_system_link": "डिज़ाइन सिस्टम गैलरी",
+  "account_dev_booking_components_link": "बुकिंग कंपोनेंट गैलरी",
   "smoke_title": "रनटाइम जाँच",
   "smoke_running": "जाँच चल रही है…",
   "smoke_finished": "जाँच पूरी हुई।",

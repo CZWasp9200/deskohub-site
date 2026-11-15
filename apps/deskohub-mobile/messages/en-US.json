@@ -102,6 +102,7 @@
   "booking_checkout_blocked_payment_disabled": "You're booking with a review account. The booking is simulated and payment is turned off, so nothing was reserved or charged.",
   "account_dev_smoke_link": "Run runtime smoke checks",
   "account_dev_design_system_link": "Design system gallery",
+  "account_dev_booking_components_link": "Booking components gallery",
   "smoke_title": "Runtime smoke checks",
   "smoke_running": "Running checks…",
   "smoke_finished": "Checks finished.",
