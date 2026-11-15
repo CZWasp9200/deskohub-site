@@ -43,24 +43,32 @@ export const getWorkspaceTableOccupancyById = (
 export const toTableBookings = (
   reservations: readonly ReservationRecord[]
 ): readonly TableBooking[] =>
-  reservations.flatMap((reservation) => {
-    if (reservation.status !== "NEW" && reservation.status !== "CONFIRMED") {
-      return [];
-    }
-    const tableId = reservation._tableId;
-    if (!tableId) return [];
+  reservations.flatMap((reservation) =>
+    reservation.status === "NEW" || reservation.status === "CONFIRMED"
+      ? Option.toArray(toTableBooking(reservation))
+      : []
+  );
 
-    const booked = decodeBookedReservation(reservation);
-    return Option.all({ startsAt: booked.start, endsAt: booked.end }).pipe(
-      Option.map(({ startsAt, endsAt }) => ({
-        tableId,
-        startsAt: startsAt.epochMilliseconds,
-        endsAt: endsAt.epochMilliseconds,
-        seats: Option.getOrElse(booked.seats, () => 1),
-      })),
-      Option.toArray
-    );
-  });
+/**
+ * The table hold a Dotypos reservation describes, whatever its status: none
+ * without a table or readable bounds. Unreadable seat counts hold one seat.
+ */
+export const toTableBooking = (
+  reservation: ReservationRecord
+): Option.Option<TableBooking> => {
+  const tableId = reservation._tableId;
+  if (!tableId) return Option.none();
+
+  const booked = decodeBookedReservation(reservation);
+  return Option.all({ startsAt: booked.start, endsAt: booked.end }).pipe(
+    Option.map(({ startsAt, endsAt }) => ({
+      tableId,
+      startsAt: startsAt.epochMilliseconds,
+      endsAt: endsAt.epochMilliseconds,
+      seats: Option.getOrElse(booked.seats, () => 1),
+    }))
+  );
+};
 
 export const getTableBookingOccupancyById = (
   bookings: readonly TableBooking[],
@@ -101,13 +109,16 @@ export const getOccupancyWindow = (
 
 export const getWorkspaceReservationIntervalDates = (
   input: ReservationInterval | Temporal.PlainDate
-): DotyposReservationInterval => {
-  const window = getOccupancyWindow(input);
-  return {
-    startDate: new Date(window.startsAt),
-    endDate: new Date(window.endsAt),
-  };
-};
+): DotyposReservationInterval =>
+  getOccupancyWindowDates(getOccupancyWindow(input));
+
+/** The Dotypos query interval of an occupancy window. */
+export const getOccupancyWindowDates = (
+  window: OccupancyWindow
+): DotyposReservationInterval => ({
+  startDate: new Date(window.startsAt),
+  endDate: new Date(window.endsAt),
+});
 
 export const excludeDotyposReservationsById = <
   Reservation extends Pick<DotyposReservation, "id">,

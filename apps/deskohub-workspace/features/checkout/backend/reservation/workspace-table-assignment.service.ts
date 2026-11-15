@@ -6,8 +6,9 @@ import {
   type DotyposTable,
   type DotyposTableId,
 } from "@deskohub/dotypos";
-import { Context, Data, Effect, Layer, Match } from "effect";
+import { Context, Data, Effect, Layer, Match, Option } from "effect";
 import { workspaceProductMonitorOptionTableTags } from "@/features/checkout/product-catalog";
+import type { ReservationRecord } from "@/features/reservation/backend/reservation-record";
 import { WorkspaceReservationRepository } from "@/features/reservation/backend/workspace-reservation.repository";
 import {
   type CoworkReservationDetails,
@@ -26,16 +27,22 @@ import {
   type ReservationInterval,
 } from "@/features/reservation/reservation-interval";
 import { ReservationIntervalValidationError } from "@/features/reservation/reservation-interval-domain";
+import type { WorkspaceReservationKind } from "@/features/reservation/reservation-kind";
 import { workspaceSiteConstants } from "@/shared/utils/site-constants";
 import {
   excludeDotyposReservationsById,
+  getOccupancyWindowDates,
+  getTableBookingOccupancyById,
   getWorkspaceReservationIntervalDates,
   getWorkspaceTableOccupancyById,
+  toTableBooking,
+  toTableBookings,
   workspaceBookingSeatCount,
 } from "./workspace-table-occupancy";
 import {
   getWorkspaceTableCandidatesByPredicate,
   getWorkspaceTableSeatCapacity,
+  hasCandidateCapacity,
   type InvalidDotyposTableSeats,
   isWorkspaceCoworkTableCandidate,
   selectWorkspaceTableFromCandidates,
@@ -56,19 +63,37 @@ export type WorkspaceTableAssignmentReservation =
 type WorkspaceTableAssignment = {
   readonly requiredTags: readonly string[];
   readonly isCandidateTable: (tableTags: ReadonlySet<string>) => boolean;
-  readonly requireEmptyTable: boolean;
   readonly scoreCoworkOpenSpaceCapacity?: true;
 };
 
 const getRequiredTagsAssignment = (
-  requiredTags: readonly string[],
-  requireEmptyTable: boolean
+  requiredTags: readonly string[]
 ): WorkspaceTableAssignment => ({
   requiredTags,
   isCandidateTable: (tableTags: ReadonlySet<string>) =>
     requiredTags.every((tag) => tableTags.has(tag)),
-  requireEmptyTable,
 });
+
+/**
+ * Meeting rooms and offices hold their table exclusively. Cowork bookings
+ * share a table up to its seat capacity.
+ */
+const requiresEmptyTable = (kind: WorkspaceReservationKind) =>
+  Match.value({ kind }).pipe(
+    Match.discriminatorsExhaustive("kind")({
+      cowork: () => false,
+      "meeting-room": () => true,
+      office: () => true,
+    })
+  );
+
+/**
+ * Whether the table a Dotypos reservation holds is still free for it:
+ * `unavailable` when other active bookings took the capacity its family
+ * needs, or when the table is gone, disabled, hidden, or the booking names no
+ * table or readable bounds.
+ */
+export type AssignedTableAvailability = "available" | "unavailable";
 
 const getReservedDeskScoringOccupancyById = Effect.fn(
   "workspaceTableAssignment.getReservedDeskScoringOccupancyById"
@@ -140,6 +165,20 @@ export interface IWorkspaceTableAssignmentService {
     | ReservationIntervalValidationError
     | TableAssignmentUnavailableError
     | TableAssignmentUnconfigured
+  >;
+  /**
+   * Checks the exact table, bounds, and seats a Dotypos reservation holds
+   * against live Dotypos occupancy, whatever the reservation's own status;
+   * the reservation itself never counts. Meeting-room bounds are the held
+   * span, early setup included. Never assigns another table. Reads Dotypos,
+   * so run it outside every database transaction.
+   */
+  readonly getAssignedTableAvailability: (input: {
+    readonly reservation: ReservationRecord;
+    readonly kind: WorkspaceReservationKind;
+  }) => Effect.Effect<
+    AssignedTableAvailability,
+    DotyposReadFailure | InvalidDotyposTableSeats
   >;
 }
 
@@ -241,7 +280,6 @@ export class WorkspaceTableAssignmentService extends Context.Service<
           Effect.bind(
             "matchingTable",
             ({
-              assignment,
               seats,
               inventory,
               matchingTables,
@@ -253,7 +291,7 @@ export class WorkspaceTableAssignmentService extends Context.Service<
                 inventory.tables,
                 occupancyByTableId,
                 seats,
-                assignment.requireEmptyTable,
+                requiresEmptyTable(reservation.kind),
                 rankingOccupancyByTableId
               )
           ),
@@ -269,7 +307,81 @@ export class WorkspaceTableAssignmentService extends Context.Service<
         )
       );
 
-      return { assignTableId } satisfies IWorkspaceTableAssignmentService;
+      const getAssignedTableAvailability = Effect.fn(
+        "WorkspaceTableAssignmentService.getAssignedTableAvailability"
+      )(
+        function* (input: {
+          readonly reservation: ReservationRecord;
+          readonly kind: WorkspaceReservationKind;
+        }) {
+          const booking = toTableBooking(input.reservation);
+          if (Option.isNone(booking)) {
+            yield* Effect.logWarning(
+              "Workspace assigned table has no readable table hold"
+            );
+            return "unavailable" as const;
+          }
+
+          const inventory = yield* loadInventory(
+            getOccupancyWindowDates(booking.value)
+          );
+          const table = inventory.tables.find(
+            ({ id, enabled, display }) =>
+              id === booking.value.tableId &&
+              enabled === true &&
+              display === true
+          );
+          if (!table) {
+            yield* Effect.logInfo(
+              "Workspace assigned table is no longer an active visible table"
+            );
+            return "unavailable" as const;
+          }
+
+          const otherReservations = excludeDotyposReservationsById(
+            inventory.reservations,
+            input.reservation.id === undefined
+              ? inventory.expiredDotyposReservationIds
+              : [
+                  ...inventory.expiredDotyposReservationIds,
+                  input.reservation.id,
+                ]
+          );
+          const occupancyByTableId = getTableBookingOccupancyById(
+            toTableBookings(otherReservations),
+            booking.value
+          );
+          const seatCapacity = yield* getWorkspaceTableSeatCapacity(table);
+          const available = hasCandidateCapacity(
+            [{ table, seatCapacity }],
+            occupancyByTableId,
+            booking.value.seats,
+            requiresEmptyTable(input.kind)
+          );
+          yield* Effect.logInfo(
+            "Workspace assigned table availability checked",
+            {
+              available,
+              occupancy: occupancyByTableId.get(table.id) ?? 0,
+              seatCapacity,
+            }
+          );
+          return available ? ("available" as const) : ("unavailable" as const);
+        },
+        (effect, input) =>
+          effect.pipe(
+            Effect.annotateLogs({
+              dotyposReservationId: input.reservation.id,
+              tableId: input.reservation._tableId,
+              reservationKind: input.kind,
+            })
+          )
+      );
+
+      return {
+        assignTableId,
+        getAssignedTableAvailability,
+      } satisfies IWorkspaceTableAssignmentService;
     })
   );
 }
@@ -286,7 +398,6 @@ const getReservationAssignment = (
               requiredTags: [workspaceCoworkOpenSpaceTableTag],
               isCandidateTable: (tableTags: ReadonlySet<string>) =>
                 isWorkspaceCoworkTableCandidate(tableTags, { entryTier }),
-              requireEmptyTable: false,
             }),
             "reserved-desk": ({ entryTier, monitorOption }) => ({
               requiredTags: [workspaceCoworkReservedDeskTableTag],
@@ -295,30 +406,23 @@ const getReservationAssignment = (
                   entryTier,
                   ...(monitorOption && { monitorOption }),
                 }),
-              requireEmptyTable: false,
               scoreCoworkOpenSpaceCapacity: true as const,
             }),
             basic: ({ entryTier }) =>
-              getRequiredTagsAssignment([`tier:${entryTier}`], false),
+              getRequiredTagsAssignment([`tier:${entryTier}`]),
             plus: ({ entryTier }) =>
-              getRequiredTagsAssignment([`tier:${entryTier}`], false),
+              getRequiredTagsAssignment([`tier:${entryTier}`]),
             profi: ({ entryTier, monitorOption }) =>
-              getRequiredTagsAssignment(
-                [
-                  `tier:${entryTier}`,
-                  ...workspaceProductMonitorOptionTableTags[monitorOption],
-                ],
-                false
-              ),
+              getRequiredTagsAssignment([
+                `tier:${entryTier}`,
+                ...workspaceProductMonitorOptionTableTags[monitorOption],
+              ]),
           })
         ),
       "meeting-room": () =>
-        getRequiredTagsAssignment(
-          [workspaceMeetingRoomReservationTableTag],
-          true
-        ),
+        getRequiredTagsAssignment([workspaceMeetingRoomReservationTableTag]),
       office: () =>
-        getRequiredTagsAssignment([workspaceOfficeReservationTableTag], true),
+        getRequiredTagsAssignment([workspaceOfficeReservationTableTag]),
     })
   );
 
