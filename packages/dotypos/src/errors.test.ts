@@ -45,6 +45,7 @@ type ReadOperation = Exclude<
   | "cancelReservation"
   | "updateReservation"
   | "confirmReservation"
+  | "restoreCancelledReservation"
   | "patchCustomer"
   | "setCustomerDiscountGroup"
   | "updateCustomerBillingDetails"

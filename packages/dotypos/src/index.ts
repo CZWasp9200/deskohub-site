@@ -19,6 +19,7 @@ export {
   CustomerVersionSelection,
   DotyposService,
   FindCustomerResult,
+  RestoreCancelledReservationResult,
 } from "./backend/service";
 export type { DotyposRuntimeConfigObj } from "./config";
 export {
@@ -38,7 +39,9 @@ export {
   DotyposOperation,
   DotyposRejected,
   DotyposRequest,
+  DotyposReservationBookingField,
   DotyposReservationCancelledError,
+  DotyposReservationNotRestorable,
   DotyposUnavailable,
   DotyposUncertain,
   DotyposVersionConflict,
@@ -70,6 +73,7 @@ export type {
   DotyposProductId,
   DotyposReservation,
   DotyposReservation as Reservation,
+  DotyposReservationBooking,
   DotyposReservationId,
   DotyposReservationInterval,
   DotyposReservationStatus,
@@ -77,6 +81,7 @@ export type {
   DotyposTable,
   DotyposTableGroupId,
   DotyposTableId,
+  RestoreDotyposReservationInput,
   UpdateDotyposReservationInput,
 } from "./types";
 export {

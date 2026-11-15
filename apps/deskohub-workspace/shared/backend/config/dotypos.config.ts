@@ -31,7 +31,8 @@ export const WorkspaceDotyposRuntimeConfigLayer = Layer.effect(
  * Every reservation write marks the shared reservation snapshots stale, even
  * when the write fails, because a timed-out write may still have landed.
  * Confirming a hold keeps its seats occupied, so it expires only the
- * customer-facing reservation records, not availability.
+ * customer-facing reservation records, not availability. Restoring a
+ * cancelled reservation occupies its seats again, so it expires both.
  */
 export const ReservationWritesExpireSharedReads = Layer.effect(
   DotyposService,
@@ -48,6 +49,9 @@ export const ReservationWritesExpireSharedReads = Layer.effect(
       updateReservation: expiringOccupancy(dotypos.updateReservation),
       cancelReservation: expiringOccupancy(dotypos.cancelReservation),
       confirmReservation: expiringRecords(dotypos.confirmReservation),
+      restoreCancelledReservation: expiringOccupancy(
+        dotypos.restoreCancelledReservation
+      ),
     };
   })
 );
