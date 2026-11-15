@@ -26,6 +26,8 @@ import {
   type ReservationAdvertisementQuote,
   type ReservationAdvertisementQuoteInput,
   type ReservationCustomerQuoteInput,
+  type ReservationDiscountCodeClearInput,
+  type ReservationDiscountCodeClearResult,
   type ReservationDiscountCodePriceInput,
   type ReservationDiscountCodePriceResult,
   type ReservationPaymentPriceAffirmation,
@@ -66,6 +68,18 @@ export type MeetingRoomPaymentRepricingInput = ReservationPaymentRepricingInput<
 
 export type MeetingRoomDiscountCodePriceInput =
   ReservationDiscountCodePriceInput<
+    NormalizedMeetingRoomReservationOrder,
+    MeetingRoomReservationQuote
+  >;
+
+export type MeetingRoomDiscountCodeClearInput =
+  ReservationDiscountCodeClearInput<
+    NormalizedMeetingRoomReservationOrder,
+    MeetingRoomReservationQuote
+  >;
+
+export type MeetingRoomDiscountCodeClearResult =
+  ReservationDiscountCodeClearResult<
     NormalizedMeetingRoomReservationOrder,
     MeetingRoomReservationQuote
   >;

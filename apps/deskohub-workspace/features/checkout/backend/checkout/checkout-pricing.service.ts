@@ -15,6 +15,8 @@ import {
   type CoworkCheckoutPricingError,
   type CoworkCustomerQuote,
   type CoworkCustomerQuoteInput,
+  type CoworkDiscountCodeClearInput,
+  type CoworkDiscountCodeClearResult,
   type CoworkDiscountCodePriceInput,
   type CoworkDiscountCodePriceResult,
   type CoworkPaymentPriceAffirmation,
@@ -30,6 +32,8 @@ import {
   type MeetingRoomCheckoutPricingError,
   type MeetingRoomCustomerQuote,
   type MeetingRoomCustomerQuoteInput,
+  type MeetingRoomDiscountCodeClearInput,
+  type MeetingRoomDiscountCodeClearResult,
   type MeetingRoomDiscountCodePriceInput,
   type MeetingRoomDiscountCodePriceResult,
   type MeetingRoomPaymentPriceAffirmation,
@@ -45,6 +49,8 @@ import {
   type OfficeCheckoutPricingError,
   type OfficeCustomerQuote,
   type OfficeCustomerQuoteInput,
+  type OfficeDiscountCodeClearInput,
+  type OfficeDiscountCodeClearResult,
   type OfficeDiscountCodePriceInput,
   type OfficeDiscountCodePriceResult,
   type OfficePaymentPriceAffirmation,
@@ -103,6 +109,16 @@ type DiscountCodePriceResult =
   | CoworkDiscountCodePriceResult
   | MeetingRoomDiscountCodePriceResult
   | OfficeDiscountCodePriceResult;
+
+type DiscountCodeClearInput =
+  | CoworkDiscountCodeClearInput
+  | MeetingRoomDiscountCodeClearInput
+  | OfficeDiscountCodeClearInput;
+
+type DiscountCodeClearResult =
+  | CoworkDiscountCodeClearResult
+  | MeetingRoomDiscountCodeClearResult
+  | OfficeDiscountCodeClearResult;
 
 /**
  * A submitted reservation with the advertisement snapshot its page issued.
@@ -164,6 +180,13 @@ export interface ICheckoutPricingService {
   readonly applyDiscountCode: (
     input: DiscountCodePriceInput
   ) => Effect.Effect<DiscountCodePriceResult, CheckoutPricingError>;
+  /**
+   * Re-prices a signed order without its entered code, affirming the other
+   * displayed discounts again. An unanswered discount provider fails.
+   */
+  readonly clearDiscountCode: (
+    input: DiscountCodeClearInput
+  ) => Effect.Effect<DiscountCodeClearResult, CheckoutPricingError>;
 }
 
 export class CheckoutPricingService extends Context.Service<
@@ -315,6 +338,25 @@ export class CheckoutPricingService extends Context.Service<
         )
       );
 
+      const clearDiscountCode = Effect.fn(
+        "CheckoutPricingService.clearDiscountCode"
+      )((input: DiscountCodeClearInput) =>
+        Match.value(input).pipe(
+          Match.when({ reservation: { kind: "cowork" } }, (coworkInput) =>
+            cowork.clearDiscountCode(coworkInput)
+          ),
+          Match.when(
+            { reservation: { kind: "meeting-room" } },
+            (meetingRoomInput) =>
+              meetingRoom.clearDiscountCode(meetingRoomInput)
+          ),
+          Match.when({ reservation: { kind: "office" } }, (officeInput) =>
+            office.clearDiscountCode(officeInput)
+          ),
+          Match.exhaustive
+        )
+      );
+
       return {
         quoteAdvertisement,
         affirmAdvertisement,
@@ -322,6 +364,7 @@ export class CheckoutPricingService extends Context.Service<
         repriceForPayment,
         affirmForPayment,
         applyDiscountCode,
+        clearDiscountCode,
       } satisfies ICheckoutPricingService;
     })
   );

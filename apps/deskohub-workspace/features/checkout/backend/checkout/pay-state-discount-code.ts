@@ -3,16 +3,22 @@ import { Effect, Match, Option, Schema } from "effect";
 import type { DiscountCodeRejection } from "@/features/checkout/discount-code-rejection";
 import {
   type CanonicalPromotionCode,
+  type DiscountId,
   DiscountProviderError,
   normalizeSubmittedPromotionCode,
 } from "@/features/discounts";
 import { ReferralService } from "@/features/referrals";
 import { RememberedReferral } from "@/features/referrals/remembered-referral.service";
-import { dotyposCustomerIdSchema } from "@/features/reservation/dotypos-customer";
+import {
+  type DotyposCustomerId,
+  dotyposCustomerIdSchema,
+} from "@/features/reservation/dotypos-customer";
 import { getCalendarActionDeadline } from "@/shared/backend/calendar-action-deadline";
 import type { DeploymentEnvironment } from "@/shared/deployment/deployment-stage";
 import {
+  buildCheckoutPayPathFromToken,
   type FreshPayState,
+  getPayStateExpiresAt,
   issueFreshPayState,
   type NoFreshPayState,
   toFreshPayState,
@@ -25,22 +31,27 @@ import {
 import { openPayStateForLocale } from "./open-pay-state-for-locale";
 import type { PayStateWithHoldExpiry, SignedPayState } from "./pay-state";
 import { getSignedPayStateBookedAt } from "./pay-state.server";
-import type { ApplyDiscountCodeInput } from "./pay-state-discount-code-input";
+import type {
+  ApplyDiscountCodeInput,
+  ClearDiscountCodeInput,
+} from "./pay-state-discount-code-input";
 import {
   getPayStateHoldExpiresAt,
   loadPayStateHoldExpiry,
   withPayStateHoldExpiry,
 } from "./pay-state-hold";
 import {
+  type PayableReservation,
   PayableReservationService,
   type PayableReservationUnavailableError,
 } from "./payable-reservation.service";
 
 /**
- * Discount-code entry affirms the displayed discounts, awaiting one Google
- * Calendar load between its live payable-reservation guards.
+ * Entering or removing a discount code affirms the displayed discounts,
+ * awaiting one Google Calendar load between its live payable-reservation
+ * guards.
  */
-export const getApplyDiscountCodeDeadline = (
+export const getDiscountCodeChangeDeadline = (
   deploymentEnvironment: DeploymentEnvironment
 ) => getCalendarActionDeadline(deploymentEnvironment, 1);
 
@@ -132,9 +143,9 @@ const issueRejectedCodePayState = (
   ).pipe(Effect.map(toFreshPayState));
 
 /** Unavailable results without a replacement Pay state. */
-const unavailableBecause = (
-  cause: DiscountCodeUnavailable
-): DiscountCodeUnavailable & NoFreshPayState => ({
+const unavailableBecause = <Cause extends DiscountCodeUnavailable>(
+  cause: Cause
+): Cause & NoFreshPayState => ({
   ...cause,
   freshPayUrl: undefined,
 });
@@ -149,6 +160,90 @@ const paymentInProgress = unavailableBecause({
   reason: "checkout",
   checkoutReason: "payment_in_progress",
 });
+
+const priceReviewPending = unavailableBecause({
+  status: "unavailable",
+  reason: "price_review_pending",
+});
+
+/**
+ * The order's reservation while it is payable and no payment attempt has
+ * started; none once a payment is in progress. A reservation that can't be
+ * paid fails.
+ */
+const requirePayableBeforePayment = Effect.fnUntraced(function* (
+  state: SignedPayState
+) {
+  const payableReservations = yield* PayableReservationService;
+  const reservation = yield* payableReservations.requireCurrent({
+    orderId: state.orderId,
+    checkoutSessionId: state.checkoutSessionId,
+  });
+  return reservation.activePaymentAttemptId
+    ? Option.none<PayableReservation>()
+    : Option.some(reservation);
+});
+
+/**
+ * Prices a Pay state's order for a code change between two live guards that
+ * its reservation is payable and no payment attempt has started, so a
+ * payment that starts meanwhile discards the price. None when a payment is in
+ * progress; the reservation is the first guard's.
+ */
+const priceBetweenPayableGuards = <A, E, R>(
+  state: SignedPayState,
+  price: (input: {
+    readonly reservation: PayableReservation;
+    readonly dotyposCustomerId: DotyposCustomerId;
+  }) => Effect.Effect<A, E, R>
+) =>
+  Effect.gen(function* () {
+    const reservation = yield* requirePayableBeforePayment(state);
+    if (Option.isNone(reservation)) return Option.none();
+
+    const dotyposCustomerId = yield* Schema.decodeEffect(
+      dotyposCustomerIdSchema
+    )(reservation.value.dotyposCustomerId).pipe(
+      Effect.mapError(
+        DiscountProviderError.fromCause({
+          reason: "provider_failure",
+          message: "Stored customer identity is invalid.",
+        })
+      )
+    );
+    const priced = yield* price({
+      reservation: reservation.value,
+      dotyposCustomerId,
+    });
+    const current = yield* requirePayableBeforePayment(state);
+    if (Option.isNone(current)) return Option.none();
+
+    return Option.some({ reservation: reservation.value, priced });
+  });
+
+/**
+ * A code change that could not be made leaves the existing summary payable:
+ * unaffirmed discounts and unreachable providers allow a retry, and an order
+ * that can't be paid says why.
+ */
+const recoverUnavailableCodeChange = <A, E, R>(
+  effect: Effect.Effect<A, E, R>
+) =>
+  effect.pipe(
+    Effect.catchTags({
+      DiscountAffirmationUnavailableError: () =>
+        Effect.succeed(providerUnavailable),
+      DiscountProviderError: () => Effect.succeed(providerUnavailable),
+      PayableReservationUnavailableError: (error) =>
+        Effect.succeed(
+          unavailableBecause({
+            status: "unavailable",
+            reason: "checkout",
+            checkoutReason: error.reason,
+          })
+        ),
+    })
+  );
 
 /**
  * Accepts a referral code through the checkout referral flow, which signs its
@@ -242,56 +337,41 @@ const applyPromotionCode = Effect.fnUntraced(function* (
   entry: DiscountCodeEntry
 ) {
   const pricing = yield* CheckoutPricingService;
-  const payableReservations = yield* PayableReservationService;
   const { input, state, submittedCode } = entry;
 
-  const reservation = yield* payableReservations.requireCurrent({
-    orderId: state.orderId,
-    checkoutSessionId: state.checkoutSessionId,
-  });
-  if (reservation.activePaymentAttemptId) return paymentInProgress;
-
-  const dotyposCustomerId = yield* Schema.decodeEffect(dotyposCustomerIdSchema)(
-    reservation.dotyposCustomerId
-  ).pipe(
-    Effect.mapError(
-      DiscountProviderError.fromCause({
-        reason: "provider_failure",
-        message: "Stored customer identity is invalid.",
-      })
-    )
-  );
-  const result = yield* pricing
-    .applyDiscountCode({
-      ...state,
-      bookedAt: getSignedPayStateBookedAt(state),
-      dotyposCustomerId,
-      locale: input.locale,
-      submittedCode,
-    })
-    .pipe(
-      // A recoverable invalid-code failure keeps the attempted code as signed
-      // requested intent on the correction route instead of the old state.
-      Effect.catchTag("PromotionCodeUnavailableError", () =>
-        issueRejectedCodePayState(
-          { ...entry, state: withPayStateHoldExpiry(state, reservation) },
-          "unavailable"
-        ).pipe(
-          Effect.map(
-            (freshPayState): DiscountCodeUnavailable & FreshPayState => ({
-              status: "unavailable",
-              reason: "code",
-              ...freshPayState,
-            })
+  const guarded = yield* priceBetweenPayableGuards(
+    state,
+    ({ reservation, dotyposCustomerId }) =>
+      pricing
+        .applyDiscountCode({
+          ...state,
+          bookedAt: getSignedPayStateBookedAt(state),
+          dotyposCustomerId,
+          locale: input.locale,
+          submittedCode,
+        })
+        .pipe(
+          // A recoverable invalid-code failure keeps the attempted code as
+          // signed requested intent on the correction route instead of the
+          // old state.
+          Effect.catchTag("PromotionCodeUnavailableError", () =>
+            issueRejectedCodePayState(
+              { ...entry, state: withPayStateHoldExpiry(state, reservation) },
+              "unavailable"
+            ).pipe(
+              Effect.map(
+                (freshPayState): DiscountCodeUnavailable & FreshPayState => ({
+                  status: "unavailable",
+                  reason: "code",
+                  ...freshPayState,
+                })
+              )
+            )
           )
         )
-      )
-    );
-  const currentReservation = yield* payableReservations.requireCurrent({
-    orderId: state.orderId,
-    checkoutSessionId: state.checkoutSessionId,
-  });
-  if (currentReservation.activePaymentAttemptId) return paymentInProgress;
+  );
+  if (Option.isNone(guarded)) return paymentInProgress;
+  const { reservation, priced: result } = guarded.value;
 
   if (result.status === "unavailable") {
     return result;
@@ -344,66 +424,172 @@ const applyPromotionCode = Effect.fnUntraced(function* (
 
 export const applyDiscountCodeToPayState = Effect.fn(
   "checkout.applyDiscountCodeToPayState"
-)(
-  function* (input: ApplyDiscountCodeInput) {
-    const referrals = yield* ReferralService;
+)(function* (input: ApplyDiscountCodeInput) {
+  const referrals = yield* ReferralService;
 
-    const state = yield* openPayStateForLocale(input);
+  const state = yield* openPayStateForLocale(input);
 
-    if (state.changedKeys) {
-      return unavailableBecause({
-        status: "unavailable",
-        reason: "price_review_pending",
-      });
-    }
-    if (state.submittedCode) {
-      return unavailableBecause({
-        status: "unavailable",
-        reason: "code_already_applied",
-      });
-    }
+  if (state.changedKeys) return priceReviewPending;
+  if (state.submittedCode) {
+    return unavailableBecause({
+      status: "unavailable",
+      reason: "code_already_applied",
+    });
+  }
 
-    // A non-canonical attempt cannot be sealed as intent, so syntax failures
-    // keep the plain unavailable result.
-    const submittedCode = yield* normalizeSubmittedPromotionCode({
-      submittedCode: input.submittedCode,
-    }).pipe(
-      Effect.map(Option.getOrUndefined),
-      Effect.catchTag("PromotionCodeUnavailableError", () =>
-        Effect.succeed(undefined)
-      )
-    );
-    if (submittedCode === undefined) {
-      return unavailableBecause({ status: "unavailable", reason: "code" });
-    }
-
-    // A registry that can't classify the code applies nothing; a retry can
-    // still work.
-    const codeKind = yield* referrals
-      .lookupCodeKind({ code: submittedCode })
-      .pipe(Effect.orElseSucceed(() => undefined));
-    if (codeKind === undefined) return providerUnavailable;
-    const entry = { input, state, submittedCode };
-    return yield* codeKind.kind === "referral"
-      ? acceptReferralCode(entry)
-      : applyPromotionCode(entry);
-  },
-  (effect) =>
-    effect.pipe(
-      Effect.catchTags({
-        // The displayed discounts could not be affirmed, so the code is not
-        // applied and the existing summary stays payable for a retry.
-        DiscountAffirmationUnavailableError: () =>
-          Effect.succeed(providerUnavailable),
-        DiscountProviderError: () => Effect.succeed(providerUnavailable),
-        PayableReservationUnavailableError: (error) =>
-          Effect.succeed(
-            unavailableBecause({
-              status: "unavailable",
-              reason: "checkout",
-              checkoutReason: error.reason,
-            })
-          ),
-      })
+  // A non-canonical attempt cannot be sealed as intent, so syntax failures
+  // keep the plain unavailable result.
+  const submittedCode = yield* normalizeSubmittedPromotionCode({
+    submittedCode: input.submittedCode,
+  }).pipe(
+    Effect.map(Option.getOrUndefined),
+    Effect.catchTag("PromotionCodeUnavailableError", () =>
+      Effect.succeed(undefined)
     )
-);
+  );
+  if (submittedCode === undefined) {
+    return unavailableBecause({ status: "unavailable", reason: "code" });
+  }
+
+  // A registry that can't classify the code applies nothing; a retry can
+  // still work.
+  const codeKind = yield* referrals
+    .lookupCodeKind({ code: submittedCode })
+    .pipe(Effect.orElseSucceed(() => undefined));
+  if (codeKind === undefined) return providerUnavailable;
+  const entry = { input, state, submittedCode };
+  return yield* codeKind.kind === "referral"
+    ? acceptReferralCode(entry)
+    : applyPromotionCode(entry);
+}, recoverUnavailableCodeChange);
+
+/** Why an entered code was not removed; the existing summary stays as is. */
+export type ClearDiscountCodeUnavailable = Exclude<
+  DiscountCodeUnavailable,
+  { readonly reason: "code" | "code_already_applied" }
+>;
+
+export type ClearDiscountCodeResult =
+  /**
+   * `cleared`: a replacement Pay state without the entered code or the
+   * intended one. When removing the code changed the summary, it asks the
+   * customer to review the new price before paying.
+   */
+  | ({ readonly status: "cleared" } & FreshPayState)
+  /** The Pay state carried no code; its own token is returned as is. */
+  | ({ readonly status: "unchanged" } & FreshPayState)
+  | (ClearDiscountCodeUnavailable & NoFreshPayState);
+
+/**
+ * Removes the entered code from a Pay state. Its other displayed discounts,
+ * the referral benefit among them, are affirmed again and stacked afresh,
+ * and the result is a price review the customer accepts before paying. An
+ * intended code that was never applied is dropped without repricing. Neither
+ * moves the hold deadline.
+ *
+ * A state without either code is returned unchanged: it signs nothing, so it
+ * reads no reservation, like accepting a price that needs no review; payment
+ * checks the reservation again.
+ */
+export const clearDiscountCodeFromPayState = Effect.fn(
+  "checkout.clearDiscountCodeFromPayState"
+)(function* (input: ClearDiscountCodeInput) {
+  const state = yield* openPayStateForLocale(input);
+
+  const { submittedCodeDiscountId } = state;
+  if (submittedCodeDiscountId === undefined) {
+    if (state.requestedDiscountCode === undefined) {
+      const unchanged: ClearDiscountCodeResult = {
+        status: "unchanged",
+        freshPayUrl: buildCheckoutPayPathFromToken(
+          input.locale,
+          input.payStateToken
+        ),
+        freshPayStateToken: input.payStateToken,
+        expiresAt: getPayStateExpiresAt(state),
+      };
+      return unchanged;
+    }
+    return yield* clearRequestedDiscountCode(input, state);
+  }
+  if (state.changedKeys) return priceReviewPending;
+  return yield* clearAppliedDiscountCode(input, state, submittedCodeDiscountId);
+}, recoverUnavailableCodeChange);
+
+/**
+ * Drops a code the customer intended but never applied. Nothing is
+ * repriced, so a pending price review stays pending.
+ */
+const clearRequestedDiscountCode = Effect.fnUntraced(function* (
+  input: ClearDiscountCodeInput,
+  state: SignedPayState
+) {
+  const reservation = yield* requirePayableBeforePayment(state);
+  if (Option.isNone(reservation)) return paymentInProgress;
+
+  const freshPayState = yield* issueFreshPayState(
+    {
+      ...withPayStateHoldExpiry(state, reservation.value),
+      locale: input.locale,
+      requestedDiscountCode: undefined,
+    },
+    {},
+    { orderId: state.orderId }
+  );
+  const cleared: ClearDiscountCodeResult = {
+    status: "cleared",
+    ...toFreshPayState(freshPayState),
+  };
+  return cleared;
+});
+
+/**
+ * Re-prices the order without its entered code and signs the new price for
+ * review. A code worth nothing changes no summary key, so its replacement
+ * asks for no review.
+ */
+const clearAppliedDiscountCode = Effect.fnUntraced(function* (
+  input: ClearDiscountCodeInput,
+  state: SignedPayState,
+  submittedCodeDiscountId: DiscountId
+) {
+  const pricing = yield* CheckoutPricingService;
+
+  const guarded = yield* priceBetweenPayableGuards(
+    state,
+    ({ dotyposCustomerId }) =>
+      pricing.clearDiscountCode({
+        ...state,
+        submittedCodeDiscountId,
+        bookedAt: getSignedPayStateBookedAt(state),
+        dotyposCustomerId,
+        locale: input.locale,
+      })
+  );
+  if (Option.isNone(guarded)) return paymentInProgress;
+  const { reservation, priced } = guarded.value;
+  const { changedKeys } = priced;
+
+  const freshPayState = yield* issueFreshPayState(
+    {
+      ...priced,
+      locale: input.locale,
+      orderId: state.orderId,
+      bookedAt: state.bookedAt,
+      holdExpiresAt: getPayStateHoldExpiresAt(state, reservation),
+      checkoutSessionId: state.checkoutSessionId,
+      referralCode: state.referralCode,
+      changedKeys:
+        changedKeys.sectionKeys.length > 0 || changedKeys.itemKeys.length > 0
+          ? changedKeys
+          : undefined,
+    },
+    {},
+    { orderId: state.orderId }
+  );
+  const cleared: ClearDiscountCodeResult = {
+    status: "cleared",
+    ...toFreshPayState(freshPayState),
+  };
+  return cleared;
+});

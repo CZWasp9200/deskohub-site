@@ -14,7 +14,7 @@ import { CheckoutPricingService } from "@/features/checkout/backend/checkout/che
 import {
   type ApplyDiscountCodeResult,
   applyDiscountCodeToPayState,
-  getApplyDiscountCodeDeadline,
+  getDiscountCodeChangeDeadline,
 } from "@/features/checkout/backend/checkout/pay-state-discount-code";
 import {
   type ApplyDiscountCodeInput,
@@ -88,7 +88,7 @@ const applyDiscountCodeOnSite = Effect.fn("checkout.applyDiscountCodeOnSite")(
 const applyDiscountCodeAction = defineWorkspaceAction(
   {
     operation: "checkout.apply-discount-code",
-    deadline: getApplyDiscountCodeDeadline(env.VERCEL_ENV),
+    deadline: getDiscountCodeChangeDeadline(env.VERCEL_ENV),
     schema: applyDiscountCodeSchema,
   },
   applyDiscountCodeOnSite

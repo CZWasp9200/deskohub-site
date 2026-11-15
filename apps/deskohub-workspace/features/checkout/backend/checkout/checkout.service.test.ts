@@ -3339,3 +3339,90 @@ describe("CheckoutService", () => {
     );
   });
 });
+
+describe("a Pay state whose entered code was removed", () => {
+  test("asks for the new price to be reviewed, then pays it once accepted", async () => {
+    const orderId = "reservation-removed-code";
+    const [
+      { clearDiscountCodeFromPayState },
+      { acceptPayStatePriceChange },
+      { PayableReservationService },
+      { WorkspaceReservationRepository },
+    ] = await Promise.all([
+      import("./pay-state-discount-code"),
+      import("./pay-state-price-acceptance"),
+      import("./payable-reservation.service"),
+      import("@/features/reservation/backend/workspace-reservation.repository"),
+    ]);
+    const clearedQuote = buildCoworkReservationQuote(reservationData, {
+      discountQuote: undiscountedQuote,
+    });
+    const tokenStore = Layer.mergeAll(
+      Layer.mock(WorkspaceReservationRepository, {}),
+      TestSealedStateKeys
+    );
+    const cleared = await clearDiscountCodeFromPayState({
+      locale: "en-US",
+      payStateToken: buildPayStateToken({
+        orderId,
+        quote: buildCoworkReservationQuote(reservationData, {
+          discountQuote: discountedQuote,
+        }),
+        submittedCode: canonicalCode("SUMMER50"),
+      }),
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          CheckoutPricingServiceMock({
+            clearDiscountCode: () =>
+              Effect.succeed({
+                kind: "cowork" as const,
+                reservation: reservationData,
+                quote: clearedQuote,
+                changedKeys: {
+                  sectionKeys: ["total"],
+                  itemKeys: ["total:final"],
+                },
+              }),
+          }),
+          Layer.succeed(PayableReservationService, {
+            requireCurrent: () =>
+              Effect.succeed(makeReservation(orderId) as never),
+          }),
+          tokenStore
+        )
+      ),
+      Effect.runPromise
+    );
+    if (cleared.freshPayStateToken === undefined) {
+      throw new Error(`Expected a cleared Pay state, got ${cleared.status}`);
+    }
+    const affirm = mock(() =>
+      Effect.succeed({ quote: clearedQuote, commitment: emptyCommitment })
+    );
+
+    const beforeAcceptance = await createCheckoutHarness({
+      orderId,
+      affirm,
+      payStateToken: cleared.freshPayStateToken,
+    });
+    const review = await Effect.runPromise(beforeAcceptance.effect);
+
+    expect(review.status).toBe("pricing_changed");
+    expect(beforeAcceptance.createHostedPaymentPage).not.toHaveBeenCalled();
+
+    const accepted = await acceptPayStatePriceChange({
+      locale: "en-US",
+      payStateToken: cleared.freshPayStateToken,
+    }).pipe(Effect.provide(tokenStore), Effect.runPromise);
+    const afterAcceptance = await createCheckoutHarness({
+      orderId,
+      affirm,
+      payStateToken: accepted.payStateToken,
+    });
+    const payment = await Effect.runPromise(afterAcceptance.effect);
+
+    expect(payment.status).toBe("redirect");
+    expect(afterAcceptance.createHostedPaymentPage).toHaveBeenCalled();
+  });
+});

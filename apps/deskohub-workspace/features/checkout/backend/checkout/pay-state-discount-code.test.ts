@@ -737,12 +737,12 @@ describe("applyDiscountCodeToPayState", () => {
       test("completes discount-code entry within its deadline", async () => {
         const { input, listEvents } = submission();
 
-        const { getApplyDiscountCodeDeadline } = await import(
+        const { getDiscountCodeChangeDeadline } = await import(
           "./pay-state-discount-code"
         );
 
         const exit = await runSubmissionWithinDeadline(
-          getApplyDiscountCodeDeadline(deploymentEnvironment),
+          getDiscountCodeChangeDeadline(deploymentEnvironment),
           input
         );
 
