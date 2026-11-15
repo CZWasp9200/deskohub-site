@@ -12,14 +12,20 @@ import {
   Screen,
   TextField,
 } from "../ui/controls";
+import { AppSignInCodeStep } from "./app-sign-in-code-step.web";
+import { AppSignInContinueStep } from "./app-sign-in-continue-step";
+import { AppSignInEmailStep } from "./app-sign-in-email-step";
+import { AppSignInLinkStep } from "./app-sign-in-link-step";
 import {
   type AuthUser,
   isFreshSignIn,
   safeReturnPath,
 } from "./auth-session-state";
 import { webSignInFailureMessage } from "./sign-in-failure-message";
+import { signInResendAvailableAt } from "./sign-in-resend-gate";
 import type { SignInScreenProps } from "./sign-in-screen.native";
 import { signInStep } from "./sign-in-step";
+import type { SignInStepNotice } from "./sign-in-step-message";
 import { useAuthSession } from "./use-auth-session";
 import {
   firstFailure,
@@ -85,12 +91,16 @@ export function SignInScreen({ passkeyOption }: SignInScreenProps) {
     return_to?: string;
   }>();
   const [nativeRequest] = useState(() => loadNativeHandoffRequest(Date.now()));
+  // Opened from the app: every step takes the app's sign-in layout.
+  const openedByApp = Option.isSome(nativeRequest);
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
   const [sent, setSent] = useState<SentSignInEmail>();
   const [invalidEmail, setInvalidEmail] = useState(false);
   const [useAnotherAccount, setUseAnotherAccount] = useState(false);
   const [passkeyPending, setPasskeyPending] = useState(false);
+  // A new email went out from the code or link step; said until the next try.
+  const [resent, setResent] = useState(false);
   const returnPath = safeReturnPath(params.return_to);
 
   const send = useAuthTask(
@@ -241,20 +251,154 @@ export function SignInScreen({ passkeyOption }: SignInScreenProps) {
     });
   };
 
-  const submitCode = () => {
+  const verifyCode = (entered: string) => {
     if (busy || sent?.signInCode !== true) return;
-    void verify.start(sent.email, code.trim(), accountExpectation());
+    if (openedByApp) {
+      // Checking another code clears what the last resend said.
+      send.reset();
+      setResent(false);
+    }
+    void verify.start(sent.email, entered.trim(), accountExpectation());
+  };
+  const submitCode = () => verifyCode(code);
+
+  // Another email to the same address, from the code or link step. It
+  // replaces the sent email, so the wait for the next one starts over, and
+  // the new code starts a fresh entry.
+  const resendEmail = () => {
+    if (busy || sent === undefined) return;
+    void send.start(sent.email, accountExpectation()).then((exit) => {
+      const sentEmail = Option.flatMap(exit, Exit.getSuccess);
+      if (Option.isNone(sentEmail)) return;
+      setSent(sentEmail.value);
+      setCode("");
+      setResent(true);
+      verify.reset();
+    });
   };
 
   const startOver = () => {
     setSent(undefined);
     setCode("");
+    setResent(false);
     setUseAnotherAccount(true);
     send.reset();
     verify.reset();
     handoff.reset();
     passkey.reset();
   };
+
+  if (openedByApp) {
+    const sendFailure =
+      send.state.status === "failed" ? send.state.failure : undefined;
+    const verifyFailure =
+      verify.state.status === "failed" ? verify.state.failure : undefined;
+    // A refused resend outranks the earlier code result, so it is seen.
+    const stepFailure = firstFailure(handoff.state, send.state, verify.state);
+    const notice: SignInStepNotice | undefined = stepFailure
+      ? {
+          tone: "error",
+          text: webSignInFailureMessage(stepFailure.reason, locale),
+        }
+      : resent
+        ? {
+            tone: "positive",
+            text:
+              step === "link"
+                ? m.signin_link_resent({}, { locale })
+                : m.signin_code_resent({}, { locale }),
+          }
+        : undefined;
+    const resendAvailableAt =
+      sent === undefined
+        ? 0
+        : signInResendAvailableAt({
+            sentAt: sent.sentAt,
+            // A refusal that says when the server takes the next email is
+            // the latest word on it.
+            nextSignInEmailAt:
+              sendFailure?.nextSignInEmailAt === undefined
+                ? sent.nextSignInEmailAt
+                : Option.some(sendFailure.nextSignInEmailAt),
+            cooldownWaived:
+              verifyFailure?.reason === "wrong-code" ||
+              verifyFailure?.reason === "too-many-attempts",
+          });
+    // Once signed in, the page stays busy until the app takes over.
+    const finishing = finished !== undefined;
+    const resending = send.state.status === "running";
+
+    if (step === "continue") {
+      return (
+        <AppSignInContinueStep
+          email={continueAs ?? ""}
+          onContinue={() => void handoff.start(nativeRequest, "continue")}
+          continuing={handoff.state.status === "running" || finishing}
+          notice={notice}
+          onUseDifferentEmail={startOver}
+        />
+      );
+    }
+    if (step === "code") {
+      return (
+        <AppSignInCodeStep
+          email={sent?.email ?? ""}
+          code={code}
+          onCodeChange={setCode}
+          onSubmit={verifyCode}
+          checking={
+            verify.state.status === "running" ||
+            handoff.state.status === "running" ||
+            finishing
+          }
+          invalid={
+            verifyFailure?.reason === "wrong-code" ||
+            verifyFailure?.reason === "expired-code"
+          }
+          exhausted={verifyFailure?.reason === "too-many-attempts"}
+          notice={notice}
+          resendAvailableAt={resendAvailableAt}
+          onResend={resendEmail}
+          resending={resending}
+          onUseDifferentEmail={startOver}
+        />
+      );
+    }
+    if (step === "link") {
+      return (
+        <AppSignInLinkStep
+          email={sent?.email ?? ""}
+          notice={notice}
+          resendAvailableAt={resendAvailableAt}
+          onResend={resendEmail}
+          resending={resending}
+          onUseDifferentEmail={startOver}
+        />
+      );
+    }
+    return (
+      <AppSignInEmailStep
+        title={m.signin_title({}, { locale })}
+        body={
+          reauthenticate
+            ? m.signin_reauthenticate_body({}, { locale })
+            : undefined
+        }
+        email={{
+          value: emailField.kind === "locked" ? emailField.email : email,
+          locked: emailField.kind === "locked",
+          onChange: (value) => {
+            setEmail(value);
+            setInvalidEmail(false);
+          },
+        }}
+        submitLabel={m.signin_send_code({}, { locale })}
+        onSubmit={submitEmail}
+        busy={resending || finishing}
+        error={alert}
+      />
+    );
+  }
 
   return (
     <Screen
