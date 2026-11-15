@@ -956,6 +956,197 @@ describe("applyCheckoutDiscountCode", () => {
   });
 });
 
+describe("clearCheckoutDiscountCode", () => {
+  const clearCode = (payStateToken = readyToken): CustomerApiCall => ({
+    method: "POST",
+    path: "/booking/checkouts/discount-code/clear",
+    body: { locale: "en-US", payStateToken },
+  });
+  const answerClear = (
+    clearDiscountCode: Operations["clearDiscountCode"],
+    overrides: Partial<Operations> = {}
+  ) =>
+    makeCustomerApiTestServer({
+      bookingCheckout: {
+        operations: operationsWith({ clearDiscountCode, ...overrides }),
+      },
+    });
+
+  testCustomerEndpointGuards(clearCode());
+
+  test("answers the checkout without the code, for review of its new price", async () => {
+    const signedEarlier = await sealSyntheticPayStateToken({
+      issuedAt: Temporal.Now.instant().subtract({ minutes: 5 }),
+    });
+    const signedEarlierExpiresAt = new Date(
+      (await Effect.runPromise(openTestPayState(signedEarlier))).exp * 1000
+    ).toISOString();
+    const api = answerClear(() =>
+      Effect.succeed({
+        status: "cleared",
+        freshPayUrl: "/en-US/checkout/pay?payState=review",
+        freshPayStateToken: reviewToken,
+        expiresAt: "2099-07-01T10:13:00.000Z",
+      })
+    );
+
+    const response = await api.handle(
+      customerApiRequest(clearCode(signedEarlier))
+    );
+    const body = (await response.json()) as typeof CustomerCheckout.Encoded;
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      status: "price_review",
+      payStateToken: reviewToken,
+      holdExpiresAt: syntheticHoldExpiresAt,
+      priceReview: { changedKeys: expect.any(Object) },
+    });
+    expect(body.expiresAt).not.toBe(signedEarlierExpiresAt);
+    expect(body).not.toHaveProperty("appliedDiscountCode");
+  });
+
+  test("answers a checkout that carried no code as it is", async () => {
+    const api = answerClear(() =>
+      Effect.succeed({
+        status: "unchanged",
+        freshPayUrl: "/en-US/checkout/pay?payState=ready",
+        freshPayStateToken: readyToken,
+        expiresAt: "2099-07-01T10:13:00.000Z",
+      })
+    );
+
+    const response = await api.handle(customerApiRequest(clearCode()));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(expectedReadyCheckout);
+  });
+
+  test("answers a state signed without the deadline with its reservation's stored one", async () => {
+    const freshPayStateToken = await sealSyntheticPayStateToken({
+      withoutHoldExpiry: true,
+    });
+    const api = answerClear(() =>
+      Effect.succeed({
+        status: "cleared",
+        freshPayUrl: "/en-US/checkout/pay?payState=fresh",
+        freshPayStateToken,
+        expiresAt: "2099-07-01T10:13:00.000Z",
+      })
+    );
+
+    const response = await api.handle(customerApiRequest(clearCode()));
+
+    expect(
+      ((await response.json()) as typeof CustomerCheckout.Encoded).holdExpiresAt
+    ).toBe(storedHoldExpiresAt);
+  });
+
+  test.each([
+    [
+      "a discount provider that can't answer",
+      { status: "unavailable", reason: "provider" },
+      503,
+      { _tag: "CustomerServiceUnavailable" },
+    ],
+    [
+      "an expired hold",
+      { status: "unavailable", reason: "checkout", checkoutReason: "expired" },
+      409,
+      { _tag: "CustomerCheckoutUnavailable", reason: "expired" },
+    ],
+    [
+      "a reservation that can't be paid",
+      {
+        status: "unavailable",
+        reason: "checkout",
+        checkoutReason: "not_current",
+      },
+      409,
+      { _tag: "CustomerCheckoutUnavailable", reason: "not_payable" },
+    ],
+    [
+      "a payment already started",
+      {
+        status: "unavailable",
+        reason: "checkout",
+        checkoutReason: "payment_in_progress",
+      },
+      409,
+      { _tag: "CustomerCheckoutUnavailable", reason: "payment_in_progress" },
+    ],
+    [
+      "a price review still pending",
+      { status: "unavailable", reason: "price_review_pending" },
+      409,
+      { _tag: "CustomerCheckoutUnavailable", reason: "price_review_pending" },
+    ],
+  ] as const)(
+    "answers %s with its public error",
+    async (_case, result, status, body) => {
+      const api = answerClear(() => Effect.succeed(result));
+
+      const response = await api.handle(customerApiRequest(clearCode()));
+
+      expect(response.status).toBe(status);
+      expect(await response.json()).toEqual(body);
+    }
+  );
+
+  test.each([
+    [
+      "an expired checkout state",
+      new PayStateTokenError({ code: "expired", message: "expired" }),
+      409,
+      { _tag: "CustomerCheckoutUnavailable", reason: "expired" },
+    ],
+    [
+      "a replacement checkout the server can't sign",
+      unsignablePayState,
+      503,
+      { _tag: "CustomerServiceUnavailable" },
+    ],
+  ] as const)(
+    "answers %s like entering a code does",
+    async (_case, error, status, body) => {
+      const api = answerClear(() => Effect.fail(error));
+
+      const response = await api.handle(customerApiRequest(clearCode()));
+
+      expect(response.status).toBe(status);
+      expect(await response.json()).toEqual(body);
+    }
+  );
+
+  test("answers another account's checkout as not found, before the code is removed", async () => {
+    let cleared = 0;
+    const api = answerClear(
+      () =>
+        Effect.sync(() => {
+          cleared += 1;
+          return {
+            status: "unavailable" as const,
+            reason: "provider" as const,
+          };
+        }),
+      {
+        requireAuthor: () =>
+          Effect.fail(
+            new PayStateAuthorNotFoundError({
+              orderId: syntheticPayStateOrderId,
+            })
+          ),
+      }
+    );
+
+    const response = await api.handle(customerApiRequest(clearCode()));
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ _tag: "CustomerCheckoutNotFound" });
+    expect(cleared).toBe(0);
+  });
+});
+
 describe("acceptCheckoutPriceChange", () => {
   const acceptPrice: CustomerApiCall = {
     method: "POST",

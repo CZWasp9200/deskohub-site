@@ -13,7 +13,10 @@ import {
   requirePayStateAuthor,
 } from "@/features/checkout/backend/checkout";
 import { CheckoutPricingService } from "@/features/checkout/backend/checkout/checkout-pricing.service";
-import { applyDiscountCodeToPayState } from "@/features/checkout/backend/checkout/pay-state-discount-code";
+import {
+  applyDiscountCodeToPayState,
+  clearDiscountCodeFromPayState,
+} from "@/features/checkout/backend/checkout/pay-state-discount-code";
 import { OfficeReleaseGate } from "@/features/office/backend/office-release-gate";
 import { ReferralService } from "@/features/referrals";
 import { ReferralReleaseGate } from "@/features/referrals/referral-release-gate";
@@ -71,6 +74,8 @@ interface ICustomerCheckoutOperations {
   readonly preparePayState: Provided<typeof prepareWorkspacePayState>;
   /** `applyDiscountCodeToPayState`, without bot protection. */
   readonly applyDiscountCode: Provided<typeof applyDiscountCodeToPayState>;
+  /** `clearDiscountCodeFromPayState`, without bot protection. */
+  readonly clearDiscountCode: Provided<typeof clearDiscountCodeFromPayState>;
   /**
    * `acceptPayStatePriceChange`: the sealing keys, and the reservation for a
    * state signed without its hold deadline.
@@ -150,6 +155,14 @@ export class CustomerCheckoutOperations extends Context.Service<
         Layer.provideMerge(releases.referral)
       );
 
+      /** What removing an entered code reprices and signs with. */
+      const discountCodeRemoval = Layer.mergeAll(
+        CheckoutPricingService.Live,
+        PayableReservationService.Live,
+        WorkspaceReservationRepository.Live,
+        SealedStateKeys.Default
+      ).pipe(Layer.provideMerge(releases.referral));
+
       /** What settling the client's referral code reads. */
       const referralSettlement = remembered.pipe(
         Layer.provide(
@@ -175,6 +188,12 @@ export class CustomerCheckoutOperations extends Context.Service<
           applyDiscountCodeToPayState(input).pipe(
             Effect.provide(
               CheckoutServicesUnavailable.whenUnbuilt(discountCode)
+            )
+          ),
+        clearDiscountCode: (input) =>
+          clearDiscountCodeFromPayState(input).pipe(
+            Effect.provide(
+              CheckoutServicesUnavailable.whenUnbuilt(discountCodeRemoval)
             )
           ),
         acceptPriceChange: (input) =>

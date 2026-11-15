@@ -42,7 +42,10 @@ import {
 } from "@/features/checkout/backend/checkout";
 import { getCheckoutSubmitDeadline } from "@/features/checkout/backend/checkout/checkout-submit-deadline";
 import type { PayStateWithHoldExpiry } from "@/features/checkout/backend/checkout/pay-state";
-import { getDiscountCodeChangeDeadline } from "@/features/checkout/backend/checkout/pay-state-discount-code";
+import {
+  type DiscountCodeChangeUnavailable,
+  getDiscountCodeChangeDeadline,
+} from "@/features/checkout/backend/checkout/pay-state-discount-code";
 import type { Locale } from "@/features/i18n";
 import { isCurrentPaymentSubmitLegalAcceptance } from "@/features/legal/payment-submit-evidence";
 import { preparePayStateInputSchema } from "@/features/reservation/actions/prepare-pay-state.schema";
@@ -81,9 +84,9 @@ type PreparationFailure = Effect.Error<
 type DiscountCodeResult = Effect.Success<
   ReturnType<Operations["applyDiscountCode"]>
 >;
-type DiscountCodeFailure = Effect.Error<
-  ReturnType<Operations["applyDiscountCode"]>
->;
+type DiscountCodeFailure =
+  | Effect.Error<ReturnType<Operations["applyDiscountCode"]>>
+  | Effect.Error<ReturnType<Operations["clearDiscountCode"]>>;
 type AuthorFailure = Effect.Error<ReturnType<Operations["requireAuthor"]>>;
 type CheckoutSubmission = Effect.Success<
   ReturnType<CheckoutService["Service"]["createHostedPaymentCheckout"]>
@@ -147,6 +150,15 @@ export const handleCustomerBookingCheckout = <R>(
           ),
           withDeadline(
             "customerApi.applyCheckoutDiscountCode",
+            getDiscountCodeChangeDeadline(env.VERCEL_ENV)
+          )
+        )
+      )
+      .handle("clearCheckoutDiscountCode", ({ payload }) =>
+        clearDiscountCode(payload).pipe(
+          providePerRequest(forRequest(undefined, Layer.empty)),
+          withDeadline(
+            "customerApi.clearCheckoutDiscountCode",
             getDiscountCodeChangeDeadline(env.VERCEL_ENV)
           )
         )
@@ -440,25 +452,36 @@ const toDiscountCodeAnswer = (
         Effect.fail(codeRejected("ineligible", rejected)),
       unavailable: (unavailable) =>
         Match.value(unavailable).pipe(
-          Match.discriminatorsExhaustive("reason")({
+          Match.discriminators("reason")({
             code: (rejected) =>
               Effect.fail(codeRejected("unavailable", rejected)),
             code_already_applied: (rejected) =>
               Effect.fail(codeRejected("code_already_applied", rejected)),
-            provider: () =>
-              answerUnavailable(operation, { failure: "discount-provider" }),
-            price_review_pending: () =>
-              Effect.fail(
-                new CustomerCheckoutUnavailable({
-                  reason: "price_review_pending",
-                })
-              ),
-            checkout: ({ checkoutReason }) =>
-              Effect.fail(
-                new CustomerCheckoutUnavailable({
-                  reason: toCheckoutUnavailableReason(checkoutReason),
-                })
-              ),
+          }),
+          Match.orElse((unchanged) =>
+            answerCodeChangeUnavailable(operation, unchanged)
+          )
+        ),
+    })
+  );
+
+/** Why entering or removing a code left the checkout as it was. */
+const answerCodeChangeUnavailable = (
+  operation: string,
+  unavailable: DiscountCodeChangeUnavailable
+) =>
+  Match.value(unavailable).pipe(
+    Match.discriminatorsExhaustive("reason")({
+      provider: () =>
+        answerUnavailable(operation, { failure: "discount-provider" }),
+      price_review_pending: () =>
+        Effect.fail(
+          new CustomerCheckoutUnavailable({ reason: "price_review_pending" })
+        ),
+      checkout: ({ checkoutReason }) =>
+        Effect.fail(
+          new CustomerCheckoutUnavailable({
+            reason: toCheckoutUnavailableReason(checkoutReason),
           })
         ),
     })
@@ -510,6 +533,35 @@ const answerDiscountCodeFailure =
         CheckoutServicesUnavailable: retryable(operation),
       })
     );
+
+// clearCheckoutDiscountCode
+
+/**
+ * Removes the entered code: the checkout comes back without it, for review
+ * when its price changed, or as it is when it carried none.
+ */
+const clearDiscountCode = Effect.fn("customerApi.clearCheckoutDiscountCode")(
+  function* (payload: {
+    readonly locale: Locale;
+    readonly payStateToken: string;
+  }) {
+    const operation = "customerApi.clearCheckoutDiscountCode";
+    yield* requireAuthor(operation, payload);
+    const operations = yield* CustomerCheckoutOperations;
+    const result = yield* operations
+      .clearDiscountCode(payload)
+      .pipe(Effect.catch(answerDiscountCodeFailure(operation)));
+
+    return yield* Match.value(result).pipe(
+      Match.discriminatorsExhaustive("status")({
+        cleared: (cleared) => checkoutAt(cleared.freshPayStateToken),
+        unchanged: (unchanged) => checkoutAt(unchanged.freshPayStateToken),
+        unavailable: (unavailable) =>
+          answerCodeChangeUnavailable(operation, unavailable),
+      })
+    );
+  }
+);
 
 // acceptCheckoutPriceChange
 
