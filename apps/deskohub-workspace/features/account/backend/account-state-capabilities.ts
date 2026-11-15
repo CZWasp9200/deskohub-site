@@ -10,8 +10,6 @@ import {
 import { CustomerAgentConnections } from "@/features/account/backend/auth/customer-agent-connections.service";
 import { CustomerPasskeys } from "@/features/account/backend/auth/customer-passkeys.service";
 import { CurrentCustomerAccount } from "@/features/account/backend/current-customer-account";
-import { CustomerAccountContactService } from "@/features/account/backend/customer-account-contact.service";
-import { CustomerAccountResolver } from "@/features/account/backend/customer-account-resolver.service";
 import { CustomerAuthentication } from "@/features/account/backend/customer-authentication.service";
 import { CustomerAvatarService } from "@/features/account/backend/customer-avatar.service";
 import { CustomerProfileService } from "@/features/account/backend/customer-profile.service";
@@ -74,7 +72,7 @@ export type AccountStateLayers = {
   readonly referralRelease: Layer.Layer<ReferralReleaseGate>;
   readonly rememberedReferral: Layer.Layer<
     RememberedReferral,
-    Layer.Error<typeof CustomerAccountContactService.Live>,
+    Layer.Error<typeof CurrentCustomerAccount.Live>,
     ReferralService | ReferralReleaseGate
   >;
   readonly passkeyRelease: Layer.Layer<PasskeyReleaseGate>;
@@ -88,24 +86,12 @@ export type AccountStateLayers = {
 export type AccountServiceLayers = Omit<
   AccountStateLayers,
   "referralRelease" | "rememberedReferral" | "passkeyRelease" | "avatarRelease"
-> & {
-  /** The session's customer, for the remembered referral's order bookers. */
-  readonly contacts: Layer.Layer<
-    CustomerAccountContactService,
-    Layer.Error<typeof CustomerAccountContactService.Live>
-  >;
-  /** Link resolution for the operations outside the account state. */
-  readonly resolver: Layer.Layer<
-    CustomerAccountResolver,
-    Layer.Error<typeof CustomerAccountResolver.Live>
-  >;
-};
+>;
 
 /** The account services' live layers. */
 export const liveAccountServiceLayers: AccountServiceLayers = {
   authentication: CustomerAuthentication.Default,
   currentAccount: CurrentCustomerAccount.ForProvidedAuthentication,
-  resolver: CustomerAccountResolver.Live,
   profile: CustomerProfileService.Live,
   avatar: CustomerAvatarService.Live,
   passkeys: CustomerPasskeys.Default,
@@ -113,7 +99,6 @@ export const liveAccountServiceLayers: AccountServiceLayers = {
   reviewAccounts: ReviewAccounts.Live,
   referrals: ReferralService.Live,
   signupIntents: ReferralSignupIntentRepository.Live,
-  contacts: CustomerAccountContactService.Live,
 };
 
 /** The account release gates, which each edge decides its own way. */
@@ -151,9 +136,14 @@ export const accountStateCapabilitiesForRun = (
   accountStateCapabilities({
     ...services,
     ...releases,
+    // The session's standing, for the remembered referral's order bookers.
     rememberedReferral: RememberedReferral.fromClient(
       request.referralCode
-    ).pipe(Layer.provide(services.contacts)),
+    ).pipe(
+      Layer.provide(
+        services.currentAccount.pipe(Layer.provide(services.authentication))
+      )
+    ),
   });
 
 /**
