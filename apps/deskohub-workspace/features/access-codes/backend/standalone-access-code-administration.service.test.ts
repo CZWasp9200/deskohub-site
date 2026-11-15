@@ -14,6 +14,7 @@ import {
   AdministrationStandaloneAccessCodeAttemptId,
   AdministrationStandaloneAccessCodeCreateInput,
   AdministrationStandaloneAccessCodeName,
+  administrationInputParseOptions,
 } from "@deskohub/workspace-admin-api";
 import { Effect, Layer, Result, Schema } from "effect";
 import { customerAccountIdSchema } from "@/features/account/customer-account";
@@ -29,7 +30,7 @@ const decodeAttemptId = Schema.decodeUnknownSync(
 );
 const decodeRequest = Schema.decodeUnknownSync(
   AdministrationStandaloneAccessCodeCreateInput,
-  { errors: "all", onExcessProperty: "error" }
+  administrationInputParseOptions
 );
 const attemptId = decodeAttemptId("01980000-0000-7000-8000-000000000042");
 const priorAttemptId = decodeAttemptId("01980000-0000-7000-8000-000000000044");

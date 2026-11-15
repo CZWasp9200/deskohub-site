@@ -1,6 +1,10 @@
 "use server";
 
-import { EmailDraft, EmailValueSnapshot } from "@deskohub/workspace-admin-api";
+import {
+  administrationInputParseOptions,
+  EmailDraft,
+  EmailValueSnapshot,
+} from "@deskohub/workspace-admin-api";
 import { Clock, Effect, Layer, Schema } from "effect";
 import { defineAdministrationAction } from "@/features/administrators/server/administration-request.server";
 import { isCampaignImageSource } from "@/features/email-campaigns/body/campaign-body-rules";
@@ -26,7 +30,7 @@ const previewEmailDraftAction = defineAdministrationAction(
     // `EmailDraft` rejects unknown keys; Effect 4.1 applies that only as
     // parser options, so they cover the whole input.
     schema: Schema.toStandardSchemaV1(EmailDraftPreviewInput, {
-      parseOptions: { errors: "all", onExcessProperty: "error" },
+      parseOptions: administrationInputParseOptions,
     }),
     failureCopy: emailsEditorActionFailureCopy,
     capabilities: Layer.empty,

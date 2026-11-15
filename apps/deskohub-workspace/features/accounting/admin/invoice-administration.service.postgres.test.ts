@@ -10,6 +10,7 @@ import { testEmailAddress } from "@deskohub/test-email";
 import {
   AdministrationInvoiceCreateInput,
   type AdministrationInvoiceCreateInputType,
+  administrationInputParseOptions,
 } from "@deskohub/workspace-admin-api";
 import { Deferred, Effect, Fiber, Layer, Option, Schema } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
@@ -37,10 +38,10 @@ import { ManualInvoiceCreationRequests } from "./manual-invoice-creation-request
 
 const testDatabase = await connectWorkspacePostgresTestDatabase();
 
-const input = Schema.decodeUnknownSync(AdministrationInvoiceCreateInput, {
-  errors: "all",
-  onExcessProperty: "error",
-})({
+const input = Schema.decodeUnknownSync(
+  AdministrationInvoiceCreateInput,
+  administrationInputParseOptions
+)({
   invoiceId: "018f47d2-8f7c-7c5e-9f9a-6ef21f90cb23",
   customer: {
     kind: "new",
@@ -200,7 +201,7 @@ describe.skipIf(!testDatabase)(
       );
       const secondInput = Schema.decodeUnknownSync(
         AdministrationInvoiceCreateInput,
-        { errors: "all", onExcessProperty: "error" }
+        administrationInputParseOptions
       )({
         ...input,
         invoiceId: "018f47d2-8f7c-7c5e-9f9a-6ef21f90cb24",
@@ -296,7 +297,7 @@ describe.skipIf(!testDatabase)(
       });
       const existingCustomerInput = Schema.decodeUnknownSync(
         AdministrationInvoiceCreateInput,
-        { errors: "all", onExcessProperty: "error" }
+        administrationInputParseOptions
       )({
         ...input,
         customer: {
@@ -498,7 +499,7 @@ describe.skipIf(!testDatabase)(
           const { calls, layer } = claimLayer("claimed", null);
           const withPhone = Schema.decodeUnknownSync(
             AdministrationInvoiceCreateInput,
-            { errors: "all", onExcessProperty: "error" }
+            administrationInputParseOptions
           )({
             ...existingCustomerInput,
             customer: {
