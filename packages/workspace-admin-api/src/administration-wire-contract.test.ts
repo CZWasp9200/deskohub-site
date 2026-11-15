@@ -603,9 +603,10 @@ const pinnedNote = Schema.Struct({
   pinned: Schema.optionalKey(Schema.Boolean),
 });
 
-// Each excludes the other by `_tag`, but Effect narrows a union on the first
-// sentinel key the input holds, so `{ a: "a", b: "b", _tag: "B" }` decodes
-// only when `bTagged` comes first.
+// Each excludes the other by `_tag`, which Effect narrows a union on, so
+// `{ a: "a", b: "b", _tag: "B" }` decodes as `bTagged` in either order. The
+// contract still keeps their order, because each also holds a sentinel the
+// other lacks.
 const aTagged = Schema.Struct({
   a: Schema.Literal("a"),
   _tag: Schema.Literal("A"),
@@ -709,6 +710,14 @@ describe("administration wire contract", () => {
     expect(
       wireFormOf(sampleContract({ errors, payload: [pinnedNote, note] }))
     ).not.toEqual(declared);
+    const tagB = { a: "a", b: "b", _tag: "B" };
+    expect([
+      Schema.decodeUnknownSync(Schema.Union([aTagged, bTagged]))(tagB),
+      Schema.decodeUnknownSync(Schema.Union([bTagged, aTagged]))(tagB),
+    ]).toEqual([
+      { b: "b", _tag: "B" },
+      { b: "b", _tag: "B" },
+    ]);
     expect(
       wireFormOf(sampleContract({ errors, payload: [aTagged, bTagged] }))
     ).not.toEqual(
@@ -717,6 +726,15 @@ describe("administration wire contract", () => {
     // `{ _tag: "A", a: "a", note: "n" }` decodes as `note` either way: Effect
     // tries a union's candidates in declaration order, nested or not, so a
     // nested union changes nothing on the wire.
+    const noteAndA = { _tag: "A", a: "a", note: "n" };
+    expect(
+      Schema.decodeUnknownSync(Schema.Union([note, Schema.Union([aTagged])]))(
+        noteAndA
+      )
+    ).toEqual({ note: "n" });
+    expect(
+      Schema.decodeUnknownSync(Schema.Union([note, aTagged]))(noteAndA)
+    ).toEqual({ note: "n" });
     expect(
       wireFormOf(
         sampleContract({
