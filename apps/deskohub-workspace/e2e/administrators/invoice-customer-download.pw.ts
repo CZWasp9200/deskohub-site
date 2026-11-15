@@ -205,7 +205,7 @@ test("lets a customer download the invoice an administrator issued them as a PDF
               const [header, ...rows] = parseCsv(
                 (await response.body()).toString("utf8")
               );
-              equal(header?.length, 6, "the export has six columns");
+              equal(header?.length, 7, "the export has seven columns");
               deepEqual(rows.map(withExactTotal), [
                 [
                   issued.invoiceNumber,
@@ -214,6 +214,7 @@ test("lets a customer download the invoice an administrator issued them as a PDF
                   exactAmount(linePrice),
                   lineCurrency,
                   getCustomerInvoiceStatusLabel("paid", locale),
+                  "",
                 ],
               ]);
             })
