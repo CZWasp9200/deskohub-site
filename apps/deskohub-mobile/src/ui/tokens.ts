@@ -77,6 +77,8 @@ export const color = {
 
 /** Corner radii. */
 export const radius = {
+  /** Checkboxes. */
+  checkbox: 6,
   /** Icon tiles and code boxes. */
   tile: 12,
   /** Badges. */
@@ -183,6 +185,8 @@ export const typeScale = {
   label: brandText(14, 20, 600),
   /** Step counters and helper lines. */
   hint: brandText(13, 18, 400),
+  /** Field errors and a footer's error message. */
+  hintStrong: brandText(13, 18, 500),
   /** Badges and counters. */
   caption: brandText(12, 16, 500),
   /** Button labels. */

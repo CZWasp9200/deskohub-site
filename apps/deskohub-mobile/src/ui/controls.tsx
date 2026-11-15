@@ -1,3 +1,4 @@
+import Lock from "lucide-react-native/icons/lock";
 import { Children, type ReactNode, type Ref, useId, useState } from "react";
 import {
   Pressable,
@@ -7,14 +8,22 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { theme } from "../theme";
-import { fieldErrorPresentation } from "./field-error-presentation";
+import {
+  FieldLabel,
+  FieldMessages,
+  fieldColumnStyle,
+  fieldDescription,
+  fieldFrameState,
+  fieldFrameStyles,
+  fieldIconColor,
+  fieldInkColor,
+} from "./field";
 import { Icon, type IconComponent } from "./icon";
 import { useLiveRegionAnnouncement } from "./live-announcement";
 import { LoadingIndicator } from "./loading-indicator";
 import { Text, TextInput } from "./text";
 import { textFieldSubmit } from "./text-field-submit";
-import { color, radius, shadow, space, touchTarget } from "./tokens";
+import { color, radius, shadow, space, touchTarget, typeScale } from "./tokens";
 
 /**
  * A centred screen with a heading. Its content keeps to a readable width;
@@ -34,7 +43,7 @@ export function Screen({
       <View
         style={[styles.content, align === "center" && styles.centeredContent]}
       >
-        <Text role="heading" style={styles.title}>
+        <Text role="heading" variant="titleLarge">
           {title}
         </Text>
         {children}
@@ -44,7 +53,11 @@ export function Screen({
 }
 
 export function BodyText({ children }: { readonly children: ReactNode }) {
-  return <Text style={styles.body}>{children}</Text>;
+  return (
+    <Text variant="body" tone="muted">
+      {children}
+    </Text>
+  );
 }
 
 /** What a button does, by look: see `Button`. */
@@ -261,25 +274,43 @@ const buttonPressedStyles = StyleSheet.create({
 }) satisfies Record<ButtonVariant, object>;
 
 /**
- * A labelled text input. With an `error` the input turns invalid and shows
- * the error beneath it, in a live region that stays mounted so assistive
- * tech announces each new error, and in the input's description, so it is
- * read again when the input gains focus.
+ * A labelled text input: the label above, a 52 dp outlined frame that rings
+ * orange on focus, and a hint below. With an `error` the frame rings crimson
+ * and the error, with its icon, replaces the hint. The error shows in a live
+ * region that stays mounted so assistive tech announces each new error, and
+ * in the input's description, so it is read again when the input gains
+ * focus. `readOnly` shows a sunken frame with a lock; `disabled` greys it.
  */
 export function TextField({
   label,
+  hint,
   error,
+  readOnly = false,
+  disabled = false,
+  leadingIcon,
+  trailingIcon,
   autoCapitalize = "none",
+  editable,
+  onBlur,
   onSubmitEditing,
   ...input
 }: {
   readonly label: string;
+  /** Help under the field, such as the format it expects. */
+  readonly hint?: string;
   readonly error?: string;
+  /** Shows a value the customer can't change here, such as the login email. */
+  readonly readOnly?: boolean;
+  readonly disabled?: boolean;
+  readonly leadingIcon?: IconComponent;
+  /** An icon at the end of the frame; a read-only field shows a lock. */
+  readonly trailingIcon?: IconComponent;
   /** Lets a form focus the field, such as its first invalid one. */
   readonly ref?: Ref<TextInputInstance>;
 } & Pick<
   TextInputProps,
   | "value"
+  | "placeholder"
   | "onChangeText"
   | "onSubmitEditing"
   | "onBlur"
@@ -293,37 +324,51 @@ export function TextField({
   | "autoFocus"
   | "editable"
 >) {
+  const [focused, setFocused] = useState(false);
+  const hintId = useId();
   const errorId = useId();
-  const { invalid, description, role, live, idleLayout } =
-    fieldErrorPresentation(error);
-  useLiveRegionAnnouncement(description, live);
+  const messages = { hint, hintId, error, errorId };
+  const description = fieldDescription(messages);
+  const state = fieldFrameState({
+    disabled,
+    readOnly,
+    invalid: description.invalid,
+    focused,
+  });
+  const typeable = editable !== false && !readOnly && !disabled;
+  const trailing = trailingIcon ?? (readOnly ? Lock : undefined);
+  const iconColor = fieldIconColor(state);
   return (
-    <View style={styles.field}>
-      <Text style={styles.fieldLabel}>{label}</Text>
-      <TextInput
-        aria-label={label}
-        // Native platforms read the hint; the web reads `aria-describedby`
-        // and `aria-invalid`, which react-native-web maps and RN ignores.
-        accessibilityHint={description}
-        aria-describedby={invalid ? errorId : undefined}
-        aria-invalid={invalid}
-        autoCapitalize={autoCapitalize}
-        autoCorrect={false}
-        style={[styles.input, invalid && styles.invalidInput]}
-        placeholderTextColor={theme.colors.textMuted}
-        {...input}
-        onSubmitEditing={textFieldSubmit(input.editable, onSubmitEditing)}
-      />
-      <Text
-        id={errorId}
-        role={role}
-        aria-live={live}
-        // Text doesn't map `aria-live` to Android's live region; View does.
-        accessibilityLiveRegion={live}
-        style={idleLayout ?? styles.fieldError}
-      >
-        {description ?? ""}
-      </Text>
+    <View style={fieldColumnStyle}>
+      <FieldLabel label={label} />
+      <View style={[fieldFrameStyles.base, fieldFrameStyles[state]]}>
+        {leadingIcon && <Icon icon={leadingIcon} size={20} color={iconColor} />}
+        <TextInput
+          aria-label={label}
+          aria-disabled={disabled}
+          // Native platforms read the hint; the web reads `aria-describedby`
+          // and `aria-invalid`, which react-native-web maps and RN ignores.
+          accessibilityHint={description.hint}
+          aria-describedby={description.describedBy}
+          aria-invalid={description.invalid}
+          autoCapitalize={autoCapitalize}
+          autoCorrect={false}
+          style={[styles.input, { color: fieldInkColor(state) }]}
+          placeholderTextColor={color.ink3}
+          {...input}
+          editable={typeable}
+          onFocus={() => setFocused(true)}
+          onBlur={(event) => {
+            setFocused(false);
+            onBlur?.(event);
+          }}
+          onSubmitEditing={textFieldSubmit(typeable, onSubmitEditing)}
+        />
+        {trailing && (
+          <Icon icon={trailing} size={readOnly ? 18 : 20} color={iconColor} />
+        )}
+      </View>
+      <FieldMessages {...messages} />
     </View>
   );
 }
@@ -347,7 +392,8 @@ export function LiveMessage({
       aria-live={role === "alert" ? "assertive" : "polite"}
       // Text doesn't map `aria-live` to Android's live region; View does.
       accessibilityLiveRegion={role === "alert" ? "assertive" : "polite"}
-      style={role === "alert" ? styles.alert : styles.status}
+      variant="body"
+      tone={role === "alert" ? "danger" : "muted"}
     >
       {message ?? ""}
     </Text>
@@ -355,35 +401,24 @@ export function LiveMessage({
 }
 
 const styles = StyleSheet.create({
-  screen: {
-    backgroundColor: theme.colors.background,
-    flex: 1,
-  },
+  screen: { backgroundColor: color.paper, flex: 1 },
   content: {
     alignSelf: "center",
     flex: 1,
-    gap: theme.spacing.md,
+    gap: space.md,
     justifyContent: "center",
     maxWidth: 480,
-    padding: theme.spacing.lg,
+    padding: space.gutter,
     width: "100%",
   },
   centeredContent: { alignItems: "center" },
-  title: { color: theme.colors.text, ...theme.type.title },
-  body: { color: theme.colors.textMuted, ...theme.type.body },
-  field: { gap: theme.spacing.sm },
-  fieldLabel: { color: theme.colors.text, ...theme.type.body },
   input: {
-    borderColor: theme.colors.textMuted,
-    borderRadius: theme.radius.md,
-    borderWidth: 1,
-    color: theme.colors.text,
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: theme.spacing.sm + 4,
-    ...theme.type.body,
+    ...typeScale.body,
+    flex: 1,
+    minWidth: 0,
+    // The frame draws the focus ring; the web's own outline would double it.
+    outlineWidth: 0,
+    paddingHorizontal: 0,
+    paddingVertical: space.md,
   },
-  invalidInput: { borderColor: theme.colors.danger },
-  fieldError: { color: theme.colors.danger, ...theme.type.caption },
-  status: { color: theme.colors.textMuted, ...theme.type.body },
-  alert: { color: theme.colors.accent, ...theme.type.body },
 });
