@@ -14,9 +14,15 @@ import { EmailConfigTag, EmailServiceTag } from "@deskohub/email";
 import { makeEmailProviderFake } from "@deskohub/email/testing";
 import { testEmailAddress } from "@deskohub/test-email";
 import { emailAutomationTickMinutes } from "@deskohub/workspace-admin-api";
+import { eq } from "drizzle-orm";
 import { Effect, Fiber, Layer, Result, Struct } from "effect";
 import { TestClock } from "effect/testing";
-import { customerEvents, customerMarketingConsents } from "@/db/schema";
+import { WorkspaceDatabase, WorkspaceTransaction } from "@/db/database.service";
+import {
+  customerEvents,
+  customerMarketingConsents,
+  workspaceReservations,
+} from "@/db/schema";
 import type { CustomerAccountId } from "@/features/account/customer-account";
 import { ReservationActivitySweep } from "@/features/reservation/backend/reservation-activity-sweep.service";
 import {
@@ -28,6 +34,7 @@ import type {
   CustomerEventKind,
 } from "@/shared/backend/customer-events/customer-event";
 import { CustomerEventReconciler } from "@/shared/backend/customer-events/customer-event-reconciler";
+import { retractCancellationEvent } from "@/shared/backend/customer-events/customer-event-retraction";
 import { workspaceFixtures } from "@/shared/testing/workspace-fixtures.test-utils";
 import type {
   WorkspacePostgresSuiteDatabase,
@@ -616,6 +623,36 @@ export const makeEngineFixtures = (
       [id, at.toString()]
     );
 
+  /**
+   * Restores a reservation Workspace cancelled at `cancelledAt`, as a
+   * restore does: confirmed and no longer cancelled, with the undone
+   * cancellation's event retracted in the same transaction.
+   */
+  const restoreInWorkspace = (
+    id: WorkspaceReservationId,
+    cancelledAt: Temporal.Instant,
+    at: Temporal.Instant
+  ) =>
+    Effect.runPromise(
+      Effect.flatMap(WorkspaceDatabase, ({ transaction }) =>
+        transaction(
+          Effect.flatMap(WorkspaceTransaction, ({ db }) =>
+            db
+              .update(workspaceReservations)
+              .set({
+                reservationState: "confirmed",
+                reservationCancelledAt: null,
+              })
+              .where(eq(workspaceReservations.id, id))
+          ).pipe(
+            Effect.andThen(
+              retractCancellationEvent({ reservationId: id, cancelledAt, at })
+            )
+          )
+        )
+      ).pipe(Effect.provide(database.layer))
+    );
+
   const recordEvent = async (input: {
     readonly kind: CustomerEventKind;
     readonly customer: DotyposCustomerId;
@@ -697,6 +734,7 @@ export const makeEngineFixtures = (
     cancelVisit,
     deleteVisit,
     cancelInWorkspace,
+    restoreInWorkspace,
     recordEvent,
     cleanup,
     created,

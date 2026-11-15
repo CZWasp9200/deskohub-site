@@ -11,7 +11,9 @@ import {
   readsTriggeringVisit,
   type TriggeringVisitVerdict,
   triggeringVisitVerdict,
+  type WorkspaceCancellations,
   withdrawnByCancellation,
+  withdrawnByWorkspaceCancellation,
 } from "./automation-trigger-verification";
 
 const asOf = Temporal.Instant.from("2026-10-19T10:00:00Z");
@@ -102,7 +104,7 @@ const rules = {
       endsLater: "moved",
     },
   },
-  // The cancellation itself: never withdrawn by it.
+  // The cancellation itself: not withdrawn by it.
   "reservation-cancelled": readsNoVisit,
   schedule: readsNoVisit,
   "account-created": readsNoVisit,
@@ -124,4 +126,68 @@ describe("trigger verification per kind", () => {
       ).toEqual(rule.verdicts);
     }
   );
+});
+
+describe("withdrawal by the reservation's Workspace cancellation", () => {
+  const reservationId = workspaceReservationIdSchema.make("reservation");
+  const triggerAt = asOf.subtract({ hours: 1 });
+  /** The reservation's state when the trigger is checked. */
+  const states = {
+    notCancelled: new Map(),
+    cancelledAtTrigger: new Map([[reservationId, triggerAt]]),
+    // Restored, then cancelled again later.
+    cancelledLater: new Map([[reservationId, triggerAt.add({ minutes: 1 })]]),
+  } satisfies Record<string, WorkspaceCancellations>;
+
+  const bookingWithdrawals = {
+    notCancelled: false,
+    cancelledAtTrigger: true,
+    cancelledLater: true,
+  };
+  const neverWithdrawn = {
+    notCancelled: false,
+    cancelledAtTrigger: false,
+    cancelledLater: false,
+  };
+  const expected = {
+    "reservation-booked": bookingWithdrawals,
+    "reservation-started": bookingWithdrawals,
+    "reservation-finished": bookingWithdrawals,
+    // Withdrawn once a restore has undone it, including when the
+    // reservation was cancelled again since.
+    "reservation-cancelled": {
+      notCancelled: true,
+      cancelledAtTrigger: false,
+      cancelledLater: true,
+    },
+    schedule: neverWithdrawn,
+    "account-created": neverWithdrawn,
+  } satisfies Record<
+    AutomationTriggerKind,
+    Record<keyof typeof states, boolean>
+  >;
+
+  test.each(
+    Object.entries(expected) as [
+      AutomationTriggerKind,
+      Record<keyof typeof states, boolean>,
+    ][]
+  )("%s", (kind, withdrawals) => {
+    const hasReservation = kind.startsWith("reservation-");
+    expect(
+      Object.fromEntries(
+        Object.entries(states).map(([name, cancellations]) => [
+          name,
+          withdrawnByWorkspaceCancellation(
+            {
+              kind,
+              at: triggerAt,
+              reservationId: hasReservation ? reservationId : null,
+            },
+            cancellations
+          ),
+        ])
+      )
+    ).toEqual(withdrawals);
+  });
 });
