@@ -38,7 +38,10 @@ import {
   isManualInvoiceDocument,
   makeManualInvoiceDocument,
 } from "@/features/accounting/invoice";
-import type { InvoiceDeliveryStatus } from "@/features/accounting/invoice-email-delivery";
+import type {
+  InvoiceDeliveryStatus,
+  InvoiceDeliverySummary,
+} from "@/features/accounting/invoice-email-delivery";
 import { getInvoicePresentation } from "@/features/accounting/invoice-presentation";
 import {
   getInvoicePaymentStatus,
@@ -79,10 +82,7 @@ import {
 } from "@/shared/utils/temporal";
 import { AccountingSnapshotKeyService } from "../backend/accounting-snapshot-key.service";
 import { type Invoice, InvoiceRepository } from "../backend/invoice.repository";
-import {
-  type InvoiceDeliverySummary,
-  InvoiceEmailDeliveryRepository,
-} from "../backend/invoice-email-delivery.repository";
+import { InvoiceEmailDeliveryRepository } from "../backend/invoice-email-delivery.repository";
 import { InvoiceEmailDeliveryService } from "../backend/invoice-email-delivery.service";
 import { renderInvoicePdf, renderInvoicePdfFile } from "../backend/invoice-pdf";
 import {

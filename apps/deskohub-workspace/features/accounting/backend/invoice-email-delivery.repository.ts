@@ -2,14 +2,19 @@ import "@/shared/polyfills/temporal";
 
 import type { DotyposCustomerId } from "@deskohub/dotypos";
 import type { EmailDeliveryId } from "@deskohub/email";
-import { and, asc, eq, inArray, lt, or, type SQL, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, or, type SQL, sql } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Effect, Layer } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
-import { invoiceEmailDeliveries, invoices } from "@/db/schema";
+import {
+  invoiceEmailDeliveries,
+  invoiceEmailDeliveryAudiences,
+  invoices,
+} from "@/db/schema";
 import type { InvoiceNumber } from "@/features/accounting/invoice";
 import type {
   InvoiceDeliveryStatus,
+  InvoiceDeliverySummary,
   InvoiceEmailDeliveryAudience,
   InvoiceEmailDeliveryFailureCode,
   InvoiceEmailDeliveryState,
@@ -20,17 +25,10 @@ import {
   readLimitSentinel,
   requireWithinReadLimit,
 } from "@/shared/backend/read-limit";
+import { isStaleDeliveryClaim } from "./delivery-claim-lease";
 
 export interface InvoiceEmailDeliveryClaim {
   readonly attemptNumber: number;
-}
-
-export interface InvoiceDeliverySummary
-  extends Readonly<
-    Record<InvoiceEmailDeliveryAudience, InvoiceDeliveryStatus>
-  > {
-  /** An audience is missing or failed, or its delivery outlived its lease. */
-  readonly needsAttention: boolean;
 }
 
 /**
@@ -128,7 +126,7 @@ export class InvoiceEmailDeliveryRepository extends Context.Service<
                 attemptCount: sql`${invoiceEmailDeliveries.attemptCount} + 1`,
                 providerDeliveryId: null,
                 failureCode: null,
-                acceptedAt: null,
+                // An earlier acceptance stays recorded: the invoice was sent.
                 updatedAt: now,
               },
               setWhere: or(
@@ -256,6 +254,7 @@ export class InvoiceEmailDeliveryRepository extends Context.Service<
                       invoiceId: invoiceEmailDeliveries.invoiceId,
                       audience: invoiceEmailDeliveries.audience,
                       state: invoiceEmailDeliveries.state,
+                      acceptedAt: invoiceEmailDeliveries.acceptedAt,
                       stale: sql<boolean>`${isStaleProcessing()}`,
                     })
                     .from(invoiceEmailDeliveries)
@@ -284,6 +283,13 @@ export class InvoiceEmailDeliveryRepository extends Context.Service<
                     [customer, internal].some(
                       (status) => status === "missing" || status === "failed"
                     ),
+                  sentTo: invoiceEmailDeliveryAudiences.filter((audience) =>
+                    deliveries.some(
+                      (delivery) =>
+                        delivery.audience === audience &&
+                        delivery.acceptedAt !== null
+                    )
+                  ),
                 };
                 return [invoiceId, summary] as const;
               })
@@ -297,12 +303,6 @@ export class InvoiceEmailDeliveryRepository extends Context.Service<
   static Live = this.Default.pipe(Layer.provide(WorkspaceDatabase.Default));
 }
 
-/** How long a claimed delivery stays processing before another worker may reclaim it. */
-const processingLease = Temporal.Duration.from({ minutes: 1 });
-
-/** Matches a processing delivery whose claim outlived its lease. */
+/** Matches a processing invoice delivery whose claim outlived its lease. */
 const isStaleProcessing = (): SQL =>
-  sql`(${eq(invoiceEmailDeliveries.state, "processing")} and ${lt(
-    invoiceEmailDeliveries.updatedAt,
-    Temporal.Now.instant().subtract(processingLease)
-  )})`;
+  isStaleDeliveryClaim(invoiceEmailDeliveries);
