@@ -1,9 +1,11 @@
 import {
+  type DotyposReservation,
   type DotyposReservationBooking,
   type DotyposReservationId,
   DotyposService,
+  type RestoreCancelledReservationResult,
 } from "@deskohub/dotypos";
-import { Context, Data, Effect, Layer } from "effect";
+import { Context, Data, Effect, Layer, Match, Option, Predicate } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
 import { AccountingDocumentSnapshotRepository } from "@/features/accounting/backend/accounting-document-snapshot.repository";
 import { WorkspaceReservationEmailService } from "@/features/checkout/backend/fulfillment/workspace-reservation-email.service";
@@ -26,7 +28,10 @@ import {
 } from "@/features/reservation/backend/workspace-reservation.service";
 import type { WorkspaceReservationId } from "@/features/reservation/persistence-contracts";
 import { ReservationAccessService } from "@/features/reservation-access";
-import { getRestoredReservationAccess } from "@/features/reservation-access/reservation-access";
+import {
+  getRestoredReservationAccess,
+  type RestoredReservationAccess,
+} from "@/features/reservation-access/reservation-access";
 import { retractCancellationEvent } from "@/shared/backend/customer-events/customer-event-retraction";
 import { formatMoney } from "@/shared/money/money";
 import {
@@ -81,6 +86,36 @@ class RestorationRecordChanged extends Data.TaggedError(
   readonly reservationId: WorkspaceReservationId;
 }> {}
 
+/** The cancellation a restore undoes. */
+type RestorableCancellation = {
+  readonly cancelledAt: Temporal.Instant;
+  readonly dotyposReservationId: DotyposReservationId;
+};
+
+/** The span the restored reservation holds, early setup included, which its door code covers. */
+type HeldSpan = {
+  readonly reservedFrom: Temporal.Instant;
+  readonly reservedUntil: Temporal.Instant;
+};
+
+/** Door access a restore can go ahead with. */
+type RestorableAccess = Exclude<RestoredReservationAccess, "uncertain">;
+
+const isRestorableAccess = (
+  plan: RestoredReservationAccess
+): plan is RestorableAccess => plan !== "uncertain";
+
+/**
+ * How the restore's write ended: it recorded the restore with the access
+ * plan it committed, or found that an earlier restore already finished.
+ */
+type RestorationRecording = Data.TaggedEnum<{
+  Recorded: { readonly accessPlan: RestorableAccess };
+  AlreadyRestored: Record<never, never>;
+}>;
+
+const RestorationRecording = Data.taggedEnum<RestorationRecording>();
+
 const alreadyConfirmed: ReservationRestorationResult = {
   outcome: "already_confirmed",
   email: "not_requested",
@@ -104,28 +139,26 @@ export class ReservationRestorationService extends Context.Service<
       const reservationDetails = yield* WorkspaceReservationService;
       const tables = yield* WorkspaceTableAssignmentService;
 
-      const loadReservation = Effect.fnUntraced(function* (
-        id: WorkspaceReservationId
-      ) {
-        const reservation = yield* reservations
-          .findById(id)
-          .pipe(
-            Effect.mapError((cause) =>
-              restorationError("details_unavailable", cause)
-            )
-          );
-        if (!reservation) return yield* restorationError("not_found");
-        return reservation;
-      });
+      const loadReservation = (id: WorkspaceReservationId) =>
+        reservations.findById(id).pipe(
+          Effect.mapError((cause) =>
+            restorationError("details_unavailable", cause)
+          ),
+          Effect.filterOrFail(Predicate.isNotNull, () =>
+            restorationError("not_found")
+          )
+        );
 
       /**
        * The cancellation a restore undoes, or why the reservation can't be
        * restored as Workspace records it. Every fact is checked again under
        * the restore's locks.
        */
-      const getRestorableCancellation = Effect.fnUntraced(function* (
-        reservation: WorkspaceReservation
-      ) {
+      const getRestorableCancellation = Effect.fnUntraced(function* ({
+        reservation,
+      }: {
+        readonly reservation: WorkspaceReservation;
+      }) {
         if (reservation.reservationState === "cancelling") {
           return yield* restorationError("cancellation_in_progress");
         }
@@ -154,27 +187,56 @@ export class ReservationRestorationService extends Context.Service<
         return {
           cancelledAt: reservationCancelledAt,
           dotyposReservationId,
-        };
+        } satisfies RestorableCancellation;
+      });
+
+      /**
+       * The Dotypos reservation of a confirmed reservation whose
+       * cancellation a restore undid, or invalid_state for one that was
+       * never cancelled.
+       */
+      const getUndoneCancellation = Effect.fnUntraced(function* ({
+        reservation,
+      }: {
+        readonly reservation: WorkspaceReservation;
+      }) {
+        const wasCancelled = yield* reservations
+          .hasRecordedCancellation(reservation.id)
+          .pipe(
+            Effect.mapError((cause) =>
+              restorationError("details_unavailable", cause)
+            )
+          );
+        if (!wasCancelled || reservation.dotyposReservationId === null) {
+          return yield* restorationError("invalid_state");
+        }
+        return reservation.dotyposReservationId;
       });
 
       /** The reservation as Dotypos holds it now, read past every cache. */
-      const readDotyposRecord = (dotyposReservationId: DotyposReservationId) =>
-        dotypos.getReservationWithoutCustomer(dotyposReservationId).pipe(
-          Effect.map(toReservationRecord),
-          Effect.mapError((cause) =>
-            restorationError(
-              cause._tag === "DotyposRejected" && cause.reason === "not-found"
-                ? "changed_in_dotypos"
-                : "dotypos_failed",
-              cause
-            )
-          )
-        );
-
-      const getBooking = (
-        reservation: WorkspaceReservation,
-        record: ReservationRecord
+      const readDotyposReservation = (
+        dotyposReservationId: DotyposReservationId
       ) =>
+        dotypos
+          .getReservationWithoutCustomer(dotyposReservationId)
+          .pipe(
+            Effect.mapError((cause) =>
+              restorationError(
+                cause._tag === "DotyposRejected" && cause.reason === "not-found"
+                  ? "changed_in_dotypos"
+                  : "dotypos_failed",
+                cause
+              )
+            )
+          );
+
+      const getBooking = ({
+        reservation,
+        record,
+      }: {
+        readonly reservation: WorkspaceReservation;
+        readonly record: ReservationRecord;
+      }) =>
         getRestorationBooking({ reservation, record }).pipe(
           Effect.provideService(
             AccountingDocumentSnapshotRepository,
@@ -190,11 +252,13 @@ export class ReservationRestorationService extends Context.Service<
           )
         );
 
-      /** The span the restored reservation holds, early setup included, which its door code covers. */
-      const getHeldSpan = (
-        reservation: WorkspaceReservation,
-        record: ReservationRecord
-      ) =>
+      const getHeldSpan = ({
+        reservation,
+        record,
+      }: {
+        readonly reservation: WorkspaceReservation;
+        readonly record: ReservationRecord;
+      }) =>
         getDotyposReservationAccessTiming({
           reservationId: reservation.id,
           reservation: decodeBookedReservation(
@@ -209,43 +273,119 @@ export class ReservationRestorationService extends Context.Service<
 
       /**
        * A confirmed reservation whose cancellation a restore undid, which
-       * Dotypos still holds confirmed with its booking: the restore already
-       * finished, so a retry reports it without acting again.
+       * Dotypos still holds confirmed with its booking, customer included:
+       * the restore already finished, so a retry reports it without acting
+       * again.
        */
-      const settleRestoredReservation = Effect.fnUntraced(function* (
-        reservation: WorkspaceReservation
-      ) {
-        const wasCancelled = yield* reservations
-          .hasRecordedCancellation(reservation.id)
-          .pipe(
-            Effect.mapError((cause) =>
-              restorationError("details_unavailable", cause)
-            )
-          );
-        if (!wasCancelled || reservation.dotyposReservationId === null) {
-          return yield* restorationError("invalid_state");
-        }
-        const record = yield* readDotyposRecord(
-          reservation.dotyposReservationId
+      const settleRestoredReservation = (input: {
+        readonly reservation: WorkspaceReservation;
+      }) =>
+        Effect.succeed(input).pipe(
+          Effect.bind("dotyposReservationId", getUndoneCancellation),
+          Effect.bind("dotyposReservation", ({ dotyposReservationId }) =>
+            readDotyposReservation(dotyposReservationId)
+          ),
+          Effect.filterOrFail(
+            ({ dotyposReservation }) =>
+              dotyposReservation.status === "CONFIRMED",
+            () => restorationError("changed_in_dotypos")
+          ),
+          Effect.let("record", ({ dotyposReservation }) =>
+            toReservationRecord(dotyposReservation)
+          ),
+          Effect.bind("booking", getBooking),
+          Effect.filterOrFail(
+            ({ dotyposReservation, booking }) =>
+              booksCustomer(dotyposReservation, booking),
+            () => restorationError("changed_in_dotypos")
+          ),
+          Effect.as(alreadyConfirmed)
         );
-        if (record.status !== "CONFIRMED") {
-          return yield* restorationError("changed_in_dotypos");
-        }
-        yield* getBooking(reservation, record);
-        return alreadyConfirmed;
-      });
 
-      const restoreInDotypos = (input: {
-        readonly dotyposReservationId: DotyposReservationId;
+      const planRestoredAccess = ({
+        reservation,
+        span,
+        now,
+      }: {
+        readonly reservation: WorkspaceReservation;
+        readonly span: HeldSpan;
+        readonly now: Temporal.Instant;
+      }) =>
+        access.loadGrant(reservation.id).pipe(
+          Effect.mapError((cause) =>
+            restorationError("details_unavailable", cause)
+          ),
+          Effect.map((grant) => getRestoredReservationAccess(grant, span, now)),
+          Effect.filterOrFail(isRestorableAccess, () =>
+            restorationError("access_uncertain")
+          )
+        );
+
+      const checkRefunds = ({
+        reservation,
+        acknowledgeRefundedPayment,
+      }: {
+        readonly reservation: WorkspaceReservation;
+        readonly acknowledgeRefundedPayment: boolean;
+      }) =>
+        refunds.reconcileReservationRefunds(reservation.id).pipe(
+          Effect.mapError((cause) =>
+            restorationError("refund_check_failed", cause)
+          ),
+          Effect.flatMap((attempts) =>
+            requireRefundAcknowledgement({
+              attempts,
+              acknowledgeRefundedPayment,
+            })
+          )
+        );
+
+      /** Refuses a restore whose table someone else booked since. */
+      const requireTableAvailable = ({
+        reservation,
+        record,
+        accessPlan,
+      }: {
+        readonly reservation: WorkspaceReservation;
+        readonly record: ReservationRecord;
+        readonly accessPlan: RestorableAccess;
+      }) =>
+        Match.value(accessPlan).pipe(
+          // An ended reservation holds nothing anyone could book.
+          Match.when("not_needed", () => Effect.void),
+          Match.when("issue", () =>
+            tables
+              .getAssignedTableAvailability({
+                reservation: record,
+                kind: reservation.reservationDetails.kind,
+              })
+              .pipe(
+                Effect.mapError((cause) =>
+                  restorationError("dotypos_failed", cause)
+                ),
+                Effect.filterOrFail(
+                  (availability) => availability !== "unavailable",
+                  () => restorationError("table_unavailable")
+                ),
+                Effect.asVoid
+              )
+          ),
+          Match.exhaustive
+        );
+
+      const restoreInDotypos = ({
+        cancellation,
+        expectedBooking,
+      }: {
+        readonly cancellation: RestorableCancellation;
         readonly expectedBooking: DotyposReservationBooking;
       }) =>
         dotypos
           .restoreCancelledReservation({
-            reservationId: input.dotyposReservationId,
-            expectedBooking: input.expectedBooking,
+            reservationId: cancellation.dotyposReservationId,
+            expectedBooking,
           })
           .pipe(
-            Effect.asVoid,
             Effect.mapError((cause) =>
               restorationError(
                 cause._tag === "DotyposReservationNotRestorable" ||
@@ -258,12 +398,73 @@ export class ReservationRestorationService extends Context.Service<
             )
           );
 
+      const prepareAccess = (input: {
+        readonly reservationId: WorkspaceReservationId;
+        readonly reservedFrom: Temporal.Instant;
+        readonly reservedUntil: Temporal.Instant;
+        readonly now: Temporal.Instant;
+      }) =>
+        access.prepareRestoredAccess(input).pipe(
+          Effect.mapError((cause) => restorationError("record_failed", cause)),
+          Effect.filterOrFail(isRestorableAccess, () =>
+            restorationError("access_uncertain")
+          )
+        );
+
+      /** Confirms the reservation while it is still the cancellation the restore read. */
+      const confirmReservation = ({
+        reservationId,
+        cancelledAt,
+        now,
+      }: {
+        readonly reservationId: WorkspaceReservationId;
+        readonly cancelledAt: Temporal.Instant;
+        readonly now: Temporal.Instant;
+      }) =>
+        reservations
+          .markAdministrationRestored({
+            id: reservationId,
+            cancelledAt,
+            restoredAt: now,
+          })
+          .pipe(
+            Effect.catchTags({
+              EffectDrizzleQueryError: (cause) =>
+                Effect.fail(restorationError("record_failed", cause)),
+              WorkspaceReservationDetailsMalformedError: (cause) =>
+                Effect.fail(restorationError("record_failed", cause)),
+            }),
+            Effect.filterOrFail(
+              Predicate.isNotNull,
+              () => new RestorationRecordChanged({ reservationId })
+            )
+          );
+
+      const retractCancellation = ({
+        reservationId,
+        cancelledAt,
+        now,
+      }: {
+        readonly reservationId: WorkspaceReservationId;
+        readonly cancelledAt: Temporal.Instant;
+        readonly now: Temporal.Instant;
+      }) =>
+        retractCancellationEvent({ reservationId, cancelledAt, at: now }).pipe(
+          // The planner withdraws the cancellation's automation runs;
+          // the restore only records how the event stood.
+          Effect.tap((retraction) =>
+            Effect.logInfo("The restore settled the cancellation event.").pipe(
+              Effect.annotateLogs({ retraction })
+            )
+          ),
+          Effect.mapError((cause) => restorationError("record_failed", cause))
+        );
+
       /**
        * Records the restore in one transaction, after Dotypos confirmed the
        * reservation again: locks and plans its access grant, confirms the
-       * reservation while it is still the cancellation the restore read,
-       * checks the refunds Nexi recorded since, and retracts the
-       * cancellation's event. Returns the access plan it committed.
+       * reservation, checks the refunds Nexi recorded since, and retracts
+       * the cancellation's event.
        */
       const recordRestoration = (input: {
         readonly reservationId: WorkspaceReservationId;
@@ -274,63 +475,20 @@ export class ReservationRestorationService extends Context.Service<
         readonly now: Temporal.Instant;
       }) =>
         transaction(
-          Effect.gen(function* () {
-            const plan = yield* access
-              .prepareRestoredAccess({
-                reservationId: input.reservationId,
-                reservedFrom: input.reservedFrom,
-                reservedUntil: input.reservedUntil,
-                now: input.now,
+          Effect.succeed(input).pipe(
+            Effect.bind("accessPlan", prepareAccess),
+            Effect.bind("restored", confirmReservation),
+            Effect.tap(({ restored, acknowledgeRefundedPayment }) =>
+              requireRefundAcknowledgement({
+                attempts: restored.paymentAttempts,
+                acknowledgeRefundedPayment,
               })
-              .pipe(
-                Effect.mapError((cause) =>
-                  restorationError("record_failed", cause)
-                )
-              );
-            if (plan === "uncertain") {
-              return yield* restorationError("access_uncertain");
-            }
-            const restored = yield* reservations
-              .markAdministrationRestored({
-                id: input.reservationId,
-                cancelledAt: input.cancelledAt,
-                restoredAt: input.now,
-              })
-              .pipe(
-                Effect.catchTags({
-                  EffectDrizzleQueryError: (cause) =>
-                    Effect.fail(restorationError("record_failed", cause)),
-                  WorkspaceReservationDetailsMalformedError: (cause) =>
-                    Effect.fail(restorationError("record_failed", cause)),
-                })
-              );
-            if (!restored) {
-              return yield* new RestorationRecordChanged({
-                reservationId: input.reservationId,
-              });
-            }
-            yield* requireRefundAcknowledgement(
-              restored.paymentAttempts,
-              input.acknowledgeRefundedPayment
-            );
-            yield* retractCancellationEvent({
-              reservationId: input.reservationId,
-              cancelledAt: input.cancelledAt,
-              at: input.now,
-            }).pipe(
-              // The planner withdraws the cancellation's automation runs;
-              // the restore only records how the event stood.
-              Effect.tap((retraction) =>
-                Effect.logInfo(
-                  "The restore settled the cancellation event."
-                ).pipe(Effect.annotateLogs({ retraction }))
-              ),
-              Effect.mapError((cause) =>
-                restorationError("record_failed", cause)
-              )
-            );
-            return plan;
-          })
+            ),
+            Effect.tap(retractCancellation),
+            Effect.map(({ accessPlan }) =>
+              RestorationRecording.Recorded({ accessPlan })
+            )
+          )
         ).pipe(
           Effect.catchTags({
             EffectDrizzleQueryError: (cause) =>
@@ -341,169 +499,239 @@ export class ReservationRestorationService extends Context.Service<
         );
 
       /**
-       * Another reservation took the checkout session after the restore
-       * confirmed this one in Dotypos: cancels it there again, so Dotypos
-       * holds only the session's active reservation, and refuses.
+       * Another reservation took the checkout session after Dotypos
+       * confirmed this one again. When this restore made that write, it
+       * cancels the reservation there again, so Dotypos holds only the
+       * session's active reservation; a confirmation it found already made
+       * is left for an operator. Either way the restore is refused.
        */
-      const withdrawSupersededRestore = Effect.fnUntraced(function* (
-        dotyposReservationId: DotyposReservationId,
-        cause: unknown
-      ) {
-        yield* dotypos
-          .cancelReservation(dotyposReservationId)
-          .pipe(
-            Effect.catch((cancelCause) =>
-              Effect.logError(
-                "A superseded restore left its reservation confirmed in Dotypos while Workspace keeps it cancelled; an operator must cancel it in Dotypos.",
-                cancelCause
-              )
-            )
-          );
-        return yield* restorationError("superseded", cause);
-      });
+      const refuseSupersededRestore = (input: {
+        readonly dotyposRestore: RestoreCancelledReservationResult;
+        readonly dotyposReservationId: DotyposReservationId;
+        readonly cause: unknown;
+      }) =>
+        Match.valueTags(input.dotyposRestore, {
+          Restored: () =>
+            dotypos
+              .cancelReservation(input.dotyposReservationId)
+              .pipe(
+                Effect.catch((cancelCause) =>
+                  Effect.logError(
+                    "A superseded restore left its reservation confirmed in Dotypos while Workspace keeps it cancelled; an operator must cancel it in Dotypos.",
+                    cancelCause
+                  )
+                )
+              ),
+          AlreadyConfirmed: () =>
+            Effect.logError(
+              "Workspace keeps a superseded reservation cancelled while Dotypos holds it CONFIRMED; an operator must reconcile it in Dotypos."
+            ),
+        }).pipe(
+          Effect.annotateLogs({
+            dotyposReservationId: input.dotyposReservationId,
+          }),
+          Effect.andThen(
+            Effect.fail(restorationError("superseded", input.cause))
+          )
+        );
 
       /**
        * The restore's reservation write found the reservation changed since
        * it was read: an earlier restore finished it, or it is refused as it
        * now stands.
        */
-      const settleChangedReservation = Effect.fnUntraced(function* (
+      const settleChangedReservation = (
         reservationId: WorkspaceReservationId
-      ) {
-        const latest = yield* loadReservation(reservationId);
-        if (latest.reservationState === "confirmed") return alreadyConfirmed;
-        yield* getRestorableCancellation(latest);
-        return yield* restorationError("invalid_state");
-      });
+      ) =>
+        loadReservation(reservationId).pipe(
+          Effect.flatMap((reservation) =>
+            Match.value(reservation.reservationState).pipe(
+              Match.when("confirmed", () =>
+                Effect.succeed(RestorationRecording.AlreadyRestored())
+              ),
+              Match.orElse(() =>
+                getRestorableCancellation({ reservation }).pipe(
+                  Effect.andThen(Effect.fail(restorationError("invalid_state")))
+                )
+              )
+            )
+          )
+        );
+
+      const finalizeRestoration = ({
+        reservation,
+        cancellation,
+        span,
+        acknowledgeRefundedPayment,
+        now,
+        dotyposRestore,
+      }: {
+        readonly reservation: WorkspaceReservation;
+        readonly cancellation: RestorableCancellation;
+        readonly span: HeldSpan;
+        readonly acknowledgeRefundedPayment: boolean;
+        readonly now: Temporal.Instant;
+        readonly dotyposRestore: RestoreCancelledReservationResult;
+      }) =>
+        recordRestoration({
+          reservationId: reservation.id,
+          cancelledAt: cancellation.cancelledAt,
+          reservedFrom: span.reservedFrom,
+          reservedUntil: span.reservedUntil,
+          acknowledgeRefundedPayment,
+          now,
+        }).pipe(
+          Effect.catchTags({
+            WorkspaceReservationSessionTakenError: (cause) =>
+              refuseSupersededRestore({
+                dotyposRestore,
+                dotyposReservationId: cancellation.dotyposReservationId,
+                cause,
+              }),
+            RestorationRecordChanged: () =>
+              settleChangedReservation(reservation.id),
+          })
+        );
+
+      const issueAccess = ({
+        reservation,
+        span,
+        accessPlan,
+      }: {
+        readonly reservation: WorkspaceReservation;
+        readonly span: HeldSpan;
+        readonly accessPlan: RestorableAccess;
+      }) =>
+        Match.value(accessPlan).pipe(
+          Match.when("issue", () =>
+            access.issueRestoredAccess({
+              reservationId: reservation.id,
+              reservedFrom: span.reservedFrom,
+              reservedUntil: span.reservedUntil,
+            })
+          ),
+          Match.when("not_needed", () => Effect.succeed("not_needed" as const)),
+          Match.exhaustive
+        );
 
       const sendRestorationEmail = (input: {
         readonly reservation: WorkspaceReservation;
         readonly send: boolean;
         readonly accessReissued: boolean;
-      }) => {
-        if (!input.send) return Effect.succeed("not_requested" as const);
-        if (input.reservation.cancellationEmailSentAt === null) {
-          return Effect.succeed("not_available" as const);
-        }
-        return reservationDetails.getReservation(input.reservation.id).pipe(
-          Effect.flatMap((reservation) =>
-            emails.sendRestorationEmail({
-              reservation,
-              accessReissued: input.accessReissued,
-            })
+      }) =>
+        Match.value(input).pipe(
+          Match.when({ send: false }, () =>
+            Effect.succeed("not_requested" as const)
           ),
-          Effect.as("sent" as const),
-          Effect.catch((cause) =>
-            Effect.logWarning(
-              "The restoration email could not be sent.",
-              cause
-            ).pipe(Effect.as("failed" as const))
+          Match.when(
+            ({ reservation }) => reservation.cancellationEmailSentAt === null,
+            () => Effect.succeed("not_available" as const)
+          ),
+          Match.orElse(({ reservation, accessReissued }) =>
+            reservationDetails.getReservation(reservation.id).pipe(
+              Effect.flatMap((details) =>
+                emails.sendRestorationEmail({
+                  reservation: details,
+                  accessReissued,
+                })
+              ),
+              Effect.as("sent" as const),
+              Effect.catch((cause) =>
+                Effect.logWarning(
+                  "The restoration email could not be sent.",
+                  cause
+                ).pipe(Effect.as("failed" as const))
+              )
+            )
           )
         );
-      };
+
+      /** Issues the restored reservation's access and tells its customer, once the restore is recorded. */
+      const completeRestoration = (input: {
+        readonly reservation: WorkspaceReservation;
+        readonly span: HeldSpan;
+        readonly accessPlan: RestorableAccess;
+        readonly sendRestorationEmail: boolean;
+      }) =>
+        Effect.succeed(input).pipe(
+          Effect.bind("accessOutcome", issueAccess),
+          Effect.bind("email", ({ reservation, accessOutcome }) =>
+            sendRestorationEmail({
+              reservation,
+              send: input.sendRestorationEmail,
+              accessReissued: accessOutcome === "issued",
+            })
+          ),
+          Effect.map(
+            ({ email, accessOutcome }): ReservationRestorationResult => ({
+              outcome: "restored",
+              email,
+              access: accessOutcome,
+            })
+          )
+        );
+
+      const restoreCancelledReservation = (
+        input: ReservationRestorationInput & {
+          readonly reservation: WorkspaceReservation;
+          readonly now: Temporal.Instant;
+        }
+      ) =>
+        Effect.succeed(input).pipe(
+          Effect.bind("cancellation", getRestorableCancellation),
+          Effect.bind("dotyposReservation", ({ cancellation }) =>
+            readDotyposReservation(cancellation.dotyposReservationId)
+          ),
+          Effect.filterOrFail(
+            ({ dotyposReservation }) => dotyposReservation.status !== "NEW",
+            () => restorationError("changed_in_dotypos")
+          ),
+          Effect.let("record", ({ dotyposReservation }) =>
+            toReservationRecord(dotyposReservation)
+          ),
+          Effect.bind("expectedBooking", getBooking),
+          Effect.bind("span", getHeldSpan),
+          Effect.bind("accessPlan", planRestoredAccess),
+          Effect.tap(checkRefunds),
+          Effect.tap(requireTableAvailable),
+          Effect.bind("dotyposRestore", restoreInDotypos),
+          Effect.bind("recording", finalizeRestoration),
+          Effect.flatMap((restoration) =>
+            Match.valueTags(restoration.recording, {
+              Recorded: ({ accessPlan }) =>
+                completeRestoration({ ...restoration, accessPlan }),
+              AlreadyRestored: () => Effect.succeed(alreadyConfirmed),
+            })
+          )
+        );
 
       return {
-        restore: Effect.fn("ReservationRestorationService.restore")(
-          function* (input) {
-            const now = Temporal.Now.instant();
-            const reservation = yield* loadReservation(input.reservationId);
-            if (reservation.reservationState === "confirmed") {
-              return yield* settleRestoredReservation(reservation);
-            }
-            const { cancelledAt, dotyposReservationId } =
-              yield* getRestorableCancellation(reservation);
-
-            const record = yield* readDotyposRecord(dotyposReservationId);
-            if (record.status === "NEW") {
-              return yield* restorationError("changed_in_dotypos");
-            }
-            const expectedBooking = yield* getBooking(reservation, record);
-            const span = yield* getHeldSpan(reservation, record);
-
-            const grant = yield* access
-              .loadGrant(reservation.id)
-              .pipe(
-                Effect.mapError((cause) =>
-                  restorationError("details_unavailable", cause)
-                )
-              );
-            const accessPlan = getRestoredReservationAccess(grant, span, now);
-            if (accessPlan === "uncertain") {
-              return yield* restorationError("access_uncertain");
-            }
-
-            const attempts = yield* refunds
-              .reconcileReservationRefunds(reservation.id)
-              .pipe(
-                Effect.mapError((cause) =>
-                  restorationError("refund_check_failed", cause)
-                )
-              );
-            yield* requireRefundAcknowledgement(
-              attempts,
-              input.acknowledgeRefundedPayment
-            );
-
-            // An ended reservation holds nothing anyone could book.
-            if (accessPlan !== "not_needed") {
-              const availability = yield* tables
-                .getAssignedTableAvailability({
-                  reservation: record,
-                  kind: reservation.reservationDetails.kind,
-                })
-                .pipe(
-                  Effect.mapError((cause) =>
-                    restorationError("dotypos_failed", cause)
-                  )
-                );
-              if (availability === "unavailable") {
-                return yield* restorationError("table_unavailable");
-              }
-            }
-
-            yield* restoreInDotypos({ dotyposReservationId, expectedBooking });
-
-            const committedPlan = yield* recordRestoration({
-              reservationId: reservation.id,
-              cancelledAt,
-              reservedFrom: span.reservedFrom,
-              reservedUntil: span.reservedUntil,
-              acknowledgeRefundedPayment: input.acknowledgeRefundedPayment,
-              now,
-            }).pipe(
-              Effect.catchTags({
-                WorkspaceReservationSessionTakenError: (cause) =>
-                  withdrawSupersededRestore(dotyposReservationId, cause),
-                RestorationRecordChanged: () =>
-                  settleChangedReservation(reservation.id),
-              })
-            );
-            if (committedPlan === alreadyConfirmed) return alreadyConfirmed;
-
-            const accessOutcome =
-              committedPlan === "issue"
-                ? yield* access.issueRestoredAccess({
-                    reservationId: reservation.id,
-                    reservedFrom: span.reservedFrom,
-                    reservedUntil: span.reservedUntil,
-                  })
-                : ("not_needed" as const);
-
-            return {
-              outcome: "restored",
-              email: yield* sendRestorationEmail({
-                reservation,
-                send: input.sendRestorationEmail,
-                accessReissued: accessOutcome === "issued",
-              }),
-              access: accessOutcome,
-            } satisfies ReservationRestorationResult;
-          }
+        restore: Effect.fn("ReservationRestorationService.restore")((input) =>
+          Effect.succeed(input).pipe(
+            Effect.bind("now", () => Effect.sync(() => Temporal.Now.instant())),
+            Effect.bind("reservation", ({ reservationId }) =>
+              loadReservation(reservationId)
+            ),
+            Effect.flatMap((restoration) =>
+              Match.value(restoration.reservation.reservationState).pipe(
+                Match.when("confirmed", () =>
+                  settleRestoredReservation(restoration)
+                ),
+                Match.orElse(() => restoreCancelledReservation(restoration))
+              )
+            )
+          )
         ),
       } satisfies IReservationRestorationService;
     })
   );
 }
+
+/** Whether Dotypos books the reservation for the customer the restore expects; the table, span and seats are checked by getRestorationBooking. */
+const booksCustomer = (
+  reservation: DotyposReservation,
+  booking: DotyposReservationBooking
+) => reservation._customerId === booking.customerId;
 
 const restorationErrorCodes = {
   not_found: "not_found",
@@ -556,16 +784,21 @@ const restorationError = (reason: RestorationRefusalReason, cause?: unknown) =>
   });
 
 /** Refuses a restore of a payment Nexi refunded, until the administrator acknowledges the refund. */
-const requireRefundAcknowledgement = (
-  attempts: readonly RestorationRefundAttempt[],
-  acknowledgeRefundedPayment: boolean
-) => {
-  const { refundedPayment } = getRestorationRefund(attempts);
-  if (refundedPayment === null || acknowledgeRefundedPayment) {
-    return Effect.void;
-  }
-  return Effect.fail(refundAcknowledgementRequired(refundedPayment));
-};
+const requireRefundAcknowledgement = ({
+  attempts,
+  acknowledgeRefundedPayment,
+}: {
+  readonly attempts: readonly RestorationRefundAttempt[];
+  readonly acknowledgeRefundedPayment: boolean;
+}) =>
+  Option.fromNullishOr(getRestorationRefund(attempts).refundedPayment).pipe(
+    Option.filter(() => !acknowledgeRefundedPayment),
+    Option.match({
+      onNone: () => Effect.void,
+      onSome: (refundedPayment) =>
+        Effect.fail(refundAcknowledgementRequired(refundedPayment)),
+    })
+  );
 
 const refundAcknowledgementRequired = (
   refundedPayment: RestorationRefundedPayment
