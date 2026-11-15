@@ -239,6 +239,8 @@ type InvoiceAdministrationRetryResult = {
   readonly invoiceId: AdministrationInvoiceIdType;
   readonly changed: boolean;
   readonly needsAttention: boolean;
+  /** A cancelled invoice's notices, which were retried instead of its email. */
+  readonly notices: InvoiceNoticeSummary | null;
 };
 
 export type InvoiceAdministrationCancelInput = {
@@ -637,6 +639,7 @@ const makeInvoiceAdministrationService = Effect.gen(function* () {
         invoiceId: AdministrationInvoiceId.make(id),
         changed: delivery.changed,
         needsAttention: delivery.notices.needsAttention,
+        notices: delivery.notices,
       } satisfies InvoiceAdministrationRetryResult;
     }
     const result = yield* deliveries.deliverByInvoiceId({ invoiceId: id });
@@ -644,6 +647,7 @@ const makeInvoiceAdministrationService = Effect.gen(function* () {
       invoiceId: AdministrationInvoiceId.make(id),
       changed: result.status === "delivered" && result.changed,
       needsAttention: yield* needsAttention(stored.id),
+      notices: null,
     } satisfies InvoiceAdministrationRetryResult;
   });
 

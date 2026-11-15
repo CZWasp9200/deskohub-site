@@ -815,7 +815,7 @@ describe("WorkspaceAdminApiClient", () => {
               sendCancellationEmail: true,
             }
           )
-        ).toEqual({ outcome: "cancelled", email: "sent" });
+        ).toEqual({ outcome: "cancelled", email: "sent", invoice: null });
         yield* client.findReservation(Redacted.make(accessToken), "payment-1");
         yield* client.listBookings(Redacted.make(accessToken), {
           date: "2026-08-10",

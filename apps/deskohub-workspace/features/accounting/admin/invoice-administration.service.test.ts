@@ -347,6 +347,7 @@ describe("InvoiceAdministrationService", () => {
         invoiceId: AdministrationInvoiceId.make(invoice.id),
         changed: true,
         needsAttention: true,
+        notices: null,
       });
       expect(deliverByInvoiceId).toHaveBeenCalledWith({
         invoiceId: invoice.id,
@@ -864,6 +865,11 @@ describe("InvoiceAdministrationService cancellation", () => {
       invoiceId,
       changed: true,
       needsAttention: false,
+      notices: {
+        customer: "accepted",
+        internal: "accepted",
+        needsAttention: false,
+      },
     });
   });
 

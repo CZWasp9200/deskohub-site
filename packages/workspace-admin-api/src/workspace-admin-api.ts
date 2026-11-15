@@ -307,8 +307,8 @@ export class CliSessionUnauthorized extends Schema.TaggedErrorClass<CliSessionUn
 }
 
 /**
- * The campaign port's stable error code, when the failure came from it.
- * Older servers omit it.
+ * A stable error code, when the failure has one: the campaign port's, or an
+ * invoice cancellation or archive refusal's. Older servers omit it.
  */
 const cliErrorCode = Schema.optionalKey(Schema.String);
 
@@ -1060,6 +1060,12 @@ export const AdministrationInvoiceRetryResult = Schema.Struct({
   invoiceId: AdministrationInvoiceId,
   changed: Schema.Boolean,
   needsAttention: Schema.Boolean,
+  /**
+   * Set when the invoice is cancelled: its cancellation notices were retried
+   * instead of the invoice email. Null when the invoice email was retried,
+   * and from servers that predate cancellation.
+   */
+  notices: nullableField(AdministrationInvoiceNotices),
 });
 export type AdministrationInvoiceRetryResult =
   typeof AdministrationInvoiceRetryResult.Type;
@@ -2967,6 +2973,19 @@ export const AdminCliAdministrationApi = HttpApiGroup.make("administration")
     }).annotate(AdministrationOperationBehavior, readOperation)
   )
   .add(
+    // The corrective document (credit note) of a cancelled invoice, archived
+    // or not; an invoice that isn't cancelled has none.
+    HttpApiEndpoint.get(
+      "getInvoiceCorrectiveDocumentPdf",
+      "/invoices/:invoiceId/corrective-document/pdf",
+      {
+        params: { invoiceId: AdministrationInvoiceId },
+        success: AdministrationInvoicePdf,
+        error: [CliResourceNotFound.schema, CliServiceUnavailable.schema],
+      }
+    ).annotate(AdministrationOperationBehavior, readOperation)
+  )
+  .add(
     HttpApiEndpoint.get(
       "getInvoiceCreationDefaults",
       "/invoices/creation-defaults",
@@ -3029,6 +3048,48 @@ export const AdminCliAdministrationApi = HttpApiGroup.make("administration")
       AdministrationOperationBehavior,
       destructiveOperation({
         idempotent: false,
+        preview: readPreview("administration.getInvoice"),
+      })
+    )
+  )
+  .add(
+    // Issues the corrective document and sends the notices the plan in
+    // `getInvoice` shows; a replay answers `already_cancelled` and sends
+    // nothing again. Refusals carry a code: reservation_confirmation_required,
+    // confirmation_stale, reservation_cancellation_in_progress (409), and
+    // document_unavailable (503).
+    HttpApiEndpoint.post("cancelInvoice", "/invoices/:invoiceId/cancellation", {
+      params: { invoiceId: AdministrationInvoiceId },
+      payload: AdministrationInvoiceCancellationInput,
+      success: AdministrationInvoiceCancellationResult,
+      error: [
+        CliMutationRejected.schema,
+        CliResourceNotFound.schema,
+        CliServiceUnavailable.schema,
+      ],
+    }).annotate(
+      AdministrationOperationBehavior,
+      destructiveOperation({
+        idempotent: true,
+        preview: readPreview("administration.getInvoice"),
+      })
+    )
+  )
+  .add(
+    // Hides a cancelled invoice from the Admin UI; the API still reads it.
+    // A live invoice is refused with the code not_cancelled.
+    HttpApiEndpoint.post("archiveInvoice", "/invoices/:invoiceId/archive", {
+      params: { invoiceId: AdministrationInvoiceId },
+      success: AdministrationInvoiceArchiveResult,
+      error: [
+        CliMutationRejected.schema,
+        CliResourceNotFound.schema,
+        CliServiceUnavailable.schema,
+      ],
+    }).annotate(
+      AdministrationOperationBehavior,
+      destructiveOperation({
+        idempotent: true,
         preview: readPreview("administration.getInvoice"),
       })
     )
