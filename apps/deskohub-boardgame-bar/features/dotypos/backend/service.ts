@@ -60,7 +60,7 @@ export class DotyposService extends Context.Service<
                   )
                 )
             ),
-            { concurrency: "inherit" }
+            { concurrency: "unbounded" }
           );
           yield* Effect.logInfo("Dotypos menu products loaded");
 
