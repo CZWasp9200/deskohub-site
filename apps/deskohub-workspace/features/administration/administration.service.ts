@@ -1334,6 +1334,59 @@ const recoverProviderRead =
     return policy.recover({ ...failure, cause }, fallback);
   };
 
+/** The facts the reservation detail decides a restore from. */
+type ReservationRestorationSource = {
+  readonly accessGrant: Pick<StoredReservationAccessGrant, "state"> | null;
+  readonly attemptRows: readonly SafePaymentAttemptRow[];
+  readonly cancellationEmailSentAt: Temporal.Instant | null;
+  readonly checkoutSessionKey: CheckoutSessionKey;
+  readonly live: LiveReservationDetails;
+  readonly row: SafeReservationRow;
+};
+
+/**
+ * The access span of a reservation restorable apart from its checkout
+ * session, from the span Dotypos holds, as the restore reads it. None when
+ * Dotypos can't read the booking now, so the restore would fail now too.
+ */
+const loadRestorableAccess = ({
+  live,
+  row,
+}: Pick<ReservationRestorationSource, "live" | "row">) =>
+  Option.fromNullishOr(live.reservation).pipe(
+    Option.filter(() =>
+      canRestoreReservation(row, { hasActiveSuccessor: false })
+    ),
+    Option.match({
+      onNone: () => Effect.succeedNone,
+      onSome: (reservation) =>
+        getDotyposReservationAccessTiming({
+          reservationId: row.id,
+          reservation: decodeBookedReservation(
+            reservation,
+            row.reservationDetails
+          ),
+        }).pipe(Effect.option),
+    })
+  );
+
+const getReservationRestoration = (
+  input: Pick<
+    ReservationRestorationSource,
+    "accessGrant" | "attemptRows" | "cancellationEmailSentAt"
+  > & {
+    readonly access: { readonly reservedUntil: Temporal.Instant };
+    readonly now: Temporal.Instant;
+  }
+): AdministrationReservationRestoration => ({
+  cancellationEmailRecorded: input.cancellationEmailSentAt !== null,
+  // An ended reservation needs no access; the grant state can't change that.
+  issuesNewAccess:
+    getRestoredReservationAccess(input.accessGrant, input.access, input.now) !==
+    "not_needed",
+  ...getRestorationRefund(input.attemptRows),
+});
+
 export class AdministrationService extends Context.Service<
   AdministrationService,
   {
@@ -2180,53 +2233,36 @@ export class AdministrationService extends Context.Service<
 
       /**
        * What restoring the reservation would do, or null when it can't be
-       * restored. The restore decides from the same facts under lock: the
-       * access span ends where Dotypos holds the booking until, so a booking
-       * Dotypos can't read now can't be restored now either.
+       * restored. Only a reservation restorable apart from its checkout
+       * session needs the successor lookup.
        */
       const loadRestoration = Effect.fn(
         "AdministrationService.loadRestoration"
-      )(function* (input: {
-        readonly accessGrant: Pick<
-          StoredReservationAccessGrant,
-          "state"
-        > | null;
-        readonly attemptRows: readonly SafePaymentAttemptRow[];
-        readonly cancellationEmailSentAt: Temporal.Instant | null;
-        readonly checkoutSessionKey: CheckoutSessionKey;
-        readonly live: LiveReservationDetails;
-        readonly row: SafeReservationRow;
-      }) {
-        // Only a reservation that is otherwise restorable needs its successor.
-        if (
-          !canRestoreReservation(input.row, { hasActiveSuccessor: false }) ||
-          !input.live.reservation
-        ) {
-          return null;
-        }
-        const access = yield* getDotyposReservationAccessTiming({
-          reservationId: input.row.id,
-          reservation: decodeBookedReservation(
-            input.live.reservation,
-            input.row.reservationDetails
-          ),
-        }).pipe(Effect.option);
-        if (Option.isNone(access)) return null;
-        const successor = yield* reservations.findCurrentByCheckoutSessionKey(
-          input.checkoutSessionKey
-        );
-        if (successor) return null;
-        return {
-          cancellationEmailRecorded: input.cancellationEmailSentAt !== null,
-          issuesNewAccess:
-            getRestoredReservationAccess(
-              input.accessGrant,
-              access.value,
-              Temporal.Now.instant()
-            ) !== "not_needed",
-          ...getRestorationRefund(input.attemptRows),
-        } satisfies AdministrationReservationRestoration;
-      });
+      )((input: ReservationRestorationSource) =>
+        loadRestorableAccess(input).pipe(
+          Effect.flatMap(
+            Option.match({
+              onNone: () => Effect.succeed(null),
+              onSome: (access) =>
+                reservations
+                  .findCurrentByCheckoutSessionKey(input.checkoutSessionKey)
+                  .pipe(
+                    Effect.map((successor) =>
+                      canRestoreReservation(input.row, {
+                        hasActiveSuccessor: successor !== null,
+                      })
+                        ? getReservationRestoration({
+                            ...input,
+                            access,
+                            now: Temporal.Now.instant(),
+                          })
+                        : null
+                    )
+                  ),
+            })
+          )
+        )
+      );
 
       const loadReservation = Effect.fn(
         "AdministrationService.loadReservation"

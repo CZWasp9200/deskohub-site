@@ -12,7 +12,11 @@ import type { SQL } from "drizzle-orm";
 import { PgDialect, type PgTable } from "drizzle-orm/pg-core";
 import { Cause, Effect, Exit, Layer, Option } from "effect";
 import { WorkspaceDatabase } from "@/db/database.service";
-import { paymentAttempts, workspaceReservations } from "@/db/schema";
+import {
+  paymentAttempts,
+  reservationAccessGrants,
+  workspaceReservations,
+} from "@/db/schema";
 import {
   type ReservationAuthor,
   ReservationAuthorDirectory,
@@ -3580,28 +3584,56 @@ describe("AdministrationService reservation restoration", () => {
     providerOrderCreatedAt: null,
     updatedAt: cancelledAt,
   });
-  const booking = (endDate: string) => ({
+  const booking = ({
+    endDate,
+    startDate = Temporal.Instant.from(endDate)
+      .subtract({ hours: 8 })
+      .toString(),
+  }: {
+    readonly endDate: string;
+    readonly startDate?: string;
+  }) => ({
     _branchId: "branch",
     _cloudId: "cloud",
     _customerId: "restore-customer",
     id: "restore-booking",
-    startDate: Temporal.Instant.from(endDate).subtract({ hours: 8 }).toString(),
+    startDate,
     endDate,
     seats: "1",
     status: "CANCELLED" as const,
+  });
+  const accessGrant = (state: "expired" | "uncertain") => ({
+    id: "restore-grant",
+    state,
+    provider: "igloohome",
+    credentialType: "algopin_hourly",
+    deviceId: "EK1",
+    providerCredentialId: null,
+    accessName: "Deskohub restore",
+    scheduledStartsAt: cancelledAt,
+    startsAt: cancelledAt,
+    endsAt: cancelledAt.add({ hours: 8 }),
+    provisioningStartedAt: null,
+    issuedAt: null,
+    failedAt: null,
+    failureCode: null,
+    createdAt: cancelledAt,
+    updatedAt: cancelledAt,
   });
   const upcoming = "2099-08-10T16:00:00Z";
   const ended = "2020-08-10T16:00:00Z";
 
   const loadRestorable = async ({
     attempts = [],
-    endDate = upcoming,
+    grant = null,
+    held = { endDate: upcoming },
     row = {},
     successor = null,
   }: {
     readonly attempts?: readonly ReturnType<typeof paidAttempt>[];
-    /** The end of the span Dotypos holds; null when Dotypos can't read it. */
-    readonly endDate?: string | null;
+    readonly grant?: ReturnType<typeof accessGrant> | null;
+    /** The span Dotypos holds; null when Dotypos can't read the booking. */
+    readonly held?: Parameters<typeof booking>[0] | null;
     readonly row?: Partial<typeof cancelledRow>;
     readonly successor?: { readonly id: string } | null;
   }) => {
@@ -3612,6 +3644,7 @@ describe("AdministrationService reservation restoration", () => {
         // The reservation is the first read; it has no related reservations.
         return reservationReads++ === 0 ? [{ ...cancelledRow, ...row }] : [];
       }
+      if (table === reservationAccessGrants) return grant ? [grant] : [];
       return table === paymentAttempts ? attempts : [];
     };
     const detail = await Effect.gen(function* () {
@@ -3639,7 +3672,7 @@ describe("AdministrationService reservation restoration", () => {
               DotyposServiceMock({
                 getCustomer: (id) => Effect.succeed(Option.some({ id })),
                 getReservation: (id) =>
-                  endDate === null
+                  held === null
                     ? Effect.fail(
                         new DotyposUnavailable({
                           operation: "getReservation",
@@ -3649,7 +3682,7 @@ describe("AdministrationService reservation restoration", () => {
                     : Effect.succeed(
                         Option.some({
                           customer: { id: "restore-customer" },
-                          reservation: { ...booking(endDate), id },
+                          reservation: { ...booking(held), id },
                         } as never)
                       ),
                 getTables: () => Effect.succeed([]),
@@ -3697,7 +3730,7 @@ describe("AdministrationService reservation restoration", () => {
 
   test("issues no new access for an ended reservation and offers no email without a recorded cancellation email", async () => {
     const { restoration } = await loadRestorable({
-      endDate: ended,
+      held: { endDate: ended },
       row: { cancellationEmailSentAt: null },
       attempts: [
         paidAttempt("attempt", 50_000, { refundState: "not_required" }),
@@ -3779,10 +3812,34 @@ describe("AdministrationService reservation restoration", () => {
   });
 
   test("doesn't offer to restore while Dotypos can't read the booking", async () => {
-    expect(await loadRestorable({ endDate: null })).toEqual({
-      canRestore: false,
-      restoration: null,
-      successorLookups: [],
-    });
+    for (const held of [
+      null,
+      { startDate: upcoming, endDate: "2099-08-10T08:00:00Z" },
+    ]) {
+      expect(await loadRestorable({ held })).toEqual({
+        canRestore: false,
+        restoration: null,
+        successorLookups: [],
+      });
+    }
+  });
+
+  test("issues new access exactly while the reservation hasn't ended, whatever its grant", async () => {
+    for (const state of ["expired", "uncertain"] as const) {
+      for (const [endDate, issuesNewAccess] of [
+        [upcoming, true],
+        [ended, false],
+      ] as const) {
+        const { restoration } = await loadRestorable({
+          grant: accessGrant(state),
+          held: { endDate },
+        });
+        expect({
+          state,
+          endDate,
+          issues: restoration?.issuesNewAccess,
+        }).toEqual({ state, endDate, issues: issuesNewAccess });
+      }
+    }
   });
 });
