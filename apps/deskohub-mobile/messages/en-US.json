@@ -128,6 +128,8 @@
   "signin_continue_as_body": "You're already signed in on this browser. Continue to return to the app.",
   "signin_returning_to_app": "Returning you to the app.",
   "signin_reauthenticate_body": "Sign in again to confirm it's you.",
+  "signin_reauthenticate_title": "Confirm it's you",
+  "signin_reauthenticate_delete_account_body": "Sign in again to delete your account.",
   "callback_completing": "Signing you in.",
   "callback_signed_in_web": "You're signed in. Return to the app, or continue in this browser.",
   "callback_open_in_app": "Open in app",

@@ -128,6 +128,8 @@
   "signin_continue_as_body": "इस ब्राउज़र में आपका खाता पहले से साइन इन है। जारी रखें और ऐप पर वापस जाएँ।",
   "signin_returning_to_app": "आपको ऐप पर वापस ले जा रहे हैं।",
   "signin_reauthenticate_body": "दोबारा साइन इन करें, ताकि हम पुष्टि कर सकें कि यह आप ही हैं।",
+  "signin_reauthenticate_title": "पुष्टि करें कि यह आप ही हैं",
+  "signin_reauthenticate_delete_account_body": "अपना खाता हटाने के लिए दोबारा साइन इन करें।",
   "callback_completing": "आपको साइन इन किया जा रहा है।",
   "callback_signed_in_web": "साइन-इन हो गया। ऐप पर वापस जाएँ, या इसी ब्राउज़र में जारी रखें।",
   "callback_open_in_app": "ऐप में खोलें",

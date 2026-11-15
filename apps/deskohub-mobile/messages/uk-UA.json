@@ -128,6 +128,8 @@
   "signin_continue_as_body": "У цьому браузері ви вже ввійшли. Продовжте, щоб повернутися до застосунку.",
   "signin_returning_to_app": "Повертаємося до застосунку.",
   "signin_reauthenticate_body": "Увійдіть ще раз, щоб ми переконалися, що це ви.",
+  "signin_reauthenticate_title": "Підтвердьте, що це ви",
+  "signin_reauthenticate_delete_account_body": "Увійдіть ще раз, щоб видалити свій обліковий запис.",
   "callback_completing": "Виконуємо вхід.",
   "callback_signed_in_web": "Ви ввійшли. Поверніться до застосунку або продовжте в цьому браузері.",
   "callback_open_in_app": "Відкрити в застосунку",

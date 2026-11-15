@@ -128,6 +128,8 @@
   "signin_continue_as_body": "V tomto prehliadači už je tvoj účet prihlásený. Pokračuj a vráť sa do aplikácie.",
   "signin_returning_to_app": "Vraciame ťa do aplikácie.",
   "signin_reauthenticate_body": "Prihlás sa znova, aby sme overili, že si to ty.",
+  "signin_reauthenticate_title": "Potvrď, že si to ty",
+  "signin_reauthenticate_delete_account_body": "Na zmazanie účtu sa prihlás znova.",
   "callback_completing": "Prihlasujeme ťa.",
   "callback_signed_in_web": "Prihlásenie prebehlo. Vráť sa do aplikácie alebo pokračuj v tomto prehliadači.",
   "callback_open_in_app": "Otvoriť v aplikácii",
